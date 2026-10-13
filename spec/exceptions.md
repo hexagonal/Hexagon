@@ -302,7 +302,7 @@ let port = assume Int.parse^(text)
 - **Colours.** Like `attempt`'s: the failure is handled, and a broken assumption is a fault, which nothing tracks. So `assume Int.parse^(text)` is pure and cannot fail.
 - **Over a body that cannot fail, it is refused**, as `attempt` is: "nothing here may fail, so there is nothing to assume".
 
-**`AssumptionFault`**, declared in the prelude, is bare by category (§2.1):
+**`AssumptionFault`** is declared in the prelude's `Prelude.hex`, beside `ignore`: like `ignore`, it is a language form's companion, and no module's operation throws it. It is bare by category (§2.1), and `Prelude.AssumptionFault` qualified, so its brand is `"Hex.Prelude"` (§7.1):
 
 ```
 fault AssumptionFault(cause: Exn)
@@ -316,7 +316,7 @@ The inverse bridge is a function, not a form: `Result.orThrow : Result(a, Exn) -
 
 ### 8.5 The prelude's faults
 
-Every throwable the prelude declares is a fault, but `JsError`, which is an exception. They are declared where the operation that throws them lives, and are bare by category (§2.1): `IndexFault`, `SliceFault`, `KeyFault`, `DivideByZeroFault`, `IntRangeFault`, `FloatRangeFault`, `DecRangeFault`, `UndefinedSignFault`, `NegativeExponentFault`, `DecimalPlacesOverflowFault`, `NegativeDecimalPlacesFault`, `ReentrancyFault` and `AssumptionFault`. The runtime's own `TrieCorruptionFault` reports a broken internal invariant and is not bare.
+Every throwable the prelude declares is a fault, but `JsError`, which is an exception. Each is declared where the operation that throws it lives — `AssumptionFault`, which a form throws, in `Prelude.hex` (§8.3) — and they are bare by category (§2.1): `IndexFault`, `SliceFault`, `KeyFault`, `DivideByZeroFault`, `IntRangeFault`, `FloatRangeFault`, `DecRangeFault`, `UndefinedSignFault`, `NegativeExponentFault`, `DecimalPlacesOverflowFault`, `NegativeDecimalPlacesFault`, `ReentrancyFault` and `AssumptionFault`. The runtime's own `TrieCorruptionFault` reports a broken internal invariant and is not bare.
 
 ---
 
@@ -390,7 +390,7 @@ Every throwable the prelude declares is a fault, but `JsError`, which is an exce
 | Nullary exceptions construct fresh (stack capture); union shared-constant trick not applied | §7.3 |
 | Two-stage catch discrimination (brand, then name); `err != null` guard; `_` catches every exception and foreign throw and rethrows faults; `fault e` is the domestic branch's kind test; the kind is the name's `Fault` ending, with no field | §7.1, §7.4 |
 | `.d.ts`: `Error & {$hex: true; name: "..."; ...}`; brand included; exported constructor functions (nullary included, fresh per call); `Exn` at the boundary is `Error` | §7.5; FFI Part 7 §6 |
-| Prelude: `JsError`; `AssumptionFault(cause: Exn)`, its `cause` JavaScript's `Error.cause`; the faults the prelude's operations throw | §8 |
+| Prelude: `JsError`; `AssumptionFault(cause: Exn)` in `Prelude.hex`, its `cause` JavaScript's `Error.cause`; the faults the prelude's operations throw | §8 |
 | Exceptions are tracked by Effects' fail colour, and faults are not; a catch-all, `attempt`, `assume` and the reading handle a failure; catching stays legal anywhere, and catch-in-pure bounds the Effects §7 reordering licence; throw-pure/catch-impure rejected | §1, §3, §5.3 |
 | `attempt` and `assume` are body forms (keywords, no face, eating to the right): `attempt` gives `Result(a, Exn)`, `assume` throws `AssumptionFault(cause)` for a failure; both let faults through and are refused over a body that cannot fail; data back to a failure is `Result.orThrow`/`Option.orThrow` | §8.2–§8.4 |
 | `_` catches exceptions and foreign throws and lets faults through; `fault e`, a whole arm's pattern only, catches every fault; the three kinds partition `Exn`, and reachability reads by kind; over a part that cannot fail, exception arms and catch-alls are refused | §5.2, §5.3 |

@@ -467,3 +467,90 @@ describe("a throwable's constructor is a pattern only in a catch arm (§3, #1204
     ))).toEqual(["type mismatch: expected Int, found Exn"]);
   });
 });
+
+describe("`AssumptionFault`, the prelude's fault for a broken `assume` (§8.3)", () => {
+  test("declared in `Prelude`: bare and qualified, branded `Hex.Prelude`, its cause `Error.cause`", async () => {
+    const exports = await runMain(main(
+      "exception ParseError(line: Int, message: String)",
+      "export fun bare(): Int = throw(AssumptionFault(ParseError(3, \"unexpected token\")))",
+      "export fun qualified(): Int = throw(Prelude.AssumptionFault(ParseError(4, \"eof\")))",
+    ));
+    const bare = thrownBy(() => (exports["bare"] as () => number)()) as Error & Record<string, unknown>;
+    expect(bare).toBeInstanceOf(Error);
+    expect(bare).toMatchObject({ name: "AssumptionFault", $hex: "Hex.Prelude", message: "unexpected token" });
+    expect(bare.cause).toMatchObject({ name: "ParseError", $hex: "Main", line: 3 });
+    // An own property, as `new Error(message, { cause })` makes it: like
+    // `message`, not enumerable.
+    expect(Object.hasOwn(bare, "cause")).toBe(true);
+    expect(Object.keys(bare).sort()).toEqual(["$hex", "name"]);
+    const qualified = thrownBy(() => (exports["qualified"] as () => number)()) as Error;
+    expect(qualified).toMatchObject({ name: "AssumptionFault", message: "eof" });
+  });
+
+  test("a cause that is no `Error` gives an empty message; a hostile one cannot make it throw", async () => {
+    const exports = await runMain(main(
+      "export fun wrap(k: () ->! Int): Int =",
+      "    try",
+      "        k!()",
+      "    catch",
+      "        e => throw(AssumptionFault(e))",
+    ));
+    const wrap = exports["wrap"] as (k: () => number) => number;
+    const plain = thrownBy(() => wrap(() => {
+      throw "oops";
+    })) as Error & { cause: unknown };
+    expect(plain).toMatchObject({ name: "AssumptionFault", message: "" });
+    expect(plain.cause).toBe("oops");
+    const hostile = new Proxy({}, {
+      getPrototypeOf() {
+        throw new Error("hostile");
+      },
+    });
+    const guarded = thrownBy(() => wrap(() => {
+      throw hostile;
+    })) as Error & { cause: unknown };
+    expect(guarded).toMatchObject({ name: "AssumptionFault", message: "" });
+    expect(guarded.cause).toBe(hostile);
+  });
+
+  test("a catch arm takes it apart, its cause a nested pattern; `_` lets it through", async () => {
+    const exports = await runMain(main(
+      "exception ParseError(line: Int)",
+      "fun broken(which: Int): Int =",
+      "    if which == 0 then throw(AssumptionFault(ParseError(7))) else throw(AssumptionFault(Map.KeyFault))",
+      "export fun probe(which: Int): Int =",
+      "    try",
+      "        broken(which)",
+      "    catch",
+      "        AssumptionFault(ParseError(line)) => line",
+      "        AssumptionFault(_) => -1",
+      "export fun loose(which: Int): Int =",
+      "    try",
+      "        broken(which)",
+      "    catch",
+      "        _ => -2",
+    ));
+    expect((exports["probe"] as (which: number) => number)(0)).toBe(7);
+    expect((exports["probe"] as (which: number) => number)(1)).toBe(-1);
+    expect(thrownBy(() => (exports["loose"] as (which: number) => number)(0)))
+      .toMatchObject({ name: "AssumptionFault" });
+  });
+
+  test("`AssumptionFault(JsError(e))` binds the raw foreign cause", async () => {
+    const exports = await runMain(main(
+      "export fun wrap(k: () ->! Int): Int =",
+      "    try",
+      "        k!()",
+      "    catch",
+      "        e => throw(AssumptionFault(e))",
+      "export fun probe(k: () ->! Int): String =",
+      "    try",
+      "        Int.show(wrap!(k))",
+      "    catch",
+      "        AssumptionFault(JsError(e)) => JsError.message!(e)",
+    ));
+    expect((exports["probe"] as (k: () => number) => string)(() => {
+      throw new RangeError("raw");
+    })).toBe("raw");
+  });
+});

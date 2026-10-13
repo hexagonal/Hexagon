@@ -79,6 +79,7 @@ const HEX_VECTOR = fullModuleName(STANDARD_LIBRARY, "Vector");
 const HEX_MAP = fullModuleName(STANDARD_LIBRARY, "Map");
 const HEX_SEQ = fullModuleName(STANDARD_LIBRARY, "Seq");
 const HEX_JS_ERROR = fullModuleName(STANDARD_LIBRARY, "JsError");
+const HEX_PRELUDE = fullModuleName(STANDARD_LIBRARY, "Prelude");
 
 /**
  * Every operation the emitted program performs on a `Vector(a)` by calling the
@@ -1537,6 +1538,15 @@ interface PreludeIds {
  */
 function isVirtualJsError(item: Typed.ExceptionItem): boolean {
   return item.owner === HEX_JS_ERROR && item.binding.name === "JsError";
+}
+
+/**
+ * Whether a declaration **is** the prelude's `AssumptionFault` (Exceptions
+ * §8.3) — the (module, name) pair, asked as `isVirtualJsError` asks it, and for
+ * its reason: the one seat that asks is the declaring module's own.
+ */
+function isAssumptionFault(item: Typed.ExceptionItem): boolean {
+  return item.owner === HEX_PRELUDE && item.binding.name === "AssumptionFault";
 }
 
 /**
@@ -4734,7 +4744,9 @@ class JavaScriptEmitter {
         ? "message"
         : '""';
       const fields = `{ ${item.slots.map(({ field }) => objectProperty(field, slotParameter(field))).join(", ")} }`;
-      const value = item.slots.length === 0
+      const value = isAssumptionFault(item)
+        ? this.#assumptionFaultConstructor()
+        : item.slots.length === 0
         ? `() => ${exceptionHelper}(${JSON.stringify(item.binding.name)}, "", {})`
         : `${arrowParameters(parameters)} => ${exceptionHelper}(${JSON.stringify(item.binding.name)}, ${message}, ${fields})`;
       if (item.exported && depth === 0) {
@@ -5933,6 +5945,31 @@ class JavaScriptEmitter {
    * against which the dominant idioms (catch, rethrow-in-arm) stay zero-cost and
    * identity-preserving.
    */
+  /**
+   * The prelude `AssumptionFault`'s constructor (Exceptions §8.3): the one
+   * throwable whose payload is JavaScript's own `Error.cause`, so it is built
+   * with `new Error(message, { cause })` rather than by the module's helper.
+   * The message is the cause's own where the cause is an `Error`, and empty
+   * otherwise, read inside a guard: the cause may be any value JavaScript threw,
+   * a hostile one included, and building the fault must not throw a second
+   * failure in place of the first. `cause` is the payload field a catch arm
+   * reads, since `Error.cause` is an own property.
+   */
+  #assumptionFaultConstructor(): string {
+    const cause = slotParameter("cause");
+    return [
+      `(${cause}) => {`,
+      `  let __message = "";`,
+      "  try {",
+      `    if (${cause} instanceof ${this.#spell("Error")} && typeof ${cause}.message === "string") ` +
+      `__message = ${cause}.message;`,
+      "  } catch {}",
+      `  return ${this.#spell("Object")}.assign(new ${this.#spell("Error")}(__message, { cause: ${cause} }), ` +
+      `{ $hex: ${JSON.stringify(HEX_PRELUDE)}, name: "AssumptionFault" });`,
+      "}",
+    ].join("\n");
+  }
+
   #jsErrorConstructionOperand(expression: Core.Expr): Core.Expr | undefined {
     if (this.#prelude.jsError === undefined || expression.kind !== "Call") return undefined;
     if (expression.callee.kind !== "Name") return undefined;

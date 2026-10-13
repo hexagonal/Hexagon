@@ -2480,7 +2480,14 @@ export const STDLIB_SOURCES: Readonly<Record<string, string>> = {
     "module Prelude\n"
     + "\n"
     + "(** Evaluates its argument and discards the result, returning `()`. *)\n"
-    + "export let ignore(value: a): Unit = ()\n",
+    + "export let ignore(value: a): Unit = ()\n"
+    + "\n"
+    + "(** Thrown by `assume` when the code it guards fails after all: the writer's\n"
+    + "    word that it could not, broken. `cause` is the failure that broke it — an\n"
+    + "    exception, or the raw value JavaScript threw — and it is JavaScript's own\n"
+    + "    `Error.cause`, so an uncaught `AssumptionFault` prints the cause's message\n"
+    + "    and a debugger shows the chain. *)\n"
+    + "export fault AssumptionFault(cause: Exn)\n",
   "Range":
     "module Range\n"
     + "\n"
