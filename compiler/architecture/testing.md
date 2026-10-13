@@ -231,7 +231,7 @@ The suite ran under Vitest's default 5000 ms `testTimeout` from the start. Its c
 
 `vitest.config.ts` now sets the budget to 30 s for the whole compiler suite. §8's prohibition on wall-clock thresholds inside tests stands: this threshold lives in the runner's configuration, not in a test, and it is a termination guard of the deliberately generous kind §8 allows. Budgets written at a call site remain and still apply where they are larger. A genuinely hung test now takes 30 s to fail rather than 5, which is the accepted price. The other packages' suites keep the default until one of them shows the same pattern.
 
-### #PRNUM — the language server's budget, and a wait behind a compile
+### #1258 — the language server's budget, and a wait behind a compile
 
 The language server's suite was the next to show #985's pattern. From late September to mid-October, ten of the twelve red continuous-integration runs were one test, every time a timeout and never a failed assertion. That test trusts a standard-library project, so the server compiles the whole standard library from source before it publishes anything. Runners come in two speeds: on the fast ones the test took 1.8–2.2 s, and on the slow ones 2.7–3.0 s. Its wait gave up after the harness's 3 s, which was chosen as generous next to the server's diagnostic debounce, not to cover a compile. The suite also ran under Vitest's 5000 ms default, and another test that copies and walks the standard library took 3.5–3.7 s on the slow runners.
 
