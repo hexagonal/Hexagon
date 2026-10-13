@@ -16,7 +16,6 @@
 
 import * as Source from "./source.js";
 import { compileProject, type CompiledProject, type ProjectOptions } from "../project.js";
-import { mirrorDivergence } from "./mirror.js";
 
 function resolveModulePath(importer: string, specifier: string): string | undefined {
   if (!specifier.startsWith("./") && !specifier.startsWith("../")) return undefined;
@@ -51,21 +50,10 @@ export function compileFiles(
   files: readonly (readonly [string, string])[],
   options: ProjectOptions = {},
 ): CompiledProject {
-  const project = compileProject(
+  return compileProject(
     files.map(([path, text], index) => new Source.File(Source.fileId(index), path, text)),
     options,
   );
-  // Step 8a's mirror check (`support/mirror.ts`), where the run asks for it.
-  const environment = (globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env;
-  if (environment?.["HEX_MIRROR"] !== undefined) {
-    for (const module of project.modules) {
-      const divergence = mirrorDivergence(module.typed);
-      if (divergence !== undefined) {
-        throw new Error(`fail colour does not mirror the world colour in ${module.source.path}: ${divergence}`);
-      }
-    }
-  }
-  return project;
 }
 
 /**

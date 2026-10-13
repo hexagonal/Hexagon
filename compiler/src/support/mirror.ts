@@ -11,9 +11,11 @@
  * was on the world colour. This walk finds it.
  *
  * One pairing for the whole module: a world colour variable is twinned with one
- * fail colour variable wherever either appears.
+ * fail colour variable wherever either appears, and no variable is on both
+ * sides, so a fail colour that is the world colour itself is a divergence.
  */
 
+import type * as Diagnostics from "./diagnostics.js";
 import type * as Typed from "../syntax/typed/index.js";
 
 type Effect = Typed.Effect | undefined;
@@ -22,12 +24,25 @@ type Effect = Typed.Effect | undefined;
 export function mirrorDivergence(root: unknown): string | undefined {
   const worldToFail = new Map<string, string>();
   const failToWorld = new Map<string, string>();
+  let conflict: string | undefined;
   const pair = (world: unknown, fail: unknown): boolean => {
     const left = String(world);
     const right = String(fail);
     const known = worldToFail.get(left);
-    if (known !== undefined) return known === right;
-    if (failToWorld.has(right)) return false;
+    if (known !== undefined) {
+      if (known === right) return true;
+      conflict = `world v${left} is already twinned with fail v${known}`;
+      return false;
+    }
+    if (left === right || worldToFail.has(right) || failToWorld.has(left)) {
+      conflict = `v${left === right ? left : worldToFail.has(right) ? right : left} stands on both colours`;
+      return false;
+    }
+    const partner = failToWorld.get(right);
+    if (partner !== undefined) {
+      conflict = `fail v${right} is already the twin of world v${partner}`;
+      return false;
+    }
     worldToFail.set(left, right);
     failToWorld.set(right, left);
     return true;
@@ -37,9 +52,24 @@ export function mirrorDivergence(root: unknown): string | undefined {
     if (typeof world === "string" || typeof fail === "string") return world === fail;
     if ("join" in world) {
       if (!("join" in fail) || world.join.length !== fail.join.length) return false;
-      const order = (ids: readonly unknown[]) => [...ids].sort((a, b) => Number(a) - Number(b));
-      const failParts = order(fail.join);
-      return order(world.join).every((part, index) => pair(part, failParts[index]));
+      // Parts already twinned first, then the rest in order of creation.
+      const order = (ids: readonly unknown[]) => [...ids].map(String).sort((a, b) => Number(a) - Number(b));
+      const free = order(fail.join);
+      const later: string[] = [];
+      for (const part of order(world.join)) {
+        const twin = worldToFail.get(part);
+        if (twin === undefined) {
+          later.push(part);
+          continue;
+        }
+        const at = free.indexOf(twin);
+        if (at < 0) {
+          conflict = `world v${part} is twinned with fail v${twin}, which the fail join lacks`;
+          return false;
+        }
+        free.splice(at, 1);
+      }
+      return later.every((part, index) => pair(part, free[index]));
     }
     return "variable" in fail && pair(world.variable, fail.variable);
   };
@@ -55,8 +85,10 @@ export function mirrorDivergence(root: unknown): string | undefined {
       // A parsed or resolved arrow carries "linked"/"constant": only a typed one is compared.
       const typed = (effect: Effect) =>
         effect === undefined || effect === "impure" || effect === "error" || typeof effect === "object";
+      conflict = undefined;
       if (typed(world) && typed(fail) && !same(world, fail)) {
-        found = `${path}: world ${JSON.stringify(world)}, fail ${JSON.stringify(fail)}`;
+        found = `${path}: world ${JSON.stringify(world)}, fail ${JSON.stringify(fail)}` +
+          (conflict === undefined ? "" : ` (${conflict})`);
         return;
       }
     }
@@ -72,4 +104,20 @@ export function mirrorDivergence(root: unknown): string | undefined {
   };
   walk(root, "module");
   return found;
+}
+
+/**
+ * The first report the fail colour made that the world colour did not, or
+ * nothing: while the colours mirror, every fail report is the twin of a world
+ * report with the same words at the same place.
+ */
+export function reportDivergence(
+  world: readonly Diagnostics.Diagnostic[],
+  fail: readonly Diagnostics.Diagnostic[],
+): string | undefined {
+  const key = ({ message, primary }: Diagnostics.Diagnostic): string =>
+    `${Number(primary.fileId)}:${primary.start.offset}:${primary.end.offset} ${message}`;
+  const made = new Set(world.map(key));
+  const lone = fail.find((report) => !made.has(key(report)));
+  return lone === undefined ? undefined : `the fail colour alone reports "${lone.message}" at ${key(lone).split(" ")[0]}`;
 }

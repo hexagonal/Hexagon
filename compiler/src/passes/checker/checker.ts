@@ -188,6 +188,12 @@ export interface CheckOptions {
   readonly patternExports?: ReadonlyMap<string, readonly string[]>;
 }
 
+/**
+ * Test-only (step 8a's mirror check, `support/mirror.ts`): the reports each
+ * module's fail colour made, which the module drops (`#failReports`).
+ */
+export const failReportsOf = new WeakMap<Typed.Module, readonly Diagnostics.Diagnostic[]>();
+
 export function check(
   module: Resolved.Module,
   options: CheckOptions = {},
@@ -457,14 +463,19 @@ interface SignatureFace extends Spine {
    * the spine itself.
    */
   readonly arrows: FaceArrow[];
-  /** The spine applications whose written `>->` §4.2 refused: they read as `->!` from outside. */
-  readonly refused?: Set<number>;
+  /**
+   * The spine applications whose written `>->` §4.2 refused, on each colour
+   * the body acts on of its own account: they read as the fix from outside
+   * (`#readRefusedArrows`).
+   */
+  readonly refused?: Map<Axis, Set<number>>;
   /**
    * The spine applications whose written `>->` stands over a body or value in
-   * error: whether §4.2 refuses it is not known, so they read in error from
-   * outside (§3.5, #1223), unless refused.
+   * error, on each colour it is in error on: whether §4.2 refuses it is not
+   * known, so they read in error there from outside (§3.5, #1223), unless
+   * refused.
    */
-  readonly inError?: Set<number>;
+  readonly inError?: Map<Axis, Set<number>>;
   /**
    * The function values met at this face's written `>->` arrows, compared
    * against what the face is handed and never merged into it (§4.2):
@@ -2055,6 +2066,14 @@ const ERROR_COLOUR: ErrorColour = { kind: "ErrorColour" };
  */
 function axisKey(key: string, axis: Axis): string {
   return axis === "fail" ? `${key} fail` : key;
+}
+
+/** Records a written `>->`'s refusal, or its standing over a body in error, on one colour (`#readRefusedArrows`). */
+function faceMark(face: SignatureFace, marks: "refused" | "inError", axis: Axis, application: number): void {
+  const byAxis = ((face as { refused?: Map<Axis, Set<number>>; inError?: Map<Axis, Set<number>> })[marks] ??= new Map());
+  const applications = byAxis.get(axis) ?? new Set<number>();
+  applications.add(application);
+  byAxis.set(axis, applications);
 }
 
 /** The colour an instance's published arrow stands for (Effects §13.3): nothing known reads the contract's `->!`. */
@@ -4177,7 +4196,7 @@ class Checker {
    * expected type, say) records the meeting (`#instanceDemands`), compared
    * where the call is decided. The mark moves with a variable's representative.
    */
-  readonly #waitingColours = new Set<Variable>();
+  readonly #waitingColours = new Map<Variable, Axis>();
   /**
    * Each of this module's honor members' bodies, by `${instance key} ${member}`,
    * and each local constraint's default body, by `${identity} ${member}`: the
@@ -5580,7 +5599,8 @@ class Checker {
    * The reports the fail colour's runs of the machinery make (Effects §1),
    * kept apart from the world colour's: until the fail colour has spellings of
    * its own it mirrors the world colour, so each is a twin of a world report,
-   * which `#onAxis` keeps from being made twice and the mirror check compares.
+   * which `#onAxis` keeps from being made twice. The mirror check reads them
+   * (`failReportsOf`).
    */
   readonly #failReports = new Diagnostics.Bag();
   /** The colour the step under way solves (`#onAxis`): what a hard case met now is recorded on. */
@@ -6571,7 +6591,7 @@ class Checker {
       scheme: this.#publicScheme(this.#scheme(symbol.id)),
     }));
 
-    return {
+    const typed: Typed.Module = {
       kind: "Module",
       fileId: module.fileId,
       items: module.items.map((item) => this.#materializeItem(item)),
@@ -6622,6 +6642,8 @@ class Checker {
       span: module.span,
       diagnostics: this.#diagnostics.toArray(),
     };
+    failReportsOf.set(typed, this.#failReports.toArray());
+    return typed;
   }
 
   /**
@@ -9583,7 +9605,7 @@ class Checker {
       // The members' colours and their sibling-call obligations settle here,
       // over the whole component, now that no sibling is live (§3.4, #868).
       const madeFunctions = this.#refuseMadeFunctions(knot);
-      const reported = this.#diagnostics.count;
+      const reported = { world: this.#diagnostics.count, fail: this.#failReports.count };
       this.#settleKnot(knot);
       // The knot's close is where a `fun` member's colour is generalized (§4.1:
       // "a knot sibling's is checked at the knot's close, when it is no longer
@@ -19890,9 +19912,12 @@ class Checker {
       const actual = this.#prune(node);
       switch (actual.kind) {
         case "Function":
-          // Both colours of a value in error are in error (Effects §3.5).
-          for (const colour of colourSlots(actual)) {
-            if (output) this.#unify(colour, ERROR_COLOUR, span);
+          // Both colours of a value in error are in error (Effects §3.5),
+          // each on its own (§1).
+          for (const axis of AXES) {
+            const colour = colourAt(actual, axis);
+            if (colour === undefined) continue;
+            if (output) this.#onAxis(axis, () => this.#unify(colour, ERROR_COLOUR, span));
             // What it is handed: whether the failure pins it is hidden.
             else this.#holdBack(this.#colourParts(colour));
           }
@@ -22688,7 +22713,9 @@ class Checker {
   #readRefusedTies(type: Mono, level: number): Mono {
     const actual = this.#prune(type);
     if (actual.kind !== "Function") return type;
-    // A parameter a tie refused on either colour reads as its fix (Effects §1).
+    // A parameter a tie refused on either colour reads as its fix, its written
+    // type, whose own arrows are `->!` on both colours (§3.4's black-box
+    // reading): a rule that names both colours (Effects §1).
     const owner = this.#frameOfType.get(actual);
     const readings = owner === undefined
       ? undefined
@@ -23136,7 +23163,7 @@ class Checker {
       if (frame.face !== undefined) {
         // One report per face, at the first call that breaks its promise.
         if (!reportedFace) {
-          this.#reportFollowsFace(frame.face, span, "this call touches the world on its own account");
+          this.#reportFollowsFace(frame.face, frameAxis(frame), span, "this call touches the world on its own account");
           reportedFace = true;
         }
         // A held lambda's waiting part is no face's colour but what its body
@@ -23161,7 +23188,7 @@ class Checker {
     if (failed === undefined || isImpure(own) || own.kind === "Effect" || own.kind === "ErrorColour") return false;
     if (frame.face !== undefined && !this.#splitFrames.has(frame)) {
       // A written `>->` over the body: it is not known to stand.
-      this.#faceInError(frame.face);
+      this.#faceInError(frame.face, frameAxis(frame));
       return false;
     }
     this.#unify(frame.own, ERROR_COLOUR, failed.span);
@@ -23191,11 +23218,15 @@ class Checker {
    */
   #undecided(part: Variable): boolean {
     if (this.#knots.some((knot) => this.#knotColour(knot, part))) return true;
+    // Each colour by the body's frame on that colour (Effects §1).
     return this.#effectFrames.some((frame) =>
-      !this.#settledFrames.has(frame) &&
-      frame.untyped.some(({ type }) =>
-        this.#spineColours(type).some(({ arrow }) => this.#colourParts(arrow).includes(part))
-      )
+      AXES.some((axis) => {
+        const own = axis === "fail" ? frame.fail : frame;
+        return own !== undefined && !this.#settledFrames.has(own) &&
+          own.untyped.some(({ type }) =>
+            this.#spineColours(type, axis).some(({ arrow }) => this.#colourParts(arrow).includes(part))
+          );
+      })
     );
   }
 
@@ -23217,8 +23248,8 @@ class Checker {
     const reported = new Set<FaceArrow>();
     for (const fit of face.fits ?? []) {
       if (fit.axis !== axis || fit.checked || reported.has(fit.arrow)) continue;
-      // An arrow the body's own account already refused reports once.
-      if (fit.arrow.application !== undefined && face.refused?.has(fit.arrow.application) === true) {
+      // An arrow the body's own account already refused on this colour reports once.
+      if (fit.arrow.application !== undefined && face.refused?.get(axis)?.has(fit.arrow.application) === true) {
         fit.checked = true;
         continue;
       }
@@ -23230,7 +23261,7 @@ class Checker {
       // A value in error is compared with nothing (§3.5, #1223).
       if (this.#prune(fit.value).kind === "ErrorColour") {
         fit.checked = true;
-        this.#faceInError(face, fit.arrow.span);
+        this.#faceInError(face, axis, fit.arrow.span);
         continue;
       }
       const handed = this.#colourParts(arrowColour(fit.arrow, axis));
@@ -23282,6 +23313,7 @@ class Checker {
       const subject = call === undefined ? "this function" : "this call";
       this.#reportFollowsFace(
         face,
+        axis,
         call?.span ?? fit.at,
         offence.part === undefined
           ? `${subject} touches the world on its own account`
@@ -23294,17 +23326,15 @@ class Checker {
   }
 
   /**
-   * A written `>->` over a body or value in error (§3.5, #1223): the arrow at
-   * `at`, or the face's outer one, reads in error from outside, since whether
-   * §4.2 refuses it is not known (`#readRefusedArrows`).
+   * A written `>->` over a body or value in error on `axis` (§3.5, #1223): the
+   * arrow at `at`, or the face's outer one, reads in error there from outside,
+   * since whether §4.2 refuses it is not known (`#readRefusedArrows`).
    */
-  #faceInError(face: SignatureFace, at?: Source.Span): void {
+  #faceInError(face: SignatureFace, axis: Axis, at?: Source.Span): void {
     const arrow = at ?? face.outer ?? face.arrows[0]?.span;
     const key = (span: Source.Span): string => `${Number(span.fileId)}:${span.start.offset}:${span.end.offset}`;
     const written = arrow === undefined ? undefined : face.arrows.find(({ span }) => key(span) === key(arrow));
-    if (written?.application !== undefined) {
-      ((face as { inError?: Set<number> }).inError ??= new Set()).add(written.application);
-    }
+    if (written?.application !== undefined) faceMark(face, "inError", axis, written.application);
   }
 
   /**
@@ -23312,15 +23342,14 @@ class Checker {
    * callbacks do, at the offending call, with a label at the `>->` and a fixit
    * rewriting it to `->!`.
    */
-  #reportFollowsFace(face: SignatureFace, span: Source.Span, subject: string, at?: Source.Span): void {
+  #reportFollowsFace(face: SignatureFace, axis: Axis, span: Source.Span, subject: string, at?: Source.Span): void {
     const arrow = at ?? face.outer ?? face.arrows[0]?.span;
-    // The refused arrow reads as its fix, `->!`, where the function is seen
-    // from outside (`#readRefusedArrows`), so no caller's mark restates it.
+    // The refused arrow reads as its fix where the function is seen from
+    // outside (`#readRefusedArrows`), so no caller's mark restates it: the
+    // colour it was refused on is one the fix marks.
     const key = (span: Source.Span): string => `${Number(span.fileId)}:${span.start.offset}:${span.end.offset}`;
     const refused = arrow === undefined ? undefined : face.arrows.find(({ span: written }) => key(written) === key(arrow));
-    if (refused?.application !== undefined) {
-      ((face as { refused?: Set<number> }).refused ??= new Set()).add(refused.application);
-    }
+    if (refused?.application !== undefined) faceMark(face, "refused", axis, refused.application);
     this.#diagnostics.add({
       severity: "error",
       message: `${subject}, and this face's \`>->\` promises the function is only as effectful ` +
@@ -23401,6 +23430,7 @@ class Checker {
         const owner = this.#colourOwner(now, frame.face?.body);
         this.#reportFollowsFace(
           frame.face,
+          frameAxis(frame),
           span,
           owner === undefined
             ? "this call runs a colour this signature is not handed"
@@ -23789,8 +23819,9 @@ class Checker {
    * (#1218): what its close reported since `reported` goes, its calls owe no
    * mark, and its faces no report.
    */
-  #silenceRefusedKnot(knot: Knot, reported: number): void {
-    this.#diagnostics.discardSince(reported);
+  #silenceRefusedKnot(knot: Knot, reported: Readonly<Record<Axis, number>>): void {
+    this.#diagnostics.discardSince(reported.world);
+    this.#failReports.discardSince(reported.fail);
     for (const frame of knot.frames) this.#refusedKnotFrames.add(frame);
     for (const obligation of this.#markObligations) {
       if (obligation.frame !== undefined && this.#inRefusedKnot(obligation.frame)) this.#reportedCalls.add(obligation);
@@ -26743,7 +26774,8 @@ class Checker {
       // a value's, is that colour's.
       if (this.#valueColours.has(variable)) this.#valueColours.add(type);
       if (this.#loweredColours.has(variable)) this.#loweredColours.add(type);
-      if (this.#waitingColours.has(variable)) this.#waitingColours.add(type);
+      const waits = this.#waitingColours.get(variable);
+      if (waits !== undefined) this.#waitingColours.set(type, waits);
       if (
         this.#openedColours.has(variable) && !this.#heldDependency(type) && !this.#valueColours.has(type)
       ) {
@@ -26817,7 +26849,7 @@ class Checker {
       this.#instanceDemands.push({
         demand: type,
         colour: variable,
-        axis: this.#instanceWaits.find((wait) => wait.colour === variable)?.axis ?? "world",
+        axis: this.#waitingColours.get(variable)!,
         span,
         colourFirst: !variableOnRight,
         pinSite: this.#pinSite,
@@ -30180,24 +30212,34 @@ class Checker {
   }
 
   /**
-   * A face whose written `>->` §4.2 refused reads as its fix, `->!`, on its
-   * spine, where callers meet it: a copy, never the body's own colour.
+   * A face whose written `>->` §4.2 refused reads as its fix on its spine,
+   * where callers meet it: a copy, never the body's own colour.
    */
   #readRefusedArrows(type: Mono): Mono {
-    const refused = this.#generalizingFace?.refused ?? new Set<number>();
-    const inError = this.#generalizingFace?.inError ?? new Set<number>();
-    if (refused.size === 0 && inError.size === 0) return type;
-    // A refused arrow reads as `->!`; one over a body in error, in error (#1223).
-    const colour = (application: number): Mono | undefined =>
-      refused.has(application) ? IMPURE : inError.has(application) ? ERROR_COLOUR : undefined;
+    const face = this.#generalizingFace;
+    if (face === undefined || (face.refused === undefined && face.inError === undefined)) return type;
+    const marked = (marks: Map<Axis, Set<number>> | undefined, application: number, axis: Axis): boolean =>
+      marks?.get(axis)?.has(application) === true;
+    // §4.2's fix is the constant that marks each colour the body acts on of
+    // its own account and each colour on which a callback handed by then has a
+    // colour: `->!` where the colours mirror. One over a body in error, and not
+    // refused, is in error on the colour it is in error on (#1223).
+    const colour = (application: number, axis: Axis): Mono | undefined => {
+      if (AXES.some((each) => marked(face.refused, application, each))) {
+        if (marked(face.refused, application, axis)) return IMPURE;
+        const written = face.arrows.find((arrow) => arrow.application === application);
+        return written !== undefined && this.#colourParts(arrowColour(written, axis)).length > 0 ? IMPURE : PURE;
+      }
+      return marked(face.inError, application, axis) ? ERROR_COLOUR : undefined;
+    };
     const read = (node: Mono, application: number): Mono => {
       const actual = this.#prune(node);
       if (actual.kind !== "Function") return node;
       const result = read(actual.result, application + 1);
-      const effect = colour(application);
-      if (effect === undefined && result === actual.result) return node;
-      // A refused `>->` reads as `->!` on both colours (Effects §4.4).
-      return { ...actual, result, ...(effect === undefined ? {} : { effect, fail: effect }) };
+      const effect = colour(application, "world");
+      const fail = colour(application, "fail");
+      if (effect === undefined && fail === undefined && result === actual.result) return node;
+      return { ...actual, result, ...colourSlot("world", effect), ...colourSlot("fail", fail) };
     };
     return read(type, 0);
   }
@@ -31564,7 +31606,7 @@ class Checker {
       const effect = this.#prune(colourAt(type, axis) ?? PURE);
       if (!(effect.kind === "Effect" && isImpure(effect))) return effect;
       const colour = this.#fresh(level, false);
-      this.#waitingColours.add(colour);
+      this.#waitingColours.set(colour, axis);
       this.#instanceWaits.push({ colour, axis, subject, identity, member, arrow, span, use, subjectArguments, pinned });
       return this.#join([colour, ...next[axis]]);
     };
@@ -31588,7 +31630,7 @@ class Checker {
   #resolveInstanceWaits(): void {
     for (const wait of this.#instanceWaits) {
       const colour = this.#prune(wait.colour);
-      if (colour.kind === "Variable") this.#settleWaiting(colour, IMPURE, wait.span);
+      if (colour.kind === "Variable") this.#onAxis(wait.axis, () => this.#settleWaiting(colour, IMPURE, wait.span));
       this.#waitingColours.delete(wait.colour);
     }
     this.#instanceWaits = [];
@@ -31602,6 +31644,8 @@ class Checker {
    * the meetings they recorded meanwhile are compared.
    */
   #decideCallWaits(call: Resolved.CallExpr, firstUse: number): void {
+    // A call above the body it would follow is refused once, whichever colour
+    // waits: where a call stands is no colour's (`#refuseAboveBody`).
     const reported = new Set<number>();
     this.#instanceWaits = this.#instanceWaits.filter((wait) => {
       if (wait.use < firstUse) return true;
@@ -31610,7 +31654,8 @@ class Checker {
         callee.start.offset <= wait.span.start.offset && wait.span.end.offset <= callee.end.offset;
       const answer = own ? this.#knownCallColour(call, wait, reported) : undefined;
       const colour = this.#prune(wait.colour);
-      if (colour.kind === "Variable") this.#settleWaiting(colour, answer ?? IMPURE, wait.span);
+      // Each colour's wait settles on its own (Effects §1).
+      if (colour.kind === "Variable") this.#onAxis(wait.axis, () => this.#settleWaiting(colour, answer ?? IMPURE, wait.span));
       this.#waitingColours.delete(wait.colour);
       return false;
     });
