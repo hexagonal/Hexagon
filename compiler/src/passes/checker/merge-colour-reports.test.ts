@@ -59,6 +59,19 @@ describe("one report across both colours", () => {
     ]);
   });
 
+  it("joins the first world report of a key where the fail colour made fewer", () => {
+    const reports = new Diagnostics.Bag();
+    const staged = new Diagnostics.Bag();
+    colourReport(reports, "demand 5", "world", 1);
+    colourReport(reports, "demand 5", "world", 2);
+    colourReport(staged, "demand 5", "fail", 1);
+    mergeColourReports(reports, staged);
+    expect(reports.toArray().map(({ message, primary }) => `${primary.start.offset} ${message}`)).toEqual([
+      "1 demand 5: world and fail (made on world)",
+      "2 demand 5: world (made on world)",
+    ]);
+  });
+
   it("keeps a fail report with no twin of its key alone, in its own words", () => {
     const reports = new Diagnostics.Bag();
     const staged = new Diagnostics.Bag();
