@@ -143,7 +143,9 @@ const PUBLICATION_TIMEOUT_MS = 3_000;
 /**
  * The same, for a wait that stands behind compiling the whole standard library
  * from source (a trusted standard-library project). That compile is work, not
- * the debounce: on a slow runner it alone takes most of three seconds.
+ * the debounce: on a slow runner it alone takes most of three seconds. Every
+ * other wait stands behind the checked standard library the process keeps
+ * (#987), which `beforeAll` has already warmed.
  */
 const STANDARD_LIBRARY_PUBLICATION_TIMEOUT_MS = 15_000;
 
