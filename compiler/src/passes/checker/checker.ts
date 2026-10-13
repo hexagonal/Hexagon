@@ -4443,11 +4443,6 @@ class Checker {
     this.#failReports.discardSince(0);
   }
 
-  /** The module's reports, the two colours' made one (`#mergeColourReports`). */
-  #finalReports(): readonly Diagnostics.Diagnostic[] {
-    this.#mergeColourReports();
-    return this.#diagnostics.toArray();
-  }
 
   /**
    * Runs one colour's step of the machinery (Effects §1): the world colour's
@@ -6649,6 +6644,9 @@ class Checker {
     this.#settleEffects();
     this.#checkPublicSignatures(module.items);
     this.#refuseExportedMemberSpellings(module.items);
+    // The two colours' reports made one before any report's colours are
+    // named (Effects §1, §10).
+    this.#mergeColourReports();
     this.#settleColourNotes();
 
     const listed = new Set(module.symbols.map(({ id }) => id));
@@ -6709,7 +6707,7 @@ class Checker {
       companionImports: [...this.#companionImports.values()],
       ...(this.#modulePath === undefined ? {} : { modulePath: this.#modulePath }),
       span: module.span,
-      diagnostics: this.#finalReports(),
+      diagnostics: this.#diagnostics.toArray(),
     };
     return typed;
   }
