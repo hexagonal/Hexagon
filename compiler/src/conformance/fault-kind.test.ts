@@ -477,10 +477,26 @@ describe("`fault e` is a whole catch arm's pattern (§5.2)", () => {
       "a `fault` pattern is `fault` and a name or `_`, catching every fault; " +
       "to catch `Vector.IndexFault` alone, write its pattern without `fault`",
     ]);
-    expect(catching("fault (Wrapped(_)) => 0")).toEqual([
-      "a `fault` pattern is `fault` and a name or `_`, catching every fault; " +
-      "to catch what this pattern names, write it without `fault`",
-    ]);
+    for (const arm of ["fault (Wrapped(_)) => 0", "fault(Wrapped(_)) => 0"]) {
+      expect(catching(arm)).toEqual([
+        "a `fault` pattern is `fault` and a name or `_`, catching every fault; " +
+        "to catch what this pattern names, write it without `fault`",
+      ]);
+    }
+  });
+
+  test("`fault` before a group is a slip only where a pattern is read: a call and a function stay", async () => {
+    const called = await runMain(main(
+      "fun fault(x: Int): Int = x + 1",
+      "export fun f(): Int = fault(1) + fault (2)",
+    ));
+    expect((called["f"] as () => number)()).toBe(5);
+    const local = await runMain(main(
+      "export fun f(): Int =",
+      "    let fault(y: Int): Int = y * 2",
+      "    fault(3)",
+    ));
+    expect((local["f"] as () => number)()).toBe(6);
   });
 
   test("outside a catch arm, `fault` before a constructor takes §5.2's sentence, with the same repair", () => {

@@ -3527,26 +3527,18 @@ class Parser {
   }
 
   /**
-   * Whether Exceptions §5.2's kind pattern `fault x` / `fault _` starts here.
-   *
-   * `fault` is contextual at a catch arm's head as at a declaration's (§2): a
-   * pattern has no juxtaposition, so `fault` followed by a binder or `_` can
-   * only be the kind pattern. The two words a pattern *does* let follow a
-   * binder are excluded, since `fault as e` binds a variable named `fault` and
-   * `fault when ready` guards one.
-   */
-  /**
    * Whether `fault` stands before a constructor's pattern or a group here —
-   * `fault MyFault(c)`, `fault (MyFault(c))` — the slip `#parseAtomicPattern`
-   * redirects. A group counts only apart from the word: `fault(x)` touching
-   * is no pattern this reads.
+   * `fault MyFault(c)`, `fault (MyFault(c))`, `fault(MyFault(c))` — the slip
+   * `#parseAtomicPattern` redirects. No pattern is a name before either, so
+   * the group is read touching or apart; the pattern reader is reached only
+   * once a seat has committed to a pattern (the lambda lookahead steps over
+   * tokens without it), so a call `fault(x)` never meets this test.
    */
   #atFaultSlip(offset = 0): boolean {
     const head = this.#peek(offset);
     if (head.kind !== "NonUpperName" || head.text !== "fault") return false;
     const next = this.#peek(offset + 1);
-    return next.kind === "UpperName" ||
-      (next.kind === "LeftParen" && next.span.start.offset > head.span.end.offset);
+    return next.kind === "UpperName" || next.kind === "LeftParen";
   }
 
   /** A constructor's spelling as written from here, its qualifiers included. */
@@ -3560,6 +3552,15 @@ class Parser {
     return parts.join(".");
   }
 
+  /**
+   * Whether Exceptions §5.2's kind pattern `fault x` / `fault _` starts here.
+   *
+   * `fault` is contextual at a catch arm's head as at a declaration's (§2): a
+   * pattern has no juxtaposition, so `fault` followed by a binder or `_` can
+   * only be the kind pattern. The two words a pattern *does* let follow a
+   * binder are excluded, since `fault as e` binds a variable named `fault` and
+   * `fault when ready` guards one.
+   */
   #atFaultPattern(offset = 0): boolean {
     const head = this.#peek(offset);
     if (head.kind !== "NonUpperName" || head.text !== "fault") return false;
