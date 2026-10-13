@@ -113,9 +113,9 @@ const IO = 'extern from "./io.js"\n    export fun readIt(path: String) ->! Strin
  * at the outer arrow of a `->` contract, verbatim, for the member it names.
  */
 const pureContract = (member: string): string =>
-  `this call may touch the world, and \`${member}\`'s contract is the pure arrow ` +
-  "`->` — an instance does no more than its contract permits — keep this " +
-  "body pure, or, if the constraint is yours, write `->!` on the member";
+  `this call may touch the world and may fail, and \`${member}\`'s contract is the pure arrow ` +
+  "`->`, which cannot fail — an instance does no more than its contract permits — keep this " +
+  "body pure and handle the failure in it, or, if the constraint is yours, write `->!` on the member";
 
 /**
  * The same row where the effect is one the contract handed the body: the one
@@ -125,9 +125,10 @@ const pureConflict = (member: string, _handed: string): string => pureContract(m
 
 /** The same row where the failing arrow is the one the contract returns. */
 const pureReturns = (member: string): string =>
-  `the function this instance returns may touch the world, and \`${member}\`'s contract ` +
+  `the function this instance returns may touch the world and may fail, and \`${member}\`'s contract ` +
   "returns a `->` function — an instance does no more than its contract permits — keep " +
-  "this body pure, or, if the constraint is yours, write `->!` on the arrow the contract returns";
+  "this body pure and handle the failure in it, or, if the constraint is yours, write `->!` on the arrow the " +
+  "contract returns";
 
 /**
  * The same row where the failing arrow stands inside a parameter or inside the
@@ -135,13 +136,14 @@ const pureReturns = (member: string): string =>
  * `use`" or "its result".
  */
 const pureInside = (member: string, where: string): string =>
-  `a function this instance supplies may touch the world, and \`${member}\`'s contract writes ` +
+  `a function this instance supplies may touch the world and may fail, and \`${member}\`'s contract writes ` +
   `\`->\` inside ${where} — an instance does no more than its contract permits — keep this ` +
-  `body pure, or, if the constraint is yours, write \`->!\` on that arrow inside ${where}`;
+  `body pure and handle the failure in it, or, if the constraint is yours, write \`->!\` on that arrow ` +
+  `inside ${where}`;
 
 /** Effects §9's first seat row under a `>->` contract, verbatim. */
 const linkedContract = (member: string): string =>
-  `this call touches the world on its own account, and \`${member}\`'s contract is ` +
+  `this call touches the world and may fail on its own account, and \`${member}\`'s contract is ` +
   "`>->` — an instance is only as effectful as what it is handed — move the effect " +
   "behind a callback, or, if the constraint is yours, write `->!` on the member";
 
@@ -151,8 +153,8 @@ const linkedContract = (member: string): string =>
  * unused.
  */
 const narrowerAcceptance = (member: string, parameter: string, _inletGain = true): string =>
-  `\`${member}\`'s contract accepts any \`${parameter}\`, and this instance accepts only a pure ` +
-  "one — an instance accepts everything its contract promises to accept — do not narrow " +
+  `\`${member}\`'s contract accepts any \`${parameter}\`, and this instance accepts only one that is ` +
+  "pure and cannot fail — an instance accepts everything its contract promises to accept — do not narrow " +
   `\`${parameter}\` here, or, if the constraint is yours, write the member's \`${parameter}\` ` +
   "arrow `->`";
 
@@ -161,8 +163,8 @@ const narrowerAcceptance = (member: string, parameter: string, _inletGain = true
  * body fixed pure where the contract writes `->!` (§9's position forms).
  */
 const narrowerInside = (member: string, where: string): string =>
-  `\`${member}\`'s contract accepts a function that may touch the world inside ${where}, and ` +
-  "this instance accepts only a pure one — an instance accepts everything its contract " +
+  `\`${member}\`'s contract accepts a function that may touch the world and may fail inside ${where}, and ` +
+  "this instance accepts only one that is pure and cannot fail — an instance accepts everything its contract " +
   `promises to accept — do not narrow that function here, or, if the constraint is yours, ` +
   `write that arrow \`->\` inside ${where}`;
 
@@ -172,8 +174,8 @@ const narrowerInside = (member: string, where: string): string =>
  * the other constant").
  */
 const raisedInside = (member: string, where: string): string =>
-  `\`${member}\`'s contract accepts a pure function inside ${where}, and this instance ` +
-  "accepts only one that may touch the world — an instance accepts everything its " +
+  `\`${member}\`'s contract accepts a function that is pure and cannot fail inside ${where}, and this instance ` +
+  "accepts only one that may touch the world and may fail — an instance accepts everything its " +
   "contract promises to accept — do not narrow that function here, or, if the " +
   `constraint is yours, write that arrow \`->!\` inside ${where}`;
 
@@ -350,10 +352,9 @@ describe("Effects §13.4: `>->` on a member means only through its callbacks", (
     // A member header is a signature (§13.4), so §2.2.1 applies to it
     // unchanged: no callback has been handed by the time the arrow runs.
     expect(messages("constraint R<a> =\n    read(s: a) >-> String\n")).toEqual([
-      "`>->` means only as effectful as what it is handed, and nothing is handed " +
-      "here — no callback of this signature has been handed over by the time this " +
-      "arrow runs; write `->!` for a function that may touch the world, or `->` " +
-      "for one that does not",
+      "`>->` means only as effectful as what it is handed, and nothing is handed here — no callback of " +
+      "this signature has been handed over by the time this arrow runs; write `->!` for a function " +
+      "that may touch the world and may fail, or `->` for one that does neither",
     ]);
     expect(primaries("constraint R<a> =\n    read(s: a) >-> String\n")).toEqual([">->"]);
   });
@@ -711,7 +712,7 @@ describe("Effects §13.3: an instance's own colour, and the calls that follow it
   test("a constant a call meets before it ends is compared where the call is decided", () => {
     expect(messages(IO + R + "honor R<P> =\n    read(s) = readIt!(s.name)\n" +
       "let f(x: P): String = read!(x)\nlet g: (P) -> String = f\n"))
-      .toEqual(["a `->` arrow promises purity, and this function may touch the world — " +
+      .toEqual(["a `->` arrow promises purity and that the function cannot fail, and this function may touch the world and may fail — " +
         "the demand is written `->`, the function's face `->!` or `>->`"]);
     expect(messages(IO + R + PURE_P + "let f(x: P): String = read(x)\nlet g: (P) -> String = f\n")).toEqual([]);
     // The call's own expected type meets its returned arrow first.
@@ -719,7 +720,7 @@ describe("Effects §13.3: an instance's own colour, and the calls that follow it
       `honor M<A> =\n    make(s) = ${body}\n` + "let h: () -> Unit = make(A({ n = 1 }))\n";
     expect(messages(made("() => ()"))).toEqual([]);
     expect(messages(made('() =>\n        let z = readIt!("x")\n        ()'))).toEqual([
-      "a `->` arrow promises purity, and this function may touch the world — " +
+      "a `->` arrow promises purity and that the function cannot fail, and this function may touch the world and may fail — " +
         "the demand is written `->`, the function's face `->!` or `>->`",
     ]);
   });
@@ -744,7 +745,7 @@ describe("Effects §13.3: an instance's own colour, and the calls that follow it
     expect(messages(IO + R + PURE_P +
       "let mk(k: () ->! Unit, p: P): () >-> String = () =>\n    k!()\n    read(p)\n")).toEqual([]);
     expect(messages(face("honor R<P> =\n    read(s) = readIt!(s.name)\n", "read!(p)"))).toEqual([
-      "this call touches the world on its own account, and this face's `>->` promises the function is " +
+      "this call touches the world and may fail on its own account, and this face's `>->` promises the function is " +
         "only as effectful as what it is handed — write `->!`",
     ]);
   });
@@ -775,7 +776,7 @@ describe("Effects §13.3: an instance's own colour, and the calls that follow it
       'let loudB(x: B): Int =\n    let z = readIt!("x")\n    0\n' +
       "let viaB(f): Int =\n    let g = if True then f else read\n    g!(B({ m = 8 }))\n" +
       "let f: (() ->! Unit) >-> Int = (k) =>\n    k!()\n    viaB!(loudB)\n"))
-      .toEqual(["this call touches the world on its own account, and this face's `>->` promises the function is " +
+      .toEqual(["this call touches the world and may fail on its own account, and this face's `>->` promises the function is " +
         "only as effectful as what it is handed — write `->!`"]);
   });
 
@@ -800,8 +801,8 @@ describe("Effects §13.3: an instance's own colour, and the calls that follow it
       `honor R<A> =\n    read(s) = 1\n    make(s) = () =>\n        let z = ${call}\n        ()\n`;
     expect(messages(made("0", "read(B({ m = 1 }))"))).toEqual([]);
     expect(messages(made('String.length(readIt!("x"))', "read!(B({ m = 1 }))"))).toEqual([
-      "the function this instance returns may touch the world, and `make`'s contract returns a `->` function — " +
-        "an instance does no more than its contract permits — keep this body pure, or, if the constraint is yours, " +
+      "the function this instance returns may touch the world and may fail, and `make`'s contract returns a `->` function — " +
+        "an instance does no more than its contract permits — keep this body pure and handle the failure in it, or, if the constraint is yours, " +
         "write `->!` on the arrow the contract returns",
     ]);
   });
@@ -873,7 +874,7 @@ describe("Effects §13.3: an instance's own colour, and the calls that follow it
     const boxed = "record Box = { g: (B) -> Int }\nconstraint W<a> =\n    wrap(s: a, f: (B) ->! Int) ->! Box\n" +
       "honor W<A> =\n    wrap(s, f) =\n        let x = if s.n > 0 then f else get\n        Box({ g = f })\n";
     expect(messages(merged(boxed, "0"))).toEqual([
-      "a `->` arrow promises purity, and this function may touch the world — " +
+      "a `->` arrow promises purity and that the function cannot fail, and this function may touch the world and may fail — " +
         "the demand is written `->`, the function's face `->!` or `>->`",
     ]);
   });
@@ -2006,7 +2007,7 @@ describe("Effects §13.2: invariant and phantom positions", () => {
     )).toEqual([
       "`>->` means only as effectful as what it is handed, and nothing is handed here — " +
       "no callback of this signature has been handed over by the time this arrow runs; " +
-      "write `->!` for a function that may touch the world, or `->` for one that does not",
+      "write `->!` for a function that may touch the world and may fail, or `->` for one that does neither",
     ]);
   });
 });
@@ -3727,7 +3728,7 @@ describe("Effects §13.2: a join at a seat moves colours, never a type, at any d
       // The verdict: §4.3's row for the merge the program really wrote, and
       // nothing beside it.
       expect([arrow, messages(source)]).toEqual([arrow, [
-        "a `->` arrow promises purity, and this function may touch the world — the " +
+        "a `->` arrow promises purity and that the function cannot fail, and this function may touch the world and may fail — the " +
         "demand is written `->`, the function's face `->!` or `>->`",
       ]]);
       // And the face the join left: the merge bound nothing, so `f` is the pure
@@ -3787,7 +3788,7 @@ honor C<R> =
             n)
         b!()
 `)).toEqual([
-      "a `->` arrow promises purity, and this function may touch the world — the " +
+      "a `->` arrow promises purity and that the function cannot fail, and this function may touch the world and may fail — the " +
       "demand is written `->`, the function's face `->!` or `>->`",
     ]);
   });
@@ -3817,7 +3818,7 @@ honor C<R> =
                 save!("x")
         k!()
 `)).toEqual([
-      "a `->` arrow promises purity, and this function may touch the world — the " +
+      "a `->` arrow promises purity and that the function cannot fail, and this function may touch the world and may fail — the " +
       "demand is written `->`, the function's face `->!` or `>->`",
     ]);
   });

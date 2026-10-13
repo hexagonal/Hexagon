@@ -6798,7 +6798,7 @@ class Resolver {
             message:
               "`>->` means only as effectful as what it is handed, and nothing is " +
               "handed here — an alias is a type fragment, not a signature; write " +
-              "`->!` for a function that may touch the world, or `->` for one that does not",
+              "`->!` for a function that may touch the world and may fail, or `->` for one that does neither",
             primary: arrowSpan,
             fixes: [{
               message: "write `->!`",

@@ -155,7 +155,7 @@ describe("pattern declarations (#834)", () => {
     )).toEqual([
       "an exported pattern writes its head: `pattern absent(c1: Int): Box`",
       "a pattern has at least one component; a test with no components is a guard",
-      "a pattern's `view` is run by matching, so it is pure — the demand is the pattern head's, and this function's face is `->!`",
+      "a pattern's `view` is run by matching, so it is pure and cannot fail — the demand is the pattern head's, and this function's face is `->!`",
       "`one` has 1 component; write `(_)one`",
       "module `Main` exports no pattern `one`",
     ]);
@@ -385,7 +385,7 @@ describe("unheaded inference and a view's effect demand", () => {
         "pattern force\n" +
         "    view(step: () ->! Int) = inspect!(step)\n",
     )).toEqual([
-      "a pattern's `view` is run by matching, so it is pure — the demand is the pattern head's, and this function's face is `>->`",
+      "a pattern's `view` is run by matching, so it is pure and cannot fail — the demand is the pattern head's, and this function's face is `>->`",
     ]);
   });
 });

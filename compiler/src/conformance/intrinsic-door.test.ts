@@ -293,7 +293,7 @@ describe("an intrinsic row writes its arrow (§4.2, #869)", () => {
     )).toEqual([
       "`>->` means only as effectful as what it is handed, and nothing is handed here — " +
       "no callback of this signature has been handed over by the time this arrow runs; " +
-      "write `->!` for a function that may touch the world, or `->` for one that does not " +
+      "write `->!` for a function that may touch the world and may fail, or `->` for one that does neither " +
       "— write the callback parameter this row runs, with `->!`, or write `->!` on the row",
     ]);
   });
