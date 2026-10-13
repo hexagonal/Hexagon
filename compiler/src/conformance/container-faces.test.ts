@@ -196,7 +196,7 @@ describe("a constructor application's own expected type (#1066)", () => {
     }
     // And the mark a written colour asks for is still asked.
     expect(refusals("let h: Option((() ->! Unit) ->! Unit) = Some((f) => f())\n"))
-      .toEqual(["this call may touch the world, so `f` wants `!`, not no mark"]);
+      .toEqual(["this call may touch the world and may fail, so `f` wants `!`, not no mark"]);
   });
 
   test("a type refused where colours are held back is reported as written", () => {

@@ -3895,12 +3895,12 @@ class Checker {
    */
   #definingMember = false;
   /**
-   * The written calls a report has already answered — a condemned signature
-   * face's, or a failed seat's. Stamped at the ruling by `#suppressMarksOn`,
-   * because the colours it decides from are ones a later prune moves; see
-   * `#checkMarks`.
+   * The written calls a report has already answered, on the colours it
+   * answered them on — a condemned signature face's, or a failed seat's.
+   * Stamped at the ruling by `#suppressMarksOn`, because the colours it
+   * decides from are ones a later prune moves; see `#checkMarks`.
    */
-  readonly #reportedCalls = new Set<MarkObligation>();
+  readonly #reportedCalls = new Map<MarkObligation, Set<Axis>>();
   readonly #frameByLambda = new WeakMap<Resolved.LambdaExpr, EffectFrame>();
   /**
    * The callbacks' colours (Effects §2.4, §3.4): every written callback's, every
@@ -23928,7 +23928,9 @@ class Checker {
     this.#failReports.discardSince(reported.fail);
     for (const frame of knot.frames) this.#refusedKnotFrames.add(frame);
     for (const obligation of this.#markObligations) {
-      if (obligation.frame !== undefined && this.#inRefusedKnot(obligation.frame)) this.#reportedCalls.add(obligation);
+      if (obligation.frame !== undefined && this.#inRefusedKnot(obligation.frame)) {
+        for (const axis of AXES) this.#answerCall(obligation, axis);
+      }
     }
   }
 
@@ -25165,16 +25167,27 @@ class Checker {
       }
     }
     if (condemned.size === 0 && solved.size === 0) return;
+    // Each colour's chain on its own (Effects §1): a colour condemns the call's
+    // part on the colour it stands on.
     for (const obligation of this.#markObligations) {
-      if (this.#reportedCalls.has(obligation)) continue;
-      let node: Mono | undefined = obligation.effect;
-      for (; node !== undefined && node.kind === "Variable"; node = node.instance) {
-        if (!condemned.has(node)) continue;
-        this.#reportedCalls.add(obligation);
-        break;
+      for (const axis of AXES) {
+        if (this.#reportedCalls.get(obligation)?.has(axis) === true) continue;
+        let node: Mono | undefined = axis === "fail" ? obligation.fail : obligation.effect;
+        for (; node !== undefined && node.kind === "Variable"; node = node.instance) {
+          if (!condemned.has(node)) continue;
+          this.#answerCall(obligation, axis);
+          break;
+        }
+        if (node !== undefined && solved.has(node)) this.#answerCall(obligation, axis);
       }
-      if (node !== undefined && solved.has(node)) this.#reportedCalls.add(obligation);
     }
+  }
+
+  /** Stamps a call's part on one colour as answered by a report already made (`#reportedCalls`). */
+  #answerCall(obligation: MarkObligation, axis: Axis): void {
+    const answered = this.#reportedCalls.get(obligation);
+    if (answered === undefined) this.#reportedCalls.set(obligation, new Set([axis]));
+    else answered.add(axis);
   }
 
   /** Whether a settled colour belongs to a frame further out than this one. */
@@ -25199,11 +25212,18 @@ class Checker {
     }
   }
 
-  /** Ruling 7, at every written call: the mark is a function of the solved colour. */
+  /**
+   * Ruling 7, at every written call: the mark is a function of the solved
+   * colours, a part for each (Effects §3.1, §4.1). One report names what the
+   * call does on each colour whose part is wrong.
+   */
   #checkMarks(): void {
     for (const obligation of this.#markObligations) {
       // Read before the prune below compresses the chain (`#pastHeldBack`).
-      const pastHeldBack = this.#pastHeldBack(obligation.effect);
+      const pastHeldBack: Record<Axis, Mono[] | undefined> = {
+        world: this.#pastHeldBack(obligation.effect),
+        fail: this.#pastHeldBack(obligation.fail),
+      };
       // The defaulting clause at calls (§3.4, #868): a colour, or a part of
       // one, still undetermined that is no callback's is pure. Knots have
       // closed by now, so no sibling's colour is still live to be pinned here.
@@ -25212,36 +25232,63 @@ class Checker {
         if (!this.#isLinkedColour(part) && !this.#seatHeld.has(part)) part.instance = this.#undecidedColour(part);
       }
       if (this.#runsRefusedCall(obligation.call)) continue;
-      const colour = this.#prune(obligation.effect);
-      // A call whose colour is in error owes no mark either way (§3.5, #1223).
-      if (colour.kind === "ErrorColour") continue;
-      // Pure means bare; anything else — the impure constant, a callback's
-      // colour, a join of them — may touch the world, so the call wears `!`
-      // (Effects §3.1).
-      const required: Resolved.CallMark | undefined = colour.kind === "Effect" ? Colour.markFor(colour) : "bang";
-      if (required === obligation.mark) continue;
-      // A call whose colour a face report or a seat has already condemned is
-      // the same defect told twice: the face is what went wrong, and the marks
-      // in the body follow from it. Read, never re-derived — the stamp was put
-      // on at the ruling, before this loop's own `#prune` above compressed the
-      // chain it would have had to walk.
-      if (this.#reportedCalls.has(obligation)) continue;
-      // A `!` only a colour a colour in error met makes owed is held back:
-      // a pin the error hides would make the call pure (§3.5, #1223).
-      if (required === "bang" && pastHeldBack !== undefined) {
-        const pinned = this.#join(pastHeldBack);
-        if (pinned.kind === "Effect" && Colour.markFor(pinned) !== "bang") continue;
-      }
+      const written = markParts(obligation.mark);
+      // Whether a colour gives the call its part, or `undefined` where that is
+      // not known. Silent gives none; anything else — the constant, a
+      // callback's colour, a join of them — gives it (Effects §3.1).
+      const owes = (axis: Axis): boolean | undefined => {
+        const colour = this.#prune(axis === "fail" ? obligation.fail : obligation.effect);
+        // A colour in error owes no part either way (§3.5, #1223).
+        if (colour.kind === "ErrorColour") return undefined;
+        const owed = colour.kind !== "Effect" || !Colour.isBottom(colour);
+        // A part only a colour a colour in error met makes owed is held back:
+        // a pin the error hides would make it silent (§3.5, #1223).
+        const past = pastHeldBack[axis];
+        if (owed && !written[axis] && past !== undefined) {
+          const pinned = this.#join(past);
+          if (pinned.kind === "Effect" && Colour.isBottom(pinned)) return undefined;
+        }
+        return owed;
+      };
+      const required: Record<Axis, boolean | undefined> = { world: owes("world"), fail: owes("fail") };
+      // A colour a face report or a seat has already condemned is the same
+      // defect told twice: the face is what went wrong, and the marks in the
+      // body follow from it. Read, never re-derived — the stamp was put on at
+      // the ruling, before this loop's own `#prune` above compressed the chain
+      // it would have had to walk.
+      const answered = this.#reportedCalls.get(obligation);
+      const wrong = AXES.filter((axis) =>
+        required[axis] !== undefined && required[axis] !== written[axis] && answered?.has(axis) !== true
+      );
+      if (wrong.length === 0) continue;
+      // The mark wanted: each wrong part as its colour requires, every other
+      // part as written. Where a colour is not known (§3.5), the report names
+      // only what every repair leaves true: the mark with that part too.
+      const wanted: Record<Axis, boolean> = {
+        world: wrong.includes("world") ? required.world! : written.world,
+        fail: wrong.includes("fail") ? required.fail! : written.fail,
+      };
+      const unknown = AXES.filter((axis) => required[axis] === undefined && answered?.has(axis) !== true && !written[axis]);
+      const alternative = unknown.length === 0
+        ? undefined
+        : { world: wanted.world || unknown.includes("world"), fail: wanted.fail || unknown.includes("fail") };
+      const does = wrong.map((axis) =>
+        axis === "world"
+          ? required.world ? "may touch the world" : "is pure"
+          : required.fail ? "may fail" : "cannot fail"
+      );
       this.#diagnostics.add({
         severity: "error",
-        message: markMessage(obligation.callee, obligation.mark, required),
+        message: `this call ${does.join(" and ")}, so ${obligation.callee} wants ` +
+          `${[wanted, ...(alternative === undefined ? [] : [alternative])].map(markName).join(" or ")}, ` +
+          `not ${markName(written)}`,
         primary: obligation.markSpan ?? obligation.span,
         fixes: [{
-          message: markFixMessage(required),
+          message: wanted.world || wanted.fail ? `mark the call ${markName(wanted)}` : "remove the mark",
           edits: [
             obligation.markSpan === undefined
-              ? { span: obligation.insertAt, replacement: markSpelling(required) }
-              : { span: obligation.markSpan, replacement: markSpelling(required) },
+              ? { span: obligation.insertAt, replacement: markSpelling(wanted) }
+              : { span: obligation.markSpan, replacement: markSpelling(wanted) },
           ],
         }],
       });
@@ -37769,31 +37816,20 @@ function followsFix(face: SignatureFace, application: number | undefined, axes: 
   return arrowMarking(axes.includes("world") || handed, axes.includes("fail") || handed);
 }
 
-/** The mark a colour requires, as source text. */
-function markSpelling(mark: Resolved.CallMark | undefined): string {
-  return mark === "bang" ? "!" : "";
+/** A written mark's two parts (Effects §1's alphabet): `!` carries both. */
+function markParts(mark: Resolved.CallMark | undefined): Record<Axis, boolean> {
+  return mark === "bang" ? { world: true, fail: true } : { world: false, fail: false };
 }
 
-function markName(mark: Resolved.CallMark | undefined): string {
-  return mark === "bang" ? "`!`" : "no mark";
+/** The mark with these parts, as source text. */
+function markSpelling(parts: Readonly<Record<Axis, boolean>>): string {
+  return parts.world ? parts.fail ? "!" : "~" : parts.fail ? "^" : "";
 }
 
-/**
- * Effects §4.1's sentence, in both directions. The mark is a function of the
- * solved colour, so the report says what the colour *is* rather than what it is
- * not — and the fix is one token either way.
- */
-function markMessage(
-  callee: string,
-  written: Resolved.CallMark | undefined,
-  required: Resolved.CallMark | undefined,
-): string {
-  const because = required === "bang" ? "this call may touch the world" : "this call is pure";
-  return `${because}, so ${callee} wants ${markName(required)}, not ${markName(written)}`;
-}
-
-function markFixMessage(required: Resolved.CallMark | undefined): string {
-  return required === undefined ? "remove the mark" : `mark the call ${markName(required)}`;
+/** The mark with these parts, in a report's words. */
+function markName(parts: Readonly<Record<Axis, boolean>>): string {
+  const spelled = markSpelling(parts);
+  return spelled === "" ? "no mark" : `\`${spelled}\``;
 }
 
 /**

@@ -287,7 +287,7 @@ describe("suffix construction marks (§14)", () => {
         "let bare = (1)boxed\n" +
         "let marked = (1)boxed!\n",
     )).toEqual([
-      "this call may touch the world, so `boxed` wants `!`, not no mark",
+      "this call may touch the world and may fail, so `boxed` wants `!`, not no mark",
     ]);
   });
 
@@ -323,8 +323,8 @@ describe("suffix construction marks (§14)", () => {
         "let answer = ((1)maker)!()\n" +
         "let wrong = (1)maker!()\n",
     )).toEqual([
-      "this call may touch the world, so this call wants `!`, not no mark",
-      "this call is pure, so `maker` wants no mark, not `!`",
+      "this call may touch the world and may fail, so this call wants `!`, not no mark",
+      "this call is pure and cannot fail, so `maker` wants no mark, not `!`",
     ]);
   });
 });

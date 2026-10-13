@@ -201,7 +201,7 @@ describe("no mark obligation is minted for a non-call", () => {
   /**
    * The bonus the split buys. Registering the call used to hand the mark
    * machinery a fresh, unsolvable colour; it defaulted to pure, and a written
-   * `!` then collected "this call is pure, so `s` wants no mark, not `!`" —
+   * `!` then collected "this call is pure and cannot fail, so `s` wants no mark, not `!`" —
    * a second report advising a fix to a call that does not exist.
    */
   test("a `!` on a non-call adds nothing to the one report", () => {

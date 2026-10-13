@@ -165,7 +165,7 @@ describe("#355 fold's body — the designated specimen, in both directions", () 
 
   it("bare -> `!`: an unmarked call on a callback is refused with the `!` fixit", () => {
     expect(foldWith("", "")).toEqual([
-      "this call may touch the world, so `combine` wants `!`, not no mark",
+      "this call may touch the world and may fail, so `combine` wants `!`, not no mark",
     ]);
   });
 
@@ -176,13 +176,13 @@ describe("#355 fold's body — the designated specimen, in both directions", () 
 export let run(document: String): Unit = save(document)
 `]]),
     ).toEqual([
-      "this call may touch the world, so `save` wants `!`, not no mark",
+      "this call may touch the world and may fail, so `save` wants `!`, not no mark",
     ]);
   });
 
   it("`!` -> bare: symmetric enforcement, a mark on a provably pure call", () => {
     expect(foldWith("!", "!")).toEqual([
-      "this call is pure, so `next` wants no mark, not `!`",
+      "this call is pure and cannot fail, so `next` wants no mark, not `!`",
     ]);
   });
 
@@ -225,7 +225,7 @@ export let wired: (String ->! String) = compose(save2, audit2)
 export let run(document: String): String = compose(save2, audit2)(document)
 `]]),
     ).toEqual([
-      "this call may touch the world, so this call wants `!`, not no mark",
+      "this call may touch the world and may fail, so this call wants `!`, not no mark",
     ]);
   });
 });
@@ -254,7 +254,7 @@ export let ask(): String = readLine!()
 export let ask(): String = readLine()
 `]]),
     ).toEqual([
-      "this call may touch the world, so `readLine` wants `!`, not no mark",
+      "this call may touch the world and may fail, so `readLine` wants `!`, not no mark",
     ]);
   });
 
@@ -265,7 +265,7 @@ export let ask(): String = readLine!()
 export let twice(): String = ask() ++ ask!()
 `]]),
     ).toEqual([
-      "this call may touch the world, so `ask` wants `!`, not no mark",
+      "this call may touch the world and may fail, so `ask` wants `!`, not no mark",
     ]);
   });
 
@@ -406,7 +406,7 @@ export record Source = { step: () ->! String }
 export let drive(source: Source): String = (source.step)()
 `]]),
     ).toEqual([
-      "this call may touch the world, so this call wants `!`, not no mark",
+      "this call may touch the world and may fail, so this call wants `!`, not no mark",
     ]);
   });
 
@@ -775,7 +775,7 @@ export let use(): Unit = mk(noop)()
     expect(effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + world + "let noop(): Unit = ()\n" + refusedResult]]))
       .toEqual([
         "this call touches the world and may fail on its own account, and this face's `>->` promises the function is only as effectful as what it is handed — write `->!`",
-        "this call may touch the world, so this call wants `!`, not no mark",
+        "this call may touch the world and may fail, so this call wants `!`, not no mark",
       ]);
     expect(hoveredType("module Main\n\n" + world + "let noop(): Unit = ()\n" + refusedResult, "mk(")).toBe("(() ->! Unit) -> () ->! Unit");
     const refusedOuter = `export let outer(action: () ->! Unit): Unit =
@@ -967,7 +967,7 @@ let relay(f: () ->! Unit, g): Unit = g!(f)
 
   it("a claimed colour is a callback's: a bare call on it is the missing-mark report", () => {
     expect(check("let mixed(f) =\n    f!()\n    f()\n")).toEqual([
-      "this call may touch the world, so `f` wants `!`, not no mark",
+      "this call may touch the world and may fail, so `f` wants `!`, not no mark",
     ]);
   });
 
@@ -976,7 +976,7 @@ let relay(f: () ->! Unit, g): Unit = g!(f)
     // arrow for a lie-of-generality report to name.
     for (const lines of [["pureOnly(f)", "f!()"], ["f!()", "pureOnly(f)"]]) {
       expect(check(`let pinned(f) =\n    ${lines[0]}\n    ${lines[1]}\n`)).toEqual([
-        "this call is pure, so `f` wants no mark, not `!`",
+        "this call is pure and cannot fail, so `f` wants no mark, not `!`",
       ]);
     }
   });
@@ -995,7 +995,7 @@ let user(): Unit = outer!(() => save!("x"))
       expect([helper, hoveredType(text(source), "outer(")]).toEqual([helper, "(() ->! Unit) >-> Unit"]);
     }
     expect(check("let outer(action): Unit =\n    let h() = action!()\n    h()\n")).toEqual([
-      "this call may touch the world, so `h` wants `!`, not no mark",
+      "this call may touch the world and may fail, so `h` wants `!`, not no mark",
     ]);
   });
 });
@@ -1026,7 +1026,7 @@ describe("Effects §3.4 — a parameter no call reaches keeps its own colour (#1
     // What `orNoop` hands back follows what it was handed, so a bare call on it
     // is the missing-mark report.
     expect(check("let orNoop(cb) = if c then cb else () => ()\nexport let user(): Unit = orNoop(save0)()\n"))
-      .toEqual(["this call may touch the world, so this call wants `!`, not no mark"]);
+      .toEqual(["this call may touch the world and may fail, so this call wants `!`, not no mark"]);
   });
 
   it("nested, in a knot, curried, local, and two functions deep", () => {
@@ -1082,7 +1082,7 @@ describe("Effects §3.4 — a parameter no call reaches keeps its own colour (#1
       // A bare call in a nested body reaches it too.
       [["keep(k)", "let g = () => runIt(k)"], "(() -> Unit) -> Unit", [PURITY]],
       // A `!` call claims it.
-      [["keep(k)", "runIt!(k)"], "(() ->! Unit) >-> Unit", ["this call may touch the world, so `f` wants `!`, not no mark"]],
+      [["keep(k)", "runIt!(k)"], "(() ->! Unit) >-> Unit", ["this call may touch the world and may fail, so `f` wants `!`, not no mark"]],
       // A `->` demand pins it.
       [["keep(k)", "pureOnly(k)"], "(() -> Unit) -> Unit", [PURITY]],
     ];
@@ -2105,7 +2105,7 @@ export let probe(): Unit = walk!(save0, 2)
     ]);
     expect(at(a + "let user(): Unit =\n    let _ = (a, 1)\n    save!(\"u\")\nexport let probe(): Unit = user()\n")).toEqual([
       ["() => cb!()", made("a", true)],
-      ["user()", "this call may touch the world, so `user` wants `!`, not no mark"],
+      ["user()", "this call may touch the world and may fail, so `user` wants `!`, not no mark"],
     ]);
     expect(at(`let walk(g, h, c: Bool, n: Int): Unit =
     fun go(m: Int, f: () ->! Unit): Unit = if m == 0 then f!() else go!(m - 1, () => g!())
@@ -2146,7 +2146,7 @@ describe("Effects §3.4 — a member is its value: its recursion follows the fac
   const check = (source: string): readonly string[] =>
     effectDiagnostics([["/world.js", ""], ["/main.hex", prelude + source]]);
   const hover = (source: string, needle: string): string | undefined => hoveredType(prelude + source, needle);
-  const bang = "this call may touch the world, so this call wants `!`, not no mark";
+  const bang = "this call may touch the world and may fail, so this call wants `!`, not no mark";
   const follows = "(() ->! Unit) >-> Unit";
 
   it("follows a written result type's `>->` over the lambda it returns, at every depth of its spine (#1229)", () => {
@@ -2205,7 +2205,7 @@ describe("Effects §3.4 — a member is its value: its recursion follows the fac
 `;
     for (const written of ["let q: () ->! Int = act", "let q = (act: () ->! Int)"]) {
       expect(check(knot(written, "q!()", "!"))).toEqual([]);
-      expect(check(knot(written, "q()", "!"))).toEqual(["this call may touch the world, so `q` wants `!`, not no mark"]);
+      expect(check(knot(written, "q()", "!"))).toEqual(["this call may touch the world and may fail, so `q` wants `!`, not no mark"]);
     }
     expect(check(knot("let z = 0", "(act: () ->! Int)!()", "!"))).toEqual([]);
   });
@@ -2258,7 +2258,7 @@ describe("Effects §3.4 — a member is its value: its recursion follows the fac
     k!()
     () => if n > 0 then a!(n - 1, f, g)!() else f!()
 `;
-    const wants = "this call may touch the world, so `a` wants `!`, not no mark";
+    const wants = "this call may touch the world and may fail, so `a` wants `!`, not no mark";
     expect(check(source + "export let probe(): Unit = a(2, noop, noop)()\n")).toEqual([]);
     expect(check(source + "export let probe(): Unit = a!(2, save0, noop)!()\n")).toEqual([]);
     expect(check(source + "export let probe(): Unit = a(2, noop, save0)()\n")).toEqual([wants, bang]);
@@ -2269,7 +2269,7 @@ describe("Effects §3.4 — a member is its value: its recursion follows the fac
     // What the lambda runs beyond the callbacks it is handed still reaches
     // the members that call it: `ping` is a conduit of `cb`. That `q` runs
     // `cb` and promises `>->` is the face report, once `cb` is decided (#1230).
-    const wants = (callee: string) => `this call may touch the world, so \`${callee}\` wants \`!\`, not no mark`;
+    const wants = (callee: string) => `this call may touch the world and may fail, so \`${callee}\` wants \`!\`, not no mark`;
     const runs = (owner: string) => `this call runs \`${owner}\`'s \`cb\`, which this signature is not handed, and ` +
       "this face's `>->` promises the function is only as effectful as what it is handed — write `->!`";
     expect(check(`fun ping(n: Int, cb): Int =
@@ -2338,9 +2338,9 @@ describe("Effects §4.2 — a written `>->` meets the function it stands over al
   it("publishes the callbacks a written `>->` follows, joined with what the value runs, in every spelling", () => {
     // Main's ascription published only the lambda's own colour, so a call
     // handing `k` a function that may touch the world stayed bare.
-    const wants = ["this call may touch the world, so `k` wants `!`, not no mark",
-      "this call may touch the world, so `k` wants `!`, not no mark",
-      "this call may touch the world, so this call wants `!`, not no mark"];
+    const wants = ["this call may touch the world and may fail, so `k` wants `!`, not no mark",
+      "this call may touch the world and may fail, so `k` wants `!`, not no mark",
+      "this call may touch the world and may fail, so this call wants `!`, not no mark"];
     for (const [index, [face, call]] of spellings(follows, "(x) => action()", "save0", "").entries()) {
       expect(check(`let outer(action): Unit =\n    action()\n${face}${call}`)).toEqual([wants[index]]);
     }
@@ -2396,8 +2396,8 @@ describe("Effects §3.4 — a knot's colour is re-opened where it is used (#1233
   const check = (source: string): readonly string[] =>
     effectDiagnostics([["/world.js", ""], ["/main.hex", prelude + source]]);
   const hover = (source: string, needle: string): string | undefined => hoveredType(prelude + source, needle);
-  const bang = "this call may touch the world, so this call wants `!`, not no mark";
-  const wants = (callee: string) => `this call may touch the world, so \`${callee}\` wants \`!\`, not no mark`;
+  const bang = "this call may touch the world and may fail, so this call wants `!`, not no mark";
+  const wants = (callee: string) => `this call may touch the world and may fail, so \`${callee}\` wants \`!\`, not no mark`;
   const promise = "a `->` arrow promises purity and that the function cannot fail, and this function may touch the world and may fail — the " +
     "demand is written `->`, the function's face `->!` or `>->`";
 
@@ -2634,7 +2634,7 @@ describe("Effects §3.4 — what a held lambda's own callbacks run is not held (
 
   it("closes what main accepted where a held lambda's one callback colour hid what a use handed it", () => {
     // Main published `ping` pure in both, and a bare `ping(2)` saved.
-    const wants = (callee: string) => `this call may touch the world, so \`${callee}\` wants \`!\`, not no mark`;
+    const wants = (callee: string) => `this call may touch the world and may fail, so \`${callee}\` wants \`!\`, not no mark`;
     const nested = (mark: string) => "fun\n    ping(n: Int): Int =\n        fun loop(m: Int): Int =\n" +
       "            let q = (cb: () ->! Unit) =>\n                cb!()\n" +
       `                let _ = if m > 0 then loop${mark}(m - 1) else if n > 0 then ping${mark}(n - 1) else 0\n` +
@@ -2656,21 +2656,21 @@ describe("Effects §3.4 — what a held lambda's own callbacks run is not held (
     const source = "fun\n    ping(n: Int): Int =\n        let q = (cb) =>\n            let _ = if n > 0 then ping(n - 1) else 0\n" +
       "            match cb()\n                Some(h) => h()\n                None => ()\n        q(() => Some(noop))\n        0\n";
     expect(check(source)).toEqual([
-      "this call may touch the world, so `ping` wants `!`, not no mark",
-      "this call may touch the world, so `h` wants `!`, not no mark",
-      "this call may touch the world, so `q` wants `!`, not no mark",
+      "this call may touch the world and may fail, so `ping` wants `!`, not no mark",
+      "this call may touch the world and may fail, so `h` wants `!`, not no mark",
+      "this call may touch the world and may fail, so `q` wants `!`, not no mark",
     ]);
   });
 
   it("still runs through the recursion what one use hands", () => {
     // `q!(save0)` makes `ping` touch the world, and `q(noop)` runs `ping`.
     expect(check(ping("        let q = (cb: () ->! Unit) =>\n" + body, "        q(noop)\n        q!(save0)\n",
-      "ping!(n - 1)", "ping!(2)"))).toEqual(["this call may touch the world, so `q` wants `!`, not no mark"]);
+      "ping!(n - 1)", "ping!(2)"))).toEqual(["this call may touch the world and may fail, so `q` wants `!`, not no mark"]);
   });
 
   it("holds a lambda a member hands back whole: its parameters are the member's", () => {
     expect(check("fun a(n: Int) = (cb) => if n == 0 then cb() else a(n - 1)!(cb)\n" +
-      "export let probe(): Unit = a(2)!(save0)\n")).toEqual(["this call may touch the world, so `cb` wants `!`, not no mark"]);
+      "export let probe(): Unit = a(2)!(save0)\n")).toEqual(["this call may touch the world and may fail, so `cb` wants `!`, not no mark"]);
     // Under a `match` too, where the refusal of a function the member was not
     // given stands alone.
     const given = (member: string) => `this function is not one \`${member}\` was given, and a recursive call ` +
@@ -2828,7 +2828,7 @@ describe("Effects §2.6 — a short form reads as its longhand twin (#1213 (T))"
         "    let (r, _) = make()\n" + before + `    tieTwo(${lambda}, r)\n    ${call}\n    ()\n`;
       expect([lambda, effectDiagnostics([["/world.js", ""], ["/main.hex", source("r(() => ())")]])]).toEqual([lambda, []]);
       expect([lambda, effectDiagnostics([["/world.js", ""], ["/main.hex", source("r!(() => ())")]])])
-        .toEqual([lambda, ["this call is pure, so `r` wants no mark, not `!`"]]);
+        .toEqual([lambda, ["this call is pure and cannot fail, so `r` wants no mark, not `!`"]]);
     }
   });
 
@@ -2859,8 +2859,8 @@ describe("Effects §3.5 — a colour in error (#1223)", () => {
       ["/main.hex", "module Main\n\nimport Lib\n" + main],
     ]);
   const unknown = "unknown name `nope`";
-  const wants = (callee: string): string => `this call may touch the world, so ${callee} wants \`!\`, not no mark`;
-  const noMark = (callee: string): string => `this call is pure, so ${callee} wants no mark, not \`!\``;
+  const wants = (callee: string): string => `this call may touch the world and may fail, so ${callee} wants \`!\`, not no mark`;
+  const noMark = (callee: string): string => `this call is pure and cannot fail, so ${callee} wants no mark, not \`!\``;
   const made = "this function is not one `a` was given, and a recursive call hands on only the callbacks it was given";
   const bothMarks = (source: (mark: string) => string): readonly (readonly string[])[] =>
     ["!", ""].map((mark) => check(source(mark)));
@@ -3420,7 +3420,7 @@ export let go(): String = apply!((s) => s)
     expect(effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + source]])).toEqual([]);
     expect(effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" +
       source.replace("apply!((s) => s)", "apply((s) => s)")]]))
-      .toEqual(["this call may touch the world, so `apply` wants `!`, not no mark"]);
+      .toEqual(["this call may touch the world and may fail, so `apply` wants `!`, not no mark"]);
   });
 
   it("demands `!` at every call site, pure callback or not", () => {
@@ -3429,7 +3429,7 @@ export let go(): String = apply!((s) => s)
 export let go(): String = withTransaction((document) => document)
 `]]),
     ).toEqual([
-      "this call may touch the world, so `withTransaction` wants `!`, not no mark",
+      "this call may touch the world and may fail, so `withTransaction` wants `!`, not no mark",
     ]);
   });
 
@@ -3519,10 +3519,10 @@ describe("a binding annotation's outer arrow is the face of the value it writes 
     // which the knot settles pure here (pinned as main has it).
     expect(compile(knot("() ->! Int", "q!()", "!"))).toEqual([]);
     expect(compile(knot("() ->! Int", "q()", "!")))
-      .toEqual(["this call may touch the world, so `q` wants `!`, not no mark"]);
+      .toEqual(["this call may touch the world and may fail, so `q` wants `!`, not no mark"]);
     expect(compile(knot("() -> Int", "q()", ""))).toEqual([]);
     expect(compile(knot("() -> Int", "q!()", "")))
-      .toEqual(["this call is pure, so `q` wants no mark, not `!`"]);
+      .toEqual(["this call is pure and cannot fail, so `q` wants no mark, not `!`"]);
   });
 });
 
@@ -3568,7 +3568,7 @@ export let saveAll(values: Vector(String)): Vector(String) =
         document)
 `]]),
     ).toEqual([
-      "this call may touch the world, so `map` wants `!`, not no mark",
+      "this call may touch the world and may fail, so `map` wants `!`, not no mark",
     ]);
   });
 
@@ -3579,7 +3579,7 @@ export let stamped(values: Vector(String)): Vector(String) =
     map!(values, (text) => text ++ ".")
 `]]),
     ).toEqual([
-      "this call is pure, so `map` wants no mark, not `!`",
+      "this call is pure and cannot fail, so `map` wants no mark, not `!`",
     ]);
   });
 });
@@ -3592,7 +3592,7 @@ describe("#355 grammar — where a mark may stand", () => {
     const diagnostics = compileFiles([["/world.js", ""], ["/main.hex", text]]).diagnostics;
     expect(diagnostics.map(({ message }) => message)).toEqual([
       'invalid character "?" (U+003F)',
-      "this call may touch the world, so `save` wants `!`, not no mark",
+      "this call may touch the world and may fail, so `save` wants `!`, not no mark",
     ]);
     const edits = diagnostics.flatMap(({ fixes }) => (fixes ?? []).flatMap((fix) => fix.edits));
     expect(edits.map(({ span, replacement }) => [text.slice(span.start.offset, span.end.offset), replacement]))
@@ -3621,7 +3621,7 @@ export let clean(document: String): String = document |> trim
 export let run(document: String): Unit = document |> save
 `]]),
     ).toEqual([
-      "this call may touch the world, so `save` wants `!`, not no mark",
+      "this call may touch the world and may fail, so `save` wants `!`, not no mark",
     ]);
   });
 
@@ -3694,7 +3694,7 @@ export let run(document: String): Unit = held!(document)
     // the impure call's own mark row firing behind the redirect.
     expect(
       effectDiagnostics([["/main.hex", "module Main\n\n" + "let f(g: (Int) =>! Int): Int = g(1)\n"]]),
-    ).toEqual([typeArrowRedirect, "this call may touch the world, so `g` wants `!`, not no mark"]);
+    ).toEqual([typeArrowRedirect, "this call may touch the world and may fail, so `g` wants `!`, not no mark"]);
     // And taking the advice is the whole repair — nothing else was wrong.
     expect(
       effectDiagnostics([["/main.hex", "module Main\n\n" + "let f(g: (Int) -> Int): Int = g(1)\n"]]),
@@ -3833,7 +3833,7 @@ export let doubled: Int = pure(21) + pure(21)
     // validly write its arrow has claimed nothing, and the recovery has to
     // claim nothing back — observed where it is observable, at a call, since a
     // recovered `->` would make the unmarked call below legal.
-    const wants = (name: string) => `this call may touch the world, so \`${name}\` wants \`!\`, not no mark`;
+    const wants = (name: string) => `this call may touch the world and may fail, so \`${name}\` wants \`!\`, not no mark`;
     // The retired `:`.
     expect(
       effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `extern from "./world.js"
@@ -4082,7 +4082,7 @@ export let n: Int = runner!(() => readLine!())
 export let n: Int = runner(() => readLine!())
 `]]),
     ).toEqual([
-      "this call may touch the world, so `runner` wants `!`, not no mark",
+      "this call may touch the world and may fail, so `runner` wants `!`, not no mark",
     ]);
   });
 
@@ -4227,7 +4227,7 @@ let drive(source): String = (source.next)!()
 
 export let x: Int = 1
 `]]),
-    ).toEqual(["this call is pure, so this call wants no mark, not `!`"]);
+    ).toEqual(["this call is pure and cannot fail, so this call wants no mark, not `!`"]);
     expect(
       effectDiagnostics([["/main.hex", "module Main\n\n" + `
 let drive(source): String = (source.next)()
@@ -4719,9 +4719,9 @@ describe("#947 closure construction stays pure, and knots settle at their close"
   const hover = (source: string, needle: string): string | undefined =>
     hoveredType("module Main\n\n" + world + source, needle);
   const wantsBang = (callee: string): string =>
-    `this call may touch the world, so \`${callee}\` wants \`!\`, not no mark`;
+    `this call may touch the world and may fail, so \`${callee}\` wants \`!\`, not no mark`;
   const wantsBare = (callee: string, mark: string): string =>
-    `this call is pure, so \`${callee}\` wants no mark, not \`${mark}\``;
+    `this call is pure and cannot fail, so \`${callee}\` wants no mark, not \`${mark}\``;
 
   it("refuses a member handing its sibling a function it made, and the refusal stands alone (#1218)", () => {
     // `k` takes no callback, so the pure lambda it hands `h` is not one it
@@ -5043,7 +5043,7 @@ export let total(value: Int, cb: () ->! Unit): Int =
         expect(hover(knot, "a(cb")).toBe("(() ->! Unit) ->! Unit");
         expect(hover(knot, "b(cb: ")).toBe("(() ->! Unit) ->! Unit");
         expect(check(knot.replace("        b!(cb)", "        b(cb)"))).toEqual([
-          "this call may touch the world, so `b` wants `!`, not no mark",
+          "this call may touch the world and may fail, so `b` wants `!`, not no mark",
         ]);
       }
     });

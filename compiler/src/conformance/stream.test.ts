@@ -218,7 +218,7 @@ describe("§4 the faces: wiring is silent, consumption is spelled", () => {
       `    Stream.map${mark}(source, step)\n`;
     expect(projectDiagnostics(body(""))).toEqual([]);
     expect(projectDiagnostics(body("!"))).toEqual([
-      "this call is pure, so `map` wants no mark, not `!`",
+      "this call is pure and cannot fail, so `map` wants no mark, not `!`",
     ]);
     expect(hoveredType("export let held: Int = Stream.map\n", "map"))
       .toBe("(Stream(a), a ->! b) -> Stream(b)");
@@ -237,7 +237,7 @@ describe("§4 the faces: wiring is silent, consumption is spelled", () => {
     ] as const) {
       const shown = name.slice("Stream.".length);
       expect(projectDiagnostics(call(name, "", rest, result))).toEqual([
-        `this call may touch the world, so \`${shown}\` wants \`!\`, not no mark`,
+        `this call may touch the world and may fail, so \`${shown}\` wants \`!\`, not no mark`,
       ]);
       expect(projectDiagnostics(call(name, "!", rest, result))).toEqual([]);
     }
