@@ -1259,6 +1259,8 @@ interface HardCase {
   readonly right: Mono;
   readonly span: Source.Span;
   readonly level: number;
+  /** The colour it was met on (Effects §1): a body's close settles its own colour's. */
+  readonly axis: Axis;
 }
 
 /** One written call, and the mark it wore, awaiting its solved colour. */
@@ -3921,7 +3923,7 @@ class Checker {
    * close, where nothing it does depends on them (`#defaultCallColours`), so
    * no such colour reaches its scheme unsettled.
    */
-  #valueColoursLeft: Variable[] = [];
+  #valueColoursLeft: { readonly colour: Variable; readonly axis: Axis }[] = [];
   /**
    * The colours a use of a pure function minted *(#1119; Effects §3.4)*: a
    * pure function fits wherever a function is expected, so each use reads its
@@ -4364,13 +4366,15 @@ class Checker {
    * reports are the module's, and the fail colour's go to `#failReports`.
    */
   #onAxis<T>(axis: Axis, run: () => T): T {
-    if (axis === "world") return run();
-    const world = this.#diagnostics;
-    this.#diagnostics = this.#failReports;
+    const enclosing = this.#currentAxis;
+    const reports = this.#diagnostics;
+    this.#currentAxis = axis;
+    if (axis === "fail") this.#diagnostics = this.#failReports;
     try {
       return run();
     } finally {
-      this.#diagnostics = world;
+      this.#currentAxis = enclosing;
+      this.#diagnostics = reports;
     }
   }
 
@@ -5579,6 +5583,8 @@ class Checker {
    * which `#onAxis` keeps from being made twice and the mirror check compares.
    */
   readonly #failReports = new Diagnostics.Bag();
+  /** The colour the step under way solves (`#onAxis`): what a hard case met now is recorded on. */
+  #currentAxis: Axis = "world";
   readonly #importedSchemes: ReadonlyMap<Resolved.SymbolId, Typed.Scheme>;
   readonly #importedInstanceColours: ReadonlyMap<string, readonly Typed.InstanceColour[]>;
   readonly #programNominals: VarianceDeclarations;
@@ -21971,7 +21977,7 @@ class Checker {
   #closeFrame(frame: EffectFrame, ties = true): void {
     this.#settleUntyped(frame);
     this.#closeCallbacks(frame);
-    this.#settleHardCases(frame.level);
+    this.#settleHardCases(frame.level, frameAxis(frame));
     this.#defaultFrameColour(frame);
     this.#defaultCallColours(frame);
     if (ties) this.#refuseTies(frame);
@@ -22052,13 +22058,15 @@ class Checker {
       for (const colour of this.#colourParts(effect)) {
         if (!this.#isDependency(frame, colour)) colour.instance = this.#undecidedColour(colour);
         else if ((this.#valueColours.has(colour) || this.#valueSlacks.has(colour)) && colour.level < frame.level) {
-          this.#valueColoursLeft.push(colour);
+          this.#valueColoursLeft.push({ colour, axis: frameAxis(frame) });
         }
       }
     }
-    // What a nested body left to this one, where this body made the value.
+    // What a nested body left to this one, where this body made the value: on
+    // this body's own colour (Effects §1).
     this.#valueColoursLeft = this.#valueColoursLeft.filter((left) => {
-      const colour = this.#prune(left);
+      if (left.axis !== frameAxis(frame)) return true;
+      const colour = this.#prune(left.colour);
       if (colour.kind !== "Variable") return false;
       if (colour.level < frame.level) return true;
       if (!this.#isDependency(frame, colour)) colour.instance = this.#undecidedColour(colour);
@@ -25756,7 +25764,7 @@ class Checker {
     const parts = [...this.#colourParts(left), ...this.#colourParts(right)];
     const level = Math.min(...parts.map((part) => part.level));
     for (const part of parts) this.#lowerLevels(part, level);
-    this.#hardCases.push({ left, right, span, level });
+    this.#hardCases.push({ left, right, span, level, axis: this.#currentAxis });
   }
 
   /**
@@ -25766,7 +25774,7 @@ class Checker {
    * undecided becomes the impure constant, the answer Swift gives a function it
    * cannot follow. A case with a part that waits settles after its deadline.
    */
-  #settleHardCases(level: number): void {
+  #settleHardCases(level: number, axis?: Axis): void {
     if (this.#hardCases.length === 0) return;
     const waiting = (part: Variable): boolean =>
       (!this.#instancesClosed && this.#waitingColours.has(part)) ||
@@ -25774,22 +25782,25 @@ class Checker {
     const remaining: HardCase[] = [];
     for (const hardCase of this.#hardCases) {
       const parts = [...this.#colourParts(hardCase.left), ...this.#colourParts(hardCase.right)];
-      if (hardCase.level < level || parts.some(waiting)) {
+      // A body's close settles its own colour's hard cases (Effects §1).
+      if (hardCase.level < level || parts.some(waiting) || (axis !== undefined && hardCase.axis !== axis)) {
         remaining.push(hardCase);
         continue;
       }
-      const left = this.#prune(hardCase.left);
-      const right = this.#prune(hardCase.right);
-      // Decided since, or now in the fragment: a join meeting pure.
-      const pure = (colour: Mono): boolean => colour.kind === "Effect" && Colour.isBottom(colour);
-      if ((left.kind === "Effect" && right.kind === "Effect") || pure(left) || pure(right)) {
-        this.#unify(left, right, hardCase.span);
-        continue;
-      }
-      // Swift's collapse: what is still undecided may touch the world.
-      for (const part of parts) {
-        if (this.#prune(part).kind === "Variable") this.#unify(part, IMPURE, hardCase.span);
-      }
+      this.#onAxis(hardCase.axis, () => {
+        const left = this.#prune(hardCase.left);
+        const right = this.#prune(hardCase.right);
+        // Decided since, or now in the fragment: a join meeting pure.
+        const pure = (colour: Mono): boolean => colour.kind === "Effect" && Colour.isBottom(colour);
+        if ((left.kind === "Effect" && right.kind === "Effect") || pure(left) || pure(right)) {
+          this.#unify(left, right, hardCase.span);
+          return;
+        }
+        // Swift's collapse: what is still undecided may touch the world.
+        for (const part of parts) {
+          if (this.#prune(part).kind === "Variable") this.#unify(part, IMPURE, hardCase.span);
+        }
+      });
     }
     this.#hardCases = remaining;
   }
