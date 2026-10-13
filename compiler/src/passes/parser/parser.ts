@@ -1538,7 +1538,10 @@ class Parser {
         // gate. There is no vector *expression* an ordinary `let` binder could
         // want here: a binder is a name or a pattern, never `[`.
         ["LeftParen", "LeftBrace", "LeftBracket", "UpperName", "Wildcard"]
-          .includes(this.#peek(1).kind)
+          .includes(this.#peek(1).kind) ||
+        // A `fault` pattern is no binder either (Exceptions §5.2): routed to
+        // the pattern reader, which answers it with its own sentence.
+        this.#atFaultPattern(1)
       ) {
         return this.#parsePatternBinding();
       }
@@ -3530,9 +3533,10 @@ class Parser {
    * binder are excluded, since `fault as e` binds a variable named `fault` and
    * `fault when ready` guards one.
    */
-  #atFaultPattern(): boolean {
-    if (!this.#atContextual("fault")) return false;
-    const next = this.#peek(1);
+  #atFaultPattern(offset = 0): boolean {
+    const head = this.#peek(offset);
+    if (head.kind !== "NonUpperName" || head.text !== "fault") return false;
+    const next = this.#peek(offset + 1);
     if (next.kind === "Wildcard") return true;
     return next.kind === "NonUpperName" && next.text !== "as" && next.text !== "when";
   }
@@ -4959,7 +4963,9 @@ class Parser {
     const ended = name.text.endsWith("Fault");
     if (fault === ended) return;
     if (fault) {
-      const newName = name.text.endsWith("Error")
+      // An `…Error` stem takes `Fault` in its place; a name that is only the
+      // word keeps it, since an empty stem would offer `Fault` for `Error`.
+      const newName = name.text.endsWith("Error") && name.text !== "Error"
         ? `${name.text.slice(0, -"Error".length)}Fault`
         : `${name.text}Fault`;
       this.#diagnostics.add({
@@ -4970,7 +4976,7 @@ class Parser {
       });
       return;
     }
-    const newName = `${name.text.slice(0, -"Fault".length)}Error`;
+    const newName = name.text === "Fault" ? "FaultError" : `${name.text.slice(0, -"Fault".length)}Error`;
     this.#diagnostics.add({
       severity: "error",
       message: "only a fault's name ends in `Fault`; this is an exception — " +
@@ -5272,6 +5278,29 @@ class Parser {
       return binder.kind === "Wildcard"
         ? { kind: "Wildcard", span }
         : { kind: "Binding", name: parsedName(binder as Lexed.NameToken), span };
+    }
+    if (token.kind === "NonUpperName" && token.text === "fault" && this.#peek(1).kind === "UpperName") {
+      // `fault MyFault(c)`, read as "the fault `MyFault`": no pattern has a
+      // binder before a constructor, so the word is the slip, and the pattern
+      // after it is what was meant. Refused with the repair that removes the
+      // word (§9), and read on from the constructor, so the arm still catches
+      // what it names and nothing below cascades.
+      const word = this.#advance();
+      const constructor = this.#current();
+      this.#diagnostics.add({
+        severity: "error",
+        message: "a `fault` pattern is `fault` and a name or `_`, catching every fault; " +
+          `to catch \`${(constructor as Lexed.NameToken).text}\` alone, write its pattern without \`fault\``,
+        primary: word.span,
+        fixes: [{
+          message: "remove `fault`",
+          edits: [{
+            span: { fileId: word.span.fileId, start: word.span.start, end: constructor.span.start },
+            replacement: "",
+          }],
+        }],
+      });
+      return this.#parseAtomicPattern();
     }
     if (token.kind === "NonUpperName") {
       this.#advance();

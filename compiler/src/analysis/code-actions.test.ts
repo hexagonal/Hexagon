@@ -1537,3 +1537,41 @@ describe("code actions: the module-import repair family (#577)", () => {
       .map(({ title }) => title)).not.toContain("import `Scale`");
   });
 });
+
+describe("code actions: a refusal whose repair is a rename (`renameRepair`)", () => {
+  /**
+   * Exceptions §2's ending rule names a rename as its repair, and the compiler
+   * says so with a marker rather than edits: the uses are the workspace's to
+   * find. The session runs its own rename — declaration and every use, in
+   * every file — and offers it beside the compiler's own fix.
+   */
+  test("an `exception` named `…Fault`: the rename reaches every file; the head word is the other repair", () => {
+    const errors = "module Errors\n\nexport exception TimeoutFault(millis: Int)\n";
+    const main = "module Main\n\nimport Errors\n\n" +
+      "export fun f(): Int =\n" +
+      "    try\n" +
+      "        throw(Errors.TimeoutFault(1))\n" +
+      "    catch\n" +
+      "        Errors.TimeoutFault(m) => m\n";
+    const { session } = sessionOf({ "/errors.hex": errors, "/main.hex": main });
+    const actions = actionsOn(session, "/errors.hex", errors, "TimeoutFault");
+    expect(actions.map(({ title, disabled }) => `${title}${disabled === undefined ? "" : " (off)"}`))
+      .toEqual(["declare it with `fault`", "rename to `TimeoutError`"]);
+    const rename = actions[1]!;
+    const byFile = (path: string, text: string): string =>
+      applied(text, { ...rename, edits: rename.edits.filter((edit) => edit.path === path) });
+    expect(byFile("/errors.hex", errors)).toContain("export exception TimeoutError(millis: Int)");
+    expect(byFile("/main.hex", main)).toContain("throw(Errors.TimeoutError(1))");
+    expect(byFile("/main.hex", main)).toContain("Errors.TimeoutError(m) => m");
+    expect(byFile("/main.hex", main)).not.toContain("TimeoutFault");
+  });
+
+  test("a rename the session will not make is offered disabled, with its reason", () => {
+    const source = "module Main\n\nfault Bad\nfault BadFault\n";
+    const { session } = sessionOf({ "/main.hex": source });
+    const action = sole(actionsOn(session, "/main.hex", source, "Bad\n"));
+    expect(action.title).toBe("rename to `BadFault`");
+    expect(action.edits).toEqual([]);
+    expect(action.disabled).toContain("BadFault");
+  });
+});

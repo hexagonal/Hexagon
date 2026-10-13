@@ -2227,6 +2227,15 @@ const MATCH_ARM_REPORTS: ReachabilityReports = {
 type ThrowKind = "exception" | "fault";
 const THROW_KINDS: readonly ThrowKind[] = ["exception", "fault"];
 
+/** One dead alternative of a catch arm, as `#checkCatchReachability` judged it. */
+interface DeadCatchAlternative {
+  readonly pattern: Resolved.Pattern;
+  readonly kind: ThrowKind;
+  readonly above: readonly (readonly Resolved.Pattern[])[];
+  /** Its column's written catch-all above, where one is what shadows it. */
+  readonly shadower: string | undefined;
+}
+
 /**
  * The catch seat's sentences, one table per column (`#checkCatchReachability`).
  * `everything` is never read here: an arm behind its column's catch-all takes
@@ -2249,6 +2258,21 @@ const CATCH_ARM_REPORTS: Record<ThrowKind, ReachabilityReports> = {
     literal: "this literal case is unreachable; it is already handled above",
     covered: "this catch arm is unreachable; the arms above already cover it",
     armSpan: (arm) => arm.span,
+  },
+};
+
+/**
+ * The same, for an alternative of an or-pattern whose arm still runs: what is
+ * dead is the alternative, and the sentence says so.
+ */
+const CATCH_ALTERNATIVE_REPORTS: Record<ThrowKind, ReachabilityReports> = {
+  exception: {
+    ...CATCH_ARM_REPORTS.exception,
+    covered: "this alternative is unreachable; the arms above already cover it",
+  },
+  fault: {
+    ...CATCH_ARM_REPORTS.fault,
+    covered: "this alternative is unreachable; the arms above already cover it",
   },
 };
 
@@ -5364,6 +5388,8 @@ class Checker {
    * a fault's constructor is a pattern, at any depth (Exceptions §3, #1204).
    */
   #catchPattern = false;
+  /** While a `match` arm whose scrutinee the text makes an `Exn` is read. */
+  #exnScrutinee = false;
   /** This module's source text, where the host supplied it — see `CheckOptions`. */
   readonly #sourceText: string | undefined;
   /** The resolving package's name; see `CheckOptions.packageName`. */
@@ -14257,29 +14283,26 @@ class Checker {
       fault: { covering: [], shadower: undefined },
     };
     for (const arm of arms) {
-      const alternatives = coverageAlternatives(arm.pattern);
       const reached: Record<ThrowKind, (readonly Resolved.Pattern[])[]> = { exception: [], fault: [] };
-      for (const alternative of alternatives) {
+      const dead: DeadCatchAlternative[] = [];
+      let judged = 0;
+      for (const alternative of coverageAlternatives(arm.pattern)) {
+        // A broken alternative has had its report, and a repair of it could be
+        // of either kind, so neither column judges it or lets it cover
+        // (Pattern Matching §7.3's fourth tier, read over the open sum): a
+        // refused `fault x` beside a `_` is no second report.
+        if (this.#patternIsBroken(alternative)) continue;
+        judged += 1;
         const kind = this.#catchKind(arm, alternative);
         const column = columns[kind];
         const above = [...column.covering, ...reached[kind]];
-        const judged = arm.fault === true ? wildcardAt(alternative.span) : alternative;
-        if (!this.#coverageUseful([type], above, [judged])) {
-          if (column.shadower !== undefined) {
-            // Behind its column's catch-all. The arm is dead whole only where
-            // it has no alternative in the other column, which may still run.
-            this.#diagnostics.add({
-              severity: "error",
-              message: `this catch arm is unreachable; the arm \`${column.shadower}\` above ` +
-                (kind === "fault" ? "catches every fault" : "catches every exception"),
-              primary: alternatives.length === 1 ? arm.span : alternative.span,
-            });
-          } else {
-            this.#reportUnreachableArm(arm, judged, false, above, type, CATCH_ARM_REPORTS[kind]);
-          }
+        const pattern = arm.fault === true ? wildcardAt(alternative.span) : alternative;
+        if (!this.#coverageUseful([type], above, [pattern])) {
+          dead.push({ pattern, kind, above, shadower: column.shadower });
         }
-        if (!this.#patternIsBroken(alternative)) reached[kind].push([judged]);
+        reached[kind].push([pattern]);
       }
+      if (dead.length > 0) this.#reportDeadCatchAlternatives(arm, dead, dead.length === judged, type);
       if (arm.guard !== undefined) continue;
       for (const kind of THROW_KINDS) columns[kind].covering.push(...reached[kind]);
       if (this.#patternIsBroken(arm.pattern)) continue;
@@ -14287,6 +14310,66 @@ class Checker {
         columns.fault.shadower ??= `fault ${renderPattern(arm.pattern)}`;
       } else if (this.#coverageIrrefutable(arm.pattern, type)) {
         columns.exception.shadower ??= renderPattern(arm.pattern);
+      }
+    }
+  }
+
+  /**
+   * §5.3's unreachable reports for one catch arm, once its alternatives are
+   * judged. An arm none of whose alternatives can run is reported once, as the
+   * arm — naming the catch-all, or both, where they are what shadows it. An
+   * arm that still runs has its dead alternatives reported as alternatives,
+   * each where it stands: an or-pattern may mix kinds, and `_` above it kills
+   * only the exceptions' half.
+   */
+  #reportDeadCatchAlternatives(
+    arm: Resolved.MatchArm,
+    dead: readonly DeadCatchAlternative[],
+    whole: boolean,
+    type: Mono,
+  ): void {
+    const behind = (shadower: string, kind: ThrowKind): string =>
+      `the arm \`${shadower}\` above catches every ${kind}`;
+    if (whole) {
+      const shadowers = new Map<ThrowKind, string>();
+      for (const { kind, shadower } of dead) if (shadower !== undefined) shadowers.set(kind, shadower);
+      if (dead.every(({ shadower }) => shadower !== undefined)) {
+        const named = THROW_KINDS.flatMap((kind): [ThrowKind, string][] => {
+          const shadower = shadowers.get(kind);
+          return shadower === undefined ? [] : [[kind, shadower]];
+        });
+        this.#diagnostics.add({
+          severity: "error",
+          message: named.length === 1
+            ? `this catch arm is unreachable; ${behind(named[0]![1], named[0]![0])}`
+            : `this catch arm is unreachable; the arms ${
+              named.map(([, shadower]) => `\`${shadower}\``).join(" and ")
+            } above catch every exception and every fault`,
+          primary: arm.span,
+        });
+        return;
+      }
+      if (dead.length === 1) {
+        const [{ pattern, kind, above }] = dead as [DeadCatchAlternative];
+        this.#reportUnreachableArm(arm, pattern, false, above, type, CATCH_ARM_REPORTS[kind]);
+        return;
+      }
+      this.#diagnostics.add({
+        severity: "error",
+        message: CATCH_ARM_REPORTS.exception.covered,
+        primary: arm.span,
+      });
+      return;
+    }
+    for (const { pattern, kind, above, shadower } of dead) {
+      if (shadower !== undefined) {
+        this.#diagnostics.add({
+          severity: "error",
+          message: `this alternative is unreachable; ${behind(shadower, kind)}`,
+          primary: pattern.span,
+        });
+      } else {
+        this.#reportUnreachableArm(arm, pattern, false, above, type, CATCH_ALTERNATIVE_REPORTS[kind]);
       }
     }
   }
@@ -14313,6 +14396,8 @@ class Checker {
     pattern: Resolved.ConstructorPattern,
     thrown: Resolved.ExceptionItem,
   ): void {
+    this.#brokenPatterns.add(pattern);
+    if (this.#exnScrutinee) return;
     const seat = this.#currentMatchPattern === undefined
       ? "a pattern never takes `Exn` apart"
       : "a `match` never takes `Exn`";
@@ -14322,7 +14407,6 @@ class Checker {
         `and ${seat}; exceptions are inspected with \`try\`/\`catch\``,
       primary: pattern.nameSpan,
     });
-    this.#brokenPatterns.add(pattern);
   }
 
   #inferExceptionPattern(pattern: Resolved.Pattern, level: number): void {
@@ -18602,9 +18686,20 @@ class Checker {
     const outerCollisionFixes = this.#matchPatternCollisionFixes;
     this.#matchPatternCollisionFixes = new Map();
     const read = new Set<Resolved.MatchArm>();
+    // A scrutinee the text makes an `Exn` is refused whole below ("match
+    // requires a closed type"), and that one report says everything: an arm
+    // naming a throwable's constructor is then read as the broken pattern it
+    // is, without its own refusal (#1204). Asked of the text alone, so no order
+    // of the lines decides whether the arm reports.
+    const exnByText = byText && (() => {
+      const actual = this.#prune(scrutinee);
+      return actual.kind === "Constructor" && actual.name === "Exn";
+    })();
     const readPattern = (arm: Resolved.MatchArm): void => {
       read.add(arm);
       this.#matchArmTop = true;
+      const outerExnScrutinee = this.#exnScrutinee;
+      this.#exnScrutinee = exnByText;
       const outerGuardSeat = this.#armGuardSeat;
       const outerHasGuard = this.#armHasGuard;
       this.#armGuardSeat = true;
@@ -18616,6 +18711,7 @@ class Checker {
         // report cannot follow what another line made of the scrutinee.
         this.#inferMatchPattern(arm.pattern, undecided ? ERROR : scrutinee, level);
       } finally {
+        this.#exnScrutinee = outerExnScrutinee;
         this.#currentMatchPattern = outerMatchPattern;
         this.#matchArmTop = outerArmTop;
         this.#armGuardSeat = outerGuardSeat;

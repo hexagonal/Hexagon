@@ -4737,7 +4737,9 @@ class JavaScriptEmitter {
       return [`${prefix}const ${name} = __record => __record;`];
     }
     if (item.kind === "Exception") {
-      const exceptionHelper = this.#useHelper("exception");
+      // The helper only where a constructor calls it: `Prelude.hex`'s one
+      // throwable is `AssumptionFault`, which builds its own `Error`.
+      const exceptionHelper = isAssumptionFault(item) ? "" : this.#useHelper("exception");
       const name = this.#identifier(item.binding.symbol, item.binding.name);
       const parameters = item.slots.map(({ field }) => slotParameter(field));
       const message = item.slots.some(({ field }) => field === "message")
@@ -7238,7 +7240,11 @@ class JavaScriptEmitter {
     }
     // Exceptions §7.1, §7.4: the kind is the name's ending, read on the domestic
     // side only — a foreign throwable is never a fault, whatever it is called.
-    const fault = `${error} != null && typeof ${error}.$hex === "string" && ${error}.name.endsWith("Fault")`;
+    // `name`'s type is asked first: §7.1's spoofing residue routes a foreign
+    // object with a coincidental string `$hex` here, and the discriminator
+    // must not throw a second failure in place of the one it is sorting.
+    const faultName = `typeof ${error}.name === "string" && ${error}.name.endsWith("Fault")`;
+    const fault = `${error} != null && typeof ${error}.$hex === "string" && ${faultName}`;
     for (const [index, arm] of arms.entries()) {
       for (const alternative of alternatives[index]!) {
         const plan = this.#emitPatternPlan(
@@ -7255,7 +7261,7 @@ class JavaScriptEmitter {
         const kind = arm.fault === true
           ? [fault]
           : catchesEverything(alternative)
-          ? [foreign === undefined ? `!(${fault})` : `${foreign} || !${error}.name.endsWith("Fault")`]
+          ? [foreign === undefined ? `!(${fault})` : `${foreign} || !(${faultName})`]
           : [];
         const tests = [...kind, ...plan.tests];
         const condition = tests.length === 0
@@ -14844,10 +14850,10 @@ function renderHelper(
       // behaviour. Both halves would land together, and `seqToIterable` is half
       // of R1 and the internal channel's driver, so it is #232's to weigh.
       //
-      // **`ReentrancyFault`, a declared Hexagon exception** (§7.4), not a
+      // **`ReentrancyFault`, a declared Hexagon fault** (§7.4), not a
       // manufactured `TypeError`. The condition is one Hexagon detects in state
       // Hexagon owns, so it leaves through the domestic door: Exceptions §1's
-      // one-door doctrine puts every Hexagon-originated exception behind a
+      // one-door doctrine puts every Hexagon-originated throwable behind a
       // declared constructor and reserves `JsError` for what JavaScript threw.
       // §7.2's `TypeError` is the platform's own voice — the minimum protocol
       // check native iteration performs, reporting foreign misbehaviour — and
@@ -14856,10 +14862,10 @@ function renderHelper(
       //
       // Constructed inline as Exceptions §7.1's representation rather than by
       // calling `Seq.hex`'s constructor, exactly as the emitted `IndexFault` and
-      // `SliceFault` are: exception identity is the (module, name) pair — `name`
+      // `SliceFault` are: a throwable's identity is the (module, name) pair — `name`
       // under the declaring module's `$hex` brand, `HEX_SEQ` here (#488) — chosen
       // over prototype identity precisely so that every module's copy of this
-      // helper and the one `.hex` declaration coincide on one nominal exception. Fresh per refusal (§7.3 of Exceptions), so the stack points
+      // helper and the one `.hex` declaration coincide on one nominal fault. Fresh per refusal (§7.3 of Exceptions), so the stack points
       // at the reentrant pull. The message is a diagnostic rendering and is
       // non-normative — recognition is the `name`, never the text.
       //

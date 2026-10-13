@@ -61,6 +61,13 @@ describe("`fault` declarations (§2)", () => {
       .toEqual([{ newName: "InvariantFault" }]);
   });
 
+  test("a name that is only the word keeps it in the offer", () => {
+    expect(compileMain(main("fault Error")).diagnostics.map(({ renameRepair }) => renameRepair))
+      .toEqual([{ newName: "ErrorFault" }]);
+    expect(compileMain(main("exception Fault")).diagnostics.map(({ renameRepair }) => renameRepair))
+      .toEqual([{ newName: "FaultError" }]);
+  });
+
   test("only a fault's name ends in `Fault`: both repairs offered", () => {
     const source = main("exception TimeoutFault(millis: Int)");
     const [diagnostic, ...rest] = compileMain(source).diagnostics;
@@ -170,6 +177,52 @@ describe("a catch-all lets faults through (§5.3)", () => {
     expect((exports["probe"] as (which: number) => number)(0)).toBe(-2);
   });
 
+  test("beside a `JsError` arm that does not take it, `_` catches every foreign throw, `…Fault`-named or none", async () => {
+    const exports = await runMain(main(
+      "export fun probe(k: () ->! Int): Int =",
+      "    try",
+      "        k!()",
+      "    catch",
+      "        JsError(_) when False => 1",
+      "        _ => 2",
+      "        fault _ => 3",
+    ));
+    const probe = exports["probe"] as (k: () => number) => number;
+    expect(probe(() => {
+      throw "oops";
+    })).toBe(2);
+    expect(probe(() => {
+      throw null;
+    })).toBe(2);
+    expect(probe(() => {
+      const error = new Error("named like one");
+      error.name = "BoomFault";
+      throw error;
+    })).toBe(2);
+  });
+
+  test("a branded object with no string `name` cannot make the discriminator throw", async () => {
+    const exports = await runMain(main(
+      "export fun loose(k: () ->! Int): Int =",
+      "    try",
+      "        k!()",
+      "    catch",
+      "        _ => 2",
+      "export fun strict(k: () ->! Int): Int =",
+      "    try",
+      "        k!()",
+      "    catch",
+      "        fault _ => 3",
+    ));
+    const spoof = { $hex: "Elsewhere" };
+    expect((exports["loose"] as (k: () => number) => number)(() => {
+      throw spoof;
+    })).toBe(2);
+    expect(thrownBy(() => (exports["strict"] as (k: () => number) => number)(() => {
+      throw spoof;
+    }))).toBe(spoof);
+  });
+
   test("a foreign throw is no fault: `_` catches it, `fault e` does not", async () => {
     const exports = await runMain(main(
       "export fun loose(k: () ->! Int): Int =",
@@ -211,6 +264,27 @@ describe("a catch-all lets faults through (§5.3)", () => {
     expect(thrownBy(() => (exports["probe"] as () => number)()))
       .toMatchObject({ name: "IndexFault" });
     expect((exports["caught"] as () => number)()).toBe(-2);
+  });
+
+  test("an imported nullary throwable's reference constructs, bare, qualified and aliased (#371)", async () => {
+    const exports = await runProject([
+      ["/checks.hex", "module Checks\n\nexport fault NoneFault\nexport exception Gone\n"],
+      ["/main.hex", main(
+        "import Checks",
+        "import Checks as C",
+        "export let aliased: Exn = C.NoneFault",
+        "export let qualified: Exn = Checks.Gone",
+        "export fun probe(): Int =",
+        "    try",
+        "        throw(C.NoneFault)",
+        "    catch",
+        "        C.NoneFault => 1",
+      )],
+    ]);
+    expect(exports["aliased"]).toBeInstanceOf(Error);
+    expect(exports["aliased"]).toMatchObject({ name: "NoneFault", $hex: "Checks" });
+    expect(exports["qualified"]).toMatchObject({ name: "Gone", $hex: "Checks" });
+    expect((exports["probe"] as () => number)()).toBe(1);
   });
 
   test("a fault from another module is caught by `fault e`, by the name's ending", async () => {
@@ -291,9 +365,32 @@ describe("reachability by kind (§5.3)", () => {
     );
     const diagnostics = compileMain(source).diagnostics;
     expect(diagnostics.map(({ message }) => message))
-      .toEqual(["this catch arm is unreachable; the arm `_` above catches every exception"]);
+      .toEqual(["this alternative is unreachable; the arm `_` above catches every exception"]);
     const { start, end } = diagnostics[0]!.primary;
     expect(source.slice(start.offset, end.offset)).toBe("ParseError(_)");
+  });
+
+  test("an or-pattern dead in both columns is one report, as the arm, naming both catch-alls", () => {
+    expect(arms("_ => 0", "fault _ => 1", "ParseError(_) | IndexFault(_, _) => 2")).toEqual([
+      "this catch arm is unreachable; the arms `_` and `fault _` above catch every exception and every fault",
+    ]);
+    expect(arms("fault _ => 1", "_ => 0", "IndexFault(_, _) | ParseError(_) => 2")).toEqual([
+      "this catch arm is unreachable; the arms `_` and `fault _` above catch every exception and every fault",
+    ]);
+  });
+
+  test("an alternative covered by a constructor above is named as an alternative", () => {
+    expect(arms("ParseError(_) => 0", "ParseError(_) | IndexFault(_, _) => 1"))
+      .toEqual(["exception `ParseError` is already caught above"]);
+    expect(arms("ParseError(1) => 0", "ParseError(2) => 0", "ParseError(1) | ParseError(2) | KeyFault => 1"))
+      .toEqual([
+        "this alternative is unreachable; the arms above already cover it",
+        "this alternative is unreachable; the arms above already cover it",
+      ]);
+  });
+
+  test("a refused `fault` pattern is judged in neither column", () => {
+    expect(arms("_ | fault x => 0")).toEqual(["a `fault` pattern is a whole catch arm's pattern"]);
   });
 
   test("a guarded catch-all shadows nothing", () => {
@@ -332,9 +429,51 @@ describe("`fault e` is a whole catch arm's pattern (§5.2)", () => {
     ))).toContain(refused);
   });
 
+  test("at a `let` head", () => {
+    expect(projectDiagnostics(main(
+      "export fun f(e: Exn): Int =",
+      "    let fault x = e",
+      "    1",
+    ))).toEqual([refused]);
+  });
+
+  test("`fault` before a constructor is refused with the repair that removes it; the arm still catches", async () => {
+    const source = main(
+      "fault MyFault(code: Int)",
+      "export fun probe(): Int =",
+      "    try",
+      "        throw(MyFault(4))",
+      "    catch",
+      "        fault MyFault(c) => c",
+    );
+    const diagnostics = compileMain(source).diagnostics;
+    expect(diagnostics.map(({ message }) => message)).toEqual([
+      "a `fault` pattern is `fault` and a name or `_`, catching every fault; " +
+      "to catch `MyFault` alone, write its pattern without `fault`",
+    ]);
+    const [fix] = diagnostics[0]!.fixes!;
+    expect(fix!.message).toBe("remove `fault`");
+    const { span, replacement } = fix!.edits[0]!;
+    const repaired = source.slice(0, span.start.offset) + replacement + source.slice(span.end.offset);
+    expect(repaired).toContain("        MyFault(c) => c");
+    expect((await runMain(repaired))["probe"] as () => number).toBeDefined();
+    expect(((await runMain(repaired))["probe"] as () => number)()).toBe(4);
+  });
+
   test("`fault as e` and `fault when g` bind a variable named `fault`", async () => {
     expect(catching("fault as whole => 0")).toEqual([]);
     expect(catching("fault when True => 0")).toEqual([]);
+  });
+});
+
+describe("a `match` on an `Exn` scrutinee", () => {
+  test("is refused once, at the scrutinee; its throwable arms add nothing", () => {
+    expect(projectDiagnostics(main(
+      "export fun f(e: Exn): Int =",
+      "    match e",
+      "        IndexFault(_, _) => 1",
+      "        _ => 2",
+    ))).toEqual(["match requires a closed type; exceptions are inspected with `try`/`catch`"]);
   });
 });
 
@@ -344,6 +483,13 @@ describe("the runtime kind is the name's ending (§7.1, §7.6)", () => {
     const error = thrownBy(() => (exports["at"] as (n: number) => number)(4)) as Record<string, unknown>;
     expect(error["name"]).toBe("IndexFault");
     expect(Object.keys(error).sort()).toEqual(["$hex", "index", "name", "size"]);
+  });
+
+  test("`Prelude`'s emitted module builds `AssumptionFault` alone, with no unused helper", () => {
+    const prelude = compileMain(main("export let e: Exn = AssumptionFault(Map.KeyFault)")).modules
+      .find(({ name }) => name === "Hex.Prelude")!;
+    expect(prelude.javascript.text).toContain("{ cause: cause }");
+    expect(prelude.javascript.text).not.toContain("__exception");
   });
 
   test("an exported fault ships `.is`, and `isHexError` answers for it", async () => {
