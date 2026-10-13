@@ -10,8 +10,9 @@
  * variable), and `npm test` runs both.
  */
 
-import { defineConfig } from "vitest/config";
+import { defineConfig, mergeConfig } from "vitest/config";
+import base from "./vitest.config.js";
 
-export default defineConfig({
+export default mergeConfig(base, defineConfig({
   test: { env: { HEXAGON_TEST_LINKED_ROOT: "1" } },
-});
+}));
