@@ -34,9 +34,10 @@ export function collectEffectVariables(
   switch (type.kind) {
     case "Function":
       for (const parameter of type.parameters) collectEffectVariables(parameter, found);
-      if (typeof type.effect === "object") {
-        if ("join" in type.effect) for (const part of type.effect.join) found.add(part);
-        else found.add(type.effect.variable);
+      for (const colour of [type.effect, type.fail]) {
+        if (typeof colour !== "object") continue;
+        if ("join" in colour) for (const part of colour.join) found.add(part);
+        else found.add(colour.variable);
       }
       collectEffectVariables(type.result, found);
       return found;
@@ -80,7 +81,7 @@ export function collectEffectVariables(
 export function carriesEffect(type: Typed.Type): boolean {
   switch (type.kind) {
     case "Function":
-      return type.effect !== undefined ||
+      return type.effect !== undefined || type.fail !== undefined ||
         type.parameters.some(carriesEffect) ||
         carriesEffect(type.result);
     case "Vector":

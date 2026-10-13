@@ -211,7 +211,10 @@ export interface FunctionType {
   readonly kind: "Function";
   readonly parameters: readonly Type[];
   readonly result: Type;
+  /** The world colour (`spec/effects.md` §1). */
   readonly effect?: Effect;
+  /** The fail colour (`spec/effects.md` §1): absent where the arrow cannot fail. */
+  readonly fail?: Effect;
 }
 
 export interface ErrorType {
@@ -399,7 +402,8 @@ export interface Module {
    * `${constraint identity}:${subject key} ${member symbol}`: whether each spine
    * arrow of the member is impure at the instance, its body read with every
    * callback pure, or in error where the body failed (§3.5). An importer's call
-   * at the instance follows it.
+   * at the instance follows it. That key is the world colour's; the fail
+   * colour's is the same followed by ` fail` (§1).
    */
   readonly instanceColours?: ReadonlyMap<string, readonly InstanceColour[]>;
   /**
