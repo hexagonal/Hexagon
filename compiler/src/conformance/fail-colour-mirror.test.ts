@@ -2,14 +2,13 @@
  * Step 8a's mirror (`support/mirror.ts`), always on for these programs: until
  * the fail colour has spellings and sources of its own, `->!` gives an arrow
  * both colours and `->` neither, so every fail colour mirrors its world colour
- * and every report the fail colour makes is a world report's twin (Effects
- * §1). Each program reaches a step of the machinery the fail colour runs on its
- * own; the whole suite runs the same check under `HEX_MIRROR`.
+ * (Effects §1), and what the two colours report about one site is one report.
+ * Each program reaches a step of the machinery the fail colour runs on its
+ * own; the whole suite runs the type check under `HEX_MIRROR`.
  */
 
 import { describe, expect, it } from "vitest";
-import { failReportsOf } from "../passes/checker/checker.js";
-import { mirrorDivergence, reportDivergence } from "../support/mirror.js";
+import { mirrorDivergence } from "../support/mirror.js";
 import { compileFiles } from "../support/test-project.js";
 
 const world = `extern from "./world.js"
@@ -18,18 +17,26 @@ const world = `extern from "./world.js"
 
 const prelude = "module Main\n\n" + world + "let save0(): Unit = save!(\"x\")\n";
 
-/** Every module's divergence, and how many reports its fail colour made. */
-function mirrored(source: string): { readonly divergences: readonly string[]; readonly failReports: number } {
+/**
+ * Every module's divergence, and how many reports the main module made, each
+ * one once: a report two colours made about one site is one report.
+ */
+function mirrored(source: string): { readonly divergences: readonly string[]; readonly reports: number } {
   const project = compileFiles([["/world.js", ""], ["/main.hex", prelude + source]]);
   const divergences: string[] = [];
-  let failReports = 0;
+  let reports = 0;
   for (const module of project.modules) {
-    const reports = failReportsOf.get(module.typed) ?? [];
-    failReports += module.source.path === "/main.hex" ? reports.length : 0;
-    const divergence = mirrorDivergence(module.typed) ?? reportDivergence(module.typed.diagnostics, reports);
+    const divergence = mirrorDivergence(module.typed);
     if (divergence !== undefined) divergences.push(`${module.source.path}: ${divergence}`);
+    if (module.source.path !== "/main.hex") continue;
+    const keys = module.typed.diagnostics.map(({ message, primary }) =>
+      `${primary.start.offset}:${primary.end.offset} ${message}`
+    );
+    const twice = keys.find((key, index) => keys.indexOf(key) !== index);
+    if (twice !== undefined) divergences.push(`/main.hex reports twice: ${twice}`);
+    reports += keys.length;
   }
-  return { divergences, failReports };
+  return { divergences, reports };
 }
 
 describe("the fail colour mirrors the world colour (step 8a)", () => {
@@ -44,11 +51,11 @@ export let go(j: Job, f: () ->! Unit): Unit = with!(j, f)
   });
 
   it("at a `>->` face its body refuses, which reads as its fix on both colours", () => {
-    const { divergences, failReports } = mirrored(`export let mk(cb: () ->! Unit): () >-> Unit = () => save!("x")
+    const { divergences, reports } = mirrored(`export let mk(cb: () ->! Unit): () >-> Unit = () => save!("x")
 export let use(): Unit = mk(() => ())!()
 `);
     expect(divergences).toEqual([]);
-    expect(failReports).toBeGreaterThan(0);
+    expect(reports).toBeGreaterThan(0);
   });
 
   it("at a `>->` face over a body in error", () => {
@@ -58,13 +65,13 @@ export let use(): Unit = mk(() => ())!()
   });
 
   it("at a refused tie, whose parameters read as their fix", () => {
-    const { divergences, failReports } = mirrored(`fun b(f, g, c: Bool, n: Int): Unit =
+    const { divergences, reports } = mirrored(`fun b(f, g, c: Bool, n: Int): Unit =
     let h = if c then f else g
     h!()
     if n <= 0 then () else b!(f, g, c, n - 1)
 `);
     expect(divergences).toEqual([]);
-    expect(failReports).toBeGreaterThan(0);
+    expect(reports).toBeGreaterThan(0);
   });
 
   it("at a knot refused for handing on a function it made, silenced on both colours", () => {
@@ -79,7 +86,7 @@ export let use(): Unit = mk(() => ())!()
   });
 
   it("at a constraint seat whose body does more than its contract", () => {
-    const { divergences, failReports } = mirrored(`constraint Each<a> =
+    const { divergences, reports } = mirrored(`constraint Each<a> =
     each(r: a, f: () ->! Unit) >-> Unit
 export record Job = { n: Int }
 honor Each<Job> =
@@ -88,7 +95,7 @@ honor Each<Job> =
         f!()
 `);
     expect(divergences).toEqual([]);
-    expect(failReports).toBeGreaterThan(0);
+    expect(reports).toBeGreaterThan(0);
   });
 });
 
@@ -112,12 +119,5 @@ describe("the mirror check", () => {
       arrow({ join: [1, 3] }, { join: [2, 4] }),
       arrow({ variable: 1 }, { variable: 4 }),
     ])).toBeUndefined();
-  });
-
-  it("refuses a report the fail colour alone made", () => {
-    const span = { fileId: 0, start: { offset: 1 }, end: { offset: 2 } };
-    const report = { severity: "error", message: "m", primary: span } as never;
-    expect(reportDivergence([report], [report])).toBeUndefined();
-    expect(reportDivergence([], [report])).toContain("the fail colour alone reports \"m\"");
   });
 });

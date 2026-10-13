@@ -3,7 +3,7 @@
 import * as Diagnostics from "./support/diagnostics.js";
 import { INTRINSIC_TYPE_ID_BASE, REPRESENTATION_RECORD_KEYS } from "./intrinsics.js";
 import { ImportRepairs } from "./support/import-placement.js";
-import { mirrorDivergence, reportDivergence } from "./support/mirror.js";
+import { mirrorDivergence } from "./support/mirror.js";
 import { relativeSpecifier } from "./support/paths.js";
 import * as Source from "./support/source.js";
 import type * as Parsed from "./syntax/parsed/index.js";
@@ -35,7 +35,6 @@ import {
 import { internalNameInputs, moduleInterface, resolve } from "./passes/resolver/resolver.js";
 import {
   check,
-  failReportsOf,
   homeCompanionOperations,
   type ProgramInstanceProvider,
   type ProgramOperation,
@@ -820,14 +819,13 @@ export function compileProject(
 /**
  * Test-only: step 8a's mirror check (`support/mirror.ts`), where the run asks
  * for it with `HEX_MIRROR`: every module's fail colours mirror its world
- * colours, and every report the fail colour made is a world report's twin.
+ * colours.
  */
 function checkMirror(project: CompiledProject): void {
   const environment = (globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env;
   if (environment?.["HEX_MIRROR"] === undefined) return;
   for (const module of project.modules) {
-    const divergence = mirrorDivergence(module.typed) ??
-      reportDivergence(module.typed.diagnostics, failReportsOf.get(module.typed) ?? []);
+    const divergence = mirrorDivergence(module.typed);
     if (divergence !== undefined) {
       throw new Error(`fail colour does not mirror the world colour in ${module.source.path}: ${divergence}`);
     }

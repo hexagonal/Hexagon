@@ -15,7 +15,6 @@
  * sides, so a fail colour that is the world colour itself is a divergence.
  */
 
-import type * as Diagnostics from "./diagnostics.js";
 import type * as Typed from "../syntax/typed/index.js";
 
 type Effect = Typed.Effect | undefined;
@@ -104,20 +103,4 @@ export function mirrorDivergence(root: unknown): string | undefined {
   };
   walk(root, "module");
   return found;
-}
-
-/**
- * The first report the fail colour made that the world colour did not, or
- * nothing: while the colours mirror, every fail report is the twin of a world
- * report with the same words at the same place.
- */
-export function reportDivergence(
-  world: readonly Diagnostics.Diagnostic[],
-  fail: readonly Diagnostics.Diagnostic[],
-): string | undefined {
-  const key = ({ message, primary }: Diagnostics.Diagnostic): string =>
-    `${Number(primary.fileId)}:${primary.start.offset}:${primary.end.offset} ${message}`;
-  const made = new Set(world.map(key));
-  const lone = fail.find((report) => !made.has(key(report)));
-  return lone === undefined ? undefined : `the fail colour alone reports "${lone.message}" at ${key(lone).split(" ")[0]}`;
 }

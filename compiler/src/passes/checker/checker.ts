@@ -188,13 +188,6 @@ export interface CheckOptions {
   readonly patternExports?: ReadonlyMap<string, readonly string[]>;
 }
 
-/**
- * Test-only (step 8a's mirror check, `support/mirror.ts`): the reports each
- * module's fail colour made, which the module drops (`#failReports`). Filled
- * on every check, a list the checker keeps anyway; only the mirror reads it.
- */
-export const failReportsOf = new WeakMap<Typed.Module, readonly Diagnostics.Diagnostic[]>();
-
 export function check(
   module: Resolved.Module,
   options: CheckOptions = {},
@@ -2067,6 +2060,17 @@ const ERROR_COLOUR: ErrorColour = { kind: "ErrorColour" };
  */
 function axisKey(key: string, axis: Axis): string {
   return axis === "fail" ? `${key} fail` : key;
+}
+
+/** A report whose words depend on its colours, as the bag carries it (`#colourReport`). */
+interface ColourReportTag {
+  readonly key: string;
+  readonly axis: Axis;
+  readonly render: (axes: readonly Axis[]) => Diagnostics.Diagnostic;
+}
+
+function isColourReportTag(tag: unknown): tag is ColourReportTag {
+  return typeof tag === "object" && tag !== null && "render" in tag && "key" in tag;
 }
 
 /** Records a written `>->`'s refusal, or its standing over a body in error, on one colour (`#readRefusedArrows`). */
@@ -4382,8 +4386,60 @@ class Checker {
   }
 
   /**
+   * A report whose words depend on the colours it is about (Effects §1): made
+   * now on the colour under way, in that colour's words, and tagged, so that
+   * where the other colour reports the same `key` the two are one report,
+   * `render` of both colours (`#mergeColourReports`). The key names the rule
+   * and the site: the parameters, call, pin or seat.
+   */
+  #colourReport(key: string, render: (axes: readonly Axis[]) => Diagnostics.Diagnostic): void {
+    const axis = this.#currentAxis;
+    const tag: ColourReportTag = { key, axis, render };
+    this.#diagnostics.add(render([axis]), tag);
+  }
+
+  /**
+   * One report across both colours (Effects §1): each report the fail colour
+   * made joins the world colour's report about the same site, the two
+   * rendered as one naming both colours, or stands alone in its own words. A
+   * report whose words name no colour (a tie, a captured colour, a knot's
+   * refusal) is the world's report again, and is dropped.
+   */
+  #mergeColourReports(): void {
+    const reports = this.#diagnostics;
+    const sameReport = (left: Diagnostics.Diagnostic, right: Diagnostics.Diagnostic): boolean =>
+      left.message === right.message && Number(left.primary.fileId) === Number(right.primary.fileId) &&
+      left.primary.start.offset === right.primary.start.offset && left.primary.end.offset === right.primary.end.offset;
+    for (let index = 0; index < this.#failReports.count; index += 1) {
+      const report = this.#failReports.at(index)!;
+      const tag = this.#failReports.tagAt(index);
+      if (isColourReportTag(tag)) {
+        const twin = reports.findTagged((other) => isColourReportTag(other) && other.axis === "world" && other.key === tag.key);
+        if (twin >= 0) {
+          const world = reports.tagAt(twin) as ColourReportTag;
+          reports.replace(twin, world.render(AXES));
+        } else {
+          reports.add(report, tag);
+        }
+        continue;
+      }
+      let twinned = false;
+      for (let other = 0; other < reports.count && !twinned; other += 1) twinned = sameReport(reports.at(other)!, report);
+      if (!twinned) reports.add(report);
+    }
+    this.#failReports.discardSince(0);
+  }
+
+  /** The module's reports, the two colours' made one (`#mergeColourReports`). */
+  #finalReports(): readonly Diagnostics.Diagnostic[] {
+    this.#mergeColourReports();
+    return this.#diagnostics.toArray();
+  }
+
+  /**
    * Runs one colour's step of the machinery (Effects §1): the world colour's
-   * reports are the module's, and the fail colour's go to `#failReports`.
+   * reports are the module's, and the fail colour's are staged in
+   * `#failReports` until the module's end (`#mergeColourReports`).
    */
   #onAxis<T>(axis: Axis, run: () => T): T {
     const enclosing = this.#currentAxis;
@@ -5598,10 +5654,9 @@ class Checker {
   #diagnostics: Diagnostics.Bag;
   /**
    * The reports the fail colour's runs of the machinery make (Effects §1),
-   * kept apart from the world colour's: until the fail colour has spellings of
-   * its own it mirrors the world colour, so each is a twin of a world report,
-   * which `#onAxis` keeps from being made twice. The mirror check reads them
-   * (`failReportsOf`).
+   * staged apart from the world colour's so every count a world run reads
+   * stays its own. At the module's end each joins its world twin as one
+   * report naming both colours, or stands alone (`#mergeColourReports`).
    */
   readonly #failReports = new Diagnostics.Bag();
   /** The colour the step under way solves (`#onAxis`): what a hard case met now is recorded on. */
@@ -6641,9 +6696,8 @@ class Checker {
       companionImports: [...this.#companionImports.values()],
       ...(this.#modulePath === undefined ? {} : { modulePath: this.#modulePath }),
       span: module.span,
-      diagnostics: this.#diagnostics.toArray(),
+      diagnostics: this.#finalReports(),
     };
-    failReportsOf.set(typed, this.#failReports.toArray());
     return typed;
   }
 
