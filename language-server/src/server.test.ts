@@ -140,6 +140,15 @@ function decodeTokens(
  */
 const PUBLICATION_TIMEOUT_MS = 3_000;
 
+/**
+ * The same, for a wait that stands behind compiling the whole standard library
+ * from source (a trusted standard-library project). That compile is work, not
+ * the debounce: on a slow runner it alone takes most of three seconds. Every
+ * other wait stands behind the checked standard library the process keeps
+ * (#987), which `beforeAll` has already warmed.
+ */
+const STANDARD_LIBRARY_PUBLICATION_TIMEOUT_MS = 15_000;
+
 interface Harness {
   readonly client: ProtocolConnection;
   readonly capabilities: InitializeResult["capabilities"];
@@ -150,6 +159,7 @@ interface Harness {
     uri: string,
     matches: (diagnostics: readonly Diagnostic[]) => boolean,
     waitingFor: string,
+    within?: number,
   ) => Promise<readonly Diagnostic[]>;
   /** Whatever has already arrived for a URI, without waiting for more. */
   readonly publishedFor: (uri: string) => readonly Diagnostic[] | undefined;
@@ -247,14 +257,14 @@ async function harness(
      * consumed rather than left behind to answer somebody else's wait. A server
      * that never says it fails here by timing out, naming what it was owed.
      */
-    diagnosticsUntil: (uri, matches, waitingFor) =>
+    diagnosticsUntil: (uri, matches, waitingFor, within = PUBLICATION_TIMEOUT_MS) =>
       new Promise((resolve, reject) => {
         const timer = setTimeout(() => {
           waiting.delete(uri);
           reject(new Error(
-            `no publication for ${uri} was ${waitingFor} within ${PUBLICATION_TIMEOUT_MS}ms`,
+            `no publication for ${uri} was ${waitingFor} within ${within}ms`,
           ));
-        }, PUBLICATION_TIMEOUT_MS);
+        }, within);
         const consider = (diagnostics: Diagnostic[]): void => {
           if (!matches(diagnostics)) {
             nextPublication(uri, consider);
@@ -303,6 +313,7 @@ describe("the Hexagon language server", () => {
         trusted.uriOf("broken.hex"),
         (reported) => reported.length > 0,
         "the deliberate project error to be reported",
+        STANDARD_LIBRARY_PUBLICATION_TIMEOUT_MS,
       );
       expect(diagnostics.map(({ message }) => message)).toEqual(["unknown name `nope`"]);
       for (const name of Object.keys(STDLIB_SOURCES)) {
