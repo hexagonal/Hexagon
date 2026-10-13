@@ -298,8 +298,38 @@ interface FunctionMono {
    * so unification, pruning, the occurs check, generalization, and
    * instantiation reach them by walking the structure they already walk, and
    * there is one law rather than two.
+   *
+   * This is the **world colour** (Effects §1).
    */
   readonly effect?: Mono;
+  /**
+   * The arrow's **fail colour** (Effects §1): whether a call through it may
+   * fail. Absent is silent, unable to fail, as `effect`'s absence is pure. It
+   * holds the same kinds of colour as `effect` and is solved on its own by the
+   * same machinery: the two slots never meet in a join, a hard case or a tie.
+   */
+  readonly fail?: Mono;
+}
+
+/**
+ * A function type's colour slots, each mapped where it is present: an absent
+ * slot stays absent, so a copy keeps every silence it was given (Effects §1).
+ */
+function mapColours(
+  arrow: FunctionMono,
+  map: (colour: Mono) => Mono,
+): { readonly effect?: Mono; readonly fail?: Mono } {
+  return {
+    ...(arrow.effect === undefined ? {} : { effect: map(arrow.effect) }),
+    ...(arrow.fail === undefined ? {} : { fail: map(arrow.fail) }),
+  };
+}
+
+/** A function type's present colour slots, world first: what a structural walk visits. */
+function colourSlots(arrow: FunctionMono): readonly Mono[] {
+  return arrow.fail === undefined
+    ? arrow.effect === undefined ? [] : [arrow.effect]
+    : arrow.effect === undefined ? [arrow.fail] : [arrow.effect, arrow.fail];
 }
 
 /**
@@ -25113,7 +25143,9 @@ class Checker {
     const actual = this.#prune(type);
     switch (actual.kind) {
       case "Function":
-        for (const part of this.#colourParts(actual.effect ?? PURE)) found.add(part);
+        for (const colour of colourSlots(actual)) {
+          for (const part of this.#colourParts(colour)) found.add(part);
+        }
         for (const parameter of actual.parameters) this.#arrowColours(parameter, found);
         this.#arrowColours(actual.result, found);
         break;
@@ -25869,7 +25901,12 @@ class Checker {
         // An absent slot is the pure constant, so an inferred function type
         // meets a compiler-synthesized one without either side needing a slot
         // it was never given.
-        unifyChild(actualLeft.effect ?? PURE, actualRight.effect ?? PURE);
+        if (unifyChild(actualLeft.effect ?? PURE, actualRight.effect ?? PURE)) return;
+      }
+      // The fail colour, on its own (Effects §1): componentwise, as every
+      // other part of the two types is.
+      if (actualLeft.fail !== undefined || actualRight.fail !== undefined) {
+        unifyChild(actualLeft.fail ?? PURE, actualRight.fail ?? PURE);
       }
       return;
     } else if (actualLeft.kind === "Tuple" && actualRight.kind === "Tuple") {
@@ -26566,7 +26603,7 @@ class Checker {
         // binding inside it generalizes it (Effects §3.4: a captured colour
         // never generalizes at the binding that captures it), and no binding
         // inside it closes an opening (#1119).
-        if (actual.effect !== undefined) this.#lowerLevels(actual.effect, level);
+        for (const colour of colourSlots(actual)) this.#lowerLevels(colour, level);
         return;
       }
       case "Join":
@@ -26612,7 +26649,7 @@ class Checker {
       return (
         actual.parameters.some((parameter) => this.#occurs(variable, parameter)) ||
         this.#occurs(variable, actual.result) ||
-        (actual.effect !== undefined && this.#occurs(variable, actual.effect))
+        colourSlots(actual).some((colour) => this.#occurs(variable, colour))
       );
     }
     if (actual.kind === "Union") {
@@ -29127,9 +29164,7 @@ class Checker {
           this.#replaceVariables(parameter, replacements)
         ),
         result: this.#replaceVariables(actual.result, replacements),
-        ...(actual.effect === undefined
-          ? {}
-          : { effect: this.#replaceVariables(actual.effect, replacements) }),
+        ...mapColours(actual, (colour) => this.#replaceVariables(colour, replacements)),
       };
     }
     return actual;
@@ -29531,7 +29566,9 @@ class Checker {
     const each = (node: Mono): void => void this.#colourVariables(node, found);
     switch (actual.kind) {
       case "Function":
-        for (const part of this.#colourParts(actual.effect ?? PURE)) found.set(part.id, part);
+        for (const colour of colourSlots(actual)) {
+          for (const part of this.#colourParts(colour)) found.set(part.id, part);
+        }
         actual.parameters.forEach(each);
         each(actual.result);
         break;
@@ -29947,7 +29984,7 @@ class Checker {
           // variable read as absent, and an absent variable defaults to `inv`:
           // item 7 declined it, and a computed binding's face was pinned
           // monomorphic for no reason anyone had stated (#364).
-          if (actual.effect !== undefined) walk(actual.effect, sign);
+          for (const colour of colourSlots(actual)) walk(colour, sign);
           return;
         case "Tuple":
           for (const element of actual.elements) walk(element, sign);
@@ -30801,7 +30838,7 @@ class Checker {
     if (actual.kind === "Function") {
       for (const parameter of actual.parameters) this.#collectVariables(parameter, found);
       this.#collectVariables(actual.result, found);
-      if (actual.effect !== undefined) this.#collectVariables(actual.effect, found);
+      for (const colour of colourSlots(actual)) this.#collectVariables(colour, found);
     }
     if (actual.kind === "Union") {
       for (const argument of actual.arguments) this.#collectVariables(argument, found);
@@ -30973,7 +31010,7 @@ class Checker {
           kind: "Function",
           parameters: actual.parameters.map(copy),
           result: copy(actual.result),
-          ...(actual.effect === undefined ? {} : { effect: copy(actual.effect) }),
+          ...mapColours(actual, copy),
         };
         // A copy of a lambda's type is still that lambda's, for §4.2's search.
         const lambdas = this.#lambdasOf.get(actual);
@@ -31905,22 +31942,24 @@ class Checker {
           arguments: type.arguments.map(copy),
           name: this.#externTypes.get(type.externType)?.localName ?? type.name,
         };
-        case "Function": return {
-          kind: "Function",
-          parameters: type.parameters.map(copy),
-          result: copy(type.result),
-          ...(type.effect === undefined
-            ? {}
-            : {
-              effect: type.effect === "impure"
-                ? IMPURE
-                : type.effect === "error"
-                ? ERROR_COLOUR
-                : "join" in type.effect
-                ? this.#join(type.effect.join.map((id) => copy({ kind: "Variable", id })))
-                : copy({ kind: "Variable", id: type.effect.variable }),
-            }),
-        };
+        case "Function": {
+          // Each colour as `#publicColour` wrote it, read back (Effects §1).
+          const colour = (effect: Typed.Effect): Mono =>
+            effect === "impure"
+              ? IMPURE
+              : effect === "error"
+              ? ERROR_COLOUR
+              : "join" in effect
+              ? this.#join(effect.join.map((id) => copy({ kind: "Variable", id })))
+              : copy({ kind: "Variable", id: effect.variable });
+          return {
+            kind: "Function",
+            parameters: type.parameters.map(copy),
+            result: copy(type.result),
+            ...(type.effect === undefined ? {} : { effect: colour(type.effect) }),
+            ...(type.fail === undefined ? {} : { fail: colour(type.fail) }),
+          };
+        }
         case "Error": return ERROR;
       }
     };
@@ -32008,7 +32047,7 @@ class Checker {
           // record has no signature to quantify over, so that colour is always
           // a constant (#355's data-position posture) — but dropping it here
           // silently reads every `>->` field as `->`.
-          ...(actual.effect === undefined ? {} : { effect: copy(actual.effect) }),
+          ...mapColours(actual, copy),
         };
       }
       return actual;
@@ -34826,29 +34865,16 @@ class Checker {
       return { kind: "Primitive", name: actual.name };
     }
     if (actual.kind === "Function") {
-      const effect = actual.effect === undefined ? undefined : this.#prune(actual.effect);
+      const effect = this.#publicColour(actual.effect);
+      const fail = this.#publicColour(actual.fail);
       return {
         kind: "Function",
         parameters: actual.parameters.map((parameter) =>
           this.#publicType(parameter, seen),
         ),
         result: this.#publicType(actual.result, seen),
-        // Modules §4.1.1: the exported signature is the contract, so the colour
-        // has to cross the border with it — a callback's colour as its
-        // variable, a join as its parts, the constant as `"impure"`, a colour
-        // in error as `"error"` (#1223), and the pure constant as nothing at
-        // all.
-        ...(effect === undefined || (effect.kind === "Effect" && Colour.isBottom(effect))
-          ? {}
-          : {
-            effect: effect.kind === "Effect"
-              ? "impure" as const
-              : effect.kind === "ErrorColour"
-              ? "error" as const
-              : effect.kind === "Join"
-              ? { join: effect.parts.map((part) => Typed.typeVariableId(part.id)) }
-              : { variable: Typed.typeVariableId((effect as Variable).id) },
-          }),
+        ...(effect === undefined ? {} : { effect }),
+        ...(fail === undefined ? {} : { fail }),
       };
     }
     if (actual.kind === "Tuple") {
@@ -36807,7 +36833,7 @@ class Checker {
             kind: "Function",
             parameters: actual.parameters.map(copy),
             result: copy(actual.result),
-            ...(actual.effect === undefined ? {} : { effect: actual.effect }),
+            ...mapColours(actual, (colour) => colour),
           };
         case "Vector":
           return { ...actual, element: copy(actual.element) };
@@ -36877,12 +36903,31 @@ class Checker {
     return found;
   }
 
+  /**
+   * One colour slot as the exported signature carries it (Modules §4.1.1): the
+   * signature is the contract, so the colour crosses the border with it — a
+   * callback's colour as its variable, a join as its parts, the constant as
+   * `"impure"`, a colour in error as `"error"` (#1223), and silence as nothing
+   * at all. The same on each colour (Effects §1).
+   */
+  #publicColour(slot: Mono | undefined): Typed.Effect | undefined {
+    const colour = slot === undefined ? undefined : this.#prune(slot);
+    if (colour === undefined || (colour.kind === "Effect" && Colour.isBottom(colour))) return undefined;
+    return colour.kind === "Effect"
+      ? "impure"
+      : colour.kind === "ErrorColour"
+      ? "error"
+      : colour.kind === "Join"
+      ? { join: colour.parts.map((part) => Typed.typeVariableId(part.id)) }
+      : { variable: Typed.typeVariableId((colour as Variable).id) };
+  }
+
   #effectVariables(type: Mono, found = new Set<number>()): readonly number[] {
     const actual = this.#prune(type);
     if (actual.kind === "Function") {
       for (const parameter of actual.parameters) this.#effectVariables(parameter, found);
-      if (actual.effect !== undefined) {
-        for (const part of this.#colourParts(this.#shownColour(actual.effect))) found.add(part.id);
+      for (const colour of colourSlots(actual)) {
+        for (const part of this.#colourParts(this.#shownColour(colour))) found.add(part.id);
       }
       this.#effectVariables(actual.result, found);
     }

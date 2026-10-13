@@ -211,7 +211,10 @@ export interface FunctionType {
   readonly kind: "Function";
   readonly parameters: readonly Type[];
   readonly result: Type;
+  /** The world colour (`spec/effects.md` §1). */
   readonly effect?: Effect;
+  /** The fail colour (`spec/effects.md` §1): absent where the arrow cannot fail. */
+  readonly fail?: Effect;
 }
 
 export interface ErrorType {
