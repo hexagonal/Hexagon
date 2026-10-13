@@ -2064,15 +2064,63 @@ function axisKey(key: string, axis: Axis): string {
   return axis === "fail" ? `${key} fail` : key;
 }
 
-/** A report whose words depend on its colours, as the bag carries it (`#colourReport`). */
-interface ColourReportTag {
+/**
+ * A report whose words depend on the colours it is about, as the diagnostics
+ * bag carries it beside the report (`Checker.#colourReport`): the rule and
+ * site it is about, the colour it was made on, and its words for any colours.
+ */
+export interface ColourReportTag {
   readonly key: string;
-  readonly axis: Axis;
-  readonly render: (axes: readonly Axis[]) => Diagnostics.Diagnostic;
+  readonly axis: "world" | "fail";
+  readonly render: (axes: readonly ("world" | "fail")[]) => Diagnostics.Diagnostic;
 }
 
 function isColourReportTag(tag: unknown): tag is ColourReportTag {
   return typeof tag === "object" && tag !== null && "render" in tag && "key" in tag;
+}
+
+/**
+ * One report across both colours (Effects §1). `reports` is the module's bag,
+ * holding the world colour's reports, and `staged` the fail colour's, emptied
+ * here. Each fail report made through `#colourReport` joins the first world
+ * report of its key not yet joined — the two runs make one site's reports in
+ * the same order — and the two become one, rendered for both colours, in the
+ * world report's place; one with no twin stands alone, in its own words. A
+ * report whose words name no colour (a tie, a captured colour, a knot's
+ * refusal) is the world's report again where an identical one stands, and is
+ * dropped. A joined report is rendered afresh, so this runs before anything
+ * rewrites a report in place (Effects §10's captured-colour notes).
+ */
+export function mergeColourReports(reports: Diagnostics.Bag, staged: Diagnostics.Bag): void {
+  const sameReport = (left: Diagnostics.Diagnostic, right: Diagnostics.Diagnostic): boolean =>
+    left.message === right.message && Number(left.primary.fileId) === Number(right.primary.fileId) &&
+    left.primary.start.offset === right.primary.start.offset && left.primary.end.offset === right.primary.end.offset;
+  const joined = new Set<number>();
+  const twinOf = (key: string): number => {
+    for (let other = 0; other < reports.count; other += 1) {
+      const tag = reports.tagAt(other);
+      if (!joined.has(other) && isColourReportTag(tag) && tag.axis === "world" && tag.key === key) return other;
+    }
+    return -1;
+  };
+  for (let index = 0; index < staged.count; index += 1) {
+    const report = staged.at(index)!;
+    const tag = staged.tagAt(index);
+    if (isColourReportTag(tag)) {
+      const twin = twinOf(tag.key);
+      if (twin >= 0) {
+        joined.add(twin);
+        reports.replace(twin, (reports.tagAt(twin) as ColourReportTag).render(AXES));
+      } else {
+        reports.add(report, tag);
+      }
+      continue;
+    }
+    let twinned = false;
+    for (let other = 0; other < reports.count && !twinned; other += 1) twinned = sameReport(reports.at(other)!, report);
+    if (!twinned) reports.add(report);
+  }
+  staged.discardSince(0);
 }
 
 /** Records a written `>->`'s refusal, or its standing over a body in error, on one colour (`#readRefusedArrows`). */
@@ -4400,49 +4448,10 @@ class Checker {
     this.#diagnostics.add(render([axis]), tag);
   }
 
-  /**
-   * One report across both colours (Effects §1): each report the fail colour
-   * made joins the world colour's report about the same site, the two
-   * rendered as one naming both colours, or stands alone in its own words. A
-   * report whose words name no colour (a tie, a captured colour, a knot's
-   * refusal) is the world's report again, and is dropped.
-   */
+  /** One report across both colours (`mergeColourReports`). */
   #mergeColourReports(): void {
-    const reports = this.#diagnostics;
-    const sameReport = (left: Diagnostics.Diagnostic, right: Diagnostics.Diagnostic): boolean =>
-      left.message === right.message && Number(left.primary.fileId) === Number(right.primary.fileId) &&
-      left.primary.start.offset === right.primary.start.offset && left.primary.end.offset === right.primary.end.offset;
-    // Each fail report joins the first world report of its key not yet joined:
-    // the two runs make one site's reports in the same order.
-    const joined = new Set<number>();
-    const twinOf = (key: string): number => {
-      for (let other = 0; other < reports.count; other += 1) {
-        const tag = reports.tagAt(other);
-        if (!joined.has(other) && isColourReportTag(tag) && tag.axis === "world" && tag.key === key) return other;
-      }
-      return -1;
-    };
-    for (let index = 0; index < this.#failReports.count; index += 1) {
-      const report = this.#failReports.at(index)!;
-      const tag = this.#failReports.tagAt(index);
-      if (isColourReportTag(tag)) {
-        const twin = twinOf(tag.key);
-        if (twin >= 0) {
-          joined.add(twin);
-          const world = reports.tagAt(twin) as ColourReportTag;
-          reports.replace(twin, world.render(AXES));
-        } else {
-          reports.add(report, tag);
-        }
-        continue;
-      }
-      let twinned = false;
-      for (let other = 0; other < reports.count && !twinned; other += 1) twinned = sameReport(reports.at(other)!, report);
-      if (!twinned) reports.add(report);
-    }
-    this.#failReports.discardSince(0);
+    mergeColourReports(this.#diagnostics, this.#failReports);
   }
-
 
   /**
    * Runs one colour's step of the machinery (Effects §1): the world colour's
@@ -8530,7 +8539,8 @@ class Checker {
                   }));
                 }
               } else {
-                this.#unify(PURE, viewEffect, item.view.span, () => viewMessage([axis], "->!"));
+                // A join, or a colour in error: what it meets is §4.3's own report.
+                this.#unify(PURE, viewEffect, item.view.span);
               }
             });
           }
@@ -24605,7 +24615,7 @@ class Checker {
       const primary = this.#offendingCall(body, arrow, bodyPoint, axis) ??
         (arrow.place.parameter === undefined && arrow.place.depth > 0 ? body.handsBack : undefined) ??
         this.#colourPin(arrow.body) ?? body.seat;
-      this.#colourReport(`seat-more ${spanKey(primary)} ${contract.member} ${at.form}`, (axes) => ({
+      this.#colourReport(`seat-more ${spanKey(primary)} ${contract.member} ${arrow.order}`, (axes) => ({
         severity: "error",
         message: `${subject(axes)}, and ${clause(axes)} — ${guarantee(axes)}, or, if the constraint is yours, ` +
           this.#seatAdviceArrow(contract, arrow.place, advice(axes)),
@@ -24645,7 +24655,7 @@ class Checker {
     const only = (axes: readonly Axis[]): string =>
       raised ? `only one that ${colourDoes(axes)}` : `only ${silentOne(axes)}`;
     const primary = this.#colourPin(arrow.body) ?? (raised ? this.#colourMeeting(arrow.body) : undefined) ?? body.seat;
-    this.#colourReport(`seat-less ${spanKey(primary)} ${contract.member} ${at.form} ${raised}`, (axes) => ({
+    this.#colourReport(`seat-less ${spanKey(primary)} ${contract.member} ${arrow.order} ${raised}`, (axes) => ({
       severity: "error",
       message: `${member}'s contract accepts ${accepts(axes)}, and this instance accepts ${only(axes)} — ` +
         `an instance accepts everything its contract promises to accept — ${limb}, or, if the ` +

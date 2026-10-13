@@ -125,7 +125,7 @@ export class Bag {
   /**
    * An opaque tag beside each diagnostic, kept at its index through every
    * rewrite, fold and discard: how a pass finds a report it made again once
-   * the report itself may have been replaced (`tagged`, `replace`).
+   * the report itself may have been replaced (`tagAt`, `replace`).
    */
   readonly #tags: unknown[] = [];
 
@@ -137,11 +137,6 @@ export class Bag {
   /** The tag the diagnostic added `index`-th was added with. */
   tagAt(index: number): unknown {
     return this.#tags[index];
-  }
-
-  /** The production index of the first diagnostic whose tag `where` selects, or -1. */
-  findTagged(where: (tag: unknown) => boolean): number {
-    return this.#tags.findIndex((tag) => tag !== undefined && where(tag));
   }
 
   /** Replaces the diagnostic added `index`-th, keeping its place and its tag. */
