@@ -272,13 +272,13 @@ describe("an intrinsic row writes its arrow (§4.2, #869)", () => {
     // is impure called bare.
     expect(privileged(ROWS +
       "export let b: String = impureRow(\"x\", \"y\")\n",
-    )).toEqual(["this call may touch the world, so `impureRow` wants `!`, not no mark"]);
+    )).toEqual(["this call may touch the world and may fail, so `impureRow` wants `!`, not no mark"]);
     expect(privileged(ROWS +
       "export let a: Int = pureRow!(\"x\")\n",
-    )).toEqual(["this call is pure, so `pureRow` wants no mark, not `!`"]);
+    )).toEqual(["this call is pure and cannot fail, so `pureRow` wants no mark, not `!`"]);
     expect(privileged(ROWS +
       "export let d: Int = linkedRow(() => impureRow!(\"a\", \"b\"))\n",
-    )).toEqual(["this call may touch the world, so `linkedRow` wants `!`, not no mark"]);
+    )).toEqual(["this call may touch the world and may fail, so `linkedRow` wants `!`, not no mark"]);
   });
 
   test("an inlet-less `>->` row is refused at the arrow, as a foreign row is", () => {
@@ -293,7 +293,7 @@ describe("an intrinsic row writes its arrow (§4.2, #869)", () => {
     )).toEqual([
       "`>->` means only as effectful as what it is handed, and nothing is handed here — " +
       "no callback of this signature has been handed over by the time this arrow runs; " +
-      "write `->!` for a function that may touch the world, or `->` for one that does not " +
+      "write `->!` for a function that may touch the world and may fail, or `->` for one that does neither " +
       "— write the callback parameter this row runs, with `->!`, or write `->!` on the row",
     ]);
   });

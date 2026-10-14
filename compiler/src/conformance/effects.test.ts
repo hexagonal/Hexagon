@@ -99,11 +99,10 @@ const world = `extern from "./world.js"
  * owes the advice in words besides: a boundary row has no body, so the repair
  * is a declaration the author writes (#869).
  */
-const UNLINKED_EXTERN_ROW = "`>->` means only as effectful as what it is handed, and nothing is handed here " +
-  "— no callback of this signature has been handed over by the time this arrow " +
-  "runs; write `->!` for a function that may touch the world, or `->` for one that " +
-  "does not — write the callback parameter this row runs, with `->!`, or write " +
-  "`->!` on the row";
+const UNLINKED_EXTERN_ROW = "`>->` means only as effectful as what it is handed, and nothing is handed here — no callback of " +
+  "this signature has been handed over by the time this arrow runs; write `->!` for a function " +
+  "that may touch the world and may fail, or `->` for one that does neither — write the callback " +
+  "parameter this row runs, with `->!`, or write `->!` on the row";
 
 /** FFI Part 4 §13's colon row *(#869)*. */
 const RETIRED_COLON = "an extern callable declares its effect — write `->` for a function " +
@@ -166,7 +165,7 @@ describe("#355 fold's body — the designated specimen, in both directions", () 
 
   it("bare -> `!`: an unmarked call on a callback is refused with the `!` fixit", () => {
     expect(foldWith("", "")).toEqual([
-      "this call may touch the world, so `combine` wants `!`, not no mark",
+      "this call may touch the world and may fail, so `combine` wants `!`, not no mark",
     ]);
   });
 
@@ -177,13 +176,13 @@ describe("#355 fold's body — the designated specimen, in both directions", () 
 export let run(document: String): Unit = save(document)
 `]]),
     ).toEqual([
-      "this call may touch the world, so `save` wants `!`, not no mark",
+      "this call may touch the world and may fail, so `save` wants `!`, not no mark",
     ]);
   });
 
   it("`!` -> bare: symmetric enforcement, a mark on a provably pure call", () => {
     expect(foldWith("!", "!")).toEqual([
-      "this call is pure, so `next` wants no mark, not `!`",
+      "this call is pure and cannot fail, so `next` wants no mark, not `!`",
     ]);
   });
 
@@ -226,7 +225,7 @@ export let wired: (String ->! String) = compose(save2, audit2)
 export let run(document: String): String = compose(save2, audit2)(document)
 `]]),
     ).toEqual([
-      "this call may touch the world, so this call wants `!`, not no mark",
+      "this call may touch the world and may fail, so this call wants `!`, not no mark",
     ]);
   });
 });
@@ -255,7 +254,7 @@ export let ask(): String = readLine!()
 export let ask(): String = readLine()
 `]]),
     ).toEqual([
-      "this call may touch the world, so `readLine` wants `!`, not no mark",
+      "this call may touch the world and may fail, so `readLine` wants `!`, not no mark",
     ]);
   });
 
@@ -266,7 +265,7 @@ export let ask(): String = readLine!()
 export let twice(): String = ask() ++ ask!()
 `]]),
     ).toEqual([
-      "this call may touch the world, so `ask` wants `!`, not no mark",
+      "this call may touch the world and may fail, so `ask` wants `!`, not no mark",
     ]);
   });
 
@@ -280,9 +279,9 @@ export record Source = { step: () >-> String }
 export let drive(source: Source): String = (source.step)!()
 `]]),
     ).toEqual([
-      "`>->` means only as effectful as what it is handed, and nothing is handed " +
-      "here — a `record` field is data, not a signature; write `->!` for a " +
-      "function that may touch the world, or `->` for one that does not",
+      "`>->` means only as effectful as what it is handed, and nothing is handed here — a `record` " +
+      "field is data, not a signature; write `->!` for a function that may touch the world and may " +
+      "fail, or `->` for one that does neither",
     ]);
   });
 
@@ -300,9 +299,9 @@ export record Source = { step: () >-> String }
 export union Step = Ready(() >-> String) | Done
 `]]),
     ).toEqual([
-      "`>->` means only as effectful as what it is handed, and nothing is handed " +
-      "here — a `union` field is data, not a signature; write `->!` for a function " +
-      "that may touch the world, or `->` for one that does not",
+      "`>->` means only as effectful as what it is handed, and nothing is handed here — a `union` " +
+      "field is data, not a signature; write `->!` for a function that may touch the world and may " +
+      "fail, or `->` for one that does neither",
     ]);
   });
 
@@ -316,9 +315,9 @@ export union Step = Ready(() >-> String) | Done
 type Handler = () >-> String
 `]]),
     ).toEqual([
-      "`>->` means only as effectful as what it is handed, and nothing is handed " +
-      "here — an alias is a type fragment, not a signature; write `->!` for a " +
-      "function that may touch the world, or `->` for one that does not",
+      "`>->` means only as effectful as what it is handed, and nothing is handed here — an alias is a " +
+      "type fragment, not a signature; write `->!` for a function that may touch the world and may " +
+      "fail, or `->` for one that does neither",
     ]);
   });
 
@@ -329,9 +328,9 @@ type Handler = () >-> String
 export let run(h: Handler): String = h!()
 `]]),
     ).toEqual([
-      "`>->` means only as effectful as what it is handed, and nothing is handed " +
-      "here — an alias is a type fragment, not a signature; write `->!` for a " +
-      "function that may touch the world, or `->` for one that does not",
+      "`>->` means only as effectful as what it is handed, and nothing is handed here — an alias is a " +
+      "type fragment, not a signature; write `->!` for a function that may touch the world and may " +
+      "fail, or `->` for one that does neither",
     ]);
   });
 
@@ -407,7 +406,7 @@ export record Source = { step: () ->! String }
 export let drive(source: Source): String = (source.step)()
 `]]),
     ).toEqual([
-      "this call may touch the world, so this call wants `!`, not no mark",
+      "this call may touch the world and may fail, so this call wants `!`, not no mark",
     ]);
   });
 
@@ -487,7 +486,7 @@ export let z: Int = mk()((n) => n)
     ).toEqual([
       "`>->` means only as effectful as what it is handed, and nothing is handed here — " +
       "no callback of this signature has been handed over by the time this arrow runs; " +
-      "write `->!` for a function that may touch the world, or `->` for one that does not",
+      "write `->!` for a function that may touch the world and may fail, or `->` for one that does neither",
     ]);
   });
 
@@ -547,7 +546,7 @@ export let impureUse(): Int = Maker.mk()!((n) =>
       "`>->` means only as effectful as what it is handed, and nothing is handed here — " +
       "no callback of this signature has been handed over by the " +
       "time this arrow runs; " +
-      "write `->!` for a function that may touch the world, or `->` for one that does not",
+      "write `->!` for a function that may touch the world and may fail, or `->` for one that does neither",
     ]);
   });
 
@@ -635,7 +634,7 @@ export let z: Int = 1
     ).toEqual([
       "`>->` means only as effectful as what it is handed, and nothing is handed here — " +
       "no callback of this signature has been handed over by the time this arrow runs; " +
-      "write `->!` for a function that may touch the world, or `->` for one that does not",
+      "write `->!` for a function that may touch the world and may fail, or `->` for one that does neither",
     ]);
     expect(
       effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `extern from "./world.js"
@@ -667,10 +666,9 @@ export let z: Int = 1
     // §2.2.1's sentence: it is not that there is no signature here, it is that
     // nothing a caller supplies carries the colour. The `var` goes the same way
     // — shape decides for it as for a `let` — under its own module-level refusal.
-    const clause = "`>->` means only as effectful as what it is handed, and nothing is handed " +
-      "here — no callback of this signature has been handed over by the time this " +
-      "arrow runs; write `->!` for a function that may touch the world, or `->` " +
-      "for one that does not";
+    const clause = "`>->` means only as effectful as what it is handed, and nothing is handed here — no callback of " +
+      "this signature has been handed over by the time this arrow runs; write `->!` for a function " +
+      "that may touch the world and may fail, or `->` for one that does neither";
     expect(
       effectDiagnostics([["/main.hex", "module Main\n\n" + `let h: () >-> String = () => "x"
 export let z: Int = 1
@@ -726,8 +724,8 @@ export let f: ((String ->! String) >-> String) = (run: String ->! String): Strin
     strict(run, "body")
 `;
     expect(effectDiagnostics([["/main.hex", "module Main\n\n" + pureFace]])).toEqual([
-      "the parameter `run` is written `->!`, which accepts any function, and this accepts only a " +
-      "pure one — write `run`'s arrow `->`",
+      "the parameter `run` is written `->!`, which accepts any function, and this accepts only one " +
+      "that is pure and cannot fail — write `run`'s arrow `->`",
     ]);
     expect(effectFixes([["/main.hex", "module Main\n\n" + pureFace]])).toEqual([
       'write `->`: "->"',
@@ -756,7 +754,7 @@ export let f: ((String -> String) -> String) = (run: String -> String): String =
     // On its own account, at the call, however deep the returned lambda stands.
     for (const result of ["() >-> Unit = () =>", "() -> () >-> Unit = () => () =>"]) {
       expect(at(`export let mk(cb: () ->! Unit): ${result} save!("x")\n`)).toEqual([
-        ["save!(\"x\")", `this call touches the world on its own account, ${promise}`, [">->"]],
+        ["save!(\"x\")", `this call touches the world and may fail on its own account, ${promise}`, [">->"]],
       ]);
     }
     // Running a captured colour, at the call, with §4.2's captured clause.
@@ -776,8 +774,8 @@ export let use(): Unit = mk(noop)()
 `;
     expect(effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + world + "let noop(): Unit = ()\n" + refusedResult]]))
       .toEqual([
-        "this call touches the world on its own account, and this face's `>->` promises the function is only as effectful as what it is handed — write `->!`",
-        "this call may touch the world, so this call wants `!`, not no mark",
+        "this call touches the world and may fail on its own account, and this face's `>->` promises the function is only as effectful as what it is handed — write `->!`",
+        "this call may touch the world and may fail, so this call wants `!`, not no mark",
       ]);
     expect(hoveredType("module Main\n\n" + world + "let noop(): Unit = ()\n" + refusedResult, "mk(")).toBe("(() ->! Unit) -> () ->! Unit");
     const refusedOuter = `export let outer(action: () ->! Unit): Unit =
@@ -820,7 +818,7 @@ export let use(): Unit = mk(noop)()
         h(() => ())!()
     b(n: Int): Unit = if n == 0 then save!("x") else a!(n - 1)
 `;
-      expect(at(source)).toEqual([["b!(n)", "this call touches the world on its own account"]]);
+      expect(at(source)).toEqual([["b!(n)", "this call touches the world and may fail on its own account"]]);
       expect(hoveredType(text(source), "a(n")).toBe("Int ->! Unit");
     }
   });
@@ -937,7 +935,7 @@ export let u(): Unit = h(True, noop)()
     // A function handed back whole that touches the world: the no-call form.
     expect(at(`export let save0(): Unit = save!("z")
 export let h(cb: () ->! Unit): () >-> Unit = save0
-`)).toEqual([["save0", "this function touches the world on its own account"]]);
+`)).toEqual([["save0", "this function touches the world and may fail on its own account"]]);
   });
 });
 
@@ -969,7 +967,7 @@ let relay(f: () ->! Unit, g): Unit = g!(f)
 
   it("a claimed colour is a callback's: a bare call on it is the missing-mark report", () => {
     expect(check("let mixed(f) =\n    f!()\n    f()\n")).toEqual([
-      "this call may touch the world, so `f` wants `!`, not no mark",
+      "this call may touch the world and may fail, so `f` wants `!`, not no mark",
     ]);
   });
 
@@ -978,7 +976,7 @@ let relay(f: () ->! Unit, g): Unit = g!(f)
     // arrow for a lie-of-generality report to name.
     for (const lines of [["pureOnly(f)", "f!()"], ["f!()", "pureOnly(f)"]]) {
       expect(check(`let pinned(f) =\n    ${lines[0]}\n    ${lines[1]}\n`)).toEqual([
-        "this call is pure, so `f` wants no mark, not `!`",
+        "this call is pure and cannot fail, so `f` wants no mark, not `!`",
       ]);
     }
   });
@@ -997,7 +995,7 @@ let user(): Unit = outer!(() => save!("x"))
       expect([helper, hoveredType(text(source), "outer(")]).toEqual([helper, "(() ->! Unit) >-> Unit"]);
     }
     expect(check("let outer(action): Unit =\n    let h() = action!()\n    h()\n")).toEqual([
-      "this call may touch the world, so `h` wants `!`, not no mark",
+      "this call may touch the world and may fail, so `h` wants `!`, not no mark",
     ]);
   });
 });
@@ -1015,7 +1013,7 @@ describe("Effects §3.4 — a parameter no call reaches keeps its own colour (#1
     lines.length <= 1 ? [[...lines]] : lines.flatMap((line, index) =>
       permutations([...lines.slice(0, index), ...lines.slice(index + 1)]).map((rest) => [line, ...rest])
     );
-  const PURITY = "a `->` arrow promises purity, and this function may touch the world — the demand is written " +
+  const PURITY = "a `->` arrow promises purity and that the function cannot fail, and this function may touch the world and may fail — the demand is written " +
     "`->`, the function's face `->!` or `>->`";
 
   it("a parameter only handed on is the parameter's own, as writing its type would make it", () => {
@@ -1028,7 +1026,7 @@ describe("Effects §3.4 — a parameter no call reaches keeps its own colour (#1
     // What `orNoop` hands back follows what it was handed, so a bare call on it
     // is the missing-mark report.
     expect(check("let orNoop(cb) = if c then cb else () => ()\nexport let user(): Unit = orNoop(save0)()\n"))
-      .toEqual(["this call may touch the world, so this call wants `!`, not no mark"]);
+      .toEqual(["this call may touch the world and may fail, so this call wants `!`, not no mark"]);
   });
 
   it("nested, in a knot, curried, local, and two functions deep", () => {
@@ -1084,7 +1082,7 @@ describe("Effects §3.4 — a parameter no call reaches keeps its own colour (#1
       // A bare call in a nested body reaches it too.
       [["keep(k)", "let g = () => runIt(k)"], "(() -> Unit) -> Unit", [PURITY]],
       // A `!` call claims it.
-      [["keep(k)", "runIt!(k)"], "(() ->! Unit) >-> Unit", ["this call may touch the world, so `f` wants `!`, not no mark"]],
+      [["keep(k)", "runIt!(k)"], "(() ->! Unit) >-> Unit", ["this call may touch the world and may fail, so `f` wants `!`, not no mark"]],
       // A `->` demand pins it.
       [["keep(k)", "pureOnly(k)"], "(() -> Unit) -> Unit", [PURITY]],
     ];
@@ -2107,7 +2105,7 @@ export let probe(): Unit = walk!(save0, 2)
     ]);
     expect(at(a + "let user(): Unit =\n    let _ = (a, 1)\n    save!(\"u\")\nexport let probe(): Unit = user()\n")).toEqual([
       ["() => cb!()", made("a", true)],
-      ["user()", "this call may touch the world, so `user` wants `!`, not no mark"],
+      ["user()", "this call may touch the world and may fail, so `user` wants `!`, not no mark"],
     ]);
     expect(at(`let walk(g, h, c: Bool, n: Int): Unit =
     fun go(m: Int, f: () ->! Unit): Unit = if m == 0 then f!() else go!(m - 1, () => g!())
@@ -2148,7 +2146,7 @@ describe("Effects §3.4 — a member is its value: its recursion follows the fac
   const check = (source: string): readonly string[] =>
     effectDiagnostics([["/world.js", ""], ["/main.hex", prelude + source]]);
   const hover = (source: string, needle: string): string | undefined => hoveredType(prelude + source, needle);
-  const bang = "this call may touch the world, so this call wants `!`, not no mark";
+  const bang = "this call may touch the world and may fail, so this call wants `!`, not no mark";
   const follows = "(() ->! Unit) >-> Unit";
 
   it("follows a written result type's `>->` over the lambda it returns, at every depth of its spine (#1229)", () => {
@@ -2207,7 +2205,7 @@ describe("Effects §3.4 — a member is its value: its recursion follows the fac
 `;
     for (const written of ["let q: () ->! Int = act", "let q = (act: () ->! Int)"]) {
       expect(check(knot(written, "q!()", "!"))).toEqual([]);
-      expect(check(knot(written, "q()", "!"))).toEqual(["this call may touch the world, so `q` wants `!`, not no mark"]);
+      expect(check(knot(written, "q()", "!"))).toEqual(["this call may touch the world and may fail, so `q` wants `!`, not no mark"]);
     }
     expect(check(knot("let z = 0", "(act: () ->! Int)!()", "!"))).toEqual([]);
   });
@@ -2234,7 +2232,7 @@ describe("Effects §3.4 — a member is its value: its recursion follows the fac
     const text = prelude + source;
     const reports = compileFiles([["/world.js", ""], ["/main.hex", text]]).diagnostics;
     expect(reports.map(({ message }) => message)).toEqual([
-      "a `->` arrow promises purity, and this function may touch the world — the demand is written `->`, " +
+      "a `->` arrow promises purity and that the function cannot fail, and this function may touch the world and may fail — the demand is written `->`, " +
       "the function's face `->!` or `>->`",
     ]);
     expect(reports[0]!.primary.start.offset).toBe(text.indexOf("fun a("));
@@ -2260,7 +2258,7 @@ describe("Effects §3.4 — a member is its value: its recursion follows the fac
     k!()
     () => if n > 0 then a!(n - 1, f, g)!() else f!()
 `;
-    const wants = "this call may touch the world, so `a` wants `!`, not no mark";
+    const wants = "this call may touch the world and may fail, so `a` wants `!`, not no mark";
     expect(check(source + "export let probe(): Unit = a(2, noop, noop)()\n")).toEqual([]);
     expect(check(source + "export let probe(): Unit = a!(2, save0, noop)!()\n")).toEqual([]);
     expect(check(source + "export let probe(): Unit = a(2, noop, save0)()\n")).toEqual([wants, bang]);
@@ -2271,7 +2269,7 @@ describe("Effects §3.4 — a member is its value: its recursion follows the fac
     // What the lambda runs beyond the callbacks it is handed still reaches
     // the members that call it: `ping` is a conduit of `cb`. That `q` runs
     // `cb` and promises `>->` is the face report, once `cb` is decided (#1230).
-    const wants = (callee: string) => `this call may touch the world, so \`${callee}\` wants \`!\`, not no mark`;
+    const wants = (callee: string) => `this call may touch the world and may fail, so \`${callee}\` wants \`!\`, not no mark`;
     const runs = (owner: string) => `this call runs \`${owner}\`'s \`cb\`, which this signature is not handed, and ` +
       "this face's `>->` promises the function is only as effectful as what it is handed — write `->!`";
     expect(check(`fun ping(n: Int, cb): Int =
@@ -2311,7 +2309,7 @@ describe("Effects §4.2 — a written `>->` meets the function it stands over al
   const runs = (owner: string, parameter: string) =>
     `this call runs \`${owner}\`'s \`${parameter}\`, which this signature is not handed, and this face's \`>->\` ` +
     "promises the function is only as effectful as what it is handed — write `->!`";
-  const promise = "a `->` arrow promises purity, and this function may touch the world — the " +
+  const promise = "a `->` arrow promises purity and that the function cannot fail, and this function may touch the world and may fail — the " +
     "demand is written `->`, the function's face `->!` or `>->`";
   // A binding annotation, an ascription and a written result type, over one
   // lambda, and the call that runs it.
@@ -2340,16 +2338,16 @@ describe("Effects §4.2 — a written `>->` meets the function it stands over al
   it("publishes the callbacks a written `>->` follows, joined with what the value runs, in every spelling", () => {
     // Main's ascription published only the lambda's own colour, so a call
     // handing `k` a function that may touch the world stayed bare.
-    const wants = ["this call may touch the world, so `k` wants `!`, not no mark",
-      "this call may touch the world, so `k` wants `!`, not no mark",
-      "this call may touch the world, so this call wants `!`, not no mark"];
+    const wants = ["this call may touch the world and may fail, so `k` wants `!`, not no mark",
+      "this call may touch the world and may fail, so `k` wants `!`, not no mark",
+      "this call may touch the world and may fail, so this call wants `!`, not no mark"];
     for (const [index, [face, call]] of spellings(follows, "(x) => action()", "save0", "").entries()) {
       expect(check(`let outer(action): Unit =\n    action()\n${face}${call}`)).toEqual([wants[index]]);
     }
   });
 
   it("reports a face once where its body both touches the world and runs a colour it is not handed", () => {
-    const own = "this call touches the world on its own account, and this face's `>->` promises the function is " +
+    const own = "this call touches the world and may fail on its own account, and this face's `>->` promises the function is " +
       "only as effectful as what it is handed — write `->!`";
     for (const [face, call] of spellings(follows, "(x) =>\n        save!(\"z\")\n        action!()", "noop", "!")) {
       expect(check(`let outer(action): Unit =\n${face}${call}`)).toEqual([own]);
@@ -2385,7 +2383,7 @@ describe("Effects §4.2 — a written `>->` meets the function it stands over al
       "            cb!()\n            let _ = if n > 0 then ping!(n - 1) else 0\n            ()\n" +
       "        q!(save0)\n        0\nexport let probe(): Int = ping!(2)\n";
     expect(check(knot(">->"))).toEqual([
-      "this call touches the world on its own account, and this face's `>->` promises the function is only " +
+      "this call touches the world and may fail on its own account, and this face's `>->` promises the function is only " +
       "as effectful as what it is handed — write `->!`",
     ]);
     expect(check(knot("->!"))).toEqual([]);
@@ -2398,9 +2396,9 @@ describe("Effects §3.4 — a knot's colour is re-opened where it is used (#1233
   const check = (source: string): readonly string[] =>
     effectDiagnostics([["/world.js", ""], ["/main.hex", prelude + source]]);
   const hover = (source: string, needle: string): string | undefined => hoveredType(prelude + source, needle);
-  const bang = "this call may touch the world, so this call wants `!`, not no mark";
-  const wants = (callee: string) => `this call may touch the world, so \`${callee}\` wants \`!\`, not no mark`;
-  const promise = "a `->` arrow promises purity, and this function may touch the world — the " +
+  const bang = "this call may touch the world and may fail, so this call wants `!`, not no mark";
+  const wants = (callee: string) => `this call may touch the world and may fail, so \`${callee}\` wants \`!\`, not no mark`;
+  const promise = "a `->` arrow promises purity and that the function cannot fail, and this function may touch the world and may fail — the " +
     "demand is written `->`, the function's face `->!` or `>->`";
 
   it("joins a held lambda with an effectful function as either branch, the join touching the world", () => {
@@ -2534,7 +2532,7 @@ describe("Effects §3.4 — what a held lambda's own callbacks run is not held (
   const ping = (q: string, uses: string, rec = "ping(n - 1)", probe = "ping(2)") =>
     `fun\n    ping(n: Int): Int =\n${q.replaceAll("REC", rec)}${uses}        0\nexport let probe(): Int = ${probe}\n`;
   const body = "            cb!()\n            let _ = if n > 0 then REC else 0\n            ()\n";
-  const promise = "a `->` arrow promises purity, and this function may touch the world — the " +
+  const promise = "a `->` arrow promises purity and that the function cannot fail, and this function may touch the world and may fail — the " +
     "demand is written `->`, the function's face `->!` or `>->`";
 
   it("calls a held lambda handed only pure functions bare, however its callback is written", () => {
@@ -2580,7 +2578,7 @@ describe("Effects §3.4 — what a held lambda's own callbacks run is not held (
   it("reports a held lambda's `>->` at the recursive call that runs the world, in every spelling (#1238)", () => {
     // Main reported at the argument `save0`, whose colour `q`'s one callback
     // colour had taken.
-    const own = "this call touches the world on its own account, and this face's `>->` promises the function is only " +
+    const own = "this call touches the world and may fail on its own account, and this face's `>->` promises the function is only " +
       "as effectful as what it is handed — write `->!`";
     for (
       const [q, use] of [
@@ -2601,7 +2599,7 @@ describe("Effects §3.4 — what a held lambda's own callbacks run is not held (
       "        let q: (() ->! Unit) >-> Unit = (cb: () ->! Unit) =>\n" + body.replace("REC", "ping!(n - 1, act)") +
       "        q!(save0)\n        q!(noop)\n        0\n")).toEqual([[
         "ping!(n - 1, act)",
-        "this call touches the world on its own account, and this face's `>->` promises the function is only " +
+        "this call touches the world and may fail on its own account, and this face's `>->` promises the function is only " +
         "as effectful as what it is handed — write `->!`",
       ]]);
   });
@@ -2636,7 +2634,7 @@ describe("Effects §3.4 — what a held lambda's own callbacks run is not held (
 
   it("closes what main accepted where a held lambda's one callback colour hid what a use handed it", () => {
     // Main published `ping` pure in both, and a bare `ping(2)` saved.
-    const wants = (callee: string) => `this call may touch the world, so \`${callee}\` wants \`!\`, not no mark`;
+    const wants = (callee: string) => `this call may touch the world and may fail, so \`${callee}\` wants \`!\`, not no mark`;
     const nested = (mark: string) => "fun\n    ping(n: Int): Int =\n        fun loop(m: Int): Int =\n" +
       "            let q = (cb: () ->! Unit) =>\n                cb!()\n" +
       `                let _ = if m > 0 then loop${mark}(m - 1) else if n > 0 then ping${mark}(n - 1) else 0\n` +
@@ -2658,21 +2656,21 @@ describe("Effects §3.4 — what a held lambda's own callbacks run is not held (
     const source = "fun\n    ping(n: Int): Int =\n        let q = (cb) =>\n            let _ = if n > 0 then ping(n - 1) else 0\n" +
       "            match cb()\n                Some(h) => h()\n                None => ()\n        q(() => Some(noop))\n        0\n";
     expect(check(source)).toEqual([
-      "this call may touch the world, so `ping` wants `!`, not no mark",
-      "this call may touch the world, so `h` wants `!`, not no mark",
-      "this call may touch the world, so `q` wants `!`, not no mark",
+      "this call may touch the world and may fail, so `ping` wants `!`, not no mark",
+      "this call may touch the world and may fail, so `h` wants `!`, not no mark",
+      "this call may touch the world and may fail, so `q` wants `!`, not no mark",
     ]);
   });
 
   it("still runs through the recursion what one use hands", () => {
     // `q!(save0)` makes `ping` touch the world, and `q(noop)` runs `ping`.
     expect(check(ping("        let q = (cb: () ->! Unit) =>\n" + body, "        q(noop)\n        q!(save0)\n",
-      "ping!(n - 1)", "ping!(2)"))).toEqual(["this call may touch the world, so `q` wants `!`, not no mark"]);
+      "ping!(n - 1)", "ping!(2)"))).toEqual(["this call may touch the world and may fail, so `q` wants `!`, not no mark"]);
   });
 
   it("holds a lambda a member hands back whole: its parameters are the member's", () => {
     expect(check("fun a(n: Int) = (cb) => if n == 0 then cb() else a(n - 1)!(cb)\n" +
-      "export let probe(): Unit = a(2)!(save0)\n")).toEqual(["this call may touch the world, so `cb` wants `!`, not no mark"]);
+      "export let probe(): Unit = a(2)!(save0)\n")).toEqual(["this call may touch the world and may fail, so `cb` wants `!`, not no mark"]);
     // Under a `match` too, where the refusal of a function the member was not
     // given stands alone.
     const given = (member: string) => `this function is not one \`${member}\` was given, and a recursive call ` +
@@ -2792,7 +2790,7 @@ describe("Effects §2.6 — a short form reads as its longhand twin (#1213 (T))"
     // The seat no longer pins `r`'s callback pure, but `h` is what was written:
     // it accepts only a pure callback, at a binding, an ascription and a
     // written result type alike.
-    const purity = "a `->` arrow promises purity, and this function may touch the world — the demand is written " +
+    const purity = "a `->` arrow promises purity and that the function cannot fail, and this function may touch the world and may fail — the demand is written " +
       "`->`, the function's face `->!` or `>->`";
     for (
       const body of [
@@ -2830,7 +2828,7 @@ describe("Effects §2.6 — a short form reads as its longhand twin (#1213 (T))"
         "    let (r, _) = make()\n" + before + `    tieTwo(${lambda}, r)\n    ${call}\n    ()\n`;
       expect([lambda, effectDiagnostics([["/world.js", ""], ["/main.hex", source("r(() => ())")]])]).toEqual([lambda, []]);
       expect([lambda, effectDiagnostics([["/world.js", ""], ["/main.hex", source("r!(() => ())")]])])
-        .toEqual([lambda, ["this call is pure, so `r` wants no mark, not `!`"]]);
+        .toEqual([lambda, ["this call is pure and cannot fail, so `r` wants no mark, not `!`"]]);
     }
   });
 
@@ -2861,8 +2859,8 @@ describe("Effects §3.5 — a colour in error (#1223)", () => {
       ["/main.hex", "module Main\n\nimport Lib\n" + main],
     ]);
   const unknown = "unknown name `nope`";
-  const wants = (callee: string): string => `this call may touch the world, so ${callee} wants \`!\`, not no mark`;
-  const noMark = (callee: string): string => `this call is pure, so ${callee} wants no mark, not \`!\``;
+  const wants = (callee: string): string => `this call may touch the world and may fail, so ${callee} wants \`!\`, not no mark`;
+  const noMark = (callee: string): string => `this call is pure and cannot fail, so ${callee} wants no mark, not \`!\``;
   const made = "this function is not one `a` was given, and a recursive call hands on only the callbacks it was given";
   const bothMarks = (source: (mark: string) => string): readonly (readonly string[])[] =>
     ["!", ""].map((mark) => check(source(mark)));
@@ -2929,7 +2927,7 @@ describe("Effects §3.5 — a colour in error (#1223)", () => {
     }
     for (const [first, second] of [["() => nope!()", "() => save!(\"x\")"], ["() => save!(\"x\")", "() => nope!()"]]) {
       expect(check(`export let p1(c: Bool): () -> Unit = if c then (${first}) else (${second})\n`)).toEqual([
-        "a `->` arrow promises purity, and this function may touch the world — the demand is written `->`, the " +
+        "a `->` arrow promises purity and that the function cannot fail, and this function may touch the world and may fail — the demand is written `->`, the " +
         "function's face `->!` or `>->`",
         unknown,
       ]);
@@ -3164,7 +3162,7 @@ describe("Effects §3.5 — a colour in error (#1223)", () => {
 
   it("makes a refused knot's member in error however it is reached, and keeps the arrows its text writes", () => {
     const a = "fun a(cb: () ->! Unit, n: Int): Unit = if n == 0 then cb!() else a!(() => cb!(), n - 1)\n";
-    const purity = "a `->` arrow promises purity, and this function may touch the world — the demand is written `->`, " +
+    const purity = "a `->` arrow promises purity and that the function cannot fail, and this function may touch the world and may fail — the demand is written `->`, " +
       "the function's face `->!` or `>->`";
     // By name, as a value, and through data it hands back.
     expect(bothMarks((mark) => `${a}export let probe(): Unit = a${mark}(save0, 1)\n`)).toEqual([[made], [made]]);
@@ -3356,8 +3354,9 @@ export let z: Int = 1
       "`>->` means only as effectful as what it is handed, and nothing is handed here — " +
       "this annotation has no callbacks of its own, and a local `>->` does not borrow the " +
       "enclosing function's — leave its type to inference, or write `->!`",
-      "this call may touch the world, and the enclosing function's face is the pure arrow `->` " +
-      "— a pure face cannot run effects",
+      "this call may touch the world and may fail, and the enclosing function's face is the pure arrow " +
+      "`->`, which cannot fail — a pure face cannot run effects, and a face that cannot fail cannot " +
+      "run a call that may, unless it handles the failure",
     ]);
   });
 
@@ -3372,7 +3371,7 @@ export let f(g: (() ->! String) -> String): String =
     ).toEqual([
       "`>->` means only as effectful as what it is handed, and nothing is handed here — " +
       "an alias is a type fragment, not a signature; " +
-      "write `->!` for a function that may touch the world, or `->` for one that does not",
+      "write `->!` for a function that may touch the world and may fail, or `->` for one that does neither",
     ]);
   });
 });
@@ -3392,7 +3391,7 @@ export let withTransaction: ((String ->! String) ${arrow} String) = (run: String
 
   it("refuses the `>->` face, naming `->!`", () => {
     expect(effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + shape(">->")]])).toEqual([
-      "this call touches the world on its own account, and this face's `>->` promises the " +
+      "this call touches the world and may fail on its own account, and this face's `>->` promises the " +
       "function is only as effectful as what it is handed — write `->!`",
     ]);
     // §4.2: the fixit rewrites the written `>->` alone: `(String ->! String)
@@ -3421,7 +3420,7 @@ export let go(): String = apply!((s) => s)
     expect(effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + source]])).toEqual([]);
     expect(effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" +
       source.replace("apply!((s) => s)", "apply((s) => s)")]]))
-      .toEqual(["this call may touch the world, so `apply` wants `!`, not no mark"]);
+      .toEqual(["this call may touch the world and may fail, so `apply` wants `!`, not no mark"]);
   });
 
   it("demands `!` at every call site, pure callback or not", () => {
@@ -3430,7 +3429,7 @@ export let go(): String = apply!((s) => s)
 export let go(): String = withTransaction((document) => document)
 `]]),
     ).toEqual([
-      "this call may touch the world, so `withTransaction` wants `!`, not no mark",
+      "this call may touch the world and may fail, so `withTransaction` wants `!`, not no mark",
     ]);
   });
 
@@ -3447,8 +3446,9 @@ describe("a binding annotation's outer arrow is the face of the value it writes 
   const compile = (source: string) =>
     effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + world + source]]);
   const run4 = "let run4(k: () ->! Unit): () -> Unit = () => ()\n";
-  const pureFace = "this call may touch the world, and the enclosing function's face is the pure arrow `->` " +
-    "— a pure face cannot run effects";
+  const pureFace = "this call may touch the world and may fail, and the enclosing function's face is the pure arrow " +
+    "`->`, which cannot fail — a pure face cannot run effects, and a face that cannot fail cannot " +
+    "run a call that may, unless it handles the failure";
 
   it("is not taken by a lambda handed to a call on a branch", () => {
     // `run4(…)` hands back a pure function, so the branch fits `() -> Unit`;
@@ -3519,10 +3519,10 @@ describe("a binding annotation's outer arrow is the face of the value it writes 
     // which the knot settles pure here (pinned as main has it).
     expect(compile(knot("() ->! Int", "q!()", "!"))).toEqual([]);
     expect(compile(knot("() ->! Int", "q()", "!")))
-      .toEqual(["this call may touch the world, so `q` wants `!`, not no mark"]);
+      .toEqual(["this call may touch the world and may fail, so `q` wants `!`, not no mark"]);
     expect(compile(knot("() -> Int", "q()", ""))).toEqual([]);
     expect(compile(knot("() -> Int", "q!()", "")))
-      .toEqual(["this call is pure, so `q` wants no mark, not `!`"]);
+      .toEqual(["this call is pure and cannot fail, so `q` wants no mark, not `!`"]);
   });
 });
 
@@ -3568,7 +3568,7 @@ export let saveAll(values: Vector(String)): Vector(String) =
         document)
 `]]),
     ).toEqual([
-      "this call may touch the world, so `map` wants `!`, not no mark",
+      "this call may touch the world and may fail, so `map` wants `!`, not no mark",
     ]);
   });
 
@@ -3579,7 +3579,7 @@ export let stamped(values: Vector(String)): Vector(String) =
     map!(values, (text) => text ++ ".")
 `]]),
     ).toEqual([
-      "this call is pure, so `map` wants no mark, not `!`",
+      "this call is pure and cannot fail, so `map` wants no mark, not `!`",
     ]);
   });
 });
@@ -3592,7 +3592,7 @@ describe("#355 grammar — where a mark may stand", () => {
     const diagnostics = compileFiles([["/world.js", ""], ["/main.hex", text]]).diagnostics;
     expect(diagnostics.map(({ message }) => message)).toEqual([
       'invalid character "?" (U+003F)',
-      "this call may touch the world, so `save` wants `!`, not no mark",
+      "this call may touch the world and may fail, so `save` wants `!`, not no mark",
     ]);
     const edits = diagnostics.flatMap(({ fixes }) => (fixes ?? []).flatMap((fix) => fix.edits));
     expect(edits.map(({ span, replacement }) => [text.slice(span.start.offset, span.end.offset), replacement]))
@@ -3621,7 +3621,7 @@ export let clean(document: String): String = document |> trim
 export let run(document: String): Unit = document |> save
 `]]),
     ).toEqual([
-      "this call may touch the world, so `save` wants `!`, not no mark",
+      "this call may touch the world and may fail, so `save` wants `!`, not no mark",
     ]);
   });
 
@@ -3694,7 +3694,7 @@ export let run(document: String): Unit = held!(document)
     // the impure call's own mark row firing behind the redirect.
     expect(
       effectDiagnostics([["/main.hex", "module Main\n\n" + "let f(g: (Int) =>! Int): Int = g(1)\n"]]),
-    ).toEqual([typeArrowRedirect, "this call may touch the world, so `g` wants `!`, not no mark"]);
+    ).toEqual([typeArrowRedirect, "this call may touch the world and may fail, so `g` wants `!`, not no mark"]);
     // And taking the advice is the whole repair — nothing else was wrong.
     expect(
       effectDiagnostics([["/main.hex", "module Main\n\n" + "let f(g: (Int) -> Int): Int = g(1)\n"]]),
@@ -3833,7 +3833,7 @@ export let doubled: Int = pure(21) + pure(21)
     // validly write its arrow has claimed nothing, and the recovery has to
     // claim nothing back — observed where it is observable, at a call, since a
     // recovered `->` would make the unmarked call below legal.
-    const wants = (name: string) => `this call may touch the world, so \`${name}\` wants \`!\`, not no mark`;
+    const wants = (name: string) => `this call may touch the world and may fail, so \`${name}\` wants \`!\`, not no mark`;
     // The retired `:`.
     expect(
       effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `extern from "./world.js"
@@ -3970,9 +3970,9 @@ export let t: String = trim("x")
     export let h: { step: () >-> Int }
 `]]),
     ).toEqual([
-      "`>->` means only as effectful as what it is handed, and nothing is handed " +
-      "here — this annotation is not a function signature; write `->!` for a " +
-      "function that may touch the world, or `->` for one that does not",
+      "`>->` means only as effectful as what it is handed, and nothing is handed here — this " +
+      "annotation is not a function signature; write `->!` for a function that may touch the world and " +
+      "may fail, or `->` for one that does neither",
     ]);
   });
 
@@ -3987,9 +3987,9 @@ export let t: String = trim("x")
 export record R = { k: () >-> Unit }
 `]]),
     ).toEqual([
-      "`>->` means only as effectful as what it is handed, and nothing is handed " +
-      "here — a `record` field is data, not a signature; write `->!` for a " +
-      "function that may touch the world, or `->` for one that does not",
+      "`>->` means only as effectful as what it is handed, and nothing is handed here — a `record` " +
+      "field is data, not a signature; write `->!` for a function that may touch the world and may " +
+      "fail, or `->` for one that does neither",
     ]);
   });
 
@@ -4082,7 +4082,7 @@ export let n: Int = runner!(() => readLine!())
 export let n: Int = runner(() => readLine!())
 `]]),
     ).toEqual([
-      "this call may touch the world, so `runner` wants `!`, not no mark",
+      "this call may touch the world and may fail, so `runner` wants `!`, not no mark",
     ]);
   });
 
@@ -4227,7 +4227,7 @@ let drive(source): String = (source.next)!()
 
 export let x: Int = 1
 `]]),
-    ).toEqual(["this call is pure, so this call wants no mark, not `!`"]);
+    ).toEqual(["this call is pure and cannot fail, so this call wants no mark, not `!`"]);
     expect(
       effectDiagnostics([["/main.hex", "module Main\n\n" + `
 let drive(source): String = (source.next)()
@@ -4247,7 +4247,7 @@ let drive(source): Unit = (source.step)()
 export let go(): Unit = drive({ step = () => save!("x") })
 `]]),
     ).toEqual([
-      "a `->` arrow promises purity, and this function may touch the world — the " +
+      "a `->` arrow promises purity and that the function cannot fail, and this function may touch the world and may fail — the " +
       "demand is written `->`, the function's face `->!` or `>->`",
     ]);
   });
@@ -4307,8 +4307,8 @@ export let asPure: ((() -> String) -> Int) = stored
 export let asImpure: ((() ->! String) -> Int) = stored
 `]]),
     ).toEqual([
-      "this callback is written `->!`, which accepts any function, and this accepts only a " +
-      "pure one — write its arrow `->`",
+      "this callback is written `->!`, which accepts any function, and this accepts only one that is " +
+      "pure and cannot fail — write its arrow `->`",
     ]);
   });
 });
@@ -4664,7 +4664,7 @@ export let strict(step: String -> Unit, document: String): Unit = step(document)
 export let go(document: String): Unit = strict(save, document)
 `]]),
     ).toEqual([
-      "a `->` arrow promises purity, and this function may touch the world — the " +
+      "a `->` arrow promises purity and that the function cannot fail, and this function may touch the world and may fail — the " +
       "demand is written `->`, the function's face `->!` or `>->`",
     ]);
   });
@@ -4701,7 +4701,7 @@ export let bad: Seq(String) = Seq.unfold("x", (seed) =>
     None)
 `),
     ).toEqual([
-      "a `->` arrow promises purity, and this function may touch the world — the " +
+      "a `->` arrow promises purity and that the function cannot fail, and this function may touch the world and may fail — the " +
       "demand is written `->`, the function's face `->!` or `>->`",
     ]);
   });
@@ -4719,9 +4719,9 @@ describe("#947 closure construction stays pure, and knots settle at their close"
   const hover = (source: string, needle: string): string | undefined =>
     hoveredType("module Main\n\n" + world + source, needle);
   const wantsBang = (callee: string): string =>
-    `this call may touch the world, so \`${callee}\` wants \`!\`, not no mark`;
+    `this call may touch the world and may fail, so \`${callee}\` wants \`!\`, not no mark`;
   const wantsBare = (callee: string, mark: string): string =>
-    `this call is pure, so \`${callee}\` wants no mark, not \`${mark}\``;
+    `this call is pure and cannot fail, so \`${callee}\` wants no mark, not \`${mark}\``;
 
   it("refuses a member handing its sibling a function it made, and the refusal stands alone (#1218)", () => {
     // `k` takes no callback, so the pure lambda it hands `h` is not one it
@@ -4991,7 +4991,7 @@ export let useDefer(action: () ->! Unit): (() >-> Unit) = defer(action)
     save!("y")
     n)
 `)).toEqual([
-      "a `->` arrow promises purity, and this function may touch the world — the " +
+      "a `->` arrow promises purity and that the function cannot fail, and this function may touch the world and may fail — the " +
       "demand is written `->`, the function's face `->!` or `>->`",
     ]);
   });
@@ -5043,7 +5043,7 @@ export let total(value: Int, cb: () ->! Unit): Int =
         expect(hover(knot, "a(cb")).toBe("(() ->! Unit) ->! Unit");
         expect(hover(knot, "b(cb: ")).toBe("(() ->! Unit) ->! Unit");
         expect(check(knot.replace("        b!(cb)", "        b(cb)"))).toEqual([
-          "this call may touch the world, so `b` wants `!`, not no mark",
+          "this call may touch the world and may fail, so `b` wants `!`, not no mark",
         ]);
       }
     });
@@ -5056,7 +5056,7 @@ export let total(value: Int, cb: () ->! Unit): Int =
         const text = "module Main\n\n" + world + knot;
         const compiled = compileFiles([["/world.js", ""], ["/main.hex", text]]).diagnostics;
         expect(compiled.map(({ message }) => message)).toEqual([
-          "a `->` arrow promises purity, and this function may touch the world — the " +
+          "a `->` arrow promises purity and that the function cannot fail, and this function may touch the world and may fail — the " +
           "demand is written `->`, the function's face `->!` or `>->`",
         ]);
         // The primary is the demand — the written `() -> Unit` that pinned `b`.
@@ -5100,7 +5100,7 @@ export let total(value: Int, cb: () ->! Unit): Int =
       for (const members of [[holding, quiet], [quiet, holding]]) {
         const knot = `fun\n${members.join("")}`;
         expect(check(knot)).toEqual([
-          "a `->` arrow promises purity, and this function may touch the world — the " +
+          "a `->` arrow promises purity and that the function cannot fail, and this function may touch the world and may fail — the " +
           "demand is written `->`, the function's face `->!` or `>->`",
         ]);
         expect(hover(knot, "b()")).toBe("() -> Int");
@@ -5119,7 +5119,7 @@ export let total(value: Int, cb: () ->! Unit): Int =
         for (const members of [[caller, source], [source, caller]]) {
           const knot = `fun\n${members.join("")}`;
           expect(check(knot)).toEqual([
-            "a `->` arrow promises purity, and this function may touch the world — the " +
+            "a `->` arrow promises purity and that the function cannot fail, and this function may touch the world and may fail — the " +
             "demand is written `->`, the function's face `->!` or `>->`",
           ]);
           expect(hover(knot, "a()")).toBe("() ->! Unit");
@@ -5218,8 +5218,9 @@ export let quiet(cb: () ->! Unit): Source =
       // and a call to it is `!`. The pure direction stays exact (§4.2).
       expect(check("let f: (() ->! Int) = () => 1\nlet n: Int = f!()\n")).toEqual([]);
       expect(check("let f: (() -> Int) = () =>\n    save!(\"x\")\n    1\n")).toEqual([
-        "this call may touch the world, and the enclosing function's face is the pure arrow `->` — " +
-        "a pure face cannot run effects",
+        "this call may touch the world and may fail, and the enclosing function's face is the pure arrow " +
+        "`->`, which cannot fail — a pure face cannot run effects, and a face that cannot fail cannot " +
+        "run a call that may, unless it handles the failure",
       ]);
     });
   });
@@ -5245,7 +5246,7 @@ describe("captured colours, pins, and owners (Effects §3.4, §4.2, §10)", () =
     "enclosing function's — leave its type to inference, or write `->!`";
   const lie = (name: string): string =>
     `the parameter \`${name}\` is written \`->!\`, which accepts any function, and this accepts ` +
-    `only a pure one — write \`${name}\`'s arrow \`->\``;
+    `only one that is pure and cannot fail — write \`${name}\`'s arrow \`->\``;
 
   describe("a local header's `>->` borrows nothing (§2.2.1)", () => {
     it("is refused in every local form, and reads as its fixit", () => {
@@ -5272,7 +5273,7 @@ describe("captured colours, pins, and owners (Effects §3.4, §4.2, §10)", () =
       expect(check("export fun h(): () >-> Unit = () => ()\n")).toEqual([
         "`>->` means only as effectful as what it is handed, and nothing is handed here — " +
         "no callback of this signature has been handed over by the time this arrow runs; " +
-        "write `->!` for a function that may touch the world, or `->` for one that does not",
+        "write `->!` for a function that may touch the world and may fail, or `->` for one that does neither",
       ]);
     });
   });
@@ -5325,7 +5326,7 @@ describe("captured colours, pins, and owners (Effects §3.4, §4.2, §10)", () =
         pong(n: Int): String = ping!(n)
     ping!(2)
 `)).toEqual([
-        "this call touches the world on its own account, and this face's `>->` promises the " +
+        "this call touches the world and may fail on its own account, and this face's `>->` promises the " +
         "function is only as effectful as what it is handed — write `->!`",
       ]);
     });

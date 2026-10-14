@@ -193,7 +193,7 @@ Pattern Matching §7's usefulness matrix treats a total view as a **one-construc
 | Block without `view` | "a pattern declares `view`" at the head (§2.1) |
 | Member of another name, or a duplicate `view`/`build` | error at the member line (§2.1) |
 | Delegation line whose right side is not a name (`build = (a, b) => …`, `view = f(x)`) | parse error naming both forms on the offending member: "a pattern member is `build(a, b) = …` or `build = name`" (§2.1) |
-| `view` solving to `->!` or `>->` | Effects §4.3's unwritten-demand clause: "a pattern's `view` is run by matching, so it is pure — the demand is the pattern head's, and this function's face is `->!` or `>->`" (§2.1) |
+| `view` solving to `->!` or `>->` | Effects §4.3's unwritten-demand clause: "a pattern's `view` is run by matching, so it is pure and cannot fail — the demand is the pattern head's, and this function's face is `->!` or `>->`" (§2.1) |
 | Constraint list on a pattern head; a residual constraint inferred for an unheaded pattern | "a pattern's binders carry no constraints", the head named as the seat (§2.1) |
 | Delegation line naming a function declared below the pattern; a member body reading a later term; a use of the pattern above its line | Functions §7.2's declared-later error (§2.1) |
 | Member shape disagreeing with the head (arity, result) | error at the member naming the head's shape (§2.2) |

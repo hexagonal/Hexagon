@@ -122,9 +122,26 @@ export interface Diagnostic {
 
 export class Bag {
   readonly #diagnostics: Diagnostic[] = [];
+  /**
+   * An opaque tag beside each diagnostic, kept at its index through every
+   * rewrite, fold and discard: how a pass finds a report it made again once
+   * the report itself may have been replaced (`tagAt`, `replace`).
+   */
+  readonly #tags: unknown[] = [];
 
-  add(diagnostic: Diagnostic): void {
+  add(diagnostic: Diagnostic, tag?: unknown): void {
     this.#diagnostics.push(diagnostic);
+    this.#tags.push(tag);
+  }
+
+  /** The tag the diagnostic added `index`-th was added with. */
+  tagAt(index: number): unknown {
+    return this.#tags[index];
+  }
+
+  /** Replaces the diagnostic added `index`-th, keeping its place and its tag. */
+  replace(index: number, diagnostic: Diagnostic): void {
+    if (index >= 0 && index < this.#diagnostics.length) this.#diagnostics[index] = diagnostic;
   }
 
   /**
@@ -173,6 +190,7 @@ export class Bag {
    */
   discardSince(count: number): void {
     this.#diagnostics.length = Math.min(count, this.#diagnostics.length);
+    this.#tags.length = this.#diagnostics.length;
   }
 
   /** The diagnostic added `index`-th, in production order. */
@@ -193,7 +211,10 @@ export class Bag {
     if (kept === undefined || labels.length === 0) return;
     this.#diagnostics[target] = { ...kept, labels: [...(kept.labels ?? []), ...labels] };
     for (const index of [...dropped].sort((left, right) => right - left)) {
-      if (index > target) this.#diagnostics.splice(index, 1);
+      if (index > target) {
+        this.#diagnostics.splice(index, 1);
+        this.#tags.splice(index, 1);
+      }
     }
   }
 

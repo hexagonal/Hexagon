@@ -53,11 +53,6 @@ export function joinPoints(left: ColourPoint, right: ColourPoint): ColourPoint {
   return left.impure || right.impure ? IMPURE_POINT : PURE_POINT;
 }
 
-/** The mark a call through an arrow of this point wears (Effects §3.1). */
-export function markFor(point: ColourPoint): "bang" | undefined {
-  return point.impure ? "bang" : undefined;
-}
-
 /** The arrow that spells this point (Effects §2, §10). */
 export function arrowFor(point: ColourPoint): "->" | "->!" {
   return point.impure ? "->!" : "->";

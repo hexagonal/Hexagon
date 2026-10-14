@@ -63,13 +63,13 @@ function hovered(source: string, needle: string): string | undefined {
 
 /** §4.2's lie of generality at `action`, the callback every R.b witness below ties a value to. */
 const SOLVED_PURE = "the parameter `action` is written `->!`, which accepts any function, and this " +
-  "accepts only a pure one — write `action`'s arrow `->`";
+  "accepts only one that is pure and cannot fail — write `action`'s arrow `->`";
 const SOLVED_IMPURE = "this signature's `>->` promises a colour the caller chooses, but the body " +
   "solves it to the impure constant — a function that performs its own unconditional effects " +
   "rounds up, and its face is `->!`";
-const PURITY = "a `->` arrow promises purity, and this function may touch the world — the demand " +
+const PURITY = "a `->` arrow promises purity and that the function cannot fail, and this function may touch the world and may fail — the demand " +
   "is written `->`, the function's face `->!` or `>->`";
-const FIXED_BEFORE = "this position's arrow is the impure constant, and the pure `->` meeting it " +
+const FIXED_BEFORE = "this position's arrow says the function may touch the world and may fail, and the pure arrow meeting it, which cannot fail, " +
   "was fixed before it arrived — by another use, by a type written where it was made, inside an " +
   "argument read invariantly, or in a parameter's type — so it cannot fit as a function used here does; " +
   "write the arrow where it was fixed";
@@ -147,9 +147,9 @@ export let go(): Unit =
     expect(reports("export let go(): Unit = apply2!(() => (), save0)\n")).toEqual([]);
     expect(reports("export let go(): Unit = apply2(noop, () => ())\n")).toEqual([]);
     expect(reports("export let go(): Unit = apply2!(noop, noop)\n"))
-      .toEqual([["!", "this call is pure, so `apply2` wants no mark, not `!`"]]);
+      .toEqual([["!", "this call is pure and cannot fail, so `apply2` wants no mark, not `!`"]]);
     expect(reports("export let go(): Unit = apply2(save0, noop)\n"))
-      .toEqual([["apply2(save0, noop)", "this call may touch the world, so `apply2` wants `!`, not no mark"]]);
+      .toEqual([["apply2(save0, noop)", "this call may touch the world and may fail, so `apply2` wants `!`, not no mark"]]);
   });
 
   test("a call's declared pure result and a record's declared pure field fit too", () => {
@@ -376,7 +376,7 @@ describe("what the program's text decides, in any line order (R.b)", () => {
       inK(["let make = () => () => cb!()", "tieTwo(action, make())", pin]),
     ]) {
       expect(reports(body(lines)).map(([, message]) => message)).toEqual([
-        "this call is pure, so `cb` wants no mark, not `!`",
+        "this call is pure and cannot fail, so `cb` wants no mark, not `!`",
       ]);
     }
   });
@@ -657,7 +657,7 @@ describe("reports read the colours as they stand", () => {
     // (§4.2's own example).
     expect(reports("let g: (() ->! Unit) -> Unit = pureOnly\n")).toEqual([[
       "pureOnly",
-      "this callback is written `->!`, which accepts any function, and this accepts only a pure one — write its arrow `->`",
+      "this callback is written `->!`, which accepts any function, and this accepts only one that is pure and cannot fail — write its arrow `->`",
     ]]);
     // And a function whose callback is written `->!` accepts the pure one this
     // position hands it: the demand reads the parameter's arrow as what it
@@ -741,7 +741,7 @@ describe("a colour left open where the binding is made (#1170)", () => {
     }
     // A bare call after an effectful callback wants `!`, as any shared colour does.
     expect(reports(program(routes.pattern!(['r!(() => save!("z"))', call])))).toEqual([
-      [call, "this call may touch the world, so `r` wants `!`, not no mark"],
+      [call, "this call may touch the world and may fail, so `r` wants `!`, not no mark"],
     ]);
   });
 
@@ -829,7 +829,7 @@ describe("a colour left open where the binding is made (#1170)", () => {
     const handed = maker + "export let use(a1: () ->! Unit): Unit =\n    let (q, uu) = mk()\n    q(a1)\n    uu()\n";
     expect(hovered(handed, "q, uu")).toBe("(() -> Unit) -> Unit");
     expect(reports(handed).map(([, message]) => message)).toContain(
-      "the parameter `a1` is written `->!`, which accepts any function, and this accepts only a pure one — write `a1`'s arrow `->`",
+      "the parameter `a1` is written `->!`, which accepts any function, and this accepts only one that is pure and cannot fail — write `a1`'s arrow `->`",
     );
     // Nor the room a callback it hands the value leaves: the two callbacks
     // stay two colours, whichever is handed first.
@@ -912,7 +912,7 @@ describe("every arrow a use receives (Swift's rule, #1169)", () => {
     expect(reports(makers + "export let go(): Unit =\n    let p: (() -> Unit, Int) = mkE()\n    ()\n"))
       .toEqual([["(() -> Unit, Int)", PURITY]]);
     expect(reports(makers + "export let go(): Unit =\n    let (g, _) = mkE()\n    g()\n"))
-      .toEqual([["g()", "this call may touch the world, so `g` wants `!`, not no mark"]]);
+      .toEqual([["g()", "this call may touch the world and may fail, so `g` wants `!`, not no mark"]]);
     expect(reports(makers + "export let go(): Unit = applyImp(pureOnly)\n")).toEqual([["applyImp(pureOnly)", PURITY]]);
     expect(reports(
       'export let go(b: Bool, p: (() -> Unit, Int)): Unit =\n    let w = if b then p else (() => save!("y"), 2)\n' +
@@ -1104,7 +1104,7 @@ describe("a colour no parameter holds is published function by function (#1169)"
     expect(hovered(offSpine, "make() =")).toBe("() -> ((() ->! Unit) >-> Unit, () -> Unit)");
     // A mark on it is now a mark on a pure call.
     expect(reports(offSpine + "export let go(): Unit =\n    let (r, g) = make()\n    r!(save0)\n    g!()\n"))
-      .toEqual([["!", "this call is pure, so `g` wants no mark, not `!`"]]);
+      .toEqual([["!", "this call is pure and cannot fail, so `g` wants no mark, not `!`"]]);
   });
 
   test("two functions that hold it get a colour each, in either order", () => {
@@ -1151,9 +1151,9 @@ describe("a function in the data a signature returns is a signature of its own (
   const T = "((() ->! Unit) >-> Unit, Int)";
   const user = (lines: readonly string[]): string =>
     "export let user(): Unit =\n" + lines.map((line) => `    ${line}\n`).join("");
-  const NOTHING_HANDED = "`>->` means only as effectful as what it is handed, and nothing is handed here — " +
-    "no callback of this signature has been handed over by the time this arrow runs; write `->!` for a " +
-    "function that may touch the world, or `->` for one that does not";
+  const NOTHING_HANDED = "`>->` means only as effectful as what it is handed, and nothing is handed here — no callback of " +
+    "this signature has been handed over by the time this arrow runs; write `->!` for a function " +
+    "that may touch the world and may fail, or `->` for one that does neither";
 
   test("a carried face is written where hover shows it, and an exported factory states it", () => {
     for (const factory of [
@@ -1166,7 +1166,7 @@ describe("a function in the data a signature returns is a signature of its own (
       expect([factory, reports(factory + user(["let (r, _) = mk()", "r(() => ())"]))]).toEqual([factory, []]);
       expect([factory, reports(factory + user(["let (r, _) = mk()", "r!(save0)"]))]).toEqual([factory, []]);
       expect([factory, reports(factory + user(["let (r, _) = mk()", "r(save0)"]))])
-        .toEqual([factory, [["r(save0)", "this call may touch the world, so `r` wants `!`, not no mark"]]]);
+        .toEqual([factory, [["r(save0)", "this call may touch the world and may fail, so `r` wants `!`, not no mark"]]]);
     }
     for (const value of [`let p: ${T} = ((f) => f!(), 1)`, `let p = (((f) => f!(), 1) : ${T})`]) {
       expect([value, reports(user([value, "let (r, _) = p", "r(() => ())", "r!(save0)"]))]).toEqual([value, []]);
@@ -1205,7 +1205,7 @@ describe("a function in the data a signature returns is a signature of its own (
     // Written: the second function's `>->` is the factory's `cb` joined with its own `g`.
     const written = "let mk(cb: () ->! Unit): ((() ->! Unit) >-> Unit, Int) = ((g) => cb!(), 1)\n";
     expect(reports(written + user(["let (r, _) = mk(() => ())", "r(save0)"])))
-      .toEqual([["r(save0)", "this call may touch the world, so `r` wants `!`, not no mark"]]);
+      .toEqual([["r(save0)", "this call may touch the world and may fail, so `r` wants `!`, not no mark"]]);
     // Inferred, the face is widened to say the same (Effects §2.4), on a curried spine too.
     for (const [source, call] of [
       ["let mk(cb: () ->! Unit) = (() => cb!(), (g) => g!())\n" + user(["let (_, r) = mk(save0)", "r(() => ())"]), "r(() => ())"],
@@ -1222,7 +1222,7 @@ describe("a function in the data a signature returns is a signature of its own (
     const source = "let p = {run = (f) => (g: () ->! Unit) => f!()}\n";
     expect(hovered(source, "p =")).toBe("{run: (() ->! a) -> (() ->! Unit) >-> a}");
     expect(reports(source + user(["p.run(() => ())(save0)"])))
-      .toEqual([["p.run(() => ())(save0)", "this call may touch the world, so this call wants `!`, not no mark"]]);
+      .toEqual([["p.run(() => ())(save0)", "this call may touch the world and may fail, so this call wants `!`, not no mark"]]);
     // What a caller puts into a carried function is widened with what it runs
     // (Effects §2.4): `h` is `a`'s colour, widened with `b`'s as `run` is, so
     // after `make(() => (), save0)` it accepts `save0`.
@@ -1237,7 +1237,7 @@ describe("a function in the data a signature returns is a signature of its own (
       "            save0!()\n            g!()\n        (run, x)\n" + user(["let (r, _) = mk(() => ())(1)", "r!(save0)"])))
       .toEqual([[
         "save0!()",
-        "this call touches the world on its own account, and this face's `>->` promises the function is only " +
+        "this call touches the world and may fail on its own account, and this face's `>->` promises the function is only " +
         "as effectful as what it is handed — write `->!`",
       ]]);
   });
@@ -1245,21 +1245,21 @@ describe("a function in the data a signature returns is a signature of its own (
   test("a carried face that claims less than its body, or follows nothing, is refused", () => {
     expect(reports(`let mk(): ${T} =\n    let run = (f) =>\n        save0!()\n        f!()\n    (run, 1)\n`)).toEqual([[
       "save0!()",
-      "this call touches the world on its own account, and this face's `>->` promises the function is only " +
+      "this call touches the world and may fail on its own account, and this face's `>->` promises the function is only " +
       "as effectful as what it is handed — write `->!`",
     ]]);
     expect(reports("let mk(): (() >-> Unit, Int) = (() => (), 1)\n")).toEqual([[">->", NOTHING_HANDED]]);
     expect(reports("let mk(): ((() -> Unit) >-> Unit, Int) = ((f) => f(), 1)\n")).toEqual([[">->", NOTHING_HANDED]]);
     expect(reports(`let mk(): ${T} = ((f) => pureOnly(f), 1)\n`)).toEqual([[
       "f",
-      "this callback is written `->!`, which accepts any function, and this accepts only a pure one — write its arrow `->`",
+      "this callback is written `->!`, which accepts any function, and this accepts only one that is pure and cannot fail — write its arrow `->`",
     ]]);
     // Inside a parameter type nothing nests, and a declared field has no signature.
     expect(reports(`let take(k: ${T}): Unit = ()\n`)).toEqual([[
       ">->",
-      "`>->` means only as effectful as what it is handed, and nothing is handed here — an arrow inside a " +
-      "parameter type, other than a callback's own, is a constant; write `->!` for a function that may touch " +
-      "the world, or `->` for one that does not",
+      "`>->` means only as effectful as what it is handed, and nothing is handed here — an arrow " +
+      "inside a parameter type, other than a callback's own, is a constant; write `->!` for a function " +
+      "that may touch the world and may fail, or `->` for one that does neither",
     ]]);
     expect(reports("record R = { run: (() ->! Unit) >-> Unit }\n").map(([, message]) => message))
       .toEqual([expect.stringContaining("a `record` field is data, not a signature")]);
@@ -1394,7 +1394,7 @@ describe("a function in the data a signature returns is a signature of its own (
       "let ident(x: a): a = x\n" +
       `let make(): ((() ->! Unit) >-> Unit, () -> Unit) =\n    let run = ${run}\n    let go = () => run(() => ())\n    (run, go)\n`;
     expect(reports(shared("ident((f) => f!())")).map(([, message]) => message))
-      .toEqual([expect.stringContaining("accepts only a pure one")]);
+      .toEqual([expect.stringContaining("accepts only one that is pure and cannot fail")]);
     expect(reports(shared("(f) => f!()") + user(["let (r, g) = make()", "r!(save0)", "g()"]))).toEqual([]);
   });
 });
@@ -1811,12 +1811,12 @@ describe("a written face may claim more effect than its body performs, never les
     }
     // The face is the colour the calls read: a bare call through it is refused.
     expect(reports("export let go(): Unit =\n    let h: () ->! Unit = () => ()\n    h()\n"))
-      .toEqual([["h()", "this call may touch the world, so `h` wants `!`, not no mark"]]);
+      .toEqual([["h()", "this call may touch the world and may fail, so `h` wants `!`, not no mark"]]);
   });
 
   test("never less: a `->` face over an effectful body is still refused", () => {
     expect(reports("export let go(): Unit =\n    let h: () -> Unit = () => save!(\"x\")\n    h()\n").map(([, m]) => m))
-      .toEqual(["this call may touch the world, and the enclosing function's face is the pure arrow `->` — a pure face cannot run effects"]);
+      .toEqual(["this call may touch the world and may fail, and the enclosing function's face is the pure arrow `->`, which cannot fail — a pure face cannot run effects, and a face that cannot fail cannot run a call that may, unless it handles the failure"]);
   });
 
   test("the face #947 asked for is no longer needed, and a local `>->` borrows nothing", () => {
