@@ -5352,8 +5352,9 @@ class Checker {
    */
   readonly #pendingTies = new WeakMap<EffectFrame, Map<Mono, TieReport>>();
   /**
-   * The ties reported on the world colour, whose fixes are read again once the
-   * fail colour has settled (`#rereadTieFixes`): each fix writes both colours.
+   * The ties reported on the world colour, whose fixes are read again at the
+   * module's end, once every fail colour has settled (`#rereadTieFixes`): each
+   * fix writes both colours.
    */
   #tieFixesOwed: { readonly bag: Diagnostics.Bag; readonly report: Diagnostics.Diagnostic; readonly fixes: () => TieFixes }[] = [];
   /**
@@ -22140,7 +22141,6 @@ class Checker {
     const holder = this.#tieHolder(frame);
     this.#refuseTies(frame, holder === undefined);
     holder?.tieFrames.push(frame);
-    if (frameAxis(frame) === "fail") this.#rereadTieFixes();
   }
 
   /**
@@ -22886,7 +22886,7 @@ class Checker {
     this.#diagnostics.add(diagnostic);
     // A tie found on the world colour is found before the fail colour settles,
     // and the fix writes each colour as it settles (§3.4's black-box reading):
-    // its fix is read again then.
+    // its fix is read again at the module's end.
     if (this.#currentAxis === "world") this.#tieFixesOwed.push({ bag: this.#diagnostics, report: diagnostic, fixes });
     // The refused parameters read as their fix where the function is seen from
     // outside (`#readRefusedTies`), so no caller meets the tie a second time.
@@ -22894,9 +22894,10 @@ class Checker {
   }
 
   /**
-   * The fixes of the ties reported on the world colour, read again now that
-   * the fail colour has settled: a colour the fail colour's claims left silent
-   * is written silent (§3.4's black-box reading).
+   * The fixes of the ties reported on the world colour, read again at the
+   * module's end, where every fail colour has settled: a colour the fail
+   * colour's claims left silent is written silent (§3.4's black-box reading).
+   * One point, late enough for every body's fail colour, a knot's included.
    */
   #rereadTieFixes(): void {
     if (this.#tieFixesOwed.length === 0) return;
@@ -24104,7 +24105,6 @@ class Checker {
       // Each colour's frames on their own (Effects §1): a frame's calls carry
       // only its colour, so the two colours' sibling graphs never meet.
       for (const axis of AXES) this.#onAxis(axis, () => this.#settleKnotBody(knot, axis));
-      this.#rereadTieFixes();
     } finally {
       this.#settlingKnot = enclosingSettling;
     }
@@ -30811,6 +30811,9 @@ class Checker {
    * enclosing function is that function's, as at a binding.
    */
   #widenCallResult(type: Mono, level: number): Mono {
+    // A function D1 rebuilds keeps its lambdas and frame. It has a constant on
+    // one colour, so it is never a written `>->` face, and carries no face
+    // arrow nodes or written arrow spans for a later report to find.
     const actual = this.#prune(type);
     if (actual.kind === "Error" || actual.kind === "Variable") return type;
     return this.#widenFace(type, level - 1, { widen: false, d1: true });

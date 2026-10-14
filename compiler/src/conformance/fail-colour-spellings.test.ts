@@ -158,6 +158,16 @@ describe("Effects §2.4 (D1): where the two colours do not both follow, the one 
     ]);
   });
 
+  test("a face that follows some of the callbacks handed by then follows all of them", () => {
+    expect(reports(
+      "let pick(f: () ->! Unit, g: () ->! Unit) = f!()\n" +
+        "let save0(): Unit = save!(\"x\")\n" +
+        "export let pk(): Unit = pick(noop, save0)\n",
+    )).toEqual([
+      ["pick(noop, save0)", "this call may touch the world and may fail, so `pick` wants `!`, not no mark"],
+    ]);
+  });
+
   test("it comes after a colour no parameter holds is published silent", () => {
     const published = ONES +
       "let ident(x: a): a = x\n" +
