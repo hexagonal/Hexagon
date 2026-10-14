@@ -23318,7 +23318,11 @@ class Checker {
       if (!isImpure(absorbed)) continue;
       const own = this.#prune(frame.own);
       if (isImpure(own)) continue;
-      if (own.kind === "Effect") {
+      // A written `>->` silent on this colour, because no callback handed by
+      // then has a colour on it, is still a `>->`: the body acts on its own
+      // account where the face says only its callbacks do (Effects §4.2).
+      const follows = frame.face?.outer !== undefined;
+      if (own.kind === "Effect" && !follows) {
         // The face as written, read off its two colours (Effects §9).
         const world = frame.axis === "fail" ? frame.world : frame;
         const marks = (axis: Axis): boolean => {
@@ -23347,6 +23351,7 @@ class Checker {
           this.#reportFollowsFace(frame.face, frameAxis(frame), span, { own: "this call" });
           reportedFace = true;
         }
+        if (own.kind === "Effect") continue;
         // A held lambda's waiting part is no face's colour but what its body
         // runs through the knot (#1231): it takes the source.
         if (!this.#splitFrames.has(frame)) continue;
