@@ -447,8 +447,8 @@ describe("declarations name what they declare", () => {
     );
   });
 
-  it("reads a constraint member's result as a type after each of the three arrows", async () => {
-    for (const arrow of ["->", "->!", ">->"]) {
+  it("reads a constraint member's result as a type after each of the arrows", async () => {
+    for (const arrow of ["->", "->!", "->^", "->~", ">->", ">~>", ">~>^", ">^>", ">^>~"]) {
       const pairs = await scopePairs(`constraint R<a> =\n    run(f: () ->! Unit) ${arrow} Option(a)`);
       expect(pairs.at(-2), arrow).toEqual(["a", "entity.name.type.parameter.hexagon"]);
     }
@@ -1631,7 +1631,11 @@ describe("operators and forbidden runs (spec/lexer.md §8)", () => {
       // `->!` stands ahead of `->`, and `>->` ahead of the comparison `>`,
       // which still takes `>` where the arrow is not complete.
       ["let h: () ->! Int = f", "->!", "keyword.operator.arrow.impure.hexagon"],
+      ["let h: () ->^ Int = f", "->^", "keyword.operator.arrow.impure.hexagon"],
+      ["let h: () ->~ Int = f", "->~", "keyword.operator.arrow.impure.hexagon"],
       ["let k: (() ->! Int) >-> Int = f", ">->", "keyword.operator.arrow.linked.hexagon"],
+      ["let k: (() ->! Int) >^>~ Int = f", ">^>~", "keyword.operator.arrow.linked.hexagon"],
+      ["let k: (() ->! Int) >~> Int = f", ">~>", "keyword.operator.arrow.linked.hexagon"],
       ["let p: Int -> Int = f", "->", "keyword.operator.type.arrow.hexagon"],
       ["let q = a >-1", ">", "keyword.operator.comparison.hexagon"],
     ];
@@ -1667,9 +1671,9 @@ describe("operators and forbidden runs (spec/lexer.md §8)", () => {
   });
 
   it("rejects characters §8.3 gives no token", async () => {
-    // `?` is one of them: the one call mark is `!` (spec/effects.md §3.1), and
-    // no arrow contains it.
-    for (const char of ["%", "^", "&", "@", "#", "`", "\\", "?"]) {
+    // `?` is one of them for now: the call marks are `!`, `^` and `~`
+    // (spec/effects.md §3.1), and no arrow contains it.
+    for (const char of ["%", "&", "@", "#", "`", "\\", "?"]) {
       expect(await scope(`let x = a ${char} b`, char), char).toBe(
         "invalid.illegal.character.hexagon",
       );
@@ -1693,9 +1697,19 @@ describe("operators and forbidden runs (spec/lexer.md §8)", () => {
       ["let x = stream.next!()", "!"],
       ["let x = (source.next)!()", "!"],
       ["let x = document |> save!", "!"],
+      ["let x = Int.parse^(text)", "^"],
+      ["let x = log~(line)", "~"],
+      ["let x = stream.next^()", "^"],
     ] as const) {
       expect(await scope(source, text), source).toBe("keyword.operator.mark.hexagon");
     }
+  });
+
+  it("paints `^` and `~` where an operator would stand as the bitwise slips they are", async () => {
+    // bitwise.md §9, Lexer §8.3: each is a mark token only, and takes the
+    // `bxor` or `bnot` redirect standing anywhere else.
+    expect(await scope("let x = a ^ b", "^")).toBe("invalid.illegal.operator.hexagon");
+    expect(await scope("let x = ~a", "~")).toBe("invalid.illegal.operator.hexagon");
   });
 
   it("leaves a floating mark painted as the error it is", async () => {
@@ -1766,7 +1780,7 @@ describe("characters with no token (spec/lexer.md §2.2, §3.2, §8.3, §10)", (
   it("rejects characters the operator inventory never lists", async () => {
     // Deliberately characters the rule does not enumerate, so this cannot pass
     // merely by restating the pattern it is testing.
-    for (const char of ["~", "'", "§", "£", "°", "«", "€", "±", "×", "¬"]) {
+    for (const char of ["'", "§", "£", "°", "«", "€", "±", "×", "¬"]) {
       expect(await scope(`let x = a ${char} b`, char), char).toBe(
         "invalid.illegal.character.hexagon",
       );

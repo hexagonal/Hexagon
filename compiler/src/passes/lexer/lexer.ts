@@ -65,18 +65,25 @@ const punctuation: readonly (readonly [string, Lexed.PunctuationKind])[] = [
   ["==", "EqualEqual"],
   ["!=", "NotEqual"],
   ["<=", "LessEqual"],
-  // The follows arrow stands ahead of `>`, which begins it (Lexer §8.2). It
-  // needs all three characters, so `x >-1` is still `>`, `-`, `1`.
+  // The following arrows stand ahead of `>`, which begins each, the longest
+  // first (Lexer §8.2). Each needs all of its characters, so `x >-1` is still
+  // `>`, `-`, `1`, and `x >~y` is `>`, `~`, `y`.
+  [">~>^", "ArrowFollowsTildeCaret"],
+  [">^>~", "ArrowFollowsCaretTilde"],
+  [">~>", "ArrowFollowsTilde"],
+  [">^>", "ArrowFollowsCaret"],
   [">->", "ArrowFollows"],
   [">=", "GreaterEqual"],
   ["..", "Range"],
   ["|>", "Pipe"],
   [":=", "Assign"],
   ["=>", "FatArrow"],
-  // The marked type arrow stands ahead of `->` so maximal munch reaches it
+  // The marked type arrows stand ahead of `->` so maximal munch reaches them
   // (Lexer §8.2): the mark trails the arrow it colours, and `!->` is not a
   // token because a mark never begins one (Effects §2.3).
   ["->!", "ArrowBang"],
+  ["->^", "ArrowCaret"],
+  ["->~", "ArrowTilde"],
   ["->", "Arrow"],
   ["(", "LeftParen"],
   [")", "RightParen"],
@@ -99,12 +106,14 @@ const punctuation: readonly (readonly [string, Lexed.PunctuationKind])[] = [
   ["_", "Wildcard"],
 ];
 
-/** The redirects for JavaScript's bitwise characters (`bitwise.md` §9). */
+/**
+ * The redirect for JavaScript's bitwise and (`bitwise.md` §9). `^` and `~` are
+ * the call marks (Effects §3.1), tokens of their own, so their redirects are
+ * the parser's, where an operator would stand (Lexer §8.3).
+ */
 const BITWISE_REDIRECTS: ReadonlyMap<string, { readonly message: string; readonly word: string }> =
   new Map([
     ["&", { message: "Hexagon spells bitwise and `band`", word: "band" }],
-    ["^", { message: "Hexagon spells bitwise exclusive or `bxor`; a power is `**`", word: "bxor" }],
-    ["~", { message: "Hexagon spells bitwise complement `bnot`", word: "bnot" }],
   ]);
 
 export function lex(source: Source.File): Lexed.File {
@@ -559,9 +568,17 @@ class Scanner {
       // Recovery stands the word in for the character, so the expression around
       // it still parses and the one slip reports once.
       const span = this.#source.span(start, this.#offset);
-      return bitwiseRedirect.word === "bnot"
-        ? { kind: "Bnot", span }
-        : { kind: "NonUpperName", text: bitwiseRedirect.word, span };
+      return { kind: "NonUpperName", text: bitwiseRedirect.word, span };
+    }
+
+    if (codeUnit === 0x5e || codeUnit === 0x7e) {
+      // `^` and `~` are the fail mark and the world mark (Effects §3.1). As
+      // with `!`, the parser decides where each is grammatical, and gives
+      // `bitwise.md` §9's redirect where an operator would stand. The marks of
+      // `->^` and `->~` are never seen here: those tokens are scanned from
+      // their `-`.
+      this.#offset += 1;
+      return { kind: codeUnit === 0x5e ? "Caret" : "Tilde", span: this.#source.span(start, this.#offset) };
     }
 
     if (codeUnit === 0x21 && !this.#startsWith("!=")) {

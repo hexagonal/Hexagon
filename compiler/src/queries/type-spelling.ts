@@ -22,7 +22,7 @@
  * §2.2.1 requires, are not questions this type can answer.
  */
 
-import { IMPURE_ARROW, PURE_ARROW } from "../support/arrows.js";
+import { markedArrow } from "../support/arrows.js";
 import type * as Resolved from "../syntax/resolved/index.js";
 import type * as Source from "../support/source.js";
 import type * as Typed from "../syntax/typed/index.js";
@@ -439,13 +439,13 @@ export function spellType(
       // on where it lands.
       // A colour in error has no spelling: what the function does is unknown,
       // as an error type is (`spec/effects.md` §3.5, #1223).
-      if (type.effect === "error") {
+      if (type.effect === "error" || type.fail === "error") {
         return { unspellable: "part of the inferred type is unknown, because the definition has an error" };
       }
-      if (type.effect !== undefined && type.effect !== "impure") {
+      if ((type.effect !== undefined && type.effect !== "impure") || (type.fail !== undefined && type.fail !== "impure")) {
         return {
           unspellable:
-            "this function type's arrow is an effect variable, and writing `>->` here " +
+            "this function type's arrow is an effect variable, and writing a following arrow here " +
             "would link it to the rest of the signature's colour",
         };
       }
@@ -465,7 +465,8 @@ export function spellType(
             !(sole?.kind === "Tuple" && sole.elements.length > 0)
           ? parts[0]!
           : `(${parts.join(", ")})`;
-      const arrow = type.effect === undefined ? PURE_ARROW : IMPURE_ARROW;
+      // The constants each colour holds (`spec/effects.md` §10's machine-written face).
+      const arrow = markedArrow(type.effect !== undefined, type.fail !== undefined);
       return { text: `${domain} ${arrow} ${result.text}` };
     }
   }

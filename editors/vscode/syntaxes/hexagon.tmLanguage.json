@@ -748,10 +748,10 @@
         "`type` alias body's — `type F = Int -> Int` — which #operators used to take.",
         "The tail is a type either way, so the highlighting is unchanged, and it is the",
         "same type context a `:` opens.",
-        "The three arrows keep the scopes #operators gives them, so a member's colour is",
+        "The type arrows keep the scopes #operators gives them, so a member's colour is",
         "the same token wherever it is written."
       ],
-      "begin": "(>->)|(->!)|(->)",
+      "begin": "(>->|>~>\\^?|>\\^>~?)|(->[!^~])|(->)",
       "beginCaptures": {
         "1": { "name": "keyword.operator.arrow.linked.hexagon" },
         "2": { "name": "keyword.operator.arrow.impure.hexagon" },
@@ -1290,11 +1290,11 @@
         { "name": "keyword.operator.pipe.hexagon", "match": "\\|>" },
         { "name": "keyword.operator.assignment.hexagon", "match": ":=" },
         { "name": "keyword.operator.arrow.hexagon", "match": "=>" },
-        { "//": "spec/effects.md §2: the coloured type arrows are one token each. `>->` stands ahead of the comparison rows below, whose `>` begins it, and `->!` ahead of `->` so maximal munch reaches it. `!->` is not a token and gets no rule — a mark never begins one.", "name": "keyword.operator.arrow.linked.hexagon", "match": ">->" },
-        { "name": "keyword.operator.arrow.impure.hexagon", "match": "->!" },
+        { "//": "spec/effects.md §2: the coloured type arrows are one token each. The following arrows `>->`, `>~>`, `>~>^`, `>^>` and `>^>~` stand ahead of the comparison rows below, whose `>` begins them, the longest first, and `->!`, `->^` and `->~` ahead of `->` so maximal munch reaches them. `!->` is not a token and gets no rule — a mark never begins one.", "name": "keyword.operator.arrow.linked.hexagon", "match": ">->|>~>\\^?|>\\^>~?" },
+        { "name": "keyword.operator.arrow.impure.hexagon", "match": "->[!^~]" },
         { "name": "keyword.operator.type.arrow.hexagon", "match": "->" },
         { "name": "keyword.operator.comparison.hexagon", "match": "==|!=|<=|>=" },
-        { "//": "The call mark `!` (spec/effects.md §3.1), written glued on both sides (Lexer §8.1). The left glue is what this rule keys on — a mark follows the callee it marks — so the lookbehind is an identifier character or a closing bracket, which covers `save!(x)`, `stream.next!()`, the parenthesized `(source.next)!()`, and a `|>` stage's trailing `x |> save!`. A floating mark is deliberately left unpainted: it is a parse error (§9's mark-position row), and colouring it as an operator would tell the reader it is one when no such operator exists. This rule must stay *after* the comparison row: at the `!` of `a != b` both start at the same offset, and order is what decides.", "name": "keyword.operator.mark.hexagon", "match": "(?<=[\\p{ID_Continue}$_)\\]])!" },
+        { "//": "The call marks `!`, `^` and `~` (spec/effects.md §3.1), written glued on both sides (Lexer §8.1). The left glue is what this rule keys on — a mark follows the callee it marks — so the lookbehind is an identifier character or a closing bracket, which covers `save!(x)`, `stream.next!()`, the parenthesized `(source.next)!()`, and a `|>` stage's trailing `x |> save!`. A floating mark is deliberately left unpainted: it is a parse error (§9's mark-position row), and colouring it as an operator would tell the reader it is one when no such operator exists. This rule must stay *after* the comparison row: at the `!` of `a != b` both start at the same offset, and order is what decides.", "name": "keyword.operator.mark.hexagon", "match": "(?<=[\\p{ID_Continue}$_)\\]])[!^~]" },
         { "name": "keyword.operator.arithmetic.hexagon", "match": "\\*\\*" },
         { "name": "keyword.operator.concat.hexagon", "match": "\\+\\+" },
         { "name": "keyword.operator.arithmetic.hexagon", "match": "[+\\-*/]" },
@@ -1327,6 +1327,11 @@
           "name": "invalid.illegal.operator.hexagon",
           "match": "&&|\\|\\||(?<![\\p{ID_Continue}$_)\\]])!(?!=)"
         },
+        {
+          "//": "bitwise.md §9 and Lexer §8.3: `^` and `~` are the call marks (spec/effects.md §3.1), tokens only glued to the callee they mark, which #operators paints. One standing where an operator would stand takes the `bxor` or `bnot` redirect.",
+          "name": "invalid.illegal.operator.hexagon",
+          "match": "(?<![\\p{ID_Continue}$_)\\]])[\\^~]"
+        },
         { "include": "#bidirectional-control" },
         {
           "//": "spec/lexer.md §2.2: space and tab are the only horizontal whitespace. There is no invisible second spelling of an ordinary space.",
@@ -1334,9 +1339,9 @@
           "match": "[\\x{000B}\\x{000C}\\x{00A0}\\x{1680}\\x{2000}-\\x{200B}\\x{202F}\\x{205F}\\x{3000}\\x{FEFF}]"
         },
         {
-          "//": "Every character outside the identifier repertoire (§3.1) and the closed punctuation inventory (§8.1). Catches `~`, `'` (§3.2: ML-style `a'` names do not exist), `%`, `^`, a lone `&`, `@`, `#`, backtick, backslash, `?` (no token at all), and §11's own rejected `let 😀 = 1`. `!` is excluded here because it lexes — `!=`, and the call mark — and the operator rule above already claims one standing in the wrong place.",
+          "//": "Every character outside the identifier repertoire (§3.1) and the closed punctuation inventory (§8.1). Catches `'` (§3.2: ML-style `a'` names do not exist), `%`, a lone `&`, `@`, `#`, backtick, backslash, `?` (no token at all), and §11's own rejected `let 😀 = 1`. `!`, `^` and `~` are excluded here because each lexes — `!=`, and the call marks — and the operator rules above already claim one standing in the wrong place.",
           "name": "invalid.illegal.character.hexagon",
-          "match": "[^\\p{ID_Continue}$_\\x{200C}\\x{200D} \\t()\\[\\]{},:;.=+\\-*/<>|\"!]"
+          "match": "[^\\p{ID_Continue}$_\\x{200C}\\x{200D} \\t()\\[\\]{},:;.=+\\-*/<>|\"!^~]"
         }
       ]
     },

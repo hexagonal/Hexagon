@@ -4,6 +4,7 @@
  * but every non-error Name expression identifies exactly one declared symbol.
  */
 
+import type { FollowingArrow } from "../../support/arrows.js";
 import type * as Diagnostics from "../../support/diagnostics.js";
 import type * as Source from "../../support/source.js";
 import type { Documentation } from "../../support/documentation.js";
@@ -159,7 +160,7 @@ export interface FunctionTypeAnnotation {
   readonly parameters: readonly TypeAnnotation[];
   readonly result: TypeAnnotation;
   /** How the arrow was written (#355); absent is `->`. */
-  readonly effect?: "linked" | "constant";
+  readonly effect?: ArrowEffect;
   /** The arrow token, so a face fixit replaces exactly it. */
   readonly arrowSpan?: Source.Span;
   readonly span: Source.Span;
@@ -825,7 +826,7 @@ export interface ExternFunDeclaration extends ExternDeclarationFields {
   readonly typeParameters?: readonly TypeParameter[];
   readonly parameters: readonly Parameter[];
   /** The row's outer arrow (#869); see the parsed tree's field. */
-  readonly effect?: "linked" | "constant";
+  readonly effect?: ArrowEffect;
   /** The arrow token itself, so §4.4's refusal and a fixit can stand on it. */
   readonly arrowSpan?: Source.Span;
   readonly returnAnnotation: TypeAnnotation;
@@ -1796,10 +1797,10 @@ export interface ConstraintMember {
   readonly returnAnnotation: TypeAnnotation;
   /**
    * The header's **outer arrow** — the contract (Effects §13.1, #867). Absent
-   * is `->`; `constant` is `->!`; `linked` is `>->`, the member's own effect
-   * variable (Effects §13.4).
+   * is `->`; a mark is that marked arrow; `linked` is `>->`, the member's own
+   * colours (Effects §13.4).
    */
-  readonly effect?: "linked" | "constant";
+  readonly effect?: ArrowEffect;
   /** The arrow token itself, so §4.4's refusal and a fixit can stand on it. */
   readonly arrowSpan?: Source.Span;
   readonly defaultValue?: LambdaExpr;
@@ -1924,7 +1925,11 @@ export type Expr =
   | AssignmentExpr
   | ErrorExpr;
 
-export type CallMark = "bang";
+/** A call's mark, and a marked arrow's: see the parsed tree's (Effects §3.1). */
+export type CallMark = "bang" | "tilde" | "caret";
+
+/** How a function type's arrow was written: see the parsed tree's (Effects §2). */
+export type ArrowEffect = FollowingArrow | CallMark;
 
 /** Suffix construction before checking lowers it through the selected build as a call. */
 export interface PatternConstructionExpr {
@@ -2188,7 +2193,7 @@ export interface CallExpr {
   readonly callee: Expr;
   readonly arguments: readonly Expr[];
   /** The written call mark (#355 ruling 2); absent is the bare call. */
-  readonly mark?: "bang";
+  readonly mark?: CallMark;
   readonly markSpan?: Source.Span;
   readonly span: Source.Span;
 }
@@ -2278,7 +2283,7 @@ export interface BinaryExpr {
   readonly left: Expr;
   readonly right: Expr;
   /** A `|>` stage's own mark (#355 ruling 1); the rewrite carries it. */
-  readonly mark?: "bang";
+  readonly mark?: CallMark;
   readonly markSpan?: Source.Span;
   readonly span: Source.Span;
 }

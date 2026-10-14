@@ -854,10 +854,10 @@ describe("`extern class` diagnostics (§11)", () => {
       "name the companion constructor: `new as create(...) -> Url`",
     ]);
     expect(classDiagnostics("        new as create(text: String) ->! T\n")).toEqual([
-      "`new` constructs `Url`; write `new as create(…) ->! Url` (`->` only where construction touches nothing)",
+      "`new` constructs `Url`; write `new as create(…) ->! Url` (`->` only where construction is pure)",
     ]);
     expect(classDiagnostics("        new as create(text: String)\n")).toEqual([
-      "`new` constructs `Url`; write `new as create(…) ->! Url` (`->` only where construction touches nothing)",
+      "`new` constructs `Url`; write `new as create(…) ->! Url` (`->` only where construction is pure)",
     ]);
     expect(classDiagnostics("        static new as create(text: String) ->! Url\n")).toEqual([
       "a constructor is already the class's own operation; drop `static`: `new as create(...) -> Url`",

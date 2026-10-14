@@ -52,7 +52,7 @@ extern from "url-tools"
 (SearchParams, String) ->! Nullable(String)
 ```
 
-**The arrow before the result is Part 4 §4.5's effect contract, mandatory on every member form** *(#869)*: `->!` here says that a lookup on foreign state may observe the world; `->` would be the trusted purity claim, `->~` the claim that the lookup touches the world and never fails, `->^` that it is pure and may fail, and `>->` the declared conduit for a member that runs a callback it is handed (Part 4 §4.5). A `set` row is the one form whose arrow is fixed — `->!`, §4.1. This part's examples write `->!` wherever the honest answer is "unknown", which for foreign state is nearly everywhere, and `->` only where the row reads no foreign state at all (a static predicate over its argument, a constructor that only builds); the keyword says how JavaScript is invoked, and the arrow says what a caller accommodates.
+**The arrow before the result is Part 4 §4.5's effect contract, mandatory on every member form** *(#869)*: `->!` here says that a lookup on foreign state may observe the world; `->` would be the trusted purity claim, `->~` the claim that the lookup is impure and never fails, `->^` that it is pure and may fail, and a following arrow such as `>->` the declared conduit for a member that runs a callback it is handed (Part 4 §4.5). A `set` row is the one form whose arrow is fixed — `->!`, §4.1. This part's examples write `->!` wherever the honest answer is "unknown", which for foreign state is nearly everywhere, and `->` only where the row reads no foreign state at all (a static predicate over its argument, a constructor that only builds); the keyword says how JavaScript is invoked, and the arrow says what a caller accommodates.
 
 There is nothing method-typed about the binding; subject-first ordering means pipes (`params |> SearchParams.get!("name")`) and dot calls (§9) work exactly as they do for any companion operation.
 
@@ -381,7 +381,7 @@ Hard errors with named rewrites per the Rewrite Rule:
 | `set` return type other than `Unit` | "an extern `set` returns `Unit`" (honest-`Unit` doctrine) | §4.1 |
 | getter and setter introducing the same term name | ordinary collision error + "alias the setter: `set timeout as setTimeout(...)`" | §4.2 |
 | `new` without `as` | "name the companion constructor: `new as create(text: String) -> Url`" | §6.2 |
-| `new` row whose result is not the class's own type, or with no arrow | "`new` constructs `Url`; write `new as create(text: String) ->! Url` (`->` only where construction touches nothing)" | §6.2 |
+| `new` row whose result is not the class's own type, or with no arrow | "`new` constructs `Url`; write `new as create(text: String) ->! Url` (`->` only where construction is pure)" | §6.2 |
 | member row with `:` before its result | Part 4 §13's colon row — a member row declares a callable (#869) | Part 4 §4.5 |
 | `set` (instance or static) with an arrow other than `->!` | "an extern `set` grants write capability, and a write to foreign state is an effect — its arrow is `->!`; write `set timeout as setTimeout(request: Request, value: Int) ->! Unit`" + fixit `->!` (#869) | §4.1, §6.3 |
 | `static` or `new` at block level, outside a class block | "a `static` member targets the foreign class's constructor object; declare it inside the `extern class` it belongs to"; for `new`, "`new` constructs a foreign class; declare it inside that class's `extern class` block" (#982) | §6.2, §6.3 |

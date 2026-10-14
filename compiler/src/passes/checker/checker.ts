@@ -7,7 +7,20 @@
  * rejects projection-bearing constraints on type-variable binders.
  */
 
-import { FOLLOWS_ARROW, IMPURE_ARROW, PURE_ARROW } from "../../support/arrows.js";
+import {
+  arrowNaming,
+  constantMarks,
+  displayedArrow,
+  followingArrow,
+  FOLLOWS_ARROW,
+  type FollowingArrow,
+  isFollowing,
+  markedArrow,
+  ownMarks,
+  passesThrough,
+  type ShownColour,
+  writtenArrowText,
+} from "../../support/arrows.js";
 import * as Diagnostics from "../../support/diagnostics.js";
 import * as Colour from "./colour.js";
 import { stronglyConnectedComponents } from "../../support/graph.js";
@@ -52,7 +65,7 @@ import {
   type ImportRepairs,
 } from "../../support/import-placement.js";
 import * as Source from "../../support/source.js";
-import { displayParameterName, isSyntheticParameterName } from "../../support/synthetic.js";
+import { displayParameterName, isCompilerMinted, isSyntheticParameterName } from "../../support/synthetic.js";
 import * as Resolved from "../../syntax/resolved/index.js";
 import { preludeExportSymbol } from "../../support/prelude-symbol.js";
 import * as Typed from "../../syntax/typed/index.js";
@@ -411,7 +424,11 @@ const IMPURE: EffectConstant = Colour.IMPURE_POINT;
  */
 const COLOUR_MARK = "\uE000";
 const COLOUR_MARK_END = "\uE001";
-const COLOUR_MARKED = /\uE000(\d+)\uE001/g;
+/**
+ * A marked colour, with the colour it passes through on (`w`, `f`), which the
+ * note's words name (Effects §10's gloss).
+ */
+const COLOUR_MARKED = /\uE000(\d+)(?::([wf]))?\uE001/g;
 
 /**
  * Whether a colour is the impure constant, by value rather than by identity: a
@@ -471,6 +488,13 @@ interface SignatureFace extends Spine {
    */
   readonly inError?: Map<Axis, Set<number>>;
   /**
+   * The spine applications whose written following arrow §4.2 refused on a
+   * colour it leaves silent, where the value follows this signature's own
+   * callbacks: the fix passes that colour through too, and they read so from
+   * outside (`#readRefusedArrows`).
+   */
+  readonly passed?: Map<Axis, Set<number>>;
+  /**
    * The function values met at this face's written `>->` arrows, compared
    * against what the face is handed and never merged into it (§4.2):
    * `#checkFaceFits` reads them once their colours settle.
@@ -483,6 +507,8 @@ interface SignatureFace extends Spine {
   value?: Source.Span;
   /** The written outer arrow, where the signature writes one (a binding annotation, a member, a row). */
   outer?: Source.Span | undefined;
+  /** What that outer arrow is (Effects §2.2). */
+  outerEffect?: FollowingArrow | undefined;
   /** The signature's region, where a report stands when no arrow token is available. */
   readonly declaration: Source.Span;
   /** The binding that owns the colours, for §10's owner line; absent for a lambda no binding names. */
@@ -515,12 +541,16 @@ function faceColours(face: SignatureFace): Variable[] {
 /** One written `>->` of a face. */
 interface FaceArrow {
   readonly span: Source.Span;
-  /** The join it denotes on the world colour. */
+  /** The following arrow as written (Effects §2.2). */
+  readonly effect: FollowingArrow;
+  /** What it denotes on the world colour: the join, where the colour passes through. */
   readonly colour: Mono;
-  /** The same join on the fail colour (Effects §2.2: `>->` follows on both). */
+  /** What it denotes on the fail colour. */
   readonly fail: Mono;
   /** The spine application it follows, where it stands on the spine itself. */
   readonly application?: number;
+  /** On each colour, the join of the callbacks handed by then that have it: what passing it through would denote. */
+  readonly handed: Readonly<Record<Axis, Mono>>;
 }
 
 /**
@@ -542,10 +572,16 @@ interface FaceFit {
 
 /** One callback parameter's colour (Effects §2.4). */
 interface CallbackColour {
-  /** Its world colour. */
+  /** Its world colour: silent from the start where its own arrow does not mark that colour. */
   readonly colour: Variable;
   /** Its fail colour, quantified with the signature beside `colour` (Effects §2.4). */
   readonly fail: Variable;
+  /**
+   * The colours its own arrow marks (Effects §2.4): both for `->!`, the world
+   * colour for `->~`, the fail colour for `->^`. On a colour it does not mark
+   * the callback is silent, and its colour there is bound pure when it is made.
+   */
+  readonly marks: Readonly<Record<Axis, boolean>>;
   /** The parameter's name, where the signature names its parameters. */
   readonly name: string | undefined;
   /** The written `->!` arrows the colour stands on, for the lie of generality's fixit (§4.2). */
@@ -797,7 +833,7 @@ function annotationGround(annotation: Resolved.TypeAnnotation): boolean {
     case "TypeVariable":
       return false;
     case "Function":
-      return annotation.effect !== "linked" && annotation.parameters.every(annotationGround) &&
+      return !isFollowing(annotation.effect) && annotation.parameters.every(annotationGround) &&
         annotationGround(annotation.result);
     case "Vector":
     case "Set":
@@ -1032,9 +1068,9 @@ function annotationChildren(
  */
 interface SeatContract {
   readonly type: FunctionMono;
-  /** The member's callback colours, one per callback parameter its header writes `->!`. */
+  /** The member's callback colours, one per callback parameter whose header arrow marks the world colour. */
   readonly colours: readonly Variable[];
-  /** The same callbacks' fail colours (Effects §1), compared on their own. */
+  /** The fail colours of the callbacks whose arrow marks it (Effects §1), compared on their own. */
   readonly fails: readonly Variable[];
   readonly member: string;
   readonly parameters: readonly string[];
@@ -1210,6 +1246,9 @@ type DeferredTie =
  * to. Reports that share a tied parameter are one report, so its fix writes
  * each type once (`Checker.#reportTies`).
  */
+/** A tie report's fix, where every tied parameter's reading is plain (`#reportTie`). */
+type TieFixes = { readonly fixes?: readonly Diagnostics.Fix[] };
+
 class TieReport {
   readonly tied: EffectFrame["untyped"][number][] = [];
   /** The body each tied parameter belongs to, for its owner's name and its fix reading. */
@@ -2075,6 +2114,46 @@ export interface ColourReportTag {
   readonly render: (axes: readonly ("world" | "fail")[]) => Diagnostics.Diagnostic;
 }
 
+/**
+ * The colours a written arrow marks (Effects §1's alphabet): `->!` both, `->~`
+ * the world colour, `->^` the fail colour, `->` neither. A following arrow
+ * where it is refused reads as its constant (§4.4): it marks each colour it
+ * passes through or names after its second `>`, and leaves the other silent.
+ */
+function writtenMarks(effect: Resolved.ArrowEffect | undefined): Readonly<Record<Axis, boolean>> {
+  switch (effect) {
+    case undefined:
+      return { world: false, fail: false };
+    case "tilde":
+      return { world: true, fail: false };
+    case "caret":
+      return { world: false, fail: true };
+    case "bang":
+      return { world: true, fail: true };
+    case "linked":
+    case "linkedTilde":
+    case "linkedTildeCaret":
+    case "linkedCaret":
+    case "linkedCaretTilde":
+      return constantMarks(effect);
+  }
+}
+
+/** What no callback handed by then does, on the colour named (Effects §2.2.1). */
+function colourDoesAny(axis: Axis): string {
+  return axis === "world" ? "is impure" : "may fail";
+}
+
+/** What a constant arrow with these marks says, in words: "is impure and may fail", and so on. */
+function constantWords(marks: Readonly<Record<Axis, boolean>>): string {
+  return `${marks.world ? "is impure" : "is pure"} and ${marks.fail ? "may fail" : "cannot fail"}`;
+}
+
+/** The arrow that marks exactly these colours. */
+function arrowSpelling(marks: Readonly<Record<Axis, boolean>>): string {
+  return markedArrow(marks.world, marks.fail);
+}
+
 function isColourReportTag(tag: unknown): tag is ColourReportTag {
   return typeof tag === "object" && tag !== null && "render" in tag && "key" in tag;
 }
@@ -2124,8 +2203,8 @@ export function mergeColourReports(reports: Diagnostics.Bag, staged: Diagnostics
 }
 
 /** Records a written `>->`'s refusal, or its standing over a body in error, on one colour (`#readRefusedArrows`). */
-function faceMark(face: SignatureFace, marks: "refused" | "inError", axis: Axis, application: number): void {
-  const byAxis = ((face as { refused?: Map<Axis, Set<number>>; inError?: Map<Axis, Set<number>> })[marks] ??= new Map());
+function faceMark(face: SignatureFace, marks: "refused" | "inError" | "passed", axis: Axis, application: number): void {
+  const byAxis = ((face as Partial<Record<"refused" | "inError" | "passed", Map<Axis, Set<number>>>>)[marks] ??= new Map());
   const applications = byAxis.get(axis) ?? new Set<number>();
   applications.add(application);
   byAxis.set(axis, applications);
@@ -4023,6 +4102,9 @@ class Checker {
   readonly #deepOpenings = new WeakSet<Variable>();
   /** Whether `#unify` stands inside an odd number of parameter positions, where demand and supply turn over. */
   #parameterParity = false;
+  /** The two function types whose colours `#unify` is meeting, for §4.3's report: the demand as written. */
+  #meetingArrows: { readonly left: FunctionMono; readonly right: FunctionMono; readonly id: number } | undefined;
+  #meetings = 0;
   /** Every opened colour not yet settled, for the binding that minted it to close (`#generalize`). */
   #openedPending: Variable[] = [];
   /**
@@ -4158,6 +4240,13 @@ class Checker {
   readonly #untypedColours = new ByRepresentative<{ readonly colour: Variable; readonly name: string; readonly owner?: string | undefined }>(
     (colour) => this.#prune(colour),
   );
+  /**
+   * Callback colours with a name no written signature gave them (Effects
+   * §10's gloss): an untyped callback's, and a lambda parameter's where a
+   * binding annotation wrote the callback's type. Read only where no scope
+   * names the colour.
+   */
+  readonly #namedColours: { readonly colour: Variable; readonly name: string; readonly owner: string | undefined }[] = [];
   /** `#colourScopes` by the colour's representative, for the tie test's lookups. */
   readonly #scopesByColour = new ByRepresentative<ColourScope>((colour) => this.#prune(colour));
   /**
@@ -4446,6 +4535,20 @@ class Checker {
     const axis = this.#currentAxis;
     const tag: ColourReportTag = { key, axis, render };
     this.#diagnostics.add(render([axis]), tag);
+  }
+
+  /**
+   * §4.2's follows-face reports made on the world colour, rendered again once
+   * the fail colour has run: a colour the fail colour refused on the same
+   * arrow is named in the fixit too, so every fixit on one arrow writes the
+   * arrow it reads as (`#reportFollowsFace`).
+   */
+  #rereadFollowsFixes(): void {
+    for (let index = 0; index < this.#diagnostics.count; index += 1) {
+      const tag = this.#diagnostics.tagAt(index);
+      if (!isColourReportTag(tag) || tag.axis !== "world" || !tag.key.startsWith("follows-face ")) continue;
+      this.#diagnostics.replace(index, tag.render([tag.axis]));
+    }
   }
 
   /** One report across both colours (`mergeColourReports`). */
@@ -5298,6 +5401,12 @@ class Checker {
    * body's close and reported at the knot's (`#refuseTies`).
    */
   readonly #pendingTies = new WeakMap<EffectFrame, Map<Mono, TieReport>>();
+  /**
+   * The ties reported on the world colour, whose fixes are read again at the
+   * module's end, once every fail colour has settled (`#rereadTieFixes`): each
+   * fix writes both colours.
+   */
+  #tieFixesOwed: { readonly bag: Diagnostics.Bag; readonly report: Diagnostics.Diagnostic; readonly fixes: () => TieFixes }[] = [];
   /**
    * Every reference that resolved *inside* a knot, and the member it named.
    *
@@ -6201,8 +6310,10 @@ class Checker {
         // variables are. They carry no requirements, so no dictionary ordinal
         // moves; and they are quantified besides, so no defaulting pass may
         // settle a contract on one instantiation's behalf.
-        const contractColours = faceCallbacks(memberFace).map(({ colour }) => colour);
-        const contractFailColours = faceCallbacks(memberFace).map(({ fail }) => fail);
+        // A colour a callback's arrow does not mark is silent from the start,
+        // and no seat chooses it (§2.4).
+        const contractColours = faceCallbacks(memberFace).filter(({ marks }) => marks.world).map(({ colour }) => colour);
+        const contractFailColours = faceCallbacks(memberFace).filter(({ marks }) => marks.fail).map(({ fail }) => fail);
         for (const colour of [...contractColours, ...contractFailColours]) this.#quantified.add(colour.id);
         this.#memberColours.set(member.binding.symbol, contractColours);
         this.#memberFailColours.set(member.binding.symbol, contractFailColours);
@@ -6490,7 +6601,7 @@ class Checker {
               this.#diagnostics.add({
                 severity: "error",
                 message: `\`new\` constructs \`${type}\`; write \`new as ${declaration.localName}(…) ->! ${type}\` ` +
-                  "(`->` only where construction touches nothing)",
+                  "(`->` only where construction is pure)",
                 primary: declaration.returnAnnotation.span,
               });
             }
@@ -6655,6 +6766,8 @@ class Checker {
     this.#refuseExportedMemberSpellings(module.items);
     // The two colours' reports made one before any report's colours are
     // named (Effects §1, §10).
+    this.#rereadTieFixes();
+    this.#rereadFollowsFixes();
     this.#mergeColourReports();
     this.#settleColourNotes();
 
@@ -8464,7 +8577,7 @@ class Checker {
           item.head === undefined
             ? "a pattern's `view` must be a one-argument function"
             : `\`view\` does not match pattern \`${item.name}\`'s head; expected ${
-              this.#display(viewExpected === undefined ? viewSlot : { ...viewExpected, effect: PURE })
+              this.#display(viewExpected === undefined ? viewSlot : { ...viewExpected, effect: PURE, fail: PURE })
             }, found ${this.#display(inferredView)}`
         );
         const viewType = this.#prune(viewSlot);
@@ -8522,9 +8635,9 @@ class Checker {
                   this.#effectVariables(part).includes(viewEffect.id)
                 );
                 if (conducted) {
-                  this.#colourReport(`view ${spanKey(item.view.span)}`, (axes) => ({
+                  this.#colourReport(`view ${spanKey(item.view.span)}`, () => ({
                     severity: "error",
-                    message: viewMessage(axes, ">->"),
+                    message: viewMessage(">->"),
                     primary: item.view.span,
                   }));
                 } else {
@@ -8532,9 +8645,14 @@ class Checker {
                 }
               } else if (viewEffect.kind === "Effect") {
                 if (isImpure(viewEffect)) {
-                  this.#colourReport(`view ${spanKey(item.view.span)}`, (axes) => ({
+                  // The view's own face, read off its two colours.
+                  const shown = (on: Axis): ShownColour => {
+                    const colour = this.#prune(colourAt(viewType, on) ?? PURE);
+                    return colour.kind === "Effect" ? isImpure(colour) ? "constant" : "silent" : "follows";
+                  };
+                  this.#colourReport(`view ${spanKey(item.view.span)}`, () => ({
                     severity: "error",
-                    message: viewMessage(axes, "->!"),
+                    message: viewMessage(displayedArrow(shown("world"), shown("fail"), "spine")),
                     primary: item.view.span,
                   }));
                 }
@@ -8640,9 +8758,9 @@ class Checker {
         // §4.2), as at an ascription and a written result type (#1230).
         const supplied = suppliedFace === undefined ? undefined : this.#prune(suppliedFace);
         const follows = supplied?.kind === "Function" && annotation?.kind === "Function" &&
-          annotation.effect === "linked" && this.#prune(supplied.effect ?? PURE).kind !== "Effect";
+          passesThrough(annotation.effect).world && this.#prune(supplied.effect ?? PURE).kind !== "Effect";
         const followsFail = supplied?.kind === "Function" && annotation?.kind === "Function" &&
-          annotation.effect === "linked" && this.#prune(supplied.fail ?? PURE).kind !== "Effect";
+          passesThrough(annotation.effect).fail && this.#prune(supplied.fail ?? PURE).kind !== "Effect";
         // An enclosing binding's face still waiting for its own lambda, which
         // this nested binding hands back when it is done.
         const enclosingPending = {
@@ -8651,15 +8769,28 @@ class Checker {
           face: this.#pendingOwnFace,
           lambdas: this.#pendingOwnLambdas,
         };
-        this.#pendingOwnEffect = supplied?.kind === "Function" && !follows ? supplied.effect ?? PURE : undefined;
-        this.#pendingOwnFail = supplied?.kind === "Function" && !followsFail ? supplied.fail ?? PURE : undefined;
+        // A colour a following arrow leaves silent is no demand on the body
+        // either: the lambda keeps its own, compared with the arrow once what
+        // it runs is decided, so a body acting on its own account there pins
+        // no callback it is handed (Effects §4.2). The arrow is read as it
+        // reads: a refused one as its fix (§4.4), which may be a constant.
+        const reads = supplied?.kind === "Function" && annotation?.kind === "Function"
+          ? this.#signatureFaces.at(-1)?.outerEffect
+          : undefined;
+        const silentUnder = (axis: Axis): boolean => reads !== undefined && !constantMarks(reads)[axis];
+        this.#pendingOwnEffect = supplied?.kind === "Function" && !follows && !silentUnder("world")
+          ? supplied.effect ?? PURE
+          : undefined;
+        this.#pendingOwnFail = supplied?.kind === "Function" && !followsFail && !silentUnder("fail")
+          ? supplied.fail ?? PURE
+          : undefined;
         this.#pendingOwnLambdas = supplied?.kind === "Function" ? faceLambdas(item.value) : undefined;
         this.#pendingOwnFace = supplied?.kind === "Function" && annotation?.kind === "Function" &&
-            annotation.effect === "linked"
+            isFollowing(annotation.effect)
           ? this.#signatureFaces.at(-1)
           : undefined;
-        // The face the binding publishes, whose refused arrows read as `->!`.
-        const annotationFace = supplied?.kind === "Function" && annotation?.kind === "Function"
+        // The face the binding publishes, whose refused arrows read as their fix.
+        let annotationFace = supplied?.kind === "Function" && annotation?.kind === "Function"
           ? this.#signatureFaces.at(-1)
           : undefined;
         this.#bindingChain.push({ symbol: item.binding.symbol, name: item.binding.name });
@@ -8680,6 +8811,19 @@ class Checker {
           this.#pendingOwnFace = enclosingPending.face;
           this.#pendingOwnLambdas = enclosingPending.lambdas;
         }
+        // A lambda's parameters name the callbacks a binding annotation wrote
+        // without names, for the gloss (Effects §10).
+        if (annotationFace !== undefined && item.value.kind === "Lambda") {
+          for (const parameter of item.value.parameters) {
+            const type = this.#schemes.get(parameter.symbol)?.type;
+            if (type === undefined || isCompilerMinted(parameter.name)) continue;
+            for (const { arrow } of this.#spineColours(type)) {
+              for (const part of this.#colourParts(arrow)) {
+                this.#namedColours.push({ colour: part, name: parameter.name, owner: item.binding.name });
+              }
+            }
+          }
+        }
         // The body the annotation's face is the signature of, where its
         // reports search for the offending call.
         if (annotationFace !== undefined && annotationFace.body === undefined) {
@@ -8692,6 +8836,14 @@ class Checker {
           const annotationType = suppliedFace ??
             this.#ownAnnotation(letBinders, () =>
               this.#bindingAnnotation(annotation, level + 1, item.span, item.binding.name));
+          // A face over a value no expectation lands on (a named function, a
+          // merge) is elaborated here, after the value, and it is the face
+          // the binding publishes all the same: a refused arrow on it reads as
+          // its fix from outside (Effects §4.2).
+          if (annotationFace === undefined && suppliedFace === undefined && annotation.kind === "Function") {
+            annotationFace = this.#signatureFaces.at(-1);
+            if (annotationFace !== undefined && annotationFace.body === undefined) annotationFace.body = item.value.span;
+          }
           const reading = this.#seatReading(annotationType, item.value, inferredValueType, level + 1);
           this.#atAnnotationSeat(annotation.span, item.value, () =>
             this.#unifyExpected(
@@ -10749,7 +10901,7 @@ class Checker {
         type = this.#publishWrittenColours(
           annotationType,
           type,
-          expression.annotation.kind === "Function" && expression.annotation.effect === "linked",
+          expression.annotation.kind === "Function" && isFollowing(expression.annotation.effect),
         );
         break;
       }
@@ -11732,7 +11884,15 @@ class Checker {
           // expression, a comment (`None((* why *))`), a glued effect mark
           // (`None!()`) — is the writer's text, and "delete the `()`" must not
           // delete it.
-          if (
+          if (expression.mark === "caret") {
+            // `x^(y + 1)` on a callee that is no function is another language's
+            // power or exclusive or (Effects §3.2, Lexer §10), not a mark.
+            this.#diagnostics.add({
+              severity: "error",
+              message: "Hexagon spells bitwise exclusive or `bxor`; a power is `**`",
+              primary: expression.markSpan ?? expression.span,
+            });
+          } else if (
             expression.callee.kind === "Name" &&
             this.#constructorUnions.has(expression.callee.symbol)
           ) {
@@ -12537,7 +12697,7 @@ class Checker {
           case "ErrorType":
             return node;
           case "Function":
-            if (written.effect === "linked") return node;
+            if (isFollowing(written.effect)) return node;
         }
       }
       // Data a spine returns is outside every parameter type, as the spine is.
@@ -12579,7 +12739,8 @@ class Checker {
           if (!receives) {
             // Where the use hands something, a `->!` the value's own written
             // type spells as the impure constant accepts any function (#1174).
-            return written?.kind === "Function" && written.effect === "constant" && role === "data"
+            return written?.kind === "Function" && written.effect !== undefined && !isFollowing(written.effect) &&
+                role === "data"
               ? this.#lowerWritten(rebuilt, level)
               : rebuilt;
           }
@@ -20094,7 +20255,7 @@ class Checker {
         const written = source.value.returnAnnotation;
         return written === undefined
           ? this.#returnsLambda(source.value.body)
-          : written.kind === "Function" && written.effect !== "linked" && annotationWhole(written);
+          : written.kind === "Function" && !isFollowing(written.effect) && annotationWhole(written);
       }
       case "Access":
         return this.#madeFromText(expression.receiver);
@@ -21643,64 +21804,110 @@ class Checker {
   /**
    * The colour a written arrow denotes where it stands (Effects §2.2–§2.5),
    * read off `#arrowRole`: `->` is pure; `->!` is the callback's colour on a
-   * callback's own arrows and the impure constant everywhere else; `>->` is the
-   * join of the callbacks its spine has been handed by the time the arrow runs,
-   * a carried function's own among them (#1176). A `>->` the position does not
-   * admit is §4.4's refusal, and reads as its fixit: the callback's colour on a
-   * callback's own arrow, the impure constant everywhere else.
+   * callback's own arrows and the impure constant everywhere else; a following
+   * arrow is, on each colour it passes through, the join of the callbacks its
+   * spine has been handed by the time the arrow runs, a carried function's own
+   * among them (#1176), and the constant or silent on the other, as written. A
+   * following arrow the position does not admit is §4.4's refusal, and reads as
+   * its fixit: each colour it passes through with nothing to pass becomes its
+   * constant (the callback's colour on a callback's own arrow), and every other
+   * colour stays as written.
    */
   #writtenEffect(
-    written: "linked" | "constant" | undefined,
+    written: Resolved.ArrowEffect | undefined,
     arrowSpan: Source.Span | undefined,
   ): { readonly effect?: Mono; readonly fail?: Mono } {
     if (written === undefined) return {};
     const role = this.#arrowRole;
-    // `->!` and `>->` each speak of both colours (Effects §1, §2): the constant
-    // on each, a callback's colour on each, the join on each.
     const both = (effect: Mono, fail: Mono) => ({ effect, fail });
-    if (written === "constant") {
-      if (role?.kind !== "callback") return both(IMPURE, IMPURE);
+    if (!isFollowing(written)) {
+      // A marked arrow speaks of the colours its mark carries, silent on the
+      // other: the constant on each, or a callback's colour on its own arrows.
+      const marks = writtenMarks(written);
+      const marked = (world: Mono, fail: Mono) => ({
+        ...(marks.world ? { effect: world } : {}),
+        ...(marks.fail ? { fail } : {}),
+      });
+      if (role?.kind !== "callback") return marked(IMPURE, IMPURE);
       if (arrowSpan !== undefined) role.callback.arrows.push(arrowSpan);
-      return both(role.callback.colour, role.callback.fail);
+      return marked(role.callback.colour, role.callback.fail);
     }
+    // A refused following arrow reads as its constant (§4.4): each colour it
+    // passes through or names after its second `>`, and silent on the other.
+    const constant = writtenMarks(written);
+    const constantReading = (world: Mono, fail: Mono) => ({
+      effect: constant.world ? world : PURE,
+      fail: constant.fail ? fail : PURE,
+    });
     switch (role?.kind) {
       case "callback":
-        this.#refuseFollowsArrow(arrowSpan, "callback");
+        this.#refuseFollowsArrow(arrowSpan, "callback", written);
         if (arrowSpan !== undefined) role.callback.arrows.push(arrowSpan);
-        return both(role.callback.colour, role.callback.fail);
+        return constantReading(role.callback.colour, role.callback.fail);
       case "inside":
-        this.#refuseFollowsArrow(arrowSpan, "inside");
-        return both(IMPURE, IMPURE);
+        this.#refuseFollowsArrow(arrowSpan, "inside", written);
+        return constantReading(IMPURE, IMPURE);
       case "spine":
       case "component": {
+        // Each colour on its own (Effects §1, §2.2.1): one it passes through
+        // needs a callback handed by then whose own arrows mark it.
         const handed = role.spine.handed.slice(0, role.application + 1).flat();
-        if (handed.length === 0) {
+        const passing = passesThrough(written);
+        const marking = (axis: Axis): CallbackColour[] => handed.filter((callback) => callback.marks[axis]);
+        const empty = AXES.filter((axis) => passing[axis] && marking(axis).length === 0);
+        // Nothing handed by then has a colour at all: §4.4's nothing-handed refusal.
+        if (AXES.every((axis) => marking(axis).length === 0)) {
           const local = role.face.local && role.spine.handed.every((callbacks) => callbacks.length === 0);
           const untyped = role.spine.untyped.slice(0, role.application + 1).some((some) => some);
-          this.#refuseFollowsArrow(arrowSpan, local ? "local" : untyped ? "untyped" : "unhanded");
-          return both(IMPURE, IMPURE);
+          this.#refuseFollowsArrow(arrowSpan, local ? "local" : untyped ? "untyped" : "unhanded", written);
+          return constantReading(IMPURE, IMPURE);
         }
-        const joined = this.#join(handed.map(({ colour }) => colour));
-        const failed = this.#join(handed.map(({ fail }) => fail));
-        if (arrowSpan !== undefined) {
+        if (empty.length > 0) this.#refuseFollowsArrow(arrowSpan, "colour", written, empty);
+        // A colour nothing handed has reads as the fixit does: its constant.
+        // What still passes through is the arrow from then on, a constant
+        // where nothing does.
+        const through = { world: passing.world && !empty.includes("world"), fail: passing.fail && !empty.includes("fail") };
+        const own = { world: constant.world && !through.world, fail: constant.fail && !through.fail };
+        const reading = followingArrow(through, own);
+        if (role.kind === "spine" && role.spine === role.face && role.application === 0) {
+          role.face.outer = reading === undefined ? undefined : arrowSpan;
+          role.face.outerEffect = reading;
+        }
+        const colourOn = (axis: Axis): Mono =>
+          through[axis]
+            ? this.#join(marking(axis).map((callback) => callbackColour(callback, axis)))
+            : own[axis]
+            ? IMPURE
+            : PURE;
+        const joined = colourOn("world");
+        const failed = colourOn("fail");
+        if (arrowSpan !== undefined && reading !== undefined) {
           role.face.arrows.push({
             span: arrowSpan,
+            effect: reading,
             colour: joined,
             fail: failed,
+            handed: {
+              world: this.#join(marking("world").map((callback) => callbackColour(callback, "world"))),
+              fail: this.#join(marking("fail").map((callback) => callbackColour(callback, "fail"))),
+            },
             ...(role.kind === "spine" && role.spine === role.face ? { application: role.application } : {}),
           });
         }
         return both(joined, failed);
       }
       case undefined:
-        this.#refuseFollowsArrow(arrowSpan, this.#linkedArrowPosition);
-        return both(IMPURE, IMPURE);
+        this.#refuseFollowsArrow(arrowSpan, this.#linkedArrowPosition, written);
+        return constantReading(IMPURE, IMPURE);
     }
   }
 
   /**
-   * Effects §4.4: a `>->` where nothing is handed, with the position's own
-   * reason and the fixit `->!` — never a second reading of the arrow.
+   * Effects §4.4: a following arrow where nothing is handed, with the
+   * position's own reason, or one that passes through a colour no callback
+   * handed by then has (`empty`, one colour: with both, nothing is handed).
+   * Either way the fixit makes each colour with nothing to pass its constant
+   * and keeps every other colour as written — never a second reading.
    */
   #refuseFollowsArrow(
     arrowSpan: Source.Span | undefined,
@@ -21713,7 +21920,10 @@ class Checker {
       | "record"
       | "union"
       | "alias"
-      | "no-signature",
+      | "no-signature"
+      | "colour",
+    written: FollowingArrow = "linked",
+    empty: readonly Axis[] = [],
   ): void {
     if (arrowSpan === undefined) return;
     // A member header is refused at the declaration and nowhere else (#867):
@@ -21732,15 +21942,39 @@ class Checker {
     const key = `${Number(arrowSpan.fileId)}:${arrowSpan.start.offset}:${arrowSpan.end.offset}`;
     if (this.#reportedLinkedArrows.has(key)) return;
     this.#reportedLinkedArrows.add(key);
-    const nothingHanded = "`>->` means only as effectful as what it is handed, and nothing is handed here — ";
-    const constants = "; write `->!` for a function that may touch the world and may fail, or `->` for one " +
-      "that does neither";
+    const text = writtenArrowText(written);
+    const passing = passesThrough(written);
+    const own = ownMarks(written);
+    if (position === "colour") {
+      // §2.2.1, colour by colour: a colour with nothing to pass becomes its
+      // constant, and the arrow without it is named in words.
+      const axis = empty[0]!;
+      const through = { world: passing.world && axis !== "world", fail: passing.fail && axis !== "fail" };
+      const fix = arrowNaming(through, { world: own.world || axis === "world", fail: own.fail || axis === "fail" });
+      const without = arrowNaming(through, own);
+      this.#diagnostics.add({
+        severity: "error",
+        message: `\`${text}\` passes ${axis === "world" ? "the world colour" : "the fail colour"} through, and no ` +
+          `callback handed by then ${colourDoesAny(axis)} — write \`${fix}\`, or \`${without}\` if the function ` +
+          `${axis === "world" ? "is pure" : "cannot fail"} on its own account`,
+        primary: arrowSpan,
+        fixes: [{ message: `write \`${fix}\``, edits: [{ span: arrowSpan, replacement: fix }] }],
+      });
+      return;
+    }
+    // Everywhere else the arrow reads as its constant: each colour it passes
+    // through or names after its second `>`.
+    const marks = writtenMarks(written);
+    const fix = arrowSpelling(marks);
+    const nothingHanded = `\`${text}\` means only as effectful as what it is handed, and nothing is handed here — `;
+    const constants = `; write \`${fix}\` for a function that ${constantWords(marks)}, or \`->\` for one ` +
+      "that is pure and cannot fail";
     const message = position === "callback"
-      ? "a callback's arrow says what the function accepts, and the function follows it — `->!` accepts any " +
-        "function, and `->` one that is pure and cannot fail"
+      ? `a callback's arrow says what the function accepts, and the function follows it — \`${fix}\` accepts any ` +
+        `function${acceptance(marks)}, and \`->\` one that is pure and cannot fail`
       : position === "local"
-      ? nothingHanded + "this annotation has no callbacks of its own, and a local `>->` does not " +
-        "borrow the enclosing function's — leave its type to inference, or write `->!`"
+      ? nothingHanded + `this annotation has no callbacks of its own, and a local \`${text}\` does not ` +
+        `borrow the enclosing function's — leave its type to inference, or write \`${fix}\``
       : nothingHanded + {
         inside: "an arrow inside a parameter type, other than a callback's own, is a constant",
         untyped: "no callback of this signature has been handed over by the time this arrow runs; " +
@@ -21754,15 +21988,16 @@ class Checker {
         // besides: a boundary row has no body, so the repair is a declaration
         // the author writes rather than an arrow the checker can point at.
         (this.#atExternRow && (position === "unhanded" || position === "untyped")
-          ? " — write the callback parameter this row runs, with `->!`, or write `->!` on the row"
+          ? ` — write the callback parameter this row runs, with \`${arrowSpelling(passing)}\`, or write ` +
+            `\`${fix}\` on the row`
           : "");
     this.#diagnostics.add({
       severity: "error",
       message,
       primary: arrowSpan,
       fixes: [{
-        message: "write `->!`",
-        edits: [{ span: arrowSpan, replacement: "->!" }],
+        message: `write \`${fix}\``,
+        edits: [{ span: arrowSpan, replacement: fix }],
       }],
     });
   }
@@ -21837,10 +22072,11 @@ class Checker {
    * One parameter of the `application`th arrow of `spine` (the signature's own,
    * where none is given, or a carried function's: #1176), elaborated as the
    * callback it is where its written type is a function type (Effects §2.4):
-   * written `->!` (or the refused `>->`, which reads as it) on its own arrow, it
-   * has a colour of its own, which every arrow of its own function type
-   * carries; written `->`, it is pure and has none. Every other arrow inside a
-   * parameter type means what it says.
+   * it has a colour of its own on each colour its own arrows mark (the arrow
+   * it is called through, and those of the functions it returns; a refused
+   * following arrow reads as its constant), and each of those arrows carries it on the
+   * colours that arrow marks; with every own arrow `->`, it is pure and has
+   * none. Every other arrow inside a parameter type means what it says.
    */
   #elaborateParameter(
     annotation: Resolved.TypeAnnotation | undefined,
@@ -21856,7 +22092,16 @@ class Checker {
       spine.untyped[application] = true;
       return undefined;
     }
-    if (annotation.kind !== "Function" || annotation.effect === undefined) {
+    // A colour on each colour the callback's own arrows mark, what it returns
+    // included; on a colour none of them marks, the callback is silent
+    // (Effects §2.4). A refused following arrow there reads as its constant (§4.4).
+    const marks = { world: false, fail: false };
+    for (let arrow: Resolved.TypeAnnotation = annotation; arrow.kind === "Function"; arrow = arrow.result) {
+      const each = writtenMarks(arrow.effect);
+      marks.world ||= each.world;
+      marks.fail ||= each.fail;
+    }
+    if (annotation.kind !== "Function" || (!marks.world && !marks.fail)) {
       return this.#inRole({ kind: "inside" }, () => elaborate(annotation));
     }
     const callback: CallbackColour = {
@@ -21865,26 +22110,33 @@ class Checker {
       name,
       arrows: [],
       face,
+      marks,
     };
     handed.push(callback);
     if (spine !== face) face.carried.push(callback);
-    for (const colour of [callback.colour, callback.fail]) {
+    for (const axis of AXES) {
+      const colour = callbackColour(callback, axis);
+      if (!marks[axis]) {
+        colour.instance = PURE;
+        continue;
+      }
       this.#linkedColours.push(colour);
       this.#faceColours.add(colour);
     }
-    const scope: ColourScope = {
-      span: face.declaration,
-      effect: callback.colour,
-      owner: face.owner,
-      parameter: name,
-      level: face.level,
-    };
-    this.#colourScopes.push(scope);
-    this.#scopesByColour.add(callback.colour, scope);
-    // The fail colour's scope, for the lookups a tie and an owner make on that
-    // axis; the materialized list stays the world colour's, which is what a
-    // display reads.
-    this.#scopesByColour.add(callback.fail, { ...scope, effect: callback.fail });
+    // A scope for each colour the callback has (Effects §10's owner line, and
+    // the lookups a tie makes on that colour).
+    for (const axis of AXES) {
+      if (!marks[axis]) continue;
+      const scope: ColourScope = {
+        span: face.declaration,
+        effect: callbackColour(callback, axis),
+        owner: face.owner,
+        parameter: name,
+        level: face.level,
+      };
+      this.#colourScopes.push(scope);
+      this.#scopesByColour.add(callbackColour(callback, axis), scope);
+    }
     return this.#inRole({ kind: "callback", callback }, () => elaborate(annotation));
   }
 
@@ -21897,7 +22149,7 @@ class Checker {
   #elaborateHeader(
     parameters: readonly { readonly annotation: Resolved.TypeAnnotation | undefined; readonly name: string }[],
     returnAnnotation: Resolved.TypeAnnotation,
-    effect: "linked" | "constant" | undefined,
+    effect: Resolved.ArrowEffect | undefined,
     arrowSpan: Source.Span | undefined,
     face: SignatureFace,
     elaborate: (annotation: Resolved.TypeAnnotation) => Mono,
@@ -21911,7 +22163,6 @@ class Checker {
       this.#elaborateParameter(annotation, face, 0, name, elaborate) ?? ERROR
     );
     const result = this.#inRole(this.#resultRole(face, 0, returnAnnotation), () => elaborate(returnAnnotation));
-    if (effect === "linked") face.outer = arrowSpan;
     const outer = this.#inRole({ kind: "spine", face, spine: face, application: 0 }, () =>
       this.#writtenEffect(effect, arrowSpan)
     );
@@ -21942,7 +22193,6 @@ class Checker {
       );
     }
     const face = this.#openFace(level, declaration, owner, this.#effectFrames.length > 0);
-    if (annotation.effect === "linked") face.outer = annotation.arrowSpan;
     return this.#inRole({ kind: "spine", face, spine: face, application: 0 }, elaborate);
   }
 
@@ -21997,12 +22247,13 @@ class Checker {
     this.#registeredCalls.add(expression);
     const { effect } = colours;
     // Recorded on each colour's frame, each with that colour (Effects §1). A
-    // mark claims the colour it carries: `!` both.
+    // mark claims the colours it carries: `!` both, `~` the world colour, `^`
+    // the fail colour.
     for (const axis of AXES) {
       const colour = axis === "fail" ? colours.fail : colours.effect;
       const own = frame === undefined ? undefined : frameOn(frame, axis);
       own?.absorbed.push({ effect: colour, span: expression.span, mark: expression.mark });
-      const read = expression.mark === "bang" ? "marked" : "bare";
+      const read = markParts(expression.mark)[axis] ? "marked" : "bare";
       for (let enclosing = own; enclosing !== undefined; enclosing = enclosing.enclosing) {
         enclosing[read].push(colour);
         (enclosing.calls ??= []).push({ effect: colour, call: expression });
@@ -22282,15 +22533,20 @@ class Checker {
       const pruned = this.#prune(colour);
       return pruned.kind === "Variable" && !read.has(pruned) && ownedBy.get(pruned) === 1;
     };
-    for (const { parameter, owned, claimed: isClaimed, inError } of decisions) {
+    // Each arrow of the callback's own spine on its own (Effects §2.4): a
+    // claim on one arrow makes that arrow's colour the callback's, and an
+    // arrow a bare call read stays pure, as writing the type would say.
+    for (const { parameter, owned, inError } of decisions) {
       for (const colour of owned) {
         if (inError) {
           if (this.#prune(colour).kind === "Variable") colour.instance = ERROR_COLOUR;
-        } else if (isClaimed || ownColour(colour)) {
+        } else if (claimed.has(colour) || ownColour(colour)) {
           this.#linkedColours.push(colour);
           if (!this.#untypedColours.get(this.#prune(colour)).some((entry) => entry.name === parameter.name)) {
             this.#untypedColours.add(colour, { colour, name: parameter.name, owner: frame.owner });
           }
+          // A pattern parameter's minted binder is no name to show (Lexer §3.2).
+          if (!isCompilerMinted(parameter.name)) this.#namedColours.push({ colour, name: parameter.name, owner: frame.owner });
         } else if (this.#prune(colour).kind === "Variable") {
           colour.instance = this.#undecidedColour(colour);
         }
@@ -22317,11 +22573,15 @@ class Checker {
     for (const parameter of frame.untyped) {
       const type = this.#prune(parameter.type);
       if (type.kind !== "Function") continue;
-      const own = colourAt(type, axis) ?? PURE;
       const spine: FunctionMono[] = [];
       for (let node: Mono = type; node.kind === "Function"; node = this.#prune(node.result)) spine.push(node);
-      // What it hands back first: its own function type's arrows are its colour.
-      for (const arrow of spine.slice(1)) this.#unify(own, colourAt(arrow, axis) ?? PURE, parameter.span);
+      // What it hands back first: its own function type's arrows are its
+      // colour, each on the colours it marks (Effects §2.4). An arrow silent
+      // on this colour stays silent: one a bare call read and no claim made
+      // the callback's (`#settleUntyped`).
+      const marking = spine.filter((arrow) => !this.#silentAtClose(colourAt(arrow, axis) ?? PURE));
+      const own = marking[0] === undefined ? PURE : colourAt(marking[0], axis) ?? PURE;
+      for (const arrow of marking.slice(1)) this.#unify(own, colourAt(arrow, axis) ?? PURE, parameter.span);
       const last = spine.at(-1)!;
       this.#closeInnerArrows(last.result, parameter.span, () => IMPURE, frame);
       // Then what the body hands it.
@@ -22336,6 +22596,16 @@ class Checker {
         }
       }
     }
+  }
+
+  /**
+   * Whether an untyped callback's arrow is silent on a colour where its body
+   * closes (§3.4's black box): pure already, as a bare call that read it and
+   * no claim leaves it (`#settleUntyped`).
+   */
+  #silentAtClose(colour: Mono): boolean {
+    const actual = this.#prune(colour);
+    return actual.kind === "Effect" && !isImpure(actual);
   }
 
   /** Closes every arrow inside `type` still undecided to the constant `decide` picks. */
@@ -22451,7 +22721,7 @@ class Checker {
     if (at !== undefined) {
       const type = this.#boundAt(parameter.type, at);
       if (type.kind !== "Function") return false;
-      const parts = this.#colourPartsAt(colourAt(type, axis) ?? PURE, at);
+      const parts = this.#ownColourPartsAt(type, axis, at);
       for (let node = this.#boundAt(outer.type, at); node.kind === "Function"; node = this.#boundAt(node.result, at)) {
         if (this.#colourPartsAt(colourAt(node, axis) ?? PURE, at).some((part) => parts.includes(part))) return true;
       }
@@ -22459,7 +22729,7 @@ class Checker {
     }
     const type = this.#prune(parameter.type);
     if (type.kind !== "Function") return false;
-    const parts = this.#colourParts(this.#prune(colourAt(type, axis) ?? PURE));
+    const parts = this.#colourParts(this.#prune(this.#ownColourAt(type, axis)));
     return this.#spineColours(outer.type, axis).some(({ arrow }) => this.#colourParts(arrow).some((part) => parts.includes(part)));
   }
 
@@ -22476,6 +22746,35 @@ class Checker {
       if (bind === undefined || bind.order >= at) return node;
       node = bind.target;
     }
+  }
+
+  /**
+   * An untyped callback's own colour, on one colour (Effects §2.4, §3.4): the
+   * colour of the first arrow of its own spine not silent on it, which every
+   * such arrow carries once its body closes; pure where all are silent.
+   */
+  #ownColourAt(type: Mono, axis: Axis): Mono {
+    for (let node = this.#prune(type); node.kind === "Function"; node = this.#prune(node.result)) {
+      const colour = colourAt(node, axis) ?? PURE;
+      if (!this.#silentAtClose(colour)) return colour;
+    }
+    return PURE;
+  }
+
+  /**
+   * `#ownColourAt`'s parts as they stood once `at` binds had been made
+   * (`#boundAt`). Which arrow carries the colour is read as settled: silence
+   * is decided where the parameter's own body closes, and a bare call's pure
+   * is no bind, so the arrows as they stood then cannot say it.
+   */
+  #ownColourPartsAt(type: Mono, axis: Axis, at: number): Variable[] {
+    let index = 0;
+    for (let node = this.#prune(type); node.kind === "Function"; node = this.#prune(node.result), index += 1) {
+      if (!this.#silentAtClose(colourAt(node, axis) ?? PURE)) break;
+    }
+    let node = this.#boundAt(type, at);
+    for (let step = 0; step < index && node.kind === "Function"; step += 1) node = this.#boundAt(node.result, at);
+    return node.kind === "Function" ? this.#colourPartsAt(colourAt(node, axis) ?? PURE, at) : [];
   }
 
   /** A colour's parts as they stood once `at` binds had been made (`#boundAt`). */
@@ -22504,7 +22803,7 @@ class Checker {
     const others = frame.untyped.filter((other) => {
       if (other === parameter || other.ownAtClose === true) return false;
       const theirs = this.#prune(other.type);
-      return theirs.kind === "Function" && this.#prune(colourAt(theirs, axis) ?? PURE) === colour;
+      return theirs.kind === "Function" && this.#prune(this.#ownColourAt(theirs, axis)) === colour;
     });
     if (others.length > 0) return { others, phrase: `\`${others[0]!.name}\`'s`, from: others[0]!.type };
     // An enclosing body's untyped parameter its close has not decided yet:
@@ -22617,7 +22916,7 @@ class Checker {
       }
       return;
     }
-    const colour = this.#prune(colourAt(type, entryAxis(parameter)) ?? PURE);
+    const colour = this.#prune(this.#ownColourAt(type, entryAxis(parameter)));
     // A constant is no tie, and nor is a colour in error (§3.5, #1223).
     if (colour.kind === "Effect" || colour.kind === "ErrorColour") return;
     const tie = this.#tieOf(frame, parameter, colour);
@@ -22666,7 +22965,7 @@ class Checker {
       return;
     }
     const axis = entryAxis(parameter);
-    const colour = this.#prune(colourAt(type, axis) ?? PURE);
+    const colour = this.#prune(this.#ownColourAt(type, axis));
     // A constant is no tie, and nor is a colour in error (§3.5, #1223).
     if (colour.kind === "Effect" || colour.kind === "ErrorColour") return;
     // Read as that close read it only where it was there then: with the
@@ -22703,7 +23002,7 @@ class Checker {
     }
     // Keyed by its colour as it stood then, so ties a later line merged stay
     // the reports they were.
-    const key = thenAt === undefined ? colour : this.#boundAt(colourAt(type, axis) ?? PURE, thenAt);
+    const key = thenAt === undefined ? colour : this.#boundAt(this.#ownColourAt(type, axis), thenAt);
     const report = reports.get(key) ?? new TieReport();
     reports.set(key, report);
     report.named.push({
@@ -22759,11 +23058,25 @@ class Checker {
     // its siblings', an enclosing callback's it waited on, and those of the
     // nested bodies tied with them. Where any of them is not plain, there is
     // no fixit.
-    const readings = tied.map((each) => {
-      const eachType = this.#prune(each.type);
-      return eachType.kind === "Function" ? this.#blackBoxReading(eachType) : undefined;
-    });
-    this.#diagnostics.add({
+    const fixes = (): TieFixes => {
+      const readings = tied.map((each) => {
+        const eachType = this.#prune(each.type);
+        return eachType.kind === "Function" ? this.#blackBoxReading(eachType) : undefined;
+      });
+      if (readings.some((reading) => reading === undefined)) return {};
+      return {
+        fixes: [{
+          message: tied.length === 1
+            ? `write \`${parameter.name}\`'s type`
+            : `write the types of ${tied.slice(0, -1).map(spelled).join(", ")} and ${spelled(tied.at(-1)!)}`,
+          edits: tied.map((each, index) => ({
+            span: { ...each.span, start: each.span.end },
+            replacement: `: ${readings[index]!}`,
+          })),
+        }],
+      };
+    };
+    const diagnostic: Diagnostics.Diagnostic = {
       severity: "error",
       message: `\`${parameter.name}\`'s colour is tied to ${phrase} here, and no written type can say ` +
         `that — write \`${parameter.name}\`'s type`,
@@ -22772,36 +23085,45 @@ class Checker {
         span: each.span,
         message: `${spelled(each)} has no written type`,
       })),
-      ...(readings.some((reading) => reading === undefined)
-        ? {}
-        : {
-            fixes: [{
-              message: tied.length === 1
-                ? `write \`${parameter.name}\`'s type`
-                : `write the types of ${tied.slice(0, -1).map(spelled).join(", ")} and ${spelled(tied.at(-1)!)}`,
-              edits: tied.map((each, index) => ({
-                span: { ...each.span, start: each.span.end },
-                replacement: `: ${readings[index]!}`,
-              })),
-            }],
-          }),
-    });
+      ...fixes(),
+    };
+    this.#diagnostics.add(diagnostic);
+    // A tie found on the world colour is found before the fail colour settles,
+    // and the fix writes each colour as it settles (§3.4's black-box reading):
+    // its fix is read again at the module's end.
+    if (this.#currentAxis === "world") this.#tieFixesOwed.push({ bag: this.#diagnostics, report: diagnostic, fixes });
     // The refused parameters read as their fix where the function is seen from
     // outside (`#readRefusedTies`), so no caller meets the tie a second time.
     for (const { frame, index } of report.readings) (frame.tieReadings ??= new Set()).add(index);
   }
 
   /**
+   * The fixes of the ties reported on the world colour, read again at the
+   * module's end, where every fail colour has settled: a colour the fail
+   * colour's claims left silent is written silent (§3.4's black-box reading).
+   * One point, late enough for every body's fail colour, a knot's included.
+   */
+  #rereadTieFixes(): void {
+    if (this.#tieFixesOwed.length === 0) return;
+    for (const { bag, report, fixes } of this.#tieFixesOwed.splice(0)) {
+      const { fixes: _, ...rest } = report;
+      const reread: Diagnostics.Diagnostic = { ...rest, ...fixes() };
+      bag.rewrite((each) => each === report ? reread : each);
+    }
+  }
+
+  /**
    * A function whose untyped parameters a tie refused reads as the fix from
    * outside (Effects §3.4, §4.4): each one's own arrows are a callback colour
-   * of its own, quantified here. A copy: the body's own typing stands.
+   * of its own on each colour the fix marks, quantified here, and silent on a
+   * colour the fix leaves silent. A copy: the body's own typing stands.
    */
   #readRefusedTies(type: Mono, level: number): Mono {
     const actual = this.#prune(type);
     if (actual.kind !== "Function") return type;
     // A parameter a tie refused on either colour reads as its fix, its written
-    // type, whose own arrows are `->!` on both colours (§3.4's black-box
-    // reading): a rule that names both colours (Effects §1).
+    // type, whose own arrows mark each colour the parameter is not silent on
+    // (§3.4's black-box reading): a rule that names both colours (Effects §1).
     const owner = this.#frameOfType.get(actual);
     const readings = owner === undefined
       ? undefined
@@ -22811,21 +23133,28 @@ class Checker {
     // colour this binding quantifies — siblings' shared colour — is their join
     // wherever else the face runs it, as the fix's face would be; a captured
     // colour stays the enclosing function's.
-    const fresh = new Map<number, ReadonlyMap<Axis, Variable>>();
+    const fresh = new Map<number, ReadonlyMap<Axis, Mono>>();
     const shared = new Map<number, Variable[]>();
     for (const index of readings) {
-      // A fresh callback colour of its own on each colour.
-      const owns = new Map<Axis, Variable>();
+      const parameter = actual.parameters[index];
+      // A fresh callback colour of its own on each colour the fix marks.
+      const owns = new Map<Axis, Mono>();
       for (const axis of AXES) {
+        const type = parameter === undefined ? undefined : this.#prune(parameter);
+        const colour = type?.kind === "Function" ? this.#prune(this.#ownColourAt(type, axis)) : undefined;
+        if (colour?.kind === "Effect" && !isImpure(colour)) {
+          owns.set(axis, PURE);
+          continue;
+        }
         const own = this.#fresh(level + 1, false);
         this.#linkedColours.push(own);
         owns.set(axis, own);
       }
       fresh.set(index, owns);
-      const parameter = actual.parameters[index];
       if (parameter === undefined) continue;
       for (const axis of AXES) {
         const own = owns.get(axis)!;
+        if (own.kind !== "Variable") continue;
         for (const { arrow } of this.#spineColours(parameter, axis)) {
           for (const part of this.#colourParts(arrow)) {
             if (part.level <= level) continue;
@@ -22837,11 +23166,13 @@ class Checker {
       }
     }
     const joined = new Map([...shared].map(([id, owners]) => [id, this.#join(owners)] as const));
-    const spine = (node: Mono, owns: ReadonlyMap<Axis, Variable>): Mono => {
+    // Each own arrow carries the fresh colour on the colours it marks, and is
+    // silent on the others (Effects §2.4).
+    const spine = (node: Mono, owns: ReadonlyMap<Axis, Mono>): Mono => {
       const at = this.#prune(node);
-      return at.kind === "Function"
-        ? { ...at, result: spine(at.result, owns), effect: owns.get("world")!, fail: owns.get("fail")! }
-        : node;
+      if (at.kind !== "Function") return node;
+      const on = (axis: Axis): Mono => this.#silentAtClose(colourAt(at, axis) ?? PURE) ? PURE : owns.get(axis)!;
+      return { ...at, result: spine(at.result, owns), effect: on("world"), fail: on("fail") };
     };
     return {
       ...actual,
@@ -22873,7 +23204,7 @@ class Checker {
   /**
    * Where a tie was made (§9): the latest unification on the path of binds
    * between the parameter's type and what it is tied to, found by walking both
-   * forward, through a function's own arrow, to where they meet.
+   * forward, through a function's own arrows, to where they meet.
    */
   #tieSpan(own: Mono, other: Mono): Source.Span | undefined {
     type Step = { readonly from?: Variable; readonly previous?: Step };
@@ -22886,6 +23217,10 @@ class Checker {
         }
         if (node.kind === "Function") {
           for (const colour of colourSlots(node)) visit(colour, step);
+          // The arrows of what it returns are its own too (Effects §2.4), so
+          // a tie on one of them was made where those met.
+          const result = this.#prune(node.result);
+          if (result.kind === "Function") visit(result, step);
           return;
         }
         if (node.kind !== "Variable" || found.has(node)) return;
@@ -23236,7 +23571,21 @@ class Checker {
       if (!isImpure(absorbed)) continue;
       const own = this.#prune(frame.own);
       if (isImpure(own)) continue;
-      if (own.kind === "Effect") {
+      // A written following arrow that passes this colour through promises
+      // the body acts on it only through its callbacks; one that leaves it
+      // silent promises silence, as a constant arrow does (Effects §4.2).
+      const outer = frame.face?.outer === undefined
+        ? undefined
+        : frame.face.arrows.find(({ span: written }) => spanKey(written) === spanKey(frame.face!.outer!));
+      const follows = outer !== undefined && passesThrough(outer.effect)[frameAxis(frame)];
+      if (outer !== undefined && !follows) {
+        if (!reportedFace) {
+          this.#reportFollowsFace(frame.face!, frameAxis(frame), span, { own: "this call" }, undefined, true);
+          reportedFace = true;
+        }
+        continue;
+      }
+      if (own.kind === "Effect" && !follows) {
         // The face as written, read off its two colours (Effects §9).
         const world = frame.axis === "fail" ? frame.world : frame;
         const marks = (axis: Axis): boolean => {
@@ -23265,6 +23614,7 @@ class Checker {
           this.#reportFollowsFace(frame.face, frameAxis(frame), span, { own: "this call" });
           reportedFace = true;
         }
+        if (own.kind === "Effect") continue;
         // A held lambda's waiting part is no face's colour but what its body
         // runs through the knot (#1231): it takes the source.
         if (!this.#splitFrames.has(frame)) continue;
@@ -23410,6 +23760,18 @@ class Checker {
         .sort((left, right) => precedes(left.span, right.span) ? -1 : 1)[0];
       const owner = offence.part === undefined ? undefined : this.#colourOwner(offence.part, face.body);
       const subject = call === undefined ? "this function" : "this call";
+      // On a colour the arrow leaves silent, a value following this
+      // signature's own callbacks there claims more than the arrow passes
+      // through: the fix passes that colour through too (§4.2).
+      const silent = !passesThrough(fit.arrow.effect)[axis];
+      const part = offence.part;
+      const callback = part === undefined
+        ? undefined
+        : faceCallbacks(face).find((each) => this.#colourParts(callbackColour(each, axis)).includes(part));
+      if (silent && callback !== undefined) {
+        this.#reportPassesThrough(face, axis, call?.span ?? fit.at, subject, callback.name, fit.arrow);
+        continue;
+      }
       this.#reportFollowsFace(
         face,
         axis,
@@ -23420,6 +23782,7 @@ class Checker {
           ? `${subject} runs a colour this signature is not handed`
           : `${subject} runs ${owner}, which this signature is not handed`,
         fit.arrow.span,
+        silent && offence.part === undefined,
       );
     }
   }
@@ -23437,11 +23800,12 @@ class Checker {
   }
 
   /**
-   * §4.2's report for a written `>->` face over a body that does more than its
-   * callbacks do, at the offending call, with a label at the `>->` and a fixit
-   * rewriting it to the constant the fix writes. `subject` is a clause that
-   * names no colour (a captured colour run), or the subject of one that does
-   * on its own account.
+   * §4.2's report for a written following face over a body that does more
+   * than its callbacks do, at the offending call, with a label at the arrow
+   * and a fixit moving the colours concerned to the function's own account.
+   * `subject` is a clause that names no colour (a captured colour run), or the
+   * subject of one that does on its own account. `silent` is a colour the
+   * arrow leaves silent, which takes the silent face's words (§9).
    */
   #reportFollowsFace(
     face: SignatureFace,
@@ -23449,6 +23813,7 @@ class Checker {
     span: Source.Span,
     subject: string | { readonly own: string },
     at?: Source.Span,
+    silent = false,
   ): void {
     const arrow = at ?? face.outer ?? face.arrows[0]?.span;
     // The refused arrow reads as its fix where the function is seen from
@@ -23458,22 +23823,74 @@ class Checker {
       ? undefined
       : face.arrows.find(({ span: written }) => spanKey(written) === spanKey(arrow));
     if (refused?.application !== undefined) faceMark(face, "refused", axis, refused.application);
-    const fix = (axes: readonly Axis[]): string => followsFix(face, refused?.application, axes);
+    // Read when the report is rendered, so a colour another report refused on
+    // the same arrow is named too: every fixit on one arrow writes the arrow
+    // it reads as, and they agree.
+    const fix = (axes: readonly Axis[]): string =>
+      followsFix(refused, AXES.filter((each) =>
+        axes.includes(each) ||
+        (refused?.application !== undefined && face.refused?.get(each)?.has(refused.application) === true)
+      ));
+    const text = writtenArrowText(refused?.effect ?? face.outerEffect ?? "linked");
     this.#colourReport(
-      `follows-face ${spanKey(span)} ${arrow === undefined ? "" : spanKey(arrow)} ${typeof subject === "string" ? subject : subject.own}`,
+      `follows-face ${spanKey(span)} ${arrow === undefined ? "" : spanKey(arrow)} ${typeof subject === "string" ? subject : subject.own} ${silent}`,
       (axes) => ({
         severity: "error",
-        message: `${typeof subject === "string" ? subject : `${subject.own} ${ownAccount(axes)}`}, and this ` +
-          `face's \`>->\` promises the function is only as effectful as what it is handed — write \`${fix(axes)}\``,
+        message: silent
+          ? `${typeof subject === "string" ? subject : `${subject.own} ${colourDoes(axes)}`}, and the enclosing ` +
+            `function's face is \`${text}\`` +
+            (axes.includes("world") ? ", which is pure" : "") +
+            (axes.includes("fail") ? ", which cannot fail" : "") + " — " +
+            axes.map((each) =>
+              each === "world"
+                ? "a pure face cannot run effects"
+                : "a face that cannot fail cannot run a call that may, unless it handles the failure"
+            ).join(", and ") + ` — write \`${fix(axes)}\``
+          : `${typeof subject === "string" ? subject : `${subject.own} ${ownAccount(axes)}`}, and this ` +
+            `face's \`${text}\` promises the function is only as effectful as what it is handed — write \`${fix(axes)}\``,
         primary: span,
         ...(arrow === undefined
           ? {}
           : {
-            labels: [{ span: arrow, message: "this `>->` follows only the callbacks it is handed" }],
+            labels: [{ span: arrow, message: `this \`${text}\` follows only the callbacks it is handed` }],
             fixes: [{ message: `write \`${fix(axes)}\``, edits: [{ span: arrow, replacement: fix(axes) }] }],
           }),
       }),
     );
+  }
+
+  /**
+   * §4.2's report for a function value that follows this signature's own
+   * callbacks on a colour the written following arrow leaves silent: the face
+   * claims less than the value does, and the fix passes that colour through
+   * too, reading so from outside (`#readRefusedArrows`).
+   */
+  #reportPassesThrough(
+    face: SignatureFace,
+    axis: Axis,
+    span: Source.Span,
+    subject: string,
+    callback: string | undefined,
+    arrow: FaceArrow,
+  ): void {
+    if (arrow.application !== undefined) faceMark(face, "passed", axis, arrow.application);
+    const text = writtenArrowText(arrow.effect);
+    const through = passesThrough(arrow.effect);
+    const own = ownMarks(arrow.effect);
+    const fix = (axes: readonly Axis[]): string =>
+      arrowNaming({ world: through.world || axes.includes("world"), fail: through.fail || axes.includes("fail") }, own);
+    const whose = callback === undefined ? "what it is handed" : `\`${callback}\``;
+    // "is impure where `f` is", "may fail where `f` may", "… where `f` does".
+    const verb = (axes: readonly Axis[]): string => axes.length === 2 ? "does" : axes[0] === "fail" ? "may" : "is";
+    this.#colourReport(`passes-through ${spanKey(span)} ${spanKey(arrow.span)}`, (axes) => ({
+      severity: "error",
+      message: `${subject} ${colourDoes(axes)} where ${whose} ${verb(axes)}, and this face's \`${text}\` ` +
+        `${axes.length === 2 ? "is pure and cannot fail" : axes[0] === "fail" ? "cannot fail" : "is pure"} there — ` +
+        `write \`${fix(axes)}\`, which passes that through`,
+      primary: span,
+      labels: [{ span: arrow.span, message: `this \`${text}\` passes through only what it names` }],
+      fixes: [{ message: `write \`${fix(axes)}\``, edits: [{ span: arrow.span, replacement: fix(axes) }] }],
+    }));
   }
 
   /**
@@ -23784,11 +24201,16 @@ class Checker {
             resultWritten = written.result;
             resultRole = role === "spine" || role === "callback" && written.result.kind === "Function" ? role : "data";
           }
-          // The text's constant: a written `->`, or a written `->!` anywhere
-          // but a callback's own arrow. There it is the callback's colour,
-          // which the recursion decides, handing the member its callbacks.
-          const constant = written?.kind === "Function" &&
-            (written.effect === undefined || (written.effect === "constant" && role !== "callback"));
+          // The text's constant, on each colour: a written arrow's, but on a
+          // callback's own arrow, a colour its mark carries is the callback's
+          // colour, which the recursion decides, handing the member its
+          // callbacks.
+          const marks = written?.kind === "Function" ? writtenMarks(written.effect) : undefined;
+          const constant = (axis: Axis): boolean =>
+            written?.kind === "Function" &&
+            (isFollowing(written.effect)
+              ? !passesThrough(written.effect)[axis]
+              : role !== "callback" || marks?.[axis] !== true);
           const rebuilt: FunctionMono = {
             kind: "Function",
             parameters: actual.parameters.map((parameter, index) =>
@@ -23796,12 +24218,15 @@ class Checker {
             ),
             result: copy(actual.result, resultWritten, resultRole),
           };
-          // Both colours alike (Effects §1, §3.5).
-          if (!constant) return { ...rebuilt, effect: ERROR_COLOUR, fail: ERROR_COLOUR };
-          // The colour the text's constant gave the arrow, as a member that is
-          // not refused publishes it: a written `->` over a body that touches
-          // the world on its own account is refused and reads as the body.
-          return { ...rebuilt, ...mapColours(actual, (colour) => colour) };
+          // Each colour on its own (Effects §1, §3.5). The colour the text's
+          // constant gave the arrow stands, as a member that is not refused
+          // publishes it: a written `->` over a body that touches the world on
+          // its own account is refused and reads as the body.
+          return {
+            ...rebuilt,
+            ...colourSlot("world", constant("world") ? actual.effect : ERROR_COLOUR),
+            ...colourSlot("fail", constant("fail") ? actual.fail : ERROR_COLOUR),
+          };
         }
         case "Tuple":
           return {
@@ -24576,17 +25001,31 @@ class Checker {
     const arrowSpan = this.#writtenArrowSpans.get(arrow.arrow);
     const labels = arrowSpan === undefined ? [] : [{ span: arrowSpan, message: "the contract's failing arrow" }];
     const follows = this.#prune(arrow.contract).kind !== "Effect";
+    // The contract's arrow as written, read off its two colours (Effects §9).
+    const contractShown = (axis: Axis): ShownColour => {
+      const slot = colourAt(arrow.arrow, axis);
+      if (slot === undefined) return "silent";
+      const colour = this.#prune(slot);
+      return colour.kind === "Effect" ? isImpure(colour) ? "constant" : "silent" : "follows";
+    };
+    const contractMarks: Record<Axis, ShownColour> = { world: contractShown("world"), fail: contractShown("fail") };
+    const written = displayedArrow(contractMarks.world, contractMarks.fail, "spine");
     if (direction === "more") {
-      const written = follows ? ">->" : "->";
-      // The contract as written, silent on each colour concerned (Effects §9).
-      const silent = (axes: readonly Axis[]): string => axes.includes("fail") ? ", which cannot fail" : "";
+      // A colour the contract passes through, which an instance may do only
+      // through a callback; every other colour concerned is silent there.
+      const through = (axis: Axis): boolean => contractMarks[axis] === "follows";
+      // Silent on each colour concerned.
+      const silent = (axes: readonly Axis[]): string =>
+        (axes.includes("world") && written !== "->" ? ", which is pure" : "") +
+        (axes.includes("fail") ? ", which cannot fail" : "");
       const clause = (axes: readonly Axis[]): string =>
         at.form === "outer"
-          ? follows
-            ? `${member}'s contract is \`>->\``
-            : `${member}'s contract is the pure arrow \`->\`${silent(axes)}`
+          ? `${member}'s contract is ${written === "->" ? "the pure arrow `->`" : `\`${written}\``}` +
+            silent(axes.filter((axis) => !through(axis)))
           : at.form === "result"
-          ? `${member}'s contract returns a \`${written}\` function`
+          ? `${member}'s contract returns a \`${written}\` function` +
+            // A following arrow's silent colour is named, as at the outer arrow.
+            (AXES.some(through) ? silent(axes.filter((axis) => !through(axis))) : "")
           : at.form === "parameter"
           ? `${member}'s contract writes \`${written}\` inside the parameter \`${at.name}\``
           : `${member}'s contract writes \`${written}\` inside its result`;
@@ -24597,7 +25036,7 @@ class Checker {
           ? `the function this instance returns ${colourDoes(axes)}`
           : `a function this instance supplies ${colourDoes(axes)}`;
       const guarantee = (axes: readonly Axis[]): string =>
-        follows
+        axes.some(through)
           ? "an instance is only as effectful as what it is handed — move the effect behind a callback"
           : "an instance does no more than its contract permits — " + (
             axes.length === 2
@@ -24606,9 +25045,17 @@ class Checker {
               ? "handle the failure in this body"
               : "keep this body pure"
           );
-      // The contract's arrow with each colour concerned marked (§9).
+      // The contract's arrow with each colour concerned on the member's own
+      // account, after the second `>` where some colour still passes through,
+      // and every other colour as written (§9).
       const advice = (axes: readonly Axis[]): string =>
-        follows ? "->!" : arrowMarking(axes.includes("world"), axes.includes("fail"));
+        arrowNaming(
+          { world: through("world") && !axes.includes("world"), fail: through("fail") && !axes.includes("fail") },
+          {
+            world: contractMarks.world === "constant" || axes.includes("world"),
+            fail: contractMarks.fail === "constant" || axes.includes("fail"),
+          },
+        );
       // With no call carrying the colour, a function the body hands back
       // stands at the expression that hands it back (Effects §9), and any
       // other arrow at what fixed it, or at the member line.
@@ -24633,24 +25080,29 @@ class Checker {
       raised
         ? axes.length === 1 && axes[0] === "world" ? "a pure function" : `a function that ${colourSilent(axes)}`
         : `a function that ${colourDoes(axes)}`;
+    // What the contract's arrow accepts, as written (Effects §2.3).
+    const marked: Record<Axis, boolean> = {
+      world: contractMarks.world !== "silent",
+      fail: contractMarks.fail !== "silent",
+    };
     const accepts = (axes: readonly Axis[]): string =>
       callback
-        ? `any \`${at.name}\``
+        ? `any \`${at.name}\`${acceptance(marked)}`
         : at.form === "parameter"
         ? `${kind(axes)} inside the parameter \`${at.name}\``
         : `${kind(axes)} inside its result`;
     // Narrowed, the arrow written less the colours concerned; raised, the
-    // colours concerned marked.
-    const written = (axes: readonly Axis[]): string =>
+    // arrow written with the colours concerned marked too.
+    const fixed = (axes: readonly Axis[]): string =>
       raised
-        ? arrowMarking(axes.includes("world"), axes.includes("fail"))
-        : arrowMarking(!axes.includes("world"), !axes.includes("fail"));
+        ? arrowMarking(marked.world || axes.includes("world"), marked.fail || axes.includes("fail"))
+        : arrowMarking(marked.world && !axes.includes("world"), marked.fail && !axes.includes("fail"));
     const rewrite = (axes: readonly Axis[]): string =>
       callback
-        ? `write the member's \`${at.name}\` arrow \`${written(axes)}\``
+        ? `write the member's \`${at.name}\` arrow \`${fixed(axes)}\``
         : at.form === "parameter"
-        ? `write that arrow \`${written(axes)}\` inside the parameter \`${at.name}\``
-        : `write that arrow \`${written(axes)}\` inside its result`;
+        ? `write that arrow \`${fixed(axes)}\` inside the parameter \`${at.name}\``
+        : `write that arrow \`${fixed(axes)}\` inside its result`;
     const limb = callback ? `do not narrow \`${at.name}\` here` : "do not narrow that function here";
     const only = (axes: readonly Axis[]): string =>
       raised ? `only one that ${colourDoes(axes)}` : `only ${silentOne(axes)}`;
@@ -24757,19 +25209,21 @@ class Checker {
     // Each colour on its own (Effects §1).
     const wears = (axis: Axis): Mono => {
       const handed = (ownFace?.handed[0] ?? []).map((callback) => callbackColour(callback, axis));
-      if (first.effect === "constant") {
-        // *(Effects §13.3, Q1.)* A door under a `->!` member is the instance at
-        // its type, so it wears what its body does with every callback pure,
-        // joined with the callbacks it is handed: the face a call at the
-        // instance follows.
-        const own = this.#prune(colourAt(face, axis) ?? PURE);
-        const callbacks = new Set(handed.flatMap((colour) => this.#colourParts(colour)));
-        // A body in error leaves the door in error, whatever it is handed (§3.5).
-        return isImpure(own) || own.kind === "ErrorColour"
-          ? own
-          : this.#join([...this.#colourParts(own).filter((part) => !callbacks.has(part)), ...handed]);
-      }
-      return first.effect === "linked" ? this.#join(handed) : PURE;
+      // A colour the member's arrow passes through is the callbacks' join; one
+      // it leaves silent is silent; one it names as the constant is the instance's.
+      if (passesThrough(first.effect)[axis]) return this.#join(handed);
+      const named = isFollowing(first.effect) ? ownMarks(first.effect)[axis] : writtenMarks(first.effect)[axis];
+      if (!named) return PURE;
+      // *(Effects §13.3, Q1.)* A door under a member that writes the constant
+      // is the instance at its type, so it wears what its body does with every
+      // callback pure, joined with the callbacks it is handed: the face a call
+      // at the instance follows.
+      const own = this.#prune(colourAt(face, axis) ?? PURE);
+      const callbacks = new Set(handed.flatMap((colour) => this.#colourParts(colour)));
+      // A body in error leaves the door in error, whatever it is handed (§3.5).
+      return isImpure(own) || own.kind === "ErrorColour"
+        ? own
+        : this.#join([...this.#colourParts(own).filter((part) => !callbacks.has(part)), ...handed]);
     };
     return { ...face, effect: wears("world"), fail: wears("fail") };
   }
@@ -24845,8 +25299,7 @@ class Checker {
     member: Resolved.ConstraintMember,
   ): readonly { readonly arrow: string; readonly place: SeatPlace }[] {
     const found: { arrow: string; place: SeatPlace }[] = [];
-    const spell = (effect: "linked" | "constant" | undefined): string =>
-      effect === "linked" ? ">->" : effect === "constant" ? "->!" : "->";
+    const spell = (effect: Resolved.ArrowEffect | undefined): string => writtenArrowText(effect);
     const walk = (annotation: Resolved.TypeAnnotation | undefined, place: SeatPlace): void => {
       if (annotation === undefined) return;
       if (annotation.kind === "Function") {
@@ -25087,8 +25540,8 @@ class Checker {
       this.#recordArrowSpan(contractType, member.arrowSpan);
       return {
         type: contractType,
-        colours: faceCallbacks(face).map(({ colour }) => colour),
-        fails: faceCallbacks(face).map(({ fail }) => fail),
+        colours: faceCallbacks(face).filter(({ marks }) => marks.world).map(({ colour }) => colour),
+        fails: faceCallbacks(face).filter(({ marks }) => marks.fail).map(({ fail }) => fail),
         member: member.binding.name,
         parameters: member.parameters.map((parameter) => parameter.name),
       };
@@ -25282,7 +25735,7 @@ class Checker {
         : { world: wanted.world || unknown.includes("world"), fail: wanted.fail || unknown.includes("fail") };
       const does = wrong.map((axis) =>
         axis === "world"
-          ? required.world ? "may touch the world" : "is pure"
+          ? required.world ? "is impure" : "is pure"
           : required.fail ? "may fail" : "cannot fail"
       );
       this.#diagnostics.add({
@@ -25337,6 +25790,8 @@ class Checker {
     for (const face of faces) {
       for (const arrow of face.arrows) {
         const { span } = arrow;
+        // A colour the arrow names as the constant, or leaves silent, is no pin's.
+        if (!passesThrough(arrow.effect)[axis]) continue;
         const colour = arrowColour(arrow, axis);
         const settled = this.#prune(colour);
         if (!isImpure(settled) || reported.has(keyOf(span))) continue;
@@ -25348,19 +25803,22 @@ class Checker {
         const primary = ((pin) => pin !== undefined && !(face.body !== undefined && spanWithin(face.body, pin))
           ? pin
           : face.value ?? span)(settled.kind === "Effect" ? settled.solve?.span : undefined);
-        const fix = (axes: readonly Axis[]): string => followsFix(face, arrow.application, axes);
+        const fix = (axes: readonly Axis[]): string => followsFix(arrow, axes);
+        const text = writtenArrowText(arrow.effect);
         this.#colourReport(`pinned-face ${spanKey(primary)} ${spanKey(span)}`, (axes) => ({
           severity: "error",
-          message: `this function ${ownAccount(axes)}, and this face's \`>->\` promises the function is only ` +
+          message: `this function ${ownAccount(axes)}, and this face's \`${text}\` promises the function is only ` +
             `as effectful as what it is handed — write \`${fix(axes)}\``,
           primary,
-          labels: [{ span, message: "this `>->` follows only the callbacks it is handed" }],
+          labels: [{ span, message: `this \`${text}\` follows only the callbacks it is handed` }],
           fixes: [{ message: `write \`${fix(axes)}\``, edits: [{ span, replacement: fix(axes) }] }],
         }));
       }
       for (const callback of faceCallbacks(face)) {
         const own = callbackColour(callback, axis);
         const settled = this.#prune(own);
+        // A colour its arrow does not mark was silent from the start: nothing pinned it.
+        if (!callback.marks[axis]) continue;
         if (settled.kind !== "Effect" || Colour.isTop(settled) || callback.arrows.length === 0) continue;
         condemned.push(own);
         if (settled.solve === undefined) continue;
@@ -25371,18 +25829,20 @@ class Checker {
       }
     }
     for (const [colour, callbacks] of pinned) {
-      // A written `>->` that followed only these callbacks is left with nothing
-      // handed once they are `->`, so the repair rewrites it too.
+      // A written following arrow that passed this colour through only these
+      // callbacks is left with nothing to pass once they are silent on it, so
+      // the repair drops the colour from it too: the face is pure there.
       const faces = new Set(callbacks.map(({ face }) => face));
       const follows = [...faces].flatMap((face) =>
         face.arrows.filter((arrow) => {
+          if (!passesThrough(arrow.effect)[axis]) return false;
           const settled = this.#prune(arrowColour(arrow, axis));
           return settled.kind === "Effect" && Colour.isBottom(settled) &&
             faceCallbacks(face).every((callback) =>
               callbacks.includes(callback) ||
               Colour.isBottom(this.#pointAt(callbackColour(callback, axis), () => Colour.IMPURE_POINT))
             );
-        }).map(({ span }) => span)
+        }).map(({ span, effect }) => ({ span, effect }))
       );
       this.#reportLieOfGenerality(colour, callbacks, follows);
     }
@@ -25397,36 +25857,57 @@ class Checker {
   #reportLieOfGenerality(
     colour: EffectConstant,
     callbacks: readonly CallbackColour[],
-    follows: readonly Source.Span[],
+    follows: readonly { readonly span: Source.Span; readonly effect: FollowingArrow }[],
   ): void {
+    // A following arrow's effect, by span: its repair drops the colours, where
+    // a callback's arrow's narrows them.
+    const following = new Map(follows.map(({ span, effect }) => [spanKey(span), effect] as const));
     const bySpan = new Map<string, Source.Span>();
-    for (const span of [...callbacks.flatMap(({ arrows }) => arrows), ...follows]) {
-      bySpan.set(`${Number(span.fileId)}:${span.start.offset}:${span.end.offset}`, span);
+    for (const span of [...callbacks.flatMap(({ arrows }) => arrows), ...follows.map(({ span }) => span)]) {
+      bySpan.set(spanKey(span), span);
     }
     const written = [...bySpan.values()].sort((left, right) =>
       Number(left.fileId) - Number(right.fileId) ||
       left.start.offset - right.start.offset
     );
     const name = callbacks.find(({ name: named }) => named !== undefined)?.name;
-    // The arrow written, `->!`, less the colours the pin narrowed (§4.2).
+    // The arrow written, less the colours the pin narrowed (§4.2).
+    const marks = callbacks[0]!.marks;
+    const arrow = arrowMarking(marks.world, marks.fail);
     const fix = (axes: readonly Axis[]): string =>
-      arrowMarking(!axes.includes("world"), !axes.includes("fail"));
+      arrowMarking(marks.world && !axes.includes("world"), marks.fail && !axes.includes("fail"));
+    // A following arrow no longer passes the colours concerned through, and
+    // keeps every other colour as written: the face is pure there.
+    const fixAt = (span: Source.Span, axes: readonly Axis[]): string => {
+      const effect = following.get(spanKey(span));
+      if (effect === undefined) return fix(axes);
+      const through = passesThrough(effect);
+      return arrowNaming(
+        { world: through.world && !axes.includes("world"), fail: through.fail && !axes.includes("fail") },
+        ownMarks(effect),
+      );
+    };
     const pin = colour.solve!.span;
     this.#colourReport(`lie ${spanKey(pin)} ${written.map(spanKey).join(" ")}`, (axes) => ({
       severity: "error",
       message: name === undefined
-        ? `this callback is written \`->!\`, which accepts any function, and this accepts only ` +
-          `${silentOne(axes)} — write its arrow \`${fix(axes)}\``
-        : `the parameter \`${name}\` is written \`->!\`, which accepts any function, and this accepts ` +
-          `only ${silentOne(axes)} — write \`${name}\`'s arrow \`${fix(axes)}\``,
+        ? `this callback is written \`${arrow}\`, which accepts any function${acceptance(marks)}, and this ` +
+          `accepts only ${silentOne(axes)} — write its arrow \`${fix(axes)}\``
+        : `the parameter \`${name}\` is written \`${arrow}\`, which accepts any function${acceptance(marks)}, and ` +
+          `this accepts only ${silentOne(axes)} — write \`${name}\`'s arrow \`${fix(axes)}\``,
       primary: pin,
-      labels: written.map((span) => ({
-        span,
-        message: follows.includes(span) ? "this `>->` follows only that callback" : "this `->!` accepts any function",
-      })),
+      labels: written.map((span) => {
+        const effect = following.get(spanKey(span));
+        return {
+          span,
+          message: effect !== undefined
+            ? `this \`${writtenArrowText(effect)}\` follows only that callback`
+            : `this \`${arrow}\` accepts any function${acceptance(marks)}`,
+        };
+      }),
       fixes: [{
         message: `write \`${fix(axes)}\``,
-        edits: written.map((span) => ({ span, replacement: fix(axes) })),
+        edits: written.map((span) => ({ span, replacement: fixAt(span, axes) })),
       }],
     }));
   }
@@ -26461,9 +26942,23 @@ class Checker {
         return;
       }
       const direction = effectMismatch(demand, supply)!;
-      this.#colourReport(`effect-mismatch ${spanKey(span)} ${direction}`, (axes) => ({
+      // The demand as written: its arrow's two colours (Effects §4.3, §9).
+      const arrows = this.#meetingArrows;
+      const demandArrow = arrows === undefined ? undefined : this.#parameterParity ? arrows.right : arrows.left;
+      const shown = (axis: Axis): ShownColour => {
+        const slot = demandArrow === undefined ? undefined : colourAt(demandArrow, axis);
+        if (slot === undefined) return "silent";
+        const colour = this.#prune(slot);
+        return colour.kind === "Effect" ? isImpure(colour) ? "constant" : "silent" : "follows";
+      };
+      // A demand is never a written face's spine: its arrow marks each colour
+      // that is not silent, a callback's colour among them (Effects §4.3, §10).
+      const demandWritten = demandArrow === undefined
+        ? undefined
+        : markedArrow(shown("world") !== "silent", shown("fail") !== "silent");
+      this.#colourReport(`effect-mismatch ${spanKey(span)} ${direction} ${arrows?.id ?? ""}`, (axes) => ({
         severity: "error",
-        message: effectMismatchMessage(direction, axes),
+        message: effectMismatchMessage(direction, axes, demandWritten),
         primary: span,
       }));
       return;
@@ -26537,16 +27032,23 @@ class Checker {
         }
         return;
       }
-      if (actualLeft.effect !== undefined || actualRight.effect !== undefined) {
-        // An absent slot is the pure constant, so an inferred function type
-        // meets a compiler-synthesized one without either side needing a slot
-        // it was never given.
-        unifyChild(actualLeft.effect ?? PURE, actualRight.effect ?? PURE);
-      }
-      // The fail colour, on its own (Effects §1): componentwise, as every
-      // other part of the two types is, its reports the fail colour's.
-      if (actualLeft.fail !== undefined || actualRight.fail !== undefined) {
-        this.#onAxis("fail", () => unifyChild(actualLeft.fail ?? PURE, actualRight.fail ?? PURE));
+      // The arrows the two colours stand on, for §4.3's report about them.
+      const enclosingArrows = this.#meetingArrows;
+      this.#meetingArrows = { left: actualLeft, right: actualRight, id: this.#meetings++ };
+      try {
+        if (actualLeft.effect !== undefined || actualRight.effect !== undefined) {
+          // An absent slot is the pure constant, so an inferred function type
+          // meets a compiler-synthesized one without either side needing a slot
+          // it was never given.
+          unifyChild(actualLeft.effect ?? PURE, actualRight.effect ?? PURE);
+        }
+        // The fail colour, on its own (Effects §1): componentwise, as every
+        // other part of the two types is, its reports the fail colour's.
+        if (actualLeft.fail !== undefined || actualRight.fail !== undefined) {
+          this.#onAxis("fail", () => unifyChild(actualLeft.fail ?? PURE, actualRight.fail ?? PURE));
+        }
+      } finally {
+        this.#meetingArrows = enclosingArrows;
       }
       return;
     } else if (actualLeft.kind === "Tuple" && actualRight.kind === "Tuple") {
@@ -30418,21 +30920,21 @@ class Checker {
    */
   #readRefusedArrows(type: Mono): Mono {
     const face = this.#generalizingFace;
-    if (face === undefined || (face.refused === undefined && face.inError === undefined)) return type;
+    if (face === undefined || (face.refused === undefined && face.inError === undefined && face.passed === undefined)) {
+      return type;
+    }
     const marked = (marks: Map<Axis, Set<number>> | undefined, application: number, axis: Axis): boolean =>
       marks?.get(axis)?.has(application) === true;
-    // §4.2's fix is the constant that marks each colour the body acts on of
-    // its own account and each colour on which a callback handed by then has a
-    // colour, read off the face as written, never off what the callbacks were
-    // solved to: `->!` where the colours mirror. A refused arrow reads as its
-    // refusal does on both colours, one in error on the other too (§3.5). One
-    // over a body in error, and not refused, is in error on the colour it is in
-    // error on (#1223).
+    // §4.2's fix names each colour the body acts on of its own account as the
+    // constant, passes through a silent colour the value follows the
+    // signature's callbacks on, and leaves every other colour as written: a
+    // colour still passing through keeps its join. One over a body in error,
+    // and not refused, is in error on the colour it is in error on (#1223).
     const colour = (application: number, axis: Axis): Mono | undefined => {
-      if (AXES.some((each) => marked(face.refused, application, each))) {
-        // Every callback written `->!` has a colour on each colour (§2.4).
-        const handed = face.handed.slice(0, application + 1).some((callbacks) => callbacks.length > 0);
-        return marked(face.refused, application, axis) || handed ? IMPURE : PURE;
+      if (marked(face.refused, application, axis)) return IMPURE;
+      if (marked(face.passed, application, axis)) {
+        const arrow = face.arrows.find((each) => each.application === application);
+        if (arrow !== undefined) return arrow.handed[axis];
       }
       return marked(face.inError, application, axis) ? ERROR_COLOUR : undefined;
     };
@@ -30452,8 +30954,8 @@ class Checker {
    * **A finished face depends on all of its callbacks or on none of them**
    * (Effects §2.4). Where a binding generalizes, each colour on its face that
    * depends on some of the callbacks handed by the time it runs is widened to
-   * the join of all of them, which is the colour a written `>->` there would
-   * denote. That holds on every spine: the face's own, at every application
+   * the join of all of them, which is the colour a following arrow written
+   * there would denote. That holds on every spine: the face's own, at every application
    * however few callbacks the first hands, and that of each function the face
    * carries in data, which is a signature of its own nested in the face's and
    * is handed what the face had handed by then besides its own callbacks
@@ -30462,6 +30964,9 @@ class Checker {
    * is rewritten, never a colour bound, so each callback keeps its own colour;
    * every occurrence the caller receives is widened together. A node nothing
    * widens is kept, and a rebuilt function keeps its lambdas and frame.
+   *
+   * Each colour widens on its own: nothing widens a colour to its constant
+   * (§2.4), so a colour that follows beside one that does not stays as it is.
    */
   #widenFace(type: Mono, level: number): Mono {
     // Each colour widens by its own callbacks' colours on it (Effects §1, §2.4).
@@ -31806,8 +32311,9 @@ class Checker {
       }),
     ];
     const next = { world: callbacks("world"), fail: callbacks("fail") };
+    const contract = (axis: Axis): Mono => this.#prune(colourAt(type, axis) ?? PURE);
     const waitingOn = (axis: Axis): Mono => {
-      const effect = this.#prune(colourAt(type, axis) ?? PURE);
+      const effect = contract(axis);
       if (!(effect.kind === "Effect" && isImpure(effect))) return effect;
       const colour = this.#fresh(level, false);
       this.#waitingColours.set(colour, axis);
@@ -31851,18 +32357,22 @@ class Checker {
     // A call above the body it would follow is refused once, whichever colour
     // waits: where a call stands is no colour's (`#refuseAboveBody`).
     const reported = new Set<number>();
-    this.#instanceWaits = this.#instanceWaits.filter((wait) => {
-      if (wait.use < firstUse) return true;
+    const deciding = this.#instanceWaits.filter((wait) => wait.use >= firstUse);
+    this.#instanceWaits = this.#instanceWaits.filter((wait) => wait.use < firstUse);
+    const answers = new Map<InstanceWait, Mono>();
+    for (const wait of deciding) {
       const callee = call.callee.span;
       const own = wait.span !== undefined &&
         callee.start.offset <= wait.span.start.offset && wait.span.end.offset <= callee.end.offset;
-      const answer = own ? this.#knownCallColour(call, wait, reported) : undefined;
+      answers.set(wait, (own ? this.#knownCallColour(call, wait, reported) : undefined) ?? IMPURE);
+    }
+    // Each colour's wait settles on its own (Effects §1): nothing widens a
+    // colour to its constant (§2.4).
+    for (const wait of deciding) {
       const colour = this.#prune(wait.colour);
-      // Each colour's wait settles on its own (Effects §1).
-      if (colour.kind === "Variable") this.#onAxis(wait.axis, () => this.#settleWaiting(colour, answer ?? IMPURE, wait.span));
+      if (colour.kind === "Variable") this.#onAxis(wait.axis, () => this.#settleWaiting(colour, answers.get(wait)!, wait.span));
       this.#waitingColours.delete(wait.colour);
-      return false;
-    });
+    }
     this.#replayDecidedDemands();
   }
 
@@ -32122,7 +32632,7 @@ class Checker {
       };
       // A written `>->` the face kept: what meets it is fitted (§4.2).
       if (
-        annotation.effect === "linked" &&
+        isFollowing(annotation.effect) &&
         (writtenRole?.kind === "spine" || writtenRole?.kind === "component") && writtenRole.against !== true
       ) {
         const arrow = writtenRole.face.arrows.find(({ span, colour }) =>
@@ -35982,8 +36492,8 @@ class Checker {
    * owner in a report's words — the outermost signature among those a join
    * made one variable, which is the one with the lowest level at its opening.
    */
-  #materializeColourScopes(): Pick<Typed.Module, "colourOwners"> {
-    const owners = new Map<Typed.TypeVariableId, { owner: string; level: number }>();
+  #materializeColourScopes(): Pick<Typed.Module, "colourOwners" | "colourNames"> {
+    const owners = new Map<Typed.TypeVariableId, { owner: string; name: string | undefined; level: number }>();
     for (const { effect, owner, parameter, level } of this.#colourScopes) {
       const colour = this.#prune(effect);
       if (colour.kind !== "Variable") continue;
@@ -35992,10 +36502,23 @@ class Checker {
         ? parameter === undefined ? "an enclosing lambda's callback" : `an enclosing lambda's \`${parameter}\``
         : parameter === undefined ? `\`${owner}\`'s callback` : `\`${owner}\`'s \`${parameter}\``;
       const known = owners.get(variable);
-      if (known === undefined || level < known.level) owners.set(variable, { owner: words, level });
+      if (known === undefined || level < known.level) owners.set(variable, { owner: words, name: parameter, level });
+    }
+    // A name no signature wrote, where nothing named the colour.
+    for (const { colour, name, owner } of this.#namedColours) {
+      const pruned = this.#prune(colour);
+      if (pruned.kind !== "Variable") continue;
+      const variable = Typed.typeVariableId(pruned.id);
+      const known = owners.get(variable);
+      const words = owner === undefined ? `an enclosing lambda's \`${name}\`` : `\`${owner}\`'s \`${name}\``;
+      if (known === undefined) owners.set(variable, { owner: words, name, level: Number.POSITIVE_INFINITY });
+      else if (known.name === undefined) owners.set(variable, { ...known, name });
     }
     return {
       colourOwners: new Map([...owners].map(([variable, { owner }]) => [variable, owner])),
+      colourNames: new Map(
+        [...owners].flatMap(([variable, { name }]) => name === undefined ? [] : [[variable, name] as const]),
+      ),
     };
   }
 
@@ -37345,8 +37868,9 @@ class Checker {
   /**
    * Effects §10 in a report, once every colour has settled: a callback's colour
    * a report showed where the displayed type does not own it — a captured one —
-   * names its owner in a note, "depends on `outer`'s `action`". Every mark is
-   * then removed, so a report no captured colour reaches reads as rendered.
+   * names its owner in a note, in the gloss's words: "impure only if `outer`'s
+   * `action` is", or "may fail only if … may". Every mark is then removed, so a
+   * report no captured colour reaches reads as rendered.
    */
   #settleColourNotes(): void {
     this.#diagnostics.rewrite((diagnostic) => {
@@ -37359,7 +37883,7 @@ class Checker {
       if (!texts.some((text) => text.includes(COLOUR_MARK))) return diagnostic;
       const owners: string[] = [];
       const strip = (text: string): string =>
-        text.replace(COLOUR_MARKED, (_whole, id: string) => {
+        text.replace(COLOUR_MARKED, (_whole, id: string, followed: string | undefined) => {
           const marked = this.#markedColours.get(Number(id));
           const colour = marked === undefined ? undefined : this.#prune(marked);
           if (colour?.kind !== "Variable") return "";
@@ -37370,7 +37894,7 @@ class Checker {
           const words = scope.owner === undefined
             ? scope.parameter === undefined ? "an enclosing lambda's callback" : `an enclosing lambda's \`${scope.parameter}\``
             : scope.parameter === undefined ? `\`${scope.owner}\`'s callback` : `\`${scope.owner}\`'s \`${scope.parameter}\``;
-          const note = `depends on ${words}`;
+          const note = followed === "f" ? `may fail only if ${words} may` : `impure only if ${words} is`;
           if (!owners.includes(note)) owners.push(note);
           return "";
         });
@@ -37657,31 +38181,44 @@ class Checker {
   }
 
   /**
-   * How a function type's arrow prints (Effects §10): a pure arrow is `->`, the
-   * constant is `->!`, a callback's colour on its own arrows is `->!`, and a
-   * colour that depends on callbacks is `>->`. Nothing is numbered.
+   * How a function type's arrow prints (Effects §10), from its two colours
+   * (`displayedArrow`): silent colours are unmarked, constants are marked, a
+   * callback's colours on its own arrows are marked, and colours that depend
+   * on callbacks pass through a following arrow. Nothing is numbered.
    */
   #arrow(type: FunctionMono, place: "spine" | "callback" | "inside"): string {
-    if (type.effect === undefined) return PURE_ARROW;
-    const effect = this.#shownColour(type.effect);
-    if (effect.kind === "Effect") return Colour.arrowFor(effect);
-    // A colour in error shows `->!` (Effects §10, #1223): a function whose
-    // body could not be read may touch the world, and no purity is claimed.
-    if (effect.kind === "ErrorColour") return IMPURE_ARROW;
-    // An arrow still waiting for its instance shows the contract's `->!`
-    // (Effects §10, §13.3): the instance may touch the world.
-    if (this.#colourParts(effect).some((part) => this.#waitingColours.has(part))) return IMPURE_ARROW;
-    if (place !== "spine") return IMPURE_ARROW;
+    const shown = (axis: Axis): ShownColour => {
+      const slot = colourAt(type, axis);
+      if (slot === undefined) return "silent";
+      const colour = this.#shownColour(slot);
+      if (colour.kind === "Effect") return isImpure(colour) ? "constant" : "silent";
+      // A colour in error shows its constant (Effects §10, #1223): no silence
+      // is claimed for a function whose body could not be read.
+      if (colour.kind === "ErrorColour") return "constant";
+      // A colour still waiting for its instance shows the contract's constant
+      // (Effects §10, §13.3).
+      if (this.#colourParts(colour).some((part) => this.#waitingColours.has(part))) return "constant";
+      return "follows";
+    };
+    const colours: Record<Axis, ShownColour> = { world: shown("world"), fail: shown("fail") };
+    const arrow = displayedArrow(colours.world, colours.fail, place);
     // A callback's colour this type does not own is a captured one, which the
-    // report names the owner of once colours settle (`#settleColourNotes`).
-    if (this.#unmarkedDisplays > 0) return FOLLOWS_ARROW;
-    const marks = this.#colourParts(effect)
-      .filter((part) => this.#displayOwned?.has(part.id) !== true)
-      .map((part) => {
+    // report names the owner of, on the colour it passes through, once colours
+    // settle (`#settleColourNotes`).
+    const follows = place === "spine" && AXES.some((axis) => colours[axis] === "follows");
+    if (!follows || this.#unmarkedDisplays > 0) return arrow;
+    const marked = new Set<number>();
+    const marks: string[] = [];
+    for (const axis of AXES) {
+      if (colours[axis] !== "follows") continue;
+      for (const part of this.#colourParts(this.#shownColour(colourAt(type, axis)!))) {
+        if (this.#displayOwned?.has(part.id) === true || marked.has(part.id)) continue;
+        marked.add(part.id);
         this.#markedColours.set(part.id, part);
-        return `${COLOUR_MARK}${part.id}${COLOUR_MARK_END}`;
-      });
-    return FOLLOWS_ARROW + marks.join("");
+        marks.push(`${COLOUR_MARK}${part.id}${axis === "world" ? ":w" : ":f"}${COLOUR_MARK_END}`);
+      }
+    }
+    return arrow + marks.join("");
   }
 }
 
@@ -37780,20 +38317,24 @@ function notCallableMessage(
   return `${subject}, and this call supplies ${supplied}`;
 }
 
-/** Pattern Declarations §2.1's `view` demand, on the colours concerned (Effects §4.3). */
-function viewMessage(axes: readonly Axis[], face: string): string {
-  return `a pattern's \`view\` is run by matching, so it ${colourSilent(axes)} — the demand is the pattern ` +
+/**
+ * Pattern Declarations §2.1's `view` demand (Effects §4.3, §9): the head's,
+ * pure and unable to fail, whatever colour the view breaks it on, beside the
+ * view's own face.
+ */
+function viewMessage(face: string): string {
+  return "a pattern's `view` is run by matching, so it is pure and cannot fail — the demand is the pattern " +
     `head's, and this function's face is \`${face}\``;
 }
 
 /** What a call or a function may do on each colour concerned, joined (Effects §9). */
 function colourDoes(axes: readonly Axis[]): string {
-  return axes.map((axis) => axis === "world" ? "may touch the world" : "may fail").join(" and ");
+  return axes.map((axis) => axis === "world" ? "is impure" : "may fail").join(" and ");
 }
 
 /** The same, done on its own account (Effects §4.2). */
 function ownAccount(axes: readonly Axis[]): string {
-  return `${axes.map((axis) => axis === "world" ? "touches the world" : "may fail").join(" and ")} on its own account`;
+  return `${axes.map((axis) => axis === "world" ? "is impure" : "may fail").join(" and ")} on its own account`;
 }
 
 /** What is silent on each colour concerned: "is pure", "cannot fail", or both. */
@@ -37808,25 +38349,31 @@ function silentOne(axes: readonly Axis[]): string {
 
 /** The arrow that marks exactly the colours given (Effects §1's alphabet). */
 function arrowMarking(world: boolean, fail: boolean): string {
-  return world ? fail ? "->!" : "->~" : fail ? "->^" : "->";
+  return markedArrow(world, fail);
 }
 
 /**
- * The constant a refused `>->`'s fix writes (Effects §4.2): it marks each
- * colour the body acts on of its own account, and each colour on which a
- * callback handed by then has a colour — every callback written `->!` has one
- * on both (§2.4).
+ * The arrow a refused following arrow's fix writes (Effects §4.2): each colour
+ * the body acts on of its own account named after the second `>`, and each
+ * other colour the arrow passed through still passing through.
  */
-function followsFix(face: SignatureFace, application: number | undefined, axes: readonly Axis[]): string {
-  const handed = application === undefined
-    ? face.handed.some((callbacks) => callbacks.length > 0)
-    : face.handed.slice(0, application + 1).some((callbacks) => callbacks.length > 0);
-  return arrowMarking(axes.includes("world") || handed, axes.includes("fail") || handed);
+function followsFix(arrow: FaceArrow | undefined, axes: readonly Axis[]): string {
+  const through = passesThrough(arrow?.effect ?? "linked");
+  const own = ownMarks(arrow?.effect ?? "linked");
+  return arrowNaming(
+    { world: through.world && !axes.includes("world"), fail: through.fail && !axes.includes("fail") },
+    { world: own.world || axes.includes("world"), fail: own.fail || axes.includes("fail") },
+  );
 }
 
-/** A written mark's two parts (Effects §1's alphabet): `!` carries both. */
+/** The words for what a callback arrow accepts beyond "any function" (Effects §2.3). */
+function acceptance(marks: Readonly<Record<Axis, boolean>>): string {
+  return marks.world && marks.fail ? "" : marks.world ? " that cannot fail" : marks.fail ? " that is pure" : "";
+}
+
+/** A written mark's two parts (Effects §1's alphabet): `!` carries both, `~` the world's, `^` the fail colour's. */
 function markParts(mark: Resolved.CallMark | undefined): Record<Axis, boolean> {
-  return mark === "bang" ? { world: true, fail: true } : { world: false, fail: false };
+  return { ...writtenMarks(mark) };
 }
 
 /** The mark with these parts, as source text. */
@@ -37866,7 +38413,7 @@ function effectMismatch(demand: Mono, supply: Mono): "demand" | "reverse" | unde
  * a use does not reach beneath the value's own arrow; or an arrow no use
  * receives — inside an argument read invariantly, or in a parameter's type.
  */
-function effectMismatchMessage(direction: "demand" | "reverse", axes: readonly Axis[]): string {
+function effectMismatchMessage(direction: "demand" | "reverse", axes: readonly Axis[], written?: string): string {
   const world = axes.includes("world");
   const fail = axes.includes("fail");
   if (direction === "reverse") {
@@ -37876,10 +38423,10 @@ function effectMismatchMessage(direction: "demand" | "reverse", axes: readonly A
       "or in a parameter's type — so it cannot fit as a function used here does; write the arrow where it " +
       "was fixed";
   }
-  const demand = world ? "->" : "->~";
+  const demand = written ?? (world ? "->" : "->~");
   const promise = world ? fail ? "purity and that the function cannot fail" : "purity" : "the function cannot fail";
   return `a \`${demand}\` arrow promises ${promise}, and this function ${colourDoes(axes)} — the demand is ` +
-    `written \`${demand}\`, the function's face \`->!\` or \`>->\``;
+    `written \`${demand}\``;
 }
 
 /** Rewrites first-argument pipe insertion before either side is inferred. */

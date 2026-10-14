@@ -237,7 +237,7 @@ describe("§4 the faces: wiring is silent, consumption is spelled", () => {
     ] as const) {
       const shown = name.slice("Stream.".length);
       expect(projectDiagnostics(call(name, "", rest, result))).toEqual([
-        `this call may touch the world and may fail, so \`${shown}\` wants \`!\`, not no mark`,
+        `this call is impure and may fail, so \`${shown}\` wants \`!\`, not no mark`,
       ]);
       expect(projectDiagnostics(call(name, "!", rest, result))).toEqual([]);
     }

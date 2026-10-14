@@ -258,15 +258,14 @@ function ofSymbol(
 ): Completion {
   const known = facts.get(Number(symbol));
   if (known === undefined) return { name, kind: "value" };
-  // A captured colour numbered here names its owner beside the type, the
-  // detail being one line of plain text.
-  const face = colours === undefined ? undefined : Typed.displayFace(known.scheme, colours);
+  // The gloss beside the type, as hover reads it (Effects §10), the detail
+  // being one line of plain text: a module with no callback colours glosses
+  // a face too.
+  const face = Typed.displayFace(known.scheme, colours);
   return {
     name,
     kind: kindOf(known),
-    detail: face === undefined
-      ? known.displayedType
-      : [face.type, ...face.owners.map((owner) => owner.replaceAll("`", ""))].join(" — "),
+    detail: [face.type, ...face.owners.map((owner) => owner.replaceAll("`", ""))].join(" — "),
     ...(known.documentation === undefined ? {} : { documentation: known.documentation }),
   };
 }

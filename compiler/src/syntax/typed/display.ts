@@ -1,4 +1,4 @@
-import { IMPURE_ARROW, FOLLOWS_ARROW, PURE_ARROW } from "../../support/arrows.js";
+import { displayedArrow, type ShownColour } from "../../support/arrows.js";
 import { collectEffectVariables } from "./effects.js";
 import type * as Typed from "./tree.js";
 
@@ -8,11 +8,13 @@ export function displayScheme(scheme: Typed.Scheme): string {
 }
 
 /**
- * Where a face is displayed, for §10's owner line: whose callback each settled
- * callback colour is (`Typed.Module.colourOwners`).
+ * Where a face is displayed, for §10's gloss: whose callback each settled
+ * callback colour is (`Typed.Module.colourOwners`), and its parameter's name
+ * (`Typed.Module.colourNames`).
  */
 export interface ColourContext {
   readonly owners: ReadonlyMap<Typed.TypeVariableId, string>;
+  readonly names?: ReadonlyMap<Typed.TypeVariableId, string>;
 }
 
 /**
@@ -20,17 +22,18 @@ export interface ColourContext {
  * `undefined` where the module has no callback colour to name.
  */
 export function colourContextAt(
-  module: Pick<Typed.Module, "colourOwners">,
+  module: Pick<Typed.Module, "colourOwners"> & Partial<Pick<Typed.Module, "colourNames">>,
 ): ColourContext | undefined {
-  if (module.colourOwners.size === 0) return undefined;
-  return { owners: module.colourOwners };
+  if (module.colourOwners.size === 0 && (module.colourNames?.size ?? 0) === 0) return undefined;
+  return { owners: module.colourOwners, ...(module.colourNames === undefined ? {} : { names: module.colourNames }) };
 }
 
 /**
- * A scheme as displayed *(Effects §10)*: the type, and one owner line for each
- * captured colour the face depends on — a callback's colour of an enclosing
- * function, which the scheme does not quantify. A captured colour shows `>->`
- * where the face depends on it, and the owner line is information, not grammar.
+ * A scheme as displayed *(Effects §10)*: the type, and the gloss, which reads
+ * the outer arrow's two colours in words. A colour that passes through names
+ * the callbacks it follows: the face's own by their parameters' names, and a
+ * captured one, an enclosing function's callback the scheme does not
+ * quantify, by its owner. The gloss is information, not grammar.
  */
 export function displayFace(
   scheme: Typed.Scheme,
@@ -38,13 +41,54 @@ export function displayFace(
 ): { readonly type: string; readonly owners: readonly string[] } {
   const colours = effectVariables(scheme);
   const variables = variableNames(scheme, colours);
-  const captured = context === undefined
-    ? []
-    : colours.filter((colour) => context.owners.has(colour) && !scheme.variables.includes(colour));
   return {
     type: `${displayConstraints(scheme, variables)}${displayType(scheme.type, variables, "spine")}`,
-    owners: [...new Set(captured.map((colour) => `depends on ${context!.owners.get(colour)!}`))],
+    owners: ownerLines(scheme, context),
   };
+}
+
+/**
+ * The gloss (Effects §10): the outer arrow's world colour and fail colour in
+ * words, one clause each — "pure", "impure" or "impure only if `f` is"; then
+ * "cannot fail", "may fail" or "may fail only if `f` may" — for every face
+ * whose outer arrow is not `->`, since silence is the strong claim (§1).
+ */
+function ownerLines(scheme: Typed.Scheme, context: ColourContext | undefined): readonly string[] {
+  if (scheme.type.kind !== "Function") return [];
+  const arrow = scheme.type;
+  if (arrow.effect === undefined && arrow.fail === undefined) return [];
+  const parts = (effect: Typed.Effect): readonly Typed.TypeVariableId[] =>
+    typeof effect !== "object" ? [] : "join" in effect ? effect.join : [effect.variable];
+  // The callbacks a colour passes through: the face's own by name, a captured
+  // one by its owner, and "what it is handed" for those with no name to quote.
+  const followed = (effect: Typed.Effect): string => {
+    const names: string[] = [];
+    let unnamed = false;
+    for (const part of parts(effect)) {
+      const name = scheme.variables.includes(part)
+        ? context?.names?.get(part)
+        : context?.owners.get(part);
+      if (name === undefined) {
+        unnamed = true;
+        continue;
+      }
+      const quoted = scheme.variables.includes(part) ? `\`${name}\`` : name;
+      if (!names.includes(quoted)) names.push(quoted);
+    }
+    if (unnamed || names.length === 0) names.push("what it is handed");
+    return names.join(" or ");
+  };
+  const world = arrow.effect === undefined
+    ? "pure"
+    : typeof arrow.effect === "object"
+    ? `impure only if ${followed(arrow.effect)} is`
+    : "impure";
+  const fail = arrow.fail === undefined
+    ? "cannot fail"
+    : typeof arrow.fail === "object"
+    ? `may fail only if ${followed(arrow.fail)} may`
+    : "may fail";
+  return [`${world}; ${fail}`];
 }
 
 /**
@@ -121,16 +165,17 @@ function displayConstraints(
 type ArrowPlace = "spine" | "callback" | "inside";
 
 /**
- * A function type's arrow (`spec/effects.md` §2, §10). An absent slot is the
- * pure constant, so a signature that never wrote a colour displays exactly the
- * `->` it always has — purity is the silent one (§1). No colour is numbered.
+ * A function type's arrow (`spec/effects.md` §2, §10), from its two colours.
+ * An absent slot is silent, so a signature that never wrote a colour displays
+ * exactly the `->` it always has — silence is the strong claim (§1). No colour
+ * is numbered.
  */
-function displayArrow(effect: Typed.Effect | undefined, place: ArrowPlace): string {
-  if (effect === undefined) return PURE_ARROW;
-  // A colour in error shows `->!` (§3.5, §10, #1223): no purity is claimed for a
-  // function whose body could not be read.
-  if (effect === "impure" || effect === "error") return IMPURE_ARROW;
-  return place === "spine" ? FOLLOWS_ARROW : IMPURE_ARROW;
+function displayArrow(type: Typed.FunctionType, place: ArrowPlace): string {
+  // A colour in error shows its constant (§3.5, §10, #1223): nothing is claimed
+  // silent for a function whose body could not be read.
+  const shown = (effect: Typed.Effect | undefined): ShownColour =>
+    effect === undefined ? "silent" : effect === "impure" || effect === "error" ? "constant" : "follows";
+  return displayedArrow(shown(type.effect), shown(type.fail), place);
 }
 
 function displayType(
@@ -233,7 +278,7 @@ function displayType(
               : parameters[0]!
             : `(${parameters.join(", ")})`;
       return (
-        `${domain} ${displayArrow(type.effect, place)} ` +
+        `${domain} ${displayArrow(type, place)} ` +
         displayType(type.result, variables, place === "callback" && type.result.kind !== "Function" ? "inside" : place)
       );
     }

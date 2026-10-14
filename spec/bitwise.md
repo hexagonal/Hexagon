@@ -446,7 +446,7 @@ BigInt  = (Digits | HexInteger | OctInteger | BinInteger) "n"
 | `honor Bitwise<Bool>` (or `Float`, `Nat`) in project source | the orphan-rule refusal at the declaration (Constraints §5.3): both homes are prelude source |
 | `n band m`, `bnot n`, `n.shiftLeft(k)` with only `Nat` operands and no face | the closed-pair report + the written-face route: "a written `Int` face runs the operation and admits the result (`let bits: Int = …`)" (§5.1) |
 | Non-`Int` shift count | the seat's type error (the count is a concrete `Int` parameter, §5.1) |
-| `&`, `^`, `~` in source | invalid character, with a redirect: "Hexagon spells bitwise and `band`" (resp. `bxor`, with "for a power write `**`" at `^`; `bnot` at `~`) |
+| `&` in source; `^` or `~` where an operator would stand | `&` is an invalid character, with a redirect: "Hexagon spells bitwise and `band`". `^` and `~` are mark tokens (Lexer §8.3), and where an operator would stand the parser gives the redirect: "Hexagon spells bitwise exclusive or `bxor`; a power is `**`" at `^`, "Hexagon spells bitwise complement `bnot`" at `~` |
 | `\|` directly after a complete operand in expression position | parse error + "Hexagon spells bitwise or `bor`" |
 | Glued `<<`, `>>`, or `>>>` after a complete operand | parse error + "Hexagon has no shift operators; write `x.shiftLeft(n)`" (resp. `shiftRight`; at `>>>`, "`x.toUint32().shiftRight(n)`") |
 | `(a bor b)band m`: a bitwise word glued to a parenthesis, read as a suffix (§3.1) | whichever report the glued form draws (Pattern Declarations §9's no-suffix row, or the no-juxtaposition error after a suffix that resolves) + fixit "write a space: `) band`"; this spec owns the rider |

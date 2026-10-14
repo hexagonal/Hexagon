@@ -119,8 +119,9 @@ export interface Hover {
   /** Present for values the checker gave a scheme; absent for types themselves. */
   readonly displayedType?: string;
   /**
-   * The owner of each captured colour the displayed type numbers (Effects §10,
-   * #873), one line each; absent where there is none.
+   * The gloss (Effects §10): the outer arrow's two colours in words, naming
+   * the callbacks a colour passes through, captured ones by their owners;
+   * absent for a face whose outer arrow is `->`.
    */
   readonly colourOwners?: readonly string[];
   /** The declaration's documentation as Markdown, when it carries any. */
