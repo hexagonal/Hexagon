@@ -447,8 +447,8 @@ describe("declarations name what they declare", () => {
     );
   });
 
-  it("reads a constraint member's result as a type after each of the three arrows", async () => {
-    for (const arrow of ["->", "->!", "->^", "->~", ">->"]) {
+  it("reads a constraint member's result as a type after each of the arrows", async () => {
+    for (const arrow of ["->", "->!", "->^", "->~", ">->", ">~>", ">~>^", ">^>", ">^>~"]) {
       const pairs = await scopePairs(`constraint R<a> =\n    run(f: () ->! Unit) ${arrow} Option(a)`);
       expect(pairs.at(-2), arrow).toEqual(["a", "entity.name.type.parameter.hexagon"]);
     }
@@ -1634,6 +1634,8 @@ describe("operators and forbidden runs (spec/lexer.md §8)", () => {
       ["let h: () ->^ Int = f", "->^", "keyword.operator.arrow.impure.hexagon"],
       ["let h: () ->~ Int = f", "->~", "keyword.operator.arrow.impure.hexagon"],
       ["let k: (() ->! Int) >-> Int = f", ">->", "keyword.operator.arrow.linked.hexagon"],
+      ["let k: (() ->! Int) >^>~ Int = f", ">^>~", "keyword.operator.arrow.linked.hexagon"],
+      ["let k: (() ->! Int) >~> Int = f", ">~>", "keyword.operator.arrow.linked.hexagon"],
       ["let p: Int -> Int = f", "->", "keyword.operator.type.arrow.hexagon"],
       ["let q = a >-1", ">", "keyword.operator.comparison.hexagon"],
     ];

@@ -8,11 +8,13 @@ export function displayScheme(scheme: Typed.Scheme): string {
 }
 
 /**
- * Where a face is displayed, for §10's owner line: whose callback each settled
- * callback colour is (`Typed.Module.colourOwners`).
+ * Where a face is displayed, for §10's gloss: whose callback each settled
+ * callback colour is (`Typed.Module.colourOwners`), and its parameter's name
+ * (`Typed.Module.colourNames`).
  */
 export interface ColourContext {
   readonly owners: ReadonlyMap<Typed.TypeVariableId, string>;
+  readonly names?: ReadonlyMap<Typed.TypeVariableId, string>;
 }
 
 /**
@@ -20,17 +22,18 @@ export interface ColourContext {
  * `undefined` where the module has no callback colour to name.
  */
 export function colourContextAt(
-  module: Pick<Typed.Module, "colourOwners">,
+  module: Pick<Typed.Module, "colourOwners"> & Partial<Pick<Typed.Module, "colourNames">>,
 ): ColourContext | undefined {
-  if (module.colourOwners.size === 0) return undefined;
-  return { owners: module.colourOwners };
+  if (module.colourOwners.size === 0 && (module.colourNames?.size ?? 0) === 0) return undefined;
+  return { owners: module.colourOwners, ...(module.colourNames === undefined ? {} : { names: module.colourNames }) };
 }
 
 /**
- * A scheme as displayed *(Effects §10)*: the type, and one owner line for each
- * captured colour the face depends on — a callback's colour of an enclosing
- * function, which the scheme does not quantify. A captured colour shows `>->`
- * where the face depends on it, and the owner line is information, not grammar.
+ * A scheme as displayed *(Effects §10)*: the type, and the gloss, which reads
+ * the outer arrow's two colours in words. A colour that passes through names
+ * the callbacks it follows: the face's own by their parameters' names, and a
+ * captured one, an enclosing function's callback the scheme does not
+ * quantify, by its owner. The gloss is information, not grammar.
  */
 export function displayFace(
   scheme: Typed.Scheme,
@@ -40,53 +43,47 @@ export function displayFace(
   const variables = variableNames(scheme, colours);
   return {
     type: `${displayConstraints(scheme, variables)}${displayType(scheme.type, variables, "spine")}`,
-    owners: context === undefined ? [] : ownerLines(scheme, context),
+    owners: ownerLines(scheme, context),
   };
 }
 
 /**
- * One owner line for each captured colour a face depends on (Effects §10). An
- * arrow that shows `>->` depends on it; one where that colour follows it beside
- * a constant on the other colour shows the constant, as §2.4's widening makes
- * every face, and the line says what the colour follows: "touches the world as
- * `outer`'s `action` does", or "may fail as … does".
+ * The gloss (Effects §10): the outer arrow's world colour and fail colour in
+ * words, one clause each — "pure", "impure" or "impure only if `f` is"; then
+ * "cannot fail", "may fail" or "may fail only if `f` may" — for every face
+ * whose outer arrow is not `->`, since silence is the strong claim (§1).
  */
-function ownerLines(scheme: Typed.Scheme, context: ColourContext): readonly string[] {
-  const lines = new Set<string>();
-  const captured = (colour: Typed.TypeVariableId): string | undefined =>
-    scheme.variables.includes(colour) ? undefined : context.owners.get(colour);
-  const parts = (effect: Typed.Effect | undefined): readonly Typed.TypeVariableId[] =>
+function ownerLines(scheme: Typed.Scheme, context: ColourContext | undefined): readonly string[] {
+  if (scheme.type.kind !== "Function") return [];
+  const arrow = scheme.type;
+  if (arrow.effect === undefined && arrow.fail === undefined) return [];
+  const parts = (effect: Typed.Effect): readonly Typed.TypeVariableId[] =>
     typeof effect !== "object" ? [] : "join" in effect ? effect.join : [effect.variable];
-  const shown = (effect: Typed.Effect | undefined): ShownColour =>
-    effect === undefined ? "silent" : typeof effect === "object" ? "follows" : "constant";
-  const visit = (node: unknown): void => {
-    if (node === null || typeof node !== "object") return;
-    if (Array.isArray(node)) {
-      for (const each of node) visit(each);
-      return;
+  // The callbacks a colour passes through: the face's own by name, a captured
+  // one by its owner, and "what it is handed" where any has no name to quote.
+  const followed = (effect: Typed.Effect): string => {
+    const names: string[] = [];
+    for (const part of parts(effect)) {
+      const name = scheme.variables.includes(part)
+        ? context?.names?.get(part)
+        : context?.owners.get(part);
+      if (name === undefined) return "what it is handed";
+      const quoted = scheme.variables.includes(part) ? `\`${name}\`` : name;
+      if (!names.includes(quoted)) names.push(quoted);
     }
-    const record = node as { readonly kind?: unknown };
-    if (record.kind === "Function") {
-      const arrow = node as Typed.FunctionType;
-      const world = shown(arrow.effect);
-      const fail = shown(arrow.fail);
-      const widened = (world === "follows" && fail === "constant") || (fail === "follows" && world === "constant");
-      for (const [slot, effect] of [["world", arrow.effect], ["fail", arrow.fail]] as const) {
-        for (const part of parts(effect)) {
-          const owner = captured(part);
-          if (owner === undefined) continue;
-          lines.add(
-            widened
-              ? `${slot === "world" ? "touches the world" : "may fail"} as ${owner} does`
-              : `depends on ${owner}`,
-          );
-        }
-      }
-    }
-    for (const value of Object.values(node)) visit(value);
+    return names.length === 0 ? "what it is handed" : names.join(" or ");
   };
-  visit(scheme.type);
-  return [...lines];
+  const world = arrow.effect === undefined
+    ? "pure"
+    : typeof arrow.effect === "object"
+    ? `impure only if ${followed(arrow.effect)} is`
+    : "impure";
+  const fail = arrow.fail === undefined
+    ? "cannot fail"
+    : typeof arrow.fail === "object"
+    ? `may fail only if ${followed(arrow.fail)} may`
+    : "may fail";
+  return [`${world}; ${fail}`];
 }
 
 /**

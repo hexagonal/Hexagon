@@ -4,6 +4,7 @@
  * but every non-error Name expression identifies exactly one declared symbol.
  */
 
+import type { FollowingArrow } from "../../support/arrows.js";
 import type * as Diagnostics from "../../support/diagnostics.js";
 import type * as Source from "../../support/source.js";
 import type { Documentation } from "../../support/documentation.js";
@@ -1928,7 +1929,7 @@ export type Expr =
 export type CallMark = "bang" | "tilde" | "caret";
 
 /** How a function type's arrow was written: see the parsed tree's (Effects §2). */
-export type ArrowEffect = "linked" | CallMark;
+export type ArrowEffect = FollowingArrow | CallMark;
 
 /** Suffix construction before checking lowers it through the selected build as a call. */
 export interface PatternConstructionExpr {

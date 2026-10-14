@@ -19,10 +19,10 @@ export interface ColourPoint {
   readonly impure: boolean;
 }
 
-/** The bottom of the lattice: touches nothing the world can observe. */
+/** The bottom of the lattice: pure, interacting with nothing the world can observe. */
 export const PURE_POINT: ColourPoint = { kind: "Effect", impure: false };
 
-/** The top of the lattice: may touch the world. */
+/** The top of the lattice: impure. */
 export const IMPURE_POINT: ColourPoint = { kind: "Effect", impure: true };
 
 /** Every point, bottom first: the choices a seat evaluates a body at (Effects §13.2). */

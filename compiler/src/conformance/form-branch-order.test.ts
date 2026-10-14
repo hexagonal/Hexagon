@@ -353,8 +353,8 @@ describe("the colours still meet where they met (Effects §3.4, §13.2)", () => 
     'let impure(): Unit = save!("x")\nlet pureU(): Unit = ()\n';
 
   test("a path's colour meets the seat with the whole form, as a constructor's does", () => {
-    const refusal = "a `->` arrow promises purity and that the function cannot fail, and this function may touch the world and may fail — the demand is written " +
-      "`->`, the function's face `->!` or `>->`";
+    const refusal = "a `->` arrow promises purity and that the function cannot fail, and this function is impure and may fail — the demand is written " +
+      "`->`";
     const atSeat = [["Option(() -> Unit)", refusal]];
     expect(reports(world + "let p: Option(() -> Unit) = Some(impure)\n")).toEqual(atSeat);
     expect(reports(world + "let p: Option(() -> Unit) = if c then Some(impure) else None\n")).toEqual(atSeat);

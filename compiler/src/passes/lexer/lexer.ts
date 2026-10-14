@@ -65,8 +65,13 @@ const punctuation: readonly (readonly [string, Lexed.PunctuationKind])[] = [
   ["==", "EqualEqual"],
   ["!=", "NotEqual"],
   ["<=", "LessEqual"],
-  // The follows arrow stands ahead of `>`, which begins it (Lexer §8.2). It
-  // needs all three characters, so `x >-1` is still `>`, `-`, `1`.
+  // The following arrows stand ahead of `>`, which begins each, the longest
+  // first (Lexer §8.2). Each needs all of its characters, so `x >-1` is still
+  // `>`, `-`, `1`, and `x >~y` is `>`, `~`, `y`.
+  [">~>^", "ArrowFollowsTildeCaret"],
+  [">^>~", "ArrowFollowsCaretTilde"],
+  [">~>", "ArrowFollowsTilde"],
+  [">^>", "ArrowFollowsCaret"],
   [">->", "ArrowFollows"],
   [">=", "GreaterEqual"],
   ["..", "Range"],

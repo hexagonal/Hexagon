@@ -1627,11 +1627,13 @@ describe("hover renders the arrow trio", () => {
     // `stream.md` §4.4's canonical worked example: a callback beside a
     // constant-impure self. The face writes back unchanged.
     //
-    // The module's own doc comment rides along, which is the second half of
-    // what a reader needs: the face says the callback decides nothing about
+    // The gloss reads the face's colours in words (Effects §10), and the
+    // module's own doc comment rides along, which is the second half of what a
+    // reader needs: the face says the callback decides nothing about
     // termination, and the sentence says what does.
     expect(await hovered("fold")).toBe(
       "value `fold: (Stream(a), b, (b, a) ->! b) ->! b`\n\n" +
+      "impure; may fail\n\n" +
       "Reduces the whole stream to one value, left to right, starting from\n" +
       "`initial`. It pulls to exhaustion, so it does not return on an ambient\n" +
       "source.",
@@ -1664,7 +1666,9 @@ describe("hover renders the arrow trio", () => {
     // face as written. Asked of the real server because the boundary row is
     // the one face in the language whose colour is *written* rather than
     // inferred from a body.
-    expect(await hovered("runner")).toBe("value `runner: (() ->! String) >-> Int`");
+    expect(await hovered("runner")).toBe(
+      "value `runner: (() ->! String) >-> Int`\n\nimpure only if `step` is; may fail only if `step` may",
+    );
   });
 });
 

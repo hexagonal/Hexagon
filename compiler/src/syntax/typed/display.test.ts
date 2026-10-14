@@ -479,7 +479,7 @@ describe("displayScheme: the arrow trio", () => {
     ).toBe("(() ->! String, a) -> a");
   });
 
-  test("each colour shows its own mark: `->^` may fail, `->~` may touch the world (Effects §10)", () => {
+  test("each colour shows its own mark: `->^` may fail, `->~` is impure (Effects §10)", () => {
     const arrow = (effect: Effect | undefined, fail: Effect | undefined): Type => ({
       kind: "Function",
       parameters: [string],
@@ -492,11 +492,16 @@ describe("displayScheme: the arrow trio", () => {
     expect(show(arrow("impure", undefined))).toBe("String ->~ String");
     // An error shows its constant on its own colour (§3.5).
     expect(show(arrow("error", undefined))).toBe("String ->~ String");
-    // A callback's colours show on its own arrows, as the marks of the colours it has.
+    // A callback's colours show on its own arrows, as the marks of the colours it has,
+    // and the face names only the colour that passes through (§2.2).
     expect(show({ kind: "Function", parameters: [arrow(undefined, colour(3))], result: string, fail: colour(3) }))
-      .toBe("(String ->^ String) >-> String");
-    // A colour that follows beside a constant shows its constant (§2.4's widening).
+      .toBe("(String ->^ String) >^> String");
+    // A colour that follows beside a constant is named in its own state (§2.2).
     expect(show({ kind: "Function", parameters: [arrow(colour(4), colour(5))], result: string, effect: "impure", fail: colour(5) }))
-      .toBe("(String ->! String) ->! String");
+      .toBe("(String ->! String) >^>~ String");
+    expect(show({ kind: "Function", parameters: [arrow(colour(4), colour(5))], result: string, effect: colour(4), fail: "impure" }))
+      .toBe("(String ->! String) >~>^ String");
+    expect(show({ kind: "Function", parameters: [arrow(colour(4), colour(5))], result: string, effect: colour(4) }))
+      .toBe("(String ->! String) >~> String");
   });
 });

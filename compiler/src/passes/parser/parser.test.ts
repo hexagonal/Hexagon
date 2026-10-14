@@ -1174,7 +1174,7 @@ describe("parse", () => {
   // Effects §2/§9 (#410): `=>` is a term arrow only, so a fat arrow where a type
   // arrow belongs gets the family's targeted redirect rather than a parse cascade.
   describe("the type-position `=>` redirect", () => {
-    const message = "Hexagon's type arrows are `->`, `->^`, `->~`, `->!` and `>->`; `=>` is the lambda arrow — " +
+    const message = "Hexagon's type arrows are `->`, `->^`, `->~`, `->!` and the following arrows such as `>->`; `=>` is the lambda arrow — " +
       "for a function type write `Int -> Int` (or a marked arrow for what it may do)";
 
     test("fires in every type slot whose `=>` can have no other reading", () => {

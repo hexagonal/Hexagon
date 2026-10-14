@@ -8,7 +8,7 @@
  * bodies include the owner-scoped implied type forms from Collections Part 2 §5.
  */
 
-import { FOLLOWS_ARROW, markedArrow } from "../../support/arrows.js";
+import { isFollowing, writtenArrowText } from "../../support/arrows.js";
 import * as Diagnostics from "../../support/diagnostics.js";
 import { isIntrinsicScheme } from "../../intrinsics.js";
 import * as Source from "../../support/source.js";
@@ -318,8 +318,9 @@ const MEMBER_COLON_SEPARATOR =
  */
 const EXTERN_COLON_SEPARATOR =
   "an extern callable declares its effect — write `->` for a function that " +
-  "touches nothing, `->!` for one that may, `>->` for one exactly as effectful " +
-  "as a callback it is handed; when in doubt, `->!`";
+  "is pure and never throws, `->^` for one that may throw, `->~` for one that is " +
+  "impure and never throws, `->!` for one that may do both, `>->` for one exactly " +
+  "as effectful as a callback it is handed; when in doubt, `->!`";
 
 /**
  * FFI Part 4 §13's missing-annotation row for a callable *(#869)*: an extern
@@ -2514,10 +2515,7 @@ class Parser {
         }`
       );
       const result = this.#writtenAnnotation(annotation.result);
-      const effect = annotation.effect;
-      const arrow = effect === "linked"
-        ? FOLLOWS_ARROW
-        : markedArrow(effect === "bang" || effect === "tilde", effect === "bang" || effect === "caret");
+      const arrow = writtenArrowText(annotation.effect);
       this.#errorAt(
         annotation.span,
         "extern callable declarations use `fun`; " +
@@ -2922,7 +2920,7 @@ class Parser {
       localName,
       "new",
       `\`new\` constructs \`${type}\`; write \`new as ${localName.text}(…) ->! ${type}\` ` +
-        "(`->` only where construction touches nothing)",
+        "(`->` only where construction is pure)",
     );
     if (signature.missingParameterList) {
       // Part 4 §4.1: a callable row writes its parameter list, empty or not.
@@ -3029,7 +3027,7 @@ class Parser {
         // the purity it did not write.
         const redirected = this.#redirectTypeArrow();
         arrowSpan = redirected.span;
-        if (redirected.effect === "linked") effect = "linked";
+        if (isFollowing(redirected.effect)) effect = redirected.effect;
       } else {
         this.#errorAt(separator.span, missingResult ?? EXTERN_MISSING_RESULT);
         missingArrow = true;
@@ -7181,6 +7179,10 @@ class Parser {
       scan >= 0 &&
       (this.#tokens[scan]?.kind === "Arrow" ||
         this.#tokens[scan]?.kind === "ArrowFollows" ||
+        this.#tokens[scan]?.kind === "ArrowFollowsTilde" ||
+        this.#tokens[scan]?.kind === "ArrowFollowsTildeCaret" ||
+        this.#tokens[scan]?.kind === "ArrowFollowsCaret" ||
+        this.#tokens[scan]?.kind === "ArrowFollowsCaretTilde" ||
         this.#tokens[scan]?.kind === "ArrowBang" ||
         this.#tokens[scan]?.kind === "ArrowCaret" ||
         this.#tokens[scan]?.kind === "ArrowTilde")
@@ -7238,6 +7240,10 @@ class Parser {
     if (this.#at("ArrowCaret")) return "caret";
     if (this.#at("ArrowTilde")) return "tilde";
     if (this.#at("ArrowFollows")) return "linked";
+    if (this.#at("ArrowFollowsTilde")) return "linkedTilde";
+    if (this.#at("ArrowFollowsTildeCaret")) return "linkedTildeCaret";
+    if (this.#at("ArrowFollowsCaret")) return "linkedCaret";
+    if (this.#at("ArrowFollowsCaretTilde")) return "linkedCaretTilde";
     return undefined;
   }
 
@@ -7296,7 +7302,7 @@ class Parser {
     this.#diagnostics.add({
       severity: "error",
       message:
-        "Hexagon's type arrows are `->`, `->^`, `->~`, `->!` and `>->`; `=>` is the lambda arrow — " +
+        "Hexagon's type arrows are `->`, `->^`, `->~`, `->!` and the following arrows such as `>->`; `=>` is the lambda arrow — " +
         "for a function type write `Int -> Int` (or a marked arrow for what it may do)",
       primary: span,
       fixes: [{ message: `write \`${replacement}\``, edits: [{ span, replacement }] }],
@@ -8033,6 +8039,10 @@ function describe(kind: TokenKind): string {
     FatArrow: "=>",
     Arrow: "->",
     ArrowFollows: ">->",
+    ArrowFollowsTilde: ">~>",
+    ArrowFollowsTildeCaret: ">~>^",
+    ArrowFollowsCaret: ">^>",
+    ArrowFollowsCaretTilde: ">^>~",
     ArrowBang: "->!",
     ArrowCaret: "->^",
     ArrowTilde: "->~",

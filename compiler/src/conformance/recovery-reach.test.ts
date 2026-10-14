@@ -57,7 +57,7 @@ const REFUSAL = [
   ">->",
   "`>->` means only as effectful as what it is handed, and nothing is handed here — " +
   "an alias is a type fragment, not a signature; " +
-  "write `->!` for a function that may touch the world and may fail, or `->` for one that does neither",
+  "write `->!` for a function that is impure and may fail, or `->` for one that is pure and cannot fail",
 ] as const;
 
 /** The refused program draws the refusal and exactly what the fixed one draws. */

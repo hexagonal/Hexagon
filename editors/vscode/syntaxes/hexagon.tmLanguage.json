@@ -748,10 +748,10 @@
         "`type` alias body's — `type F = Int -> Int` — which #operators used to take.",
         "The tail is a type either way, so the highlighting is unchanged, and it is the",
         "same type context a `:` opens.",
-        "The three arrows keep the scopes #operators gives them, so a member's colour is",
+        "The type arrows keep the scopes #operators gives them, so a member's colour is",
         "the same token wherever it is written."
       ],
-      "begin": "(>->)|(->[!^~])|(->)",
+      "begin": "(>->|>~>\\^?|>\\^>~?)|(->[!^~])|(->)",
       "beginCaptures": {
         "1": { "name": "keyword.operator.arrow.linked.hexagon" },
         "2": { "name": "keyword.operator.arrow.impure.hexagon" },
@@ -1290,7 +1290,7 @@
         { "name": "keyword.operator.pipe.hexagon", "match": "\\|>" },
         { "name": "keyword.operator.assignment.hexagon", "match": ":=" },
         { "name": "keyword.operator.arrow.hexagon", "match": "=>" },
-        { "//": "spec/effects.md §2: the coloured type arrows are one token each. `>->` stands ahead of the comparison rows below, whose `>` begins it, and `->!`, `->^` and `->~` ahead of `->` so maximal munch reaches them. `!->` is not a token and gets no rule — a mark never begins one.", "name": "keyword.operator.arrow.linked.hexagon", "match": ">->" },
+        { "//": "spec/effects.md §2: the coloured type arrows are one token each. The following arrows `>->`, `>~>`, `>~>^`, `>^>` and `>^>~` stand ahead of the comparison rows below, whose `>` begins them, the longest first, and `->!`, `->^` and `->~` ahead of `->` so maximal munch reaches them. `!->` is not a token and gets no rule — a mark never begins one.", "name": "keyword.operator.arrow.linked.hexagon", "match": ">->|>~>\\^?|>\\^>~?" },
         { "name": "keyword.operator.arrow.impure.hexagon", "match": "->[!^~]" },
         { "name": "keyword.operator.type.arrow.hexagon", "match": "->" },
         { "name": "keyword.operator.comparison.hexagon", "match": "==|!=|<=|>=" },

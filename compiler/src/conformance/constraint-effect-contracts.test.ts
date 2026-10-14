@@ -113,7 +113,7 @@ const IO = 'extern from "./io.js"\n    export fun readIt(path: String) ->! Strin
  * at the outer arrow of a `->` contract, verbatim, for the member it names.
  */
 const pureContract = (member: string): string =>
-  `this call may touch the world and may fail, and \`${member}\`'s contract is the pure arrow ` +
+  `this call is impure and may fail, and \`${member}\`'s contract is the pure arrow ` +
   "`->`, which cannot fail — an instance does no more than its contract permits — keep this " +
   "body pure and handle the failure in it, or, if the constraint is yours, write `->!` on the member";
 
@@ -125,7 +125,7 @@ const pureConflict = (member: string, _handed: string): string => pureContract(m
 
 /** The same row where the failing arrow is the one the contract returns. */
 const pureReturns = (member: string): string =>
-  `the function this instance returns may touch the world and may fail, and \`${member}\`'s contract ` +
+  `the function this instance returns is impure and may fail, and \`${member}\`'s contract ` +
   "returns a `->` function — an instance does no more than its contract permits — keep " +
   "this body pure and handle the failure in it, or, if the constraint is yours, write `->!` on the arrow the " +
   "contract returns";
@@ -136,14 +136,14 @@ const pureReturns = (member: string): string =>
  * `use`" or "its result".
  */
 const pureInside = (member: string, where: string): string =>
-  `a function this instance supplies may touch the world and may fail, and \`${member}\`'s contract writes ` +
+  `a function this instance supplies is impure and may fail, and \`${member}\`'s contract writes ` +
   `\`->\` inside ${where} — an instance does no more than its contract permits — keep this ` +
   `body pure and handle the failure in it, or, if the constraint is yours, write \`->!\` on that arrow ` +
   `inside ${where}`;
 
 /** Effects §9's first seat row under a `>->` contract, verbatim. */
 const linkedContract = (member: string): string =>
-  `this call touches the world and may fail on its own account, and \`${member}\`'s contract is ` +
+  `this call is impure and may fail on its own account, and \`${member}\`'s contract is ` +
   "`>->` — an instance is only as effectful as what it is handed — move the effect " +
   "behind a callback, or, if the constraint is yours, write `->!` on the member";
 
@@ -163,7 +163,7 @@ const narrowerAcceptance = (member: string, parameter: string, _inletGain = true
  * body fixed pure where the contract writes `->!` (§9's position forms).
  */
 const narrowerInside = (member: string, where: string): string =>
-  `\`${member}\`'s contract accepts a function that may touch the world and may fail inside ${where}, and ` +
+  `\`${member}\`'s contract accepts a function that is impure and may fail inside ${where}, and ` +
   "this instance accepts only one that is pure and cannot fail — an instance accepts everything its contract " +
   `promises to accept — do not narrow that function here, or, if the constraint is yours, ` +
   `write that arrow \`->\` inside ${where}`;
@@ -175,7 +175,7 @@ const narrowerInside = (member: string, where: string): string =>
  */
 const raisedInside = (member: string, where: string): string =>
   `\`${member}\`'s contract accepts a function that is pure and cannot fail inside ${where}, and this instance ` +
-  "accepts only one that may touch the world and may fail — an instance accepts everything its " +
+  "accepts only one that is impure and may fail — an instance accepts everything its " +
   "contract promises to accept — do not narrow that function here, or, if the " +
   `constraint is yours, write that arrow \`->!\` inside ${where}`;
 
@@ -353,8 +353,7 @@ describe("Effects §13.4: `>->` on a member means only through its callbacks", (
     // unchanged: no callback has been handed by the time the arrow runs.
     expect(messages("constraint R<a> =\n    read(s: a) >-> String\n")).toEqual([
       "`>->` means only as effectful as what it is handed, and nothing is handed here — no callback of " +
-      "this signature has been handed over by the time this arrow runs; write `->!` for a function " +
-      "that may touch the world and may fail, or `->` for one that does neither",
+      "this signature has been handed over by the time this arrow runs; write `->!` for a function that is impure and may fail, or `->` for one that is pure and cannot fail",
     ]);
     expect(primaries("constraint R<a> =\n    read(s: a) >-> String\n")).toEqual([">->"]);
   });
@@ -399,7 +398,7 @@ describe("Effects §13.2: a callback run under a constant outer arrow", () => {
 });
 
 describe("Effects §13.2: the sign is the variance product", () => {
-  test("a returned `->` function that may touch the world takes the result frame", () => {
+  test("a returned `->` function that is impure takes the result frame", () => {
     // The result position keeps the sign, so the arrow is invoked and the frame
     // names it: §13.2's own worked sentence.
     expect(messages(IO +
@@ -447,7 +446,7 @@ describe("Effects §13.3: a known instance's calls follow it, a generic call the
         "export let generic<a: Lib.R>(x: a): String = x.read()\n" +
         "export let qualified(n: Lib.Note): String = Lib.read!(n)\n"],
     ])).toEqual([
-      "this call may touch the world and may fail, so `.read` wants `!`, not no mark",
+      "this call is impure and may fail, so `.read` wants `!`, not no mark",
       "this call is pure and cannot fail, so `Lib.read` wants no mark, not `!`",
     ]);
   });
@@ -469,7 +468,7 @@ describe("Effects §13.3: a known instance's calls follow it, a generic call the
       .toEqual(["this call is pure and cannot fail, so `Note.read` wants no mark, not `!`"]);
     expect(projectMessages(files("readIt!(s.name)", "!"))).toEqual([]);
     expect(projectMessages(files("readIt!(s.name)", "")))
-      .toEqual(["this call may touch the world and may fail, so `Note.read` wants `!`, not no mark"]);
+      .toEqual(["this call is impure and may fail, so `Note.read` wants `!`, not no mark"]);
   });
 
   test("an imported returned function's arrow follows the instance too", () => {
@@ -482,7 +481,7 @@ describe("Effects §13.3: a known instance's calls follow it, a generic call the
     expect(projectMessages(files("() => ()", "Lib.make(n)()"))).toEqual([]);
     expect(projectMessages(files('() =>\n        let z = readIt!("x")\n        ()', "Lib.make(n)!()"))).toEqual([]);
     expect(projectMessages(files('() =>\n        let z = readIt!("x")\n        ()', "Lib.make(n)()")))
-      .toEqual(["this call may touch the world and may fail, so this call wants `!`, not no mark"]);
+      .toEqual(["this call is impure and may fail, so this call wants `!`, not no mark"]);
   });
 
   test("an instance that uses an imported default follows the default", () => {
@@ -508,7 +507,7 @@ describe("Effects §13.3: a known instance's calls follow it, a generic call the
     ])).toEqual([]);
     expect(projectMessages(files("7", "main"))).toEqual([]);
     expect(projectMessages(files('String.length(readIt!("x"))', "main")))
-      .toEqual(["this call may touch the world and may fail, so `Lib.tag` wants `!`, not no mark"]);
+      .toEqual(["this call is impure and may fail, so `Lib.tag` wants `!`, not no mark"]);
   });
 
   test("a bare call in the honoring module follows it too", () => {
@@ -575,7 +574,7 @@ describe("Effects §13.3: an instance's own colour, and the calls that follow it
     const block = "with(Job({ n = 1 }), (i) =>\n    let z = i + 1\n    z)";
     expect(messages(run(pure, block, true))).toEqual([]);
     expect(messages(run(pure, "Job({ n = 1 }).with((i) =>\n    let z = i + 1\n    z)", true))).toEqual([]);
-    expect(messages(run(saving, block, true))).toEqual(["this call may touch the world and may fail, so `with` wants `!`, not no mark"]);
+    expect(messages(run(saving, block, true))).toEqual(["this call is impure and may fail, so `with` wants `!`, not no mark"]);
     expect(messages(run(pure, block, false))).toEqual([BELOW("Run<Job>")]);
   });
 
@@ -585,7 +584,7 @@ describe("Effects §13.3: an instance's own colour, and the calls that follow it
       .toEqual([]);
     expect(messages(IO + R + PURE_P + "let k(x) =\n    let p: P = x\n    read!(x)\n")).toEqual([]);
     expect(messages(IO + R + PURE_P + "let k(x) =\n    let p: P = x\n    read(x)\n"))
-      .toEqual(["this call may touch the world and may fail, so `read` wants `!`, not no mark"]);
+      .toEqual(["this call is impure and may fail, so `read` wants `!`, not no mark"]);
     expect(messages(IO + R + PURE_P + "let k(x: P): String = read(x)\n")).toEqual([]);
   });
 
@@ -593,15 +592,15 @@ describe("Effects §13.3: an instance's own colour, and the calls that follow it
     const pair = (call: string) => "constraint S<s> =\n    pair(a: s, b: s) ->! Unit\nrecord M = { n: Int }\n" +
       `honor S<M> =\n    pair(a, b) = ()\nlet k(m: M, x): Unit = ${call}\n`;
     expect(messages(pair("pair(m, x)"))).toEqual([]);
-    expect(messages(pair("pair(x, m)"))).toEqual(["this call may touch the world and may fail, so `pair` wants `!`, not no mark"]);
+    expect(messages(pair("pair(x, m)"))).toEqual(["this call is impure and may fail, so `pair` wants `!`, not no mark"]);
   });
 
   test("a member calling a sibling at its own instance follows the contract, the honor not yet read", () => {
     const two = (second: string, call: string) => "constraint Two<a> =\n    first(s: a) ->! Int\n    second(s: a) ->! Int\n" +
       `record P = { n: Int }\nhonor Two<P> =\n    first(s) = 1\n    second(s) = ${second}\nlet k(p: P): Int = ${call}\n`;
     expect(messages(two("s.first!()", "second!(p)"))).toEqual([]);
-    expect(messages(two("s.first()", "second!(p)"))).toEqual(["this call may touch the world and may fail, so `.first` wants `!`, not no mark"]);
-    expect(messages(two("s.first!()", "second(p)"))).toEqual(["this call may touch the world and may fail, so `second` wants `!`, not no mark"]);
+    expect(messages(two("s.first()", "second!(p)"))).toEqual(["this call is impure and may fail, so `.first` wants `!`, not no mark"]);
+    expect(messages(two("s.first!()", "second(p)"))).toEqual(["this call is impure and may fail, so `second` wants `!`, not no mark"]);
   });
 
   test("a subject inside a parameter is decided by its whole type", () => {
@@ -615,7 +614,7 @@ describe("Effects §13.3: an instance's own colour, and the calls that follow it
     const loose = (body: string) => IO + "constraint S<s> =\n    all(stores: Vector(s)) ->! Unit\n" +
       "record M = { n: Int }\nhonor S<M> =\n    all(ms) = ()\n" + `let k(x) =\n${body}`;
     expect(messages(loose("    let p: M = x\n    all([x])\n")))
-      .toEqual(["this call may touch the world and may fail, so `all` wants `!`, not no mark"]);
+      .toEqual(["this call is impure and may fail, so `all` wants `!`, not no mark"]);
     expect(messages(loose("    let p: M = x\n    all!([x])\n"))).toEqual([]);
     expect(messages(loose("    let u = all!([x])\n    let p: M = x\n    u\n"))).toEqual([]);
   });
@@ -623,11 +622,11 @@ describe("Effects §13.3: an instance's own colour, and the calls that follow it
   test("a subject that generalizes makes the call generic: `!`", () => {
     expect(messages(IO + R + PURE_P + "let k(x) = read!(x)\n")).toEqual([]);
     expect(messages(IO + R + PURE_P + "let k(x) = read(x)\n"))
-      .toEqual(["this call may touch the world and may fail, so `read` wants `!`, not no mark"]);
+      .toEqual(["this call is impure and may fail, so `read` wants `!`, not no mark"]);
     // Decided where `k` generalizes, so `k` is `->!` at every use, whatever
     // instance answers it there.
     expect(messages(IO + R + PURE_P + "let k(x) = read!(x)\nlet u(p: P): String = k(p)\n"))
-      .toEqual(["this call may touch the world and may fail, so `k` wants `!`, not no mark"]);
+      .toEqual(["this call is impure and may fail, so `k` wants `!`, not no mark"]);
     expect(hoveredType("module Main\n\n" + IO + R + PURE_P + "let k(x) = read!(x)\nlet u(p: P): String = k!(p)\n", "k(x)"))
       .toBe("<a: R> a ->! String");
   });
@@ -643,10 +642,10 @@ describe("Effects §13.3: an instance's own colour, and the calls that follow it
       `        Node(l, r) => l.size${mark}() + r.size${mark}()\n`;
     expect(messages(IO + tree("!") + "let k(t: T): Int = size!(t)\n")).toEqual([]);
     expect(messages(IO + tree("!") + "let k(t: T): Int = size(t)\n"))
-      .toEqual(["this call may touch the world and may fail, so `size` wants `!`, not no mark"]);
+      .toEqual(["this call is impure and may fail, so `size` wants `!`, not no mark"]);
     expect(messages(IO + tree("") + "let k(t: T): Int = size!(t)\n")).toEqual([
-      "this call may touch the world and may fail, so `.size` wants `!`, not no mark",
-      "this call may touch the world and may fail, so `.size` wants `!`, not no mark",
+      "this call is impure and may fail, so `.size` wants `!`, not no mark",
+      "this call is impure and may fail, so `.size` wants `!`, not no mark",
     ]);
   });
 
@@ -681,7 +680,7 @@ describe("Effects §13.3: an instance's own colour, and the calls that follow it
     // An instance that never runs its callback still follows the callbacks a
     // call hands it: one colour per instance, the same at every use (§3.4).
     expect(messages(IO + run("()") + "let loud(j: Job): Unit = run(j, () => save!())\n"))
-      .toEqual(["this call may touch the world and may fail, so `run` wants `!`, not no mark"]);
+      .toEqual(["this call is impure and may fail, so `run` wants `!`, not no mark"]);
   });
 
   test("an arrow the member returns directly follows the instance; one inside data the contract", () => {
@@ -698,7 +697,7 @@ describe("Effects §13.3: an instance's own colour, and the calls that follow it
 
   test("a member named without being called carries the contract's face", () => {
     // `read` here is a reference, not a call: it carries the contract's `->!`,
-    // so `k` may touch the world whatever `f` is (§13.3).
+    // so `k` is impure whatever `f` is (§13.3).
     const merged = (call: string) => IO + R + PURE_P +
       'let loud(q: P): String = readIt!(q.name)\n' +
       "let h(f, p: P, c: Bool): String =\n    let k = if c then f else read\n    k!(p)\n" +
@@ -706,22 +705,22 @@ describe("Effects §13.3: an instance's own colour, and the calls that follow it
     expect(messages(merged("h!(loud, p, True)"))).toEqual([]);
     expect(messages(merged("h!((q) => q.name, p, True)"))).toEqual([]);
     expect(messages(merged("h((q) => q.name, p, True)")))
-      .toEqual(["this call may touch the world and may fail, so `h` wants `!`, not no mark"]);
+      .toEqual(["this call is impure and may fail, so `h` wants `!`, not no mark"]);
   });
 
   test("a constant a call meets before it ends is compared where the call is decided", () => {
     expect(messages(IO + R + "honor R<P> =\n    read(s) = readIt!(s.name)\n" +
       "let f(x: P): String = read!(x)\nlet g: (P) -> String = f\n"))
-      .toEqual(["a `->` arrow promises purity and that the function cannot fail, and this function may touch the world and may fail — " +
-        "the demand is written `->`, the function's face `->!` or `>->`"]);
+      .toEqual(["a `->` arrow promises purity and that the function cannot fail, and this function is impure and may fail — " +
+        "the demand is written `->`"]);
     expect(messages(IO + R + PURE_P + "let f(x: P): String = read(x)\nlet g: (P) -> String = f\n")).toEqual([]);
     // The call's own expected type meets its returned arrow first.
     const made = (body: string) => IO + "record A = { n: Int }\nconstraint M<a> =\n    make(s: a) ->! (() ->! Unit)\n" +
       `honor M<A> =\n    make(s) = ${body}\n` + "let h: () -> Unit = make(A({ n = 1 }))\n";
     expect(messages(made("() => ()"))).toEqual([]);
     expect(messages(made('() =>\n        let z = readIt!("x")\n        ()'))).toEqual([
-      "a `->` arrow promises purity and that the function cannot fail, and this function may touch the world and may fail — " +
-        "the demand is written `->`, the function's face `->!` or `>->`",
+      "a `->` arrow promises purity and that the function cannot fail, and this function is impure and may fail — " +
+        "the demand is written `->`",
     ]);
   });
 
@@ -733,7 +732,7 @@ describe("Effects §13.3: an instance's own colour, and the calls that follow it
       `let k(b: B): String = ${call}\n`;
     expect(messages(IO + chain("readIt!(s.name)", "s.a.read3!()", "read3!(b)"))).toEqual([]);
     expect(messages(IO + chain("readIt!(s.name)", "s.a.read3!()", "read3(b)")))
-      .toEqual(["this call may touch the world and may fail, so `read3` wants `!`, not no mark"]);
+      .toEqual(["this call is impure and may fail, so `read3` wants `!`, not no mark"]);
     expect(messages(IO + chain("s.name", "s.a.read3()", "read3(b)"))).toEqual([]);
   });
 
@@ -745,7 +744,7 @@ describe("Effects §13.3: an instance's own colour, and the calls that follow it
     expect(messages(IO + R + PURE_P +
       "let mk(k: () ->! Unit, p: P): () >-> String = () =>\n    k!()\n    read(p)\n")).toEqual([]);
     expect(messages(face("honor R<P> =\n    read(s) = readIt!(s.name)\n", "read!(p)"))).toEqual([
-      "this call touches the world and may fail on its own account, and this face's `>->` promises the function is " +
+      "this call is impure and may fail on its own account, and this face's `>->` promises the function is " +
         "only as effectful as what it is handed — write `->!`",
     ]);
   });
@@ -754,7 +753,7 @@ describe("Effects §13.3: an instance's own colour, and the calls that follow it
     const nested = (call: string) => IO + R + "honor R<P> =\n    read(s) = readIt!(s.name)\n" +
       `let k(x) =\n    let g = () => read!(x)\n    let d: P = x\n    ${call}\n`;
     expect(messages(nested("g!()"))).toEqual([]);
-    expect(messages(nested("g()"))).toEqual(["this call may touch the world and may fail, so `g` wants `!`, not no mark"]);
+    expect(messages(nested("g()"))).toEqual(["this call is impure and may fail, so `g` wants `!`, not no mark"]);
   });
 
   test("an instance's colour is read off a body whose other colours are final (review r1)", () => {
@@ -768,7 +767,7 @@ describe("Effects §13.3: an instance's own colour, and the calls that follow it
       'honor R<A> =\n    read(s) = via!((x: B) =>\n        let z = readIt!("x")\n        0)\n' +
       `let p1(): Int = ${call}\n`;
     expect(messages(via("read(A({ n = 1 }))")))
-      .toEqual(["this call may touch the world and may fail, so `read` wants `!`, not no mark"]);
+      .toEqual(["this call is impure and may fail, so `read` wants `!`, not no mark"]);
     expect(messages(via("read!(A({ n = 1 }))"))).toEqual([]);
     // A written `>->` over the same body is read once the case settles.
     expect(messages(IO +
@@ -776,7 +775,7 @@ describe("Effects §13.3: an instance's own colour, and the calls that follow it
       'let loudB(x: B): Int =\n    let z = readIt!("x")\n    0\n' +
       "let viaB(f): Int =\n    let g = if True then f else read\n    g!(B({ m = 8 }))\n" +
       "let f: (() ->! Unit) >-> Int = (k) =>\n    k!()\n    viaB!(loudB)\n"))
-      .toEqual(["this call touches the world and may fail on its own account, and this face's `>->` promises the function is " +
+      .toEqual(["this call is impure and may fail on its own account, and this face's `>->` promises the function is " +
         "only as effectful as what it is handed — write `->!`"]);
   });
 
@@ -790,7 +789,7 @@ describe("Effects §13.3: an instance's own colour, and the calls that follow it
     // The call hands `make` a function that saves, so both arrows follow it.
     expect(messages(make("make!(A({ n = 1 }), loud)!()"))).toEqual([]);
     expect(messages(make("make!(A({ n = 1 }), loud)()")))
-      .toEqual(["this call may touch the world and may fail, so this call wants `!`, not no mark"]);
+      .toEqual(["this call is impure and may fail, so this call wants `!`, not no mark"]);
   });
 
   test("an honor whose returned `->` function calls an instance above it is compared at its seat", () => {
@@ -801,7 +800,7 @@ describe("Effects §13.3: an instance's own colour, and the calls that follow it
       `honor R<A> =\n    read(s) = 1\n    make(s) = () =>\n        let z = ${call}\n        ()\n`;
     expect(messages(made("0", "read(B({ m = 1 }))"))).toEqual([]);
     expect(messages(made('String.length(readIt!("x"))', "read!(B({ m = 1 }))"))).toEqual([
-      "the function this instance returns may touch the world and may fail, and `make`'s contract returns a `->` function — " +
+      "the function this instance returns is impure and may fail, and `make`'s contract returns a `->` function — " +
         "an instance does no more than its contract permits — keep this body pure and handle the failure in it, or, if the constraint is yours, " +
         "write `->!` on the arrow the contract returns",
     ]);
@@ -811,7 +810,7 @@ describe("Effects §13.3: an instance's own colour, and the calls that follow it
     const held = (call: string) => IO + R + PURE_P + "let ident(x: t): t = x\nlet r = ident(read)\n" +
       `let u(p: P): String = ${call}\n`;
     expect(messages(held("r!(p)"))).toEqual([]);
-    expect(messages(held("r(p)"))).toEqual(["this call may touch the world and may fail, so `r` wants `!`, not no mark"]);
+    expect(messages(held("r(p)"))).toEqual(["this call is impure and may fail, so `r` wants `!`, not no mark"]);
   });
 
   test("a returned function's own callbacks are callbacks, not the instance's world (review r2)", () => {
@@ -823,7 +822,7 @@ describe("Effects §13.3: an instance's own colour, and the calls that follow it
     expect(messages(make("make(A({ n = 1 }))(() => ())"))).toEqual([]);
     expect(messages(make("make(A({ n = 1 }))!(loud)"))).toEqual([]);
     expect(messages(make("make(A({ n = 1 }))(loud)")))
-      .toEqual(["this call may touch the world and may fail, so this call wants `!`, not no mark"]);
+      .toEqual(["this call is impure and may fail, so this call wants `!`, not no mark"]);
   });
 
   test("an honor that hands on another known instance's returned function follows it, here and across modules", () => {
@@ -848,7 +847,7 @@ describe("Effects §13.3: an instance's own colour, and the calls that follow it
       expect(check("() => ()", " s.a.make()", "make(b)()")).toEqual([]);
       expect(check(LOUD, handOn("!"), "make(b)!()")).toEqual([]);
       expect(check(LOUD, handOn("!"), "make(b)()"))
-        .toEqual(["this call may touch the world and may fail, so this call wants `!`, not no mark"]);
+        .toEqual(["this call is impure and may fail, so this call wants `!`, not no mark"]);
     }
   });
 
@@ -864,18 +863,18 @@ describe("Effects §13.3: an instance's own colour, and the calls that follow it
     const one = "honor R<A> =\n    run(s, f) =\n        let g = if s.n > 0 then f else get\n        g!(B({ m = 1 }))\n";
     expect(messages(merged(one, "run!(A({ n = 0 }), (b: B) => 7)"))).toEqual([]);
     expect(messages(merged(one, "run(A({ n = 0 }), (b: B) => 7)")))
-      .toEqual(["this call may touch the world and may fail, so `run` wants `!`, not no mark"]);
+      .toEqual(["this call is impure and may fail, so `run` wants `!`, not no mark"]);
     expect(messages(merged(one, "run!(A({ n = 0 }), loudB)"))).toEqual([]);
     // Review r3's shapes: a second merge, a second callback, a `->` field.
     const twice = "honor R<A> =\n    run(s, f) =\n        let g = if s.n > 0 then f else get\n" +
       "        let h = if s.n > 0 then f else loudB\n        h!(B({ m = 1 }))\n";
     expect(messages(merged(twice, "run(A({ n = 0 }), (b: B) => 7)")))
-      .toEqual(["this call may touch the world and may fail, so `run` wants `!`, not no mark"]);
+      .toEqual(["this call is impure and may fail, so `run` wants `!`, not no mark"]);
     const boxed = "record Box = { g: (B) -> Int }\nconstraint W<a> =\n    wrap(s: a, f: (B) ->! Int) ->! Box\n" +
       "honor W<A> =\n    wrap(s, f) =\n        let x = if s.n > 0 then f else get\n        Box({ g = f })\n";
     expect(messages(merged(boxed, "0"))).toEqual([
-      "a `->` arrow promises purity and that the function cannot fail, and this function may touch the world and may fail — " +
-        "the demand is written `->`, the function's face `->!` or `>->`",
+      "a `->` arrow promises purity and that the function cannot fail, and this function is impure and may fail — " +
+        "the demand is written `->`",
     ]);
   });
 
@@ -979,7 +978,7 @@ describe("Constraints §4.7: the `widens` door is compared, and follows its body
       ["/lib.hex", LIB("->!")],
       ["/main.hex", door('readIt!("x")', "tag(p, 2n)")],
       ["/io.js", ""],
-    ])).toEqual(["this call may touch the world and may fail, so `tag` wants `!`, not no mark"]);
+    ])).toEqual(["this call is impure and may fail, so `tag` wants `!`, not no mark"]);
   });
 
   test("a door on a member that returns a `->!` function is a door (review r1)", () => {
@@ -1005,8 +1004,8 @@ describe("Constraints §4.7: the `widens` door is compared, and follows its body
     expect(projectMessages(files("() => ()", ""))).toEqual([]);
     expect(projectMessages(files("loud", "!"))).toEqual([]);
     expect(projectMessages(files("loud", ""))).toEqual([
-      "this call may touch the world and may fail, so `tag` wants `!`, not no mark",
-      "this call may touch the world and may fail, so `Lib.tag` wants `!`, not no mark",
+      "this call is impure and may fail, so `tag` wants `!`, not no mark",
+      "this call is impure and may fail, so `Lib.tag` wants `!`, not no mark",
     ]);
   });
 
@@ -1494,7 +1493,7 @@ describe("Effects §13.2: a consistent seat fixes its slots for the marks", () =
     // what it is handed could honor the member.
     expect(messages(RUN("k: () ->! Unit", "->!", "k!()"))).toEqual([]);
     expect(messages(RUN("k: () ->! Unit", "->!", "k()"))).toEqual([
-      "this call may touch the world and may fail, so `k` wants `!`, not no mark",
+      "this call is impure and may fail, so `k` wants `!`, not no mark",
     ]);
   });
 
@@ -1536,7 +1535,7 @@ describe("Effects §13.2: a consistent seat fixes its slots for the marks", () =
       `honor Runner<Job> =\n    run(job, a, b) =\n        b!()\n        a${mark}()\n`;
     expect(messages(both("!"))).toEqual([]);
     expect(messages(both(""))).toEqual([
-      "this call may touch the world and may fail, so `a` wants `!`, not no mark",
+      "this call is impure and may fail, so `a` wants `!`, not no mark",
     ]);
   });
 
@@ -1674,7 +1673,7 @@ describe("Effects §13.2: accepting more, annotations, and merges", () => {
       `        a${mark}()\n`;
     expect(messages(merged("!"))).toEqual([]);
     expect(messages(merged(""))).toEqual([
-      "this call may touch the world and may fail, so `a` wants `!`, not no mark",
+      "this call is impure and may fail, so `a` wants `!`, not no mark",
     ]);
   });
 
@@ -2007,7 +2006,7 @@ describe("Effects §13.2: invariant and phantom positions", () => {
     )).toEqual([
       "`>->` means only as effectful as what it is handed, and nothing is handed here — " +
       "no callback of this signature has been handed over by the time this arrow runs; " +
-      "write `->!` for a function that may touch the world and may fail, or `->` for one that does neither",
+      "write `->!` for a function that is impure and may fail, or `->` for one that is pure and cannot fail",
     ]);
   });
 });
@@ -2043,7 +2042,7 @@ describe("Constraints §4.7: a door wears the member's colour, and the listed me
       ["/main.hex", call("", "cb")],
       ["/io.js", ""],
     ])).toEqual([
-      "this call may touch the world and may fail, so `run` wants `!`, not no mark",
+      "this call is impure and may fail, so `run` wants `!`, not no mark",
     ]);
     // And a pure callback makes the call bare.
     expect(projectMessages([
@@ -2228,7 +2227,7 @@ describe("Effects §13.2: the freshening, and what the comparison leaves", () =>
       `        inner${mark}()\n`;
     expect(messages(chain("!"))).toEqual([]);
     expect(messages(chain(""))).toEqual([
-      "this call may touch the world and may fail, so `inner` wants `!`, not no mark",
+      "this call is impure and may fail, so `inner` wants `!`, not no mark",
     ]);
   });
 });
@@ -2421,7 +2420,7 @@ describe("Constraints §8: a member header's arrow seat, and what recovery leaks
     // at the member name.
     const source = "constraint C<a> =\n    m(x: a) => String\n";
     expect(messages(source)).toEqual([
-      "Hexagon's type arrows are `->`, `->^`, `->~`, `->!` and `>->`; `=>` is the lambda arrow " +
+      "Hexagon's type arrows are `->`, `->^`, `->~`, `->!` and the following arrows such as `>->`; `=>` is the lambda arrow " +
       "— for a function type write `Int -> Int` (or a marked arrow for what it may do)",
     ]);
     expect(primaries(source)).toEqual(["=>"]);
@@ -2610,7 +2609,7 @@ describe("Effects §13.2: a failed seat's held-back marks, and where its report 
       "two()",
     ]);
     expect(messages(respelled)).toEqual([
-      "this call may touch the world and may fail, so `two` wants `!`, not no mark",
+      "this call is impure and may fail, so `two` wants `!`, not no mark",
     ]);
     // Repaired the other way — the offending call removed — a `two!()` on a
     // helper that calls nothing is reported as it would be anywhere.
@@ -3157,7 +3156,7 @@ describe("Effects §13.2: a merge with a pure function, in either branch order",
     for (const merge of orders("a", "spare")) {
       const source = linked(merge);
       expect(messages(source)).toEqual([
-        "this call may touch the world and may fail, so `f` wants `!`, not no mark",
+        "this call is impure and may fail, so `f` wants `!`, not no mark",
       ]);
       expect(messages(source.replace("        f()\n", "        f!()\n"))).toEqual([]);
     }
@@ -3728,8 +3727,8 @@ describe("Effects §13.2: a join at a seat moves colours, never a type, at any d
       // The verdict: §4.3's row for the merge the program really wrote, and
       // nothing beside it.
       expect([arrow, messages(source)]).toEqual([arrow, [
-        "a `->` arrow promises purity and that the function cannot fail, and this function may touch the world and may fail — the " +
-        "demand is written `->`, the function's face `->!` or `>->`",
+        "a `->` arrow promises purity and that the function cannot fail, and this function is impure and may fail — the " +
+        "demand is written `->`",
       ]]);
       // And the face the join left: the merge bound nothing, so `f` is the pure
       // arrow its own branch published, not `() ->! Unit`.
@@ -3788,8 +3787,8 @@ honor C<R> =
             n)
         b!()
 `)).toEqual([
-      "a `->` arrow promises purity and that the function cannot fail, and this function may touch the world and may fail — the " +
-      "demand is written `->`, the function's face `->!` or `>->`",
+      "a `->` arrow promises purity and that the function cannot fail, and this function is impure and may fail — the " +
+      "demand is written `->`",
     ]);
   });
 });
@@ -3818,8 +3817,8 @@ honor C<R> =
                 save!("x")
         k!()
 `)).toEqual([
-      "a `->` arrow promises purity and that the function cannot fail, and this function may touch the world and may fail — the " +
-      "demand is written `->`, the function's face `->!` or `>->`",
+      "a `->` arrow promises purity and that the function cannot fail, and this function is impure and may fail — the " +
+      "demand is written `->`",
     ]);
   });
 

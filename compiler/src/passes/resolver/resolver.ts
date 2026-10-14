@@ -6,6 +6,7 @@
  * implied type names.
  */
 
+import { isFollowing, writtenArrowText } from "../../support/arrows.js";
 import * as Diagnostics from "../../support/diagnostics.js";
 import {
   declaredConstraintIdentity,
@@ -6789,16 +6790,16 @@ class Resolver {
         effect?: unknown;
         arrowSpan?: Source.Span;
       };
-      if (record.kind === "Function" && record.effect === "linked") {
+      if (record.kind === "Function" && typeof record.effect === "string" && isFollowing(record.effect)) {
         found = true;
         const arrowSpan = record.arrowSpan;
         if (arrowSpan !== undefined) {
           this.#diagnostics.add({
             severity: "error",
             message:
-              "`>->` means only as effectful as what it is handed, and nothing is " +
+              `\`${writtenArrowText(record.effect)}\` means only as effectful as what it is handed, and nothing is ` +
               "handed here — an alias is a type fragment, not a signature; write " +
-              "`->!` for a function that may touch the world and may fail, or `->` for one that does neither",
+              "`->!` for a function that is impure and may fail, or `->` for one that is pure and cannot fail",
             primary: arrowSpan,
             fixes: [{
               message: "write `->!`",
@@ -8548,7 +8549,7 @@ function constantifyLinkedArrows(annotation: Resolved.TypeAnnotation): Resolved.
     for (const [key, child] of Object.entries(record)) {
       copy[key] = key === "span" || key === "arrowSpan" ? child : rebuild(child);
     }
-    if (copy.kind === "Function" && copy.effect === "linked") copy.effect = "bang";
+    if (copy.kind === "Function" && typeof copy.effect === "string" && isFollowing(copy.effect)) copy.effect = "bang";
     return copy;
   };
   return rebuild(annotation) as Resolved.TypeAnnotation;

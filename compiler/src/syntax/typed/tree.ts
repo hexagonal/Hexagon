@@ -398,6 +398,12 @@ export interface Module {
    */
   readonly colourOwners: ReadonlyMap<TypeVariableId, string>;
   /**
+   * Each settled callback colour's parameter, by name, where it has one: what
+   * a face's own gloss names the callbacks a colour passes through by
+   * *(Effects §10)*.
+   */
+  readonly colourNames: ReadonlyMap<TypeVariableId, string>;
+  /**
    * This module's instances' own colours *(Effects §13.3)*, keyed
    * `${constraint identity}:${subject key} ${member symbol}`: whether each spine
    * arrow of the member is impure at the instance, its body read with every

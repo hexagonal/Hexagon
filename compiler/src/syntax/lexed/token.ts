@@ -96,10 +96,16 @@ export const punctuationKinds = [
   // The coloured type arrows are single tokens. `->!`, `->^` and `->~` are
   // glued rather than `->` followed by a mark, because the mark trails the
   // arrow it colours exactly as it trails the callee it marks (#405), and
-  // `!->` is not admitted at all: a mark never begins a token. `>->`, the
-  // follows arrow, carries no mark. `Arrow` above is the silent member of the
-  // family. The three marks are tokens of their own (Effects §3.1).
+  // `!->` is not admitted at all: a mark never begins a token. The following
+  // arrows name between their `>`s the colours that pass through (`-` both,
+  // `~` the world, `^` failure) and after them a colour done on its own
+  // account (Effects §2.2). `Arrow` above is the silent member of the family.
+  // The three marks are tokens of their own (Effects §3.1).
   "ArrowFollows",
+  "ArrowFollowsTilde",
+  "ArrowFollowsTildeCaret",
+  "ArrowFollowsCaret",
+  "ArrowFollowsCaretTilde",
   "ArrowBang",
   "ArrowCaret",
   "ArrowTilde",
