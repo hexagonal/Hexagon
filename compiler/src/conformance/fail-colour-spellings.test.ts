@@ -712,6 +712,15 @@ describe("Effects §2.4, §3.4: an untyped callback's own arrows are decided one
     expect(face(deep, "deep")).toBe("(() -> () -> () ->~ a) >~> a");
   });
 
+  test("a marked call of a lambda that runs the callback still claims its own arrow (#1261)", () => {
+    // Today's §3.4: a `~` call of `run` claims every untyped colour `run` runs,
+    // the bare `g()`'s included, so `g`'s own arrow is not left silent here as
+    // it is without the lambda. Tracked in #1261; this pins today's reading.
+    const held = "let hl(g) =\n    let run = () =>\n        let k = g()\n        k~()\n    run~()\n";
+    expect(reports(held)).toEqual([["g()", "this call is impure, so `g` wants `~`, not no mark"]]);
+    expect(face(held, "hl")).toBe("(() ->~ () ->~ a) >~> a");
+  });
+
   test("a tie's fix marks each own arrow on its own colours, and the report stands at the merge", () => {
     const body = (f: string, g: string, call: string) =>
       `(f: ${f}, g${g}) =\n    let h = if True then f else g\n    let k = h${call}()\n    k^()\n`;
