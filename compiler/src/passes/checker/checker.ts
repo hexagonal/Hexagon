@@ -727,19 +727,13 @@ interface EffectFrame {
      */
     ownAtClose?: boolean;
   }[];
-  /** The colours of the `!` calls written in this body or in a body nested in it: its claims. */
-  readonly marked: Mono[];
   /**
    * Every call written in this body or in a body nested in it, with its
-   * colour: what a call in error is handed is in error (`#settleUntyped`,
-   * Effects §3.5, #1223).
+   * colour: its mark claims, or its bare call reads, what it reaches of an
+   * untyped parameter (`#settleUntyped`, Effects §3.4), and what a call in
+   * error is handed is in error (§3.5, #1223).
    */
   calls?: { readonly effect: Mono; readonly call: Resolved.CallExpr }[];
-  /**
-   * The colours of the calls written bare in this body or in a body nested in
-   * it: an untyped parameter's colour one of them reads is pure (Effects §3.4).
-   */
-  readonly bare: Mono[];
   /**
    * The types of the untyped parameters of the bodies nested in this one: a
    * colour one of them shares with this body's untyped parameter is shared
@@ -8973,8 +8967,6 @@ class Checker {
             fail: undefined,
             absorbed: [],
             untyped: [],
-            marked: [],
-            bare: [],
             nestedUntyped: [],
           };
           this.#failTwin(frame, this.#fresh(level + 1, false));
@@ -9292,8 +9284,6 @@ class Checker {
             fail: undefined,
             absorbed: [],
             untyped: [],
-            marked: [],
-            bare: [],
             nestedUntyped: [],
           };
           this.#failTwin(frame, this.#fresh(level + 1, false));
@@ -10992,8 +10982,6 @@ class Checker {
           fail: undefined,
           absorbed: [],
           untyped: [],
-          marked: [],
-          bare: [],
           nestedUntyped: [],
         };
         this.#failTwin(effectFrame, writtenOwnFail ?? this.#fresh(level + 1, false));
@@ -21793,8 +21781,6 @@ class Checker {
       fail: undefined,
       absorbed: [],
       untyped: [],
-      marked: [],
-      bare: [],
       nestedUntyped: [],
     };
     frame.fail = twin;
@@ -22229,7 +22215,8 @@ class Checker {
    * computes is not a unification until every call in it is known. A `!` call
    * is also a **claim** on every body it stands in (Effects §3.4): the colours
    * it reaches of an untyped parameter are that parameter's, decided by the
-   * mark. A call written bare is recorded too: what it reaches is pure.
+   * mark. A call written bare is recorded too: what it reaches is pure. What a
+   * call reaches is read where the parameter is decided (`#reachedParts`).
    */
   #registerCall(
     expression: Resolved.CallExpr,
@@ -22253,9 +22240,7 @@ class Checker {
       const colour = axis === "fail" ? colours.fail : colours.effect;
       const own = frame === undefined ? undefined : frameOn(frame, axis);
       own?.absorbed.push({ effect: colour, span: expression.span, mark: expression.mark });
-      const read = markParts(expression.mark)[axis] ? "marked" : "bare";
       for (let enclosing = own; enclosing !== undefined; enclosing = enclosing.enclosing) {
-        enclosing[read].push(colour);
         (enclosing.calls ??= []).push({ effect: colour, call: expression });
       }
     }
@@ -22490,13 +22475,13 @@ class Checker {
     }
     this.#holdBack(pinsHidden);
     if (frame.untyped.length === 0) return;
+    // A call's mark claims, and a bare call reads, only what it reaches
+    // through a value made from a parameter (#1261).
     const claimed = new Set<Variable>();
-    for (const colour of frame.marked) {
-      for (const part of this.#colourParts(colour)) claimed.add(part);
-    }
     const read = new Set<Variable>();
-    for (const colour of frame.bare) {
-      for (const part of this.#colourParts(colour)) read.add(part);
+    for (const { effect, call } of frame.calls ?? []) {
+      const into = markParts(call.mark)[frameAxis(frame)] ? claimed : read;
+      for (const part of this.#reachedParts(call, effect, frameAxis(frame))) into.add(part);
     }
     // Every parameter is read before any is decided: a colour shared with a
     // sibling untyped parameter is still this body's to decide, and claimed it
@@ -22552,6 +22537,59 @@ class Checker {
         }
       }
     }
+  }
+
+  /**
+   * The parts of a call's colour its mark speaks for (Effects §3.4, #1261):
+   * those it reaches through a value made from a parameter, the callee or a
+   * value it is handed. A function whose colour is what its own body does (a
+   * lambda, a function a declaration defines, or a name bound to one) is no
+   * such value: the parameters its body runs are decided by the calls in that
+   * body, and a mark on a call that runs it, or hands it, is checked against
+   * its colour like any other.
+   */
+  #reachedParts(call: Resolved.CallExpr, colour: Mono, axis: Axis): Variable[] {
+    const parts = this.#colourParts(colour);
+    // A dot call names a function a declaration defines, and its receiver is
+    // the function's first argument (Method Syntax §7): the same call as the
+    // bare spelling, which reaches what it does.
+    const method = call.callee.kind === "Access" && this.#dotCalls.has(call);
+    const values = [
+      ...(method ? [] : [call.callee]),
+      ...(call.callee.kind === "Access" ? [call.callee.receiver] : []),
+      ...call.arguments,
+    ].filter((value) => !this.#runsItsOwnBody(value));
+    const reached = new Set<Variable>();
+    for (const value of values) {
+      const type = this.#expressionTypes.get(value);
+      // A callee made from a parameter whose type is not recorded reaches
+      // everything its call does, as its own arrow is the call's colour.
+      if (type === undefined) {
+        if (value === call.callee) return parts;
+        continue;
+      }
+      for (const { arrow } of this.#spineColours(type, axis)) {
+        for (const part of this.#colourParts(arrow)) reached.add(part);
+      }
+    }
+    return parts.filter((part) => reached.has(part));
+  }
+
+  /**
+   * Whether a value is a function whose colour is what its own body does
+   * (Effects §3.4, #1261): a lambda, a function a declaration defines (a
+   * module's, a local one, an import, an extern row), or a name bound to one,
+   * through aliases. Such a value is not made from the parameters its body
+   * runs.
+   */
+  #runsItsOwnBody(expression: Resolved.Expr, seen = new Set<number>()): boolean {
+    const value = ungrouped(expression);
+    if (value.kind === "Lambda") return true;
+    if (value.kind !== "Name" || seen.has(Number(value.symbol))) return false;
+    seen.add(Number(value.symbol));
+    const source = this.#bindingSources.get(value.symbol);
+    if (source === undefined || source.kind === "function") return true;
+    return source.kind === "value" && this.#runsItsOwnBody(source.value, seen);
   }
 
   /**

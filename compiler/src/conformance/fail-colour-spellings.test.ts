@@ -712,15 +712,6 @@ describe("Effects §2.4, §3.4: an untyped callback's own arrows are decided one
     expect(face(deep, "deep")).toBe("(() -> () -> () ->~ a) >~> a");
   });
 
-  test("a marked call of a lambda that runs the callback still claims its own arrow (#1261)", () => {
-    // Today's §3.4: a `~` call of `run` claims every untyped colour `run` runs,
-    // the bare `g()`'s included, so `g`'s own arrow is not left silent here as
-    // it is without the lambda. Tracked in #1261; this pins today's reading.
-    const held = "let hl(g) =\n    let run = () =>\n        let k = g()\n        k~()\n    run~()\n";
-    expect(reports(held)).toEqual([["g()", "this call is impure, so `g` wants `~`, not no mark"]]);
-    expect(face(held, "hl")).toBe("(() ->~ () ->~ a) >~> a");
-  });
-
   test("a tie's fix marks each own arrow on its own colours, and the report stands at the merge", () => {
     const body = (f: string, g: string, call: string) =>
       `(f: ${f}, g${g}) =\n    let h = if True then f else g\n    let k = h${call}()\n    k^()\n`;
@@ -741,6 +732,70 @@ describe("Effects §2.4, §3.4: an untyped callback's own arrows are decided one
     // The fix is a repair, and the refused parameters read as it from outside.
     expect(reports(ONES + written + callers)).toEqual([]);
     expect(face(ONES + tied + callers, "tq")).toBe("(() -> () ->^ Unit, () -> () ->^ Unit) >^> Unit");
+  });
+});
+
+describe("Effects §3.4: only a value made from a parameter passes a mark on to it (#1261)", () => {
+  test("a function that runs the callback is no value made from it: the calls in its body decide", () => {
+    // `run!()` is a mark on `run`, checked against what `run`'s body does;
+    // the bare `g()` inside is the call that reaches `g`.
+    const source = "let h2(g, f) =\n    let run = () =>\n        g()\n        f!()\n    run!()\n" +
+      "let hl(g) =\n    let run = () =>\n        let k = g()\n        k~()\n    run~()\n";
+    expect(reports(source)).toEqual([]);
+    expect(face(source, "h2")).toBe("(() -> Unit, () ->! a) >-> a");
+    expect(face(source, "hl")).toBe("(() -> () ->~ a) >~> a");
+  });
+
+  test("where the two disagree, the outer mark is the wrong one", () => {
+    const over = (callee: string) => [
+      "!",
+      `this call is pure and cannot fail, so ${callee} wants no mark, not \`!\``,
+    ];
+    expect(reports(
+      "let y(g) =\n    let run = () => g()\n    run!()\n" +
+        "let nf(g) =\n    let run() = g()\n    run!()\n" +
+        "let inplace(g) =\n    (() => g())!()\n",
+    )).toEqual([over("`run`"), over("`run`"), over("this call")]);
+  });
+
+  test("a function handed on is no value made from the callback its body runs", () => {
+    const twice = "let twice(h: () ->~ Unit) =\n    h~()\n    h~()\n";
+    expect(reports(twice + "let hand(g) = twice~(() => g())\n")).toEqual([
+      ["~", "this call is pure, so `twice` wants no mark, not `~`"],
+    ]);
+    expect(face(twice + "let hand(g) = twice(() => g())\n", "hand")).toBe("(() -> Unit) -> Unit");
+    // An extern row is a function a declaration defines, and an alias of a
+    // lambda is that lambda.
+    expect(reports(
+      "extern from \"./world.js\"\n    export fun each(f: () ->! Unit) >-> Unit\n" +
+        "let viaExtern(g) = each!(() => g())\n" +
+        "let viaAlias(g) =\n    let run = () => g()\n    let k = run\n    k!()\n",
+    )).toEqual([
+      ["!", "this call is pure and cannot fail, so `each` wants no mark, not `!`"],
+      ["!", "this call is pure and cannot fail, so `k` wants no mark, not `!`"],
+    ]);
+    // A dot call is the bare call (Method Syntax §7): its method is a function
+    // a declaration defines, and the lambda it is handed runs `g` bare.
+    expect(reports(
+      "let viaDot(g) = Some(1).map!((x) => g())\nlet viaBare(g) = Option.map!(Some(1), (x) => g())\n",
+    )).toEqual([
+      ["!", "this call is pure and cannot fail, so `.map` wants no mark, not `!`"],
+      ["!", "this call is pure and cannot fail, so `map` wants no mark, not `!`"],
+    ]);
+  });
+
+  test("the parameter itself, an alias of it, and the parameter handed on still take the mark", () => {
+    const source = "let twice(h: () ->~ Unit) =\n    h~()\n    h~()\n" +
+      "let z(g) =\n    g()\n    g!()\n" +
+      "let al(g) =\n    let k = g\n    k!()\n" +
+      "let only(g) =\n    let run = () => g!()\n    run()\n" +
+      "let handG(g) = twice~(g)\n";
+    expect(reports(source)).toEqual([
+      ["g()", "this call is impure and may fail, so `g` wants `!`, not no mark"],
+      ["run()", "this call is impure and may fail, so `run` wants `!`, not no mark"],
+    ]);
+    expect(face(source, "al")).toBe("(() ->! a) >-> a");
+    expect(face(source, "handG")).toBe("(() ->~ Unit) >~> Unit");
   });
 });
 
