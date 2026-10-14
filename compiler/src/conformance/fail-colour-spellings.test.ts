@@ -25,6 +25,10 @@ const WORLD =
 
 const text = (source: string): string => HEADER + WORLD + source;
 
+/** A function that touches the world and cannot fail, and one that may fail and touches no world. */
+const ONES = "let log0(): Unit = log~(\"x\")\n" +
+  "let oops0(): Unit =\n    let n = parse^(\"1\")\n    ()\n";
+
 const files = (source: string): [string, string][] => [
   ["/main.hex", text(source)],
   ["/world.js", ""],
@@ -153,6 +157,30 @@ describe("Effects §2.4 (D1): where the two colours do not both follow, the one 
       ["timed(() => 1)", "this call may touch the world and may fail, so `timed` wants `!`, not no mark"],
     ]);
   });
+
+  test("it comes after a colour no parameter holds is published silent", () => {
+    const published = ONES +
+      "let ident(x: a): a = x\n" +
+      "let mk3(k: () ->~ Unit, unused: () ->^ Unit) =\n" +
+      "    let run = ident((f) => f!())\n    k~()\n    run!(() => ())\n";
+    expect(face(published, "mk3")).toBe("(() ->~ Unit, () ->^ Unit) ->~ Unit");
+    expect(reports(published + "export let u(): Unit = mk3(noop, noop)\n")).toEqual([
+      ["mk3(noop, noop)", "this call may touch the world, so `mk3` wants `~`, not no mark"],
+    ]);
+  });
+
+  test("the face of a function a call hands back widens as the `let` that names it would", () => {
+    const made = ONES + "let mk(a: () ->! Unit) = (g) =>\n    a!()\n    g!()\n";
+    expect(reports(
+      made +
+        "export let q1(): Unit = mk(log0)~(() => ())\n" +
+        "export let q2(): Unit =\n    let r = mk(log0)\n    r~(() => ())\n" +
+        "export let q3(): Unit = mk(log0)!(() => ())\n",
+    )).toEqual([
+      ["~", "this call may fail, so this call wants `!`, not `~`"],
+      ["~", "this call may fail, so `r` wants `!`, not `~`"],
+    ]);
+  });
 });
 
 describe("Effects §13.3 (D3): a known instance's call face widens as every face does", () => {
@@ -168,6 +196,18 @@ describe("Effects §13.3 (D3): a known instance's call face widens as every face
         "export let d(c: Checked): Unit = run!(c, noop)\n",
     )).toEqual([
       ["run(c, noop)", "this call may touch the world and may fail, so `run` wants `!`, not no mark"],
+    ]);
+  });
+
+  test("a colour that follows beside one silent while a callback marks it is the constant", () => {
+    expect(reports(
+      "export record Job = { n: Int }\n" +
+        "constraint Run2<r> =\n    run2(runner: r, action: () ->~ Unit, check1: () ->^ Unit) ->~ Unit\n" +
+        "honor Run2<Job> =\n    run2(job, action, check1) = action~()\n" +
+        "export let a(j: Job): Unit = run2(j, () => (), () => ())\n" +
+        "export let b(j: Job): Unit = run2~(j, () => (), () => ())\n",
+    )).toEqual([
+      ["run2(j, () => (), () => ())", "this call may touch the world, so `run2` wants `~`, not no mark"],
     ]);
   });
 });
@@ -226,6 +266,84 @@ describe("Effects §9: a report about one colour names that colour, and the arro
         "() -> Int",
         "a `->` arrow promises the function cannot fail, and this function may fail — the demand is written " +
           "`->`, the function's face `->!` or `>->`",
+      ],
+    ]);
+  });
+
+  test("§4.3's demand at a callback's own arrow is that arrow, written", () => {
+    expect(reports(
+      ONES +
+        "let takesF(f: () ->^ Unit): Unit = f^()\n" +
+        "export let u1(): Unit = takesF(log0)\n" +
+        "let takesG(g: () ->~ Unit): Unit = g~()\n" +
+        "export let u2(): Unit = takesG(oops0)\n" +
+        "let chk(cb: () ->^ Unit): Unit = cb^()\n" +
+        "let apply(k: (() ->~ Unit) -> Unit): Unit = k(log0)\n" +
+        "export let a1(): Unit = apply(chk)\n",
+    )).toEqual([
+      [
+        "takesF(log0)",
+        "a `->^` arrow promises purity, and this function may touch the world — the demand is written " +
+          "`->^`, the function's face `->!` or `>->`",
+      ],
+      [
+        "takesG(oops0)",
+        "a `->~` arrow promises the function cannot fail, and this function may fail — the demand is written " +
+          "`->~`, the function's face `->!` or `>->`",
+      ],
+      [
+        "apply(chk)",
+        "a `->^` arrow promises purity, and this function may touch the world — the demand is written " +
+          "`->^`, the function's face `->!` or `>->`",
+      ],
+    ]);
+  });
+
+  test("a demand and its reverse at one span are two reports, and so are two arrows at one span", () => {
+    expect(reports("let arr2(a: Array(() ->~ Unit)): Array(() ->^ Unit) = a\n")).toEqual([
+      [
+        "Array(() ->^ Unit)",
+        "a `->^` arrow promises purity, and this function may touch the world — the demand is written " +
+          "`->^`, the function's face `->!` or `>->`",
+      ],
+      [
+        "Array(() ->^ Unit)",
+        "this position's arrow says the function may fail, and the arrow meeting it, which cannot fail, was " +
+          "fixed before it arrived — by another use, by a type written where it was made, inside an argument " +
+          "read invariantly, or in a parameter's type — so it cannot fit as a function used here does; write " +
+          "the arrow where it was fixed",
+      ],
+    ]);
+    expect(reports(ONES + "let pairF: (() ->^ Unit, () ->~ Unit) = (log0, oops0)\n")).toEqual([
+      [
+        "(() ->^ Unit, () ->~ Unit)",
+        "a `->^` arrow promises purity, and this function may touch the world — the demand is written " +
+          "`->^`, the function's face `->!` or `>->`",
+      ],
+      [
+        "(() ->^ Unit, () ->~ Unit)",
+        "a `->~` arrow promises the function cannot fail, and this function may fail — the demand is written " +
+          "`->~`, the function's face `->!` or `>->`",
+      ],
+    ]);
+  });
+
+  test("one call that acts on its own account on one colour and runs a captured colour on the other", () => {
+    expect(reports(
+      "export let outer(action: () ->^ Unit): Unit =\n" +
+        "    let local() =\n        log~(\"x\")\n        action^()\n" +
+        "    let h: (() ->! Unit) >-> Unit = (f) =>\n        local!()\n        f!()\n" +
+        "    h!(noop)\n",
+    )).toEqual([
+      [
+        "local!()",
+        "this call touches the world on its own account, and this face's `>->` promises the function is only " +
+          "as effectful as what it is handed — write `->!`",
+      ],
+      [
+        "local!()",
+        "this call runs `outer`'s `action`, which this signature is not handed, and this face's `>->` promises " +
+          "the function is only as effectful as what it is handed — write `->!`",
       ],
     ]);
   });
@@ -289,6 +407,29 @@ describe("Effects §9: a report about one colour names that colour, and the arro
     ]);
   });
 
+  test("a seat whose contract is `->^` says the contract is pure", () => {
+    expect(reports(
+      "export record R = { n: Int }\n" +
+        "constraint Read<a> =\n    read(x: a) ->^ Int\n" +
+        "honor Read<R> =\n    read(r) =\n        log~(\"x\")\n        1\n",
+    )).toEqual([
+      [
+        "log~(\"x\")",
+        "this call may touch the world, and `read`'s contract is `->^`, which is pure — an instance does no " +
+          "more than its contract permits — keep this body pure, or, if the constraint is yours, write `->!` on " +
+          "the member",
+      ],
+    ]);
+  });
+
+  test("an extern `let` of a function type is advised as the `fun` its own arrow spells", () => {
+    expect(reports(
+      "extern from \"./world.js\"\n" +
+        "    export let p: (String) ->^ Int\n" +
+        "    export let q: (String) ->~ Unit\n",
+    ).map(([, message]) => message.slice(message.lastIndexOf(")") + 1))).toEqual([" ->^ Int`", " ->~ Unit`"]);
+  });
+
   test("a failed seat holds back the mark reports on the colour it condemned, and only that colour", () => {
     expect(reports(
       "export record R = { n: Int }\n" +
@@ -318,6 +459,33 @@ describe("Effects §9: a report about one colour names that colour, and the arro
   });
 });
 
+describe("Effects §3.4: a refused tie reads as its fix, on each colour", () => {
+  test("the fix marks only a colour the claims leave the parameter's own", () => {
+    const tied = "let t3(f: () ->~ Unit, g) =\n    let h = if True then f else g\n    h~()\n";
+    expect(reports(tied)).toEqual([
+      [
+        "if True then f else g",
+        "`g`'s colour is tied to `f`'s here, and no written type can say that — write `g`'s type",
+      ],
+    ]);
+    expect(fixes(tied)).toEqual([["write `g`'s type", [": () ->~ Unit"]]]);
+    expect(reports(tied.replace("g) =", "g: () ->~ Unit) ="))).toEqual([]);
+  });
+
+  test("the reading from outside is the fixed function's face, so its callers meet what the fix gives", () => {
+    const tied = "let t5(f: () ->^ Unit, g) =\n    g^()\n    let h = if True then f else g\n    h^()\n" +
+      "export let c1(): Unit = t5(noop, noop)\n";
+    const fixed = tied.replace("g) =", "g: () ->^ Unit) =");
+    expect(fixes(tied)).toEqual([["write `g`'s type", [": () ->^ Unit"]]]);
+    expect(face(tied, "t5")).toBe("(() ->^ Unit, () ->^ Unit) >-> Unit");
+    expect(face(fixed, "t5")).toBe("(() ->^ Unit, () ->^ Unit) >-> Unit");
+    expect(reports(tied).map(([, message]) => message)).toEqual([
+      "`g`'s colour is tied to `f`'s here, and no written type can say that — write `g`'s type",
+    ]);
+    expect(reports(fixed)).toEqual([]);
+  });
+});
+
 describe("Lexer §8.3: `^` and `~` are marks, and the bitwise redirect where an operator would stand", () => {
   test("`x ^ 3`, `x^(3 + 1)` on a value, and `~x`", () => {
     expect(reports(
@@ -328,6 +496,22 @@ describe("Lexer §8.3: `^` and `~` are marks, and the bitwise redirect where an 
     ).map(([, message]) => message)).toEqual([
       "Hexagon spells bitwise exclusive or `bxor`; a power is `**`",
       "Hexagon spells bitwise exclusive or `bxor`; a power is `**`",
+      "Hexagon spells bitwise complement `bnot`",
+    ]);
+  });
+
+  test("glued between two operands, `^` and `~` stand where an operator would", () => {
+    expect(reports(
+      "export let x: Int = 2\n" +
+        "export let b: Int = 3\n" +
+        "export let p: Int = x^2\n" +
+        "export let q: Int = x^b\n",
+    ).map(([, message]) => message)).toEqual([
+      "Hexagon spells bitwise exclusive or `bxor`; a power is `**`",
+      "Hexagon spells bitwise exclusive or `bxor`; a power is `**`",
+    ]);
+    expect(reports("export let x: Int = 2\nexport let b: Int = 3\nexport let r: Int = x~b\n")[0]).toEqual([
+      "~",
       "Hexagon spells bitwise complement `bnot`",
     ]);
   });

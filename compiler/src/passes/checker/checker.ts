@@ -1042,9 +1042,9 @@ function annotationChildren(
  */
 interface SeatContract {
   readonly type: FunctionMono;
-  /** The member's callback colours, one per callback parameter its header writes `->!`. */
+  /** The member's callback colours, one per callback parameter whose header arrow marks the world colour. */
   readonly colours: readonly Variable[];
-  /** The same callbacks' fail colours (Effects §1), compared on their own. */
+  /** The fail colours of the callbacks whose arrow marks it (Effects §1), compared on their own. */
   readonly fails: readonly Variable[];
   readonly member: string;
   readonly parameters: readonly string[];
@@ -1220,6 +1220,9 @@ type DeferredTie =
  * to. Reports that share a tied parameter are one report, so its fix writes
  * each type once (`Checker.#reportTies`).
  */
+/** A tie report's fix, where every tied parameter's reading is plain (`#reportTie`). */
+type TieFixes = { readonly fixes?: readonly Diagnostics.Fix[] };
+
 class TieReport {
   readonly tied: EffectFrame["untyped"][number][] = [];
   /** The body each tied parameter belongs to, for its owner's name and its fix reading. */
@@ -5349,6 +5352,11 @@ class Checker {
    */
   readonly #pendingTies = new WeakMap<EffectFrame, Map<Mono, TieReport>>();
   /**
+   * The ties reported on the world colour, whose fixes are read again once the
+   * fail colour has settled (`#rereadTieFixes`): each fix writes both colours.
+   */
+  #tieFixesOwed: { readonly bag: Diagnostics.Bag; readonly report: Diagnostics.Diagnostic; readonly fixes: () => TieFixes }[] = [];
+  /**
    * Every reference that resolved *inside* a knot, and the member it named.
    *
    * A knot member's scheme is a bare monotype while the component is being
@@ -6251,8 +6259,10 @@ class Checker {
         // variables are. They carry no requirements, so no dictionary ordinal
         // moves; and they are quantified besides, so no defaulting pass may
         // settle a contract on one instantiation's behalf.
-        const contractColours = faceCallbacks(memberFace).map(({ colour }) => colour);
-        const contractFailColours = faceCallbacks(memberFace).map(({ fail }) => fail);
+        // A colour a callback's arrow does not mark is silent from the start,
+        // and no seat chooses it (§2.4).
+        const contractColours = faceCallbacks(memberFace).filter(({ marks }) => marks.world).map(({ colour }) => colour);
+        const contractFailColours = faceCallbacks(memberFace).filter(({ marks }) => marks.fail).map(({ fail }) => fail);
         for (const colour of [...contractColours, ...contractFailColours]) this.#quantified.add(colour.id);
         this.#memberColours.set(member.binding.symbol, contractColours);
         this.#memberFailColours.set(member.binding.symbol, contractFailColours);
@@ -6705,6 +6715,7 @@ class Checker {
     this.#refuseExportedMemberSpellings(module.items);
     // The two colours' reports made one before any report's colours are
     // named (Effects §1, §10).
+    this.#rereadTieFixes();
     this.#mergeColourReports();
     this.#settleColourNotes();
 
@@ -12233,6 +12244,7 @@ class Checker {
     }
 
     if (expression.kind === "Call" && this.#nextInstanceUse > firstUse) this.#decideCallWaits(expression, firstUse);
+    if (expression.kind === "Call") type = this.#widenCallResult(type, level);
     // A call that failed, and so recorded no colour, is in error, and so is
     // what it does (Effects §3.5, #1223): an unknown callee, one that is not a
     // function, a dot call whose operation is not found or not decided. It
@@ -22128,6 +22140,7 @@ class Checker {
     const holder = this.#tieHolder(frame);
     this.#refuseTies(frame, holder === undefined);
     holder?.tieFrames.push(frame);
+    if (frameAxis(frame) === "fail") this.#rereadTieFixes();
   }
 
   /**
@@ -22841,11 +22854,25 @@ class Checker {
     // its siblings', an enclosing callback's it waited on, and those of the
     // nested bodies tied with them. Where any of them is not plain, there is
     // no fixit.
-    const readings = tied.map((each) => {
-      const eachType = this.#prune(each.type);
-      return eachType.kind === "Function" ? this.#blackBoxReading(eachType) : undefined;
-    });
-    this.#diagnostics.add({
+    const fixes = (): TieFixes => {
+      const readings = tied.map((each) => {
+        const eachType = this.#prune(each.type);
+        return eachType.kind === "Function" ? this.#blackBoxReading(eachType) : undefined;
+      });
+      if (readings.some((reading) => reading === undefined)) return {};
+      return {
+        fixes: [{
+          message: tied.length === 1
+            ? `write \`${parameter.name}\`'s type`
+            : `write the types of ${tied.slice(0, -1).map(spelled).join(", ")} and ${spelled(tied.at(-1)!)}`,
+          edits: tied.map((each, index) => ({
+            span: { ...each.span, start: each.span.end },
+            replacement: `: ${readings[index]!}`,
+          })),
+        }],
+      };
+    };
+    const diagnostic: Diagnostics.Diagnostic = {
       severity: "error",
       message: `\`${parameter.name}\`'s colour is tied to ${phrase} here, and no written type can say ` +
         `that — write \`${parameter.name}\`'s type`,
@@ -22854,36 +22881,44 @@ class Checker {
         span: each.span,
         message: `${spelled(each)} has no written type`,
       })),
-      ...(readings.some((reading) => reading === undefined)
-        ? {}
-        : {
-            fixes: [{
-              message: tied.length === 1
-                ? `write \`${parameter.name}\`'s type`
-                : `write the types of ${tied.slice(0, -1).map(spelled).join(", ")} and ${spelled(tied.at(-1)!)}`,
-              edits: tied.map((each, index) => ({
-                span: { ...each.span, start: each.span.end },
-                replacement: `: ${readings[index]!}`,
-              })),
-            }],
-          }),
-    });
+      ...fixes(),
+    };
+    this.#diagnostics.add(diagnostic);
+    // A tie found on the world colour is found before the fail colour settles,
+    // and the fix writes each colour as it settles (§3.4's black-box reading):
+    // its fix is read again then.
+    if (this.#currentAxis === "world") this.#tieFixesOwed.push({ bag: this.#diagnostics, report: diagnostic, fixes });
     // The refused parameters read as their fix where the function is seen from
     // outside (`#readRefusedTies`), so no caller meets the tie a second time.
     for (const { frame, index } of report.readings) (frame.tieReadings ??= new Set()).add(index);
   }
 
   /**
+   * The fixes of the ties reported on the world colour, read again now that
+   * the fail colour has settled: a colour the fail colour's claims left silent
+   * is written silent (§3.4's black-box reading).
+   */
+  #rereadTieFixes(): void {
+    if (this.#tieFixesOwed.length === 0) return;
+    for (const { bag, report, fixes } of this.#tieFixesOwed.splice(0)) {
+      const { fixes: _, ...rest } = report;
+      const reread: Diagnostics.Diagnostic = { ...rest, ...fixes() };
+      bag.rewrite((each) => each === report ? reread : each);
+    }
+  }
+
+  /**
    * A function whose untyped parameters a tie refused reads as the fix from
    * outside (Effects §3.4, §4.4): each one's own arrows are a callback colour
-   * of its own, quantified here. A copy: the body's own typing stands.
+   * of its own on each colour the fix marks, quantified here, and silent on a
+   * colour the fix leaves silent. A copy: the body's own typing stands.
    */
   #readRefusedTies(type: Mono, level: number): Mono {
     const actual = this.#prune(type);
     if (actual.kind !== "Function") return type;
     // A parameter a tie refused on either colour reads as its fix, its written
-    // type, whose own arrows are `->!` on both colours (§3.4's black-box
-    // reading): a rule that names both colours (Effects §1).
+    // type, whose own arrows mark each colour the parameter is not silent on
+    // (§3.4's black-box reading): a rule that names both colours (Effects §1).
     const owner = this.#frameOfType.get(actual);
     const readings = owner === undefined
       ? undefined
@@ -22893,21 +22928,28 @@ class Checker {
     // colour this binding quantifies — siblings' shared colour — is their join
     // wherever else the face runs it, as the fix's face would be; a captured
     // colour stays the enclosing function's.
-    const fresh = new Map<number, ReadonlyMap<Axis, Variable>>();
+    const fresh = new Map<number, ReadonlyMap<Axis, Mono>>();
     const shared = new Map<number, Variable[]>();
     for (const index of readings) {
-      // A fresh callback colour of its own on each colour.
-      const owns = new Map<Axis, Variable>();
+      const parameter = actual.parameters[index];
+      // A fresh callback colour of its own on each colour the fix marks.
+      const owns = new Map<Axis, Mono>();
       for (const axis of AXES) {
+        const type = parameter === undefined ? undefined : this.#prune(parameter);
+        const colour = type?.kind === "Function" ? this.#prune(colourAt(type, axis) ?? PURE) : undefined;
+        if (colour?.kind === "Effect" && !isImpure(colour)) {
+          owns.set(axis, PURE);
+          continue;
+        }
         const own = this.#fresh(level + 1, false);
         this.#linkedColours.push(own);
         owns.set(axis, own);
       }
       fresh.set(index, owns);
-      const parameter = actual.parameters[index];
       if (parameter === undefined) continue;
       for (const axis of AXES) {
         const own = owns.get(axis)!;
+        if (own.kind !== "Variable") continue;
         for (const { arrow } of this.#spineColours(parameter, axis)) {
           for (const part of this.#colourParts(arrow)) {
             if (part.level <= level) continue;
@@ -22919,7 +22961,7 @@ class Checker {
       }
     }
     const joined = new Map([...shared].map(([id, owners]) => [id, this.#join(owners)] as const));
-    const spine = (node: Mono, owns: ReadonlyMap<Axis, Variable>): Mono => {
+    const spine = (node: Mono, owns: ReadonlyMap<Axis, Mono>): Mono => {
       const at = this.#prune(node);
       return at.kind === "Function"
         ? { ...at, result: spine(at.result, owns), effect: owns.get("world")!, fail: owns.get("fail")! }
@@ -24062,6 +24104,7 @@ class Checker {
       // Each colour's frames on their own (Effects §1): a frame's calls carry
       // only its colour, so the two colours' sibling graphs never meet.
       for (const axis of AXES) this.#onAxis(axis, () => this.#settleKnotBody(knot, axis));
+      this.#rereadTieFixes();
     } finally {
       this.#settlingKnot = enclosingSettling;
     }
@@ -25201,8 +25244,8 @@ class Checker {
       this.#recordArrowSpan(contractType, member.arrowSpan);
       return {
         type: contractType,
-        colours: faceCallbacks(face).map(({ colour }) => colour),
-        fails: faceCallbacks(face).map(({ fail }) => fail),
+        colours: faceCallbacks(face).filter(({ marks }) => marks.world).map(({ colour }) => colour),
+        fails: faceCallbacks(face).filter(({ marks }) => marks.fail).map(({ fail }) => fail),
         member: member.binding.name,
         parameters: member.parameters.map((parameter) => parameter.name),
       };
@@ -25475,6 +25518,8 @@ class Checker {
       for (const callback of faceCallbacks(face)) {
         const own = callbackColour(callback, axis);
         const settled = this.#prune(own);
+        // A colour its arrow does not mark was silent from the start: nothing pinned it.
+        if (!callback.marks[axis]) continue;
         if (settled.kind !== "Effect" || Colour.isTop(settled) || callback.arrows.length === 0) continue;
         condemned.push(own);
         if (settled.solve === undefined) continue;
@@ -26588,7 +26633,11 @@ class Checker {
         const colour = this.#prune(slot);
         return colour.kind === "Effect" ? isImpure(colour) ? "constant" : "silent" : "follows";
       };
-      const demandWritten = demandArrow === undefined ? undefined : displayedArrow(shown("world"), shown("fail"), "spine");
+      // A demand is never a written face's spine: its arrow marks each colour
+      // that is not silent, a callback's colour among them (Effects §4.3, §10).
+      const demandWritten = demandArrow === undefined
+        ? undefined
+        : markedArrow(shown("world") !== "silent", shown("fail") !== "silent");
       this.#colourReport(`effect-mismatch ${spanKey(span)} ${direction} ${arrows?.id ?? ""}`, (axes) => ({
         severity: "error",
         message: effectMismatchMessage(direction, axes, demandWritten),
@@ -30118,9 +30167,11 @@ class Checker {
     // A finished face depends on all of its callbacks or on none (§2.4).
     if (this.#generalizingFace !== undefined) this.#checkFaceFits(this.#generalizingFace, false);
     type = this.#readRefusedTies(type, level);
-    type = this.#widenFace(type, level);
+    type = this.#widenFace(type, level, { widen: true, d1: false });
     type = this.#readRefusedArrows(type);
     type = this.#publishUnheldColours(type, level, allow);
+    // D1 comes last, once a colour no parameter holds is silent (§2.4).
+    type = this.#widenFace(type, level, { widen: false, d1: true });
     let variables = this.#collectVariables(type).filter(
       (variable) => variable.level > level,
     );
@@ -30598,8 +30649,13 @@ class Checker {
    * is rewritten, never a colour bound, so each callback keeps its own colour;
    * every occurrence the caller receives is widened together. A node nothing
    * widens is kept, and a rebuilt function keeps its lambdas and frame.
+   *
+   * `steps` says which of §2.4's two widenings run: `widen`, each colour to
+   * all of the callbacks handed by then, and `d1`, a colour that follows where
+   * the other does not to its constant. A binding runs D1 once unheld colours
+   * are published, which makes them silent; a call's result runs D1 alone.
    */
-  #widenFace(type: Mono, level: number): Mono {
+  #widenFace(type: Mono, level: number, steps: { readonly widen: boolean; readonly d1: boolean }): Mono {
     // Each colour widens by its own callbacks' colours on it (Effects §1, §2.4).
     type Handed = Readonly<Record<Axis, readonly Variable[]>>;
     const own = (colour: Mono): Variable[] =>
@@ -30621,8 +30677,8 @@ class Checker {
     // own to widen.
     const widenColours = (actual: FunctionMono, callbacks: Handed) => {
       const colours: Record<Axis, Mono | undefined> = {
-        world: actual.effect === undefined ? undefined : widenColour(actual.effect, callbacks.world),
-        fail: actual.fail === undefined ? undefined : widenColour(actual.fail, callbacks.fail),
+        world: actual.effect === undefined || !steps.widen ? actual.effect : widenColour(actual.effect, callbacks.world),
+        fail: actual.fail === undefined || !steps.widen ? actual.fail : widenColour(actual.fail, callbacks.fail),
       };
       const follows = (axis: Axis): boolean =>
         colours[axis] !== undefined && this.#colourParts(colours[axis]!).some((part) => callbacks[axis].includes(part));
@@ -30631,8 +30687,10 @@ class Checker {
         if (colour.kind !== "Effect") return false;
         return isImpure(colour) || callbacks[axis].length > 0;
       };
-      for (const [axis, other] of [["world", "fail"], ["fail", "world"]] as const) {
-        if (follows(axis) && !follows(other) && unmatched(other)) colours[axis] = IMPURE;
+      if (steps.d1) {
+        for (const [axis, other] of [["world", "fail"], ["fail", "world"]] as const) {
+          if (follows(axis) && !follows(other) && unmatched(other)) colours[axis] = IMPURE;
+        }
       }
       return {
         ...(colours.world === undefined ? {} : { effect: colours.world }),
@@ -30740,6 +30798,22 @@ class Checker {
       );
     };
     return spine(type, { world: [], fail: [] }, false);
+  }
+
+  /**
+   * **The face of a function a call hands back** takes §2.4's D1 as a face a
+   * binding generalizes does (Effects §2.4): where one colour follows the
+   * callbacks that function is handed and the other is a constant, or silent
+   * while one of those callbacks marks it, the colour that follows is the
+   * constant. So pulling the call into a `let` never changes a mark:
+   * `mk(log0)~(…)` reads as `let r = mk(log0)` then `r~(…)` does. The callbacks
+   * are those whose colours the call's own level holds; one captured from an
+   * enclosing function is that function's, as at a binding.
+   */
+  #widenCallResult(type: Mono, level: number): Mono {
+    const actual = this.#prune(type);
+    if (actual.kind === "Error" || actual.kind === "Variable") return type;
+    return this.#widenFace(type, level - 1, { widen: false, d1: true });
   }
 
   /**

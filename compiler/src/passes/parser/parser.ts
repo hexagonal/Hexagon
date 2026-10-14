@@ -8,6 +8,7 @@
  * bodies include the owner-scoped implied type forms from Collections Part 2 §5.
  */
 
+import { FOLLOWS_ARROW, markedArrow } from "../../support/arrows.js";
 import * as Diagnostics from "../../support/diagnostics.js";
 import { isIntrinsicScheme } from "../../intrinsics.js";
 import * as Source from "../../support/source.js";
@@ -2513,11 +2514,10 @@ class Parser {
         }`
       );
       const result = this.#writtenAnnotation(annotation.result);
-      const arrow = annotation.effect === undefined
-        ? "->"
-        : annotation.effect === "linked"
-        ? ">->"
-        : "->!";
+      const effect = annotation.effect;
+      const arrow = effect === "linked"
+        ? FOLLOWS_ARROW
+        : markedArrow(effect === "bang" || effect === "tilde", effect === "bang" || effect === "caret");
       this.#errorAt(
         annotation.span,
         "extern callable declarations use `fun`; " +
@@ -5681,8 +5681,9 @@ class Parser {
 
     while (!effectiveStops.has(this.#current().kind)) {
       const mark = this.#markAt();
-      // `^` and `~` with space on both sides stand where an operator would,
-      // and take `bitwise.md` §9's redirect, not the mark seat's (Lexer §8.3).
+      // `^` and `~` standing where an operator would — before an operand, or
+      // with space on both sides — take `bitwise.md` §9's redirect, not the
+      // mark seat's (Lexer §8.3).
       if (mark === "caret" && this.#markStandsAsOperator(left)) {
         if (minimumBindingPower > 9) break;
         const caret = this.#advance();
