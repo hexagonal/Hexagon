@@ -411,7 +411,11 @@ const IMPURE: EffectConstant = Colour.IMPURE_POINT;
  */
 const COLOUR_MARK = "\uE000";
 const COLOUR_MARK_END = "\uE001";
-const COLOUR_MARKED = /\uE000(\d+)\uE001/g;
+/**
+ * A marked colour, with the colour it is followed on where the arrow shows its
+ * constant beside it (`w`, `f`; Effects §10's widened display).
+ */
+const COLOUR_MARKED = /\uE000(\d+)(?::([wf]))?\uE001/g;
 
 /**
  * Whether a colour is the impure constant, by value rather than by identity: a
@@ -3604,6 +3608,19 @@ interface InstanceWait {
    */
   readonly subjectArguments: readonly { readonly index: number; readonly direct: boolean }[];
   readonly pinned: boolean;
+  /** The spine arrow it waits at, shared by its two colours' waits (`#decideCallWaits`). */
+  readonly site: WaitSite;
+}
+
+/**
+ * One spine arrow of a call at an instance (Effects §13.3), for §2.4's
+ * widening of the call's face: on each colour, whether the contract leaves it
+ * silent, and whether a callback parameter handed by then has an arrow that
+ * marks it.
+ */
+interface WaitSite {
+  readonly silent: Readonly<Record<Axis, boolean>>;
+  readonly handed: Readonly<Record<Axis, boolean>>;
 }
 
 /**
@@ -31943,12 +31960,20 @@ class Checker {
       }),
     ];
     const next = { world: callbacks("world"), fail: callbacks("fail") };
+    const contract = (axis: Axis): Mono => this.#prune(colourAt(type, axis) ?? PURE);
+    const site: WaitSite = {
+      silent: {
+        world: contract("world").kind === "Effect" && !isImpure(contract("world")),
+        fail: contract("fail").kind === "Effect" && !isImpure(contract("fail")),
+      },
+      handed: { world: next.world.length > 0, fail: next.fail.length > 0 },
+    };
     const waitingOn = (axis: Axis): Mono => {
-      const effect = this.#prune(colourAt(type, axis) ?? PURE);
+      const effect = contract(axis);
       if (!(effect.kind === "Effect" && isImpure(effect))) return effect;
       const colour = this.#fresh(level, false);
       this.#waitingColours.set(colour, axis);
-      this.#instanceWaits.push({ colour, axis, subject, identity, member, arrow, span, use, subjectArguments, pinned });
+      this.#instanceWaits.push({ colour, axis, subject, identity, member, arrow, span, use, subjectArguments, pinned, site });
       return this.#join([colour, ...next[axis]]);
     };
     const effect = waitingOn("world");
@@ -31988,18 +32013,36 @@ class Checker {
     // A call above the body it would follow is refused once, whichever colour
     // waits: where a call stands is no colour's (`#refuseAboveBody`).
     const reported = new Set<number>();
-    this.#instanceWaits = this.#instanceWaits.filter((wait) => {
-      if (wait.use < firstUse) return true;
+    const deciding = this.#instanceWaits.filter((wait) => wait.use >= firstUse);
+    this.#instanceWaits = this.#instanceWaits.filter((wait) => wait.use < firstUse);
+    const answers = new Map<InstanceWait, Mono>();
+    for (const wait of deciding) {
       const callee = call.callee.span;
       const own = wait.span !== undefined &&
         callee.start.offset <= wait.span.start.offset && wait.span.end.offset <= callee.end.offset;
-      const answer = own ? this.#knownCallColour(call, wait, reported) : undefined;
+      answers.set(wait, (own ? this.#knownCallColour(call, wait, reported) : undefined) ?? IMPURE);
+    }
+    // *(§13.3, D3.)* The face is then widened by §2.4's rule: where one
+    // colour follows the callbacks the call has handed by then, and the other
+    // is the constant, or is silent while a callback parameter handed by then
+    // has an arrow that marks it, the colour that follows is the constant too.
+    const widened = new Map(answers);
+    for (const wait of deciding) {
+      const answer = answers.get(wait)!;
+      if (!(answer.kind === "Effect" && !isImpure(answer)) || !wait.site.handed[wait.axis]) continue;
+      const other: Axis = wait.axis === "world" ? "fail" : "world";
+      const twin = deciding.find((each) => each.site === wait.site && each.axis === other);
+      const theirs = twin === undefined ? undefined : answers.get(twin)!;
+      const constant = theirs !== undefined && theirs.kind === "Effect" && isImpure(theirs);
+      const silentMarked = twin === undefined && wait.site.silent[other] && wait.site.handed[other];
+      if (constant || silentMarked) widened.set(wait, IMPURE);
+    }
+    for (const wait of deciding) {
       const colour = this.#prune(wait.colour);
       // Each colour's wait settles on its own (Effects §1).
-      if (colour.kind === "Variable") this.#onAxis(wait.axis, () => this.#settleWaiting(colour, answer ?? IMPURE, wait.span));
+      if (colour.kind === "Variable") this.#onAxis(wait.axis, () => this.#settleWaiting(colour, widened.get(wait)!, wait.span));
       this.#waitingColours.delete(wait.colour);
-      return false;
-    });
+    }
     this.#replayDecidedDemands();
   }
 
@@ -37496,7 +37539,7 @@ class Checker {
       if (!texts.some((text) => text.includes(COLOUR_MARK))) return diagnostic;
       const owners: string[] = [];
       const strip = (text: string): string =>
-        text.replace(COLOUR_MARKED, (_whole, id: string) => {
+        text.replace(COLOUR_MARKED, (_whole, id: string, followed: string | undefined) => {
           const marked = this.#markedColours.get(Number(id));
           const colour = marked === undefined ? undefined : this.#prune(marked);
           if (colour?.kind !== "Variable") return "";
@@ -37507,7 +37550,9 @@ class Checker {
           const words = scope.owner === undefined
             ? scope.parameter === undefined ? "an enclosing lambda's callback" : `an enclosing lambda's \`${scope.parameter}\``
             : scope.parameter === undefined ? `\`${scope.owner}\`'s callback` : `\`${scope.owner}\`'s \`${scope.parameter}\``;
-          const note = `depends on ${words}`;
+          const note = followed === undefined
+            ? `depends on ${words}`
+            : `${followed === "w" ? "touches the world" : "may fail"} as ${words} does`;
           if (!owners.includes(note)) owners.push(note);
           return "";
         });
@@ -37815,9 +37860,12 @@ class Checker {
     };
     const colours: Record<Axis, ShownColour> = { world: shown("world"), fail: shown("fail") };
     const arrow = displayedArrow(colours.world, colours.fail, place);
+    // A colour that follows beside a constant shows the constant (§2.4's
+    // widening), and its owner line says what it follows.
+    const widened = place === "spine" && arrow !== FOLLOWS_ARROW && AXES.some((axis) => colours[axis] === "follows");
     // A callback's colour this type does not own is a captured one, which the
     // report names the owner of once colours settle (`#settleColourNotes`).
-    if (arrow !== FOLLOWS_ARROW || this.#unmarkedDisplays > 0) return arrow;
+    if ((arrow !== FOLLOWS_ARROW && !widened) || this.#unmarkedDisplays > 0) return arrow;
     const marked = new Set<number>();
     const marks: string[] = [];
     for (const axis of AXES) {
@@ -37826,10 +37874,10 @@ class Checker {
         if (this.#displayOwned?.has(part.id) === true || marked.has(part.id)) continue;
         marked.add(part.id);
         this.#markedColours.set(part.id, part);
-        marks.push(`${COLOUR_MARK}${part.id}${COLOUR_MARK_END}`);
+        marks.push(`${COLOUR_MARK}${part.id}${widened ? axis === "world" ? ":w" : ":f" : ""}${COLOUR_MARK_END}`);
       }
     }
-    return FOLLOWS_ARROW + marks.join("");
+    return arrow + marks.join("");
   }
 }
 

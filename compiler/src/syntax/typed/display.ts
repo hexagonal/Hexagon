@@ -38,13 +38,55 @@ export function displayFace(
 ): { readonly type: string; readonly owners: readonly string[] } {
   const colours = effectVariables(scheme);
   const variables = variableNames(scheme, colours);
-  const captured = context === undefined
-    ? []
-    : colours.filter((colour) => context.owners.has(colour) && !scheme.variables.includes(colour));
   return {
     type: `${displayConstraints(scheme, variables)}${displayType(scheme.type, variables, "spine")}`,
-    owners: [...new Set(captured.map((colour) => `depends on ${context!.owners.get(colour)!}`))],
+    owners: context === undefined ? [] : ownerLines(scheme, context),
   };
+}
+
+/**
+ * One owner line for each captured colour a face depends on (Effects §10). An
+ * arrow that shows `>->` depends on it; one where that colour follows it beside
+ * a constant on the other colour shows the constant, as §2.4's widening makes
+ * every face, and the line says what the colour follows: "touches the world as
+ * `outer`'s `action` does", or "may fail as … does".
+ */
+function ownerLines(scheme: Typed.Scheme, context: ColourContext): readonly string[] {
+  const lines = new Set<string>();
+  const captured = (colour: Typed.TypeVariableId): string | undefined =>
+    scheme.variables.includes(colour) ? undefined : context.owners.get(colour);
+  const parts = (effect: Typed.Effect | undefined): readonly Typed.TypeVariableId[] =>
+    typeof effect !== "object" ? [] : "join" in effect ? effect.join : [effect.variable];
+  const shown = (effect: Typed.Effect | undefined): ShownColour =>
+    effect === undefined ? "silent" : typeof effect === "object" ? "follows" : "constant";
+  const visit = (node: unknown): void => {
+    if (node === null || typeof node !== "object") return;
+    if (Array.isArray(node)) {
+      for (const each of node) visit(each);
+      return;
+    }
+    const record = node as { readonly kind?: unknown };
+    if (record.kind === "Function") {
+      const arrow = node as Typed.FunctionType;
+      const world = shown(arrow.effect);
+      const fail = shown(arrow.fail);
+      const widened = (world === "follows" && fail === "constant") || (fail === "follows" && world === "constant");
+      for (const [slot, effect] of [["world", arrow.effect], ["fail", arrow.fail]] as const) {
+        for (const part of parts(effect)) {
+          const owner = captured(part);
+          if (owner === undefined) continue;
+          lines.add(
+            widened
+              ? `${slot === "world" ? "touches the world" : "may fail"} as ${owner} does`
+              : `depends on ${owner}`,
+          );
+        }
+      }
+    }
+    for (const value of Object.values(node)) visit(value);
+  };
+  visit(scheme.type);
+  return [...lines];
 }
 
 /**
