@@ -22542,23 +22542,23 @@ class Checker {
   /**
    * The parts of a call's colour its mark speaks for (Effects §3.4, #1261):
    * those it reaches through a value made from a parameter, the callee or a
-   * value it is handed. A function whose colour is what its own body does (a
-   * lambda, a function a declaration defines, or a name bound to one) is no
-   * such value: the parameters its body runs are decided by the calls in that
-   * body, and a mark on a call that runs it, or hands it, is checked against
-   * its colour like any other.
+   * value it is handed (`#madeFromParameter`). A function whose colour is what
+   * its own body does is no such value: the parameters its body runs are
+   * decided by the calls in that body, and a mark on a call that runs it, or
+   * hands it, is checked against its colour like any other.
    */
   #reachedParts(call: Resolved.CallExpr, colour: Mono, axis: Axis): Variable[] {
     const parts = this.#colourParts(colour);
     // A dot call names a function a declaration defines, and its receiver is
     // the function's first argument (Method Syntax §7): the same call as the
-    // bare spelling, which reaches what it does.
+    // bare spelling, which reaches what it does. (No method resolves on a
+    // function type today, so a receiver adds no spine colour yet.)
     const method = call.callee.kind === "Access" && this.#dotCalls.has(call);
     const values = [
       ...(method ? [] : [call.callee]),
       ...(call.callee.kind === "Access" ? [call.callee.receiver] : []),
       ...call.arguments,
-    ].filter((value) => !this.#runsItsOwnBody(value));
+    ].filter((value) => this.#madeFromParameter(value));
     const reached = new Set<Variable>();
     for (const value of values) {
       const type = this.#expressionTypes.get(value);
@@ -22576,20 +22576,93 @@ class Checker {
   }
 
   /**
-   * Whether a value is a function whose colour is what its own body does
-   * (Effects §3.4, #1261): a lambda, a function a declaration defines (a
-   * module's, a local one, an import, an extern row), or a name bound to one,
-   * through aliases. Such a value is not made from the parameters its body
-   * runs.
+   * Whether a value at a call is made from a parameter (Effects §3.4, #1261):
+   * the parameter itself, a name bound to such a value, a part taken out of
+   * one (a field, an element, a pattern's part, what a call returns where the
+   * function called or a value it is handed is one, or where the function
+   * returns one), or a merge with one. A lambda, a function a declaration
+   * defines, and anything made only from those are not: their colour is what
+   * their own body does, and a mark that reaches them claims nothing of what
+   * that body runs. `own` holds the parameters of a function whose return is
+   * being read, which stand for the values the call hands it, read already.
    */
-  #runsItsOwnBody(expression: Resolved.Expr, seen = new Set<number>()): boolean {
-    const value = ungrouped(expression);
-    if (value.kind === "Lambda") return true;
-    if (value.kind !== "Name" || seen.has(Number(value.symbol))) return false;
+  #madeFromParameter(
+    expression: Resolved.Expr,
+    seen = new Set<unknown>(),
+    own: ReadonlySet<Resolved.SymbolId> = new Set(),
+  ): boolean {
+    if (seen.has(expression)) return false;
+    seen.add(expression);
+    const made = (each: Resolved.Expr | undefined): boolean =>
+      each !== undefined && this.#madeFromParameter(each, seen, own);
+    switch (expression.kind) {
+      case "Name": {
+        if (own.has(expression.symbol)) return false;
+        const source = this.#bindingSources.get(expression.symbol);
+        // A declaration's own name: an import, an extern row, a constructor.
+        if (source === undefined) return false;
+        switch (source.kind) {
+          case "inferred":
+          case "written":
+            return true;
+          case "function":
+            return false;
+          case "value":
+            return made(source.value);
+          case "part":
+            return source.source === undefined || made(source.source);
+        }
+        return false;
+      }
+      case "Group":
+      case "Ascription":
+        return made(expression.expression);
+      case "Block": {
+        const last = expression.items.at(-1);
+        return last?.kind === "ExprItem" && made(last.expression);
+      }
+      case "If":
+        return made(expression.consequence) || made(expression.alternative);
+      case "Match":
+        return [...expression.arms, ...expression.catchArms ?? []].some((arm) => made(arm.body));
+      case "Try":
+        return made(expression.body) || expression.arms.some((arm) => made(arm.body));
+      case "Tuple":
+      case "Vector":
+        return expression.elements.some(made);
+      case "Record":
+        return made(expression.spread) || expression.fields.some((field) => made(field.value));
+      case "Access":
+      case "Index":
+        return made(expression.receiver);
+      case "Call": {
+        const handed = expression.callee.kind === "Access" ? [expression.callee.receiver] : [];
+        if ([...handed, ...expression.arguments].some(made)) return true;
+        if (expression.callee.kind === "Access" && this.#dotCalls.has(expression)) return false;
+        if (made(expression.callee)) return true;
+        // What a function written in this program returns: its parameters are
+        // the values just read.
+        const called = this.#calledLambda(expression.callee);
+        return called !== undefined && this.#madeFromParameter(
+          called.body,
+          seen,
+          new Set([...own, ...called.parameters.map(({ symbol }) => symbol)]),
+        );
+      }
+      default:
+        return false;
+    }
+  }
+
+  /** The lambda a callee names, through `let` aliases, where the program writes it. */
+  #calledLambda(callee: Resolved.Expr, seen = new Set<number>()): Resolved.LambdaExpr | undefined {
+    const value = ungrouped(callee);
+    if (value.kind === "Lambda") return value;
+    if (value.kind !== "Name" || seen.has(Number(value.symbol))) return undefined;
     seen.add(Number(value.symbol));
     const source = this.#bindingSources.get(value.symbol);
-    if (source === undefined || source.kind === "function") return true;
-    return source.kind === "value" && this.#runsItsOwnBody(source.value, seen);
+    if (source?.kind === "function") return source.value;
+    return source?.kind === "value" ? this.#calledLambda(source.value, seen) : undefined;
   }
 
   /**
