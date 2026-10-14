@@ -146,7 +146,7 @@ A parameterized alias must be applied to exactly its declared arity at every use
 
 `>->` is the join of the callbacks the signature it stands in has been handed (Effects §2.2), and an alias body has no signature — it is a type fragment, expanded into whatever signature later mentions it. A `>->` written in an alias body is therefore a hard error, with Effects §4.4's frame and this position's middle clause:
 
-> `>->` means only as effectful as what it is handed, and nothing is handed here — an alias is a type fragment, not a signature; write `->!` for a function that may touch the world and may fail, or `->` for one that does neither
+> `>->` means only as effectful as what it is handed, and nothing is handed here — an alias is a type fragment, not a signature; write `->!` for a function that is impure and may fail, or `->` for one that does neither
 
 Transparency is why the error is not softened into a read-at-expansion rule: the alias is *the same type* at every mention, and a `>->` inside it would mean a different join at every signature that mentions it. Effect abstraction over aliases is a coherent future feature, and this refusal is what keeps the spelling free for it.
 

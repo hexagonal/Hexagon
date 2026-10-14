@@ -24,7 +24,7 @@ possibleName.defaultValue("Guest")
 
 Callback-taking functions take `->!` callbacks and follow what they are handed (Effects §2.4).
 Passing a callback that is pure and cannot fail yields a bare call; passing one
-that may touch the world or may fail requires the matching mark on the outer
+that is impure or may fail requires the matching mark on the outer
 call (`^`, `~` or `!`). Conditional execution does not remove that static
 requirement: such a callback still requires its mark at a concrete call even
 when this execution takes the branch that skips that callback. The mark permits effects; it does not promise that an effect
@@ -94,7 +94,7 @@ export let orThrow(source: Option(a), failure: () -> Exn): a =
 - orThrow returns a present payload, and for None throws the exception its
   thunk constructs. Its face is `(Option(a), () -> Exn) ->^ a`: it may fail on
   its own account, so every call wears `^`. The thunk is pure, so building the
-  exception touches no world and its construction, and the stack it captures,
+  exception is pure and its construction, and the stack it captures,
   happen at the throw (Exceptions §4).
 
 No Eq, Show, or other payload constraint is required by these functions.

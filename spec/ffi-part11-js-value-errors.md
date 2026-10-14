@@ -189,7 +189,7 @@ JsError.stack   : JsValue ->~ Option(String)
 1. Thrown non-property-bearing value: `None`.
 2. Thrown object **or function**: one guarded read of `.stack`; `Some(s)` iff the read succeeds with a string `s`; `None` otherwise (absent, non-string, or a throw, swallowed).
 
-Both accessors are **`->~`**: each performs one guarded read per call of exactly the one named property, and that read may invoke an arbitrary foreign getter or proxy trap — an effect, whose suppressed secondary exception removes the throw and not the effect. So each touches the world and cannot fail, and calls wear `~`: `JsError.message~(error)`, `JsError.stack~(error)`; a pure-faced read here was never sound, and forbidding the compiler to share it would not have made it so. Richer interrogation of a thrown value — `name`, `cause`, structural decoding — is ordinary `JsValue` decoding with §4's tools and the §13.2 library; these two accessors exist because *every* catch site wants them and they must never make things worse.
+Both accessors are **`->~`**: each performs one guarded read per call of exactly the one named property, and that read may invoke an arbitrary foreign getter or proxy trap — an effect, whose suppressed secondary exception removes the throw and not the effect. So each is impure and cannot fail, and calls wear `~`: `JsError.message~(error)`, `JsError.stack~(error)`; a pure-faced read here was never sound, and forbidding the compiler to share it would not have made it so. Richer interrogation of a thrown value — `name`, `cause`, structural decoding — is ordinary `JsValue` decoding with §4's tools and the §13.2 library; these two accessors exist because *every* catch site wants them and they must never make things worse.
 
 ---
 

@@ -568,8 +568,8 @@ The Comments spec is authoritative; this section fixes token interaction.
 | Separators and labels | `,` `:` `;` |
 | Access and spread | `.` `...` |
 | Declaration/arm punctuation | `=` `=>` *(the term-level arrow: a lambda's and a `match`/`catch` arm's. It is not a type token — Effects §2)* |
-| Type arrows | `->` `->^` `->~` `->!` `>->` *(roles: Effects §2 — `->` pure and cannot fail, `->^` may fail, `->~` may touch the world and cannot fail, `->!` may touch the world and may fail, `>->` only as effectful as what the signature is handed)* |
-| Call marks and the reading | `!` `^` `~` `?` *(Effects §3.1: `^` may fail, `~` may touch the world and cannot fail, `!` both; `?` reads a call's failure as `Option`, after `~` for a world call, `~?`; grammar — glued on both sides, against the callee and against the argument list's `(`, or glued at a `\|>` stage's end — is the parser's, Effects §3.2)* |
+| Type arrows | `->` `->^` `->~` `->!` `>->` `>~>` `>~>^` `>^>` `>^>~` *(roles: Effects §2 — `->` pure and cannot fail, `->^` may fail, `->~` impure and cannot fail, `->!` impure and may fail; the five following arrows name between their `>`s the colours that are only as effectful as what the signature is handed, `-` both, `~` the world colour, `^` the fail colour, and after them a colour the function does on its own account)* |
+| Call marks and the reading | `!` `^` `~` `?` *(Effects §3.1: `^` may fail, `~` impure and cannot fail, `!` both; `?` reads a call's failure as `Option`, after `~` for a world call, `~?`; grammar — glued on both sides, against the callee and against the argument list's `(`, or glued at a `\|>` stage's end — is the parser's, Effects §3.2)* |
 | Arithmetic and concatenation | `+` `-` `*` `/` `**` `++` |
 | Comparison | `==` `!=` `<` `>` `<=` `>=` |
 | Range | `..` |
@@ -592,6 +592,7 @@ longest valid token. Important cases:
 **   before  *
 +++  means ++ then +
 |>   before  |
+>~>^ >^>~  before  >~> >^>  before  >
 >->  before  >
 ->!  ->^  ->~  before  ->  before  -
 !=   before  !
@@ -609,9 +610,12 @@ function-type annotations, and Effects §2 now gives it its role.)* `->` in
 expression position receives the parser's targeted diagnostic; it is one token
 everywhere. `!->` is not a token and cannot become one: the mark trails the
 arrow it colours, on arrows exactly as at calls (Effects §2.3). The munch that
-matters for the coloured arrows is `->!`, `->^` and `->~` before `->`, and `>->` before `>`.
-`>->` begins with a token, the comparison `>`, and needs all three characters,
-so `x >-1` is still `>`, `-`, `1`.
+matters for the coloured arrows is `->!`, `->^` and `->~` before `->`, the following
+arrows before `>`, and `>~>^` and `>^>~` before `>~>` and `>^>`. Each following arrow
+begins with a token, the comparison `>`, and needs all of its characters, so `x >-1` is
+still `>`, `-`, `1`, and `x >~y` is `>`, `~`, `y`. A following arrow names each colour
+once, so `>->~`, `>->^`, `>~>~` and `>^>^` are no tokens: `>->~` is `>->` followed by a
+mark, which the parser refuses as it refuses any mark with no argument list.
 
 The lexer special-cases well-known forbidden symbolic logic runs so the user gets one
 useful error: `&&` and `||` point to `and` and `or`; a `!` in prefix-expression
@@ -639,7 +643,7 @@ reads a `!` call, and `f?(x)` a `^` call (Effects §3.1). Maximal munch does not
 combine a mark and a dot into an unlisted token: `(x)name!.field` is a marked
 construction followed by field access, and two adjacent marks form no valid
 suffix construction, `~?` excepted. The coloured type arrows `->^`, `->~`,
-`->!` and `>->` are §8.1 tokens and `=>!` is not; the mark following `->` in
+`->!` and the five following arrows are §8.1 tokens and `=>!` is not; the mark following `->` in
 `->!` is part of that one token and never a mark token in its own right, so
 `->!` is not an arrow beside a stray bang.)*
 
@@ -712,7 +716,7 @@ token inventory and the lexer must not report the same source code unit twice.
 | `&&`, `||` | suggest `and`, `or` respectively |
 | `&` | invalid character, with a redirect: `band` (`bitwise.md` §9) |
 | `^`, `~` where an operator would stand, and `x^(y)` on a callee that is not a function | the redirect: `bxor` (and `**` for a power), `bnot` respectively (`bitwise.md` §9) — the parser selects it, since each is a mark token (§8.3) |
-| `!?` or `^?` after a callee | "a reading takes the mark's fail part: write `f~?(x)` for a call that may touch the world, `f?(x)` for one that does not" (Effects §3.1) |
+| `!?` or `^?` after a callee | "a reading takes the mark's fail part: write `f~?(x)` for a call that is impure, `f?(x)` for one that does not" (Effects §3.1) |
 | `??`, `?.` | "Hexagon has no optional chaining or coalescing: `Option.defaultValue`, `Option.map`, or a `match`" |
 | `!` in prefix-expression position | suggest `not` — the parser selects the message now that `!` is a token *(#355; §8.2)*; a mark outside its grammatical seats gets Effects §9's mark-position error instead |
 | Any other invalid character | name the character and codepoint; consume it once |
@@ -774,6 +778,7 @@ a && b              -- write `a and b`
 | Closed punctuation/operator inventory and maximal-munch rules | §8 |
 | `->` corrected into the inventory (shipped with function-type annotations; Effects §2 names its role); the call mark `!` added for #355 (`?` is no token, #1144); the marked type arrows `->?`/`->!` replace `=>`/`=>!` for #405, leaving `=>` a term-level token only; a mark never begins a token, so `!->` is impossible by munch; prefix-`!` keeps the `not` redirect, parser-selected | §8.1–§8.3, §10 (#355, #405) |
 | The follows arrow is `>->` (#1151, #1145): `?` leaves the arrows and is no token at all, and `>->` stands ahead of `>` by munch | §8.1–§8.3 |
+| Nine type arrows (Effects §2): the following arrows `>~>`, `>~>^`, `>^>` and `>^>~` join `>->`, each colour named once, the longest first by munch | §8.1–§8.3 |
 | Two colours (Effects §1): the type arrows `->^` and `->~` join §8.1; `^`, `~` and `?` are tokens, `^` and `~` the fail and never-fails marks and `?` the reading, never operators, so `^` and `~` keep their bitwise redirects where an operator would stand; `!?` and `^?` are no readings; `attempt` and `assume` are hard keywords (the body forms, Exceptions §8.2–§8.3); `fault` is contextual, at a declaration head and as a whole catch arm's kind pattern | §4.1, §4.2, §8.1–§8.3, §10 |
 | Exact physical token families; virtual layout tokens excluded | §9 |
 | No warning tier; malformed tokens advance and recover | §10 |
