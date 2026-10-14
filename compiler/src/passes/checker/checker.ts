@@ -22761,13 +22761,20 @@ class Checker {
     return PURE;
   }
 
-  /** `#ownColourAt`'s parts as they stood once `at` binds had been made (`#boundAt`). */
+  /**
+   * `#ownColourAt`'s parts as they stood once `at` binds had been made
+   * (`#boundAt`). Which arrow carries the colour is read as settled: silence
+   * is decided where the parameter's own body closes, and a bare call's pure
+   * is no bind, so the arrows as they stood then cannot say it.
+   */
   #ownColourPartsAt(type: Mono, axis: Axis, at: number): Variable[] {
-    for (let node = this.#boundAt(type, at); node.kind === "Function"; node = this.#boundAt(node.result, at)) {
-      const colour = this.#boundAt(colourAt(node, axis) ?? PURE, at);
-      if (!(colour.kind === "Effect" && !isImpure(colour))) return this.#colourPartsAt(colour, at);
+    let index = 0;
+    for (let node = this.#prune(type); node.kind === "Function"; node = this.#prune(node.result), index += 1) {
+      if (!this.#silentAtClose(colourAt(node, axis) ?? PURE)) break;
     }
-    return [];
+    let node = this.#boundAt(type, at);
+    for (let step = 0; step < index && node.kind === "Function"; step += 1) node = this.#boundAt(node.result, at);
+    return node.kind === "Function" ? this.#colourPartsAt(colourAt(node, axis) ?? PURE, at) : [];
   }
 
   /** A colour's parts as they stood once `at` binds had been made (`#boundAt`). */
@@ -25016,7 +25023,9 @@ class Checker {
           ? `${member}'s contract is ${written === "->" ? "the pure arrow `->`" : `\`${written}\``}` +
             silent(axes.filter((axis) => !through(axis)))
           : at.form === "result"
-          ? `${member}'s contract returns a \`${written}\` function`
+          ? `${member}'s contract returns a \`${written}\` function` +
+            // A following arrow's silent colour is named, as at the outer arrow.
+            (AXES.some(through) ? silent(axes.filter((axis) => !through(axis))) : "")
           : at.form === "parameter"
           ? `${member}'s contract writes \`${written}\` inside the parameter \`${at.name}\``
           : `${member}'s contract writes \`${written}\` inside its result`;

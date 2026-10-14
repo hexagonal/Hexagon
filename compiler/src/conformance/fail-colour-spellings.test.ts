@@ -706,6 +706,10 @@ describe("Effects §2.4, §3.4: an untyped callback's own arrows are decided one
     expect(reports(source)).toEqual([]);
     expect(face(source, "once")).toBe("(() -> () ->^ a) >^> a");
     expect(face(source, "twice")).toBe("(() ->~ () ->^ a) >-> a");
+    // A world-only program: the arrows a bare call read stay pure, three deep.
+    const deep = "let deep(g) =\n    let a = g()\n    let b = a()\n    b~()\n";
+    expect(reports(deep)).toEqual([]);
+    expect(face(deep, "deep")).toBe("(() -> () -> () ->~ a) >~> a");
   });
 
   test("a tie's fix marks each own arrow on its own colours, and the report stands at the merge", () => {
@@ -800,6 +804,15 @@ describe("Effects §13.2: a seat names the contract's arrow as written", () => {
       "this call is impure on its own account, and `run`'s contract is `>->` — an instance is only as effectful as " +
         "what it is handed — move the effect behind a callback, or, if the constraint is yours, write `>^>~` on " +
         "the member",
+    ]);
+    // In the result position, the silent colour is named too.
+    expect(reports(
+      "export record J = { n: Int }\nconstraint D<r> =\n    d1(x: r) -> ((() ->! Unit) >^> Unit)\n" +
+        "honor D<J> =\n    d1(j) = (f) =>\n        log~(\"x\")\n        f!()\n",
+    ).map(([, message]) => message)).toEqual([
+      "the function this instance returns is impure, and `d1`'s contract returns a `>^>` function, which is pure — " +
+        "an instance does no more than its contract permits — keep this body pure, or, if the constraint is yours, " +
+        "write `>^>~` on the arrow the contract returns",
     ]);
   });
 });
