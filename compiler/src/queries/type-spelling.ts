@@ -445,7 +445,7 @@ export function spellType(
       if ((type.effect !== undefined && type.effect !== "impure") || (type.fail !== undefined && type.fail !== "impure")) {
         return {
           unspellable:
-            "this function type's arrow is an effect variable, and writing `>->` here " +
+            "this function type's arrow is an effect variable, and writing a following arrow here " +
             "would link it to the rest of the signature's colour",
         };
       }

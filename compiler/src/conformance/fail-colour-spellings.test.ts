@@ -5,13 +5,14 @@ import { compileFiles } from "../support/test-project.js";
 
 /**
  * Conformance for the fail colour's spellings (Effects §1–§4, §10, §13; Phase 3
- * step 8b-ii): the arrows `->^` and `->~` beside `->` and `->!`, the call marks
- * `^` and `~` beside bare and `!`, each colour read on its own, and the places
- * where the two colours meet: a mark and an arrow read both (§3.1, §10), a face
- * whose colours do not both follow widens the one that follows (§2.4's D1, at
- * a binding, at a known instance and in a captured display: D3), a call in
- * error on one colour is checked on the other (§3.5's D2), and a report about
- * one colour names only that colour (§9).
+ * step 8b-ii): the arrows `->^` and `->~` beside `->` and `->!`, the following
+ * arrows `>->`, `>~>`, `>~>^`, `>^>` and `>^>~` (§2.2: between the `>`s the
+ * colours that pass through, after them the colour done on the function's own
+ * account), the call marks `^` and `~` beside bare and `!`, each colour read on
+ * its own, and the places where the two colours meet: a mark and an arrow read
+ * both (§3.1, §10), a face follows all its callbacks or none on each colour and
+ * nothing widens to a constant (§2.4), a call in error on one colour is checked
+ * on the other (§3.5), and a report about one colour names only that colour (§9).
  */
 
 const HEADER = "module Main\n\n";
@@ -229,11 +230,17 @@ describe("Effects §2.2, §2.4: each colour passes through, or not, on its own",
   test("a following arrow that passes through a colour nothing handed has is refused, colour by colour", () => {
     const source = "let g1: (() ->^ Bool) >-> Bool = (c) => c^()\n" +
       "let g2: (() ->~ Unit) >~>^ Unit = (f) => f~()\n";
+    // The colour with nothing to pass becomes the function's own (§4.4):
+    // only its dependence on a callback cannot be true.
     expect(reports(source)).toEqual([
-      [">->", "`>->` passes the world colour through, and no callback handed by then is impure — write `>^>`"],
+      [
+        ">->",
+        "`>->` passes the world colour through, and no callback handed by then is impure — write `>^>~`, or " +
+          "`>^>` if the function is pure on its own account",
+      ],
     ]);
-    expect(fixes(source)).toEqual([["write `>^>`", [">^>"]]]);
-    expect(face(source, "g1")).toBe("(() ->^ Bool) >^> Bool");
+    expect(fixes(source)).toEqual([["write `>^>~`", [">^>~"]]]);
+    expect(face(source, "g1")).toBe("(() ->^ Bool) >^>~ Bool");
   });
 
   test("an arrow names each colour once: `>->~` is no arrow", () => {
@@ -404,8 +411,8 @@ describe("Effects §9: a report about one colour names that colour, and the arro
   });
 
   test("one call that acts on its own account on one colour and runs a captured colour on the other", () => {
-    // Each colour's report fixes its own colour; applying one leaves the other's,
-    // which then writes `->!`.
+    // Each colour's report names every colour refused on the arrow, so the
+    // two fixits agree, with each other and with what the arrow reads as.
     expect(reports(
       "export let outer(action: () ->^ Unit): Unit =\n" +
         "    let local() =\n        log~(\"x\")\n        action^()\n" +
@@ -415,12 +422,12 @@ describe("Effects §9: a report about one colour names that colour, and the arro
       [
         "local!()",
         "this call is impure on its own account, and this face's `>->` promises the function is only " +
-          "as effectful as what it is handed — write `>^>~`",
+          "as effectful as what it is handed — write `->!`",
       ],
       [
         "local!()",
         "this call runs `outer`'s `action`, which this signature is not handed, and this face's `>->` promises " +
-          "the function is only as effectful as what it is handed — write `>~>^`",
+          "the function is only as effectful as what it is handed — write `->!`",
       ],
     ]);
   });
@@ -464,8 +471,13 @@ describe("Effects §9: a report about one colour names that colour, and the arro
   });
 
   test("a refusal that leaves no colour passing through reads as the constant its fix writes", () => {
+    const refused = [
+      ">^>",
+      "`>^>` passes the fail colour through, and no callback handed by then may fail — write `->^`, or `->` if " +
+        "the function cannot fail on its own account",
+    ];
     expect(reports("let h4: (() ->~ Unit) >^> Unit = (f) => f~()\n")).toEqual([
-      [">^>", "`>^>` passes the fail colour through, and no callback handed by then may fail — write `->`"],
+      refused,
       [
         "f~()",
         "this callback is written `->~`, which accepts any function that cannot fail, and this accepts only a " +
@@ -473,25 +485,26 @@ describe("Effects §9: a report about one colour names that colour, and the arro
       ],
     ]);
     expect(reports("let h6: (() ->~ Unit) >^> Unit = (f) => log~(\"x\")\n")).toEqual([
-      [">^>", "`>^>` passes the fail colour through, and no callback handed by then may fail — write `->`"],
+      refused,
       [
         "log~(\"x\")",
-        "this call is impure, and the enclosing function's face is the pure arrow `->` — a pure face cannot run effects",
+        "this call is impure, and the enclosing function's face is `->^`, which is pure — a pure face cannot run " +
+          "effects",
       ],
     ]);
   });
 
-  test("a refused arrow reads as its fix: a colour nothing handed has is dropped before the body is read", () => {
-    expect(reports(
-      "let h: (() ->~ Unit) >-> Unit = (f) =>\n    let n = parse^(\"1\")\n    f~()\n",
-    )).toEqual([
-      [">->", "`>->` passes the fail colour through, and no callback handed by then may fail — write `>~>`"],
+  test("a refused arrow reads as its fix: a colour nothing handed has is the function's own before the body is read", () => {
+    const source = "let h: (() ->~ Unit) >-> Unit = (f) =>\n    let n = parse^(\"1\")\n    f~()\n" +
+      "export let c(): Unit = h^(noop)\n";
+    expect(reports(source)).toEqual([
       [
-        "parse^(\"1\")",
-        "this call may fail on its own account, and this face's `>~>` promises the function is only as " +
-          "effectful as what it is handed — write `>~>^`",
+        ">->",
+        "`>->` passes the fail colour through, and no callback handed by then may fail — write `>~>^`, or `>~>` " +
+          "if the function cannot fail on its own account",
       ],
     ]);
+    expect(face(source, "h")).toBe("(() ->~ Unit) >~>^ Unit");
   });
 
   test("a seat reads its contract as written: what it does more than, and what it accepts less than", () => {
@@ -632,5 +645,209 @@ describe("Lexer §8.3: `^` and `~` are marks, and the bitwise redirect where an 
       "a call mark governs an argument list; write it immediately before `(`, or (in a `|>` stage) at the end " +
         "of the stage — a reference carries no colour",
     ]);
+  });
+});
+
+describe("Effects §4.4: a refusal's fix removes only the part of the claim that cannot be true", () => {
+  test("in every position, a colour passed through with nothing to pass is the constant, and the rest stay as written", () => {
+    const source = "record R = { f: () >^> Unit }\n" +
+      "type Al = () >~> Unit\n" +
+      "let c1(k: () >^> Unit): Unit = k^()\n" +
+      "let c2(k: (() >^> Unit) -> Unit): Unit = k(noop)\n" +
+      "let c3: (Int) >^> Int = (n) => n\n" +
+      "let c4(x: Int): Int =\n    let g: () >~> Unit = () => ()\n    x\n" +
+      "extern from \"./world.js\"\n    export fun each(n: Int) >^> Int\n";
+    const nothing = (arrow: string) => `\`${arrow}\` means only as effectful as what it is handed, and nothing is handed here — `;
+    const caret = "; write `->^` for a function that is pure and may fail, or `->` for one that is pure and cannot fail";
+    const unhanded = "no callback of this signature has been handed over by the time this arrow runs";
+    expect(reports(source)).toEqual([
+      [">^>", nothing(">^>") + "a `record` field is data, not a signature" + caret],
+      [
+        ">~>",
+        nothing(">~>") + "an alias is a type fragment, not a signature; write `->~` for a function that is impure " +
+          "and cannot fail, or `->` for one that is pure and cannot fail",
+      ],
+      [
+        ">^>",
+        "a callback's arrow says what the function accepts, and the function follows it — `->^` accepts any " +
+          "function that is pure, and `->` one that is pure and cannot fail",
+      ],
+      [">^>", nothing(">^>") + "an arrow inside a parameter type, other than a callback's own, is a constant" + caret],
+      [">^>", nothing(">^>") + unhanded + caret],
+      [
+        ">~>",
+        nothing(">~>") + "this annotation has no callbacks of its own, and a local `>~>` does not borrow the " +
+          "enclosing function's — leave its type to inference, or write `->~`",
+      ],
+      [
+        ">^>",
+        nothing(">^>") + unhanded + caret +
+          " — write the callback parameter this row runs, with `->^`, or write `->^` on the row",
+      ],
+    ]);
+    expect(fixes(source).map(([, edits]) => edits)).toEqual([["->^"], ["->~"], ["->^"], ["->^"], ["->^"], ["->~"], ["->^"]]);
+    // A callback's own arrow reads as the constant's marks: `k` may fail and is pure.
+    expect(face(source, "c1")).toBe("(() ->^ Unit) >^> Unit");
+    // A refused callback arrow carries the callback's colour only where its constant marks.
+    expect(reports("let c5(k: () >^> () ->~ Unit): Unit =\n    let r = k^()\n    r~()\n").map(([at]) => at))
+      .toEqual([">^>"]);
+    // An alias reads as its constant wherever it is used: `k` is impure and cannot fail.
+    expect(reports("type Al = () >~> Unit\nlet useAl(k: Al): Unit = k~()\n").map(([at]) => at)).toEqual([">~>"]);
+  });
+});
+
+describe("Effects §2.4, §3.4: an untyped callback's own arrows are decided one by one", () => {
+  test("a call through the function an untyped callback returns claims that arrow's colour alone", () => {
+    const source = ONES +
+      "let once(g) =\n    let k = g()\n    k^()\n" +
+      "let twice(g) =\n    let k = g~()\n    k^()\n" +
+      "export let v1(): Unit = once^(() => oops0)\n" +
+      "export let v2(): Unit = once(() => noop)\n";
+    expect(reports(source)).toEqual([]);
+    expect(face(source, "once")).toBe("(() -> () ->^ a) >^> a");
+    expect(face(source, "twice")).toBe("(() ->~ () ->^ a) >-> a");
+  });
+
+  test("a tie's fix marks each own arrow on its own colours, and the report stands at the merge", () => {
+    const body = (f: string, g: string, call: string) =>
+      `(f: ${f}, g${g}) =\n    let h = if True then f else g\n    let k = h${call}()\n    k^()\n`;
+    const tied = "let tq" + body("() -> () ->^ Unit", "", "") + "let tw" + body("() ->~ () ->^ Unit", "", "~");
+    const written = "let tq" + body("() -> () ->^ Unit", ": () -> () ->^ Unit", "") +
+      "let tw" + body("() ->~ () ->^ Unit", ": () ->~ () ->^ Unit", "~");
+    const callers = "export let u1(): Unit = tq^(() => oops0, () => noop)\n" +
+      "export let u2(): Unit = tw(() => noop, () => noop)\n";
+    const message = "`g`'s colour is tied to `f`'s here, and no written type can say that — write `g`'s type";
+    expect(reports(ONES + tied + callers)).toEqual([
+      ["if True then f else g", message],
+      ["if True then f else g", message],
+    ]);
+    expect(fixes(ONES + tied + callers).map(([, edits]) => edits)).toEqual([
+      [": () -> () ->^ Unit"],
+      [": () ->~ () ->^ Unit"],
+    ]);
+    // The fix is a repair, and the refused parameters read as it from outside.
+    expect(reports(ONES + written + callers)).toEqual([]);
+    expect(face(ONES + tied + callers, "tq")).toBe("(() -> () ->^ Unit, () -> () ->^ Unit) >^> Unit");
+  });
+});
+
+describe("Effects §4.2: a following arrow's silent colour, and a value meeting it", () => {
+  test("a body acting on a colour the arrow leaves silent takes the silent face's words, and pins no callback", () => {
+    const source = ONES +
+      "let w5: (() ->! Unit) >^> Unit = (f) =>\n    log~(\"x\")\n    f!()\n" +
+      "let r5(): (() ->! Unit) >^> Unit = (f) =>\n    log~(\"x\")\n    f!()\n" +
+      "export let k1(): Unit = w5!(() => save!(\"x\"))\n" +
+      "export let k2(): Unit = r5()!(() => save!(\"x\"))\n";
+    const silent = "this call is impure, and the enclosing function's face is `>^>`, which is pure — a pure face " +
+      "cannot run effects — write `>^>~`";
+    expect(reports(source)).toEqual([["log~(\"x\")", silent], ["log~(\"x\")", silent]]);
+    expect(fixes(source).map(([, edits]) => edits)).toEqual([[">^>~"], [">^>~"]]);
+    expect(face(source, "w5")).toBe("(() ->! Unit) >^>~ Unit");
+  });
+
+  test("a value following a callback on a colour the arrow leaves silent: the fix passes it through, and the arrow reads so", () => {
+    const source = ONES +
+      "let both(f: () ->! Unit) = f!()\n" +
+      "let h2: (() ->! Unit) >^> Unit = both\n" +
+      "export let c2(): Unit = h2~(log0)\n";
+    expect(reports(source)).toEqual([[
+      "both",
+      "this function is impure where what it is handed is, and this face's `>^>` is pure there — write `>->`, " +
+        "which passes that through",
+    ]]);
+    expect(fixes(source).map(([, edits]) => edits)).toEqual([[">->"]]);
+    expect(face(source, "h2")).toBe("(() ->! Unit) >-> Unit");
+  });
+
+  test("a binding annotation over a named function reads a refused arrow as its fix", () => {
+    const source = "let timed(f: () ->! Unit) =\n    log~(\"x\")\n    f!()\n" +
+      "let h3: (() ->! Unit) >-> Unit = timed\n" +
+      "export let c4(): Unit = h3~(noop)\n";
+    expect(reports(source)).toEqual([[
+      "timed",
+      "this function is impure on its own account, and this face's `>->` promises the function is only as " +
+        "effectful as what it is handed — write `>^>~`",
+    ]]);
+    expect(face(source, "h3")).toBe("(() ->! Unit) >^>~ Unit");
+  });
+
+  test("the lie of generality drops the colour from a following arrow that followed only that callback", () => {
+    const source = "let tp(k: () ->^ Unit) = k^()\nlet g1: (() ->! Unit) >-> Unit = (f) => tp^(f)\n";
+    expect(fixes(source)).toEqual([["write `->^`", ["->^", ">^>"]]]);
+    expect(face(source, "g1")).toBe("(() ->^ Unit) >^> Unit");
+    // An arrow that leaves the colour silent is no part of the repair.
+    expect(fixes("let tp(k: () ->^ Unit) = k^()\nlet g3: (() ->! Unit) >^> Unit = (f) => tp^(f)\n"))
+      .toEqual([["write `->^`", ["->^"]]]);
+  });
+});
+
+describe("Effects §13.2: a seat names the contract's arrow as written", () => {
+  test("its advice moves each colour concerned to the member's own account, and keeps the rest", () => {
+    const seat = (member: string, arrow: string, callback: string, body: string) =>
+      `constraint C${member}<r> =\n    ${member}(runner: r, action: () ${callback} Unit) ${arrow} Unit\n` +
+      `honor C${member}<Job> =\n    ${member}(job, action) =\n        ${body}\n        action${callback.slice(2)}()\n`;
+    expect(reports(
+      "export record Job = { n: Int }\n" +
+        seat("thr", ">^>", "->^", "log~(\"x\")") +
+        seat("own", ">^>~", "->^", "let n = parse^(\"1\")") +
+        seat("run", ">->", "->!", "log~(\"x\")"),
+    ).map(([, message]) => message)).toEqual([
+      "this call is impure, and `thr`'s contract is `>^>`, which is pure — an instance does no more than its " +
+        "contract permits — keep this body pure, or, if the constraint is yours, write `>^>~` on the member",
+      "this call may fail on its own account, and `own`'s contract is `>^>~` — an instance is only as effectful as " +
+        "what it is handed — move the effect behind a callback, or, if the constraint is yours, write `->!` on the " +
+        "member",
+      "this call is impure on its own account, and `run`'s contract is `>->` — an instance is only as effectful as " +
+        "what it is handed — move the effect behind a callback, or, if the constraint is yours, write `>^>~` on " +
+        "the member",
+    ]);
+  });
+});
+
+describe("Effects §10: the gloss names every callback it can", () => {
+  test("an untyped callback, and a lambda's parameter under a binding annotation, are named", () => {
+    const source = "let runU(f) = f!()\n" +
+      "let mixed(g: () ->! Unit, f) =\n    g!()\n    f!()\n" +
+      "let hA: (() ->^ Unit) >^> Unit = (f) => f^()\n";
+    expect(gloss(source, "runU")).toEqual(["impure only if `f` is; may fail only if `f` may"]);
+    expect(gloss(source, "mixed")).toEqual(["impure only if `g` or `f` is; may fail only if `g` or `f` may"]);
+    expect(gloss(source, "hA")).toEqual(["pure; may fail only if `f` may"]);
+    // A named callback beside an unnamed one: the gloss names what it can.
+    expect(gloss("let hB: (() ->! Unit, () ->! Unit) >-> Unit = (f, _) => f!()\n", "hB"))
+      .toEqual(["impure only if `f` or what it is handed is; may fail only if `f` or what it is handed may"]);
+    // A copy is instantiated, and its callbacks' names stay with the original.
+    expect(gloss("let both(f: () ->! Unit) = f!()\nlet copy = both\n", "copy"))
+      .toEqual(["impure only if what it is handed is; may fail only if what it is handed may"]);
+  });
+
+  test("completion detail glosses a face in a module with no callback colour", () => {
+    const whole = text("let save0(): Unit = save!(\"x\")\nlet probe: Int = 1\n");
+    const session = new AnalysisSession();
+    session.setFile("/world.js", "");
+    session.setFile("/main.hex", whole);
+    const offered = session.completions("/main.hex", whole.length - 1).find(({ name }) => name === "save0");
+    expect(offered?.detail).toBe("() ->! Unit — impure; may fail");
+  });
+});
+
+describe("Effects §13.3: a `widens` door under a following member wears what it passes through", () => {
+  const lib = (arrow: string) => "module Lib\n\n" +
+    `export constraint R<a> =\n    run(s: a, n: Int, action: () ->! Unit) ${arrow} Unit\n`;
+  const main = (body: string, calls: string) => "module Main\n\nimport Lib\n\n" + WORLD +
+    "export record P = { name: String }\n" +
+    `widens Lib.run(s: P, n: BigInt, action: () ->! Unit): Unit = ${body}\n` +
+    "honor Lib.R<P> =\n    run = widened\n" + calls;
+  const messages = (arrow: string, body: string, calls: string) =>
+    compileFiles([["/lib.hex", lib(arrow)], ["/main.hex", main(body, calls)], ["/world.js", ""]])
+      .diagnostics.map(({ message }) => message);
+
+  test("a colour the member passes through is the callbacks' join at the door", () => {
+    expect(messages(">->", "action!()",
+      "export let a(p: P): Unit = run(p, 2n, noop)\n" +
+        "export let b(p: P): Unit = run!(p, 2n, () => save!(\"x\"))\n")).toEqual([]);
+  });
+
+  test("a colour the member leaves silent is silent at the door, whatever the callbacks do", () => {
+    expect(messages(">^>", "()", "export let a(p: P, cb: () ->! Unit): Unit = run^(p, 2n, cb)\n")).toEqual([]);
   });
 });

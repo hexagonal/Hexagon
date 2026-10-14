@@ -109,6 +109,18 @@ export function followingArrow(
   return undefined;
 }
 
+/**
+ * The constant a refused following arrow reads as (`spec/effects.md` §4.4):
+ * each colour it passes through or names after its second `>` becomes its
+ * constant, and the other stays silent. Only what cannot be true goes: the
+ * colour's dependence on a callback, never the colour.
+ */
+export function constantMarks(effect: string | undefined): { readonly world: boolean; readonly fail: boolean } {
+  const through = passesThrough(effect);
+  const own = ownMarks(effect);
+  return { world: through.world || own.world, fail: through.fail || own.fail };
+}
+
 /** A written arrow's text: absent is `->`. */
 export function writtenArrowText(effect: string | undefined): string {
   return arrowNaming(passesThrough(effect), ownMarks(effect));

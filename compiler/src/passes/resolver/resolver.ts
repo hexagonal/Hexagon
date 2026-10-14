@@ -6,7 +6,7 @@
  * implied type names.
  */
 
-import { isFollowing, writtenArrowText } from "../../support/arrows.js";
+import { constantMarks, isFollowing, markedArrow, writtenArrowText } from "../../support/arrows.js";
 import * as Diagnostics from "../../support/diagnostics.js";
 import {
   declaredConstraintIdentity,
@@ -4043,8 +4043,9 @@ class Resolver {
         this.#resolvingAliases.push(item.name.text);
         const resolvedBody = this.#resolveTypeAnnotation(item.annotation, parameters);
         this.#resolvingAliases.pop();
-        // Recovery: a refused `>->` becomes the impure constant in the stored
-        // body, so the alias inlines as `->!` at every use site. Without this
+        // Recovery: a refused following arrow becomes its constant in the
+        // stored body (Effects §4.4), so the alias inlines as that constant at
+        // every use site. Without this
         // the linked arrow would reach a use site whose signature happens to
         // have an inlet, link there, and make every call through the alias
         // follow what it is handed — a cascade of consequences from one
@@ -6794,16 +6795,21 @@ class Resolver {
         found = true;
         const arrowSpan = record.arrowSpan;
         if (arrowSpan !== undefined) {
+          // The arrow reads as its constant (Effects §4.4): each colour it
+          // passes through or names after its second `>`.
+          const marks = constantMarks(record.effect);
+          const fix = markedArrow(marks.world, marks.fail);
           this.#diagnostics.add({
             severity: "error",
             message:
               `\`${writtenArrowText(record.effect)}\` means only as effectful as what it is handed, and nothing is ` +
-              "handed here — an alias is a type fragment, not a signature; write " +
-              "`->!` for a function that is impure and may fail, or `->` for one that is pure and cannot fail",
+              `handed here — an alias is a type fragment, not a signature; write \`${fix}\` for a function that ` +
+              `${marks.world ? "is impure" : "is pure"} and ${marks.fail ? "may fail" : "cannot fail"}, or \`->\` ` +
+              "for one that is pure and cannot fail",
             primary: arrowSpan,
             fixes: [{
-              message: "write `->!`",
-              edits: [{ span: arrowSpan, replacement: "->!" }],
+              message: `write \`${fix}\``,
+              edits: [{ span: arrowSpan, replacement: fix }],
             }],
           });
         }
@@ -8537,8 +8543,8 @@ function substituteResolvedType(
  * An alias body §5.1.1 has already refused. The arrow denotes nothing, and
  * leaving it `"linked"` would let it acquire a meaning at a use site that hands
  * the signature a callback — so it reads as what the writer is being told to
- * write, exactly as it would with the fix applied: the impure constant, or, on
- * a callback's own arrow, that callback's colour.
+ * write, exactly as it would with the fix applied: its constant, or, on a
+ * callback's own arrow, that callback's colour.
  */
 function constantifyLinkedArrows(annotation: Resolved.TypeAnnotation): Resolved.TypeAnnotation {
   const rebuild = (node: unknown): unknown => {
@@ -8549,7 +8555,10 @@ function constantifyLinkedArrows(annotation: Resolved.TypeAnnotation): Resolved.
     for (const [key, child] of Object.entries(record)) {
       copy[key] = key === "span" || key === "arrowSpan" ? child : rebuild(child);
     }
-    if (copy.kind === "Function" && typeof copy.effect === "string" && isFollowing(copy.effect)) copy.effect = "bang";
+    if (copy.kind === "Function" && typeof copy.effect === "string" && isFollowing(copy.effect)) {
+      const marks = constantMarks(copy.effect);
+      copy.effect = marks.world ? marks.fail ? "bang" : "tilde" : "caret";
+    }
     return copy;
   };
   return rebuild(annotation) as Resolved.TypeAnnotation;

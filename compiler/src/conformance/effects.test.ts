@@ -1561,7 +1561,7 @@ describe("Effects §3.4 — a tie between callbacks is refused, where it was mad
       "        b!(g, c, n - 1)", "        if c then k else f", "    let _ = if c then g!() else k", "    ())", "q!(noop)"];
     for (const [lines, at, labels] of [
       [bound, "if c then h else g", ["h", "g", "f"]],
-      [returned, "g", ["k", "g", "f"]],
+      [returned, "if c then g!() else k", ["k", "g", "f"]],
     ] as const) {
       for (const program of member(lines)) {
         expect([program, reportsOf("let noop(): Unit = ()\n" + program).map((report) => [report.at, report.labels])])
@@ -4594,7 +4594,7 @@ export let hold(f: (() -> String) ->! Int): Int =
     const actions = session.codeActions("/main.hex", { start: offset, end: offset });
     expect(actions.map(({ title, disabled }) => `${title}: ${disabled ?? "offered"}`)).toEqual([
       "Infer return type: the return type of `pick` cannot be written here: " +
-      "this function type's arrow is an effect variable, and writing `>->` here " +
+      "this function type's arrow is an effect variable, and writing a following arrow here " +
       "would link it to the rest of the signature's colour",
     ]);
   });

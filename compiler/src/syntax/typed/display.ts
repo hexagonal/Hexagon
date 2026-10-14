@@ -60,18 +60,23 @@ function ownerLines(scheme: Typed.Scheme, context: ColourContext | undefined): r
   const parts = (effect: Typed.Effect): readonly Typed.TypeVariableId[] =>
     typeof effect !== "object" ? [] : "join" in effect ? effect.join : [effect.variable];
   // The callbacks a colour passes through: the face's own by name, a captured
-  // one by its owner, and "what it is handed" where any has no name to quote.
+  // one by its owner, and "what it is handed" for those with no name to quote.
   const followed = (effect: Typed.Effect): string => {
     const names: string[] = [];
+    let unnamed = false;
     for (const part of parts(effect)) {
       const name = scheme.variables.includes(part)
         ? context?.names?.get(part)
         : context?.owners.get(part);
-      if (name === undefined) return "what it is handed";
+      if (name === undefined) {
+        unnamed = true;
+        continue;
+      }
       const quoted = scheme.variables.includes(part) ? `\`${name}\`` : name;
       if (!names.includes(quoted)) names.push(quoted);
     }
-    return names.length === 0 ? "what it is handed" : names.join(" or ");
+    if (unnamed || names.length === 0) names.push("what it is handed");
+    return names.join(" or ");
   };
   const world = arrow.effect === undefined
     ? "pure"
