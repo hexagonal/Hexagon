@@ -5683,7 +5683,7 @@ class Parser {
       const mark = this.#markAt();
       // `^` and `~` with space on both sides stand where an operator would,
       // and take `bitwise.md` §9's redirect, not the mark seat's (Lexer §8.3).
-      if (mark === "caret" && !this.#markGlued(left)) {
+      if (mark === "caret" && this.#markStandsAsOperator(left)) {
         if (minimumBindingPower > 9) break;
         const caret = this.#advance();
         this.#errorAt(caret.span, "Hexagon spells bitwise exclusive or `bxor`; a power is `**`");
@@ -5691,7 +5691,7 @@ class Parser {
         left = { kind: "Binary", operator: "BitXor", left, right, span: spanFrom(left.span, right.span) };
         continue;
       }
-      if (mark === "tilde" && !this.#markGlued(left)) {
+      if (mark === "tilde" && this.#markStandsAsOperator(left)) {
         const tilde = this.#advance();
         this.#errorAt(tilde.span, "Hexagon spells bitwise complement `bnot`");
         continue;
@@ -7249,15 +7249,19 @@ class Parser {
   }
 
   /**
-   * Whether the current token, a mark, is glued to the callee before it or to
-   * the `(` after it: a mark, if misplaced, rather than an operator (Lexer
-   * §8.3).
+   * Whether the current token, `^` or `~`, stands where an operator would
+   * (Lexer §8.3): before an operand (`x^2`, `a ^ b`), or with space on both
+   * sides. A mark glued to its callee before an argument list or at a `|>`
+   * stage's end is a mark, and so is one before a `(` it touches on either
+   * side, misplaced or not, as `!` is.
    */
-  #markGlued(callee: Parsed.Expr): boolean {
+  #markStandsAsOperator(callee: Parsed.Expr): boolean {
     const token = this.#current();
     const next = this.#tokens[this.#index + 1];
-    return token.span.start.offset === callee.span.end.offset ||
-      (next?.kind === "LeftParen" && next.span.start.offset === token.span.end.offset);
+    const gluedLeft = token.span.start.offset === callee.span.end.offset;
+    if (next?.kind === "LeftParen") return !gluedLeft && next.span.start.offset !== token.span.end.offset;
+    if (next !== undefined && operandStarts.has(next.kind)) return true;
+    return !gluedLeft;
   }
 
   /**
