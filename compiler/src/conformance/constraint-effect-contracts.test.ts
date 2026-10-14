@@ -2421,8 +2421,8 @@ describe("Constraints §8: a member header's arrow seat, and what recovery leaks
     // at the member name.
     const source = "constraint C<a> =\n    m(x: a) => String\n";
     expect(messages(source)).toEqual([
-      "Hexagon's type arrows are `->`, `->!`, `>->`; `=>` is the lambda arrow " +
-      "— for a function type write `Int -> Int` (or `->!` / `>->` for its colour)",
+      "Hexagon's type arrows are `->`, `->^`, `->~`, `->!` and `>->`; `=>` is the lambda arrow " +
+      "— for a function type write `Int -> Int` (or a marked arrow for what it may do)",
     ]);
     expect(primaries(source)).toEqual(["=>"]);
     expect(fixes(source)).toEqual(['write `->`: "->"']);

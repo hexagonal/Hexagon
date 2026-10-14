@@ -824,15 +824,17 @@ export interface RecordTypeField {
 
 /**
  * How a function type's arrow was written (Effects §2). Absent means `->` —
- * the pure constant, and the pure *demand*.
+ * silent on both colours, and the silent *demand*.
  *
- * `linked` is `>->`: one implicitly quantified effect variable shared across the
- * whole signature. Where the signature has no inlet for it to link to it is not
- * re-read as anything — the else-constant rule is withdrawn (#405) — but
- * refused, at the arrow (§4.4). `constant` is `->!`: the impure constant,
- * always.
+ * `linked` is `>->`: on each colour, the join of the callbacks the signature
+ * has been handed by the time the arrow runs. Where the signature has no inlet
+ * for it to link to it is not re-read as anything — the else-constant rule is
+ * withdrawn (#405) — but refused, at the arrow (§4.4). The marked arrows are
+ * named for their marks (Effects §1's alphabet): `bang` is `->!`, which marks
+ * both colours, `tilde` is `->~`, the world colour, and `caret` is `->^`, the
+ * fail colour.
  */
-export type ArrowEffect = "linked" | "constant";
+export type ArrowEffect = "linked" | CallMark;
 
 export interface FunctionType {
   readonly kind: "Function";
@@ -1168,10 +1170,12 @@ export interface MatchArm {
 }
 
 /**
- * A call's effect mark (#355). `bang` is `f!(x)`: this call may touch the world
- * (Effects §3.1). Absent is the bare call: pure, guaranteed.
+ * A call's mark (Effects §3.1), which is the arrows' mark: `bang` is `f!(x)`,
+ * may touch the world and may fail; `tilde` is `f~(x)`, may touch the world
+ * and cannot fail; `caret` is `f^(x)`, may fail. Absent is the bare call: pure,
+ * and cannot fail.
  */
-export type CallMark = "bang";
+export type CallMark = "bang" | "tilde" | "caret";
 
 export interface CallExpr {
   readonly kind: "Call";

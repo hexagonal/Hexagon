@@ -1174,8 +1174,8 @@ describe("parse", () => {
   // Effects §2/§9 (#410): `=>` is a term arrow only, so a fat arrow where a type
   // arrow belongs gets the family's targeted redirect rather than a parse cascade.
   describe("the type-position `=>` redirect", () => {
-    const message = "Hexagon's type arrows are `->`, `->!`, `>->`; `=>` is the lambda arrow — " +
-      "for a function type write `Int -> Int` (or `->!` / `>->` for its colour)";
+    const message = "Hexagon's type arrows are `->`, `->^`, `->~`, `->!` and `>->`; `=>` is the lambda arrow — " +
+      "for a function type write `Int -> Int` (or a marked arrow for what it may do)";
 
     test("fires in every type slot whose `=>` can have no other reading", () => {
       // One source per slot, so a slot that stops opting in shows up as a
@@ -1219,7 +1219,7 @@ describe("parse", () => {
       const [diagnostic] = module.diagnostics;
 
       expect(module.items).toMatchObject([
-        { kind: "TypeAlias", annotation: { kind: "Function", effect: "constant" } },
+        { kind: "TypeAlias", annotation: { kind: "Function", effect: "bang" } },
       ]);
       expect(diagnostic?.message).toBe(message);
       expect(diagnostic?.fixes).toMatchObject([

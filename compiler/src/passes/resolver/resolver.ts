@@ -8548,7 +8548,7 @@ function constantifyLinkedArrows(annotation: Resolved.TypeAnnotation): Resolved.
     for (const [key, child] of Object.entries(record)) {
       copy[key] = key === "span" || key === "arrowSpan" ? child : rebuild(child);
     }
-    if (copy.kind === "Function" && copy.effect === "linked") copy.effect = "constant";
+    if (copy.kind === "Function" && copy.effect === "linked") copy.effect = "bang";
     return copy;
   };
   return rebuild(annotation) as Resolved.TypeAnnotation;

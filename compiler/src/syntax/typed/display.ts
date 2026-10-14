@@ -1,4 +1,4 @@
-import { IMPURE_ARROW, FOLLOWS_ARROW, PURE_ARROW } from "../../support/arrows.js";
+import { displayedArrow, type ShownColour } from "../../support/arrows.js";
 import { collectEffectVariables } from "./effects.js";
 import type * as Typed from "./tree.js";
 
@@ -121,16 +121,17 @@ function displayConstraints(
 type ArrowPlace = "spine" | "callback" | "inside";
 
 /**
- * A function type's arrow (`spec/effects.md` §2, §10). An absent slot is the
- * pure constant, so a signature that never wrote a colour displays exactly the
- * `->` it always has — purity is the silent one (§1). No colour is numbered.
+ * A function type's arrow (`spec/effects.md` §2, §10), from its two colours.
+ * An absent slot is silent, so a signature that never wrote a colour displays
+ * exactly the `->` it always has — silence is the strong claim (§1). No colour
+ * is numbered.
  */
-function displayArrow(effect: Typed.Effect | undefined, place: ArrowPlace): string {
-  if (effect === undefined) return PURE_ARROW;
-  // A colour in error shows `->!` (§3.5, §10, #1223): no purity is claimed for a
-  // function whose body could not be read.
-  if (effect === "impure" || effect === "error") return IMPURE_ARROW;
-  return place === "spine" ? FOLLOWS_ARROW : IMPURE_ARROW;
+function displayArrow(type: Typed.FunctionType, place: ArrowPlace): string {
+  // A colour in error shows its constant (§3.5, §10, #1223): nothing is claimed
+  // silent for a function whose body could not be read.
+  const shown = (effect: Typed.Effect | undefined): ShownColour =>
+    effect === undefined ? "silent" : effect === "impure" || effect === "error" ? "constant" : "follows";
+  return displayedArrow(shown(type.effect), shown(type.fail), place);
 }
 
 function displayType(
@@ -233,7 +234,7 @@ function displayType(
               : parameters[0]!
             : `(${parameters.join(", ")})`;
       return (
-        `${domain} ${displayArrow(type.effect, place)} ` +
+        `${domain} ${displayArrow(type, place)} ` +
         displayType(type.result, variables, place === "callback" && type.result.kind !== "Function" ? "inside" : place)
       );
     }

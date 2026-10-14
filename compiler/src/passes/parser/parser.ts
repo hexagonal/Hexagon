@@ -470,6 +470,11 @@ const markSeatError =
   "a call mark governs an argument list; write it immediately before `(`, " +
   "or (in a `|>` stage) at the end of the stage — a reference carries no colour";
 
+/** A mark token's text. */
+function markText(kind: TokenKind): string {
+  return kind === "Caret" ? "^" : kind === "Tilde" ? "~" : "!";
+}
+
 /**
  * Exceptions §9's match-function row (Pattern Matching §6.7): what *every*
  * `catch` reaching a match function gets, at whichever column it was written.
@@ -2681,7 +2686,7 @@ class Parser {
     }
     // §4.1: a `set` row's arrow is `->!` and only `->!` — the write capability
     // the row grants, stated conservatively, never a claim slot.
-    if (member === "set" && effect !== "constant") {
+    if (member === "set" && effect !== "bang") {
       if (signature.statedArrow === "written" && arrowSpan !== undefined) {
         this.#diagnostics.add({
           severity: "error",
@@ -2696,7 +2701,7 @@ class Parser {
         });
       }
     }
-    if (member === "set") effect = "constant";
+    if (member === "set") effect = "bang";
     this.#rejectExternBody();
     return {
       kind: "ExternFun",
@@ -2995,7 +3000,7 @@ class Parser {
     // that claims nothing back: it is the colon row's fixit, the
     // missing-result row's advice, and the recovery here, one answer three
     // times. Purity is reachable from a written `->` and from nowhere else.
-    let effect: Parsed.ArrowEffect | undefined = "constant";
+    let effect: Parsed.ArrowEffect | undefined = "bang";
     let arrowSpan: Source.Span | undefined;
     let missingArrow = false;
     if (arrow === undefined) {
@@ -5650,9 +5655,9 @@ class Parser {
         this.#errorAt(token.span, "a pattern's name is written against the parenthesis: `(n, d)rat`");
       }
       const name = parsedName(token as Lexed.NameToken);
-      if (this.#at("Bang")) {
+      if (this.#markAt() !== undefined) {
         const mark = this.#advance();
-        this.#errorAt(mark.span, "a pattern use has no effect mark; remove `!`");
+        this.#errorAt(mark.span, `a pattern use has no effect mark; remove \`${markText(mark.kind)}\``);
       }
       return { kind: "Declared", components, name, span: spanFrom(opening, this.#previous().span) };
     }
@@ -5675,8 +5680,23 @@ class Parser {
     let left = this.#parsePrefix(effectiveStops);
 
     while (!effectiveStops.has(this.#current().kind)) {
-      if (this.#at("Bang")) {
-        const mark = "bang";
+      const mark = this.#markAt();
+      // `^` and `~` with space on both sides stand where an operator would,
+      // and take `bitwise.md` §9's redirect, not the mark seat's (Lexer §8.3).
+      if (mark === "caret" && !this.#markGlued(left)) {
+        if (minimumBindingPower > 9) break;
+        const caret = this.#advance();
+        this.#errorAt(caret.span, "Hexagon spells bitwise exclusive or `bxor`; a power is `**`");
+        const right = this.#parseExpression(10, effectiveStops);
+        left = { kind: "Binary", operator: "BitXor", left, right, span: spanFrom(left.span, right.span) };
+        continue;
+      }
+      if (mark === "tilde" && !this.#markGlued(left)) {
+        const tilde = this.#advance();
+        this.#errorAt(tilde.span, "Hexagon spells bitwise complement `bnot`");
+        continue;
+      }
+      if (mark !== undefined) {
         const token = this.#advance();
         // Lexer §8.1: a mark is written *glued* — to the callee it marks, and to
         // the `(` it governs. Whitespace on either side is the same defect the
@@ -5902,6 +5922,19 @@ class Parser {
       // reporting it missing on top of the redirect would say the same mistake
       // twice.
       return this.#parseExpression(6, stops);
+    }
+    if (this.#at("Tilde")) {
+      // `~` here is JavaScript's bitwise complement (`bitwise.md` §9), and reads
+      // as `bnot` so the operand still parses.
+      const start = this.#advance();
+      this.#errorAt(start.span, "Hexagon spells bitwise complement `bnot`");
+      const operand = this.#parseExpression(BNOT_OPERAND_POWER, stops);
+      return { kind: "Unary", operator: "BitNot", operand, span: spanFrom(start.span, operand.span) };
+    }
+    if (this.#at("Caret")) {
+      const token = this.#advance();
+      this.#errorAt(token.span, "Hexagon spells bitwise exclusive or `bxor`; a power is `**`");
+      return this.#parseExpression(10, stops);
     }
     if (this.#at("If")) {
       return this.#parseIf(stops);
@@ -6265,14 +6298,15 @@ class Parser {
     const name = parsedName(token as Lexed.NameToken);
     let mark: Parsed.CallMark | undefined;
     let markSpan: Source.Span | undefined;
-    if (this.#at("Bang")) {
+    const written = this.#markAt();
+    if (written !== undefined) {
       const token = this.#advance();
       if (token.span.start.offset !== name.span.end.offset) {
         this.#errorAt(token.span, markSeatError);
       }
-      mark = "bang";
+      mark = written;
       markSpan = token.span;
-      if (this.#at("Bang")) {
+      if (this.#markAt() !== undefined) {
         const duplicate = this.#advance();
         this.#errorAt(duplicate.span, markSeatError);
       }
@@ -7146,7 +7180,9 @@ class Parser {
       scan >= 0 &&
       (this.#tokens[scan]?.kind === "Arrow" ||
         this.#tokens[scan]?.kind === "ArrowFollows" ||
-        this.#tokens[scan]?.kind === "ArrowBang")
+        this.#tokens[scan]?.kind === "ArrowBang" ||
+        this.#tokens[scan]?.kind === "ArrowCaret" ||
+        this.#tokens[scan]?.kind === "ArrowTilde")
     ) {
       scan = this.#skipTypeOperand(scan + 1);
     }
@@ -7197,9 +7233,31 @@ class Parser {
    */
   #arrowAt(): Parsed.ArrowEffect | "pure" | undefined {
     if (this.#at("Arrow")) return "pure";
-    if (this.#at("ArrowBang")) return "constant";
+    if (this.#at("ArrowBang")) return "bang";
+    if (this.#at("ArrowCaret")) return "caret";
+    if (this.#at("ArrowTilde")) return "tilde";
     if (this.#at("ArrowFollows")) return "linked";
     return undefined;
+  }
+
+  /** The call mark the current token is, if it is one (Effects §3.1). */
+  #markAt(): Parsed.CallMark | undefined {
+    if (this.#at("Bang")) return "bang";
+    if (this.#at("Caret")) return "caret";
+    if (this.#at("Tilde")) return "tilde";
+    return undefined;
+  }
+
+  /**
+   * Whether the current token, a mark, is glued to the callee before it or to
+   * the `(` after it: a mark, if misplaced, rather than an operator (Lexer
+   * §8.3).
+   */
+  #markGlued(callee: Parsed.Expr): boolean {
+    const token = this.#current();
+    const next = this.#tokens[this.#index + 1];
+    return token.span.start.offset === callee.span.end.offset ||
+      (next?.kind === "LeftParen" && next.span.start.offset === token.span.end.offset);
   }
 
   /**
@@ -7233,12 +7291,12 @@ class Parser {
     this.#diagnostics.add({
       severity: "error",
       message:
-        "Hexagon's type arrows are `->`, `->!`, `>->`; `=>` is the lambda arrow — " +
-        "for a function type write `Int -> Int` (or `->!` / `>->` for its colour)",
+        "Hexagon's type arrows are `->`, `->^`, `->~`, `->!` and `>->`; `=>` is the lambda arrow — " +
+        "for a function type write `Int -> Int` (or a marked arrow for what it may do)",
       primary: span,
       fixes: [{ message: `write \`${replacement}\``, edits: [{ span, replacement }] }],
     });
-    return { effect: glued ? "constant" : "pure", span };
+    return { effect: glued ? "bang" : "pure", span };
   }
 
   /**
@@ -7971,6 +8029,11 @@ function describe(kind: TokenKind): string {
     Arrow: "->",
     ArrowFollows: ">->",
     ArrowBang: "->!",
+    ArrowCaret: "->^",
+    ArrowTilde: "->~",
+    Bang: "!",
+    Caret: "^",
+    Tilde: "~",
     Plus: "+",
     Minus: "-",
     Star: "*",

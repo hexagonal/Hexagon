@@ -125,8 +125,8 @@ const markSeat =
 
 /** Effects §9's type-arrow row: `=>` written where a type arrow belongs (#410). */
 const typeArrowRedirect =
-  "Hexagon's type arrows are `->`, `->!`, `>->`; `=>` is the lambda arrow — " +
-  "for a function type write `Int -> Int` (or `->!` / `>->` for its colour)";
+  "Hexagon's type arrows are `->`, `->^`, `->~`, `->!` and `>->`; `=>` is the lambda arrow — " +
+  "for a function type write `Int -> Int` (or a marked arrow for what it may do)";
 
 describe("the discipline, unconditional", () => {
   it("compiles the whole prelude and runtime clean", () => {
@@ -3862,8 +3862,8 @@ export let t: String = trim("x")
 export let t: String = trim("x")
 `]]),
     ).toEqual([
-      "Hexagon's type arrows are `->`, `->!`, `>->`; `=>` is the lambda arrow — " +
-      "for a function type write `Int -> Int` (or `->!` / `>->` for its colour)",
+      "Hexagon's type arrows are `->`, `->^`, `->~`, `->!` and `>->`; `=>` is the lambda arrow — " +
+      "for a function type write `Int -> Int` (or a marked arrow for what it may do)",
       wants("trim"),
     ]);
   });

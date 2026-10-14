@@ -331,7 +331,7 @@ describe("displayScheme: the arrow trio", () => {
     kind: "Function",
     parameters: [string],
     result: string,
-    ...(effect === undefined ? {} : { effect }),
+    ...(effect === undefined ? {} : { effect, fail: effect }),
   });
 
   test("an absent slot is the pure arrow, which is every arrow with the flag off", () => {
@@ -348,7 +348,7 @@ describe("displayScheme: the arrow trio", () => {
           kind: "Function",
           parameters: [step("impure")],
           result: string,
-          effect: "impure",
+          effect: "impure", fail: "impure",
         },
       }),
     ).toBe("(String ->! String) ->! String");
@@ -366,7 +366,7 @@ describe("displayScheme: the arrow trio", () => {
           kind: "Function",
           parameters: [step(colour(1))],
           result: string,
-          effect: colour(1),
+          effect: colour(1), fail: colour(1),
         },
       }),
     ).toBe("(String ->! String) >-> String");
@@ -390,7 +390,7 @@ describe("displayScheme: the arrow trio", () => {
           kind: "Function",
           parameters: [{ kind: "Function", parameters: [], result: string }],
           result: { kind: "Primitive", name: "Int" },
-          effect: colour(1),
+          effect: colour(1), fail: colour(1),
         },
       }),
     ).toBe("(() -> String) >-> Int");
@@ -428,7 +428,7 @@ describe("displayScheme: the arrow trio", () => {
           kind: "Function",
           parameters: [step(colour(1))],
           result: step(colour(2)),
-          effect: colour(2),
+          effect: colour(2), fail: colour(2),
         },
       }),
     ).toBe("(String ->! String) >-> String >-> String");
@@ -470,12 +470,33 @@ describe("displayScheme: the arrow trio", () => {
         type: {
           kind: "Function",
           parameters: [
-            { kind: "Function", parameters: [], result: string, effect: colour(7) },
+            { kind: "Function", parameters: [], result: string, effect: colour(7), fail: colour(7) },
             { kind: "Variable", id: typeVariableId(8) },
           ],
           result: { kind: "Variable", id: typeVariableId(8) },
         },
       }),
     ).toBe("(() ->! String, a) -> a");
+  });
+
+  test("each colour shows its own mark: `->^` may fail, `->~` may touch the world (Effects §10)", () => {
+    const arrow = (effect: Effect | undefined, fail: Effect | undefined): Type => ({
+      kind: "Function",
+      parameters: [string],
+      result: string,
+      ...(effect === undefined ? {} : { effect }),
+      ...(fail === undefined ? {} : { fail }),
+    });
+    const show = (type: Type) => displayScheme({ variables: [], constraints: [], type });
+    expect(show(arrow(undefined, "impure"))).toBe("String ->^ String");
+    expect(show(arrow("impure", undefined))).toBe("String ->~ String");
+    // An error shows its constant on its own colour (§3.5).
+    expect(show(arrow("error", undefined))).toBe("String ->~ String");
+    // A callback's colours show on its own arrows, as the marks of the colours it has.
+    expect(show({ kind: "Function", parameters: [arrow(undefined, colour(3))], result: string, fail: colour(3) }))
+      .toBe("(String ->^ String) >-> String");
+    // A colour that follows beside a constant shows its constant (§2.4's widening).
+    expect(show({ kind: "Function", parameters: [arrow(colour(4), colour(5))], result: string, effect: "impure", fail: colour(5) }))
+      .toBe("(String ->! String) ->! String");
   });
 });
