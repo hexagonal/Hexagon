@@ -49,7 +49,7 @@ export let next(source: Stream(a)): Option(a) = (source.next)!()
 
 ## 4. The v1 surface
 
-Consumption drives the world, so consumers wear `->!`. Building a derived stream is pure, so the wiring stays silent — `map(randoms, double)` is a bare call in every body; effects surface where pulls happen: `next!`, `collect!`, `fold!`, `forEach!`, `find!`.
+Consumption drives the world, so consumers wear `->!`. Building a derived stream is pure and cannot fail, so the wiring stays silent — `map(randoms, double)` is a bare call in every body; effects surface where pulls happen: `next!`, `collect!`, `fold!`, `forEach!`, `find!`.
 
 ### 4.1 `next`
 

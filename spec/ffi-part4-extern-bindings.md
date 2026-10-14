@@ -19,7 +19,7 @@ extern from "tiny-json"
     let VERSION as version: String
 ```
 
-(The arrow on each callable row is its effect contract — `->` here because these two compute and are pure; §4.5 owns the arrows and what a `->` claims.)
+(The arrow on each callable row is its effect contract — `->` here because these two compute, are pure and cannot fail; §4.5 owns the arrows and what a `->` claims.)
 
 The block introduces **ordinary module-level Hexagon bindings**. After the declaration, an extern binding is used exactly like any other binding of the enclosing module: same typing, same visibility rules, same collision rules. Only its linkage (a foreign ESM import) and its trust status (Part 1 §1: a trusted programmer assertion, validated as a declaration and then believed) differ.
 

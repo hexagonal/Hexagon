@@ -614,8 +614,8 @@ matters for the coloured arrows is `->!`, `->^` and `->~` before `->`, the follo
 arrows before `>`, and `>~>^` and `>^>~` before `>~>` and `>^>`. Each following arrow
 begins with a token, the comparison `>`, and needs all of its characters, so `x >-1` is
 still `>`, `-`, `1`, and `x >~y` is `>`, `~`, `y`. A following arrow names each colour
-once, so `>->~`, `>->^`, `>~>~` and `>^>^` are no tokens: `>->~` is `>->` followed by a
-mark, which the parser refuses as it refuses any mark with no argument list.
+once, so `>->~`, `>->^`, `>~>~` and `>^>^` are no tokens: `>->~` is `>->` followed by
+`~`, which begins no type, so the parser reports the type it expected there.
 
 The lexer special-cases well-known forbidden symbolic logic runs so the user gets one
 useful error: `&&` and `||` point to `and` and `or`; a `!` in prefix-expression
@@ -716,7 +716,7 @@ token inventory and the lexer must not report the same source code unit twice.
 | `&&`, `||` | suggest `and`, `or` respectively |
 | `&` | invalid character, with a redirect: `band` (`bitwise.md` §9) |
 | `^`, `~` where an operator would stand, and `x^(y)` on a callee that is not a function | the redirect: `bxor` (and `**` for a power), `bnot` respectively (`bitwise.md` §9) — the parser selects it, since each is a mark token (§8.3) |
-| `!?` or `^?` after a callee | "a reading takes the mark's fail part: write `f~?(x)` for a call that is impure, `f?(x)` for one that does not" (Effects §3.1) |
+| `!?` or `^?` after a callee | "a reading takes the mark's fail part: write `f~?(x)` for a call that is impure, `f?(x)` for one that is pure" (Effects §3.1) |
 | `??`, `?.` | "Hexagon has no optional chaining or coalescing: `Option.defaultValue`, `Option.map`, or a `match`" |
 | `!` in prefix-expression position | suggest `not` — the parser selects the message now that `!` is a token *(#355; §8.2)*; a mark outside its grammatical seats gets Effects §9's mark-position error instead |
 | Any other invalid character | name the character and codepoint; consume it once |
