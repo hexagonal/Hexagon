@@ -754,8 +754,11 @@ interface AbsorbedColour {
  * `Checker.#bindingSources`).
  */
 type BindingSource =
-  /** A written type, whole — no hole in it: the text decides every arrow. */
-  | { readonly kind: "written" }
+  /**
+   * A written type, whole — no hole in it: the text decides every arrow. A
+   * `let`'s carries the value it is written over; a parameter's has none.
+   */
+  | { readonly kind: "written"; readonly value?: Resolved.Expr }
   /** A parameter with no written type, or a `var`: inferred from its uses. */
   | { readonly kind: "inferred" }
   /**
@@ -20715,7 +20718,7 @@ class Checker {
         this.#bindingSources.set(
           inner.binding.symbol,
           written
-            ? { kind: "written" }
+            ? { kind: "written", value: inner.value }
             : inner.value.kind === "Lambda"
             ? { kind: "function", value: inner.value }
             : { kind: "value", value: inner.value },
@@ -22481,7 +22484,7 @@ class Checker {
     const read = new Set<Variable>();
     for (const { effect, call } of frame.calls ?? []) {
       const into = markParts(call.mark)[frameAxis(frame)] ? claimed : read;
-      for (const part of this.#reachedParts(call, effect, frameAxis(frame))) into.add(part);
+      for (const part of this.#reachedParts(call, effect, frame)) into.add(part);
     }
     // Every parameter is read before any is decided: a colour shared with a
     // sibling untyped parameter is still this body's to decide, and claimed it
@@ -22547,7 +22550,8 @@ class Checker {
    * decided by the calls in that body, and a mark on a call that runs it, or
    * hands it, is checked against its colour like any other.
    */
-  #reachedParts(call: Resolved.CallExpr, colour: Mono, axis: Axis): Variable[] {
+  #reachedParts(call: Resolved.CallExpr, colour: Mono, frame: EffectFrame): Variable[] {
+    const axis = frameAxis(frame);
     const parts = this.#colourParts(colour);
     // A dot call names a function a declaration defines, and its receiver is
     // the function's first argument (Method Syntax §7): the same call as the
@@ -22558,7 +22562,7 @@ class Checker {
       ...(method ? [] : [call.callee]),
       ...(call.callee.kind === "Access" ? [call.callee.receiver] : []),
       ...call.arguments,
-    ].filter((value) => this.#madeFromParameter(value));
+    ].filter((value) => this.#madeFromParameter(value, frame));
     const reached = new Set<Variable>();
     for (const value of values) {
       const type = this.#expressionTypes.get(value);
@@ -22578,39 +22582,48 @@ class Checker {
   /**
    * Whether a value at a call is made from a parameter (Effects §3.4, #1261):
    * the parameter itself, a name bound to such a value, a part taken out of
-   * one (a field, an element, a pattern's part, what a call returns where the
-   * function called or a value it is handed is one, or where the function
-   * returns one), or a merge with one. A lambda, a function a declaration
-   * defines, and anything made only from those are not: their colour is what
-   * their own body does, and a mark that reaches them claims nothing of what
-   * that body runs. `own` holds the parameters of a function whose return is
-   * being read, which stand for the values the call hands it, read already.
+   * one (a field, an element, a pattern's part, what a call of it returns, or
+   * what a function returns where that is such a value), or a merge with one.
+   * A lambda, a function a declaration defines, and anything made only from
+   * those are not: their colour is what their own body does, and a mark that
+   * reaches them claims nothing of what that body runs. `notMade` holds the
+   * parameters of a function whose return is being read whose arguments are
+   * not made from a parameter; the others stand for values that are.
    */
   #madeFromParameter(
     expression: Resolved.Expr,
-    seen = new Set<unknown>(),
-    own: ReadonlySet<Resolved.SymbolId> = new Set(),
+    body: EffectFrame,
+    seen = new Map<Resolved.Expr, Set<string>>(),
+    notMade: ReadonlySet<Resolved.SymbolId> = new Set(),
   ): boolean {
-    if (seen.has(expression)) return false;
-    seen.add(expression);
+    // One reading per value and context: a recursive function's return reads
+    // itself again in the same context, and is not made by that.
+    const context = [...notMade].map(Number).sort((a, b) => a - b).join(",");
+    const contexts = seen.get(expression) ?? new Set<string>();
+    if (contexts.has(context)) return false;
+    contexts.add(context);
+    seen.set(expression, contexts);
     const made = (each: Resolved.Expr | undefined): boolean =>
-      each !== undefined && this.#madeFromParameter(each, seen, own);
+      each !== undefined && this.#madeFromParameter(each, body, seen, notMade);
     switch (expression.kind) {
       case "Name": {
-        if (own.has(expression.symbol)) return false;
+        if (notMade.has(expression.symbol)) return false;
         const source = this.#bindingSources.get(expression.symbol);
         // A declaration's own name: an import, an extern row, a constructor.
         if (source === undefined) return false;
         switch (source.kind) {
           case "inferred":
-          case "written":
             return true;
+          case "written":
+            return source.value === undefined || made(source.value);
           case "function":
             return false;
           case "value":
             return made(source.value);
-          case "part":
-            return source.source === undefined || made(source.source);
+          case "part": {
+            const component = this.#partComponent(expression.symbol, source.source);
+            return component !== undefined ? made(component) : source.source === undefined || made(source.source);
+          }
         }
         return false;
       }
@@ -22636,33 +22649,111 @@ class Checker {
       case "Index":
         return made(expression.receiver);
       case "Call": {
+        // A function written inside the body being decided, the only kind that
+        // can capture its parameters, returns what its own body does, each of
+        // its parameters standing for whether the value handed it is made.
+        const called = this.#calledLambda(expression.callee, body);
+        if (called !== undefined) {
+          const unmade = new Set(notMade);
+          called.parameters.forEach((parameter, index) => {
+            const argument = expression.arguments[index];
+            if (argument === undefined || !made(argument)) unmade.add(parameter.symbol);
+          });
+          return this.#madeFromParameter(called.body, body, seen, unmade);
+        }
+        // Any other function is read by its signature alone, wherever it is
+        // declared: it may return what it is handed, where that holds an
+        // arrow, a value made from a parameter among them, or the callee.
         const handed = expression.callee.kind === "Access" ? [expression.callee.receiver] : [];
-        if ([...handed, ...expression.arguments].some(made)) return true;
+        if ([...handed, ...expression.arguments].some((each) => this.#holdsArrow(each) && made(each))) return true;
         if (expression.callee.kind === "Access" && this.#dotCalls.has(expression)) return false;
-        if (made(expression.callee)) return true;
-        // What a function written in this program returns: its parameters are
-        // the values just read.
-        const called = this.#calledLambda(expression.callee);
-        return called !== undefined && this.#madeFromParameter(
-          called.body,
-          seen,
-          new Set([...own, ...called.parameters.map(({ symbol }) => symbol)]),
-        );
+        return made(expression.callee);
       }
       default:
         return false;
     }
   }
 
-  /** The lambda a callee names, through `let` aliases, where the program writes it. */
-  #calledLambda(callee: Resolved.Expr, seen = new Set<number>()): Resolved.LambdaExpr | undefined {
+  /** Whether a value's type holds an arrow a parameter's colour could be on; unknown, it may. */
+  #holdsArrow(expression: Resolved.Expr): boolean {
+    const type = this.#expressionTypes.get(expression);
+    return type === undefined || this.#arrowColours(type).size > 0;
+  }
+
+  /**
+   * The component of a value a pattern's binder takes, where the pattern
+   * lines up with a tuple or record the program writes (through `let`
+   * names): `r` in `let (r, n) = (() => g, 1)` is `() => g`.
+   */
+  #partComponent(symbol: Resolved.SymbolId, source: Resolved.Expr | undefined): Resolved.Expr | undefined {
+    const pattern = this.#partPatterns.get(symbol);
+    if (pattern === undefined || source === undefined) return undefined;
+    const seen = new Set<number>();
+    const literal = (value: Resolved.Expr): Resolved.Expr => {
+      const actual = ungrouped(value);
+      if (actual.kind !== "Name" || seen.has(Number(actual.symbol))) return actual;
+      seen.add(Number(actual.symbol));
+      const named = this.#bindingSources.get(actual.symbol);
+      return named?.kind === "value" ? literal(named.value) : actual;
+    };
+    const descend = (at: Resolved.Pattern, value: Resolved.Expr): Resolved.Expr | undefined => {
+      if (at.kind === "Binding") return at.binding.symbol === symbol ? value : undefined;
+      if (at.kind === "As") return at.binding.symbol === symbol ? value : descend(at.pattern, value);
+      const actual = literal(value);
+      if (at.kind === "Tuple" && actual.kind === "Tuple" && at.elements.length === actual.elements.length) {
+        for (const [index, element] of at.elements.entries()) {
+          const found = descend(element, actual.elements[index]!);
+          if (found !== undefined) return found;
+        }
+      }
+      if (at.kind === "Record" && actual.kind === "Record" && actual.spread === undefined) {
+        for (const field of at.fields) {
+          const value = actual.fields.find(({ name }) => name.text === field.name)?.value;
+          const found = value === undefined ? undefined : descend(field.pattern, value);
+          if (found !== undefined) return found;
+        }
+      }
+      return undefined;
+    };
+    return descend(pattern, source);
+  }
+
+  /**
+   * The lambda a callee names, where it is written inside `body`: through
+   * `let` names, written ones included, and a pattern's part of a literal. A
+   * function declared elsewhere captures none of `body`'s parameters, and is
+   * read by its signature, as one from another module is.
+   */
+  #calledLambda(
+    callee: Resolved.Expr,
+    body: EffectFrame,
+    seen = new Set<number>(),
+  ): Resolved.LambdaExpr | undefined {
     const value = ungrouped(callee);
-    if (value.kind === "Lambda") return value;
+    if (value.kind === "Lambda") {
+      const world = body.world ?? body;
+      for (let frame = this.#frameByLambda.get(value); frame !== undefined; frame = frame.enclosing) {
+        if (frame === world) return value;
+      }
+      return undefined;
+    }
     if (value.kind !== "Name" || seen.has(Number(value.symbol))) return undefined;
     seen.add(Number(value.symbol));
     const source = this.#bindingSources.get(value.symbol);
-    if (source?.kind === "function") return source.value;
-    return source?.kind === "value" ? this.#calledLambda(source.value, seen) : undefined;
+    switch (source?.kind) {
+      case "function":
+        return this.#calledLambda(source.value, body, seen);
+      case "value":
+        return this.#calledLambda(source.value, body, seen);
+      case "written":
+        return source.value === undefined ? undefined : this.#calledLambda(source.value, body, seen);
+      case "part": {
+        const component = this.#partComponent(value.symbol, source.source);
+        return component === undefined ? undefined : this.#calledLambda(component, body, seen);
+      }
+      default:
+        return undefined;
+    }
   }
 
   /**

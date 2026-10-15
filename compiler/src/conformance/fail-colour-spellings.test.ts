@@ -790,6 +790,10 @@ describe("Effects §3.4: only a value made from a parameter passes a mark on to 
       `this call is pure and cannot fail, so ${callee} wants no mark, not \`!\``,
     ];
     expect(reports(
+      "let pq(g, c: Bool) =\n    let (r, n) = if c then (() => g(), 1) else (() => g(), 2)\n    r!()\n" +
+        "let lid(g) =\n    let idl = (x) => x\n    idl(() => g())!()\n",
+    )).toEqual([over("`r`"), over("this call")]);
+    expect(reports(
       "let mg(g, c: Bool) =\n    let run = if c then () => g() else () => g()\n    run!()\n" +
         "let mk(g) =\n    let m = () => () => g()\n    m()!()\n" +
         "let pp(g) =\n    let pair = (() => g(), 1)\n    let (r, n) = pair\n    r!()\n" +
@@ -817,6 +821,32 @@ describe("Effects §3.4: only a value made from a parameter passes a mark on to 
     ]);
   });
 
+  test("what a call returns: a function written in the body by what it returns, any other by its signature", () => {
+    // `mk` returns a lambda whatever it is handed, and `apply`, a declared
+    // function with a written type, is no value made from a parameter.
+    const mk = (parameter: string, argument: string) =>
+      `    let mk = (${parameter}) => () =>\n        g()\n        f!()\n    mk(${argument})!()\n`;
+    const accepted = "let oc(g, f, n: Int) =\n" + mk("k: Int", "n") + "let td(g, f) =\n" + mk("k", "f") +
+      "let apply: (() ->! Unit) >-> Unit = (h) => h!()\n" +
+      "let wa(g, f) =\n    apply!(() =>\n        g()\n        f!())\n";
+    expect(reports(accepted)).toEqual([]);
+    expect(face(accepted, "wa")).toBe("(() -> Unit, () ->! Unit) >-> Unit");
+    // A lambda taken out of a tuple returns `g`; `pick`, declared outside the
+    // body, is read by its signature and may return `h`.
+    expect(reports(
+      "let up(g) =\n    let (r, n) = (() => g, 1)\n    g()\n    r()!()\n" +
+        "let pick(x: a, y: a): a = x\nlet pk(g, h) = pick(() => g(), h)!()\n" +
+        "let ident2(x: a, n: Int): a = x\nlet vi2(g, n: Int) = ident2(() => g(), n)!()\n",
+    )).toEqual([
+      ["g()", "this call is impure and may fail, so `g` wants `!`, not no mark"],
+      ["pick(() => g(), h)", "`h`'s colour is tied to `g`'s here, and no written type can say that — write `h`'s type"],
+      ["g()", "`g`'s colour is tied to `h`'s here, and no written type can say that — write `g`'s type"],
+      ["g()", "this call is impure and may fail, so `g` wants `!`, not no mark"],
+      // `n` holds no arrow, so `ident2` cannot return a value made from it.
+      ["!", "this call is pure and cannot fail, so this call wants no mark, not `!`"],
+    ]);
+  });
+
   test("the parameter itself, an alias of it, and the parameter handed on still take the mark", () => {
     const source = "let twice(h: () ->~ Unit) =\n    h~()\n    h~()\n" +
       "let z(g) =\n    g()\n    g!()\n" +
@@ -824,13 +854,23 @@ describe("Effects §3.4: only a value made from a parameter passes a mark on to 
       "let only(g) =\n    let run = () => g!()\n    run()\n" +
       "let handG(g) = twice~(g)\n" +
       "let ret(g) =\n    let get = () => g\n    get()!()\n" +
-      "let ap2(f) =\n    let k = f()\n    k~()\nlet use1(g) =\n    ap2~(g)\n    g()()\n";
+      "let ap2(f) =\n    let k = f()\n    k~()\nlet use1(g) =\n    ap2~(g)\n    g()()\n" +
+      "let mBlock(g) =\n    let run =\n        let x = g\n        x\n    g()\n    run!()\n" +
+      "let mIfAlt(g, c: Bool) =\n    let run = if c then () => () else g\n    g()\n    run!()\n" +
+      "let mAccess(g) =\n    let r = { run = g }\n    g()\n    r.run!()\n" +
+      "let hd(g) =\n    g()\n    Some(g).defaultValue(() => ())!()\n";
     // A function that returns `g` returns a value made from it; and a mark on
     // a call handed `g` claims the arrows of what `g` returns too.
     expect(reports(source)).toEqual([
       ["g()", "this call is impure and may fail, so `g` wants `!`, not no mark"],
       ["run()", "this call is impure and may fail, so `run` wants `!`, not no mark"],
       ["g()()", "this call is impure, so this call wants `~`, not no mark"],
+      // A block's value, a merge's other arm, a field, and a dot call's
+      // receiver each carry the mark to `g`.
+      ["g()", "this call is impure and may fail, so `g` wants `!`, not no mark"],
+      ["g()", "this call is impure and may fail, so `g` wants `!`, not no mark"],
+      ["g()", "this call is impure and may fail, so `g` wants `!`, not no mark"],
+      ["g()", "this call is impure and may fail, so `g` wants `!`, not no mark"],
     ]);
     expect(face(source, "ret")).toBe("(() ->! a) >-> a");
     expect(face(source, "al")).toBe("(() ->! a) >-> a");
