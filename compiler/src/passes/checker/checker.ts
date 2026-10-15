@@ -22218,8 +22218,8 @@ class Checker {
    * computes is not a unification until every call in it is known. A `!` call
    * is also a **claim** on every body it stands in (Effects §3.4): the colours
    * it reaches of an untyped parameter are that parameter's, decided by the
-   * mark. A call written bare is recorded too: what it reaches is pure. What a
-   * call reaches is read where the parameter is decided (`#reachedParts`).
+   * mark. A call written bare is recorded too: everything it runs is pure.
+   * What a mark reaches is read where the parameter is decided (`#reachedParts`).
    */
   #registerCall(
     expression: Resolved.CallExpr,
@@ -22478,13 +22478,17 @@ class Checker {
     }
     this.#holdBack(pinsHidden);
     if (frame.untyped.length === 0) return;
-    // A call's mark claims, and a bare call reads, only what it reaches
-    // through a value made from a parameter (#1261).
     const claimed = new Set<Variable>();
     const read = new Set<Variable>();
+    // A bare call says everything its callee runs is pure, so it reads every
+    // part of its colour; a mark says only that something may not be, so it
+    // claims only what it reaches through the parameter itself (#1261).
     for (const { effect, call } of frame.calls ?? []) {
-      const into = markParts(call.mark)[frameAxis(frame)] ? claimed : read;
-      for (const part of this.#reachedParts(call, effect, frame)) into.add(part);
+      if (!markParts(call.mark)[frameAxis(frame)]) {
+        for (const part of this.#colourParts(effect)) read.add(part);
+        continue;
+      }
+      for (const part of this.#reachedParts(call, effect, frame)) claimed.add(part);
     }
     // Every parameter is read before any is decided: a colour shared with a
     // sibling untyped parameter is still this body's to decide, and claimed it
@@ -22553,25 +22557,19 @@ class Checker {
   #reachedParts(call: Resolved.CallExpr, colour: Mono, frame: EffectFrame): Variable[] {
     const axis = frameAxis(frame);
     const parts = this.#colourParts(colour);
-    // A dot call names a function a declaration defines, and its receiver is
-    // the function's first argument (Method Syntax §7): the same call as the
-    // bare spelling, which reaches what it does. (No method resolves on a
-    // function type today, so a receiver adds no spine colour yet.)
-    const method = call.callee.kind === "Access" && this.#dotCalls.has(call);
+    // A dot call's receiver is its function's first argument (Method Syntax
+    // §7), so the call reaches what the bare spelling does. (A dot's subject
+    // is decided by the text, so no receiver made from a parameter reaches a
+    // call yet.)
     const values = [
-      ...(method ? [] : [call.callee]),
-      ...(call.callee.kind === "Access" ? [call.callee.receiver] : []),
+      call.callee,
+      ...(call.callee.kind === "Access" && this.#dotCalls.has(call) ? [call.callee.receiver] : []),
       ...call.arguments,
-    ].filter((value) => this.#madeFromParameter(value, frame));
+    ].filter((value) => this.#madeFromParameter(value));
     const reached = new Set<Variable>();
     for (const value of values) {
       const type = this.#expressionTypes.get(value);
-      // A callee made from a parameter whose type is not recorded reaches
-      // everything its call does, as its own arrow is the call's colour.
-      if (type === undefined) {
-        if (value === call.callee) return parts;
-        continue;
-      }
+      if (type === undefined) continue;
       for (const { arrow } of this.#spineColours(type, axis)) {
         for (const part of this.#colourParts(arrow)) reached.add(part);
       }
@@ -22580,179 +22578,52 @@ class Checker {
   }
 
   /**
-   * Whether a value at a call is made from a parameter (Effects §3.4, #1261):
-   * the parameter itself, a name bound to such a value, a part taken out of
-   * one (a field, an element, a pattern's part, what a call of it returns, or
-   * what a function returns where that is such a value), or a merge with one.
-   * A lambda, a function a declaration defines, and anything made only from
-   * those are not: their colour is what their own body does, and a mark that
-   * reaches them claims nothing of what that body runs. `notMade` holds the
-   * parameters of a function whose return is being read whose arguments are
-   * not made from a parameter; the others stand for values that are.
+   * Whether a mark on a call reaches a parameter through this value (Effects
+   * §3.4, #1261): the value is the parameter itself, a name bound to such a
+   * value, what a call of one returns, or a merge with one (a branch of an
+   * `if`, a `match` or a `try`, a block's value). Every other value (a
+   * lambda, a function a declaration defines, a part of data, what any other
+   * function returns) is checked against its colour, and a mark that reaches
+   * it claims nothing.
    */
-  #madeFromParameter(
-    expression: Resolved.Expr,
-    body: EffectFrame,
-    seen = new Map<Resolved.Expr, Set<string>>(),
-    notMade: ReadonlySet<Resolved.SymbolId> = new Set(),
-  ): boolean {
-    // One reading per value and context: a recursive function's return reads
-    // itself again in the same context, and is not made by that.
-    const context = [...notMade].map(Number).sort((a, b) => a - b).join(",");
-    const contexts = seen.get(expression) ?? new Set<string>();
-    if (contexts.has(context)) return false;
-    contexts.add(context);
-    seen.set(expression, contexts);
-    const made = (each: Resolved.Expr | undefined): boolean =>
-      each !== undefined && this.#madeFromParameter(each, body, seen, notMade);
+  #madeFromParameter(expression: Resolved.Expr, seen = new Set<number>()): boolean {
     switch (expression.kind) {
       case "Name": {
-        if (notMade.has(expression.symbol)) return false;
+        if (seen.has(Number(expression.symbol))) return false;
+        seen.add(Number(expression.symbol));
         const source = this.#bindingSources.get(expression.symbol);
-        // A declaration's own name: an import, an extern row, a constructor.
-        if (source === undefined) return false;
-        switch (source.kind) {
+        switch (source?.kind) {
           case "inferred":
             return true;
           case "written":
-            return source.value === undefined || made(source.value);
-          case "function":
-            return false;
+            return source.value === undefined || this.#madeFromParameter(source.value, seen);
           case "value":
-            return made(source.value);
-          case "part": {
-            const component = this.#partComponent(expression.symbol, source.source);
-            return component !== undefined ? made(component) : source.source === undefined || made(source.source);
-          }
+            return this.#madeFromParameter(source.value, seen);
+          default:
+            return false;
         }
-        return false;
       }
       case "Group":
       case "Ascription":
-        return made(expression.expression);
+        return this.#madeFromParameter(expression.expression, seen);
       case "Block": {
         const last = expression.items.at(-1);
-        return last?.kind === "ExprItem" && made(last.expression);
+        return last?.kind === "ExprItem" && this.#madeFromParameter(last.expression, seen);
       }
       case "If":
-        return made(expression.consequence) || made(expression.alternative);
+        return this.#madeFromParameter(expression.consequence, seen) ||
+          this.#madeFromParameter(expression.alternative, seen);
       case "Match":
-        return [...expression.arms, ...expression.catchArms ?? []].some((arm) => made(arm.body));
+        return [...expression.arms, ...expression.catchArms ?? []]
+          .some((arm) => this.#madeFromParameter(arm.body, seen));
       case "Try":
-        return made(expression.body) || expression.arms.some((arm) => made(arm.body));
-      case "Tuple":
-      case "Vector":
-        return expression.elements.some(made);
-      case "Record":
-        return made(expression.spread) || expression.fields.some((field) => made(field.value));
-      case "Access":
-      case "Index":
-        return made(expression.receiver);
-      case "Call": {
-        // A function written inside the body being decided, the only kind that
-        // can capture its parameters, returns what its own body does, each of
-        // its parameters standing for whether the value handed it is made.
-        const called = this.#calledLambda(expression.callee, body);
-        if (called !== undefined) {
-          const unmade = new Set(notMade);
-          called.parameters.forEach((parameter, index) => {
-            const argument = expression.arguments[index];
-            if (argument === undefined || !made(argument)) unmade.add(parameter.symbol);
-          });
-          return this.#madeFromParameter(called.body, body, seen, unmade);
-        }
-        // Any other function is read by its signature alone, wherever it is
-        // declared: it may return what it is handed, where that holds an
-        // arrow, a value made from a parameter among them, or the callee.
-        const handed = expression.callee.kind === "Access" ? [expression.callee.receiver] : [];
-        if ([...handed, ...expression.arguments].some((each) => this.#holdsArrow(each) && made(each))) return true;
-        if (expression.callee.kind === "Access" && this.#dotCalls.has(expression)) return false;
-        return made(expression.callee);
-      }
+        return this.#madeFromParameter(expression.body, seen) ||
+          expression.arms.some((arm) => this.#madeFromParameter(arm.body, seen));
+      case "Call":
+        // What the parameter returns is its own function type's (Effects §2.4).
+        return this.#madeFromParameter(expression.callee, seen);
       default:
         return false;
-    }
-  }
-
-  /** Whether a value's type holds an arrow a parameter's colour could be on; unknown, it may. */
-  #holdsArrow(expression: Resolved.Expr): boolean {
-    const type = this.#expressionTypes.get(expression);
-    return type === undefined || this.#arrowColours(type).size > 0;
-  }
-
-  /**
-   * The component of a value a pattern's binder takes, where the pattern
-   * lines up with a tuple or record the program writes (through `let`
-   * names): `r` in `let (r, n) = (() => g, 1)` is `() => g`.
-   */
-  #partComponent(symbol: Resolved.SymbolId, source: Resolved.Expr | undefined): Resolved.Expr | undefined {
-    const pattern = this.#partPatterns.get(symbol);
-    if (pattern === undefined || source === undefined) return undefined;
-    const seen = new Set<number>();
-    const literal = (value: Resolved.Expr): Resolved.Expr => {
-      const actual = ungrouped(value);
-      if (actual.kind !== "Name" || seen.has(Number(actual.symbol))) return actual;
-      seen.add(Number(actual.symbol));
-      const named = this.#bindingSources.get(actual.symbol);
-      return named?.kind === "value" ? literal(named.value) : actual;
-    };
-    const descend = (at: Resolved.Pattern, value: Resolved.Expr): Resolved.Expr | undefined => {
-      if (at.kind === "Binding") return at.binding.symbol === symbol ? value : undefined;
-      if (at.kind === "As") return at.binding.symbol === symbol ? value : descend(at.pattern, value);
-      const actual = literal(value);
-      if (at.kind === "Tuple" && actual.kind === "Tuple" && at.elements.length === actual.elements.length) {
-        for (const [index, element] of at.elements.entries()) {
-          const found = descend(element, actual.elements[index]!);
-          if (found !== undefined) return found;
-        }
-      }
-      if (at.kind === "Record" && actual.kind === "Record" && actual.spread === undefined) {
-        for (const field of at.fields) {
-          const value = actual.fields.find(({ name }) => name.text === field.name)?.value;
-          const found = value === undefined ? undefined : descend(field.pattern, value);
-          if (found !== undefined) return found;
-        }
-      }
-      return undefined;
-    };
-    return descend(pattern, source);
-  }
-
-  /**
-   * The lambda a callee names, where it is written inside `body`: through
-   * `let` names, written ones included, and a pattern's part of a literal. A
-   * function declared elsewhere captures none of `body`'s parameters, and is
-   * read by its signature, as one from another module is.
-   */
-  #calledLambda(
-    callee: Resolved.Expr,
-    body: EffectFrame,
-    seen = new Set<number>(),
-  ): Resolved.LambdaExpr | undefined {
-    const value = ungrouped(callee);
-    if (value.kind === "Lambda") {
-      const world = body.world ?? body;
-      for (let frame = this.#frameByLambda.get(value); frame !== undefined; frame = frame.enclosing) {
-        if (frame === world) return value;
-      }
-      return undefined;
-    }
-    if (value.kind !== "Name" || seen.has(Number(value.symbol))) return undefined;
-    seen.add(Number(value.symbol));
-    const source = this.#bindingSources.get(value.symbol);
-    switch (source?.kind) {
-      case "function":
-        return this.#calledLambda(source.value, body, seen);
-      case "value":
-        return this.#calledLambda(source.value, body, seen);
-      case "written":
-        return source.value === undefined ? undefined : this.#calledLambda(source.value, body, seen);
-      case "part": {
-        const component = this.#partComponent(value.symbol, source.source);
-        return component === undefined ? undefined : this.#calledLambda(component, body, seen);
-      }
-      default:
-        return undefined;
     }
   }
 
