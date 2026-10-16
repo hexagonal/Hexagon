@@ -25865,7 +25865,7 @@ class Checker {
         ...(factWords !== undefined && fact !== undefined
           ? { labels: [{ span: fact.call.span, message: `called ${how} here` }] }
           : demanded !== undefined && parameter !== undefined
-          ? { labels: [{ span: demanded.span, message: `this demands \`${parameter.name}\` silent` }] }
+          ? { labels: [{ span: demanded.span, message: `this demands \`${parameter.name}\` ${silent}` }] }
           : {}),
         fixes: [
           {
