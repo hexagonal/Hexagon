@@ -867,6 +867,11 @@ describe("Effects §3.4: a mark decides nothing; facts decide an untyped paramet
     expect(reports(PRE + "let s(f) =\n    let h = Holder({ run = f })\n    f!()\n    f()\n")).toEqual([
       ["f()", "this call is impure and may fail, so `f` wants `!`, not no mark"],
     ]);
+    // A mark of `f` on the other colour would be made the wrong one too.
+    expect(reports(PRE + "let s(f) =\n    let h = Holder({ run = f })\n    f^()\n    f()\n")).toEqual([
+      ["^", "this call is impure, so `f` wants `!`, not `^`"],
+      ["f()", "this call is impure and may fail, so `f` wants `!`, not no mark"],
+    ]);
     // A `->~` field is no `->` demand: the fact is named as the meeting.
     expect(reports(PRE + "record HL = { run: () ->~ Unit }\nlet s(f) =\n    let h = HL({ run = f })\n    f^()\n")).toEqual([
       ["^", "this call is impure and cannot fail, so `f` wants `~`, not `^` — `f` meets a type that makes it unable to fail"],
@@ -886,6 +891,10 @@ describe("Effects §3.4: a mark decides nothing; facts decide an untyped paramet
     }
     expect(fixes(PRE + "let outer(h, c: Bool) =\n    h()\n    let inner = (g, f) => apply2!(if c then g else f, h)\n    keep(inner)\n"))
       .toEqual([["write the types of `g` and `f`", [": () ->! Unit", ": () ->! Unit"]]]);
+    // A callback's colour keeps the mark true for good: the shared colour is silent.
+    const written = PRE + "let k(h: () ->! Unit, g, f, c: Bool) = apply2!(if c then g else f, h)\n";
+    expect(reports(written)).toEqual([]);
+    expect(face(written, "k")).toBe("(() ->! Unit, () -> Unit, () -> Unit, Bool) >-> Unit");
   });
 
   test("the second repair is offered only where its bare call is the one fact", () => {
@@ -898,7 +907,17 @@ describe("Effects §3.4: a mark decides nothing; facts decide an untyped paramet
       .toEqual([told("`g`", "`k` is called bare, which makes `g` pure and unable to fail")]);
   });
 
-  test("a tie answers only a bare call of a tied parameter by its own name", () => {
+  test("a tie answers only a bare call of a tied parameter by its own name, where its own marks agree", () => {
+    // `g`'s own calls contradict: the tie's fix writes `g` the constant, and the
+    // bare call keeps its report, so the two fixes together compile.
+    expect(reports(PRE + "let mg(g, f, c: Bool) =\n    g()\n    g!()\n    (if c then g else f)!()\n")).toEqual([
+      ["g()", "this call is impure and may fail, so `g` wants `!`, not no mark"],
+      ["if c then g else f", "`g`'s colour is tied to `f`'s here, and inference cannot keep them apart — write `g`'s type, or wrap `g` where they meet"],
+    ]);
+    expect(fixes(PRE + "let mg(g, f, c: Bool) =\n    g()\n    g!()\n    (if c then g else f)!()\n")).toEqual([
+      ["mark the call `!`", ["!"]],
+      ["write the types of `g` and `f`", [": () ->! Unit", ": () ->! Unit"]],
+    ]);
     // Its fix writes `g`'s own arrow silent only where `g` itself is called
     // bare, so a bare call through an alias keeps its report.
     expect(reports(PRE + "let mg(g, f, c: Bool) =\n    let k = g\n    k()\n    (if c then g else f)!()\n")).toEqual([

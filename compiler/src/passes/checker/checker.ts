@@ -23128,7 +23128,7 @@ class Checker {
         const eachType = this.#prune(each.type);
         // Its own arrow silent where it is called bare by its own name (§9).
         return eachType.kind === "Function"
-          ? this.#blackBoxReading(this.#silencedOwn(eachType, this.#calledBareItself.get(each.symbol)))
+          ? this.#blackBoxReading(this.#silencedOwn(eachType, this.#silentByItself(each.symbol)))
           : undefined;
       });
       if (readings.some((reading) => reading === undefined)) return {};
@@ -23156,14 +23156,16 @@ class Checker {
       ...fixes(),
     };
     this.#diagnostics.add(diagnostic);
-    // The tie answers a bare call of a tied parameter by its own name: its fix
-    // writes that colour silent (§9). A call any other way keeps its report.
+    // The tie answers a bare call of a tied parameter by its own name on a
+    // colour its fix writes silent (§9). A call any other way, or one its own
+    // marks contradict, keeps its report.
     const symbols = new Set(tied.map((each) => each.symbol));
     for (const obligation of this.#markObligations) {
       const callee = ungrouped(obligation.call.callee);
       if (callee.kind !== "Name" || !symbols.has(callee.symbol)) continue;
       const written = markParts(obligation.mark);
-      for (const axis of AXES) if (!written[axis]) this.#answerCall(obligation, axis);
+      const silent = this.#silentByItself(callee.symbol);
+      for (const axis of AXES) if (!written[axis] && silent.has(axis)) this.#answerCall(obligation, axis);
     }
     // A tie found on the world colour is found before the fail colour settles,
     // and the fix writes each colour as it settles (§3.4's black-box reading):
@@ -25827,14 +25829,17 @@ class Checker {
       // §3.4's limitation: a bare call of a parameter whose own arrow a written
       // type's impure constant fixed can be true, so the report names what
       // works, the parameter's written type or the wrapper, not a mark.
-      // Not where a mark on a call of the parameter itself carries the colour:
-      // the type the fix writes would make that mark the wrong one.
+      // Not where a mark on a call of the parameter itself carries a colour the
+      // fix writes silent: that type would make the mark the wrong one.
+      const fixSilent = parameter === undefined
+        ? new Set<Axis>()
+        : new Set<Axis>([...missing, ...(this.#calledBareItself.get(parameter.symbol) ?? [])]);
       if (parameter !== undefined && over.length === 0 && missing.length === wrong.length &&
         missing.every((axis) => pinOn(axis)?.silent === false) &&
-        !missing.some((axis) => this.#calledMarkedItself.get(parameter.symbol)?.has(axis) === true)) {
+        ![...fixSilent].some((axis) => this.#calledMarkedItself.get(parameter.symbol)?.has(axis) === true)) {
         const name = parameter.name;
         const type = this.#prune(parameter.type);
-        const silentOn = new Set<Axis>([...missing, ...(this.#calledBareItself.get(parameter.symbol) ?? [])]);
+        const silentOn = fixSilent;
         const reading = type.kind === "Function" ? this.#blackBoxReading(this.#silencedOwn(type, silentOn)) : undefined;
         // What it met: its own type as that meeting fixed it.
         const met = this.#display(parameter.type, "callback");
@@ -27878,6 +27883,16 @@ class Checker {
       if (bound !== undefined && this.#prune(bound.target).kind === "Function") span = bound.span;
     }
     return span === undefined ? undefined : { silent: Colour.isBottom(settled), span };
+  }
+
+  /**
+   * The colours a fix writing an untyped parameter's type writes silent on its
+   * own arrow (§9): those it is called bare on by its own name, less those a
+   * call of it by its own name marks, where the two would contradict.
+   */
+  #silentByItself(symbol: Resolved.SymbolId, also: readonly Axis[] = []): Set<Axis> {
+    const marked = this.#calledMarkedItself.get(symbol);
+    return new Set([...also, ...this.#calledBareItself.get(symbol) ?? []].filter((axis) => marked?.has(axis) !== true));
   }
 
   /** A function type with its own arrow silent on these colours, as a fix writing it reads (§9). */
