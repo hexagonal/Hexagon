@@ -584,12 +584,12 @@ describe("Effects §9: a report about one colour names that colour, and the arro
 });
 
 describe("Effects §3.4: a refused tie reads as its fix, on each colour", () => {
-  test("the fix marks only a colour the claims leave the parameter's own", () => {
+  test("the fix marks only a colour the facts leave the parameter's own", () => {
     const tied = "let t3(f: () ->~ Unit, g) =\n    let h = if True then f else g\n    h~()\n";
     expect(reports(tied)).toEqual([
       [
         "if True then f else g",
-        "`g`'s colour is tied to `f`'s here, and no written type can say that — write `g`'s type",
+        "`g`'s colour is tied to `f`'s here, and inference cannot keep them apart — write `g`'s type, or wrap `g` where they meet",
       ],
     ]);
     expect(fixes(tied)).toEqual([["write `g`'s type", [": () ->~ Unit"]]]);
@@ -604,7 +604,7 @@ describe("Effects §3.4: a refused tie reads as its fix, on each colour", () => 
     expect(face(tied, "t5")).toBe("(() ->^ Unit, () ->^ Unit) >^> Unit");
     expect(face(fixed, "t5")).toBe("(() ->^ Unit, () ->^ Unit) >^> Unit");
     expect(reports(tied).map(([, message]) => message)).toEqual([
-      "`g`'s colour is tied to `f`'s here, and no written type can say that — write `g`'s type",
+      "`g`'s colour is tied to `f`'s here, and inference cannot keep them apart — write `g`'s type, or wrap `g` where they meet",
     ]);
     expect(reports(fixed)).toEqual([]);
   });
@@ -697,7 +697,7 @@ describe("Effects §4.4: a refusal's fix removes only the part of the claim that
 });
 
 describe("Effects §2.4, §3.4: an untyped callback's own arrows are decided one by one", () => {
-  test("a call through the function an untyped callback returns claims that arrow's colour alone", () => {
+  test("a call through the function an untyped callback returns is checked against that arrow's colour alone", () => {
     const source = ONES +
       "let once(g) =\n    let k = g()\n    k^()\n" +
       "let twice(g) =\n    let k = g~()\n    k^()\n" +
@@ -720,7 +720,7 @@ describe("Effects §2.4, §3.4: an untyped callback's own arrows are decided one
       "let tw" + body("() ->~ () ->^ Unit", ": () ->~ () ->^ Unit", "~");
     const callers = "export let u1(): Unit = tq^(() => oops0, () => noop)\n" +
       "export let u2(): Unit = tw(() => noop, () => noop)\n";
-    const message = "`g`'s colour is tied to `f`'s here, and no written type can say that — write `g`'s type";
+    const message = "`g`'s colour is tied to `f`'s here, and inference cannot keep them apart — write `g`'s type, or wrap `g` where they meet";
     expect(reports(ONES + tied + callers)).toEqual([
       ["if True then f else g", message],
       ["if True then f else g", message],
@@ -735,213 +735,133 @@ describe("Effects §2.4, §3.4: an untyped callback's own arrows are decided one
   });
 });
 
-describe("Effects §3.4: only a value made from a parameter passes a mark on to it (#1261)", () => {
-  test("a function that runs the callback is no value made from it: the calls in its body decide", () => {
-    // `run!()` is a mark on `run`, checked against what `run`'s body does;
-    // the bare `g()` inside is the call that reaches `g`.
-    const source = "let h2(g, f) =\n    let run = () =>\n        g()\n        f!()\n    run!()\n" +
+describe("Effects §3.4: a mark decides nothing; facts decide an untyped parameter (#1261)", () => {
+  const PRE = "let id(x: a): a = x\nlet keep(x: a): Unit = ()\nlet pick(x: a, y: a): a = x\n" +
+    "let save0(): Unit = save!(\"x\")\nlet apply2(a: () ->! Unit, b: () ->! Unit) =\n    a!()\n    b!()\n" +
+    "record Holder = { run: () ->! Unit }\n";
+  const told = (callee: string, fact = "`g` is called bare, which makes it pure and unable to fail") => [
+    "!",
+    `this call is pure and cannot fail, so ${callee} wants no mark, not \`!\` — ${fact}`,
+  ];
+
+  test("a mark on a function is checked against its label, and decides nothing in its body", () => {
+    // The ruling: `run!()` is not a mark on `g`. The bare `g()` decides `g`.
+    const ruling = "let h2(g, f) =\n    let run = () =>\n        g()\n        f!()\n    run!()\n" +
       "let hl(g) =\n    let run = () =>\n        let k = g()\n        k~()\n    run~()\n";
+    expect(reports(ruling)).toEqual([]);
+    expect(face(ruling, "h2")).toBe("(() -> Unit, () ->! a) >-> a");
+    expect(face(ruling, "hl")).toBe("(() -> () ->~ a) >~> a");
+    // Where the body only runs `g` bare, the function is pure, and its mark is
+    // the one the fact contradicts.
+    expect(reports(PRE + "let y(g) =\n    let run = () => g()\n    run!()\n" +
+      "let nf(g) =\n    let run() = g()\n    run!()\n" +
+      "let inplace(g) =\n    (() => g())!()\n")).toEqual([told("`run`"), told("`run`"), told("this call")]);
+  });
+
+  test("a bare call is a fact through any label: the mark beside it is the wrong one, named, with both repairs", () => {
+    const source = PRE +
+      "let z(g) =\n    g()\n    g!()\n" +
+      "let ii(g) =\n    g()\n    id(g)!()\n" +
+      "let al(g) =\n    let k = g\n    g()\n    k!()\n" +
+      "let mAccess(g) =\n    let r = { run = g }\n    g()\n    r.run!()\n" +
+      "let hd(g) =\n    g()\n    Some(g).defaultValue(() => ())!()\n" +
+      "let rec3(g) =\n    fun loop(n: Int, k) = if n == 0 then k else loop(n - 1, k)\n    g()\n    loop(3, g)!()\n" +
+      "let mk(k) = () => k\nlet dblm(g) =\n    g()\n    mk(g)()!()\n" +
+      "let ret2(g) =\n    let get = () => g\n    g()\n    get()!()\n" +
+      "let up(g) =\n    let (r, n) = (() => g, 1)\n    g()\n    r()!()\n";
+    expect(reports(source)).toEqual([
+      told("`g`"),
+      told("this call"),
+      told("`k`"),
+      told("`.run`"),
+      told("this call"),
+      told("this call"),
+      told("this call"),
+      told("this call"),
+      told("this call"),
+    ]);
+    // Where several facts silence what a mark runs, the first in source order
+    // is named.
+    expect(reports(PRE + "let two(g, f) =\n    g()\n    f()\n    apply2!(g, f)\n")).toEqual([told("`apply2`")]);
+    expect(fixes(PRE + "let z(g) =\n    g()\n    g!()\n")).toEqual([
+      ["remove the mark", [""]],
+      ["mark the call of `g` `!`", ["!"]],
+    ]);
+  });
+
+  test("a mark is checked, never a claim: a colour no fact reaches is the parameter's own, which the mark fits", () => {
+    const source = PRE + "let twice(h: () ->~ Unit) =\n    h~()\n    h~()\n" +
+      "let al(g) =\n    let k = g\n    k!()\n" +
+      "let e4(g) = id(g)!()\n" +
+      "let handG(g) = twice~(g)\n" +
+      "let ret(g) =\n    let get = () => g\n    get()!()\n" +
+      "let pk(g, h) = pick(() => g(), h)!()\n";
     expect(reports(source)).toEqual([]);
-    expect(face(source, "h2")).toBe("(() -> Unit, () ->! a) >-> a");
-    expect(face(source, "hl")).toBe("(() -> () ->~ a) >~> a");
-  });
-
-  test("where the two disagree, the outer mark is the wrong one", () => {
-    const over = (callee: string) => [
-      "!",
-      `this call is pure and cannot fail, so ${callee} wants no mark, not \`!\``,
-    ];
-    expect(reports(
-      "let y(g) =\n    let run = () => g()\n    run!()\n" +
-        "let nf(g) =\n    let run() = g()\n    run!()\n" +
-        "let inplace(g) =\n    (() => g())!()\n",
-    )).toEqual([over("`run`"), over("`run`"), over("this call")]);
-  });
-
-  test("a function handed on is no value made from the callback its body runs", () => {
-    const twice = "let twice(h: () ->~ Unit) =\n    h~()\n    h~()\n";
-    expect(reports(twice + "let hand(g) = twice~(() => g())\n")).toEqual([
-      ["~", "this call is pure, so `twice` wants no mark, not `~`"],
-    ]);
-    expect(face(twice + "let hand(g) = twice(() => g())\n", "hand")).toBe("(() -> Unit) -> Unit");
-    // An extern row is a function a declaration defines, and an alias of a
-    // lambda is that lambda.
-    expect(reports(
-      "extern from \"./world.js\"\n    export fun each(f: () ->! Unit) >-> Unit\n" +
-        "let viaExtern(g) = each!(() => g())\n" +
-        "let viaAlias(g) =\n    let run = () => g()\n    let k = run\n    k!()\n",
-    )).toEqual([
-      ["!", "this call is pure and cannot fail, so `each` wants no mark, not `!`"],
-      ["!", "this call is pure and cannot fail, so `k` wants no mark, not `!`"],
-    ]);
-    // A dot call is the bare call (Method Syntax §7): its method is a function
-    // a declaration defines, and the lambda it is handed runs `g` bare.
-    expect(reports(
-      "let viaDot(g) = Some(1).map!((x) => g())\nlet viaBare(g) = Option.map!(Some(1), (x) => g())\n",
-    )).toEqual([
-      ["!", "this call is pure and cannot fail, so `.map` wants no mark, not `!`"],
-      ["!", "this call is pure and cannot fail, so `map` wants no mark, not `!`"],
-    ]);
-  });
-
-  test("a value made only from lambdas is no value made from the callback: a merge, a call's result, a part", () => {
-    const over = (callee: string) => [
-      "!",
-      `this call is pure and cannot fail, so ${callee} wants no mark, not \`!\``,
-    ];
-    expect(reports(
-      "let pq(g, c: Bool) =\n    let (r, n) = if c then (() => g(), 1) else (() => g(), 2)\n    r!()\n" +
-        "let lid(g) =\n    let idl = (x) => x\n    idl(() => g())!()\n",
-    )).toEqual([over("`r`"), over("this call")]);
-    expect(reports(
-      "let mg(g, c: Bool) =\n    let run = if c then () => g() else () => g()\n    run!()\n" +
-        "let mk(g) =\n    let m = () => () => g()\n    m()!()\n" +
-        "let pp(g) =\n    let pair = (() => g(), 1)\n    let (r, n) = pair\n    r!()\n" +
-        "let fr2(g) =\n    let r = { run = () => g() }\n    r.run!()\n",
-    )).toEqual([over("`run`"), over("this call"), over("`r`"), over("`.run`")]);
-    // The ruling's own shape, behind a merge and behind a call, as written
-    // types would have it.
-    const hidden = "let e1(g, f, c: Bool) =\n    let run =\n        if c then\n            () =>\n" +
-      "                g()\n                f!()\n        else\n            () => f!()\n    run!()\n" +
-      "let e2(g, f) =\n    let m = () => () =>\n        g()\n        f!()\n    m()!()\n";
-    expect(reports(hidden)).toEqual([]);
-    expect(face(hidden, "e2")).toBe("(() -> Unit, () ->! a) >-> a");
-    // What `idf` returns is checked, not followed. `Some(g)` is data holding
-    // `g`, and the lambda the method is handed runs it bare.
-    expect(reports(
-      "let idf(x: t): t = x\nlet viaId(g) = idf(() => g())!()\n" +
-        "let f1(g) = Some(g).map!((h) => h())\nlet f2(g) = Option.map!(Some(g), (h) => h())\n",
-    )).toEqual([over("this call"), over("`.map`"), over("`map`")]);
-  });
-
-  test("what a call returns is made from a parameter only where its callee is", () => {
-    const over = (callee: string) => [
-      "!",
-      `this call is pure and cannot fail, so ${callee} wants no mark, not \`!\``,
-    ];
-    // `mk` is a lambda and `apply` a function a declaration defines: the calls
-    // in the lambdas decide `g` and `f`.
-    const mk =(parameter: string, argument: string) =>
-      `    let mk = (${parameter}) => () =>\n        g()\n        f!()\n    mk(${argument})!()\n`;
-    const accepted = "let oc(g, f, n: Int) =\n" + mk("k: Int", "n") + "let td(g, f) =\n" + mk("k", "f") +
-      "let apply: (() ->! Unit) >-> Unit = (h) => h!()\n" +
-      "let wa(g, f) =\n    apply!(() =>\n        g()\n        f!())\n";
-    expect(reports(accepted)).toEqual([]);
-    expect(face(accepted, "wa")).toBe("(() -> Unit, () ->! Unit) >-> Unit");
-    // `pick` may hand back `h`, but what another function returns is checked,
-    // not followed: `h`, which no mark reaches, keeps its own colour, and `pk`
-    // is accepted as its written types are.
-    const pick = "let pick(x: a, y: a): a = x\n" +
-      "let pkw(g: () -> Unit, h: () ->! Unit) = pick(() => g(), h)!()\nlet pk(g, h) = pick(() => g(), h)!()\n";
-    expect(reports(pick)).toEqual([]);
-    expect(face(pick, "pk")).toBe("(() -> a, () ->! a) >-> a");
-    expect(reports("let ident2(x: a, n: Int): a = x\nlet vi2(g, n: Int) = ident2(() => g(), n)!()\n"))
-      .toEqual([over("this call")]);
-    // Where no other call runs `g`, nothing reaches it, and it keeps its own
-    // colour, which the mark fits.
-    const nn4 = "let nn4(g) =\n    let id = (x) => x\n    id(id(g))!()\n";
-    expect(reports(nn4)).toEqual([]);
-    expect(face(nn4, "nn4")).toBe("(() ->! a) >-> a");
+    expect(face(source, "al")).toBe("(() ->! a) >-> a");
+    expect(face(source, "e4")).toBe("(() ->! a) >-> a");
+    expect(face(source, "handG")).toBe("(() ->~ Unit) >~> Unit");
+    expect(face(source, "ret")).toBe("(() ->! a) >-> a");
+    expect(face(source, "pk")).toBe("(() -> a, () ->! a) >-> a");
   });
 
   test("a call written bare reaches every colour it runs, whatever hands it the parameter", () => {
-    // A bare call says everything it runs is pure; `k` is no value made from
-    // `g`, and the bare `k()` still reaches it.
-    const source = "let nn6(g) =\n    let id = (x) => x\n    let k = id(id(g))\n    k()\n" +
-      "let nn3(g, f) =\n    let id = (x) => x\n    let k = id(id(g))\n    k()\n    f!()\n";
+    const source = PRE + "let nn6(g) =\n    let k = id(id(g))\n    k()\n" +
+      "let nn3(g, f) =\n    let k = id(id(g))\n    k()\n    f!()\n";
     expect(reports(source)).toEqual([]);
     expect(face(source, "nn6")).toBe("(() -> a) -> a");
     expect(face(source, "nn3")).toBe("(() -> Unit, () ->! a) >-> a");
-    // On each colour: `~` carries no fail part, so `r~()` reaches `g`'s fail
-    // colour as a bare call does, and the `!` beside it is the wrong mark.
-    expect(reports("let nn5(g) =\n    let id = (x) => x\n    let r = id(id(g))\n    r~()\n    r!()\n"))
-      .toEqual([["!", "this call cannot fail, so `r` wants `~`, not `!`"]]);
-  });
-
-  test("where a bare call and a mark meet through no value made from the parameter, the mark is the wrong one", () => {
-    const over = (callee: string) => [
-      "!",
-      `this call is pure and cannot fail, so ${callee} wants no mark, not \`!\``,
-    ];
-    // What a lambda returns, a tuple's part, a field, what a method returns
-    // and what a local `id` returns are each checked against the call's
-    // colour, which the bare `g()` has made pure.
-    expect(reports(
-      "let ret2(g) =\n    let get = () => g\n    g()\n    get()!()\n" +
-        "let up(g) =\n    let (r, n) = (() => g, 1)\n    g()\n    r()!()\n" +
-        "let mAccess(g) =\n    let r = { run = g }\n    g()\n    r.run!()\n" +
-        "let hd(g) =\n    g()\n    Some(g).defaultValue(() => ())!()\n" +
-        "let nn2(g) =\n    let id = (x) => x\n    g()\n    id(g)!()\n" +
-        "let rec3(g) =\n    fun loop(n: Int, k) = if n == 0 then k else loop(n - 1, k)\n    g()\n    loop(3, g)!()\n" +
-        "let mk(k) = () => k\nlet dblm(g) =\n    g()\n    mk(g)()!()\n" +
-        "let rp(g) =\n    let {run = r, n = n} = {run = () => g, n = 1}\n    g()\n    r()!()\n",
-    )).toEqual([
-      over("this call"),
-      over("this call"),
-      over("`.run`"),
-      over("this call"),
-      over("this call"),
-      over("this call"),
-      over("this call"),
-      over("this call"),
+    // On each colour: `~` carries no fail part, so `r~()` is a fact on the fail
+    // colour, and the `!` beside it is the wrong mark there.
+    expect(reports(PRE + "let nn5(g) =\n    let r = id(id(g))\n    r~()\n    r!()\n")).toEqual([
+      ["!", "this call cannot fail, so `r` wants `~`, not `!` — `r` is called `~`, which makes `g` unable to fail"],
+    ]);
+    expect(reports(PRE + "let w(g) =\n    g^()\n    g~()\n")).toEqual([
+      ["^", "this call cannot fail, so `g` wants no mark, not `^` — `g` is called `~`, which makes it unable to fail"],
+      ["~", "this call is pure, so `g` wants no mark, not `~` — `g` is called `^`, which makes it pure"],
     ]);
   });
 
-  test("a merge carries the mark, so two parameters it joins are a tie", () => {
+  test("a colour two untyped parameters share is silent where every mark stays true, and otherwise a tie", () => {
+    // A mark the shared colour need not make true: silent.
+    const silent = PRE + "let r4(g, f, c: Bool) = apply2!(if c then g else f, save0)\n";
+    expect(reports(silent)).toEqual([]);
+    expect(face(silent, "r4")).toBe("(() -> Unit, () -> Unit, Bool) ->! Unit");
+    // A bare call through one of them says nothing of the other: the mark needs
+    // the shared colour, so it is a tie, whose fix writes each parameter's own.
+    const tied = PRE + "let mg(g, f, c: Bool) =\n    g()\n    (if c then g else f)!()\n";
+    expect(reports(tied)).toEqual([
+      ["if c then g else f", "`g`'s colour is tied to `f`'s here, and inference cannot keep them apart — write `g`'s type, or wrap `g` where they meet"],
+    ]);
+    expect(fixes(tied)).toEqual([["write the types of `g` and `f`", [": () -> Unit", ": () ->! Unit"]]]);
     expect(reports("let t3(g, f, c: Bool) =\n    let m = if c then g else f\n    let run = () => m!()\n    run!()\n"))
       .toEqual([
-        ["if c then g else f", "`g`'s colour is tied to `f`'s here, and no written type can say that — write `g`'s type"],
+        ["if c then g else f", "`g`'s colour is tied to `f`'s here, and inference cannot keep them apart — write `g`'s type, or wrap `g` where they meet"],
       ]);
+    // A mark whose call runs nothing else that could be impure needs the shared
+    // colour: `h` is silent by its bare call, so silence would make the mark
+    // false, and the colour is a tie.
+    expect(reports(PRE + "let ns(g, f, h, c: Bool) =\n    h()\n    apply2!(if c then g else f, h)\n"))
+      .toEqual([
+        ["if c then g else f", "`g`'s colour is tied to `f`'s here, and inference cannot keep them apart — write `g`'s type, or wrap `g` where they meet"],
+      ]);
+    // The wrapper keeps them apart with no written type.
+    const wrapped = PRE + "let mge(g, f, c: Bool) =\n    g()\n    (if c then () => g() else () => f!())!()\n";
+    expect(reports(wrapped)).toEqual([]);
+    expect(face(wrapped, "mge")).toBe("(() -> Unit, () ->! Unit, Bool) >-> Unit");
   });
 
-  test("the parameter itself, an alias of it, and the parameter handed on still take the mark", () => {
-    const source = "let twice(h: () ->~ Unit) =\n    h~()\n    h~()\n" +
-      "let z(g) =\n    g()\n    g!()\n" +
-      "let al(g) =\n    let k = g\n    k!()\n" +
-      "let only(g) =\n    let run = () => g!()\n    run()\n" +
-      "let handG(g) = twice~(g)\n" +
-      "let ret(g) =\n    let get = () => g\n    get()!()\n" +
-      "let ap2(f) =\n    let k = f()\n    k~()\nlet use1(g) =\n    ap2~(g)\n    g()()\n" +
-      "let mBlock(g) =\n    let run =\n        let x = g\n        x\n    g()\n    run!()\n" +
-      "let mIfAlt(g, c: Bool) =\n    let run = if c then () => () else g\n    g()\n    run!()\n";
-    // A mark on a call handed `g` claims the arrows of what `g` returns too.
-    expect(reports(source)).toEqual([
-      ["g()", "this call is impure and may fail, so `g` wants `!`, not no mark"],
-      ["run()", "this call is impure and may fail, so `run` wants `!`, not no mark"],
-      ["g()()", "this call is impure, so this call wants `~`, not no mark"],
-      // A block's value and a merge's other arm carry the mark to `g`.
-      ["g()", "this call is impure and may fail, so `g` wants `!`, not no mark"],
-      ["g()", "this call is impure and may fail, so `g` wants `!`, not no mark"],
-    ]);
-    expect(face(source, "ret")).toBe("(() ->! a) >-> a");
-    expect(face(source, "al")).toBe("(() ->! a) >-> a");
-    expect(face(source, "handG")).toBe("(() ->~ Unit) >~> Unit");
-  });
-
-  test("a group, an ascription, every arm of a merge, and what a call of the parameter returns carry the mark", () => {
-    // Beside a bare call, a mark that reaches `g` claims it, and the bare call
-    // is the one that disagrees.
-    const wants = ["g()", "this call is impure and may fail, so `g` wants `!`, not no mark"];
-    expect(reports(
-      "let mGroup(g) =\n    g()\n    (g)!()\n" +
-        "let mAsc(g) =\n    g()\n    (g : _)!()\n" +
-        "let mIfCons(g, c: Bool) =\n    let run = if c then g else () => ()\n    g()\n    run!()\n" +
-        "let mMatch(g, c: Bool) =\n    let run = match c\n        True => () => ()\n        False => g\n    g()\n    run!()\n" +
-        "let mCatch(g) =\n    let run =\n        match parse^(\"1\")\n            1 => () => ()\n" +
-        "            _ => () => ()\n        catch\n            _ => g\n    g()\n    run!()\n" +
-        "let mTryBody(g) =\n    let run =\n        try\n            g\n        catch\n            _ => () => ()\n    g()\n    run!()\n" +
-        "let mTryArm(g) =\n    let run =\n        try\n            () => ()\n        catch\n            _ => g\n    g()\n    run!()\n" +
-        "let cr(g) =\n    let k = g()\n    k()\n    k~()\n",
-    )).toEqual([
-      wants,
-      wants,
-      wants,
-      wants,
-      wants,
-      wants,
-      wants,
-      ["k()", "this call is impure, so `k` wants `~`, not no mark"],
-    ]);
+  test("a parameter that meets a written type's impure constant is told to write its type, or wrap it there", () => {
+    const seam = (body: string) => PRE + `let s(f, c: Bool) =\n    ${body}\n    f()\n`;
+    const message = "this call is impure and may fail only because `f`, which has no written type, meets a written one — " +
+      "write `f`'s type, or wrap `f` where they meet: `() => f()`";
+    for (const body of ["let h = Holder({ run = f })", "(if c then f else save0)!()", "let a: () ->! Unit = f"]) {
+      expect([body, reports(seam(body))]).toEqual([body, [["f()", message]]]);
+      expect([body, fixes(seam(body))]).toEqual([body, [["write `f`'s type", [": () -> Unit"]]]]);
+    }
+    // The wrapper is the spelling that needs no written type.
+    const wrapped = seam("let h = Holder({ run = () => f() })");
+    expect(reports(wrapped)).toEqual([]);
+    expect(face(wrapped, "s")).toBe("(() -> Unit, Bool) -> Unit");
   });
 });
 
