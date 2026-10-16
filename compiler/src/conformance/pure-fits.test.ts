@@ -264,10 +264,10 @@ describe("only a colour the program's text decides is re-opened (R.b)", () => {
   test("a parameter joined with a pure function stays open for its other uses, in either order", () => {
     const k = (first: string, second: string): string =>
       `export let outer(action: () ->! Unit): Unit =\n    let k = (cb) =>\n        ${first}\n        ${second}\n        ()\n    ()\n`;
-    const tie = [["tieTwo(action, cb)", "`cb`'s colour is tied to `action`'s here, and no written type can say that — write `cb`'s type"]];
+    const tie = [["tieTwo(action, cb)", "`cb`'s colour is tied to `action`'s here, and inference cannot keep them apart — write `cb`'s type, or wrap `cb` where they meet"]];
     for (const join of ["let g = if True then cb else noop", "let g = [cb, noop]"]) {
       // Handed beside `action` at one type, the untyped callback's colour is
-      // `action`'s, which no written type can say (§3.4's tie), in either order;
+      // `action`'s, which inference cannot keep apart (§3.4's tie), in either order;
       // run by a callee that takes any function, it is its own.
       for (const [use, expected] of [["tieTwo(action, cb)", tie], ["impureOnly!(cb)", []]] as const) {
         expect([join, use, reports(k(join, use))]).toEqual([join, use, expected]);
@@ -369,14 +369,16 @@ describe("what the program's text decides, in any line order (R.b)", () => {
     }
     expect(verdict([inK([pin, "tieTwo(action, () => cb())"]), inK(["tieTwo(action, () => cb())", pin])]))
       .toEqual("fits");
-    // A returned lambda whose call claims `cb` takes its colour from `cb`, which
-    // the pin makes pure: the `!` is then a mark on a pure call, in either order.
+    // A returned lambda whose call marks `cb` takes its colour from `cb`, which
+    // the pin makes pure: the `!` is then a mark on a pure call, in either order,
+    // and its report names the meeting.
     for (const lines of [
       inK([pin, "let make = () => () => cb!()", "tieTwo(action, make())"]),
       inK(["let make = () => () => cb!()", "tieTwo(action, make())", pin]),
     ]) {
       expect(reports(body(lines)).map(([, message]) => message)).toEqual([
-        "this call is pure and cannot fail, so `cb` wants no mark, not `!`",
+        "this call is pure and cannot fail, so `cb` wants no mark, not `!` — `cb` meets a type that makes it pure " +
+        "and unable to fail",
       ]);
     }
   });

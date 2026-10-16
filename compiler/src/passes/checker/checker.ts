@@ -713,6 +713,8 @@ interface EffectFrame {
    */
   readonly untyped: {
     readonly name: string;
+    /** Its binding, so a call or a report can name it as written. */
+    readonly symbol: Resolved.SymbolId;
     readonly type: Mono;
     readonly span: Source.Span;
     /** Its position in the lambda's parameter list. */
@@ -727,19 +729,13 @@ interface EffectFrame {
      */
     ownAtClose?: boolean;
   }[];
-  /** The colours of the `!` calls written in this body or in a body nested in it: its claims. */
-  readonly marked: Mono[];
   /**
    * Every call written in this body or in a body nested in it, with its
-   * colour: what a call in error is handed is in error (`#settleUntyped`,
-   * Effects §3.5, #1223).
+   * colour: a bare call is a fact about every untyped parameter's colour it
+   * runs, and a mark is checked (`#settleUntyped`, Effects §3.4); what a call
+   * in error is handed is in error (§3.5, #1223).
    */
   calls?: { readonly effect: Mono; readonly call: Resolved.CallExpr }[];
-  /**
-   * The colours of the calls written bare in this body or in a body nested in
-   * it: an untyped parameter's colour one of them reads is pure (Effects §3.4).
-   */
-  readonly bare: Mono[];
   /**
    * The types of the untyped parameters of the bodies nested in this one: a
    * colour one of them shares with this body's untyped parameter is shared
@@ -4031,7 +4027,7 @@ class Checker {
   readonly #frameByLambda = new WeakMap<Resolved.LambdaExpr, EffectFrame>();
   /**
    * The callbacks' colours (Effects §2.4, §3.4): every written callback's, every
-   * untyped parameter's a `!` call claimed, and a constraint seat's fixed slots,
+   * untyped parameter's that no fact silenced, and a constraint seat's fixed slots,
    * which the body reads as its signature's. A body colour that prunes to one of
    * these is a dependency, which §3.4's defaulting never touches, and a call
    * colour that prunes to one wears `!`.
@@ -4193,6 +4189,27 @@ class Checker {
    * a later binding in its own chain is reached by walking `instance`.
    */
   readonly #colourPins = new WeakMap<Variable, Source.Span>();
+  /**
+   * Per marked call and colour, the fact that made silent what the call runs
+   * there (Effects §3.4): the mark's report names it, and offers to mark it (§9).
+   */
+  readonly #markFacts = new WeakMap<
+    Resolved.CallExpr,
+    Map<Axis, { readonly call: Resolved.CallExpr; readonly name: string; readonly only: boolean }>
+  >();
+  /**
+   * Per untyped parameter and colour (`symbol:axis`), where the text fixed its
+   * own arrow to a constant before its body settled: a `->` demand making it
+   * silent, the fact a mark on a call of it is told of; or a written type's
+   * impure constant, the limitation a bare call of it is told of (§3.4, §9).
+   */
+  readonly #ownArrowPins = new Map<string, { readonly silent: boolean; readonly span: Source.Span }>();
+  /** The colours on which an untyped parameter is called bare by its own name: a fix writing its type writes those silent (§9). */
+  readonly #calledBareItself = new Map<Resolved.SymbolId, Set<Axis>>();
+  /** The colours on which an untyped parameter is called by its own name with a mark carrying them: no seam reading is offered there (§9). */
+  readonly #calledMarkedItself = new Map<Resolved.SymbolId, Set<Axis>>();
+  /** Each untyped parameter by its binding, for a report about a call of it. */
+  readonly #untypedBySymbol = new Map<Resolved.SymbolId, EffectFrame["untyped"][number]>();
   /** A knot member's monotype variable (#947). */
   readonly #knotTypeVariables = new WeakSet<Variable>();
   /**
@@ -4234,7 +4251,7 @@ class Checker {
    */
   readonly #seatHeld = new Set<Variable>();
   /**
-   * The colours `!` calls claimed of untyped parameters, each with its
+   * The colours of untyped parameters that are their own, each with its
    * parameter's name (Effects §3.4): a tie between callbacks names them.
    */
   readonly #untypedColours = new ByRepresentative<{ readonly colour: Variable; readonly name: string; readonly owner?: string | undefined }>(
@@ -4435,7 +4452,7 @@ class Checker {
   #atParameter = false;
   /**
    * The colours a demand in error met that something else decides (Effects
-   * §3.5, #1223): a written callback's, or a claimed one's, handed to a call
+   * §3.5, #1223): a written callback's, or an untyped one's own, handed to a call
    * whose callee failed, met by a type written in error, or handed into a
    * slot in error. Each keeps its colour, but whether the failure pins it pure
    * is what the error hides, so a `!` it alone makes owed is held back
@@ -8973,8 +8990,6 @@ class Checker {
             fail: undefined,
             absorbed: [],
             untyped: [],
-            marked: [],
-            bare: [],
             nestedUntyped: [],
           };
           this.#failTwin(frame, this.#fresh(level + 1, false));
@@ -9292,8 +9307,6 @@ class Checker {
             fail: undefined,
             absorbed: [],
             untyped: [],
-            marked: [],
-            bare: [],
             nestedUntyped: [],
           };
           this.#failTwin(frame, this.#fresh(level + 1, false));
@@ -10992,8 +11005,6 @@ class Checker {
           fail: undefined,
           absorbed: [],
           untyped: [],
-          marked: [],
-          bare: [],
           nestedUntyped: [],
         };
         this.#failTwin(effectFrame, writtenOwnFail ?? this.#fresh(level + 1, false));
@@ -11084,14 +11095,15 @@ class Checker {
               )!;
           if (parameter.annotation === undefined) {
             if (face !== undefined) face.untyped[0] = true;
-            // A parameter nothing typed is decided by the marks of the calls
-            // it flows into (Effects §3.4); one a callee's signature typed is
-            // what that signature says.
+            // A parameter nothing typed is decided by the facts about it, the
+            // calls written bare that run it (Effects §3.4); one a callee's
+            // signature typed is what that signature says.
             if (component === undefined || this.#prune(component).kind === "Variable") {
               for (const axis of AXES) {
                 const frame = frameOn(effectFrame, axis);
                 frame.untyped.push({
                   name: parameter.name,
+                  symbol: parameter.symbol,
                   type: parameterType,
                   span: parameter.span,
                   index,
@@ -20506,7 +20518,7 @@ class Checker {
     if (colours.length > 0 && this.#decidedBinding(symbol)) {
       // A callback's or a knot's colour is held already, and its hold ends
       // where no value's does. An open body's untyped callback is that body's
-      // to decide by its claims, a colour the environment holds (#1230).
+      // to decide by its facts, a colour the environment holds (#1230).
       for (const colour of colours) {
         if (!this.#heldDependency(colour) && !this.#undecided(colour)) this.#valueColours.add(colour);
       }
@@ -21793,8 +21805,6 @@ class Checker {
       fail: undefined,
       absorbed: [],
       untyped: [],
-      marked: [],
-      bare: [],
       nestedUntyped: [],
     };
     frame.fail = twin;
@@ -22226,10 +22236,10 @@ class Checker {
    * Records `enclosing ⊒ colour` for a call written in the current body, and
    * the mark obligation the same call owes. Both are settled after inference:
    * a colour is not yet solved where the call is written, and the join a body
-   * computes is not a unification until every call in it is known. A `!` call
-   * is also a **claim** on every body it stands in (Effects §3.4): the colours
-   * it reaches of an untyped parameter are that parameter's, decided by the
-   * mark. A call written bare is recorded too: what it reaches is pure.
+   * computes is not a unification until every call in it is known. Every call
+   * is also recorded on every body it stands in (Effects §3.4): a call
+   * written bare is a fact, everything it runs silent, and a mark is checked
+   * and decides nothing (`#settleUntyped`).
    */
   #registerCall(
     expression: Resolved.CallExpr,
@@ -22247,15 +22257,13 @@ class Checker {
     this.#registeredCalls.add(expression);
     const { effect } = colours;
     // Recorded on each colour's frame, each with that colour (Effects §1). A
-    // mark claims the colours it carries: `!` both, `~` the world colour, `^`
-    // the fail colour.
+    // mark carries its colours, `!` both, `~` the world colour, `^` the fail
+    // colour, and is bare on the others.
     for (const axis of AXES) {
       const colour = axis === "fail" ? colours.fail : colours.effect;
       const own = frame === undefined ? undefined : frameOn(frame, axis);
       own?.absorbed.push({ effect: colour, span: expression.span, mark: expression.mark });
-      const read = markParts(expression.mark)[axis] ? "marked" : "bare";
       for (let enclosing = own; enclosing !== undefined; enclosing = enclosing.enclosing) {
-        enclosing[read].push(colour);
         (enclosing.calls ??= []).push({ effect: colour, call: expression });
       }
     }
@@ -22330,9 +22338,9 @@ class Checker {
 
   /**
    * A body's close after its arms (Effects §3.4), in order: its untyped
-   * parameters no `!` call claimed default pure; the arrows inside its untyped
+   * parameters are decided by the facts about them; the arrows inside its untyped
    * callbacks close, what they hand back first; the hard cases its level owns
-   * settle; whatever else nothing claimed defaults pure; and a tie between
+   * settle; whatever else nothing decided defaults pure; and a tie between
    * callbacks is refused. A knot runs this for each member after the knot's
    * own arms, its ties read apart (`#closeKnotFrames`).
    */
@@ -22347,7 +22355,7 @@ class Checker {
 
   /**
    * A knot's frames, closed together *(#1215)*: every frame's decisions
-   * outermost first, as a held lambda's close reads the claims its member's
+   * outermost first, as a held lambda's close reads the facts its member's
    * close decides; then the ties innermost first, so a held lambda's tie waits
    * on its member as it would on any enclosing body. The bodies around a held
    * lambda that closed before it decided their ties at their close, and report
@@ -22381,7 +22389,7 @@ class Checker {
    * closes, so nothing real is still on its way.
    */
   #settleOpenedCalls(frame: EffectFrame): void {
-    // The body's own untyped parameters are decided by their claims, which are
+    // The body's own untyped parameters are decided by the facts about them,
     // read after this (`#settleUntyped`): a slack one met is theirs to settle.
     const untyped = frame.untyped.flatMap(({ type }) =>
       this.#spineColours(type, frameAxis(frame)).flatMap(({ arrow }) => this.#colourParts(arrow))
@@ -22453,20 +22461,21 @@ class Checker {
 
   /**
    * §3.4's second step: an untyped parameter the body uses as a function is
-   * decided by the marks of the calls it flows into. A `!` call claims its
-   * colour, as a written `->!` on the parameter would — the colour is a
-   * callback's from then on, a dependency that generalizes — and a colour a
-   * call written bare reads is pure. A colour no call reads at all, the
-   * parameter only handed on or returned, is the parameter's own, as writing
-   * its type would make it *(#1178)*; where two untyped parameters share it,
-   * no written type can say so, and it is pure. Claims are read from the
-   * marks, which are written, and this runs only once the body settles, so
-   * neither the verdict nor the report depends on the order of the lines.
+   * decided by the facts about it. A call written bare is one: everything it
+   * runs is silent, through any label. A mark is no fact: it is checked
+   * against its call's colour once the body settles, and decides nothing
+   * (Effects §2.6). A colour no fact reaches is the parameter's own, as
+   * writing its type would make it *(#1178)*: a callback's from then on, a
+   * dependency that generalizes. A colour two untyped parameters share is
+   * decided by no fact: it is silent where that leaves every mark true, and
+   * otherwise their own, a tie the close refuses. Facts are read from the
+   * text and this runs only once the body settles, so neither the verdict nor
+   * the report depends on the order of the lines.
    */
   #settleUntyped(frame: EffectFrame): void {
     // What a call in error is handed is in error where nothing else decides
-    // it (Effects §3.5, #1223): whether the call runs it, and claims it, is
-    // what the error hides.
+    // it (Effects §3.5, #1223): whether the call runs it, and under what mark,
+    // is what the error hides.
     const failedHands = new Set<Variable>();
     // Where the callee itself failed, its parameters are hidden too, so
     // whether it pins what it is handed pure is hidden: a colour something
@@ -22490,33 +22499,60 @@ class Checker {
     }
     this.#holdBack(pinsHidden);
     if (frame.untyped.length === 0) return;
-    const claimed = new Set<Variable>();
-    for (const colour of frame.marked) {
-      for (const part of this.#colourParts(colour)) claimed.add(part);
+    // A call written bare is a fact: everything it runs is silent, through any
+    // label (Effects §3.4). A mark is no fact: it is checked against its
+    // call's colour once the body settles, and decides nothing (§2.6).
+    const axis = frameAxis(frame);
+    const readBy = new Map<Variable, Resolved.CallExpr>();
+    const readers = new Map<Variable, number>();
+    const marked: { readonly call: Resolved.CallExpr; readonly parts: Variable[] }[] = [];
+    for (const { effect, call } of frame.calls ?? []) {
+      if (markParts(call.mark)[axis]) {
+        marked.push({ call, parts: this.#colourParts(effect) });
+        const callee = ungrouped(call.callee);
+        if (callee.kind === "Name" && frame.untyped.some((each) => each.symbol === callee.symbol)) {
+          let axes = this.#calledMarkedItself.get(callee.symbol);
+          if (axes === undefined) this.#calledMarkedItself.set(callee.symbol, axes = new Set());
+          axes.add(axis);
+        }
+        continue;
+      }
+      for (const part of this.#colourParts(effect)) {
+        const first = readBy.get(part);
+        if (first === undefined || precedes(call.span, first.span)) readBy.set(part, call);
+        readers.set(part, (readers.get(part) ?? 0) + 1);
+      }
+      // A bare call of the parameter by its own name: a fix writing its type
+      // writes this colour silent (§9).
+      const callee = ungrouped(call.callee);
+      if (callee.kind === "Name" && frame.untyped.some((each) => each.symbol === callee.symbol)) {
+        let axes = this.#calledBareItself.get(callee.symbol);
+        if (axes === undefined) this.#calledBareItself.set(callee.symbol, axes = new Set());
+        axes.add(axis);
+      }
     }
-    const read = new Set<Variable>();
-    for (const colour of frame.bare) {
-      for (const part of this.#colourParts(colour)) read.add(part);
+    // Where the text fixed a parameter's own arrow to a constant before its
+    // body settled, read before anything here decides it (§9).
+    for (const parameter of frame.untyped) {
+      this.#untypedBySymbol.set(parameter.symbol, parameter);
+      const pin = this.#ownArrowPin(parameter.type, axis);
+      if (pin !== undefined) this.#ownArrowPins.set(`${Number(parameter.symbol)}:${axis}`, pin);
     }
     // Every parameter is read before any is decided: a colour shared with a
-    // sibling untyped parameter is still this body's to decide, and claimed it
-    // is a tie, which the close refuses.
+    // sibling untyped parameter is still this body's to decide.
     const decisions = frame.untyped.map((parameter) => {
-      const spine = this.#spineColours(parameter.type, frameAxis(frame)).flatMap(({ arrow }) => this.#colourParts(arrow));
-      const isClaimed = spine.some((colour) => claimed.has(colour));
+      const spine = this.#spineColours(parameter.type, axis).flatMap(({ arrow }) => this.#colourParts(arrow));
       return {
         parameter,
         owned: spine.filter((colour) => !this.#isDependency(frame, colour)),
-        claimed: isClaimed,
-        // A colour a use in error met by a merge is in error, claimed or not:
-        // it is that use's colour too.
-        inError: spine.some((colour) => this.#errorFloors.has(colour)) ||
-          (!isClaimed && spine.some((colour) => failedHands.has(colour))),
+        // A colour a use in error met by a merge is in error, and so is one a
+        // call in error is handed: whether that call runs it, and under what
+        // mark, is what the error hides (§3.5).
+        inError: spine.some((colour) => this.#errorFloors.has(colour) || failedHands.has(colour)),
       };
     });
-    // A colour no call reads stays the parameter's own where no other untyped
-    // parameter shares it, this body's or one nested in it, which left the
-    // colour to this body.
+    // A colour is shared where another untyped parameter's spine holds it,
+    // this body's or one nested in it, which left the colour to this body.
     const ownedBy = new Map<Variable, number>();
     for (const { owned } of decisions) {
       for (const colour of new Set(owned.map((part) => this.#prune(part)))) {
@@ -22529,25 +22565,55 @@ class Checker {
         if (colour.kind === "Variable" && ownedBy.has(colour)) ownedBy.set(colour, ownedBy.get(colour)! + 1);
       }
     }
-    const ownColour = (colour: Mono): boolean => {
+    // A colour two untyped parameters share is decided by no fact: a bare
+    // call through one says nothing of the other, though inference cannot keep
+    // them apart (§3.4). It is silent where that leaves every mark true, and
+    // otherwise the parameters' own, which the close refuses as a tie.
+    const shared = (colour: Mono): boolean => {
       const pruned = this.#prune(colour);
-      return pruned.kind === "Variable" && !read.has(pruned) && ownedBy.get(pruned) === 1;
+      return pruned.kind === "Variable" && (ownedBy.get(pruned) ?? 0) > 1;
     };
-    // Each arrow of the callback's own spine on its own (Effects §2.4): a
-    // claim on one arrow makes that arrow's colour the callback's, and an
-    // arrow a bare call read stays pure, as writing the type would say.
+    // A part keeps a mark true where it is a colour that may be impure for
+    // good: this body's parameter's own, or a callback's. A part another body
+    // decides, still open here (an enclosing body's untyped parameter, a
+    // knot's colour), may yet be made silent by a fact there, so it is read as
+    // one that may: nothing waits for it (§3.4).
+    const keepsTrue = (part: Variable): boolean =>
+      ownedBy.has(part)
+        ? !shared(part) && !readBy.has(part)
+        : this.#isLinkedColour(part) || this.#seatHeld.has(part);
+    const needed = new Set<Variable>();
+    for (const { parts } of marked) {
+      if (parts.some((part) => shared(part)) && parts.every((part) => shared(part) || !keepsTrue(part))) {
+        for (const part of parts) if (shared(part)) needed.add(part);
+      }
+    }
     for (const { parameter, owned, inError } of decisions) {
       for (const colour of owned) {
+        const pruned = this.#prune(colour);
+        if (pruned.kind !== "Variable") continue;
         if (inError) {
-          if (this.#prune(colour).kind === "Variable") colour.instance = ERROR_COLOUR;
-        } else if (claimed.has(colour) || ownColour(colour)) {
+          colour.instance = ERROR_COLOUR;
+        } else if (shared(pruned) ? needed.has(pruned) : !readBy.has(pruned)) {
           this.#linkedColours.push(colour);
           if (!this.#untypedColours.get(this.#prune(colour)).some((entry) => entry.name === parameter.name)) {
             this.#untypedColours.add(colour, { colour, name: parameter.name, owner: frame.owner });
           }
           // A pattern parameter's minted binder is no name to show (Lexer §3.2).
           if (!isCompilerMinted(parameter.name)) this.#namedColours.push({ colour, name: parameter.name, owner: frame.owner });
-        } else if (this.#prune(colour).kind === "Variable") {
+        } else {
+          // The fact that silenced it, for a mark that then says otherwise (§9).
+          const fact = shared(pruned) ? undefined : readBy.get(pruned);
+          if (fact !== undefined) {
+            const told = { call: fact, name: parameter.name, only: readers.get(pruned) === 1 };
+            for (const { call, parts } of marked) {
+              if (!parts.includes(pruned)) continue;
+              let facts = this.#markFacts.get(call);
+              if (facts === undefined) this.#markFacts.set(call, facts = new Map());
+              const known = facts.get(axis);
+              if (known === undefined || precedes(fact.span, known.call.span)) facts.set(axis, told);
+            }
+          }
           colour.instance = this.#undecidedColour(colour);
         }
       }
@@ -22577,8 +22643,7 @@ class Checker {
       for (let node: Mono = type; node.kind === "Function"; node = this.#prune(node.result)) spine.push(node);
       // What it hands back first: its own function type's arrows are its
       // colour, each on the colours it marks (Effects §2.4). An arrow silent
-      // on this colour stays silent: one a bare call read and no claim made
-      // the callback's (`#settleUntyped`).
+      // on this colour stays silent: one a fact made so (`#settleUntyped`).
       const marking = spine.filter((arrow) => !this.#silentAtClose(colourAt(arrow, axis) ?? PURE));
       const own = marking[0] === undefined ? PURE : colourAt(marking[0], axis) ?? PURE;
       for (const arrow of marking.slice(1)) this.#unify(own, colourAt(arrow, axis) ?? PURE, parameter.span);
@@ -22600,8 +22665,8 @@ class Checker {
 
   /**
    * Whether an untyped callback's arrow is silent on a colour where its body
-   * closes (§3.4's black box): pure already, as a bare call that read it and
-   * no claim leaves it (`#settleUntyped`).
+   * closes (§3.4's black box): pure already, as a fact that read it leaves it
+   * (`#settleUntyped`).
    */
   #silentAtClose(colour: Mono): boolean {
     const actual = this.#prune(colour);
@@ -23061,7 +23126,10 @@ class Checker {
     const fixes = (): TieFixes => {
       const readings = tied.map((each) => {
         const eachType = this.#prune(each.type);
-        return eachType.kind === "Function" ? this.#blackBoxReading(eachType) : undefined;
+        // Its own arrow silent where it is called bare by its own name (§9).
+        return eachType.kind === "Function"
+          ? this.#blackBoxReading(this.#silencedOwn(eachType, this.#silentByItself(each.symbol)))
+          : undefined;
       });
       if (readings.some((reading) => reading === undefined)) return {};
       return {
@@ -23078,8 +23146,8 @@ class Checker {
     };
     const diagnostic: Diagnostics.Diagnostic = {
       severity: "error",
-      message: `\`${parameter.name}\`'s colour is tied to ${phrase} here, and no written type can say ` +
-        `that — write \`${parameter.name}\`'s type`,
+      message: `\`${parameter.name}\`'s colour is tied to ${phrase} here, and inference cannot keep them apart ` +
+        `— write \`${parameter.name}\`'s type, or wrap \`${parameter.name}\` where they meet`,
       primary: (from === undefined ? undefined : this.#tieSpan(parameter.type, from)) ?? parameter.span,
       labels: tied.map((each) => ({
         span: each.span,
@@ -23088,6 +23156,17 @@ class Checker {
       ...fixes(),
     };
     this.#diagnostics.add(diagnostic);
+    // The tie answers a bare call of a tied parameter by its own name on a
+    // colour its fix writes silent (§9). A call any other way, or one its own
+    // marks contradict, keeps its report.
+    const symbols = new Set(tied.map((each) => each.symbol));
+    for (const obligation of this.#markObligations) {
+      const callee = ungrouped(obligation.call.callee);
+      if (callee.kind !== "Name" || !symbols.has(callee.symbol)) continue;
+      const written = markParts(obligation.mark);
+      const silent = this.#silentByItself(callee.symbol);
+      for (const axis of AXES) if (!written[axis] && silent.has(axis)) this.#answerCall(obligation, axis);
+    }
     // A tie found on the world colour is found before the fail colour settles,
     // and the fix writes each colour as it settles (§3.4's black-box reading):
     // its fix is read again at the module's end.
@@ -23100,7 +23179,7 @@ class Checker {
   /**
    * The fixes of the ties reported on the world colour, read again at the
    * module's end, where every fail colour has settled: a colour the fail
-   * colour's claims left silent is written silent (§3.4's black-box reading).
+   * colour's facts left silent is written silent (§3.4's black-box reading).
    * One point, late enough for every body's fail colour, a knot's included.
    */
   #rereadTieFixes(): void {
@@ -23307,7 +23386,7 @@ class Checker {
    * #1231)*. A recursive call hands on only the callbacks its member was given
    * (#1218), so no member meets any other callback written inside it: the held
    * lambda's, those of the lambdas around it there, or a local signature's.
-   * Its untyped parameters are decided by its claims here, where it closes, and
+   * Its untyped parameters are decided by its facts here, where it closes, and
    * the arrows inside them close, as any lambda's do; and the colours of those
    * callbacks that its calls run are taken out of the calls the knot reads and
    * joined into its arrow beside a fresh colour at the knot's level, the part
@@ -23662,8 +23741,8 @@ class Checker {
 
   /**
    * Whether a colour is still to be decided by a close not yet reached: a
-   * knot's, or an open body's untyped callback's, which that
-   * body's claims decide (Effects §3.4).
+   * knot's, or an open body's untyped callback's, which the facts in that
+   * body decide (Effects §3.4).
    */
   #undecided(part: Variable): boolean {
     if (this.#knots.some((knot) => this.#knotColour(knot, part))) return true;
@@ -24515,7 +24594,7 @@ class Checker {
 
   /**
    * The defaulting clause. A body's own colour, or any part of it, that nothing
-   * claimed — no callback's colour, no knot's, no enclosing body's — is
+   * decided — no callback's colour, no knot's, no enclosing body's — is
    * unconstrained, and pure instantiates anywhere, so pure is the harmless
    * answer (Effects §3.4).
    */
@@ -24535,7 +24614,7 @@ class Checker {
 
   /**
    * What §3.4's defaulting never touches *(#868)*: a callback's colour, written
-   * or claimed; an enclosing body's own colour; the colour of an enclosing
+   * or an untyped parameter's own; an enclosing body's own colour; the colour of an enclosing
    * body's untyped parameter, which that body's close decides; an open seat's
    * slot; and a knot's colour while the knot is open. `parameter` is the one
    * untyped parameter whose own colours are being decided, which are no
@@ -24725,7 +24804,7 @@ class Checker {
 
   /**
    * Whether a colour is a dependency held apart from any one body: a callback's
-   * colour, written or claimed, or an open knot's (a sibling's). A slack such a
+   * colour, written or an untyped parameter's own, or an open knot's (a sibling's). A slack such a
    * colour reached is that colour's, never an opening's to settle.
    */
   #heldDependency(variable: Variable): boolean {
@@ -25679,6 +25758,7 @@ class Checker {
    * call does on each colour whose part is wrong.
    */
   #checkMarks(): void {
+    const byCall = new Map(this.#markObligations.map((obligation) => [obligation.call, obligation]));
     for (const obligation of this.#markObligations) {
       // Read before the prune below compresses the chain (`#pastHeldBack`).
       const pastHeldBack: Record<Axis, Mono[] | undefined> = {
@@ -25738,20 +25818,108 @@ class Checker {
           ? required.world ? "is impure" : "is pure"
           : required.fail ? "may fail" : "cannot fail"
       );
+      // A call of an untyped parameter by its own name, for what the text
+      // fixed of its own arrow (`#ownArrowPins`).
+      const callee = ungrouped(obligation.call.callee);
+      const parameter = callee.kind === "Name" ? this.#untypedBySymbol.get(callee.symbol) : undefined;
+      const pinOn = (axis: Axis) =>
+        parameter === undefined ? undefined : this.#ownArrowPins.get(`${Number(parameter.symbol)}:${axis}`);
+      const over = wrong.filter((axis) => written[axis] && required[axis] === false);
+      const missing = wrong.filter((axis) => !written[axis] && required[axis] === true);
+      // §3.4's limitation: a bare call of a parameter whose own arrow a written
+      // type's impure constant fixed can be true, so the report names what
+      // works, the parameter's written type or the wrapper, not a mark.
+      // Not where a mark on a call of the parameter itself carries a colour the
+      // fix writes silent: that type would make the mark the wrong one.
+      const fixSilent = parameter === undefined
+        ? new Set<Axis>()
+        : new Set<Axis>([...missing, ...(this.#calledBareItself.get(parameter.symbol) ?? [])]);
+      if (parameter !== undefined && over.length === 0 && missing.length === wrong.length &&
+        missing.every((axis) => pinOn(axis)?.silent === false) &&
+        ![...fixSilent].some((axis) => this.#calledMarkedItself.get(parameter.symbol)?.has(axis) === true)) {
+        const name = parameter.name;
+        const type = this.#prune(parameter.type);
+        const silentOn = fixSilent;
+        const reading = type.kind === "Function" ? this.#blackBoxReading(this.#silencedOwn(type, silentOn)) : undefined;
+        // What it met: its own type as that meeting fixed it.
+        const met = this.#display(parameter.type, "callback");
+        this.#diagnostics.add({
+          severity: "error",
+          message: `this call ${does.join(" and ")} only because \`${name}\`, which has no written type, meets ` +
+            `\`${met}\` — write \`${name}\`'s type, or wrap \`${name}\` where it meets it: \`() => ${name}()\``,
+          primary: obligation.markSpan ?? obligation.span,
+          labels: [{ span: pinOn(missing[0]!)!.span, message: `\`${name}\` meets \`${met}\` here` }],
+          ...(reading === undefined ? {} : {
+            fixes: [{
+              message: `write \`${name}\`'s type`,
+              edits: [{ span: { ...parameter.span, start: parameter.span.end }, replacement: `: ${reading}` }],
+            }],
+          }),
+        });
+        continue;
+      }
+      // A mark a fact contradicts (§3.4): the report names the fact, and where
+      // the fact is a bare call, offers to mark it instead.
+      const facts = this.#markFacts.get(obligation.call);
+      const fact = over.map((axis) => facts?.get(axis)).find((each) => each !== undefined);
+      const demanded = fact === undefined && over.some((axis) => pinOn(axis)?.silent === true)
+        ? pinOn(over.find((axis) => pinOn(axis)?.silent === true)!)
+        : undefined;
+      const silent = over.map((axis) => axis === "world" ? "pure" : "unable to fail").join(" and ");
+      const factOf = fact === undefined ? undefined : byCall.get(fact.call);
+      // The bare call is named as written: the parameter itself, or the
+      // function whose label runs it (\`h()\` running \`action\`).
+      // A fact is bare on the colour it decides: written bare, or with a mark
+      // that carries no part there (\`r~()\` on the fail colour).
+      const how = factOf === undefined || factOf.mark === undefined
+        ? "bare"
+        : markName(markParts(factOf.mark));
+      const factWords = fact === undefined || factOf === undefined
+        ? undefined
+        : factOf.callee === `\`${fact.name}\``
+        ? ` — ${factOf.callee} is called ${how}, which makes it ${silent}`
+        : factOf.callee === "this call"
+        ? ` — a call written ${how} runs \`${fact.name}\`, which makes it ${silent}`
+        : ` — ${factOf.callee} is called ${how}, which makes \`${fact.name}\` ${silent}`;
+      const factMark = factOf === undefined ? undefined : {
+        world: markParts(factOf.mark).world || over.includes("world"),
+        fail: markParts(factOf.mark).fail || over.includes("fail"),
+      };
       this.#diagnostics.add({
         severity: "error",
         message: `this call ${does.join(" and ")}, so ${obligation.callee} wants ` +
           `${[wanted, ...(alternative === undefined ? [] : [alternative])].map(markName).join(" or ")}, ` +
-          `not ${markName(written)}`,
+          `not ${markName(written)}` +
+          (factWords !== undefined
+            ? factWords
+            : demanded !== undefined && parameter !== undefined
+            ? ` — \`${parameter.name}\` meets a type that makes it ${silent}`
+            : ""),
         primary: obligation.markSpan ?? obligation.span,
-        fixes: [{
-          message: wanted.world || wanted.fail ? `mark the call ${markName(wanted)}` : "remove the mark",
-          edits: [
-            obligation.markSpan === undefined
-              ? { span: obligation.insertAt, replacement: markSpelling(wanted) }
-              : { span: obligation.markSpan, replacement: markSpelling(wanted) },
-          ],
-        }],
+        ...(factWords !== undefined && fact !== undefined
+          ? { labels: [{ span: fact.call.span, message: `called ${how} here` }] }
+          : demanded !== undefined && parameter !== undefined
+          ? { labels: [{ span: demanded.span, message: `\`${parameter.name}\` meets a type here that makes it ${silent}` }] }
+          : {}),
+        fixes: [
+          {
+            message: wanted.world || wanted.fail ? `mark the call ${markName(wanted)}` : "remove the mark",
+            edits: [
+              obligation.markSpan === undefined
+                ? { span: obligation.insertAt, replacement: markSpelling(wanted) }
+                : { span: obligation.markSpan, replacement: markSpelling(wanted) },
+            ],
+          },
+          ...(factOf === undefined || factMark === undefined || fact === undefined || !fact.only ? [] : [{
+            message: `mark ${factOf.callee === "this call" ? "the bare call" : `the call of ${factOf.callee}`} ` +
+              markName(factMark),
+            edits: [
+              factOf.markSpan === undefined
+                ? { span: factOf.insertAt, replacement: markSpelling(factMark) }
+                : { span: factOf.markSpan, replacement: markSpelling(factMark) },
+            ],
+          }]),
+        ],
       });
     }
   }
@@ -26344,7 +26512,7 @@ class Checker {
         case "Function":
           for (const each of actual.parameters) {
             // A parameter whose whole type is the variable is an untyped one:
-            // its colours are decided by its own claims (§3.4), which no
+            // its colours are decided by its own calls (§3.4), which no
             // repair of a value pins.
             if (!parameter && this.#prune(each).kind === "Variable") continue;
             visit(each, !parameter);
@@ -27696,6 +27864,41 @@ class Checker {
     if (!this.#firstMeetings.has(variable)) this.#firstMeetings.set(variable, span);
     for (const part of join.parts) if (!this.#firstMeetings.has(part)) this.#firstMeetings.set(part, span);
     variable.instance = join;
+  }
+
+  /**
+   * Where the text fixed an untyped parameter's own arrow to a constant on a
+   * colour (§3.4): the pin on the arrow's colour, or, where the parameter's
+   * type was bound whole to a written function type, that meeting.
+   */
+  #ownArrowPin(type: Mono, axis: Axis): { readonly silent: boolean; readonly span: Source.Span } | undefined {
+    const actual = this.#prune(type);
+    if (actual.kind !== "Function") return undefined;
+    const slot = colourAt(actual, axis) ?? PURE;
+    const settled = this.#prune(slot);
+    if (settled.kind !== "Effect") return undefined;
+    let span = this.#colourPin(slot);
+    for (let node: Mono | undefined = type; span === undefined && node?.kind === "Variable"; node = node.instance) {
+      const bound = this.#binds.get(node);
+      if (bound !== undefined && this.#prune(bound.target).kind === "Function") span = bound.span;
+    }
+    return span === undefined ? undefined : { silent: Colour.isBottom(settled), span };
+  }
+
+  /**
+   * The colours a fix writing an untyped parameter's type writes silent on its
+   * own arrow (§9): those it is called bare on by its own name, less those a
+   * call of it by its own name marks, where the two would contradict.
+   */
+  #silentByItself(symbol: Resolved.SymbolId, also: readonly Axis[] = []): Set<Axis> {
+    const marked = this.#calledMarkedItself.get(symbol);
+    return new Set([...also, ...this.#calledBareItself.get(symbol) ?? []].filter((axis) => marked?.has(axis) !== true));
+  }
+
+  /** A function type with its own arrow silent on these colours, as a fix writing it reads (§9). */
+  #silencedOwn(type: FunctionMono, axes: ReadonlySet<Axis> | undefined): FunctionMono {
+    if (axes === undefined || axes.size === 0) return type;
+    return { ...type, ...(axes.has("world") ? { effect: PURE } : {}), ...(axes.has("fail") ? { fail: PURE } : {}) };
   }
 
   /**

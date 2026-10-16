@@ -789,7 +789,7 @@ export let use(): Unit = mk(noop)()
         text(source).slice(diagnostic.primary.start.offset, diagnostic.primary.end.offset),
         diagnostic.message.split(", and this face's")[0],
       ]);
-    // An enclosing body's untyped callback: decided by its claims at its close.
+    // An enclosing body's untyped callback: decided by its facts at its close.
     for (const value of ["let g = () => action!()\n        g", "() => action!()"]) {
       expect(at(`let outer(action): Unit =
     action!()
@@ -798,7 +798,7 @@ export let use(): Unit = mk(noop)()
     h(() => ())!()
 `)).toEqual([["action!()", "this call runs `outer`'s `action`, which this signature is not handed"]]);
     }
-    // Unclaimed, it is pure: nothing to report.
+    // Called bare, it is pure: nothing to report.
     expect(at(`let outer(action): Unit =
     let h(cb: () ->! Unit): () >-> Unit =
         let g = () => action()
@@ -934,13 +934,13 @@ export let h(cb: () ->! Unit): () >-> Unit = save0
   });
 });
 
-describe("Effects §3.4 — a parameter with no written type is decided by its call marks", () => {
+describe("Effects §3.4 — a parameter with no written type is decided by the facts about it", () => {
   const fixtures = "export let apply2(f: () ->! Unit, g: () ->! Unit): Unit =\n    f!()\n    g!()\n" +
     "export let pureOnly(f: () -> Unit): Unit = f()\n";
   const text = (source: string): string => "module Main\n\n" + fixtures + source;
   const check = (source: string): readonly string[] => effectDiagnostics([["/main.hex", text(source)]]);
 
-  it("a `!` call claims the parameter's colour, and one no `!` claims is pure", () => {
+  it("a colour no fact reaches is the parameter's own, and one a bare call runs is pure", () => {
     // §3.4's own examples, each with the face the spec gives it.
     const source = `let twice(f) =
     f!()
@@ -960,25 +960,29 @@ let relay(f: () ->! Unit, g): Unit = g!(f)
     expect(hoveredType(text(source), "relay(")).toBe("(() ->! Unit, (() ->! Unit) ->! Unit) >-> Unit");
   });
 
-  it("a claimed colour is a callback's: a bare call on it is the missing-mark report", () => {
+  it("a bare call is a fact: a mark beside it is the wrong one, and its report names the fact", () => {
+    // A mark decides nothing (§2.6); the bare call says `f` is pure.
     expect(check("let mixed(f) =\n    f!()\n    f()\n")).toEqual([
-      "this call is impure and may fail, so `f` wants `!`, not no mark",
+      "this call is pure and cannot fail, so `f` wants no mark, not `!` — `f` is called bare, which makes it pure " +
+      "and unable to fail",
     ]);
   });
 
-  it("a claimed colour something else pins pure is pure, and the `!` is the mark report", () => {
+  it("a `->` demand is a fact: the `!` beside it is the mark report, naming the meeting", () => {
     // `pinned(f)`: the `->` demand decides the colour, and there is no written
     // arrow for a lie-of-generality report to name.
     for (const lines of [["pureOnly(f)", "f!()"], ["f!()", "pureOnly(f)"]]) {
       expect(check(`let pinned(f) =\n    ${lines[0]}\n    ${lines[1]}\n`)).toEqual([
-        "this call is pure and cannot fail, so `f` wants no mark, not `!`",
+        "this call is pure and cannot fail, so `f` wants no mark, not `!` — `f` meets a type that makes it pure and " +
+        "unable to fail",
       ]);
     }
   });
 
-  it("a claim made in a nested body is the enclosing parameter's, and never generalizes there", () => {
+  it("a colour a nested body runs is the enclosing parameter's, and never generalizes there", () => {
     // `h` runs `action`, a colour of `outer`'s environment: `h` does not
-    // quantify it, so `h`'s `!` claims it and `outer` follows it.
+    // quantify it, no fact silences it, so it is `action`'s own and `outer`
+    // follows it.
     const world = 'extern from "./world.js"\n    export fun save(document: String) ->! Unit\n';
     for (const helper of ["let h() = action!()", "let h = () => action!()", "let h() = apply2!(action, action)"]) {
       const source = `${world}let outer(action): Unit =
@@ -989,8 +993,11 @@ let user(): Unit = outer!(() => save!("x"))
       expect([helper, effectDiagnostics([["/world.js", ""], ["/main.hex", text(source)]])]).toEqual([helper, []]);
       expect([helper, hoveredType(text(source), "outer(")]).toEqual([helper, "(() ->! Unit) >-> Unit"]);
     }
+    // A bare call of `h` is a fact through its label: `action` is pure, and the
+    // mark inside is the one the fact contradicts.
     expect(check("let outer(action): Unit =\n    let h() = action!()\n    h()\n")).toEqual([
-      "this call is impure and may fail, so `h` wants `!`, not no mark",
+      "this call is pure and cannot fail, so `action` wants no mark, not `!` — `h` is called bare, which makes " +
+      "`action` pure and unable to fail",
     ]);
   });
 });
@@ -1036,7 +1043,7 @@ describe("Effects §3.4 — a parameter no call reaches keeps its own colour (#1
     for (const source of programs) expect([source, check(source)]).toEqual([source, []]);
   });
 
-  it("a colour two untyped parameters share, where no call reaches it, is pure: no written type can say it", () => {
+  it("a colour two untyped parameters share, where no call reaches it, is pure: inference cannot keep them apart", () => {
     const source = "let both(k, j) = keep(if c then k else j)\n";
     expect(check(source + "export let user(): Unit = both(noop, noop)\n")).toEqual([]);
     expect(hoveredType(text(source), "both(k")).toBe("(() -> Unit, () -> Unit) -> Unit");
@@ -1076,7 +1083,7 @@ describe("Effects §3.4 — a parameter no call reaches keeps its own colour (#1
       [["keep(k)", "k()"], "(() -> Unit) -> Unit", [PURITY]],
       // A bare call in a nested body reaches it too.
       [["keep(k)", "let g = () => runIt(k)"], "(() -> Unit) -> Unit", [PURITY]],
-      // A `!` call claims it.
+      // A `!` call runs it, and no fact silences it: it is its own.
       [["keep(k)", "runIt!(k)"], "(() ->! Unit) >-> Unit", ["this call is impure and may fail, so `f` wants `!`, not no mark"]],
       // A `->` demand pins it.
       [["keep(k)", "pureOnly(k)"], "(() -> Unit) -> Unit", [PURITY]],
@@ -1115,7 +1122,7 @@ describe("Effects §3.4 — a tie between callbacks is refused, where it was mad
     ()
 `)).toEqual([{
         at: merge,
-        message: "`cb`'s colour is tied to `action`'s here, and no written type can say that — write `cb`'s type",
+        message: "`cb`'s colour is tied to `action`'s here, and inference cannot keep them apart — write `cb`'s type, or wrap `cb` where they meet",
         labels: ["cb: `cb` has no written type"],
         fixes: [": () ->! Unit"],
       }]);
@@ -1134,7 +1141,7 @@ describe("Effects §3.4 — a tie between callbacks is refused, where it was mad
 `;
     expect(tieReports(source)).toEqual([{
       at: "if True then a else g",
-      message: "`a`'s colour is tied to `g`'s here, and no written type can say that — write `a`'s type",
+      message: "`a`'s colour is tied to `g`'s here, and inference cannot keep them apart — write `a`'s type, or wrap `a` where they meet",
       labels: ["a: `a` has no written type", "g: `g` has no written type"],
       // The result is still a type variable: the writer's intent is not plain.
       fixes: [],
@@ -1147,7 +1154,7 @@ describe("Effects §3.4 — a tie between callbacks is refused, where it was mad
     takesD(h)
 `;
     expect(tieReports(tied).map(({ message }) => message)).toEqual([
-      "`cb`'s colour is tied to `action`'s here, and no written type can say that — write `cb`'s type",
+      "`cb`'s colour is tied to `action`'s here, and inference cannot keep them apart — write `cb`'s type, or wrap `cb` where they meet",
     ]);
     expect(hoveredType("module Main\n\n" + fixtures + tied, "h =")).toBe("(() ->! Unit) -> Unit");
   });
@@ -1163,7 +1170,7 @@ describe("Effects §3.4 — a tie between callbacks is refused, where it was mad
   });
 
   it("is refused in a `fun` block as in a lone body", () => {
-    const tie = "`f`'s colour is tied to `g`'s here, and no written type can say that — write `f`'s type";
+    const tie = "`f`'s colour is tied to `g`'s here, and inference cannot keep them apart — write `f`'s type, or wrap `f` where they meet";
     for (const head of ["fun\n    a", "let a"]) {
       const indent = head.startsWith("fun") ? "        " : "    ";
       expect(tieReports(`${head}(c: Bool, f, g): Unit =\n${indent}let h = if c then f else g\n${indent}h!()\n`)
@@ -1173,13 +1180,13 @@ describe("Effects §3.4 — a tie between callbacks is refused, where it was mad
 
   it("to an enclosing untyped callback, decided where that callback's body closes", () => {
     // Claimed there, `g`'s colour is a callback's, and the merge ties `f` to
-    // it; unclaimed, `g` is pure, and a colour pinned to a constant is no tie.
+    // it; called bare, `g` is pure, and a colour pinned to a constant is no tie.
     expect(tieReports(`let outer(g, c: Bool): Unit =
     g!()
     let inner = (f) => if c then g else f
     ()
 `).map(({ message }) => message)).toEqual([
-      "`f`'s colour is tied to `g`'s here, and no written type can say that — write `f`'s type",
+      "`f`'s colour is tied to `g`'s here, and inference cannot keep them apart — write `f`'s type, or wrap `f` where they meet",
     ]);
     expect(tieReports(`let outer(g, c: Bool): Unit =
     let inner = (f) => if c then g else f
@@ -1199,7 +1206,7 @@ describe("Effects §3.4 — a tie between callbacks is refused, where it was mad
   });
 
   it("one report per tie, across nested bodies, whatever the order of the lines (#1163)", () => {
-    const tie = "`f`'s colour is tied to `g`'s here, and no written type can say that — write `f`'s type";
+    const tie = "`f`'s colour is tied to `g`'s here, and inference cannot keep them apart — write `f`'s type, or wrap `f` where they meet";
     for (const [nested, later] of [
       // A use of the tied function hands it another untyped callback, tied to the same colour.
       ["let inner = (f) => if c then g else f", "let fwd = (h) => inner(h)"],
@@ -1224,7 +1231,7 @@ describe("Effects §3.4 — a tie between callbacks is refused, where it was mad
       tieReports("let outer(g, c: Bool): Unit =\n" + order.map((line) => `    ${line}\n`).join("") + "    ()\n")
     );
     expect(reports[0]!.map(({ message }) => message))
-      .toEqual(["`f`'s colour is tied to `g`'s here, and no written type can say that — write `f`'s type"]);
+      .toEqual(["`f`'s colour is tied to `g`'s here, and inference cannot keep them apart — write `f`'s type, or wrap `f` where they meet"]);
     expect(reports[1]).toEqual(reports[0]);
   });
 
@@ -1262,7 +1269,7 @@ describe("Effects §3.4 — a tie between callbacks is refused, where it was mad
     for (const program of programs) {
       const reports = tieReports(program);
       expect([program, reports.map(({ message }) => message)]).toEqual([program, [
-        "`g`'s colour is tied to `h`'s here, and no written type can say that — write `g`'s type",
+        "`g`'s colour is tied to `h`'s here, and inference cannot keep them apart — write `g`'s type, or wrap `g` where they meet",
       ]]);
       expect([program, reports[0]!.labels]).toEqual([program, [
         "g: `g` has no written type",
@@ -1278,7 +1285,7 @@ describe("Effects §3.4 — a tie between callbacks is refused, where it was mad
       tieReports("let outer(g, c: Bool): Unit =\n" + order.map((line) => `    ${line}\n`).join("") + "    ()\n")
     );
     expect(reports[0]!.map(({ message }) => message))
-      .toEqual(["`g`'s colour is tied to `outer`'s `g` here, and no written type can say that — write `g`'s type"]);
+      .toEqual(["`g`'s colour is tied to `outer`'s `g` here, and inference cannot keep them apart — write `g`'s type, or wrap `g` where they meet"]);
     expect(reports[0]![0]!.labels).toEqual([
       "g: `inner`'s `g` has no written type",
       "g: `outer`'s `g` has no written type",
@@ -1296,13 +1303,13 @@ describe("Effects §3.4 — a tie between callbacks is refused, where it was mad
           order.map((line) => `    ${line}\n`).join("") + "    ()\n").map(({ message }) => message)
       );
       expect([decide, reports[0]]).toEqual([decide, [
-        "`f`'s colour is tied to `action`'s here, and no written type can say that — write `f`'s type",
+        "`f`'s colour is tied to `action`'s here, and inference cannot keep them apart — write `f`'s type, or wrap `f` where they meet",
       ]]);
       expect([decide, reports[1]]).toEqual([decide, reports[0]]);
     }
   });
 
-  it("is refused in a lambda a knot holds, reading its member's claims", () => {
+  it("is refused in a lambda a knot holds, reading its member's facts", () => {
     expect(tieReports(`fun
     a(g, c: Bool, n: Int): Unit =
         g!()
@@ -1312,7 +1319,7 @@ describe("Effects §3.4 — a tie between callbacks is refused, where it was mad
         ()
     b(g, c: Bool, n: Int): Unit = if n == 0 then () else a!(g, c, n)
 `).map(({ message }) => message)).toEqual([
-      "`f`'s colour is tied to `g`'s here, and no written type can say that — write `f`'s type",
+      "`f`'s colour is tied to `g`'s here, and inference cannot keep them apart — write `f`'s type, or wrap `f` where they meet",
     ]);
   });
 
@@ -1341,7 +1348,7 @@ describe("Effects §3.4 — a tie between callbacks is refused, where it was mad
       for (const program of knotOrders(["g!()", held])) {
         expect([program, tieReports(program)]).toEqual([program, [{
           at: "if c then g else f",
-          message: "`f`'s colour is tied to `g`'s here, and no written type can say that — write `f`'s type",
+          message: "`f`'s colour is tied to `g`'s here, and inference cannot keep them apart — write `f`'s type, or wrap `f` where they meet",
           labels: ["f: `f` has no written type", "g: `g` has no written type"],
           fixes: [": () ->! Unit", ": () ->! Unit"],
         }]]);
@@ -1356,7 +1363,7 @@ describe("Effects §3.4 — a tie between callbacks is refused, where it was mad
       const reports = tieReports(program);
       const first = program.indexOf("inner =") < program.indexOf("other =") ? "f" : "h";
       expect([program, reports.map(({ message }) => message)]).toEqual([program, [
-        `\`${first}\`'s colour is tied to \`g\`'s here, and no written type can say that — write \`${first}\`'s type`,
+        `\`${first}\`'s colour is tied to \`g\`'s here, and inference cannot keep them apart — write \`${first}\`'s type, or wrap \`${first}\` where they meet`,
       ]]);
       // The named parameter first, then the others in source order.
       const second = first === "f" ? "h" : "f";
@@ -1375,7 +1382,7 @@ describe("Effects §3.4 — a tie between callbacks is refused, where it was mad
     );
   const tiedToK = {
     at: "if c then k else f",
-    message: "`f`'s colour is tied to `k`'s here, and no written type can say that — write `f`'s type",
+    message: "`f`'s colour is tied to `k`'s here, and inference cannot keep them apart — write `f`'s type, or wrap `f` where they meet",
     labels: ["f: `f` has no written type", "k: `k` has no written type"],
     fixes: [": () ->! Unit", ": () ->! Unit"],
   };
@@ -1442,7 +1449,7 @@ describe("Effects §3.4 — a tie between callbacks is refused, where it was mad
       for (const program of [`fun\n${a}${b}`, `fun\n${b}${a}`]) {
         expect([program, tieReports(program)]).toEqual([program, [{
           at: "if c then g else f",
-          message: "`f`'s colour is tied to `g`'s here, and no written type can say that — write `f`'s type",
+          message: "`f`'s colour is tied to `g`'s here, and inference cannot keep them apart — write `f`'s type, or wrap `f` where they meet",
           labels: ["f: `f` has no written type", "g: `g` has no written type"],
           fixes: [": () ->! Unit", ": () ->! Unit"],
         }]]);
@@ -1461,7 +1468,7 @@ describe("Effects §3.4 — a tie between callbacks is refused, where it was mad
         "        let fwd = (x, y) => choose!(True, x, y)\n        ()\n";
       for (const program of both(a)) {
         expect([program, tieReports(program).map(({ message }) => message)]).toEqual([program, [
-          "`f`'s colour is tied to `e`'s here, and no written type can say that — write `f`'s type",
+          "`f`'s colour is tied to `e`'s here, and inference cannot keep them apart — write `f`'s type, or wrap `f` where they meet",
         ]]);
       }
     }
@@ -1474,7 +1481,7 @@ describe("Effects §3.4 — a tie between callbacks is refused, where it was mad
       const reports = tieReports("let ident(x: t): t = x\n" + program);
       expect([program, reports[0]]).toEqual([program, {
         at: "if c then k else f",
-        message: "`f`'s colour is tied to `k`'s here, and no written type can say that — write `f`'s type",
+        message: "`f`'s colour is tied to `k`'s here, and inference cannot keep them apart — write `f`'s type, or wrap `f` where they meet",
         labels: ["f: `f` has no written type", "k: `k` has no written type"],
         fixes: [": () ->! Unit", ": () ->! Unit"],
       }]);
@@ -1497,8 +1504,8 @@ describe("Effects §3.4 — a tie between callbacks is refused, where it was mad
     const reportsOf = (program: string) => tieReports("let ident(x: t): t = x\n" + program);
     const tied = (parameter: string, other: string, at: string) => ({
       at,
-      message: `\`${parameter}\`'s colour is tied to \`${other}\`'s here, and no written type can say that — ` +
-        `write \`${parameter}\`'s type`,
+      message: `\`${parameter}\`'s colour is tied to \`${other}\`'s here, and inference cannot keep them apart — ` +
+        `write \`${parameter}\`'s type, or wrap \`${parameter}\` where they meet`,
       labels: [`${parameter}: \`${parameter}\` has no written type`, `${other}: \`${other}\` has no written type`],
       fixes: [": () ->! Unit", ": () ->! Unit"],
     });
@@ -1624,7 +1631,7 @@ describe("Effects §3.4 — a tie between callbacks is refused, where it was mad
     for (const program of [`fun\n${a}${b}`, `fun\n${b}${a}`]) {
       expect([program, tieReports(program).map(({ at, message, labels }) => [at, message, labels])]).toEqual([program, [[
         "if c then k else f",
-        "`f`'s colour is tied to `k`'s here, and no written type can say that — write `f`'s type",
+        "`f`'s colour is tied to `k`'s here, and inference cannot keep them apart — write `f`'s type, or wrap `f` where they meet",
         ["f: `f` has no written type", "k: `k` has no written type"],
       ]]]);
     }
@@ -1654,7 +1661,7 @@ let fwd(a, b) = pick!(True, a, b)
 `;
     expect(tieReports(`extern from "./world.js"\n    export fun save(document: String) ->! Unit\n` + source)
       .map(({ message }) => message)).toEqual([
-        "`f`'s colour is tied to `g`'s here, and no written type can say that — write `f`'s type",
+        "`f`'s colour is tied to `g`'s here, and inference cannot keep them apart — write `f`'s type, or wrap `f` where they meet",
       ]);
   });
 
@@ -1701,7 +1708,7 @@ let fwd(a, b) = pick!(True, a, b)
     inner(() => ())!()
 `;
     expect(tieReports(source).map(({ message }) => message)).toEqual([
-      "`f`'s colour is tied to `outer`'s `f` here, and no written type can say that — write `f`'s type",
+      "`f`'s colour is tied to `outer`'s `f` here, and inference cannot keep them apart — write `f`'s type, or wrap `f` where they meet",
     ]);
     expect(tieReports(source.replace("inner(f)", "inner(f: () ->! Unit)"))).toEqual([]);
   });
@@ -1761,7 +1768,7 @@ describe("Effects §3.4 — a recursive call hands on the callbacks it was given
 `;
     expect(at(source)).toEqual([["() => ()", made("b", true)]]);
     expect(check(source.replace("    if n <= 0 then () else b!(() => (), g, c, n - 1)\n", ""))).toEqual([
-      "`f`'s colour is tied to `g`'s here, and no written type can say that — write `f`'s type",
+      "`f`'s colour is tied to `g`'s here, and inference cannot keep them apart — write `f`'s type, or wrap `f` where they meet",
     ]);
   });
 
@@ -1877,7 +1884,7 @@ export let probe(): Unit = walk!(3, save0)
     for (const knot of [...members(a, b), ...members(a.replace("b!(action,", "b!((action),"), b)]) {
       expect(at(knot)).toEqual([[
         "if c then action else f",
-        "`f`'s colour is tied to `action`'s here, and no written type can say that — write `f`'s type",
+        "`f`'s colour is tied to `action`'s here, and inference cannot keep them apart — write `f`'s type, or wrap `f` where they meet",
       ]]);
     }
   });
@@ -1898,7 +1905,7 @@ export let probe(): Unit = walk!(3, save0)
       const text = prelude + knot;
       const diagnostics = compileFiles([["/world.js", ""], ["/main.hex", text]]).diagnostics;
       expect(diagnostics.map(({ message }) => message)).toEqual([
-        "`f`'s colour is tied to `g`'s here, and no written type can say that — write `f`'s type",
+        "`f`'s colour is tied to `g`'s here, and inference cannot keep them apart — write `f`'s type, or wrap `f` where they meet",
       ]);
       let fixed = text;
       for (const edit of diagnostics.flatMap(({ fixes }) => (fixes ?? []).flatMap((fix) => fix.edits))
@@ -2042,7 +2049,7 @@ fun
       ],
     ] as const;
     for (const [a, b] of pairs) {
-      expect(members(a, b).map((knot) => check(knot).some((message) => message.includes("no written type can say that"))))
+      expect(members(a, b).map((knot) => check(knot).some((message) => message.includes("inference cannot keep them apart"))))
         .toEqual([true, true]);
     }
   });
@@ -2056,7 +2063,7 @@ fun
     for (const knot of members(a, b)) {
       expect(at(knot)).toEqual([[
         "if n > 1 then act else f",
-        "`f`'s colour is tied to `act`'s here, and no written type can say that — write `f`'s type",
+        "`f`'s colour is tied to `act`'s here, and inference cannot keep them apart — write `f`'s type, or wrap `f` where they meet",
       ]]);
     }
   });
@@ -2094,7 +2101,7 @@ export let probe(): Unit = walk!(save0, 2)
 `)).toEqual([
       [
         "fun go(m: Int, f: () ->! Unit): Unit = if m == 0 then f!() else go!(m - 1, () => cb!())",
-        "`cb`'s colour is tied to `f`'s here, and no written type can say that — write `cb`'s type",
+        "`cb`'s colour is tied to `f`'s here, and inference cannot keep them apart — write `cb`'s type, or wrap `cb` where they meet",
       ],
       ["() => cb!()", made("go", true)],
     ]);
@@ -2109,7 +2116,7 @@ export let probe(): Unit = walk!(save0, 2)
     k!()
 `)).toEqual([
       ["() => g!()", made("go", true)],
-      ["if c then g else h", "`g`'s colour is tied to `h`'s here, and no written type can say that — write `g`'s type"],
+      ["if c then g else h", "`g`'s colour is tied to `h`'s here, and inference cannot keep them apart — write `g`'s type, or wrap `g` where they meet"],
     ]);
   });
 
@@ -2286,7 +2293,7 @@ export let probe(): Int = user()
         0
 `;
     const pong = "    pong(n: Int, cb): Int =\n        cb!()\n        if n > 0 then ping!(n - 1, cb) else 0\n";
-    // The knot shares one `cb`, named for the member that claimed it first.
+    // The knot shares one `cb`, named for the member that kept it first.
     expect(check(`fun\n${ping}${pong}export let probe(): Int = ping(2, save0)\n`))
       .toEqual([runs("ping"), wants("ping")]);
     expect(check(`fun\n${pong}${ping}export let probe(): Int = ping(2, save0)\n`))
@@ -2313,7 +2320,7 @@ describe("Effects §4.2 — a written `>->` meets the function it stands over al
     [`    let k(): ${face} = ${lambda}\n`, `    k()${mark}(${args})\n`],
   ];
 
-  it("leaves an untyped callback the lambda runs bare to its body's claims, in every spelling", () => {
+  it("leaves an untyped callback the lambda runs bare to its body's facts, in every spelling", () => {
     // Main refused the binding spelling at once, before `outer`'s close had
     // decided `action` pure.
     for (const [face, call] of spellings(follows, "(cb) => action()", "noop", "")) {
@@ -2321,7 +2328,7 @@ describe("Effects §4.2 — a written `>->` meets the function it stands over al
     }
   });
 
-  it("reports an untyped callback a claim decides, before the face or after it, at the call that runs it", () => {
+  it("reports an untyped callback a mark leaves its own, before the face or after it, at the call that runs it", () => {
     for (const [face, call] of spellings(follows, "(cb) => action!()", "noop", "!")) {
       expect(check(`let outer(action): Unit =\n    action!()\n${face}${call}`)).toEqual([runs("outer", "action")]);
       expect(check(`let outer(action): Unit =\n${face}${call}    action!()\n`)).toEqual([runs("outer", "action")]);
@@ -2361,7 +2368,7 @@ describe("Effects §4.2 — a written `>->` meets the function it stands over al
     expect(check(`fun\n${ping.replace(">->", "->!")}${pong}${user}`)).toEqual([]);
   });
 
-  it("decides a `fun` member's untyped callback by its claims where an ascribed lambda runs it, as a `let`'s", () => {
+  it("decides a `fun` member's untyped callback by its facts where an ascribed lambda runs it, as a `let`'s", () => {
     // Main left the `fun` member's `cb` to no body, and showed `ping` pure
     // while it followed `cb`.
     for (const keyword of ["let", "fun"]) {
@@ -2548,8 +2555,8 @@ describe("Effects §3.4 — what a held lambda's own callbacks run is not held (
     expect(hover(ping("        let q = (cb) =>\n" + body, "        q(noop)\n"), "q = ")).toBe("(() ->! Unit) >-> Unit");
   });
 
-  it("decides a held lambda's untyped callback by its own claims, so it takes a function that touches the world", () => {
-    // Main defaulted `cb` pure at `ping`'s close, before `q`'s `!` claimed it,
+  it("decides a held lambda's untyped callback by its own calls, so it takes a function that touches the world", () => {
+    // Main defaulted `cb` pure at `ping`'s close, before `q`'s `!` ran it,
     // and refused `q!(save0)` as if a `->` were written.
     const direct = ping("        let q = (cb) =>\n" + body, "        q!(save0)\n", "ping!(n - 1)", "ping!(2)");
     expect(check(direct)).toEqual([]);
@@ -2613,7 +2620,7 @@ describe("Effects §3.4 — what a held lambda's own callbacks run is not held (
     expect(check("fun\n    ping(n: Int, act: () ->! Unit): Int =\n        let q = (cb) =>\n" +
       "            let _ = pick(cb, act)\n            cb!()\n            let _ = if n > 0 then ping!(n - 1, act) else 0\n" +
       "            ()\n        q!(noop)\n        pureOnly(act)\n        0\nexport let probe(): Int = ping!(2, noop)\n"))
-      .toContain("`cb`'s colour is tied to `act`'s here, and no written type can say that — write `cb`'s type");
+      .toContain("`cb`'s colour is tied to `act`'s here, and inference cannot keep them apart — write `cb`'s type, or wrap `cb` where they meet");
   });
 
   it("leaves a signature written inside a held lambda its own too", () => {
@@ -2663,8 +2670,17 @@ describe("Effects §3.4 — what a held lambda's own callbacks run is not held (
   });
 
   it("holds a lambda a member hands back whole: its parameters are the member's", () => {
+    // `cb()` written bare is a fact, so `cb` is pure and the member's recursive
+    // `!` is the mark it contradicts (§3.4); the member hands back a lambda
+    // whose callback is pure, which `probe` then hands `save0`.
     expect(check("fun a(n: Int) = (cb) => if n == 0 then cb() else a(n - 1)!(cb)\n" +
-      "export let probe(): Unit = a(2)!(save0)\n")).toEqual(["this call is impure and may fail, so `cb` wants `!`, not no mark"]);
+      "export let probe(): Unit = a(2)!(save0)\n")).toEqual([
+      "this call is pure and cannot fail, so this call wants no mark, not `!` — `cb` is called bare, which makes it pure " +
+      "and unable to fail",
+      "a `->` arrow promises purity and that the function cannot fail, and this function is impure and may fail — the " +
+      "demand is written `->`",
+      "this call is pure and cannot fail, so this call wants no mark, not `!`",
+    ]);
     // Under a `match` too, where the refusal of a function the member was not
     // given stands alone.
     const given = (member: string) => `this function is not one \`${member}\` was given, and a recursive call ` +
@@ -2991,7 +3007,7 @@ describe("Effects §3.5 — a colour in error (#1223)", () => {
         `let outer(c: Bool, f): Unit =\n    ${first}\n    ${second}\n    ()\nexport let p1(): Unit = outer(True, save0)\n`,
       )).toEqual([unknown]);
     }
-    // A use in error merged with it, claimed or not (F2).
+    // A use in error merged with it, whatever marks it (F2).
     const user = "let user(): Unit = nope!()\n";
     for (const [made_, merged] of [[user, "user"], ["", "(() => nope!())"]]) {
       expect(check(`${made_}let outer(c: Bool, f) =\n    let k = if c then f else ${merged}\n    k!()\n` +
@@ -3005,7 +3021,7 @@ describe("Effects §3.5 — a colour in error (#1223)", () => {
       expect(check(`${user}let outer(c: Bool, f): Unit =\n    ${first}\n    ${second}\n    ()\nexport let p1(): Unit = ${call}\n`))
         .toEqual([unknown]);
     }
-    // Handed to a call in error that no other call claims it from.
+    // Handed to a call in error: whether that call runs it is what the error hides.
     expect(check(
       "let user(cb: () ->! Unit): Unit =\n    nope!()\n    cb!()\nlet g(f) =\n    user!(f)\n    f()\n" +
         "export let p(): Unit = g(save0)\n",
@@ -3016,9 +3032,9 @@ describe("Effects §3.5 — a colour in error (#1223)", () => {
       "`x`'s type, or call the operation by its module (`Module.foo(x, …)`); a record's field is called as " +
       "`(x.foo)(…)`",
     ]);
-    // Handed inside a lambda that runs it: a repair can claim it through the
-    // lambda, `run!(() => f())`, and the bare `f()` is then a missing mark
-    // (#1243 review r2, N2).
+    // Handed inside a lambda that runs it: whether the call in error runs the
+    // lambda, and under what mark, is what the error hides (#1243 review r2,
+    // N2).
     expect(check("let outer(f) =\n    let h = () => nope(() => f())\n    f()\nexport let p1(): Unit = outer(save0)\n"))
       .toEqual([unknown]);
   });
@@ -3067,30 +3083,36 @@ describe("Effects §3.5 — a colour in error (#1223)", () => {
     // body: the repair `let g: () -> Unit = x` pins it.
     expect(check("let outer(f: () ->! Unit, x) =\n    let g: Nope = x\n    let y = pick(x, f)\n    f()\n")).toEqual([
       nopeType,
-      "`x`'s colour is tied to `f`'s here, and no written type can say that — write `x`'s type",
+      "`x`'s colour is tied to `f`'s here, and inference cannot keep them apart — write `x`'s type, or wrap `x` where they meet",
     ]);
     // An untyped parameter whose whole type a value in error decided is the
-    // parameter's own: what its colours are is its claims' (§3.4), and no
-    // repair of the value pins it.
+    // parameter's own: what its colours are its own calls decide (§3.4), and
+    // no repair of the value pins it.
     expect(check("let user(g) =\n    let q = pick(g, nope)\n    ()\nlet outer(f: () ->! Unit): Unit =\n    user(f)\n    f()\n"))
       .toEqual([unknown, wants("`f`")]);
     // A `var`'s type written in error is a demand at each `:=`.
     expect(check("let outer(f: () ->! Unit): Unit =\n    var v: { h: Nope } = { h = f }\n    v := { h = f }\n    f()\n"))
       .toEqual([nopeType]);
-    // At a caller, and through a callback the caller hands it, written or
-    // claimed, which the pin would make pure too, whatever the order of the
-    // lines.
-    for (const h of ["h: () ->! Unit", "h"]) {
-      for (const [first, second] of [["outer!(h)", "h()"], ["h()", "outer!(h)"]]) {
-        expect(check(
-          "let outer(f: () ->! Unit): Unit =\n    let g: Nope = f\n    f!()\n" +
-            `let mid(${h}): Unit =\n    ${first}\n    ${second}\nexport let p1(): Unit = mid(save0)\n`,
-        )).toEqual([nopeType]);
-      }
+    // At a caller, and through a written callback the caller hands it, which
+    // the pin would make pure too, whatever the order of the lines.
+    const mid = (h: string, first: string, second: string) =>
+      "let outer(f: () ->! Unit): Unit =\n    let g: Nope = f\n    f!()\n" +
+      `let mid(${h}): Unit =\n    ${first}\n    ${second}\nexport let p1(): Unit = mid(save0)\n`;
+    for (const [first, second] of [["outer!(h)", "h()"], ["h()", "outer!(h)"]] as const) {
+      expect(check(mid("h: () ->! Unit", first, second))).toEqual([nopeType]);
+      // An untyped `h` called bare is a fact: `h` is pure under every repair,
+      // so `outer!(h)` is the extra mark, and `mid`'s callers meet a pure `h`.
+      expect(check(mid("h", first, second))).toEqual([
+        nopeType,
+        "this call is pure and cannot fail, so `outer` wants no mark, not `!` — `h` is called bare, which makes it pure " +
+        "and unable to fail",
+        "a `->` arrow promises purity and that the function cannot fail, and this function is impure and may fail — the " +
+        "demand is written `->`",
+      ]);
     }
-    // So is an untyped parameter a `!` call claims, handed to a call whose
-    // callee failed: the claim keeps it out of error (§3.5), and the repair
-    // `pureOnly(f)` would make the `!` the report instead.
+    // An untyped parameter handed to a call whose callee failed is in error,
+    // whatever marks it: whether that call runs it is what the error hides
+    // (§3.5), so neither its `!` nor its bare call is reported.
     expect(check("let outer(f) =\n    f!()\n    nope(f)\n    f()\n")).toEqual([unknown]);
     // Through a module's interface, and at a parameter written in error there.
     expect(twoModules(
@@ -3146,7 +3168,7 @@ describe("Effects §3.5 — a colour in error (#1223)", () => {
     // A tie is the merge's, not the error's.
     expect(check("let g(c: Bool, f, h) =\n    nope!()\n    let k = if c then f else h\n    k!()\n")).toEqual([
       unknown,
-      "`f`'s colour is tied to `h`'s here, and no written type can say that — write `f`'s type",
+      "`f`'s colour is tied to `h`'s here, and inference cannot keep them apart — write `f`'s type, or wrap `f` where they meet",
     ]);
     // A lambda with a parameter type in error still saves.
     expect(check("let user(): Unit =\n    let k = (x: Nope) => save!(\"x\")\n    k!(1)\nexport let probe(): Unit = user()\n"))
