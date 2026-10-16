@@ -46,6 +46,8 @@ Functions §4's preamble already carries the principle at annotation scope — a
 
 **A specified conversion is not enabling.** A written type is a seat's expected type, and where the language specifies a conversion into that type at that seat — Numeric Literals §5.1's widenings, an iterable's adaptation to `Seq` (Collections Part 5 §3.4) — the annotation elaborates it (Functions §4's preamble). An annotated binding is one supplying seat among several, and each specified conversion is the same at every seat that specifies it: `let view: Seq(String) = words` converts `words` as `String.fromSeq(words)` does, and the explicit call — `Iterable.toSeq(words)`, `Float.fromInt(n)` — is always an equivalent spelling. This section's title and §9.11's test are read accordingly: an annotation may elaborate a specified conversion, and never makes a program typable that its deletion, with the conversion written out, would not.
 
+**Fitting is a specified conversion, and the wrapper writes it out.** A function the program's text decides is read "its colour or more" where it is used (Effects §2.6), so a function that does less fits where more is accepted. A parameter with no written type is inferred from its uses, and each of its uses is read exactly (Effects §3.4). So where such a use meets the impure constant or another untyped parameter, writing the parameter's type is what lets the use fit: that is the conversion the annotation elaborates there. Its written-out spelling is the wrapper at the use, `() => f()` with the mark its call needs, a lambda whose own colour the text decides, which fits with no written type. The test above holds for colours with the wrapper written out: every program that written types make compile has a spelling without them. Reading an untyped parameter's use "or more" with no wrapper is refused, since read eagerly it follows line order, and read once its shape is known it needs a second solver that waits (Effects §3.4, §11). The text decides which reading a use gets, and inference solves the rest.
+
 ## 3. The Haskell characterization
 
 Hexagon's annotation system is **Haskell plus `PartialTypeSignatures`, with a different default**:
@@ -250,6 +252,10 @@ Applied in the #368 change:
 - **Type-System Overview**: pillar 3's "if they arrive" sentence rewritten to the retirement (citing §2.4/§9.12); the owed-list's "rank-2 pathway" item dropped.
 - **Functions §7.4** gains the two knot corollaries (identity evidence suffix over the shared variables; a declared head admits no instantiation inside the knot — with, at the time, wrapper-only export where two or more functions of one knot export, a rule #700's `fun` block later dissolved); **Functions §10**'s polymorphic-recursion row pins the SCC hint and both message fences.
 - **Book**: no edit — the Polymorphism chapter's "Recursive calls keep one type" section already teaches the derivability ground ("without asking programmers for a special proof or a more powerful annotation language").
+
+Applied in the #1261 change:
+
+- **§2.4** gains the fitting paragraph: fitting is a specified conversion, and the wrapper `() => f()` writes it out, so the test holds for colours (Effects §3.4's limitation, §11).
 
 To apply on next touch of the target:
 
