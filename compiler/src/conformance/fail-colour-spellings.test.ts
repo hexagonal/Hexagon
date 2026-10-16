@@ -852,8 +852,8 @@ describe("Effects §3.4: a mark decides nothing; facts decide an untyped paramet
 
   test("a parameter that meets a written type's impure constant is told to write its type, or wrap it there", () => {
     const seam = (body: string) => PRE + `let s(f, c: Bool) =\n    ${body}\n    f()\n`;
-    const message = "this call is impure and may fail only because `f`, which has no written type, meets a written one — " +
-      "write `f`'s type, or wrap `f` where they meet: `() => f()`";
+    const message = "this call is impure and may fail only because `f`, which has no written type, meets `() ->! Unit` — " +
+      "write `f`'s type, or wrap `f` where it meets it: `() => f()`";
     for (const body of ["let h = Holder({ run = f })", "(if c then f else save0)!()", "let a: () ->! Unit = f"]) {
       expect([body, reports(seam(body))]).toEqual([body, [["f()", message]]]);
       expect([body, fixes(seam(body))]).toEqual([body, [["write `f`'s type", [": () -> Unit"]]]]);
@@ -862,6 +862,49 @@ describe("Effects §3.4: a mark decides nothing; facts decide an untyped paramet
     const wrapped = seam("let h = Holder({ run = () => f() })");
     expect(reports(wrapped)).toEqual([]);
     expect(face(wrapped, "s")).toBe("(() -> Unit, Bool) -> Unit");
+    // Where a call of `f` by its own name carries the mark, the written type
+    // would make that mark the wrong one: the ordinary report, whose fix works.
+    expect(reports(PRE + "let s(f) =\n    let h = Holder({ run = f })\n    f!()\n    f()\n")).toEqual([
+      ["f()", "this call is impure and may fail, so `f` wants `!`, not no mark"],
+    ]);
+    // A `->~` field is no `->` demand: the fact is named as the meeting.
+    expect(reports(PRE + "record HL = { run: () ->~ Unit }\nlet s(f) =\n    let h = HL({ run = f })\n    f^()\n")).toEqual([
+      ["^", "this call is impure and cannot fail, so `f` wants `~`, not `^` — `f` meets a type that makes it unable to fail"],
+    ]);
+  });
+
+  test("a part another body decides may yet be made silent there: the shared colour a mark needs is a tie", () => {
+    const tie = ["if c then g else f", "`g`'s colour is tied to `f`'s here, and inference cannot keep them apart — write `g`'s type, or wrap `g` where they meet"];
+    for (const body of [
+      "    h()\n    let inner = (g, f) => apply2!(if c then g else f, h)\n    keep(inner)\n",
+      "    let inner = (g, f) => apply2!(if c then g else f, h)\n    h()\n    keep(inner)\n",
+      "    let inner = (g, f) =>\n        h()\n        apply2!(if c then g else f, h)\n    keep(inner)\n",
+      "    let inner(g, f) = apply2!(if c then g else f, h)\n    h()\n    keep(inner)\n",
+      "    let inner = (g, f) => apply2!(if c then g else f, h)\n    keep(inner)\n",
+    ]) {
+      expect([body, reports(PRE + `let outer(h, c: Bool) =\n${body}`)]).toEqual([body, [tie]]);
+    }
+    expect(fixes(PRE + "let outer(h, c: Bool) =\n    h()\n    let inner = (g, f) => apply2!(if c then g else f, h)\n    keep(inner)\n"))
+      .toEqual([["write the types of `g` and `f`", [": () ->! Unit", ": () ->! Unit"]]]);
+  });
+
+  test("the second repair is offered only where its bare call is the one fact", () => {
+    // Two facts, or one through a label: marking the one named would not repair.
+    expect(fixes(PRE + "let z2(g) =\n    g()\n    g()\n    g!()\n")).toEqual([["remove the mark", [""]]]);
+    expect(reports(PRE + "let z2(g) =\n    g()\n    g()\n    g!()\n")).toEqual([told("`g`")]);
+    expect(fixes(PRE + "let y(g) =\n    let run = () => g()\n    run()\n    run!()\n")).toEqual([["remove the mark", [""]]]);
+    // Of several facts, the first in source order is the one named.
+    expect(reports(PRE + "let z3(g) =\n    let k = g\n    k()\n    g()\n    g!()\n"))
+      .toEqual([told("`g`", "`k` is called bare, which makes `g` pure and unable to fail")]);
+  });
+
+  test("a tie answers only a bare call of a tied parameter by its own name", () => {
+    // Its fix writes `g`'s own arrow silent only where `g` itself is called
+    // bare, so a bare call through an alias keeps its report.
+    expect(reports(PRE + "let mg(g, f, c: Bool) =\n    let k = g\n    k()\n    (if c then g else f)!()\n")).toEqual([
+      ["k()", "this call is impure and may fail, so `k` wants `!`, not no mark"],
+      ["if c then g else f", "`g`'s colour is tied to `f`'s here, and inference cannot keep them apart — write `g`'s type, or wrap `g` where they meet"],
+    ]);
   });
 });
 

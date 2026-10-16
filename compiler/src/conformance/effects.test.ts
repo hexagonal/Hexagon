@@ -968,12 +968,13 @@ let relay(f: () ->! Unit, g): Unit = g!(f)
     ]);
   });
 
-  it("a `->` demand is a fact: the `!` beside it is the mark report, naming the demand", () => {
+  it("a `->` demand is a fact: the `!` beside it is the mark report, naming the meeting", () => {
     // `pinned(f)`: the `->` demand decides the colour, and there is no written
     // arrow for a lie-of-generality report to name.
     for (const lines of [["pureOnly(f)", "f!()"], ["f!()", "pureOnly(f)"]]) {
       expect(check(`let pinned(f) =\n    ${lines[0]}\n    ${lines[1]}\n`)).toEqual([
-        "this call is pure and cannot fail, so `f` wants no mark, not `!` — a `->` demand makes `f` pure and unable to fail",
+        "this call is pure and cannot fail, so `f` wants no mark, not `!` — `f` meets a type that makes it pure and " +
+        "unable to fail",
       ]);
     }
   });

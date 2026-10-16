@@ -371,14 +371,14 @@ describe("what the program's text decides, in any line order (R.b)", () => {
       .toEqual("fits");
     // A returned lambda whose call marks `cb` takes its colour from `cb`, which
     // the pin makes pure: the `!` is then a mark on a pure call, in either order,
-    // and its report names the demand.
+    // and its report names the meeting.
     for (const lines of [
       inK([pin, "let make = () => () => cb!()", "tieTwo(action, make())"]),
       inK(["let make = () => () => cb!()", "tieTwo(action, make())", pin]),
     ]) {
       expect(reports(body(lines)).map(([, message]) => message)).toEqual([
-        "this call is pure and cannot fail, so `cb` wants no mark, not `!` — a `->` demand makes `cb` pure and " +
-        "unable to fail",
+        "this call is pure and cannot fail, so `cb` wants no mark, not `!` — `cb` meets a type that makes it pure " +
+        "and unable to fail",
       ]);
     }
   });
