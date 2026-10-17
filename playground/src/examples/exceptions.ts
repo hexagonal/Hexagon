@@ -11,9 +11,11 @@ module Ledger
 
 export exception Overdrawn(balance: Int, message: String)
 
+// An exception is a failure a caller should plan for, so it is tracked: a
+// throw of one wears ^, and so does every call that may pass it on.
 export let withdraw(balance: Int, amount: Int): Int =
     if amount > balance then
-        throw(Overdrawn(balance, "insufficient funds"))
+        throw^(Overdrawn(balance, "insufficient funds"))
     else
         balance - amount
 
@@ -36,7 +38,7 @@ let settings = Map.fromVector([("host", "localhost"), ("port", "8080")])
 // as whatever its position asks for -- here, the String the other arm gives.
 let setting(key: String): String = match Map.get(settings, key)
     Some(value) => value
-    None => throw(SettingError(key, "no such setting"))
+    None => throw^(SettingError(key, "no such setting"))
 
 // Constructing is not throwing: an Exn is an ordinary value. The stack is
 // captured here, at the construction, not at the throw below.
@@ -45,7 +47,7 @@ let complaint = SettingError("theme", "no such setting")
 // try/catch is an expression -- the body and every arm agree on one type. Arms
 // are match arms: constructor patterns binding the payload slots positionally.
 let excuse = try
-    throw(complaint)
+    throw^(complaint)
 catch
     SettingError(key, why) => "\${key}: \${why}"
 
@@ -56,7 +58,7 @@ Debug.log(excuse)
 // straight past it into the outer one.
 let report = try
     try
-        setting("locale")
+        setting^("locale")
     catch
         NoSettings => "no settings were loaded"
 catch
@@ -65,8 +67,9 @@ catch
 Debug.log(report)
 
 // The prelude throws too, but only faults: broken assumptions, like an index
-// past the end. A fault is caught by naming it, or by a "fault e" arm; a
-// catch-all _ lets it through. In the JS view the brand names the declaring
+// past the end. No colour tracks a fault, so sizes.at(4) wears no mark. A
+// fault is caught by naming it, or by a "fault e" arm; a catch-all _ lets it
+// through. In the JS view the brand names the declaring
 // module, so this arm catches Vector's IndexFault and no other module's.
 let sizes = [10, 20, 30]
 
@@ -80,7 +83,7 @@ Debug.log("the fourth of three sizes: \${clamped}")
 // The module declared at the top of this file is imported like any other, and
 // its exception is caught the same qualified way.
 let remaining = try
-    "\${Ledger.withdraw(100, 250)} left"
+    "\${Ledger.withdraw^(100, 250)} left"
 catch
     Ledger.Overdrawn(balance, why) => "\${why}; \${balance} left"
 

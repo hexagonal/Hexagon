@@ -692,7 +692,7 @@ describe("the domains the matrix defers on", () => {
     expect(projectDiagnostics("module Main\n\n" + "exception Boom(line: Int)\n" +
       "export fun guard(): Int =\n" +
       "    try\n" +
-      "        1\n" +
+      "        if 1 > 2 then throw^(Boom(1)) else 1\n" +
       "    catch\n" +
       "        Boom(_) => 0\n",
     )).toEqual([]);
@@ -700,7 +700,7 @@ describe("the domains the matrix defers on", () => {
     expect(projectDiagnostics("module Main\n\n" + "exception Boom(line: Int)\n" +
       "export fun guard(): Int =\n" +
       "    try\n" +
-      "        1\n" +
+      "        if 1 > 2 then throw^(Boom(1)) else 1\n" +
       "    catch\n" +
       "        Boom(_) => 0\n" +
       "        Boom(n) => n\n",
@@ -709,7 +709,7 @@ describe("the domains the matrix defers on", () => {
     expect(projectDiagnostics("module Main\n\n" + "exception Boom(line: Int)\n" +
       "export fun guard(): Int =\n" +
       "    try\n" +
-      "        1\n" +
+      "        if 1 > 2 then throw^(Boom(1)) else 1\n" +
       "    catch\n" +
       "        _ => 0\n" +
       "        Boom(_) => 1\n",
@@ -840,12 +840,13 @@ describe("a constraint's default body is checked like any other body (#599)", ()
 
   test("a `catch` arm reads the module's exception table", () => {
     expect(projectDiagnostics("module Main\n\n" + "exception Boom(message: String)\n" +
-      "fun blow(): Int = throw(Boom(\"no\"))\n" + PICK +
+      "fun blow(): Int = throw^(Boom(\"no\"))\n" + PICK +
       "    rank(self: a) -> Int =\n" +
       "        try\n" +
-      "            blow()\n" +
+      "            blow^()\n" +
       "        catch\n" +
-      "            Boom(_) => 0\n",
+      "            Boom(_) => 0\n" +
+      "            _ => 1\n",
     )).toEqual([]);
   });
 

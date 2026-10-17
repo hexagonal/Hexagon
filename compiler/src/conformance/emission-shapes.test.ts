@@ -187,15 +187,15 @@ describe("statement-position conditionals", () => {
     const m = await run(
       "exception Marked\n" +
         "let guard(flag: Bool): Unit =\n" +
-        "    if flag then throw(Marked)\n" +
+        "    if flag then throw^(Marked)\n" +
         "let attempt(flag: Bool): Int =\n" +
         "    try\n" +
-        "        guard(flag)\n" +
+        "        guard^(flag)\n" +
         "        0\n" +
         "    catch\n" +
         "        Marked => 1\n" +
-        "export let taken: Int = attempt(True)\n" +
-        "export let untaken: Int = attempt(False)\n",
+        "export let taken: Int = attempt^(True)\n" +
+        "export let untaken: Int = attempt^(False)\n",
     );
     expect(m.taken).toBe(1);
     expect(m.untaken).toBe(0);

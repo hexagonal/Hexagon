@@ -271,7 +271,7 @@ describe("an exception declaration contests the spelling too", () => {
           "exception Boom(reason: String)\n" +
           "export fun caught(): String =\n" +
           "    try\n" +
-          "        throw(Boom(\"detonated\"))\n" +
+          "        throw^(Boom(\"detonated\"))\n" +
           "    catch\n" +
           "        Boom(reason) => reason\n" +
           "export let four: Int = Boom.twice(2)\n"],

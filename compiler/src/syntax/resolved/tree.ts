@@ -2208,6 +2208,11 @@ export interface AccessExpr {
 export interface ThrowExpr {
   readonly kind: "Throw";
   readonly exception: Expr;
+  /** The word `throw`, where an absent mark would be inserted after it. */
+  readonly callee: Source.Span;
+  /** The written mark, which its argument's text decides (Exceptions §3). */
+  readonly mark?: CallMark;
+  readonly markSpan?: Source.Span;
   readonly span: Source.Span;
 }
 

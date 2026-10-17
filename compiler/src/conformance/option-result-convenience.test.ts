@@ -370,18 +370,18 @@ describe("callback effects and exceptions", () => {
     const main = await runMain(`module Main
 
 export exception Boom
-let explode(_: Int): Int = throw(Boom)
+let explode(_: Int): Int = throw^(Boom)
 
-export let optionSelected: Bool = match Result.attempt(() => Option.map(Some(1), explode))
+export let optionSelected: Bool = match Result.attempt(() => Option.map^(Some(1), explode))
     Err(_) => True
     _ => False
-export let optionSkipped: Bool = match Result.attempt(() => Option.map(None, explode))
+export let optionSkipped: Bool = match Result.attempt(() => Option.map^(None, explode))
     Ok(None) => True
     _ => False
-export let resultSelected: Bool = match Result.attempt(() => Result.map(Ok(1), explode))
+export let resultSelected: Bool = match Result.attempt(() => Result.map^(Ok(1), explode))
     Err(_) => True
     _ => False
-export let resultSkipped: Bool = match Result.attempt(() => Result.map(Err("bad"), explode))
+export let resultSkipped: Bool = match Result.attempt(() => Result.map^(Err("bad"), explode))
     Ok(Err("bad")) => True
     _ => False
 `);

@@ -606,7 +606,7 @@ describe("nothing downstream writes to the cached prefix", () => {
         "import Errors\n\n" +
         "export fun go(): Int =\n" +
         "    try\n" +
-        "        throw(Errors.Boom(1))\n" +
+        "        throw^(Errors.Boom(1))\n" +
         "    catch\n" +
         "        Errors.Boom(c) => c\n",
       ),

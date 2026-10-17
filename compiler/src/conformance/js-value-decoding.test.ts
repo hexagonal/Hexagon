@@ -404,7 +404,7 @@ describe("the failure type is ordinary data (§5.1)", () => {
   test("a `JsConversionError` is not an exception and cannot be thrown", () => {
     expect(projectDiagnostics("module Main\n\n" + "export let abort(v: JsValue): Int = match JsValue.toInt(v)\n" +
         "    Ok(n) => n\n" +
-        "    Err(e) => throw(e)\n",
+        "    Err(e) => throw^(e)\n",
     )[0]).toContain("Exn");
   });
 

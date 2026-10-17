@@ -853,7 +853,7 @@ describe("§7.2 takes the dual: a broken pattern is never a shadower", () => {
         "/main.hex",
         "module Main\n\n" + "exception Bad(Int)\n" +
         "export fun f(): Int =\n" +
-        "    try 1\n" +
+        "    try throw^(Bad(1))\n" +
         "    catch\n" +
         "        Bad => 2\n" +
         "        Bad(n) => n\n",

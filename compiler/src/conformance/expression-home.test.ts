@@ -88,7 +88,7 @@ describe("the forms join as one", () => {
         "let j3 = match c\n    True => m\n    False => n\n" +
         "let j4 = match c\n    True => n\n    False => m\n" +
         "let j5: Int = match c\n    True => n\n    False => m\n" +
-        "let j6: Int =\n    try\n        m\n    catch\n        _ => n\n" +
+        "let j6: Int =\n    try\n        m\n    catch\n        fault _ => n\n" +
         "export let joined: (Int, Int, Int, Int, Int, Int) = (j1, j2, j3, j4, j5, j6)\n",
     );
     expect(exports.joined).toEqual([2, 3, 2, 3, 3, 2]);
@@ -292,7 +292,7 @@ describe("a faced tree is refused once, naming the value that declined (#827)", 
     expect(refusals("let x: Dec = (n + f) * price\n")).toEqual([declined("Dec", "addition")]);
     expect(refusals("let x: Dec = if c then f * 2 else price\n"))
       .toEqual([declined("Dec", "multiplication")]);
-    expect(refusals("let x: Dec =\n    try\n        n * f\n    catch\n        _ => price\n"))
+    expect(refusals("let x: Dec =\n    try\n        n * f\n    catch\n        fault _ => price\n"))
       .toEqual([declined("Dec", "multiplication")]);
     expect(refusals("let x: Dec = (if c then n * f else price) * price\n"))
       .toEqual([declined("Dec", "multiplication")]);

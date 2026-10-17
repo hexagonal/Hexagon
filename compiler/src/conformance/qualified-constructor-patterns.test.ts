@@ -296,7 +296,7 @@ describe("catch arms take the same form, and now reach as far", () => {
         "import Lib as Boom\n" +
         "export fun f(): Int =\n" +
         "    try\n" +
-        "        throw(Boom(3))\n" +
+        "        throw^(Boom(3))\n" +
         "    catch\n" +
         `        ${arm} => 1\n`],
     ]).diagnostics.map(({ message }) => message);

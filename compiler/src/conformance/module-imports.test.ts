@@ -1647,10 +1647,10 @@ describe("a `catch` arm is no seat of the door's (§2.2)", () => {
         "module Main\n\n" + 'import Blast\n' +
         "export fun f(): Int =\n" +
         "    try\n" +
-        "        throw(Blast.Blast(3))\n" +
+        "        throw^(Blast.Blast(3))\n" +
         "    catch\n" +
         "        Blast.Blast(c) => c\n" +
-        "export let caught: Int = f()\n"],
+        "export let caught: Int = f^()\n"],
     ] as const;
     expect(messages(files as never)).toEqual([]);
     expect((await runProject(files as never))["caught"]).toBe(3);

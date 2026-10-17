@@ -404,7 +404,7 @@ describe("term position: the occlusion keys on the type", () => {
           "export fun theirs(v: JsValue): Exn = Js.JsError(v)\n" +
           "export let x: Int =\n" +
           "    try\n" +
-          "        throw(JsError(7))\n" +
+          "        throw^(JsError(7))\n" +
           "    catch\n" +
           `        ${arm} => c\n` +
           "        _ => 0\n"],
@@ -422,13 +422,13 @@ describe("term position: the occlusion keys on the type", () => {
     const module = await runProject([
       ["/main.hex",
         "module Main\n\n" +
-          "fun guard(g: () -> Int): Int =\n" +
+          "fun guard(g: () ->^ Int): Int =\n" +
           "    try\n" +
-          "        g()\n" +
+          "        g^()\n" +
           "    catch\n" +
           "        JsError(_) => 1\n" +
           "        _ => 0\n" +
-          "export let x: Int = guard(() => throw(JsError(JsValue.from(7))))\n" +
+          "export let x: Int = guard(() => throw^(JsError(JsValue.from(7))))\n" +
           "import Hex.JsError\n"],
     ]);
     expect(module["x"]).toBe(1);
@@ -442,7 +442,7 @@ describe("term position: the occlusion keys on the type", () => {
         "module Main\n\n" + "import Oops\n" +
           "export let x: Int =\n" +
           "    try\n" +
-          "        throw(Oops(3))\n" +
+          "        throw^(Oops(3))\n" +
           "    catch\n" +
           "        Oops.Oops(c) => c\n" +
           "        _ => 0\n"],

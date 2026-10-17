@@ -208,7 +208,7 @@ describe("the forwarding forms (§4.3)", () => {
         "        match\n" +
         guardOnly("            ") +
         "    catch\n" +
-        "        Boom(_) => match\n" +
+        "        IndexFault(_, _) => match\n" +
         "            n when n > 0 => \"positive\"\n" +
         "            _ => \"other\"\n" +
         "export let a: String = sign(3)\n",
@@ -281,7 +281,7 @@ describe("the forwarding forms (§4.3)", () => {
           "        match\n" +
           guardOnly("            ") +
           "    catch\n" +
-          "        Boom(_) => other\n" +
+          "        IndexFault(_, _) => other\n" +
           "export let a: String = sign(3)\n",
       )).toEqual([]);
     });
@@ -292,10 +292,10 @@ describe("the forwarding forms (§4.3)", () => {
       // paths of the construct exactly as `try`'s are, so they forward too.
       expect(projectDiagnostics("module Main\n\n" + "exception Boom(reason: String)\n" +
           other +
-          "let risky(flag: Bool): Bool = if flag then throw(Boom(\"x\")) else True\n" +
+          "let risky(flag: Bool): Bool = if flag then throw^(Boom(\"x\")) else True\n" +
           "let flag: Bool = True\n" +
           "let sign: (Int) -> String =\n" +
-          "    match risky(flag)\n" +
+          "    match risky^(flag)\n" +
           "        True => other\n" +
           "        False => other\n" +
           "    catch\n" +
@@ -312,7 +312,7 @@ describe("the forwarding forms (§4.3)", () => {
           "    try\n" +
           "        other\n" +
           "    catch\n" +
-          "        Boom(_) => match\n" +
+          "        IndexFault(_, _) => match\n" +
           guardOnly("            ") +
           "export let a: String = sign(3)\n",
       )).toEqual([]);
