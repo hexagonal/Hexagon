@@ -52,6 +52,21 @@ function fixes(source: string): readonly (readonly [string, readonly string[]])[
   );
 }
 
+/** The program after one fixit is applied, from the first `let` of the source on. */
+function applied(source: string, message: string): string | undefined {
+  const whole = text(source);
+  for (const { fixes: written } of compileFiles(files(source)).diagnostics) {
+    const fix = written?.find((each) => each.message === message);
+    if (fix === undefined) continue;
+    let result = whole;
+    for (const { span, replacement } of [...fix.edits].sort((left, right) => right.span.start.offset - left.span.start.offset)) {
+      result = result.slice(0, span.start.offset) + replacement + result.slice(span.end.offset);
+    }
+    return result.slice(HEADER.length + WORLD.length);
+  }
+  return undefined;
+}
+
 /** What a hover on the binding `name` shows as its type. */
 function face(source: string, name: string): string | undefined {
   const whole = text(source);
@@ -190,6 +205,33 @@ describe("Exceptions §3: `throw` reads its argument's text", () => {
       .toEqual(["this call may fail, so `throw` wants `^`, not no mark"]);
   });
 
+  test("an or-pattern's alternatives bind one name, which proves a fault only where every one of them does", () => {
+    const arms = (arm: string): string =>
+      `let h(f: () ->! Int): Int =\n    try\n        f!()\n    catch\n        ${arm}\n        _ => 0\n`;
+    expect(messages("let h(f: () ->! Int): Int =\n    try\n        f!()\n    catch\n        (KeyFault as e) | e => throw(e)\n"))
+      .toEqual(["this call may fail, so `throw` wants `^`, not no mark"]);
+    expect(messages(arms("(KeyFault as e) | (Oops as e) => throw(e)")))
+      .toEqual(["this call may fail, so `throw` wants `^`, not no mark"]);
+    expect(messages(arms("(KeyFault as e) | (SliceFault(_, _) as e) => throw(e)"))).toEqual([]);
+  });
+
+  test("a binder nested in a payload proves a fault where its own pattern matches only faults", () => {
+    const source = "exception Wrap(inner: Exn)\nlet h(f: () ->! Int): Int =\n    try\n        f!()\n    catch\n" +
+      "        Wrap(IndexFault(_, _) as inner) => throw(inner)\n        Wrap(other) => throw^(other)\n        _ => 0\n";
+    expect(messages(source)).toEqual([]);
+  });
+
+  test("a piped construction is the call it rewrites to", () => {
+    expect(messages("let a(): Int = throw(Oops |> AssumptionFault)\nlet b(): Int = Oops |> AssumptionFault |> throw\n"))
+      .toEqual([]);
+  });
+
+  test("a `throw` whose argument is in error, or that is not given one argument, owes no mark", () => {
+    expect(messages("let a(): Int = throw(MissingFault(1))\n")).toEqual(["unknown name `MissingFault`"]);
+    expect(messages("let b(): Int = throw(1)\n")).toEqual(["integer literal cannot have type `Exn`"]);
+    expect(messages("let c(): Int = throw(Oops, Oops)\n")).toEqual(["`throw` expects exactly one exception, got 2"]);
+  });
+
   test("the binding proves the kind, not the spelling: a `let` naming the binder proves nothing", () => {
     const source = "let h(f: () ->! Int): Int =\n    try\n        f!()\n    catch\n" +
       "        fault e =>\n            let other = e\n            throw(other)\n";
@@ -209,6 +251,13 @@ describe("Exceptions §3: `throw` reads its argument's text", () => {
     const source = "let fire = throw\nlet a(): Int = (throw)(IndexFault(1, 2))\n";
     expect(face(source, "fire")).toBe("Exn ->^ a");
     expect(messages(source)).toEqual(["this call may fail, so this call wants `^`, not no mark"]);
+  });
+
+  test("the value form meets a written type as a value whose face the text writes", () => {
+    expect(reports("let f2: (Exn) -> Int = throw\n")).toEqual([
+      ["(Exn) -> Int", "a `->` arrow promises the function cannot fail, and this function may fail — the demand is written `->`"],
+    ]);
+    expect(messages("let f3: (Exn) ->^ Int = throw\n")).toEqual([]);
   });
 
   test("the value form throws what it is handed, at run time", async () => {
@@ -243,9 +292,25 @@ describe("Exceptions §5.3: over a part that cannot fail, an arm that only catch
     expect(messages("let a(x: Int): Int =\n    match x\n        _ => 1\n    catch\n        Oops => 2\n")).toEqual([
       "this `catch` can never run: evaluating x cannot throw",
     ]);
+    expect(messages("let a(x: Int): Int =\n    match (x)\n        _ => 1\n    catch\n        Oops => 2\n")).toEqual([
+      "this `catch` can never run: evaluating x cannot throw",
+    ]);
     expect(messages("let a(x: Int): Int =\n    match (x, x)\n        _ => 1\n    catch\n        Oops => 2\n")).toEqual([
       "this arm can never run: evaluating the scrutinee cannot fail",
     ]);
+  });
+
+  test("applied, the whole-form fixits leave the line after the form where it was", () => {
+    expect(applied("let b(): Unit =\n    try\n        noop()\n    catch\n        _ => ()\nlet c = 1\n",
+      "remove the `try` and its `catch`, keeping the body")).toBe("let b(): Unit =\n    noop()\nlet c = 1\n");
+    expect(applied(
+      "let c(x: Int): Int =\n    let y =\n        try\n            let z = x + 1\n            z * 2\n        catch\n            _ => 0\n    y\n",
+      "remove the `try` and its `catch`, keeping the body",
+    )).toBe("let c(x: Int): Int =\n    let y =\n        let z = x + 1\n        z * 2\n    y\n");
+    expect(applied("let d(): Int =\n    match noop()\n        () => 1\n    catch\n        Oops => 2\nlet e = 1\n",
+      "remove the `catch` clause")).toBe("let d(): Int =\n    match noop()\n        () => 1\nlet e = 1\n");
+    expect(applied("let f(): Unit =\n    try\n        noop()\n    catch\n        Oops => ()\n        fault e => ()\n    ()\n",
+      "remove the arm")).toBe("let f(): Unit =\n    try\n        noop()\n    catch\n        fault e => ()\n    ()\n");
   });
 
   test("the fixit removes the arm, or, where no arm would remain, the `try` and its `catch`", () => {
@@ -285,6 +350,20 @@ describe("Exceptions §5.3: over a part that cannot fail, an arm that only catch
   test("a guarded part in error owes nothing", () => {
     expect(messages("let a(): Int =\n    try\n        missing()\n    catch\n        _ => 0\n"))
       .toEqual(["unknown name `missing`"]);
+    expect(messages("let b(): Int =\n    try\n        undefinedName\n    catch\n        _ => 0\n"))
+      .toEqual(["unknown name `undefinedName`"]);
+    expect(messages("record R = { n: Int }\nlet c(r: R): Int =\n    try\n        r.missing\n    catch\n        _ => 0\n"))
+      .toEqual(["`R` has fields `n`, not `missing`"]);
+    expect(messages("let d(): Int =\n    try\n        1 + \"s\"\n    catch\n        _ => 0\n").some((message) =>
+      message.startsWith("this arm can never run")
+    )).toBe(false);
+  });
+
+  test("a guarded call whose fail mark a fact refuses draws that one report", () => {
+    const source = "let a(g) =\n    let x = g()\n    try\n        g^()\n    catch\n        _ => x\n";
+    expect(messages(source)).toEqual([
+      "this call cannot fail, so `g` wants no mark, not `^` — `g` is called bare, which makes it unable to fail",
+    ]);
   });
 
   test("the refusal is read once the colours settle, whatever order the lines come in", () => {

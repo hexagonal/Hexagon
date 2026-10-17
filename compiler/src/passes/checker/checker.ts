@@ -5358,6 +5358,8 @@ class Checker {
    * A `throw` of one is bare (Exceptions §3).
    */
   readonly #faultBinders = new Set<Resolved.SymbolId>();
+  /** The calls whose written fail mark `#checkMarks` refused as one the call does not need. */
+  readonly #refusedFailMarks = new WeakSet<Resolved.CallExpr>();
   /** Each `throw`, read as the call it is for its mark (Exceptions §3). */
   readonly #throwCalls = new WeakMap<Resolved.ThrowExpr, Resolved.CallExpr>();
   /**
@@ -11595,12 +11597,16 @@ class Checker {
         type = this.#inferTree(expression, level, expected);
         break;
       case "Throw": {
+        const before = this.#reportCount;
         const exception = this.#inferExpr(expression.exception, level);
         this.#unify(exception, primitive("Exn"), expression.exception.span);
         type = this.#fresh(level, false);
         // Exceptions §3: `throw` is pure, and may fail unless its argument's
-        // text shows a fault. A missing argument has had its report.
-        const fail = expression.exception.kind === "ErrorExpr"
+        // text shows a fault. An argument in error, or a `throw` not written
+        // with one argument, has had its report, and what the call may do is
+        // in error (Effects §3.5).
+        const fail = expression.misapplied === true || this.#reportCount > before ||
+            this.#holdsErrorNode(expression.exception)
           ? ERROR_COLOUR
           : this.#throwsFault(expression.exception) ? PURE : IMPURE;
         this.#registerCall(this.#throwCall(expression), { effect: PURE, fail }, "`throw`");
@@ -14795,7 +14801,9 @@ class Checker {
    * value whose kind the text does not show included, may fail.
    */
   #throwsFault(argument: Resolved.Expr): boolean {
-    const thrown = ungrouped(argument);
+    // A pipe stage is the call it rewrites to (Operators §8).
+    const written = ungrouped(argument);
+    const thrown = written.kind === "Binary" && written.operator === "Pipe" ? this.#pipeCall(written) : written;
     const named = thrown.kind === "Call" ? ungrouped(thrown.callee) : thrown;
     if (named.kind !== "Name") return false;
     const declared = this.#exceptions.get(named.symbol);
@@ -14826,6 +14834,12 @@ class Checker {
       if (arm.pattern.kind === "Binding") this.#faultBinders.add(arm.pattern.binding.symbol);
       return;
     }
+    // The alternatives of an or-pattern bind one name, so it proves a fault
+    // only where every pattern that binds it matches only faults.
+    const verdicts = new Map<Resolved.SymbolId, boolean>();
+    const note = (symbol: Resolved.SymbolId, proves: boolean): void => {
+      verdicts.set(symbol, (verdicts.get(symbol) ?? true) && proves);
+    };
     const onlyFaults = (pattern: Resolved.Pattern): boolean =>
       pattern.kind === "Constructor"
         ? pattern.symbol !== undefined && this.#exceptions.get(pattern.symbol)?.fault === true
@@ -14834,8 +14848,11 @@ class Checker {
         : pattern.kind === "As" && onlyFaults(pattern.pattern);
     const visit = (pattern: Resolved.Pattern): void => {
       switch (pattern.kind) {
+        case "Binding":
+          note(pattern.binding.symbol, false);
+          return;
         case "As":
-          if (onlyFaults(pattern.pattern)) this.#faultBinders.add(pattern.binding.symbol);
+          note(pattern.binding.symbol, onlyFaults(pattern.pattern));
           visit(pattern.pattern);
           return;
         case "Or":
@@ -14858,6 +14875,7 @@ class Checker {
       }
     };
     visit(arm.pattern);
+    for (const [symbol, proves] of verdicts) if (proves) this.#faultBinders.add(symbol);
   }
 
   #checkCatchArms(
@@ -25838,9 +25856,12 @@ class Checker {
     // A written `->!` over a body that performs no unconditional effect is no
     // report (#1119, ruling (c)): a face may claim more effect than its body
     // performs, never less — `->` stays an exact promise, `->!` an allowance.
+    // What inference reported, before any colour report: a guarded part with
+    // such a report in it is in error (`#checkGuards`).
+    const inferred = this.#diagnostics.count;
     this.#checkSignatureFaces();
     this.#checkMarks();
-    this.#checkGuards();
+    this.#checkGuards(inferred);
   }
 
   /**
@@ -25851,12 +25872,24 @@ class Checker {
    * row's claim did not foresee. Read once every colour has settled, as marks
    * are, so no line order decides it (Effects §3.4).
    */
-  #checkGuards(): void {
+  #checkGuards(inferred: number): void {
+    const errors: Source.Span[] = [];
+    for (let index = 0; index < inferred; index += 1) {
+      const report = this.#diagnostics.at(index);
+      if (report?.severity === "error") errors.push(report.primary);
+    }
     for (const guard of this.#guards) {
-      // A guarded part in error owes nothing (Effects §3.5): a colour in error
-      // is not silent.
+      // A guarded part in error owes nothing (Effects §3.5): one an error an
+      // earlier pass or inference reported stands in, and a colour in error is
+      // not silent.
+      const guarded = guard.form.kind === "Try" ? guard.form.body : guard.form.scrutinee;
+      if (errors.some((span) => spanWithin(span, guarded.span))) continue;
       const parts = guard.parts.map(({ colour }) => this.#prune(colour));
       if (!parts.every((part) => part.kind === "Effect" && Colour.isBottom(part))) continue;
+      // A guarded call whose written fail mark has been refused is the same
+      // defect told once: its report names the fact, and marking that fact
+      // repairs both (Effects §3.4).
+      if (guard.parts.some(({ call }) => this.#refusedFailMarks.has(call))) continue;
       // §5.4's judgment refuses such a clause whole, its fault arms too, and
       // that one report says this (the elaborator's `scrutineeCannotThrow`).
       if (guard.form.kind === "Match" && this.#clauseCannotThrow(guard.form.scrutinee)) continue;
@@ -25917,7 +25950,8 @@ class Checker {
    * bare variable read with no evidence, or a literal that erases to a
    * primitive construction.
    */
-  #clauseCannotThrow(scrutinee: Resolved.Expr): boolean {
+  #clauseCannotThrow(written: Resolved.Expr): boolean {
+    const scrutinee = ungrouped(written);
     switch (scrutinee.kind) {
       case "Name":
         return !this.#knotReferences.has(scrutinee) && (this.#nameRequirements.get(scrutinee) ?? []).length === 0;
@@ -25988,14 +26022,19 @@ class Checker {
     if (source === undefined || Number(guard.form.span.fileId) !== this.#fileId) return undefined;
     const { text, file } = source;
     const form = guard.form;
+    // A form's span runs on to the next token, so the edits end at its last
+    // arm, and the line after the form stays where it was.
     if (form.kind === "Match") {
       const last = form.arms.at(-1);
-      if (last === undefined) return undefined;
+      const end = form.catchArms?.at(-1)?.span.end.offset;
+      if (last === undefined || end === undefined) return undefined;
       return {
         message: "remove the `catch` clause",
-        edits: [{ span: file.span(last.span.end.offset, form.span.end.offset), replacement: "" }],
+        edits: [{ span: file.span(last.span.end.offset, end), replacement: "" }],
       };
     }
+    const end = form.arms.at(-1)?.span.end.offset;
+    if (end === undefined) return undefined;
     const body = form.body;
     const written = text.slice(body.span.start.offset, body.span.end.offset);
     const message = "remove the `try` and its `catch`, keeping the body";
@@ -26004,7 +26043,7 @@ class Checker {
         message,
         edits: [
           { span: file.span(form.span.start.offset, body.span.start.offset), replacement: "" },
-          { span: file.span(body.span.end.offset, form.span.end.offset), replacement: "" },
+          { span: file.span(body.span.end.offset, end), replacement: "" },
         ],
       };
     }
@@ -26015,7 +26054,7 @@ class Checker {
     const moved = [lines[0]!, ...lines.slice(1).map((line) => line.startsWith(" ".repeat(shift)) ? line.slice(shift) : line)];
     return {
       message,
-      edits: [{ span: form.span, replacement: moved.join("\n") }],
+      edits: [{ span: file.span(form.span.start.offset, end), replacement: moved.join("\n") }],
     };
   }
 
@@ -26207,6 +26246,7 @@ class Checker {
         parameter === undefined ? undefined : this.#ownArrowPins.get(`${Number(parameter.symbol)}:${axis}`);
       const over = wrong.filter((axis) => written[axis] && required[axis] === false);
       const missing = wrong.filter((axis) => !written[axis] && required[axis] === true);
+      if (over.includes("fail")) this.#refusedFailMarks.add(obligation.call);
       // §3.4's limitation: a bare call of a parameter whose own arrow a written
       // type's impure constant fixed can be true, so the report names what
       // works, the parameter's written type or the wrapper, not a mark.

@@ -4567,6 +4567,7 @@ class Resolver {
               ? { kind: "ErrorExpr", span: expression.span }
               : this.#resolveExpr(argument, scope),
             callee: expression.callee.span,
+            ...(expression.arguments.length === 1 ? {} : { misapplied: true as const }),
             ...(expression.mark === undefined ? {} : { mark: expression.mark }),
             ...(expression.markSpan === undefined ? {} : { markSpan: expression.markSpan }),
             span: expression.span,
@@ -6001,18 +6002,32 @@ class Resolver {
     // `throw` named as a value, without its argument list (Exceptions §3): it
     // has no argument to read, so it is the function that throws what it is
     // handed, of a kind the text does not show, `(Exn) ->^ a`.
+    // It is read as the function its written face would be, `(thrown) =>
+    // throw^(thrown)` ascribed `(Exn) ->^ _`, so a use meets it as a value
+    // whose type the text writes, never as a lambda an annotation lands on.
     if (expression.name.text === "throw" && scope.lookup("throw") === undefined) {
       const span = expression.span;
       const thrown: Parsed.Name = { text: "__thrown", startClass: "non-upper", span };
-      return this.#resolveLambda({
-        kind: "Lambda",
-        parameters: [{ name: thrown, span }],
-        body: {
-          kind: "Call",
-          callee: expression,
-          arguments: [{ kind: "Name", name: thrown, span }],
-          mark: "caret",
-          markSpan: span,
+      return this.#resolveExpr({
+        kind: "Ascription",
+        expression: {
+          kind: "Lambda",
+          parameters: [{ name: thrown, span }],
+          body: {
+            kind: "Call",
+            callee: expression,
+            arguments: [{ kind: "Name", name: thrown, span }],
+            mark: "caret",
+            markSpan: span,
+            span,
+          },
+          span,
+        },
+        annotation: {
+          kind: "Function",
+          parameters: [{ kind: "NamedType", name: { text: "Exn", startClass: "upper", span }, span }],
+          result: { kind: "Hole", constraints: [], span },
+          effect: "caret",
           span,
         },
         span,

@@ -2210,6 +2210,8 @@ export interface ThrowExpr {
   readonly exception: Expr;
   /** The word `throw`, where an absent mark would be inserted after it. */
   readonly callee: Source.Span;
+  /** Written with other than one argument, which the resolver reported: what it may do is in error. */
+  readonly misapplied?: true;
   /** The written mark, which its argument's text decides (Exceptions §3). */
   readonly mark?: CallMark;
   readonly markSpan?: Source.Span;
