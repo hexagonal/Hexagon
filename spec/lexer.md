@@ -641,8 +641,9 @@ the marks the call marks and the reading. `?` is a token only for the reading:
 reading takes the mark's fail part, so `!?` and `^?` are no readings: `f~?(x)`
 reads a `!` call, and `f?(x)` a `^` call (Effects §3.1). Maximal munch does not
 combine a mark and a dot into an unlisted token: `(x)name!.field` is a marked
-construction followed by field access, and two adjacent marks form no valid
-suffix construction, `~?` excepted. The coloured type arrows `->^`, `->~`,
+construction followed by field access, while `(x)name?.field` meets `?.`, which
+is no token, and two adjacent marks form no valid suffix construction, `~?`
+excepted. The coloured type arrows `->^`, `->~`,
 `->!` and the five following arrows are §8.1 tokens and `=>!` is not; the mark following `->` in
 `->!` is part of that one token and never a mark token in its own right, so
 `->!` is not an arrow beside a stray bang.)*

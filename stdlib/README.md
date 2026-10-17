@@ -177,11 +177,10 @@ emitted one (Packages §6).
   collision-prone the boundary block mints. Its late seat is what keeps the
   arithmetic honest: no prelude module sees them, so the weighing happens in user
   code, where the whole prelude arrives at once (Modules §5.5).
-- `Result.hex` declares the success-or-error union and `attempt`, the bridge back
-  from the exception world (`spec/exceptions.md` §8.2): `Ok(value)` on return,
-  `Err(thrown)` on any throw, foreign included. It is ordinary Hexagon — a `try`
-  with a catch-all arm — and its arrows link (Effects §2.2), so running it is
-  exactly as effectful as the thunk it is handed.
+- `Result.hex` declares the success-or-error union and its operations. The bridge
+  back from the exception world is no function here but the body form `attempt`
+  (`spec/exceptions.md` §8.2): `Ok(value)` on return, `Err(thrown)` on an
+  exception or a foreign throw.
 - `Debug.hex` holds the debugging probe: `log<a: Show>(value: a)` renders any
   showable value and writes it to the console through the door's one **species
   (a)** row (`spec/effects.md` §6.2), which stays at `String` and is unexported
