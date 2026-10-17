@@ -175,21 +175,25 @@ Producers append as they descend; consumers get one flat vector. The vocabulary 
 The accessors Exceptions §6.1 owed to this part, over the `JsError` payload (`error: JsValue` — the raw thrown value, which JS permits to be *anything*: `null`, a string, a symbol, a hostile object):
 
 ```hexagon
-JsError.message : JsValue ->~ String
-JsError.stack   : JsValue ->~ Option(String)
+JsError.message : JsValue -> String
+JsError.stack   : JsValue -> Option(String)
 ```
 
 **Both are total and conservative, and suppress secondary throwing-property failures** (approved, §12.3). **Objects and functions alike are property-bearing values eligible for the single guarded read** — a thrown function is exotic but legal JS, and it carries properties like any object. The algorithms:
 
 **`message`:**
 1. Thrown non-property-bearing value (`kind` ∈ {`String`, `Number`, `BigInt`, `Bool`, `Symbol`, `Undefined`, `Null`}): the safe rendering — the string itself for `String`; safe stringification for the others (`String(sym)` form, which cannot throw). `throw "oops"` yields `"oops"`.
-2. Thrown object **or function**: one guarded read of `.message`; if the read succeeds and yields a string, that string; otherwise — read throws (getter, proxy trap), property absent, or non-string — the empty string. **The value's `toString` is never invoked** (hostile), and the throwing read is swallowed into `""`, never propagated: an accessor whose purpose is describing one failure must not manufacture a second.
+2. Thrown object **or function**: one guarded read of `.message`, made the first time any call asks and kept (below); if the read succeeds and yields a string, that string; otherwise — read throws (getter, proxy trap), property absent, or non-string — the empty string. **The value's `toString` is never invoked** (hostile), and the throwing read is swallowed into `""`, never propagated: an accessor whose purpose is describing one failure must not manufacture a second.
 
 **`stack`:**
 1. Thrown non-property-bearing value: `None`.
-2. Thrown object **or function**: one guarded read of `.stack`; `Some(s)` iff the read succeeds with a string `s`; `None` otherwise (absent, non-string, or a throw, swallowed).
+2. Thrown object **or function**: one guarded read of `.stack`, made the first time any call asks and kept; `Some(s)` iff the read succeeds with a string `s`; `None` otherwise (absent, non-string, or a throw, swallowed).
 
-Both accessors are **`->~`**: each performs one guarded read per call of exactly the one named property, and that read may invoke an arbitrary foreign getter or proxy trap — an effect, whose suppressed secondary exception removes the throw and not the effect. So each is impure and cannot fail, and calls wear `~`: `JsError.message~(error)`, `JsError.stack~(error)`; a pure-faced read here was never sound, and forbidding the compiler to share it would not have made it so. Richer interrogation of a thrown value — `name`, `cause`, structural decoding — is ordinary `JsValue` decoding with §4's tools and the §13.2 library; these two accessors exist because *every* catch site wants them and they must never make things worse.
+Both accessors are **`->`**, pure and unable to fail, and their calls are bare: `JsError.message(error)`, `JsError.stack(error)`.
+- **Each property of a thrown value is read at most once, and kept.** The first call that asks for a thrown object's `.message` reads it, guarded, and the runtime keeps the answer; every later call with the same value answers from what was kept. `.stack` is kept the same way, on its own first read. That is Effects §6.2's species (b), the inbound `Seq` adapter's law (FFI Part 3 §4) applied to three properties: the read may run an arbitrary foreign getter or proxy trap, but it runs at most once, and the world can no longer vary the answer. It is the same move as an incoming collection's capture (FFI Part 1 §5.4): Hexagon holds its own copy and the foreign side cannot change it. Only the time differs: a collection is copied as it crosses, because Hexagon is about to read it, and a thrown value's properties when first asked, because most caught failures are never described.
+- **What is kept is the answer as read**, a thrown read included: a getter that throws on the first read is `""` (or `None`) for that value from then on. A foreign write to the property after the first read is not seen.
+- **The guard is why neither can fail**, as before: the suppressed secondary exception is never propagated.
+- **The keeping is the runtime's, and invisible.** It lives beside the value, not on it: the thrown object is never written, so foreign code holding it sees no new property, and the kept answers go when the value does. Richer interrogation of a thrown value — `name`, `cause`, structural decoding — is ordinary `JsValue` decoding with §4's tools and the §13.2 library; these two accessors exist because *every* catch site wants them and they must never make things worse.
 
 ---
 
@@ -292,7 +296,7 @@ The package fixed semantics; the draft supplied concrete spellings; review resol
 | **`JsConversionError` is ordinary data**: `record {reason, path}` over `JsConversionReason = Shape \| Range \| Cycle(firstSeen)`; no `Error`, no stack capture, no brand, not throwable as-is; ordinary record/union boundary faces (Part 7); `path` vector, empty = the value itself; all-or-nothing; diagnostic rendering non-normative | §5, §12.2 |
 | Path vocabulary closed at five segments: `Field`, `Index` (1-based), `MapKey`/`MapValue`/`SetElement` (1-based source-iteration position); root-outward composition; corpus-wide | §6.1–6.2 |
 | **Part 10 correction:** its shallow conversions originate `MapKey`/`SetElement` only; `MapValue` reserved for value-traversing conversions; `Field`/`Index` originate from none of the v1 core surface | §6.3 |
-| `JsError.message`/`stack` are `->~` — one guarded property read per call is an effect however its secondary throw is suppressed, and the suppression is why neither can fail | §7 |
+| `JsError.message`/`stack` are `->`: each property of a thrown value is read once, guarded, on first use, and the answer kept (Effects §6.2 species (b)), so the read is a value; the guard's suppression is why neither can fail | §7 |
 | `JsError.message` total: primitives render safely; objects **and functions** get one guarded `.message` read, `toString` never invoked, secondary throws suppressed → `""`; `JsError.stack` total: guarded `.stack` read → `Option`, `None` on anything else | §7, §12.3 |
 | `Nullable(a)` = typed nullish door; `JsValue` = untyped door absorbing nullish; **one idempotency principle over designated nullish-absorbing types: `Nullable(Nullable(a)) ≡ Nullable(a)`, `Nullable(JsValue) ≡ JsValue`, `Nullable(T) ≡ T` for a literal extern enum naming both nullish values (Foreign Enums §2.4); closed designation, no structural nullish analysis**; mixed trusted/uncertain signatures encouraged; `JsValue` legal in every direct position | §8, §13.3 |
 | Decoder library confirmed to the stdlib listing (ledger entry issued); `toJsMap`/`toJsSet` deferred from the v1 core — revisit bar: no portable `Array.isArray`-equivalent (cross-realm `instanceof` failure; awkward throw-based intrinsic brand checks); JSON, serialization untouched | §9, §13.1–13.2 |
