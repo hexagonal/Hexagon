@@ -260,6 +260,14 @@ describe("Exceptions §3: `throw` reads its argument's text", () => {
     expect(messages("let f3: (Exn) ->^ Int = throw\n")).toEqual([]);
   });
 
+  test("the value form's token has no hover of its own: nothing the compiler wrote for it is shown", () => {
+    const whole = text("let fire = throw\n");
+    const session = new AnalysisSession();
+    session.setFile("/world.js", "");
+    session.setFile("/main.hex", whole);
+    expect(session.hover("/main.hex", whole.lastIndexOf("throw") + 2)).toBeUndefined();
+  });
+
   test("the value form throws what it is handed, at run time", async () => {
     const exports = await runMain(
       "module Main\n\nexception Oops\nlet fire = throw\n" +
@@ -363,6 +371,13 @@ describe("Exceptions §5.3: over a part that cannot fail, an arm that only catch
     const source = "let a(g) =\n    let x = g()\n    try\n        g^()\n    catch\n        _ => x\n";
     expect(messages(source)).toEqual([
       "this call cannot fail, so `g` wants no mark, not `^` — `g` is called bare, which makes it unable to fail",
+    ]);
+  });
+
+  test("a fail mark a callee's type refuses is a second defect, and the arm is refused beside it", () => {
+    expect(messages("let a(): Int =\n    try\n        throw^(IndexFault(1, 2))\n    catch\n        _ => 0\n")).toEqual([
+      "this call cannot fail, so `throw` wants no mark, not `^`",
+      "this arm can never run: nothing in this `try` may fail — a fault passes `_`; to catch one, name it or write `fault e`",
     ]);
   });
 

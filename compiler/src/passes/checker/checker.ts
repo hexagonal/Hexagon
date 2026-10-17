@@ -5358,7 +5358,7 @@ class Checker {
    * A `throw` of one is bare (Exceptions §3).
    */
   readonly #faultBinders = new Set<Resolved.SymbolId>();
-  /** The calls whose written fail mark `#checkMarks` refused as one the call does not need. */
+  /** The calls whose written fail mark `#checkMarks` refused because a fact contradicts it (Effects §3.4). */
   readonly #refusedFailMarks = new WeakSet<Resolved.CallExpr>();
   /** Each `throw`, read as the call it is for its mark (Exceptions §3). */
   readonly #throwCalls = new WeakMap<Resolved.ThrowExpr, Resolved.CallExpr>();
@@ -26246,7 +26246,6 @@ class Checker {
         parameter === undefined ? undefined : this.#ownArrowPins.get(`${Number(parameter.symbol)}:${axis}`);
       const over = wrong.filter((axis) => written[axis] && required[axis] === false);
       const missing = wrong.filter((axis) => !written[axis] && required[axis] === true);
-      if (over.includes("fail")) this.#refusedFailMarks.add(obligation.call);
       // §3.4's limitation: a bare call of a parameter whose own arrow a written
       // type's impure constant fixed can be true, so the report names what
       // works, the parameter's written type or the wrapper, not a mark.
@@ -26283,6 +26282,9 @@ class Checker {
       // the fact is a bare call, offers to mark it instead.
       const facts = this.#markFacts.get(obligation.call);
       const fact = over.map((axis) => facts?.get(axis)).find((each) => each !== undefined);
+      // A fail mark a fact contradicts: a guard around the call is that defect
+      // told again (`#checkGuards`).
+      if (over.includes("fail") && facts?.get("fail") !== undefined) this.#refusedFailMarks.add(obligation.call);
       const demanded = fact === undefined && over.some((axis) => pinOn(axis)?.silent === true)
         ? pinOn(over.find((axis) => pinOn(axis)?.silent === true)!)
         : undefined;

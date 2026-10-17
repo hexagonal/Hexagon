@@ -6007,28 +6007,30 @@ class Resolver {
     // whose type the text writes, never as a lambda an annotation lands on.
     if (expression.name.text === "throw" && scope.lookup("throw") === undefined) {
       const span = expression.span;
-      const thrown: Parsed.Name = { text: "__thrown", startClass: "non-upper", span };
+      const unwritten = { ...span, end: span.start };
+      const thrown: Parsed.Name = { text: "__thrown", startClass: "non-upper", span: unwritten };
       return this.#resolveExpr({
         kind: "Ascription",
         expression: {
           kind: "Lambda",
-          parameters: [{ name: thrown, span }],
+          parameters: [{ name: thrown, span: unwritten }],
           body: {
             kind: "Call",
             callee: expression,
-            arguments: [{ kind: "Name", name: thrown, span }],
+            arguments: [{ kind: "Name", name: thrown, span: unwritten }],
             mark: "caret",
             markSpan: span,
             span,
           },
           span,
         },
+        // Written by no one, so it spans nothing a hover or a rename can land on.
         annotation: {
           kind: "Function",
-          parameters: [{ kind: "NamedType", name: { text: "Exn", startClass: "upper", span }, span }],
-          result: { kind: "Hole", constraints: [], span },
+          parameters: [{ kind: "NamedType", name: { text: "Exn", startClass: "upper", span: unwritten }, span: unwritten }],
+          result: { kind: "Hole", constraints: [], span: unwritten },
           effect: "caret",
-          span,
+          span: unwritten,
         },
         span,
       }, scope);
