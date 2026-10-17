@@ -143,6 +143,18 @@ describe("Effects §3.6: a catch-all handles what it guards", () => {
   });
 });
 
+describe("Effects §13.3: a call at a known instance follows an instance body that handles", () => {
+  test("`guard`'s instance handles what it runs, so its face there is `>~>`", () => {
+    const source =
+      "constraint Guard<g> =\n    guard(q: g, action: () ->! Unit) ->~ Unit\nrecord Q = { n: Int }\n" +
+      "honor Guard<Q> =\n    guard(q, action) =\n        try\n            action!()\n        catch\n            _ => ()\n" +
+      "let q = Q({ n = 1 })\n";
+    expect(messages(source + "let a(): Unit = guard(q, () => ())\nlet b(): Unit = guard~(q, save0)\n")).toEqual([]);
+    expect(messages(source + "let c(): Unit = guard!(q, save0)\n"))
+      .toEqual(["this call cannot fail, so `guard` wants `~`, not `!`"]);
+  });
+});
+
 describe("Effects §3.6: a sibling call a form guards makes no member fail", () => {
   test("a knot member that handles its sibling's failure cannot fail, and the sibling may", () => {
     const source =
