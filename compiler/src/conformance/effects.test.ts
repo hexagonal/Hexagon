@@ -4713,7 +4713,9 @@ export let bad: Seq(String) = Seq.unfold("x", (seed) =>
 `),
     ).toEqual([
       "a `->` arrow promises purity and that the function cannot fail, and this function is impure and may fail — the " +
-      "demand is written `->`",
+      "demand is written `->`; a lazy `Seq` would throw it at a later pull, so keep it where a mark sees it: a " +
+      "strict operation (`Vector.map^`), a strict consumer (`Seq.fold^`), or elements that carry it as data " +
+      "(`(x) => f?(x)` gives `Option`s, and `attempt` in the function gives `Result`s)",
     ]);
   });
 });
