@@ -25853,9 +25853,9 @@ class Checker {
    */
   #checkGuards(): void {
     for (const guard of this.#guards) {
+      // A guarded part in error owes nothing (Effects §3.5): a colour in error
+      // is not silent.
       const parts = guard.parts.map(({ colour }) => this.#prune(colour));
-      // A guarded part in error owes nothing (Effects §3.5).
-      if (parts.some((part) => part.kind === "ErrorColour")) continue;
       if (!parts.every((part) => part.kind === "Effect" && Colour.isBottom(part))) continue;
       // §5.4's judgment refuses such a clause whole, its fault arms too, and
       // that one report says this (the elaborator's `scrutineeCannotThrow`).

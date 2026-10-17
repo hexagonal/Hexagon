@@ -239,6 +239,15 @@ describe("Exceptions §5.3: over a part that cannot fail, an arm that only catch
       .toEqual([["remove the `catch` clause", [""]]]);
   });
 
+  test("over a bare variable or a primitive literal, §5.4's whole-clause judgment is the one report", () => {
+    expect(messages("let a(x: Int): Int =\n    match x\n        _ => 1\n    catch\n        Oops => 2\n")).toEqual([
+      "this `catch` can never run: evaluating x cannot throw",
+    ]);
+    expect(messages("let a(x: Int): Int =\n    match (x, x)\n        _ => 1\n    catch\n        Oops => 2\n")).toEqual([
+      "this arm can never run: evaluating the scrutinee cannot fail",
+    ]);
+  });
+
   test("the fixit removes the arm, or, where no arm would remain, the `try` and its `catch`", () => {
     expect(fixes("let a(): Unit =\n    try\n        noop()\n    catch\n        Oops => ()\n        fault e => ()\n"))
       .toEqual([["remove the arm", [""]]]);
