@@ -3132,9 +3132,9 @@ function primitive(name: Typed.PrimitiveName): Constructor {
  *
  * Read off `PRIMITIVE_COMPANION_MODULES` rather than re-listed, so the orphan
  * rule's home for a primitive and the prelude's injection table cannot drift
- * apart. `Unit` and `Exn` are absent from both, and §5.3 says why for `Unit`: it
- * is the empty tuple, covered by the structural instances, with no home and none
- * needed.
+ * apart. `Unit` is absent from both, and §5.3 says why: it is the empty tuple,
+ * covered by the structural instances, with no home and none needed. `Exn`
+ * joined with `Show<Exn>` (#1159).
  */
 const PRIMITIVE_COMPANION_HOMES: ReadonlySet<string> = new Set(
   PRIMITIVE_COMPANION_MODULES.values(),
@@ -3294,6 +3294,9 @@ const PRIMITIVE_COMPANIONS: ReadonlyMap<string, string> = new Map([
   ["Nat", "primitive:Nat"],
   ["Float", "primitive:Float"],
   ["String", "primitive:String"],
+  // `Exn` (#1159): `e.stack()` is `Exn.stack(e)`, and `Exn.hex` is the home
+  // `honor Show<Exn>` is read from.
+  ["Exn", "primitive:Exn"],
 ]);
 
 /**

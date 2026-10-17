@@ -331,6 +331,13 @@ export function isIntrinsicScheme(specifier: string): boolean {
  *   `toString` of anyone's — the guard is the Hexagon above it, exactly as
  *   `jsValueIsSafeInteger`'s caller is.
  *
+ * *(#1159, describing a caught `Exn`.)* `stdlib/Exn.hex` keys two more, beneath
+ * `honor Show<Exn>` and `Exn.stack`. `jsErrorReadName` is the third guarded read,
+ * kept like its two siblings, and keyed only there so that one table keeps each
+ * property. `exnView` is the identity at run time, an `Exn` as the JavaScript
+ * value it is, undoing only the virtual `JsError` wrapping: what only
+ * JavaScript can say, with the verdict over it in ordinary Hexagon.
+ *
  * *(#238, the outbound crossing.)* `vectorToArray` is `stdlib/Vector.hex`'s
  * eighth key and the only one of that file's rows that is not Collections
  * Part 3 §7's boundary: it is FFI Part 2 §9's outbound conversion, declared
@@ -666,6 +673,8 @@ const INTRINSIC_OPERATIONS: readonly (readonly [string, number])[] = [
   ["jsErrorReadMessage", 1],
   ["jsErrorReadStack", 1],
   ["jsErrorRender", 1],
+  ["jsErrorReadName", 1],
+  ["exnView", 1],
   ["bufferCreate", 2],
   ["bufferRead", 2],
   ["bufferWrite", 3],

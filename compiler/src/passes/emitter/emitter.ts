@@ -11738,11 +11738,27 @@ class JavaScriptEmitter {
       case "jsErrorReadStack":
         return `__a => ${this.#useHelper("jsErrorRead")}(__a, "stack")`;
       // §7's safe rendering, asked only of a value `kind` has already placed
-      // outside `Object` and `Function`. `String(value)` is the stringification
-      // that survives a `Symbol`, where interpolation would throw, and it is the
-      // identity on a string.
+      // outside `Object`, `Array` and `Function`. `String(value)` is the
+      // stringification that survives a `Symbol`, where interpolation would
+      // throw, and it is the identity on a string.
       case "jsErrorRender":
         return `__a => ${this.#spell("String")}(__a)`;
+      // `Exn.hex`'s two rows (#1159). The `.name` read is the same kept read as
+      // `JsError`'s two, through the same helper; it is keyed in `Exn.hex`
+      // alone, as `.message` and `.stack` are in `JsError.hex` alone, because
+      // each module's copy of the helper keeps its own table, and a property
+      // kept by two tables could be read twice.
+      case "jsErrorReadName":
+        return `__a => ${this.#useHelper("jsErrorRead")}(__a, "name")`;
+      // An `Exn` as the JavaScript value it is (Exceptions §7.1): every throwable
+      // is one. The one thing it does is undo the virtual wrapping (§6.2), so a
+      // materialised `JsError(v)` is seen as `v`, as a `JsError(e)` catch arm
+      // sees it. The test is that arm's own discrimination (§7.4): the brand,
+      // read only as a catch reads it, then the name, read only on a branded
+      // value.
+      case "exnView":
+        return '__a => __a != null && typeof __a.$hex === "string" && ' +
+          '__a.$hex === "Hex.JsError" && __a.name === "JsError" ? __a.error : __a';
       // `stdlib/Runtime/Regex.hex`'s four (#927, `spec/intrinsics.md` §3.3,
       // `regex.md` §7). A `Buffer(a)` **is** a plain JavaScript array: zero-based,
       // fill required, and the four operations are the four things an array does.

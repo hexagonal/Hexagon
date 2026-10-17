@@ -1,0 +1,60 @@
+module Exn
+
+// What a caught failure says about itself (`spec/exceptions.md` section 8.6,
+// #1159). `Exn` is a prelude type constant that no module declares, and this is
+// its companion by the same rule that makes `Int.hex` `Int`'s (Method Syntax
+// section 4.1): the home its one instance is read from, and the module its
+// subject-first exports are reached through, qualified or by the dot.
+//
+// **One line, and pure.** `show` gives JavaScript's own one-line form, the line
+// an uncaught throw prints first: `Name: message`, or `Name` alone when there is
+// no message. An exception's `message` slot is what fills it (section 2). A
+// foreign throw is read with the same guarded reads `JsError.message` uses, each
+// property of a thrown value read once, on first use, and kept (FFI Part 11
+// section 7), so describing a failure is pure and never manufactures a second.
+//
+// **The seat.** After `JsError.hex`, whose kept `.message` and `.stack` reads
+// this module describes with. `.name` is the one read keyed here, so that one
+// table keeps each property.
+
+// The two crossings, each unexported beneath the ordinary Hexagon that earns
+// it (`spec/intrinsics.md` section 3.2).
+extern from "hex:intrinsic"
+    // An `Exn` as the JavaScript value it is: every throwable is one. It undoes
+    // only the virtual wrapping (section 6.2), so a `JsError(v)` built by hand
+    // is seen as `v`, exactly as a `JsError(e)` catch arm sees it.
+    fun exnView as view(error: Exn) -> JsValue
+
+    // One guarded read of `.name`, kept as `JsError`'s two reads are: read once
+    // per value, the first time it is asked for.
+    fun jsErrorReadName as readName(error: JsValue) -> JsValue
+
+let readString(value: JsValue): String = match value.toString()
+    Ok(text) => text
+    Err(_) => ""
+
+// JavaScript's own joining: the name and the message with `": "` between, or
+// whichever is not empty.
+let joined(name: String, message: String): String =
+    if name == "" then message
+    else if message == "" then name
+    else name ++ ": " ++ message
+
+let describe(value: JsValue): String = match value.kind()
+    JsKind.Object | JsKind.Array | JsKind.Function =>
+        joined(readString(readName(value)), JsError.message(value))
+    _ => JsError.message(value)
+
+honor Show<Exn> =
+    (** JavaScript's one line for `error`: `ParseError: unexpected token` for an
+        exception with a `message` slot, `NotFoundError` for one without, and
+        for a foreign throw its own `name` and `message`, read once and kept, so
+        `TypeError: x is not a function`. A thrown string shows as itself, and a
+        thrown object with neither a `name` nor a `message` as `""`. The payload
+        of an exception without a `message` slot is not shown: give it one. *)
+    show(error) = describe(view(error))
+
+(** `error`'s stack trace when it has one, `None` otherwise: a Hexagon
+    exception's, captured where it was built (section 4), or a foreign throw's,
+    read once and kept. A thrown string or `null` has none. *)
+export let stack(error: Exn): Option(String) = JsError.stack(view(error))

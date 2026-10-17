@@ -163,6 +163,10 @@ describe("the module", () => {
       // addressable under that name. From here the two bare words it exports,
       // `message` and `stack`, are visible to no prelude module at all.
       "JsError",
+      // #1159: `Exn`'s companion, home of `Show<Exn>` and `Exn.stack`. It
+      // describes a foreign throw with `JsError.hex`'s kept reads, so it sits
+      // after that module, and before `Debug.hex`, which stays last.
+      "Exn",
       // #407 closes the list, and is the one member no signature places:
       // `log` names `String` and `Unit`, `trace` names `Show`, all of which
       // seat in the first dozen. It is last for what the seat denies — from
