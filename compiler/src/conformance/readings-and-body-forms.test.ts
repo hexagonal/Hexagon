@@ -86,6 +86,17 @@ describe("Effects §3.1: the reading `?` and `~?`", () => {
     ]);
   });
 
+  test("a reading of a tower member's call is a call, not a number its tree holds", () => {
+    expect(messages("let a(): Option(Int) = Int.add?(1, 2)\nlet b(x: Int): Option(Int) = x.add?(2)\n")).toEqual([
+      "this call cannot fail, so `add` wants no `?`",
+      "this call cannot fail, so `.add` wants no `?`",
+    ]);
+    // Spelled through its constraint, a tower member's call is an interior node
+    // of its tree; read, it is a call whose value is an `Option`, no number.
+    expect(messages("let c(): Int = 1 + Num.add?(1, 2)\n")).toContain("this call cannot fail, so `add` wants no `?`");
+    expect(messages("let d(): Option(Int) = Num.add?(1, 2)\n")).toEqual(["this call cannot fail, so `add` wants no `?`"]);
+  });
+
   test("`!?` and `^?` are no readings: one report each, read as the reading meant", () => {
     expect(messages("let a() = parse^?(\"1\")\nlet b() = save!?(\"x\")\nlet c() = parse!?(\"1\")\n")).toEqual([
       "a reading takes the mark's fail part: write `f~?(x)` for a call that is impure, `f?(x)` for one that is pure",

@@ -17471,8 +17471,6 @@ class Checker {
    * it promotes as (§5.1), so it is one literal rather than a negation of one.
    */
   #isTreeInterior(expression: Resolved.Expr): boolean {
-    // A reading's value is an `Option`, never a number a tree holds.
-    if (expression.kind === "Call" && expression.reading === true) return false;
     switch (expression.kind) {
       case "Binary":
         return expression.operator !== "Pipe" &&
