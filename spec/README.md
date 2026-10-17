@@ -40,6 +40,7 @@ Every normative owner appears exactly once. The explicitly marked router and gui
 | Types | `math.md` | the `Math` module: Float mathematical functions, edge cases, and approximation contract |
 | Types | `rat.md` | exact `BigInt`-backed rational values |
 | Types | `dec.md` | exact retained-place decimals, canonical `d` literals, rounding and conversion APIs, including the rounded `Float` door |
+| Types | `numeric-parsing.md` | one tracked `parse` per numeric type, its literal grammar, `NumberFormatError`, the round-trip law |
 | Types | `friendly-numerics.md` | the friendly-numerics doctrine (#517): the seven tenets, the two-worlds membrane, the comparative position — principles only; every rule stays with its owning spec |
 | Types | `constraints.md` | constraints, `honor` instances, coherence, dictionaries, defaults |
 | Control | `operators-logic-precedence.md` | operator inventory, precedence, pipe, `if/then/else`, bracket grammar |
