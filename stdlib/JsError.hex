@@ -85,10 +85,10 @@ let readOption(value: JsValue): Option(String) = match value.toString()
     Err(_) => None
 
 (** What `error` says about itself, always. A thrown object, array or function
-    gets one guarded read of its `.message`, and a read that throws, is absent, or is not
-    a string yields `""`. Anything else — a string, a number, a bigint, a
-    boolean, a symbol, `undefined`, `null` — renders safely, so `throw "oops"`
-    reads back as `"oops"`.
+    gets one guarded read of its `.message`, and a read that throws, is absent,
+    or is not a string yields `""`. Anything else — a string, a number, a
+    bigint, a boolean, a symbol, `undefined`, `null` — renders safely, so
+    `throw "oops"` reads back as `"oops"`.
 
     The value's own `toString` is never invoked and no secondary failure ever
     escapes: this function describes a failure and must not manufacture one.
@@ -99,9 +99,9 @@ export let message(error: JsValue): String = match error.kind()
     _ => render(error)
 
 (** `error`'s stack trace when it has one, `None` otherwise. A thrown object,
-    array or function gets one guarded read of its `.stack` and answers `Some(trace)`
-    only when that read succeeded with a string; a value that bears no
-    properties has no stack to read and answers `None`.
+    array or function gets one guarded read of its `.stack` and answers
+    `Some(trace)` only when that read succeeded with a string; a value that
+    bears no properties has no stack to read and answers `None`.
 
     Conservative in the same way `message` is: a throwing read is swallowed, not
     propagated. The `.stack` is read once, the first time it is asked for, and

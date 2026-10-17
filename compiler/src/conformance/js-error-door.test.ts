@@ -551,6 +551,22 @@ describe("the accessors are total and conservative (FFI Part 11 §7)", () => {
   });
 
   /**
+   * Pending is per property: a `.message` getter that asks for the same value's
+   * `.stack` gets a real read of it, and the stack it read is kept.
+   */
+  test("a getter that asks for the other property gets a real read", async () => {
+    const { message, stack } = await accessors();
+    const value = {
+      stack: "the trace",
+      get message(): string {
+        return `with ${stack(value).value ?? "no trace"}`;
+      },
+    };
+    expect(message(value)).toBe("with the trace");
+    expect(stack(value).value).toBe("the trace");
+  });
+
+  /**
    * An array is an object to §7, though `kind` names it apart, so it gets the
    * guarded read rather than the rendering, and no element's `toString` runs.
    */
