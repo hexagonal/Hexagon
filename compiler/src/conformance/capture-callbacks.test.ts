@@ -680,11 +680,11 @@ describe("throws pass through untouched, in both directions (§4)", () => {
       "exception Boom(code: Int)\n" +
         "\n" +
         'extern from "relay"\n' +
-        "    fun run(cb: Array(Int) -> Int) ->! Int\n" +
+        "    fun run(cb: Array(Int) ->^ Int) ->! Int\n" +
         "\n" +
         "export fun probe(): Int =\n" +
         "    try\n" +
-        "        run!(xs => throw(Boom(Array.length(xs))))\n" +
+        "        run!(xs => throw^(Boom(Array.length(xs))))\n" +
         "    catch\n" +
         "        Boom(code) => code\n" +
         "        JsError(_) => -1\n",

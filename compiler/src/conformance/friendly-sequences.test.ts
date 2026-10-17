@@ -355,9 +355,9 @@ describe("at run time an adaptation is its explicit call (Part 5 §3.6)", () => 
   test("values, and only the selected path runs", async () => {
     const run = await runProject([["/main.hex", fixtures +
       "exception Unreached\n" +
-      "let boom(): Vector(String) = throw(Unreached)\n" +
+      "let boom(): Vector(String) = throw^(Unreached)\n" +
       "export let joined: String = String.fromSeq(words)\n" +
-      "export let selected: Int = Seq.length(if 1 < 2 then words else boom())\n" +
+      "export let selected: Int = Seq.length(if 1 < 2 then words else boom^())\n" +
       "export let held: Option(Seq(String)) = Some(words)\n" +
       "export let length(xs: Vector(Int)): Int = Seq.length(xs)\n" +
       "export let loops(n: Int): Int =\n" +

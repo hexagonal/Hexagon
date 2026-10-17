@@ -1110,7 +1110,7 @@ describe("a term's spelling in pattern position (§2.5, §12)", BUDGET, () => {
         "        x => x\n" +
         "    catch\n" +
         "        Helper.count => 0\n" +
-        "        _ => 1\n",
+        "        fault _ => 1\n",
     ]])).toEqual(["`Helper.count` is a value, not a pattern"]);
     // A spelling that resolved through an honored member carries no term symbol,
     // and the guard is withheld — rightly: `Rat.fromInt` is a function.

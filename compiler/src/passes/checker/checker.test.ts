@@ -1029,7 +1029,7 @@ describe("check", () => {
         "exception Wrapped(reason: Reason)\n" +
         "exception Backup(reason: Reason)\n" +
         "let recover(value: Int): Int = try\n" +
-        "    throw(Wrapped(Code(value)))\n" +
+        "    throw^(Wrapped(Code(value)))\n" +
         "catch\n" +
         "    Wrapped(Code(code) as reason) when code > 0 => code\n" +
         "    Wrapped(Other) | Backup(Other) => 0\n" +
@@ -1049,7 +1049,7 @@ describe("check", () => {
       "union Reason = Code(Int) | Other\n" +
         "exception Wrapped(reason: Reason)\n" +
         "fun choose(reason: Reason): Int = try\n" +
-        "    throw(Wrapped(reason))\n" +
+        "    throw^(Wrapped(reason))\n" +
         "catch\n" +
         "    Wrapped(_) when False => 1\n" +
         "    Wrapped(Code(_)) => 2",
@@ -1058,7 +1058,7 @@ describe("check", () => {
       "union Reason = Code(Int) | Other\n" +
         "exception Wrapped(reason: Reason)\n" +
         "fun choose(reason: Reason): Int = try\n" +
-        "    throw(Wrapped(reason))\n" +
+        "    throw^(Wrapped(reason))\n" +
         "catch\n" +
         "    Wrapped(_) => 1\n" +
         "    Wrapped(Code(_)) => 2",

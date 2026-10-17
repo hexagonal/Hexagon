@@ -192,7 +192,7 @@ describe("the arm is the foreign branch, in both catch seats (§6.2, §7.4)", ()
       "exception Boom(message: String)\n" +
         "export let run(ignored: Int): String =\n" +
         "    try\n" +
-        "        throw(Boom(\"domestic\"))\n" +
+        "        throw^(Boom(\"domestic\"))\n" +
         "    catch\n" +
         "        JsError(e) => JsError.message!(e)\n",
     );
@@ -226,7 +226,7 @@ describe("the arm is the foreign branch, in both catch seats (§6.2, §7.4)", ()
         "exception Boom(message: String)\n" +
         "export let run(domestic: Bool): String =\n" +
         "    try\n" +
-        "        if domestic then throw(Boom(\"b\")) else Int.show(reading!())\n" +
+        "        if domestic then throw^(Boom(\"b\")) else Int.show(reading!())\n" +
         "    catch\n" +
         "        Boom(_) | JsError(_) => \"either\"\n",
       thrower,
@@ -244,9 +244,10 @@ describe("the arm is the foreign branch, in both catch seats (§6.2, §7.4)", ()
         "        JsError(_) => \"first\"\n" +
         "        JsError(_) => \"second\"\n",
     )).toEqual(["exception `JsError` is already caught above"]);
-    expect(projectDiagnostics("module Main\n\n" + "export let run(n: Int): String =\n" +
+    expect(projectDiagnostics("module Main\n\n" + "exception Boom(message: String)\n" +
+        "export let run(n: Int): String =\n" +
         "    try\n" +
-        "        Int.show(n)\n" +
+        "        if n == 99 then throw^(Boom(\"never\")) else Int.show(n)\n" +
         "    catch\n" +
         "        _ => \"first\"\n" +
         "        JsError(_) => \"second\"\n",
@@ -257,7 +258,7 @@ describe("the arm is the foreign branch, in both catch seats (§6.2, §7.4)", ()
     expect(projectDiagnostics("module Main\n\n" + "exception Boom(message: String)\n" +
         "export let run(n: Int): String =\n" +
         "    try\n" +
-        "        Int.show(n)\n" +
+        "        if n == 99 then throw^(Boom(\"never\")) else Int.show(n)\n" +
         "    catch\n" +
         "        JsError(_) => \"foreign\"\n" +
         "        Boom(m) => m\n",
@@ -268,7 +269,7 @@ describe("the arm is the foreign branch, in both catch seats (§6.2, §7.4)", ()
 describe("the wrapping is virtual and the unwrapping syntactic (§6.2)", () => {
   test("`throw(JsError(e))` emits `throw e;` — no construction, no helper", () => {
     const text = mainJavascript(
-      "export let rethrow(e: JsValue): Int = throw(JsError(e))\n",
+      "export let rethrow(e: JsValue): Int = throw^(JsError(e))\n",
     );
     expect(text).toContain("const rethrow = e => (() => { throw e; })();");
     expect(text).not.toContain("throw JsError(e)");
@@ -281,7 +282,7 @@ describe("the wrapping is virtual and the unwrapping syntactic (§6.2)", () => {
         "    try\n" +
         "        reading!()\n" +
         "    catch\n" +
-        "        JsError(e) => throw(JsError(e))\n",
+        "        JsError(e) => throw^(JsError(e))\n",
       thrower,
     );
     const marker = (await import(
@@ -304,7 +305,7 @@ describe("the wrapping is virtual and the unwrapping syntactic (§6.2)", () => {
       "export let wrap(e: JsValue): Exn = JsError(e)\n" +
         "export let later(e: JsValue): Int =\n" +
         "    let held = JsError(e)\n" +
-        "    throw(held)\n",
+        "    throw^(held)\n",
     );
     const wrapped = (exports["wrap"] as (e: unknown) => Record<string, unknown>)("payload");
     expect(wrapped["$hex"]).toBe("Hex.JsError");
@@ -327,7 +328,7 @@ describe("the wrapping is virtual and the unwrapping syntactic (§6.2)", () => {
       "export let round(e: JsValue): JsValue =\n" +
         "    try\n" +
         "        let held = JsError(e)\n" +
-        "        throw(held)\n" +
+        "        throw^(held)\n" +
         "    catch\n" +
         "        JsError(inner) => inner\n",
     );
@@ -344,10 +345,10 @@ describe("every gate keys on the declaration, never on the spelling (#679/#727)"
    * there — this is the pin that a name-matched implementation fails.
    */
   const ownDoor = "exception JsError(error: JsValue)\n" +
-    "export let rethrow(e: JsValue): Int = throw(JsError(e))\n" +
+    "export let rethrow(e: JsValue): Int = throw^(JsError(e))\n" +
     "export let caught(e: JsValue): JsValue =\n" +
     "    try\n" +
-    "        throw(JsError(e))\n" +
+    "        throw^(JsError(e))\n" +
     "    catch\n" +
     "        JsError(inner) => inner\n";
 
@@ -503,17 +504,17 @@ describe("`Result.attempt` bridges back to data (§8.2)", () => {
   const attemptSource = "module Main\n\n" + externThrower +
     "exception Boom(message: String)\n" +
     "let pure(): Int = 7\n" +
-    "let domestic(): Int = throw(Boom(\"declared\"))\n";
+    "let domestic(): Int = throw^(Boom(\"declared\"))\n";
 
   test("`Ok` on return, `Err` on a declared throw, `Err` on a foreign one", async () => {
     const exports = await run(
       externThrower +
         "exception Boom(message: String)\n" +
         "let pure(): Int = 7\n" +
-        "let domestic(): Int = throw(Boom(\"declared\"))\n" +
+        "let domestic(): Int = throw^(Boom(\"declared\"))\n" +
         "let classify(thrown: Exn): String =\n" +
         "    try\n" +
-        "        throw(thrown)\n" +
+        "        throw^(thrown)\n" +
         "    catch\n" +
         "        Boom(m) => \"domestic \" ++ m\n" +
         "        JsError(e) => \"foreign \" ++ JsError.message!(e)\n" +
@@ -526,7 +527,7 @@ describe("`Result.attempt` bridges back to data (§8.2)", () => {
         "        Ok(value) => \"ok \" ++ Int.show(value)\n" +
         "        Err(thrown) => classify!(thrown)\n" +
         "export let foreign(ignored: Int): String =\n" +
-        "    match Result.attempt!(reading)\n" +
+        "    match Result.attempt~(reading)\n" +
         "        Ok(value) => \"ok \" ++ Int.show(value)\n" +
         "        Err(thrown) => classify!(thrown)\n",
       thrower,
@@ -536,7 +537,7 @@ describe("`Result.attempt` bridges back to data (§8.2)", () => {
     expect((exports["foreign"] as (i: number) => string)(0)).toBe("foreign from JavaScript");
   });
 
-  test("the arrows link: a pure thunk is a bare call, an impure one wears `!`", () => {
+  test("the arrows link: a pure thunk is a bare call, an impure one wears `~`", () => {
     // Instantiated pure, the whole call is pure and bare — legal in a `->` body.
     expect(projectDiagnostics(
       attemptSource +
@@ -545,7 +546,7 @@ describe("`Result.attempt` bridges back to data (§8.2)", () => {
     // Instantiated impure, it wears `!`, and the bare spelling is refused.
     expect(projectDiagnostics(
       attemptSource +
-        "export let marked(ignored: Int): Result(Int, Exn) = Result.attempt!(reading)\n",
+        "export let marked(ignored: Int): Result(Int, Exn) = Result.attempt~(reading)\n",
     )).toEqual([]);
     expect(projectDiagnostics(
       attemptSource +
@@ -654,7 +655,7 @@ describe("emission and the guard the door does not ship (§7.4, §7.6)", () => {
       "exception Boom(message: String)\n" +
         "export let run(n: Int): String =\n" +
         "    try\n" +
-        "        Int.show(n)\n" +
+        "        if n == 99 then throw^(Boom(\"never\")) else Int.show(n)\n" +
         "    catch\n" +
         "        Boom(m) => m\n" +
         "        JsError(e) => JsError.message!(e)\n",
@@ -672,7 +673,7 @@ describe("emission and the guard the door does not ship (§7.4, §7.6)", () => {
       "exception Boom(message: String)\n" +
         "export let run(n: Int): String =\n" +
         "    try\n" +
-        "        Int.show(n)\n" +
+        "        if n == 99 then throw^(Boom(\"never\")) else Int.show(n)\n" +
         "    catch\n" +
         "        Boom(m) => m\n",
     );

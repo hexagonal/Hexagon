@@ -116,23 +116,23 @@ describe("§4.1 the relaxed rule, per variable", () => {
     const source = "module Main\n\n" + "record Table(k, v) = { rows: Vector((k, v)) }\n" +
       "fun load<k, v>(): Table(k, v) = Table({ rows = [] })\n" +
       "exception Missing\n" +
-      "fun find<k, v>(table: Table(k, v), key: k): v = throw(Missing)\n" +
+      "fun find<k, v>(table: Table(k, v), key: k): v = throw^(Missing)\n" +
       "let lookup =\n" +
       "    let table = load()\n" +
-      "    (key) => find(table, key)\n";
+      "    (key) => find^(table, key)\n";
     // The result variable is free: two uses may read it at two types.
     expect(
       projectDiagnostics(
         source +
-          "export let n: Int = lookup(1)\n" +
-          "export let s: String = lookup(1)\n",
+          "export let n: Int = lookup^(1)\n" +
+          "export let s: String = lookup^(1)\n",
       ),
     ).toEqual([]);
     // The argument variable is not: the first use pins it.
     const pinned = projectDiagnostics(
       source +
-        "export let n: Int = lookup(1)\n" +
-        'export let s: Int = lookup("k")\n',
+        "export let n: Int = lookup^(1)\n" +
+        'export let s: Int = lookup^("k")\n',
     );
     expect(pinned.length).toBeGreaterThan(0);
   });
@@ -143,11 +143,11 @@ describe("§4.1 the relaxed rule, per variable", () => {
     const source = "record Table(k, v) = { rows: Vector((k, v)) }\n" +
       "fun load<k, v>(): Table(k, v) = Table({ rows = [] })\n" +
       "exception Missing\n" +
-      "fun find<k, v>(table: Table(k, v), key: k): v = throw(Missing)\n" +
+      "fun find<k, v>(table: Table(k, v), key: k): v = throw^(Missing)\n" +
       "let lookup =\n" +
       "    let table = load()\n" +
-      "    (key) => find(table, key)\n" +
-      "export let n: Int = lookup(1)\n";
+      "    (key) => find^(table, key)\n" +
+      "export let n: Int = lookup^(1)\n";
     expect(scheme(source, "lookup").variables.length).toBe(1);
   });
 
@@ -253,9 +253,9 @@ describe("§4.1 the relaxed rule, per variable", () => {
 describe("§6 declared variance on `opaque`", () => {
   test("§6.1 a covariant claim on an opaque record is legal and believed", () => {
     expect(
-      projectDiagnostics("module Main\n\n" + "opaque record Box(+a) = { get: () -> a }\n" +
+      projectDiagnostics("module Main\n\n" + "opaque record Box(+a) = { get: () ->^ a }\n" +
           "exception Empty\n" +
-          "export fun makeBox<a>(): Box(a) = Box({ get = () => throw(Empty) })\n" +
+          "export fun makeBox<a>(): Box(a) = Box({ get = () => throw^(Empty) })\n" +
           "let b = makeBox()\n" +
           "export let n: Box(Int) = b\n" +
           "export let s: Box(String) = b\n",
@@ -274,9 +274,9 @@ describe("§6 declared variance on `opaque`", () => {
     // The same declaration without the sigil. Under-claiming is legal forever,
     // and this is what it costs — the client's binding is pinned by its first
     // use, exactly as `Map`'s is.
-    const messages = projectDiagnostics("module Main\n\n" + "opaque record Box(a) = { get: () -> a }\n" +
+    const messages = projectDiagnostics("module Main\n\n" + "opaque record Box(a) = { get: () ->^ a }\n" +
         "exception Empty\n" +
-        "export fun makeBox<a>(): Box(a) = Box({ get = () => throw(Empty) })\n" +
+        "export fun makeBox<a>(): Box(a) = Box({ get = () => throw^(Empty) })\n" +
         "let b = makeBox()\n" +
         "export let n: Box(Int) = b\n" +
         "export let s: Box(String) = b\n",
@@ -310,7 +310,7 @@ describe("§6 declared variance on `opaque`", () => {
   });
 
   test("§6.3 an over-claimed contravariance reports too", () => {
-    const messages = projectDiagnostics("module Main\n\n" + "opaque record Box(-a) = { get: () -> a }\n",
+    const messages = projectDiagnostics("module Main\n\n" + "opaque record Box(-a) = { get: () ->^ a }\n",
     );
     expect(messages.some((message) =>
       message.includes("`a` cannot be declared contravariant in `Box`") &&
@@ -381,9 +381,9 @@ describe("§6 declared variance on `opaque`", () => {
 
   test("§6.4 the claim governs in the home module too", () => {
     // No private view: an under-claiming author sees exactly what a client sees.
-    const messages = projectDiagnostics("module Main\n\n" + "opaque record Box(a) = { get: () -> a }\n" +
+    const messages = projectDiagnostics("module Main\n\n" + "opaque record Box(a) = { get: () ->^ a }\n" +
         "exception Empty\n" +
-        "fun makeBox<a>(): Box(a) = Box({ get = () => throw(Empty) })\n" +
+        "fun makeBox<a>(): Box(a) = Box({ get = () => throw^(Empty) })\n" +
         "let b = makeBox()\n" +
         "export let n: Box(Int) = b\n" +
         "export let s: Box(String) = b\n",
@@ -439,9 +439,9 @@ describe("§6 declared variance on `opaque`", () => {
   test("§6.4 a claim travels with an imported declaration", () => {
     const compiled = compileFiles([
       ["/box.hex",
-        "module Box\n\n" + "opaque record Box(+a) = { get: () -> a }\n" +
+        "module Box\n\n" + "opaque record Box(+a) = { get: () ->^ a }\n" +
         "exception Empty\n" +
-        "export fun makeBox<a>(): Box(a) = Box({ get = () => throw(Empty) })\n"],
+        "export fun makeBox<a>(): Box(a) = Box({ get = () => throw^(Empty) })\n"],
       ["/main.hex",
         "module Main\n\n" + 'import Box as B\n' +
         "let b = B.makeBox()\n" +
@@ -485,9 +485,9 @@ describe("§6 declared variance on `opaque`", () => {
 });
 
 /** A covariant opaque type, three modules away from where it is generalized. */
-const BOX = "opaque record Box(+a) = { get: () -> a }\n" +
+const BOX = "opaque record Box(+a) = { get: () ->^ a }\n" +
   "exception Empty\n" +
-  "export fun makeBox<a>(): Box(a) = Box({ get = () => throw(Empty) })\n";
+  "export fun makeBox<a>(): Box(a) = Box({ get = () => throw^(Empty) })\n";
 
 /** Re-exports `Box` under an alias, so the declaration's own name never travels. */
 const MID = 'import Box as BoxHex\n' +
@@ -502,8 +502,8 @@ const MAIN = 'import Mid as MidHex\n' +
 describe("§6.1 the sigil grammar", () => {
   test("a sigil on a transparent declaration is a parse error", () => {
     for (const declaration of [
-      "record Box(+a) = { get: () -> a }\n",
-      "export record Box(+a) = { get: () -> a }\n",
+      "record Box(+a) = { get: () ->^ a }\n",
+      "export record Box(+a) = { get: () ->^ a }\n",
       "union Maybe(+a) = Just(value: a) | Nothing\n",
       "export union Maybe(-a) = Just(value: a) | Nothing\n",
     ]) {
@@ -531,7 +531,7 @@ describe("§6.1 the sigil grammar", () => {
     // applied — `Pair(+Int, String)` was told to write `Pair(Int)`.
     const message = "remove the `+` — variance is declared on the type's declaration, " +
       "never written at a use site";
-    const declarations = "opaque record Box(+a) = { get: () -> a }\n" +
+    const declarations = "opaque record Box(+a) = { get: () ->^ a }\n" +
       "opaque record Pair(+a, +b) = { first: () -> a, second: () -> b }\n" +
       "exception Empty\n";
     for (const annotation of [
@@ -549,9 +549,9 @@ describe("§6.1 the sigil grammar", () => {
 
   test("§5.4 an annotation naming an opaque type carries no sigil and needs none", () => {
     expect(
-      projectDiagnostics("module Main\n\n" + "opaque record Box(+a) = { get: () -> a }\n" +
+      projectDiagnostics("module Main\n\n" + "opaque record Box(+a) = { get: () ->^ a }\n" +
           "exception Empty\n" +
-          "export fun makeBox<a>(): Box(a) = Box({ get = () => throw(Empty) })\n" +
+          "export fun makeBox<a>(): Box(a) = Box({ get = () => throw^(Empty) })\n" +
           "let b: Box(a) = makeBox()\n" +
           "export let n: Box(Int) = b\n",
       ),
@@ -696,9 +696,9 @@ describe("§13.2 nothing else may generalize a `var`'s type", () => {
   test("the `Tuple` arm: an element variable", () => {
     expect(
       projectDiagnostics(
-        EMPTY + "fun makePair<a>(): (a, Int) = (throw(Empty), 1)\n" +
+        EMPTY + "fun makePair<a>(): (a, Int) = (throw^(Empty), 1)\n" +
           "export fun use(): Int =\n" +
-          "    var v = makePair()\n" +
+          "    var v = makePair^()\n" +
           "    let e = v\n" +
           "    let n: Int = e.item1\n" +
           "    let s: String = e.item1\n" +
@@ -716,12 +716,12 @@ describe("§13.2 nothing else may generalize a `var`'s type", () => {
         // *(#700.)* The function sits **inside** the `var`'s data: a `var`
         // may not itself have a function type (Statements §6.1), and the arm
         // under test is the walk into a `Function`, which a field reaches.
-        EMPTY + "fun makeMaker<a>(): (Int) -> a = (n) => throw(Empty)\n" +
+        EMPTY + "fun makeMaker<a>(): (Int) ->^ a = (n) => throw^(Empty)\n" +
           "export fun use(): Int =\n" +
           "    var v = {make = makeMaker()}\n" +
           "    let e = v\n" +
-          "    let n: Int = e.make(1)\n" +
-          "    let s: String = e.make(1)\n" +
+          "    let n: Int = e.make^(1)\n" +
+          "    let s: String = e.make^(1)\n" +
           "    n\n",
       ),
     ).toEqual(["type mismatch: expected String, found Int"]);

@@ -91,7 +91,7 @@ describe("class 1 — `record Error` and `record Object` beside a raise", () => 
   const PROGRAM = "export record Error = {code: Int}\n" +
     "export record Object = {tag: Int}\n" +
     "exception Boom(value: Int)\n" +
-    "export let raise(): Int = throw(Boom(3))\n";
+    "export let raise(): Int = throw^(Boom(3))\n";
 
   test("the raise reaches the real `Error`, and the helper says which spellings moved", () => {
     const text = javascript([["/main.hex", "module Main\n\n" + PROGRAM]]);
@@ -368,7 +368,7 @@ describe("the trigger's cross-module leg", () => {
       ["/lib.hex", "module Lib\n\n" + "export let zero: Int = 0\n"],
       ["/main.hex", "module Main\n\n" + 'import Lib as Error\n' +
         "exception Boom(value: Int)\n" +
-        "export let raise(): Int = throw(Boom(3))\n" +
+        "export let raise(): Int = throw^(Boom(3))\n" +
         "export let z: Int = Error.zero\n"],
     ] as const;
     const text = javascript(FILES);
@@ -693,10 +693,10 @@ describe("the minted-local negative — the trigger reads source bindings only",
 const UNCONTESTED_CORPUS: readonly string[] = [
   "exception Boom(line: Int, message: String)\n" +
     "export let raise(n: Int): Int =\n" +
-    "    if n > 0 then throw(Boom(3, \"bad\")) else n\n" +
+    "    if n > 0 then throw^(Boom(3, \"bad\")) else n\n" +
     "export let caught(n: Int): Int =\n" +
     "    try\n" +
-    "        raise(n)\n" +
+    "        raise^(n)\n" +
     "    catch\n" +
     "        Boom(line, _) => line\n",
   "export let loop(n: Int): Int =\n" +
@@ -819,7 +819,7 @@ const ALL_CONTESTED = [
   "export let undefined: Int = 2",
   "",
   "exception Boom(value: Int)",
-  "export let raise(): Int = throw(Boom(3))",
+  "export let raise(): Int = throw^(Boom(3))",
   "export let loop(n: Int): Int =",
   "    var sum = 0",
   "    for i in 1..n",
@@ -940,7 +940,7 @@ describe("the negatives — an uncontested module emits the text it always did",
 
   test("a representative uncontested module, pinned whole", () => {
     expect(javascript([["/main.hex", "module Main\n\n" + "exception Boom(value: Int)\n" +
-      "export let raise(): Int = throw(Boom(3))\n"]])).toBe(
+      "export let raise(): Int = throw^(Boom(3))\n"]])).toBe(
       "function __exception(__name, __message, __fields) {\n" +
         '  return Object.assign(new Error(__message), { $hex: "Main", name: __name }, __fields);\n' +
         "}\n" +
@@ -1036,7 +1036,7 @@ describe("the runtime module takes Part 1 §8.3's reserved seat", () => {
   test("its bytes depend on the vocabulary alone, not on the program that asked", () => {
     const first = compileFiles([["/main.hex", "module Main\n\n" + "export record Error = {code: Int}\n" +
       "exception Boom(value: Int)\n" +
-      "export let raise(): Int = throw(Boom(3))\n"]]).runtimeGlobals;
+      "export let raise(): Int = throw^(Boom(3))\n"]]).runtimeGlobals;
     const second = compileFiles([["/main.hex", "module Main\n\n" + "export record Symbol = {code: Int}\n" +
       "export let total(n: Int): Int =\n" +
       "    var sum = 0\n" +
@@ -1081,14 +1081,14 @@ describe("the runtime module takes Part 1 §8.3's reserved seat", () => {
       ["/src/hex.hex", "module Hex\n\n" + "export let z: Int = 0\n"],
       ["/src/main.hex", "module Main\n\n" + "export record Error = {code: Int}\n" +
         "exception Boom(value: Int)\n" +
-        "export let raise(): Int = throw(Boom(3))\n"],
+        "export let raise(): Int = throw^(Boom(3))\n"],
     ]);
     expect(collided.runtimeGlobals?.path).toBe("/hex1.js");
     expect(javascript(
       [["/src/hex.hex", "module Hex\n\n" + "export let z: Int = 0\n"], ["/src/main.hex",
         "module Main\n\n" + "export record Error = {code: Int}\n" +
         "exception Boom(value: Int)\n" +
-        "export let raise(): Int = throw(Boom(3))\n"]],
+        "export let raise(): Int = throw^(Boom(3))\n"]],
       "/src/main.hex",
     )).toContain('import { __global_Error } from "./hex1.js";');
 
@@ -1106,7 +1106,7 @@ describe("the runtime module takes Part 1 §8.3's reserved seat", () => {
     expect(javascript([
       ["/main.hex", "module Src.A.Main\n\n" + "export record Error = {code: Int}\n" +
         "exception Boom(value: Int)\n" +
-        "export let raise(): Int = throw(Boom(3))\n"],
+        "export let raise(): Int = throw^(Boom(3))\n"],
     ], "/main.hex")).toContain('import { __global_Error } from "../../hex.js";');
   });
 
@@ -1118,7 +1118,7 @@ describe("the runtime module takes Part 1 §8.3's reserved seat", () => {
     const exports = await runProject([["/main.hex", "module Main\n\n" + "export record Error = {code: Int}\n" +
       "export record Object = {tag: Int}\n" +
       "exception Late(message: String)\n" +
-      "export let boom(): Int = throw(Late(\"gone\"))\n"]]);
+      "export let boom(): Int = throw^(Late(\"gone\"))\n"]]);
 
     expect(thrown(exports["boom"] as () => number)).toMatchObject({
       name: "Late",

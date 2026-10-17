@@ -197,7 +197,7 @@ describe("callback position — the form's reason to exist", () => {
     // for it: the arm block ends at the dedent, and the closing paren follows.
     expect(projectDiagnostics(
       maybe +
-        "let apply(value: Maybe, transform: (Maybe) -> Int): Int = transform(value)\n" +
+        "let apply(value: Maybe, transform: (Maybe) ->^ Int): Int = transform^(value)\n" +
         "export let answer(value: Maybe): Int =\n" +
         "    apply(value, match\n" +
         "        Just(n) => n\n" +
@@ -493,14 +493,14 @@ describe("no `catch` clause, at either seat (Exceptions §5.4, §9)", () => {
     // the one legal layout of that composition under §5.4's attachment rules.
     expect(projectDiagnostics(
       maybe + boom +
-        "let risky(n: Int): Int = if n > 0 then n else throw(Boom(\"negative\"))\n" +
+        "let risky(n: Int): Int = if n > 0 then n else throw^(Boom(\"negative\"))\n" +
         "let describe = value =>\n" +
         "    try match value\n" +
-        "        Just(n) => risky(n)\n" +
+        "        Just(n) => risky^(n)\n" +
         "        Nothing => 0\n" +
         "    catch\n" +
         "        Boom(_) => 1\n" +
-        "export let answer: Int = describe(Just(-1))\n",
+        "export let answer: Int = describe^(Just(-1))\n",
     )).toEqual([]);
   });
 
@@ -509,12 +509,12 @@ describe("no `catch` clause, at either seat (Exceptions §5.4, §9)", () => {
     // `try` heading its own line, and the whole thing is still one argument.
     expect(projectDiagnostics(
       maybe + boom +
-        "let risky(n: Int): Int = if n > 0 then n else throw(Boom(\"negative\"))\n" +
-        "let apply(value: Maybe, transform: (Maybe) -> Int): Int = transform(value)\n" +
+        "let risky(n: Int): Int = if n > 0 then n else throw^(Boom(\"negative\"))\n" +
+        "let apply(value: Maybe, transform: (Maybe) ->^ Int): Int = transform^(value)\n" +
         "export let answer(value: Maybe): Int =\n" +
-        "    apply(value, option =>\n" +
+        "    apply^(value, option =>\n" +
         "        try match option\n" +
-        "            Just(n) => risky(n)\n" +
+        "            Just(n) => risky^(n)\n" +
         "            Nothing => 0\n" +
         "        catch\n" +
         "            Boom(_) => 1\n" +
@@ -553,7 +553,7 @@ describe("emission: an arrow over the ordinary match lowering", () => {
   test("in expression position it is just an arrow argument", () => {
     const project = compileMain(
       maybe +
-        "let apply(value: Maybe, transform: (Maybe) -> Int): Int = transform(value)\n" +
+        "let apply(value: Maybe, transform: (Maybe) ->^ Int): Int = transform^(value)\n" +
         "export let answer(value: Maybe): Int =\n" +
         "    apply(value, match\n" +
         "        Just(n) => n\n" +

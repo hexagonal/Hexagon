@@ -66,8 +66,8 @@ describe("a form's value paths meet a concrete expectation each at its own turn 
         "let r: Option(Dec) = match c\n    True => od\n    False => o1\n",
       ],
       [
-        "let r: Option(Dec) = try o1\n    catch\n        _ => od\n",
-        "let r: Option(Dec) = try od\n    catch\n        _ => o1\n",
+        "let r: Option(Dec) = try o1\n    catch\n        fault _ => od\n",
+        "let r: Option(Dec) = try od\n    catch\n        fault _ => o1\n",
       ],
       [
         "let r: Option(Dec) = if c then (if c then o1 else od) else od\n",

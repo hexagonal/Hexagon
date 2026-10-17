@@ -129,7 +129,7 @@ describe("a catch-all lets faults through (§5.3)", () => {
     "let v: Vector(Int) = [1, 2]",
     "export fun probe(which: Int): Int =",
     "    try",
-    "        if which == 0 then v[9] else throw(ParseError(which))",
+    "        if which == 0 then v[9] else throw^(ParseError(which))",
     "    catch",
     ...arms.map((arm) => `        ${arm}`),
   );
@@ -249,14 +249,16 @@ describe("a catch-all lets faults through (§5.3)", () => {
 
   test("the match catch clause reads the same kinds", async () => {
     const exports = await runMain(main(
+      "exception NeverError",
       "let v: Vector(Int) = [1, 2]",
+      "fun at(n: Int): Int = if n == 99 then throw^(NeverError) else v[n]",
       "export fun probe(): Int =",
-      "    match v[9]",
+      "    match at^(9)",
       "        n => n",
       "    catch",
       "        _ => -1",
       "export fun caught(): Int =",
-      "    match v[9]",
+      "    match at^(9)",
       "        n => n",
       "    catch",
       "        fault _ => -2",
@@ -290,12 +292,13 @@ describe("a catch-all lets faults through (§5.3)", () => {
   test("a fault from another module is caught by `fault e`, by the name's ending", async () => {
     const exports = await runProject([
       ["/checks.hex", "module Checks\n\nexport fault BrokenFault(code: Int)\n" +
-        "export fun check(n: Int): Int = if n < 0 then throw(BrokenFault(n)) else n\n"],
+        "export exception NinetyNineError\n" +
+        "export fun check(n: Int): Int = if n < 0 then throw(BrokenFault(n)) else if n == 99 then throw^(NinetyNineError) else n\n"],
       ["/main.hex", main(
         "import Checks",
         "export fun probe(n: Int): Int =",
         "    try",
-        "        Checks.check(n)",
+        "        Checks.check^(n)",
         "    catch",
         "        _ => -1",
         "        fault _ => -2",
@@ -312,7 +315,7 @@ describe("reachability by kind (§5.3)", () => {
     "exception NotFoundError",
     "export fun probe(v: Vector(Int)): Int =",
     "    try",
-    "        v[0]",
+    "        if v[0] == 99 then throw^(NotFoundError) else v[0]",
     "    catch",
     ...written.map((arm) => `        ${arm}`),
   ));
@@ -358,7 +361,7 @@ describe("reachability by kind (§5.3)", () => {
       "exception ParseError(line: Int)",
       "export fun probe(v: Vector(Int)): Int =",
       "    try",
-      "        v[0]",
+      "        if v[0] == 99 then throw^(ParseError(99)) else v[0]",
       "    catch",
       "        _ => 0",
       "        IndexFault(_, _) | ParseError(_) => 1",
@@ -409,9 +412,10 @@ describe("`fault e` is a whole catch arm's pattern (§5.2)", () => {
   const refused = "a `fault` pattern is a whole catch arm's pattern";
   const catching = (arm: string): readonly string[] => projectDiagnostics(main(
     "exception Wrapped(inner: Exn)",
+    "exception NotFoundError",
     "export fun probe(v: Vector(Int)): Int =",
     "    try",
-    "        v[0]",
+    "        if v[0] == 99 then throw^(NotFoundError) else v[0]",
     "    catch",
     `        ${arm}`,
   ));
@@ -567,7 +571,7 @@ describe("`JsError` inside another throwable's payload reads its own value", () 
       "    try",
       "        k!()",
       "    catch",
-      "        e => throw(Wrapped(e))",
+      "        e => throw^(Wrapped(e))",
       "export fun probe(k: () ->! Int): String =",
       "    try",
       "        Int.show(wrap!(k))",
@@ -648,7 +652,7 @@ describe("a throwable's constructor is a pattern only in a catch arm (§3, #1204
       "exception Wrapped(inner: Exn)",
       "export fun probe(which: Int): Int =",
       "    try",
-      "        if which == 0 then throw(Wrapped(ParseError(7))) else throw(Wrapped(Map.KeyFault))",
+      "        if which == 0 then throw^(Wrapped(ParseError(7))) else throw^(Wrapped(Map.KeyFault))",
       "    catch",
       "        Wrapped(ParseError(line)) => line",
       "        Wrapped(KeyFault) => -1",
@@ -663,7 +667,7 @@ describe("a throwable's constructor is a pattern only in a catch arm (§3, #1204
       "exception Boom",
       "export fun probe(): Int =",
       "    try",
-      "        throw(Coded(1))",
+      "        throw^(Coded(1))",
       "    catch",
       "        Coded(Boom) => 1",
     ))).toEqual(["type mismatch: expected Int, found Exn"]);
@@ -719,16 +723,16 @@ describe("`AssumptionFault`, the prelude's fault for a broken `assume` (§8.3)",
     const exports = await runMain(main(
       "exception ParseError(line: Int)",
       "fun broken(which: Int): Int =",
-      "    if which == 0 then throw(AssumptionFault(ParseError(7))) else throw(AssumptionFault(Map.KeyFault))",
+      "    if which == 99 then throw^(ParseError(99)) else if which == 0 then throw(AssumptionFault(ParseError(7))) else throw(AssumptionFault(Map.KeyFault))",
       "export fun probe(which: Int): Int =",
       "    try",
-      "        broken(which)",
+      "        broken^(which)",
       "    catch",
       "        AssumptionFault(ParseError(line)) => line",
       "        AssumptionFault(_) => -1",
       "export fun loose(which: Int): Int =",
       "    try",
-      "        broken(which)",
+      "        broken^(which)",
       "    catch",
       "        _ => -2",
     ));
@@ -747,7 +751,7 @@ describe("`AssumptionFault`, the prelude's fault for a broken `assume` (§8.3)",
       "        e => throw(AssumptionFault(e))",
       "export fun probe(k: () ->! Int): String =",
       "    try",
-      "        Int.show(wrap!(k))",
+      "        Int.show(wrap~(k))",
       "    catch",
       "        AssumptionFault(JsError(e)) => JsError.message!(e)",
     ));

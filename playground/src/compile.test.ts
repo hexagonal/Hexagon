@@ -1246,7 +1246,7 @@ describe("compileSource", () => {
       "exception Boom(value: Int)",
       "export let caught(): Int =",
       "    try",
-      "        throw(Boom(3))",
+      "        throw^(Boom(3))",
       "    catch",
       "        Boom(value) => value",
       "",

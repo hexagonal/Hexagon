@@ -53,12 +53,12 @@ describe("the brand is the declaring module's path identity (#488, §7.1)", () =
         "import Failures\n" +
         "export fun a(): Int =\n" +
         "    try\n" +
-        "        throw(Errors.Boom(1))\n" +
+        "        throw^(Errors.Boom(1))\n" +
         "    catch\n" +
         "        Errors.Boom(c) => c\n" +
         "export fun b(): Int =\n" +
         "    try\n" +
-        "        throw(Failures.Splat(2))\n" +
+        "        throw^(Failures.Splat(2))\n" +
         "    catch\n" +
         "        Failures.Splat(c) => c\n"],
     ] as const;
@@ -79,7 +79,7 @@ describe("the brand is the declaring module's path identity (#488, §7.1)", () =
         "module Main\n\n" + "import Failures\n" +
         "export fun b(): Int =\n" +
         "    try\n" +
-        "        throw(Failures.Splat(2))\n" +
+        "        throw^(Failures.Splat(2))\n" +
         "    catch\n" +
         "        Failures.Splat(c) => c\n"],
     ] as const;
@@ -125,7 +125,7 @@ describe("the brand is the declaring module's path identity (#488, §7.1)", () =
         "module Main\n\n" + "import Failures\n" +
         "export fun b(): Int =\n" +
         "    try\n" +
-        "        throw(Failures.Splat(2))\n" +
+        "        throw^(Failures.Splat(2))\n" +
         "    catch\n" +
         "        Failures.Splat(c) => c\n"],
     ] as const;
@@ -148,7 +148,7 @@ describe("the brand is the declaring module's path identity (#488, §7.1)", () =
       "import Client.Failures\n" +
       "export fun b(): Int =\n" +
       "    try\n" +
-      "        throw(Failures.Splat(2))\n" +
+      "        throw^(Failures.Splat(2))\n" +
       "    catch\n" +
       "        Failures.Splat(c) => c\n";
     const face = 'readonly $hex: "Client.Failures"';
@@ -204,7 +204,7 @@ describe("boundary guards (#478, §7.6)", () => {
       "exception Hidden(code: Int)\n" +
       "export fun conceal(code: Int): Int =\n" +
       "    try\n" +
-      "        throw(Hidden(code))\n" +
+      "        throw^(Hidden(code))\n" +
       "    catch\n" +
       "        Hidden(c) => c\n"],
     ["/other.hex", "module Other\n\n" + "export exception ParseError(line: Int, message: String)\n"],
@@ -246,7 +246,7 @@ describe("boundary guards (#478, §7.6)", () => {
         "module Quiet\n\n" + "exception Hidden(code: Int)\n" +
         "export fun conceal(code: Int): Int =\n" +
         "    try\n" +
-        "        throw(Hidden(code))\n" +
+        "        throw^(Hidden(code))\n" +
         "    catch\n" +
         "        Hidden(c) => c\n"],
       ["/main.hex", "module Main\n\n" + "export let seed: Int = 1\n"],
@@ -374,7 +374,7 @@ describe("the throws manifest (#479, Doc Comments §6.1/§7.4)", () => {
       "(** Parses. Throws `ParseError` when the input is malformed. *)\n" +
       "export exception ParseError(line: Int)\n" +
       "(** Parses. Throws `ParseError` when the input is malformed. *)\n" +
-      "export fun parse(text: String): Int = throw(ParseError(1))\n";
+      "export fun parse(text: String): Int = throw^(ParseError(1))\n";
     const files = [["/main.hex", "module Main\n\n" + source]] as const;
 
     for (const artifact of [javascriptOf(files, "/main.hex"), declarationsOf(files, "/main.hex")]) {

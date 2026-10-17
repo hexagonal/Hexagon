@@ -273,8 +273,8 @@ describe("an exception constructor reached abroad", () => {
         "        Blast(c) => c\n"],
       ["/main.hex",
         "module Main\n\n" + 'import Blast\n' +
-        "export fun detonate(): Int = throw(Blast.Blast(7))\n" +
-        "export let survived: Int = Blast.shielded(detonate)\n"],
+        "export fun detonate(): Int = throw^(Blast.Blast(7))\n" +
+        "export let survived: Int = Blast.shielded^(detonate)\n"],
     ]);
 
     expect(exports.survived).toBe(7);
@@ -287,10 +287,10 @@ describe("an exception constructor reached abroad", () => {
         "module Main\n\n" + 'import Blast as Boom\n' +
         "export fun f(): Int =\n" +
         "    try\n" +
-        "        throw(Boom.Blast(3))\n" +
+        "        throw^(Boom.Blast(3))\n" +
         "    catch\n" +
         "        Boom.Blast(c) => c\n" +
-        "export let caught: Int = f()\n"],
+        "export let caught: Int = f^()\n"],
     ];
 
     expect(compileFiles(files).diagnostics).toEqual([]);

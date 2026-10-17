@@ -3472,7 +3472,7 @@ describe("a binding annotation's outer arrow is the face of the value it writes 
     expect(compile(run4 +
       'let r: () -> Unit = match True\n    True => run4(() => save!("x"))\n    False => () => ()\n'))
       .toEqual([]);
-    expect(compile(run4 + 'let r: () -> Unit = try\n    run4(() => save!("x"))\ncatch\n    _ => () => ()\n'))
+    expect(compile(run4 + 'let r: () -> Unit = try\n    run4(() => save!("x"))\ncatch\n    fault _ => () => ()\n'))
       .toEqual([]);
   });
 
@@ -3494,10 +3494,10 @@ describe("a binding annotation's outer arrow is the face of the value it writes 
       const [report] = effectSpans([["/world.js", ""], ["/main.hex", "module Main\n\n" + world + source]]);
       expect(report?.primary).toBe(("module Main\n\n" + world + source).indexOf(needle));
     };
-    at('let r: () -> Unit = try\n    () => save!("x")\ncatch\n    _ => () => ()\n', 'save!("x")');
-    at(run4 + 'let r: () -> Unit = try\n    run4(() => save!("x"))\ncatch\n    _ => (() => save!("y"))\n', 'save!("y")');
+    at('let r: () -> Unit = try\n    () => save!("x")\ncatch\n    fault _ => () => ()\n', 'save!("x")');
+    at(run4 + 'let r: () -> Unit = try\n    run4(() => save!("x"))\ncatch\n    fault _ => (() => save!("y"))\n', 'save!("y")');
     at(run4 + 'let r: () -> Unit =\n    match trim("a")\n        "a" => run4(() => save!("x"))\n' +
-      '        _ => run4(() => save!("y"))\n    catch\n        _ => () => save!("z")\n', 'save!("z")');
+      '        _ => run4(() => save!("y"))\n    catch\n        fault _ => () => save!("z")\n', 'save!("z")');
   });
 
   it("lands on every branch's lambda, so the report stands at the call in either order", () => {

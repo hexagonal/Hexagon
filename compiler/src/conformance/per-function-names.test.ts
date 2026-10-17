@@ -148,9 +148,9 @@ describe("a function the emitter writes is a function too", () => {
       "export let guarded(n: Int): Int =\n" +
       "    (try n\n" +
       "    catch\n" +
-      "        _ => n) + (try 0\n" +
+      "        fault _ => n) + (try 0\n" +
       "    catch\n" +
-      "        _ => 0)\n";
+      "        fault _ => 0)\n";
     const text = javascript(source);
 
     // The loop body's `match` is a value, so it is an arrow of its own, and the

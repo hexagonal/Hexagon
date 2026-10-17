@@ -4566,6 +4566,10 @@ class Resolver {
             exception: argument === undefined
               ? { kind: "ErrorExpr", span: expression.span }
               : this.#resolveExpr(argument, scope),
+            callee: expression.callee.span,
+            ...(expression.arguments.length === 1 ? {} : { misapplied: true as const }),
+            ...(expression.mark === undefined ? {} : { mark: expression.mark }),
+            ...(expression.markSpan === undefined ? {} : { markSpan: expression.markSpan }),
             span: expression.span,
           };
         }
@@ -4758,6 +4762,23 @@ class Resolver {
           operand: this.#resolveExpr(expression.operand, scope),
         };
       case "Binary": {
+        // A pipe stage is the call it rewrites to (Operators §8), so a `throw`
+        // stage is the `throw` call, its argument read as one (Exceptions §3).
+        if (
+          expression.operator === "Pipe" &&
+          expression.right.kind === "Name" &&
+          expression.right.name.text === "throw" &&
+          scope.lookup("throw") === undefined
+        ) {
+          return {
+            kind: "Throw",
+            exception: this.#resolveExpr(expression.left, scope),
+            callee: expression.right.span,
+            ...(expression.mark === undefined ? {} : { mark: expression.mark }),
+            ...(expression.markSpan === undefined ? {} : { markSpan: expression.markSpan }),
+            span: expression.span,
+          };
+        }
         const left = this.#resolveExpr(expression.left, scope);
         // The right operand of a pipe is a *stage*, and a refused prelude name
         // in its callee seat must not be described as an ordinary call (§5.5's
@@ -5978,6 +5999,42 @@ class Resolver {
   }
 
   #resolveName(expression: Parsed.NameExpr, scope: Scope): Resolved.Expr {
+    // `throw` named as a value, without its argument list (Exceptions §3): it
+    // has no argument to read, so it is the function that throws what it is
+    // handed, of a kind the text does not show, `(Exn) ->^ a`.
+    // It is read as the function its written face would be, `(thrown) =>
+    // throw^(thrown)` ascribed `(Exn) ->^ _`, so a use meets it as a value
+    // whose type the text writes, never as a lambda an annotation lands on.
+    if (expression.name.text === "throw" && scope.lookup("throw") === undefined) {
+      const span = expression.span;
+      const unwritten = { ...span, end: span.start };
+      const thrown: Parsed.Name = { text: "__thrown", startClass: "non-upper", span: unwritten };
+      return this.#resolveExpr({
+        kind: "Ascription",
+        expression: {
+          kind: "Lambda",
+          parameters: [{ name: thrown, span: unwritten }],
+          body: {
+            kind: "Call",
+            callee: expression,
+            arguments: [{ kind: "Name", name: thrown, span: unwritten }],
+            mark: "caret",
+            markSpan: span,
+            span,
+          },
+          span,
+        },
+        // Written by no one, so it spans nothing a hover or a rename can land on.
+        annotation: {
+          kind: "Function",
+          parameters: [{ kind: "NamedType", name: { text: "Exn", startClass: "upper", span: unwritten }, span: unwritten }],
+          result: { kind: "Hole", constraints: [], span: unwritten },
+          effect: "caret",
+          span: unwritten,
+        },
+        span,
+      }, scope);
+    }
     const symbol = this.#lookupTerm(expression.name.text, scope);
     if (symbol !== undefined) {
       // Before anything is made of the symbol: a refused reference names no

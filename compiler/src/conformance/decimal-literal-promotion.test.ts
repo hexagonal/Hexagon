@@ -57,7 +57,7 @@ describe("promotion into Dec", () => {
         "let size(n: Int): Dec = match n\n    0 => 0.00\n    _ => 2.5\n" +
         "let blockValue: Dec =\n    let unused = 1\n    0.75\n" +
         "let grouped: Dec = (0.250)\n" +
-        "let guarded(): Dec =\n    try\n        0.5\n    catch\n        _ => 1.5\n" +
+        "let guarded(): Dec =\n    try\n        0.5\n    catch\n        fault _ => 1.5\n" +
         "export let shown: (String, String, String, String, String, String, String) = " +
           "(pick(True).show(), pick(False).show(), size(0).show(), size(1).show(), " +
           "blockValue.show(), grouped.show(), guarded().show())\n",
@@ -128,7 +128,7 @@ describe("promotion into Dec", () => {
         "import Rat\n\n" +
         "let size(m: Int): Dec = match m\n    0 => 0.5\n    _ => -2.5\n" +
         "let ratio(m: Int): Rat = match m\n    0 => -0.5\n    _ => 2.5\n" +
-        "let guarded(): Dec =\n    try\n        0.5\n    catch\n        _ => -1.5\n" +
+        "let guarded(): Dec =\n    try\n        0.5\n    catch\n        fault _ => -1.5\n" +
         "export let shown: (String, String, String) = (size(1).show(), ratio(0).show(), guarded().show())\n",
     );
     expect(exports.shown).toEqual(["-2.5", "-1/2", "0.5"]);

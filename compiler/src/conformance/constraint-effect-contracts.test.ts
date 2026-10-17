@@ -3352,7 +3352,7 @@ describe("Effects §13.2: every merging expression, spelled three ways, in both 
     {
       name: "a `catch` arm",
       join: (first: string, second: string) =>
-        `try\n                ${first}\n            catch\n                Boom(n) =>\n` +
+        `try\n                ${first}\n            catch\n                fault n =>\n` +
         `                    ignore(n)\n                    ${second}`,
       after: (join: string) => `        let f =\n            ${join}\n        f()\n`,
       call: "f()",

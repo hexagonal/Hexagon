@@ -120,7 +120,7 @@ describe("a prelude module's own name qualifies its exceptions in catch arms", (
           "        n\n" +
           "    catch\n" +
           `        ${spelling} => 0\n` +
-          "        _ => 1\n",
+          "        fault _ => 1\n",
         )).toEqual([]);
       }
     }
@@ -146,10 +146,10 @@ describe("a module alias qualifies an imported exception", () => {
       "import Lib as Boom\n" +
       "export fun f(): Int =\n" +
       "    try\n" +
-      "        throw(Lib.Boom(3))\n" +
+      "        throw^(Lib.Boom(3))\n" +
       "    catch\n" +
       `        ${arm} => c\n` +
-      "export let r: Int = f()\n"],
+      "export let r: Int = f^()\n"],
   ];
 
   test("`Lib.Boom(c)` catches what `Boom(c)` catches", async () => {
@@ -168,10 +168,10 @@ describe("a module alias qualifies an imported exception", () => {
         "module Main\n\n" + "import Lib\n" +
         "export fun f(): Int =\n" +
         "    try\n" +
-        "        throw(Lib.Boom(5))\n" +
+        "        throw^(Lib.Boom(5))\n" +
         "    catch\n" +
         "        Lib.Boom(c) => c\n" +
-        "export let r: Int = f()\n"],
+        "export let r: Int = f^()\n"],
     ] as const;
 
     expect(compileFiles(files).diagnostics).toEqual([]);
@@ -260,18 +260,18 @@ describe("the hatch #466 needed: an occluding module reaches both", () => {
    */
   test("two exceptions of one declared name are two representations", async () => {
     const files = [
-      ["/a.hex", "module A\n\n" + "export exception Boom(code: Int)\nexport fun raise(): Int = throw(Boom(1))\n"],
+      ["/a.hex", "module A\n\n" + "export exception Boom(code: Int)\nexport fun raise(): Int = throw^(Boom(1))\n"],
       ["/b.hex", "module B\n\n" + "export exception Boom(tag: String)\n"],
       ["/main.hex",
         "module Main\n\n" + "import A\n" +
         "import B\n" +
         "export fun f(): Int =\n" +
         "    try\n" +
-        "        A.raise()\n" +
+        "        A.raise^()\n" +
         "    catch\n" +
         "        B.Boom(tag) => 2\n" +
         "        A.Boom(code) => 1\n" +
-        "export let r: Int = f()\n"],
+        "export let r: Int = f^()\n"],
     ] as const;
 
     // Both arms compile — they are two distinct constructors, so §5.3 has no
@@ -286,14 +286,14 @@ describe("the hatch #466 needed: an occluding module reaches both", () => {
     // implicit rethrow carries the exception out of the `try` intact — payload
     // and all, which is what a `tag` bound `undefined` used to destroy.
     const files = [
-      ["/a.hex", "module A\n\n" + "export exception Boom(code: Int)\nexport fun raise(): Int = throw(Boom(7))\n"],
+      ["/a.hex", "module A\n\n" + "export exception Boom(code: Int)\nexport fun raise(): Int = throw^(Boom(7))\n"],
       ["/b.hex", "module B\n\n" + "export exception Boom(tag: String)\n"],
       ["/main.hex",
         "module Main\n\n" + "import A\n" +
         "import B\n" +
         "export fun f(): Int =\n" +
         "    try\n" +
-        "        A.raise()\n" +
+        "        A.raise^()\n" +
         "    catch\n" +
         "        B.Boom(tag) => 2\n"],
     ] as const;
@@ -354,7 +354,7 @@ describe("reachability reads the constructor, not the spelling (§5.3)", () => {
         "import Lib as Boom\n" +
         "export fun f(): Int =\n" +
         "    try\n" +
-        "        throw(Lib.Boom(3))\n" +
+        "        throw^(Lib.Boom(3))\n" +
         "    catch\n" +
         "        Lib.Boom(c) => c\n" +
         "        Boom(c) => c\n"],

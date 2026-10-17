@@ -73,7 +73,7 @@ describe("BigInt literal patterns (#898)", BUDGET, () => {
         "    Parcel({code = 9n}) => True\n" +
         "    _ => False\n" +
         "export let caught(): BigInt =\n" +
-        "    try throw(Failed(11n))\n" +
+        "    try throw^(Failed(11n))\n" +
         "    catch\n" +
         "        Failed(11n) => 11n\n" +
         "        _ => 0n\n" +

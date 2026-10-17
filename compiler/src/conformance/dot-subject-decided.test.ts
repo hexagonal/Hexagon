@@ -549,7 +549,7 @@ describe("a subject the text decides dispatches at the dot (§3.1)", () => {
   test("a lambda on a `try`'s value paths and a `match` arm's", () => {
     compiles(
       "let f(xs: Seq(Vector(Int))): Seq(Int) = Seq.map(xs, try\n" +
-        "    (x) => x.length()\ncatch\n    _ => (x) => 0)\n",
+        "    (x) => x.length()\ncatch\n    fault _ => (x) => 0)\n",
     );
     compiles(
       "let g(h: (Vector(Int)) -> Int): Int = h([1])\nlet f(k: Int): Int = g(match k\n" +
@@ -573,7 +573,7 @@ describe("a subject the text decides dispatches at the dot (§3.1)", () => {
     );
     bothOrders(
       "let f(xs: Seq(Vector(Int)), k) =",
-      "let a = Seq.map(xs, try\n        (x) => x.length() + k\n    catch\n        _ => (x) => 0)",
+      "let a = Seq.map(xs, try\n        (x) => x.length() + k\n    catch\n        fault _ => (x) => 0)",
       "let b: Int = k",
       [],
     );
@@ -604,7 +604,7 @@ describe("a subject the text decides dispatches at the dot (§3.1)", () => {
       "let f(c: Bool) =\n    let k: Option((Vector(_)) -> Int) = match c\n" +
         "        True => Some((x) => x.length())\n        False => None\n    ()\n",
     );
-    compiles("let k: Option((Vector(_)) -> Int) = try\n    Some((x) => x.length())\ncatch\n    _ => None\n");
+    compiles("let k: Option((Vector(_)) -> Int) = try\n    Some((x) => x.length())\ncatch\n    fault _ => None\n");
     // A slot with no hole, beside a hole elsewhere in the shared type.
     compiles("let t: Vector((Option((Vector(Int)) -> Int), (_) -> Int)) = [(Some((x) => x.length()), (y) => 0)]\n");
     const w = "record W(a) = {f: (a) -> Int}\n";
@@ -779,20 +779,20 @@ describe("a lambda no written type and no named call reaches is not decided, wha
     );
     bothOrders(
       "let f(v) =",
-      "let n = (try\n        v\n    catch\n        _ => [1]).length()",
+      "let n = (try\n        v\n    catch\n        fault _ => [1]).length()",
       "let w: Vector(Int) = v",
       [refusalOfSubject("length")],
     );
     bothOrders(
       "let f(v) =",
-      "let n = (try\n        [1]\n    catch\n        _ => v).length()",
+      "let n = (try\n        [1]\n    catch\n        fault _ => v).length()",
       "let w: Vector(Int) = v",
       [refusalOfSubject("length")],
     );
     // A `match`'s catch arms are value paths too.
     bothOrders(
-      "exception Boom(line: Int)\nlet source(c: Bool): Bool = if c then throw(Boom(3)) else True\nlet f(c: Bool, v) =",
-      "let m =\n        match source(c)\n            True => [1]\n            False => [2]\n        catch\n            _ => v\n    let n = m.length()",
+      "exception Boom(line: Int)\nlet source(c: Bool): Bool = if c then throw^(Boom(3)) else True\nlet f(c: Bool, v) =",
+      "let m =\n        match source^(c)\n            True => [1]\n            False => [2]\n        catch\n            _ => v\n    let n = m.length()",
       "let w: Vector(Int) = v",
       [refusal("m", "length")],
     );

@@ -42,7 +42,7 @@ import { compileMain, projectDiagnostics, runMain } from "../support/test-projec
 const preamble = "module Main\n\n" + "exception Boom(line: Int, message: String)\n" +
   "exception Late(message: String)\n" +
   "let source(fail: Bool): Option(Int) =\n" +
-  "    if fail then throw(Boom(3, \"scrutinee\")) else Some(7)\n";
+  "    if fail then throw^(Boom(3, \"scrutinee\")) else Some(7)\n";
 
 /** The `name` of whatever `call` threw, or `\"\"` when it returned. */
 function thrownName(call: () => unknown): string {
@@ -59,7 +59,7 @@ describe("the clause parses, and is `try`'s catch in a second seat", () => {
     const project = compileMain(
       preamble +
         "export let run(fail: Bool): Int =\n" +
-        "    match source(fail)\n" +
+        "    match source^(fail)\n" +
         "        Some(n) => n\n" +
         "        None => 0\n" +
         "    catch\n" +
@@ -102,7 +102,7 @@ describe("the clause parses, and is `try`'s catch in a second seat", () => {
     expect(projectDiagnostics(
       preamble +
         "export let run(fail: Bool): Int =\n" +
-        "    match source(fail)\n" +
+        "    match source^(fail)\n" +
         "        Some(n) => n\n" +
         "        None => 0\n" +
         "    catch\n" +
@@ -115,7 +115,7 @@ describe("the clause parses, and is `try`'s catch in a second seat", () => {
     expect(projectDiagnostics(
       preamble +
         "export let run(fail: Bool): Int =\n" +
-        "    match source(fail)\n" +
+        "    match source^(fail)\n" +
         "        Some(n) => n\n" +
         "        None => 0\n",
     )).toEqual([]);
@@ -127,7 +127,7 @@ describe("the window covers the scrutinee's evaluation, and nothing else", () =>
     const exports = await runMain(
       preamble +
         "export let run(fail: Bool): Int =\n" +
-        "    match source(fail)\n" +
+        "    match source^(fail)\n" +
         "        Some(n) => n\n" +
         "        None => 0\n" +
         "    catch\n" +
@@ -143,8 +143,8 @@ describe("the window covers the scrutinee's evaluation, and nothing else", () =>
     const exports = await runMain(
       preamble +
         "export let run(fail: Bool): Int =\n" +
-        "    match source(fail)\n" +
-        "        Some(_) => throw(Late(\"from the data arm\"))\n" +
+        "    match source^(fail)\n" +
+        "        Some(_) => throw^(Late(\"from the data arm\"))\n" +
         "        None => 0\n" +
         "    catch\n" +
         "        Boom(_, _) => 1\n" +
@@ -159,10 +159,10 @@ describe("the window covers the scrutinee's evaluation, and nothing else", () =>
   test("a throw from a data arm's guard propagates too", async () => {
     const exports = await runMain(
       preamble +
-        "let checked(n: Int): Bool = throw(Late(\"from the guard\"))\n" +
+        "let checked(n: Int): Bool = throw^(Late(\"from the guard\"))\n" +
         "export let run(fail: Bool): Int =\n" +
-        "    match source(fail)\n" +
-        "        Some(n) when checked(n) => n\n" +
+        "    match source^(fail)\n" +
+        "        Some(n) when checked^(n) => n\n" +
         "        _ => 0\n" +
         "    catch\n" +
         "        Late(_) => 2\n",
@@ -176,11 +176,11 @@ describe("the window covers the scrutinee's evaluation, and nothing else", () =>
     const exports = await runMain(
       preamble +
         "export let run(fail: Bool): Int =\n" +
-        "    match source(fail)\n" +
+        "    match source^(fail)\n" +
         "        Some(n) => n\n" +
         "        None => 0\n" +
         "    catch\n" +
-        "        Boom(_, _) => throw(Late(\"from the catch arm\"))\n" +
+        "        Boom(_, _) => throw^(Late(\"from the catch arm\"))\n" +
         "        Late(_) => 2\n",
     );
 
@@ -192,7 +192,7 @@ describe("the window covers the scrutinee's evaluation, and nothing else", () =>
     const exports = await runMain(
       preamble +
         "export let run(fail: Bool): Int =\n" +
-        "    match source(fail)\n" +
+        "    match source^(fail)\n" +
         "        Some(n) => n\n" +
         "        None => 0\n" +
         "    catch\n" +
@@ -207,7 +207,7 @@ describe("the window covers the scrutinee's evaluation, and nothing else", () =>
     const project = compileMain(
       preamble +
         "export let run(fail: Bool): Int =\n" +
-        "    match source(fail)\n" +
+        "    match source^(fail)\n" +
         "        Some(n) => n\n" +
         "        None => 0\n" +
         "    catch\n" +
@@ -227,7 +227,7 @@ describe("typing and the two sections' laws", () => {
     expect(projectDiagnostics(
       preamble +
         "export let run(fail: Bool): Int =\n" +
-        "    match source(fail)\n" +
+        "    match source^(fail)\n" +
         "        Some(n) => n\n" +
         "        None => 0\n" +
         "    catch\n" +
@@ -239,7 +239,7 @@ describe("typing and the two sections' laws", () => {
     expect(projectDiagnostics(
       preamble +
         "export let run(fail: Bool): Int =\n" +
-        "    match source(fail)\n" +
+        "    match source^(fail)\n" +
         "        Some(n) => n\n" +
         "    catch\n" +
         "        Boom(_, _) => 0\n",
@@ -250,7 +250,7 @@ describe("typing and the two sections' laws", () => {
     expect(projectDiagnostics(
       preamble +
         "export let run(fail: Bool): Int =\n" +
-        "    match source(fail)\n" +
+        "    match source^(fail)\n" +
         "        Some(n) => n\n" +
         "        None => 0\n" +
         "    catch\n" +
@@ -262,7 +262,7 @@ describe("typing and the two sections' laws", () => {
     expect(projectDiagnostics(
       preamble +
         "export let run(fail: Bool): Int =\n" +
-        "    match source(fail)\n" +
+        "    match source^(fail)\n" +
         "        Some(n) => n\n" +
         "        None => 0\n" +
         "    catch\n" +
@@ -275,7 +275,7 @@ describe("typing and the two sections' laws", () => {
     expect(projectDiagnostics(
       preamble +
         "export let run(fail: Bool): Int =\n" +
-        "    match source(fail)\n" +
+        "    match source^(fail)\n" +
         "        Some(n) => n\n" +
         "        None => 0\n" +
         "    catch\n" +
@@ -291,7 +291,7 @@ describe("typing and the two sections' laws", () => {
     expect(projectDiagnostics(
       preamble +
         "export let run(fail: Bool): Int =\n" +
-        "    match source(fail)\n" +
+        "    match source^(fail)\n" +
         "        _ => 1\n" +
         "    catch\n" +
         "        _ => 2\n",
@@ -310,7 +310,7 @@ describe("typing and the two sections' laws", () => {
         "    match error\n" +
         "        _ => 1\n" +
         "    catch\n" +
-        "        Boom(_, _) => 2\n",
+        "        IndexFault(_, _) => 2\n",
     )).toEqual([
       "match requires a closed type; exceptions are inspected with `try`/`catch`",
       "this `catch` can never run: evaluating error cannot throw",
@@ -325,7 +325,7 @@ describe("the cannot-throw judgment (§5.4; Pattern Matching §7.2)", () => {
     `    match ${scrutinee}\n` +
     "        _ => 1\n" +
     "    catch\n" +
-    "        Boom(_, _) => 2\n";
+    "        IndexFault(_, _) => 2\n";
 
   test("fires on a bare variable read, quoting the scrutinee", () => {
     expect(projectDiagnostics(clause("o")))
@@ -353,7 +353,7 @@ describe("the cannot-throw judgment (§5.4; Pattern Matching §7.2)", () => {
         "    match ()\n" +
         "        () => 1\n" +
         "    catch\n" +
-        "        Boom(_, _) => 2\n",
+        "        IndexFault(_, _) => 2\n",
     )).toEqual(["this `catch` can never run: evaluating () cannot throw"]);
   });
 
@@ -389,7 +389,7 @@ describe("the cannot-throw judgment (§5.4; Pattern Matching §7.2)", () => {
         "        Some(n) => n\n" +
         "        None => 0\n" +
         "    catch\n" +
-        "        Boom(_, _) => 2\n",
+        "        IndexFault(_, _) => 2\n",
     )).toEqual(["this `catch` can never run: evaluating None cannot throw"]);
   });
 
@@ -409,12 +409,12 @@ describe("the cannot-throw judgment (§5.4; Pattern Matching §7.2)", () => {
         "        Whole(_) => 1\n" +
         "        Part(_, _) => 2\n" +
         "    catch\n" +
-        "        Boom(_, _) => 3\n",
+        "        IndexFault(_, _) => 3\n",
     )).toEqual([]);
   });
 
   test("declines on a call — no throw analysis reaches through one", () => {
-    expect(projectDiagnostics(clause("source(True)"))).toEqual([]);
+    expect(projectDiagnostics(clause("source^(True)"))).toEqual([]);
   });
 
   test("declines on an interpolated String: a hole runs a `Show` call", () => {
@@ -445,7 +445,7 @@ describe("attachment: line-initial match heads only (§5.4, §9)", () => {
     expect(projectDiagnostics(
       preamble +
         "export let run(fail: Bool): Int =\n" +
-        "    match source(fail)\n" +
+        "    match source^(fail)\n" +
         "    catch\n" +
         "        Boom(_, _) => 1\n",
     )).toContain("`match` requires at least one arm; to handle only exceptions, use `try`/`catch`");
@@ -455,7 +455,7 @@ describe("attachment: line-initial match heads only (§5.4, §9)", () => {
     expect(projectDiagnostics(
       preamble +
         "export let run(fail: Bool): Int =\n" +
-        "    match source(fail)\n" +
+        "    match source^(fail)\n" +
         "        Some(n) => n\n" +
         "        None => 0\n" +
         "        catch\n" +
@@ -468,7 +468,7 @@ describe("attachment: line-initial match heads only (§5.4, §9)", () => {
       preamble +
         "export let run(fail: Bool): Int =\n" +
         "    let x =\n" +
-        "        let y = match source(fail)\n" +
+        "        let y = match source^(fail)\n" +
         "            Some(n) => n\n" +
         "            None => 0\n" +
         "        catch\n" +
@@ -489,7 +489,7 @@ describe("attachment: line-initial match heads only (§5.4, §9)", () => {
       preamble +
         "export let run(fail: Bool): Int =\n" +
         "    let y =\n" +
-        "        match source(fail)\n" +
+        "        match source^(fail)\n" +
         "            Some(n) => n\n" +
         "            None => 0\n" +
         "    catch\n" +
@@ -507,7 +507,7 @@ describe("attachment: line-initial match heads only (§5.4, §9)", () => {
       preamble +
         "export let run(fail: Bool): Int =\n" +
         "    let y =\n" +
-        "        match source(fail)\n" +
+        "        match source^(fail)\n" +
         "            Some(n) => n\n" +
         "            None => 0\n" +
         "        catch\n" +
@@ -602,8 +602,8 @@ describe("attachment: line-initial match heads only (§5.4, §9)", () => {
     const exports = await runMain(
       preamble +
         "export let run(fail: Bool): Int =\n" +
-        "    try match source(fail)\n" +
-        "        Some(_) => throw(Late(\"from the data arm\"))\n" +
+        "    try match source^(fail)\n" +
+        "        Some(_) => throw^(Late(\"from the data arm\"))\n" +
         "        None => 0\n" +
         "    catch\n" +
         "        Late(_) => 2\n",
@@ -618,8 +618,8 @@ describe("attachment: line-initial match heads only (§5.4, §9)", () => {
       preamble +
         "export let run(fail: Bool): Int =\n" +
         "    try\n" +
-        "        match source(fail)\n" +
-        "            Some(_) => throw(Late(\"from the data arm\"))\n" +
+        "        match source^(fail)\n" +
+        "            Some(_) => throw^(Late(\"from the data arm\"))\n" +
         "            None => 0\n" +
         "        catch\n" +
         "            Boom(_, _) => 1\n" +
@@ -644,13 +644,13 @@ describe("attachment: line-initial match heads only (§5.4, §9)", () => {
         "export let run(outer: Bool, fail: Bool): Int =\n" +
         "    match outer\n" +
         "        True =>\n" +
-        "            match source(fail)\n" +
+        "            match source^(fail)\n" +
         "                Some(n) => n\n" +
         "                None => 0\n" +
         "            catch\n" +
         "                Boom(line, _) => line\n" +
         "        False =>\n" +
-        "            match source(fail)\n" +
+        "            match source^(fail)\n" +
         "                Some(n) => n * 2\n" +
         "                None => 0\n" +
         "            catch\n" +
@@ -668,7 +668,7 @@ describe("emission (§7.4's narrowed `try`)", () => {
     const project = compileMain(
       preamble +
         "export let run(fail: Bool): Int =\n" +
-        "    match source(fail)\n" +
+        "    match source^(fail)\n" +
         "        Some(n) => n\n" +
         "        None => 0\n" +
         "    catch\n" +
@@ -705,7 +705,7 @@ describe("emission (§7.4's narrowed `try`)", () => {
     const project = compileMain(
       preamble +
         "export let first: Int =\n" +
-        "    match source(False)\n" +
+        "    match source^(False)\n" +
         "        Some(n) => n\n" +
         "        None => 0\n" +
         "    catch\n" +
@@ -729,7 +729,7 @@ describe("emission (§7.4's narrowed `try`)", () => {
     const project = compileMain(
       preamble +
         "export let run(fail: Bool): Int =\n" +
-        "    match source(fail)\n" +
+        "    match source^(fail)\n" +
         "        Some(n) => n\n" +
         "        None => 0\n" +
         "    catch\n" +
@@ -888,7 +888,7 @@ describe("the foreign branch, where `JsError` sits (§6, §7.4)", () => {
     const project = compileMain(
       preamble +
         "export let run(fail: Bool): String =\n" +
-        "    match source(fail)\n" +
+        "    match source^(fail)\n" +
         "        Some(n) => Int.show(n)\n" +
         "        None => \"none\"\n" +
         "    catch\n" +

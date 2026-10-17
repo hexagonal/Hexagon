@@ -831,10 +831,10 @@ describe("emitJavaScript", () => {
         "export exception Note(message: String)\n" +
         "export exception Missing\n" +
         "export fun recover(value: Int): Int = try\n" +
-        "    if value < 0 then throw(ParseError(value, \"bad\")) else value\n" +
+        "    if value < 0 then throw^(ParseError(value, \"bad\")) else value\n" +
         "catch\n" +
         "    ParseError(line, _) => 0 - line\n" +
-        "export fun fail(): Int = throw(Missing)",
+        "export fun fail(): Int = throw^(Missing)",
     );
 
     expect(module.diagnostics).toEqual([]);
@@ -866,14 +866,14 @@ describe("emitJavaScript", () => {
         "union Reason = Code(Int) | Other\n" +
           "exception Wrapped(reason: Reason)\n" +
           "fun recover(value: Int): Int = try\n" +
-          "    if value < 0 then throw(Wrapped(Other)) else throw(Wrapped(Code(value)))\n" +
+          "    if value < 0 then throw^(Wrapped(Other)) else throw^(Wrapped(Code(value)))\n" +
           "catch\n" +
           "    Wrapped(Code(code)) when code > 0 => code\n" +
           "    Wrapped(Code(_)) => 0\n" +
           "    Wrapped(Other) => -1\n" +
-          "let positive = recover(3)\n" +
-          "let zero = recover(0)\n" +
-          "let negative = recover(-1)",
+          "let positive = recover^(3)\n" +
+          "let zero = recover^(0)\n" +
+          "let negative = recover^(-1)",
       ),
     );
 
@@ -894,7 +894,7 @@ describe("emitJavaScript", () => {
           "exception Wrapped(reason: Reason)\n" +
           "exception Missing\n" +
           "let result = try\n" +
-          "    throw(Missing)\n" +
+          "    throw^(Missing)\n" +
           "catch\n" +
           "    Wrapped(Code(_)) => 0",
       ),
