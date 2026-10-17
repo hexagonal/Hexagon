@@ -376,6 +376,13 @@ function elaborateExpr(expression: Typed.Expr): Core.Expr {
           value: evidence(requirement),
         })),
         ...(expression.reading === undefined ? {} : { reading: expression.reading }),
+        ...(expression.readingWidening === undefined ? {} : {
+          readingWidening: {
+            kind: expression.readingWidening.kind,
+            evidence: evidence(expression.readingWidening.requirement),
+            type: expression.readingWidening.type,
+          },
+        }),
         type: expression.type,
         span: expression.span,
       };

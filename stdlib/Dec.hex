@@ -381,3 +381,23 @@ export let fromFloatEven(value: Float, places: Int): Dec =
 
 (** The number of decimal places retained by `decimal`. *)
 export let places(decimal: Dec): Int = decimal.places
+
+// `parse`'s two crossings (`spec/numeric-parsing.md`): the scan, which answers
+// the unscaled integer and the place count, and the message.
+extern from "hex:intrinsic"
+    fun numberParseDec as scanText(text: String) -> Option((BigInt, Int))
+    fun numberFormatMessage as formatMessage(text: String, phrase: String) -> String
+
+(** `text` read as a `Dec`: decimal digits and an optional `.` and fraction
+    digits, with `_` allowed between two digits and an optional `+` or `-` in
+    front — Lexer section 5's `Dec` literal without its `d`. The places are the
+    digits after the point, so `"1.50"` keeps two and `Dec.parse(show(d))` is
+    `same` as `d` for every `d`. There is no exponent: it would hide the places,
+    and a short text could ask for a vast number of them. So a value never holds
+    more places or digits than its text has characters.
+
+    Throws `NumberFormatError` for any other text. Read it with `?` for an
+    `Option`, or with `assume` where the text is known to be good. *)
+export let parse(text: String): Dec = match scanText(text)
+    Some((unscaled, places)) => create(unscaled, places)
+    None => throw^(NumberFormatError(formatMessage(text, "is not a Dec")))

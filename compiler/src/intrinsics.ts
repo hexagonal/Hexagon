@@ -338,6 +338,14 @@ export function isIntrinsicScheme(specifier: string): boolean {
  * value it is, undoing only the virtual `JsError` wrapping: what only
  * JavaScript can say, with the verdict over it in ordinary Hexagon.
  *
+ * *(#1049, the numeric parsers.)* Each numeric type's `parse` keys one scanner,
+ * and every module that throws `NumberFormatError` keys `numberFormatMessage`.
+ * The scan has to be JavaScript for two reasons, and both are the host's: the
+ * conversions themselves — `BigInt(…)` in four bases and a correctly rounded
+ * `Number(…)` — and the seat, since `Int.hex`, `Nat.hex`, `Float.hex` and
+ * `BigInt.hex` are all seated before `String.hex`, so no text can be walked in
+ * Hexagon there. The verdict over each answer, and the throw, are Hexagon.
+ *
  * *(#238, the outbound crossing.)* `vectorToArray` is `stdlib/Vector.hex`'s
  * eighth key and the only one of that file's rows that is not Collections
  * Part 3 §7's boundary: it is FFI Part 2 §9's outbound conversion, declared
@@ -675,6 +683,12 @@ const INTRINSIC_OPERATIONS: readonly (readonly [string, number])[] = [
   ["jsErrorRender", 1],
   ["jsErrorReadName", 1],
   ["exnView", 1],
+  ["numberParseInt", 1],
+  ["numberParseNat", 1],
+  ["numberParseBigInt", 1],
+  ["numberParseFloat", 1],
+  ["numberParseDec", 1],
+  ["numberFormatMessage", 2],
   ["bufferCreate", 2],
   ["bufferRead", 2],
   ["bufferWrite", 3],

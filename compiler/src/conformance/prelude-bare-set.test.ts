@@ -15,17 +15,17 @@ import {
  *
  * The prelude used to seed every export into every module's bare term scope.
  * §5.5 now seeds **nothing** there by default, and four channel rules put
- * twenty-two names back: the fourteen throwable constructors, the six constructors of
- * the open unions `Bool`/`Option`/`Result`, `ignore`, and `show`. The set's
- * twenty-third name, `throw`, is a language form no module declares, so nothing
- * seeds it. Everything else is reached by the dot or the qualified spelling,
+ * twenty-three names back: the fifteen throwable constructors, the six
+ * constructors of the open unions `Bool`/`Option`/`Result`, `ignore`, and `show`.
+ * The set's twenty-fourth name, `throw`, is a language form no module declares,
+ * so nothing seeds it. Everything else is reached by the dot or the qualified spelling,
  * and a bare reference to it draws §10's refusal with its routes named.
  *
  * ## What this file is for that the channel tests are not
  *
  * The companion suites (`vector-prelude-companion`, `float-companion`,
  * `js-kind-qualification`, …) each pin their own module's surface. This one pins
- * the **rule**: the set is exactly twenty-three names and is closed, each channel
+ * the **rule**: the set is exactly twenty-four names and is closed, each channel
  * admits what it says it admits and nothing beside, and the refusal has one
  * shape across all three channels. The set pin is written against the *compiled
  * prelude* rather than a transcription, so drift in either direction — a name
@@ -62,8 +62,8 @@ function moduleNames(source: string): readonly string[] {
  * design ruling argued against §5.5, never an edit.
  */
 const BARE_SET = [
-  // The fourteen throwable constructors — thirteen faults and the exception
-  // `JsError` — a category, not a list (§5.5).
+  // The fifteen throwable constructors — thirteen faults and the exceptions
+  // `JsError` and `NumberFormatError` — a category, not a list (§5.5).
   "AssumptionFault",
   "DecRangeFault",
   "DecimalPlacesOverflowFault",
@@ -75,6 +75,7 @@ const BARE_SET = [
   "KeyFault",
   "NegativeExponentFault",
   "NegativeDecimalPlacesFault",
+  "NumberFormatError",
   "ReentrancyFault",
   "SliceFault",
   "UndefinedSignFault",
@@ -90,13 +91,13 @@ const BARE_SET = [
   "show",
 ].sort();
 
-describe("the bare set is exactly twenty-three names, and closed", () => {
+describe("the bare set is exactly twenty-four names, and closed", () => {
   test("the prelude layer binds the set and nothing else", () => {
     expect(bareNames()).toEqual(BARE_SET);
   });
 
-  test("twenty-two of the section's twenty-three are in the layer; `throw` is the other", () => {
-    expect(BARE_SET.length).toBe(22);
+  test("twenty-three of the section's twenty-four are in the layer; `throw` is the other", () => {
+    expect(BARE_SET.length).toBe(23);
   });
 
   /**

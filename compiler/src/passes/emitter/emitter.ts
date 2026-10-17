@@ -7193,7 +7193,21 @@ class JavaScriptEmitter {
         hoisted.push(part);
         this.#readingParts.set(part, name);
       };
-      const { reading: _reading, ...call } = expression;
+      const { reading: _reading, ...unread } = expression;
+      // A reading's widening (#1253 step 9c) is its call's result's, applied
+      // inside `Some`, exactly as the node `Some(…)` around the call would hold.
+      const call: Core.Expr = unread.kind === "Call" && unread.readingWidening !== undefined
+        ? (() => {
+          const { readingWidening: widening, ...plain } = unread;
+          return {
+            kind: widening.kind,
+            value: plain,
+            evidence: widening.evidence,
+            type: widening.type,
+            span: expression.span,
+          } as Core.Expr;
+        })()
+        : unread;
       if (expression.kind === "Throw") {
         hoist(expression.exception);
       } else {
@@ -11770,6 +11784,29 @@ class JavaScriptEmitter {
       // kept by two tables could be read twice.
       case "jsErrorReadName":
         return `__a => ${this.#useHelper("jsErrorRead")}(__a, "name")`;
+      // Each numeric type's `parse` (#1049, #1253 step 9c) over its scanner.
+      // `Int` and `Nat` answer `Some(None)` for an integer outside their range,
+      // so the Hexagon above can say which of the two the text was; the range
+      // is the safe integers (Primitive Types §3), and `Nat`'s is its upper half.
+      case "numberParseInt":
+      case "numberParseNat": {
+        const low = key === "numberParseInt" ? "-9007199254740991n" : "0n";
+        return `__a => { const __v = ${this.#useHelper("numberInteger")}(__a, ${key === "numberParseInt"}); ` +
+          'return __v === undefined ? { tag: "None" } : { tag: "Some", value: ' +
+          `__v < ${low} || __v > 9007199254740991n ? { tag: "None" } : ` +
+          `{ tag: "Some", value: ${this.#spell("Number")}(__v) } }; }`;
+      }
+      case "numberParseBigInt":
+        return `__a => { const __v = ${this.#useHelper("numberInteger")}(__a, true); ` +
+          'return __v === undefined ? { tag: "None" } : { tag: "Some", value: __v }; }';
+      case "numberParseFloat":
+        return `__a => { const __v = ${this.#useHelper("numberFloat")}(__a); ` +
+          'return __v === undefined ? { tag: "None" } : { tag: "Some", value: __v }; }';
+      case "numberParseDec":
+        return `__a => { const __v = ${this.#useHelper("numberDec")}(__a); ` +
+          'return __v === undefined ? { tag: "None" } : { tag: "Some", value: __v }; }';
+      case "numberFormatMessage":
+        return this.#useHelper("numberFormatMessage");
       // An `Exn` as the JavaScript value it is (Exceptions §7.1): every throwable
       // is one. The one thing it does is undo the virtual wrapping (§6.2), so a
       // materialised `JsError(v)` is seen as `v`, as a `JsError(e)` catch arm
@@ -13649,6 +13686,10 @@ type Helper =
   | "debugLog"
   | "jsValueKind"
   | "jsErrorRead"
+  | "numberInteger"
+  | "numberFloat"
+  | "numberDec"
+  | "numberFormatMessage"
   | "nodeSet"
   | "vectorAt"
   | "vectorIndex"
@@ -13720,6 +13761,10 @@ const HELPER_DEPENDENCIES: Readonly<Record<Helper, readonly Helper[]>> = {
   debugLog: [],
   jsValueKind: [],
   jsErrorRead: [],
+  numberInteger: [],
+  numberFloat: [],
+  numberDec: [],
+  numberFormatMessage: [],
   nodeSet: [],
   vectorAt: [],
   vectorIndex: [],
@@ -14123,6 +14168,82 @@ function renderHelper(
     // the outer one included, agrees. Refusing it with a fault, as a re-entered
     // `Seq` is (FFI Part 3 §7.3), would break the accessors' promise that
     // describing one failure never manufactures a second.
+    // The numeric text scanners beneath every `parse` (#1049, #1253 step 9c;
+    // `spec/numeric-parsing.md`). Each is Lexer §5's literal for its type,
+    // without the `n`/`d` suffix, after an optional sign, checked by one
+    // regular expression whose every repetition is unambiguous, so a long text
+    // costs one linear pass and never a backtracking one. The checked text then
+    // goes to the host's own conversion — `BigInt(…)` for an integer in any of
+    // its four bases, `Number(…)` for a float, which ECMAScript requires to be
+    // correctly rounded — with its `_` separators removed. Each answers
+    // `undefined` for a text outside its grammar; the verdict, and the
+    // exception, are the Hexagon above.
+    case "numberInteger":
+      return [
+        `const ${name} = (() => {`,
+        `  const __pattern = new ${spell("RegExp")}("^([+-]?)(?:0x([0-9a-fA-F](?:_?[0-9a-fA-F])*)|0o([0-7](?:_?[0-7])*)|" +`,
+        '    "0b([01](?:_?[01])*)|([0-9](?:_?[0-9])*))$");',
+        "  return (__text, __signed) => {",
+        "    const __match = __pattern.exec(__text);",
+        '    if (__match === null || (!__signed && __match[1] !== "")) return undefined;',
+        '    const __digits = __match[2] !== undefined ? "0x" + __match[2]',
+        '      : __match[3] !== undefined ? "0o" + __match[3]',
+        '      : __match[4] !== undefined ? "0b" + __match[4]',
+        "      : __match[5];",
+        `    const __value = ${spell("BigInt")}(__digits.replaceAll("_", ""));`,
+        '    return __match[1] === "-" ? -__value : __value;',
+        "  };",
+        "})();",
+      ];
+    case "numberFloat":
+      return [
+        `const ${name} = (() => {`,
+        `  const __pattern = new ${spell("RegExp")}("^[+-]?[0-9](?:_?[0-9])*(?:[.][0-9](?:_?[0-9])*)?" +`,
+        '    "(?:[eE][+-]?[0-9](?:_?[0-9])*)?$");',
+        "  return (__text) => {",
+        `    if (__text === "NaN") return ${spell("Number")}.NaN;`,
+        `    if (__text === "Infinity") return ${spell("Number")}.POSITIVE_INFINITY;`,
+        `    if (__text === "-Infinity") return ${spell("Number")}.NEGATIVE_INFINITY;`,
+        "    if (!__pattern.test(__text)) return undefined;",
+        `    return ${spell("Number")}(__text.replaceAll("_", ""));`,
+        "  };",
+        "})();",
+      ];
+    case "numberDec":
+      return [
+        `const ${name} = (() => {`,
+        `  const __pattern = new ${spell("RegExp")}("^([+-]?)([0-9](?:_?[0-9])*)(?:[.]([0-9](?:_?[0-9])*))?$");`,
+        "  return (__text) => {",
+        "    const __match = __pattern.exec(__text);",
+        "    if (__match === null) return undefined;",
+        '    const __fraction = (__match[3] ?? "").replaceAll("_", "");',
+        `    const __unscaled = ${spell("BigInt")}(__match[2].replaceAll("_", "") + __fraction);`,
+        '    return [__match[1] === "-" ? -__unscaled : __unscaled, __fraction.length];',
+        "  };",
+        "})();",
+      ];
+    // The exception's message: the text quoted, cut to 37 code points and `…`
+    // when it is longer than 40, so untrusted text cannot make a message as
+    // long as itself, and escaped where a quote, a backslash, or a control
+    // character would make the quotation ambiguous.
+    case "numberFormatMessage":
+      return [
+        `function ${name}(__text, __phrase) {`,
+        "  const __points = [];",
+        "  for (const __point of __text) {",
+        "    if (__points.length === 41) break;",
+        "    __points.push(__point);",
+        "  }",
+        '  const __shown = __points.length > 40 ? __points.slice(0, 37).join("") + "\u2026" : __text;',
+        "  let __quoted = '\"';",
+        "  for (const __point of __shown) {",
+        "    const __code = __point.codePointAt(0);",
+        "    __quoted += __point === '\"' || __point === \"\\\\\" ? \"\\\\\" + __point",
+        '      : __code < 0x20 || __code === 0x7f ? "\\\\u" + __code.toString(16).padStart(4, "0") : __point;',
+        "  }",
+        "  return __quoted + '\" ' + __phrase;",
+        "}",
+      ];
     case "jsErrorRead":
       return [
         `const ${name} = (() => {`,

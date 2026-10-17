@@ -279,3 +279,52 @@ export let toFloat(value: Rat): Float =
         else
             let assembled = assemble(bits, exponent)
             if negative then -assembled else assembled
+
+// `parse`'s message, worded, cut short and escaped as every numeric type's is
+// (`spec/numeric-parsing.md` §4). The prelude's parsers key the formatter, and
+// this module, ordinary source that the intrinsic door does not reach, writes
+// the same rule in Hexagon: past 40 code points the first 37 and `…`, and a
+// quote, a backslash or a control character escaped.
+let hexDigit(value: Int): String = "0123456789abcdef".dropFirstN(value).dropLastN(15 - value)
+
+let escaped(point: String): String =
+    if point == "\"" then "\\\""
+    else if point == "\\" then "\\\\"
+    else match String.toCodepoint(point)
+        Some(code) =>
+            if code < 32 or code == 127 then "\\u00" ++ hexDigit(code.div(16)) ++ hexDigit(code.mod(16))
+            else point
+        None => point
+
+let quoted(text: String): String =
+    let count = text.length()
+    let shown = if count > 40 then text.dropLastN(count - 37) ++ "\u{2026}" else text
+    var written = "\""
+    for point in shown
+        written := written ++ escaped(point)
+    written ++ "\""
+
+let notRat(text: String): Exn = NumberFormatError(quoted(text) ++ " is not a Rat")
+
+// A bottom is an integer without a sign: the sign is the top's.
+let unsignedPart(part: String): Option(BigInt) =
+    if part.startsWith("+") or part.startsWith("-") then None else BigInt.parse?(part)
+
+(** `text` read as a `Rat`: a top and a bottom, `top/bottom`, as `show` writes
+    them, or an integer alone, which is that integer over one. Each part is an
+    integer literal as `BigInt.parse` reads one; the sign, if any, is the
+    top's, and the bottom is not zero. The value is reduced, so `"6/4"` reads as
+    `3/2`, and `Rat.parse(show(r))` is `r` for every `r`.
+
+    Throws `NumberFormatError` for any other text, a zero bottom included. Read
+    it with `?` for an `Option`, or with `assume` where the text is known to be
+    good. *)
+export let parse(text: String): Rat = match text.split("/")
+    [whole] => match BigInt.parse?(whole)
+        Some(value) => create(value, 1n)
+        None => throw^(notRat(text))
+    [top, bottom] => match (BigInt.parse?(top), unsignedPart(bottom))
+        (Some(numerator), Some(denominator)) =>
+            if denominator == 0 then throw^(notRat(text)) else create(numerator, denominator)
+        _ => throw^(notRat(text))
+    _ => throw^(notRat(text))

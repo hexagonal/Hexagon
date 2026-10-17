@@ -244,3 +244,27 @@ honor Real<Float> =
             Sign.Negative
         else
             Sign.Positive
+
+// `parse`'s two crossings (`spec/numeric-parsing.md`): the scan of the text,
+// which is the host's conversion and cannot be Hexagon at this seat, before
+// `String.hex`; and the message, which quotes the text, cut short.
+extern from "hex:intrinsic"
+    fun numberParseFloat as scanText(text: String) -> Option(Float)
+    fun numberFormatMessage as formatMessage(text: String, phrase: String) -> String
+
+(** `text` read as a `Float`: decimal digits, an optional `.` and fraction
+    digits, and an optional exponent (`e` or `E`, then an optional sign and
+    digits), with `_` allowed between two digits and an optional `+` or `-` in
+    front — Lexer section 5's float literal, or a bare integer, since `show`
+    writes `4.0` as `4`. `NaN`, `Infinity` and `-Infinity` are read exactly as
+    `show` writes them. There must be digits on both sides of a point, so `.5`
+    and `5.` are refused, as in source. The value is correctly rounded, and text
+    past the range rounds to `Infinity` or to zero, as the hardware does.
+    `Float.parse(show(x))` is `x` for every `x` but `NaN`, whose text reads
+    back as `NaN` too.
+
+    Throws `NumberFormatError` for any other text. Read it with `?` for an
+    `Option`, or with `assume` where the text is known to be good. *)
+export let parse(text: String): Float = match scanText(text)
+    Some(value) => value
+    None => throw^(NumberFormatError(formatMessage(text, "is not a Float")))

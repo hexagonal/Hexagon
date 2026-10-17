@@ -10236,7 +10236,9 @@ class Checker {
 
   /**
    * A reading (Effects §3.1): its call, whose value it reads as an `Option`. An
-   * expectation of `Option(a)` hands the call `a`.
+   * expectation of `Option(a)` hands the call `a`, and the call's result meets
+   * it there (#1253 step 9c, n5). Where nothing is handed in, the seat's final
+   * check does the same (`#widenReading`).
    */
   #inferReading(expression: Resolved.CallExpr | Resolved.ThrowExpr, level: number, expected?: Mono): Mono {
     const wanted = expected === undefined ? undefined : this.#prune(expected);
@@ -10255,6 +10257,15 @@ class Checker {
         primary: expression.span,
       });
       return ERROR;
+    }
+    // A reading is `Some` of its call, so where a forwarding form hands it an
+    // `Option(T)`, its call's result meets `T` as a constructor application's
+    // argument meets the part it is handed (Functions §4.3): the same check,
+    // with the same numeric widening, recorded on the call (`#widenReading` is
+    // the other half, at a seat that hands nothing in).
+    if (inner !== undefined && expression.kind === "Call") {
+      this.#unifyExpected(inner, value, expression, expression.span);
+      if (this.#hasNumericWidening(expression)) value = inner;
     }
     const type: Mono = { kind: "Union", union: this.#optionUnion, name: "Option", arguments: [value] };
     this.#expressionTypes.set(expression, type);
@@ -28712,6 +28723,33 @@ class Checker {
       this.#tryPromoteDecimal(expression, actual, target, span);
   }
 
+  /**
+   * A reading at a seat (Effects §3.1; #1253 step 9c, n5): a reading is `Some`
+   * of its call, so where its `Option` meets an `Option(T)`, the call's result
+   * meets `T` exactly as `Some(…)`'s argument would, and the seat's final check
+   * elaborates the same numeric widening (Functions §4.3) — `pi?(n)` at a
+   * written `Option(BigInt)` reads an `Int` call as `Some(BigInt(…))`. The
+   * widening is recorded on the call, and `#materializeExpr` puts it inside the
+   * reading, never around the `Option`. Nothing else about a reading widens:
+   * no expectation is spent, and the `Option` itself is never converted.
+   */
+  #widenReading(
+    expected: Mono,
+    actual: Mono,
+    expression: Resolved.Expr,
+    span: Source.Span,
+    allowVariableTarget: boolean,
+  ): boolean {
+    if (expression.kind !== "Call" || expression.reading !== true) return false;
+    const seat = this.#prune(expected);
+    const read = this.#prune(actual);
+    if (seat.kind !== "Union" || seat.union !== this.#optionUnion || seat.arguments.length !== 1) return false;
+    if (read.kind !== "Union" || read.union !== this.#optionUnion || read.arguments.length !== 1) return false;
+    return this.#tryWidenInt(expression, read.arguments[0]!, seat.arguments[0]!, span, allowVariableTarget) ||
+      this.#tryWidenNat(expression, read.arguments[0]!, seat.arguments[0]!, span, allowVariableTarget) ||
+      this.#tryWidenBigInt(expression, read.arguments[0]!, seat.arguments[0]!, span, allowVariableTarget);
+  }
+
   #hasNumericWidening(expression: Resolved.Expr): boolean {
     return this.#natWidenings.has(expression) || this.#intWidenings.has(expression) ||
       this.#bigIntWidenings.has(expression) || this.#decimalPromotions.has(expression);
@@ -28865,6 +28903,7 @@ class Checker {
         allowVariableTarget,
       )
     ) return;
+    if (this.#widenReading(expected, actual, expression, span, allowVariableTarget)) return;
     // Numeric Literals §6: where the value being checked is an operation whose
     // lift **stood down**, this is the consuming seat §5.1's theorem says the
     // refusal fires at, and the note says what the lift's own refusal would
@@ -38028,6 +38067,23 @@ class Checker {
     const promotion = this.#decimalPromotions.get(expression);
     if (promotion !== undefined) return this.#materializeDecimalPromotion(expression, promotion);
     const value = this.#readingOf(expression, this.#materializeUnwidenedExpr(expression));
+    // A reading's widening is its call's result's, so it goes inside the
+    // reading, never around the `Option` (`#inferReading`).
+    if (value.kind === "Call" && value.reading === true) {
+      const widening = this.#natWidenings.has(expression)
+        ? { kind: "WidenNat" as const, requirement: this.#natWidenings.get(expression)! }
+        : this.#intWidenings.has(expression)
+        ? { kind: "WidenInt" as const, requirement: this.#intWidenings.get(expression)! }
+        : this.#bigIntWidenings.has(expression)
+        ? { kind: "WidenBigInt" as const, requirement: this.#bigIntWidenings.get(expression)! }
+        : undefined;
+      if (widening === undefined) return value;
+      const requirement = this.#publicRequirement(widening.requirement);
+      return {
+        ...value,
+        readingWidening: { kind: widening.kind, requirement, type: requirement.type },
+      };
+    }
     const adaptation = this.#adaptations.get(expression);
     if (adaptation !== undefined) return this.#materializeAdaptation(expression, value, adaptation);
     const natWidening = this.#natWidenings.get(expression);
