@@ -12274,9 +12274,19 @@ class Checker {
           ? this.#normalizeRecord(inferredReceiver)
           : inferredReceiver;
         if (receiver.kind === "Constructor" && receiver.name === "Exn") {
+          // A field read on an `Exn` is refused, and where the name is one of
+          // its operations — `Show`'s member, the one constraint `Exn` honors,
+          // or an export of its companion `Exn.hex` — the report says to call
+          // it (#1159, Exceptions §3).
+          const field = expression.field.text;
+          const operation = field === "show" ||
+            this.#companionOperations.get(PRIMITIVE_COMPANIONS.get("Exn")!)?.has(field) === true;
           type = this.#unsupported(
             expression.span,
-            "exceptions are inspected with `try`/`catch`",
+            operation
+              ? `exceptions are inspected with \`try\`/\`catch\`; \`${field}\` is an operation, ` +
+                `so call it: \`${receiverSpelling(expression.receiver)}.${field}()\``
+              : "exceptions are inspected with `try`/`catch`",
           );
           break;
         }

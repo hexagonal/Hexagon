@@ -80,7 +80,7 @@ This table is the exhaustive **status map** of core-type `Hash`; each row record
 
 **Structural types** follow the `Eq` pattern exactly (Products §2.5/§3.4 family): tuples and structural records receive **automatic compiler-derived `Hash`**, conditional on every component/field type having `Hash`. Users cannot honor structural types (Constraints §9.3 presumption, unchanged); their `Hash`, like their `Eq`, is exclusively compiler-derived — and therefore mutually consistent by construction.
 
-**No other core instance is fixed by this section:** no `Hash<Exn>` (Exceptions §10's no-instances presumption, enforced by §4.2 here); function types have no `Eq`, so `Hash` cannot arise; `Seq` has no `Eq` and therefore no `Hash`. `Range` and prelude-union instances remain stdlib-listing decisions (§12.3) — except `Bool`'s, decided by #147: derived in the prelude declaration itself, per the corrected row above. Collection instances live in their owning specs: `Hash<Vector(a)>` in Part 3 §8, and `Hash<Map(k, v)>`/`Hash<Set(a)>` in Part 4 §8.4.
+**No other core instance is fixed by this section:** no `Hash<Exn>` (`Exn`'s one instance is `Show<Exn>`, Exceptions §8.6 and §10.3; `Hash<Exn>` is enforced absent by §4.2 here); function types have no `Eq`, so `Hash` cannot arise; `Seq` has no `Eq` and therefore no `Hash`. `Range` and prelude-union instances remain stdlib-listing decisions (§12.3) — except `Bool`'s, decided by #147: derived in the prelude declaration itself, per the corrected row above. Collection instances live in their owning specs: `Hash<Vector(a)>` in Part 3 §8, and `Hash<Map(k, v)>`/`Hash<Set(a)>` in Part 4 §8.4.
 
 ---
 
@@ -125,7 +125,7 @@ The rule constrains the instance form and nothing else. `Hash` as a **base const
 
 ### 4.2 Exceptions
 
-`derives Hash` on an `exception` declaration is the existing error ("exceptions have no derived instances"); since §4.1 closes the member-block form too, `Hash<Exn>` is unwritable in total, as Exceptions §10 presumes.
+`derives Hash` on an `exception` declaration is the existing error ("exceptions have no derived instances"); since §4.1 closes the member-block form too, `Hash<Exn>` is unwritable in total, as Exceptions §10.3 rules: `Show` is the only constraint `Exn` honors.
 
 ### 4.3 The Eq-agreement rule
 
@@ -403,7 +403,7 @@ The v2 implied-types remainder is also routed here: deferred `Item(α)` goals, t
 | Doc | Edit |
 |---|---|
 | **declarations-preamble.md** | Not-in-scope line still describes implied `type` members as v2 — now v1 per this doc; on next touch, repoint to here and note the `type` keyword's three positions (module / `constraint` / `honor`), position-disambiguated. |
-| **exceptions.md** | §10 no-instances presumption note on next touch: `Hash<Exn>` is unwritable in total (§4.2 here). |
+| **exceptions.md** | §10.3, resolved at #1159: `Show<Exn>` is `Exn`'s one instance, and `Hash<Exn>` is unwritable in total (§4.2 here). |
 | **lexer-layout.md** | Note only, on next touch: no new keyword; `type` gains its third position. |
 
 ---

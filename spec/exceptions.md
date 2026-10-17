@@ -332,7 +332,8 @@ A catch-all exists to report what failed (§1), so an `Exn` describes itself. Bo
   - An exception or a fault shows its constructor's name and its `message` slot (§2): `ParseError: unexpected token`; `NotFoundError` and `KeyFault` alone; `TimeoutError(5000)` as `TimeoutError`, since a payload without a `message` slot is not shown, and the slot is how an author puts details in.
   - `AssumptionFault` shows its cause's message (§8.3): `AssumptionFault: unexpected token`.
   - A foreign throw shows its own `name` and `message`, each read with FFI Part 11 §7's guarded read, once per value and kept: `TypeError: x is not a function`. A value that bears no properties renders as `JsError.message` renders it (`throw "oops"` shows `oops`, `throw null` shows `null`), and an object with neither a string `name` nor a string `message` shows `""`.
-  - A `JsError(v)` built by hand shows as `v` does: the wrapping is virtual (§6.2).
+  - A `JsError(v)` built by hand shows as `v` does: the wrapping is virtual (§6.2). Telling one apart reads the value's brand, `name` and payload with the same guarded read, once and kept, so no hostile getter can make `show` fail or answer twice.
+  - A thrown function is an object here: it shows its own `name` (`namedThrower`), or its `message` where it has one.
   - Interpolation, `e.show()`, the bare `show(e)` and `Show.show(e)` all reach it, a type that holds an `Exn` derives `Show` through it, and `Debug.log(e)` takes it.
   - It is pure and cannot fail: the reads beneath it are kept (Effects §6.2, species (b)).
 - **`Exn.stack : Exn -> Option(String)`**: the stack trace, where there is one. A Hexagon exception's was captured where it was built (§4); a foreign throw's is its `.stack`, read once and kept, as `JsError.stack` reads it. A thrown string or `null` has none. It is pure and cannot fail, and `e.stack()` is its dot spelling.
@@ -369,7 +370,7 @@ A catch-all exists to report what failed (§1), so an `Exn` describes itself. Bo
 | A `throw` whose mark disagrees with its argument's kind | Effects §9's mark rows: "this call cannot fail, so `throw` wants no mark, not `^`" for a fault; "this call may fail, so `throw` wants `^`, not no mark" otherwise (§3) |
 | `match` on an `Exn` scrutinee | "match requires a closed type; exceptions are inspected with `try`/`catch`" (§3; Pattern Matching §6.1) |
 | An exception's or a fault's constructor as a pattern in a `match` arm at any depth, or in a `let`, `for` or lambda-parameter pattern | "`ParseError` is an exception's constructor, and a `match` never takes `Exn`; exceptions are inspected with `try`/`catch`" ("a fault's constructor" for a fault; "a pattern never takes `Exn` apart" at a `let`, `for` or lambda-parameter seat), at the constructor (§3; Pattern Matching §6.1) |
-| A field read on an `Exn` value (`e.name`) | "exceptions are inspected with `try`/`catch`" (§3); a dot call reaches only `Exn.hex`'s exports and `Show`'s member, and any other reports as an operation the companion does not export (§8.6) |
+| A field read on an `Exn` value (`e.name`) | "exceptions are inspected with `try`/`catch`" (§3); where the name is one of `Exn`'s operations, it adds "`stack` is an operation, so call it: `e.stack()`"; a dot call reaches only `Exn.hex`'s exports and `Show`'s member, and any other reports as an operation the companion does not export (§8.6) |
 | `catch` clause on a cannot-throw scrutinee (bare variable read / primitive-erased literal, §5.4's class) | hard error: "this `catch` can never run: evaluating ⟨scrutinee⟩ cannot throw" (§5.4) |
 | `match e` followed directly by `catch` (no data arms) | parse error: "`match` requires at least one arm; to handle only exceptions, use `try`/`catch`" (§5.4) |
 | `catch` indented as a match arm | parse error + fixit: "align `catch` with `match` to attach a catch clause" (§5.4); at a match function this row's advice would be circular (no column attaches a clause there), so every `catch` reaching a match function — this seat included — reports the match-function diagnostic instead (Pattern Matching §6.7) |
@@ -402,7 +403,7 @@ A catch-all exists to report what failed (§1), so an `Exn` describes itself. Bo
 | Prelude throwables bare as a category — the `…Fault` suffix, like `JsError`, is the qualifier; future prelude faults join without a ruling | §2.1; Modules §5.5 |
 | `catch` mandatory; `finally` deferred with reserved keyword | §5.1, §10.1 |
 | Catch arms = flat constructor patterns (shared grammar with `match`); implicit rethrow; reachability still hard-errors; no exhaustiveness demand | §5.2–5.3 |
-| `match`/dot-access on `Exn`: never; an exception's or a fault's constructor as a pattern outside a catch arm, at any depth: refused | §3 |
+| `match` and field reads on `Exn`: never (a dot call reaches only `Exn.hex`'s exports and `Show`'s member, #1159); an exception's or a fault's constructor as a pattern outside a catch arm, at any depth: refused | §3, §8.6 |
 | Foreign throwables catchable via prelude `JsError(error: JsValue)`; no decoding; classification is userland | §6 |
 | `JsError.message`/`stack` are total conservative Part 11 accessors; each property of a thrown object or function is read once, guarded, on first use, and kept, secondary throws falling back to `""`/`None`; both are pure and cannot fail, `->`, so a catch arm writes `JsError.message(e)` | §6.1; FFI Part 11 §7 |
 | `JsError` wrapping is virtual: catch-arm binds raw value; `throw^(JsError(e))` unwraps syntactically; `JsError` is an exception, which `_` catches | §6.1, §6.2 |
