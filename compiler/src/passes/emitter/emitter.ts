@@ -14072,12 +14072,22 @@ function renderHelper(
     // accessor whose purpose is describing one failure must not manufacture a
     // second. A read that threw is kept as `undefined`, like an absent one, so
     // the string verdict above it is ordinary Hexagon. It is asked only of an
-    // object or a function — the Hexagon above has already classified the
-    // value — which are the only values a `WeakMap` can key.
+    // object, an array or a function — the Hexagon above has already
+    // classified the value — and a `WeakMap` keys any of them.
+    //
+    // **A getter that comes back in** — one that asks for the same property of
+    // the same value while its own read is running — would run the read a
+    // second time. Instead the slot is marked pending before the read starts,
+    // and an ask that finds it pending answers as a swallowed read and keeps
+    // that answer for the value: the getter runs exactly once, and every ask,
+    // the outer one included, agrees. Refusing it with a fault, as a re-entered
+    // `Seq` is (FFI Part 3 §7.3), would break the accessors' promise that
+    // describing one failure never manufactures a second.
     case "jsErrorRead":
       return [
         `const ${name} = (() => {`,
         `  const __kept = new ${spell("WeakMap")}();`,
+        "  const __pending = {};",
         "  return (__value, __property) => {",
         "    let __answers = __kept.get(__value);",
         "    if (__answers === undefined) {",
@@ -14085,13 +14095,16 @@ function renderHelper(
         "      __kept.set(__value, __answers);",
         "    }",
         "    if (!__answers.has(__property)) {",
+        "      __answers.set(__property, __pending);",
         "      let __read;",
         "      try {",
         "        __read = __value[__property];",
         "      } catch {",
         "        __read = undefined;",
         "      }",
-        "      __answers.set(__property, __read);",
+        "      if (__answers.get(__property) === __pending) __answers.set(__property, __read);",
+        "    } else if (__answers.get(__property) === __pending) {",
+        "      __answers.set(__property, undefined);",
         "    }",
         "    return __answers.get(__property);",
         "  };",

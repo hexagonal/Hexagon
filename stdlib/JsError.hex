@@ -65,8 +65,9 @@ extern from "hex:intrinsic"
     // The safe rendering of a value that bears no properties — the string
     // itself for a string, and `String(value)` for the other six kinds, which
     // is the one stringification that cannot throw on a `Symbol`. Asked only of
-    // a value `kind` has already placed outside `Object` and `Function`, so it
-    // never meets a `toString` of anyone's.
+    // a value `kind` has already placed outside `Object`, `Array` and
+    // `Function`, so it never meets a `toString` of anyone's: an array's would
+    // run its elements' own.
     fun jsErrorRender as render(value: JsValue) -> String
 
 // The two verdicts, each ordinary Hexagon over one guarded read. A read that
@@ -83,8 +84,8 @@ let readOption(value: JsValue): Option(String) = match value.toString()
     Ok(text) => Some(text)
     Err(_) => None
 
-(** What `error` says about itself, always. A thrown object or function gets one
-    guarded read of its `.message`, and a read that throws, is absent, or is not
+(** What `error` says about itself, always. A thrown object, array or function
+    gets one guarded read of its `.message`, and a read that throws, is absent, or is not
     a string yields `""`. Anything else — a string, a number, a bigint, a
     boolean, a symbol, `undefined`, `null` — renders safely, so `throw "oops"`
     reads back as `"oops"`.
@@ -94,11 +95,11 @@ let readOption(value: JsValue): Option(String) = match value.toString()
     The `.message` is read once, the first time it is asked for, and kept, so
     every call for the same value gives the same answer, and a call is pure. *)
 export let message(error: JsValue): String = match error.kind()
-    JsKind.Object | JsKind.Function => readString(readMessage(error))
+    JsKind.Object | JsKind.Array | JsKind.Function => readString(readMessage(error))
     _ => render(error)
 
-(** `error`'s stack trace when it has one, `None` otherwise. A thrown object or
-    function gets one guarded read of its `.stack` and answers `Some(trace)`
+(** `error`'s stack trace when it has one, `None` otherwise. A thrown object,
+    array or function gets one guarded read of its `.stack` and answers `Some(trace)`
     only when that read succeeded with a string; a value that bears no
     properties has no stack to read and answers `None`.
 
@@ -106,5 +107,5 @@ export let message(error: JsValue): String = match error.kind()
     propagated. The `.stack` is read once, the first time it is asked for, and
     kept, as `message`'s is, so a call is pure. *)
 export let stack(error: JsValue): Option(String) = match error.kind()
-    JsKind.Object | JsKind.Function => readOption(readStack(error))
+    JsKind.Object | JsKind.Array | JsKind.Function => readOption(readStack(error))
     _ => None

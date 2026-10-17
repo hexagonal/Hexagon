@@ -512,13 +512,57 @@ describe("the accessors are total and conservative (FFI Part 11 §7)", () => {
     expect(message(flaky)).toBe("");
   });
 
-  /** The thrown object is never written: no property appears on it. */
+  /**
+   * The thrown object is never written: no property appears on it, whether it
+   * could take one or not.
+   */
   test("the keeping is beside the value, never on it", async () => {
     const { message, stack } = await accessors();
-    const value = Object.freeze({ message: "frozen" });
-    expect(message(value)).toBe("frozen");
-    expect(stack(value).tag).toBe("None");
-    expect(Reflect.ownKeys(value)).toEqual(["message"]);
+    const plain = { message: "plain" };
+    expect(message(plain)).toBe("plain");
+    expect(stack(plain).tag).toBe("None");
+    expect(Reflect.ownKeys(plain)).toEqual(["message"]);
+    const frozen = Object.freeze({ message: "frozen" });
+    expect(message(frozen)).toBe("frozen");
+    expect(Reflect.ownKeys(frozen)).toEqual(["message"]);
+  });
+
+  /**
+   * A getter that asks for its own property of the same value while its read
+   * runs is answered as a swallowed read, and the value keeps that answer: the
+   * getter runs once, and the inner ask, the outer ask and every later one
+   * agree.
+   */
+  test("a getter that comes back in runs once, and every ask agrees", async () => {
+    const { message } = await accessors();
+    let reads = 0;
+    let inner = "unset";
+    const value = {
+      get message(): string {
+        reads += 1;
+        inner = message(value);
+        return `outer ${reads}`;
+      },
+    };
+    expect(message(value)).toBe("");
+    expect(inner).toBe("");
+    expect(message(value)).toBe("");
+    expect(reads).toBe(1);
+  });
+
+  /**
+   * An array is an object to §7, though `kind` names it apart, so it gets the
+   * guarded read rather than the rendering, and no element's `toString` runs.
+   */
+  test("a thrown array gets the guarded read, so no element's `toString` runs", async () => {
+    const { message, stack } = await accessors();
+    let stringified = 0;
+    const poisoned = [{ toString(): string { stringified += 1; throw new Error("hostile"); } }];
+    expect(message(poisoned)).toBe("");
+    expect(stack(poisoned).tag).toBe("None");
+    expect(message(Object.assign([1, 2], { message: "an array's" }))).toBe("an array's");
+    expect(stack(Object.assign([1, 2], { stack: "an array's trace" })).value).toBe("an array's trace");
+    expect(stringified).toBe(0);
   });
 
   test("the value's own `toString` is never invoked", async () => {
@@ -798,6 +842,7 @@ describe("emission and the guard the door does not ship (§7.4, §7.6)", () => {
       [
         "const __jsErrorRead = (() => {",
         "  const __kept = new WeakMap();",
+        "  const __pending = {};",
         "  return (__value, __property) => {",
         "    let __answers = __kept.get(__value);",
         "    if (__answers === undefined) {",
@@ -805,13 +850,16 @@ describe("emission and the guard the door does not ship (§7.4, §7.6)", () => {
         "      __kept.set(__value, __answers);",
         "    }",
         "    if (!__answers.has(__property)) {",
+        "      __answers.set(__property, __pending);",
         "      let __read;",
         "      try {",
         "        __read = __value[__property];",
         "      } catch {",
         "        __read = undefined;",
         "      }",
-        "      __answers.set(__property, __read);",
+        "      if (__answers.get(__property) === __pending) __answers.set(__property, __read);",
+        "    } else if (__answers.get(__property) === __pending) {",
+        "      __answers.set(__property, undefined);",
         "    }",
         "    return __answers.get(__property);",
         "  };",
