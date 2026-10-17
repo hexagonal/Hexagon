@@ -26,6 +26,11 @@ module JsError
 // thrown value has an answer, no value's `toString` is ever invoked, and a
 // property read that throws is swallowed rather than propagated — an accessor
 // whose purpose is describing one failure must not manufacture a second.
+//
+// **And they are pure.** Each property of a thrown value is read at most once,
+// the first time it is asked for, and the answer is kept (`spec/effects.md`
+// section 6.2, species (b)): a thrown value is held fixed as an incoming
+// collection is, copied when Hexagon first asks rather than as it crosses.
 
 (** A value JavaScript threw that Hexagon did not. `error` is that value,
     unchanged and unclassified: JavaScript permits throwing anything, so no
@@ -50,12 +55,12 @@ extern from "hex:intrinsic"
     // property yields `undefined` because that is what reading one gives. What
     // comes back is the value as read, so the string verdict below is ordinary
     // Hexagon over it and the value's own `toString` is never reached. The read
-    // may run a foreign getter, so it is impure; the guard is why it cannot
-    // fail, so the row is `->~`.
-    fun jsErrorReadMessage as readMessage(error: JsValue) ->~ JsValue
+    // happens once per value, and every later ask answers from what was kept,
+    // which is why the row is `->`; the guard is why it cannot fail.
+    fun jsErrorReadMessage as readMessage(error: JsValue) -> JsValue
 
-    // The same single guarded read at `.stack`.
-    fun jsErrorReadStack as readStack(error: JsValue) ->~ JsValue
+    // The same single guarded read at `.stack`, kept the same way.
+    fun jsErrorReadStack as readStack(error: JsValue) -> JsValue
 
     // The safe rendering of a value that bears no properties — the string
     // itself for a string, and `String(value)` for the other six kinds, which
@@ -86,10 +91,10 @@ let readOption(value: JsValue): Option(String) = match value.toString()
 
     The value's own `toString` is never invoked and no secondary failure ever
     escapes: this function describes a failure and must not manufacture one.
-    The guarded read may run a foreign getter, so a call is impure and cannot
-    fail, and wears `~`: `JsError.message~(e)`. *)
+    The `.message` is read once, the first time it is asked for, and kept, so
+    every call for the same value gives the same answer, and a call is pure. *)
 export let message(error: JsValue): String = match error.kind()
-    JsKind.Object | JsKind.Function => readString(readMessage~(error))
+    JsKind.Object | JsKind.Function => readString(readMessage(error))
     _ => render(error)
 
 (** `error`'s stack trace when it has one, `None` otherwise. A thrown object or
@@ -98,8 +103,8 @@ export let message(error: JsValue): String = match error.kind()
     properties has no stack to read and answers `None`.
 
     Conservative in the same way `message` is: a throwing read is swallowed, not
-    propagated. The read is fresh on every call, because `.stack` may be an
-    accessor, so a call wears `~`: `JsError.stack~(e)`. *)
+    propagated. The `.stack` is read once, the first time it is asked for, and
+    kept, as `message`'s is, so a call is pure. *)
 export let stack(error: JsValue): Option(String) = match error.kind()
-    JsKind.Object | JsKind.Function => readOption(readStack~(error))
+    JsKind.Object | JsKind.Function => readOption(readStack(error))
     _ => None

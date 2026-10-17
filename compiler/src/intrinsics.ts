@@ -318,9 +318,10 @@ export function isIntrinsicScheme(specifier: string): boolean {
  *   all. Each performs **one** property read and answers with what it read, or
  *   `undefined` when the read threw — so the string verdict above them
  *   (`JsValue.toString`, strict and non-coercing) is Hexagon's, and the value's
- *   own `toString` is reached by nothing. Two keys rather than one property
- *   name in a parameter, because the accessors are two operations and the
- *   inventory names operations.
+ *   own `toString` is reached by nothing. The read is made once per value and
+ *   kept (Effects §6.2's species (b)), which is what lets both rows be `->`.
+ *   Two keys rather than one property name in a parameter, because the
+ *   accessors are two operations and the inventory names operations.
  * - **`jsErrorRender` is the safe stringification** §7's first bullet requires
  *   of a value that bears no properties. It is not Hexagon-expressible for the
  *   reason the family exists: a `Symbol`, `undefined` and `null` have no

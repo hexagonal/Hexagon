@@ -871,7 +871,7 @@ describe("the foreign branch, where `JsError` sits (§6, §7.4)", () => {
         "        Some(n) => Int.show(n)\n" +
         "        None => \"none\"\n" +
         "    catch\n" +
-        "        JsError(e) => JsError.message~(e)\n",
+        "        JsError(e) => JsError.message(e)\n",
       foreign,
     );
 
@@ -892,7 +892,7 @@ describe("the foreign branch, where `JsError` sits (§6, §7.4)", () => {
         "        Some(n) => Int.show(n)\n" +
         "        None => \"none\"\n" +
         "    catch\n" +
-        "        JsError(e) => JsError.message~(e)\n",
+        "        JsError(e) => JsError.message(e)\n",
     );
 
     expect(project.diagnostics.map(({ message }) => message)).toEqual([]);

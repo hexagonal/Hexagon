@@ -14058,23 +14058,44 @@ function renderHelper(
         "  }",
         "}",
       ];
-    // FFI Part 11 §7's one guarded read, shared by both accessors (#509). A
-    // property read is all it is — one, on the named property, fresh on every
-    // call because the property may be an accessor — and the `try` is the whole
-    // reason it cannot be Hexagon: a getter or proxy trap that throws is
-    // swallowed here, never propagated, because an accessor whose purpose is
-    // describing one failure must not manufacture a second. It answers with
-    // what it read, so a value that is absent and a read that threw are both
-    // `undefined` and the string verdict above it is ordinary Hexagon.
+    // FFI Part 11 §7's one guarded read, shared by both accessors (#509), and
+    // kept: each property of a thrown value is read at most once, the first
+    // time it is asked for, and every later ask answers from what was kept.
+    // That is `spec/effects.md` §6.2's species (b), the owned at-most-once read
+    // that lets both rows be `->`: a getter or proxy trap may do anything, but
+    // it runs once, and the world can no longer vary the answer. The table
+    // lives beside the value, never on it, so the thrown object is never
+    // written, and a `WeakMap` lets the answers go when the value does.
+    //
+    // The `try` is the whole reason it cannot be Hexagon: a getter or proxy
+    // trap that throws is swallowed here, never propagated, because an
+    // accessor whose purpose is describing one failure must not manufacture a
+    // second. A read that threw is kept as `undefined`, like an absent one, so
+    // the string verdict above it is ordinary Hexagon. It is asked only of an
+    // object or a function — the Hexagon above has already classified the
+    // value — which are the only values a `WeakMap` can key.
     case "jsErrorRead":
       return [
-        `function ${name}(__value, __property) {`,
-        "  try {",
-        "    return __value[__property];",
-        "  } catch {",
-        "    return undefined;",
-        "  }",
-        "}",
+        `const ${name} = (() => {`,
+        `  const __kept = new ${spell("WeakMap")}();`,
+        "  return (__value, __property) => {",
+        "    let __answers = __kept.get(__value);",
+        "    if (__answers === undefined) {",
+        `      __answers = new ${spell("Map")}();`,
+        "      __kept.set(__value, __answers);",
+        "    }",
+        "    if (!__answers.has(__property)) {",
+        "      let __read;",
+        "      try {",
+        "        __read = __value[__property];",
+        "      } catch {",
+        "        __read = undefined;",
+        "      }",
+        "      __answers.set(__property, __read);",
+        "    }",
+        "    return __answers.get(__property);",
+        "  };",
+        "})();",
       ];
     // Population count of a 32-bit word, the SWAR form: pairs, then nibbles,
     // then bytes, then one multiply that sums the four byte counts into the top
