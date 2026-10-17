@@ -334,7 +334,7 @@ describe("§14.1 the absences: nothing is manufactured, memoized, or strengthene
       "            None => \"none\"\n" +
       "            Some(value) => Int.show(value)\n" +
       "    catch\n" +
-      "        JsError(e) => JsError.message~(e)\n",
+      "        JsError(e) => JsError.message(e)\n",
       {
         source: [
           "let step = 0;",

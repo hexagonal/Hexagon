@@ -819,7 +819,7 @@ describe("the two failure doors (Part 10 §4.4)", () => {
         '            Some(_) => "some"\n' +
         "    catch\n" +
         '        KeyFault => "KeyFault"\n' +
-        '        JsError(e) => "JsError: " ++ JsError.message~(e)\n',
+        '        JsError(e) => "JsError: " ++ JsError.message(e)\n',
       {
         hostile: "export function hostile() {\n" +
           '  const inner = new Map([["a", 1]]);\n' +
@@ -859,12 +859,12 @@ describe("the two failure doors (Part 10 §4.4)", () => {
         "    try\n" +
         "        Int.show(JsMap.size(table!()))\n" +
         "    catch\n" +
-        "        JsError(e) => JsError.message~(e)\n" +
+        "        JsError(e) => JsError.message(e)\n" +
         "export fun member(): String =\n" +
         "    try\n" +
         "        Bool.show(JsSet.contains(members!(), 1))\n" +
         "    catch\n" +
-        "        JsError(e) => JsError.message~(e)\n",
+        "        JsError(e) => JsError.message(e)\n",
       {
         hostile: "export function table() {\n" +
           '  return new Proxy(new Map([["a", 1]]), {\n' +

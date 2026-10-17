@@ -100,7 +100,7 @@ catch
     ParseError(line, _) => defaultFor(line)
     NotFoundError => fallback
     IndexFault(i, n) => outOfRange(i, n)
-    JsError(e) => log~(JsError.message~(e)); fallback
+    JsError(e) => log~(JsError.message(e)); fallback
 ```
 
 - **`try` takes a body** — same line or an indented layout block, final expression is its value (identical to lambda bodies, Functions §3.1). **`catch` takes a layout block of arms**, one per VSEP/`;`, each `pattern => body` — syntactically the same arm form as `match` (Unions §4.1), parsed in the same arm context, with the same `=>` token. Braced forms do not exist; a `{` after `try` or `catch` gets the standard records-not-blocks diagnostic (Lexer & Layout §5).
@@ -164,7 +164,7 @@ Hexagon code compiled to JS will have JS exceptions pass through it — a `TypeE
 exception JsError(error: JsValue)
 ```
 
-- `JsValue` is the representation-direct opaque type for any JavaScript value, facing TypeScript as `unknown` (FFI Part 11). No attempt is made to type an arbitrary thrown value structurally, because JS permits throwing anything, including `null` and strings. FFI Part 11 §7 specifies the total conservative accessors `JsError.message : JsValue ->~ String` and `JsError.stack : JsValue ->~ Option(String)` (each is impure, one guarded foreign read per call, and cannot fail: guarded property failures are suppressed into `""` / `None`).
+- `JsValue` is the representation-direct opaque type for any JavaScript value, facing TypeScript as `unknown` (FFI Part 11). No attempt is made to type an arbitrary thrown value structurally, because JS permits throwing anything, including `null` and strings. FFI Part 11 §7 specifies the total conservative accessors `JsError.message : JsValue -> String` and `JsError.stack : JsValue -> Option(String)` (each is pure and cannot fail: each property of a thrown value is read once, guarded, on first use, and kept, and guarded property failures are suppressed into `""` / `None`).
 - **`JsError` is an exception, not a fault** (its name does not end in `Fault`), so `_` catches it. A foreign throw is tracked as the row it comes through claims (Effects §6.1). Through a row that may fail (`->^`, `->!`), it is a failure the fail colour tracks. Through one that claims it cannot (`->`, `->~`), it breaks that claim and arrives untracked: as a `JsError`, or as the branded Hexagon exception it was where one came back out through the foreign frames (FFI Part 6 §4). A catch-all catches either.
 - **No decoding.** A JS `RangeError` is a `JsError` whose payload you interrogate via accessors; it does not become a structured Hexagon exception. Classification of foreign errors is userland. This keeps the FFI honest — no typing the untypeable.
 
@@ -363,7 +363,7 @@ Every throwable the prelude declares is a fault, but `JsError`, which is an exce
 
 1. **`finally`. Resolved: never.** `finally` is an accident of language-history sequencing: `unwind-protect` patched the non-local exits exceptions created, and the patch fossilized into surface syntax (Modula-3, then Java, then C# and JS) before the dominant use case — paired acquire/release — got its own construct. The counterfactual has been run: C++ and Ada had the resource construct first and never grew `finally`; the languages that shipped `finally` and later confronted the resource case added the paired construct and demoted it (Python's `with`, Java's try-with-resources, TC39's `using`; C#'s `using` was sugar over try/finally from the start); and the greenfield designs that revisited the question chose the paired construct instead (`defer` in Go, Swift, and Zig; `Drop` in Rust). The primitive must exist somewhere, but not as surface syntax: a future `use` lowers to emitted JS `try`/`finally`, so the emitter holds unwind-protect for free and the surface never needs the keyword. In an expression language `finally` is statement-shaped — it contributes no value — and every question the deferral recorded (may it throw? does it overwrite the in-flight exception? what does it do to `try`'s typing?) dissolves unasked. The keyword stays reserved permanently, purely to power the diagnostic (§9); the v2 resource story (`use`, a scoped binding in the F# style) files its own issue when that arc opens, and nothing here pre-decides its shape beyond the diagnostic's forward reference. Do not re-litigate without new information.
 2. **Async.** JS promise rejections are exceptions in a trench coat; if Hexagon grows async/await or a Task type, the rejection channel presumably carries `Exn` with the same brand discipline. Nothing here precludes it; flagged so the async design remembers.
-3. **`Show<Exn>` / constraints on `Exn`.** Presumption: `Exn` has **no** derived or prelude instances in v1 — not `Show` (what would it show, given foreign values?), not `Eq` (identity vs structural on error objects is a swamp). Interpolating an `Exn` is therefore a compile error; users show `JsError.message~(e)` or their own formatting. Presumed here, confirm in the stdlib listing.
+3. **`Show<Exn>` / constraints on `Exn`.** Presumption: `Exn` has **no** derived or prelude instances in v1 — not `Show` (what would it show, given foreign values?), not `Eq` (identity vs structural on error objects is a swamp). Interpolating an `Exn` is therefore a compile error; users show `JsError.message(e)` or their own formatting. Presumed here, confirm in the stdlib listing.
 4. **Warning on over-broad catches?** A lint flagging `_`-arms that swallow everything (the classic error-hiding bug) was floated informally. Linting policy is out of scope for specs so far; parked.
 
 ---
@@ -385,7 +385,7 @@ Every throwable the prelude declares is a fault, but `JsError`, which is an exce
 | Catch arms = flat constructor patterns (shared grammar with `match`); implicit rethrow; reachability still hard-errors; no exhaustiveness demand | §5.2–5.3 |
 | `match`/dot-access on `Exn`: never; an exception's or a fault's constructor as a pattern outside a catch arm, at any depth: refused | §3 |
 | Foreign throwables catchable via prelude `JsError(error: JsValue)`; no decoding; classification is userland | §6 |
-| `JsError.message`/`stack` are total conservative Part 11 accessors; objects/functions receive one guarded fresh property read, secondary throws fall back to `""`/`None`; both are impure and cannot fail, `->~`, so a catch arm writes `JsError.message~(e)` | §6.1; FFI Part 11 §7 |
+| `JsError.message`/`stack` are total conservative Part 11 accessors; each property of a thrown object or function is read once, guarded, on first use, and kept, secondary throws falling back to `""`/`None`; both are pure and cannot fail, `->`, so a catch arm writes `JsError.message(e)` | §6.1; FFI Part 11 §7 |
 | `JsError` wrapping is virtual: catch-arm binds raw value; `throw^(JsError(e))` unwraps syntactically; `JsError` is an exception, which `_` catches | §6.1, §6.2 |
 | Representation: plain `Error` + `$hex: true` brand + `name` discriminant + flat payload; no classes, no `instanceof`, no prototypes | §7.1 |
 | Class-based designs and bare-POJO design rejected, reasons recorded | §7.1 |
