@@ -552,8 +552,9 @@ export class AnalysisSession {
     const fileId = this.#fileIds.get(path);
     const typed = analysis.moduleAt(path, offset)?.typed;
     if (fileId === undefined || typed === undefined) return undefined;
+    // A hole with no width is one the compiler wrote (`throw` named as a value).
     const hole = typed.typeHoles.find(({ span }) =>
-      span.fileId === fileId &&
+      span.fileId === fileId && span.start.offset !== span.end.offset &&
       offset >= span.start.offset && offset <= span.end.offset
     );
     if (hole === undefined) return undefined;
@@ -668,7 +669,9 @@ export class AnalysisSession {
       for (const { typed } of analysis.modulesIn(normalized)) {
         for (const site of parameterSites(typed, fileId)) spans.push(offsetsOf(site.span));
         for (const hole of typed.typeHoles) {
-          if (hole.span.fileId === fileId) spans.push(offsetsOf(hole.span));
+          if (hole.span.fileId === fileId && hole.span.start.offset !== hole.span.end.offset) {
+            spans.push(offsetsOf(hole.span));
+          }
         }
       }
       if (this.#texts.has(normalized)) {

@@ -1728,6 +1728,9 @@ describe("operators and forbidden runs (spec/lexer.md §8)", () => {
     expect(await scope("let x = check?(value)", "?")).toBe("keyword.operator.mark.hexagon");
     expect(await scope("let x = save~?(value)", "~?")).toBe("keyword.operator.mark.hexagon");
     expect(await scope("let x = a ?? b", "??")).toBe("invalid.illegal.operator.hexagon");
+    // `!?` and `^?` are no readings (Lexer §8.3): their `?` is the error.
+    expect(await scope("let x = save!?(value)", "?")).toBe("invalid.illegal.operator.hexagon");
+    expect(await scope("let x = parse^?(value)", "?")).toBe("invalid.illegal.operator.hexagon");
     expect(await scope("let x = readLine !()", "!")).toBe(
       "invalid.illegal.operator.hexagon",
     );

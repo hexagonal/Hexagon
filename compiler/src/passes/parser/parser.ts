@@ -427,6 +427,14 @@ const typeOperandStarts = new Set<TokenKind>([
 
 /** Nesting bracketry, so the record-update scan reads only its own brace's depth. */
 const opensNesting = new Set<TokenKind>(["LeftParen", "LeftBracket", "LeftBrace", "VOpen"]);
+
+/** The tokens an expression can begin with, which a body form's body must (Exceptions §8.2). */
+const bodyStarts = new Set<TokenKind>([
+  ...operandStarts, "LeftBracket", "Minus", "If", "While", "For", "Match", "Try", "Attempt", "Assume",
+]);
+
+/** Lexer §8.1: `?` is the reading, and no type. */
+const questionInType = "`?` reads a call's failure and is no type; an optional value's type is `Option(a)`";
 const closesNesting = new Set<TokenKind>(["RightParen", "RightBracket", "RightBrace", "VClose"]);
 
 /**
@@ -587,7 +595,12 @@ class Parser {
    * expression is still being parsed. Cleared on collection; a mark that
    * reaches any other position is a parse error raised where it was found.
    */
-  #stageMark: { readonly mark: Parsed.CallMark; readonly span: Source.Span; readonly reading?: true } | undefined;
+  #stageMark: {
+    readonly mark: Parsed.CallMark;
+    readonly span: Source.Span;
+    readonly reading?: true;
+    readonly markInError?: true;
+  } | undefined;
 
   /**
    * Token positions the reserved-`__` sweep must leave alone (Lexer §3.2, #425).
@@ -5719,6 +5732,7 @@ class Parser {
             mark: taken.mark,
             span: token.span,
             ...(taken.reading === undefined ? {} : { reading: true as const }),
+            ...(taken.markInError === undefined ? {} : { markInError: true as const }),
           };
           break;
         }
@@ -5825,6 +5839,7 @@ class Parser {
               mark: stageMark.mark,
               markSpan: stageMark.span,
               ...(stageMark.reading === undefined ? {} : { reading: true as const }),
+              ...(stageMark.markInError === undefined ? {} : { markInError: true as const }),
             }),
           span: spanFrom(left.span, stageMark?.span ?? right.span),
         };
@@ -6306,8 +6321,10 @@ class Parser {
     let mark: Parsed.CallMark | undefined;
     let markSpan: Source.Span | undefined;
     let reading: true | undefined;
+    let markInError: true | undefined;
     if (this.#markAt() !== undefined || this.#at("Question")) {
       const taken = this.#takeMark();
+      markInError = taken.markInError;
       if (taken.span.start.offset !== name.span.end.offset) {
         this.#errorAt(taken.span, markSeatError);
       }
@@ -6321,7 +6338,12 @@ class Parser {
     }
     return {
       kind: "PatternConstruction", components, name,
-      ...(mark === undefined ? {} : { mark, markSpan: markSpan!, ...(reading === undefined ? {} : { reading }) }),
+      ...(mark === undefined ? {} : {
+        mark,
+        markSpan: markSpan!,
+        ...(reading === undefined ? {} : { reading }),
+        ...(markInError === undefined ? {} : { markInError }),
+      }),
       span: spanFrom(opening, markSpan ?? name.span),
     };
   }
@@ -7303,8 +7325,9 @@ class Parser {
   #parseBodyForm(stops: ReadonlySet<TokenKind>): Parsed.Expr {
     const keyword = this.#advance();
     const word = keyword.kind === "Attempt" ? "attempt" : "assume";
-    const ends = withStops(stops, ...structuralEnds, "RightParen", "RightBracket", "RightBrace", "Comma");
-    if (!this.#at("VOpen") && ends.has(this.#current().kind)) {
+    // No body: nothing that begins an expression follows the word — an item's
+    // end, a delimiter, an operator, a dot or a mark.
+    if (!this.#at("VOpen") && !bodyStarts.has(this.#current().kind)) {
       this.#errorAt(keyword.span, `\`${word}\` is followed by the code it guards, on the same line or in an indented block`);
       return { kind: "ErrorExpr", span: keyword.span };
     }
@@ -7382,8 +7405,12 @@ class Parser {
    * the enclosing slot is.
    */
   #parseTypeAnnotation(typeArrowRedirect = false): Parsed.TypeAnnotation | undefined {
+    // A `?` where a type stands (`->?`, `Int?`) is reported once and passed
+    // over, so the type around it still parses.
+    if (this.#at("Question")) this.#errorAt(this.#advance().span, questionInType);
     const left = this.#parseTypeOperand();
     if (left === undefined) return undefined;
+    if (this.#at("Question")) this.#errorAt(this.#advance().span, questionInType);
     if (typeArrowRedirect && this.#at("FatArrow")) {
       const { effect, span: arrowSpan } = this.#redirectTypeArrow();
       const result = this.#parseTypeAnnotation(typeArrowRedirect);

@@ -10224,9 +10224,10 @@ class Checker {
    * is the reading (Effects §3.1).
    */
   #readingOf(expression: Resolved.Expr, value: Typed.Expr): Typed.Expr {
+    // A pipe stage's reading is on the call the rewrite made, which is
+    // materialized as itself.
     const reading = (expression.kind === "Call" || expression.kind === "Throw" ||
-        expression.kind === "PatternConstruction") && expression.reading === true ||
-      expression.kind === "Binary" && this.#pipeCalls.get(expression)?.reading === true;
+        expression.kind === "PatternConstruction") && expression.reading === true;
     return reading && (value.kind === "Call" || value.kind === "Throw") ? { ...value, reading: true } : value;
   }
 
@@ -10708,6 +10709,7 @@ class Checker {
           ...(expression.mark === undefined ? {} : { mark: expression.mark }),
           ...(expression.markSpan === undefined ? {} : { markSpan: expression.markSpan }),
           ...(expression.reading === undefined ? {} : { reading: expression.reading }),
+          ...(expression.markInError === undefined ? {} : { markInError: expression.markInError }),
           span: expression.span,
         };
         this.#patternConstructionCalls.set(expression, call);
@@ -14885,6 +14887,7 @@ class Checker {
         ...(expression.mark === undefined ? {} : { mark: expression.mark }),
         ...(expression.markSpan === undefined ? {} : { markSpan: expression.markSpan }),
         ...(expression.reading === undefined ? {} : { reading: expression.reading }),
+        ...(expression.markInError === undefined ? {} : { markInError: expression.markInError }),
         span: expression.span,
       };
       this.#throwCalls.set(expression, call);
@@ -39210,6 +39213,7 @@ function rewritePipe(expression: Resolved.BinaryExpr): Resolved.CallExpr {
         mark: expression.mark,
         ...(expression.markSpan === undefined ? {} : { markSpan: expression.markSpan }),
         ...(expression.reading === undefined ? {} : { reading: expression.reading }),
+        ...(expression.markInError === undefined ? {} : { markInError: expression.markInError }),
       };
   return expression.right.kind === "Call"
     ? {
@@ -39224,6 +39228,7 @@ function rewritePipe(expression: Resolved.BinaryExpr): Resolved.CallExpr {
               ? {}
               : { markSpan: expression.right.markSpan }),
             ...(expression.right.reading === undefined ? {} : { reading: expression.right.reading }),
+            ...(expression.right.markInError === undefined ? {} : { markInError: expression.right.markInError }),
           }),
         span: expression.span,
       }

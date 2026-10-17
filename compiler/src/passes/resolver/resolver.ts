@@ -4423,6 +4423,7 @@ class Resolver {
           ...(expression.mark === undefined ? {} : { mark: expression.mark }),
           ...(expression.markSpan === undefined ? {} : { markSpan: expression.markSpan }),
           ...(expression.reading === undefined ? {} : { reading: expression.reading }),
+          ...(expression.markInError === undefined ? {} : { markInError: expression.markInError }),
           nameSpan: expression.name.span,
           span: expression.span,
         };
@@ -4575,6 +4576,7 @@ class Resolver {
             ...(expression.mark === undefined ? {} : { mark: expression.mark }),
             ...(expression.markSpan === undefined ? {} : { markSpan: expression.markSpan }),
             ...(expression.reading === undefined ? {} : { reading: expression.reading }),
+            ...(expression.markInError === undefined ? {} : { markInError: expression.markInError }),
             span: expression.span,
           };
         }
@@ -4782,6 +4784,7 @@ class Resolver {
             ...(expression.mark === undefined ? {} : { mark: expression.mark }),
             ...(expression.markSpan === undefined ? {} : { markSpan: expression.markSpan }),
             ...(expression.reading === undefined ? {} : { reading: expression.reading }),
+            ...(expression.markInError === undefined ? {} : { markInError: expression.markInError }),
             span: expression.span,
           };
         }
@@ -6034,20 +6037,23 @@ class Resolver {
       return { kind: "Name", symbol, text: name, span: unwritten };
     };
     const attempt = expression.kind === "Attempt";
+    // The calls the form adds stand for the whole form, so a type the form's
+    // value does not fit is reported there.
+    const whole = expression.span;
     return {
       ...resolved,
       body: attempt
-        ? { kind: "Call", callee: prelude("Ok"), arguments: [resolved.body], span: resolved.body.span }
+        ? { kind: "Call", callee: prelude("Ok"), arguments: [resolved.body], span: whole }
         : resolved.body,
       arms: [{
         ...arm,
         body: attempt
-          ? { kind: "Call", callee: prelude("Err"), arguments: [arm.body], span: unwritten }
+          ? { kind: "Call", callee: prelude("Err"), arguments: [arm.body], span: whole }
           : {
             kind: "Throw",
-            exception: { kind: "Call", callee: prelude("AssumptionFault"), arguments: [arm.body], span: unwritten },
+            exception: { kind: "Call", callee: prelude("AssumptionFault"), arguments: [arm.body], span: whole },
             callee: unwritten,
-            span: unwritten,
+            span: whole,
           },
       }],
       form: attempt ? "attempt" : "assume",

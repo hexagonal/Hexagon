@@ -1294,7 +1294,7 @@
         { "name": "keyword.operator.arrow.impure.hexagon", "match": "->[!^~]" },
         { "name": "keyword.operator.type.arrow.hexagon", "match": "->" },
         { "name": "keyword.operator.comparison.hexagon", "match": "==|!=|<=|>=" },
-        { "//": "The call marks `!`, `^` and `~` (spec/effects.md §3.1), written glued on both sides (Lexer §8.1). The left glue is what this rule keys on — a mark follows the callee it marks — so the lookbehind is an identifier character or a closing bracket, which covers `save!(x)`, `stream.next!()`, the parenthesized `(source.next)!()`, and a `|>` stage's trailing `x |> save!`. A floating mark is deliberately left unpainted: it is a parse error (§9's mark-position row), and colouring it as an operator would tell the reader it is one when no such operator exists. This rule must stay *after* the comparison row: at the `!` of `a != b` both start at the same offset, and order is what decides.", "name": "keyword.operator.mark.hexagon", "match": "(?<=[\\p{ID_Continue}$_)\\]])(?:[!^~]\\??|\\?)(?![?.])" },
+        { "//": "The call marks `!`, `^` and `~` (spec/effects.md §3.1), written glued on both sides (Lexer §8.1). The left glue is what this rule keys on — a mark follows the callee it marks — so the lookbehind is an identifier character or a closing bracket, which covers `save!(x)`, `stream.next!()`, the parenthesized `(source.next)!()`, and a `|>` stage's trailing `x |> save!`. A floating mark is deliberately left unpainted: it is a parse error (§9's mark-position row), and colouring it as an operator would tell the reader it is one when no such operator exists. This rule must stay *after* the comparison row: at the `!` of `a != b` both start at the same offset, and order is what decides.", "name": "keyword.operator.mark.hexagon", "match": "(?<=[\\p{ID_Continue}$_)\\]])(?:~\\?|[!^~](?!\\?)|\\?)(?![?.])" },
         { "name": "keyword.operator.arithmetic.hexagon", "match": "\\*\\*" },
         { "name": "keyword.operator.concat.hexagon", "match": "\\+\\+" },
         { "name": "keyword.operator.arithmetic.hexagon", "match": "[+\\-*/]" },
@@ -1335,7 +1335,7 @@
         {
           "//": "Lexer §8.1, §8.3: `?` is the reading, a token only glued after a callee or a mark, which #operators paints. `??` and `?.` are no tokens (no optional chaining or coalescing), and a `?` standing on its own is a mark with nothing to mark.",
           "name": "invalid.illegal.operator.hexagon",
-          "match": "\\?\\?|\\?\\.|(?<![\\p{ID_Continue}$_)\\]!^~])\\?"
+          "match": "\\?\\?|\\?\\.|(?<![\\p{ID_Continue}$_)\\]~])\\?"
         },
         { "include": "#bidirectional-control" },
         {

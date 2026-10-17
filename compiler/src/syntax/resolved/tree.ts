@@ -1941,6 +1941,8 @@ export interface PatternConstructionExpr {
   readonly markSpan?: Source.Span;
   /** The mark is a reading, `?` or `~?` (Effects §3.1). */
   readonly reading?: true;
+  /** The mark was written `!?` or `^?`, which the parser reported. */
+  readonly markInError?: true;
   readonly nameSpan: Source.Span;
   readonly span: Source.Span;
 }
@@ -2226,6 +2228,8 @@ export interface ThrowExpr {
   readonly markSpan?: Source.Span;
   /** The mark is a reading (Effects §3.1). */
   readonly reading?: true;
+  /** The mark was written `!?` or `^?`, which the parser reported. */
+  readonly markInError?: true;
   readonly span: Source.Span;
 }
 
@@ -2313,6 +2317,8 @@ export interface BinaryExpr {
   readonly markSpan?: Source.Span;
   /** The stage's mark is a reading (Effects §3.1). */
   readonly reading?: true;
+  /** The stage's mark was written `!?` or `^?`, which the parser reported. */
+  readonly markInError?: true;
   readonly span: Source.Span;
 }
 

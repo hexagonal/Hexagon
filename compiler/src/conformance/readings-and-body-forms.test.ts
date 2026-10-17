@@ -241,6 +241,79 @@ describe("Exceptions §8.3: `assume` says a failure cannot happen here", () => {
   });
 });
 
+describe("review r1 of 8c-ii: the form's added words, its reports, and the misspellings", () => {
+  test("nothing the compiler wrote for a body form is a name the language server shows", () => {
+    const whole = text(
+      "let a(): Result(Int, Exn) = attempt parse^(\"1\")\nlet b(): Int = assume parse^(\"2\")\n" +
+        "let c(): Result(Int, Exn) = Ok(1)\nlet fire = throw\n",
+    );
+    const session = new AnalysisSession();
+    session.setFile("/world.js", "");
+    session.setFile("/main.hex", whole);
+    for (const word of ["attempt", "assume"]) {
+      const at = whole.indexOf(word);
+      expect(session.hover("/main.hex", at), word).toBeUndefined();
+      expect(session.definitions("/main.hex", at), word).toEqual([]);
+      expect(session.prepareRename("/main.hex", at), word).toBeUndefined();
+      expect(session.references("/main.hex", at), word).toEqual([]);
+    }
+    // Every `attempt` added an `Ok` reference before; the written one is in the main
+    // file once, beside the prelude's declaration.
+    const references = session.references("/main.hex", whole.lastIndexOf("Ok(1)"), { includeDeclaration: false });
+    expect(references.filter(({ path }) => path === "/main.hex")).toHaveLength(1);
+    const occurrences = session.hoverSpans("/main.hex");
+    expect(occurrences.every(({ start, end }) => start !== end)).toBe(true);
+    const ok = whole.lastIndexOf("Ok(1)");
+    expect(session.hoverSpans("/main.hex").filter(({ start, end }) => start <= ok && ok < end)).toHaveLength(1);
+    expect(session.semanticTokens("/main.hex").every(({ span }) => span.start.offset !== span.end.offset)).toBe(true);
+  });
+
+  test("a value the form's type does not fit is reported at the form", () => {
+    expect(reports("let g(): Int = attempt parse^(\"1\")\nlet h(): Result(Int, String) = attempt parse^(\"2\")\n"))
+      .toEqual([
+        ["attempt parse^(\"1\")", "type mismatch: expected Int, found Result(Int, a)"],
+        ["attempt parse^(\"2\")", "type mismatch: expected String, found Exn"],
+      ]);
+  });
+
+  test("a misspelled reading at a pipe stage is one report", () => {
+    expect(messages("let e(s: String) = s |> log!?\n")).toEqual([
+      "a reading takes the mark's fail part: write `f~?(x)` for a call that is impure, `f?(x)` for one that is pure",
+    ]);
+  });
+
+  test("a body form followed by no expression is the no-body error, whatever follows it", () => {
+    const report = "`attempt` is followed by the code it guards, on the same line or in an indented block";
+    expect(messages("let c() = attempt |> ignore\n")).toEqual([report]);
+    expect(messages("let d() = attempt^(1)\n")).toEqual([report]);
+  });
+
+  test("a `?` where a type stands is reported once", () => {
+    const report = "`?` reads a call's failure and is no type; an optional value's type is `Option(a)`";
+    expect(messages("let a(x: Int?): Int = 1\n")).toEqual([report]);
+    expect(messages("let b(f: () ->? Int): Int = 1\n")).toEqual([report]);
+  });
+
+  test("a reading keeps a field's function on its record, evaluated outside", () => {
+    const javascript = compileFiles(files(
+      "record R = { run: (Int) ->^ Int }\nlet mk(): R = R({ run = (n) => n })\n" +
+        "export let a(): Option(Int) = (mk().run)?(1)\n",
+    )).modules.find(({ name }) => name === "Main")?.javascript?.text ?? "";
+    expect(javascript).toMatch(/\(__read\w*\.run\)\(1\)/u);
+    expect(javascript).toContain("})(mk())");
+  });
+
+  test("a pipe stage's reading runs as one", async () => {
+    const exports = await runMain(
+      "module Main\n\nexception Oops\nlet risky(n: Int): Int = if n == 0 then throw^(Oops) else n\n" +
+        "export let piped(n: Int): Option(Int) = n |> risky?\n",
+    );
+    const piped = exports["piped"] as (n: number) => unknown;
+    expect(piped(3)).toEqual({ tag: "Some", value: 3 });
+    expect(piped(0)).toEqual({ tag: "None" });
+  });
+});
+
 describe("Effects §7: a lazy `Seq` position names where a mark sees a failure", () => {
   test("a function that may fail at a lazy position draws the three ways", () => {
     expect(messages("let lines: Seq(String) = Seq.empty\nlet a() = Seq.map(lines, parse)\n")).toEqual([

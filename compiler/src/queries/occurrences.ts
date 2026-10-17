@@ -173,6 +173,10 @@ class Collector {
     // occurrences belong to this module's index; the declaring module publishes
     // the rest, so nothing is lost and nothing is duplicated.
     if (span.fileId !== this.#fileId) return;
+    // A name with no width was written by no one: the words the compiler adds
+    // for a form it reads as another (`attempt`'s `Ok`, `throw` named as a
+    // value) are no occurrence a hover, a reference or a rename can land on.
+    if (span.start.offset === span.end.offset) return;
     const key = `${targetKey(target)}@${span.start.offset}:${span.end.offset}`;
     if (this.#seen.has(key)) return;
     this.#seen.add(key);
