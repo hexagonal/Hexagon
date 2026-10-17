@@ -504,7 +504,7 @@ describe("failure during the capture takes the `JsError` door (§5.4, Part 10 §
         "    try\n" +
         "        Int.show(Array.length(rows!()))\n" +
         "    catch\n" +
-        "        JsError(e) => JsError.message!(e)\n",
+        "        JsError(e) => JsError.message~(e)\n",
       {
         hostile: "export function rows() {\n" +
           "  const values = [1, 2];\n" +
@@ -537,17 +537,17 @@ describe("failure during the capture takes the `JsError` door (§5.4, Part 10 §
         "    try\n" +
         "        Int.show(JsMap.size(unreadable!()))\n" +
         "    catch\n" +
-        '        JsError(e) => "JsError: " ++ JsError.message!(e)\n' +
+        '        JsError(e) => "JsError: " ++ JsError.message~(e)\n' +
         "export fun counted(): String =\n" +
         "    try\n" +
         "        Int.show(JsMap.size(table!()))\n" +
         "    catch\n" +
-        "        JsError(e) => JsError.message!(e)\n" +
+        "        JsError(e) => JsError.message~(e)\n" +
         "export fun member(): String =\n" +
         "    try\n" +
         "        Bool.show(JsSet.contains(members!(), 1))\n" +
         "    catch\n" +
-        "        JsError(e) => JsError.message!(e)\n",
+        "        JsError(e) => JsError.message~(e)\n",
       {
         hostile: "export function unreadable() {\n" +
           "  return new Proxy(new Map(), {\n" +
@@ -921,7 +921,7 @@ describe("`JsValue.toArray` is the acquisition a decoder performs (Part 11 §4.2
         '            Err(_) => "Err"\n' +
         '            Ok(_) => "Ok"\n' +
         "    catch\n" +
-        '        JsError(e) => "JsError: " ++ JsError.message!(e)\n' +
+        '        JsError(e) => "JsError: " ++ JsError.message~(e)\n' +
         "export fun shaped(): String =\n" +
         "    match JsValue.toArray(scalar!())\n" +
         '        Err(_) => "Err"\n' +

@@ -576,7 +576,7 @@ describe("`JsError` inside another throwable's payload reads its own value", () 
       "    try",
       "        Int.show(wrap!(k))",
       "    catch",
-      "        Wrapped(JsError(e)) => JsError.message!(e)",
+      "        Wrapped(JsError(e)) => JsError.message~(e)",
       "        Wrapped(_) => \"domestic\"",
     ));
     const probe = exports["probe"] as (k: () => number) => string;
@@ -753,7 +753,7 @@ describe("`AssumptionFault`, the prelude's fault for a broken `assume` (§8.3)",
       "    try",
       "        Int.show(wrap~(k))",
       "    catch",
-      "        AssumptionFault(JsError(e)) => JsError.message!(e)",
+      "        AssumptionFault(JsError(e)) => JsError.message~(e)",
     ));
     expect((exports["probe"] as (k: () => number) => string)(() => {
       throw new RangeError("raw");

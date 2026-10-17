@@ -248,7 +248,7 @@ export interface PreludeModule {
  * qualified spelling needs a module addressable under the name (Modules §3.3).
  * The seat is also what makes the two names it exports — `message` and
  * `stack` — visible to no prelude module at all. Since #742 neither is a *bare*
- * name anywhere: both are reached as `JsError.message(e)` or by the dot, like
+ * name anywhere: both are reached as `JsError.message~(e)` or by the dot, like
  * every other prelude function (Modules §5.5).
  *
  * `Debug.hex` is last (#407), and its seat is the opposite kind of fact: almost

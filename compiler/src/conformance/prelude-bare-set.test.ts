@@ -16,15 +16,16 @@ import {
  * The prelude used to seed every export into every module's bare term scope.
  * §5.5 now seeds **nothing** there by default, and four channel rules put
  * twenty-two names back: the fourteen throwable constructors, the six constructors of
- * the open unions `Bool`/`Option`/`Result`, `ignore`, and `show`. Everything
- * else is reached by the dot or the qualified spelling, and a bare reference to
- * it draws §10's refusal with its routes named.
+ * the open unions `Bool`/`Option`/`Result`, `ignore`, and `show`. The set's
+ * twenty-third name, `throw`, is a language form no module declares, so nothing
+ * seeds it. Everything else is reached by the dot or the qualified spelling,
+ * and a bare reference to it draws §10's refusal with its routes named.
  *
  * ## What this file is for that the channel tests are not
  *
  * The companion suites (`vector-prelude-companion`, `float-companion`,
  * `js-kind-qualification`, …) each pin their own module's surface. This one pins
- * the **rule**: the set is exactly twenty-two names and is closed, each channel
+ * the **rule**: the set is exactly twenty-three names and is closed, each channel
  * admits what it says it admits and nothing beside, and the refusal has one
  * shape across all three channels. The set pin is written against the *compiled
  * prelude* rather than a transcription, so drift in either direction — a name
@@ -89,13 +90,29 @@ const BARE_SET = [
   "show",
 ].sort();
 
-describe("the bare set is exactly twenty-two names, and closed", () => {
+describe("the bare set is exactly twenty-three names, and closed", () => {
   test("the prelude layer binds the set and nothing else", () => {
     expect(bareNames()).toEqual(BARE_SET);
   });
 
-  test("twenty-two is the count the section states", () => {
+  test("twenty-two of the section's twenty-three are in the layer; `throw` is the other", () => {
     expect(BARE_SET.length).toBe(22);
+  });
+
+  /**
+   * **`throw` is in the set and not in the layer.** It is a language form spelled
+   * as a call (Exceptions §3), which the resolver reads wherever no binding of
+   * the program's own occludes it, so no module declares it and nothing seeds
+   * it. Pinned from both sides: bare, it is the form; under a module's own
+   * `throw`, it is that declaration (§5.4).
+   */
+  test("`throw` is bare as the language form, and occludable like the rest", async () => {
+    expect(bareNames()).not.toContain("throw");
+    expect(projectDiagnostics("module Main\n\n" +
+      "export let f(n: Int): Int = if n > 0 then n else throw(IndexFault(n, 0))\n")).toEqual([]);
+    expect(await runMain("module Main\n\n" +
+      "let throw(n: Int): Int = n + 1\n" +
+      "export let occluded: Int = throw(1)\n")).toMatchObject({ occluded: 2 });
   });
 
   /**

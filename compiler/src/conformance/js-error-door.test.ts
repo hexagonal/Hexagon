@@ -162,7 +162,7 @@ describe("the arm is the foreign branch, in both catch seats (§6.2, §7.4)", ()
         "        0 => \"zero\"\n" +
         "        _ => \"other\"\n" +
         "    catch\n" +
-        "        JsError(e) => JsError.message!(e)\n",
+        "        JsError(e) => JsError.message~(e)\n",
       thrower,
     );
     expect((exports["caught"] as (i: number) => string)(0)).toBe("from JavaScript");
@@ -175,7 +175,7 @@ describe("the arm is the foreign branch, in both catch seats (§6.2, §7.4)", ()
         "    try\n" +
         "        \"never\" ++ Int.show(throwString!())\n" +
         "    catch\n" +
-        "        JsError(e) => JsError.message!(e)\n" +
+        "        JsError(e) => JsError.message~(e)\n" +
         "export let fromNull(ignored: Int): String =\n" +
         "    try\n" +
         "        \"never\" ++ Int.show(throwNull!())\n" +
@@ -194,7 +194,7 @@ describe("the arm is the foreign branch, in both catch seats (§6.2, §7.4)", ()
         "    try\n" +
         "        throw^(Boom(\"domestic\"))\n" +
         "    catch\n" +
-        "        JsError(e) => JsError.message!(e)\n",
+        "        JsError(e) => JsError.message~(e)\n",
     );
     let caught: unknown;
     try {
@@ -408,8 +408,8 @@ describe("the accessors are total and conservative (FFI Part 11 §7)", () => {
     stack: (value: unknown) => { tag: string; value?: string };
   }> {
     const exports = await run(
-      "export let describe(value: JsValue): String = JsError.message!(value)\n" +
-        "export let trace(value: JsValue): Option(String) = JsError.stack!(value)\n",
+      "export let describe(value: JsValue): String = JsError.message~(value)\n" +
+        "export let trace(value: JsValue): Option(String) = JsError.stack~(value)\n",
     );
     return {
       message: exports["describe"] as (value: unknown) => string,
@@ -498,6 +498,34 @@ describe("the accessors are total and conservative (FFI Part 11 §7)", () => {
     expect(stack({ stack: 42 }).tag).toBe("None");
     expect(stack({ get stack(): string { throw new Error("hostile"); } }).tag).toBe("None");
   });
+
+  /**
+   * **Both accessors are `->~`** (§7). One guarded read may run a foreign
+   * getter, so a call is impure; the guard swallows what it throws, so a call
+   * cannot fail. A call wears `~`, a function made of one is `->~`, and the
+   * other two marks are refused with the fix that removes only what cannot be
+   * true.
+   */
+  test("each is impure and cannot fail, so a call wears `~`", () => {
+    expect(projectDiagnostics("module Main\n\n" +
+        "export let m(v: JsValue): String = JsError.message(v)\n" +
+        "export let s(v: JsValue): Option(String) = JsError.stack!(v)\n" +
+        "export let r(v: JsValue): Option(String) = JsError.message?(v)\n",
+    )).toEqual([
+      "this call is impure, so `message` wants `~`, not no mark",
+      "this call cannot fail, so `stack` wants `~`, not `!`",
+      "this call is impure and cannot fail, so `message` wants `~`, not `?`",
+    ]);
+    expect(projectDiagnostics("module Main\n\n" +
+        "export let m: (JsValue) ->~ String = JsError.message\n" +
+        "export let s: (JsValue) ->~ Option(String) = JsError.stack\n" +
+        "export let handled(v: JsValue): String =\n" +
+        "    try\n" +
+        "        JsError.message~(v)\n" +
+        "    catch\n" +
+        "        _ => \"never\"\n",
+    )).toEqual(["this arm can never run: nothing in this `try` may fail — a fault passes `_`; to catch one, name it or write `fault e`"]);
+  });
 });
 
 describe("`attempt` bridges back to data (§8.2)", () => {
@@ -516,7 +544,7 @@ describe("`attempt` bridges back to data (§8.2)", () => {
         "        throw^(thrown)\n" +
         "    catch\n" +
         "        Boom(m) => \"domestic \" ++ m\n" +
-        "        JsError(e) => \"foreign \" ++ JsError.message!(e)\n" +
+        "        JsError(e) => \"foreign \" ++ JsError.message~(e)\n" +
         "export let ok(ignored: Int): String =\n" +
         "    match attempt domestic^(0)\n" +
         "        Ok(value) => \"ok \" ++ Int.show(value)\n" +
@@ -602,8 +630,8 @@ describe("`attempt` bridges back to data (§8.2)", () => {
  */
 describe("the bare namespace the door occupies (Modules §5.5)", () => {
   test("all three new bare names are single-homed, so each spelling resolves", () => {
-    expect(projectDiagnostics("module Main\n\n" + "export let m(v: JsValue): String = JsError.message!(v)\n" +
-        "export let s(v: JsValue): Option(String) = JsError.stack!(v)\n" +
+    expect(projectDiagnostics("module Main\n\n" + "export let m(v: JsValue): String = JsError.message~(v)\n" +
+        "export let s(v: JsValue): Option(String) = JsError.stack~(v)\n" +
         "export let e(v: JsValue): Exn = JsError(v)\n",
     )).toEqual([]);
     // Since #742 only the exception constructor is bare, and it is bare as a
@@ -613,8 +641,8 @@ describe("the bare namespace the door occupies (Modules §5.5)", () => {
   });
 
   test("the qualified spellings the specs write resolve to the same declarations", () => {
-    expect(projectDiagnostics("module Main\n\n" + "export let m(v: JsValue): String = JsError.message!(v)\n" +
-        "export let s(v: JsValue): Option(String) = JsError.stack!(v)\n",
+    expect(projectDiagnostics("module Main\n\n" + "export let m(v: JsValue): String = JsError.message~(v)\n" +
+        "export let s(v: JsValue): Option(String) = JsError.stack~(v)\n",
     )).toEqual([]);
   });
 
@@ -626,7 +654,7 @@ describe("the bare namespace the door occupies (Modules §5.5)", () => {
    * word, so the two readings are genuinely available and only one is right.
    */
   test("`JsError.message` is the module's export, not a property of the constructor", () => {
-    const text = mainJavascript("export let m(v: JsValue): String = JsError.message!(v)\n");
+    const text = mainJavascript("export let m(v: JsValue): String = JsError.message~(v)\n");
     expect(text).toContain('import { message } from "./Hex/JsError.js";');
     expect(text).toContain("const m = v => message(v);");
     expect(text).not.toContain("JsError.message");
@@ -644,7 +672,7 @@ describe("the bare namespace the door occupies (Modules §5.5)", () => {
 
 describe("emission and the guard the door does not ship (§7.4, §7.6)", () => {
   /** A program that reaches `JsError.hex`, so the module is in the emitted graph. */
-  const DOOR_USER = "export let describe(value: JsValue): String = JsError.message!(value)\n";
+  const DOOR_USER = "export let describe(value: JsValue): String = JsError.message~(value)\n";
 
   test("stage 1 is written out exactly when a `JsError` arm is present", () => {
     const withDoor = mainJavascript(
@@ -654,7 +682,7 @@ describe("emission and the guard the door does not ship (§7.4, §7.6)", () => {
         "        if n == 99 then throw^(Boom(\"never\")) else Int.show(n)\n" +
         "    catch\n" +
         "        Boom(m) => m\n" +
-        "        JsError(e) => JsError.message!(e)\n",
+        "        JsError(e) => JsError.message~(e)\n",
     );
     expect(withDoor).toContain(
       'const __foreign = __error == null || typeof __error.$hex !== "string";',
@@ -687,7 +715,7 @@ describe("emission and the guard the door does not ship (§7.4, §7.6)", () => {
         "        0 => \"zero\"\n" +
         "        _ => \"other\"\n" +
         "    catch\n" +
-        "        JsError(e) => JsError.message!(e)\n",
+        "        JsError(e) => JsError.message~(e)\n",
     );
     const tryBlock = text.slice(text.indexOf("try {"), text.indexOf("} catch ("));
     expect(tryBlock).not.toContain("__foreign");

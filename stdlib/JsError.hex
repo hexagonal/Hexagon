@@ -49,11 +49,13 @@ extern from "hex:intrinsic"
     // throws yields `undefined` here rather than propagating, and an absent
     // property yields `undefined` because that is what reading one gives. What
     // comes back is the value as read, so the string verdict below is ordinary
-    // Hexagon over it and the value's own `toString` is never reached.
-    fun jsErrorReadMessage as readMessage(error: JsValue) ->! JsValue
+    // Hexagon over it and the value's own `toString` is never reached. The read
+    // may run a foreign getter, so it is impure; the guard is why it cannot
+    // fail, so the row is `->~`.
+    fun jsErrorReadMessage as readMessage(error: JsValue) ->~ JsValue
 
     // The same single guarded read at `.stack`.
-    fun jsErrorReadStack as readStack(error: JsValue) ->! JsValue
+    fun jsErrorReadStack as readStack(error: JsValue) ->~ JsValue
 
     // The safe rendering of a value that bears no properties — the string
     // itself for a string, and `String(value)` for the other six kinds, which
@@ -83,9 +85,11 @@ let readOption(value: JsValue): Option(String) = match value.toString()
     reads back as `"oops"`.
 
     The value's own `toString` is never invoked and no secondary failure ever
-    escapes: this function describes a failure and must not manufacture one. *)
+    escapes: this function describes a failure and must not manufacture one.
+    The guarded read may run a foreign getter, so a call is impure and cannot
+    fail, and wears `~`: `JsError.message~(e)`. *)
 export let message(error: JsValue): String = match error.kind()
-    JsKind.Object | JsKind.Function => readString(readMessage!(error))
+    JsKind.Object | JsKind.Function => readString(readMessage~(error))
     _ => render(error)
 
 (** `error`'s stack trace when it has one, `None` otherwise. A thrown object or
@@ -95,7 +99,7 @@ export let message(error: JsValue): String = match error.kind()
 
     Conservative in the same way `message` is: a throwing read is swallowed, not
     propagated. The read is fresh on every call, because `.stack` may be an
-    accessor. *)
+    accessor, so a call wears `~`: `JsError.stack~(e)`. *)
 export let stack(error: JsValue): Option(String) = match error.kind()
-    JsKind.Object | JsKind.Function => readOption(readStack!(error))
+    JsKind.Object | JsKind.Function => readOption(readStack~(error))
     _ => None

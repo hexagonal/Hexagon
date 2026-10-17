@@ -16,9 +16,9 @@ import regexRuntimeSource from "../../../stdlib/Runtime/Regex.hex?raw";
  *    is the size the buffer was created with;
  *  - `Buffer(a)` is **invariant**, so a `Buffer(Int)` is not a `Buffer` of
  *    anything else, however the two element types relate;
- *  - the arrows are the **honest** ones — `create`/`read`/`write` are `->!` and
- *    draw the effects discipline's refusal inside a `->`-faced function, while
- *    `length` is `->` and does not.
+ *  - the arrows are the **honest** ones — `create`/`read`/`write` are `->~`,
+ *    impure and unable to fail, and draw the effects discipline's refusal inside
+ *    a `->`-faced function, while `length` is `->` and does not.
  *
  * Every specimen rides in the shipped `stdlib/Runtime/Regex.hex`'s own text,
  * explicitly trusted as the registered `Runtime.Regex` member, and `buffer`'s
@@ -72,34 +72,34 @@ describe("the four operations, run through the emitted JavaScript", () => {
   }
 
   test("`create` fills every slot, and `length` is the size it was created with", async () => {
-    expect(await run("length(create!(4, 0))")).toBe(4);
-    expect(await run("read!(create!(4, 7), 3)")).toBe(7);
+    expect(await run("length(create~(4, 0))")).toBe(4);
+    expect(await run("read~(create~(4, 7), 3)")).toBe(7);
   });
 
   test("`write` stores at a zero-based index, and `read` answers what was stored", async () => {
     expect(await run(
       "\n" +
-      "    let b = create!(3, 0)\n" +
-      "    let first = write!(b, 0, 11)\n" +
-      "    let last = write!(b, 2, 22)\n" +
+      "    let b = create~(3, 0)\n" +
+      "    let first = write~(b, 0, 11)\n" +
+      "    let last = write~(b, 2, 22)\n" +
       // The untouched middle slot still holds the fill, which is the other half
       // of "fill required": there is no hole to read back.
-      "    read!(b, 0) + read!(b, 2) + read!(b, 1)",
+      "    read~(b, 0) + read~(b, 2) + read~(b, 1)",
     )).toBe(33);
   });
 
   /**
-   * §7: a fresh buffer per call, which is what makes `create`'s `->!` honest —
+   * §7: a fresh buffer per call, which is what makes `create`'s `->~` honest —
    * a write to one and a read of the other tell two buffers apart, so the
    * identity a call hands out is observable.
    */
   test("`create` answers a fresh buffer per call", async () => {
     expect(await run(
       "\n" +
-      "    let first = create!(2, 0)\n" +
-      "    let second = create!(2, 0)\n" +
-      "    let stored = write!(first, 0, 5)\n" +
-      "    read!(second, 0)",
+      "    let first = create~(2, 0)\n" +
+      "    let second = create~(2, 0)\n" +
+      "    let stored = write~(first, 0, 5)\n" +
+      "    read~(second, 0)",
     )).toBe(0);
   });
 
@@ -112,9 +112,9 @@ describe("the four operations, run through the emitted JavaScript", () => {
   test("`write` answers Unit, and the store it made is what is read back", async () => {
     expect(await run(
       "\n" +
-      "    let b = create!(1, 0)\n" +
-      "    let nothing: Unit = write!(b, 0, 42)\n" +
-      "    read!(b, 0)",
+      "    let b = create~(1, 0)\n" +
+      "    let nothing: Unit = write~(b, 0, 42)\n" +
+      "    read~(b, 0)",
     )).toBe(42);
   });
 });
@@ -133,12 +133,12 @@ describe("`Buffer(a)` is invariant (§3.3)", () => {
    */
   test("a `Buffer(Int)` does not stand where a `Buffer(Float)` is wanted", () => {
     expect(diagnostics(
-      "let ints: Buffer(Int) = create!(1, 0)\n" +
+      "let ints: Buffer(Int) = create~(1, 0)\n" +
       "let widened(b: Buffer(Float)): Int = 0\n" +
       "let probe: Int = widened(ints)\n",
     )).toEqual(["type mismatch: expected Float, found Int"]);
     expect(diagnostics(
-      "let ints: Buffer(Int) = create!(1, 0)\n" +
+      "let ints: Buffer(Int) = create~(1, 0)\n" +
       "let floats: Buffer(Float) = ints\n",
     )).toEqual(["type mismatch: expected Float, found Int"]);
   });
@@ -203,34 +203,34 @@ describe("`Buffer(a)` is invariant (§3.3)", () => {
 
 describe("the honest arrows (§3.3, `regex.md` §7)", () => {
   /**
-   * `create`, `read` and `write` are `->!`, so a `->`-faced function calling one
+   * `create`, `read` and `write` are `->~`, so a `->`-faced function calling one
    * draws the effects discipline's refusal — which is the whole content of the
    * arrows being *written*: an extern row's arrow is its effect contract (FFI
-   * Part 4 §4.5), and these three contracts say `->!`.
+   * Part 4 §4.5), and these three contracts say `->~`.
    * `bufferLength` is `->`, because a buffer's size is fixed at creation and no
    * row changes it, so the same function calling it is at home.
    *
    * The face is pinned by an **annotation** rather than by a header: an
    * implementation header writes `:` and infers its colour (Functions §4.1), so
-   * a body that ran effects would simply come out `->!` and prove nothing. The
+   * a body that ran effects would simply come out `->~` and prove nothing. The
    * annotated binding is what fixes the face in advance and makes the call a
    * contradiction.
    */
-  const REFUSAL = "this call is impure and may fail, and the enclosing function's face is " +
-    "the pure arrow `->`, which cannot fail — a pure face cannot run effects, and a face that cannot fail cannot run a call that may, unless it handles the failure";
+  const REFUSAL = "this call is impure, and the enclosing function's face is " +
+    "the pure arrow `->` — a pure face cannot run effects";
 
   test("a `read` inside a `->`-faced function is refused", () => {
     expect(diagnostics(
-      "let reads: (Buffer(Int)) -> Int = (b) => read!(b, 0)\n",
+      "let reads: (Buffer(Int)) -> Int = (b) => read~(b, 0)\n",
     )).toEqual([REFUSAL]);
   });
 
   test("a `create` and a `write` inside a `->`-faced function are refused too", () => {
     expect(diagnostics(
-      "let makes: () -> Int = () => length(create!(1, 0))\n",
+      "let makes: () -> Int = () => length(create~(1, 0))\n",
     )).toEqual([REFUSAL]);
     expect(diagnostics(
-      "let writes: (Buffer(Int)) -> Unit = (b) => write!(b, 0, 1)\n",
+      "let writes: (Buffer(Int)) -> Unit = (b) => write~(b, 0, 1)\n",
     )).toEqual([REFUSAL]);
   });
 
@@ -242,17 +242,21 @@ describe("the honest arrows (§3.3, `regex.md` §7)", () => {
   });
 
   /**
-   * And the three `->!` rows are at home in an ordinary inferred-face function,
-   * each call carrying its `!` mark (Effects §3.2) — which is the same fact from
-   * the other side: the marks are there because the arrows are.
+   * And the three `->~` rows are at home in an ordinary inferred-face function,
+   * each call carrying its `~` mark (Effects §3.2) — which is the same fact from
+   * the other side: the marks are there because the arrows are. None of them
+   * may fail, so a `!` on one is refused, naming the `~` it wants.
    */
-  test("the three `->!` rows are at home behind their marks", () => {
+  test("the three `->~` rows are at home behind their marks", () => {
     expect(diagnostics(
       "let scratch(): Int =\n" +
-      "    let b = create!(2, 0)\n" +
-      "    let stored = write!(b, 1, 9)\n" +
-      "    read!(b, 1)\n",
+      "    let b = create~(2, 0)\n" +
+      "    let stored = write~(b, 1, 9)\n" +
+      "    read~(b, 1)\n",
     )).toEqual([]);
+    expect(diagnostics(
+      "let scratch(b: Buffer(Int)): Int = read!(b, 1)\n",
+    )).toEqual(["this call cannot fail, so `read` wants `~`, not `!`"]);
   });
 });
 
@@ -263,12 +267,12 @@ describe("the honest arrows (§3.3, `regex.md` §7)", () => {
  */
 describe("walks that enter a `Buffer`'s argument", () => {
   /**
-   * The occurs check. `write!(b, 0, b)` asks `b : Buffer(a)` to hold itself, so
+   * The occurs check. `write~(b, 0, b)` asks `b : Buffer(a)` to hold itself, so
    * `a` would be `Buffer(a)`. Without the argument arm this is not a diagnostic
    * but a stack overflow in the unifier.
    */
   test("a buffer that would hold itself is an infinite type", () => {
-    expect(diagnostics("let f(b) = write!(b, 0, b)\n")).toEqual([
+    expect(diagnostics("let f(b) = write~(b, 0, b)\n")).toEqual([
       "infinite type: a type variable occurs inside itself",
     ]);
   });
@@ -283,10 +287,10 @@ describe("walks that enter a `Buffer`'s argument", () => {
     expect(diagnostics(
       "let f(x) =\n" +
       "    let g(y) =\n" +
-      "        let b = if True then x else create!(1, y)\n" +
+      "        let b = if True then x else create~(1, y)\n" +
       "        length(b)\n" +
-      "    let first = g!(1)\n" +
-      "    let second = g!(\"s\")\n" +
+      "    let first = g~(1)\n" +
+      "    let second = g~(\"s\")\n" +
       "    first + second\n",
     )).toEqual(["integer literal cannot have type `String`"]);
   });

@@ -34,3 +34,12 @@ export let toSeq(source: Option(a)): Seq(a) =
     match source
         Some(value) => Seq.singleton(value)
         None => Seq.empty
+
+(** Returns the present value, or throws the exception `failure` builds for
+    `None`. It may fail on its own account, so every call wears `^`:
+    `name.orThrow^(() => MissingNameError)`. The exception is built only for
+    `None`, so its stack is captured at the throw. *)
+export let orThrow(source: Option(a), failure: () -> Exn): a =
+    match source
+        Some(value) => value
+        None => throw^(failure())

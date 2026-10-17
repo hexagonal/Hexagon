@@ -788,7 +788,7 @@ describe("confinement (§3.3, §11)", () => {
   test("an opaque record's field may carry the type", () => {
     expect(inRegexRuntime(
       "opaque record Cell = {slots: Buffer(Int)}\n" +
-      "export let make(): Cell = Cell({slots = create!(1, 0)})\n",
+      "export let make(): Cell = Cell({slots = create~(1, 0)})\n",
     )).toEqual([]);
   });
 
@@ -796,7 +796,7 @@ describe("confinement (§3.3, §11)", () => {
   test("an opaque union's payload may carry the type", () => {
     expect(inRegexRuntime(
       "opaque union Cell = | Slots(at: Buffer(Int))\n" +
-      "export let make(): Cell = Slots(create!(1, 0))\n",
+      "export let make(): Cell = Slots(create~(1, 0))\n",
     )).toEqual([]);
   });
 

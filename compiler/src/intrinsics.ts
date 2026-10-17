@@ -379,9 +379,10 @@ export function isIntrinsicScheme(specifier: string): boolean {
  * verifies.
  *
  * The four operations write the arrow true of each (§3.3, `regex.md` §7):
- * `bufferCreate`, `bufferRead`, and `bufferWrite` are `->!`, because a fresh
- * buffer's identity is observable through the other two — a write to one and a
- * read of the other tell two buffers apart — while `bufferLength` is `->`, the
+ * `bufferCreate`, `bufferRead`, and `bufferWrite` are `->~`, impure because a
+ * fresh buffer's identity is observable through the other two — a write to one
+ * and a read of the other tell two buffers apart — and unable to fail, since
+ * none throws anything but a fault; `bufferLength` is `->`, the
  * size being fixed at creation with no row that changes it. Bounds are
  * unchecked: the engine never reads or writes outside a buffer it sized, and
  * that is a conformance obligation on the engine rather than a check (`regex.md`
