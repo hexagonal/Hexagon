@@ -365,12 +365,15 @@ describe("lex", () => {
     ]);
     expect(arrows.diagnostics).toEqual([]);
 
-    // `?` is no token: `->?` is the pure arrow and an invalid character.
+    // `?` is the reading's token (§8.1): `->?` is the pure arrow and a
+    // reading, which the parser places. `??` and `?.` are no tokens (§8.3).
     const question = lexSource("->? ?");
-    expect(kinds(question.tokens).slice(2)).toEqual(["Arrow", "Eof"]);
-    expect(question.diagnostics.map(({ message }) => message)).toEqual([
-      'invalid character "?" (U+003F)',
-      'invalid character "?" (U+003F)',
+    expect(kinds(question.tokens).slice(2)).toEqual(["Arrow", "Question", "Question", "Eof"]);
+    expect(question.diagnostics).toEqual([]);
+    const chained = lexSource("a ?? b ?. c");
+    expect(chained.diagnostics.map(({ message }) => message)).toEqual([
+      "Hexagon has no optional chaining or coalescing: `Option.defaultValue`, `Option.map`, or a `match`",
+      "Hexagon has no optional chaining or coalescing: `Option.defaultValue`, `Option.map`, or a `match`",
     ]);
   });
 

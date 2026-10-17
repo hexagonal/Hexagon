@@ -897,6 +897,7 @@ export type Expr =
   | ForExpr
   | MatchExpr
   | TryExpr
+  | BodyFormExpr
   | CallExpr
   | PatternConstructionExpr
   | AccessExpr
@@ -1157,6 +1158,19 @@ export interface TryExpr {
   readonly span: Source.Span;
 }
 
+/**
+ * The body forms that handle a failure (Exceptions §8.2, §8.3): `attempt`
+ * gives the body's failure as data, `assume` says it cannot happen here. A
+ * keyword followed by a body, on its line or in a block, eating to the right.
+ */
+export interface BodyFormExpr {
+  readonly kind: "Attempt" | "Assume";
+  readonly body: Expr;
+  /** The keyword itself. */
+  readonly keyword: Source.Span;
+  readonly span: Source.Span;
+}
+
 export interface MatchArm {
   readonly pattern: Pattern;
   /**
@@ -1186,6 +1200,13 @@ export interface CallExpr {
   /** #355 ruling 2: the mark sits before *this* argument list. */
   readonly mark?: CallMark;
   readonly markSpan?: Source.Span;
+  /**
+   * The mark is a reading (Effects §3.1): `f?(x)` is `mark` `caret` read, and
+   * `f~?(x)` is `bang` read. The reading takes the mark's fail part.
+   */
+  readonly reading?: true;
+  /** The mark was written `!?` or `^?`, which the parser reported; it owes no mark report of its own. */
+  readonly markInError?: true;
   readonly span: Source.Span;
 }
 
@@ -1196,6 +1217,8 @@ export interface PatternConstructionExpr {
   readonly name: Name;
   readonly mark?: CallMark;
   readonly markSpan?: Source.Span;
+  /** The mark is a reading, `?` or `~?` (Effects §3.1): the call's failure read as `Option`. */
+  readonly reading?: true;
   readonly span: Source.Span;
 }
 
@@ -1251,6 +1274,8 @@ export interface BinaryExpr {
    */
   readonly mark?: CallMark;
   readonly markSpan?: Source.Span;
+  /** The stage's mark is a reading, `?` or `~?` (Effects §3.1). */
+  readonly reading?: true;
   readonly span: Source.Span;
 }
 

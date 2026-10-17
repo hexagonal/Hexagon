@@ -5,7 +5,7 @@ import { compileFiles, compileMain, projectDiagnostics } from "../support/test-p
 
 /**
  * Conformance for **the `JsError` door** — Exceptions §6, FFI Part 11 §7,
- * `Result.attempt` (§8.2), and the guard §7.6 withholds (#509).
+ * `attempt` (§8.2), and the guard §7.6 withholds (#509).
  *
  * One doctrine sentence is the whole subject: *the entire foreign world enters
  * through exactly one door*. Everything below is that sentence made checkable,
@@ -500,18 +500,17 @@ describe("the accessors are total and conservative (FFI Part 11 §7)", () => {
   });
 });
 
-describe("`Result.attempt` bridges back to data (§8.2)", () => {
+describe("`attempt` bridges back to data (§8.2)", () => {
   const attemptSource = "module Main\n\n" + externThrower +
     "exception Boom(message: String)\n" +
     "let pure(): Int = 7\n" +
-    "let domestic(): Int = throw^(Boom(\"declared\"))\n";
+    "let domestic(n: Int): Int = if n > 0 then throw^(Boom(\"declared\")) else 7\n";
 
   test("`Ok` on return, `Err` on a declared throw, `Err` on a foreign one", async () => {
     const exports = await run(
       externThrower +
         "exception Boom(message: String)\n" +
-        "let pure(): Int = 7\n" +
-        "let domestic(): Int = throw^(Boom(\"declared\"))\n" +
+        "let domestic(n: Int): Int = if n > 0 then throw^(Boom(\"declared\")) else 7\n" +
         "let classify(thrown: Exn): String =\n" +
         "    try\n" +
         "        throw^(thrown)\n" +
@@ -519,15 +518,15 @@ describe("`Result.attempt` bridges back to data (§8.2)", () => {
         "        Boom(m) => \"domestic \" ++ m\n" +
         "        JsError(e) => \"foreign \" ++ JsError.message!(e)\n" +
         "export let ok(ignored: Int): String =\n" +
-        "    match Result.attempt(pure)\n" +
+        "    match attempt domestic^(0)\n" +
         "        Ok(value) => \"ok \" ++ Int.show(value)\n" +
         "        Err(thrown) => classify!(thrown)\n" +
         "export let declared(ignored: Int): String =\n" +
-        "    match Result.attempt(domestic)\n" +
+        "    match attempt domestic^(1)\n" +
         "        Ok(value) => \"ok \" ++ Int.show(value)\n" +
         "        Err(thrown) => classify!(thrown)\n" +
         "export let foreign(ignored: Int): String =\n" +
-        "    match Result.attempt~(reading)\n" +
+        "    match attempt reading!()\n" +
         "        Ok(value) => \"ok \" ++ Int.show(value)\n" +
         "        Err(thrown) => classify!(thrown)\n",
       thrower,
@@ -537,25 +536,27 @@ describe("`Result.attempt` bridges back to data (§8.2)", () => {
     expect((exports["foreign"] as (i: number) => string)(0)).toBe("foreign from JavaScript");
   });
 
-  test("the arrows link: a pure thunk is a bare call, an impure one wears `~`", () => {
-    // Instantiated pure, the whole call is pure and bare — legal in a `->` body.
+  test("it handles its body's failure: the world passes through, and the calls keep their marks", () => {
+    // Over a body that may fail and is pure, `attempt` is pure and cannot fail.
     expect(projectDiagnostics(
       attemptSource +
-        "export let bare(ignored: Int): Result(Int, Exn) = Result.attempt(pure)\n",
+        "export let bare(ignored: Int): Result(Int, Exn) = attempt domestic^(1)\n",
     )).toEqual([]);
-    // Instantiated impure, it wears `!`, and the bare spelling is refused.
+    // Over a foreign call that is impure, the world passes through; the call
+    // inside keeps its `!`, and the bare spelling is refused.
     expect(projectDiagnostics(
       attemptSource +
-        "export let marked(ignored: Int): Result(Int, Exn) = Result.attempt~(reading)\n",
+        "export let marked(ignored: Int): Result(Int, Exn) = attempt reading!()\n",
     )).toEqual([]);
     expect(projectDiagnostics(
       attemptSource +
-        "export let unmarked(ignored: Int): Result(Int, Exn) = Result.attempt(reading)\n",
+        "export let unmarked(ignored: Int): Result(Int, Exn) = attempt reading()\n",
     )).not.toEqual([]);
+    // Over a body that cannot fail, there is nothing to catch.
     expect(projectDiagnostics(
       attemptSource +
-        "export let overmarked(ignored: Int): Result(Int, Exn) = Result.attempt!(pure)\n",
-    )).not.toEqual([]);
+        "export let overmarked(ignored: Int): Result(Int, Exn) = attempt pure()\n",
+    )).toEqual(["nothing here may fail, so `attempt` has nothing to catch"]);
   });
 
   /**
@@ -569,8 +570,8 @@ describe("`Result.attempt` bridges back to data (§8.2)", () => {
    */
   test("`Exn` at the boundary is `Error`, flat (§7.5)", () => {
     const text = declarationsOf(
-      "let pure(): Int = 7\n" +
-        "export let attempted(ignored: Int): Result(Int, Exn) = Result.attempt(pure)\n",
+      "exception Boom\nlet boom(): Int = throw^(Boom)\n" +
+        "export let attempted(ignored: Int): Result(Int, Exn) = attempt boom^()\n",
       "/main.hex",
     );
     expect(text).toContain("Result<number, Error>");
@@ -583,10 +584,10 @@ describe("`Result.attempt` bridges back to data (§8.2)", () => {
  * than hidden — the ledger convention `js-value-decoding.test.ts` keeps for
  * #511's slice.
  *
- * Four new bare occupations, every one of them single-homed today: no other
+ * Three new bare occupations, every one of them single-homed today: no other
  * prelude member exports any of these names, so each bare spelling resolves and
- * none of them changes the meaning of an existing program. Two are ordinary —
- * `attempt` and the constructor `JsError` — and two are the most user-collision-
+ * none of them changes the meaning of an existing program. One is ordinary —
+ * the constructor `JsError` — and two are the most user-collision-
  * prone words this train mints: `message` and `stack`, which are also the two
  * `spec/exceptions.md` §2 reserves as exception *slot* names, for the same
  * reason they are common. That reservation and this occupation are different
@@ -600,24 +601,20 @@ describe("`Result.attempt` bridges back to data (§8.2)", () => {
  * nothing here anticipates an answer.
  */
 describe("the bare namespace the door occupies (Modules §5.5)", () => {
-  test("all four new bare names are single-homed, so each spelling resolves", () => {
+  test("all three new bare names are single-homed, so each spelling resolves", () => {
     expect(projectDiagnostics("module Main\n\n" + "export let m(v: JsValue): String = JsError.message!(v)\n" +
         "export let s(v: JsValue): Option(String) = JsError.stack!(v)\n" +
-        "let pure(): Int = 7\n" +
-        "export let a(ignored: Int): Result(Int, Exn) = Result.attempt(pure)\n" +
         "export let e(v: JsValue): Exn = JsError(v)\n",
     )).toEqual([]);
     // Since #742 only the exception constructor is bare, and it is bare as a
-    // category (§5.5); the three function spellings name their one home each.
+    // category (§5.5); the two function spellings name their one home each.
     expect(projectDiagnostics("module Main\n\n" + "export let m(v: JsValue): String = message(v)\n",
     )).toEqual(["no bare `message`; write `JsError.message(v)`"]);
   });
 
   test("the qualified spellings the specs write resolve to the same declarations", () => {
     expect(projectDiagnostics("module Main\n\n" + "export let m(v: JsValue): String = JsError.message!(v)\n" +
-        "export let s(v: JsValue): Option(String) = JsError.stack!(v)\n" +
-        "let pure(): Int = 7\n" +
-        "export let a(ignored: Int): Result(Int, Exn) = Result.attempt(pure)\n",
+        "export let s(v: JsValue): Option(String) = JsError.stack!(v)\n",
     )).toEqual([]);
   });
 
@@ -639,9 +636,8 @@ describe("the bare namespace the door occupies (Modules §5.5)", () => {
   test("a module's own declaration occludes each of them", () => {
     expect(projectDiagnostics("module Main\n\n" + "let message(subject: String): String = subject\n" +
         "let stack(depth: Int): Int = depth\n" +
-        "let attempt(times: Int): Int = times\n" +
-        "export let used(subject: String, depth: Int, times: Int): String =\n" +
-        "    message(subject) ++ Int.show(stack(depth)) ++ Int.show(attempt(times))\n",
+        "export let used(subject: String, depth: Int): String =\n" +
+        "    message(subject) ++ Int.show(stack(depth))\n",
     )).toEqual([]);
   });
 });

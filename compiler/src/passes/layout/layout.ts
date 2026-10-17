@@ -263,7 +263,9 @@ function expectsBlock(item: readonly Lexed.Token[]): boolean {
 
   const activeControl = lastControlHead(item);
   if (activeControl !== undefined) {
-    if (activeControl.kind === "Try") {
+    // A bare `try`, `attempt` or `assume` opens its body block (Lexer &
+    // Layout §2.1's rows); with a body on its line it opens nothing.
+    if (activeControl.kind === "Try" || activeControl.kind === "Attempt" || activeControl.kind === "Assume") {
       return activeControl.index === item.length - 1;
     }
     if (activeControl.kind === "If") {
@@ -428,12 +430,15 @@ function hasBindingParameterList(item: readonly Lexed.Token[]): boolean {
 function lastControlHead(
   item: readonly Lexed.Token[],
 ): { readonly kind: Lexed.Token["kind"]; readonly index: number } | undefined {
-  const controls = new Set<Lexed.Token["kind"]>(["If", "For", "While", "Match", "Try"]);
+  const controls = new Set<Lexed.Token["kind"]>(["If", "For", "While", "Match", "Try", "Attempt", "Assume"]);
   for (let index = item.length - 1; index >= 0; index -= 1) {
     const kind = item[index]?.kind;
     // A control keyword before `,` or `}` is a refused field pun (`{match}`,
     // Lexer §4.4), which heads nothing.
     if (["Comma", "RightBrace"].includes(item[index + 1]?.kind ?? "")) continue;
+    // A body form with its body on its line heads nothing: the control before
+    // it does (`match attempt parse^(s)` opens the arm block).
+    if ((kind === "Attempt" || kind === "Assume") && index !== item.length - 1) continue;
     if (kind !== undefined && controls.has(kind)) {
       return { kind, index };
     }

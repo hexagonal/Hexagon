@@ -137,9 +137,11 @@ describe("Effects §3.6: a catch-all handles what it guards", () => {
     expect(messages(source)).toEqual([]);
   });
 
-  test("the standard library's `Result.attempt` is a catch-all, so it follows the world colour only", () => {
-    const source = "let r = Result.attempt\n";
-    expect(face(source, "r")).toBe("(() ->! a) >~> Result(a, Exn)");
+  test("`attempt` and `assume` are catch-alls over their bodies, so the world colour passes through", () => {
+    const source = "let a(f: () ->! Int) = attempt f!()\nlet b(f: () ->! Int) = assume f!()\n";
+    expect(messages(source)).toEqual([]);
+    expect(face(source, "a")).toBe("(() ->! Int) >~> Result(Int, Exn)");
+    expect(face(source, "b")).toBe("(() ->! Int) >~> Int");
   });
 });
 

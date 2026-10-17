@@ -27,6 +27,8 @@ const MAX_SAFE_INTEGER_DECIMAL = 9_007_199_254_740_991n;
 // hold. The table answers for the words written below and for nothing else.
 const keywords: ReadonlyMap<string, Lexed.KeywordKind> = new Map([
   ["and", "And"],
+  ["assume", "Assume"],
+  ["attempt", "Attempt"],
   ["bnot", "Bnot"],
   ["catch", "Catch"],
   ["constraint", "Constraint"],
@@ -590,6 +592,24 @@ class Scanner {
       // `-`, by the punctuation table, which lists `->!` ahead of `->`.
       this.#offset += 1;
       return { kind: "Bang", span: this.#source.span(start, this.#offset) };
+    }
+
+    if (codeUnit === 0x3f) {
+      // `?` is the reading, the mark's fail part read as `Option` (Effects
+      // §3.1); the parser decides where it is grammatical. `??` and `?.` are no
+      // tokens (Lexer §8.3): `??` is consumed whole with its report, and `?.`
+      // leaves its `.` to the field access it begins.
+      if (this.#startsWith("??") || this.#startsWith("?.")) {
+        this.#offset += this.#startsWith("??") ? 2 : 1;
+        this.#error(
+          start,
+          this.#offset,
+          "Hexagon has no optional chaining or coalescing: `Option.defaultValue`, `Option.map`, or a `match`",
+        );
+        return undefined;
+      }
+      this.#offset += 1;
+      return { kind: "Question", span: this.#source.span(start, this.#offset) };
     }
 
     if (codeUnit === 0x22) {

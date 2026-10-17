@@ -820,6 +820,8 @@ export interface MatchExpr extends ExpressionFields {
 export interface ThrowExpr extends ExpressionFields {
   readonly kind: "Throw";
   readonly exception: Expr;
+  /** A reading (Effects §3.1). */
+  readonly reading?: true;
 }
 
 export interface TryExpr extends ExpressionFields {
@@ -842,6 +844,8 @@ export interface CallExpr extends ExpressionFields {
   readonly callee: Expr;
   readonly arguments: readonly Expr[];
   readonly evidence: readonly CallEvidence[];
+  /** A reading (Effects §3.1): the call's value as `Some`, its failure as `None`. */
+  readonly reading?: true;
 }
 
 export interface CallEvidence {

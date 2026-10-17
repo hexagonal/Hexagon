@@ -5002,6 +5002,11 @@ class Checker {
    * members, and `Seq.hex` itself.
    */
   #seqRecord: Resolved.RecordId | undefined;
+  /**
+   * The calls whose callee hands back a lazy `Seq`, by span: a `->` demand there
+   * is a lazy position, whose failure would be thrown at a later pull (Effects §7).
+   */
+  readonly #lazySeqCalls = new Set<string>();
   /** The canonical prelude `Dec` record, used by monomorphic `d` literals. */
   #decRecord: Resolved.RecordId | undefined;
   /**
@@ -5265,6 +5270,10 @@ class Checker {
    * supply what the file is in the middle of declaring.
    */
   #boolUnion: Resolved.UnionId | undefined;
+  /** The prelude's `Option`, the type a reading gives (Effects §3.1). */
+  #optionUnion: Resolved.UnionId | undefined;
+  /** The readings whose call is being inferred inside them (`#inferReading`). */
+  readonly #insideReading = new WeakSet<Resolved.Expr>();
   /**
    * The primitive this module is the fixed prelude companion of, when it is one
    * (`Resolved.Module.companionPrimitive`; Constraints §5.3, #344).
@@ -6086,6 +6095,10 @@ class Checker {
     this.#boolUnion = module.preludeUnions.get("Bool")
       ?? (module.preludeUnions.size === 0
         ? module.unions.find((union) => union.name === "Bool")?.id
+        : undefined);
+    this.#optionUnion = module.preludeUnions.get("Option")
+      ?? (module.preludeUnions.size === 0
+        ? module.unions.find((union) => union.name === "Option")?.id
         : undefined);
     this.#verifyPinnedBoolShape(module);
     this.#verifyVarianceClaims(module);
@@ -10205,6 +10218,45 @@ class Checker {
    * prelude `Bool` cannot reach — except that here the only such module declares
    * `Bool` itself and the constructor's fallback has already found it.
    */
+  /**
+   * A reading's call, materialized, carries the reading to emission: in every
+   * spelling — written, a pipe stage, a construction — the call it stands for
+   * is the reading (Effects §3.1).
+   */
+  #readingOf(expression: Resolved.Expr, value: Typed.Expr): Typed.Expr {
+    const reading = (expression.kind === "Call" || expression.kind === "Throw" ||
+        expression.kind === "PatternConstruction") && expression.reading === true ||
+      expression.kind === "Binary" && this.#pipeCalls.get(expression)?.reading === true;
+    return reading && (value.kind === "Call" || value.kind === "Throw") ? { ...value, reading: true } : value;
+  }
+
+  /**
+   * A reading (Effects §3.1): its call, whose value it reads as an `Option`. An
+   * expectation of `Option(a)` hands the call `a`.
+   */
+  #inferReading(expression: Resolved.CallExpr | Resolved.ThrowExpr, level: number, expected?: Mono): Mono {
+    const wanted = expected === undefined ? undefined : this.#prune(expected);
+    const inner = wanted?.kind === "Union" && wanted.union === this.#optionUnion ? wanted.arguments[0] : undefined;
+    this.#insideReading.add(expression);
+    let value: Mono;
+    try {
+      value = this.#inferExpr(expression, level, inner);
+    } finally {
+      this.#insideReading.delete(expression);
+    }
+    if (this.#optionUnion === undefined) {
+      this.#diagnostics.add({
+        severity: "error",
+        message: "the prelude `Option` union is not in scope; a reading cannot be typed",
+        primary: expression.span,
+      });
+      return ERROR;
+    }
+    const type: Mono = { kind: "Union", union: this.#optionUnion, name: "Option", arguments: [value] };
+    this.#expressionTypes.set(expression, type);
+    return type;
+  }
+
   #boolType(span: Source.Span): Mono {
     if (this.#boolUnion === undefined) {
       this.#diagnostics.add({
@@ -10541,6 +10593,10 @@ class Checker {
    * the seat's own final check remains the typing authority.
    */
   #inferExpr(expression: Resolved.Expr, level: number, expected?: Mono): Mono {
+    if ((expression.kind === "Call" || expression.kind === "Throw") && expression.reading === true &&
+      !this.#insideReading.has(expression)) {
+      return this.#inferReading(expression, level, expected);
+    }
     if (expression.kind === "Lambda") {
       // A lambda literal waiting for its owner's second pass stands here as
       // its stand-in (`SpineOwner`, Functions §4.3), taking the parameter types
@@ -10651,6 +10707,7 @@ class Checker {
           arguments: expression.components,
           ...(expression.mark === undefined ? {} : { mark: expression.mark }),
           ...(expression.markSpan === undefined ? {} : { markSpan: expression.markSpan }),
+          ...(expression.reading === undefined ? {} : { reading: expression.reading }),
           span: expression.span,
         };
         this.#patternConstructionCalls.set(expression, call);
@@ -11835,6 +11892,12 @@ class Checker {
             ? known.parameters
             : undefined;
         })();
+        {
+          const known = this.#prune(callee);
+          if (known.kind === "Function" && this.#asSequence(this.#prune(known.result)) !== undefined) {
+            this.#lazySeqCalls.add(spanKey(expression.span));
+          }
+        }
         // Row 14, at the member's other spellings (#808): `Pow.pow(i, 2n)` and
         // the bare `pow(i, 2n)` take the exponent seat `i ** 2n` takes, fixit
         // and all, on the argument's own span.
@@ -14821,6 +14884,7 @@ class Checker {
         arguments: [expression.exception],
         ...(expression.mark === undefined ? {} : { mark: expression.mark }),
         ...(expression.markSpan === undefined ? {} : { markSpan: expression.markSpan }),
+        ...(expression.reading === undefined ? {} : { reading: expression.reading }),
         span: expression.span,
       };
       this.#throwCalls.set(expression, call);
@@ -17407,6 +17471,8 @@ class Checker {
    * it promotes as (§5.1), so it is one literal rather than a negation of one.
    */
   #isTreeInterior(expression: Resolved.Expr): boolean {
+    // A reading's value is an `Option`, never a number a tree holds.
+    if (expression.kind === "Call" && expression.reading === true) return false;
     switch (expression.kind) {
       case "Binary":
         return expression.operator !== "Pipe" &&
@@ -22427,7 +22493,9 @@ class Checker {
     const { effect } = colours;
     // A call a form handles joins the body's world colour, and not its fail
     // colour (Effects §3.6). It is still a fact, or a mark to check.
-    const handled = this.#guardCall(expression, frame, colours.fail);
+    // A reading handles its own call's failure (Effects §3.1, §3.6), so no
+    // guard around it is handed it.
+    const handled = expression.reading === true || this.#guardCall(expression, frame, colours.fail);
     // Recorded on each colour's frame, each with that colour (Effects §1). A
     // mark carries its colours, `!` both, `~` the world colour, `^` the fail
     // colour, and is bare on the others.
@@ -22449,7 +22517,8 @@ class Checker {
     // A synthesized call has no written mark and no seat to write one in
     // (#867): a `widens` door's derived member is the resolver's own call, and
     // the colour it carries is ruled on at the seat, not here.
-    if (this.#suppressMarkObligations > 0) return;
+    // A mark the parser already refused owes no second report.
+    if (this.#suppressMarkObligations > 0 || expression.markInError === true) return;
     this.#markObligations.push({
       effect,
       fail: colours.fail,
@@ -25922,6 +25991,21 @@ class Checker {
             : { span: obligation.markSpan, replacement: markSpelling(wanted) }],
         }];
       })();
+      // A body form is refused once, at its word (Exceptions §8.2, §8.3).
+      if (guard.form.kind === "Try" && guard.form.form !== undefined) {
+        const form = guard.form.form;
+        const removal = this.#bodyFormRemoval(guard.form);
+        this.#diagnostics.add({
+          severity: "error",
+          message: (form === "attempt"
+            ? "nothing here may fail, so `attempt` has nothing to catch"
+            : "nothing here may fail, so there is nothing to assume") + factWords,
+          primary: guard.form.keyword ?? guard.form.span,
+          ...(fact?.told === undefined ? {} : { labels: [{ span: fact.call.span, message: `called ${how} here` }] }),
+          fixes: [...(removal === undefined ? [] : [removal]), ...markFix],
+        });
+        continue;
+      }
       const whole = refused.length === guard.arms.length ? this.#unguardedRemoval(guard) : undefined;
       for (const arm of refused) {
         const catchAll = coverageAlternatives(arm.pattern).some((alternative) =>
@@ -26009,6 +26093,33 @@ class Checker {
       edits: [alone
         ? { span: file.span(from, to), replacement: "" }
         : { span: arm.span, replacement: "" }],
+    };
+  }
+
+  /**
+   * A body form over a part that cannot fail, repaired keeping the value's type
+   * (Exceptions §9): `attempt` becomes `Ok(…)` around its body, where the body
+   * is one line, and `assume`'s word goes.
+   */
+  #bodyFormRemoval(form: Resolved.TryExpr): Diagnostics.Fix | undefined {
+    const source = this.#sourceFile();
+    const keyword = form.keyword;
+    if (source === undefined || keyword === undefined || Number(keyword.fileId) !== this.#fileId) return undefined;
+    const { text, file } = source;
+    if (form.form === "attempt") {
+      const body = form.body.kind === "Call" ? form.body.arguments[0] : undefined;
+      if (body === undefined) return undefined;
+      const written = text.slice(body.span.start.offset, body.span.end.offset);
+      if (written.includes("\n")) return undefined;
+      return {
+        message: "write the value as `Ok(…)`",
+        edits: [{ span: file.span(keyword.start.offset, body.span.end.offset), replacement: `Ok(${written})` }],
+      };
+    }
+    const after = text[keyword.end.offset] === " " ? keyword.end.offset + 1 : keyword.end.offset;
+    return {
+      message: "remove `assume`",
+      edits: [{ span: file.span(keyword.start.offset, after), replacement: "" }],
     };
   }
 
@@ -26308,11 +26419,28 @@ class Checker {
         world: markParts(factOf.mark).world || over.includes("world"),
         fail: markParts(factOf.mark).fail || over.includes("fail"),
       };
+      // A reading is spelled as one (Effects §3.1, §9): it keeps the reading
+      // while the call may fail, and on a call that cannot fail it goes, the
+      // value kept as `Some(…)`.
+      const reading = obligation.call.reading === true;
+      const readingGoes = reading && !wanted.fail;
+      const named = (parts: Readonly<Record<Axis, boolean>>): string =>
+        reading && parts.fail ? (parts.world ? "`~?`" : "`?`") : markName(parts);
+      const spelled = (parts: Readonly<Record<Axis, boolean>>): string =>
+        reading && parts.fail ? (parts.world ? "~?" : "?") : markSpelling(parts);
+      const wants = readingGoes
+        ? wanted.world ? `\`~\`, not ${named(written)}` : `no ${named(written)}`
+        : `${[wanted, ...(alternative === undefined ? [] : [alternative])].map(named).join(" or ")}, not ${named(written)}`;
+      const source = readingGoes ? this.#sourceFile() : undefined;
+      const call = obligation.call;
+      const kept = source === undefined || obligation.markSpan === undefined ||
+          Number(call.span.fileId) !== this.#fileId
+        ? undefined
+        : `Some(${source.text.slice(call.span.start.offset, obligation.markSpan.start.offset)}` +
+          `${markSpelling(wanted)}${source.text.slice(obligation.markSpan.end.offset, call.span.end.offset)})`;
       this.#diagnostics.add({
         severity: "error",
-        message: `this call ${does.join(" and ")}, so ${obligation.callee} wants ` +
-          `${[wanted, ...(alternative === undefined ? [] : [alternative])].map(markName).join(" or ")}, ` +
-          `not ${markName(written)}` +
+        message: `this call ${does.join(" and ")}, so ${obligation.callee} wants ${wants}` +
           (factWords !== undefined
             ? factWords
             : demanded !== undefined && parameter !== undefined
@@ -26325,14 +26453,19 @@ class Checker {
           ? { labels: [{ span: demanded.span, message: `\`${parameter.name}\` meets a type here that makes it ${silent}` }] }
           : {}),
         fixes: [
-          {
-            message: wanted.world || wanted.fail ? `mark the call ${markName(wanted)}` : "remove the mark",
-            edits: [
-              obligation.markSpan === undefined
-                ? { span: obligation.insertAt, replacement: markSpelling(wanted) }
-                : { span: obligation.markSpan, replacement: markSpelling(wanted) },
-            ],
-          },
+          ...(readingGoes
+            ? kept === undefined || source === undefined ? [] : [{
+              message: `keep the value: \`${kept.length > 40 ? "Some(…)" : kept}\``,
+              edits: [{ span: source.file.span(call.span.start.offset, call.span.end.offset), replacement: kept }],
+            }]
+            : [{
+              message: wanted.world || wanted.fail ? `mark the call ${named(wanted)}` : "remove the mark",
+              edits: [
+                obligation.markSpan === undefined
+                  ? { span: obligation.insertAt, replacement: spelled(wanted) }
+                  : { span: obligation.markSpan, replacement: spelled(wanted) },
+              ],
+            }]),
           ...(factOf === undefined || factMark === undefined || fact === undefined || !fact.only ? [] : [{
             message: `mark ${factOf.callee === "this call" ? "the bare call" : `the call of ${factOf.callee}`} ` +
               markName(factMark),
@@ -27547,9 +27680,13 @@ class Checker {
       const demandWritten = demandArrow === undefined
         ? undefined
         : markedArrow(shown("world") !== "silent", shown("fail") !== "silent");
+      // At a lazy `Seq` position the failure would be thrown at a later pull,
+      // outside any mark, so the report names where a mark sees it (§7).
+      const lazy = direction === "demand" && this.#lazySeqCalls.has(spanKey(span));
       this.#colourReport(`effect-mismatch ${spanKey(span)} ${direction} ${arrows?.id ?? ""}`, (axes) => ({
         severity: "error",
-        message: effectMismatchMessage(direction, axes, demandWritten),
+        message: effectMismatchMessage(direction, axes, demandWritten) +
+          (lazy && axes.includes("fail") ? LAZY_SEQ_ADVICE : ""),
         primary: span,
       }));
       return;
@@ -37876,7 +38013,7 @@ class Checker {
   #materializeExpr(expression: Resolved.Expr): Typed.Expr {
     const promotion = this.#decimalPromotions.get(expression);
     if (promotion !== undefined) return this.#materializeDecimalPromotion(expression, promotion);
-    const value = this.#materializeUnwidenedExpr(expression);
+    const value = this.#readingOf(expression, this.#materializeUnwidenedExpr(expression));
     const adaptation = this.#adaptations.get(expression);
     if (adaptation !== undefined) return this.#materializeAdaptation(expression, value, adaptation);
     const natWidening = this.#natWidenings.get(expression);
@@ -39039,6 +39176,14 @@ function effectMismatch(demand: Mono, supply: Mono): "demand" | "reverse" | unde
  * a use does not reach beneath the value's own arrow; or an arrow no use
  * receives — inside an argument read invariantly, or in a parameter's type.
  */
+/**
+ * Effects §7: what a demand at a lazy `Seq` position adds where the function may
+ * fail — the three ways to keep the failure where a mark sees it.
+ */
+const LAZY_SEQ_ADVICE = "; a lazy `Seq` would throw it at a later pull, so keep it where a mark sees it: " +
+  "a strict operation (`Vector.map^`), a strict consumer (`Seq.fold^`), or elements that carry it " +
+  "as data (`(x) => f?(x)` gives `Option`s, and `attempt` in the function gives `Result`s)";
+
 function effectMismatchMessage(direction: "demand" | "reverse", axes: readonly Axis[], written?: string): string {
   const world = axes.includes("world");
   const fail = axes.includes("fail");
@@ -39060,12 +39205,13 @@ function rewritePipe(expression: Resolved.BinaryExpr): Resolved.CallExpr {
   // #355 ruling 1: a pipe stage is a call, so a mark the stage wore rides onto
   // the call the rewrite manufactures. A stage that supplied its own argument
   // list already carries its mark on that call and keeps it.
-  const stageMark: { mark?: Resolved.CallMark; markSpan?: Source.Span } =
+  const stageMark: { mark?: Resolved.CallMark; markSpan?: Source.Span; reading?: true } =
     expression.mark === undefined
       ? {}
       : {
         mark: expression.mark,
         ...(expression.markSpan === undefined ? {} : { markSpan: expression.markSpan }),
+        ...(expression.reading === undefined ? {} : { reading: expression.reading }),
       };
   return expression.right.kind === "Call"
     ? {
@@ -39079,6 +39225,7 @@ function rewritePipe(expression: Resolved.BinaryExpr): Resolved.CallExpr {
             ...(expression.right.markSpan === undefined
               ? {}
               : { markSpan: expression.right.markSpan }),
+            ...(expression.right.reading === undefined ? {} : { reading: expression.right.reading }),
           }),
         span: expression.span,
       }

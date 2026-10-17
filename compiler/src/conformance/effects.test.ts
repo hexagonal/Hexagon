@@ -3599,18 +3599,17 @@ export let stamped(values: Vector(String)): Vector(String) =
 });
 
 describe("#355 grammar — where a mark may stand", () => {
-  it("reads a retired `?` in the mark seat as the seat, so the mark's fixit rewrites it", () => {
-    // `?` is no token (§3.1): the lexer reports it, and the mark report's fixit
-    // replaces it rather than writing `!` beside it.
-    const text = "module Main\n\n" + world + 'export let run(): Unit = save?("x")\n';
+  it("reads `?` in the mark seat as the reading, whose world part its fixit adds", () => {
+    // `?` is the reading (§3.1): on a call that is impure it wants `~?`, and
+    // the fixit rewrites the reading in place.
+    const text = "module Main\n\n" + world + 'export let run(): Option(Unit) = save?("x")\n';
     const diagnostics = compileFiles([["/world.js", ""], ["/main.hex", text]]).diagnostics;
     expect(diagnostics.map(({ message }) => message)).toEqual([
-      'invalid character "?" (U+003F)',
-      "this call is impure and may fail, so `save` wants `!`, not no mark",
+      "this call is impure, so `save` wants `~?`, not `?`",
     ]);
     const edits = diagnostics.flatMap(({ fixes }) => (fixes ?? []).flatMap((fix) => fix.edits));
     expect(edits.map(({ span, replacement }) => [text.slice(span.start.offset, span.end.offset), replacement]))
-      .toEqual([["?", "!"]]);
+      .toEqual([["?", "~?"]]);
   });
 
   it("carries a bare pipe stage's mark onto the call the rewrite makes", () => {

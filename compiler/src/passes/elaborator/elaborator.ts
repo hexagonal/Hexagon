@@ -375,6 +375,7 @@ function elaborateExpr(expression: Typed.Expr): Core.Expr {
           constraint: requirement.name,
           value: evidence(requirement),
         })),
+        ...(expression.reading === undefined ? {} : { reading: expression.reading }),
         type: expression.type,
         span: expression.span,
       };

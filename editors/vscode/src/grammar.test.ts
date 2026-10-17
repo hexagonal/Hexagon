@@ -1104,7 +1104,7 @@ describe("an unterminated bracket group stays on its line (#162)", () => {
       expect(guard, guard).toContain(
         "|pattern(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+" +
           "(?![\\p{Uppercase}\\p{Lt}])(?!__)(?!(?:catch|else|finally|for|if|in|match|" +
-          "then|try|while|import|export|extern|constraint|derive|exception|fun|honor|let|" +
+          "then|try|while|attempt|assume|import|export|extern|constraint|derive|exception|fun|honor|let|" +
           "record|type|var|and|bnot|iff|implies|not|or|true|false)" +
           "(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}]))[\\p{ID_Start}$_]" +
           "[\\p{ID_Continue}$_\\x{200C}\\x{200D}]*[ \\t]*(?=[(<:=]|$)|opaque",
@@ -1670,10 +1670,13 @@ describe("operators and forbidden runs (spec/lexer.md §8)", () => {
     expect(await scope("let x = !a", "!")).toBe("invalid.illegal.operator.hexagon");
   });
 
+  it("paints the body forms `attempt` and `assume` as the hard keywords they are (Lexer §4.1)", async () => {
+    expect(await scope("let x = attempt parse^(text)", "attempt")).toBe("keyword.control.hexagon");
+    expect(await scope("let x = assume parse^(text)", "assume")).toBe("keyword.control.hexagon");
+  });
+
   it("rejects characters §8.3 gives no token", async () => {
-    // `?` is one of them for now: the call marks are `!`, `^` and `~`
-    // (spec/effects.md §3.1), and no arrow contains it.
-    for (const char of ["%", "&", "@", "#", "`", "\\", "?"]) {
+    for (const char of ["%", "&", "@", "#", "`", "\\"]) {
       expect(await scope(`let x = a ${char} b`, char), char).toBe(
         "invalid.illegal.character.hexagon",
       );
@@ -1700,6 +1703,9 @@ describe("operators and forbidden runs (spec/lexer.md §8)", () => {
       ["let x = Int.parse^(text)", "^"],
       ["let x = log~(line)", "~"],
       ["let x = stream.next^()", "^"],
+      ["let x = Int.parse?(text)", "?"],
+      ["let x = fetch~?(url)", "~?"],
+      ["let x = text |> Int.parse?", "?"],
     ] as const) {
       expect(await scope(source, text), source).toBe("keyword.operator.mark.hexagon");
     }
@@ -1716,9 +1722,12 @@ describe("operators and forbidden runs (spec/lexer.md §8)", () => {
     // The `not` redirect survives the token change (§9's own row), and a mark
     // with no argument list to govern is a parse error either way.
     expect(await scope("let x = !a", "!")).toBe("invalid.illegal.operator.hexagon");
-    // `?` is no mark at all, glued or floating: a character with no token.
-    expect(await scope("let x = ?a", "?")).toBe("invalid.illegal.character.hexagon");
-    expect(await scope("let x = check?(value)", "?")).toBe("invalid.illegal.character.hexagon");
+    // `?` is the reading (§3.1): glued it is a mark, floating it is the error,
+    // and `??` and `?.` are no tokens (Lexer §8.3).
+    expect(await scope("let x = ?a", "?")).toBe("invalid.illegal.operator.hexagon");
+    expect(await scope("let x = check?(value)", "?")).toBe("keyword.operator.mark.hexagon");
+    expect(await scope("let x = save~?(value)", "~?")).toBe("keyword.operator.mark.hexagon");
+    expect(await scope("let x = a ?? b", "??")).toBe("invalid.illegal.operator.hexagon");
     expect(await scope("let x = readLine !()", "!")).toBe(
       "invalid.illegal.operator.hexagon",
     );
