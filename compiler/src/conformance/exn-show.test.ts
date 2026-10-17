@@ -106,6 +106,7 @@ export let caughtException: String = caught(() => parse^(""))
     expect(show(null)).toBe("null");
     expect(show(42)).toBe("42");
     expect(show([1, 2])).toBe("");
+    expect(show(Object.assign([1], { name: "NamedArray" }))).toBe("NamedArray");
   });
 
   /**
