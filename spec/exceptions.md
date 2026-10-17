@@ -289,7 +289,7 @@ let parsed = attempt
 - **Typing.** Where the body has type `a`, `attempt` has type `Result(a, Exn)`.
 - **Semantics.** The body runs once. `attempt` gives `Ok(value)` where the body returns, and `Err(x)` where it throws an exception or a foreign throw, the latter as `JsError`'s value (`Err(JsError(e))` observationally, §6.2). A fault passes through untouched, as it passes `_` (§5.3).
 - **Colours.** `attempt` handles its body's failure (Effects §3.6): the body's world colour joins the enclosing body's, and its fail colour does not. So `attempt decodeUser^(v)` is pure and cannot fail, and `attempt fetchUser!(id)` is impure and cannot fail. The body's own fail colour is left as it stands: a callback run there keeps accepting what its arrow accepts.
-- **Over a body that cannot fail, it is refused**, as a reading on a call that cannot fail is (Effects §3.1): "nothing here may fail, so `attempt` has nothing to catch". A body cannot fail where its fail colour is silent once it settles (Effects §3.6). A callback's colour is not silent, so `attempt f!()` over a callback `f` stands at every instantiation. A body in error owes nothing.
+- **Over a body that cannot fail, it is refused**, as a reading on a call that cannot fail is (Effects §3.1): "nothing here may fail, so `attempt` has nothing to catch". A body cannot fail where its fail colour is silent once it settles (Effects §3.6). A callback's colour is not silent, so `attempt f!()` over a callback `f` stands at every instantiation. A body in error owes nothing. It is a catch-all over its body (§5.3), so where an untyped parameter's bare call is why, the report names that call and offers to mark it, as §5.3's does.
 
 ### 8.3 `assume`: this cannot fail here
 
