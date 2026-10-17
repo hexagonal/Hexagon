@@ -95,8 +95,8 @@ describe("the bare set is exactly twenty-three names, and closed", () => {
     expect(bareNames()).toEqual(BARE_SET);
   });
 
-  test("twenty-three is the count the section states: the layer's names and `throw`", () => {
-    expect(BARE_SET.length + 1).toBe(23);
+  test("twenty-two of the section's twenty-three are in the layer; `throw` is the other", () => {
+    expect(BARE_SET.length).toBe(22);
   });
 
   /**

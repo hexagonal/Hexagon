@@ -11767,7 +11767,7 @@ class JavaScriptEmitter {
       // with an arrow *expression* and has nowhere to put statements.
       case "bufferWrite":
         return `(__a, __b, __c) => (__a[__b] = __c, ${this.#unit})`;
-      // `->` where its three siblings are `->!`: a buffer's size is fixed at
+      // `->` where its three siblings are `->~`: a buffer's size is fixed at
       // creation and no row changes it, so this is a read of a value (§3.3).
       case "bufferLength":
         return "__a => __a.length";

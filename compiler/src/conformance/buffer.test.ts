@@ -254,6 +254,9 @@ describe("the honest arrows (§3.3, `regex.md` §7)", () => {
       "    let stored = write~(b, 1, 9)\n" +
       "    read~(b, 1)\n",
     )).toEqual([]);
+    expect(diagnostics(
+      "let scratch(b: Buffer(Int)): Int = read!(b, 1)\n",
+    )).toEqual(["this call cannot fail, so `read` wants `~`, not `!`"]);
   });
 });
 
