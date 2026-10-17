@@ -3171,6 +3171,8 @@ class JavaScriptEmitter {
   /** Stable descriptive aliases for unsafe module-level source bindings. */
   readonly #unsafeModuleLocals: ReadonlyMap<Resolved.SymbolId, string>;
   readonly #generatedNames: GeneratedNames;
+  /** The parts of a reading's call evaluated before its `try`, each emitted as its own name there (`#emitReading`). */
+  readonly #readingParts = new Map<Core.Expr, string>();
   /** Local each imported symbol is bound under, by the module's own imports. */
   readonly #importLocals = new Map<Resolved.SymbolId, string>();
   /** One allocation per minted hazardous import local; imports and references share it. */
@@ -5403,6 +5405,11 @@ class JavaScriptEmitter {
      */
     bindingRhs = false,
   ): string {
+    const read = this.#readingParts.get(expression);
+    if (read !== undefined) return read;
+    if ((expression.kind === "Call" || expression.kind === "Throw") && expression.reading === true) {
+      return this.#emitReading(expression, depth, evidenceNames);
+    }
     switch (expression.kind) {
       case "Name": {
         // FFI Part 11 §2's release seat, reached **unapplied**. `JsValue.from`
@@ -7164,6 +7171,59 @@ class JavaScriptEmitter {
       this.#emitReturningMatch(expression, depth + 1, evidenceNames)
     );
     return `(() => {\n${lines.join("\n")}\n${indent(depth)}})()`;
+  }
+
+  /**
+   * A reading (Effects §3.1, §8): the call's value as `Some`, an exception or a
+   * foreign throw as `None`, and a fault let through, as a catch-all lets it.
+   * The callee and the arguments are evaluated outside the `try`, in order:
+   * each that does any work is handed to the arrow that holds the `try`, and
+   * the call inside reads it by name.
+   */
+  #emitReading(expression: Core.CallExpr | Core.ThrowExpr, depth: number, evidenceNames: EvidenceNames): string {
+    return this.#generatedNames.within(() => {
+      const parameters: string[] = [];
+      const values: string[] = [];
+      const hoisted: Core.Expr[] = [];
+      const hoist = (part: Core.Expr): void => {
+        if (evaluationFree(part)) return;
+        const name = this.#generatedNames.fresh("read");
+        values.push(this.#emitExpr(part, depth, evidenceNames));
+        parameters.push(name);
+        hoisted.push(part);
+        this.#readingParts.set(part, name);
+      };
+      const { reading: _reading, ...call } = expression;
+      if (expression.kind === "Throw") {
+        hoist(expression.exception);
+      } else {
+        // A field's function is called on its record, so the record is what is
+        // evaluated outside, and the call inside keeps it as its receiver.
+        if (expression.callee.kind === "FieldAccess") hoist(expression.callee.receiver);
+        else hoist(expression.callee);
+        for (const argument of expression.arguments) hoist(argument);
+      }
+      const error = this.#generatedNames.fresh("error");
+      const inner = indent(depth + 1);
+      const body = indent(depth + 2);
+      try {
+        const value = this.#emitExpr(call, depth + 2, evidenceNames);
+        const fault = `${error} != null && typeof ${error}.$hex === "string" && ` +
+          `typeof ${error}.name === "string" && ${error}.name.endsWith("Fault")`;
+        return [
+          `((${parameters.join(", ")}) => {`,
+          `${inner}try {`,
+          `${body}return { tag: "Some", value: ${value} };`,
+          `${inner}} catch (${error}) {`,
+          `${body}if (!(${fault})) return { tag: "None" };`,
+          `${body}throw ${error};`,
+          `${inner}}`,
+          `${indent(depth)}})(${values.join(", ")})`,
+        ].join("\n");
+      } finally {
+        for (const part of hoisted) this.#readingParts.delete(part);
+      }
+    });
   }
 
   #emitTry(
@@ -13180,6 +13240,28 @@ function utf8ByteLength(text: string): number {
  * under `as` — which catches every exception and every foreign throw and lets
  * every fault through (Exceptions §5.3).
  */
+/**
+ * Whether evaluating an expression does no work a reading must keep outside its
+ * `try` (Effects §3.1): a plain reference, a literal, or a lambda, which makes
+ * a closure and runs nothing.
+ */
+function evaluationFree(expression: Core.Expr): boolean {
+  switch (expression.kind) {
+    case "Name":
+      return (expression.evidence?.length ?? 0) === 0;
+    case "Unit":
+    case "Number":
+    case "BigInt":
+    case "Float":
+    case "Lambda":
+      return true;
+    case "String":
+      return expression.parts.every((part) => part.kind === "Text");
+    default:
+      return false;
+  }
+}
+
 function catchesEverything(pattern: Core.Pattern): boolean {
   if (pattern.kind === "As") return catchesEverything(pattern.pattern);
   return pattern.kind === "Binding" || pattern.kind === "Wildcard";
@@ -16410,7 +16492,7 @@ function renderType(
           // exception carries both fields (#488). It is not: an `Exn` position
           // admits the foreign world too, and the `JsError` door (§6.2) means a
           // caught value is as often `null`, `"oops"` or a `Symbol` as it is an
-          // `Error`. `Result.attempt`'s `Err` side carries exactly those. So the
+          // `Error`. `attempt`'s `Err` side carries exactly those. So the
           // intersection promised a consumer two fields that are frequently
           // absent — the typechecks-then-crashes class, which is the *larger*
           // lie; §7.5 measured the smaller one and accepted it by name ("foreign

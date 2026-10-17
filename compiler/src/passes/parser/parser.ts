@@ -427,6 +427,14 @@ const typeOperandStarts = new Set<TokenKind>([
 
 /** Nesting bracketry, so the record-update scan reads only its own brace's depth. */
 const opensNesting = new Set<TokenKind>(["LeftParen", "LeftBracket", "LeftBrace", "VOpen"]);
+
+/** The tokens an expression can begin with, which a body form's body must (Exceptions §8.2). */
+const bodyStarts = new Set<TokenKind>([
+  ...operandStarts, "LeftBracket", "Minus", "If", "While", "For", "Match", "Try", "Attempt", "Assume",
+]);
+
+/** Lexer §8.1: `?` is the reading, and no type. */
+const questionInType = "`?` reads a call's failure and is no type; an optional value's type is `Option(a)`";
 const closesNesting = new Set<TokenKind>(["RightParen", "RightBracket", "RightBrace", "VClose"]);
 
 /**
@@ -587,7 +595,12 @@ class Parser {
    * expression is still being parsed. Cleared on collection; a mark that
    * reaches any other position is a parse error raised where it was found.
    */
-  #stageMark: { readonly mark: Parsed.CallMark; readonly span: Source.Span } | undefined;
+  #stageMark: {
+    readonly mark: Parsed.CallMark;
+    readonly span: Source.Span;
+    readonly reading?: true;
+    readonly markInError?: true;
+  } | undefined;
 
   /**
    * Token positions the reserved-`__` sweep must leave alone (Lexer §3.2, #425).
@@ -5695,8 +5708,9 @@ class Parser {
         this.#errorAt(tilde.span, "Hexagon spells bitwise complement `bnot`");
         continue;
       }
-      if (mark !== undefined) {
-        const token = this.#advance();
+      if (mark !== undefined || this.#at("Question")) {
+        const taken = this.#takeMark();
+        const token = { span: taken.span };
         // Lexer §8.1: a mark is written *glued* — to the callee it marks, and to
         // the `(` it governs. Whitespace on either side is the same defect the
         // seat rule reports, because a floating mark is exactly a mark with no
@@ -5704,21 +5718,22 @@ class Parser {
         const gluedToCallee = token.span.start.offset === left.span.end.offset;
         if (this.#at("LeftParen")) {
           if (gluedToCallee && this.#current().span.start.offset === token.span.end.offset) {
-            left = this.#parseCall(left, mark, token.span);
+            left = this.#parseCall(left, taken.mark, token.span, taken.reading, taken.markInError);
             continue;
           }
           this.#errorAt(token.span, markSeatError);
           // Parsed as the call it plainly is, so one spacing slip reports once.
-          left = this.#parseCall(left, mark, token.span);
+          left = this.#parseCall(left, taken.mark, token.span, taken.reading, taken.markInError);
           continue;
         }
         if (stageMarkAllowed) {
-          if (gluedToCallee) {
-            this.#stageMark = { mark, span: token.span };
-            break;
-          }
-          this.#errorAt(token.span, markSeatError);
-          this.#stageMark = { mark, span: token.span };
+          if (!gluedToCallee) this.#errorAt(token.span, markSeatError);
+          this.#stageMark = {
+            mark: taken.mark,
+            span: token.span,
+            ...(taken.reading === undefined ? {} : { reading: true as const }),
+            ...(taken.markInError === undefined ? {} : { markInError: true as const }),
+          };
           break;
         }
         this.#errorAt(token.span, markSeatError);
@@ -5820,7 +5835,12 @@ class Parser {
           right,
           ...(stageMark === undefined
             ? {}
-            : { mark: stageMark.mark, markSpan: stageMark.span }),
+            : {
+              mark: stageMark.mark,
+              markSpan: stageMark.span,
+              ...(stageMark.reading === undefined ? {} : { reading: true as const }),
+              ...(stageMark.markInError === undefined ? {} : { markInError: true as const }),
+            }),
           span: spanFrom(left.span, stageMark?.span ?? right.span),
         };
       }
@@ -5949,6 +5969,9 @@ class Parser {
     }
     if (this.#at("Try")) {
       return this.#parseTry(stops);
+    }
+    if (this.#at("Attempt") || this.#at("Assume")) {
+      return this.#parseBodyForm(stops);
     }
 
     return this.#parsePrimary(stops);
@@ -6297,22 +6320,30 @@ class Parser {
     const name = parsedName(token as Lexed.NameToken);
     let mark: Parsed.CallMark | undefined;
     let markSpan: Source.Span | undefined;
-    const written = this.#markAt();
-    if (written !== undefined) {
-      const token = this.#advance();
-      if (token.span.start.offset !== name.span.end.offset) {
-        this.#errorAt(token.span, markSeatError);
+    let reading: true | undefined;
+    let markInError: true | undefined;
+    if (this.#markAt() !== undefined || this.#at("Question")) {
+      const taken = this.#takeMark();
+      markInError = taken.markInError;
+      if (taken.span.start.offset !== name.span.end.offset) {
+        this.#errorAt(taken.span, markSeatError);
       }
-      mark = written;
-      markSpan = token.span;
-      if (this.#markAt() !== undefined) {
+      mark = taken.mark;
+      markSpan = taken.span;
+      reading = taken.reading;
+      if (this.#markAt() !== undefined || this.#at("Question")) {
         const duplicate = this.#advance();
         this.#errorAt(duplicate.span, markSeatError);
       }
     }
     return {
       kind: "PatternConstruction", components, name,
-      ...(mark === undefined ? {} : { mark, markSpan: markSpan! }),
+      ...(mark === undefined ? {} : {
+        mark,
+        markSpan: markSpan!,
+        ...(reading === undefined ? {} : { reading }),
+        ...(markInError === undefined ? {} : { markInError }),
+      }),
       span: spanFrom(opening, markSpan ?? name.span),
     };
   }
@@ -6368,15 +6399,10 @@ class Parser {
     callee: Parsed.Expr,
     mark?: Parsed.CallMark,
     markSpan: Source.Span = callee.span,
+    reading?: true,
+    markInError?: true,
   ): Parsed.Expr {
     const opening = this.#advance();
-    // A retired `?` in the mark seat lexes as no token (it is an invalid
-    // character); kept as the seat's span, a mark fixit rewrites it rather
-    // than writing a mark beside it.
-    const retired = mark === undefined && opening.span.start.offset === callee.span.end.offset + 1 &&
-        this.#text[callee.span.end.offset] === "?"
-      ? { ...callee.span, start: callee.span.end, end: opening.span.start }
-      : undefined;
     const args: Parsed.Expr[] = [];
     const stops = new Set<TokenKind>(["Comma", "RightParen", "Eof"]);
 
@@ -6393,7 +6419,12 @@ class Parser {
       kind: "Call",
       callee,
       arguments: args,
-      ...(mark === undefined ? (retired === undefined ? {} : { markSpan: retired }) : { mark, markSpan }),
+      ...(mark === undefined ? {} : {
+        mark,
+        markSpan,
+        ...(reading === undefined ? {} : { reading }),
+        ...(markInError === undefined ? {} : { markInError }),
+      }),
       span: spanFrom(callee.span, closing?.span ?? args.at(-1)?.span ?? callee.span),
     };
   }
@@ -7256,6 +7287,60 @@ class Parser {
   }
 
   /**
+   * Takes the mark at the current token, with a reading glued after it
+   * (Effects §3.1): `?` reads a call that would wear `^`, and `~?` one that
+   * would wear `!`. A reading takes the mark's fail part, so `!?` and `^?` are
+   * no readings (Lexer §8.3): each is reported and read as the reading meant.
+   */
+  #takeMark(): {
+    readonly mark: Parsed.CallMark;
+    readonly reading?: true;
+    readonly markInError?: true;
+    readonly span: Source.Span;
+  } {
+    const first = this.#advance();
+    if (first.kind === "Question") return { mark: "caret", reading: true, span: first.span };
+    const mark: Parsed.CallMark = first.kind === "Bang" ? "bang" : first.kind === "Caret" ? "caret" : "tilde";
+    if (this.#at("Question") && this.#current().span.start.offset === first.span.end.offset) {
+      const question = this.#advance();
+      const span = spanFrom(first.span, question.span);
+      if (mark !== "tilde") {
+        this.#errorAt(
+          span,
+          "a reading takes the mark's fail part: write `f~?(x)` for a call that is impure, `f?(x)` for one that is pure",
+        );
+        return { mark: mark === "caret" ? "caret" : "bang", reading: true, markInError: true, span };
+      }
+      return { mark: "bang", reading: true, span };
+    }
+    return { mark, span: first.span };
+  }
+
+  /**
+   * Exceptions §8.2, §8.3: `attempt` or `assume` and the body it guards, on
+   * its line or in an indented block, eating to the right (Operators §3.2).
+   * With no body — the word at an item's end, or named as a value — it is the
+   * one parse error, and recovers as an error node.
+   */
+  #parseBodyForm(stops: ReadonlySet<TokenKind>): Parsed.Expr {
+    const keyword = this.#advance();
+    const word = keyword.kind === "Attempt" ? "attempt" : "assume";
+    // No body: nothing that begins an expression follows the word — an item's
+    // end, a delimiter, an operator, a dot or a mark.
+    if (!this.#at("VOpen") && !bodyStarts.has(this.#current().kind)) {
+      this.#errorAt(keyword.span, `\`${word}\` is followed by the code it guards, on the same line or in an indented block`);
+      return { kind: "ErrorExpr", span: keyword.span };
+    }
+    const body = this.#parseBodyExpression(stops);
+    return {
+      kind: keyword.kind === "Attempt" ? "Attempt" : "Assume",
+      body,
+      keyword: keyword.span,
+      span: spanFrom(keyword.span, body.span),
+    };
+  }
+
+  /**
    * Whether the current token, `^` or `~`, stands where an operator would
    * (Lexer §8.3): before an operand (`x^2`, `a ^ b`), or with space on both
    * sides. A mark glued to its callee before an argument list or at a `|>`
@@ -7320,8 +7405,12 @@ class Parser {
    * the enclosing slot is.
    */
   #parseTypeAnnotation(typeArrowRedirect = false): Parsed.TypeAnnotation | undefined {
+    // A `?` where a type stands (`->?`, `Int?`) is reported once and passed
+    // over, so the type around it still parses.
+    if (this.#at("Question")) this.#errorAt(this.#advance().span, questionInType);
     const left = this.#parseTypeOperand();
     if (left === undefined) return undefined;
+    if (this.#at("Question")) this.#errorAt(this.#advance().span, questionInType);
     if (typeArrowRedirect && this.#at("FatArrow")) {
       const { effect, span: arrowSpan } = this.#redirectTypeArrow();
       const result = this.#parseTypeAnnotation(typeArrowRedirect);
@@ -8094,7 +8183,7 @@ function isKeyword(kind: TokenKind): kind is Lexed.KeywordKind {
     "And", "Catch", "Constraint", "Derive", "Else", "Exception", "Export",
     "Extern", "False", "Finally", "For", "Fun", "Honor", "Iff", "If",
     "Implies", "Import", "In", "Let", "Match", "Not", "Or", "Record",
-    "Then", "True", "Try", "Type", "Var", "While",
+    "Then", "True", "Try", "Type", "Var", "While", "Attempt", "Assume",
   ].includes(kind);
 }
 

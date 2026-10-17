@@ -1939,6 +1939,10 @@ export interface PatternConstructionExpr {
   readonly candidates: readonly PatternCandidate[];
   readonly mark?: CallMark;
   readonly markSpan?: Source.Span;
+  /** The mark is a reading, `?` or `~?` (Effects §3.1). */
+  readonly reading?: true;
+  /** The mark was written `!?` or `^?`, which the parser reported. */
+  readonly markInError?: true;
   readonly nameSpan: Source.Span;
   readonly span: Source.Span;
 }
@@ -2195,6 +2199,13 @@ export interface CallExpr {
   /** The written call mark (#355 ruling 2); absent is the bare call. */
   readonly mark?: CallMark;
   readonly markSpan?: Source.Span;
+  /**
+   * The mark is a reading (Effects §3.1): `f?(x)` is `caret` read, `f~?(x)`
+   * `bang` read. The call's failure is handled, and its value is an `Option`.
+   */
+  readonly reading?: true;
+  /** The mark was written `!?` or `^?`, which the parser reported; it owes no mark report of its own. */
+  readonly markInError?: true;
   readonly span: Source.Span;
 }
 
@@ -2215,6 +2226,10 @@ export interface ThrowExpr {
   /** The written mark, which its argument's text decides (Exceptions §3). */
   readonly mark?: CallMark;
   readonly markSpan?: Source.Span;
+  /** The mark is a reading (Effects §3.1). */
+  readonly reading?: true;
+  /** The mark was written `!?` or `^?`, which the parser reported. */
+  readonly markInError?: true;
   readonly span: Source.Span;
 }
 
@@ -2222,6 +2237,14 @@ export interface TryExpr {
   readonly kind: "Try";
   readonly body: Expr;
   readonly arms: readonly MatchArm[];
+  /**
+   * The body form this `try` is (Exceptions §8.2, §8.3): `attempt body` is
+   * `try Ok(body) catch e => Err(e)`, and `assume body` is `try body catch e =>
+   * throw(AssumptionFault(e))`, each its catch-all over the body.
+   */
+  readonly form?: "attempt" | "assume";
+  /** The form's keyword, where its reports stand. */
+  readonly keyword?: Source.Span;
   readonly span: Source.Span;
 }
 
@@ -2292,6 +2315,10 @@ export interface BinaryExpr {
   /** A `|>` stage's own mark (#355 ruling 1); the rewrite carries it. */
   readonly mark?: CallMark;
   readonly markSpan?: Source.Span;
+  /** The stage's mark is a reading (Effects §3.1). */
+  readonly reading?: true;
+  /** The stage's mark was written `!?` or `^?`, which the parser reported. */
+  readonly markInError?: true;
   readonly span: Source.Span;
 }
 

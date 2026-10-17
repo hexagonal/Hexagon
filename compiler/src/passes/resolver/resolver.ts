@@ -4422,6 +4422,8 @@ class Resolver {
           candidates: later === undefined ? candidates : [],
           ...(expression.mark === undefined ? {} : { mark: expression.mark }),
           ...(expression.markSpan === undefined ? {} : { markSpan: expression.markSpan }),
+          ...(expression.reading === undefined ? {} : { reading: expression.reading }),
+          ...(expression.markInError === undefined ? {} : { markInError: expression.markInError }),
           nameSpan: expression.name.span,
           span: expression.span,
         };
@@ -4466,6 +4468,9 @@ class Resolver {
       }
       case "Lambda":
         return this.#resolveLambda(expression, scope);
+      case "Attempt":
+      case "Assume":
+        return this.#resolveBodyForm(expression, scope);
       case "If":
         return {
           kind: "If" as const,
@@ -4570,6 +4575,8 @@ class Resolver {
             ...(expression.arguments.length === 1 ? {} : { misapplied: true as const }),
             ...(expression.mark === undefined ? {} : { mark: expression.mark }),
             ...(expression.markSpan === undefined ? {} : { markSpan: expression.markSpan }),
+            ...(expression.reading === undefined ? {} : { reading: expression.reading }),
+            ...(expression.markInError === undefined ? {} : { markInError: expression.markInError }),
             span: expression.span,
           };
         }
@@ -4776,6 +4783,8 @@ class Resolver {
             callee: expression.right.span,
             ...(expression.mark === undefined ? {} : { mark: expression.mark }),
             ...(expression.markSpan === undefined ? {} : { markSpan: expression.markSpan }),
+            ...(expression.reading === undefined ? {} : { reading: expression.reading }),
+            ...(expression.markInError === undefined ? {} : { markInError: expression.markInError }),
             span: expression.span,
           };
         }
@@ -5996,6 +6005,60 @@ class Resolver {
         ? annotation.qualifier?.text
         : undefined;
     return qualifier === undefined ? undefined : this.#moduleAliasModules.get(qualifier)?.name;
+  }
+
+  /**
+   * Exceptions §8.2, §8.3: a body form is the `try` it is, its catch-all over
+   * the body. `attempt body` is `try Ok(body) catch e => Err(e)`, and `assume
+   * body` is `try body catch e => throw(AssumptionFault(e))`. The words it
+   * adds are the prelude's, whatever this module calls them, and span nothing
+   * a hover or a rename can land on.
+   */
+  #resolveBodyForm(expression: Parsed.BodyFormExpr, scope: Scope): Resolved.Expr {
+    const keyword = expression.keyword;
+    const unwritten = { ...keyword, end: keyword.start };
+    const caught: Parsed.Name = { text: "__caught", startClass: "non-upper", span: unwritten };
+    const resolved = this.#resolveExpr({
+      kind: "Try",
+      body: expression.body,
+      arms: [{
+        pattern: { kind: "Binding", name: caught, span: unwritten },
+        body: { kind: "Name", name: caught, span: unwritten },
+        span: unwritten,
+      }],
+      span: expression.span,
+    }, scope);
+    if (resolved.kind !== "Try") return resolved;
+    const arm = resolved.arms[0]!;
+    const prelude = (name: string): Resolved.Expr => {
+      const symbol = this.#preludeScope.lookupLocal(name) ?? scope.lookup(name);
+      if (symbol === undefined) return { kind: "ErrorExpr", span: unwritten };
+      if (this.#preludeTerms.has(symbol)) this.#usedPreludeSymbols.add(symbol);
+      return { kind: "Name", symbol, text: name, span: unwritten };
+    };
+    const attempt = expression.kind === "Attempt";
+    // The calls the form adds stand for the whole form, so a type the form's
+    // value does not fit is reported there.
+    const whole = expression.span;
+    return {
+      ...resolved,
+      body: attempt
+        ? { kind: "Call", callee: prelude("Ok"), arguments: [resolved.body], span: whole }
+        : resolved.body,
+      arms: [{
+        ...arm,
+        body: attempt
+          ? { kind: "Call", callee: prelude("Err"), arguments: [arm.body], span: whole }
+          : {
+            kind: "Throw",
+            exception: { kind: "Call", callee: prelude("AssumptionFault"), arguments: [arm.body], span: whole },
+            callee: unwritten,
+            span: whole,
+          },
+      }],
+      form: attempt ? "attempt" : "assume",
+      keyword,
+    };
   }
 
   #resolveName(expression: Parsed.NameExpr, scope: Scope): Resolved.Expr {

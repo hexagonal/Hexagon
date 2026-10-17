@@ -11,6 +11,8 @@ import type * as Source from "../../support/source.js";
 
 export const keywordKinds = [
   "And",
+  "Assume",
+  "Attempt",
   "Bnot",
   "Catch",
   "Constraint",
@@ -112,6 +114,7 @@ export const punctuationKinds = [
   "Bang",
   "Caret",
   "Tilde",
+  "Question",
 ] as const;
 
 export type PunctuationKind = (typeof punctuationKinds)[number];
