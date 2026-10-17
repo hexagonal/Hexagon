@@ -303,6 +303,8 @@ describe("public Option and Result faces", () => {
     ["Result.mapError", "(Result(a, b), b ->! c) >-> Result(a, c)"],
     ["Result.defaultValue", "(Result(a, b), a) -> a"],
     ["Result.defaultWith", "(Result(a, b), b ->! a) >-> a"],
+    ["Option.orThrow", "(Option(a), () -> Exn) ->^ a"],
+    ["Result.orThrow", "Result(a, Exn) ->^ a"],
   ])("%s has its exact qualified hover type", (qualified, expected) => {
     const member = qualified.slice(qualified.indexOf(".") + 1);
     const source = `module Main\n\nlet held = ${qualified}\n`;
@@ -318,6 +320,9 @@ describe("public Option and Result faces", () => {
       "export declare const defaultValue: <a>(source: Option<a>, fallback: a) => a;",
     );
     expect(option).toContain("export declare const toSeq: <a>(source: Option<a>) => Iterable<a>;");
+    expect(option).toContain(
+      "export declare const orThrow: <a>(source: Option<a>, failure: () => Error) => a;",
+    );
 
     const result = companionDeclarations("Result");
     expect(result).toContain(
@@ -326,6 +331,7 @@ describe("public Option and Result faces", () => {
     expect(result).toContain(
       "export declare const defaultWith: <a, b>(source: Result<a, b>, fallback: (arg0: b) => a) => a;",
     );
+    expect(result).toContain("export declare const orThrow: <a>(source: Result<a, Error>) => a;");
   });
 });
 
@@ -392,5 +398,132 @@ export let resultSkipped: Bool = match attempt Result.map^(Err("bad"), explode)
       resultSelected: true,
       resultSkipped: true,
     });
+  });
+});
+
+/**
+ * **`orThrow`, data back to a failure** (§2, §3; Exceptions §8.4). Each is one
+ * function that may fail on its own account, so every call wears `^` and the
+ * function that calls it is `->^`; the readings and `attempt` then treat it as
+ * any call that may fail. The thrown value is the one the data held, and a
+ * fault in it passes a catch-all, as every fault does.
+ */
+describe("orThrow, the way back from data", () => {
+  test("each returns the payload, or throws the exception it is given", async () => {
+    const main = await runMain(`module Main
+
+export exception Boom(message: String)
+
+let fromOption(o: Option(String)): String =
+    try
+        o.orThrow^(() => Boom("absent"))
+    catch
+        Boom(m) => "thrown: " ++ m
+        _ => "something else"
+
+let fromResult(r: Result(String, Exn)): String =
+    try
+        r.orThrow^()
+    catch
+        Boom(m) => "thrown: " ++ m
+        _ => "something else"
+
+export let present: String = fromOption(Some("here"))
+export let absent: String = fromOption(None)
+export let ok: String = fromResult(Ok("fine"))
+export let err: String = fromResult(Err(Boom("bad")))
+`);
+    expect(main).toMatchObject({
+      present: "here",
+      absent: "thrown: absent",
+      ok: "fine",
+      err: "thrown: bad",
+    });
+  });
+
+  /**
+   * `Result.orThrow` throws the `Err`'s own object, so its stack is the one it
+   * was built with, and `attempt` over it hands back that same object. Checked by
+   * identity, from JavaScript, because "the same object" is the claim.
+   */
+  test("Result.orThrow rethrows the error itself, stack and all", async () => {
+    const main = await runMain(`module Main
+
+exception Boom(message: String)
+export let make(): Exn = Boom("built here")
+export let roundTrip(r: Result(Int, Exn)): Result(Int, Exn) = attempt r.orThrow^()
+`);
+    const made = (main["make"] as () => Error)();
+    const back = (main["roundTrip"] as (r: unknown) => { tag: string; error: Error })(
+      { tag: "Err", error: made },
+    );
+    expect(back.tag).toBe("Err");
+    expect(back.error).toBe(made);
+    expect(back.error.stack).toBe(made.stack);
+  });
+
+  /**
+   * The thunk runs only for `None`. A thunk that throws a fault is still pure
+   * and cannot fail (Exceptions §3), so it is accepted, and the fault shows
+   * exactly when the thunk ran.
+   */
+  test("Option.orThrow builds its exception only for None", async () => {
+    const main = await runMain(`module Main
+
+export let lazyFailure(o: Option(Int)): Int = o.orThrow^(() => throw(IndexFault(0, 0)))
+`);
+    const lazyFailure = main["lazyFailure"] as (o: unknown) => number;
+    expect(lazyFailure({ tag: "Some", value: 3 })).toBe(3);
+    expect(() => lazyFailure({ tag: "None" })).toThrow(expect.objectContaining({ name: "IndexFault" }));
+  });
+
+  test("a fault an Err holds passes a catch-all, as every fault does", async () => {
+    const main = await runMain(`module Main
+
+export let makeFault(): Exn = IndexFault(1, 2)
+export let guarded(r: Result(Int, Exn)): Int =
+    try
+        r.orThrow^()
+    catch
+        _ => -1
+`);
+    const guarded = main["guarded"] as (r: unknown) => number;
+    const fault = (main["makeFault"] as () => Error)();
+    expect(guarded({ tag: "Ok", value: 5 })).toBe(5);
+    expect(() => guarded({ tag: "Err", error: fault })).toThrow(fault);
+  });
+
+  test("every call wears `^`, and the mark is checked like any call's", () => {
+    expect(messages(
+      "exception Boom\n" +
+        "let a(o: Option(Int)): Int = Option.orThrow(o, () => Boom)\n" +
+        "let b(o: Option(Int)): Int = Option.orThrow!(o, () => Boom)\n" +
+        "let c(r: Result(Int, Exn)): Int = r.orThrow()\n",
+    )).toEqual([
+      "this call may fail, so `orThrow` wants `^`, not no mark",
+      "this call is pure, so `orThrow` wants `^`, not `!`",
+      "this call may fail, so `.orThrow` wants `^`, not no mark",
+    ]);
+  });
+
+  /** The thunk is `() -> Exn`: building the exception is pure and cannot fail. */
+  test("a thunk that may fail is refused at the thunk", () => {
+    expect(messages(
+      "exception Boom\n" +
+        "let m(o: Option(Int)) = Option.orThrow^(o, () => throw^(Boom))\n",
+    )).toEqual([
+      "a `->` arrow promises the function cannot fail, and this function may fail — the demand is written `->`",
+    ]);
+  });
+
+  test.each([
+    ["let held(o: Option(Int)) = o.orThrow^(() => Boom)", "Option(Int) ->^ Int"],
+    ["let held(r: Result(Int, Exn)) = r |> Result.orThrow^", "Result(Int, Exn) ->^ Int"],
+    ["let held(o: Option(Int)) = Option.orThrow?(o, () => Boom)", "Option(Int) -> Option(Int)"],
+    ["let held(r: Result(Int, Exn)) = attempt r.orThrow^()", "Result(Int, Exn) -> Result(Int, Exn)"],
+  ])("%s is %s", (line, expected) => {
+    const source = "module Main\n\nexception Boom\n" + line + "\n";
+    expect(messages("exception Boom\n" + line + "\n")).toEqual([]);
+    expect(hoveredType(source, "held")).toBe(expected);
   });
 });

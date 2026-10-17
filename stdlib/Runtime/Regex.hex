@@ -41,8 +41,9 @@ module Runtime.Regex
 // record` would leave the compiler nothing to own.
 //
 // **The arrows are the honest ones** (§3.3, `regex.md` §7). `create`, `read` and
-// `write` are `->!`: a fresh buffer's identity is observable through the other
-// two, a write to one and a read of the other telling two buffers apart.
+// `write` are `->~`, impure and unable to fail: a fresh buffer's identity is
+// observable through the other two, a write to one and a read of the other
+// telling two buffers apart, and none of them throws anything but a fault.
 // `length` is `->`, because a buffer's size is fixed at creation and no row
 // changes it, so that read is a read of a value.
 //
@@ -55,13 +56,13 @@ extern from "hex:intrinsic"
     // A fresh buffer of `size` slots, every one holding `fill`. The fill is
     // required: there is no hole to read back, so every index of a buffer this
     // row answered is a value from the moment it exists.
-    fun bufferCreate as create(size: Int, fill: a) ->! Buffer(a)
+    fun bufferCreate as create(size: Int, fill: a) ->~ Buffer(a)
 
     // The slot at `index`, zero-based.
-    fun bufferRead as read(buffer: Buffer(a), index: Int) ->! a
+    fun bufferRead as read(buffer: Buffer(a), index: Int) ->~ a
 
     // Stores `value` at `index`, zero-based.
-    fun bufferWrite as write(buffer: Buffer(a), index: Int, value: a) ->! Unit
+    fun bufferWrite as write(buffer: Buffer(a), index: Int, value: a) ->~ Unit
 
     // The slot count the buffer was created with.
     fun bufferLength as length(buffer: Buffer(a)) -> Int
