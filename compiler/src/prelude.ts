@@ -308,6 +308,7 @@ export const PRELUDE_MODULES: readonly PreludeModule[] = [
   "JsConversionReason",
   "JsValue",
   "JsError",
+  "Exn",
   "Debug",
 ].map((name) => ({ name, source: STDLIB_SOURCES[name]! }));
 
@@ -405,4 +406,8 @@ export const PRIMITIVE_COMPANION_MODULES: ReadonlyMap<string, string> = new Map(
   ["Nat", "Nat"],
   ["Float", "Float"],
   ["String", "String"],
+  // `Exn` (#1159): a prelude type constant, and since `Show<Exn>` the sixth
+  // primitive with a companion. `Exn.hex` is seated after `JsError.hex`, whose
+  // kept reads it describes a foreign throw with.
+  ["Exn", "Exn"],
 ]);

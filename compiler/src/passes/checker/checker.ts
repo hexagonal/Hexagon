@@ -3132,9 +3132,9 @@ function primitive(name: Typed.PrimitiveName): Constructor {
  *
  * Read off `PRIMITIVE_COMPANION_MODULES` rather than re-listed, so the orphan
  * rule's home for a primitive and the prelude's injection table cannot drift
- * apart. `Unit` and `Exn` are absent from both, and §5.3 says why for `Unit`: it
- * is the empty tuple, covered by the structural instances, with no home and none
- * needed.
+ * apart. `Unit` is absent from both, and §5.3 says why: it is the empty tuple,
+ * covered by the structural instances, with no home and none needed. `Exn`
+ * joined with `Show<Exn>` (#1159).
  */
 const PRIMITIVE_COMPANION_HOMES: ReadonlySet<string> = new Set(
   PRIMITIVE_COMPANION_MODULES.values(),
@@ -3294,6 +3294,9 @@ const PRIMITIVE_COMPANIONS: ReadonlyMap<string, string> = new Map([
   ["Nat", "primitive:Nat"],
   ["Float", "primitive:Float"],
   ["String", "primitive:String"],
+  // `Exn` (#1159): `e.stack()` is `Exn.stack(e)`, and `Exn.hex` is the home
+  // `honor Show<Exn>` is read from.
+  ["Exn", "primitive:Exn"],
 ]);
 
 /**
@@ -12271,9 +12274,19 @@ class Checker {
           ? this.#normalizeRecord(inferredReceiver)
           : inferredReceiver;
         if (receiver.kind === "Constructor" && receiver.name === "Exn") {
+          // A field read on an `Exn` is refused, and where the name is one of
+          // its operations — `Show`'s member, the one constraint `Exn` honors,
+          // or an export of its companion `Exn.hex` — the report says to call
+          // it (#1159, Exceptions §3).
+          const field = expression.field.text;
+          const operation = field === "show" ||
+            this.#companionOperations.get(PRIMITIVE_COMPANIONS.get("Exn")!)?.has(field) === true;
           type = this.#unsupported(
             expression.span,
-            "exceptions are inspected with `try`/`catch`",
+            operation
+              ? `exceptions are inspected with \`try\`/\`catch\`; \`${field}\` is an operation, ` +
+                `so call it: \`${receiverSpelling(expression.receiver)}.${field}()\``
+              : "exceptions are inspected with `try`/`catch`",
           );
           break;
         }

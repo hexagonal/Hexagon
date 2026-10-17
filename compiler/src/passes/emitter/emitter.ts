@@ -8157,6 +8157,19 @@ class JavaScriptEmitter {
       // primitive that Constraints §6.1 licenses — the same string whether the
       // instance is wired or `stdlib/BigInt.hex`'s source (#344).
       const shown = primitiveInstance(part.evidence);
+      // `Exn` is the one primitive whose `show` is no table entry (#1159): its
+      // instance reads a foreign throw with the kept guarded reads, where
+      // `String(e)` would run the value's own `toString`. It is called.
+      if (shown === "Exn") {
+        return this.#emitMemberCall(
+          part.evidence,
+          "Show",
+          "show",
+          [value],
+          part.span,
+          evidenceNames,
+        );
+      }
       if (shown !== undefined) {
         if (shown === "String") {
           return this.#emitOperand(
@@ -9422,6 +9435,13 @@ class JavaScriptEmitter {
       );
     if (type.kind === "Primitive") {
       if (type.name === "String") return value;
+      // A field, element or component of type `Exn` shows through `Exn.hex`'s
+      // instance, never `String(e)`, for the reason `#emitString` gives (#1159).
+      if (type.name === "Exn") {
+        const evidence: Core.Evidence = { kind: "Primitive", instance: "Exn" };
+        const dictionary = this.#emitEvidence(evidence, "Show", this.#module.span, evidenceNames);
+        return `${dictionary}.show(${value})`;
+      }
       return `${this.#spell("String")}(${value})`;
     }
     if (type.kind === "Variable") {
@@ -11738,11 +11758,31 @@ class JavaScriptEmitter {
       case "jsErrorReadStack":
         return `__a => ${this.#useHelper("jsErrorRead")}(__a, "stack")`;
       // §7's safe rendering, asked only of a value `kind` has already placed
-      // outside `Object` and `Function`. `String(value)` is the stringification
-      // that survives a `Symbol`, where interpolation would throw, and it is the
-      // identity on a string.
+      // outside `Object`, `Array` and `Function`. `String(value)` is the
+      // stringification that survives a `Symbol`, where interpolation would
+      // throw, and it is the identity on a string.
       case "jsErrorRender":
         return `__a => ${this.#spell("String")}(__a)`;
+      // `Exn.hex`'s two rows (#1159). The `.name` read is the same kept read as
+      // `JsError`'s two, through the same helper; it is keyed in `Exn.hex`
+      // alone, as `.message` and `.stack` are in `JsError.hex` alone, because
+      // each module's copy of the helper keeps its own table, and a property
+      // kept by two tables could be read twice.
+      case "jsErrorReadName":
+        return `__a => ${this.#useHelper("jsErrorRead")}(__a, "name")`;
+      // An `Exn` as the JavaScript value it is (Exceptions §7.1): every throwable
+      // is one. The one thing it does is undo the virtual wrapping (§6.2), so a
+      // materialised `JsError(v)` is seen as `v`, as a `JsError(e)` catch arm
+      // sees it. The test is that arm's own (§7.4) — the brand, then the name,
+      // then the payload — but each read is the kept guarded one, so a hostile
+      // `$hex` getter or a revoked proxy can neither make the view fail nor
+      // answer twice. Only an object or a function bears properties to read.
+      case "exnView": {
+        const read = this.#useHelper("jsErrorRead");
+        return '__a => __a !== null && (typeof __a === "object" || typeof __a === "function") && ' +
+          `${read}(__a, "$hex") === "Hex.JsError" && ${read}(__a, "name") === "JsError" ` +
+          `? ${read}(__a, "error") : __a`;
+      }
       // `stdlib/Runtime/Regex.hex`'s four (#927, `spec/intrinsics.md` §3.3,
       // `regex.md` §7). A `Buffer(a)` **is** a plain JavaScript array: zero-based,
       // fill required, and the four operations are the four things an array does.
