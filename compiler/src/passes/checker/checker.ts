@@ -1167,10 +1167,6 @@ class LinkedColours {
   moved(from: Variable, to: Variable): void {
     if (this.#representatives.has(from)) this.#representatives.add(to);
   }
-  /** A colour that is no callback's from here on (`Checker.#endHolds`). */
-  release(colour: Variable): void {
-    this.#representatives.delete(colour);
-  }
 }
 
 /**
@@ -4122,10 +4118,19 @@ class Checker {
   readonly #writtenCallbackColours: Variable[] = [];
   /**
    * The colours a value's own colour took in (`#takeIn`): a lambda's written
-   * callback colour among them, where no generalization reaches it, is that
-   * value's from the close of the lambda (`#endHolds`, Effects §2.6, §3.4).
+   * callback colour among them, where no generalization reaches it, grows as
+   * that value's colour does from the close of the lambda (`#endHolds`,
+   * Effects §2.6, §3.4).
    */
   readonly #takenInByValues = new WeakSet<Variable>();
+  /**
+   * Written callback colours whose hold against growing has ended
+   * (`#endHolds`): still a callback's in every other way (a dependency the
+   * defaulting never touches, what the lambda's own calls are checked
+   * against), but a join that meets one binds it, as one meeting a value's own
+   * colour does, rather than tying or rounding up.
+   */
+  readonly #grownCallbacks = new WeakSet<Variable>();
   /**
    * A colour left open in the type of a binding the text decides: that
    * value's own, one colour for every use of it (`#settleSource`). Like a
@@ -20772,16 +20777,16 @@ class Checker {
   }
 
   /**
-   * **A written callback colour a value took in is that value's** *(Effects
+   * **A written callback colour a value took in grows as the value's** *(Effects
    * §2.6, §3.4, #1249)*. A lambda's own written callback colour is held while
    * its body is checked: the body never decides it. Where the lambda's binding
    * generalizes it, each use meets an instance. Where none reaches it because
    * a value's own colour took it in (`r!(g)`, with `r` a value left open that
-   * an enclosing body made), no signature will ever quantify it, so from the
-   * lambda's close it is that value's colour: no callback's, and grown as the
-   * value's colour grows (rule 3), so two callbacks the lambda is handed in
-   * turn stay two colours, as they would with `g` untyped. Held, it could
-   * only tie them or round up, by line order.
+   * an enclosing body made), its hold against growing ends at the lambda's
+   * close: a join that meets it binds it, rule 3's most general answer, so two
+   * callbacks the lambda is handed in turn stay two colours. It stays a
+   * callback's colour in every other way: a dependency the defaulting never
+   * touches, which the lambda's own calls are checked against.
    *
    * Only where a body encloses the lambda: a module-level value's colour has
    * no body to decide it (#1283). And only a colour that is the lambda's
@@ -20795,9 +20800,7 @@ class Checker {
       const own = this.#prune(colour);
       if (own.kind !== "Variable" || kept.has(own.id) || own.level < outermost.level) continue;
       if (!this.#takenInByValues.has(own) || this.#sharedDependency(own, mine)) continue;
-      this.#linkedColours.release(own);
-      this.#faceColours.delete(own);
-      this.#valueColours.add(own);
+      this.#grownCallbacks.add(own);
     }
   }
 
@@ -20824,7 +20827,7 @@ class Checker {
    * constraint seat decides. Such a colour keeps its hold for that one's sake.
    * No route makes one today, since every use of a written callback inside its
    * body re-opens it (Effects §2.6), so nothing binds it bare; this keeps
-   * `#endHolds` from releasing another's colour if one ever does.
+   * `#endHolds` from ending another's hold if one ever does.
    */
   #sharedDependency(colour: Variable, mine: readonly Variable[]): boolean {
     return this.#waitingColours.has(colour) || this.#seatHeld.has(colour) || this.#undecided(colour) ||
@@ -27282,9 +27285,9 @@ class Checker {
       return;
     }
     // One side holds all of the other's parts and more, which says only that
-    // the more is at most what they share: a slack they share takes it,
-    // rebound to a fresh slack joined with it (Effects §3.4, rule 4, as rule 3
-    // rebinds a variable).
+    // the more is at most what they share: a slack they share, being room,
+    // takes it, rebound to a fresh slack joined with it, a use's before a
+    // value's (Effects §3.4, rule 4).
     if (onlyLeft.length === 0 || onlyRight.length === 0) {
       const slack = pick(leftParts.filter((part) => rightParts.includes(part)));
       if (slack !== undefined) {
@@ -28311,6 +28314,7 @@ class Checker {
       if (owner !== undefined) this.#pinnedVars.set(type.id, owner);
       if (this.#faceColours.has(variable)) this.#faceColours.add(type);
       if (this.#takenInByValues.has(variable)) this.#takenInByValues.add(type);
+      if (this.#grownCallbacks.has(variable)) this.#grownCallbacks.add(type);
       // So does an opening's floor in error, and a value in error's meeting (#1223).
       if (this.#errorFloors.has(variable)) this.#errorFloors.add(type);
       if (this.#erroredTypes.has(variable)) this.#erroredTypes.add(type);
@@ -28503,7 +28507,7 @@ class Checker {
   /**
    * What a value's own colour takes in is the value's (#1170): its slacks are
    * the value's room, and every other part is marked, so that a written
-   * callback colour among them, where no generalization reaches it, becomes
+   * callback colour among them, where no generalization reaches it, grows as
    * the value's once the lambda that wrote it closes (`#endHolds`).
    */
   #takeIn(slacks: readonly Variable[], real: readonly Variable[]): void {
@@ -28523,10 +28527,12 @@ class Checker {
     const rest = join.parts.filter((part) => part !== variable);
     const slacks = rest.filter((part) => this.#openedColours.has(part));
     const real = rest.filter((part) => !this.#openedColours.has(part));
-    const held = (!defining && this.#heldDependency(variable)) || this.#faceColours.has(variable) ||
-      this.#seatHeld.has(variable);
+    // A written callback colour a value took in grows as the value's does (`#endHolds`).
+    const grows = this.#grownCallbacks.has(variable);
+    const held = !grows && ((!defining && this.#heldDependency(variable)) || this.#faceColours.has(variable) ||
+      this.#seatHeld.has(variable));
     // What a value's colour takes in, or a slack of the value's, is the value's.
-    const own = !held && (this.#valueColours.has(variable) || this.#valueSlacks.has(variable));
+    const own = !held && (this.#valueColours.has(variable) || this.#valueSlacks.has(variable) || grows);
     if (held || join.parts.includes(variable)) {
       if (real.length === 0) {
         for (const slack of slacks) this.#unify(slack, variable, span);
