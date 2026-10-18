@@ -154,6 +154,21 @@ export let isNan(value: Float): Bool = value == nan
 export let isFinite(value: Float): Bool =
     value != infinity and value != -infinity and not isNan(value)
 
+// The five roundings below fail on one set of values, whatever their rule:
+// every float of magnitude 2^52 or more is already whole, so no rule carries a
+// value across the safe range's edge (Primitive Types §3). `NaN` sorts above
+// every number in `Ord<Float>`, so the upper comparison refuses it.
+(** Whether every rounding of `value` is an `Int`: whether `floor`, `ceil`,
+    `trunc`, `round` and `roundAway` all succeed on it. That is exactly when
+    `value` lies within the safe range, from `-(2^53 - 1)` to `2^53 - 1`;
+    `NaN` and both infinities lie outside it. It asks about range, not
+    wholeness: `roundsToInt(2.5)` is `True`, though `2.5` is not an `Int`.
+
+    Test a value from outside the program with it before rounding:
+    `if x.roundsToInt() then Some(x.floor()) else None`. *)
+export let roundsToInt(value: Float): Bool =
+    value >= -9_007_199_254_740_991.0 and value <= 9_007_199_254_740_991.0
+
 // The crossing stays last: until the safe-integer predicate succeeds, the
 // rounded value remains a `Float` and no invalid value inhabits `Int`. Zero is
 // normalized separately because `Number.isSafeInteger(-0)` is true, while the
@@ -167,21 +182,23 @@ let checkedRoundedInt(message: String, value: Float): Int =
         throw(IntRangeFault(message))
 
 (** The greatest integer no greater than `value`. Throws `IntRangeFault` when
-    the result does not fit in `Int`. *)
+    the result does not fit in `Int`, which is exactly when
+    `roundsToInt(value)` is `False`. *)
 export let floor(value: Float): Int =
     let truncated = nativeTrunc(value)
     let rounded = if value < truncated then truncated - 1 else truncated
     checkedRoundedInt("Float.floor: result does not fit in Int", rounded)
 
 (** The least integer no less than `value`. Throws `IntRangeFault` when the
-    result does not fit in `Int`. *)
+    result does not fit in `Int`, which is exactly when `roundsToInt(value)`
+    is `False`. *)
 export let ceil(value: Float): Int =
     let truncated = nativeTrunc(value)
     let rounded = if value > truncated then truncated + 1 else truncated
     checkedRoundedInt("Float.ceil: result does not fit in Int", rounded)
 
 (** `value` rounded toward zero. Throws `IntRangeFault` when the result does
-    not fit in `Int`. *)
+    not fit in `Int`, which is exactly when `roundsToInt(value)` is `False`. *)
 export let trunc(value: Float): Int =
     checkedRoundedInt("Float.trunc: result does not fit in Int", nativeTrunc(value))
 
@@ -190,7 +207,7 @@ export let trunc(value: Float): Int =
     `round(-2.5) == -2`. Only exact halfway values distinguish this from
     `roundAway`. This tie rule intentionally differs from `Dec.round`, which
     rounds ties away from zero. Throws `IntRangeFault` when the result does not
-    fit in `Int`. *)
+    fit in `Int`, which is exactly when `roundsToInt(value)` is `False`. *)
 export let round(value: Float): Int =
     let truncated = nativeTrunc(value)
     let fraction = value - truncated
@@ -211,7 +228,8 @@ export let round(value: Float): Int =
     from zero: `roundAway(2.5) == 3` and `roundAway(-2.5) == -3`. The name
     describes the tie rule, not a direction for every value: for example,
     `roundAway(2.1) == 2`. Only exact halfway values distinguish this from
-    `round`. Throws `IntRangeFault` when the result does not fit in `Int`. *)
+    `round`. Throws `IntRangeFault` when the result does not fit in `Int`,
+    which is exactly when `roundsToInt(value)` is `False`. *)
 export let roundAway(value: Float): Int =
     let truncated = nativeTrunc(value)
     let fraction = value - truncated

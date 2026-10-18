@@ -754,6 +754,105 @@ describe("Primitive Types §3's checked Float-to-Int rounding exits (#919)", () 
   });
 });
 
+describe("Primitive Types §3's one edge, and `roundsToInt`, which tests it (#1160)", () => {
+  /**
+   * Every float of magnitude 2^52 or more is already whole, so the five rules
+   * cannot disagree about which values fit: each throws exactly where
+   * `roundsToInt` answers `False`. The claim is about neighbours, so it is
+   * checked on them — every float within a few steps of each edge, and of 2^52
+   * and 2^51, where halves and quarters stop existing — through the compiled
+   * companion rather than a model of it.
+   */
+  test("both edges are in, the next floats out, and NaN and the infinities out", async () => {
+    const exports = await runMain("module Main\n\n" + [
+      "export let inside: Vector(Bool) = [",
+      "    Float.roundsToInt(9_007_199_254_740_991.0), (-9_007_199_254_740_991.0).roundsToInt(),",
+      "    Float.roundsToInt(0.0), Float.roundsToInt(-0.0), Float.roundsToInt(2.5), (-2.5).roundsToInt()]",
+      "export let outside: Vector(Bool) = [",
+      "    Float.roundsToInt(9_007_199_254_740_992.0), (-9_007_199_254_740_992.0).roundsToInt(),",
+      "    Float.roundsToInt(Float.nan), Float.roundsToInt(Float.infinity),",
+      "    (-Float.infinity).roundsToInt(), Float.roundsToInt(1e300)]",
+      "",
+    ].join("\n"));
+
+    expect([...(exports["inside"] as Iterable<unknown>)]).toEqual(Array(6).fill(true));
+    expect([...(exports["outside"] as Iterable<unknown>)]).toEqual(Array(6).fill(false));
+  });
+
+  test("each of the five throws exactly when `roundsToInt` is `False`, at every edge", async () => {
+    const exports = await runMain("module Main\n\n" + [
+      "export fun fits(value: Float): Bool = value.roundsToInt()",
+      "export fun floorAt(value: Float): Int = value.floor()",
+      "export fun ceilAt(value: Float): Int = value.ceil()",
+      "export fun truncAt(value: Float): Int = value.trunc()",
+      "export fun roundAt(value: Float): Int = value.round()",
+      "export fun roundAwayAt(value: Float): Int = value.roundAway()",
+      "",
+    ].join("\n"));
+    const view = new DataView(new ArrayBuffer(8));
+    /** The float `steps` representable values further from zero than `value`. */
+    const outward = (value: number, steps: number): number => {
+      view.setFloat64(0, value);
+      view.setBigUint64(0, view.getBigUint64(0) + BigInt(steps));
+      return view.getFloat64(0);
+    };
+    const values = [NaN, Infinity, -Infinity, Number.MAX_VALUE, -Number.MAX_VALUE, 0, -0, 0.5, -2.5];
+    for (const edge of [2 ** 53 - 1, 2 ** 53, 2 ** 52, 2 ** 52 - 0.5, 2 ** 51 + 0.5]) {
+      for (const sign of [1, -1]) {
+        for (let steps = -16; steps <= 16; steps++) values.push(outward(sign * edge, steps));
+      }
+    }
+    const fits = exports["fits"] as (value: number) => boolean;
+    const disagreements: string[] = [];
+    for (const rule of ["floorAt", "ceilAt", "truncAt", "roundAt", "roundAwayAt"]) {
+      const call = exports[rule] as (value: number) => number;
+      for (const value of values) {
+        let threw = false;
+        try {
+          call(value);
+        } catch {
+          threw = true;
+        }
+        if (threw === fits(value)) disagreements.push(`${rule}(${String(value)})`);
+      }
+    }
+
+    expect(disagreements).toEqual([]);
+    // Both answers occur, on both sides of zero, so the edges were straddled.
+    expect([2 ** 53 - 1, -(2 ** 53 - 1)].map(fits)).toEqual([true, true]);
+    expect([2 ** 53, -(2 ** 53)].map(fits)).toEqual([false, false]);
+  });
+
+  test("the outside-data check reads as the spec writes it", async () => {
+    const exports = await runMain("module Main\n\n" + [
+      "let checked(x: Float): Option(Int) = if x.roundsToInt() then Some(x.floor()) else None",
+      "export let out: String = show(checked(3.7)) ++ show(checked(-3.7))",
+      "    ++ show(checked(Float.nan)) ++ show(checked(9_007_199_254_740_992.0))",
+      "",
+    ].join("\n"));
+
+    expect(exports["out"]).toBe("Some(3)Some(-4)NoneNone");
+  });
+
+  test("it cannot fail, so it takes no mark and no reading, and it has no bare spelling", () => {
+    expect(projectDiagnostics("module Main\n\n" + "export let f(x: Float): Bool = Float.roundsToInt^(x)\n"))
+      .toEqual(["this call cannot fail, so `roundsToInt` wants no mark, not `^`"]);
+    expect(projectDiagnostics(
+      "module Main\n\n" + "export let f(x: Float): Option(Bool) = Float.roundsToInt?(x)\n",
+    )).toEqual(["this call cannot fail, so `roundsToInt` wants no `?`"]);
+    expect(projectDiagnostics("module Main\n\n" + "export let f(x: Float): Bool = roundsToInt(x)\n"))
+      .toEqual(["no bare `roundsToInt`; write `x.roundsToInt()` or `Float.roundsToInt(x)`"]);
+  });
+
+  test("the public declaration returns boolean and promises no throw", () => {
+    const declarations = floatDeclarations("export let fits: Bool = Float.roundsToInt(0.5)\n");
+    const seat = declarations.indexOf("export declare const roundsToInt: (value: number) => boolean;");
+
+    expect(seat).toBeGreaterThan(-1);
+    expect(declarations.slice(declarations.lastIndexOf("/**", seat), seat)).not.toContain("@throws");
+  });
+});
+
 describe("the companion's own emitted shape", () => {
   /**
    * The door bindings lower to bare arrows with nothing behind them, which is
