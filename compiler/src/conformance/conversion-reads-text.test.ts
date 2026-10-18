@@ -208,4 +208,14 @@ describe("a knot member's unwritten result is one only inference gave", () => {
     expect(refusals("fun\n" + a + b)).toHaveLength(1);
     expect(refusals("fun\n" + b + a)).toEqual([report]);
   });
+
+  test("a parameter its declaration leaves unwritten is no seat to widen into, in either member order", () => {
+    const a = "    a(n: Int): Float =\n        c(n)\n";
+    const c = (parameter: string): string => `    c(${parameter}): Float =\n        let y = a(0)\n        x\n`;
+    expect(refusals("fun\n" + a + c("x"))).toHaveLength(1);
+    expect(refusals("fun\n" + c("x") + a)).toEqual([notWidenedInto("n", "`c`'s parameter", "Float", "c", "Int")]);
+    // Written, the parameter is a seat the text decides, and `n` widens into it.
+    expect(refusals("fun\n" + a + c("x: Float"))).toEqual([]);
+    expect(refusals("fun\n" + c("x: Float") + a)).toEqual([]);
+  });
 });

@@ -12308,18 +12308,28 @@ class Checker {
             result: this.#fresh(level, false),
           })
           : this.#inferExpr(expression.callee, level);
-        // A callee whose type the text does not decide — an untyped parameter,
-        // a member of a knot still open (Method Syntax §3.1) — has parameter
-        // types inference gathered from its uses: a seat there supplies no home
-        // and converts nothing (#1195), so no line checked earlier chooses how
-        // an argument is read. Its arguments meet it by unification.
-        const plainSeats = !calleeIsLambda && !this.#typeDecided(expression.callee);
-        if (plainSeats) {
+        // A callee whose type the text does not decide — an untyped parameter
+        // (Method Syntax §3.1) — has parameter types inference gathered from its
+        // uses, and so does a member of a knot still open at each parameter its
+        // declaration leaves unwritten: a seat there supplies no home and
+        // converts nothing (#1195), so no line checked earlier chooses how an
+        // argument is read. Its arguments meet it by unification.
+        const calleeDecided = calleeIsLambda || this.#typeDecided(expression.callee);
+        const openCallee = expression.callee.kind === "Name" ? this.#openMember(expression.callee.symbol) : undefined;
+        const plainSeat = (index: number): boolean => {
+          if (calleeIsLambda) return false;
+          if (!calleeDecided) return true;
+          if (openCallee === undefined) return false;
+          const annotation = openCallee.value.parameters[index]?.annotation;
+          return annotation === undefined || !annotationWhole(annotation);
+        };
+        {
           const named = this.#spelledExpression(expression.callee);
           const plain = named === undefined
             ? { seat: "this parameter", owner: "the callee" }
             : { seat: `\`${named}\`'s parameter`, owner: `\`${named}\`` };
-          for (const argument of expression.arguments) {
+          for (const [index, argument] of expression.arguments.entries()) {
+            if (!plainSeat(index)) continue;
             this.#plainSeatValues.set(argument, plain);
             const lambda = deferredLambda(argument);
             if (lambda !== undefined) {
@@ -12394,7 +12404,7 @@ class Checker {
             if (deferredLambdas.has(index)) continue;
             arguments_[index] = pass === undefined
               ? this.#inferExpr(argument, level)
-              : pass.argument(index, plainSeats ? undefined : handed?.[index] ?? calleeParameters?.[index]);
+              : pass.argument(index, plainSeat(index) ? undefined : handed?.[index] ?? calleeParameters?.[index]);
           }
           // An expectation has to *be* something by the time it is read, so
           // the whole first pass is checked before the second elaborates: a
