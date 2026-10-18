@@ -541,9 +541,12 @@ describe("the declared-heads refusal", () => {
   /**
    * And it keeps it *after* the refusal has fired, which is why the heads stay
    * live until the component's end rather than being errored where the collision
-   * reported. `r1`/`r2` collide; `r3`'s `let z: String = x` then forces the type
-   * `r2`'s head still stands in, and `String` is a demand this body really makes
-   * — the fence is on defaulting's proposal, never on a body's.
+   * reported. `r1`/`r2` collide at `r1`'s call `r2(x, n - 1)`, which meets the
+   * head `r2`'s text wrote where the knot opened (#1279), and the collision
+   * errors that one; `r3`'s `let z: String = x` then forces the type its call
+   * `r1(x, n - 1)` hands to `r1`'s head `a`, which still stands, and `String`
+   * is a demand this body really makes — the fence is on defaulting's
+   * proposal, never on a body's.
    *
    * The two reports are what separates this from erroring the heads at the
    * collision, which silences the second and leaves the author repairing the
@@ -566,7 +569,7 @@ describe("the declared-heads refusal", () => {
         "declare one head on the `fun` block that both members write, drop the members' own " +
         "variable annotations and let inference link the knot, or move the contract to a " +
         "non-recursive wrapper",
-      "`b` is a declared type variable, but the body requires `String`; change the " +
+      "`a` is a declared type variable, but the body requires `String`; change the " +
         "annotation to `String`, or remove it to let the type be inferred",
     ]);
   });
