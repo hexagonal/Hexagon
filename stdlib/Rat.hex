@@ -284,7 +284,7 @@ export let toFloat(value: Rat): Float =
 // (`spec/numeric-parsing.md` §4). The prelude's parsers key the formatter, and
 // this module, ordinary source that the intrinsic door does not reach, writes
 // the same rule in Hexagon: past 40 code points the first 37 and `…`, and a
-// quote, a backslash or a control character escaped.
+// quote, a backslash or a control character (C0, DEL or C1) escaped.
 let hexDigit(value: Int): String = "0123456789abcdef".dropFirstN(value).dropLastN(15 - value)
 
 let escaped(point: String): String =
@@ -292,13 +292,19 @@ let escaped(point: String): String =
     else if point == "\\" then "\\\\"
     else match String.toCodepoint(point)
         Some(code) =>
-            if code < 32 or code == 127 then "\\u00" ++ hexDigit(code.div(16)) ++ hexDigit(code.mod(16))
+            if code < 32 or (code >= 127 and code <= 159) then "\\u00" ++ hexDigit(code.div(16)) ++ hexDigit(code.mod(16))
             else point
         None => point
 
 let quoted(text: String): String =
-    let count = text.length()
-    let shown = if count > 40 then text.dropLastN(count - 37) ++ "\u{2026}" else text
+    // One pass that keeps only the first 37 code points, so a long text costs a
+    // count and never a copy.
+    var count = 0
+    var head = ""
+    for point in text
+        head := if count < 37 then head ++ point else head
+        count := count + 1
+    let shown = if count > 40 then head ++ "\u{2026}" else text
     var written = "\""
     for point in shown
         written := written ++ escaped(point)

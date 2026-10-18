@@ -156,6 +156,7 @@ describe("NumberFormatError and its message", () => {
     expect(m.int!(forty)).toBe(`"${forty}" is not an Int`);
     expect(m.int!("a\"b\\c")).toBe("\"a\\\"b\\\\c\" is not an Int");
     expect(m.int!("1\n2\t")).toBe("\"1\\u000a2\\u0009\" is not an Int");
+    expect(m.int!("\u0085\u009f\u00a0")).toBe("\"\\u0085\\u009f\u00a0\" is not an Int");
     const emoji = "\u{1F600}".repeat(41);
     expect(m.int!(emoji)).toBe(`"${"\u{1F600}".repeat(37)}…" is not an Int`);
   });
@@ -166,7 +167,7 @@ describe("NumberFormatError and its message", () => {
    */
   test("Rat's message quotes, cuts and escapes exactly as the prelude parsers' do", async () => {
     const m = await messages();
-    const texts = ["x".repeat(41), "y".repeat(40), "a\"b\\c", "1\n2\t\u007f", "\u{1F600}".repeat(41), "1/0"];
+    const texts = ["x".repeat(41), "y".repeat(40), "a\"b\\c", "1\n2\t\u007f", "\u0085\u009f\u00a0", "\u{1F600}".repeat(41), "1/0"];
     for (const text of texts) {
       expect(m.rat!(text), JSON.stringify(text)).toBe(m.big!(text).replace(/ is not a BigInt$/u, " is not a Rat"));
     }
@@ -244,7 +245,12 @@ describe("a reading's Option widens as Some(…) would (Effects §3.1, n5)", () 
       "export let bound: Option(Float) = Int.parse?(\"3\")\n" +
       "export let grouped(s: String): Option(BigInt) = (Int.parse?(s))\n" +
       "export let branched(s: String): Option(BigInt) = if s == \"\" then None else Int.parse?(s)\n" +
-      "export let fromNat(s: String): Option(Int) = Nat.parse?(s)\n";
+      "export let fromNat(s: String): Option(Int) = Nat.parse?(s)\n" +
+      "export let piped(s: String): Option(BigInt) = s |> Int.parse?\n" +
+      "export let assigned(s: String): Option(BigInt) =\n" +
+      "    var held: Option(BigInt) = None\n" +
+      "    held := Int.parse?(s)\n" +
+      "    held\n";
     expect(projectDiagnostics(source)).toEqual([]);
     expect(hoveredType(source, "direct")).toBe("String -> Option(BigInt)");
     const main = await runMain(source);
@@ -255,6 +261,8 @@ describe("a reading's Option widens as Some(…) would (Effects §3.1, n5)", () 
     expect((main["grouped"] as (text: string) => Read<unknown>)("7")).toEqual(some(7n));
     expect((main["branched"] as (text: string) => Read<unknown>)("8")).toEqual(some(8n));
     expect((main["fromNat"] as (text: string) => Read<unknown>)("9")).toEqual(some(9));
+    expect((main["piped"] as (text: string) => Read<unknown>)("6")).toEqual(some(6n));
+    expect((main["assigned"] as (text: string) => Read<unknown>)("5")).toEqual(some(5n));
   });
 
   /** The widening is the call's result's, inside `Some`, never the `Option`'s. */
@@ -267,5 +275,25 @@ describe("a reading's Option widens as Some(…) would (Effects §3.1, n5)", () 
       .toEqual(["type mismatch: expected String, found Int"]);
     expect(projectDiagnostics("module Main\n\nlet narrow(s: String): Option(Int) = BigInt.parse?(s)\n"))
       .toEqual(["type mismatch: expected Int, found BigInt"]);
+  });
+
+  /**
+   * Only where `Some(…)` around the call would widen: a join's sibling type is
+   * no seat's, so a reading widens nothing there, exactly as `Some(…)` doesn't,
+   * in either order.
+   */
+  test("a join widens neither a reading nor Some(…)", () => {
+    const joins = [
+      "let a(c: Bool, s: String) = if c then Some(1n) else READ\n",
+      "let b(c: Bool, s: String) = if c then READ else Some(1n)\n",
+      "let v(s: String) = [Some(1n), READ]\n",
+      "let w(s: String) = [BigInt.parse?(s), READ]\n",
+    ];
+    for (const join of joins) {
+      const read = projectDiagnostics("module Main\n\n" + join.replace("READ", "Int.parse?(s)"));
+      const spelled = projectDiagnostics("module Main\n\n" + join.replace("READ", "Some(Int.parse^(s))"));
+      expect(read.length, join).toBe(1);
+      expect(read, join).toEqual(spelled);
+    }
   });
 });

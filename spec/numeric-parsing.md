@@ -72,7 +72,7 @@ exception NumberFormatError(message: String)
   - `"12x" is not an Int`, `"-5" is not a Nat`, `".5" is not a Float`, `"1/0" is not a Rat`;
   - for an integer outside `Int`'s or `Nat`'s range, `"9007199254740992" is out of range for Int`.
   - The quoted text is cut short: past 40 code points it is the first 37 and `…`, so untrusted text cannot make a message as long as itself.
-  - It is escaped where the quotation would be ambiguous: a `"` and a `\` take a backslash, and a control character is written `\u` and four hex digits.
+  - It is escaped where the quotation would be ambiguous: a `"` and a `\` take a backslash, and a control character (U+0000–U+001F, U+007F–U+009F) is written `\u` and four hex digits.
 - **What a caught one says**: `show` gives `NumberFormatError: "12x" is not an Int` (Exceptions §8.6).
 
 ## 5. The round-trip law
@@ -84,13 +84,13 @@ exception NumberFormatError(message: String)
 
 ## 6. A reading's `Option` widens
 
-Effects §3.1 owns this; it is recorded here because parsing is where it is met first. A reading is `Some` of its call. So where it meets a written `Option(T)`, the call's result widens into `T` exactly as `Some(…)` written around the call would (Functions §4.3):
+Effects §3.1 owns this; it is recorded here because parsing is where it is met first. A reading is `Some` of its call. So the call's result widens into the `T` of an `Option(T)` exactly where `Some(…)` written around the call would widen it (Functions §4.3): where a seat's own type reaches it — an annotation, an ascription, a parameter's type, a `var`'s type — directly or through a forwarding form, a pipe stage's reading included:
 
 ```hexagon
 let id(text: String): Option(BigInt) = Int.parse?(text)      -- an Int, widened inside Some
 ```
 
-The widening is of the call's result, inside `Some`; the `Option` is never converted. Only the numeric widenings apply (Numeric Literals §5.1), and only toward a type the program writes.
+The widening is of the call's result, inside `Some`; the `Option` is never converted. Only the numeric widenings apply (Numeric Literals §5.1). A join widens nothing inside an `Option`: `if c then Some(1n) else Int.parse?(s)` is refused, as `if c then Some(1n) else Some(Int.parse^(s))` is, because a sibling's type is no seat's.
 
 ## 7. Cost, and `Dec`'s guard
 

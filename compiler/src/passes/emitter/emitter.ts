@@ -14225,7 +14225,7 @@ function renderHelper(
     // The exception's message: the text quoted, cut to 37 code points and `…`
     // when it is longer than 40, so untrusted text cannot make a message as
     // long as itself, and escaped where a quote, a backslash, or a control
-    // character would make the quotation ambiguous.
+    // character (C0, DEL or C1) would make the quotation ambiguous.
     case "numberFormatMessage":
       return [
         `function ${name}(__text, __phrase) {`,
@@ -14239,7 +14239,8 @@ function renderHelper(
         "  for (const __point of __shown) {",
         "    const __code = __point.codePointAt(0);",
         "    __quoted += __point === '\"' || __point === \"\\\\\" ? \"\\\\\" + __point",
-        '      : __code < 0x20 || __code === 0x7f ? "\\\\u" + __code.toString(16).padStart(4, "0") : __point;',
+        '      : __code < 0x20 || (__code >= 0x7f && __code <= 0x9f)',
+        '        ? "\\\\u" + __code.toString(16).padStart(4, "0") : __point;',
         "  }",
         "  return __quoted + '\" ' + __phrase;",
         "}",

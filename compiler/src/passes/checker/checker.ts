@@ -1473,6 +1473,12 @@ function faceLambdas(
  * landing sites, so a seat whose expectation cannot possibly land does not need
  * to compute one.
  */
+/** A reading (Effects §3.1): a call, or a pipe stage, read with `?` or `~?`. */
+function isReading(expression: Resolved.Expr): boolean {
+  return (expression.kind === "Call" || (expression.kind === "Binary" && expression.operator === "Pipe")) &&
+    expression.reading === true;
+}
+
 function expectationLands(expression: Resolved.Expr): boolean {
   switch (expression.kind) {
     case "Lambda":
@@ -10237,8 +10243,9 @@ class Checker {
   /**
    * A reading (Effects §3.1): its call, whose value it reads as an `Option`. An
    * expectation of `Option(a)` hands the call `a`, and the call's result meets
-   * it there (#1253 step 9c, n5). Where nothing is handed in, the seat's final
-   * check does the same (`#widenReading`).
+   * it there, as `Some`'s argument would (#1253 step 9c, n5). A reading lands
+   * a seat's written face (`#faceLands`), so the expectation is a written
+   * `Option(T)` or nothing, never a join's sibling type.
    */
   #inferReading(expression: Resolved.CallExpr | Resolved.ThrowExpr, level: number, expected?: Mono): Mono {
     const wanted = expected === undefined ? undefined : this.#prune(expected);
@@ -10258,14 +10265,16 @@ class Checker {
       });
       return ERROR;
     }
-    // A reading is `Some` of its call, so where a forwarding form hands it an
-    // `Option(T)`, its call's result meets `T` as a constructor application's
-    // argument meets the part it is handed (Functions §4.3): the same check,
-    // with the same numeric widening, recorded on the call (`#widenReading` is
-    // the other half, at a seat that hands nothing in).
+    // A reading is `Some` of its call, so where a seat's written `Option(T)`
+    // reaches it, directly or through a forwarding form, its call's result
+    // meets `T` as a constructor application's argument meets the part it is
+    // handed (Functions §4.3): the same check, with the same numeric widening,
+    // recorded on the call and put inside the reading by `#materializeExpr`.
+    // Checked once, there: widened, unified, or reported at the call, the
+    // reading is then `Option(T)`, so its seat has nothing left to report.
     if (inner !== undefined && expression.kind === "Call") {
       this.#unifyExpected(inner, value, expression, expression.span);
-      if (this.#hasNumericWidening(expression)) value = inner;
+      value = inner;
     }
     const type: Mono = { kind: "Union", union: this.#optionUnion, name: "Option", arguments: [value] };
     this.#expressionTypes.set(expression, type);
@@ -19974,9 +19983,15 @@ class Checker {
     return declared.slots.flatMap(([argument, slot]) => slot === undefined ? [] : [[argument, givenSlot(slot, given)] as const]);
   }
 
-  /** `expectationLands`, and a constructor application, which takes its expectation first (#1066). */
+  /**
+   * `expectationLands`, a constructor application, which takes its expectation
+   * first (#1066), and a reading, which is `Some` of its call and so takes it
+   * exactly where `Some(…)` around the call would (#1253 step 9c, n5): a seat's
+   * written `Option(T)` reaches it, a join's sibling type never does.
+   */
   #faceLands(expression: Resolved.Expr): boolean {
-    return expectationLands(expression) || this.#appliesDataConstructor(expression);
+    return expectationLands(expression) || this.#appliesDataConstructor(expression) ||
+      isReading(expression);
   }
 
   /**
@@ -28723,33 +28738,6 @@ class Checker {
       this.#tryPromoteDecimal(expression, actual, target, span);
   }
 
-  /**
-   * A reading at a seat (Effects §3.1; #1253 step 9c, n5): a reading is `Some`
-   * of its call, so where its `Option` meets an `Option(T)`, the call's result
-   * meets `T` exactly as `Some(…)`'s argument would, and the seat's final check
-   * elaborates the same numeric widening (Functions §4.3) — `pi?(n)` at a
-   * written `Option(BigInt)` reads an `Int` call as `Some(BigInt(…))`. The
-   * widening is recorded on the call, and `#materializeExpr` puts it inside the
-   * reading, never around the `Option`. Nothing else about a reading widens:
-   * no expectation is spent, and the `Option` itself is never converted.
-   */
-  #widenReading(
-    expected: Mono,
-    actual: Mono,
-    expression: Resolved.Expr,
-    span: Source.Span,
-    allowVariableTarget: boolean,
-  ): boolean {
-    if (expression.kind !== "Call" || expression.reading !== true) return false;
-    const seat = this.#prune(expected);
-    const read = this.#prune(actual);
-    if (seat.kind !== "Union" || seat.union !== this.#optionUnion || seat.arguments.length !== 1) return false;
-    if (read.kind !== "Union" || read.union !== this.#optionUnion || read.arguments.length !== 1) return false;
-    return this.#tryWidenInt(expression, read.arguments[0]!, seat.arguments[0]!, span, allowVariableTarget) ||
-      this.#tryWidenNat(expression, read.arguments[0]!, seat.arguments[0]!, span, allowVariableTarget) ||
-      this.#tryWidenBigInt(expression, read.arguments[0]!, seat.arguments[0]!, span, allowVariableTarget);
-  }
-
   #hasNumericWidening(expression: Resolved.Expr): boolean {
     return this.#natWidenings.has(expression) || this.#intWidenings.has(expression) ||
       this.#bigIntWidenings.has(expression) || this.#decimalPromotions.has(expression);
@@ -28903,7 +28891,6 @@ class Checker {
         allowVariableTarget,
       )
     ) return;
-    if (this.#widenReading(expected, actual, expression, span, allowVariableTarget)) return;
     // Numeric Literals §6: where the value being checked is an operation whose
     // lift **stood down**, this is the consuming seat §5.1's theorem says the
     // refusal fires at, and the note says what the lift's own refusal would
