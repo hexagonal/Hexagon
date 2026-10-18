@@ -1788,6 +1788,47 @@ describe("a following arrow a written result type spells is read like any other 
     for (const lines of [pinned, [...pinned].reverse()]) {
       expect([lines, reports(use(lines, "use(save0)"))]).toEqual([lines, [["use(save0)", PURITY]]]);
     }
+    // So does a bare call of the function taken out of the result, whether the `->!` seat comes before it or after.
+    const called = ["let (g, _) = mkL(1, k)", "g()"];
+    const seat = "let w: (() ->! Unit, Int) = mkL(1, k)";
+    for (const lines of [[seat, ...called], [...called, seat]]) {
+      expect([lines, reports(use(lines, "use(save0)"))]).toEqual([lines, [["use(save0)", PURITY]]]);
+    }
+  });
+
+  test("the other following arrows are spelled as `>->` is", () => {
+    const colours = 'extern from "./world.js"\n    export fun log(s: String) ->~ Unit\n' +
+      'let log0(): Unit = log~("x")\n' +
+      "let mkW(f: () ->~ Unit): () >~> Unit = f\n" +
+      "let mkF(f: () ->^ Unit): () >^> Unit = f\n" +
+      "let mkFW(f: () ->^ Unit): () >^>~ Unit = f\n" +
+      "let mkWF(f: () ->~ Unit): () >~>^ Unit = f\n";
+    for (const line of [
+      "let w: () ->~ Unit = mkW(k)",
+      "let w: () ->^ Unit = mkF(k)",
+      "let w: () ->! Unit = mkFW(k)",
+      "let w: () ->! Unit = mkWF(k)",
+    ]) {
+      expect([line, reports(colours + use([line], "applyPure(use)"))]).toEqual([line, []]);
+    }
+    // What the call is handed still decides the colour a bare call reads.
+    expect(reports(colours + makers + "export let go(): Unit =\n    let g = mkW(log0)\n    g()\n"))
+      .toEqual([["g()", "this call is impure, so `g` wants `~`, not no mark"]]);
+  });
+
+  test("an invariant and a contravariant argument holding a following arrow are read exactly", () => {
+    const records = "record Cell(a) = { get: () -> a, put: (a) -> Unit }\n" +
+      "record Sink(a) = { accept: (a) -> Unit }\n" +
+      "let mkCell(f: () ->! Unit): Cell(() >-> Unit) = Cell({ get = () => f, put = (g) => () })\n" +
+      "let mkSink(f: () ->! Unit): Sink(() >-> Unit) = Sink({ accept = (g) => () })\n";
+    // A `Cell` is invariant: its `->!` seat pins `k` impure, so a pure-only caller cannot take `use`.
+    expect(reports(records + use(["let w: Cell(() ->! Unit) = mkCell(k)"], "applyPure(use)")))
+      .toEqual([["applyPure(use)", FIXED_BEFORE]]);
+    // A `Sink` is contravariant: its `->` seat demands `k` pure, and its `->!` seat pins it impure.
+    expect(reports(records + use(["let w: Sink(() -> Unit) = mkSink(k)"], "use(save0)")))
+      .toEqual([["use(save0)", PURITY]]);
+    expect(reports(records + use(["let w: Sink(() ->! Unit) = mkSink(k)"], "applyPure(use)")))
+      .toEqual([["applyPure(use)", FIXED_BEFORE]]);
   });
 
   test("a bare call through such a program never touches the world, and a marked one does", async () => {
@@ -1800,7 +1841,9 @@ describe("a following arrow a written result type spells is read like any other 
       "let noop(): Unit = ()\n" + makers +
       "let use(k): Unit =\n    let w: (() ->! Unit, Int) = mkL(1, k)\n    let (g, _) = mkL(1, k)\n    g()\n" +
       "let run(k): Unit =\n    let w: (() ->! Unit, Int) = mkL(1, k)\n    let (g, _) = w\n    g!()\n" +
-      "export let bare(): Unit =\n    applyPure(use)\n    use(noop)\n" +
+      // `quiet` is handed an impure function and never calls it, so a bare call of it is accepted.
+      "let quiet(k): Unit =\n    let w: (() ->! Unit, Int) = mkL(1, k)\n    ()\n" +
+      "export let bare(): Unit =\n    applyPure(use)\n    use(noop)\n    quiet(save0)\n" +
       "export let marked(): Unit = run!(save0)\n" +
       "export let count(): Int = saveCount!()\n";
     const linked = `data:text/javascript;charset=utf-8,${encodeURIComponent(world)}`;
@@ -1931,6 +1974,13 @@ describe("an imported function's written types are read as this module's are (#1
     // A `->` seat still demands the callback pure, in either line order.
     const seats = ["    let w: (() -> Unit, Int) = Maker.mkL(p, k)", "    let x: (() ->! Unit, Int) = Maker.mkL(p, k)"];
     for (const lines of [seats, [...seats].reverse()]) {
+      expect([lines, messages("let use(p, k): Unit =\n" + lines.join("\n") + "\n    ()\n" +
+        "export let go(): Unit = use(1, save0)\n")]).toEqual([lines, [PURITY]]);
+    }
+    // So does a bare call of the function taken out of the result, the `->!` seat before it or after.
+    const called = ["    let (g, _) = Maker.mkL(p, k)", "    g()"];
+    const seat = "    let w: (() ->! Unit, Int) = Maker.mkL(p, k)";
+    for (const lines of [[seat, ...called], [...called, seat]]) {
       expect([lines, messages("let use(p, k): Unit =\n" + lines.join("\n") + "\n    ()\n" +
         "export let go(): Unit = use(1, save0)\n")]).toEqual([lines, [PURITY]]);
     }
