@@ -291,6 +291,14 @@ describe("a local function's call is decided by its own text (Method Syntax §3.
     const start = Date.now();
     expect(refusals(body("(m, c: Bool)", lines))).toEqual([]);
     expect(Date.now() - start).toBeLessThan(20_000);
+    // And inside a knot's member, where what it reads of the open members holds while the knot is open.
+    const inKnot = ["        let h0 = () => m1(0)", "        let h1 = () => m1(1)"];
+    for (let k = 2; k < 60; k += 1) inKnot.push(`        let h${k} = () => if c then h${k - 1}() else h${k - 2}()`);
+    inKnot.push("        let y: Float = h59()", "        0");
+    const knotStart = Date.now();
+    expect(refusals("fun\n    m0(c: Bool): Int =\n" + inKnot.join("\n") +
+      "\n    m1(i: Int): Int = if i > 0 then m0(True) else i\n")).toEqual([]);
+    expect(Date.now() - knotStart).toBeLessThan(20_000);
   });
 
   test("a curried local function's written inner parameter, through a `let` of its application", () => {

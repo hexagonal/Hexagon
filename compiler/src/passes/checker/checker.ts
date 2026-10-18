@@ -1429,6 +1429,16 @@ function article(name: string): string {
 }
 
 /** The lambda literal `expression` is, read through grouping (§3.1), if it is one. */
+/**
+ * A text-decides answer kept by `#typeDecided` or `#typeDecidedSymbol`: for
+ * good, or only for the knot epoch it was read in, where it read a member of a
+ * knot still open (#1195).
+ */
+interface DecidedAnswer {
+  readonly value: boolean;
+  readonly epoch?: number;
+}
+
 function deferredLambda(expression: Resolved.Expr): Resolved.LambdaExpr | undefined {
   const inner = ungrouped(expression);
   return inner.kind === "Lambda" ? inner : undefined;
@@ -5961,11 +5971,18 @@ class Checker {
   /** The bindings a module item introduces at the module's own level. */
   readonly #moduleBindings = new Set<Resolved.SymbolId>();
   /** `#typeDecidedSymbol`'s answers, for a type's head and for the whole of it. */
-  readonly #typeDecidedHead = new Map<Resolved.SymbolId, boolean>();
-  readonly #typeDecidedWhole = new Map<Resolved.SymbolId, boolean>();
+  readonly #typeDecidedHead = new Map<Resolved.SymbolId, DecidedAnswer>();
+  readonly #typeDecidedWhole = new Map<Resolved.SymbolId, DecidedAnswer>();
   /** `#typeDecided`'s answers by expression, so a dot chain's links are each read once. */
-  readonly #typeDecidedHeadExpressions = new WeakMap<Resolved.Expr, boolean>();
-  readonly #typeDecidedWholeExpressions = new WeakMap<Resolved.Expr, boolean>();
+  readonly #typeDecidedHeadExpressions = new WeakMap<Resolved.Expr, DecidedAnswer>();
+  readonly #typeDecidedWholeExpressions = new WeakMap<Resolved.Expr, DecidedAnswer>();
+  /**
+   * Counts every knot opening and closing: an answer that read a member of a
+   * knot still open holds only while the open knots stay as they were (#1195).
+   */
+  #knotEpoch = 0;
+  /** How many times a read has found a member of a knot still open (`#openMember`). */
+  #openReads = 0;
   /** The lambdas written in the landing context being read, which it reads past (`#landingContextDecided`). */
   readonly #landingLambdas = new Set<Resolved.LambdaExpr>();
   /** Whether a `var`'s type kept a part its initializer left unsettled, where it was bound. */
@@ -7538,14 +7555,20 @@ class Checker {
     if (this.#landingLambdas.size > 0) return this.#typeDecidedOnce(expression, deep);
     const memo = deep ? this.#typeDecidedWholeExpressions : this.#typeDecidedHeadExpressions;
     const known = memo.get(expression);
-    if (known !== undefined) return known;
+    if (known !== undefined && (known.epoch === undefined || known.epoch === this.#knotEpoch)) return known.value;
     // An answer that leaned on a local function assumed decided inside its own
-    // cycle may rest on that assumption, and one that read a member of a knot
-    // still open holds only until the knot closes: neither is kept (#1195).
+    // cycle may rest on that assumption, and is not kept; one that read a member
+    // of a knot still open is kept only while the open knots stay (#1195).
     const assumed = this.#assumptionsUsed;
+    const opened = this.#openReads;
     const decided = this.#typeDecidedOnce(expression, deep);
-    if (this.#assumptionsUsed === assumed) memo.set(expression, decided);
+    if (this.#assumptionsUsed === assumed) memo.set(expression, this.#decidedAnswer(decided, opened));
     return decided;
+  }
+
+  /** An answer to keep: for good, or, where it read an open knot member, for this knot epoch. */
+  #decidedAnswer(value: boolean, opened: number): DecidedAnswer {
+    return this.#openReads === opened ? { value } : { value, epoch: this.#knotEpoch };
   }
 
   #typeDecidedOnce(expression: Resolved.Expr, deep: boolean): boolean {
@@ -7784,11 +7807,7 @@ class Checker {
   /** The local functions whose whole `#typeDecidedSymbol` is reading, each assumed decided meanwhile. */
   readonly #assumedLocal = new Set<Resolved.SymbolId>();
 
-  /**
-   * How many times a read has leaned on such an assumption, or on a member of a
-   * knot still open, which holds only until the knot closes: an answer that
-   * did is not kept.
-   */
+  /** How many times a read has leaned on such an assumption, so an answer that did is not kept. */
   #assumptionsUsed = 0;
 
   /** The local functions' bodies `#localResult` is reading, each with the name that binds it, if one does. */
@@ -7855,9 +7874,9 @@ class Checker {
     for (const knot of this.#knots) {
       const member = knot.members.find((each) => each.symbol === symbol);
       if (member !== undefined) {
-        // An answer that reads an open member holds only until its knot
-        // closes, so it is not kept (`#typeDecided`).
-        this.#assumptionsUsed += 1;
+        // An answer that reads an open member holds only while its knot is
+        // open (`#typeDecided`).
+        this.#openReads += 1;
         return member;
       }
     }
@@ -7880,13 +7899,15 @@ class Checker {
     if (this.#madeInt.has(symbol)) return true;
     const memo = deep ? this.#typeDecidedWhole : this.#typeDecidedHead;
     const known = memo.get(symbol);
-    if (known !== undefined) return known;
+    if (known !== undefined && (known.epoch === undefined || known.epoch === this.#knotEpoch)) return known.value;
     // An answer that leaned on a local function assumed decided inside its own
     // cycle of captures may rest on that assumption, so it is kept only where it
-    // used none, or where it closes the cycle it assumed (#1195).
+    // used none, or where it closes the cycle it assumed (`closes`); one that
+    // read an open knot member is kept only while the open knots stay (#1195).
     const assumed = this.#assumptionsUsed;
-    const remember = (value: boolean): boolean => {
-      if (this.#assumptionsUsed === assumed || this.#assumedLocal.size === 0) memo.set(symbol, value);
+    const opened = this.#openReads;
+    const remember = (value: boolean, closes = false): boolean => {
+      if (this.#assumptionsUsed === assumed || closes) memo.set(symbol, this.#decidedAnswer(value, opened));
       return value;
     };
     const source = this.#typeSources.get(symbol);
@@ -7917,6 +7938,10 @@ class Checker {
           this.#assumptionsUsed += 1;
           return true;
         }
+        // The cycle's root: where no assumption was open around it, nor a body
+        // being read, every one its read made is its own cycle's, and its
+        // answer is the cycle's.
+        const root = this.#assumedLocal.size === 0 && this.#readingLocalBodies.size === 0;
         this.#assumedLocal.add(symbol);
         let whole: boolean;
         try {
@@ -7924,7 +7949,7 @@ class Checker {
         } finally {
           this.#assumedLocal.delete(symbol);
         }
-        return remember(whole);
+        return remember(whole, root);
       }
       case "lambda": {
         // Decided where its type landed with a known head — and, for the
@@ -10405,6 +10430,7 @@ class Checker {
         tieFrames: [],
       };
       this.#knots.push(knot);
+      this.#knotEpoch += 1;
       for (const symbol of ordered) this.#knotMembers.set(symbol, ordered);
       // **A member's written signature is read where its knot opens** (Effects
       // §3.4, #1279): before any body is checked, each member's type is the
@@ -10460,6 +10486,7 @@ class Checker {
       }
       knot.host = undefined;
       this.#knots.pop();
+      this.#knotEpoch += 1;
       for (const symbol of ordered) this.#landedResults.delete(symbol);
       // Every body has been checked only now, which is why §7.4's refusal
       // discharges its fence here rather than where it reported.
