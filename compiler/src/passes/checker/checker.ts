@@ -23509,7 +23509,7 @@ class Checker {
   }
 
   /**
-   * Whether the line that made `variable` a function gave the parameter's own
+   * Whether the unification that made `variable` a function gave the parameter's own
    * colour a written callback's colour as a part (#1216): one the parameter's
    * colour now holds, met within that line's unification — the line's own
    * fitting and the lambdas written in it included — and not by a still later
@@ -23531,6 +23531,7 @@ class Checker {
     return this.#colourParts(colour).some((part) =>
       this.#scopesByColour.get(part).some((scope) => {
         const met = this.#tieSpan(parameter.type, scope.effect);
+        // No bind between them: the colour was the written one from the start.
         return met === undefined || within(met);
       })
     );
@@ -28664,7 +28665,6 @@ class Checker {
     return undefined;
   }
 
-  /** Sinks every variable in `type` to `level` if it sits above it. */
   /** `#lowerLevels` for a unification at `span`, noting where each variable it lowers was captured. */
   #lowerCaptured(type: Mono, level: number, span: Source.Span): void {
     const outer = this.#lowering;
@@ -28676,6 +28676,7 @@ class Checker {
     }
   }
 
+  /** Sinks every variable in `type` to `level` if it sits above it. */
   #lowerLevels(type: Mono, level: number): void {
     const actual = this.#prune(type);
     switch (actual.kind) {
