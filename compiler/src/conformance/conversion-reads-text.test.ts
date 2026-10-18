@@ -288,9 +288,9 @@ describe("a local function's call is decided by its own text (Method Syntax §3.
     const lines = ["let h0 = () => gI(m)", "let h1 = () => gI(m)"];
     for (let k = 2; k < 60; k += 1) lines.push(`let h${k} = () => if c then h${k - 1}() else h${k - 2}()`);
     lines.push("let y: Float = h59()");
-    const start = performance.now();
+    const start = Date.now();
     expect(refusals(body("(m, c: Bool)", lines))).toEqual([]);
-    expect(performance.now() - start).toBeLessThan(20_000);
+    expect(Date.now() - start).toBeLessThan(20_000);
   });
 
   test("a curried local function's written inner parameter, through a `let` of its application", () => {
