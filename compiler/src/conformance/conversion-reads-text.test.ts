@@ -199,6 +199,37 @@ describe("the spellings that compile, in either order", () => {
   });
 });
 
+describe("a local function's call is decided by its own text (Method Syntax §3.1)", () => {
+  test("its body decides, whatever it captures beside", () => {
+    const g = "let g(k: Int): Int = k\n";
+    expect(refusals(g + body("(n)", ["let h = () => g(n)", "let x: Float = h()"]))).toEqual([]);
+    expect(refusals(g + body("(n)", ["let h = (m) => g(m)", "let x: Float = h(n)"]))).toEqual([]);
+    expect(refusals(g + body("(n)", ["fun h() = g(n)", "let x: Float = h()"]))).toEqual([]);
+  });
+
+  test("a body made from what it captures decides as that does", () => {
+    const lines = ["useInt(p)", "let h = () => p", "useBig(h())"];
+    expect(refusals(body("(p)", lines))).toEqual([
+      "`h()` is an `Int` only by inference, and an inferred type is not widened to `BigInt`: " +
+        "write `h`'s result type, or convert it — `BigInt.fromInt(h())`",
+    ]);
+    expect(refusals(body("(p)", ["let h = (): Int => p", "useInt(p)", "useBig(h())"]))).toEqual([]);
+  });
+
+  test("a generic local function's result is each call's, not its own text's", () => {
+    const lines = ["useInt(p)", "let ap = (g: (a) -> b, x: a): b => g(x)", "let z: BigInt = ap((u) => p, 1)"];
+    expect(refusals(body("(p)", lines))).toHaveLength(1);
+    expect(refusals(body("(p: Int)", lines))).toEqual([]);
+  });
+
+  test("inside a knot, in either member order", () => {
+    const b = "    b(n: Int): Int =\n        let y = if n == 0 then 0.0 else a(n - 1)\n        n\n";
+    const a = "    a(n) =\n        let h = () => b(n)\n        let x: Float = h()\n        0.0\n";
+    expect(refusals("fun\n" + b + a)).toEqual([]);
+    expect(refusals("fun\n" + a + b)).toEqual([]);
+  });
+});
+
 describe("a knot member's unwritten result is one only inference gave", () => {
   test("refused at a `Float` seat in either member order", () => {
     const a = "    a(n: Int): Float =\n        let y = b(n)\n        let x: Float = y\n        x\n";

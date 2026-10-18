@@ -7576,6 +7576,9 @@ class Checker {
         // A call to a function the module or an import declares has the result
         // its generalized signature gives it, whatever it is handed.
         if (this.#declaredResult(expression, deep)) return true;
+        // A call to a local function its own text decides — its written result
+        // type, or else its body (#1195).
+        if (this.#localResult(expression, deep)) return true;
         // A call — a dot chain's links included — is decided wholly where its
         // callee and every argument are: read part by part, so a chain is read
         // once, link by link.
@@ -7657,6 +7660,45 @@ class Checker {
     const result = this.#prune(type.result);
     return deep ? this.#collectVariables(result).length === 0 : result.kind !== "Variable";
   }
+
+  /**
+   * Whether a call's callee is a local function — a `let`'s lambda literal, or
+   * a `fun` inside a body — whose own text decides the call's result, its head
+   * or (`deep`) the whole of it (Method Syntax §3.1, #1195): its written result
+   * type, or else its body, which is checked where the function is made, above
+   * every call of it, so reading its text follows no line order. A body made
+   * from what it captures is decided only as that is. A lambda a call opens is
+   * never read so — it is a black box to that call (Functions §4.3) — and
+   * neither is a member of a knot still open, which its declaration decides,
+   * nor a module's function, whose generalized signature does
+   * (`#declaredResult`), nor a function that declares a type variable, whose
+   * result each call instantiates.
+   */
+  #localResult(call: Resolved.CallExpr, deep: boolean): boolean {
+    const callee = ungrouped(call.callee);
+    if (callee.kind !== "Name" || this.#openMember(callee.symbol) !== undefined) return false;
+    if (this.#moduleBindings.has(callee.symbol)) return false;
+    const source = this.#typeSources.get(callee.symbol);
+    if (source === undefined || (source.kind !== "value" && source.kind !== "localFunction")) return false;
+    const value = ungrouped(source.value);
+    if (value.kind !== "Lambda") return false;
+    if ((value.typeParameters?.length ?? 0) > 0) return false;
+    const annotations = [...value.parameters.map((parameter) => parameter.annotation), value.returnAnnotation];
+    if (annotations.some((annotation) => annotation !== undefined && annotationHasTypeVariable(annotation))) return false;
+    const written = value.returnAnnotation;
+    if (written !== undefined && (deep ? annotationWhole(written) : headWritten(written))) return true;
+    // A local `fun` that calls itself reads its body once.
+    if (this.#readingLocalBodies.has(value)) return false;
+    this.#readingLocalBodies.add(value);
+    try {
+      return this.#typeDecided(value.body, deep);
+    } finally {
+      this.#readingLocalBodies.delete(value);
+    }
+  }
+
+  /** The local functions' bodies `#localResult` is reading, so a recursive one is read once. */
+  readonly #readingLocalBodies = new Set<Resolved.LambdaExpr>();
 
   /**
    * Whether the text decides the type of `callee`'s parameter `index`, by
