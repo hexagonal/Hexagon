@@ -3681,6 +3681,227 @@ export let f(g: (() ->! String) -> String): String =
   });
 });
 
+describe("Effects §4.2, §4.4 — a refused `>->` reads as its fix wherever it stands and whenever it is refused (#1239, #1281, #1242)", () => {
+  const fixtures = 'let noop(): Unit = ()\nlet save0(): Unit = save!("x")\nlet keep(cb: () ->! Unit): Unit = ()\n';
+  const source = (program: string): string => "module Main\n\n" + world + fixtures + program;
+  const check = (program: string): readonly string[] =>
+    effectDiagnostics([["/world.js", ""], ["/main.hex", source(program)]]);
+  const faceReport = (message: string): boolean => /this face's `>[-~^]>/.test(message);
+  /**
+   * §4.4's promise: with only the face reports' fixits applied, the program
+   * draws exactly the other reports round 1 drew.
+   */
+  const oneRound = (program: string): void => {
+    const text = source(program);
+    const round1 = compileFiles([["/world.js", ""], ["/main.hex", text]]).diagnostics;
+    const edits = round1.filter(({ message }) => faceReport(message))
+      .flatMap(({ fixes }) => fixes?.[0]?.edits ?? [])
+      .sort((left, right) => right.span.start.offset - left.span.start.offset);
+    expect(edits.length).toBeGreaterThan(0);
+    let fixed = text;
+    for (const edit of edits) {
+      fixed = fixed.slice(0, edit.span.start.offset) + edit.replacement + fixed.slice(edit.span.end.offset);
+    }
+    const repaired = compileFiles([["/world.js", ""], ["/main.hex", fixed]]).diagnostics.map(({ message }) => message);
+    expect(round1.map(({ message }) => message).filter((message) => !faceReport(message))).toEqual(repaired);
+  };
+  const late = (spelling: "binding" | "ascription" | "result", mark: string): string => {
+    const lambda = "(x) =>\n        action!()\n        ()";
+    const [declaration, callee] = spelling === "binding"
+      ? [`let k: (() ->! Unit) >-> Unit = ${lambda}`, "k"]
+      : spelling === "ascription"
+      ? [`let k = ((${lambda}): (() ->! Unit) >-> Unit)`, "k"]
+      : [`let k(): (() ->! Unit) >-> Unit = ${lambda}`, "k()"];
+    return `let outer(action): Unit =\n    ${declaration}\n    ${callee}!(noop)\nexport let probe(): Unit = outer${mark}(noop)\n`;
+  };
+  const lateReport = "this call runs `outer`'s `action`, which this signature is not handed, and this face's `>->` " +
+    "promises the function is only as effectful as what it is handed — write `->!`";
+
+  it("a face compared only once an enclosing body's untyped callback is decided reads as its fix, in every spelling", () => {
+    for (const spelling of ["binding", "ascription", "result"] as const) {
+      // The enclosing function's callers are read against `->!`: its `!` is
+      // kept, and a bare call is asked for it, in round 1.
+      expect(check(late(spelling, "!"))).toEqual([lateReport]);
+      expect(check(late(spelling, ""))).toEqual([
+        lateReport,
+        "this call is impure and may fail, so `outer` wants `!`, not no mark",
+      ]);
+      expect(hoveredType(source(late(spelling, "!")), "outer(")).toBe("(() ->! Unit) ->! Unit");
+      oneRound(late(spelling, ""));
+      oneRound(late(spelling, "!"));
+    }
+  });
+
+  it("so does one in a nested function, on a returned arrow, and one a second face runs", () => {
+    const nested = "let outer(action): Unit =\n    let inner(): Unit =\n        let k: (() ->! Unit) >-> Unit = (x) =>\n" +
+      "            action!()\n            ()\n        k!(noop)\n    inner!()\nexport let probe(): Unit = outer!(noop)\n";
+    expect(check(nested)).toEqual([lateReport]);
+    expect(hoveredType(source(nested), "inner(")).toBe("() ->! Unit");
+    const curried = "let outer(action): Unit =\n    let k: () -> (() ->! Unit) >-> Unit = () => (x) =>\n        action!()\n" +
+      "    k()!(noop)\nexport let probe(): Unit = outer!(noop)\n";
+    expect(check(curried)).toEqual([lateReport]);
+    oneRound(curried);
+    // `k2` runs `k1`, which reads as `->!`: round 1 says what the repaired
+    // program says of `k1!(y)`.
+    const chained = "let outer(action): Unit =\n    let k1: (() ->! Unit) >-> Unit = (x) =>\n        action!()\n" +
+      "    let k2: (() ->! Unit) >-> Unit = (y) =>\n        k1!(y)\n    k2!(noop)\nexport let probe(): Unit = outer!(noop)\n";
+    expect(check(chained)).toEqual([
+      lateReport,
+      "this call is impure and may fail on its own account, and this face's `>->` promises the function is only as " +
+      "effectful as what it is handed — write `->!`",
+    ]);
+    oneRound(chained);
+  });
+
+  it("so does one in a knot member, decided at the knot's close", () => {
+    const knot = "fun\n    ping(n: Int, cb): Int =\n        let g: (() ->! Unit) >-> Unit = (x) =>\n            x!()\n" +
+      "            cb!()\n        g!(noop)\n        if n > 0 then pong!(n - 1, cb) else 0\n    pong(n: Int, cb): Int =\n" +
+      "        if n > 0 then ping!(n - 1, cb) else 0\nexport let probe(): Unit =\n    let _ = ping!(2, noop)\n    ()\n";
+    expect(check(knot)).toEqual([
+      "this call runs `ping`'s `cb`, which this signature is not handed, and this face's `>->` promises the " +
+      "function is only as effectful as what it is handed — write `->!`",
+    ]);
+    expect(hoveredType(source(knot), "ping(")).toBe("(Int, () ->! Unit) ->! Int");
+  });
+
+  it("each colour on its own: a `>^>` refused late reads as `->^`", () => {
+    const fail = "let outer(action): Unit =\n    let k: (() ->^ Unit) >^> Unit = (x) =>\n        x^()\n        action^()\n" +
+      "    k^(noop)\nexport let p1(): Unit = outer(noop)\nexport let p2(): Unit = outer^(noop)\n";
+    expect(check(fail)).toEqual([
+      "this call runs `outer`'s `action`, which this signature is not handed, and this face's `>^>` promises the " +
+      "function is only as effectful as what it is handed — write `->^`",
+      "this call may fail, so `outer` wants `^`, not no mark",
+    ]);
+    expect(hoveredType(source(fail), "outer(")).toBe("(() ->^ Unit) ->^ Unit");
+  });
+
+  it("a fix that passes a colour through reads the face's own callbacks, in every spelling, whenever the rest is decided", () => {
+    const passes = (arrow: string, clause: string): string =>
+      `this call ${clause}, and this face's \`${arrow}\` ` +
+      (arrow === ">^>" ? "is pure there" : "cannot fail there") + " — write `>->`, which passes that through";
+    const world = passes(">^>", "is impure where what it is handed is");
+    const lambda = "(x) =>\n        x!()\n        action()";
+    // The rest is decided only at `outer`'s close, after `k` is generalized:
+    // `k(noop)` still reads `noop`'s colour, whatever spells the face.
+    for (const [declaration, use] of [
+      [`let k: (() ->! Unit) >^> Unit = ${lambda}`, "k(noop)"],
+      [`let k = ((${lambda}): (() ->! Unit) >^> Unit)`, "k(noop)"],
+      [`let p: ((() ->! Unit) >^> Unit, Int) = ((${lambda}), 1)\n    let (g, _) = p`, "g(noop)"],
+    ]) {
+      const program = `let outer(action): Unit =\n    ${declaration}\n    ${use}\nexport let probe(): Unit = outer(noop)\n`;
+      expect(check(program)).toEqual([world]);
+      oneRound(program);
+    }
+    const fail = `let outer(action): Unit =\n    let k = ((${lambda}): (() ->! Unit) >~> Unit)\n    k(noop)\nexport let probe(): Unit = outer(noop)\n`;
+    expect(check(fail)).toEqual([passes(">~>", "may fail where what it is handed may")]);
+    oneRound(fail);
+    // The rest decided pure: the fix passes the colour through.
+    const pure = "let outer(action): Unit =\n    let k: (() ->! Unit) >^> Unit = (x) =>\n        x!()\n        action()\n" +
+      "    k(save0)\n    k(noop)\nexport let probe(): Unit = outer(noop)\n";
+    expect(check(pure)).toEqual([
+      world,
+      "this call is impure and may fail, so `k` wants `!`, not no mark",
+      "this call is impure and may fail, so `outer` wants `!`, not no mark",
+    ]);
+    oneRound(pure);
+    // The rest decided impure: the fix is the constant, in one report.
+    const impure = "let outer(action): Unit =\n    let k: (() ->! Unit) >^> Unit = (x) =>\n        x!()\n        action!()\n" +
+      "    k!(save0)\n    k!(noop)\nexport let probe(): Unit = outer!(save0)\nexport let probe2(): Unit = outer(noop)\n";
+    expect(check(impure)).toEqual([
+      "this call runs `outer`'s `action`, which this signature is not handed, and this face's `>^>` promises the " +
+      "function is only as effectful as what it is handed — write `->!`",
+      "this call is impure and may fail, so `outer` wants `!`, not no mark",
+    ]);
+    oneRound(impure);
+  });
+
+  it("a face compared late over a colour in error reads in error", () => {
+    expect(check(
+      "let outer(action): Unit =\n    let k: (() ->! Unit) >-> Unit = (x) =>\n        action!()\n        ()\n" +
+        "    k!(noop)\n    nope!(action)\nexport let p1(): Unit = outer!(noop)\nexport let p2(): Unit = outer(noop)\n",
+    )).toEqual(["unknown name `nope`"]);
+  });
+
+  it("a face refused late over a body in error reads as its fix, as one refused at once does", () => {
+    const program = "let outer(action): Unit =\n    let k: (() ->! Unit) >-> Unit = (x) =>\n        action!()\n        nope!()\n" +
+      "        ()\n    k!(noop)\nexport let p1(): Unit = outer!(noop)\nexport let p2(): Unit = outer(noop)\n";
+    expect(check(program)).toEqual([
+      lateReport,
+      "unknown name `nope`",
+      "this call is impure and may fail, so `outer` wants `!`, not no mark",
+    ]);
+    oneRound(program);
+  });
+
+  it("a refusal found at a close is reported there, at the first call that runs a colour decided by then", () => {
+    // `b` is decided at `inner`'s close and `action` only at `outer`'s: the
+    // refusal is known at `inner`'s close and stands at `b!()`, and the
+    // arrow reads as its fix from then on.
+    const program = "let outer(action): Unit =\n    let inner(b) =\n        let k: (() ->! Unit) >-> Unit = (x) =>\n" +
+      "            action!()\n            b!()\n        k!(noop)\n    inner!(noop)\nexport let probe(): Unit = outer!(noop)\n" +
+      "export let p2(): Unit = outer(noop)\n";
+    expect(check(program)).toEqual([
+      "this call runs `inner`'s `b`, which this signature is not handed, and this face's `>->` promises the function " +
+      "is only as effectful as what it is handed — write `->!`",
+      "this call is impure and may fail, so `outer` wants `!`, not no mark",
+    ]);
+    oneRound(program);
+  });
+
+  it("a face in a refused knot draws no report of its own, as the knot's other faces do not (§3.4)", () => {
+    expect(check(
+      "fun\n    ping(n: Int): (() ->! Unit) >-> Unit = (x) =>\n        x!()\n        if n > 0 then pong!(n - 1) else ()\n" +
+        "    pong(n: Int): Unit =\n        let _ = ping(n - 1)\n        save!(\"z\")\n" +
+        "export let probe(): Unit = ping(2)!(noop)\nexport let probe2(): Unit = ping(2)(noop)\n",
+    )).toEqual([
+      "`ping` takes callbacks, so inside its own recursion it is applied in full where it is named, and this leaves a callback to give it",
+    ]);
+  });
+
+  it("a function in the data a face returns reads as its fix (#1281)", () => {
+    const own = "this function is impure and may fail on its own account, and this face's `>->` promises the function " +
+      "is only as effectful as what it is handed — write `->!`";
+    const shapes = [
+      ["(() >-> Unit, Int)", "(save0, 1)", "let (g, _) = mkBad(noop)\n    g", "", "(() ->! Unit) -> (() ->! Unit, Int)"],
+      ["{ run: () >-> Unit, n: Int }", "{ run = save0, n = 1 }", "let g = mkBad(noop).run\n    g", "", "(() ->! Unit) -> {run: () ->! Unit, n: Int}"],
+      ["Option(() >-> Unit)", "Some(save0)", "match mkBad(noop)\n        Some(g) => g", "\n        None => ()", "(() ->! Unit) -> Option(() ->! Unit)"],
+    ] as const;
+    for (const [face, value, use, rest, hover] of shapes) {
+      const program = (mark: string) =>
+        `let mkBad(f: () ->! Unit): ${face} = ${value}\nexport let probe(): Unit =\n    ${use}${mark}()${rest}\n`;
+      expect(check(program(""))).toEqual([own, "this call is impure and may fail, so `g` wants `!`, not no mark"]);
+      expect(check(program("!"))).toEqual([own]);
+      expect(hoveredType(source(program("!")), "mkBad(")).toBe(hover);
+      oneRound(program(""));
+    }
+    // A binding annotation over data, at module level and locally: the
+    // binding's scheme never holds the outcome.
+    const lambda = "this call is impure and may fail on its own account, and this face's `>->` promises the function is " +
+      "only as effectful as what it is handed — write `->!`";
+    const pair = 'let p: ((() ->! Unit) >-> Unit, Int) = (((x) => save!("a")), 1)\n';
+    const top = (mark: string) => `${pair}export let outer(): Unit =\n    let (g, _) = p\n    g${mark}(noop)\n`;
+    expect(check(top(""))).toEqual([lambda, "this call is impure and may fail, so `g` wants `!`, not no mark"]);
+    expect(check(top("!"))).toEqual([lambda]);
+    expect(hoveredType(source(top("!")), "p:")).toBe("((() ->! Unit) ->! Unit, Int)");
+    oneRound(top(""));
+    const local = (mark: string) => `export let outer(): Unit =\n    ${pair}    let (g, _) = p\n    g${mark}(noop)\n`;
+    expect(check(local("!"))).toEqual([lambda]);
+    oneRound(local(""));
+  });
+
+  it("a binding annotation over a named function reads as its fix, or in error, as the other spellings do (#1242)", () => {
+    const own = "this function is impure and may fail on its own account, and this face's `>->` promises the function " +
+      "is only as effectful as what it is handed — write `->!`";
+    const user = 'let user(cb: () ->! Unit): Unit =\n    save!("y")\n    cb!()\n';
+    expect(check(`${user}let w: (() ->! Unit) >-> Unit = user\nexport let p1(): Unit = w(noop)\nexport let p2(): Unit = w!(noop)\n`))
+      .toEqual([own, "this call is impure and may fail, so `w` wants `!`, not no mark"]);
+    expect(check(`${user}export let p1(): Unit =\n    let w: (() ->! Unit) >-> Unit = user\n    w!(noop)\n`)).toEqual([own]);
+    const broken = "let user(cb: () ->! Unit): Unit =\n    nope!()\n    cb!()\n";
+    expect(check(`${broken}let w: (() ->! Unit) >-> Unit = user\nexport let p1(): Unit = w(noop)\nexport let p2(): Unit = w!(noop)\n`))
+      .toEqual(["unknown name `nope`"]);
+  });
+});
+
 describe("#355 ruling 9 — `->!`, the const ⊔ var face", () => {
   const shape = (arrow: string) => `${world}
 export let withTransaction: ((String ->! String) ${arrow} String) = (run: String ->! String): String =>
