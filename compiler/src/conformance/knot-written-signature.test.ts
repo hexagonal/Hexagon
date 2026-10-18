@@ -115,6 +115,47 @@ describe("a member's written signature is read where its knot opens (#1279)", ()
     expectInEveryOrder(orders.map((members) => `fun\n${members.join("")}export let user(): Unit = useF(1)\n`), []);
   });
 
+  /**
+   * Writing the forwarder's result type is a spelling of the same program,
+   * and compiles in every order too.
+   */
+  test("a forwarder whose result type is written compiles in every order", () => {
+    const other = "    other(q: Int): (() -> Unit, Int) =\n        let z = q\n        (noop2, 1)\n";
+    const use = "    useF(p: Int): Unit =\n        let f: (() ->! Unit, Int) = mk(p)\n        ()\n";
+    const mk = "    mk(q): (() -> Unit, Int) =\n        useF(q)\n        other(q)\n";
+    const orders = [[other, use, mk], [other, mk, use], [use, other, mk], [use, mk, other], [mk, other, use], [mk, use, other]];
+    expectInEveryOrder(orders.map((members) => `fun\n${members.join("")}export let user(): Unit = useF(1)\n`), []);
+  });
+
+  /**
+   * What a sibling's body works out is not read while the knot is open
+   * (Effects §3.4): a call to a member whose declaration writes no result type
+   * is not made from the text, so the value it hands back is not re-opened
+   * at a seat, in either order. Writing the member's result type is the
+   * spelling that works, in either order.
+   */
+  test("a call to a member that writes no result type is not re-opened at a sibling's seat, in either order", () => {
+    const use = "    useF(p: Int, k: () -> Unit): Unit =\n        let f: () ->! Unit = pass(k, p)\n        ()\n";
+    const pass = (result: string): string => `    pass(k, n)${result} =\n        useF(n, k)\n        k\n`;
+    const after = "export let user(): Unit = useF(1, noop2)\n";
+    const fixed = "this position's arrow says the function is impure and may fail, and the pure arrow meeting it, " +
+      "which cannot fail, was fixed before it arrived — by another use, by a type written where it was made, " +
+      "inside an argument read invariantly, or in a parameter's type — so it cannot fit as a function used here " +
+      "does; write the arrow where it was fixed";
+    // Where the one report stands still follows which body is checked first.
+    expect(inEveryOrder(bothOrders(use, pass(""), after)).map(([program, found]) =>
+      [program, found.map(({ message }) => message)]
+    )).toEqual(bothOrders(use, pass(""), after).map((program) => [program, [fixed]]));
+    expectInEveryOrder(bothOrders(use, pass(": () -> Unit"), after), []);
+  });
+
+  /** A written result with a hole still decides the arrow it spells, at a sibling's seat. */
+  test("a written result's arrow decides a sibling's seat though the result holds a hole", () => {
+    const use = "    useF(p) =\n        let f: () ->! Unit = mk(p)\n        ()\n";
+    const mk = "    mk(q: Int): () -> _ =\n        useF(q)\n        noop2\n";
+    expectInEveryOrder(bothOrders(use, mk, "export let user(): Unit = useF(1)\n"), []);
+  });
+
   /** A result written with the block head's variable is that rigid variable at every sibling's seat. */
   test("a result written with a block head's variable decides a sibling's seat", () => {
     const use = "    useIt(x: a): Unit =\n        let w: (() ->! Unit, a) = mkP(x)\n        ()\n";
@@ -153,6 +194,9 @@ describe("a member's written signature is read where its knot opens (#1279)", ()
     const written = "    b(n: Int): Vector(Int) = if n == 0 then [] else if a(n - 1) then [n] else []\n";
     const unwritten = "    b(n: Int) = if n == 0 then [] else if a(n - 1) then [n] else [1]\n";
     expectInEveryOrder(bothOrders(a, written, ""), []);
+    // Its head is what a dot reads: a hole in the element leaves it decided.
+    const hole = "    b(n: Int): Vector(_) = if n == 0 then [] else if a(n - 1) then [n] else []\n";
+    expectInEveryOrder(bothOrders(a, hole, ""), []);
     expectInEveryOrder(bothOrders(a, unwritten, ""), [{
       at: "isEmpty",
       message: "the program's text does not decide the subject's type here, so `.isEmpty(…)` cannot tell whose " +

@@ -20776,11 +20776,38 @@ class Checker {
    * parameter with no written type, or one `var`, and it is not.
    */
   #madeFromText(expression: Resolved.Expr): boolean {
+    // A call to a member of a knot still open hands back what its declaration
+    // writes and, beyond that, what its body works out, which the text does
+    // not decide while the knot is open (Effects §3.4, #1279): it is made from
+    // the text only where its declaration writes the result, never where it
+    // writes none or a hole. Not remembered: the knot's close decides the
+    // rest.
+    if (this.#readsOpenResult(expression)) return false;
     const known = this.#madeFromTextExpressions.get(expression);
     if (known !== undefined) return known;
     const made = this.#freeNames(expression).every((symbol) => this.#fromText(symbol));
     this.#madeFromTextExpressions.set(expression, made);
     return made;
+  }
+
+  /**
+   * Whether an expression reads the result of a call to a member of a knot
+   * still open whose declaration writes no result type, or a hole for it
+   * (`#madeFromText`).
+   */
+  #readsOpenResult(expression: Resolved.Expr): boolean {
+    if (this.#knots.length === 0) return false;
+    let found = false;
+    this.#walkSyntax(expression, {
+      expression: (inner) => {
+        if (found || inner.kind !== "Call") return;
+        const callee = ungrouped(inner.callee);
+        if (callee.kind !== "Name") return;
+        const member = this.#openMember(callee.symbol);
+        if (member !== undefined && !headWritten(member.value.returnAnnotation)) found = true;
+      },
+    });
+    return found;
   }
 
   /** The bindings an expression names and does not bind itself, each once. */
