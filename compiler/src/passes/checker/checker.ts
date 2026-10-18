@@ -7555,7 +7555,11 @@ class Checker {
     if (this.#landingLambdas.size > 0) return this.#typeDecidedOnce(expression, deep);
     const memo = deep ? this.#typeDecidedWholeExpressions : this.#typeDecidedHeadExpressions;
     const known = memo.get(expression);
-    if (known !== undefined && (known.epoch === undefined || known.epoch === this.#knotEpoch)) return known.value;
+    if (known !== undefined && (known.epoch === undefined || known.epoch === this.#knotEpoch)) {
+      // A kept answer that read an open member passes that on to what reads it.
+      if (known.epoch !== undefined) this.#openReads += 1;
+      return known.value;
+    }
     // An answer that leaned on a local function assumed decided inside its own
     // cycle may rest on that assumption, and is not kept; one that read a member
     // of a knot still open is kept only while the open knots stay (#1195).
@@ -7899,7 +7903,11 @@ class Checker {
     if (this.#madeInt.has(symbol)) return true;
     const memo = deep ? this.#typeDecidedWhole : this.#typeDecidedHead;
     const known = memo.get(symbol);
-    if (known !== undefined && (known.epoch === undefined || known.epoch === this.#knotEpoch)) return known.value;
+    if (known !== undefined && (known.epoch === undefined || known.epoch === this.#knotEpoch)) {
+      // A kept answer that read an open member passes that on to what reads it.
+      if (known.epoch !== undefined) this.#openReads += 1;
+      return known.value;
+    }
     // An answer that leaned on a local function assumed decided inside its own
     // cycle of captures may rest on that assumption, so it is kept only where it
     // used none, or where it closes the cycle it assumed (`closes`); one that
