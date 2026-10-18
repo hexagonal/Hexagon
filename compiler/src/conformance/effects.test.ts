@@ -2855,6 +2855,152 @@ describe("Effects §2.6 — a short form reads as its longhand twin (#1213 (T))"
   });
 });
 
+describe("Effects §2.6, §3.4 — a written callback colour a value took in is that value's (#1249)", () => {
+  const prelude = "module Main\n\n" + world + "let noop(): Unit = ()\nlet save0(): Unit = save!(\"x\")\n" +
+    "let ident(x: a): a = x\nlet pick(x: a, y: a): a = y\nlet tieTwo(x: a, y: a): Unit = ()\n" +
+    "let make() =\n    let run = ident((f) => f!())\n    run!(() => ())\n    (run, 1)\n";
+  const outer = (lines: readonly string[], probe = "export let top(): Unit = outer(noop, noop)\n"): string =>
+    prelude + "export let outer(a1: () ->! Unit, a2: () ->! Unit): Unit =\n    let (r, _) = make()\n" +
+    lines.map((line) => `    ${line}\n`).join("") + "    ()\n" + "let user(p, q) = outer!(p, q)\n" + probe;
+  const reports = (source: string): readonly string[] => effectDiagnostics([["/world.js", ""], ["/main.hex", source]]);
+  const follows = "(() ->! Unit, () ->! Unit) >-> Unit";
+  const lam = "let lam = (g: () ->! Unit) => r!(g)";
+  /** Every order of some lines, the lambda's binding kept before its uses. */
+  const orders = (lines: readonly string[]): string[][] =>
+    lines.length <= 1 ? [[...lines]] : lines.flatMap((line, index) =>
+      orders([...lines.slice(0, index), ...lines.slice(index + 1)]).map((rest) => [line, ...rest])
+    );
+
+  it("grows to cover each callback the lambda is handed, so two stay two, in every order", () => {
+    // `g`'s colour went into `r`'s, so no generalization reaches it: from the
+    // lambda's close it is `r`'s, and grows as `r`'s does. Held as a callback's,
+    // it tied `a1` to `a2`, which `user` met as a tie of `p` and `q`.
+    for (const uses of orders(["lam!(a1)", "lam!(a2)", "r!(a1)"])) {
+      const source = outer([lam, ...uses]);
+      expect([uses, reports(source)]).toEqual([uses, []]);
+      expect([uses, hoveredType(source, "outer(a1"), hoveredType(source, "user(p")]).toEqual([uses, follows, follows]);
+    }
+    // As the untyped twin, which no hold ever reached, reads it.
+    expect(reports(outer(["let lam = (g) => r!(g)", "lam!(a1)", "lam!(a2)"]))).toEqual([]);
+  });
+
+  it("neither ties nor rounds up where it meets the value as one type, in every order", () => {
+    // Met first, `g`'s colour bound `r`'s and tied `a1` to `a2`; met after `r`
+    // took a callback in, a held colour could not equal a grown one, and
+    // `outer` rounded up to `->!`. Written in place, the lambda reads as its
+    // let-bound twin (#1213 (T)), so it grows the same way.
+    for (
+      const meet of [
+        [lam, "tieTwo(r, lam)"],
+        [lam, "let z = pick(r, lam)"],
+        [lam, "let z = if True then r else lam"],
+        [lam, "let z = [r, lam]"],
+        ["tieTwo(r, (g: () ->! Unit) => r!(g))"],
+      ]
+    ) {
+      const placed = [[...meet, "r!(a1)", "r!(a2)"], ["r!(a1)", ...meet, "r!(a2)"], ["r!(a1)", "r!(a2)", ...meet]];
+      for (const lines of placed) {
+        const source = outer(lines);
+        expect([lines, reports(source)]).toEqual([lines, []]);
+        expect([lines, hoveredType(source, "outer(a1")]).toEqual([lines, follows]);
+      }
+    }
+  });
+
+  it("meets a value that took more in than itself: what they share grows to cover the rest", () => {
+    // `r` took `a1` before the lambda was made, so where the two meet as one
+    // type, `r`'s colour holds all of the lambda's and `a1` besides. Rule 4: a
+    // slack they share takes `a1`, as rule 3 rebinds a variable.
+    for (const uses of orders(["lam!(a2)", "tieTwo(r, lam)"])) {
+      const source = outer(["r!(a1)", lam, ...uses]);
+      expect([uses, reports(source)]).toEqual([uses, []]);
+      expect([uses, hoveredType(source, "outer(a1")]).toEqual([uses, follows]);
+    }
+  });
+
+  it("is checked on each colour on its own", () => {
+    const one = (arrow: string, mark: string, face: string) => {
+      const source = prelude + `export let outer(a1: () ${arrow} Unit, a2: () ${arrow} Unit): Unit =\n` +
+        `    let (r, _) = make()\n    let lam = (g: () ${arrow} Unit) => r${mark}(g)\n` +
+        `    lam${mark}(a1)\n    lam${mark}(a2)\n    ()\nlet user(p, q) = outer${mark}(p, q)\n` +
+        "export let top(): Unit = outer(() => (), () => ())\n";
+      expect([arrow, reports(source), hoveredType(source, "outer(a1")]).toEqual([arrow, [], face]);
+    };
+    one("->^", "^", "(() ->^ Unit, () ->^ Unit) >^> Unit");
+    one("->~", "~", "(() ->~ Unit, () ->~ Unit) >~> Unit");
+  });
+
+  it("is one colour for every use, as the value's is", () => {
+    // The lambda generalizes nothing, so a call is marked for everything it has
+    // been handed: `r` has run `a1` through it.
+    expect(reports(outer([lam, "lam!(a1)", "lam(noop)"])))
+      .toEqual(["this call is impure and may fail, so `lam` wants `!`, not no mark"]);
+    // What the callbacks may do still reaches the callers.
+    expect(reports(outer([lam, "lam!(a1)", "lam!(a2)"], "export let top(): Unit = outer(noop, save0)\n")))
+      .toEqual(["this call is impure and may fail, so `outer` wants `!`, not no mark"]);
+    // Inside a knot as outside it.
+    const knot = prelude + "fun\n    ping(n: Int, a1: () ->! Unit, a2: () ->! Unit): Int =\n" +
+      "        let (r, _) = make()\n        let lam = (g: () ->! Unit) => r!(g)\n        lam!(a1)\n        lam!(a2)\n" +
+      "        if n > 0 then ping!(n - 1, a1, a2) else 0\nexport let top(): Int = ping(2, noop, noop)\n" +
+      "let user(p, q) = ping!(1, p, q)\n";
+    expect(reports(knot)).toEqual([]);
+  });
+
+  it("is the enclosing body's to decide, as the value's is, wherever it meets it", () => {
+    // A body nested in `outer` that calls the lambda leaves its colour to
+    // `outer`, which decides it from every use.
+    expect(reports(outer([lam, "let k = () => lam!(a1)", "k!()", "lam!(a2)"]))).toEqual([]);
+    expect(reports(outer([lam, "let k = () => lam(noop)", "lam!(a2)", "k()"]))).toEqual([
+      "this call is impure and may fail, so `lam` wants `!`, not no mark",
+      "this call is impure and may fail, so `k` wants `!`, not no mark",
+    ]);
+    // A lambda nested in it, one that runs a callback of `outer`'s itself, and
+    // a second lambda that `r` takes in too, met as one type with the first.
+    for (
+      const lines of [
+        ["let lam = (g: () ->! Unit) =>\n        let k = (h: () ->! Unit) => r!(h)\n        k!(g)", "lam!(a1)", "lam!(a2)"],
+        ["let lam = (g: () ->! Unit) =>\n        r!(g)\n        r!(a1)", "lam!(a2)", "tieTwo(r, lam)"],
+        [lam, "let lam2 = (g2: () ->! Unit) => r!(g2)", "lam!(a1)", "lam2!(a2)", "tieTwo(lam, lam2)"],
+      ]
+    ) {
+      const source = outer(lines);
+      expect([lines, reports(source)]).toEqual([lines, []]);
+      expect([lines, hoveredType(source, "outer(a1")]).toEqual([lines, follows]);
+    }
+  });
+
+  it("is left to generalization where the value is the lambda's own", () => {
+    // `r2` is made in the lambda's body, so the binding generalizes `g`'s
+    // colour, and each use meets an instance: `lam(noop)` is bare between two
+    // effectful calls.
+    const inBody = "let lam = (g: () ->! Unit) =>\n        let (r2, _) = make()\n        r2!(g)";
+    expect(reports(outer([inBody, "lam!(a1)", "lam(noop)", "lam!(a2)"]))).toEqual([]);
+    expect(reports(outer([inBody, "tieTwo(r, lam)", "lam(noop)", "r!(a1)"]))).toEqual([]);
+    // And it keeps growing past what a meeting with more gave it.
+    const three = prelude + "export let outer(a1: () ->! Unit, a2: () ->! Unit, a3: () ->! Unit): Unit =\n" +
+      `    let (r, _) = make()\n    r!(a1)\n    ${lam}\n    lam!(a2)\n    tieTwo(r, lam)\n    lam!(a3)\n    ()\n` +
+      "let user(p, q, s) = outer!(p, q, s)\n";
+    expect(reports(three)).toEqual([]);
+    expect(hoveredType(three, "outer(a1")).toBe("(() ->! Unit, () ->! Unit, () ->! Unit) >-> Unit");
+  });
+
+  it("is held where no body decides the value: a module's value left open (#1283)", () => {
+    const top = prelude + "let (r, _) = make()\n";
+    // A top-level function's own callback, which a module-level `r` took in,
+    // stays its callback: no body would decide it as `r`'s.
+    expect(reports(top + "export let a(a1: () ->! Unit): Unit =\n    let t = () => r!(a1)\n    t!()\n" +
+      "export let b(): Unit = r!(noop)\nexport let c(): Unit =\n    let w = [r, (g) => save!(\"y\")]\n    ()\n"))
+      .toEqual([]);
+    // So does a lambda's inside a function, where the module's `r` took it in:
+    // today's tie stands until #1283 decides who decides such a colour.
+    expect(reports(top + "export let outer(a1: () ->! Unit, a2: () ->! Unit): Unit =\n" +
+      `    ${lam}\n    lam!(a1)\n    lam!(a2)\n    ()\nlet user(p, q) = outer!(p, q)\n`))
+      .toEqual([
+        "`p`'s colour is tied to `q`'s here, and inference cannot keep them apart — write `p`'s type, or wrap `p` where they meet",
+      ]);
+  });
+});
+
 describe("Effects §3.5 — a colour in error (#1223)", () => {
   const prelude = "module Main\n\n" + world + "let noop(): Unit = ()\nlet save0(): Unit = save!(\"x\")\n" +
     "let pureOnly(f: () -> Unit): Unit = f()\nlet keep(cb: () ->! Unit): Unit = ()\n" +

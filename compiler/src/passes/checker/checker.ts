@@ -1167,6 +1167,10 @@ class LinkedColours {
   moved(from: Variable, to: Variable): void {
     if (this.#representatives.has(from)) this.#representatives.add(to);
   }
+  /** A colour that is no callback's from here on (`Checker.#endHolds`). */
+  release(colour: Variable): void {
+    this.#representatives.delete(colour);
+  }
 }
 
 /**
@@ -4114,6 +4118,14 @@ class Checker {
    * bind of that root to a constant is where `ColourSolve` is minted.
    */
   readonly #faceColours = new WeakSet<Variable>();
+  /** Every written callback's colour, to tell whose a representative is (`#endHolds`). */
+  readonly #writtenCallbackColours: Variable[] = [];
+  /**
+   * The colours a value's own colour took in (`#takeIn`): a lambda's written
+   * callback colour among them, where no generalization reaches it, is that
+   * value's from the close of the lambda (`#endHolds`, Effects §2.6, §3.4).
+   */
+  readonly #takenInByValues = new WeakSet<Variable>();
   /**
    * A colour left open in the type of a binding the text decides: that
    * value's own, one colour for every use of it (`#settleSource`). Like a
@@ -11472,11 +11484,15 @@ class Checker {
         if (inPlace) instanceOf(type);
         if (instances.size > 0) {
           const outward = new Map<number, Mono>();
+          const tied: (readonly [Variable, Mono])[] = [];
           for (const { colour, instance } of instances.values()) {
             const own = this.#prune(colour);
             if (own.kind === "Variable" && own.level > level) outward.set(own.id, instance);
-            else this.#unify(instance, own, expression.span);
+            else tied.push([instance, own]);
           }
+          // One a value took in is that value's before its instance meets it.
+          this.#endHolds(face, new Set(outward.keys()));
+          for (const [instance, own] of tied) this.#unify(instance, own, expression.span);
           if (outward.size > 0) type = this.#replaceVariables(type, outward);
         }
         this.#frameOfType.set(type, effectFrame);
@@ -20756,6 +20772,36 @@ class Checker {
   }
 
   /**
+   * **A written callback colour a value took in is that value's** *(Effects
+   * §2.6, §3.4, #1249)*. A lambda's own written callback colour is held while
+   * its body is checked: the body never decides it. Where the lambda's binding
+   * generalizes it, each use meets an instance. Where none reaches it because
+   * a value's own colour took it in (`r!(g)`, with `r` a value left open that
+   * an enclosing body made), no signature will ever quantify it, so from the
+   * lambda's close it is that value's colour: no callback's, and grown as the
+   * value's colour grows (rule 3), so two callbacks the lambda is handed in
+   * turn stay two colours, as they would with `g` untyped. Held, it could
+   * only tie them or round up, by line order.
+   *
+   * Only where a body encloses the lambda: a module-level value's colour has
+   * no body to decide it (#1283). And only a colour that is the lambda's
+   * alone (`#sharedDependency`).
+   */
+  #endHolds(face: SignatureFace | undefined, kept: ReadonlySet<number>): void {
+    const outermost = this.#effectFrames[0];
+    if (face === undefined || outermost === undefined) return;
+    const mine = [...face.handed.flat(), ...face.carried].flatMap((callback) => [callback.colour, callback.fail]);
+    for (const colour of mine) {
+      const own = this.#prune(colour);
+      if (own.kind !== "Variable" || kept.has(own.id) || own.level < outermost.level) continue;
+      if (!this.#takenInByValues.has(own) || this.#sharedDependency(own, mine)) continue;
+      this.#linkedColours.release(own);
+      this.#faceColours.delete(own);
+      this.#valueColours.add(own);
+    }
+  }
+
+  /**
    * A binding whose type, where it is bound, still has a part of its shape
    * inference has not settled — a type variable no generalization quantified,
    * which the lines after it may fill — is inferred from its uses, whatever
@@ -20772,8 +20818,25 @@ class Checker {
    * earlier one solves the colour. The colour is the value's own
    * (`#valueColours`), one for every use.
    */
+  /**
+   * Whether a colour a lambda wrote is also another dependency's: another
+   * callback's, an untyped parameter's, or one a knot, a later deadline or a
+   * constraint seat decides. Such a colour keeps its hold for that one's sake.
+   * No route makes one today, since every use of a written callback inside its
+   * body re-opens it (Effects §2.6), so nothing binds it bare; this keeps
+   * `#endHolds` from releasing another's colour if one ever does.
+   */
+  #sharedDependency(colour: Variable, mine: readonly Variable[]): boolean {
+    return this.#waitingColours.has(colour) || this.#seatHeld.has(colour) || this.#undecided(colour) ||
+      this.#untypedColours.get(colour).length > 0 ||
+      this.#writtenCallbackColours.some((other) => !mine.includes(other) && this.#prune(other) === colour);
+  }
+
   #settleSource(symbol: Resolved.SymbolId, type: Mono, quantified: readonly Variable[]): void {
     const source = this.#bindingSources.get(symbol);
+    if (source?.kind === "function" && source.value !== undefined) {
+      this.#endHolds(this.#lambdaFaces.get(source.value), new Set(quantified.map((variable) => variable.id)));
+    }
     if (source?.kind !== "value" && source?.kind !== "part") return;
     const kept = new Set(quantified.map((variable) => variable.id));
     for (const variable of this.#collectVariables(type)) if (!kept.has(variable.id)) variable.named = true;
@@ -22412,6 +22475,7 @@ class Checker {
       }
       this.#linkedColours.push(colour);
       this.#faceColours.add(colour);
+      this.#writtenCallbackColours.push(colour);
     }
     // A scope for each colour the callback has (Effects §10's owner line, and
     // the lookups a tie makes on that colour).
@@ -27217,6 +27281,21 @@ class Checker {
       this.#unify(slackRight, this.#join(onlyLeft), span, message);
       return;
     }
+    // One side holds all of the other's parts and more, which says only that
+    // the more is at most what they share: a slack they share takes it,
+    // rebound to a fresh slack joined with it (Effects §3.4, rule 4, as rule 3
+    // rebinds a variable).
+    if (onlyLeft.length === 0 || onlyRight.length === 0) {
+      const slack = pick(leftParts.filter((part) => rightParts.includes(part)));
+      if (slack !== undefined) {
+        const fresh = this.#fresh(slack.level, false);
+        this.#openedColours.add(fresh);
+        this.#openedPending.push(fresh);
+        if (this.#valueSlacks.has(slack)) this.#valueSlacks.add(fresh);
+        this.#unify(slack, this.#join([...onlyLeft, ...onlyRight, fresh]), span, message);
+        return;
+      }
+    }
     if (slackLeft !== undefined && slackRight !== undefined) {
       const shared = this.#fresh(Math.min(slackLeft.level, slackRight.level), false);
       this.#openedColours.add(shared);
@@ -28231,6 +28310,7 @@ class Checker {
       const owner = this.#pinnedVars.get(variable.id);
       if (owner !== undefined) this.#pinnedVars.set(type.id, owner);
       if (this.#faceColours.has(variable)) this.#faceColours.add(type);
+      if (this.#takenInByValues.has(variable)) this.#takenInByValues.add(type);
       // So does an opening's floor in error, and a value in error's meeting (#1223).
       if (this.#errorFloors.has(variable)) this.#errorFloors.add(type);
       if (this.#erroredTypes.has(variable)) this.#erroredTypes.add(type);
@@ -28420,6 +28500,17 @@ class Checker {
    * is the value's join, never held from it as a knot's colour would be
    * (`defining`, #1229).
    */
+  /**
+   * What a value's own colour takes in is the value's (#1170): its slacks are
+   * the value's room, and every other part is marked, so that a written
+   * callback colour among them, where no generalization reaches it, becomes
+   * the value's once the lambda that wrote it closes (`#endHolds`).
+   */
+  #takeIn(slacks: readonly Variable[], real: readonly Variable[]): void {
+    for (const slack of slacks) this.#valueSlacks.add(slack);
+    for (const part of real) this.#takenInByValues.add(part);
+  }
+
   #bindJoin(variable: Variable, join: EffectJoin, span: Source.Span, defining = false): void {
     // An opening's floor in error passes to the join's openings, never to a
     // colour something else decides (#1223).
@@ -28456,14 +28547,14 @@ class Checker {
       if (this.#openedColours.has(variable)) this.#openedColours.add(fresh);
       if (this.#valueColours.has(variable)) this.#valueColours.add(fresh);
       if (this.#valueSlacks.has(variable)) this.#valueSlacks.add(fresh);
-      if (own) for (const slack of slacks) this.#valueSlacks.add(slack);
+      if (own) this.#takeIn(slacks, real);
       this.#lowerLevels(this.#join(rest), variable.level);
       const target = this.#join([fresh, ...rest]);
       this.#binds.set(variable, { span, order: this.#bindCount++, target });
       variable.instance = target;
       return;
     }
-    if (own) for (const slack of slacks) this.#valueSlacks.add(slack);
+    if (own) this.#takeIn(slacks, real);
     this.#lowerLevels(join, variable.level);
     this.#binds.set(variable, { span, order: this.#bindCount++, target: join });
     if (!this.#firstMeetings.has(variable)) this.#firstMeetings.set(variable, span);
