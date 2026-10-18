@@ -312,10 +312,13 @@ chosen once for the whole expression — never operation by operation from the i
   call's to a member of a knot still open — is read exactly wherever it meets a number: it
   establishes no home, and it enters the home its tree's other values or its seat choose
   only by unification, as an unsolved variable does. A seat whose own type only inference
-  gave — a parameter of a callee the text does not decide, a sibling group's variable that
-  such an argument solved, the result such a parameter lands on a lambda, a `var` made
-  from such a value — supplies no home and converts nothing: the value meets it by
-  unification. Hindley–Milner still solves every such type, with one answer whatever order
+  gave supplies no home and converts nothing: the value meets it by unification. A
+  parameter's seat is decided where the text decides the callee's type at that
+  parameter, by the same test — so every parameter of a callee the text does not decide
+  is such a seat, and so is a parameter a member of a knot still open leaves unwritten,
+  the text deciding of an open member only what its declaration writes (Method Syntax
+  §3.1). So are a sibling group's variable that such an argument solved, the result such
+  a parameter lands on a lambda, and a `var` made from such a value. Hindley–Milner still solves every such type, with one answer whatever order
   the lines come in; what no such type does is choose a reading, so the line or argument
   checked first types the value and decides nothing else. `useInt(p)` and `useBig(p)`
   are refused in either order, at whichever meets `p` second, and so are `useFloat(p)`

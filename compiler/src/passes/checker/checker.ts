@@ -7658,6 +7658,22 @@ class Checker {
     return deep ? this.#collectVariables(result).length === 0 : result.kind !== "Variable";
   }
 
+  /**
+   * Whether the text decides the type of `callee`'s parameter `index`, by
+   * Method Syntax §3.1's one test (#1195): where it decides the callee's type
+   * at that parameter. A callee it does not decide decides none of its
+   * parameters; of a member of a knot still open it decides only what the
+   * declaration writes, so a parameter written whole (#1279).
+   */
+  #parameterSeatDecided(callee: Resolved.Expr, calleeDecided: boolean, index: number): boolean {
+    if (!calleeDecided) return false;
+    const named = ungrouped(callee);
+    const open = named.kind === "Name" ? this.#openMember(named.symbol) : undefined;
+    if (open === undefined) return true;
+    const annotation = open.value.parameters[index]?.annotation;
+    return annotation !== undefined && annotationWhole(annotation);
+  }
+
   /** The member of a knot still open that a symbol names, if it names one. */
   #openMember(symbol: Resolved.SymbolId): KnotMember | undefined {
     for (const knot of this.#knots) {
@@ -12308,21 +12324,12 @@ class Checker {
             result: this.#fresh(level, false),
           })
           : this.#inferExpr(expression.callee, level);
-        // A callee whose type the text does not decide — an untyped parameter
-        // (Method Syntax §3.1) — has parameter types inference gathered from its
-        // uses, and so does a member of a knot still open at each parameter its
-        // declaration leaves unwritten: a seat there supplies no home and
-        // converts nothing (#1195), so no line checked earlier chooses how an
-        // argument is read. Its arguments meet it by unification.
+        // A parameter's seat whose type the text does not decide supplies no
+        // home and converts nothing (#1195), so no line checked earlier chooses
+        // how an argument is read: the argument meets it by unification.
         const calleeDecided = calleeIsLambda || this.#typeDecided(expression.callee);
-        const openCallee = expression.callee.kind === "Name" ? this.#openMember(expression.callee.symbol) : undefined;
-        const plainSeat = (index: number): boolean => {
-          if (calleeIsLambda) return false;
-          if (!calleeDecided) return true;
-          if (openCallee === undefined) return false;
-          const annotation = openCallee.value.parameters[index]?.annotation;
-          return annotation === undefined || !annotationWhole(annotation);
-        };
+        const plainSeat = (index: number): boolean =>
+          !calleeIsLambda && !this.#parameterSeatDecided(expression.callee, calleeDecided, index);
         {
           const named = this.#spelledExpression(expression.callee);
           const plain = named === undefined
