@@ -1399,12 +1399,12 @@ function defersAsLambda(expression: Resolved.Expr): boolean {
   return deferredLambda(expression) !== undefined;
 }
 
-/** The lambda literal `expression` is, read through grouping (§3.1), if it is one. */
 /** The indefinite article a type's name takes in a report: "an `Int`", "a `Float`". */
 function article(name: string): string {
   return /^[AEIOU]/.test(name) ? "an" : "a";
 }
 
+/** The lambda literal `expression` is, read through grouping (§3.1), if it is one. */
 function deferredLambda(expression: Resolved.Expr): Resolved.LambdaExpr | undefined {
   const inner = ungrouped(expression);
   return inner.kind === "Lambda" ? inner : undefined;
@@ -7511,7 +7511,9 @@ class Checker {
   #typeDecided(expression: Resolved.Expr, deep = false): boolean {
     // A landing context is read without its lambdas (`#landingContextDecided`),
     // so what it answers is not the expression's own answer, and is not kept.
-    if (this.#landingLambdas.size > 0) return this.#typeDecidedOnce(expression, deep);
+    if (this.#landingLambdas.size > 0 || this.#readingLocalBodies.size > 0) {
+      return this.#typeDecidedOnce(expression, deep);
+    }
     const memo = deep ? this.#typeDecidedWholeExpressions : this.#typeDecidedHeadExpressions;
     const known = memo.get(expression);
     if (known !== undefined) return known;
@@ -7675,26 +7677,44 @@ class Checker {
    * result each call instantiates.
    */
   #localResult(call: Resolved.CallExpr, deep: boolean): boolean {
-    const callee = ungrouped(call.callee);
-    if (callee.kind !== "Name" || this.#openMember(callee.symbol) !== undefined) return false;
-    if (this.#moduleBindings.has(callee.symbol)) return false;
-    const source = this.#typeSources.get(callee.symbol);
-    if (source === undefined || (source.kind !== "value" && source.kind !== "localFunction")) return false;
-    const value = ungrouped(source.value);
-    if (value.kind !== "Lambda") return false;
-    if ((value.typeParameters?.length ?? 0) > 0) return false;
-    const annotations = [...value.parameters.map((parameter) => parameter.annotation), value.returnAnnotation];
-    if (annotations.some((annotation) => annotation !== undefined && annotationHasTypeVariable(annotation))) return false;
+    const value = this.#localLambda(call.callee);
+    if (value === undefined) return false;
     const written = value.returnAnnotation;
     if (written !== undefined && (deep ? annotationWhole(written) : headWritten(written))) return true;
-    // A local `fun` that calls itself reads its body once.
-    if (this.#readingLocalBodies.has(value)) return false;
+    // A call of the function inside its own body says nothing either way: the
+    // body is decided where its other paths are.
+    if (this.#readingLocalBodies.has(value)) return true;
     this.#readingLocalBodies.add(value);
     try {
       return this.#typeDecided(value.body, deep);
     } finally {
       this.#readingLocalBodies.delete(value);
     }
+  }
+
+  /**
+   * The lambda literal whose body a call of `callee` runs, where `callee` is a
+   * local function `#localResult` reads: a name a `let` or a `fun` in a body
+   * binds to one, or such a function applied, whose body is itself a lambda (a
+   * curried function's later application). `undefined` for anything else.
+   */
+  #localLambda(callee: Resolved.Expr): Resolved.LambdaExpr | undefined {
+    const named = ungrouped(callee);
+    if (named.kind === "Call") {
+      const outer = this.#localLambda(named.callee);
+      const inner = outer === undefined ? undefined : ungrouped(outer.body);
+      return inner?.kind === "Lambda" && this.#readsAsLocal(inner) ? inner : undefined;
+    }
+    if (named.kind !== "Name" || this.#openMember(named.symbol) !== undefined) return undefined;
+    const value = this.#boundLambda(named.symbol);
+    return value !== undefined && this.#readsAsLocal(value) ? value : undefined;
+  }
+
+  /** Whether a local function's lambda writes no type variable, so each call does not instantiate its result. */
+  #readsAsLocal(value: Resolved.LambdaExpr): boolean {
+    if ((value.typeParameters?.length ?? 0) > 0) return false;
+    const annotations = [...value.parameters.map((parameter) => parameter.annotation), value.returnAnnotation];
+    return !annotations.some((annotation) => annotation !== undefined && annotationHasTypeVariable(annotation));
   }
 
   /** The local functions' bodies `#localResult` is reading, so a recursive one is read once. */
@@ -7711,9 +7731,27 @@ class Checker {
     if (!calleeDecided) return false;
     const named = ungrouped(callee);
     const open = named.kind === "Name" ? this.#openMember(named.symbol) : undefined;
-    if (open === undefined) return true;
-    const annotation = open.value.parameters[index]?.annotation;
-    return annotation !== undefined && annotationWhole(annotation);
+    if (open !== undefined) {
+      const annotation = open.value.parameters[index]?.annotation;
+      return annotation !== undefined && annotationWhole(annotation);
+    }
+    // A local function decides a parameter it writes whole. Any other callee
+    // decides its parameters where the text decides it whole: a function a body
+    // binds has the parameter types inference gave it, which may hold what it
+    // captures.
+    const bound = named.kind === "Name" ? this.#boundLambda(named.symbol) : undefined;
+    const annotation = bound?.parameters[index]?.annotation;
+    if (annotation !== undefined && annotationWhole(annotation)) return true;
+    return this.#typeDecided(callee, true);
+  }
+
+  /** The lambda literal a `let` or a `fun` in a body binds `symbol` to, if it binds one. */
+  #boundLambda(symbol: Resolved.SymbolId): Resolved.LambdaExpr | undefined {
+    if (this.#moduleBindings.has(symbol)) return undefined;
+    const source = this.#typeSources.get(symbol);
+    if (source === undefined || (source.kind !== "value" && source.kind !== "localFunction")) return undefined;
+    const value = ungrouped(source.value);
+    return value.kind === "Lambda" ? value : undefined;
   }
 
   /** The member of a knot still open that a symbol names, if it names one. */
@@ -22562,7 +22600,7 @@ class Checker {
     if (target.kind !== "Variable" || target.rigidName !== undefined) {
       // A type an argument the text does not decide solved is no face, and
       // the siblings meet it by unification (#1195).
-      const plain = giver !== undefined && !this.#typeDecided(giver);
+      const plain = giver !== undefined && !this.#typeDecided(giver, true);
       if (plain) {
         const named = this.#spelledExpression(giver);
         const seat = named === undefined
@@ -29572,7 +29610,10 @@ class Checker {
     if (value.kind === "Name" && this.#typeSources.has(value.symbol)) {
       return `write \`${value.text}: ${type}\` where \`${value.text}\` is made`;
     }
-    if (value.kind === "Call" && value.callee.kind === "Name") return `write \`${value.callee.text}\`'s result type`;
+    if (
+      value.kind === "Call" && value.callee.kind === "Name" &&
+      (this.#localLambda(value.callee) !== undefined || this.#openMember(value.callee.symbol) !== undefined)
+    ) return `write \`${value.callee.text}\`'s result type`;
     return undefined;
   }
 

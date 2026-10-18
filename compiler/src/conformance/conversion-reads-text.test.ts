@@ -24,6 +24,8 @@ const fixtures = "module Main\n\n" +
   "let useFloatFn(g: (Float) -> Unit): Unit = ()\n" +
   "let useFloatResult(g: ((Int) -> Float) -> Unit): Unit = ()\n" +
   "let both(h: (a) -> Unit, y: a): Unit = ()\n" +
+  "let both2(xs: Vector(a), y: a): Unit = ()\n" +
+  "let gI(k: Int): Int = k\n" +
   "let big(): BigInt = 1n\n";
 
 const article = (type: string): string => /^[AEIOU]/u.test(type) ? "an" : "a";
@@ -76,6 +78,7 @@ describe("an untyped parameter at two number seats: refused in either order", ()
     ] as const) {
       expect(refusals(body("(p)", lines)), lines.join("; ")).toEqual([first]);
       expect(refusals(body("(p)", [...lines].reverse())), lines.join("; ")).toHaveLength(1);
+      expect(refusals(body("(p)", [...lines].reverse()))[0], lines.join("; ")).toMatch(/^type mismatch: expected (Int|Nat), found /u);
     }
     const range = ["let r = p..q", "let w: BigInt = p"];
     expect(refusals(body("(p, q)", range))).toEqual([notWidened("p", "Int", "BigInt")]);
@@ -153,6 +156,27 @@ describe("a seat whose type only inference gave converts nothing", () => {
     expect(refusals(body(written, [...lines].reverse()))).toEqual([]);
   });
 
+  test("a local function's parameter inference gave, through what it captures", () => {
+    const lines = ["let g = (x) => ignore([x, p])", "useInt(p)", "g(n)"];
+    expect(refusals(body("(p, n: Nat)", lines)))
+      .toEqual([notWidenedInto("n", "`g`'s parameter", "Int", "g", "Nat")]);
+    expect(refusals(body("(p, n: Nat)", [lines[0]!, lines[2]!, lines[1]!]))).toEqual([notWidened("p", "Nat", "Int")]);
+    // Written, the parameter is a seat the text decides, whatever the function captures.
+    const written = ["let g = (x: Int) => ignore([x, p])", "useInt(p)", "g(n)"];
+    expect(refusals(body("(p, n: Nat)", written))).toEqual([]);
+    expect(refusals(body("(p, n: Nat)", [written[0]!, written[2]!, written[1]!]))).toEqual([]);
+    // A local function that captures nothing undecided types its parameter by its own body.
+    expect(refusals(body("(n: Nat)", ["let g = (x) => useInt(x)", "g(n)"]))).toEqual([]);
+  });
+
+  test("a sibling group's variable a value only inference typed in part solved", () => {
+    const lines = ["let v = [p]", "useFloat(p)", "both2(v, n)"];
+    expect(refusals(body("(p, n: Int)", lines)))
+      .toEqual([notWidenedInto("n", "the type `v` gave", "Float", "v", "Int")]);
+    expect(refusals(body("(p, n: Int)", [lines[0]!, lines[2]!, lines[1]!]))).toEqual([notWidened("p", "Int", "Float")]);
+    expect(refusals(body("(p, n: Int)", ["let v: Vector(Float) = [p]", "useFloat(p)", "both2(v, n)"]))).toEqual([]);
+  });
+
   test("a `var` made from an untyped parameter", () => {
     const lines = ["var x = p", "useFloat(p)", "x := n"];
     expect(refusals(body("(p, n: Int)", lines))).toEqual([notWidenedInto("n", "`x`", "Float", "x", "Int")]);
@@ -214,6 +238,29 @@ describe("a local function's call is decided by its own text (Method Syntax §3.
         "write `h`'s result type, or convert it — `BigInt.fromInt(h())`",
     ]);
     expect(refusals(body("(p)", ["let h = (): Int => p", "useInt(p)", "useBig(h())"]))).toEqual([]);
+  });
+
+  test("a curried local function, and a recursive one, by the paths that decide them", () => {
+    expect(refusals(body("(n)", ["let h = (a: Int) => (b: Int) => gI(n)", "let y: Float = h(1)(2)"]))).toEqual([]);
+    expect(refusals(body("(n)", [
+      "fun loop(i: Int) = if i > 0 then loop(i - 1) else gI(n)",
+      "let y: Float = loop(3)",
+    ]))).toEqual([]);
+    // A recursion with no other path that decides it decides nothing.
+    expect(refusals(body("(p)", [
+      "fun loop(i: Int) = if i > 0 then loop(i - 1) else p",
+      "useInt(p)",
+      "let y: Float = loop(3)",
+    ]))).toEqual(["`loop(3)` is an `Int` only by inference, and an inferred type is not widened to `Float`: " +
+      "write `loop`'s result type, or convert it — `Float.fromInt(loop(3))`"]);
+  });
+
+  test("a lambda a pattern takes apart is read as a call; the report offers the conversion", () => {
+    expect(refusals(body("(n)", ["let (h, k) = (() => gI(n), 0)", "let y: Float = h()"]))).toEqual([
+      "`h()` is an `Int` only by inference, and an inferred type is not widened to `Float`; " +
+        "convert it — `Float.fromInt(h())`",
+    ]);
+    expect(refusals(body("(n)", ["let (h, k) = (() => gI(n), 0)", "let y: Float = Float.fromInt(h())"]))).toEqual([]);
   });
 
   test("a generic local function's result is each call's, not its own text's", () => {
