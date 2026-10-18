@@ -16,12 +16,44 @@ const REFUSED_B =
   "annotation to `String`, or remove it to let the type be inferred";
 
 describe("a knot's survivor gets no report of its own", () => {
+  // `p2`'s call `p3(x, n - 1)` meets the head `p3`'s text wrote where the
+  // knot opened (#1279), so the two declared variables meet there and are
+  // refused there, named in the order the head writes them; `p3`'s
+  // `p2("s", …)` is then `String` at `b`. Neither report
+  // is defaulting's: `c` is never proposed `Int`.
   test("head-declared: `c` is never blamed for an `Int` no body demanded", () => {
     expect(verdict(
       "fun<b: Show, c: Show>\n" +
       "    p2(x: b, n: Int): String = if n <= 0 then show(x) else p3(x, n - 1)\n" +
       "    p3(x: c, n: Int): String = if n <= 0 then show(x) else p2(\"s\", n - 1)\n",
-    )).toEqual([REFUSED_B]);
+    )).toEqual([
+      "`b` and `c` are distinct declared type variables, but the body requires them to be the same; " +
+        "use one type variable name in both annotations, or remove an annotation to let the type be inferred",
+      REFUSED_B,
+    ]);
+  });
+
+  // The names follow the head's binder order, never the members': written
+  // `fun<c, b>`, the same members name `c` first, and so does the twin whose
+  // members come in the other order.
+  test("head-declared: two head variables are named in the order the head writes them", () => {
+    const distinct = (first: string, second: string): string =>
+      `\`${first}\` and \`${second}\` are distinct declared type variables, but the body requires them to be ` +
+      "the same; use one type variable name in both annotations, or remove an annotation to let the type be inferred";
+    expect(verdict(
+      "fun<c: Show, b: Show>\n" +
+      "    p2(x: b, n: Int): String = if n <= 0 then show(x) else p3(x, n - 1)\n" +
+      "    p3(x: c, n: Int): String = if n <= 0 then show(x) else p2(\"s\", n - 1)\n",
+    )).toEqual([distinct("c", "b"), REFUSED_B]);
+    expect(verdict(
+      "fun<c: Show, b: Show>\n" +
+      "    p3(x: c, n: Int): String = if n <= 0 then show(x) else p2(x, n - 1)\n" +
+      "    p2(x: b, n: Int): String = if n <= 0 then show(x) else p3(\"s\", n - 1)\n",
+    )).toEqual([
+      distinct("c", "b"),
+      "`c` is a declared type variable, but the body requires `String`; change the " +
+        "annotation to `String`, or remove it to let the type be inferred",
+    ]);
   });
 
   test("member-declared: the knot refuses as a whole", () => {
@@ -29,7 +61,13 @@ describe("a knot's survivor gets no report of its own", () => {
       "fun\n" +
       "    p2(x: b, n: Int): String = if n <= 0 then show(x) else p3(x, n - 1)\n" +
       "    p3(x: c, n: Int): String = if n <= 0 then show(x) else p2(\"s\", n - 1)\n",
-    )).toEqual([REFUSED_B]);
+    )).toEqual([
+      "`b` declared on `p2` and `c` declared on `p3` are distinct declared type variables, but members " +
+        "of a recursive knot are checked together at not-yet-general types; declare one head on the " +
+        "`fun` block that both members write, drop the members' own variable annotations and let " +
+        "inference link the knot, or move the contract to a non-recursive wrapper",
+      REFUSED_B,
+    ]);
   });
 
   test("a knot that refused nothing still reports a sibling's reach, at the member", () => {

@@ -1908,13 +1908,16 @@ describe("a written `->!` a use reads as any function belongs to that use alone 
     }
   });
 
-  test("a call to a member of a knot still open is not decided by its written result, in either order", () => {
+  test("a call to a member of a knot still open is decided by its written result, in either order", () => {
+    // The member's written signature is read where its knot opens (Effects
+    // §3.4, #1279): its ground result decides the call as any function's does,
+    // whichever member's body is checked first (Verdict Table row 50).
     const use = ["    useIt(p): Unit =", "        let w: (() ->! Unit, Int) = mkPair(p)", "        ()"];
     const make = ["    mkPair(q): (() -> Unit, Int) =", "        useIt(q)", "        (noop, 1)"];
     const verdicts = [[...use, ...make], [...make, ...use]].map((members) =>
-      reports("fun\n" + members.join("\n") + "\n").length > 0
+      reports("fun\n" + members.join("\n") + "\n")
     );
-    expect(verdicts).toEqual([true, true]);
+    expect(verdicts).toEqual([[], []]);
   });
 
   test("a function's written callback is its colour, though a recursive call pinned it, in either order", () => {

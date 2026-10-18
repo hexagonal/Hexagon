@@ -479,8 +479,9 @@ interface SignatureFace extends Spine {
   readonly arrows: FaceArrow[];
   /**
    * The spine applications whose written `>->` §4.2 refused, on each colour
-   * the body acts on of its own account: they read as the fix from outside
-   * (`#readRefusedArrows`).
+   * the body acts on of its own account: they read as the fix from outside,
+   * through the arrow's outcome where a value met it (`#publishOutcomes`) and
+   * otherwise through `#readRefusedArrows`.
    */
   readonly refused?: Map<Axis, Set<number>>;
   /**
@@ -494,7 +495,7 @@ interface SignatureFace extends Spine {
    * The spine applications whose written following arrow §4.2 refused on a
    * colour it leaves silent, where the value follows this signature's own
    * callbacks: the fix passes that colour through too, and they read so from
-   * outside (`#readRefusedArrows`).
+   * outside (`#publishOutcomes`, `#readRefusedArrows`).
    */
   readonly passed?: Map<Axis, Set<number>>;
   /**
@@ -2285,7 +2286,7 @@ export function mergeColourReports(reports: Diagnostics.Bag, staged: Diagnostics
   staged.discardSince(0);
 }
 
-/** Records a written `>->`'s refusal, or its standing over a body in error, on one colour (`#readRefusedArrows`). */
+/** Records a written `>->`'s refusal, or its standing over a body in error, on one colour (`#publishOutcomes`, `#readRefusedArrows`). */
 function faceMark(face: SignatureFace, marks: "refused" | "inError" | "passed", axis: Axis, application: number): void {
   const byAxis = ((face as Partial<Record<"refused" | "inError" | "passed", Map<Axis, Set<number>>>>)[marks] ??= new Map());
   const applications = byAxis.get(axis) ?? new Set<number>();
@@ -3697,6 +3698,8 @@ interface KnotMember {
   readonly exported: boolean;
   /** How many parameters the member's text gives its own arrow (`fun b(x, y)` gives two). */
   readonly arity: number;
+  /** The member's value, whose header writes its signature (Effects §3.4, #1279). */
+  readonly value: Resolved.LambdaExpr;
 }
 
 /**
@@ -3719,6 +3722,8 @@ type HeadOwner =
       /** Every member the head scopes over, for the knot-membership test. */
       readonly members: readonly Resolved.SymbolId[];
       readonly span: Source.Span;
+      /** The head's binders, in the order it writes them. */
+      readonly binders: readonly string[];
     };
 
 /** A binding whose right-hand side encloses a demand (#1048). */
@@ -4168,6 +4173,23 @@ class Checker {
    * bind of that root to a constant is where `ColourSolve` is minted.
    */
   readonly #faceColours = new WeakSet<Variable>();
+  /** Every written callback's colour, to tell whose a representative is (`#endHolds`). */
+  readonly #writtenCallbackColours: Variable[] = [];
+  /**
+   * The colours a value's own colour took in (`#takeIn`): a lambda's written
+   * callback colour among them, where no generalization reaches it, grows as
+   * that value's colour does from the close of the lambda (`#endHolds`,
+   * Effects §2.6, §3.4).
+   */
+  readonly #takenInByValues = new WeakSet<Variable>();
+  /**
+   * Written callback colours whose hold against growing has ended
+   * (`#endHolds`): still a callback's in every other way (a dependency the
+   * defaulting never touches, what the lambda's own calls are checked
+   * against), but a join that meets one binds it, as one meeting a value's own
+   * colour does, rather than tying or rounding up.
+   */
+  readonly #grownCallbacks = new WeakSet<Variable>();
   /**
    * A colour left open in the type of a binding the text decides: that
    * value's own, one colour for every use of it (`#settleSource`). Like a
@@ -4432,10 +4454,25 @@ class Checker {
    * wrote (Constraints §4.7).
    */
   readonly #lambdaFaces = new WeakMap<Resolved.LambdaExpr, SignatureFace>();
-  /** The written face of the binding being generalized, whose refused arrows read as `->!` (`#readRefusedArrows`). */
+  /** The written face of the binding being generalized, whose refused arrows no value met read as `->!` (`#readRefusedArrows`). */
   #generalizingFace: SignatureFace | undefined;
   /** Each written `>->`'s function node, with its face and arrow: a value meeting one is fitted (`#unify`). */
   readonly #faceArrowNodes = new WeakMap<Mono, { readonly face: SignatureFace; readonly arrow: FaceArrow }>();
+  /** Each written `>->`'s outcome colour on each axis, which its comparison decides (`#publishOutcomes`). */
+  readonly #outcomes = new Map<FaceArrow, Partial<Record<Axis, Variable>>>();
+  /** Every outcome colour: a dependency, never defaulted, and still to be decided until its comparison is made. */
+  readonly #outcomeColours = new Set<Variable>();
+  /** The outcomes whose comparison waits for a colour a close decides (`#compareWaitingFits`). */
+  readonly #waitingOutcomes = new Set<Variable>();
+  /**
+   * The outcomes still to be decided, each with the face its comparison
+   * belongs to: compared before a binding would generalize the outcome or the
+   * colours it may be decided as (`#decideOutcomes`), and at the closes they
+   * wait for (`#compareWaitingFits`). Decided ones leave it.
+   */
+  readonly #openOutcomes = new Map<Variable, SignatureFace>();
+  /** The outcomes that stand for the rest of a fix already passing a colour through (`#checkFaceFitsOn`). */
+  readonly #restOutcomes = new Set<Variable>();
   /** Each lambda's function type, and the body it types, for a refused tie's reading (`#readRefusedTies`). */
   readonly #frameOfType = new WeakMap<Mono, EffectFrame>();
   /**
@@ -4730,6 +4767,163 @@ class Checker {
     } finally {
       this.#currentAxis = enclosing;
       this.#diagnostics = reports;
+    }
+  }
+
+  /**
+   * **A refused following arrow reads as its fix, wherever it stands and
+   * whenever it is refused** *(Effects §4.2, §4.4, #1239)*. Each written
+   * following arrow a value meets publishes what it publishes otherwise,
+   * joined with one more colour: the comparison's **outcome**, which the
+   * comparison decides when it is made (`#settleOutcome`). It is silent where
+   * the face fits, the constant on each colour the face is refused on, the
+   * callback's colour where the fix passes a colour through, and in error
+   * where the value is. A comparison that waits for a colour a close decides is
+   * made at that close (`#compareWaitingFits`), before any face that can see
+   * the outcome is finished, so nothing is read twice: the outcome is one more
+   * variable of the join, solved once. The written type is walked beside the
+   * published one, through the function's own arrows, what it returns, and a
+   * tuple's, a record's or a covariant argument's parts, so an arrow in the
+   * data a function returns reads as its fix too (#1281). `level` is the
+   * binding's, where an outcome is decided before it generalizes.
+   */
+  #publishOutcomes(annotation: Mono, value: Mono, level: number): Mono {
+    const written = this.#prune(annotation);
+    const published = this.#prune(value);
+    switch (written.kind) {
+      case "Function": {
+        if (published.kind !== "Function") return value;
+        const result = this.#publishOutcomes(written.result, published.result, level);
+        let node: FunctionMono = result === published.result ? published : { ...published, result };
+        const seat = this.#faceArrowNodes.get(written) ?? this.#faceArrowNodes.get(annotation);
+        if (seat !== undefined) {
+          const { face, arrow } = seat;
+          for (const axis of AXES) {
+            const fits = (face.fits ?? []).filter((fit) => fit.arrow === arrow && fit.axis === axis && !fit.checked);
+            if (fits.length === 0 || this.#outcomes.get(arrow)?.[axis] !== undefined) continue;
+            // An outcome a close decides belongs to that close's level, so no
+            // binding inside it generalizes it meanwhile.
+            const waiting = fits.flatMap((fit) => this.#colourParts(fit.value)).filter((part) => this.#undecided(part));
+            const outcome = this.#fresh(Math.min(level, ...waiting.map((part) => part.level)), false);
+            this.#outcomeColours.add(outcome);
+            this.#openOutcomes.set(outcome, face);
+            if (waiting.length > 0) this.#waitingOutcomes.add(outcome);
+            this.#outcomes.set(arrow, { ...this.#outcomes.get(arrow), [axis]: outcome });
+            node = { ...node, ...colourSlot(axis, this.#join([colourAt(node, axis) ?? PURE, outcome])) };
+          }
+        }
+        if (node === published) return value;
+        const lambdas = this.#lambdasOf.get(published);
+        if (lambdas !== undefined) this.#lambdasOf.set(node, lambdas);
+        const frame = this.#frameOfType.get(published);
+        if (frame !== undefined) this.#frameOfType.set(node, frame);
+        return node;
+      }
+      case "Tuple": {
+        if (published.kind !== "Tuple" || published.elements.length !== written.elements.length) return value;
+        const elements = published.elements.map((element, index) =>
+          this.#publishOutcomes(written.elements[index]!, element, level)
+        );
+        return elements.every((element, index) => element === published.elements[index]) ? value : { ...published, elements };
+      }
+      case "Record": {
+        if (published.kind !== "Record") return value;
+        const fields = new Map([...published.fields].map(([name, field]) => {
+          const other = written.fields.get(name);
+          return [name, other === undefined ? field : this.#publishOutcomes(other, field, level)] as const;
+        }));
+        return [...fields].every(([name, field]) => field === published.fields.get(name)) ? value : { ...published, fields };
+      }
+      case "Union":
+      case "NominalRecord": {
+        if (published.kind !== written.kind) return value;
+        const given = (published as typeof written).arguments;
+        const parts = given.map((argument, index) => {
+          const variance = written.kind === "Union"
+            ? this.#variance.effectiveUnion(written.union, index)
+            : this.#variance.effectiveRecord(written.record, index);
+          const part = written.arguments[index];
+          return variance === "co" && part !== undefined ? this.#publishOutcomes(part, argument, level) : argument;
+        });
+        return parts.every((part, index) => part === given[index])
+          ? value
+          : { ...(published as typeof written), arguments: parts } as Mono;
+      }
+      default:
+        return value;
+    }
+  }
+
+  /**
+   * Before a binding generalizes, every outcome it would quantify, and every
+   * one its type holds, is compared (`#publishOutcomes`): the comparison of a
+   * face written under data, or by an ascription, is made here as the
+   * binding's own face's is. A fix that passes a colour through then reads
+   * the face's callbacks while they are still the face's own, before the
+   * scheme quantifies them (`#splitOutcome`). One whose comparison still
+   * waits for a close belongs to that close, never to this binding's scheme.
+   */
+  #decideOutcomes(level: number, type: Mono): void {
+    if (this.#openOutcomes.size === 0) return;
+    const held = new Set(this.#collectVariables(type));
+    const faces = new Set<SignatureFace>();
+    for (const [outcome, face] of this.#openOutcomes) {
+      if (outcome.level > level || held.has(outcome)) faces.add(face);
+    }
+    for (const face of faces) this.#checkFaceFits(face, false);
+    for (const outcome of this.#openOutcomes.keys()) {
+      if (outcome.level <= level) continue;
+      outcome.level = level;
+      this.#waitingOutcomes.add(outcome);
+    }
+  }
+
+  /**
+   * An outcome that passes the signature's callbacks through, joined with one
+   * more outcome for the rest: silent where the fix passes the colour
+   * through, the constant where a colour still to come makes the fix the
+   * constant. The first is decided now, while those callbacks are still this
+   * signature's own; the rest at the close it waits for.
+   */
+  #splitOutcome(arrow: FaceArrow, axis: Axis, level: number): void {
+    const outcome = this.#outcomes.get(arrow)?.[axis];
+    if (outcome === undefined || this.#prune(outcome) !== outcome || this.#restOutcomes.has(outcome)) return;
+    const rest = this.#fresh(Math.min(level, outcome.level), false);
+    this.#outcomeColours.add(rest);
+    this.#waitingOutcomes.add(rest);
+    this.#restOutcomes.add(rest);
+    const face = this.#openOutcomes.get(outcome);
+    this.#openOutcomes.delete(outcome);
+    if (face !== undefined) this.#openOutcomes.set(rest, face);
+    outcome.instance = this.#join([arrow.handed[axis], rest]);
+    this.#outcomes.set(arrow, { ...this.#outcomes.get(arrow), [axis]: rest });
+  }
+
+  /** A written `>->`'s outcome on one axis, decided once, when its comparison is made (`#publishOutcomes`). */
+  #settleOutcome(arrow: FaceArrow, axis: Axis, colour: Mono): void {
+    const outcome = this.#outcomes.get(arrow)?.[axis];
+    if (outcome === undefined || this.#prune(outcome) !== outcome) return;
+    this.#openOutcomes.delete(outcome);
+    outcome.instance = colour;
+  }
+
+  /**
+   * The comparisons that waited for a colour a close decides, made at that
+   * close, before the faces around them are finished (Effects §4.2, #1239):
+   * their outcomes are what those faces read. One comparison may wait on
+   * another's outcome, so they run until none is left that can be made.
+   */
+  #compareWaitingFits(axis: Axis): void {
+    const waiting = (): Set<SignatureFace> => {
+      const faces = new Set<SignatureFace>();
+      for (const [outcome, face] of this.#openOutcomes) if (this.#waitingOutcomes.has(outcome)) faces.add(face);
+      return faces;
+    };
+    for (let open = this.#openOutcomes.size, faces = waiting(); faces.size > 0;) {
+      for (const face of faces) this.#onAxis(axis, () => this.#checkFaceFitsOn(face, false, axis));
+      if (this.#openOutcomes.size >= open) break;
+      open = this.#openOutcomes.size;
+      faces = waiting();
     }
   }
 
@@ -5550,6 +5744,21 @@ class Checker {
   readonly #memberParameters = new Map<Resolved.SymbolId, readonly Resolved.SymbolId[]>();
   /** The same parameters, in the order the member's type takes them. */
   readonly #memberSpines = new Map<Resolved.SymbolId, readonly Resolved.Parameter[]>();
+  /**
+   * A `fun` member's header, elaborated where its knot opens
+   * (`#landWrittenSignature`): the face, the annotation scope and the written
+   * types the member's own lambda reuses when its body is checked, so nothing
+   * is elaborated twice.
+   */
+  readonly #landedHeaders = new Map<Resolved.LambdaExpr, {
+    readonly face: SignatureFace;
+    readonly variables: Map<string, Variable>;
+    readonly tails: Map<string, Variable>;
+    readonly parameters: readonly (Mono | undefined)[];
+    readonly result: Mono | undefined;
+  }>();
+  /** The written result type of each member of a knot still open that writes one, as elaborated where it opened. */
+  readonly #landedResults = new Map<Resolved.SymbolId, Mono>();
   /** The lambdas each member's value hands back (`resultLambdas`), whose parameters are the member's. */
   readonly #memberResults = new Map<Resolved.SymbolId, ReadonlySet<Resolved.Expr>>();
   /**
@@ -7445,7 +7654,14 @@ class Checker {
     while (callee.kind === "Group") callee = callee.expression;
     if (callee.kind !== "Name") return false;
     const symbol = callee.symbol;
-    if (this.#knots.some((knot) => knot.members.some((member) => member.symbol === symbol))) return false;
+    // A member of a knot still open has no generalized signature: its call's
+    // result is decided where its declaration writes it, whole without a hole
+    // (`deep`) or its head, and nowhere its body works it out (#1279).
+    const open = this.#openMember(symbol);
+    if (open !== undefined) {
+      const written = open.value.returnAnnotation;
+      return deep ? written !== undefined && annotationWhole(written) : headWritten(written);
+    }
     if (this.#typeSources.has(symbol) && !this.#moduleBindings.has(symbol)) return false;
     const kind = this.#symbolKinds.get(symbol);
     if (kind === "parameter" || kind === "var" || kind === "pattern") return false;
@@ -7458,13 +7674,28 @@ class Checker {
     return deep ? this.#collectVariables(result).length === 0 : result.kind !== "Variable";
   }
 
+  /** The member of a knot still open that a symbol names, if it names one. */
+  #openMember(symbol: Resolved.SymbolId): KnotMember | undefined {
+    for (const knot of this.#knots) {
+      const member = knot.members.find((each) => each.symbol === symbol);
+      if (member !== undefined) return member;
+    }
+    return undefined;
+  }
+
   /** Whether the text decides a binding's type, its head or (`deep`) the whole of it (`#typeDecided`). */
   #typeDecidedSymbol(symbol: Resolved.SymbolId, deep: boolean): boolean {
-    // A `fun` block's member while its knot is open: its type is whatever the
-    // siblings' bodies have said so far — a written signature included, which
-    // meets the member's type only where its own body is checked, so reading it
-    // here would follow the order the members are declared in.
-    if (this.#knots.some((knot) => knot.members.some((member) => member.symbol === symbol))) return false;
+    // A `fun` block's member while its knot is open: its type is a function's,
+    // and its whole is decided where its declaration writes every parameter's
+    // type and its result's whole, as its knot reads them where it opens
+    // (#1279). What its body works out is decided only once the knot closes.
+    const open = this.#openMember(symbol);
+    if (open !== undefined) {
+      return !deep || (
+        open.value.returnAnnotation !== undefined && annotationWhole(open.value.returnAnnotation) &&
+        open.value.parameters.every((parameter) => parameter.annotation !== undefined && annotationWhole(parameter.annotation))
+      );
+    }
     if (this.#madeInt.has(symbol)) return true;
     const memo = deep ? this.#typeDecidedWhole : this.#typeDecidedHead;
     const known = memo.get(symbol);
@@ -9052,6 +9283,7 @@ class Checker {
           // the value's colour, which its recorded demand settles pure or
           // refuses. Only the outer arrow.
           valueType = this.#publishWrittenColours(annotationType, valueType, false);
+          valueType = this.#publishOutcomes(annotationType, valueType, level + 1);
         }
         if (item.typeParameters !== undefined) {
           this.#annotationVariableScope = enclosingLetScope;
@@ -9905,6 +10137,7 @@ class Checker {
         kind: "block",
         members: group.map((item) => item.binding.symbol),
         span: head.span,
+        binders: head.typeParameters.map(({ name }) => name),
       });
       for (const [name, variable] of headVariables) scope.set(name, variable);
       this.#annotationVariableScope = scope;
@@ -9963,6 +10196,7 @@ class Checker {
           name: bySymbol.get(symbol)!.binding.name,
           exported: bySymbol.get(symbol)!.exported,
           arity: bySymbol.get(symbol)!.value.parameters.length,
+          value: bySymbol.get(symbol)!.value,
         })),
         host: undefined,
         references: [],
@@ -9976,6 +10210,15 @@ class Checker {
       };
       this.#knots.push(knot);
       for (const symbol of ordered) this.#knotMembers.set(symbol, ordered);
+      // **A member's written signature is read where its knot opens** (Effects
+      // §3.4, #1279): before any body is checked, each member's type is the
+      // function type its declaration writes, every part the text leaves open
+      // a fresh variable, its own arrow's colours inferred from its body as
+      // always. One monotype, never a scheme (annotations §9.11), the same in
+      // every member order.
+      for (const symbol of ordered) {
+        this.#landWrittenSignature(bySymbol.get(symbol)!, recursiveTypes.get(symbol)!, level + 1);
+      }
       for (const symbol of ordered) {
         const item = bySymbol.get(symbol)!;
         const enclosingMember = this.#declaringMember;
@@ -10002,16 +10245,27 @@ class Checker {
         }
         this.#declaringMember = enclosingMember;
         this.#annotationOwner = enclosingAnnotationOwner;
+        // **A member is its value** (#1232): its name takes the value. A
+        // written result is the member's face, a fact the body already met at
+        // its own seat, which reported any disagreement there; the name's side
+        // meets it, never the body's type a second time.
         this.#definingMember = true;
         try {
-          this.#unify(recursiveTypes.get(symbol)!, value, item.span);
+          const writtenResult = this.#landedResults.get(symbol);
+          const actual = this.#prune(value);
+          this.#unify(
+            recursiveTypes.get(symbol)!,
+            writtenResult !== undefined && actual.kind === "Function" ? { ...actual, result: writtenResult } : value,
+            item.span,
+          );
         } finally {
           this.#definingMember = false;
         }
       }
       knot.host = undefined;
       this.#knots.pop();
-      // Every member's head exists only now, which is why §7.4's refusal
+      for (const symbol of ordered) this.#landedResults.delete(symbol);
+      // Every body has been checked only now, which is why §7.4's refusal
       // discharges its fence here rather than where it reported.
       if (knot.refused) this.#errorKnotHeads(knot);
       this.#pinUnreachableKnotEvidence(knot, recursiveTypes, level);
@@ -10031,10 +10285,14 @@ class Checker {
         const enclosingFace = this.#generalizingFace;
         this.#generalizingFace = value.kind === "Lambda" ? this.#lambdaFaces.get(value) : undefined;
         try {
+          // A member is its value (#1232): what is generalized is its lambda's
+          // own type. The name held the landed signature while the knot was
+          // open, and every use met that; the defining unify made the two one
+          // type, so nothing is re-pointed and no use holds a stale copy.
           this.#schemes.set(
             symbol,
             this.#generalize(
-              recursiveTypes.get(symbol)!,
+              this.#memberLambdaTypes.get(symbol) ?? recursiveTypes.get(symbol)!,
               level,
               true,
               undefined,
@@ -10058,18 +10316,103 @@ class Checker {
   }
 
   /**
+   * Elaborates a `fun` member's written header where its knot opens, exactly as
+   * its own lambda would (`#inferExpr`'s `Lambda`, which reuses it), and lands
+   * what the text decides of it on the member's recursive type: each written
+   * parameter type and the written result type, with every variable the text
+   * does not name (a hole, an unwritten part, a callback its written result
+   * takes) fresh, and the member's own arrow fresh. A declared type variable is
+   * the text's own, the one the body's annotations name; so is the colour of a
+   * callback the member's own parameters write, which a written `>->` result
+   * follows as the member's face does (Effects §2.4), linked from the opening.
+   */
+  #landWrittenSignature(item: Resolved.FunItem, recursiveType: Variable, level: number): void {
+    const lambda = item.value;
+    const writes = lambda.returnAnnotation !== undefined ||
+      lambda.parameters.some((parameter) => parameter.annotation !== undefined);
+    if (!writes) return;
+    const symbol = item.binding.symbol;
+    const name = item.binding.name;
+    const enclosingOwner = this.#annotationOwner;
+    const enclosingRole = this.#arrowRole;
+    this.#annotationOwner = { kind: "member", symbol, name };
+    this.#arrowRole = undefined;
+    this.#bindingChain.push({ symbol, name });
+    let parameters: (Mono | undefined)[];
+    let result: Mono | undefined;
+    let face: SignatureFace;
+    let variables: Map<string, Variable>;
+    const tails = new Map<string, Variable>();
+    try {
+      face = this.#openFace(level + 1, lambda.span, name, this.#effectFrames.length > 0);
+      variables = new Map<string, Variable>(this.#annotationVariableScope);
+      this.#declareBinderVariables(lambda.typeParameters ?? [], level, variables, { kind: "member", symbol, name });
+      parameters = lambda.parameters.map((parameter) => {
+        if (parameter.annotation === undefined) {
+          face.untyped[0] = true;
+          return undefined;
+        }
+        return this.#elaborateParameter(
+          parameter.annotation,
+          face,
+          0,
+          parameter.name,
+          (annotation) => this.#annotationType(annotation, level + 1, tails, variables),
+        )!;
+      });
+      const written = lambda.returnAnnotation;
+      result = written === undefined
+        ? undefined
+        : this.#inRole(
+          this.#resultRole(face, 0, written),
+          () => this.#annotationType(written, level + 1, tails, variables),
+        );
+    } finally {
+      this.#bindingChain.pop();
+      this.#annotationOwner = enclosingOwner;
+      this.#arrowRole = enclosingRole;
+    }
+    this.#landedHeaders.set(lambda, { face, variables, tails, parameters, result });
+    const written = [...parameters, result].filter((part): part is Mono => part !== undefined);
+    const text = new Set<Variable>((face.handed[0] ?? []).flatMap(({ colour, fail }) => [colour, fail]));
+    const open = new Map<number, Mono>();
+    for (const part of written) {
+      for (const variable of this.#collectVariables(part)) {
+        if (variable.rigidName === undefined && !text.has(variable)) open.set(variable.id, this.#fresh(level, false));
+      }
+    }
+    // A written part with nothing to make fresh is the written type itself, as
+    // elaborated, its spelling (an alias, a qualifier) with it.
+    const landed = (part: Mono | undefined): Mono =>
+      part === undefined
+        ? this.#fresh(level, false)
+        : this.#collectVariables(part).some(({ id }) => open.has(id))
+        ? this.#replaceVariables(part, open)
+        : part;
+    this.#unify(recursiveType, {
+      kind: "Function",
+      parameters: parameters.map(landed),
+      result: landed(result),
+      effect: this.#fresh(level, false),
+      fail: this.#fresh(level, false),
+    }, lambda.span);
+    if (result !== undefined) this.#landedResults.set(symbol, result);
+  }
+
+  /**
    * §10's fence on the rigid-vs-concrete family: once §7.4's refusal has fired,
    * no head of the component may reach defaulting.
    *
    * A head no unification errors survives to the module deadline, where
    * defaulting binds it to `Int` and the rigid-vs-concrete message reports that
    * as a demand of a body with no `Int` in it. The pair that met is not the
-   * whole set — at three headed members the first collision names two, and the
-   * third is defaulted — nor even a subset the collision could reach: the third
-   * member's head is not written until its own body is checked.
+   * whole set: at three headed members the first collision names two, and the
+   * third is defaulted. Every head is on the knot's types from where it opens
+   * (`#landWrittenSignature`), but which of them a body links is known only
+   * once every body has been checked.
    *
-   * Hence one call site, at the component's end, where every head exists — and
-   * the timing is a decision, not an implementation convenience. Erroring the
+   * Hence one call site, at the component's end, after every body — and the
+   * timing is a decision, not an implementation convenience. Erroring the
    * heads where the collision reports costs a real diagnostic: a later member's
    * body can force the type a surviving head stands in, and *that* `String` is a
    * demand the body makes, which the fence is not for. The knot's refusal and
@@ -11142,6 +11485,7 @@ class Checker {
           type,
           expression.annotation.kind === "Function" && isFollowing(expression.annotation.effect),
         );
+        type = this.#publishOutcomes(annotationType, type, level);
         break;
       }
       case "Block": {
@@ -11198,7 +11542,13 @@ class Checker {
         this.#arrowRole = undefined;
         const writes = expression.returnAnnotation !== undefined ||
           expression.parameters.some((parameter) => parameter.annotation !== undefined);
-        const face = writes
+        // A `fun` member's header was elaborated where its knot opened
+        // (`#landWrittenSignature`).
+        const landedHeader = declaringMember === undefined ? undefined : this.#landedHeaders.get(expression);
+        if (landedHeader !== undefined) this.#landedHeaders.delete(expression);
+        const face = landedHeader !== undefined
+          ? landedHeader.face
+          : writes
           ? this.#openFace(
             level + 1,
             expression.span,
@@ -11244,20 +11594,22 @@ class Checker {
           // What the face's written results stand over: the value the body hands back.
           signature.value = this.#givenValue(expression.body).span;
         }
-        const annotationTails = new Map<string, Variable>();
+        const annotationTails = landedHeader?.tails ?? new Map<string, Variable>();
         // Inherit the enclosing definition's type variables so a nested lambda's
         // annotations may name them (lexical scoping); its own `<...>` binders below
         // shadow by overwriting.
-        const annotationVariables = new Map<string, Variable>(this.#annotationVariableScope);
-        const inheritedVariables = new Set(annotationVariables.values());
-        this.#declareBinderVariables(
-          expression.typeParameters ?? [],
-          level,
-          annotationVariables,
-          declaringMember === undefined
-            ? undefined
-            : { kind: "member", ...declaringMember },
-        );
+        const inheritedVariables = new Set(new Map<string, Variable>(this.#annotationVariableScope).values());
+        const annotationVariables = landedHeader?.variables ?? new Map<string, Variable>(this.#annotationVariableScope);
+        if (landedHeader === undefined) {
+          this.#declareBinderVariables(
+            expression.typeParameters ?? [],
+            level,
+            annotationVariables,
+            declaringMember === undefined
+              ? undefined
+              : { kind: "member", ...declaringMember },
+          );
+        }
         // **The landing** (§4.3). An expectation does nothing until it reaches a
         // lambda literal — a match function included, being a lambda by desugar
         // (Pattern Matching §6.7). It lands only if it is a function type of
@@ -11312,7 +11664,7 @@ class Checker {
           }
           const parameterType = parameter.annotation === undefined
             ? (component ?? this.#fresh(level + 1, false))
-            : this.#elaborateParameter(
+            : landedHeader?.parameters[index] ?? this.#elaborateParameter(
                 parameter.annotation,
                 face!,
                 0,
@@ -11422,7 +11774,7 @@ class Checker {
           expression.returnAnnotation !== undefined && this.#faceLands(expression.body)
         ) {
           const written = expression.returnAnnotation;
-          returnAnnotationType = this.#inRole(
+          returnAnnotationType = landedHeader?.result ?? this.#inRole(
             face === undefined ? undefined : this.#resultRole(face, 0, written),
             () => this.#annotationType(written, level + 1, annotationTails, annotationVariables),
           );
@@ -11467,7 +11819,7 @@ class Checker {
         }
         const returnAnnotation = expression.returnAnnotation;
         if (returnAnnotation !== undefined) {
-          const annotationType = returnAnnotationType ?? this.#inRole(
+          const annotationType = returnAnnotationType ?? landedHeader?.result ?? this.#inRole(
             face === undefined ? undefined : this.#resultRole(face, 0, returnAnnotation),
             () => this.#annotationType(returnAnnotation, level + 1, annotationTails, annotationVariables),
           );
@@ -11493,6 +11845,7 @@ class Checker {
           // once: the impure constant absorbs the colour still to be decided.
           // Only the result's outer arrow.
           result = this.#publishWrittenColours(annotationType, result, false);
+          result = this.#publishOutcomes(annotationType, result, level + 1);
         }
         this.#effectFrames.pop();
         // Settled here rather than at the end of the module: a function's
@@ -11542,11 +11895,15 @@ class Checker {
         if (inPlace) instanceOf(type);
         if (instances.size > 0) {
           const outward = new Map<number, Mono>();
+          const tied: (readonly [Variable, Mono])[] = [];
           for (const { colour, instance } of instances.values()) {
             const own = this.#prune(colour);
             if (own.kind === "Variable" && own.level > level) outward.set(own.id, instance);
-            else this.#unify(instance, own, expression.span);
+            else tied.push([instance, own]);
           }
+          // One a value took in is that value's before its instance meets it.
+          this.#endHolds(face, new Set(outward.keys()));
+          for (const [instance, own] of tied) this.#unify(instance, own, expression.span);
           if (outward.size > 0) type = this.#replaceVariables(type, outward);
         }
         this.#frameOfType.set(type, effectFrame);
@@ -12653,10 +13010,8 @@ class Checker {
   #groundResult(expression: Resolved.Expr): boolean {
     while (expression.kind === "Group") expression = expression.expression;
     if (expression.kind !== "Call" || expression.callee.kind !== "Name") return false;
-    // A member of a knot still open has no settled type: its call's result is
-    // whatever its siblings' bodies have said so far (`#landFromSignature`).
-    const callee = expression.callee.symbol;
-    if (this.#knots.some((knot) => knot.types.has(callee))) return false;
+    // A member of a knot still open is read so too: its written result type
+    // is its face from where the knot opened (Effects §3.4, #1279).
     const result = this.#resultWritten(this.#writtenView(expression.callee));
     return result !== undefined && annotationGround(result);
   }
@@ -12818,9 +13173,7 @@ class Checker {
       return whole === undefined ? undefined : this.#patternWritten(pattern, whole, symbol);
     }
     if (expression.kind !== "Call" || expression.callee.kind !== "Name") return undefined;
-    // A member of a knot still open has no settled type (`#groundResult`).
-    const callee = expression.callee.symbol;
-    if (this.#knots.some((knot) => knot.types.has(callee))) return undefined;
+    // A member of a knot still open included (`#groundResult`).
     const result = this.#resultWritten(this.#writtenView(expression.callee));
     return result === undefined || !ground && annotationGround(result) ? undefined : { written: result, role: "spine" };
   }
@@ -20804,6 +21157,18 @@ class Checker {
    */
   #fromTextAlone(symbol: Resolved.SymbolId): boolean | undefined {
     this.#consultedSources.add(symbol);
+    // A member of a knot still open hands back what its declaration writes
+    // and, beyond that, what its body works out, which the text does not
+    // decide while the knot is open (Effects §3.4, #1279): it is made from the
+    // text only where its declaration writes its whole result. Every route to
+    // it meets this, a local function's body included. Only code inside the
+    // knot names its members, so nothing read here is asked again once the
+    // knot has closed.
+    const open = this.#openMember(symbol);
+    if (open !== undefined) {
+      const written = open.value.returnAnnotation;
+      return written !== undefined && annotationWhole(written);
+    }
     const source = this.#bindingSources.get(symbol);
     if (source === undefined) {
       // Not a local binding: an import, a constructor, a prelude name.
@@ -20844,6 +21209,48 @@ class Checker {
   }
 
   /**
+   * **A written callback colour a value took in grows as the value's** *(Effects
+   * §2.6, §3.4, #1249)*. A lambda's own written callback colour is held while
+   * its body is checked: the body never decides it. Where the lambda's binding
+   * generalizes it, each use meets an instance. Where none reaches it because
+   * a value's own colour took it in (`r!(g)`, with `r` a value left open that
+   * an enclosing body made), its hold against growing ends at the lambda's
+   * close: a join that meets it binds it, rule 3's most general answer, so two
+   * callbacks the lambda is handed in turn stay two colours. It stays a
+   * callback's colour in every other way: a dependency the defaulting never
+   * touches, which the lambda's own calls are checked against.
+   *
+   * Only where a body encloses the lambda: a module-level value's colour has
+   * no body to decide it (#1283). And only a colour that is the lambda's
+   * alone (`#sharedDependency`).
+   */
+  #endHolds(face: SignatureFace | undefined, kept: ReadonlySet<number>): void {
+    const outermost = this.#effectFrames[0];
+    if (face === undefined || outermost === undefined) return;
+    const mine = [...face.handed.flat(), ...face.carried].flatMap((callback) => [callback.colour, callback.fail]);
+    for (const colour of mine) {
+      const own = this.#prune(colour);
+      if (own.kind !== "Variable" || kept.has(own.id) || own.level < outermost.level) continue;
+      if (!this.#takenInByValues.has(own) || this.#sharedDependency(own, mine)) continue;
+      this.#grownCallbacks.add(own);
+    }
+  }
+
+  /**
+   * Whether a colour a lambda wrote is also another dependency's: another
+   * callback's, an untyped parameter's, or one a knot, a later deadline or a
+   * constraint seat decides. Such a colour keeps its hold for that one's sake.
+   * No route makes one today, since every use of a written callback inside its
+   * body re-opens it (Effects §2.6), so nothing binds it bare; this keeps
+   * `#endHolds` from ending another's hold if one ever does.
+   */
+  #sharedDependency(colour: Variable, mine: readonly Variable[]): boolean {
+    return this.#waitingColours.has(colour) || this.#seatHeld.has(colour) || this.#undecided(colour) ||
+      this.#untypedColours.get(colour).length > 0 ||
+      this.#writtenCallbackColours.some((other) => !mine.includes(other) && this.#prune(other) === colour);
+  }
+
+  /**
    * A binding whose type, where it is bound, still has a part of its shape
    * inference has not settled — a type variable no generalization quantified,
    * which the lines after it may fill — is inferred from its uses, whatever
@@ -20862,6 +21269,9 @@ class Checker {
    */
   #settleSource(symbol: Resolved.SymbolId, type: Mono, quantified: readonly Variable[]): void {
     const source = this.#bindingSources.get(symbol);
+    if (source?.kind === "function" && source.value !== undefined) {
+      this.#endHolds(this.#lambdaFaces.get(source.value), new Set(quantified.map((variable) => variable.id)));
+    }
     if (source?.kind !== "value" && source?.kind !== "part") return;
     const kept = new Set(quantified.map((variable) => variable.id));
     for (const variable of this.#collectVariables(type)) if (!kept.has(variable.id)) variable.named = true;
@@ -20939,13 +21349,14 @@ class Checker {
    * generalized signature spells that parameter's type whole — no variable an
    * argument or a later line could fill — the parameter's type is the callee's
    * text, and it is decided as a written one is (#1119 R.b). A member of a knot
-   * still open has no generalized signature: the type the knot is inferring
-   * holds whatever its siblings' bodies have said so far, which follows the
-   * order the members are written in, so nothing lands from it.
+   * still open has no generalized signature, and nothing lands from it: a
+   * lambda handed to one is refused whatever lands (Effects §3.4, L3). A member
+   * an earlier component of the block closed is generalized, and lands as any
+   * function does.
    */
   #landFromSignature(callee: Resolved.NameExpr, arguments_: readonly Resolved.Expr[]): void {
     if (!this.#fromText(callee.symbol)) return;
-    if (this.#knots.some((knot) => knot.types.has(callee.symbol))) return;
+    if (this.#knots.some((knot) => knot.members.some(({ symbol }) => symbol === callee.symbol))) return;
     const scheme = this.#schemes.get(callee.symbol);
     const signature = scheme === undefined ? undefined : this.#prune(scheme.type);
     if (signature?.kind !== "Function") return;
@@ -22503,6 +22914,7 @@ class Checker {
       }
       this.#linkedColours.push(colour);
       this.#faceColours.add(colour);
+      this.#writtenCallbackColours.push(colour);
     }
     // A scope for each colour the callback has (Effects §10's owner line, and
     // the lookups a tie makes on that colour).
@@ -22768,6 +23180,7 @@ class Checker {
     this.#settleHardCases(frame.level, frameAxis(frame));
     this.#defaultFrameColour(frame);
     this.#defaultCallColours(frame);
+    this.#compareWaitingFits(frameAxis(frame));
     if (ties) this.#refuseTies(frame);
   }
 
@@ -24281,6 +24694,8 @@ class Checker {
    * body decide (Effects §3.4).
    */
   #undecided(part: Variable): boolean {
+    // An outcome its comparison has not yet decided (`#publishOutcomes`).
+    if (this.#outcomeColours.has(part)) return true;
     if (this.#knots.some((knot) => this.#knotColour(knot, part))) return true;
     // Each colour by the body's frame on that colour (Effects §1).
     return this.#effectFrames.some((frame) =>
@@ -24300,8 +24715,10 @@ class Checker {
    * world on the function's own account, a captured colour, a callback handed
    * later — is the face report, once per arrow, at the first call in source
    * order in the functions the body hands back that runs it, or, where none
-   * does, at the value in its no-call form; the arrow then reads as `->!`.
-   * A fit whose colours still wait is read when they settle (`last`).
+   * does, at the value in its no-call form; the arrow's outcome is then its
+   * fix (`#publishOutcomes`). A fit whose colours still wait is read when
+   * they settle (`last`), unless it is refused before then: it is reported at
+   * once, at the first call that runs a colour decided by then.
    */
   #checkFaceFits(face: SignatureFace, last: boolean): void {
     // Each colour's fits on their own (Effects §1).
@@ -24315,46 +24732,79 @@ class Checker {
       // An arrow the body's own account already refused on this colour reports once.
       if (fit.arrow.application !== undefined && face.refused?.get(axis)?.has(fit.arrow.application) === true) {
         fit.checked = true;
+        this.#settleOutcome(fit.arrow, axis, IMPURE);
         continue;
       }
       // An arrow a pin itself made impure is `#checkSignatureFaces`'s report.
       if (isImpure(this.#prune(arrowColour(fit.arrow, axis)))) {
         fit.checked = true;
+        this.#settleOutcome(fit.arrow, axis, PURE);
         continue;
       }
       // A value in error is compared with nothing (§3.5, #1223).
       if (this.#prune(fit.value).kind === "ErrorColour") {
         fit.checked = true;
+        this.#settleOutcome(fit.arrow, axis, ERROR_COLOUR);
         this.#faceInError(face, axis, fit.arrow.span);
         continue;
       }
       const handed = this.#colourParts(arrowColour(fit.arrow, axis));
       const value = this.#prune(fit.value);
-      const waits = (part: Variable): boolean => this.#undecided(part);
-      let offence: { readonly part?: Variable } | undefined = isImpure(value) ? {} : undefined;
-      let waiting = false;
-      if (offence === undefined) {
+      // What the value runs that the arrow is not handed: the world on its own
+      // account, or decided colours another signature holds.
+      const own = isImpure(value);
+      const offences: Variable[] = [];
+      const waitingParts: Variable[] = [];
+      if (!own) {
         for (const part of this.#colourParts(value)) {
           if (handed.includes(part)) continue;
-          if (waits(part)) {
-            waiting = true;
+          if (this.#undecided(part)) {
+            waitingParts.push(part);
             continue;
           }
           if (this.#isLinkedColour(part) || this.#seatHeld.has(part) || this.#scopesByColour.get(part).length > 0) {
-            offence = { part };
-            break;
+            offences.push(part);
           }
         }
       }
-      if (offence === undefined && waiting && !last) continue;
+      // On a colour the arrow leaves silent, a value following only this
+      // signature's own callbacks there claims more than the arrow passes
+      // through: the fix passes that colour through too (§4.2).
+      const silent = !passesThrough(fit.arrow.effect)[axis];
+      const callbackOf = (part: Variable): CallbackColour | undefined =>
+        faceCallbacks(face).find((each) => this.#colourParts(callbackColour(each, axis)).includes(part));
+      const passes = silent && !own && offences.length > 0 && offences.every((part) => callbackOf(part) !== undefined);
+      const refused = own || offences.length > 0;
+      // A refusal known before every colour it runs is decided reads as its
+      // fix at once, and is reported at once, at a colour decided by then.
+      // A fix that passes a colour through holds only while every colour
+      // refused is this signature's callback's, so it waits for the rest: the
+      // callbacks it passes through are read now, while they are still this
+      // signature's own, and whether the fix is the constant instead is one
+      // more outcome, of the close it waits for.
+      const later = waitingParts.length > 0 && !last;
+      const current = this.#outcomes.get(fit.arrow)?.[axis];
+      if (refused && later && passes) {
+        this.#splitOutcome(fit.arrow, axis, Math.min(...waitingParts.map((part) => part.level)));
+        continue;
+      }
+      if (!refused && later) continue;
       fit.checked = true;
-      if (offence === undefined) continue;
+      if (!refused) {
+        // The face stands, unless the body it is the signature of is in error.
+        const inError = fit.arrow.application !== undefined && face.inError?.get(axis)?.has(fit.arrow.application) === true;
+        this.#settleOutcome(fit.arrow, axis, inError ? ERROR_COLOUR : PURE);
+        continue;
+      }
       reported.add(fit.arrow);
-      const runs = (colour: Mono): boolean => {
+      // Where the fix cannot pass the colour through, the report names a
+      // colour that is no callback of this signature's.
+      const named = passes ? offences : offences.filter((part) => !silent || callbackOf(part) === undefined);
+      const runs = (colour: Mono): Variable | true | undefined => {
         const now = this.#prune(colour);
-        return offence!.part === undefined
-          ? isImpure(now)
-          : this.#colourParts(now).includes(offence!.part);
+        if (own) return isImpure(now) ? true : undefined;
+        const parts = this.#colourParts(now);
+        return named.find((part) => parts.includes(part));
       };
       // The functions the value hands back that the body defines: the
       // expression itself and the local lambdas it may be, never the calls
@@ -24371,19 +24821,18 @@ class Checker {
       const handsBack = (span: Source.Span): boolean =>
         !bodyOwn.has(span) && (spanWithin(span, fit.at) || local.some((lambda) => spanWithin(span, lambda)));
       const call = this.#absorbedCalls
-        .filter(({ effect, fail, span }) => handsBack(span) && runs(axis === "fail" ? fail : effect))
+        .filter(({ effect, fail, span }) => handsBack(span) && runs(axis === "fail" ? fail : effect) !== undefined)
         .sort((left, right) => precedes(left.span, right.span) ? -1 : 1)[0];
-      const owner = offence.part === undefined ? undefined : this.#colourOwner(offence.part, face.body);
+      const ran = call === undefined ? undefined : runs(axis === "fail" ? call.fail : call.effect);
+      const part = own ? undefined : typeof ran === "object" ? ran : named[0];
+      const owner = part === undefined ? undefined : this.#colourOwner(part, face.body);
       const subject = call === undefined ? "this function" : "this call";
-      // On a colour the arrow leaves silent, a value following this
-      // signature's own callbacks there claims more than the arrow passes
-      // through: the fix passes that colour through too (§4.2).
-      const silent = !passesThrough(fit.arrow.effect)[axis];
-      const part = offence.part;
-      const callback = part === undefined
-        ? undefined
-        : faceCallbacks(face).find((each) => this.#colourParts(callbackColour(each, axis)).includes(part));
-      if (silent && callback !== undefined) {
+      const callback = part === undefined ? undefined : callbackOf(part);
+      // The outcome is decided once the report has found its call: a call's
+      // colour may hold the outcome, through a sibling that runs this value.
+      const rest = current !== undefined && this.#restOutcomes.has(current);
+      this.#settleOutcome(fit.arrow, axis, passes ? rest ? PURE : fit.arrow.handed[axis] : IMPURE);
+      if (passes && callback !== undefined) {
         this.#reportPassesThrough(face, axis, call?.span ?? fit.at, subject, callback.name, fit.arrow);
         continue;
       }
@@ -24391,13 +24840,13 @@ class Checker {
         face,
         axis,
         call?.span ?? fit.at,
-        offence.part === undefined
+        part === undefined
           ? { own: subject }
           : owner === undefined
           ? `${subject} runs a colour this signature is not handed`
           : `${subject} runs ${owner}, which this signature is not handed`,
         fit.arrow.span,
-        silent && offence.part === undefined,
+        silent && part === undefined,
       );
     }
   }
@@ -24405,13 +24854,15 @@ class Checker {
   /**
    * A written `>->` over a body or value in error on `axis` (§3.5, #1223): the
    * arrow at `at`, or the face's outer one, reads in error there from outside,
-   * since whether §4.2 refuses it is not known (`#readRefusedArrows`).
+   * since whether §4.2 refuses it is not known (`#publishOutcomes`,
+   * `#readRefusedArrows`).
    */
   #faceInError(face: SignatureFace, axis: Axis, at?: Source.Span): void {
     const arrow = at ?? face.outer ?? face.arrows[0]?.span;
     const key = (span: Source.Span): string => `${Number(span.fileId)}:${span.start.offset}:${span.end.offset}`;
     const written = arrow === undefined ? undefined : face.arrows.find(({ span }) => key(span) === key(arrow));
     if (written?.application !== undefined) faceMark(face, "inError", axis, written.application);
+    if (written !== undefined) this.#settleOutcome(written, axis, ERROR_COLOUR);
   }
 
   /**
@@ -24432,8 +24883,8 @@ class Checker {
   ): void {
     const arrow = at ?? face.outer ?? face.arrows[0]?.span;
     // The refused arrow reads as its fix where the function is seen from
-    // outside (`#readRefusedArrows`), so no caller's mark restates it: the
-    // colour it was refused on is one the fix marks.
+    // outside (`#publishOutcomes`, `#readRefusedArrows`), so no caller's mark
+    // restates it: the colour it was refused on is one the fix marks.
     const refused = arrow === undefined
       ? undefined
       : face.arrows.find(({ span: written }) => spanKey(written) === spanKey(arrow));
@@ -24478,7 +24929,7 @@ class Checker {
    * §4.2's report for a function value that follows this signature's own
    * callbacks on a colour the written following arrow leaves silent: the face
    * claims less than the value does, and the fix passes that colour through
-   * too, reading so from outside (`#readRefusedArrows`).
+   * too, reading so from outside (`#publishOutcomes`, `#readRefusedArrows`).
    */
   #reportPassesThrough(
     face: SignatureFace,
@@ -25164,6 +25615,8 @@ class Checker {
     const pruned = this.#prune(colour);
     if (pruned.kind !== "Variable") return false;
     if (this.#isLinkedColour(pruned) || this.#seatHeld.has(pruned)) return true;
+    // An outcome is decided by its comparison, never defaulted (`#publishOutcomes`).
+    if (this.#outcomeColours.has(pruned)) return true;
     // A value's own colour, or the room it took in, the value an enclosing
     // body's: that body decides it from every use, so a body nested in it never
     // defaults it.
@@ -25344,7 +25797,9 @@ class Checker {
    * colour reached is that colour's, never an opening's to settle.
    */
   #heldDependency(variable: Variable): boolean {
-    if (this.#isLinkedColour(variable) || this.#waitingColours.has(variable)) return true;
+    if (this.#isLinkedColour(variable) || this.#waitingColours.has(variable) || this.#outcomeColours.has(variable)) {
+      return true;
+    }
     return this.#knots.some((knot) => this.#knotColour(knot, variable));
   }
 
@@ -26174,6 +26629,12 @@ class Checker {
     // such a report in it is in error (`#checkGuards`).
     const inferred = this.#diagnostics.count;
     this.#checkSignatureFaces();
+    // Every comparison has decided its outcome by now (`#checkSignatureFaces`
+    // compares the rest). Should one be left, it reads as the join, as the
+    // arrow did before it met a value (`#publishOutcomes`).
+    for (const outcome of this.#outcomeColours) {
+      if (this.#prune(outcome) === outcome) outcome.instance = PURE;
+    }
     this.#checkMarks();
     this.#checkGuards(inferred);
   }
@@ -27370,8 +27831,10 @@ class Checker {
    *    where it has one;
    * 3. (a join meeting a free variable binds the variable: `#bind`'s);
    * 4. a join meeting a join cancels the parts they share; where one remainder
-   *    is a single slack, that slack takes the other remainder, and where both
-   *    remainders hold a slack, one fresh slack is shared between them.
+   *    is a single slack, that slack takes the other remainder; where one
+   *    remainder is empty, a slack they share takes the other, rebound to a
+   *    fresh slack; and where both remainders hold a slack, one fresh slack is
+   *    shared between them.
    *
    * Where rules 2 and 4 choose a slack, a slack the use brought is chosen
    * before one a value's own colour took in (`#valueSlacks`).
@@ -27416,6 +27879,21 @@ class Checker {
     if (slackRight !== undefined && onlyRight.length === 1) {
       this.#unify(slackRight, this.#join(onlyLeft), span, message);
       return;
+    }
+    // One side holds all of the other's parts and more, which says only that
+    // the more is at most what they share: a slack they share, being room,
+    // takes it, rebound to a fresh slack joined with it, a use's before a
+    // value's (Effects §3.4, rule 4).
+    if (onlyLeft.length === 0 || onlyRight.length === 0) {
+      const slack = pick(leftParts.filter((part) => rightParts.includes(part)));
+      if (slack !== undefined) {
+        const fresh = this.#fresh(slack.level, false);
+        this.#openedColours.add(fresh);
+        this.#openedPending.push(fresh);
+        if (this.#valueSlacks.has(slack)) this.#valueSlacks.add(fresh);
+        this.#unify(slack, this.#join([...onlyLeft, ...onlyRight, fresh]), span, message);
+        return;
+      }
     }
     if (slackLeft !== undefined && slackRight !== undefined) {
       const shared = this.#fresh(Math.min(slackLeft.level, slackRight.level), false);
@@ -28347,10 +28825,17 @@ class Checker {
       if (type.kind === "Variable" && type.rigidName !== undefined) {
         const collision = this.#knotHeadCollision(variable, type);
         if (collision === undefined) {
+          // Two of one block head's variables are named in the order the head
+          // writes them, never by which side of the meeting each stood on.
+          const owner = this.#declaredHeadOwners.get(variable.id);
+          const [first, second] = owner?.kind === "block" && owner === this.#declaredHeadOwners.get(type.id) &&
+              owner.binders.indexOf(type.rigidName) < owner.binders.indexOf(variable.rigidName)
+            ? [type.rigidName, variable.rigidName]
+            : [variable.rigidName, type.rigidName];
           this.#diagnostics.add({
             severity: "error",
             message:
-              `\`${variable.rigidName}\` and \`${type.rigidName}\` are distinct declared type variables, ` +
+              `\`${first}\` and \`${second}\` are distinct declared type variables, ` +
               "but the body requires them to be the same; use one type variable name in both " +
               "annotations, or remove an annotation to let the type be inferred",
             primary: span,
@@ -28370,14 +28855,16 @@ class Checker {
           const headSpans = [collision.left, collision.right]
             .filter((site) => site.kind === "block")
             .map((site) => site.span);
+          // The two sides are named in the order the text declares them,
+          // never by which side of the meeting each stood on: the block head
+          // first, then the members in source order.
+          const [first, second] = [
+            { name: variable.rigidName, site: collision.left },
+            { name: type.rigidName, site: collision.right },
+          ].sort((a, b) => headSiteRank(collision.knot, a.site) - headSiteRank(collision.knot, b.site));
           this.#diagnostics.add({
             severity: "error",
-            message: knotHeadCollisionMessage(
-              variable.rigidName,
-              type.rigidName,
-              collision.left,
-              collision.right,
-            ),
+            message: knotHeadCollisionMessage(first!.name, second!.name, first!.site, second!.site),
             primary: span,
             ...(headSpans.length === 0
               ? {}
@@ -28432,6 +28919,8 @@ class Checker {
       const owner = this.#pinnedVars.get(variable.id);
       if (owner !== undefined) this.#pinnedVars.set(type.id, owner);
       if (this.#faceColours.has(variable)) this.#faceColours.add(type);
+      if (this.#takenInByValues.has(variable)) this.#takenInByValues.add(type);
+      if (this.#grownCallbacks.has(variable)) this.#grownCallbacks.add(type);
       // So does an opening's floor in error, and a value in error's meeting (#1223).
       if (this.#errorFloors.has(variable)) this.#errorFloors.add(type);
       if (this.#erroredTypes.has(variable)) this.#erroredTypes.add(type);
@@ -28609,13 +29098,26 @@ class Checker {
   }
 
   /**
+   * What a value's own colour takes in is the value's (#1170): its slacks are
+   * the value's room, and every other part is marked, so that a written
+   * callback colour among them, where no generalization reaches it, grows as
+   * the value's once the lambda that wrote it closes (`#endHolds`).
+   */
+  #takeIn(slacks: readonly Variable[], real: readonly Variable[]): void {
+    for (const slack of slacks) this.#valueSlacks.add(slack);
+    for (const part of real) this.#takenInByValues.add(part);
+  }
+
+  /**
    * A variable meeting a join (Effects §3.4's fragment, rule 3). A free
    * variable binds to the join. A variable meeting a join that contains it,
    * `x`-or-`r`, says only that `r` is at most `x`: a remainder of slacks each
    * takes `x`, and otherwise `x` is rebound to a fresh variable joined with
    * `r`, the most general answer. A callback's colour is never rebound so: it
    * is what its own arrow spells, so a slack beside it closes onto it, and
-   * anything else is a hard case, which waits. The slacks a value's own
+   * anything else is a hard case, which waits. The exception is one whose
+   * hold against growing has ended (`#grownCallbacks`), which binds as a
+   * value's own colour does. The slacks a value's own
    * colour takes in are that value's (`#valueSlacks`) *(#1170)*. Where a knot
    * member's name takes its value, the colour its recursion left on the name
    * is the value's join, never held from it as a knot's colour would be
@@ -28633,10 +29135,12 @@ class Checker {
     const rest = join.parts.filter((part) => part !== variable);
     const slacks = rest.filter((part) => this.#openedColours.has(part));
     const real = rest.filter((part) => !this.#openedColours.has(part));
-    const held = (!defining && this.#heldDependency(variable)) || this.#faceColours.has(variable) ||
-      this.#seatHeld.has(variable);
+    // A written callback colour a value took in grows as the value's does (`#endHolds`).
+    const grows = this.#grownCallbacks.has(variable);
+    const held = !grows && ((!defining && this.#heldDependency(variable)) || this.#faceColours.has(variable) ||
+      this.#seatHeld.has(variable));
     // What a value's colour takes in, or a slack of the value's, is the value's.
-    const own = !held && (this.#valueColours.has(variable) || this.#valueSlacks.has(variable));
+    const own = !held && (this.#valueColours.has(variable) || this.#valueSlacks.has(variable) || grows);
     if (held || join.parts.includes(variable)) {
       if (real.length === 0) {
         for (const slack of slacks) this.#unify(slack, variable, span);
@@ -28657,14 +29161,14 @@ class Checker {
       if (this.#openedColours.has(variable)) this.#openedColours.add(fresh);
       if (this.#valueColours.has(variable)) this.#valueColours.add(fresh);
       if (this.#valueSlacks.has(variable)) this.#valueSlacks.add(fresh);
-      if (own) for (const slack of slacks) this.#valueSlacks.add(slack);
+      if (own) this.#takeIn(slacks, real);
       this.#lowerLevels(this.#join(rest), variable.level);
       const target = this.#join([fresh, ...rest]);
       this.#binds.set(variable, { span, order: this.#bindCount++, target });
       variable.instance = target;
       return;
     }
-    if (own) for (const slack of slacks) this.#valueSlacks.add(slack);
+    if (own) this.#takeIn(slacks, real);
     this.#lowerLevels(join, variable.level);
     this.#binds.set(variable, { span, order: this.#bindCount++, target: join });
     if (!this.#firstMeetings.has(variable)) this.#firstMeetings.set(variable, span);
@@ -31505,6 +32009,7 @@ class Checker {
     this.#closeOpenings(level);
     // A finished face depends on all of its callbacks or on none (§2.4).
     if (this.#generalizingFace !== undefined) this.#checkFaceFits(this.#generalizingFace, false);
+    this.#decideOutcomes(level, type);
     type = this.#readRefusedTies(type, level);
     type = this.#widenFace(type, level);
     type = this.#readRefusedArrows(type);
@@ -31937,7 +32442,9 @@ class Checker {
 
   /**
    * A face whose written `>->` §4.2 refused reads as its fix on its spine,
-   * where callers meet it: a copy, never the body's own colour.
+   * where callers meet it: a copy, never the body's own colour. An arrow a
+   * value met reads through its outcome instead (`#publishOutcomes`), so this
+   * reads only the arrows no value met.
    */
   #readRefusedArrows(type: Mono): Mono {
     const face = this.#generalizingFace;
@@ -31952,11 +32459,12 @@ class Checker {
     // colour still passing through keeps its join. One over a body in error,
     // and not refused, is in error on the colour it is in error on (#1223).
     const colour = (application: number, axis: Axis): Mono | undefined => {
+      // An arrow a value met reads through its outcome, whenever its
+      // comparison is made (`#publishOutcomes`).
+      const written = face.arrows.find((each) => each.application === application);
+      if (written !== undefined && this.#outcomes.get(written)?.[axis] !== undefined) return undefined;
       if (marked(face.refused, application, axis)) return IMPURE;
-      if (marked(face.passed, application, axis)) {
-        const arrow = face.arrows.find((each) => each.application === application);
-        if (arrow !== undefined) return arrow.handed[axis];
-      }
+      if (marked(face.passed, application, axis) && written !== undefined) return written.handed[axis];
       return marked(face.inError, application, axis) ? ERROR_COLOUR : undefined;
     };
     const read = (node: Mono, application: number): Mono => {
@@ -40674,6 +41182,11 @@ function inferredTypeVariableName(index: number): string {
 function functionTypedVarMessage(name: string): string {
   return `\`${name}\` is a \`var\`, and a \`var\` cannot hold a function — vars ` +
     "accumulate data; model changing behavior as a union and `match` on it";
+}
+
+/** Where a head site stands in the text: the block head first, then each member in source order. */
+function headSiteRank(knot: Knot, site: HeadSite): number {
+  return site.kind === "block" ? -1 : knot.members.indexOf(site.member);
 }
 
 function knotHeadSite(knot: Knot, owner: HeadOwner): HeadSite | undefined {
