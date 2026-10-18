@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import { AnalysisSession } from "../analysis/session.js";
-import { compileFiles } from "../support/test-project.js";
+import { compileFiles, runProject } from "../support/test-project.js";
 
 /**
  * Conformance for **a pure function fits wherever a function is expected**
@@ -1740,6 +1740,80 @@ describe("a written result type decides the arrows it spells, whatever the call 
   });
 });
 
+describe("a following arrow a written result type spells is read like any other (#1206)", () => {
+  const makers = "let mkL(q: a, f: () ->! Unit): (() >-> Unit, a) = (f, q)\n" +
+    "let mkD(f: () ->! Unit): () >-> Unit = f\n" +
+    "let mkR(f: () ->! Unit): { run: () >-> Unit } = { run = f }\n" +
+    "let mkC(f: () ->! Unit): (Int) -> () >-> Unit = (x) => f\n" +
+    "let applyPure(g: (() -> Unit) -> Unit): Unit = g(() => ())\n" +
+    "let applyPureL(g: (Int, () -> Unit) -> Unit): Unit = g(1, () => ())\n";
+  const use = (lines: readonly string[], caller: string): string =>
+    makers + "let use(k): Unit =\n" + lines.map((line) => "    " + line + "\n").join("") + "    ()\n" +
+    `export let go(): Unit = ${caller}\n`;
+
+  test("the issue's program: a `->!` seat asks nothing of the callback, so a pure-only caller takes `use`", () => {
+    expect(reports(makers + "let use(p, k): Unit =\n    let w: (() ->! Unit, Int) = mkL(p, k)\n    ()\n" +
+      "export let go(): Unit = applyPureL(use)\n")).toEqual([]);
+  });
+
+  test("a tuple, a direct, a record and a curried result at a `->!` seat, under a pure-only caller and a bare call", () => {
+    for (const lines of [
+      ["let w: (() ->! Unit, Int) = mkL(1, k)"],
+      ["let w: () ->! Unit = mkD(k)"],
+      ["let w: { run: () ->! Unit } = mkR(k)"],
+      ["let w: (Int) -> () ->! Unit = mkC(k)"],
+      ["let (g, _) = mkL(1, k)", "let w: () ->! Unit = g"],
+      // A pin that wants `k` pure agrees with the seat, in either order.
+      ["let w: (() ->! Unit, Int) = mkL(1, k)", "pureOnly(k)"],
+      ["pureOnly(k)", "let w: (() ->! Unit, Int) = mkL(1, k)"],
+      // The bare call reads `k`'s own colour, which the seat leaves as it stands.
+      ["let w: (() ->! Unit, Int) = mkL(1, k)", "let (g, _) = mkL(1, k)", "g()"],
+    ]) {
+      for (const caller of ["applyPure(use)", "use(noop)"]) {
+        expect([lines, caller, reports(use(lines, caller))]).toEqual([lines, caller, []]);
+      }
+    }
+    // Nothing calls `k`, so `use` is pure whatever it is handed.
+    expect(reports(use(["let w: (() ->! Unit, Int) = mkL(1, k)"], "use(save0)"))).toEqual([]);
+  });
+
+  test("a `->` seat over a `>->` still demands the callback pure, in either line order", () => {
+    const seats = ["let w: (() -> Unit, Int) = mkL(1, k)", "let x: (() ->! Unit, Int) = mkL(1, k)"];
+    for (const lines of [seats, [...seats].reverse()]) {
+      expect([lines, reports(use(lines, "use(save0)"))]).toEqual([lines, [["use(save0)", PURITY]]]);
+      expect([lines, reports(use(lines, "applyPure(use)"))]).toEqual([lines, []]);
+    }
+    // So does a pin beside a `->!` seat, and the one report stands at the call, in either order.
+    const pinned = ["let w: (() ->! Unit, Int) = mkL(1, k)", "pureOnly(k)"];
+    for (const lines of [pinned, [...pinned].reverse()]) {
+      expect([lines, reports(use(lines, "use(save0)"))]).toEqual([lines, [["use(save0)", PURITY]]]);
+    }
+  });
+
+  test("a bare call through such a program never touches the world, and a marked one does", async () => {
+    const world = "let saves = 0;\n" +
+      "export function save(document) { saves += 1; }\n" +
+      "export function saveCount() { return saves; }\n";
+    const source = HEADER +
+      'extern from "./world.js"\n    export fun save(document: String) ->! Unit\n    export fun saveCount() ->! Int\n' +
+      'let save0(): Unit = save!("x")\n' +
+      "let noop(): Unit = ()\n" + makers +
+      "let use(k): Unit =\n    let w: (() ->! Unit, Int) = mkL(1, k)\n    let (g, _) = mkL(1, k)\n    g()\n" +
+      "let run(k): Unit =\n    let w: (() ->! Unit, Int) = mkL(1, k)\n    let (g, _) = w\n    g!()\n" +
+      "export let bare(): Unit =\n    applyPure(use)\n    use(noop)\n" +
+      "export let marked(): Unit = run!(save0)\n" +
+      "export let count(): Int = saveCount!()\n";
+    const linked = `data:text/javascript;charset=utf-8,${encodeURIComponent(world)}`;
+    const exports_ = await runProject([["/main.hex", source], ["/world.js", ""]], {
+      transform: (_path, javascript) => javascript.replaceAll('"./world.js"', JSON.stringify(linked)),
+    });
+    (exports_["bare"] as () => void)();
+    expect((exports_["count"] as () => number)()).toBe(0);
+    (exports_["marked"] as () => void)();
+    expect((exports_["count"] as () => number)()).toBe(1);
+  });
+});
+
 describe("a written `->!` a use reads as any function belongs to that use alone (#1174)", () => {
   const holders = "export record Holder = { run: (() ->! Unit) -> Unit }\n" +
     "export record HolderT = { run: ((() ->! Unit, Int)) -> Unit }\n" +
@@ -1838,6 +1912,27 @@ describe("an imported function's written types are read as this module's are (#1
     ]) {
       const diagnostics = compileFiles([["/other.hex", other], ["/main.hex", main + body]]).diagnostics;
       expect([body, diagnostics.map(({ message }) => message)]).toEqual([body, []]);
+    }
+  });
+
+  test("a following arrow an imported callee's written result spells is read as this module's is (#1206)", () => {
+    const maker = "module Maker\n\n" +
+      "export let mkL(q: a, f: () ->! Unit): (() >-> Unit, a) = (f, q)\n";
+    const head = "module Main\n\nimport Maker\n\n" +
+      'extern from "./world.js"\n    export fun save(document: String) ->! Unit\n' +
+      'let save0(): Unit = save!("x")\n' +
+      "let applyPureL(g: (Int, () -> Unit) -> Unit): Unit = g(1, () => ())\n";
+    const messages = (body: string): readonly string[] =>
+      compileFiles([["/maker.hex", maker], ["/main.hex", head + body], ["/world.js", ""]]).diagnostics
+        .map(({ message }) => message);
+    // The issue's program, its callee imported.
+    expect(messages("let use(p, k): Unit =\n    let w: (() ->! Unit, Int) = Maker.mkL(p, k)\n    ()\n" +
+      "export let go(): Unit = applyPureL(use)\n")).toEqual([]);
+    // A `->` seat still demands the callback pure, in either line order.
+    const seats = ["    let w: (() -> Unit, Int) = Maker.mkL(p, k)", "    let x: (() ->! Unit, Int) = Maker.mkL(p, k)"];
+    for (const lines of [seats, [...seats].reverse()]) {
+      expect([lines, messages("let use(p, k): Unit =\n" + lines.join("\n") + "\n    ()\n" +
+        "export let go(): Unit = use(1, save0)\n")]).toEqual([lines, [PURITY]]);
     }
   });
 });
