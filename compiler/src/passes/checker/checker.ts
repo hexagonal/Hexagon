@@ -4367,6 +4367,12 @@ class Checker {
   #generalizingFace: SignatureFace | undefined;
   /** Each written `>->`'s function node, with its face and arrow: a value meeting one is fitted (`#unify`). */
   readonly #faceArrowNodes = new WeakMap<Mono, { readonly face: SignatureFace; readonly arrow: FaceArrow }>();
+  /** Each written `>->`'s outcome colour on each axis, which its comparison decides (`#publishOutcomes`). */
+  readonly #outcomes = new Map<FaceArrow, Partial<Record<Axis, Variable>>>();
+  /** Every outcome colour: a dependency, never defaulted, and still to be decided until its comparison is made. */
+  readonly #outcomeColours = new Set<Variable>();
+  /** The outcomes whose comparison waits for a colour a close decides (`#compareWaitingFits`). */
+  readonly #waitingOutcomes = new Set<Variable>();
   /** Each lambda's function type, and the body it types, for a refused tie's reading (`#readRefusedTies`). */
   readonly #frameOfType = new WeakMap<Mono, EffectFrame>();
   /**
@@ -4661,6 +4667,115 @@ class Checker {
     } finally {
       this.#currentAxis = enclosing;
       this.#diagnostics = reports;
+    }
+  }
+
+  /**
+   * **A refused following arrow reads as its fix, wherever it stands and
+   * whenever it is refused** *(Effects §4.2, §4.4, #1239)*. Each written
+   * following arrow a value meets publishes what it publishes otherwise,
+   * joined with one more colour: the comparison's **outcome**, which the
+   * comparison decides when it is made (`#settleOutcome`). It is silent where
+   * the face fits, the constant on each colour the face is refused on, the
+   * callback's colour where the fix passes a colour through, and in error
+   * where the value is. A comparison that waits for a colour a close decides is
+   * made at that close (`#compareWaitingFits`), before any face that can see
+   * the outcome is finished, so nothing is read twice: the outcome is one more
+   * variable of the join, solved once. The written type is walked beside the
+   * published one, through the function's own arrows, what it returns, and a
+   * tuple's, a record's or a covariant argument's parts, so an arrow in the
+   * data a function returns reads as its fix too (#1281). `level` is the
+   * binding's, where an outcome is decided before it generalizes.
+   */
+  #publishOutcomes(annotation: Mono, value: Mono, level: number): Mono {
+    const written = this.#prune(annotation);
+    const published = this.#prune(value);
+    switch (written.kind) {
+      case "Function": {
+        if (published.kind !== "Function") return value;
+        const result = this.#publishOutcomes(written.result, published.result, level);
+        let node: FunctionMono = result === published.result ? published : { ...published, result };
+        const face = this.#faceArrowNodes.get(written) ?? this.#faceArrowNodes.get(annotation);
+        for (const axis of face === undefined ? [] : AXES) {
+          const fits = (face!.face.fits ?? []).filter((fit) => fit.arrow === face!.arrow && fit.axis === axis && !fit.checked);
+          if (fits.length === 0 || this.#outcomes.get(face!.arrow)?.[axis] !== undefined) continue;
+          // An outcome a close decides belongs to that close's level, so no
+          // binding inside it generalizes it meanwhile.
+          const waiting = fits.flatMap((fit) => this.#colourParts(fit.value)).filter((part) => this.#undecided(part));
+          const outcome = this.#fresh(waiting.length === 0 ? level : Math.min(...waiting.map((part) => part.level)), false);
+          this.#outcomeColours.add(outcome);
+          if (waiting.length > 0) this.#waitingOutcomes.add(outcome);
+          this.#outcomes.set(face!.arrow, { ...this.#outcomes.get(face!.arrow), [axis]: outcome });
+          node = { ...node, ...colourSlot(axis, this.#join([colourAt(node, axis) ?? PURE, outcome])) };
+        }
+        if (node === published) return value;
+        const lambdas = this.#lambdasOf.get(published);
+        if (lambdas !== undefined) this.#lambdasOf.set(node, lambdas);
+        const frame = this.#frameOfType.get(published);
+        if (frame !== undefined) this.#frameOfType.set(node, frame);
+        return node;
+      }
+      case "Tuple": {
+        if (published.kind !== "Tuple" || published.elements.length !== written.elements.length) return value;
+        const elements = published.elements.map((element, index) =>
+          this.#publishOutcomes(written.elements[index]!, element, level)
+        );
+        return elements.every((element, index) => element === published.elements[index]) ? value : { ...published, elements };
+      }
+      case "Record": {
+        if (published.kind !== "Record") return value;
+        const fields = new Map([...published.fields].map(([name, field]) => {
+          const other = written.fields.get(name);
+          return [name, other === undefined ? field : this.#publishOutcomes(other, field, level)] as const;
+        }));
+        return [...fields].every(([name, field]) => field === published.fields.get(name)) ? value : { ...published, fields };
+      }
+      case "Union":
+      case "NominalRecord": {
+        if (published.kind !== written.kind) return value;
+        const given = (published as typeof written).arguments;
+        const parts = given.map((argument, index) => {
+          const variance = written.kind === "Union"
+            ? this.#variance.effectiveUnion(written.union, index)
+            : this.#variance.effectiveRecord(written.record, index);
+          const part = written.arguments[index];
+          return variance === "co" && part !== undefined ? this.#publishOutcomes(part, argument, level) : argument;
+        });
+        return parts.every((part, index) => part === given[index])
+          ? value
+          : { ...(published as typeof written), arguments: parts } as Mono;
+      }
+      default:
+        return value;
+    }
+  }
+
+  /** A written `>->`'s outcome on one axis, decided once, when its comparison is made (`#publishOutcomes`). */
+  #settleOutcome(arrow: FaceArrow, axis: Axis, colour: Mono): void {
+    const outcome = this.#outcomes.get(arrow)?.[axis];
+    if (outcome === undefined || this.#prune(outcome) !== outcome) return;
+    outcome.instance = colour;
+  }
+
+  /**
+   * The comparisons that waited for a colour a close decides, made at that
+   * close, before the faces around them are finished (Effects §4.2, #1239):
+   * their outcomes are what those faces read. One comparison may wait on
+   * another's outcome, so they run until none is left that can be made.
+   */
+  #compareWaitingFits(axis: Axis): void {
+    const waiting = (fit: FaceFit): boolean => {
+      const outcome = this.#outcomes.get(fit.arrow)?.[axis];
+      return fit.axis === axis && !fit.checked && outcome !== undefined && this.#waitingOutcomes.has(outcome);
+    };
+    for (let made = true; made;) {
+      made = false;
+      for (const face of this.#signatureFaces) {
+        const before = (face.fits ?? []).filter(waiting).length;
+        if (before === 0) continue;
+        this.#onAxis(axis, () => this.#checkFaceFitsOn(face, false, axis));
+        if ((face.fits ?? []).filter(waiting).length < before) made = true;
+      }
     }
   }
 
@@ -8982,6 +9097,7 @@ class Checker {
           // the value's colour, which its recorded demand settles pure or
           // refuses. Only the outer arrow.
           valueType = this.#publishWrittenColours(annotationType, valueType, false);
+          valueType = this.#publishOutcomes(annotationType, valueType, level + 1);
         }
         if (item.typeParameters !== undefined) {
           this.#annotationVariableScope = enclosingLetScope;
@@ -11072,6 +11188,7 @@ class Checker {
           type,
           expression.annotation.kind === "Function" && isFollowing(expression.annotation.effect),
         );
+        type = this.#publishOutcomes(annotationType, type, level);
         break;
       }
       case "Block": {
@@ -11423,6 +11540,7 @@ class Checker {
           // once: the impure constant absorbs the colour still to be decided.
           // Only the result's outer arrow.
           result = this.#publishWrittenColours(annotationType, result, false);
+          result = this.#publishOutcomes(annotationType, result, level + 1);
         }
         this.#effectFrames.pop();
         // Settled here rather than at the end of the module: a function's
@@ -22677,6 +22795,7 @@ class Checker {
     this.#settleHardCases(frame.level, frameAxis(frame));
     this.#defaultFrameColour(frame);
     this.#defaultCallColours(frame);
+    this.#compareWaitingFits(frameAxis(frame));
     if (ties) this.#refuseTies(frame);
   }
 
@@ -24081,6 +24200,8 @@ class Checker {
    * body decide (Effects §3.4).
    */
   #undecided(part: Variable): boolean {
+    // An outcome its comparison has not yet decided (`#publishOutcomes`).
+    if (this.#outcomeColours.has(part)) return true;
     if (this.#knots.some((knot) => this.#knotColour(knot, part))) return true;
     // Each colour by the body's frame on that colour (Effects §1).
     return this.#effectFrames.some((frame) =>
@@ -24115,16 +24236,19 @@ class Checker {
       // An arrow the body's own account already refused on this colour reports once.
       if (fit.arrow.application !== undefined && face.refused?.get(axis)?.has(fit.arrow.application) === true) {
         fit.checked = true;
+        this.#settleOutcome(fit.arrow, axis, IMPURE);
         continue;
       }
       // An arrow a pin itself made impure is `#checkSignatureFaces`'s report.
       if (isImpure(this.#prune(arrowColour(fit.arrow, axis)))) {
         fit.checked = true;
+        this.#settleOutcome(fit.arrow, axis, PURE);
         continue;
       }
       // A value in error is compared with nothing (§3.5, #1223).
       if (this.#prune(fit.value).kind === "ErrorColour") {
         fit.checked = true;
+        this.#settleOutcome(fit.arrow, axis, ERROR_COLOUR);
         this.#faceInError(face, axis, fit.arrow.span);
         continue;
       }
@@ -24148,7 +24272,12 @@ class Checker {
       }
       if (offence === undefined && waiting && !last) continue;
       fit.checked = true;
-      if (offence === undefined) continue;
+      if (offence === undefined) {
+        // The face stands, unless the body it is the signature of is in error.
+        const inError = fit.arrow.application !== undefined && face.inError?.get(axis)?.has(fit.arrow.application) === true;
+        this.#settleOutcome(fit.arrow, axis, inError ? ERROR_COLOUR : PURE);
+        continue;
+      }
       reported.add(fit.arrow);
       const runs = (colour: Mono): boolean => {
         const now = this.#prune(colour);
@@ -24185,8 +24314,10 @@ class Checker {
         : faceCallbacks(face).find((each) => this.#colourParts(callbackColour(each, axis)).includes(part));
       if (silent && callback !== undefined) {
         this.#reportPassesThrough(face, axis, call?.span ?? fit.at, subject, callback.name, fit.arrow);
+        this.#settleOutcome(fit.arrow, axis, fit.arrow.handed[axis]);
         continue;
       }
+      this.#settleOutcome(fit.arrow, axis, IMPURE);
       this.#reportFollowsFace(
         face,
         axis,
@@ -24212,6 +24343,7 @@ class Checker {
     const key = (span: Source.Span): string => `${Number(span.fileId)}:${span.start.offset}:${span.end.offset}`;
     const written = arrow === undefined ? undefined : face.arrows.find(({ span }) => key(span) === key(arrow));
     if (written?.application !== undefined) faceMark(face, "inError", axis, written.application);
+    if (written !== undefined) this.#settleOutcome(written, axis, ERROR_COLOUR);
   }
 
   /**
@@ -24964,6 +25096,8 @@ class Checker {
     const pruned = this.#prune(colour);
     if (pruned.kind !== "Variable") return false;
     if (this.#isLinkedColour(pruned) || this.#seatHeld.has(pruned)) return true;
+    // An outcome is decided by its comparison, never defaulted (`#publishOutcomes`).
+    if (this.#outcomeColours.has(pruned)) return true;
     // A value's own colour, or the room it took in, the value an enclosing
     // body's: that body decides it from every use, so a body nested in it never
     // defaults it.
@@ -25144,7 +25278,9 @@ class Checker {
    * colour reached is that colour's, never an opening's to settle.
    */
   #heldDependency(variable: Variable): boolean {
-    if (this.#isLinkedColour(variable) || this.#waitingColours.has(variable)) return true;
+    if (this.#isLinkedColour(variable) || this.#waitingColours.has(variable) || this.#outcomeColours.has(variable)) {
+      return true;
+    }
     return this.#knots.some((knot) => this.#knotColour(knot, variable));
   }
 
@@ -25974,6 +26110,11 @@ class Checker {
     // such a report in it is in error (`#checkGuards`).
     const inferred = this.#diagnostics.count;
     this.#checkSignatureFaces();
+    // An outcome no comparison reached (a face in a refused knot) reads as the
+    // join (`#publishOutcomes`).
+    for (const outcome of this.#outcomeColours) {
+      if (this.#prune(outcome) === outcome) outcome.instance = PURE;
+    }
     this.#checkMarks();
     this.#checkGuards(inferred);
   }
