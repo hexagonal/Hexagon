@@ -145,12 +145,19 @@ other companions. Every successful zero result is canonical `Int` zero; the
 sign bit of a floating negative zero never crosses into `Int` and cannot
 reappear if that result later widens to `Float`.
 
+These are explicit reinterpretations of the stored binary64 value, not implicit
+numeric conversions and not a deferred `Int.fromFloat`: the latter would, if it
+ships, accept only a `Float` already holding a safe integer and return `Option`,
+where these names state how a fractional value is to be changed and throw when
+the requested `Int` cannot exist. Friendly Numerics §2 tenet 7 licenses exactly
+this kind of named exit from the approximate world.
+
 **One edge for all five, and a test for it** *(#1160)*. Every `Float` of
-magnitude 2^52 or more is already a whole number, so no rounding rule carries a
-value across the safe range's edge. The five therefore throw for exactly the
-same values — `NaN`, both infinities, and every value of magnitude past
-2^53 − 1 — and that set is a property of the value alone, which the companion
-names:
+magnitude 2^52 or more is already a whole number, and every smaller one rounds
+to a magnitude of at most 2^52, so no rounding rule carries a value across the
+safe range's edge. The five therefore throw for exactly the same values —
+`NaN`, both infinities, and every value of magnitude past 2^53 − 1 — and that
+set is a property of the value alone, which the companion names:
 
 ```hexagon
 Float.roundsToInt(value: Float): Bool
@@ -176,15 +183,9 @@ if x.roundsToInt() then Some(x.floor()) else None
 ```
 
 No sibling returning `Option` stands beside the five, and none rounds within
-`Float`: an operation that may fail is one function (Collections Part 1 §3.3),
-and the test is what a caller with outside data needs.
-
-These are explicit reinterpretations of the stored binary64 value, not implicit
-numeric conversions and not a deferred `Int.fromFloat`: the latter would, if it
-ships, accept only a `Float` already holding a safe integer and return `Option`,
-where these names state how a fractional value is to be changed and throw when
-the requested `Int` cannot exist. Friendly Numerics §2 tenet 7 licenses exactly
-this kind of named exit from the approximate world.
+`Float`. Collections Part 1 §3.3 would allow a sibling, since a fault takes no
+mark, but as with `Int.div` the test gives a caller with outside data the
+choice, so no sibling is needed.
 
 **`Float.pow(value: Float, exponent: Float): Float`** is the analytic power — `exp(y·ln x)`, total, honestly IEEE with every `NaN` edge, `Float.pow(2.0, 0.5)` the nearest double to `√2`. It is the `widens` declaration over `Pow<Float>`'s member (Operators §6.3.1; Constraints §4.7; Modules §5.3's generalisation law): the operator `**` takes the member's `Int` exponent, the qualified spelling and the dot call take this door, and the member is the door's derived restriction to integer exponents, accounted for in the honor block as `pow = widened`. A fractional exponent at `**` draws the mandatory fixit pointing here.
 

@@ -155,9 +155,10 @@ export let isFinite(value: Float): Bool =
     value != infinity and value != -infinity and not isNan(value)
 
 // The five roundings below fail on one set of values, whatever their rule:
-// every float of magnitude 2^52 or more is already whole, so no rule carries a
-// value across the safe range's edge (Primitive Types §3). `NaN` sorts above
-// every number in `Ord<Float>`, so the upper comparison refuses it.
+// every float of magnitude 2^52 or more is already whole, and every smaller one
+// rounds to at most 2^52 in magnitude, so no rule carries a value across the
+// safe range's edge (Primitive Types §3). `NaN` sorts above every number in
+// `Ord<Float>`, so the upper comparison refuses it.
 (** Whether every rounding of `value` is an `Int`: whether `floor`, `ceil`,
     `trunc`, `round` and `roundAway` all succeed on it. That is exactly when
     `value` lies within the safe range, from `-(2^53 - 1)` to `2^53 - 1`;
