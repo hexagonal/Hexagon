@@ -9997,7 +9997,6 @@ class Checker {
         } finally {
           this.#definingMember = false;
         }
-        this.#takesValue(recursiveTypes.get(symbol)!, value);
       }
       knot.host = undefined;
       this.#knots.pop();
@@ -10022,10 +10021,14 @@ class Checker {
         const enclosingFace = this.#generalizingFace;
         this.#generalizingFace = value.kind === "Lambda" ? this.#lambdaFaces.get(value) : undefined;
         try {
+          // A member is its value (#1232): what is generalized is its lambda's
+          // own type. The name held the landed signature while the knot was
+          // open, and every use met that; the defining unify made the two one
+          // type, so nothing is re-pointed and no use holds a stale copy.
           this.#schemes.set(
             symbol,
             this.#generalize(
-              recursiveTypes.get(symbol)!,
+              this.#memberLambdaTypes.get(symbol) ?? recursiveTypes.get(symbol)!,
               level,
               true,
               undefined,
@@ -10046,24 +10049,6 @@ class Checker {
       }
     }
     this.#funGroups.pop();
-  }
-
-  /**
-   * A member's type is its value (#1232): once its name has taken the value,
-   * the type its name holds is the lambda's own to every reader keyed on that
-   * type (the lambda a §4.2 search finds, a refused tie's reading). The name
-   * holds the type its uses met while the knot was open, its written signature
-   * or the arity its text writes, never a copy made for the occasion: one node,
-   * which every use already holds, and nothing is re-pointed.
-   */
-  #takesValue(name: Variable, value: Mono): void {
-    const node = this.#prune(name);
-    const own = this.#prune(value);
-    if (node === own) return;
-    const frame = this.#frameOfType.get(own);
-    if (frame !== undefined && !this.#frameOfType.has(node)) this.#frameOfType.set(node, frame);
-    const lambdas = this.#lambdasOf.get(own);
-    if (lambdas !== undefined && !this.#lambdasOf.has(node)) this.#lambdasOf.set(node, lambdas);
   }
 
   /**
@@ -10124,19 +10109,29 @@ class Checker {
       this.#arrowRole = enclosingRole;
     }
     this.#landedHeaders.set(lambda, { face, variables, tails, parameters, result });
-    const header: Mono = {
-      kind: "Function",
-      parameters: parameters.map((parameter) => parameter ?? this.#fresh(level, false)),
-      result: result ?? this.#fresh(level, false),
-      effect: this.#fresh(level, false),
-      fail: this.#fresh(level, false),
-    };
+    const written = [...parameters, result].filter((part): part is Mono => part !== undefined);
     const text = new Set<Variable>((face.handed[0] ?? []).flatMap(({ colour, fail }) => [colour, fail]));
     const open = new Map<number, Mono>();
-    for (const variable of this.#collectVariables(header)) {
-      if (variable.rigidName === undefined && !text.has(variable)) open.set(variable.id, this.#fresh(level, false));
+    for (const part of written) {
+      for (const variable of this.#collectVariables(part)) {
+        if (variable.rigidName === undefined && !text.has(variable)) open.set(variable.id, this.#fresh(level, false));
+      }
     }
-    this.#unify(recursiveType, this.#replaceVariables(header, open), lambda.span);
+    // A written part with nothing to make fresh is the written type itself, as
+    // elaborated, its spelling (an alias, a qualifier) with it.
+    const landed = (part: Mono | undefined): Mono =>
+      part === undefined
+        ? this.#fresh(level, false)
+        : this.#collectVariables(part).some(({ id }) => open.has(id))
+        ? this.#replaceVariables(part, open)
+        : part;
+    this.#unify(recursiveType, {
+      kind: "Function",
+      parameters: parameters.map(landed),
+      result: landed(result),
+      effect: this.#fresh(level, false),
+      fail: this.#fresh(level, false),
+    }, lambda.span);
     if (result !== undefined) this.#landedResults.set(symbol, result);
   }
 

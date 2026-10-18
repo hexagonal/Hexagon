@@ -121,16 +121,22 @@ describe("a subject a later or an earlier line fixes is not decided by the text 
     bothOrders("let f() =\n    var n: Int = 0", "let s = n.show()", "n := n + 1", []);
   });
 
-  test("a call to a member of a `fun` block still open, whatever its signature writes", () => {
+  test("a call to a member of a `fun` block still open, decided only by what its signature writes", () => {
+    // The member's written signature is read where its knot opens (#1279), so
+    // a written result decides the dot in either order; one its body works
+    // out does not, in either order, while the knot is open.
     const member = (order: readonly string[]): readonly string[] =>
       projectDiagnostics(HEADER + "fun\n" + order.map((line) => `    ${line}\n`).join(""));
     const a = "a(n: Int): Bool = if n > 3 then b(n).isEmpty() else a(n + 1)";
     const b = "b(n: Int): Vector(Int) = if n > 9 then [n] else (if a(n) then [] else [1])";
+    expect(member([a, b])).toEqual([]);
+    expect(member([b, a])).toEqual([]);
+    const unwritten = b.replace(": Vector(Int)", "");
     const refused = [refusalOfSubject("isEmpty")];
-    expect(member([a, b])).toEqual(refused);
-    expect(member([b, a])).toEqual(refused);
+    expect(member([a, unwritten])).toEqual(refused);
+    expect(member([unwritten, a])).toEqual(refused);
     // The module's spelling is the fundamental one.
-    expect(member([a.replace("b(n).isEmpty()", "Vector.isEmpty(b(n))"), b])).toEqual([]);
+    expect(member([a.replace("b(n).isEmpty()", "Vector.isEmpty(b(n))"), unwritten])).toEqual([]);
   });
 
   test("a `var` its assignment fills before the dot is still not decided", () => {
@@ -239,23 +245,30 @@ describe("a subject a later or an earlier line fixes is not decided by the text 
   });
 
   test("a lambda handed a member of a `fun` block still open, in either member order", () => {
+    // What the open member's signature writes decides the lambda's parameter
+    // in either order (#1279).
     const member = (order: readonly string[]): readonly string[] =>
       projectDiagnostics(HEADER + "fun\n" + order.map((line) => `    ${line}\n`).join(""));
     const a = "a(n: Int): Bool = if n > 3 then b(n) |> (v) => v.isEmpty() else a(n + 1)";
     const b = "b(n: Int): Vector(Int) = if n > 9 then [n] else (if a(n) then [] else [1])";
-    expect(member([a, b])).toEqual([refusal("v", "isEmpty")]);
-    expect(member([b, a])).toEqual([refusal("v", "isEmpty")]);
+    expect(member([a, b])).toEqual([]);
+    expect(member([b, a])).toEqual([]);
     const c = "c(n: Int): Bool = if n > 3 then Seq.any(b(n), (k) => k.show() == \"1\") else c(n + 1)";
     const d = "b(n: Int): Vector(Int) = if n > 9 then [n] else (if c(n) then [] else [1])";
-    expect(member([c, d])).toEqual([refusal("k", "show")]);
-    expect(member([d, c])).toEqual([refusal("k", "show")]);
-    // A lambda handed to the open member itself, whatever its signature writes:
-    // its subject is read as anywhere else, beside the refusal of a function
-    // made inside the recursion (Effects §3.4, #1218).
+    expect(member([c, d])).toEqual([]);
+    expect(member([d, c])).toEqual([]);
+    // Unwritten, the result is the body's, and the lambda's parameter is not
+    // decided in either order.
+    const e = d.replace(": Vector(Int)", "");
+    expect(member([c, e])).toEqual([refusal("k", "show")]);
+    expect(member([e, c])).toEqual([refusal("k", "show")]);
+    // A lambda handed to the open member itself: its parameter reads the
+    // member's written type, beside the refusal of a function made inside the
+    // recursion (Effects §3.4, #1218).
     const go = "go(n: Int, k: (Vector(Int)) -> Int): Int = if n == 0 then k([]) else go(n - 1, (r) => k(r.append(n)))";
     const made = "this function is not one `go` was given, and a recursive call hands on only the callbacks " +
       "it was given";
-    expect(member([go])).toEqual([made, refusal("r", "append")]);
+    expect(member([go])).toEqual([made]);
     expect(member([go.replace("(r) =>", "(r: Vector(Int)) =>")])).toEqual([made]);
   });
 
