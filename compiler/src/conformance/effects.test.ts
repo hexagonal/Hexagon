@@ -1672,6 +1672,31 @@ describe("Effects §3.4 — a tie between callbacks is refused, where it was mad
     }
   });
 
+  it("a member that hands its callback on is no tie where a sibling's ungeneralized lambda around a held one takes the written callback (#1244)", () => {
+    // `b` only hands `g` on to `a`, and `hold` touches neither `g` nor `k`:
+    // `k`'s written colour is the in-place lambda's own (#1250), so `q(g)`
+    // meets an instance of it and `b`'s `g` is `a`'s, in either order.
+    const b = "    b(g, c: Bool, n: Int): Unit = if n == 0 then () else a!(g, c, n)\n";
+    const asWritten = ["g!()", "let q = ident((k: () ->! Unit) =>", "    let hold = (z) => b!(g, c, n - 1)", "    ())",
+      "q(g)", "()"];
+    const twins = [
+      asWritten,
+      // Without `hold`, the lambda the knot holds...
+      asWritten.filter((line) => !line.includes("hold")),
+      // ...with `k` untyped...
+      asWritten.map((line) => line.replace("(k: () ->! Unit)", "(k)")),
+      // ...and with `q` a generalized `let`.
+      ["g!()", "let q = (k: () ->! Unit) =>", "    let hold = (z) => b!(g, c, n - 1)", "    ()", "q(g)", "()"],
+    ];
+    for (const lines of twins) {
+      const a = "    a(g: () ->! Unit, c: Bool, n: Int): Unit =\n" + lines.map((line) => `        ${line}\n`).join("");
+      for (const program of [`fun\n${a}${b}`, `fun\n${b}${a}`]) {
+        const text = "module Main\n\nlet ident(x: t): t = x\n" + program;
+        expect([program, compileFiles([["/main.hex", text]]).diagnostics.map(({ message }) => message)]).toEqual([program, []]);
+      }
+    }
+  });
+
   it("a knot frame around a lambda an outer knot holds keeps the colours it noted at its own close (#1215)", () => {
     // `h1`'s own callback `k` is its own (#1231): `h1!(g)` meets an instance,
     // so the tie stands where `inner` merges `k` with `f`, as outside a knot,
