@@ -454,9 +454,10 @@ describe("the ordering pin (§4.3)", () => {
     // callee is a lambda literal, and the pipe rewrites to exactly such an
     // application. Both lambda-literal callee kinds are pinned here: the plain
     // lambda, and the match function. The argument's arithmetic settles `p` at
-    // `Int` first; the callee's body then reads it, so `useFloat(p)` widens the
-    // `Int` value and `flavour` is `(Int) -> String`. Callee-first typed `p` at
-    // `Float`.
+    // `Int` first; the callee's body then reads it, so `flavour` is
+    // `(Int) -> String` — callee-first typed `p` at `Float` — and `useFloat(p)`
+    // meets an `Int` only inference gave, which it does not widen (#1195).
+    // Written `p: Int`, it widens.
     const plain = "let useFloat(value: Float): String = \"f\"\n" +
       "let one: Int = 1\n" +
       "fun flavour(p) = (p + one) |> (x => useFloat(p))\n" +
@@ -469,10 +470,11 @@ describe("the ordering pin (§4.3)", () => {
       "export let a: String = flavour(1)\n";
 
     for (const source of [plain, matched]) {
-      expect(projectDiagnostics("module Main\n\n" + source)).toEqual([]);
+      expect(projectDiagnostics("module Main\n\n" + source)).toEqual([notWidenedP]);
       expect(schemeOf(source, "flavour")).toMatchObject({
         parameters: [{ kind: "Primitive", name: "Int" }],
       });
+      expect(projectDiagnostics("module Main\n\n" + source.replace("flavour(p)", "flavour(p: Int)"))).toEqual([]);
     }
   });
 });
@@ -586,15 +588,18 @@ describe("monotonicity spot-checks (§4.3)", () => {
   test("a sibling argument still establishes an earlier one's type", () => {
     // The Nat/Int deferral inside one call's argument check is untouched: an
     // argument still sitting on an unsolved variable is never decided from its
-    // parameter ahead of a sibling that decides it.
+    // parameter ahead of a sibling that decides it. The `Int` the sibling gave
+    // is one only inference gave, so the `Float` parameter then refuses it
+    // (#1195); written `p: Int`, it widens.
     const source = "let g(a: Float, b: Int): String = \"x\"\n" +
       "let one: Int = 1\n" +
       "fun f(p) = g(p, p + one)\n" +
       "export let r: String = f(2)\n";
-    expect(projectDiagnostics("module Main\n\n" + source)).toEqual([]);
+    expect(projectDiagnostics("module Main\n\n" + source)).toEqual([notWidenedP]);
     expect(schemeOf(source, "f")).toMatchObject({
       parameters: [{ kind: "Primitive", name: "Int" }],
     });
+    expect(projectDiagnostics("module Main\n\n" + source.replace("f(p)", "f(p: Int)"))).toEqual([]);
   });
 
   test("an unsolved argument is still decided by its sibling, not by its parameter", () => {
@@ -602,17 +607,19 @@ describe("monotonicity spot-checks (§4.3)", () => {
     // the first pass's arguments are checked before the second elaborates, and
     // that check *skips* — never decides — an argument that is not already
     // concrete. `p` establishes nothing at its turn; the lambda's body decides
-    // it, and the first argument then widens to `Float` exactly as it did
-    // before propagation existed. Unifying `p` from its parameter here would
-    // type it `Float` and break the body.
+    // it. Unifying `p` from its parameter here would type it `Float` and break
+    // the body. The first argument then meets the `Float` parameter with an
+    // `Int` only inference gave, which it does not widen (#1195); written
+    // `p: Int`, it widens, as it did before propagation existed.
     const source = "let useInt(value: Int): String = \"i\"\n" +
       "let g(a: Float, b: (Int) -> String): String = b(0)\n" +
       "fun f(p) = g(p, x => useInt(p))\n" +
       "export let r: String = f(2)\n";
-    expect(projectDiagnostics("module Main\n\n" + source)).toEqual([]);
+    expect(projectDiagnostics("module Main\n\n" + source)).toEqual([notWidenedP]);
     expect(schemeOf(source, "f")).toMatchObject({
       parameters: [{ kind: "Primitive", name: "Int" }],
     });
+    expect(projectDiagnostics("module Main\n\n" + source.replace("f(p)", "f(p: Int)"))).toEqual([]);
   });
 
   test("the generalized scheme of a polymorphic binding is unchanged", () => {
@@ -622,6 +629,10 @@ describe("monotonicity spot-checks (§4.3)", () => {
     expect(schemeOf(source, "apply")).toMatchObject({ kind: "Function" });
   });
 });
+
+/** §6's report for `p`, an `Int` only by inference, at a `Float` seat (#1195). */
+const notWidenedP = "`p` is an `Int` only by inference, and an inferred type is not widened to `Float`: " +
+  "write `p: Int` where `p` is made, or convert it — `Float.fromInt(p)`";
 
 function schemeOf(source: string, name: string): unknown {
   const project = compileMain("module Main\n\n" + source);

@@ -485,6 +485,24 @@ describe("a subject the text decides dispatches at the dot (§3.1)", () => {
     compiles("let f(v: Vector(_)): Bool = v.isEmpty()\n");
   });
 
+  test("a local function's call, by its written result type or else its body (#1195)", () => {
+    const g = "let g(k: Int): Int = k\n";
+    compiles(g + "let f(n): String =\n    let h = () => g(n)\n    h().show()\n");
+    compiles(g + "let f(n): String =\n    let h = (m) => g(m)\n    h(n).show()\n");
+    compiles(g + "let f(n): String =\n    fun h() = g(n)\n    h().show()\n");
+    compiles("let f(n): String =\n    let h = (): Int => n\n    h().show()\n");
+    // A body made from what it captures decides as that does.
+    expect(inOrder("let f(n) =", ["let h = () => n", "let s = h().show()"])).toEqual([refusalOfSubject("show")]);
+    // Local functions that capture one another are one cycle, decided where
+    // what the cycle captures from outside is.
+    const block = "fun\n        a(i: Int) =\n            ignore([b(0), n])\n            if i > 0 then b(i - 1) else 0\n" +
+      "        b(i: Int) = a(i)";
+    expect(inOrder("let f(n) =", [block, "let s = a(3).show()"])).toEqual([refusalOfSubject("show")]);
+    // A generic local function's result is each call's, not its own text's.
+    expect(inOrder("let f(y) =", ["let ap = (g: (a) -> b, x: a): b => g(x)", "let e = ap((u) => y, 1).isEmpty()"]))
+      .toEqual([refusalOfSubject("isEmpty")]);
+  });
+
   test("a comparison is a `Bool` whatever it compares", () => {
     compiles("let f(x): String = (x == 1).show()\n");
   });
