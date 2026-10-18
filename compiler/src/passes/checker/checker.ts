@@ -12700,9 +12700,10 @@ class Checker {
   /**
    * **What a written result type spells** *(#1180; Effects §3.4)*. A call
    * whose callee's declaration writes its result type, though not ground,
-   * decides every arrow that type spells, whatever the call is handed: a
-   * variable, a hole, or a `>->`, which follows what the call is handed, is
-   * left to inference. So does a binding made from such a call, and a part a
+   * decides every arrow that type spells, whatever the call is handed, a
+   * following arrow included (#1206): it carries what the call is handed, and
+   * the use reads that colour or more. A variable or a hole is left to
+   * inference. So does a binding made from such a call, and a part a
    * `let`'s pattern or a field read takes out of either, where the written type
    * spells that part (`#patternWritten`, `#fieldWritten`). A ground result
    * decides the whole value (`#groundResult`), a field read of it included
@@ -12863,7 +12864,7 @@ class Checker {
     receivesRoot = true,
     /**
      * Only what `view` spells *(#1180, `#spelledResult`)*: the walk stops at a
-     * part the written type does not spell, a variable, a hole, or a `>->`. `own`
+     * part the written type does not spell, a variable or a hole. `own`
      * re-opens the value's own arrow whatever the written type says there,
      * since the text decides it already (`#opensAt`).
      */
@@ -12892,8 +12893,6 @@ class Checker {
           case "ImpliedType":
           case "ErrorType":
             return node;
-          case "Function":
-            if (isFollowing(written.effect)) return node;
         }
       }
       // Data a spine returns is outside every parameter type, as the spine is.
