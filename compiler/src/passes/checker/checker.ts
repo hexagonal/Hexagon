@@ -4399,8 +4399,13 @@ class Checker {
   readonly #outcomeColours = new Set<Variable>();
   /** The outcomes whose comparison waits for a colour a close decides (`#compareWaitingFits`). */
   readonly #waitingOutcomes = new Set<Variable>();
-  /** The face each outcome's comparison belongs to, compared before a binding would generalize the outcome. */
-  readonly #outcomeFaces = new Map<Variable, SignatureFace>();
+  /**
+   * The outcomes still to be decided, each with the face its comparison
+   * belongs to: compared before a binding would generalize the outcome or the
+   * colours it may be decided as (`#decideOutcomes`), and at the closes they
+   * wait for (`#compareWaitingFits`). Decided ones leave it.
+   */
+  readonly #openOutcomes = new Map<Variable, SignatureFace>();
   /** The outcomes that stand for the rest of a fix already passing a colour through (`#checkFaceFitsOn`). */
   readonly #restOutcomes = new Set<Variable>();
   /** Each lambda's function type, and the body it types, for a refused tie's reading (`#readRefusedTies`). */
@@ -4736,7 +4741,7 @@ class Checker {
             const waiting = fits.flatMap((fit) => this.#colourParts(fit.value)).filter((part) => this.#undecided(part));
             const outcome = this.#fresh(Math.min(level, ...waiting.map((part) => part.level)), false);
             this.#outcomeColours.add(outcome);
-            this.#outcomeFaces.set(outcome, face);
+            this.#openOutcomes.set(outcome, face);
             if (waiting.length > 0) this.#waitingOutcomes.add(outcome);
             this.#outcomes.set(arrow, { ...this.#outcomes.get(arrow), [axis]: outcome });
             node = { ...node, ...colourSlot(axis, this.#join([colourAt(node, axis) ?? PURE, outcome])) };
@@ -4785,18 +4790,24 @@ class Checker {
   }
 
   /**
-   * Before a binding generalizes, every outcome it would quantify is decided
-   * (`#publishOutcomes`): the comparison of a face written under data, or by
-   * an ascription, is made here as the binding's own face's is. One whose
-   * comparison still waits for a close belongs to that close, never to this
-   * binding's scheme.
+   * Before a binding generalizes, every outcome it would quantify, and every
+   * one its type holds, is compared (`#publishOutcomes`): the comparison of a
+   * face written under data, or by an ascription, is made here as the
+   * binding's own face's is. A fix that passes a colour through then reads
+   * the face's callbacks while they are still the face's own, before the
+   * scheme quantifies them (`#splitOutcome`). One whose comparison still
+   * waits for a close belongs to that close, never to this binding's scheme.
    */
-  #decideOutcomes(level: number): void {
-    const owed = (outcome: Variable): boolean => this.#prune(outcome) === outcome && outcome.level > level;
-    const faces = new Set([...this.#outcomeFaces].filter(([outcome]) => owed(outcome)).map(([, face]) => face));
+  #decideOutcomes(level: number, type: Mono): void {
+    if (this.#openOutcomes.size === 0) return;
+    const held = new Set(this.#collectVariables(type));
+    const faces = new Set<SignatureFace>();
+    for (const [outcome, face] of this.#openOutcomes) {
+      if (outcome.level > level || held.has(outcome)) faces.add(face);
+    }
     for (const face of faces) this.#checkFaceFits(face, false);
-    for (const outcome of this.#outcomeFaces.keys()) {
-      if (!owed(outcome)) continue;
+    for (const outcome of this.#openOutcomes.keys()) {
+      if (outcome.level <= level) continue;
       outcome.level = level;
       this.#waitingOutcomes.add(outcome);
     }
@@ -4816,8 +4827,9 @@ class Checker {
     this.#outcomeColours.add(rest);
     this.#waitingOutcomes.add(rest);
     this.#restOutcomes.add(rest);
-    const face = this.#outcomeFaces.get(outcome);
-    if (face !== undefined) this.#outcomeFaces.set(rest, face);
+    const face = this.#openOutcomes.get(outcome);
+    this.#openOutcomes.delete(outcome);
+    if (face !== undefined) this.#openOutcomes.set(rest, face);
     outcome.instance = this.#join([arrow.handed[axis], rest]);
     this.#outcomes.set(arrow, { ...this.#outcomes.get(arrow), [axis]: rest });
   }
@@ -4826,6 +4838,7 @@ class Checker {
   #settleOutcome(arrow: FaceArrow, axis: Axis, colour: Mono): void {
     const outcome = this.#outcomes.get(arrow)?.[axis];
     if (outcome === undefined || this.#prune(outcome) !== outcome) return;
+    this.#openOutcomes.delete(outcome);
     outcome.instance = colour;
   }
 
@@ -4836,18 +4849,16 @@ class Checker {
    * another's outcome, so they run until none is left that can be made.
    */
   #compareWaitingFits(axis: Axis): void {
-    const waiting = (fit: FaceFit): boolean => {
-      const outcome = this.#outcomes.get(fit.arrow)?.[axis];
-      return fit.axis === axis && !fit.checked && outcome !== undefined && this.#waitingOutcomes.has(outcome);
+    const waiting = (): Set<SignatureFace> => {
+      const faces = new Set<SignatureFace>();
+      for (const [outcome, face] of this.#openOutcomes) if (this.#waitingOutcomes.has(outcome)) faces.add(face);
+      return faces;
     };
-    for (let made = true; made;) {
-      made = false;
-      for (const face of this.#signatureFaces) {
-        const before = (face.fits ?? []).filter(waiting).length;
-        if (before === 0) continue;
-        this.#onAxis(axis, () => this.#checkFaceFitsOn(face, false, axis));
-        if ((face.fits ?? []).filter(waiting).length < before) made = true;
-      }
+    for (let open = this.#openOutcomes.size, faces = waiting(); faces.size > 0;) {
+      for (const face of faces) this.#onAxis(axis, () => this.#checkFaceFitsOn(face, false, axis));
+      if (this.#openOutcomes.size >= open) break;
+      open = this.#openOutcomes.size;
+      faces = waiting();
     }
   }
 
@@ -31553,7 +31564,7 @@ class Checker {
     this.#closeOpenings(level);
     // A finished face depends on all of its callbacks or on none (§2.4).
     if (this.#generalizingFace !== undefined) this.#checkFaceFits(this.#generalizingFace, false);
-    this.#decideOutcomes(level);
+    this.#decideOutcomes(level, type);
     type = this.#readRefusedTies(type, level);
     type = this.#widenFace(type, level);
     type = this.#readRefusedArrows(type);
