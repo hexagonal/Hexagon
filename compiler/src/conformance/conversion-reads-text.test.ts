@@ -246,13 +246,39 @@ describe("a local function's call is decided by its own text (Method Syntax §3.
       "fun loop(i: Int) = if i > 0 then loop(i - 1) else gI(n)",
       "let y: Float = loop(3)",
     ]))).toEqual([]);
-    // A recursion with no other path that decides it decides nothing.
+    // A recursion whose other path the text does not decide decides nothing.
     expect(refusals(body("(p)", [
       "fun loop(i: Int) = if i > 0 then loop(i - 1) else p",
       "useInt(p)",
       "let y: Float = loop(3)",
     ]))).toEqual(["`loop(3)` is an `Int` only by inference, and an inferred type is not widened to `Float`: " +
       "write `loop`'s result type, or convert it — `Float.fromInt(loop(3))`"]);
+  });
+
+  test("a recursive call anywhere but a value path ties the result, in either order", () => {
+    const loop = "fun loop(i: Int) =\n        ignore([loop(0), p])\n        if i > 0 then loop(i - 1) else 0";
+    const first = refusals(body("(p)", ["useInt(p)", loop, "let y: Float = loop(3)"]));
+    const last = refusals(body("(p)", [loop, "let y: Float = loop(3)", "useInt(p)"]));
+    expect(first).toHaveLength(1);
+    expect(last).toEqual(["type mismatch: expected Int, found Float"]);
+    // Local functions that call one another are read as one.
+    const block = "fun\n        a(i: Int) =\n            ignore([b(0), p])\n            if i > 0 then b(i - 1) else 0\n" +
+      "        b(i: Int) = a(i)";
+    expect(refusals(body("(p)", ["useInt(p)", block, "let y: Float = a(3)"]))).toHaveLength(1);
+    expect(refusals(body("(p)", [block, "let y: Float = a(3)", "useInt(p)"]))).toHaveLength(1);
+  });
+
+  test("a local function's unwritten parameter its own body settled where it was made", () => {
+    const lines = ["let g = (x) =>\n        useFloat(x)\n        ignore(p)", "g(n)", "useInt(p)"];
+    expect(refusals(body("(p, n: Int)", lines))).toEqual([]);
+    expect(refusals(body("(p, n: Int)", [lines[0]!, lines[2]!, lines[1]!]))).toEqual([]);
+  });
+
+  test("a curried local function's written inner parameter, through a `let` of its application", () => {
+    const lines = ["let h = (a) => (b: Float) => ignore([a, p])", "let k = h(p)", "k(n)", "useInt(p)"];
+    expect(refusals(body("(p, n: Int)", lines))).toEqual([]);
+    expect(refusals(body("(p, n: Int)", [lines[0]!, lines[1]!, lines[3]!, lines[2]!]))).toEqual([]);
+    expect(refusals(body("(p, n: Int)", ["let h = (a) => (b: Float) => ignore([a, p])", "h(p)(n)", "useInt(p)"]))).toEqual([]);
   });
 
   test("a lambda a pattern takes apart is read as a call; the report offers the conversion", () => {

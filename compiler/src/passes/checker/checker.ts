@@ -1399,6 +1399,30 @@ function defersAsLambda(expression: Resolved.Expr): boolean {
   return deferredLambda(expression) !== undefined;
 }
 
+/**
+ * The value paths of a body: the expressions whose values it returns, read
+ * through grouping, a block's final expression, both branches of `if`, and
+ * every arm of `match` and `try` (Functions §4.3's forwarding forms).
+ */
+function valuePaths(expression: Resolved.Expr): Resolved.Expr[] {
+  switch (expression.kind) {
+    case "Group":
+      return valuePaths(expression.expression);
+    case "Block": {
+      const last = expression.items.at(-1);
+      return last?.kind === "ExprItem" ? valuePaths(last.expression) : [];
+    }
+    case "If":
+      return [...valuePaths(expression.consequence), ...valuePaths(expression.alternative)];
+    case "Match":
+      return [...expression.arms, ...(expression.catchArms ?? [])].flatMap((arm) => valuePaths(arm.body));
+    case "Try":
+      return [...valuePaths(expression.body), ...expression.arms.flatMap((arm) => valuePaths(arm.body))];
+    default:
+      return [expression];
+  }
+}
+
 /** The indefinite article a type's name takes in a report: "an `Int`", "a `Float`". */
 function article(name: string): string {
   return /^[AEIOU]/.test(name) ? "an" : "a";
@@ -7677,14 +7701,17 @@ class Checker {
    * result each call instantiates.
    */
   #localResult(call: Resolved.CallExpr, deep: boolean): boolean {
-    const value = this.#localLambda(call.callee);
-    if (value === undefined) return false;
+    const local = this.#localLambda(call.callee);
+    if (local === undefined) return false;
+    const value = local.lambda;
     const written = value.returnAnnotation;
     if (written !== undefined && (deep ? annotationWhole(written) : headWritten(written))) return true;
-    // A call of the function inside its own body says nothing either way: the
-    // body is decided where its other paths are.
-    if (this.#readingLocalBodies.has(value)) return true;
-    this.#readingLocalBodies.add(value);
+    // A call of the function inside its own body says nothing either way where
+    // every such call is a value path of the body that holds it: the body is
+    // then decided where its other paths are. One standing anywhere else ties
+    // the result to what it meets, and decides nothing.
+    if (this.#readingLocalBodies.has(value)) return this.#recursionThroughResults();
+    this.#readingLocalBodies.set(value, local.symbol);
     try {
       return this.#typeDecided(value.body, deep);
     } finally {
@@ -7693,21 +7720,53 @@ class Checker {
   }
 
   /**
+   * Whether every call among the local functions `#localResult` is reading
+   * stands as a value path of the body that holds it, and no other mention of
+   * their names does — so a call of one inside another adds nothing to what
+   * the bodies' other paths decide.
+   */
+  #recursionThroughResults(): boolean {
+    const symbols = new Set<Resolved.SymbolId>();
+    for (const symbol of this.#readingLocalBodies.values()) {
+      if (symbol === undefined) return false;
+      symbols.add(symbol);
+    }
+    for (const lambda of this.#readingLocalBodies.keys()) {
+      const callees = new Set<Resolved.Expr>();
+      for (const path of valuePaths(lambda.body)) {
+        if (path.kind !== "Call") continue;
+        const callee = ungrouped(path.callee);
+        if (callee.kind === "Name" && symbols.has(callee.symbol)) callees.add(callee);
+      }
+      let through = true;
+      this.#walkSyntax(lambda.body, {
+        name: (name) => {
+          if (symbols.has(name.symbol) && !callees.has(name)) through = false;
+        },
+      });
+      if (!through) return false;
+    }
+    return true;
+  }
+
+  /**
    * The lambda literal whose body a call of `callee` runs, where `callee` is a
    * local function `#localResult` reads: a name a `let` or a `fun` in a body
    * binds to one, or such a function applied, whose body is itself a lambda (a
    * curried function's later application). `undefined` for anything else.
    */
-  #localLambda(callee: Resolved.Expr): Resolved.LambdaExpr | undefined {
+  #localLambda(
+    callee: Resolved.Expr,
+  ): { readonly lambda: Resolved.LambdaExpr; readonly symbol?: Resolved.SymbolId } | undefined {
     const named = ungrouped(callee);
     if (named.kind === "Call") {
       const outer = this.#localLambda(named.callee);
-      const inner = outer === undefined ? undefined : ungrouped(outer.body);
-      return inner?.kind === "Lambda" && this.#readsAsLocal(inner) ? inner : undefined;
+      const inner = outer === undefined ? undefined : ungrouped(outer.lambda.body);
+      return inner?.kind === "Lambda" && this.#readsAsLocal(inner) ? { lambda: inner } : undefined;
     }
     if (named.kind !== "Name" || this.#openMember(named.symbol) !== undefined) return undefined;
     const value = this.#boundLambda(named.symbol);
-    return value !== undefined && this.#readsAsLocal(value) ? value : undefined;
+    return value !== undefined && this.#readsAsLocal(value) ? { lambda: value, symbol: named.symbol } : undefined;
   }
 
   /** Whether a local function's lambda writes no type variable, so each call does not instantiate its result. */
@@ -7717,8 +7776,11 @@ class Checker {
     return !annotations.some((annotation) => annotation !== undefined && annotationHasTypeVariable(annotation));
   }
 
-  /** The local functions' bodies `#localResult` is reading, so a recursive one is read once. */
-  readonly #readingLocalBodies = new Set<Resolved.LambdaExpr>();
+  /** The local functions whose whole `#typeDecidedSymbol` is reading, each assumed decided meanwhile. */
+  readonly #assumedLocal = new Set<Resolved.SymbolId>();
+
+  /** The local functions' bodies `#localResult` is reading, each with the name that binds it, if one does. */
+  readonly #readingLocalBodies = new Map<Resolved.LambdaExpr, Resolved.SymbolId | undefined>();
 
   /**
    * Whether the text decides the type of `callee`'s parameter `index`, by
@@ -7739,10 +7801,54 @@ class Checker {
     // decides its parameters where the text decides it whole: a function a body
     // binds has the parameter types inference gave it, which may hold what it
     // captures.
-    const bound = named.kind === "Name" ? this.#boundLambda(named.symbol) : undefined;
-    const annotation = bound?.parameters[index]?.annotation;
+    const applied = this.#appliedLambda(callee);
+    const annotation = applied?.parameters[index]?.annotation;
     if (annotation !== undefined && annotationWhole(annotation)) return true;
+    // An unwritten one its own body settled, with no part left open, where the
+    // function was made: a fact fixed where the binding is made (§3.1).
+    if (applied !== undefined && annotation === undefined && this.#settledParameters.get(applied)?.[index] === true) {
+      return true;
+    }
     return this.#typeDecided(callee, true);
+  }
+
+  /**
+   * Of a local function's parameters, which its body settled whole where the
+   * function was made (#1195): read once, right after its value is checked,
+   * before any later line can reach the parameter's type.
+   */
+  readonly #settledParameters = new WeakMap<Resolved.LambdaExpr, readonly boolean[]>();
+
+  #recordSettledParameters(value: Resolved.Expr, type: Mono): void {
+    const lambda = ungrouped(value);
+    const known = this.#prune(type);
+    if (lambda.kind !== "Lambda" || known.kind !== "Function") return;
+    this.#settledParameters.set(
+      lambda,
+      known.parameters.map((parameter) => this.#collectVariables(this.#prune(parameter)).length === 0),
+    );
+  }
+
+  /**
+   * The lambda literal a call of `callee` applies, where `callee` is a local
+   * function: one a `let` or a `fun` in a body binds, or such a function
+   * applied whose body is a lambda (a curried function's later application).
+   */
+  #appliedLambda(callee: Resolved.Expr): Resolved.LambdaExpr | undefined {
+    const named = ungrouped(callee);
+    if (named.kind === "Call") {
+      const outer = this.#appliedLambda(named.callee);
+      const inner = outer === undefined ? undefined : ungrouped(outer.body);
+      return inner?.kind === "Lambda" ? inner : undefined;
+    }
+    if (named.kind !== "Name") return undefined;
+    const bound = this.#boundLambda(named.symbol);
+    if (bound !== undefined) return bound;
+    // A `let` made from a local function's application holds the lambda that
+    // application returns (`let k = h(p)`).
+    const source = this.#moduleBindings.has(named.symbol) ? undefined : this.#typeSources.get(named.symbol);
+    const value = source?.kind === "value" ? ungrouped(source.value) : undefined;
+    return value?.kind === "Call" ? this.#appliedLambda(value) : undefined;
   }
 
   /** The lambda literal a `let` or a `fun` in a body binds `symbol` to, if it binds one. */
@@ -7780,8 +7886,11 @@ class Checker {
     const memo = deep ? this.#typeDecidedWhole : this.#typeDecidedHead;
     const known = memo.get(symbol);
     if (known !== undefined) return known;
+    // An answer read while a local function's whole is assumed decided, inside
+    // its own cycle of captures, may rest on that assumption, so it is kept
+    // only once no assumption is open (#1195).
     const remember = (value: boolean): boolean => {
-      memo.set(symbol, value);
+      if (this.#assumedLocal.size === 0) memo.set(symbol, value);
       return value;
     };
     const source = this.#typeSources.get(symbol);
@@ -7805,10 +7914,18 @@ class Checker {
           annotationWhole(value.returnAnnotation) &&
           value.parameters.every((parameter) => parameter.annotation !== undefined && annotationWhole(parameter.annotation))
         ) return true;
-        remember(true);
-        return remember(
-          this.#freeNames(value).every((captured) => captured === symbol || this.#typeDecidedSymbol(captured, true)),
-        );
+        // Local functions that capture one another are read as one cycle: a
+        // member met again inside it is assumed decided, and the cycle is
+        // decided where every name it captures from outside is.
+        if (this.#assumedLocal.has(symbol)) return true;
+        this.#assumedLocal.add(symbol);
+        let whole: boolean;
+        try {
+          whole = this.#freeNames(value).every((captured) => captured === symbol || this.#typeDecidedSymbol(captured, true));
+        } finally {
+          this.#assumedLocal.delete(symbol);
+        }
+        return remember(whole);
       }
       case "lambda": {
         // Decided where its type landed with a known head — and, for the
@@ -9305,6 +9422,7 @@ class Checker {
           this.#pendingOwnFace = enclosingPending.face;
           this.#pendingOwnLambdas = enclosingPending.lambdas;
         }
+        if (!moduleItems) this.#recordSettledParameters(item.value, inferredValueType);
         // A lambda's parameters name the callbacks a binding annotation wrote
         // without names, for the gloss (Effects §10).
         if (annotationFace !== undefined && item.value.kind === "Lambda") {
@@ -12412,9 +12530,12 @@ class Checker {
           !calleeIsLambda && !this.#parameterSeatDecided(expression.callee, calleeDecided, index);
         {
           const named = this.#spelledExpression(expression.callee);
+          let root = ungrouped(expression.callee);
+          while (root.kind === "Call") root = ungrouped(root.callee);
+          const owner = root.kind === "Name" ? `\`${root.text}\`` : "the callee";
           const plain = named === undefined
-            ? { seat: "this parameter", owner: "the callee" }
-            : { seat: `\`${named}\`'s parameter`, owner: `\`${named}\`` };
+            ? { seat: "this parameter", owner }
+            : { seat: `\`${named}\`'s parameter`, owner };
           for (const [index, argument] of expression.arguments.entries()) {
             if (!plainSeat(index)) continue;
             this.#plainSeatValues.set(argument, plain);
