@@ -145,6 +145,40 @@ other companions. Every successful zero result is canonical `Int` zero; the
 sign bit of a floating negative zero never crosses into `Int` and cannot
 reappear if that result later widens to `Float`.
 
+**One edge for all five, and a test for it** *(#1160)*. Every `Float` of
+magnitude 2^52 or more is already a whole number, so no rounding rule carries a
+value across the safe range's edge. The five therefore throw for exactly the
+same values — `NaN`, both infinities, and every value of magnitude past
+2^53 − 1 — and that set is a property of the value alone, which the companion
+names:
+
+```hexagon
+Float.roundsToInt(value: Float): Bool
+```
+
+`roundsToInt(value)` is `True` exactly when `value` lies within
+`[-(2^53 - 1), 2^53 - 1]`, and so exactly when each of the five succeeds on it.
+It is pure and total, and it never throws. It asks about range, not wholeness:
+`Float.roundsToInt(2.5)` is `True`, because every rounding of `2.5` is an `Int`,
+though `2.5` is not one. It could be spelled by hand, as
+`x.abs() <= 9007199254740991.0`, which `NaN` fails because `Ord<Float>` places
+`NaN` above every number. But that spelling needs what this paragraph
+establishes: that the five share one edge, where it lies, and that `NaN` falls
+outside it. So the test is named, where `d != 0` before a division needs no
+name.
+
+The five throw a fault (Exceptions §1), because a value the program made itself
+that rounds out of range is a broken assumption, as a zero divisor is. A caller
+whose value comes from outside the program tests it first:
+
+```hexagon
+if x.roundsToInt() then Some(x.floor()) else None
+```
+
+No sibling returning `Option` stands beside the five, and none rounds within
+`Float`: an operation that may fail is one function (Collections Part 1 §3.3),
+and the test is what a caller with outside data needs.
+
 These are explicit reinterpretations of the stored binary64 value, not implicit
 numeric conversions and not a deferred `Int.fromFloat`: the latter would, if it
 ships, accept only a `Float` already holding a safe integer and return `Option`,
@@ -370,6 +404,7 @@ Unchanged and still worth its ink here: **`Unit`'s `undefined` must not be confu
 | `Unit` = `()` = JS `undefined` | this doc §9 |
 | `Float.nan` / `Float.infinity` constants and `Float.isNan` / `Float.isFinite` detectors; no special-value literals; `x != x` is uniformly `False` | this doc §3 |
 | `Float.floor`/`ceil`/`trunc`/`round`/`roundAway` return `Int`; `round` uses ties to even, `roundAway` ties away from zero; unsafe results throw target-owned `IntRangeFault`; zero is canonical | this doc §3; #919, #974 |
+| The five share one edge: they throw exactly for `NaN`, the infinities and magnitudes past 2^53 − 1, and `Float.roundsToInt` tests it (range, not wholeness); no `Option` sibling and no rounding within `Float` | this doc §3; #1160 |
 | Int overflow: silent past ±2^53, plain-JS operators; checked stdlib variants; `--checked-int` reserved; int32/`\|0` rejected | this doc §2.1 |
 | `Ord String` = codepoint lexicographic, permanent regardless of grapheme indexing; collation is stdlib, never Ord | this doc §5 |
 | Types uppercase-start; type variables non-uppercase-start (`a b c` by convention) | this doc §1; Lexer §3 |
