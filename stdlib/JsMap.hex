@@ -5,8 +5,10 @@ module JsMap
 //
 // The type row declares `JsMap` itself (`spec/intrinsics.md` section 3.3), as
 // `Array.hex`'s declares `Array`. Its values are native `Map` objects, so the
-// row names no representation and writes no variance claim: `JsMap(k, v)` is
-// invariant in both parameters.
+// row names no representation. Its claim `(+k, +v)` is written, as `Map`'s is:
+// the map never changes (below), and a wider key type only widens what a
+// lookup may be asked with: a lookup by identity finds only the entries the
+// map holds.
 //
 // Everything here reads a native `Map` that Hexagon holds as its own copy, made
 // as the foreign map crossed (section 2), or builds one fresh from a sequence
@@ -25,7 +27,7 @@ extern from "hex:intrinsic"
         map crossed or built fresh. No foreign code can reach the copy and
         Hexagon has no way to change it, so it never changes. Keys are compared by JavaScript's own
         equality, not by `Hash`. *)
-    export type jsMap as JsMap(k, v)
+    export type jsMap as JsMap(+k, +v)
 
     (** How many entries `map` holds: the captured map's own `size`, which is
         the source's size at the moment of capture and never changes. A read of

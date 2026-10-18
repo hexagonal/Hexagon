@@ -21,6 +21,13 @@ import { AnalysisSession } from "../analysis/session.js";
 import { STDLIB_SOURCES } from "../stdlib-sources.js";
 import { compileFiles, runProject } from "../support/test-project.js";
 
+/**
+ * An invariant constructor for §13.2's invariant positions: `Cell` writes no
+ * sigil, so an arrow under it is read invariantly. (`Array` served here until
+ * its row wrote `+a`, Verdict Table row 14.)
+ */
+const CELL = "opaque record Cell(a) = { value: a }\n";
+
 /** A one-module project's diagnostics, `module Main` prepended. */
 function messages(source: string): readonly string[] {
   return compileFiles([
@@ -1355,9 +1362,9 @@ describe("Effects §13.2: where a seat's refusal stands", () => {
 
   test("an invariant arrow inside a parameter relates the contract's failing arrow", () => {
     const source =
-      "constraint Runner<r> =\n    run(runner: r, cells: Array(() -> Unit)) -> Unit\n" +
+      CELL + "constraint Runner<r> =\n    run(runner: r, cells: Cell(() -> Unit)) -> Unit\n" +
       "export record Job = { id: Int }\n" +
-      "let force(fs: Array(() ->! Unit)): Unit = ()\n" +
+      "let force(fs: Cell(() ->! Unit)): Unit = ()\n" +
       "honor Runner<Job> =\n    run(job, cells) = force(cells)\n";
     expect(primaries(source)).toEqual(["force(cells)"]);
     expect(labels(source)).toEqual([["the contract's failing arrow: \"->\""]]);
@@ -1856,12 +1863,12 @@ describe("Effects §13.2: accepting more, annotations, and merges", () => {
 
 describe("Effects §13.2: invariant and phantom positions", () => {
   const CELLS = (element: string, arrow: string, extra: string, body: string) =>
-    `constraint Runner<r> =\n    run(runner: r, cells: Array(${element})${extra}) ${arrow} Unit\n` +
+    CELL + `constraint Runner<r> =\n    run(runner: r, cells: Cell(${element})${extra}) ${arrow} Unit\n` +
     "export record Job = { id: Int }\n" +
     `honor Runner<Job> =\n    run(job, cells${extra === "" ? "" : ", action"}) = ${body}\n`;
 
   test("an invariant `->!` slot takes the contract's `->!`, so a body that reads an element is accepted", () => {
-    expect(messages(CELLS("() ->! Unit", "->!", "", "ignore(Array.get(cells, 0))")))
+    expect(messages(CELLS("() ->! Unit", "->!", "", "ignore(cells.value)")))
       .toEqual([]);
   });
 
@@ -1881,22 +1888,33 @@ describe("Effects §13.2: invariant and phantom positions", () => {
     // arrow inside a parameter the body fixes to the other constant is §13.2's
     // second row, at the pin.
     const source =
-      "constraint Runner<r> =\n    run(runner: r, cells: Array(() -> Unit)) -> Unit\n" +
+      CELL + "constraint Runner<r> =\n    run(runner: r, cells: Cell(() -> Unit)) -> Unit\n" +
       "export record Job = { id: Int }\n" +
-      "let force(fs: Array(() ->! Unit)): Unit = ()\n" +
+      "let force(fs: Cell(() ->! Unit)): Unit = ()\n" +
       "honor Runner<Job> =\n    run(job, cells) = force(cells)\n";
     expect(messages(source)).toEqual([raisedInside("run", "the parameter `cells`")]);
     expect(primaries(source)).toEqual(["force(cells)"]);
+  });
+
+  test("a covariant `Array` is not such a position: the body widens its elements and is accepted", () => {
+    // Verdict Table row 14: `Array(+a)`, so `force` reads `cells` at a wider
+    // face, as it would a `Vector`, and nothing is fixed.
+    expect(messages(
+      "constraint Runner<r> =\n    run(runner: r, cells: Array(() -> Unit)) -> Unit\n" +
+      "export record Job = { id: Int }\n" +
+      "let force(fs: Array(() ->! Unit)): Unit = ()\n" +
+      "honor Runner<Job> =\n    run(job, cells) = force(cells)\n",
+    )).toEqual([]);
   });
 
   test("and an invariant constant the body demands as written is accepted", () => {
     // `cells`'s arrow is the constant `->!` whatever the outer arrow is, and
     // `force` demands that constant.
     expect(messages(
-      "constraint Runner<r> =\n" +
-      "    run(runner: r, cells: Array(() ->! Unit), action: () ->! Unit) >-> Unit\n" +
+      CELL + "constraint Runner<r> =\n" +
+      "    run(runner: r, cells: Cell(() ->! Unit), action: () ->! Unit) >-> Unit\n" +
       "export record Job = { id: Int }\n" +
-      "let force(fs: Array(() ->! Unit)): Unit = ()\n" +
+      "let force(fs: Cell(() ->! Unit)): Unit = ()\n" +
       "honor Runner<Job> =\n    run(job, cells, action) = force(cells)\n",
     )).toEqual([]);
   });
@@ -1908,21 +1926,21 @@ describe("Effects §13.2: invariant and phantom positions", () => {
     // it; the first failing arrow in walk order is the one inside `cells`,
     // which the body can no longer take as pure (§13.2's second row).
     const FORWARD =
-      "constraint Runner<r> =\n" +
-      "    run(runner: r, k: () ->! Unit, cells: Array(() -> Unit)) -> Unit\n" +
+      CELL + "constraint Runner<r> =\n" +
+      "    run(runner: r, k: () ->! Unit, cells: Cell(() -> Unit)) -> Unit\n" +
       "export record Job = { id: Int }\n" +
-      "let take<a>(xs: Array(a), x: a): Unit = ()\n" +
+      "let take<a>(xs: Cell(a), x: a): Unit = ()\n" +
       "honor Runner<Job> =\n    run(job, k, cells) = take(cells, k)\n";
     expect(messages(FORWARD))
       .toEqual([raisedInside("run", "the parameter `cells`")]);
     expect(primaries(FORWARD)).toEqual(["take(cells, k)"]);
     expect(labels(FORWARD)).toEqual([["the contract's failing arrow: \"->\""]]);
     const MERGE =
-      "constraint Runner<r> =\n" +
-      "    run(runner: r, k: () ->! Unit, cells: Array(() -> Unit)) -> Unit\n" +
+      CELL + "constraint Runner<r> =\n" +
+      "    run(runner: r, k: () ->! Unit, cells: Cell(() -> Unit)) -> Unit\n" +
       "export record Job = { id: Int }\n" +
       "let c: Bool = True\n" +
-      "let take<a>(xs: Array(a), x: a): Unit = ()\n" +
+      "let take<a>(xs: Cell(a), x: a): Unit = ()\n" +
       "honor Runner<Job> =\n" +
       "    run(job, k, cells) =\n" +
       "        let f = if c then k else (() => ())\n" +
@@ -1937,12 +1955,12 @@ describe("Effects §13.2: invariant and phantom positions", () => {
     // The failing arrow is the one inside `cells`, not the member's outer one,
     // so a header whose outer arrow follows its callbacks reports identically.
     const HEAD =
-      "constraint Runner<r> =\n" +
+      CELL + "constraint Runner<r> =\n" +
       "    run(runner: r, a: () ->! Unit, k: () ->! Unit, " +
-      "cells: Array(() -> Unit)) >-> Unit\n" +
+      "cells: Cell(() -> Unit)) >-> Unit\n" +
       "export record Job = { id: Int }\n" +
       "let c: Bool = True\n" +
-      "let take<a>(xs: Array(a), x: a): Unit = ()\n";
+      "let take<a>(xs: Cell(a), x: a): Unit = ()\n";
     const FORWARD = HEAD +
       "honor Runner<Job> =\n    run(job, a, k, cells) = take(cells, k)\n";
     expect(messages(FORWARD))
@@ -1961,9 +1979,9 @@ describe("Effects §13.2: invariant and phantom positions", () => {
 
   test("an invariant constant narrowed the other way takes the same row", () => {
     expect(messages(
-      "constraint Runner<r> =\n    run(runner: r, cells: Array(() ->! Unit)) -> Unit\n" +
+      CELL + "constraint Runner<r> =\n    run(runner: r, cells: Cell(() ->! Unit)) -> Unit\n" +
       "export record Job = { id: Int }\n" +
-      "let force(fs: Array(() -> Unit)): Unit = ()\n" +
+      "let force(fs: Cell(() -> Unit)): Unit = ()\n" +
       "honor Runner<Job> =\n    run(job, cells) = force(cells)\n",
     )).toEqual([narrowerInside("run", "the parameter `cells`")]);
   });

@@ -55,9 +55,9 @@ function messages(project: ReturnType<typeof compileProject>): readonly string[]
 
 describe("the rows (§3.3, §4.1)", () => {
   test.each([
-    ["array", "Array", "export type array as Array(a)", 1],
-    ["jsMap", "JsMap", "export type jsMap as JsMap(k, v)", 2],
-    ["jsSet", "JsSet", "export type jsSet as JsSet(a)", 1],
+    ["array", "Array", "export type array as Array(+a)", 1],
+    ["jsMap", "JsMap", "export type jsMap as JsMap(+k, +v)", 2],
+    ["jsSet", "JsSet", "export type jsSet as JsSet(+a)", 1],
   ])("`%s` is public, declared by `Hex.%s` alone, with no representation", (key, companion, row, arity) => {
     const entry = INTRINSIC_INVENTORY.get(key);
     expect(entry).toMatchObject({
@@ -71,12 +71,15 @@ describe("the rows (§3.3, §4.1)", () => {
     expect(STDLIB_SOURCES[companion]).toContain(`    ${row}\n`);
   });
 
-  /** A bare parameter is invariant (the opaque-declaration rule), so the rows claim nothing. */
+  /**
+   * Each row writes its claim: the captured copy never changes, so each is
+   * covariant, as `Vector`, `Map`, and `Set` are (Verdict Table row 14).
+   */
   test.each([
-    ["Array", ["inv"]],
-    ["JsMap", ["inv", "inv"]],
-    ["JsSet", ["inv"]],
-  ])("`%s`'s row writes no claim: it is invariant", (companion, claims) => {
+    ["Array", ["co"]],
+    ["JsMap", ["co", "co"]],
+    ["JsSet", ["co"]],
+  ])("`%s`'s row writes its claim: it is covariant", (companion, claims) => {
     const project = inCompanion(companion, "");
     expect(messages(project)).toEqual([]);
     expect(publicRowClaims(project, `/${companion}.hex`, companion)).toEqual(claims);

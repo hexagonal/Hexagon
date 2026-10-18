@@ -512,8 +512,8 @@ const INTRINSIC_TYPES: readonly (readonly [string, IntrinsicTypeEntry])[] = [
   ["range", { grade: "type", arity: 0, declarers: ["Range"], reach: "public", kind: "Range" }],
   // *(#1076.)* The captured foreign collections (FFI Part 2 §6, Part 10). Each
   // value is a native array, `Map`, or `Set`, not a Hexagon record, so there is
-  // no representation to name, and the rows write no claim: the three types
-  // stay invariant.
+  // no representation to name, and each row's written claim (`Array(+a)`,
+  // `JsMap(+k, +v)`, `JsSet(+a)`) is held under the parametricity obligation.
   ["array", { grade: "type", arity: 1, declarers: ["Array"], reach: "public", kind: "Array" }],
   ["jsMap", { grade: "type", arity: 2, declarers: ["JsMap"], reach: "public", kind: "JsMap" }],
   ["jsSet", { grade: "type", arity: 1, declarers: ["JsSet"], reach: "public", kind: "JsSet" }],

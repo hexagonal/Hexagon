@@ -382,18 +382,33 @@ describe("Effects §9: a report about one colour names that colour, and the arro
   });
 
   test("a demand and its reverse at one span are two reports, and so are two arrows at one span", () => {
+    // `Cell` writes no sigil, so its argument is read invariantly and the
+    // demand meets its reverse. (`Array` served here until its row wrote `+a`.)
+    expect(reports(
+      "opaque record Cell(a) = { value: a }\n" +
+        "let arr2(a: Cell(() ->~ Unit)): Cell(() ->^ Unit) = a\n",
+    )).toEqual([
+      [
+        "Cell(() ->^ Unit)",
+        "a `->^` arrow promises purity, and this function is impure — the demand is written " +
+          "`->^`",
+      ],
+      [
+        "Cell(() ->^ Unit)",
+        "this position's arrow says the function may fail, and the arrow meeting it, which cannot fail, was " +
+          "fixed before it arrived — by another use, by a type written where it was made, inside an argument " +
+          "read invariantly, or in a parameter's type — so it cannot fit as a function used here does; write " +
+          "the arrow where it was fixed",
+      ],
+    ]);
+    // Under a covariant `Array` (Verdict Table row 14) a function that cannot
+    // fail serves where one that may fail is wanted, so only the purity demand
+    // is left.
     expect(reports("let arr2(a: Array(() ->~ Unit)): Array(() ->^ Unit) = a\n")).toEqual([
       [
         "Array(() ->^ Unit)",
         "a `->^` arrow promises purity, and this function is impure — the demand is written " +
           "`->^`",
-      ],
-      [
-        "Array(() ->^ Unit)",
-        "this position's arrow says the function may fail, and the arrow meeting it, which cannot fail, was " +
-          "fixed before it arrived — by another use, by a type written where it was made, inside an argument " +
-          "read invariantly, or in a parameter's type — so it cannot fit as a function used here does; write " +
-          "the arrow where it was fixed",
       ],
     ]);
     expect(reports(ONES + "let pairF: (() ->^ Unit, () ->~ Unit) = (log0, oops0)\n")).toEqual([

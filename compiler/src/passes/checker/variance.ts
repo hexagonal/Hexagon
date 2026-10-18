@@ -66,9 +66,9 @@ export interface Occurrence {
  * `#verifyVarianceClaims`). `VarianceTable.kindClaim` reads it by the key.
  *
  * Nor are the captured `Array`, `JsMap`, and `JsSet` *(#1076)*. Their companions
- * declare them by public rows too, which name no representation and write no
- * sigil, so each is invariant by the opaque-declaration rule — the claim their
- * rows here used to state, now stated once, at the declaration.
+ * declare them by public rows too, which name no representation, so each
+ * written sigil (`Array(+a)`, `JsMap(+k, +v)`, `JsSet(+a)`) is a claim held under
+ * the parametricity obligation, with no record to check it against.
  *
  * `Seq` is **not** here. It has a declaration site, and the ruling's transitional
  * `Seq(+a)` row was retired by writing the sigil into `stdlib/Seq.hex` — a

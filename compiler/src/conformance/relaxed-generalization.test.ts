@@ -75,6 +75,25 @@ describe("§4.1 the relaxed rule, per variable", () => {
     ).toEqual(["type mismatch: expected String, found Int"]);
   });
 
+  test("§4.4 the captured foreign collections generalize as `Vector` does: `Array`, `JsSet`, `JsMap`", () => {
+    // Their companions' rows write `+` on every parameter (Verdict Table row 14),
+    // so an empty one made by a call passes clause (b) and serves at two types.
+    // Under the old bare rows each of these was declined, and the second use a
+    // mismatch.
+    for (
+      const [made, first, second] of [
+        ["Vector.toArray([])", "Array(Int)", "Array(String)"],
+        ["JsSet.fromSeq(Seq.empty)", "JsSet(Int)", "JsSet(String)"],
+        ["JsMap.fromSeq(Seq.empty)", "JsMap(Int, Bool)", "JsMap(String, Float)"],
+      ]
+    ) {
+      const source = "module Main\n\n" + `let e = ${made}\n` +
+        `let n: ${first} = e\n` +
+        `let t: ${second} = e\n`;
+      expect([made, projectDiagnostics(source)]).toEqual([made, []]);
+    }
+  });
+
   test("§4.3 a constrained variable is declined, even though it is covariant at the root", () => {
     // `Conjure ?1 => ?1` puts the variable covariantly at the root, so the
     // variance test alone would generalize it — straight into §3's coherence
@@ -581,8 +600,8 @@ describe("§5.3 the compiler-side claim table", () => {
       }
     }
     // A public row that writes no sigil claims invariance where it stands, so
-    // it is a claim source too (#1076): `Array`, `JsMap`, and `JsSet` retired
-    // their table rows at their companions' rows.
+    // it is a claim source too (#1076). `Array`, `JsMap`, and `JsSet` retired
+    // their table rows at their companions' rows, which now write their sigils.
     for (const source of Object.values(STDLIB_SOURCES)) {
       for (const match of source.matchAll(
         /\bexport\s+type\s+[a-z][A-Za-z0-9]*\s+as\s+([A-Z][A-Za-z0-9_]*)\s*\(/gu,
@@ -601,8 +620,8 @@ describe("§5.3 the compiler-side claim table", () => {
 
   /**
    * *(#1076.)* The captured foreign collections' claims left this table for
-   * their companions' public rows, which write no sigil, so each stays
-   * invariant (`foreign-type-rows.test.ts` reads the rows' claims). Two
+   * their companions' public rows, which write `+` on every parameter since
+   * Verdict Table row 14 (`foreign-type-rows.test.ts` reads the rows' claims). Two
    * constructors still have no declaration to carry theirs.
    */
   test("only Node and Nullable keep a compiler-side claim, and both are covariant", () => {
@@ -622,8 +641,9 @@ describe("§5.3 the compiler-side claim table", () => {
     // `Map` moved sides at #370 and `Set` at #373, verified (`co, co` and `co`),
     // so both belong with `Vector` above — and all three claims are their
     // companions' written rows since #1071 rather than table rows. `Nullable`
-    // joins that side under #786; only the three captured foreign collections
-    // remain in the invariant list below.
+    // joins that side under #786, and the three captured foreign collections
+    // under Verdict Table row 14 (2026-10-18), their companions' rows writing
+    // `Array(+a)`, `JsMap(+k, +v)`, and `JsSet(+a)`.
     expect(projectDiagnostics("module Main\n\n" + "opaque record W(+a) = { v: Map(String, a) }\n")).toEqual([]);
     expect(projectDiagnostics("module Main\n\n" + "opaque record W(+a) = { v: Map(a, String) }\n")).toEqual([]);
     expect(projectDiagnostics("module Main\n\n" + "opaque record W(+a) = { v: Set(a) }\n")).toEqual([]);
@@ -636,11 +656,19 @@ describe("§5.3 the compiler-side claim table", () => {
         "JsMap(a, String)",
       ]
     ) {
-      expect(projectDiagnostics("module Main\n\n" + `opaque record W(+a) = { v: ${field} }\n`)).toContain(
-        "`a` cannot be declared covariant in `W`: field `v` uses `a` in an " +
-          "invariant position. Remove the `+`, or change the field",
-      );
+      expect(projectDiagnostics("module Main\n\n" + `opaque record W(+a) = { v: ${field} }\n`)).toEqual([]);
     }
+    // A declaration that writes no sigil claims invariance where it stands, and
+    // that claim is consulted too: `Cell` is the invariant constructor here.
+    expect(
+      projectDiagnostics(
+        "module Main\n\n" + "opaque record Cell(a) = { value: a }\n" +
+          "opaque record W(+a) = { v: Cell(a) }\n",
+      ),
+    ).toEqual([
+      "`a` cannot be declared covariant in `W`: field `v` uses `a` in an " +
+        "invariant position. Remove the `+`, or change the field",
+    ]);
   });
 });
 
