@@ -22,6 +22,7 @@ const fixtures = "module Main\n\n" +
   "let useFloat(x: Float): Unit = ()\n" +
   "let useNat(x: Nat): Unit = ()\n" +
   "let useFloatFn(g: (Float) -> Unit): Unit = ()\n" +
+  "let useFloatResult(g: ((Int) -> Float) -> Unit): Unit = ()\n" +
   "let both(h: (a) -> Unit, y: a): Unit = ()\n" +
   "let big(): BigInt = 1n\n";
 
@@ -140,6 +141,16 @@ describe("a seat whose type only inference gave converts nothing", () => {
     expect(refusals(body("(g, n: Int)", [...lines].reverse()))).toHaveLength(1);
     // A module's function decides the variable: `n` widens into it.
     expect(refusals("let f(n: Int) = both(useFloat, n)\n")).toEqual([]);
+  });
+
+  test("a lambda result an untyped callee's parameter lands", () => {
+    const lines = ["useFloatResult(g)", "g((x) => n)"];
+    expect(refusals(body("(g, n: Int)", lines)))
+      .toEqual([notWidenedInto("n", "`g`'s parameter", "Float", "g", "Int")]);
+    expect(refusals(body("(g, n: Int)", [...lines].reverse()))).toHaveLength(1);
+    const written = "(g: ((Int) -> Float) -> Unit, n: Int)";
+    expect(refusals(body(written, lines))).toEqual([]);
+    expect(refusals(body(written, [...lines].reverse()))).toEqual([]);
   });
 
   test("a `var` made from an untyped parameter", () => {

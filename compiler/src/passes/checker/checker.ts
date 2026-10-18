@@ -11795,6 +11795,14 @@ class Checker {
           this.#tryWidenNumeric(expression.body, inferredResult, landedResult, expression.body.span)
         ) {
           result = landedResult;
+        } else if (plainResult && landing !== undefined && expression.returnAnnotation === undefined) {
+          // The result an untyped parameter landed is no seat (#1195): where it
+          // would have widened the body's value, the report says so, here.
+          const report = this.#inferredConversionRefusal(expression.body, inferredResult, landing.result);
+          if (report !== undefined) {
+            this.#diagnostics.add({ severity: "error", message: report, primary: expression.body.span });
+            result = landing.result;
+          }
         } else if (landedResult !== undefined) {
           const report = this.#settledCallbackRefusal(expression, inferredResult, landedResult);
           if (report !== undefined) {
@@ -17809,7 +17817,6 @@ class Checker {
       return true;
     }
     if (source.kind !== "Constructor") return false;
-    if (expression !== undefined && !this.#typeDecided(expression)) return false;
     if (source.name === "Nat") return this.#supportsNumericTarget(target);
     if (source.name === "Int") return this.#supportsSignedTarget(target);
     if (source.name === "BigInt") return this.#supportsTarget(target, "FromBigInt");
