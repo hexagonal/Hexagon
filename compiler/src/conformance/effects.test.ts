@@ -1363,6 +1363,46 @@ describe("Effects §3.4 — a tie between callbacks is refused, where it was mad
     }
   });
 
+  it("is one report per tie, whichever close finds each end of it (#1217)", () => {
+    // `f` waits on `g`, which turns pure, but is tied to `action` either way:
+    // it reads as its fix from `inner`'s close, so `fwd` does not meet the tie.
+    const inner = "let inner = (f) => if c then f else () =>\n            g()\n            action!()";
+    for (const order of orders([inner, "pureOnly(g)"])) {
+      const reports = tieReports("let outer(action: () ->! Unit, g, c: Bool): Unit =\n" +
+        [...order, "let fwd = (h) => inner(h)"].map((line) => `    ${line}\n`).join("") + "    ()\n");
+      expect([order, reports.map(({ at, labels }) => [at, labels])]).toEqual([order, [[
+        "if c then f else () =>\n            g()\n            action!()",
+        ["f: `f` has no written type"],
+      ]]]);
+    }
+    // Siblings tied to each other through a lambda join: each report names
+    // the callback the next one is about, so they are one.
+    for (const order of orders(["g!()", "let x = if c then f else () => g!()", "let y = if c then h else () => g!()"])) {
+      const reports = tieReports("let outer(g, f, h, c: Bool): Unit =\n" +
+        [...order, "x!()", "y!()"].map((line) => `    ${line}\n`).join("") + "    ()\n");
+      expect([order, reports.map(({ labels, fixes }) => [labels, fixes])]).toEqual([order, [[
+        ["g: `g` has no written type", "f: `f` has no written type", "h: `h` has no written type"],
+        [": () ->! Unit", ": () ->! Unit", ": () ->! Unit"],
+      ]]]);
+    }
+    // A tie its own body's close finds, whose other end waited on the body
+    // around it: one report, in either order.
+    const nested = "let inner = (f, k) => if c then f else () =>\n            g()\n            k!()";
+    for (const order of orders([nested, "g()"])) {
+      const reports = tieReports("let outer(g, c: Bool): Unit =\n" + order.map((line) => `    ${line}\n`).join("") + "    ()\n");
+      expect([order, reports.map(({ labels }) => labels)]).toEqual([order, [["f: `f` has no written type", "k: `k` has no written type"]]]);
+    }
+    // Two ties to the same written callback stay two reports.
+    const other = "let other = (h) => if c then h else action";
+    for (const order of orders(["g()", inner, other])) {
+      const reports = tieReports("let outer(action: () ->! Unit, g, c: Bool): Unit =\n" + order.map((line) => `    ${line}\n`).join("") + "    ()\n");
+      expect([order, reports.map(({ at }) => at).sort()]).toEqual([order, [
+        "if c then f else () =>\n            g()\n            action!()",
+        "if c then h else action",
+      ]]);
+    }
+  });
+
   it("is refused in a lambda a knot holds, reading its member's facts", () => {
     expect(tieReports(`fun
     a(g, c: Bool, n: Int): Unit =
