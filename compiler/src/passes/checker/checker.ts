@@ -20872,6 +20872,20 @@ class Checker {
   }
 
   /**
+   * Whether a colour a lambda wrote is also another dependency's: another
+   * callback's, an untyped parameter's, or one a knot, a later deadline or a
+   * constraint seat decides. Such a colour keeps its hold for that one's sake.
+   * No route makes one today, since every use of a written callback inside its
+   * body re-opens it (Effects §2.6), so nothing binds it bare; this keeps
+   * `#endHolds` from ending another's hold if one ever does.
+   */
+  #sharedDependency(colour: Variable, mine: readonly Variable[]): boolean {
+    return this.#waitingColours.has(colour) || this.#seatHeld.has(colour) || this.#undecided(colour) ||
+      this.#untypedColours.get(colour).length > 0 ||
+      this.#writtenCallbackColours.some((other) => !mine.includes(other) && this.#prune(other) === colour);
+  }
+
+  /**
    * A binding whose type, where it is bound, still has a part of its shape
    * inference has not settled — a type variable no generalization quantified,
    * which the lines after it may fill — is inferred from its uses, whatever
@@ -20888,20 +20902,6 @@ class Checker {
    * earlier one solves the colour. The colour is the value's own
    * (`#valueColours`), one for every use.
    */
-  /**
-   * Whether a colour a lambda wrote is also another dependency's: another
-   * callback's, an untyped parameter's, or one a knot, a later deadline or a
-   * constraint seat decides. Such a colour keeps its hold for that one's sake.
-   * No route makes one today, since every use of a written callback inside its
-   * body re-opens it (Effects §2.6), so nothing binds it bare; this keeps
-   * `#endHolds` from ending another's hold if one ever does.
-   */
-  #sharedDependency(colour: Variable, mine: readonly Variable[]): boolean {
-    return this.#waitingColours.has(colour) || this.#seatHeld.has(colour) || this.#undecided(colour) ||
-      this.#untypedColours.get(colour).length > 0 ||
-      this.#writtenCallbackColours.some((other) => !mine.includes(other) && this.#prune(other) === colour);
-  }
-
   #settleSource(symbol: Resolved.SymbolId, type: Mono, quantified: readonly Variable[]): void {
     const source = this.#bindingSources.get(symbol);
     if (source?.kind === "function" && source.value !== undefined) {
@@ -27366,8 +27366,10 @@ class Checker {
    *    where it has one;
    * 3. (a join meeting a free variable binds the variable: `#bind`'s);
    * 4. a join meeting a join cancels the parts they share; where one remainder
-   *    is a single slack, that slack takes the other remainder, and where both
-   *    remainders hold a slack, one fresh slack is shared between them.
+   *    is a single slack, that slack takes the other remainder; where one
+   *    remainder is empty, a slack they share takes the other, rebound to a
+   *    fresh slack; and where both remainders hold a slack, one fresh slack is
+   *    shared between them.
    *
    * Where rules 2 and 4 choose a slack, a slack the use brought is chosen
    * before one a value's own colour took in (`#valueSlacks`).
@@ -28622,19 +28624,6 @@ class Checker {
   }
 
   /**
-   * A variable meeting a join (Effects §3.4's fragment, rule 3). A free
-   * variable binds to the join. A variable meeting a join that contains it,
-   * `x`-or-`r`, says only that `r` is at most `x`: a remainder of slacks each
-   * takes `x`, and otherwise `x` is rebound to a fresh variable joined with
-   * `r`, the most general answer. A callback's colour is never rebound so: it
-   * is what its own arrow spells, so a slack beside it closes onto it, and
-   * anything else is a hard case, which waits. The slacks a value's own
-   * colour takes in are that value's (`#valueSlacks`) *(#1170)*. Where a knot
-   * member's name takes its value, the colour its recursion left on the name
-   * is the value's join, never held from it as a knot's colour would be
-   * (`defining`, #1229).
-   */
-  /**
    * What a value's own colour takes in is the value's (#1170): its slacks are
    * the value's room, and every other part is marked, so that a written
    * callback colour among them, where no generalization reaches it, grows as
@@ -28645,6 +28634,21 @@ class Checker {
     for (const part of real) this.#takenInByValues.add(part);
   }
 
+  /**
+   * A variable meeting a join (Effects §3.4's fragment, rule 3). A free
+   * variable binds to the join. A variable meeting a join that contains it,
+   * `x`-or-`r`, says only that `r` is at most `x`: a remainder of slacks each
+   * takes `x`, and otherwise `x` is rebound to a fresh variable joined with
+   * `r`, the most general answer. A callback's colour is never rebound so: it
+   * is what its own arrow spells, so a slack beside it closes onto it, and
+   * anything else is a hard case, which waits. The exception is one whose
+   * hold against growing has ended (`#grownCallbacks`), which binds as a
+   * value's own colour does. The slacks a value's own
+   * colour takes in are that value's (`#valueSlacks`) *(#1170)*. Where a knot
+   * member's name takes its value, the colour its recursion left on the name
+   * is the value's join, never held from it as a knot's colour would be
+   * (`defining`, #1229).
+   */
   #bindJoin(variable: Variable, join: EffectJoin, span: Source.Span, defining = false): void {
     // An opening's floor in error passes to the join's openings, never to a
     // colour something else decides (#1223).

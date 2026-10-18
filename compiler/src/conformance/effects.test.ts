@@ -3095,6 +3095,31 @@ describe("Effects §2.6, §3.4 — a written callback colour a value took in gro
     expect(reports(outer([inPlace, "r!(a1)", "r!(a2)"]))).toEqual([]);
   });
 
+  it("keeps growing where a merge binds it to another lambda's instance", () => {
+    // `pick` makes `g`'s colour one with an instance of `lam2`'s own `h`; the
+    // colour that results still grows, so `a1` and `a2` stay two colours.
+    for (const tail of [["z!(a1)", "lam!(a2)"], ["lam!(a2)", "z!(a1)"]]) {
+      for (const merge of ["pick(lam, lam2)", "pick(lam2, lam)"]) {
+        const lines = [lam, "let lam2 = (h: () ->! Unit) => h!()", `let z = ${merge}`, ...tail];
+        expect([lines, reports(outer(lines))]).toEqual([lines, []]);
+      }
+    }
+  });
+
+  it("is not reached where a value's type, not its colour, takes the callback in", () => {
+    // `idf` is one value whose type variable takes `g`'s whole type in, so no
+    // colour of a value took `g`'s colour in: it keeps its hold, and the two
+    // callbacks tie, as on main and as the untyped twin does. Out of scope for
+    // now; a follow-up decides whether a value's type taking it in counts too.
+    const id = prelude.replace("let make() =", "let makeId() =\n    let idf = ident((f) => f)\n    (idf, 1)\nlet make() =");
+    const source = id + "export let outer(a1: () ->! Unit, a2: () ->! Unit): Unit =\n    let (idf, _) = makeId()\n" +
+      "    let lam = (g: () ->! Unit) =>\n        let w = idf(g)\n        w!()\n    lam!(a1)\n    lam!(a2)\n    ()\n" +
+      "let user(p, q) = outer!(p, q)\n";
+    expect(reports(source)).toEqual([
+      "`p`'s colour is tied to `q`'s here, and inference cannot keep them apart — write `p`'s type, or wrap `p` where they meet",
+    ]);
+  });
+
   it("is held where no body decides the value: a module's value left open (#1283)", () => {
     const top = prelude + "let (r, _) = make()\n";
     // A top-level function's own callback, which a module-level `r` took in,
