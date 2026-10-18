@@ -318,12 +318,11 @@ chosen once for the whole expression — never operation by operation from the i
   is such a seat, and so is a parameter a member of a knot still open leaves unwritten,
   the text deciding of an open member only what its declaration writes (Method Syntax
   §3.1). A local function's parameter is decided where its declaration writes it whole,
-  or where the function's own body settled it, whole, when the function was made, a fact
-  fixed where the binding is made: `let g = (x) => useFloat(x)` takes `g(n)` at
-  `n : Int` whatever else `g` captures, and a `let` made from a curried function's
-  application holds the lambda it returns. Any other local function's parameter — one that
-  took its type through what the function captures, so a later line could settle it — is
-  decided only where the function is decided whole. So are a sibling group's variable that such an argument solved, the result such
+  and any other only where the function is decided whole, every name it captures decided:
+  a parameter can take its type through what the function captures, which a line above
+  the function or below it may settle, so `let g = (x) => ignore([x, p])` takes `g(n)`
+  exactly whatever line types `p`, and `(x: Int)` is the spelling. A `let` made from a
+  curried function's application holds the lambda it returns. So are a sibling group's variable that such an argument solved, the result such
   a parameter lands on a lambda, and a `var` made from such a value. Hindley–Milner still solves every such type, with one answer whatever order
   the lines come in; what no such type does is choose a reading, so the line or argument
   checked first types the value and decides nothing else. `useInt(p)` and `useBig(p)`

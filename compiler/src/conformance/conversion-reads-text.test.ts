@@ -268,10 +268,29 @@ describe("a local function's call is decided by its own text (Method Syntax §3.
     expect(refusals(body("(p)", [block, "let y: Float = a(3)", "useInt(p)"]))).toHaveLength(1);
   });
 
-  test("a local function's unwritten parameter its own body settled where it was made", () => {
-    const lines = ["let g = (x) =>\n        useFloat(x)\n        ignore(p)", "g(n)", "useInt(p)"];
-    expect(refusals(body("(p, n: Int)", lines))).toEqual([]);
-    expect(refusals(body("(p, n: Int)", [lines[0]!, lines[2]!, lines[1]!]))).toEqual([]);
+  test("a local function's unwritten parameter is decided only where the function is, whole", () => {
+    // `p` may be typed above `g` or below it: the parameter it captures is a
+    // seat in neither case.
+    const g = "let g = (x) => ignore([x, p])";
+    const into = notWidenedInto("n", "`g`'s parameter", "Int", "g", "Nat");
+    expect(refusals(body("(p, n: Nat)", ["useInt(p)", g, "g(n)"]))).toEqual([into]);
+    expect(refusals(body("(p, n: Nat)", [g, "useInt(p)", "g(n)"]))).toEqual([into]);
+    // A body that settles the parameter itself still captures `p`: written, it is a seat.
+    const settled = "let g = (x) =>\n        useFloat(x)\n        ignore(p)";
+    expect(refusals(body("(p, n: Int)", [settled, "g(n)", "useInt(p)"]))).toHaveLength(1);
+    expect(refusals(body("(p, n: Int)", [settled, "useInt(p)", "g(n)"]))).toHaveLength(1);
+    const written = "let g = (x: Float) =>\n        useFloat(x)\n        ignore(p)";
+    expect(refusals(body("(p, n: Int)", [written, "g(n)", "useInt(p)"]))).toEqual([]);
+    expect(refusals(body("(p, n: Int)", [written, "useInt(p)", "g(n)"]))).toEqual([]);
+  });
+
+  test("a chain of local functions reads in time linear in its length", () => {
+    const lines = ["let h0 = () => gI(m)", "let h1 = () => gI(m)"];
+    for (let k = 2; k < 60; k += 1) lines.push(`let h${k} = () => if c then h${k - 1}() else h${k - 2}()`);
+    lines.push("let y: Float = h59()");
+    const start = performance.now();
+    expect(refusals(body("(m, c: Bool)", lines))).toEqual([]);
+    expect(performance.now() - start).toBeLessThan(20_000);
   });
 
   test("a curried local function's written inner parameter, through a `let` of its application", () => {

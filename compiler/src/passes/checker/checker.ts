@@ -7535,14 +7535,16 @@ class Checker {
   #typeDecided(expression: Resolved.Expr, deep = false): boolean {
     // A landing context is read without its lambdas (`#landingContextDecided`),
     // so what it answers is not the expression's own answer, and is not kept.
-    if (this.#landingLambdas.size > 0 || this.#readingLocalBodies.size > 0) {
-      return this.#typeDecidedOnce(expression, deep);
-    }
+    if (this.#landingLambdas.size > 0) return this.#typeDecidedOnce(expression, deep);
     const memo = deep ? this.#typeDecidedWholeExpressions : this.#typeDecidedHeadExpressions;
     const known = memo.get(expression);
     if (known !== undefined) return known;
+    // An answer that leaned on a local function assumed decided inside its own
+    // cycle may rest on that assumption, and one that read a member of a knot
+    // still open holds only until the knot closes: neither is kept (#1195).
+    const assumed = this.#assumptionsUsed;
     const decided = this.#typeDecidedOnce(expression, deep);
-    memo.set(expression, decided);
+    if (this.#assumptionsUsed === assumed) memo.set(expression, decided);
     return decided;
   }
 
@@ -7710,7 +7712,10 @@ class Checker {
     // every such call is a value path of the body that holds it: the body is
     // then decided where its other paths are. One standing anywhere else ties
     // the result to what it meets, and decides nothing.
-    if (this.#readingLocalBodies.has(value)) return this.#recursionThroughResults();
+    if (this.#readingLocalBodies.has(value)) {
+      this.#assumptionsUsed += 1;
+      return this.#recursionThroughResults();
+    }
     this.#readingLocalBodies.set(value, local.symbol);
     try {
       return this.#typeDecided(value.body, deep);
@@ -7779,6 +7784,13 @@ class Checker {
   /** The local functions whose whole `#typeDecidedSymbol` is reading, each assumed decided meanwhile. */
   readonly #assumedLocal = new Set<Resolved.SymbolId>();
 
+  /**
+   * How many times a read has leaned on such an assumption, or on a member of a
+   * knot still open, which holds only until the knot closes: an answer that
+   * did is not kept.
+   */
+  #assumptionsUsed = 0;
+
   /** The local functions' bodies `#localResult` is reading, each with the name that binds it, if one does. */
   readonly #readingLocalBodies = new Map<Resolved.LambdaExpr, Resolved.SymbolId | undefined>();
 
@@ -7804,29 +7816,7 @@ class Checker {
     const applied = this.#appliedLambda(callee);
     const annotation = applied?.parameters[index]?.annotation;
     if (annotation !== undefined && annotationWhole(annotation)) return true;
-    // An unwritten one its own body settled, with no part left open, where the
-    // function was made: a fact fixed where the binding is made (§3.1).
-    if (applied !== undefined && annotation === undefined && this.#settledParameters.get(applied)?.[index] === true) {
-      return true;
-    }
     return this.#typeDecided(callee, true);
-  }
-
-  /**
-   * Of a local function's parameters, which its body settled whole where the
-   * function was made (#1195): read once, right after its value is checked,
-   * before any later line can reach the parameter's type.
-   */
-  readonly #settledParameters = new WeakMap<Resolved.LambdaExpr, readonly boolean[]>();
-
-  #recordSettledParameters(value: Resolved.Expr, type: Mono): void {
-    const lambda = ungrouped(value);
-    const known = this.#prune(type);
-    if (lambda.kind !== "Lambda" || known.kind !== "Function") return;
-    this.#settledParameters.set(
-      lambda,
-      known.parameters.map((parameter) => this.#collectVariables(this.#prune(parameter)).length === 0),
-    );
   }
 
   /**
@@ -7864,7 +7854,12 @@ class Checker {
   #openMember(symbol: Resolved.SymbolId): KnotMember | undefined {
     for (const knot of this.#knots) {
       const member = knot.members.find((each) => each.symbol === symbol);
-      if (member !== undefined) return member;
+      if (member !== undefined) {
+        // An answer that reads an open member holds only until its knot
+        // closes, so it is not kept (`#typeDecided`).
+        this.#assumptionsUsed += 1;
+        return member;
+      }
     }
     return undefined;
   }
@@ -7886,11 +7881,12 @@ class Checker {
     const memo = deep ? this.#typeDecidedWhole : this.#typeDecidedHead;
     const known = memo.get(symbol);
     if (known !== undefined) return known;
-    // An answer read while a local function's whole is assumed decided, inside
-    // its own cycle of captures, may rest on that assumption, so it is kept
-    // only once no assumption is open (#1195).
+    // An answer that leaned on a local function assumed decided inside its own
+    // cycle of captures may rest on that assumption, so it is kept only where it
+    // used none, or where it closes the cycle it assumed (#1195).
+    const assumed = this.#assumptionsUsed;
     const remember = (value: boolean): boolean => {
-      if (this.#assumedLocal.size === 0) memo.set(symbol, value);
+      if (this.#assumptionsUsed === assumed || this.#assumedLocal.size === 0) memo.set(symbol, value);
       return value;
     };
     const source = this.#typeSources.get(symbol);
@@ -7917,7 +7913,10 @@ class Checker {
         // Local functions that capture one another are read as one cycle: a
         // member met again inside it is assumed decided, and the cycle is
         // decided where every name it captures from outside is.
-        if (this.#assumedLocal.has(symbol)) return true;
+        if (this.#assumedLocal.has(symbol)) {
+          this.#assumptionsUsed += 1;
+          return true;
+        }
         this.#assumedLocal.add(symbol);
         let whole: boolean;
         try {
@@ -9422,7 +9421,6 @@ class Checker {
           this.#pendingOwnFace = enclosingPending.face;
           this.#pendingOwnLambdas = enclosingPending.lambdas;
         }
-        if (!moduleItems) this.#recordSettledParameters(item.value, inferredValueType);
         // A lambda's parameters name the callbacks a binding annotation wrote
         // without names, for the gloss (Effects §10).
         if (annotationFace !== undefined && item.value.kind === "Lambda") {
