@@ -3667,6 +3667,8 @@ type HeadOwner =
       /** Every member the head scopes over, for the knot-membership test. */
       readonly members: readonly Resolved.SymbolId[];
       readonly span: Source.Span;
+      /** The head's binders, in the order it writes them. */
+      readonly binders: readonly string[];
     };
 
 /** A binding whose right-hand side encloses a demand (#1048). */
@@ -9874,6 +9876,7 @@ class Checker {
         kind: "block",
         members: group.map((item) => item.binding.symbol),
         span: head.span,
+        binders: head.typeParameters.map(({ name }) => name),
       });
       for (const [name, variable] of headVariables) scope.set(name, variable);
       this.#annotationVariableScope = scope;
@@ -10001,6 +10004,12 @@ class Checker {
       knot.host = undefined;
       this.#knots.pop();
       for (const symbol of ordered) this.#landedResults.delete(symbol);
+      // What was read from the text while the knot was open read its members
+      // as open (`#fromTextAlone`); from here they are closed.
+      if (this.#readOpenMembers) {
+        this.#readOpenMembers = false;
+        this.#forgetTextReadings();
+      }
       // Every body has been checked only now, which is why §7.4's refusal
       // discharges its fence here rather than where it reported.
       if (knot.refused) this.#errorKnotHeads(knot);
@@ -20771,38 +20780,11 @@ class Checker {
    * parameter with no written type, or one `var`, and it is not.
    */
   #madeFromText(expression: Resolved.Expr): boolean {
-    // A call to a member of a knot still open hands back what its declaration
-    // writes and, beyond that, what its body works out, which the text does
-    // not decide while the knot is open (Effects §3.4, #1279): it is made from
-    // the text only where its declaration writes the result, never where it
-    // writes none or a hole. Not remembered: the knot's close decides the
-    // rest.
-    if (this.#readsOpenResult(expression)) return false;
     const known = this.#madeFromTextExpressions.get(expression);
     if (known !== undefined) return known;
     const made = this.#freeNames(expression).every((symbol) => this.#fromText(symbol));
     this.#madeFromTextExpressions.set(expression, made);
     return made;
-  }
-
-  /**
-   * Whether an expression reads the result of a call to a member of a knot
-   * still open whose declaration writes no result type, or a hole for it
-   * (`#madeFromText`).
-   */
-  #readsOpenResult(expression: Resolved.Expr): boolean {
-    if (this.#knots.length === 0) return false;
-    let found = false;
-    this.#walkSyntax(expression, {
-      expression: (inner) => {
-        if (found || inner.kind !== "Call") return;
-        const callee = ungrouped(inner.callee);
-        if (callee.kind !== "Name") return;
-        const member = this.#openMember(callee.symbol);
-        if (member !== undefined && !headWritten(member.value.returnAnnotation)) found = true;
-      },
-    });
-    return found;
   }
 
   /** The bindings an expression names and does not bind itself, each once. */
@@ -20896,6 +20878,18 @@ class Checker {
    */
   #fromTextAlone(symbol: Resolved.SymbolId): boolean | undefined {
     this.#consultedSources.add(symbol);
+    // A member of a knot still open hands back what its declaration writes
+    // and, beyond that, what its body works out, which the text does not
+    // decide while the knot is open (Effects §3.4, #1279): it is made from the
+    // text only where its declaration writes its whole result. Every route to
+    // it meets this, a local function's body included; what is worked out
+    // from it is forgotten where the knot closes.
+    const open = this.#openMember(symbol);
+    if (open !== undefined) {
+      this.#readOpenMembers = true;
+      const written = open.value.returnAnnotation;
+      return written !== undefined && annotationWhole(written);
+    }
     const source = this.#bindingSources.get(symbol);
     if (source === undefined) {
       // Not a local binding: an import, a constructor, a prelude name.
@@ -20921,6 +20915,17 @@ class Checker {
     return this.#fromTextBindings.get(symbol);
   }
 
+  /** Whether a reading of what the text decides has read a member of a knot still open. */
+  #readOpenMembers = false;
+
+  /** Forgets every reading of what the text decides, to be read again (`#resource`). */
+  #forgetTextReadings(): void {
+    this.#consultedSources.clear();
+    this.#fromTextBindings.clear();
+    this.#decidedBindings.clear();
+    this.#madeFromTextExpressions = new WeakMap();
+  }
+
   /**
    * Records a binding's source anew. A binding changes its source only where
    * it is made — before any use reads it — so nothing remembered took the old
@@ -20929,10 +20934,7 @@ class Checker {
   #resource(symbol: Resolved.SymbolId, source: BindingSource): void {
     this.#bindingSources.set(symbol, source);
     if (!this.#consultedSources.has(symbol)) return;
-    this.#consultedSources.clear();
-    this.#fromTextBindings.clear();
-    this.#decidedBindings.clear();
-    this.#madeFromTextExpressions = new WeakMap();
+    this.#forgetTextReadings();
   }
 
   /**
@@ -28328,10 +28330,17 @@ class Checker {
       if (type.kind === "Variable" && type.rigidName !== undefined) {
         const collision = this.#knotHeadCollision(variable, type);
         if (collision === undefined) {
+          // Two of one block head's variables are named in the order the head
+          // writes them, never by which side of the meeting each stood on.
+          const owner = this.#declaredHeadOwners.get(variable.id);
+          const [first, second] = owner?.kind === "block" && owner === this.#declaredHeadOwners.get(type.id) &&
+              owner.binders.indexOf(type.rigidName) < owner.binders.indexOf(variable.rigidName)
+            ? [type.rigidName, variable.rigidName]
+            : [variable.rigidName, type.rigidName];
           this.#diagnostics.add({
             severity: "error",
             message:
-              `\`${variable.rigidName}\` and \`${type.rigidName}\` are distinct declared type variables, ` +
+              `\`${first}\` and \`${second}\` are distinct declared type variables, ` +
               "but the body requires them to be the same; use one type variable name in both " +
               "annotations, or remove an annotation to let the type be inferred",
             primary: span,

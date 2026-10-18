@@ -15,8 +15,10 @@ import { compileFiles } from "../support/test-project.js";
  * checked first: each program below is checked in both member orders, and the
  * two verdicts, and the reports, are one.
  *
- * What a sibling's *body* works out is not read here (#1278): a seat that meets
- * an unwritten result still follows member order, and these tests do not pin it.
+ * What a sibling's body works out is read exactly while the knot is open, and
+ * these tests pin its colour half: a call to a member that writes no whole
+ * result is not re-opened at a seat. Its numeric half (#1287) is left out: a
+ * number seat that meets an unwritten result still follows member order here.
  */
 
 const world = `extern from "./world.js"
@@ -39,6 +41,12 @@ function reports(source: string): readonly Report[] {
 }
 
 /** The program with its knot's two members in each order; `head` is the block's first line. */
+/** The report a seat's `->!` makes where it meets an arrow already fixed pure. */
+const fixedArrow = "this position's arrow says the function is impure and may fail, and the pure arrow meeting it, " +
+  "which cannot fail, was fixed before it arrived — by another use, by a type written where it was made, " +
+  "inside an argument read invariantly, or in a parameter's type — so it cannot fit as a function used here " +
+  "does; write the arrow where it was fixed";
+
 function bothOrders(first: string, second: string, after: string, head = "fun"): readonly string[] {
   return [`${head}\n${first}${second}${after}`, `${head}\n${second}${first}${after}`];
 }
@@ -138,14 +146,10 @@ describe("a member's written signature is read where its knot opens (#1279)", ()
     const use = "    useF(p: Int, k: () -> Unit): Unit =\n        let f: () ->! Unit = pass(k, p)\n        ()\n";
     const pass = (result: string): string => `    pass(k, n)${result} =\n        useF(n, k)\n        k\n`;
     const after = "export let user(): Unit = useF(1, noop2)\n";
-    const fixed = "this position's arrow says the function is impure and may fail, and the pure arrow meeting it, " +
-      "which cannot fail, was fixed before it arrived — by another use, by a type written where it was made, " +
-      "inside an argument read invariantly, or in a parameter's type — so it cannot fit as a function used here " +
-      "does; write the arrow where it was fixed";
     // Where the one report stands still follows which body is checked first.
     expect(inEveryOrder(bothOrders(use, pass(""), after)).map(([program, found]) =>
       [program, found.map(({ message }) => message)]
-    )).toEqual(bothOrders(use, pass(""), after).map((program) => [program, [fixed]]));
+    )).toEqual(bothOrders(use, pass(""), after).map((program) => [program, [fixedArrow]]));
     expectInEveryOrder(bothOrders(use, pass(": () -> Unit"), after), []);
   });
 
@@ -234,5 +238,67 @@ describe("a member's written signature is read where its knot opens (#1279)", ()
     const applyK = "    applyK(k: ((() ->! Unit) -> Unit) -> Unit): Unit = k((f) => ())\n";
     const go = "    go(): Unit = applyK((f) => applyPure(f))\n";
     expectInEveryOrder(bothOrders(applyK, go, "", tools + "fun"), []);
+  });
+
+  /**
+   * A hole in a written result holds what the member's body works out, which
+   * is read exactly while the knot is open: a call whose written result is not
+   * whole is not re-opened at a seat, in either order. The arrows the result
+   * does spell are still read (`() -> _` above).
+   */
+  test("a written result with a hole is not re-opened where the hole stands, in either order", () => {
+    for (const [result, value, seat] of [
+      ["(_, Int)", "(k, 1)", "(() ->! Unit, Int)"],
+      ["Option(_)", "Some(k)", "Option(() ->! Unit)"],
+    ]) {
+      const use = `    useF(p: Int, k: () -> Unit): Unit =\n        let w: ${seat} = pass(k, p)\n        ()\n`;
+      const pass = `    pass(k, n): ${result} =\n        useF(n, k)\n        ${value}\n`;
+      const programs = bothOrders(use, pass, "export let user(): Unit = useF(1, noop2)\n");
+      expect(inEveryOrder(programs).map(([program, found]) => [program, found.map(({ message }) => message)]))
+        .toEqual(programs.map((program) => [program, [fixedArrow]]));
+    }
+  });
+
+  /**
+   * Every route to an open member's call meets the same reading: through a
+   * local function its body calls, a nested `fun`, or a lambda, the call's
+   * value is its body's, in either order.
+   */
+  test("a call reached through a local function is read as the member's text writes it, in either order", () => {
+    const pass = "    pass(k, n) =\n        useF(n, k)\n        k\n";
+    for (const local of [
+      "        let h = (q: Int) => pass(k, q)\n        let f: () ->! Unit = h(p)\n",
+      "        fun h(q: Int) = pass(k, q)\n        let f: () ->! Unit = h(p)\n",
+      "        let h = () => pass(k, p)\n        let f: () ->! Unit = h()\n",
+    ]) {
+      const use = `    useF(p: Int, k: () -> Unit): Unit =\n${local}        ()\n`;
+      const programs = bothOrders(use, pass, "export let user(): Unit = useF(1, noop2)\n");
+      expect(inEveryOrder(programs).map(([program, found]) => [program, found.map(({ message }) => message)]))
+        .toEqual(programs.map((program) => [program, [fixedArrow]]));
+    }
+  });
+
+  /**
+   * Functions §7.4's refusal of two declared variables a knot links stands at
+   * the first call that links them in source order, and names the two in the
+   * order the text declares them, whichever order the three members come in.
+   */
+  test("a three-member knot's distinct heads are reported where the text first links them", () => {
+    const t1 = "    t1(x: a, n: Int): Bool = if n <= 0 then x == x else t2(x, n - 1)\n";
+    const t2 = "    t2(x: b, n: Int): Bool = if n <= 0 then x == x else t3(x, n - 1)\n";
+    const t3 = "    t3(x: c, n: Int): Bool = if n <= 0 then x == x else t1(x, n - 1)\n";
+    const heads = (first: string, second: string): string =>
+      `${first} and ${second} are distinct declared type variables, but members of a recursive knot are ` +
+      "checked together at not-yet-general types; declare one head on the `fun` block that both members " +
+      "write, drop the members' own variable annotations and let inference link the knot, or move the " +
+      "contract to a non-recursive wrapper";
+    expect(reports(`fun\n${t1}${t2}${t3}`)).toEqual([{
+      at: "t2(x, n - 1)",
+      message: heads("`a` declared on `t1`", "`b` declared on `t2`"),
+    }]);
+    expect(reports(`fun\n${t3}${t1}${t2}`)).toEqual([{
+      at: "t1(x, n - 1)",
+      message: heads("`c` declared on `t3`", "`a` declared on `t1`"),
+    }]);
   });
 });

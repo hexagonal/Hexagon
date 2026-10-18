@@ -18,7 +18,8 @@ const REFUSED_B =
 describe("a knot's survivor gets no report of its own", () => {
   // `p2`'s call `p3(x, n - 1)` meets the head `p3`'s text wrote where the
   // knot opened (#1279), so the two declared variables meet there and are
-  // refused there; `p3`'s `p2("s", …)` is then `String` at `b`. Neither report
+  // refused there, named in the order the head writes them; `p3`'s
+  // `p2("s", …)` is then `String` at `b`. Neither report
   // is defaulting's: `c` is never proposed `Int`.
   test("head-declared: `c` is never blamed for an `Int` no body demanded", () => {
     expect(verdict(
@@ -26,7 +27,7 @@ describe("a knot's survivor gets no report of its own", () => {
       "    p2(x: b, n: Int): String = if n <= 0 then show(x) else p3(x, n - 1)\n" +
       "    p3(x: c, n: Int): String = if n <= 0 then show(x) else p2(\"s\", n - 1)\n",
     )).toEqual([
-      "`c` and `b` are distinct declared type variables, but the body requires them to be the same; " +
+      "`b` and `c` are distinct declared type variables, but the body requires them to be the same; " +
         "use one type variable name in both annotations, or remove an annotation to let the type be inferred",
       REFUSED_B,
     ]);
