@@ -4,6 +4,18 @@ module Int
     lies outside the safe-integer range. *)
 export fault IntRangeFault(message: String)
 
+(** Thrown by every numeric type's `parse` — `Int.parse`, `Nat.parse`,
+    `BigInt.parse`, `Float.parse`, `Dec.parse` and `Rat.parse` — for text that
+    is not a number of that type, or that names one outside its range.
+    `message` quotes the text, cut short when it is long: `"12x" is not an Int`.
+
+    It is an exception, so a call that may throw it wears `^`; read the call
+    with `?` for an `Option` (`Int.parse?(text)`), or with `assume` where the
+    text is known to be good. It is declared here, with the first of the six in
+    the prelude's order, and the others reach it bare, as `Float`'s rounding
+    reaches `IntRangeFault`. *)
+export exception NumberFormatError(message: String)
+
 // The public `Int` companion. A primitive's home module is its fixed prelude
 // companion (Constraints §5.3), so this file is where `Int`'s instances are
 // declared and where the orphan rule lets them be declared.
@@ -217,3 +229,24 @@ export let checkedMul(left: Int, right: Int): Option(Int) =
             None
         else
             Some(left * right)
+
+// `parse`'s two crossings (`spec/numeric-parsing.md`): the scan of the text,
+// which is the host's conversion and cannot be Hexagon at this seat, before
+// `String.hex`; and the message, which quotes the text, cut short.
+extern from "hex:intrinsic"
+    fun numberParseInt as scanText(text: String) -> Option(Option(Int))
+    fun numberFormatMessage as formatMessage(text: String, phrase: String) -> String
+
+(** `text` read as an `Int`. The text is an integer literal as Hexagon writes one
+    (Lexer section 5): decimal digits, or `0x`, `0o` or `0b` and digits in that
+    base, with `_` allowed between two digits, after an optional `+` or `-`.
+    `007` is seven; nothing else is accepted, so no surrounding whitespace, no
+    `n` suffix, and no empty text. `Int.parse(show(n))` is `n` for every `n`.
+
+    Throws `NumberFormatError` for any other text, and for an integer outside
+    `Int`'s range. Read it with `?` for an `Option` — `Int.parse?(text)` — or
+    with `assume` where the text is known to be good. *)
+export let parse(text: String): Int = match scanText(text)
+    Some(Some(value)) => value
+    Some(None) => throw^(NumberFormatError(formatMessage(text, "is out of range for Int")))
+    None => throw^(NumberFormatError(formatMessage(text, "is not an Int")))

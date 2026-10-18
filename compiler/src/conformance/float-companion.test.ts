@@ -787,9 +787,11 @@ describe("the companion's own emitted shape", () => {
     // `rem` is an exported door row, so its call here is its operator (§8.3).
     expect(text).toContain("const remainder = left % right;");
     // `Real.sign` and the shared rounding crossing are the file's two guarded
-    // sites. `FloatRangeFault` remains an exact-to-Float error and is not thrown
-    // by this module.
-    expect(withoutComments(text).match(/\bthrow\b/gu)).toHaveLength(2);
+    // sites, and `parse` (#1049) adds its refusal and its match's unreachable
+    // default. `FloatRangeFault` remains an exact-to-Float error and is not
+    // thrown by this module.
+    expect(withoutComments(text).match(/\bthrow\b/gu)).toHaveLength(4);
+    expect(text).toContain('throw NumberFormatError(formatMessage(text, "is not a Float"))');
     expect(text).toContain('throw UndefinedSignFault("NaN has no sign")');
     expect(text).toContain(
       "throw IntRangeFault(message)",

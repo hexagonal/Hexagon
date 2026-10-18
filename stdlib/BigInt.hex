@@ -203,3 +203,21 @@ export let toFloat(value: BigInt): Float =
         approx
     else
         throw(FloatRangeFault("BigInt.toFloat: value does not fit in Float"))
+
+// `parse`'s two crossings (`spec/numeric-parsing.md`): the scan of the text,
+// which is the host's conversion and cannot be Hexagon at this seat, before
+// `String.hex`; and the message, which quotes the text, cut short.
+extern from "hex:intrinsic"
+    fun numberParseBigInt as scanText(text: String) -> Option(BigInt)
+    fun numberFormatMessage as formatMessage(text: String, phrase: String) -> String
+
+(** `text` read as a `BigInt`: an integer literal as Hexagon writes one (Lexer
+    section 5), decimal or `0x`, `0o` or `0b`, with `_` allowed between two
+    digits, after an optional `+` or `-`, and without the `n` suffix: `show`
+    writes none. `BigInt.parse(show(n))` is `n` for every `n`.
+
+    Throws `NumberFormatError` for any other text. Read it with `?` for an
+    `Option`, or with `assume` where the text is known to be good. *)
+export let parse(text: String): BigInt = match scanText(text)
+    Some(value) => value
+    None => throw^(NumberFormatError(formatMessage(text, "is not a BigInt")))

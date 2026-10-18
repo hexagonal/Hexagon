@@ -577,11 +577,13 @@ classification is unchanged.
 - As a quality check on the implementation, not a Hash law: `5`, `0.5`, `0.05`,
   and `50` hash differently, showing the hashed key includes its place count.
 
-## 12. Deferred work
+## 12. Text parsing, and what is deferred
 
-Runtime text parsing is deferred to one design covering every numeric type
-(#1049). No parser name, grammar, result type, or exception is adopted here. The
-source-literal rules are independent of a future runtime text parser.
+Runtime text parsing is `Dec.parse : String ->^ Dec`, one design with every
+numeric type's (`numeric-parsing.md`, #1049): Lexer §5's `Dec` literal without
+its `d`, after an optional sign, keeping the places as written, so
+`Dec.parse(show(d))` is `same` as `d`. It takes no exponent, so a value never
+holds more places or digits than its text has characters.
 
 The nonnegative `Int` decimal-place range and `DecimalPlacesOverflowFault` are
 settled (§2). Host resource limits do not imply a smaller decimal-specific cap.

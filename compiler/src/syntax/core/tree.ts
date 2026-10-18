@@ -846,6 +846,15 @@ export interface CallExpr extends ExpressionFields {
   readonly evidence: readonly CallEvidence[];
   /** A reading (Effects §3.1): the call's value as `Some`, its failure as `None`. */
   readonly reading?: true;
+  /** A reading's value widened inside `Some` (`Typed.CallExpr.readingWidening`). */
+  readonly readingWidening?: ReadingWidening;
+}
+
+/** The widening a reading applies to its call's result, with its evidence. */
+export interface ReadingWidening {
+  readonly kind: "WidenNat" | "WidenInt" | "WidenBigInt";
+  readonly evidence: Evidence;
+  readonly type: Typed.Type;
 }
 
 export interface CallEvidence {

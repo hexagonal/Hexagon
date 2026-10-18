@@ -1431,6 +1431,18 @@ function faceLambdas(
 }
 
 /**
+ * A reading (Effects §3.1), read with `?` or `~?`: a call, or a pipe stage. A
+ * bare stage carries its reading on the pipe (`s |> Int.parse?`), and a stage
+ * with its own argument list on that list's call (`s |> Int.parse?()`).
+ */
+function isReading(expression: Resolved.Expr): boolean {
+  if (expression.kind === "Call") return expression.reading === true;
+  if (expression.kind !== "Binary" || expression.operator !== "Pipe") return false;
+  return expression.reading === true ||
+    (expression.right.kind === "Call" && expression.right.reading === true);
+}
+
+/**
  * Whether an expectation given to this expression could **land** — Functions
  * §4.3's two landing sites, a lambda literal and an arithmetic operation
  * (Numeric Literals §5.1's expected-type lift) — reached through §4.3's
@@ -10236,7 +10248,10 @@ class Checker {
 
   /**
    * A reading (Effects §3.1): its call, whose value it reads as an `Option`. An
-   * expectation of `Option(a)` hands the call `a`.
+   * expectation of `Option(a)` hands the call `a`, and the call's result meets
+   * it there, as `Some`'s argument would (#1253 step 9c, n5). A reading lands
+   * a seat's written face (`#faceLands`), so the expectation is a written
+   * `Option(T)` or nothing, never a join's sibling type.
    */
   #inferReading(expression: Resolved.CallExpr | Resolved.ThrowExpr, level: number, expected?: Mono): Mono {
     const wanted = expected === undefined ? undefined : this.#prune(expected);
@@ -10255,6 +10270,17 @@ class Checker {
         primary: expression.span,
       });
       return ERROR;
+    }
+    // A reading is `Some` of its call, so where a seat's written `Option(T)`
+    // reaches it, directly or through a forwarding form, its call's result
+    // meets `T` as a constructor application's argument meets the part it is
+    // handed (Functions §4.3): the same check, with the same numeric widening,
+    // recorded on the call and put inside the reading by `#materializeExpr`.
+    // Checked once, there: widened, unified, or reported at the call, the
+    // reading is then `Option(T)`, so its seat has nothing left to report.
+    if (inner !== undefined && expression.kind === "Call") {
+      this.#unifyExpected(inner, value, expression, expression.span);
+      value = inner;
     }
     const type: Mono = { kind: "Union", union: this.#optionUnion, name: "Option", arguments: [value] };
     this.#expressionTypes.set(expression, type);
@@ -19963,9 +19989,15 @@ class Checker {
     return declared.slots.flatMap(([argument, slot]) => slot === undefined ? [] : [[argument, givenSlot(slot, given)] as const]);
   }
 
-  /** `expectationLands`, and a constructor application, which takes its expectation first (#1066). */
+  /**
+   * `expectationLands`, a constructor application, which takes its expectation
+   * first (#1066), and a reading, which is `Some` of its call and so takes it
+   * exactly where `Some(…)` around the call would (#1253 step 9c, n5): a seat's
+   * written `Option(T)` reaches it, a join's sibling type never does.
+   */
   #faceLands(expression: Resolved.Expr): boolean {
-    return expectationLands(expression) || this.#appliesDataConstructor(expression);
+    return expectationLands(expression) || this.#appliesDataConstructor(expression) ||
+      isReading(expression);
   }
 
   /**
@@ -38028,6 +38060,23 @@ class Checker {
     const promotion = this.#decimalPromotions.get(expression);
     if (promotion !== undefined) return this.#materializeDecimalPromotion(expression, promotion);
     const value = this.#readingOf(expression, this.#materializeUnwidenedExpr(expression));
+    // A reading's widening is its call's result's, so it goes inside the
+    // reading, never around the `Option` (`#inferReading`).
+    if (value.kind === "Call" && value.reading === true) {
+      const widening = this.#natWidenings.has(expression)
+        ? { kind: "WidenNat" as const, requirement: this.#natWidenings.get(expression)! }
+        : this.#intWidenings.has(expression)
+        ? { kind: "WidenInt" as const, requirement: this.#intWidenings.get(expression)! }
+        : this.#bigIntWidenings.has(expression)
+        ? { kind: "WidenBigInt" as const, requirement: this.#bigIntWidenings.get(expression)! }
+        : undefined;
+      if (widening === undefined) return value;
+      const requirement = this.#publicRequirement(widening.requirement);
+      return {
+        ...value,
+        readingWidening: { kind: widening.kind, requirement, type: requirement.type },
+      };
+    }
     const adaptation = this.#adaptations.get(expression);
     if (adaptation !== undefined) return this.#materializeAdaptation(expression, value, adaptation);
     const natWidening = this.#natWidenings.get(expression);

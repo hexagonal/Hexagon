@@ -1330,6 +1330,19 @@ export interface CallExpr extends ExpressionFields {
   readonly requirements: readonly Constraint[];
   /** A reading (Effects §3.1): the call's value as `Some`, its failure as `None`; `type` is the `Option`. */
   readonly reading?: true;
+  /**
+   * A reading's value widened where its `Option(T)` is written (Effects §3.1,
+   * #1253 step 9c): the call's result widens into `T` inside `Some`, exactly as
+   * `Some(…)` written around the call would widen it. Never the `Option` itself.
+   */
+  readonly readingWidening?: ReadingWidening;
+}
+
+/** The widening a reading applies to its call's result (`CallExpr.readingWidening`). */
+export interface ReadingWidening {
+  readonly kind: "WidenNat" | "WidenInt" | "WidenBigInt";
+  readonly requirement: Constraint;
+  readonly type: Type;
 }
 
 export interface AccessExpr extends ExpressionFields {

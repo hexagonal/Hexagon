@@ -317,7 +317,7 @@ The inverse bridge is a function, not a form: `Result.orThrow : Result(a, Exn) -
 
 ### 8.5 The prelude's faults
 
-Every throwable the prelude declares is a fault, but `JsError`, which is an exception. Each is declared where the operation that throws it lives — `AssumptionFault`, which a form throws, in `Prelude.hex` (§8.3) — and they are bare by category (§2.1): `IndexFault`, `SliceFault`, `KeyFault`, `DivideByZeroFault`, `IntRangeFault`, `FloatRangeFault`, `DecRangeFault`, `UndefinedSignFault`, `NegativeExponentFault`, `DecimalPlacesOverflowFault`, `NegativeDecimalPlacesFault`, `ReentrancyFault` and `AssumptionFault`. The runtime's own `TrieCorruptionFault` reports a broken internal invariant and is not bare.
+Every throwable the prelude declares is a fault, but `JsError` and `NumberFormatError`, which are exceptions: `NumberFormatError(message: String)` is what every numeric type's `parse` throws (`numeric-parsing.md` §4), declared in `Int.hex`. Each is declared where the operation that throws it lives — `AssumptionFault`, which a form throws, in `Prelude.hex` (§8.3) — and they are bare by category (§2.1): `IndexFault`, `SliceFault`, `KeyFault`, `DivideByZeroFault`, `IntRangeFault`, `FloatRangeFault`, `DecRangeFault`, `UndefinedSignFault`, `NegativeExponentFault`, `DecimalPlacesOverflowFault`, `NegativeDecimalPlacesFault`, `ReentrancyFault` and `AssumptionFault`; and the two exceptions, `JsError` and `NumberFormatError`. The runtime's own `TrieCorruptionFault` reports a broken internal invariant and is not bare.
 
 ### 8.6 What a caught failure says: `Show<Exn>` and `Exn.stack` *(#1159)*
 
