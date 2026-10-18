@@ -1400,6 +1400,11 @@ function defersAsLambda(expression: Resolved.Expr): boolean {
 }
 
 /** The lambda literal `expression` is, read through grouping (§3.1), if it is one. */
+/** The indefinite article a type's name takes in a report: "an `Int`", "a `Float`". */
+function article(name: string): string {
+  return /^[AEIOU]/.test(name) ? "an" : "a";
+}
+
 function deferredLambda(expression: Resolved.Expr): Resolved.LambdaExpr | undefined {
   const inner = ungrouped(expression);
   return inner.kind === "Lambda" ? inner : undefined;
@@ -11758,17 +11763,19 @@ class Checker {
             () => this.#annotationType(written, level + 1, annotationTails, annotationVariables),
           );
         }
+        // A result a callee's untyped parameter landed is no seat (#1195).
+        const plainResult = this.#plainSeatValues.has(expression);
         const inferredResult = this.#inferExpr(
           expression.body,
           level + 1,
-          returnAnnotationType ?? landing?.result,
+          returnAnnotationType ?? (plainResult ? undefined : landing?.result),
         );
         this.#annotationVariableScope = savedVariableScope;
         let result = inferredResult;
         // A lambda's body is a seat (Numeric Literals §5.1, #1062): where the
         // landed result component is concrete, a value there widens into it as
         // at any seat — `let g: () -> Dec = () => n`.
-        const landedResult = expression.returnAnnotation === undefined
+        const landedResult = expression.returnAnnotation === undefined && !plainResult
           ? this.#concreteFace(landing?.result)
           : undefined;
         // And a sequence seat (Collections Part 5 §3.4): a landed result headed by
@@ -12293,7 +12300,26 @@ class Checker {
             result: this.#fresh(level, false),
           })
           : this.#inferExpr(expression.callee, level);
-        // *(#1066.)* A constructor application's own expected type: before the
+        // A callee whose type the text does not decide — an untyped parameter,
+        // a member of a knot still open (Method Syntax §3.1) — has parameter
+        // types inference gathered from its uses: a seat there supplies no home
+        // and converts nothing (#1195), so no line checked earlier chooses how
+        // an argument is read. Its arguments meet it by unification.
+        const plainSeats = !calleeIsLambda && !this.#typeDecided(expression.callee);
+        if (plainSeats) {
+          const named = this.#spelledExpression(expression.callee);
+          const plain = named === undefined
+            ? { seat: "this parameter", owner: "the callee" }
+            : { seat: `\`${named}\`'s parameter`, owner: `\`${named}\`` };
+          for (const argument of expression.arguments) {
+            this.#plainSeatValues.set(argument, plain);
+            const lambda = deferredLambda(argument);
+            if (lambda !== undefined) {
+              this.#plainSeatValues.set(lambda, plain);
+              this.#plainSeatValues.set(lambda.body, plain);
+            }
+          }
+        }
         // first argument elaborates, the constructor's instantiated result is
         // unified with it where both are headed by the constructor's type — the
         // unification the seat's final check performs anyway — so the
@@ -12360,7 +12386,7 @@ class Checker {
             if (deferredLambdas.has(index)) continue;
             arguments_[index] = pass === undefined
               ? this.#inferExpr(argument, level)
-              : pass.argument(index, handed?.[index] ?? calleeParameters?.[index]);
+              : pass.argument(index, plainSeats ? undefined : handed?.[index] ?? calleeParameters?.[index]);
           }
           // An expectation has to *be* something by the time it is read, so
           // the whole first pass is checked before the second elaborates: a
@@ -12655,12 +12681,19 @@ class Checker {
         // reaches adapts, however it is handed on.
         const enclosingAssignmentFaces = this.#assignmentFaces;
         this.#assignmentFaces = this.#faceParts(target, new Set(enclosingAssignmentFaces));
+        // A `var` made from a value the text does not decide is no seat for
+        // a conversion (#1195): the value unifies with it.
+        const plainTarget = !this.#typeDecided(expression.target);
+        if (plainTarget) {
+          const named = this.#spelledExpression(expression.target) ?? "the variable";
+          this.#plainSeatValues.set(expression.value, { seat: `\`${named}\``, owner: `\`${named}\`` });
+        }
         let value: Mono;
         try {
           value = this.#inferExpr(
             expression.value,
             level,
-            this.#prune(target).kind === "Function" ? undefined : target,
+            this.#prune(target).kind === "Function" || plainTarget ? undefined : target,
           );
         } finally {
           this.#assignmentFaces = enclosingAssignmentFaces;
@@ -17771,10 +17804,12 @@ class Checker {
     if (source.kind === "Error" || target.kind === "Error") return true;
     if (source.kind === "Variable") return true;
     if (this.#acceptsExactly(source, target)) return true;
+    if (expression !== undefined && this.#plainSeatValues.has(expression)) return false;
     if (expression !== undefined && this.#decimalHome(expression, source, target) !== undefined) {
       return true;
     }
     if (source.kind !== "Constructor") return false;
+    if (expression !== undefined && !this.#typeDecided(expression)) return false;
     if (source.name === "Nat") return this.#supportsNumericTarget(target);
     if (source.name === "Int") return this.#supportsSignedTarget(target);
     if (source.name === "BigInt") return this.#supportsTarget(target, "FromBigInt");
@@ -18379,7 +18414,8 @@ class Checker {
    * `ERROR`, which every value enters, so a refusal already reported cascades
    * no further. The price is that a second, unrelated mismatch elsewhere in the
    * same tree — `(foo + 1) * (n + "a")` — waits for the first to be repaired;
-   * no verdict moves. An inference variable establishes nothing unless it already
+   * no verdict moves. A value establishes only where the text decides its type
+   * (#1195), and an inference variable establishes nothing unless it already
    * carries the evidence every fixed-integer value needs; a decimal-point
    * literal is the `Float` it spells only where nothing exact is in. A value
    * outside the numeric tower keeps the order-first reading every join always
@@ -18396,7 +18432,11 @@ class Checker {
       const actual = this.#prune(type);
       if (actual.kind === "Error") return { home: ERROR };
       if (actual.kind === "Variable" && actual.rigidName === undefined) {
-        if (this.#supportsTarget(actual, "Num", true)) constrained.push({ type: actual, expression });
+        // A type inference gathered from the value's uses chooses no home
+        // (#1195): the value unifies with whatever home the rest choose.
+        if (this.#supportsTarget(actual, "Num", true) && this.#typeDecided(expression)) {
+          constrained.push({ type: actual, expression });
+        }
         continue;
       }
       if (
@@ -18406,6 +18446,7 @@ class Checker {
         decimal ??= expression;
         continue;
       }
+      if (this.#supportsTarget(actual, "Num", true) && !this.#typeDecided(expression)) continue;
       established.push({ type: actual, expression });
     }
     if (established.length === 0) {
@@ -18559,6 +18600,12 @@ class Checker {
     level: number,
   ): void {
     const span = owner ?? value.expression.span;
+    const open = this.#inferredOpenRefusal(value, home, source);
+    if (open !== undefined) {
+      if (!tree.refused) this.#diagnostics.add({ severity: "error", message: open, primary: value.expression.span });
+      tree.refused = true;
+      return;
+    }
     const refusal = this.#homeRefusal(value, home, source);
     const closed = refusal === undefined
       ? undefined
@@ -18726,11 +18773,15 @@ class Checker {
       type.kind !== "Variable" && type.kind !== "Error" && this.#supportsTarget(type, "Num");
     if (!numeric(actual) || !numeric(target) || this.#sameSeat(actual, target)) return undefined;
     if (this.#operandReaches(actual, target, value.expression)) return undefined;
+    const inferred = this.#inferredConversionRefusal(value.expression, actual, target);
+    if (inferred !== undefined) return inferred;
     const spell = (expression: Resolved.Expr): string | undefined =>
       this.#writtenOperand(expression) ?? this.#spelledExpression(expression);
     const spelled = spell(value.expression);
     const giver = source === undefined || source === value.expression ? undefined : spell(source);
     if (spelled === undefined || giver === undefined) return undefined;
+    const voted = this.#inferredHomeRefusal(value.expression, actual, target, giver);
+    if (voted !== undefined) return voted;
     const door = this.#numericDoor(spelled, actual, target) ??
       this.#numericDoor(giver, target, actual);
     const repair = door === undefined ? "" : `; convert one explicitly — \`${door}\``;
@@ -21962,8 +22013,9 @@ class Checker {
    * unification the final check performs anyway, performed early (§4.3's
    * ordering pin). One still standing on an unsolved variable waits for the
    * end, where the second pass may have decided it: `g(p, x => useInt(p))` at
-   * `g : (Float, (Int) -> String) -> …` types `p` at `Int` through the callback
-   * and widens it into `Float`.
+   * `g : (Float, (Int) -> String) -> …` types `p` at `Int` through the callback,
+   * and the `Float` parameter then meets that `Int` exactly, a type only
+   * inference gave converting nothing (#1195).
    *
    * A group closes against what its variable is by then (`#closeSiblings`).
    *
@@ -22442,7 +22494,17 @@ class Checker {
   ): void {
     const target = this.#prune(variable);
     if (target.kind !== "Variable" || target.rigidName !== undefined) {
-      const face = target.kind === "Variable" || target.kind === "Error" ? undefined : target;
+      // A type an argument the text does not decide solved is no face, and
+      // the siblings meet it by unification (#1195).
+      const plain = giver !== undefined && !this.#typeDecided(giver);
+      if (plain) {
+        const named = this.#spelledExpression(giver);
+        const seat = named === undefined
+          ? { seat: "the type an earlier argument gave", owner: "that argument" }
+          : { seat: `the type \`${named}\` gave`, owner: `\`${named}\`` };
+        for (const part of parts) this.#plainSeatValues.set(this.#partExpression(part), seat);
+      }
+      const face = target.kind === "Variable" || target.kind === "Error" || plain ? undefined : target;
       // One tree, refused once (§6): once a sibling has been refused, the rest
       // close on their own and meet the home no more.
       let refused = false;
@@ -29319,6 +29381,135 @@ class Checker {
     return requirement;
   }
 
+  /**
+   * Whether a conversion may read `expression`'s type (#1195, Numeric Literals
+   * §5.1): only where the program's text decides it (Method Syntax §3.1) and
+   * the seat it meets is not one whose own type the text leaves to inference.
+   * A type inference gathered from a value's uses is read exactly, so no line
+   * checked earlier chooses whether a later one converts.
+   */
+  #widensFrom(expression: Resolved.Expr): boolean {
+    return !this.#plainSeatValues.has(expression) && this.#typeDecided(expression);
+  }
+
+  /**
+   * Values at a seat whose type the text does not decide (#1195): an argument
+   * of a callee whose type inference gathered from its uses — an untyped
+   * parameter, a member of a knot still open — a lambda body such a callee's
+   * parameter type landed on, and the value assigned to a `var` made from one.
+   * The seat supplies no home and converts nothing: the value meets it by
+   * unification, as it meets an unsolved variable. Each is kept with what the
+   * seat is, in a report's words — "`g`'s parameter" — and the name whose
+   * type the reader can write.
+   */
+  readonly #plainSeatValues = new WeakMap<Resolved.Expr, { readonly seat: string; readonly owner: string }>();
+
+  /**
+   * §6's report where a value would have widened into its seat but for #1195:
+   * the value's type, or the seat's, is one only inference gave it, and so is
+   * read exactly. The report names the written type that lets the conversion
+   * run, and the conversion itself, which needs no written type at all.
+   * `undefined` where the gate did not cause the refusal.
+   */
+  #inferredConversionRefusal(expression: Resolved.Expr, actual: Mono, expected: Mono): string | undefined {
+    const source = this.#prune(actual);
+    const target = this.#prune(expected);
+    if (source.kind !== "Constructor" || target.kind === "Variable" || target.kind === "Error") return undefined;
+    const evidence = source.name === "Nat"
+      ? "Num"
+      : source.name === "Int"
+      ? "Signed"
+      : source.name === "BigInt"
+      ? "FromBigInt"
+      : undefined;
+    if (evidence === undefined || this.#sameSeat(source, target) || !this.#supportsTarget(target, evidence)) {
+      return undefined;
+    }
+    const plain = this.#plainSeatValues.get(expression);
+    if (plain === undefined && this.#typeDecided(expression)) return undefined;
+    const spelled = this.#writtenOperand(expression) ?? this.#spelledExpression(expression);
+    if (spelled === undefined) return undefined;
+    const from = this.#display(source);
+    const to = this.#display(target);
+    const companion = this.#typeSpellingAtSite(target);
+    const door = companion === undefined ? "" : `, or convert it — \`${companion}.from${source.name}(${spelled})\``;
+    if (plain !== undefined) {
+      return `\`${spelled}\` is not widened into ${plain.seat}, ${article(to)} \`${to}\` only by inference: ` +
+        `write ${plain.owner}'s type where it is made${door}`;
+    }
+    const fix = this.#inferredFix(expression, from);
+    return `\`${spelled}\` is ${article(from)} \`${from}\` only by inference, and an inferred type is not ` +
+      `widened to \`${to}\`` + (fix === undefined ? door.replace(/^, or convert/, "; convert") : `: ${fix}${door}`);
+  }
+
+  /**
+   * §6's report where a value of a tree would have chosen its home but for
+   * #1195: its type is one only inference gave it, so it voted for none, and
+   * the home the tree's other values chose does not take it. The fix is the
+   * written type, which makes the value one that votes.
+   */
+  #inferredHomeRefusal(expression: Resolved.Expr, actual: Mono, home: Mono, giver: string): string | undefined {
+    if (this.#plainSeatValues.has(expression) || this.#typeDecided(expression)) return undefined;
+    const spelled = this.#writtenOperand(expression) ?? this.#spelledExpression(expression);
+    if (spelled === undefined) return undefined;
+    const from = this.#display(actual);
+    const fix = this.#inferredFix(expression, from);
+    return `\`${spelled}\` is ${article(from)} \`${from}\` only by inference, and an inferred type chooses no ` +
+      `home, so this expression runs at \`${this.#display(home)}\`, the home \`${giver}\` gives it` +
+      (fix === undefined ? "" : `: ${fix}`);
+  }
+
+  /**
+   * §6's report where a value whose type only inference gave is still open,
+   * carrying demands its other lines made, and the home its tree's other values
+   * chose carries none of them (#1195): the open type chose no home, so it meets
+   * this one, and without this report the demand would fail where it was made,
+   * far from the reason. The fix declares the type variable the value's uses
+   * describe.
+   */
+  #inferredOpenRefusal(
+    value: { readonly expression: Resolved.Expr; readonly type: Mono },
+    home: Mono,
+    source: Resolved.Expr | undefined,
+  ): string | undefined {
+    const actual = this.#prune(value.type);
+    const target = this.#prune(home);
+    if (actual.kind !== "Variable" || actual.rigidName !== undefined || actual.literalOnly) return undefined;
+    if (target.kind === "Variable" || target.kind === "Error") return undefined;
+    if (this.#plainSeatValues.has(value.expression) || this.#typeDecided(value.expression)) return undefined;
+    const missing = [...new Set(
+      actual.requirements
+        .filter(({ identity }) =>
+          !STRUCTURAL_IDENTITIES.has(identity) && !this.#instances.has(this.#instanceKey(identity, target))
+        )
+        .map(({ name }) => name),
+    )];
+    if (missing.length === 0) return undefined;
+    const spelled = this.#writtenOperand(value.expression) ?? this.#spelledExpression(value.expression);
+    const giver = source === undefined ? undefined : this.#writtenOperand(source) ?? this.#spelledExpression(source);
+    if (spelled === undefined || giver === undefined) return undefined;
+    const all = [...new Set(actual.requirements.map(({ name }) => name))];
+    const named = ungrouped(value.expression);
+    const fix = named.kind !== "Name" || !this.#typeSources.has(named.symbol)
+      ? ""
+      : all.length === 1
+      ? `: declare its type where \`${spelled}\` is made — \`<a: ${all[0]}>\` and \`${spelled}: a\``
+      : `: declare a type variable for it where \`${spelled}\` is made`;
+    return `\`${spelled}\` is generic only by inference, carrying \`${missing.join("`, `")}\` from its other ` +
+      `uses, and an inferred type chooses no home, so this expression runs at \`${this.#display(target)}\`, the ` +
+      `home \`${giver}\` gives it, which has no \`${missing[0]}\` instance` + fix;
+  }
+
+  /** The written type that would make `expression`'s type one the text decides, in a report's words. */
+  #inferredFix(expression: Resolved.Expr, type: string): string | undefined {
+    const value = ungrouped(expression);
+    if (value.kind === "Name" && this.#typeSources.has(value.symbol)) {
+      return `write \`${value.text}: ${type}\` where \`${value.text}\` is made`;
+    }
+    if (value.kind === "Call" && value.callee.kind === "Name") return `write \`${value.callee.text}\`'s result type`;
+    return undefined;
+  }
+
   #tryWidenInt(
     expression: Resolved.Expr,
     actual: Mono,
@@ -29334,6 +29525,7 @@ class Checker {
     if (destination.kind === "Constructor" && destination.name === "Int") return false;
 
     if (!this.#supportsSignedTarget(destination, allowVariableTarget)) return false;
+    if (!this.#widensFrom(expression)) return false;
 
     const requirement = this.#require("Signed", destination, span);
     this.#intWidenings.set(expression, requirement);
@@ -29352,6 +29544,7 @@ class Checker {
     if (source.kind !== "Constructor" || source.name !== "Nat") return false;
     if (destination.kind === "Constructor" && destination.name === "Nat") return false;
     if (!this.#supportsTarget(destination, "Num", allowVariableTarget)) return false;
+    if (!this.#widensFrom(expression)) return false;
 
     const requirement = this.#require("Num", destination, span);
     this.#natWidenings.set(expression, requirement);
@@ -29370,6 +29563,7 @@ class Checker {
     if (source.kind !== "Constructor" || source.name !== "BigInt") return false;
     if (destination.kind === "Constructor" && destination.name === "BigInt") return false;
     if (!this.#supportsTarget(destination, "FromBigInt", allowVariableTarget)) return false;
+    if (!this.#widensFrom(expression)) return false;
 
     const requirement = this.#require("FromBigInt", destination, span);
     this.#bigIntWidenings.set(expression, requirement);
@@ -29383,6 +29577,8 @@ class Checker {
     span: Source.Span,
     allowVariableTarget = false,
   ): boolean {
+    // A seat whose type the text does not decide converts nothing (#1195).
+    if (this.#plainSeatValues.has(expression)) return false;
     return this.#tryWidenInt(expression, actual, target, span, allowVariableTarget) ||
       this.#tryWidenNat(expression, actual, target, span, allowVariableTarget) ||
       this.#tryWidenBigInt(expression, actual, target, span, allowVariableTarget) ||
@@ -29548,6 +29744,11 @@ class Checker {
     // have. Reported here in place of the bare mismatch, and only when the
     // unification really does fail.
     if (this.#reportStandDown(expression, expected, actual, span)) return;
+    const inferred = this.#inferredConversionRefusal(expression, actual, expected);
+    if (inferred !== undefined) {
+      this.#diagnostics.add({ severity: "error", message: inferred, primary: expression.span });
+      return;
+    }
     if (home && this.#refuseFunctionResult(expression, expected, actual, span)) return;
     const atDemand = this.#atDemand;
     this.#atDemand = home;

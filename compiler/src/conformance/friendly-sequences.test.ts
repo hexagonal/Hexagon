@@ -213,7 +213,19 @@ describe("a source whose head is not yet known (Part 5 §3.5)", () => {
       "go",
     )).toBe("Seq(Int) -> Seq(String)");
     expect(typeOf(
+      "fun go(v) =\n    let total = sumInts(v)\n    Seq.fold(v, 0, (acc, x) => acc + x)\n",
+      "go",
+    )).toBe("Seq(Int) -> Int");
+    // The element is an `Int` only by inference, so a `Float` seed's addition
+    // does not widen it (Numeric Literals §5.1, #1195); written, it does.
+    expect(refusals(
       "fun go(v) =\n    let total = sumInts(v)\n    Seq.fold(v, 0.5, (acc, x) => acc + x)\n",
+    )).toEqual([
+      "`x` is an `Int` only by inference, and an inferred type is not widened to `Float`: " +
+        "write `x: Int` where `x` is made, or convert it — `Float.fromInt(x)`",
+    ]);
+    expect(typeOf(
+      "fun go(v: Seq(Int)) =\n    let total = sumInts(v)\n    Seq.fold(v, 0.5, (acc, x) => acc + x)\n",
       "go",
     )).toBe("Seq(Int) -> Float");
   });

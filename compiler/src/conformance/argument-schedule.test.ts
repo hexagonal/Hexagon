@@ -7,28 +7,26 @@
  * > lambda-literal arguments in source order, then a lambda-literal callee;
  * > operands left to right.
  *
- * **The schedule is the semantics.** Elaboration order is observable through
- * the judgments that read the substitution mid-schedule — Numeric Literals
- * §5.1's contextual widening, and Pattern Matching §6.1's abstract-scrutinee
- * refusal — so every pin below is a program whose *verdict or scheme* the order
- * decides. Two properties are what the migration bought, and each is pinned
- * from both directions:
+ * **What the schedule decides.** The order is observable in which part types
+ * an untyped `p` first, and so in the scheme a refused program is left with.
+ * It never decides a verdict through a number: a type only inference gave `p`
+ * converts nothing and chooses no home (Numeric Literals §5.1, #1195), so the
+ * part checked second meets it exactly, and both orders are refused alike, each
+ * naming the written type that compiles. Two properties are what the migration
+ * bought, and each is pinned from both directions:
  *
  * - A lambda literal's position **relative to its non-lambda siblings** is
  *   never observable. The deferred class elaborates after the first pass from
  *   any position, so the pair and its mirror behave identically.
- * - Within each pass, **source order is semantics**. The residue is the same in
- *   both passes, and both sibling pairs below pin it.
+ * - Within each pass, **source order** decides which sibling types `p` first,
+ *   and the same in both passes. The other sibling meets that type exactly.
  *
  * A note on the fixtures. §4.3 names `useFloat : (Float) -> Float`, and the
- * scheme pins here use it: it settles a *variable* at `Float` when it meets one.
- * It cannot make a rejection pin, though — an already-`Int` argument reaches a
- * `Float` parameter by §5.1's ordinary value widening, so the program is
- * accepted whichever order produced the `Int`. `useNat : (Nat) -> Nat` is the
- * discriminating half: `Int -> Nat` is the unsafe direction §5.1 refuses, so a
- * schedule that types the shared variable at `Int` first is *rejected*, and one
- * that reaches the lambda first is accepted at `Nat`. Every pin below is
- * therefore written twice — once for the scheme, once for the verdict.
+ * scheme pins here use it: it settles a *variable* at `Float` when it meets one,
+ * and refuses an `Int` only inference gave, which written as `p: Int` it widens.
+ * `useNat : (Nat) -> Nat` meets an `Int` by mismatch whatever wrote it. Every
+ * pin below is therefore written twice — once for the scheme, once for the
+ * verdict.
  */
 
 import { describe, expect, test } from "vitest";
@@ -44,6 +42,22 @@ const fixtures = "module Main\n\n" +
   "let render(value: Int): String = \"x\"\n";
 
 const mismatch = "type mismatch: expected Nat, found Int";
+
+const article = (type: string): string => /^[AEIOU]/u.test(type) ? "an" : "a";
+
+/** §6's report for a value whose type only inference gave, at a seat it would have widened into (#1195). */
+const notWidened = (name: string, from: string, to: string): string =>
+  `\`${name}\` is ${article(from)} \`${from}\` only by inference, and an inferred type is not widened to ` +
+  `\`${to}\`: write \`${name}: ${from}\` where \`${name}\` is made, or convert it — \`${to}.from${from}(${name})\``;
+
+/** §6's report for such a value in a tree whose home the other values chose (#1195). */
+const noHome = (name: string, from: string, home: string, giver: string): string =>
+  `\`${name}\` is ${article(from)} \`${from}\` only by inference, and an inferred type chooses no home, so ` +
+  `this expression runs at \`${home}\`, the home \`${giver}\` gives it: write \`${name}: ${from}\` where ` +
+  `\`${name}\` is made`;
+
+/** The program with `outer`'s parameter written. */
+const written = (source: string, type: string): string => source.replace(/\((p)\) =/u, `(p: ${type}) =`);
 
 function verdict(source: string): readonly string[] {
   return projectDiagnostics(fixtures + source);
@@ -87,65 +101,76 @@ describe("the deferred-lambda pair: a lambda's position among non-lambdas", () =
     expect(parameterOf(callbackLast, "outer")).toMatchObject(INT);
   });
 
-  test("§4.3's own fixture agrees, accepting from either side", () => {
-    // `useFloat` accepts the `Int` the first pass produced, by §5.1's ordinary
-    // widening — so this pair is identical in the other direction too.
+  test("§4.3's own fixture agrees from either side: refused untyped, accepted written", () => {
+    // The first pass types `p` at `Int` from either side, and `useFloat(p)` in
+    // the callback then meets an `Int` only inference gave, which it does not
+    // widen (#1195). Written `p: Int`, it widens, from either side.
     const floatFirst = "let f(cb: (a) -> b, other: c): String = \"x\"\n" +
       "fun outer(p) = f(x => useFloat(p), p + one)\n";
     const floatLast = "let f(other: c, cb: (a) -> b): String = \"x\"\n" +
       "fun outer(p) = f(p + one, x => useFloat(p))\n";
-    expect(verdict(floatFirst)).toEqual([]);
-    expect(verdict(floatLast)).toEqual([]);
+    expect(verdict(floatFirst)).toEqual([notWidened("p", "Int", "Float")]);
+    expect(verdict(floatLast)).toEqual(verdict(floatFirst));
     expect(parameterOf(floatFirst, "outer")).toMatchObject(INT);
     expect(parameterOf(floatLast, "outer")).toMatchObject(INT);
+    expect(verdict(written(floatFirst, "Int"))).toEqual([]);
+    expect(verdict(written(floatLast, "Int"))).toEqual([]);
   });
 });
 
-describe("the non-lambda sibling pair: pass 1's residue", () => {
-  // Source order within the first pass **is** semantics, by design: two
-  // programs differing only in the order of siblings sharing an undetermined
-  // variable may type differently.
+describe("the non-lambda sibling pair: source order types `p`, and decides nothing more", () => {
+  // Siblings at two variables close in source order, so the first to close
+  // types `p`. The second then meets that type exactly (#1195): the pair is
+  // refused from both sides, each refusal naming the written type that
+  // compiles, and with it written both sides compile.
   const floatFirst = "let g(a1: a, b1: b): String = \"x\"\n" +
     "fun outer(p) = g(p + half, p + one)\n";
   const intFirst = "let g(a1: a, b1: b): String = \"x\"\n" +
     "fun outer(p) = g(p + one, p + half)\n";
 
-  test("`half` first types the shared variable at `Float`; `one` first at `Int`", () => {
-    expect(verdict(floatFirst)).toEqual([]);
+  test("`half` first types `p` at `Float`, `one` first at `Int`, and the other sibling refuses it", () => {
+    expect(verdict(floatFirst)).toEqual([noHome("p", "Float", "Int", "one")]);
     expect(parameterOf(floatFirst, "outer")).toMatchObject(FLOAT);
-    expect(verdict(intFirst)).toEqual([]);
+    expect(verdict(intFirst)).toEqual([notWidened("p", "Int", "Float")]);
     expect(parameterOf(intFirst, "outer")).toMatchObject(INT);
+    for (const type of ["Float", "Int"]) {
+      expect(verdict(written(floatFirst, type)), type).toEqual([]);
+      expect(verdict(written(intFirst, type)), type).toEqual([]);
+    }
   });
 
   test("an argument at a variable's seat closes after the pass's last argument", () => {
     // `p + one` is a tree at its variable's seat, `a`'s or `b`'s: it closes
-    // after the pass's last argument, when `useNat(p)` has fixed `p`, so the
-    // addition widens the `Nat` toward `one`'s `Int` in either order (#1062).
-    // Before the rule it closed at its own turn, and `p + one` written first
-    // typed `p` at `Int` and refused `useNat(p)`.
+    // after the pass's last argument, when `useNat(p)` has typed `p` at `Nat`
+    // in either order (#1062), and so the two orders agree. The addition then
+    // meets a `Nat` only inference gave, which it does not widen (#1195);
+    // written `p: Nat`, it widens toward `one`'s `Int` or `half`'s `Float`.
     for (const [sibling, home] of [["p + one", "Int"], ["p + half", "Float"]] as const) {
       const natFirst = "let g(a1: a, b1: b): String = \"x\"\n" +
         `fun outer(p) = g(useNat(p), ${sibling})\n`;
       const natLast = "let g(a1: a, b1: b): String = \"x\"\n" +
         `fun outer(p) = g(${sibling}, useNat(p))\n`;
-      expect(verdict(natFirst), home).toEqual([]);
+      expect(verdict(natFirst), home).toEqual([notWidened("p", "Nat", home)]);
       expect(parameterOf(natFirst, "outer")).toMatchObject(NAT);
-      expect(verdict(natLast), home).toEqual([]);
+      expect(verdict(natLast), home).toEqual(verdict(natFirst));
       expect(parameterOf(natLast, "outer")).toMatchObject(NAT);
+      expect(verdict(written(natFirst, "Nat")), home).toEqual([]);
+      expect(verdict(written(natLast, "Nat")), home).toEqual([]);
     }
   });
 });
 
-describe("the lambda sibling pair: pass 2's residue is the same as pass 1's", () => {
+describe("the lambda sibling pair: pass 2's order is the same as pass 1's", () => {
   const natFirst = "let f(c1: (a) -> b, c2: (c) -> d): String = \"x\"\n" +
     "fun outer(p) = f(x => useNat(p), y => p + one)\n";
   const natLast = "let f(c1: (a) -> b, c2: (c) -> d): String = \"x\"\n" +
     "fun outer(p) = f(y => p + one, x => useNat(p))\n";
 
-  test("source order among lambda literals decides, both directions", () => {
-    expect(verdict(natFirst)).toEqual([]);
+  test("source order among lambda literals types `p`, and both directions refuse", () => {
+    expect(verdict(natFirst)).toEqual([notWidened("p", "Nat", "Int")]);
     expect(parameterOf(natFirst, "outer")).toMatchObject(NAT);
     expect(verdict(natLast)).toEqual([mismatch]);
+    expect(parameterOf(natLast, "outer")).toMatchObject(INT);
   });
 
   test("§4.3's own fixture pins the scheme half of the same pair", () => {
@@ -153,9 +178,9 @@ describe("the lambda sibling pair: pass 2's residue is the same as pass 1's", ()
       "fun outer(p) = f(x => useFloat(p), y => p + one)\n";
     const floatLast = "let f(c1: (a) -> b, c2: (c) -> d): String = \"x\"\n" +
       "fun outer(p) = f(y => p + one, x => useFloat(p))\n";
-    expect(verdict(floatFirst)).toEqual([]);
+    expect(verdict(floatFirst)).toEqual([noHome("p", "Float", "Int", "one")]);
     expect(parameterOf(floatFirst, "outer")).toMatchObject(FLOAT);
-    expect(verdict(floatLast)).toEqual([]);
+    expect(verdict(floatLast)).toEqual([notWidened("p", "Int", "Float")]);
     expect(parameterOf(floatLast, "outer")).toMatchObject(INT);
   });
 });
@@ -176,9 +201,12 @@ describe("the callee-position flavours: arguments first", () => {
   });
 
   test("§4.3's own fixture pins the scheme: `(Int) -> …`, not `(Float) -> …`", () => {
+    // The argument types `p` at `Int` before the callee's body reads it, and
+    // `useFloat(p)` then refuses the `Int` only inference gave (#1195).
     const floatPlain = "fun flavour(p) = (p + one) |> (x => useFloat(p))\n";
-    expect(verdict(floatPlain)).toEqual([]);
+    expect(verdict(floatPlain)).toEqual([notWidened("p", "Int", "Float")]);
     expect(parameterOf(floatPlain, "flavour")).toMatchObject(INT);
+    expect(verdict(written(floatPlain, "Int"))).toEqual([]);
   });
 
   test("a lambda-callee application's own arguments keep the two passes", () => {
