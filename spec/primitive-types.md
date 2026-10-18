@@ -152,6 +152,40 @@ where these names state how a fractional value is to be changed and throw when
 the requested `Int` cannot exist. Friendly Numerics §2 tenet 7 licenses exactly
 this kind of named exit from the approximate world.
 
+**One edge for all five, and a test for it** *(#1160)*. Every `Float` of
+magnitude 2^52 or more is already a whole number, and every smaller one rounds
+to a magnitude of at most 2^52, so no rounding rule carries a value across the
+safe range's edge. The five therefore throw for exactly the same values —
+`NaN`, both infinities, and every value of magnitude past 2^53 − 1 — and that
+set is a property of the value alone, which the companion names:
+
+```hexagon
+Float.roundsToInt(value: Float): Bool
+```
+
+`roundsToInt(value)` is `True` exactly when `value` lies within
+`[-(2^53 - 1), 2^53 - 1]`, and so exactly when each of the five succeeds on it.
+It is pure and total, and it never throws. It asks about range, not wholeness:
+`Float.roundsToInt(2.5)` is `True`, because every rounding of `2.5` is an `Int`,
+though `2.5` is not one. It could be spelled by hand, as
+`x.abs() <= 9007199254740991.0`, which `NaN` fails because `Ord<Float>` places
+`NaN` above every number. But that spelling needs the facts established above:
+that the five share one edge, where it lies, and that `NaN` falls outside it.
+So the test is named, where `d != 0` before a division needs no name.
+
+The five throw a fault (Exceptions §1), because a value the program made itself
+that rounds out of range is a broken assumption, as a zero divisor is. A caller
+whose value comes from outside the program tests it first:
+
+```hexagon
+if x.roundsToInt() then Some(x.floor()) else None
+```
+
+No sibling returning `Option` stands beside the five, and none rounds within
+`Float`. Collections Part 1 §3.3 would allow a sibling, since a fault takes no
+mark, but as with `Int.div` the test gives a caller with outside data the
+choice, so no sibling is needed.
+
 **`Float.pow(value: Float, exponent: Float): Float`** is the analytic power — `exp(y·ln x)`, total, honestly IEEE with every `NaN` edge, `Float.pow(2.0, 0.5)` the nearest double to `√2`. It is the `widens` declaration over `Pow<Float>`'s member (Operators §6.3.1; Constraints §4.7; Modules §5.3's generalisation law): the operator `**` takes the member's `Int` exponent, the qualified spelling and the dot call take this door, and the member is the door's derived restriction to integer exponents, accounted for in the honor block as `pow = widened`. A fractional exponent at `**` draws the mandatory fixit pointing here.
 
 **Literals:** monomorphic `Float` — an unsuffixed numeric literal is a Float literal iff it contains a `.` or an exponent (`1.5`, `0.0`, `1e9`, `2.5e-3`). `_` separators allowed per §8. Unsuffixed decimal literals are never polymorphic (Numeric Literals §7). Where the checker already knows an exact target — `Dec`, or a concrete type honoring `Frac` and `FromBigInt` such as `Rat` — the literal is promoted there, carrying its written digits: `0.1` means `1/10`, never the parsed double, whose exact binary value is not what the writer meant (Numeric Literals §5.1, #525; friendly-numerics tenet 7).
@@ -370,6 +404,7 @@ Unchanged and still worth its ink here: **`Unit`'s `undefined` must not be confu
 | `Unit` = `()` = JS `undefined` | this doc §9 |
 | `Float.nan` / `Float.infinity` constants and `Float.isNan` / `Float.isFinite` detectors; no special-value literals; `x != x` is uniformly `False` | this doc §3 |
 | `Float.floor`/`ceil`/`trunc`/`round`/`roundAway` return `Int`; `round` uses ties to even, `roundAway` ties away from zero; unsafe results throw target-owned `IntRangeFault`; zero is canonical | this doc §3; #919, #974 |
+| The five share one edge: they throw exactly for `NaN`, the infinities and magnitudes past 2^53 − 1, and `Float.roundsToInt` tests it (range, not wholeness); no `Option` sibling and no rounding within `Float` | this doc §3; #1160 |
 | Int overflow: silent past ±2^53, plain-JS operators; checked stdlib variants; `--checked-int` reserved; int32/`\|0` rejected | this doc §2.1 |
 | `Ord String` = codepoint lexicographic, permanent regardless of grapheme indexing; collation is stdlib, never Ord | this doc §5 |
 | Types uppercase-start; type variables non-uppercase-start (`a b c` by convention) | this doc §1; Lexer §3 |
