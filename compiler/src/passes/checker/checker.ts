@@ -479,8 +479,9 @@ interface SignatureFace extends Spine {
   readonly arrows: FaceArrow[];
   /**
    * The spine applications whose written `>->` §4.2 refused, on each colour
-   * the body acts on of its own account: they read as the fix from outside
-   * (`#readRefusedArrows`).
+   * the body acts on of its own account: they read as the fix from outside,
+   * through the arrow's outcome where a value met it (`#publishOutcomes`) and
+   * otherwise through `#readRefusedArrows`.
    */
   readonly refused?: Map<Axis, Set<number>>;
   /**
@@ -494,7 +495,7 @@ interface SignatureFace extends Spine {
    * The spine applications whose written following arrow §4.2 refused on a
    * colour it leaves silent, where the value follows this signature's own
    * callbacks: the fix passes that colour through too, and they read so from
-   * outside (`#readRefusedArrows`).
+   * outside (`#publishOutcomes`, `#readRefusedArrows`).
    */
   readonly passed?: Map<Axis, Set<number>>;
   /**
@@ -2256,7 +2257,7 @@ export function mergeColourReports(reports: Diagnostics.Bag, staged: Diagnostics
   staged.discardSince(0);
 }
 
-/** Records a written `>->`'s refusal, or its standing over a body in error, on one colour (`#readRefusedArrows`). */
+/** Records a written `>->`'s refusal, or its standing over a body in error, on one colour (`#publishOutcomes`, `#readRefusedArrows`). */
 function faceMark(face: SignatureFace, marks: "refused" | "inError" | "passed", axis: Axis, application: number): void {
   const byAxis = ((face as Partial<Record<"refused" | "inError" | "passed", Map<Axis, Set<number>>>>)[marks] ??= new Map());
   const applications = byAxis.get(axis) ?? new Set<number>();
@@ -4388,7 +4389,7 @@ class Checker {
    * wrote (Constraints §4.7).
    */
   readonly #lambdaFaces = new WeakMap<Resolved.LambdaExpr, SignatureFace>();
-  /** The written face of the binding being generalized, whose refused arrows read as `->!` (`#readRefusedArrows`). */
+  /** The written face of the binding being generalized, whose refused arrows no value met read as `->!` (`#readRefusedArrows`). */
   #generalizingFace: SignatureFace | undefined;
   /** Each written `>->`'s function node, with its face and arrow: a value meeting one is fitted (`#unify`). */
   readonly #faceArrowNodes = new WeakMap<Mono, { readonly face: SignatureFace; readonly arrow: FaceArrow }>();
@@ -4398,6 +4399,10 @@ class Checker {
   readonly #outcomeColours = new Set<Variable>();
   /** The outcomes whose comparison waits for a colour a close decides (`#compareWaitingFits`). */
   readonly #waitingOutcomes = new Set<Variable>();
+  /** The face each outcome's comparison belongs to, compared before a binding would generalize the outcome. */
+  readonly #outcomeFaces = new Map<Variable, SignatureFace>();
+  /** The outcomes that stand for the rest of a fix already passing a colour through (`#checkFaceFitsOn`). */
+  readonly #restOutcomes = new Set<Variable>();
   /** Each lambda's function type, and the body it types, for a refused tie's reading (`#readRefusedTies`). */
   readonly #frameOfType = new WeakMap<Mono, EffectFrame>();
   /**
@@ -4720,18 +4725,22 @@ class Checker {
         if (published.kind !== "Function") return value;
         const result = this.#publishOutcomes(written.result, published.result, level);
         let node: FunctionMono = result === published.result ? published : { ...published, result };
-        const face = this.#faceArrowNodes.get(written) ?? this.#faceArrowNodes.get(annotation);
-        for (const axis of face === undefined ? [] : AXES) {
-          const fits = (face!.face.fits ?? []).filter((fit) => fit.arrow === face!.arrow && fit.axis === axis && !fit.checked);
-          if (fits.length === 0 || this.#outcomes.get(face!.arrow)?.[axis] !== undefined) continue;
-          // An outcome a close decides belongs to that close's level, so no
-          // binding inside it generalizes it meanwhile.
-          const waiting = fits.flatMap((fit) => this.#colourParts(fit.value)).filter((part) => this.#undecided(part));
-          const outcome = this.#fresh(waiting.length === 0 ? level : Math.min(...waiting.map((part) => part.level)), false);
-          this.#outcomeColours.add(outcome);
-          if (waiting.length > 0) this.#waitingOutcomes.add(outcome);
-          this.#outcomes.set(face!.arrow, { ...this.#outcomes.get(face!.arrow), [axis]: outcome });
-          node = { ...node, ...colourSlot(axis, this.#join([colourAt(node, axis) ?? PURE, outcome])) };
+        const seat = this.#faceArrowNodes.get(written) ?? this.#faceArrowNodes.get(annotation);
+        if (seat !== undefined) {
+          const { face, arrow } = seat;
+          for (const axis of AXES) {
+            const fits = (face.fits ?? []).filter((fit) => fit.arrow === arrow && fit.axis === axis && !fit.checked);
+            if (fits.length === 0 || this.#outcomes.get(arrow)?.[axis] !== undefined) continue;
+            // An outcome a close decides belongs to that close's level, so no
+            // binding inside it generalizes it meanwhile.
+            const waiting = fits.flatMap((fit) => this.#colourParts(fit.value)).filter((part) => this.#undecided(part));
+            const outcome = this.#fresh(Math.min(level, ...waiting.map((part) => part.level)), false);
+            this.#outcomeColours.add(outcome);
+            this.#outcomeFaces.set(outcome, face);
+            if (waiting.length > 0) this.#waitingOutcomes.add(outcome);
+            this.#outcomes.set(arrow, { ...this.#outcomes.get(arrow), [axis]: outcome });
+            node = { ...node, ...colourSlot(axis, this.#join([colourAt(node, axis) ?? PURE, outcome])) };
+          }
         }
         if (node === published) return value;
         const lambdas = this.#lambdasOf.get(published);
@@ -4773,6 +4782,44 @@ class Checker {
       default:
         return value;
     }
+  }
+
+  /**
+   * Before a binding generalizes, every outcome it would quantify is decided
+   * (`#publishOutcomes`): the comparison of a face written under data, or by
+   * an ascription, is made here as the binding's own face's is. One whose
+   * comparison still waits for a close belongs to that close, never to this
+   * binding's scheme.
+   */
+  #decideOutcomes(level: number): void {
+    const owed = (outcome: Variable): boolean => this.#prune(outcome) === outcome && outcome.level > level;
+    const faces = new Set([...this.#outcomeFaces].filter(([outcome]) => owed(outcome)).map(([, face]) => face));
+    for (const face of faces) this.#checkFaceFits(face, false);
+    for (const outcome of this.#outcomeFaces.keys()) {
+      if (!owed(outcome)) continue;
+      outcome.level = level;
+      this.#waitingOutcomes.add(outcome);
+    }
+  }
+
+  /**
+   * An outcome that passes the signature's callbacks through, joined with one
+   * more outcome for the rest: silent where the fix passes the colour
+   * through, the constant where a colour still to come makes the fix the
+   * constant. The first is decided now, while those callbacks are still this
+   * signature's own; the rest at the close it waits for.
+   */
+  #splitOutcome(arrow: FaceArrow, axis: Axis, level: number): void {
+    const outcome = this.#outcomes.get(arrow)?.[axis];
+    if (outcome === undefined || this.#prune(outcome) !== outcome || this.#restOutcomes.has(outcome)) return;
+    const rest = this.#fresh(Math.min(level, outcome.level), false);
+    this.#outcomeColours.add(rest);
+    this.#waitingOutcomes.add(rest);
+    this.#restOutcomes.add(rest);
+    const face = this.#outcomeFaces.get(outcome);
+    if (face !== undefined) this.#outcomeFaces.set(rest, face);
+    outcome.instance = this.#join([arrow.handed[axis], rest]);
+    this.#outcomes.set(arrow, { ...this.#outcomes.get(arrow), [axis]: rest });
   }
 
   /** A written `>->`'s outcome on one axis, decided once, when its comparison is made (`#publishOutcomes`). */
@@ -24268,8 +24315,10 @@ class Checker {
    * world on the function's own account, a captured colour, a callback handed
    * later — is the face report, once per arrow, at the first call in source
    * order in the functions the body hands back that runs it, or, where none
-   * does, at the value in its no-call form; the arrow then reads as `->!`.
-   * A fit whose colours still wait is read when they settle (`last`).
+   * does, at the value in its no-call form; the arrow's outcome is then its
+   * fix (`#publishOutcomes`). A fit whose colours still wait is read when
+   * they settle (`last`), unless it is refused before then: it is reported at
+   * once, at the first call that runs a colour decided by then.
    */
   #checkFaceFits(face: SignatureFace, last: boolean): void {
     // Each colour's fits on their own (Effects §1).
@@ -24301,36 +24350,61 @@ class Checker {
       }
       const handed = this.#colourParts(arrowColour(fit.arrow, axis));
       const value = this.#prune(fit.value);
-      const waits = (part: Variable): boolean => this.#undecided(part);
-      let offence: { readonly part?: Variable } | undefined = isImpure(value) ? {} : undefined;
-      let waiting = false;
-      if (offence === undefined) {
+      // What the value runs that the arrow is not handed: the world on its own
+      // account, or decided colours another signature holds.
+      const own = isImpure(value);
+      const offences: Variable[] = [];
+      const waitingParts: Variable[] = [];
+      if (!own) {
         for (const part of this.#colourParts(value)) {
           if (handed.includes(part)) continue;
-          if (waits(part)) {
-            waiting = true;
+          if (this.#undecided(part)) {
+            waitingParts.push(part);
             continue;
           }
           if (this.#isLinkedColour(part) || this.#seatHeld.has(part) || this.#scopesByColour.get(part).length > 0) {
-            offence = { part };
-            break;
+            offences.push(part);
           }
         }
       }
-      if (offence === undefined && waiting && !last) continue;
+      // On a colour the arrow leaves silent, a value following only this
+      // signature's own callbacks there claims more than the arrow passes
+      // through: the fix passes that colour through too (§4.2).
+      const silent = !passesThrough(fit.arrow.effect)[axis];
+      const callbackOf = (part: Variable): CallbackColour | undefined =>
+        faceCallbacks(face).find((each) => this.#colourParts(callbackColour(each, axis)).includes(part));
+      const passes = silent && !own && offences.length > 0 && offences.every((part) => callbackOf(part) !== undefined);
+      const refused = own || offences.length > 0;
+      // A refusal known before every colour it runs is decided reads as its
+      // fix at once, and is reported at once, at a colour decided by then.
+      // A fix that passes a colour through holds only while every colour
+      // refused is this signature's callback's, so it waits for the rest: the
+      // callbacks it passes through are read now, while they are still this
+      // signature's own, and whether the fix is the constant instead is one
+      // more outcome, of the close it waits for.
+      const later = waitingParts.length > 0 && !last;
+      const current = this.#outcomes.get(fit.arrow)?.[axis];
+      if (refused && later && passes) {
+        this.#splitOutcome(fit.arrow, axis, Math.min(...waitingParts.map((part) => part.level)));
+        continue;
+      }
+      if (!refused && later) continue;
       fit.checked = true;
-      if (offence === undefined) {
+      if (!refused) {
         // The face stands, unless the body it is the signature of is in error.
         const inError = fit.arrow.application !== undefined && face.inError?.get(axis)?.has(fit.arrow.application) === true;
         this.#settleOutcome(fit.arrow, axis, inError ? ERROR_COLOUR : PURE);
         continue;
       }
       reported.add(fit.arrow);
-      const runs = (colour: Mono): boolean => {
+      // Where the fix cannot pass the colour through, the report names a
+      // colour that is no callback of this signature's.
+      const named = passes ? offences : offences.filter((part) => !silent || callbackOf(part) === undefined);
+      const runs = (colour: Mono): Variable | true | undefined => {
         const now = this.#prune(colour);
-        return offence!.part === undefined
-          ? isImpure(now)
-          : this.#colourParts(now).includes(offence!.part);
+        if (own) return isImpure(now) ? true : undefined;
+        const parts = this.#colourParts(now);
+        return named.find((part) => parts.includes(part));
       };
       // The functions the value hands back that the body defines: the
       // expression itself and the local lambdas it may be, never the calls
@@ -24347,35 +24421,32 @@ class Checker {
       const handsBack = (span: Source.Span): boolean =>
         !bodyOwn.has(span) && (spanWithin(span, fit.at) || local.some((lambda) => spanWithin(span, lambda)));
       const call = this.#absorbedCalls
-        .filter(({ effect, fail, span }) => handsBack(span) && runs(axis === "fail" ? fail : effect))
+        .filter(({ effect, fail, span }) => handsBack(span) && runs(axis === "fail" ? fail : effect) !== undefined)
         .sort((left, right) => precedes(left.span, right.span) ? -1 : 1)[0];
-      const owner = offence.part === undefined ? undefined : this.#colourOwner(offence.part, face.body);
+      const ran = call === undefined ? undefined : runs(axis === "fail" ? call.fail : call.effect);
+      const part = own ? undefined : typeof ran === "object" ? ran : named[0];
+      const owner = part === undefined ? undefined : this.#colourOwner(part, face.body);
       const subject = call === undefined ? "this function" : "this call";
-      // On a colour the arrow leaves silent, a value following this
-      // signature's own callbacks there claims more than the arrow passes
-      // through: the fix passes that colour through too (§4.2).
-      const silent = !passesThrough(fit.arrow.effect)[axis];
-      const part = offence.part;
-      const callback = part === undefined
-        ? undefined
-        : faceCallbacks(face).find((each) => this.#colourParts(callbackColour(each, axis)).includes(part));
-      if (silent && callback !== undefined) {
+      const callback = part === undefined ? undefined : callbackOf(part);
+      // The outcome is decided once the report has found its call: a call's
+      // colour may hold the outcome, through a sibling that runs this value.
+      const rest = current !== undefined && this.#restOutcomes.has(current);
+      this.#settleOutcome(fit.arrow, axis, passes ? rest ? PURE : fit.arrow.handed[axis] : IMPURE);
+      if (passes && callback !== undefined) {
         this.#reportPassesThrough(face, axis, call?.span ?? fit.at, subject, callback.name, fit.arrow);
-        this.#settleOutcome(fit.arrow, axis, fit.arrow.handed[axis]);
         continue;
       }
-      this.#settleOutcome(fit.arrow, axis, IMPURE);
       this.#reportFollowsFace(
         face,
         axis,
         call?.span ?? fit.at,
-        offence.part === undefined
+        part === undefined
           ? { own: subject }
           : owner === undefined
           ? `${subject} runs a colour this signature is not handed`
           : `${subject} runs ${owner}, which this signature is not handed`,
         fit.arrow.span,
-        silent && offence.part === undefined,
+        silent && part === undefined,
       );
     }
   }
@@ -24383,7 +24454,8 @@ class Checker {
   /**
    * A written `>->` over a body or value in error on `axis` (§3.5, #1223): the
    * arrow at `at`, or the face's outer one, reads in error there from outside,
-   * since whether §4.2 refuses it is not known (`#readRefusedArrows`).
+   * since whether §4.2 refuses it is not known (`#publishOutcomes`,
+   * `#readRefusedArrows`).
    */
   #faceInError(face: SignatureFace, axis: Axis, at?: Source.Span): void {
     const arrow = at ?? face.outer ?? face.arrows[0]?.span;
@@ -24411,8 +24483,8 @@ class Checker {
   ): void {
     const arrow = at ?? face.outer ?? face.arrows[0]?.span;
     // The refused arrow reads as its fix where the function is seen from
-    // outside (`#readRefusedArrows`), so no caller's mark restates it: the
-    // colour it was refused on is one the fix marks.
+    // outside (`#publishOutcomes`, `#readRefusedArrows`), so no caller's mark
+    // restates it: the colour it was refused on is one the fix marks.
     const refused = arrow === undefined
       ? undefined
       : face.arrows.find(({ span: written }) => spanKey(written) === spanKey(arrow));
@@ -24457,7 +24529,7 @@ class Checker {
    * §4.2's report for a function value that follows this signature's own
    * callbacks on a colour the written following arrow leaves silent: the face
    * claims less than the value does, and the fix passes that colour through
-   * too, reading so from outside (`#readRefusedArrows`).
+   * too, reading so from outside (`#publishOutcomes`, `#readRefusedArrows`).
    */
   #reportPassesThrough(
     face: SignatureFace,
@@ -26157,8 +26229,9 @@ class Checker {
     // such a report in it is in error (`#checkGuards`).
     const inferred = this.#diagnostics.count;
     this.#checkSignatureFaces();
-    // An outcome no comparison reached (a face in a refused knot) reads as the
-    // join (`#publishOutcomes`).
+    // Every comparison has decided its outcome by now (`#checkSignatureFaces`
+    // compares the rest). Should one be left, it reads as the join, as the
+    // arrow did before it met a value (`#publishOutcomes`).
     for (const outcome of this.#outcomeColours) {
       if (this.#prune(outcome) === outcome) outcome.instance = PURE;
     }
@@ -31480,6 +31553,7 @@ class Checker {
     this.#closeOpenings(level);
     // A finished face depends on all of its callbacks or on none (§2.4).
     if (this.#generalizingFace !== undefined) this.#checkFaceFits(this.#generalizingFace, false);
+    this.#decideOutcomes(level);
     type = this.#readRefusedTies(type, level);
     type = this.#widenFace(type, level);
     type = this.#readRefusedArrows(type);
@@ -31912,7 +31986,9 @@ class Checker {
 
   /**
    * A face whose written `>->` §4.2 refused reads as its fix on its spine,
-   * where callers meet it: a copy, never the body's own colour.
+   * where callers meet it: a copy, never the body's own colour. An arrow a
+   * value met reads through its outcome instead (`#publishOutcomes`), so this
+   * reads only the arrows no value met.
    */
   #readRefusedArrows(type: Mono): Mono {
     const face = this.#generalizingFace;
@@ -31927,11 +32003,12 @@ class Checker {
     // colour still passing through keeps its join. One over a body in error,
     // and not refused, is in error on the colour it is in error on (#1223).
     const colour = (application: number, axis: Axis): Mono | undefined => {
+      // An arrow a value met reads through its outcome, whenever its
+      // comparison is made (`#publishOutcomes`).
+      const written = face.arrows.find((each) => each.application === application);
+      if (written !== undefined && this.#outcomes.get(written)?.[axis] !== undefined) return undefined;
       if (marked(face.refused, application, axis)) return IMPURE;
-      if (marked(face.passed, application, axis)) {
-        const arrow = face.arrows.find((each) => each.application === application);
-        if (arrow !== undefined) return arrow.handed[axis];
-      }
+      if (marked(face.passed, application, axis) && written !== undefined) return written.handed[axis];
       return marked(face.inError, application, axis) ? ERROR_COLOUR : undefined;
     };
     const read = (node: Mono, application: number): Mono => {

@@ -3491,6 +3491,42 @@ describe("Effects §4.2, §4.4 — a refused `>->` reads as its fix wherever it 
     )).toEqual(["unknown name `nope`"]);
   });
 
+  it("a face refused late over a body in error reads as its fix, as one refused at once does", () => {
+    const program = "let outer(action): Unit =\n    let k: (() ->! Unit) >-> Unit = (x) =>\n        action!()\n        nope!()\n" +
+      "        ()\n    k!(noop)\nexport let p1(): Unit = outer!(noop)\nexport let p2(): Unit = outer(noop)\n";
+    expect(check(program)).toEqual([
+      lateReport,
+      "unknown name `nope`",
+      "this call is impure and may fail, so `outer` wants `!`, not no mark",
+    ]);
+    oneRound(program);
+  });
+
+  it("a refusal found at a close is reported there, at the first call that runs a colour decided by then", () => {
+    // `b` is decided at `inner`'s close and `action` only at `outer`'s: the
+    // refusal is known at `inner`'s close and stands at `b!()`, and the
+    // arrow reads as its fix from then on.
+    const program = "let outer(action): Unit =\n    let inner(b) =\n        let k: (() ->! Unit) >-> Unit = (x) =>\n" +
+      "            action!()\n            b!()\n        k!(noop)\n    inner!(noop)\nexport let probe(): Unit = outer!(noop)\n" +
+      "export let p2(): Unit = outer(noop)\n";
+    expect(check(program)).toEqual([
+      "this call runs `inner`'s `b`, which this signature is not handed, and this face's `>->` promises the function " +
+      "is only as effectful as what it is handed — write `->!`",
+      "this call is impure and may fail, so `outer` wants `!`, not no mark",
+    ]);
+    oneRound(program);
+  });
+
+  it("a face in a refused knot draws no report of its own, as the knot's other faces do not (§3.4)", () => {
+    expect(check(
+      "fun\n    ping(n: Int): (() ->! Unit) >-> Unit = (x) =>\n        x!()\n        if n > 0 then pong!(n - 1) else ()\n" +
+        "    pong(n: Int): Unit =\n        let _ = ping(n - 1)\n        save!(\"z\")\n" +
+        "export let probe(): Unit = ping(2)!(noop)\nexport let probe2(): Unit = ping(2)(noop)\n",
+    )).toEqual([
+      "`ping` takes callbacks, so inside its own recursion it is applied in full where it is named, and this leaves a callback to give it",
+    ]);
+  });
+
   it("a function in the data a face returns reads as its fix (#1281)", () => {
     const own = "this function is impure and may fail on its own account, and this face's `>->` promises the function " +
       "is only as effectful as what it is handed — write `->!`";
@@ -3507,6 +3543,19 @@ describe("Effects §4.2, §4.4 — a refused `>->` reads as its fix wherever it 
       expect(hoveredType(source(program("!")), "mkBad(")).toBe(hover);
       oneRound(program(""));
     }
+    // A binding annotation over data, at module level and locally: the
+    // binding's scheme never holds the outcome.
+    const lambda = "this call is impure and may fail on its own account, and this face's `>->` promises the function is " +
+      "only as effectful as what it is handed — write `->!`";
+    const pair = 'let p: ((() ->! Unit) >-> Unit, Int) = (((x) => save!("a")), 1)\n';
+    const top = (mark: string) => `${pair}export let outer(): Unit =\n    let (g, _) = p\n    g${mark}(noop)\n`;
+    expect(check(top(""))).toEqual([lambda, "this call is impure and may fail, so `g` wants `!`, not no mark"]);
+    expect(check(top("!"))).toEqual([lambda]);
+    expect(hoveredType(source(top("!")), "p:")).toBe("((() ->! Unit) ->! Unit, Int)");
+    oneRound(top(""));
+    const local = (mark: string) => `export let outer(): Unit =\n    ${pair}    let (g, _) = p\n    g${mark}(noop)\n`;
+    expect(check(local("!"))).toEqual([lambda]);
+    oneRound(local(""));
   });
 
   it("a binding annotation over a named function reads as its fix, or in error, as the other spellings do (#1242)", () => {
