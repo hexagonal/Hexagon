@@ -722,13 +722,6 @@ describe("a lambda no written type and no named call reaches is not decided, wha
     compiles(mk + "let k = mk(1)((x: Vector(Int)) => x.length())\n");
   });
 
-  test("a record's construction decides a lambda only where the field's declaration writes the slot whole", () => {
-    compiles("record Q = {f: (Vector(Int)) -> Int}\nlet h() =\n    let q = Q({f = (x) => x.length()})\n    ()\n");
-    const r = "record R(a) = {sample: a, apply: (Vector(a)) -> Int}\n";
-    refused(r + "let h() =\n    let q = R({sample = 1, apply = (d) => d.length()})\n    ()\n", "d", "length");
-    compiles(r + "let h() =\n    let q: R(Int) = R({sample = 1, apply = (d) => d.length()})\n    ()\n");
-  });
-
   test("a hole in the written slot decides nothing, whatever an earlier element is", () => {
     refused("let f() =\n    let h: Vector((_) -> Int) = [(y: Vector(Int)) => 0, (x) => x.length()]\n    ()\n", "x", "length");
     compiles("let f() =\n    let h: Vector((Vector(_)) -> Int) = [(y: Vector(Int)) => 0, (x) => x.length()]\n    ()\n");
@@ -765,6 +758,8 @@ describe("a lambda no written type and no named call reaches is not decided, wha
   });
 
   test("a constructor applied to the wrong number of arguments under a written type", () => {
+    // The second report echoes the refused application; it is pinned so that
+    // the arity path is seen to read no slot and not to crash.
     expect(projectDiagnostics(
       HEADER + "let f() =\n    let k: Option((Vector(_)) -> Int) = Some((x) => x.length(), 1)\n    ()\n",
     )).toEqual(["function expects 1 arguments, got 2", refusal("x", "length")]);
@@ -812,7 +807,7 @@ describe("a lambda no written type and no named call reaches is not decided, wha
     );
   });
 
-  test("a constructor's lambda, where no written type reaches the constructor", () => {
+  test("a constructor's lambda whose slot is one of the declaration's parameters, where no written type reaches it", () => {
     const pair = "union P(a) = Pair(a, (a) -> Int)\n";
     refused(pair + "let f(v: Vector(Int)) =\n    let p = Pair(v, (x) => x.length())\n    ()\n", "x", "length");
     const col = "record Col(a) = {values: Vector(a), format: (a) -> String}\n";
@@ -830,6 +825,119 @@ describe("a lambda no written type and no named call reaches is not decided, wha
     compiles(col + "let f(vs: Vector(Int)) =\n    let c = Col({values = vs, format = (e) => show(e)})\n    ()\n");
     compiles(pair + "let f(v: Vector(Int)) =\n    let p = Pair(v, (x) => Vector.length(x))\n    ()\n");
     compiles(pair + "let f(v: Vector(Int)) =\n    let p: P(Vector(Int)) = Pair(v, (x) => x.length())\n    ()\n");
+    const f = "union F(a) = F((a) -> Int)\n";
+    refused(f + "let u = F((x) => x.length())\n", "x", "length");
+    refused(f + "let u: F(_) = F((x) => x.length())\n", "x", "length");
+  });
+});
+
+describe("with no written type, a constructor's declaration decides as a written type of holes would (§3.1, #1197)", () => {
+  const refused = (source: string, subject: string, name: string): void => {
+    expect(projectDiagnostics(HEADER + source)).toEqual([refusal(subject, name)]);
+  };
+  const compiles = (source: string): void => {
+    expect(projectDiagnostics(HEADER + source)).toEqual([]);
+  };
+  const u = "union U = Mk((Vector(Int)) -> Int)\n";
+  const u2 = "union U2(a) = Mk2((Vector(a)) -> Int)\n";
+  const q = "record Q = {f: (Vector(Int)) -> Int}\n";
+  const r = "record R(a) = {sample: a, apply: (Vector(a)) -> Int}\n";
+  const loop = "(x) =>\n        for v in x\n            ignore(v.isEmpty())\n        0";
+
+  test("a slot the declaration writes whole decides the whole, a union's as a record's", () => {
+    compiles(q + "let h() =\n    let q = Q({f = (x) => x.length()})\n    ()\n");
+    compiles(u + "let h() =\n    let u = Mk((x) => x.length())\n    ()\n");
+    const vv = "union VV = MkVV((Vector(Vector(Int))) -> Int)\n";
+    compiles(vv + `let h() =\n    let u = MkVV(${loop})\n    ()\n`);
+  });
+
+  test("a slot whose head the declaration writes decides the head, and not the whole", () => {
+    compiles(u2 + "let h() =\n    let u = Mk2((x) => x.length())\n    ()\n");
+    compiles(r + "let h() =\n    let q = R({sample = 1, apply = (d) => d.length()})\n    ()\n");
+    refused(u2 + `let h() =\n    let u = Mk2(${loop})\n    ()\n`, "v", "isEmpty");
+    // What a type parameter becomes is inference's, whatever fills it: here a
+    // sibling field, which the text does not make the slot's.
+    refused(
+      r + "let h() =\n    let q = R({sample = [1], apply = (d) =>\n        for v in d\n            ignore(v.isEmpty())\n        0})\n    ()\n",
+      "v",
+      "isEmpty",
+    );
+  });
+
+  test("the same as a written type whose arguments are holes, and a written argument still decides more", () => {
+    compiles(u2 + "let h() =\n    let u: U2(_) = Mk2((x) => x.length())\n    ()\n");
+    refused(u2 + `let h() =\n    let u: U2(_) = Mk2(${loop})\n    ()\n`, "v", "isEmpty");
+    // The written type's slot stands where both reach the lambda.
+    compiles(u2 + `let h() =\n    let u: U2(Vector(Int)) = Mk2(${loop})\n    ()\n`);
+    compiles(
+      r + "let h() =\n    let q: R(Vector(Int)) = R({sample = [1], apply = (d) =>\n        for v in d\n" +
+        "            ignore(v.isEmpty())\n        0})\n    ()\n",
+    );
+  });
+
+  test("wherever the constructor stands", () => {
+    compiles(u + "let mk = () => Mk((x) => x.length())\n");
+    compiles(u2 + "let vs = [Mk2((y: Vector(Int)) => 0), Mk2((x) => x.length())]\n");
+    compiles(u + "let t(h) = Mk((x) => x.length()) |> h\n");
+    compiles(u + "let use(o: Option(U)): Int = 0\nlet n = use(Some(Mk((x) => x.length())))\n");
+    // An enclosing constructor's declared slot reaches the constructor it holds.
+    compiles("union N = N(Option((Vector(Int)) -> Int))\nlet n = N(Some((x) => x.length()))\n");
+    compiles("record Q2 = {f: Option((Vector(Int)) -> Int)}\nlet q = Q2({f = Some((x) => x.length())})\n");
+  });
+
+  test("in every order of the lines, fields and paths around it", () => {
+    const s = "record S(a) = {f: (Vector(a)) -> Int, g: (a) -> Int}\nlet takesInt(n: Int): Int = n\n";
+    compiles(s + "let s = S({f = (x) => x.length(), g = (y) => takesInt(y)})\n");
+    compiles(s + "let s = S({g = (y) => takesInt(y), f = (x) => x.length()})\n");
+    bothOrders(u2 + "let f(u0) =", "let w: U2(Int) = u0", "let us = [u0, Mk2((x) => x.length())]", []);
+    bothOrders(u2 + "let f(u0) =", "let w: U2(Int) = u0", "let us = [u0, Mk2((x) => x.at(0).show().length())]", [
+      refusalOfSubject("show"),
+    ]);
+    compiles(u2 + "let f(c: Bool) = if c then Mk2((y: Vector(Int)) => 0) else Mk2((x) => x.length())\n");
+    compiles(u2 + "let f(c: Bool) = if c then Mk2((x) => x.length()) else Mk2((y: Vector(Int)) => 0)\n");
+  });
+
+  test("grouping changes nothing (#1202)", () => {
+    compiles(q + "let h() =\n    let q = Q(({f = (x) => x.length()}))\n    ()\n");
+    compiles(q + "let h() =\n    let q = (Q)({f = (x) => x.length()})\n    ()\n");
+    compiles(q + "let g(base) =\n    let q = Q(({base with f = (x) => x.length()}))\n    ()\n");
+    compiles(u + "let h() =\n    let u = (Mk)((x) => x.length())\n    ()\n");
+  });
+
+  test("a construction reads the record literal on each of its argument's value paths (#1202)", () => {
+    const w = "record W(a) = {f: (a) -> Int}\n";
+    compiles(w + "let h(c: Bool) =\n    let w: W(Vector(_)) = W(if c then {f = (x) => x.length()} else {f = (y) => 0})\n    ()\n");
+    compiles(w + "let h(c: Bool) =\n    let w: W(Vector(Int)) = W(if c then {f = (y) => 0} else {f = (x) => x.length()})\n    ()\n");
+    compiles(
+      w + "let h(c: Bool) =\n    let w: W(Vector(_)) = W(match c\n        True => {f = (x) => x.length()}\n" +
+        "        False => {f = (y) => 0})\n    ()\n",
+    );
+    compiles(
+      q + "let h(c: Bool, base: {f: (Vector(Int)) -> Int}) =\n" +
+        "    let q = Q(if c then {base with f = (x) => x.length()} else base)\n    ()\n",
+    );
+    compiles(q + "let h(c: Bool) =\n    let q = Q(if c then {f = (x) => x.length()} else {f = (y) => 0})\n    ()\n");
+    // A `try`'s body and handlers, and a block's final expression.
+    compiles(w + "let w: W(Vector(_)) = W(try\n    {f = (x) => x.length()}\ncatch\n    fault _ => {f = (y) => 0})\n");
+    compiles(
+      w + "let h() =\n    let w: W(Vector(_)) = W(try\n        {f = (y) => 0}\n    catch\n" +
+        "        fault _ => {f = (x) => x.length()})\n    ()\n",
+    );
+    compiles(
+      q + "let h(c: Bool) =\n    let q = Q(if c then\n        let z = 1\n        {f = (x) => x.length()}\n" +
+        "    else\n        {f = (y) => 0})\n    ()\n",
+    );
+  });
+
+  test("the lambda's parameter takes the slot as its own written type, for its colour too (Effects §3.4)", () => {
+    // `g` accepts any callback, so it may stand where a pure one is handed:
+    // read as written, its `->!` is the seat's to decide.
+    const decls = "let takesPure(h: (() -> Unit) -> Unit): Unit = ()\n" +
+      "union C = Mk(((() ->! Unit) -> Unit) -> Unit)\nrecord CR = {f: ((() ->! Unit) -> Unit) -> Unit}\n";
+    compiles(decls + "let c = Mk((g) => takesPure(g))\n");
+    compiles(decls + "let c = [Mk((g) => takesPure(g))]\n");
+    compiles(decls + "let c = Some(Mk((g) => takesPure(g)))\n");
+    compiles(decls + "let c = CR({f = (g) => takesPure(g)})\n");
   });
 });
 
