@@ -2093,14 +2093,15 @@ export let probe(): Unit = user!()
     ]);
     // A tie the refused call made in the body around the knot is a tie as any
     // is, and is not hidden; nor is a mark a binding owes on its own account,
-    // nor a tie a merge made.
+    // nor a tie a merge made. It stands at the recursive call that made it:
+    // `go`'s written `f` is its type from where the knot opens (#1279).
     expect(at(`let walk(cb, n: Int): Unit =
     fun go(m: Int, f: () ->! Unit): Unit = if m == 0 then f!() else go!(m - 1, () => cb!())
     go!(n, noop)
 export let probe(): Unit = walk!(save0, 2)
 `)).toEqual([
       [
-        "fun go(m: Int, f: () ->! Unit): Unit = if m == 0 then f!() else go!(m - 1, () => cb!())",
+        "go!(m - 1, () => cb!())",
         "`cb`'s colour is tied to `f`'s here, and inference cannot keep them apart — write `cb`'s type, or wrap `cb` where they meet",
       ],
       ["() => cb!()", made("go", true)],

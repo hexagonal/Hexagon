@@ -5481,6 +5481,21 @@ class Checker {
   readonly #memberParameters = new Map<Resolved.SymbolId, readonly Resolved.SymbolId[]>();
   /** The same parameters, in the order the member's type takes them. */
   readonly #memberSpines = new Map<Resolved.SymbolId, readonly Resolved.Parameter[]>();
+  /**
+   * A `fun` member's header, elaborated where its knot opens
+   * (`#landWrittenSignature`): the face, the annotation scope and the written
+   * types the member's own lambda reuses when its body is checked, so nothing
+   * is elaborated twice.
+   */
+  readonly #landedHeaders = new Map<Resolved.LambdaExpr, {
+    readonly face: SignatureFace;
+    readonly variables: Map<string, Variable>;
+    readonly tails: Map<string, Variable>;
+    readonly parameters: readonly (Mono | undefined)[];
+    readonly result: Mono | undefined;
+  }>();
+  /** The written result type of each member of a knot still open that writes one, as elaborated where it opened. */
+  readonly #landedResults = new Map<Resolved.SymbolId, Mono>();
   /** The lambdas each member's value hands back (`resultLambdas`), whose parameters are the member's. */
   readonly #memberResults = new Map<Resolved.SymbolId, ReadonlySet<Resolved.Expr>>();
   /**
@@ -9906,6 +9921,15 @@ class Checker {
       };
       this.#knots.push(knot);
       for (const symbol of ordered) this.#knotMembers.set(symbol, ordered);
+      // **A member's written signature is read where its knot opens** (Effects
+      // §3.4, #1279): before any body is checked, each member's type is the
+      // function type its declaration writes, every part the text leaves open
+      // a fresh variable, its own arrow's colours inferred from its body as
+      // always. One monotype, never a scheme (annotations §9.11), the same in
+      // every member order.
+      for (const symbol of ordered) {
+        this.#landWrittenSignature(bySymbol.get(symbol)!, recursiveTypes.get(symbol)!, level + 1);
+      }
       for (const symbol of ordered) {
         const item = bySymbol.get(symbol)!;
         const enclosingMember = this.#declaringMember;
@@ -9932,16 +9956,28 @@ class Checker {
         }
         this.#declaringMember = enclosingMember;
         this.#annotationOwner = enclosingAnnotationOwner;
+        // **A member is its value** (#1232): its name takes the value. A
+        // written result is the member's face, a fact the body already met at
+        // its own seat, which reported any disagreement there; the name's side
+        // meets it, never the body's type a second time.
         this.#definingMember = true;
         try {
-          this.#unify(recursiveTypes.get(symbol)!, value, item.span);
+          const writtenResult = this.#landedResults.get(symbol);
+          const actual = this.#prune(value);
+          this.#unify(
+            recursiveTypes.get(symbol)!,
+            writtenResult !== undefined && actual.kind === "Function" ? { ...actual, result: writtenResult } : value,
+            item.span,
+          );
         } finally {
           this.#definingMember = false;
         }
+        this.#takesValue(recursiveTypes.get(symbol)!, value);
       }
       knot.host = undefined;
       this.#knots.pop();
-      // Every member's head exists only now, which is why §7.4's refusal
+      for (const symbol of ordered) this.#landedResults.delete(symbol);
+      // Every body has been checked only now, which is why §7.4's refusal
       // discharges its fence here rather than where it reported.
       if (knot.refused) this.#errorKnotHeads(knot);
       this.#pinUnreachableKnotEvidence(knot, recursiveTypes, level);
@@ -9988,18 +10024,111 @@ class Checker {
   }
 
   /**
+   * A member's type is its value (#1232): once its name has taken the value,
+   * the type its name holds is the lambda's own to every reader keyed on that
+   * type (the lambda a §4.2 search finds, a refused tie's reading). The name
+   * holds the type its uses met while the knot was open, its written signature
+   * or the arity its text writes, never a copy made for the occasion: one node,
+   * which every use already holds, and nothing is re-pointed.
+   */
+  #takesValue(name: Variable, value: Mono): void {
+    const node = this.#prune(name);
+    const own = this.#prune(value);
+    if (node === own) return;
+    const frame = this.#frameOfType.get(own);
+    if (frame !== undefined && !this.#frameOfType.has(node)) this.#frameOfType.set(node, frame);
+    const lambdas = this.#lambdasOf.get(own);
+    if (lambdas !== undefined && !this.#lambdasOf.has(node)) this.#lambdasOf.set(node, lambdas);
+  }
+
+  /**
+   * Elaborates a `fun` member's written header where its knot opens, exactly as
+   * its own lambda would (`#inferExpr`'s `Lambda`, which reuses it), and lands
+   * what the text decides of it on the member's recursive type: each written
+   * parameter type and the written result type, with every variable the text
+   * does not name (a hole, an unwritten part, a callback its written result
+   * takes) fresh, and the member's own arrow fresh. A declared type variable is
+   * the text's own, the one the body's annotations name; so is the colour of a
+   * callback the member's own parameters write, which a written `>->` result
+   * follows as the member's face does (Effects §2.4), linked from the opening.
+   */
+  #landWrittenSignature(item: Resolved.FunItem, recursiveType: Variable, level: number): void {
+    const lambda = item.value;
+    const writes = lambda.returnAnnotation !== undefined ||
+      lambda.parameters.some((parameter) => parameter.annotation !== undefined);
+    if (!writes) return;
+    const symbol = item.binding.symbol;
+    const name = item.binding.name;
+    const enclosingOwner = this.#annotationOwner;
+    const enclosingRole = this.#arrowRole;
+    this.#annotationOwner = { kind: "member", symbol, name };
+    this.#arrowRole = undefined;
+    this.#bindingChain.push({ symbol, name });
+    let parameters: (Mono | undefined)[];
+    let result: Mono | undefined;
+    let face: SignatureFace;
+    let variables: Map<string, Variable>;
+    const tails = new Map<string, Variable>();
+    try {
+      face = this.#openFace(level + 1, lambda.span, name, this.#effectFrames.length > 0);
+      variables = new Map<string, Variable>(this.#annotationVariableScope);
+      this.#declareBinderVariables(lambda.typeParameters ?? [], level, variables, { kind: "member", symbol, name });
+      parameters = lambda.parameters.map((parameter) => {
+        if (parameter.annotation === undefined) {
+          face.untyped[0] = true;
+          return undefined;
+        }
+        return this.#elaborateParameter(
+          parameter.annotation,
+          face,
+          0,
+          parameter.name,
+          (annotation) => this.#annotationType(annotation, level + 1, tails, variables),
+        )!;
+      });
+      const written = lambda.returnAnnotation;
+      result = written === undefined
+        ? undefined
+        : this.#inRole(
+          this.#resultRole(face, 0, written),
+          () => this.#annotationType(written, level + 1, tails, variables),
+        );
+    } finally {
+      this.#bindingChain.pop();
+      this.#annotationOwner = enclosingOwner;
+      this.#arrowRole = enclosingRole;
+    }
+    this.#landedHeaders.set(lambda, { face, variables, tails, parameters, result });
+    const header: Mono = {
+      kind: "Function",
+      parameters: parameters.map((parameter) => parameter ?? this.#fresh(level, false)),
+      result: result ?? this.#fresh(level, false),
+      effect: this.#fresh(level, false),
+      fail: this.#fresh(level, false),
+    };
+    const text = new Set<Variable>((face.handed[0] ?? []).flatMap(({ colour, fail }) => [colour, fail]));
+    const open = new Map<number, Mono>();
+    for (const variable of this.#collectVariables(header)) {
+      if (variable.rigidName === undefined && !text.has(variable)) open.set(variable.id, this.#fresh(level, false));
+    }
+    this.#unify(recursiveType, this.#replaceVariables(header, open), lambda.span);
+    if (result !== undefined) this.#landedResults.set(symbol, result);
+  }
+
+  /**
    * §10's fence on the rigid-vs-concrete family: once §7.4's refusal has fired,
    * no head of the component may reach defaulting.
    *
    * A head no unification errors survives to the module deadline, where
    * defaulting binds it to `Int` and the rigid-vs-concrete message reports that
    * as a demand of a body with no `Int` in it. The pair that met is not the
-   * whole set — at three headed members the first collision names two, and the
-   * third is defaulted — nor even a subset the collision could reach: the third
-   * member's head is not written until its own body is checked.
+   * whole set: at three headed members the first collision names two, and the
+   * third is defaulted. Every head is on the knot's types from where it opens
+   * (`#landWrittenSignature`), but which of them a body links is known only
+   * once every body has been checked.
    *
-   * Hence one call site, at the component's end, where every head exists — and
-   * the timing is a decision, not an implementation convenience. Erroring the
+   * Hence one call site, at the component's end, after every body — and the
+   * timing is a decision, not an implementation convenience. Erroring the
    * heads where the collision reports costs a real diagnostic: a later member's
    * body can force the type a surviving head stands in, and *that* `String` is a
    * demand the body makes, which the fence is not for. The knot's refusal and
@@ -11128,7 +11257,13 @@ class Checker {
         this.#arrowRole = undefined;
         const writes = expression.returnAnnotation !== undefined ||
           expression.parameters.some((parameter) => parameter.annotation !== undefined);
-        const face = writes
+        // A `fun` member's header was elaborated where its knot opened
+        // (`#landWrittenSignature`).
+        const landedHeader = declaringMember === undefined ? undefined : this.#landedHeaders.get(expression);
+        if (landedHeader !== undefined) this.#landedHeaders.delete(expression);
+        const face = landedHeader !== undefined
+          ? landedHeader.face
+          : writes
           ? this.#openFace(
             level + 1,
             expression.span,
@@ -11174,20 +11309,22 @@ class Checker {
           // What the face's written results stand over: the value the body hands back.
           signature.value = this.#givenValue(expression.body).span;
         }
-        const annotationTails = new Map<string, Variable>();
+        const annotationTails = landedHeader?.tails ?? new Map<string, Variable>();
         // Inherit the enclosing definition's type variables so a nested lambda's
         // annotations may name them (lexical scoping); its own `<...>` binders below
         // shadow by overwriting.
-        const annotationVariables = new Map<string, Variable>(this.#annotationVariableScope);
-        const inheritedVariables = new Set(annotationVariables.values());
-        this.#declareBinderVariables(
-          expression.typeParameters ?? [],
-          level,
-          annotationVariables,
-          declaringMember === undefined
-            ? undefined
-            : { kind: "member", ...declaringMember },
-        );
+        const inheritedVariables = new Set(new Map<string, Variable>(this.#annotationVariableScope).values());
+        const annotationVariables = landedHeader?.variables ?? new Map<string, Variable>(this.#annotationVariableScope);
+        if (landedHeader === undefined) {
+          this.#declareBinderVariables(
+            expression.typeParameters ?? [],
+            level,
+            annotationVariables,
+            declaringMember === undefined
+              ? undefined
+              : { kind: "member", ...declaringMember },
+          );
+        }
         // **The landing** (§4.3). An expectation does nothing until it reaches a
         // lambda literal — a match function included, being a lambda by desugar
         // (Pattern Matching §6.7). It lands only if it is a function type of
@@ -11242,7 +11379,7 @@ class Checker {
           }
           const parameterType = parameter.annotation === undefined
             ? (component ?? this.#fresh(level + 1, false))
-            : this.#elaborateParameter(
+            : landedHeader?.parameters[index] ?? this.#elaborateParameter(
                 parameter.annotation,
                 face!,
                 0,
@@ -11352,7 +11489,7 @@ class Checker {
           expression.returnAnnotation !== undefined && this.#faceLands(expression.body)
         ) {
           const written = expression.returnAnnotation;
-          returnAnnotationType = this.#inRole(
+          returnAnnotationType = landedHeader?.result ?? this.#inRole(
             face === undefined ? undefined : this.#resultRole(face, 0, written),
             () => this.#annotationType(written, level + 1, annotationTails, annotationVariables),
           );
@@ -11397,7 +11534,7 @@ class Checker {
         }
         const returnAnnotation = expression.returnAnnotation;
         if (returnAnnotation !== undefined) {
-          const annotationType = returnAnnotationType ?? this.#inRole(
+          const annotationType = returnAnnotationType ?? landedHeader?.result ?? this.#inRole(
             face === undefined ? undefined : this.#resultRole(face, 0, returnAnnotation),
             () => this.#annotationType(returnAnnotation, level + 1, annotationTails, annotationVariables),
           );
@@ -12583,10 +12720,8 @@ class Checker {
   #groundResult(expression: Resolved.Expr): boolean {
     while (expression.kind === "Group") expression = expression.expression;
     if (expression.kind !== "Call" || expression.callee.kind !== "Name") return false;
-    // A member of a knot still open has no settled type: its call's result is
-    // whatever its siblings' bodies have said so far (`#landFromSignature`).
-    const callee = expression.callee.symbol;
-    if (this.#knots.some((knot) => knot.types.has(callee))) return false;
+    // A member of a knot still open is read so too: its written result type
+    // is its face from where the knot opened (Effects §3.4, #1279).
     const result = this.#resultWritten(this.#writtenView(expression.callee));
     return result !== undefined && annotationGround(result);
   }
@@ -12748,9 +12883,7 @@ class Checker {
       return whole === undefined ? undefined : this.#patternWritten(pattern, whole, symbol);
     }
     if (expression.kind !== "Call" || expression.callee.kind !== "Name") return undefined;
-    // A member of a knot still open has no settled type (`#groundResult`).
-    const callee = expression.callee.symbol;
-    if (this.#knots.some((knot) => knot.types.has(callee))) return undefined;
+    // A member of a knot still open included (`#groundResult`).
     const result = this.#resultWritten(this.#writtenView(expression.callee));
     return result === undefined || !ground && annotationGround(result) ? undefined : { written: result, role: "spine" };
   }
@@ -20851,13 +20984,17 @@ class Checker {
    * generalized signature spells that parameter's type whole — no variable an
    * argument or a later line could fill — the parameter's type is the callee's
    * text, and it is decided as a written one is (#1119 R.b). A member of a knot
-   * still open has no generalized signature: the type the knot is inferring
-   * holds whatever its siblings' bodies have said so far, which follows the
-   * order the members are written in, so nothing lands from it.
+   * still open has no generalized signature, and what its siblings' bodies have
+   * said of it so far follows the order the members are written in: what lands
+   * from it is what its declaration writes, read from the text alone
+   * (`#landFromWritten`), as its signature is read where the knot opens (#1279).
    */
   #landFromSignature(callee: Resolved.NameExpr, arguments_: readonly Resolved.Expr[]): void {
     if (!this.#fromText(callee.symbol)) return;
-    if (this.#knots.some((knot) => knot.types.has(callee.symbol))) return;
+    if (this.#knots.some((knot) => knot.members.some(({ symbol }) => symbol === callee.symbol))) {
+      this.#landFromWritten(callee, arguments_);
+      return;
+    }
     const scheme = this.#schemes.get(callee.symbol);
     const signature = scheme === undefined ? undefined : this.#prune(scheme.type);
     if (signature?.kind !== "Function") return;
@@ -20881,6 +21018,27 @@ class Checker {
         if (given !== undefined && annotationGround(given)) {
           this.#writtenViews.set(parameter.symbol, { written: given, role: "callback" });
         }
+      }
+    }
+  }
+
+  /** `#landFromSignature` at a member of a knot still open: a parameter type its declaration writes ground. */
+  #landFromWritten(callee: Resolved.NameExpr, arguments_: readonly Resolved.Expr[]): void {
+    const view = this.#writtenView(callee);
+    for (const [index, argument] of arguments_.entries()) {
+      let lambda: Resolved.Expr = argument;
+      while (lambda.kind === "Group") lambda = lambda.expression;
+      const written = this.#parameterWritten(view, index);
+      if (
+        lambda.kind !== "Lambda" || written?.kind !== "Function" ||
+        written.parameters.length !== lambda.parameters.length
+      ) continue;
+      for (const [position, parameter] of lambda.parameters.entries()) {
+        if (parameter.annotation !== undefined) continue;
+        const given = written.parameters[position]!;
+        if (!annotationGround(given)) continue;
+        this.#resource(parameter.symbol, { kind: "written" });
+        this.#writtenViews.set(parameter.symbol, { written: given, role: "callback" });
       }
     }
   }
@@ -28170,14 +28328,16 @@ class Checker {
           const headSpans = [collision.left, collision.right]
             .filter((site) => site.kind === "block")
             .map((site) => site.span);
+          // The two sides are named in the order the text declares them,
+          // never by which side of the meeting each stood on: the block head
+          // first, then the members in source order.
+          const [first, second] = [
+            { name: variable.rigidName, site: collision.left },
+            { name: type.rigidName, site: collision.right },
+          ].sort((a, b) => headSiteRank(collision.knot, a.site) - headSiteRank(collision.knot, b.site));
           this.#diagnostics.add({
             severity: "error",
-            message: knotHeadCollisionMessage(
-              variable.rigidName,
-              type.rigidName,
-              collision.left,
-              collision.right,
-            ),
+            message: knotHeadCollisionMessage(first!.name, second!.name, first!.site, second!.site),
             primary: span,
             ...(headSpans.length === 0
               ? {}
@@ -40461,6 +40621,11 @@ function inferredTypeVariableName(index: number): string {
 function functionTypedVarMessage(name: string): string {
   return `\`${name}\` is a \`var\`, and a \`var\` cannot hold a function — vars ` +
     "accumulate data; model changing behavior as a union and `match` on it";
+}
+
+/** Where a head site stands in the text: the block head first, then each member in source order. */
+function headSiteRank(knot: Knot, site: HeadSite): number {
+  return site.kind === "block" ? -1 : knot.members.indexOf(site.member);
 }
 
 function knotHeadSite(knot: Knot, owner: HeadOwner): HeadSite | undefined {
