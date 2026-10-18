@@ -1270,7 +1270,9 @@ interface InPlaceRead {
  * A nested body's tie that waits on an enclosing body's close (Effects §3.4,
  * #1163): to the enclosing untyped callback it shares a colour with, or, where
  * its shape was still open when its own body closed, to whichever of that
- * body's untyped callbacks a later line makes it share one with.
+ * body's untyped callbacks a later line makes it share one with. A shape its
+ * body had already made one with a type of the bodies around it (`captured`)
+ * is a sharing that body made, which a later line only decides (#1216).
  */
 type DeferredTie =
   | {
@@ -1280,7 +1282,15 @@ type DeferredTie =
     /** The enclosing callback it waits on, whose type the fix writes too. */
     readonly with: EffectFrame["untyped"][number];
   }
-  | { readonly kind: "shape"; readonly frame: EffectFrame; readonly parameter: EffectFrame["untyped"][number] };
+  | {
+    readonly kind: "shape";
+    readonly frame: EffectFrame;
+    readonly parameter: EffectFrame["untyped"][number];
+    /** Where the body made it one with what it captured, if it did. */
+    readonly captured: Source.Span | undefined;
+    /** What its type was where its body closed. */
+    readonly variable: Variable;
+  };
 
 /**
  * One tie's report (Effects §3.4, §9): every tied parameter, each once, with
@@ -1302,6 +1312,11 @@ class TieReport {
     readonly parameter: EffectFrame["untyped"][number];
     readonly phrase: string;
     readonly from: Mono | undefined;
+    /**
+     * Where its body made it one with a captured colour, which a later line
+     * gave a shape: where it first met the captured type (#1216).
+     */
+    readonly madeAt?: Source.Span | undefined;
   }[] = [];
 
   /** A tied parameter of `frame`, read as its fix from outside where `reads`. */
@@ -3577,6 +3592,31 @@ function givenSlot(
 }
 
 /**
+ * The record literals a value may be: itself, or each value path of a branch
+ * form or a block, through grouping (#1202). A record's construction reads its
+ * declared fields through every one of them.
+ */
+function recordsOnPaths(value: Resolved.Expr): readonly Resolved.RecordExpr[] {
+  const node = ungrouped(value);
+  switch (node.kind) {
+    case "Record":
+      return [node];
+    case "If":
+      return [...recordsOnPaths(node.consequence), ...recordsOnPaths(node.alternative)];
+    case "Match":
+      return [...node.arms, ...(node.catchArms ?? [])].flatMap((arm) => recordsOnPaths(arm.body));
+    case "Try":
+      return [node.body, ...node.arms.map((arm) => arm.body)].flatMap(recordsOnPaths);
+    case "Block": {
+      const last = node.items.at(-1);
+      return last?.kind === "ExprItem" ? recordsOnPaths(last.expression) : [];
+    }
+    default:
+      return [];
+  }
+}
+
+/**
  * The lambdas on an argument's **spine** — the positions its value is one of:
  * through grouping, a vector's, tuple's or record's parts, and a branch form's
  * value paths. A lambda a lambda hands back is off the spine, and so is
@@ -4366,6 +4406,14 @@ class Checker {
     { readonly span: Source.Span; readonly order: number; readonly target: Mono }
   >();
   #bindCount = 0;
+  /**
+   * Where each variable first met a type of a body further out, which lowered
+   * its level: a nested body's parameter whose shape a later line decides was
+   * made one with what its body captured there (#1216).
+   */
+  readonly #capturedAt = new WeakMap<Variable, Source.Span>();
+  /** The unification `#lowerLevels` is lowering levels for, if any (`#capturedAt`). */
+  #lowering: Source.Span | undefined;
   /**
    * Where each variable first met another, on either side of the bind: a seat
    * report whose arrow no constant pinned stands there (`#colourMeeting`).
@@ -7355,8 +7403,9 @@ class Checker {
    * lambdas that land from it, which the schedule elaborates after the operands
    * their parameters land from (Functions §4.3). A constructor's application
    * takes its expectation from where it stands, so it decides none: a lambda in
-   * it is decided only by the slot a written type writes for it
-   * (`#writtenContexts`); nor does a call of anything unnamed.
+   * it is decided only by the slot its declaration writes, as a written type
+   * gives the declaration's parameters or as holes (`#writtenContexts`); nor
+   * does a call of anything unnamed.
    */
   #landingContextDecided(call: Resolved.CallExpr, asked?: Resolved.LambdaExpr): boolean {
     // Only the lambda asked about, and those elaborated after it, cannot have
@@ -19965,12 +20014,14 @@ class Checker {
   }
 
   /**
-   * The slots a written type gives a constructor's arguments where it reaches
-   * the constructor's application: a union constructor's slots, or a record's
-   * declared fields at its construction, each as its declaration writes it,
-   * with the declaration's type parameters (`parameters`) still to be given.
+   * The slots a constructor's application gives its arguments: a union
+   * constructor's slots, or a record's declared fields at its construction,
+   * each as its declaration writes it, with the declaration's type parameters
+   * (`parameters`) still to be given. Where a written type reaches the
+   * application (`annotation`), the constructor is that type's; where none
+   * does, it is the callee's own declaration.
    */
-  #declaredSlots(call: Resolved.CallExpr, annotation: Resolved.TypeAnnotation): {
+  #declaredSlots(call: Resolved.CallExpr, annotation?: Resolved.TypeAnnotation): {
     readonly parameters: readonly string[];
     readonly slots: readonly (readonly [Resolved.Expr, Resolved.TypeAnnotation | undefined])[];
   } | undefined {
@@ -19978,8 +20029,13 @@ class Checker {
     const named = ungrouped(call.callee);
     if (named.kind !== "Name") return undefined;
     const callee = named.symbol;
-    if (annotation.kind === "Union") {
-      const union = this.#declaredUnions.get(annotation.union) ?? this.#programUnion(annotation.union);
+    const unionId = annotation === undefined
+      ? this.#constructorUnions.get(callee) ?? this.#programConstructorUnion(callee)
+      : annotation.kind === "Union"
+      ? annotation.union
+      : undefined;
+    if (unionId !== undefined) {
+      const union = this.#declaredUnions.get(unionId) ?? this.#programUnion(unionId);
       const slots = union?.constructors.find((constructor) => constructor.binding.symbol === callee)?.slots;
       if (union === undefined || slots === undefined || slots.length !== call.arguments.length) return undefined;
       return {
@@ -19987,25 +20043,36 @@ class Checker {
         slots: call.arguments.map((argument, index) => [argument, slots[index]!.annotation] as const),
       };
     }
-    const record = call.arguments.length === 1 ? ungrouped(call.arguments[0]!) : undefined;
-    if (annotation.kind === "RecordDeclaration" && record?.kind === "Record") {
-      const declaration = this.#constructedRecords.get(callee);
-      if (declaration === undefined || declaration.id !== annotation.record) return undefined;
-      return {
-        parameters: declaration.parameters,
-        slots: record.fields.map((field) =>
+    const declaration = call.arguments.length === 1 ? this.#constructedRecords.get(callee) : undefined;
+    if (
+      declaration === undefined ||
+      annotation !== undefined && (annotation.kind !== "RecordDeclaration" || declaration.id !== annotation.record)
+    ) return undefined;
+    // A record literal on any of the argument's value paths is the construction's.
+    const records = recordsOnPaths(call.arguments[0]!);
+    if (records.length === 0) return undefined;
+    return {
+      parameters: declaration.parameters,
+      slots: records.flatMap((record) =>
+        record.fields.map((field) =>
           [field.value, declaration.fields.find((declared) => declared.name === field.name.text)?.annotation] as const
-        ),
-      };
-    }
-    return undefined;
+        )
+      ),
+    };
   }
 
-  /** `#declaredSlots`, each slot as the written type reads it (`givenSlot`). */
-  #givenSlots(call: Resolved.CallExpr, annotation: Resolved.TypeAnnotation): (readonly [Resolved.Expr, Resolved.TypeAnnotation])[] {
+  /**
+   * `#declaredSlots`, each slot as the written type reads it (`givenSlot`); with
+   * no written type, as one whose arguments are all holes reads it.
+   */
+  #givenSlots(call: Resolved.CallExpr, annotation?: Resolved.TypeAnnotation): (readonly [Resolved.Expr, Resolved.TypeAnnotation])[] {
     const declared = this.#declaredSlots(call, annotation);
-    if (declared === undefined || (annotation.kind !== "Union" && annotation.kind !== "RecordDeclaration")) return [];
-    const given = new Map(declared.parameters.map((name, index) => [name, annotation.arguments[index]!] as const));
+    if (declared === undefined) return [];
+    if (annotation !== undefined && annotation.kind !== "Union" && annotation.kind !== "RecordDeclaration") return [];
+    const hole: Resolved.TypeAnnotation = { kind: "Hole", id: -1, constraints: [], span: call.span };
+    const given = new Map(
+      declared.parameters.map((name, index) => [name, annotation === undefined ? hole : annotation.arguments[index]!] as const),
+    );
     return declared.slots.flatMap(([argument, slot]) => slot === undefined ? [] : [[argument, givenSlot(slot, given)] as const]);
   }
 
@@ -21000,50 +21067,52 @@ class Checker {
     };
     // Where a written type reaches a lambda through forwarding forms, and
     // through a constructor's slots, what it writes for the lambda is the
-    // text's: a hole there is still a hole.
-    const writtenLand = (value: Resolved.Expr, annotation: Resolved.TypeAnnotation | undefined): void => {
+    // text's: a hole there is still a hole. A constructor's own declaration is
+    // such a type, its parameters holes (`declared`), and stands only where no
+    // written type reached the lambda.
+    const writtenLand = (value: Resolved.Expr, annotation: Resolved.TypeAnnotation | undefined, declared = false): void => {
       if (!headWritten(annotation)) return;
       let node = value;
       while (node.kind === "Group") node = node.expression;
       switch (node.kind) {
         case "Call":
-          for (const [argument, slot] of this.#givenSlots(node, annotation)) writtenLand(argument, slot);
+          for (const [argument, slot] of this.#givenSlots(node, annotation)) writtenLand(argument, slot, declared);
           return;
         case "Tuple":
           if (annotation.kind === "Tuple" && annotation.elements.length === node.elements.length) {
-            node.elements.forEach((element, index) => writtenLand(element, annotation.elements[index]));
+            node.elements.forEach((element, index) => writtenLand(element, annotation.elements[index], declared));
           }
           return;
         case "Vector":
-          if (annotation.kind === "Vector") for (const element of node.elements) writtenLand(element, annotation.element);
+          if (annotation.kind === "Vector") for (const element of node.elements) writtenLand(element, annotation.element, declared);
           return;
         case "Record":
           if (annotation.kind === "Record" && node.spread === undefined) {
             for (const field of node.fields) {
-              writtenLand(field.value, annotation.fields.find((written) => written.name === field.name.text)?.annotation);
+              writtenLand(field.value, annotation.fields.find((written) => written.name === field.name.text)?.annotation, declared);
             }
           }
           return;
         case "Lambda":
           if (annotation.kind === "Function" && annotation.parameters.length === node.parameters.length) {
-            this.#writtenContexts.set(node, annotation);
-            writtenLand(node.body, annotation.result);
+            if (!declared || !this.#writtenContexts.has(node)) this.#writtenContexts.set(node, annotation);
+            writtenLand(node.body, annotation.result, declared);
           }
           return;
         case "If":
-          writtenLand(node.consequence, annotation);
-          writtenLand(node.alternative, annotation);
+          writtenLand(node.consequence, annotation, declared);
+          writtenLand(node.alternative, annotation, declared);
           return;
         case "Match":
-          for (const arm of [...node.arms, ...(node.catchArms ?? [])]) writtenLand(arm.body, annotation);
+          for (const arm of [...node.arms, ...(node.catchArms ?? [])]) writtenLand(arm.body, annotation, declared);
           return;
         case "Try":
-          writtenLand(node.body, annotation);
-          for (const arm of node.arms) writtenLand(arm.body, annotation);
+          writtenLand(node.body, annotation, declared);
+          for (const arm of node.arms) writtenLand(arm.body, annotation, declared);
           return;
         case "Block": {
           const last = node.items.at(-1);
-          if (last?.kind === "ExprItem") writtenLand(last.expression, annotation);
+          if (last?.kind === "ExprItem") writtenLand(last.expression, annotation, declared);
           return;
         }
         default:
@@ -21150,18 +21219,19 @@ class Checker {
         if (expression.kind === "Lambda" && expression.returnAnnotation !== undefined) {
           writtenLand(expression.body, expression.returnAnnotation);
         }
+        // A constructor's application no written type reaches reads its own
+        // declaration, its type parameters given holes: the walk is outside in,
+        // so a written type around it, or an enclosing constructor's slot, has
+        // already said what it says.
+        if (expression.kind === "Call") {
+          for (const [argument, slot] of this.#givenSlots(expression)) writtenLand(argument, slot, true);
+        }
         if (expression.kind === "Ascription" && annotationWhole(expression.annotation)) {
           expect(expression.expression, expression.annotation);
         } else if (expression.kind === "Lambda" && expression.returnAnnotation !== undefined) {
           if (annotationWhole(expression.returnAnnotation)) expect(expression.body, expression.returnAnnotation);
-        } else if (
-          expression.kind === "Call" && expression.callee.kind === "Name" &&
-          expression.arguments.length === 1 && expression.arguments[0]!.kind === "Record"
-        ) {
-          const declaration = this.#constructedRecords.get(expression.callee.symbol);
-          for (const field of (expression.arguments[0] as Resolved.RecordExpr).fields) {
-            expect(field.value, declaration?.fields.find((declared) => declared.name === field.name.text)?.annotation);
-          }
+        } else if (expression.kind === "Call") {
+          for (const [argument, slot] of this.#declaredSlots(expression)?.slots ?? []) expect(argument, slot);
         }
       },
       lambda: (lambda) => {
@@ -23377,10 +23447,15 @@ class Checker {
     if (type.kind !== "Function") {
       // Not a function yet where its body closed: a line of an enclosing body
       // still open may make it one, tied to that body's callback, so the open
-      // body's close decides it, whatever order the lines come in.
+      // body's close decides it, whatever order the lines come in. A level
+      // below its body's says the body already made it one with a type of the
+      // bodies around it, which it captured (#1216).
       if (type.kind === "Variable" && type.rigidName === undefined) {
         const open = this.#openEnclosing(frame);
-        if (open !== undefined) (open.deferredTies ??= []).push({ kind: "shape", frame, parameter });
+        const captured = type.level < frame.level ? this.#capturedSpan(parameter.type) ?? parameter.span : undefined;
+        if (open !== undefined) {
+          (open.deferredTies ??= []).push({ kind: "shape", frame, parameter, captured, variable: type });
+        }
       }
       return;
     }
@@ -23406,9 +23481,10 @@ class Checker {
    * further out, still open, has an untyped callback sharing its colour, it
    * waits again, there. Otherwise it is tied to the callback of `closing` it
    * waited on, or, where its shape was open at its own close, to whichever of
-   * `closing`'s untyped callbacks a later line made it share a colour with;
-   * a shape's other ties were for its own close to read. One that waited on a
-   * callback it no longer shares is read as its own close would have read it.
+   * `closing`'s untyped callbacks a later line made it share a colour with.
+   * One that waited on a callback it no longer shares is read as its own close
+   * would have read it, and so is a shape its body had made one with a type
+   * it captured (#1216); a shape's other ties were for its own close to read.
    * The expression that tied them is looked for between the two parameters'
    * types, whichever line gave them their arrows (`#tieSpan`). Where `closing`
    * closed before the tie reached it (a lambda the knot held), and the tie was
@@ -23458,12 +23534,27 @@ class Checker {
       // A tie that waited on a callback its colour no longer shares (the
       // callback turned pure) is read as its own close would have read it,
       // had it not stopped at the wait: a captured colour, a sibling's, a join.
-      if (deferred.kind !== "with") return;
+      // So is a shape its body had made one with a type it captured, where its
+      // colour holds a written callback's: the sharing is the body's, a later
+      // line only made it a function, and a written colour stays its own, so
+      // it reads here as it would have there (#1216). Any other colour a later
+      // line gave it is one that line's body decided, closing arrows the
+      // parameter's own close would have closed, so it is not read again. A
+      // shape no captured type held is shared by a use of the body's value, if
+      // by anything, and that use's body reads it.
+      if (deferred.kind === "shape" && !(deferred.captured !== undefined && this.#shapedWritten(deferred.variable, parameter))) {
+        return;
+      }
       const tie = this.#tieOf(frame, parameter, colour);
       if (tie === undefined || tie.waits !== undefined) return;
-      const report = reports.get(colour) ?? new TieReport();
-      reports.set(colour, report);
-      report.named.push({ parameter, phrase: tie.phrase, from: tie.from });
+      // A shape's report is its own, as its own close would have made it,
+      // though later lines merged its colour with another's.
+      const key = deferred.kind === "shape" ? parameter.type : colour;
+      const report = reports.get(key) ?? new TieReport();
+      reports.set(key, report);
+      // A sibling's tie stands at the merge, which its own close made.
+      const madeAt = deferred.kind === "shape" && tie.others.length === 0 ? deferred.captured : undefined;
+      report.named.push({ parameter, phrase: tie.phrase, from: tie.from, madeAt });
       report.add(frame, parameter, false);
       for (const other of tie.others) report.add(frame, other, false);
       return;
@@ -23482,6 +23573,44 @@ class Checker {
     // fix only where its own close found the tie.
     report.add(frame, parameter, false);
     report.add(closing, enclosing, false);
+  }
+
+  /**
+   * Whether the unification that made `variable` a function gave the parameter's own
+   * colour a written callback's colour as a part (#1216): one the parameter's
+   * colour now holds, met within that line's unification — the line's own
+   * fitting and the lambdas written in it included — and not by a still later
+   * line that joined another colour in.
+   */
+  #shapedWritten(variable: Variable, parameter: EffectFrame["untyped"][number]): boolean {
+    let node: Mono = variable;
+    let shaping: Source.Span | undefined;
+    while (node.kind === "Variable") {
+      const bind = this.#binds.get(node);
+      if (bind === undefined) return false;
+      shaping = bind.span;
+      node = bind.target;
+    }
+    if (node.kind !== "Function" || shaping === undefined) return false;
+    const within = (span: Source.Span): boolean =>
+      span.start.offset >= shaping.start.offset && span.end.offset <= shaping.end.offset;
+    const colour = this.#prune(this.#ownColourAt(node, entryAxis(parameter)));
+    return this.#colourParts(colour).some((part) =>
+      this.#scopesByColour.get(part).some((scope) => {
+        const met = this.#tieSpan(parameter.type, scope.effect);
+        // No bind between them: the colour was the written one from the start.
+        return met === undefined || within(met);
+      })
+    );
+  }
+
+  /** Where the parameter's type first met a type of a body further out (`#capturedAt`). */
+  #capturedSpan(type: Mono): Source.Span | undefined {
+    for (let node: Mono | undefined = type; node?.kind === "Variable"; node = this.#binds.get(node)?.target) {
+      const span = this.#capturedAt.get(node);
+      if (span !== undefined) return span;
+    }
+    return undefined;
   }
 
   /** The innermost body around `frame` whose ties have not been read yet. */
@@ -23514,7 +23643,7 @@ class Checker {
 
   /** A tie's one report (§9): every tied parameter a label, and one fix writing each type once. */
   #reportTie(report: TieReport): void {
-    const { parameter, phrase, from } = report.subject();
+    const { parameter, phrase, from, madeAt } = report.subject();
     const tied = report.inOrder(parameter);
     // A name two tied parameters share is told apart by its owner (`#namedAcross`).
     const spelled = (each: EffectFrame["untyped"][number]): string => {
@@ -23551,7 +23680,7 @@ class Checker {
       severity: "error",
       message: `\`${parameter.name}\`'s colour is tied to ${phrase} here, and inference cannot keep them apart ` +
         `— write \`${parameter.name}\`'s type, or wrap \`${parameter.name}\` where they meet`,
-      primary: (from === undefined ? undefined : this.#tieSpan(parameter.type, from)) ?? parameter.span,
+      primary: madeAt ?? (from === undefined ? undefined : this.#tieSpan(parameter.type, from)) ?? parameter.span,
       labels: tied.map((each) => ({
         span: each.span,
         message: `${spelled(each)} has no written type`,
@@ -28301,7 +28430,8 @@ class Checker {
         this.#bind(type, variable, span, !variableOnRight);
         return;
       }
-      this.#lowerLevels(type, variable.level);
+      if (variable.level > type.level && !this.#capturedAt.has(variable)) this.#capturedAt.set(variable, span);
+      this.#lowerCaptured(type, variable.level, span);
       type.literalOnly &&= variable.literalOnly;
       if (variable.named === true) type.named = true;
       for (const requirement of variable.requirements) {
@@ -28373,7 +28503,7 @@ class Checker {
     // that Functions §8.2 leaves to levels rather than to the value restriction
     // (closure doc §2.2, conformance item (v)). It went unseen while the only
     // generalizable right-hand sides were lambdas and literals.
-    this.#lowerLevels(type, variable.level);
+    this.#lowerCaptured(type, variable.level, span);
     if (variable.named === true) this.#markNamed(type);
     // Statements §6.1's other arm (#700): the **pinning use** that settles a
     // `var`'s unsolved monotype to an arrow. The span is the use's, which is
@@ -28632,12 +28762,24 @@ class Checker {
     return undefined;
   }
 
+  /** `#lowerLevels` for a unification at `span`, noting where each variable it lowers was captured. */
+  #lowerCaptured(type: Mono, level: number, span: Source.Span): void {
+    const outer = this.#lowering;
+    this.#lowering = span;
+    try {
+      this.#lowerLevels(type, level);
+    } finally {
+      this.#lowering = outer;
+    }
+  }
+
   /** Sinks every variable in `type` to `level` if it sits above it. */
   #lowerLevels(type: Mono, level: number): void {
     const actual = this.#prune(type);
     switch (actual.kind) {
       case "Variable":
         if (actual.level > level) {
+          if (this.#lowering !== undefined && !this.#capturedAt.has(actual)) this.#capturedAt.set(actual, this.#lowering);
           actual.level = level;
           // The pin moves with its subject (`#attachRequirement`).
           for (const requirement of actual.requirements) {
