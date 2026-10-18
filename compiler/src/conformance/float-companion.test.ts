@@ -756,9 +756,10 @@ describe("Primitive Types §3's checked Float-to-Int rounding exits (#919)", () 
 
 describe("Primitive Types §3's one edge, and `roundsToInt`, which tests it (#1160)", () => {
   /**
-   * Every float of magnitude 2^52 or more is already whole, so the five rules
-   * cannot disagree about which values fit: each throws exactly where
-   * `roundsToInt` answers `False`. The claim is about neighbours, so it is
+   * Every float of magnitude 2^52 or more is already whole, and every smaller
+   * one rounds to at most 2^52 in magnitude, so the five rules cannot disagree
+   * about which values fit: each throws exactly where `roundsToInt` answers
+   * `False`. The claim is about neighbours, so it is
    * checked on them — every float within a few steps of each edge, and of 2^52
    * and 2^51, where halves and quarters stop existing — through the compiled
    * companion rather than a model of it.

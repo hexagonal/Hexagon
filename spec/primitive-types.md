@@ -169,10 +169,9 @@ It is pure and total, and it never throws. It asks about range, not wholeness:
 `Float.roundsToInt(2.5)` is `True`, because every rounding of `2.5` is an `Int`,
 though `2.5` is not one. It could be spelled by hand, as
 `x.abs() <= 9007199254740991.0`, which `NaN` fails because `Ord<Float>` places
-`NaN` above every number. But that spelling needs what this paragraph
-establishes: that the five share one edge, where it lies, and that `NaN` falls
-outside it. So the test is named, where `d != 0` before a division needs no
-name.
+`NaN` above every number. But that spelling needs the facts established above:
+that the five share one edge, where it lies, and that `NaN` falls outside it.
+So the test is named, where `d != 0` before a division needs no name.
 
 The five throw a fault (Exceptions §1), because a value the program made itself
 that rounds out of range is a broken assumption, as a zero divisor is. A caller
