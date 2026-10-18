@@ -1431,6 +1431,18 @@ function faceLambdas(
 }
 
 /**
+ * A reading (Effects §3.1), read with `?` or `~?`: a call, or a pipe stage. A
+ * bare stage carries its reading on the pipe (`s |> Int.parse?`), and a stage
+ * with its own argument list on that list's call (`s |> Int.parse?()`).
+ */
+function isReading(expression: Resolved.Expr): boolean {
+  if (expression.kind === "Call") return expression.reading === true;
+  if (expression.kind !== "Binary" || expression.operator !== "Pipe") return false;
+  return expression.reading === true ||
+    (expression.right.kind === "Call" && expression.right.reading === true);
+}
+
+/**
  * Whether an expectation given to this expression could **land** — Functions
  * §4.3's two landing sites, a lambda literal and an arithmetic operation
  * (Numeric Literals §5.1's expected-type lift) — reached through §4.3's
@@ -1473,12 +1485,6 @@ function faceLambdas(
  * landing sites, so a seat whose expectation cannot possibly land does not need
  * to compute one.
  */
-/** A reading (Effects §3.1): a call, or a pipe stage, read with `?` or `~?`. */
-function isReading(expression: Resolved.Expr): boolean {
-  return (expression.kind === "Call" || (expression.kind === "Binary" && expression.operator === "Pipe")) &&
-    expression.reading === true;
-}
-
 function expectationLands(expression: Resolved.Expr): boolean {
   switch (expression.kind) {
     case "Lambda":

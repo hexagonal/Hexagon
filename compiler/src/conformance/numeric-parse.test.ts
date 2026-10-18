@@ -247,6 +247,14 @@ describe("a reading's Option widens as Some(…) would (Effects §3.1, n5)", () 
       "export let branched(s: String): Option(BigInt) = if s == \"\" then None else Int.parse?(s)\n" +
       "export let fromNat(s: String): Option(Int) = Nat.parse?(s)\n" +
       "export let piped(s: String): Option(BigInt) = s |> Int.parse?\n" +
+      "export let pipedCall(s: String): Option(BigInt) = s |> Int.parse?()\n" +
+      "export let boundPiped: Option(BigInt) = \"4\" |> Int.parse?()\n" +
+      "export let ascribed(s: String): Option(BigInt) =\n" +
+      "    let held = (s |> Int.parse?() : Option(BigInt))\n" +
+      "    held\n" +
+      "export let ascribedCall(s: String): Option(BigInt) =\n" +
+      "    let held = (Int.parse?(s) : Option(BigInt))\n" +
+      "    held\n" +
       "export let assigned(s: String): Option(BigInt) =\n" +
       "    var held: Option(BigInt) = None\n" +
       "    held := Int.parse?(s)\n" +
@@ -262,6 +270,11 @@ describe("a reading's Option widens as Some(…) would (Effects §3.1, n5)", () 
     expect((main["branched"] as (text: string) => Read<unknown>)("8")).toEqual(some(8n));
     expect((main["fromNat"] as (text: string) => Read<unknown>)("9")).toEqual(some(9));
     expect((main["piped"] as (text: string) => Read<unknown>)("6")).toEqual(some(6n));
+    expect((main["pipedCall"] as (text: string) => Read<unknown>)("7")).toEqual(some(7n));
+    expect(main["boundPiped"]).toEqual(some(4n));
+    expect((main["ascribed"] as (text: string) => Read<unknown>)("8")).toEqual(some(8n));
+    expect((main["ascribedCall"] as (text: string) => Read<unknown>)("9")).toEqual(some(9n));
+    expect((main["pipedCall"] as (text: string) => Read<unknown>)("x")).toEqual(none);
     expect((main["assigned"] as (text: string) => Read<unknown>)("5")).toEqual(some(5n));
   });
 
@@ -284,14 +297,17 @@ describe("a reading's Option widens as Some(…) would (Effects §3.1, n5)", () 
    */
   test("a join widens neither a reading nor Some(…)", () => {
     const joins = [
+      "let p(c: Bool, s: String) = if c then Some(1n) else PIPED\n",
       "let a(c: Bool, s: String) = if c then Some(1n) else READ\n",
       "let b(c: Bool, s: String) = if c then READ else Some(1n)\n",
       "let v(s: String) = [Some(1n), READ]\n",
       "let w(s: String) = [BigInt.parse?(s), READ]\n",
     ];
     for (const join of joins) {
-      const read = projectDiagnostics("module Main\n\n" + join.replace("READ", "Int.parse?(s)"));
-      const spelled = projectDiagnostics("module Main\n\n" + join.replace("READ", "Some(Int.parse^(s))"));
+      const read = projectDiagnostics("module Main\n\n" +
+        join.replace("READ", "Int.parse?(s)").replace("PIPED", "s |> Int.parse?()"));
+      const spelled = projectDiagnostics("module Main\n\n" +
+        join.replace("READ", "Some(Int.parse^(s))").replace("PIPED", "Some(s |> Int.parse^())"));
       expect(read.length, join).toBe(1);
       expect(read, join).toEqual(spelled);
     }
