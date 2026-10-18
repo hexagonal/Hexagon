@@ -1270,7 +1270,9 @@ interface InPlaceRead {
  * A nested body's tie that waits on an enclosing body's close (Effects §3.4,
  * #1163): to the enclosing untyped callback it shares a colour with, or, where
  * its shape was still open when its own body closed, to whichever of that
- * body's untyped callbacks a later line makes it share one with.
+ * body's untyped callbacks a later line makes it share one with. A shape its
+ * body had already made one with a type of the bodies around it (`captured`)
+ * is a sharing that body made, which a later line only decides (#1216).
  */
 type DeferredTie =
   | {
@@ -1280,7 +1282,13 @@ type DeferredTie =
     /** The enclosing callback it waits on, whose type the fix writes too. */
     readonly with: EffectFrame["untyped"][number];
   }
-  | { readonly kind: "shape"; readonly frame: EffectFrame; readonly parameter: EffectFrame["untyped"][number] };
+  | {
+    readonly kind: "shape";
+    readonly frame: EffectFrame;
+    readonly parameter: EffectFrame["untyped"][number];
+    /** Where the body made it one with what it captured, if it did. */
+    readonly captured: Source.Span | undefined;
+  };
 
 /**
  * One tie's report (Effects §3.4, §9): every tied parameter, each once, with
@@ -1302,6 +1310,8 @@ class TieReport {
     readonly parameter: EffectFrame["untyped"][number];
     readonly phrase: string;
     readonly from: Mono | undefined;
+    /** Where its body made the sharing a later line gave a shape (#1216). */
+    readonly madeAt?: Source.Span | undefined;
   }[] = [];
 
   /** A tied parameter of `frame`, read as its fix from outside where `reads`. */
@@ -4349,6 +4359,12 @@ class Checker {
     { readonly span: Source.Span; readonly order: number; readonly target: Mono }
   >();
   #bindCount = 0;
+  /**
+   * Where another variable was last bound to each variable: a nested body's
+   * parameter whose shape a later line decides was made one with what its
+   * body captured there (#1216).
+   */
+  readonly #boundInto = new WeakMap<Variable, Source.Span>();
   /**
    * Where each variable first met another, on either side of the bind: a seat
    * report whose arrow no constant pinned stands there (`#colourMeeting`).
@@ -23310,10 +23326,13 @@ class Checker {
     if (type.kind !== "Function") {
       // Not a function yet where its body closed: a line of an enclosing body
       // still open may make it one, tied to that body's callback, so the open
-      // body's close decides it, whatever order the lines come in.
+      // body's close decides it, whatever order the lines come in. A level
+      // below its body's says the body already made it one with a type of the
+      // bodies around it, which it captured (#1216).
       if (type.kind === "Variable" && type.rigidName === undefined) {
         const open = this.#openEnclosing(frame);
-        if (open !== undefined) (open.deferredTies ??= []).push({ kind: "shape", frame, parameter });
+        const captured = type.level < frame.level ? this.#boundInto.get(type) ?? parameter.span : undefined;
+        if (open !== undefined) (open.deferredTies ??= []).push({ kind: "shape", frame, parameter, captured });
       }
       return;
     }
@@ -23339,9 +23358,10 @@ class Checker {
    * further out, still open, has an untyped callback sharing its colour, it
    * waits again, there. Otherwise it is tied to the callback of `closing` it
    * waited on, or, where its shape was open at its own close, to whichever of
-   * `closing`'s untyped callbacks a later line made it share a colour with;
-   * a shape's other ties were for its own close to read. One that waited on a
-   * callback it no longer shares is read as its own close would have read it.
+   * `closing`'s untyped callbacks a later line made it share a colour with.
+   * One that waited on a callback it no longer shares is read as its own close
+   * would have read it, and so is a shape its body had made one with a type
+   * it captured (#1216); a shape's other ties were for its own close to read.
    * The expression that tied them is looked for between the two parameters'
    * types, whichever line gave them their arrows (`#tieSpan`). Where `closing`
    * closed before the tie reached it (a lambda the knot held), and the tie was
@@ -23391,12 +23411,21 @@ class Checker {
       // A tie that waited on a callback its colour no longer shares (the
       // callback turned pure) is read as its own close would have read it,
       // had it not stopped at the wait: a captured colour, a sibling's, a join.
-      if (deferred.kind !== "with") return;
+      // So is a shape its body had made one with a type it captured, where its
+      // colour holds a written callback's: the sharing is the body's, a later
+      // line only made it a function, and a written colour stays its own, so
+      // it reads here as it would have there (#1216). Any other colour a later
+      // line gave it is one that line's body decided, closing arrows the
+      // parameter's own close would have closed, so it is not read again. A
+      // shape no captured type held is shared by a use of the body's value, if
+      // by anything, and that use's body reads it.
+      if (deferred.kind === "shape" && !(deferred.captured !== undefined && this.#holdsWrittenColour(colour))) return;
       const tie = this.#tieOf(frame, parameter, colour);
       if (tie === undefined || tie.waits !== undefined) return;
       const report = reports.get(colour) ?? new TieReport();
       reports.set(colour, report);
-      report.named.push({ parameter, phrase: tie.phrase, from: tie.from });
+      const madeAt = deferred.kind === "shape" ? deferred.captured : undefined;
+      report.named.push({ parameter, phrase: tie.phrase, from: tie.from, madeAt });
       report.add(frame, parameter, false);
       for (const other of tie.others) report.add(frame, other, false);
       return;
@@ -23415,6 +23444,11 @@ class Checker {
     // fix only where its own close found the tie.
     report.add(frame, parameter, false);
     report.add(closing, enclosing, false);
+  }
+
+  /** Whether a colour has a part a written callback owns (#1216). */
+  #holdsWrittenColour(colour: Mono): boolean {
+    return this.#colourParts(colour).some((part) => this.#scopesByColour.get(part).length > 0);
   }
 
   /** The innermost body around `frame` whose ties have not been read yet. */
@@ -23447,7 +23481,7 @@ class Checker {
 
   /** A tie's one report (§9): every tied parameter a label, and one fix writing each type once. */
   #reportTie(report: TieReport): void {
-    const { parameter, phrase, from } = report.subject();
+    const { parameter, phrase, from, madeAt } = report.subject();
     const tied = report.inOrder(parameter);
     // A name two tied parameters share is told apart by its owner (`#namedAcross`).
     const spelled = (each: EffectFrame["untyped"][number]): string => {
@@ -23484,7 +23518,7 @@ class Checker {
       severity: "error",
       message: `\`${parameter.name}\`'s colour is tied to ${phrase} here, and inference cannot keep them apart ` +
         `— write \`${parameter.name}\`'s type, or wrap \`${parameter.name}\` where they meet`,
-      primary: (from === undefined ? undefined : this.#tieSpan(parameter.type, from)) ?? parameter.span,
+      primary: madeAt ?? (from === undefined ? undefined : this.#tieSpan(parameter.type, from)) ?? parameter.span,
       labels: tied.map((each) => ({
         span: each.span,
         message: `${spelled(each)} has no written type`,
@@ -28259,6 +28293,7 @@ class Checker {
         if (this.#valueSlacks.has(variable)) this.#valueSlacks.add(type);
       }
       this.#binds.set(variable, { span, order: this.#bindCount++, target: type });
+      this.#boundInto.set(type, span);
       if (!this.#firstMeetings.has(variable)) this.#firstMeetings.set(variable, span);
       if (!this.#firstMeetings.has(type)) this.#firstMeetings.set(type, span);
       variable.instance = type;
