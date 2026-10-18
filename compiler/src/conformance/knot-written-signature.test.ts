@@ -141,4 +141,40 @@ describe("a member's written signature is read where its knot opens (#1279)", ()
   test("a self-recursive call's argument widens into the member's declared variable (#1045)", () => {
     expect(reports("fun f<t: Num>(x: t, n: Nat, go: Bool): t = if go then f(n, 0, False) else x\n")).toEqual([]);
   });
+
+  /**
+   * Method Syntax §3.1: a dot on a sibling's call is decided where the
+   * sibling's declaration writes its result type, in either order; a result
+   * its body works out is not decided while the knot is open (#1278), so the
+   * dot keeps its refusal in either order.
+   */
+  test("a dot on a sibling's written result is decided, and on an unwritten one is refused, in either order", () => {
+    const a = "    a(n: Int): Bool = if n == 0 then True else b(n - 1).isEmpty()\n";
+    const written = "    b(n: Int): Vector(Int) = if n == 0 then [] else if a(n - 1) then [n] else []\n";
+    const unwritten = "    b(n: Int) = if n == 0 then [] else if a(n - 1) then [n] else [1]\n";
+    expectInEveryOrder(bothOrders(a, written, ""), []);
+    expectInEveryOrder(bothOrders(a, unwritten, ""), [{
+      at: "isEmpty",
+      message: "the program's text does not decide the subject's type here, so `.isEmpty(…)` cannot tell whose " +
+        "`isEmpty` it is — write the subject's type, or call the operation by its module " +
+        "(`Module.isEmpty(…, …)`); a record's field is called as `(….isEmpty)(…)`",
+    }]);
+  });
+
+  /**
+   * A lambda handed to a member of a knot still open takes its parameter's
+   * type from what the member's declaration writes, so a dot on it is decided
+   * in either order. Inside the knot such a call is a recursive one, which
+   * hands on only the callbacks it was given (Effects §3.4, L3), so that is the
+   * one report: the dot draws none.
+   */
+  test("a lambda handed to an open member reads its written parameter type at a dot", () => {
+    const made = "this function is not one `go` was given, and a recursive call hands on only the callbacks it was given";
+    expect(reports(
+      "fun go(n: Int, k: (Vector(Int)) -> Int): Int = if n == 0 then k([]) else go(n - 1, (r) => k(r.append(n)))\n",
+    )).toEqual([{ at: "(r) => k(r.append(n))", message: made }]);
+    const go = "    go(n: Int, k: (Vector(Int)) -> Int): Int = if n == 0 then k([]) else go2(n - 1, (r) => k(r.append(n)))\n";
+    const go2 = "    go2(n: Int, k: (Vector(Int)) -> Int): Int = go(n, k)\n";
+    expectInEveryOrder(bothOrders(go, go2, ""), [{ at: "(r) => k(r.append(n))", message: made }]);
+  });
 });

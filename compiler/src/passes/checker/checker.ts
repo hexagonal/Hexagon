@@ -3643,6 +3643,8 @@ interface KnotMember {
   readonly exported: boolean;
   /** How many parameters the member's text gives its own arrow (`fun b(x, y)` gives two). */
   readonly arity: number;
+  /** The member's value, whose header writes its signature (Effects §3.4, #1279). */
+  readonly value: Resolved.LambdaExpr;
 }
 
 /**
@@ -7390,7 +7392,14 @@ class Checker {
     while (callee.kind === "Group") callee = callee.expression;
     if (callee.kind !== "Name") return false;
     const symbol = callee.symbol;
-    if (this.#knots.some((knot) => knot.members.some((member) => member.symbol === symbol))) return false;
+    // A member of a knot still open has no generalized signature: its call's
+    // result is decided where its declaration writes it, whole without a hole
+    // (`deep`) or its head, and nowhere its body works it out (#1279).
+    const open = this.#openMember(symbol);
+    if (open !== undefined) {
+      const written = open.value.returnAnnotation;
+      return deep ? written !== undefined && annotationWhole(written) : headWritten(written);
+    }
     if (this.#typeSources.has(symbol) && !this.#moduleBindings.has(symbol)) return false;
     const kind = this.#symbolKinds.get(symbol);
     if (kind === "parameter" || kind === "var" || kind === "pattern") return false;
@@ -7403,13 +7412,28 @@ class Checker {
     return deep ? this.#collectVariables(result).length === 0 : result.kind !== "Variable";
   }
 
+  /** The member of a knot still open that a symbol names, if it names one. */
+  #openMember(symbol: Resolved.SymbolId): KnotMember | undefined {
+    for (const knot of this.#knots) {
+      const member = knot.members.find((each) => each.symbol === symbol);
+      if (member !== undefined) return member;
+    }
+    return undefined;
+  }
+
   /** Whether the text decides a binding's type, its head or (`deep`) the whole of it (`#typeDecided`). */
   #typeDecidedSymbol(symbol: Resolved.SymbolId, deep: boolean): boolean {
-    // A `fun` block's member while its knot is open: its type is whatever the
-    // siblings' bodies have said so far — a written signature included, which
-    // meets the member's type only where its own body is checked, so reading it
-    // here would follow the order the members are declared in.
-    if (this.#knots.some((knot) => knot.members.some((member) => member.symbol === symbol))) return false;
+    // A `fun` block's member while its knot is open: its type is a function's,
+    // and its whole is decided where its declaration writes every parameter's
+    // type and its result's whole, as its knot reads them where it opens
+    // (#1279). What its body works out is decided only once the knot closes.
+    const open = this.#openMember(symbol);
+    if (open !== undefined) {
+      return !deep || (
+        open.value.returnAnnotation !== undefined && annotationWhole(open.value.returnAnnotation) &&
+        open.value.parameters.every((parameter) => parameter.annotation !== undefined && annotationWhole(parameter.annotation))
+      );
+    }
     if (this.#madeInt.has(symbol)) return true;
     const memo = deep ? this.#typeDecidedWhole : this.#typeDecidedHead;
     const known = memo.get(symbol);
@@ -9908,6 +9932,7 @@ class Checker {
           name: bySymbol.get(symbol)!.binding.name,
           exported: bySymbol.get(symbol)!.exported,
           arity: bySymbol.get(symbol)!.value.parameters.length,
+          value: bySymbol.get(symbol)!.value,
         })),
         host: undefined,
         references: [],
