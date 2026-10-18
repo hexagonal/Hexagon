@@ -1288,6 +1288,8 @@ type DeferredTie =
     readonly parameter: EffectFrame["untyped"][number];
     /** Where the body made it one with what it captured, if it did. */
     readonly captured: Source.Span | undefined;
+    /** What its type was where its body closed. */
+    readonly variable: Variable;
   };
 
 /**
@@ -1310,7 +1312,10 @@ class TieReport {
     readonly parameter: EffectFrame["untyped"][number];
     readonly phrase: string;
     readonly from: Mono | undefined;
-    /** Where its body made the sharing a later line gave a shape (#1216). */
+    /**
+     * Where its body made it one with a captured colour, which a later line
+     * gave a shape: where it first met the captured type (#1216).
+     */
     readonly madeAt?: Source.Span | undefined;
   }[] = [];
 
@@ -4360,11 +4365,13 @@ class Checker {
   >();
   #bindCount = 0;
   /**
-   * Where another variable was last bound to each variable: a nested body's
-   * parameter whose shape a later line decides was made one with what its
-   * body captured there (#1216).
+   * Where each variable first met a type of a body further out, which lowered
+   * its level: a nested body's parameter whose shape a later line decides was
+   * made one with what its body captured there (#1216).
    */
-  readonly #boundInto = new WeakMap<Variable, Source.Span>();
+  readonly #capturedAt = new WeakMap<Variable, Source.Span>();
+  /** The unification `#lowerLevels` is lowering levels for, if any (`#capturedAt`). */
+  #lowering: Source.Span | undefined;
   /**
    * Where each variable first met another, on either side of the bind: a seat
    * report whose arrow no constant pinned stands there (`#colourMeeting`).
@@ -23331,8 +23338,10 @@ class Checker {
       // bodies around it, which it captured (#1216).
       if (type.kind === "Variable" && type.rigidName === undefined) {
         const open = this.#openEnclosing(frame);
-        const captured = type.level < frame.level ? this.#boundInto.get(type) ?? parameter.span : undefined;
-        if (open !== undefined) (open.deferredTies ??= []).push({ kind: "shape", frame, parameter, captured });
+        const captured = type.level < frame.level ? this.#capturedSpan(parameter.type) ?? parameter.span : undefined;
+        if (open !== undefined) {
+          (open.deferredTies ??= []).push({ kind: "shape", frame, parameter, captured, variable: type });
+        }
       }
       return;
     }
@@ -23419,12 +23428,18 @@ class Checker {
       // parameter's own close would have closed, so it is not read again. A
       // shape no captured type held is shared by a use of the body's value, if
       // by anything, and that use's body reads it.
-      if (deferred.kind === "shape" && !(deferred.captured !== undefined && this.#holdsWrittenColour(colour))) return;
+      if (deferred.kind === "shape" && !(deferred.captured !== undefined && this.#shapedWritten(deferred.variable, parameter))) {
+        return;
+      }
       const tie = this.#tieOf(frame, parameter, colour);
       if (tie === undefined || tie.waits !== undefined) return;
-      const report = reports.get(colour) ?? new TieReport();
-      reports.set(colour, report);
-      const madeAt = deferred.kind === "shape" ? deferred.captured : undefined;
+      // A shape's report is its own, as its own close would have made it,
+      // though later lines merged its colour with another's.
+      const key = deferred.kind === "shape" ? parameter.type : colour;
+      const report = reports.get(key) ?? new TieReport();
+      reports.set(key, report);
+      // A sibling's tie stands at the merge, which its own close made.
+      const madeAt = deferred.kind === "shape" && tie.others.length === 0 ? deferred.captured : undefined;
       report.named.push({ parameter, phrase: tie.phrase, from: tie.from, madeAt });
       report.add(frame, parameter, false);
       for (const other of tie.others) report.add(frame, other, false);
@@ -23446,9 +23461,41 @@ class Checker {
     report.add(closing, enclosing, false);
   }
 
-  /** Whether a colour has a part a written callback owns (#1216). */
-  #holdsWrittenColour(colour: Mono): boolean {
-    return this.#colourParts(colour).some((part) => this.#scopesByColour.get(part).length > 0);
+  /**
+   * Whether the line that made `variable` a function gave the parameter's own
+   * colour a written callback's colour as a part (#1216): one the parameter's
+   * colour now holds, met within that line's unification — the line's own
+   * fitting and the lambdas written in it included — and not by a still later
+   * line that joined another colour in.
+   */
+  #shapedWritten(variable: Variable, parameter: EffectFrame["untyped"][number]): boolean {
+    let node: Mono = variable;
+    let shaping: Source.Span | undefined;
+    while (node.kind === "Variable") {
+      const bind = this.#binds.get(node);
+      if (bind === undefined) return false;
+      shaping = bind.span;
+      node = bind.target;
+    }
+    if (node.kind !== "Function" || shaping === undefined) return false;
+    const within = (span: Source.Span): boolean =>
+      span.start.offset >= shaping.start.offset && span.end.offset <= shaping.end.offset;
+    const colour = this.#prune(this.#ownColourAt(node, entryAxis(parameter)));
+    return this.#colourParts(colour).some((part) =>
+      this.#scopesByColour.get(part).some((scope) => {
+        const met = this.#tieSpan(parameter.type, scope.effect);
+        return met === undefined || within(met);
+      })
+    );
+  }
+
+  /** Where the parameter's type first met a type of a body further out (`#capturedAt`). */
+  #capturedSpan(type: Mono): Source.Span | undefined {
+    for (let node: Mono | undefined = type; node?.kind === "Variable"; node = this.#binds.get(node)?.target) {
+      const span = this.#capturedAt.get(node);
+      if (span !== undefined) return span;
+    }
+    return undefined;
   }
 
   /** The innermost body around `frame` whose ties have not been read yet. */
@@ -28253,7 +28300,8 @@ class Checker {
         this.#bind(type, variable, span, !variableOnRight);
         return;
       }
-      this.#lowerLevels(type, variable.level);
+      if (variable.level > type.level && !this.#capturedAt.has(variable)) this.#capturedAt.set(variable, span);
+      this.#lowerCaptured(type, variable.level, span);
       type.literalOnly &&= variable.literalOnly;
       if (variable.named === true) type.named = true;
       for (const requirement of variable.requirements) {
@@ -28293,7 +28341,6 @@ class Checker {
         if (this.#valueSlacks.has(variable)) this.#valueSlacks.add(type);
       }
       this.#binds.set(variable, { span, order: this.#bindCount++, target: type });
-      this.#boundInto.set(type, span);
       if (!this.#firstMeetings.has(variable)) this.#firstMeetings.set(variable, span);
       if (!this.#firstMeetings.has(type)) this.#firstMeetings.set(type, span);
       variable.instance = type;
@@ -28324,7 +28371,7 @@ class Checker {
     // that Functions §8.2 leaves to levels rather than to the value restriction
     // (closure doc §2.2, conformance item (v)). It went unseen while the only
     // generalizable right-hand sides were lambdas and literals.
-    this.#lowerLevels(type, variable.level);
+    this.#lowerCaptured(type, variable.level, span);
     if (variable.named === true) this.#markNamed(type);
     // Statements §6.1's other arm (#700): the **pinning use** that settles a
     // `var`'s unsolved monotype to an arrow. The span is the use's, which is
@@ -28571,11 +28618,23 @@ class Checker {
   }
 
   /** Sinks every variable in `type` to `level` if it sits above it. */
+  /** `#lowerLevels` for a unification at `span`, noting where each variable it lowers was captured. */
+  #lowerCaptured(type: Mono, level: number, span: Source.Span): void {
+    const outer = this.#lowering;
+    this.#lowering = span;
+    try {
+      this.#lowerLevels(type, level);
+    } finally {
+      this.#lowering = outer;
+    }
+  }
+
   #lowerLevels(type: Mono, level: number): void {
     const actual = this.#prune(type);
     switch (actual.kind) {
       case "Variable":
         if (actual.level > level) {
+          if (this.#lowering !== undefined && !this.#capturedAt.has(actual)) this.#capturedAt.set(actual, this.#lowering);
           actual.level = level;
           // The pin moves with its subject (`#attachRequirement`).
           for (const requirement of actual.requirements) {

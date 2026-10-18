@@ -1313,7 +1313,7 @@ describe("Effects §3.4 — a tie between callbacks is refused, where it was mad
     // `inner` makes `f` one with `a`, taken from `p`; `tieTwo` makes `p`'s
     // first part `action`'s type. The sharing is `inner`'s, so the tie stands
     // where `inner` made it, whichever line comes first.
-    const tieLine = "tieTwo(p, (action, 1))";
+    for (const tieLine of ["tieTwo(p, (action, 1))", "tieTwo(p, (() => action!(), 1))"]) {
     for (const [nested, at, named] of [
       ["let inner = (f) =>\n        let (a, _) = p\n        if c then a else f", "if c then a else f", "action"],
       ["let inner = (f) =>\n        let (a, _) = p\n        tieTwo(a, f)\n        ()", "tieTwo(a, f)", "action"],
@@ -1332,6 +1332,15 @@ describe("Effects §3.4 — a tie between callbacks is refused, where it was mad
       ]]]);
       expect([nested, reports[1]]).toEqual([nested, reports[0]]);
     }
+    }
+    // Two nested bodies tied to it: a report each, in either order.
+    const i1 = "let i1 = (f) =>\n        let (a, _) = p\n        if c then a else f";
+    const i2 = "let i2 = (g) =>\n        let (a, _) = p\n        if c then a else g";
+    const both = [[i1, i2, "tieTwo(p, (action, 1))"], ["tieTwo(p, (action, 1))", i1, i2]].map((order) =>
+      tieReports("let outer(action: () ->! Unit, p, c: Bool): Unit =\n" + order.map((line) => `    ${line}\n`).join("") + "    ()\n")
+    );
+    expect(both[0]!.map(({ at }) => at)).toEqual(["if c then a else f", "if c then a else g"]);
+    expect(both[1]).toEqual(both[0]);
   });
 
   it("not to a colour a later line gave a captured value, nor through a use of the body's value (#1216)", () => {
@@ -1343,6 +1352,14 @@ describe("Effects §3.4 — a tie between callbacks is refused, where it was mad
         const source = "let noop(): Unit = ()\nlet outer(p, c: Bool): Unit =\n" + order.map((line) => `    ${line}\n`).join("") + "    ()\n";
         expect([order, tieReports(source)]).toEqual([order, []]);
       }
+    }
+    // Nor where the line that shapes it carries no written colour, and a still
+    // later line joins one in: that line's body reads the colour it grew.
+    const inner = "let inner = (f) =>\n        let (a, _) = p\n        if c then a else f";
+    for (const later of [["tieTwo(p, (noop, 1))", "tieTwo(p, (action, 1))"], ["tieTwo(p, (noop, 1))", "let (q, _) = p", "tieTwo(q, action)"]]) {
+      const source = "let noop(): Unit = ()\nlet outer(action: () ->! Unit, p, c: Bool): Unit =\n" +
+        [inner, ...later].map((line) => `    ${line}\n`).join("") + "    ()\n";
+      expect([later, tieReports(source)]).toEqual([later, []]);
     }
   });
 
