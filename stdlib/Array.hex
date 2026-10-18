@@ -5,8 +5,9 @@ module Array
 //
 // The type row declares `Array` itself (`spec/intrinsics.md` section 3.3). Its
 // values are native JavaScript arrays, not a Hexagon record, so the row names no
-// representation and writes no variance claim: `Array(a)` is invariant. The
-// row is seen earlier than the rest of this file. `Vector.toArray` names the
+// representation. Its claim `+a` is written: the array never changes (below),
+// so an array of narrower elements serves wherever one of wider elements is
+// wanted, as a `Vector` does. The row is seen earlier than the rest of this file. `Vector.toArray` names the
 // type, and `toVector` below builds a `Vector`, so the row takes a data seat
 // just before `Vector.hex` and the file its full seat after it (Modules
 // section 5.5), as `Option`'s union does.
@@ -32,7 +33,7 @@ extern from "hex:intrinsic"
         array crossed or built fresh. No foreign code can reach the copy and
         Hexagon has no way to change it, so it never changes. Elements are
         indexed from 1. *)
-    export type array as Array(a)
+    export type array as Array(+a)
 
     (** How many elements `values` holds. It is the captured array's own
         `length` — the source's length at the moment of capture, which never

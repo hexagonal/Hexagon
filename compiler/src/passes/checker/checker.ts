@@ -12848,8 +12848,8 @@ class Checker {
    * and every other arrow is left as it stands (#1174). The written type is
    * walked beside the value's, each position with its role: a spine's
    * parameters are callbacks, whose own arrows are their colours. An argument
-   * read invariantly (an `Array`'s element, invariant for want of a variance
-   * ruling) is left whole. Swift reaches the same verdicts by subtyping; this
+   * read invariantly (a `Cell(a)` whose `a` is read both ways, or an `opaque`
+   * type's argument with no sigil) is left whole. Swift reaches the same verdicts by subtyping; this
    * is Koka's re-opening, at every depth the use receives. `withResult` false
    * leaves the value's own result as it stands: a lambda's, which its body's
    * use re-opened. `receivesRoot` false reads a parameter's own type, which a

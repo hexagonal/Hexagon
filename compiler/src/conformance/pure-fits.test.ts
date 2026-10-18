@@ -419,11 +419,26 @@ describe("what the program's text decides, in any line order (R.b)", () => {
   });
 
   test("a binding whose type later lines fill is inferred from its uses, in either order", () => {
+    // `Box` writes no sigil, so it is invariant and `mkBox()` does not
+    // generalize: `m`'s element is one type that every line fills.
+    const prefix = "opaque record Box(a) = { value: a }\n" +
+      "let mkBox(): Box(Option(a)) = Box({ value = None })\n" +
+      "let unbox(b: Box(a)): a = b.value\n";
+    const use = ["match unbox(m)", "    Some(f) => tieTwo(action, f)", "    None => ()"];
+    const fill = "let ok: Box(Option(() -> Unit)) = m";
+    for (const made of ["let m = mkBox()", "let (m, n) = (mkBox(), 1)"]) {
+      const answer = verdict([[made, fill, ...use], [made, ...use, fill]], prefix);
+      expect([made, answer]).toEqual([made, "refused"]);
+    }
+  });
+
+  test("a covariant empty collection generalizes, so its uses do not meet, in either order", () => {
+    // `JsMap(+k, +v)` (Verdict Table row 14): `m` serves each use at its own type.
     const use = ["match JsMap.get(m, 1)", "    Some(f) => tieTwo(action, f)", "    None => ()"];
     const fill = "let ok: JsMap(Int, () -> Unit) = m";
     for (const made of ["let m = JsMap.fromSeq(Seq.empty)", "let (m, n) = (JsMap.fromSeq(Seq.empty), 1)"]) {
       const answer = verdict([[made, fill, ...use], [made, ...use, fill]]);
-      expect([made, answer]).toEqual([made, "refused"]);
+      expect([made, answer]).toEqual([made, "fits"]);
     }
   });
 
@@ -923,10 +938,39 @@ describe("every arrow a use receives (Swift's rule, #1169)", () => {
   });
 
   test("an argument read invariantly is left whole", () => {
-    // Correct at run time (an `Array` is a snapshot that never changes), but
-    // `Array` is invariant in v1 for want of a variance ruling.
-    expect(reports("export let go(): Unit =\n    let a = Vector.toArray([noop])\n    let w: Array(() ->! Unit) = a\n    ()\n"))
-      .toEqual([["Array(() ->! Unit)", FIXED_BEFORE]]);
+    // `Box` writes no sigil, so its argument is read invariantly: the pure
+    // arrow inside cannot widen at the seat.
+    expect(reports(
+      "opaque record Box(a) = { value: a }\n" +
+        "export let go(): Unit =\n    let a = Box({ value = noop })\n    let w: Box(() ->! Unit) = a\n    ()\n",
+    )).toEqual([["Box(() ->! Unit)", FIXED_BEFORE]]);
+  });
+
+  test("a captured foreign collection's argument is read covariantly: a pure element fits a wider face", () => {
+    // Verdict Table row 14: an `Array`, a `JsSet`, and a `JsMap` never change,
+    // so their companions' rows write `+`, and a pure function inside each fits
+    // where an impure one is wanted, in a `JsMap`'s key as in its value.
+    const fits = [
+      ["Vector.toArray([noop])", "Array(() ->! Unit)"],
+      ["JsSet.fromSeq(Vector.toSeq([noop]))", "JsSet(() ->! Unit)"],
+      ["JsMap.fromSeq(Vector.toSeq([(noop, 1)]))", "JsMap(() ->! Unit, Int)"],
+      ["JsMap.fromSeq(Vector.toSeq([(1, noop)]))", "JsMap(Int, () ->! Unit)"],
+    ];
+    for (const [made, face] of fits) {
+      const source = `export let go(): Unit =\n    let a = ${made}\n    let w: ${face} = a\n    ()\n`;
+      expect([made, reports(source)]).toEqual([made, []]);
+    }
+    // The WRONG twins: an impure element where a pure one is wanted is refused.
+    const lies = [
+      ["Vector.toArray([save0])", "Array(() -> Unit)"],
+      ["JsSet.fromSeq(Vector.toSeq([save0]))", "JsSet(() -> Unit)"],
+      ["JsMap.fromSeq(Vector.toSeq([(save0, 1)]))", "JsMap(() -> Unit, Int)"],
+      ["JsMap.fromSeq(Vector.toSeq([(1, save0)]))", "JsMap(Int, () -> Unit)"],
+    ];
+    for (const [made, face] of lies) {
+      const source = `export let go(): Unit =\n    let a = ${made}\n    let w: ${face} = a\n    ()\n`;
+      expect([made, reports(source)]).toEqual([made, [[face, PURITY]]]);
+    }
   });
 
   test("a value a `match` reads in place is taken apart: its parts are re-opened at their own uses, in either order", () => {

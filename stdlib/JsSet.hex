@@ -5,8 +5,8 @@ module JsSet
 //
 // The type row declares `JsSet` itself (`spec/intrinsics.md` section 3.3), as
 // `JsMap.hex`'s declares `JsMap`. Its values are native `Set` objects, so the
-// row names no representation and writes no variance claim: `JsSet(a)` is
-// invariant.
+// row names no representation. Its claim `+a` is written, as `Set`'s is: the
+// set never changes (below).
 //
 // Everything here reads a native `Set` that Hexagon holds as its own copy, made
 // as the foreign set crossed (section 2), or builds one fresh from a sequence
@@ -25,7 +25,7 @@ extern from "hex:intrinsic"
         set crossed or built fresh. No foreign code can reach the copy and
         Hexagon has no way to change it, so it never changes. Elements are compared by
         JavaScript's own equality, not by `Hash`. *)
-    export type jsSet as JsSet(a)
+    export type jsSet as JsSet(+a)
 
     (** How many elements `s` holds: the captured set's own `size`, which is
         the source's size at the moment of capture and never changes. A read of
