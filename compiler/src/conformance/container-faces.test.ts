@@ -82,12 +82,25 @@ describe("the literal forms hand each component its part (#1066)", () => {
   });
 
   test("a component meets any part at its turn, as a call's argument meets its parameter", () => {
+    // `wrap(p)` types `p` at `Dec` at its turn, in a call and in a literal
+    // alike. That `Dec` is one only inference gave, so `p + 0.5` does not take
+    // it for a home (#1195): the literal makes the home `Float`, and `p` is
+    // refused there, naming the written type. Written, `p` chooses the home.
     const wrap = "let wrap<a>(x: a): Option(a) = Some(x)\n";
-    expect(typeOf(wrap + "let h<b>(o: Option(Dec), y: b): b = y\nfun outer(p) = h(wrap(p), p + 0.5)\n", "outer"))
+    const inferredDec = "`p` is a `Dec` only by inference, and an inferred type chooses no home, so this " +
+      "expression runs at `Float`, the home `0.5` gives it: write `p: Dec` where `p` is made";
+    for (const outer of [
+      "let h<b>(o: Option(Dec), y: b): b = y\nfun outer(p) = h(wrap(p), p + 0.5)\n",
+      "fun outer(p) =\n    let t: (Option(Dec), _) = (wrap(p), p + 0.5)\n    t\n",
+      "fun outer(p) =\n    let t: {o: Option(Dec), y: _} = {o = wrap(p), y = p + 0.5}\n    t\n",
+    ]) {
+      expect(refusals(wrap + outer), outer).toEqual([inferredDec]);
+    }
+    expect(typeOf(wrap + "let h<b>(o: Option(Dec), y: b): b = y\nfun outer(p: Dec) = h(wrap(p), p + 0.5)\n", "outer"))
       .toBe("Dec -> Dec");
-    expect(typeOf(wrap + "fun outer(p) =\n    let t: (Option(Dec), _) = (wrap(p), p + 0.5)\n    t\n", "outer"))
+    expect(typeOf(wrap + "fun outer(p: Dec) =\n    let t: (Option(Dec), _) = (wrap(p), p + 0.5)\n    t\n", "outer"))
       .toBe("Dec -> (Option(Dec), Dec)");
-    expect(typeOf(wrap + "fun outer(p) =\n    let t: {o: Option(Dec), y: _} = {o = wrap(p), y = p + 0.5}\n    t\n", "outer"))
+    expect(typeOf(wrap + "fun outer(p: Dec) =\n    let t: {o: Option(Dec), y: _} = {o = wrap(p), y = p + 0.5}\n    t\n", "outer"))
       .toBe("Dec -> {o: Option(Dec), y: Dec}");
   });
 
@@ -539,12 +552,19 @@ describe("the deferred-lambda pair, at depth (#1096)", () => {
   const fixtures = "let one: Int = 1\nlet useFloat(x: Float): Float = x\nlet useNat(x: Nat): Nat = x\n";
 
   test("a callback's position relative to its non-lambda siblings is unobservable", () => {
+    // From either side, `p + one` types `p` at `Int` before the callback is
+    // read: written, `useFloat(p)` widens it; only inferred, it refuses it alike
+    // (#1195).
     const first = "let f5<a, b, c>(p: ((a) -> b, Int), q: c): Int = 1\n";
     const second = "let f5<a, b, c>(q: c, p: ((a) -> b, Int)): Int = 1\n";
-    expect(typeOf(fixtures + first + "fun outer(p) = f5(((x) => useFloat(p), 1), p + one)\n", "outer"))
+    expect(typeOf(fixtures + first + "fun outer(p: Int) = f5(((x) => useFloat(p), 1), p + one)\n", "outer"))
       .toBe("Int -> Int");
-    expect(typeOf(fixtures + second + "fun outer(p) = f5(p + one, ((x) => useFloat(p), 1))\n", "outer"))
+    expect(typeOf(fixtures + second + "fun outer(p: Int) = f5(p + one, ((x) => useFloat(p), 1))\n", "outer"))
       .toBe("Int -> Int");
+    const inferredInt = "`p` is an `Int` only by inference, and an inferred type is not widened to `Float`: " +
+      "write `p: Int` where `p` is made, or convert it — `Float.fromInt(p)`";
+    expect(refusals(fixtures + first + "fun outer(p) = f5(((x) => useFloat(p), 1), p + one)\n")).toEqual([inferredInt]);
+    expect(refusals(fixtures + second + "fun outer(p) = f5(p + one, ((x) => useFloat(p), 1))\n")).toEqual([inferredInt]);
     expect(refusals(fixtures + first + "fun outer(p) = f5(((x) => useNat(p), 1), p + one)\n")).toHaveLength(1);
     expect(refusals(fixtures + second + "fun outer(p) = f5(p + one, ((x) => useNat(p), 1))\n")).toHaveLength(1);
   });

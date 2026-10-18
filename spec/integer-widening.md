@@ -155,8 +155,11 @@ A `FromBigInt` bound on the callee's freshly instantiated parameter does not
 itself establish a destination. With no independently established target, a
 BigInt argument must unify exactly as BigInt; `identity(1n)` must not invent a
 new constrained result or require an unavailable conversion dictionary. A
-caller-owned rigid variable or an already-constrained inferred caller variable
-can establish a target. The same evidence may arrive through corresponding
+caller-owned rigid variable can establish a target, and so can an
+already-constrained inferred variable, where the text decides the value that
+carries it; one that only inference gave a caller's value establishes none
+(Numeric Literals §5.1, #1195), so `fun f(value) =` with `establish(value)`
+above `choose(1n, value)` makes `value` a `BigInt`, as the lines swapped do. The same evidence may arrive through corresponding
 container arguments or explicitly shared record fields; unknown row-tail
 contents establish nothing. Unrelated parameter variables do not share targets,
 and a callback's borrowed expectation cannot establish itself as a destination.

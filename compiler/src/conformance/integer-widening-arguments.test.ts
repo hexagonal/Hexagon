@@ -262,18 +262,23 @@ describe("bounded BigInt argument deferral prototype", () => {
     expect(exports).toMatchObject({ last: 4n, first: 5n });
   });
 
-  test("a previously constrained flexible caller variable remains generic", () => {
-    const project = compileMain("module Main\n\n" +
-      "let establish<a: FromBigInt>(value: a): a = value\n" +
-      "let choose<a: FromBigInt>(left: a, right: a): a = left\n" +
-      "fun bigFirst(value) =\n" +
+  test("a declared caller variable remains generic, and one only inference constrained chooses no home", () => {
+    // Declared, the parameter's variable is a type the text decides, so it is
+    // the siblings' home and `1n` converts into it. Left to inference, the
+    // `FromBigInt` an earlier line gave it chooses nothing (Numeric Literals
+    // §5.1, #1195): `1n` is the home, and the parameter is a `BigInt`, as it is
+    // when the line that constrains it comes second.
+    const establish = "let establish<a: FromBigInt>(value: a): a = value\n" +
+      "let choose<a: FromBigInt>(left: a, right: a): a = left\n";
+    const declared = compileMain("module Main\n\n" + establish +
+      "fun bigFirst<a: FromBigInt>(value: a): a =\n" +
       "    let established = establish(value)\n" +
       "    choose(1n, established)\n" +
-      "fun bigLast(value) =\n" +
+      "fun bigLast<a: FromBigInt>(value: a): a =\n" +
       "    let established = establish(value)\n" +
       "    choose(established, 1n)\n");
-    expect(project.diagnostics).toEqual([]);
-    const main = project.modules.find(({ source }) => source.path === "/main.hex")!;
+    expect(declared.diagnostics).toEqual([]);
+    const main = declared.modules.find(({ source }) => source.path === "/main.hex")!;
     for (const name of ["bigFirst", "bigLast"]) {
       const scheme = main.typed.symbols.find((candidate) => candidate.name === name)?.scheme;
       expect(scheme?.constraints.map(({ name }) => name)).toContain("FromBigInt");
@@ -284,6 +289,23 @@ describe("bounded BigInt argument deferral prototype", () => {
       });
     }
     expect(main.javascript.text.match(/\.fromBigInt\(1n\)/gu)).toHaveLength(2);
+
+    const inferred = compileMain("module Main\n\n" + establish +
+      "fun bigFirst(value) =\n" +
+      "    let established = establish(value)\n" +
+      "    choose(1n, established)\n" +
+      "fun bigSecond(value) =\n" +
+      "    let chosen = choose(1n, value)\n" +
+      "    establish(value)\n");
+    expect(inferred.diagnostics).toEqual([]);
+    const typed = inferred.modules.find(({ source }) => source.path === "/main.hex")!.typed;
+    for (const name of ["bigFirst", "bigSecond"]) {
+      const scheme = typed.symbols.find((candidate) => candidate.name === name)?.scheme;
+      expect(scheme?.type, name).toMatchObject({
+        kind: "Function",
+        parameters: [{ kind: "Primitive", name: "BigInt" }],
+      });
+    }
   });
 
   test("conversion evaluates each source once and preserves runtime argument order", async () => {

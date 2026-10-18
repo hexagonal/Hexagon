@@ -35,6 +35,13 @@ const emittedLine = (source: string, name: string): string => {
   return main.javascript.text.split("\n").find((line) => line.includes(`const ${name} =`))!;
 };
 
+
+/** §6's report for a value only inference made generic, at a home without its `Frac` (#1195). */
+const openFrac = (value: string, giver: string): string =>
+  `\`${value}\` is generic only by inference, carrying \`Frac\` from its other uses, and an inferred type ` +
+  `chooses no home, so this expression runs at \`Int\`, the home \`${giver}\` gives it, which has no \`Frac\` ` +
+  `instance: declare its type where \`${value}\` is made — \`<a: Frac>\` and \`${value}: a\``;
+
 describe("a decimal literal waits for the rest of its expression", () => {
   test("#1062's table: every row meets at Dec", async () => {
     const exports = await run(
@@ -248,23 +255,36 @@ describe("the boundaries", () => {
   test("declared and constrained variables keep their targets", () => {
     const kept =
       "fun widen<t: Num>(value: Nat): t = value\n" +
-      "fun k(count: Int, value) =\n    let z = value / value\n    count * value\n" +
+      "fun k<a: Frac>(count: Int, value: a) =\n    let z = value / value\n    count * value\n" +
+      "fun kc(count: Int, value) =\n    let z = value / value\n    Signed.fromInt(count) * value\n" +
       "fun k5(count: Int, value) =\n    let z = value + 1\n    count * value\n" +
       "let scale<a: Signed>(count: Int, value: a): a = count * value\n";
     expect(refusals(kept)).toEqual([]);
     // `k` stays polymorphic, `<a: Frac> (Int, a) -> a`: a `Float` reaches it.
-    expect(refusals(kept + "let kf: Float = k(1, 2.5)\n")).toEqual([]);
+    // So does `kc`, its conversion a value the text decides whose open type is
+    // the home, whichever line comes first.
+    expect(refusals(kept + "let kf: Float = k(1, 2.5)\nlet kcf: Float = kc(1, 2.5)\n")).toEqual([]);
     // `k5`'s variable carries `Num` alone, which an `Int` cannot enter: it is
     // `(Int, Int) -> Int`, and a `Float` does not reach it.
     expect(refusals(kept + "let kf = k5(1, 2.5)\n")).toHaveLength(1);
+    // Left to inference, the `Frac` the line above gives `value` chooses no
+    // home (#1195): `count * value` runs at `Int`, and the report names the
+    // declaration that makes `value`'s type one the text decides.
+    expect(refusals("fun k(count: Int, value) =\n    let z = value / value\n    count * value\n"))
+      .toEqual([openFrac("value", "count")]);
   });
 
   test("which constrained variable is asked first decides nothing", () => {
+    // Declared, `y` is the home whichever is asked first. Left to inference,
+    // neither chooses (#1195), and each order draws the same report, at `y`.
     for (const sum of ["x + y + n", "y + x + n"]) {
       for (const first of ["x == x", "x + x"]) {
         expect(refusals(
-          `fun g(x, y) =\n    let t = ${first}\n    let z = y / y\n    ${sum}\n`,
+          `fun g<a: (Eq, Frac)>(x, y: a) =\n    let t = ${first}\n    let z = y / y\n    ${sum}\n`,
         )).toEqual([]);
+        expect(refusals(
+          `fun g(x, y) =\n    let t = ${first}\n    let z = y / y\n    ${sum}\n`,
+        )).toEqual([openFrac("y", "n")]);
       }
     }
   });
