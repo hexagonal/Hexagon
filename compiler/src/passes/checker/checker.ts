@@ -10004,12 +10004,6 @@ class Checker {
       knot.host = undefined;
       this.#knots.pop();
       for (const symbol of ordered) this.#landedResults.delete(symbol);
-      // What was read from the text while the knot was open read its members
-      // as open (`#fromTextAlone`); from here they are closed.
-      if (this.#readOpenMembers) {
-        this.#readOpenMembers = false;
-        this.#forgetTextReadings();
-      }
       // Every body has been checked only now, which is why §7.4's refusal
       // discharges its fence here rather than where it reported.
       if (knot.refused) this.#errorKnotHeads(knot);
@@ -20882,11 +20876,11 @@ class Checker {
     // and, beyond that, what its body works out, which the text does not
     // decide while the knot is open (Effects §3.4, #1279): it is made from the
     // text only where its declaration writes its whole result. Every route to
-    // it meets this, a local function's body included; what is worked out
-    // from it is forgotten where the knot closes.
+    // it meets this, a local function's body included. Only code inside the
+    // knot names its members, so nothing read here is asked again once the
+    // knot has closed.
     const open = this.#openMember(symbol);
     if (open !== undefined) {
-      this.#readOpenMembers = true;
       const written = open.value.returnAnnotation;
       return written !== undefined && annotationWhole(written);
     }
@@ -20915,17 +20909,6 @@ class Checker {
     return this.#fromTextBindings.get(symbol);
   }
 
-  /** Whether a reading of what the text decides has read a member of a knot still open. */
-  #readOpenMembers = false;
-
-  /** Forgets every reading of what the text decides, to be read again (`#resource`). */
-  #forgetTextReadings(): void {
-    this.#consultedSources.clear();
-    this.#fromTextBindings.clear();
-    this.#decidedBindings.clear();
-    this.#madeFromTextExpressions = new WeakMap();
-  }
-
   /**
    * Records a binding's source anew. A binding changes its source only where
    * it is made — before any use reads it — so nothing remembered took the old
@@ -20934,7 +20917,10 @@ class Checker {
   #resource(symbol: Resolved.SymbolId, source: BindingSource): void {
     this.#bindingSources.set(symbol, source);
     if (!this.#consultedSources.has(symbol)) return;
-    this.#forgetTextReadings();
+    this.#consultedSources.clear();
+    this.#fromTextBindings.clear();
+    this.#decidedBindings.clear();
+    this.#madeFromTextExpressions = new WeakMap();
   }
 
   /**

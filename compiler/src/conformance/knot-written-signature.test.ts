@@ -40,13 +40,13 @@ function reports(source: string): readonly Report[] {
   }));
 }
 
-/** The program with its knot's two members in each order; `head` is the block's first line. */
 /** The report a seat's `->!` makes where it meets an arrow already fixed pure. */
 const fixedArrow = "this position's arrow says the function is impure and may fail, and the pure arrow meeting it, " +
   "which cannot fail, was fixed before it arrived — by another use, by a type written where it was made, " +
   "inside an argument read invariantly, or in a parameter's type — so it cannot fit as a function used here " +
   "does; write the arrow where it was fixed";
 
+/** The program with its knot's two members in each order; `head` is the block's first line. */
 function bothOrders(first: string, second: string, after: string, head = "fun"): readonly string[] {
   return [`${head}\n${first}${second}${after}`, `${head}\n${second}${first}${after}`];
 }
