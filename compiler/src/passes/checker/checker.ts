@@ -21031,17 +21031,14 @@ class Checker {
    * generalized signature spells that parameter's type whole — no variable an
    * argument or a later line could fill — the parameter's type is the callee's
    * text, and it is decided as a written one is (#1119 R.b). A member of a knot
-   * still open has no generalized signature, and what its siblings' bodies have
-   * said of it so far follows the order the members are written in: what lands
-   * from it is what its declaration writes, read from the text alone
-   * (`#landFromWritten`), as its signature is read where the knot opens (#1279).
+   * still open has no generalized signature, and nothing lands from it: a
+   * lambda handed to one is refused whatever lands (Effects §3.4, L3). A member
+   * an earlier component of the block closed is generalized, and lands as any
+   * function does.
    */
   #landFromSignature(callee: Resolved.NameExpr, arguments_: readonly Resolved.Expr[]): void {
     if (!this.#fromText(callee.symbol)) return;
-    if (this.#knots.some((knot) => knot.members.some(({ symbol }) => symbol === callee.symbol))) {
-      this.#landFromWritten(callee, arguments_);
-      return;
-    }
+    if (this.#knots.some((knot) => knot.members.some(({ symbol }) => symbol === callee.symbol))) return;
     const scheme = this.#schemes.get(callee.symbol);
     const signature = scheme === undefined ? undefined : this.#prune(scheme.type);
     if (signature?.kind !== "Function") return;
@@ -21065,27 +21062,6 @@ class Checker {
         if (given !== undefined && annotationGround(given)) {
           this.#writtenViews.set(parameter.symbol, { written: given, role: "callback" });
         }
-      }
-    }
-  }
-
-  /** `#landFromSignature` at a member of a knot still open: a parameter type its declaration writes ground. */
-  #landFromWritten(callee: Resolved.NameExpr, arguments_: readonly Resolved.Expr[]): void {
-    const view = this.#writtenView(callee);
-    for (const [index, argument] of arguments_.entries()) {
-      let lambda: Resolved.Expr = argument;
-      while (lambda.kind === "Group") lambda = lambda.expression;
-      const written = this.#parameterWritten(view, index);
-      if (
-        lambda.kind !== "Lambda" || written?.kind !== "Function" ||
-        written.parameters.length !== lambda.parameters.length
-      ) continue;
-      for (const [position, parameter] of lambda.parameters.entries()) {
-        if (parameter.annotation !== undefined) continue;
-        const given = written.parameters[position]!;
-        if (!annotationGround(given)) continue;
-        this.#resource(parameter.symbol, { kind: "written" });
-        this.#writtenViews.set(parameter.symbol, { written: given, role: "callback" });
       }
     }
   }

@@ -221,4 +221,18 @@ describe("a member's written signature is read where its knot opens (#1279)", ()
     const go2 = "    go2(n: Int, k: (Vector(Int)) -> Int): Int = go(n, k)\n";
     expectInEveryOrder(bothOrders(go, go2, ""), [{ at: "(r) => k(r.append(n))", message: made }]);
   });
+
+  /**
+   * A member an earlier component of the block has closed is generalized: a
+   * lambda handed to it from a later component takes its untyped parameter's
+   * type, the callback's colour among it, from that member's written
+   * signature, as under any function's (#1119 R.b). Only a member of a knot
+   * still open lands nothing.
+   */
+  test("a member an earlier component closed lands its written parameter type on a later component's lambda", () => {
+    const tools = "let applyPure(k: (() -> Unit) -> Unit): Unit = k(() => ())\n";
+    const applyK = "    applyK(k: ((() ->! Unit) -> Unit) -> Unit): Unit = k((f) => ())\n";
+    const go = "    go(): Unit = applyK((f) => applyPure(f))\n";
+    expectInEveryOrder(bothOrders(applyK, go, "", tools + "fun"), []);
+  });
 });
