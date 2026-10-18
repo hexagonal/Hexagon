@@ -701,6 +701,12 @@ interface EffectFrame {
    */
   deferredTies?: DeferredTie[];
   /**
+   * Reports of nested bodies' ties, found at their own closes while a tie
+   * waited on this body's: reported with this body's, so a tie the two
+   * found from both ends is one report (#1217).
+   */
+  heldTies?: TieReport[];
+  /**
    * How many binds had been made where this body decided its ties, for a body
    * that reports them later (`#tieHolder`): a held lambda's tie that reaches
    * it then is read against what it shared here (#1220).
@@ -1291,6 +1297,14 @@ type DeferredTie =
     /** What its type was where its body closed. */
     readonly variable: Variable;
   };
+
+/** What an untyped callback's colour is tied to (`Checker.#tiedTo`). */
+type TiedTo = {
+  readonly phrase: string;
+  readonly from?: Mono;
+  /** The untyped parameter whose own colour it is, with its body: tied too, so the reports that name each other are one (#1217). */
+  readonly other?: { readonly parameter: EffectFrame["untyped"][number]; readonly frame: EffectFrame } | undefined;
+};
 
 /**
  * One tie's report (Effects §3.4, §9): every tied parameter, each once, with
@@ -4367,7 +4381,14 @@ class Checker {
    * The colours of untyped parameters that are their own, each with its
    * parameter's name (Effects §3.4): a tie between callbacks names them.
    */
-  readonly #untypedColours = new ByRepresentative<{ readonly colour: Variable; readonly name: string; readonly owner?: string | undefined }>(
+  readonly #untypedColours = new ByRepresentative<{
+    readonly colour: Variable;
+    readonly name: string;
+    readonly owner?: string | undefined;
+    /** The parameter itself and its body, so a tie found through its colour takes it in (#1217). */
+    readonly parameter?: EffectFrame["untyped"][number];
+    readonly frame?: EffectFrame;
+  }>(
     (colour) => this.#prune(colour),
   );
   /**
@@ -22998,7 +23019,7 @@ class Checker {
         } else if (shared(pruned) ? needed.has(pruned) : !readBy.has(pruned)) {
           this.#linkedColours.push(colour);
           if (!this.#untypedColours.get(this.#prune(colour)).some((entry) => entry.name === parameter.name)) {
-            this.#untypedColours.add(colour, { colour, name: parameter.name, owner: frame.owner });
+            this.#untypedColours.add(colour, { colour, name: parameter.name, owner: frame.owner, parameter, frame });
           }
           // A pattern parameter's minted binder is no name to show (Lexer §3.2).
           if (!isCompilerMinted(parameter.name)) this.#namedColours.push({ colour, name: parameter.name, owner: frame.owner });
@@ -23138,7 +23159,9 @@ class Checker {
    * parameters of this body and of the nested bodies whose ties waited on its
    * close, reports that share one taken as one (#1163); the repair is to write
    * the types, which are then fitted where they are used, so each colour stays
-   * its own.
+   * its own. While a nested body's tie waits on a body further out, this
+   * body's reports wait with it there, so the two ends of one tie are one
+   * report (#1217).
    */
   #refuseTies(frame: EffectFrame, report = true): void {
     const pending = this.#pendingTies.get(frame);
@@ -23170,7 +23193,19 @@ class Checker {
     }
     this.#pendingTies.delete(frame);
     this.#tiesRead.add(frame);
-    this.#reportTies([...reports.values()]);
+    const found = [...frame.heldTies ?? [], ...reports.values()];
+    delete frame.heldTies;
+    // While a tie waits on a body further out, these may be its other end: the
+    // fix readings hold from now, and the reports join that body's (#1217).
+    const waiting = this.#waitingEnclosing(frame);
+    if (waiting !== undefined && found.length > 0) {
+      for (const each of found) {
+        for (const { frame: body, index } of each.readings) (body.tieReadings ??= new Set()).add(index);
+      }
+      (waiting.heldTies ??= []).push(...found);
+      return;
+    }
+    this.#reportTies(found);
   }
 
 
@@ -23268,6 +23303,7 @@ class Checker {
     readonly phrase: string;
     readonly from?: Mono;
     readonly waits?: { readonly frame: EffectFrame; readonly parameter: EffectFrame["untyped"][number] };
+    readonly other?: TiedTo["other"];
   } | undefined {
     const parts = this.#colourParts(colour);
     const axis = entryAxis(parameter);
@@ -23399,6 +23435,9 @@ class Checker {
     if (tie === undefined) return;
     if (tie.waits !== undefined) {
       (tie.waits.frame.deferredTies ??= []).push({ kind: "with", frame, parameter, with: tie.waits.parameter });
+      // A tie whichever way the wait settles reads as its fix from here, so a
+      // use of this body after it generalizes does not meet it again (#1217).
+      if (this.#tiedBeside(colour, parameter.name, tie.waits.parameter)) (frame.tieReadings ??= new Set()).add(parameter.index);
       return;
     }
     for (const other of tie.others) named.add(other);
@@ -23407,6 +23446,10 @@ class Checker {
     report.named.push({ parameter, phrase: tie.phrase, from: tie.from });
     report.add(frame, parameter, true);
     for (const other of tie.others) report.add(frame, other, true);
+    // A sibling it is tied to is tied too, so two reports that name each
+    // other share it and are one (#1217). Another body's callback is not: a
+    // use of that body's value meets the tie on its own account.
+    if (tie.other?.frame === frame) report.add(frame, tie.other.parameter, true);
   }
 
   /**
@@ -23490,6 +23533,7 @@ class Checker {
       report.named.push({ parameter, phrase: tie.phrase, from: tie.from, madeAt });
       report.add(frame, parameter, false);
       for (const other of tie.others) report.add(frame, other, false);
+      if (tie.other?.frame === frame) report.add(frame, tie.other.parameter, false);
       return;
     }
     // Keyed by its colour as it stood then, so ties a later line merged stay
@@ -23542,6 +23586,28 @@ class Checker {
     for (let node: Mono | undefined = type; node?.kind === "Variable"; node = this.#binds.get(node)?.target) {
       const span = this.#capturedAt.get(node);
       if (span !== undefined) return span;
+    }
+    return undefined;
+  }
+
+  /**
+   * Whether a colour that waits on an enclosing body's untyped callback is
+   * tied to something else as well, whatever that callback's colour turns
+   * out to be (#1217): a part that is another untyped callback's own colour,
+   * or a written callback's.
+   */
+  #tiedBeside(colour: Mono, name: string, waited: EffectFrame["untyped"][number]): boolean {
+    const spine = this.#spineColours(waited.type, entryAxis(waited)).flatMap(({ arrow }) => this.#colourParts(arrow));
+    return this.#colourParts(colour).some((part) =>
+      !spine.includes(part) &&
+      (this.#untypedColours.get(part).some((entry) => entry.name !== name) || this.#scopesByColour.get(part).length > 0)
+    );
+  }
+
+  /** The innermost body around `frame`, its ties not read yet, that a nested body's tie waits on. */
+  #waitingEnclosing(frame: EffectFrame): EffectFrame | undefined {
+    for (let open = frame.enclosing; open !== undefined; open = open.enclosing) {
+      if (!this.#tiesRead.has(open) && (open.deferredTies?.length ?? 0) > 0) return open;
     }
     return undefined;
   }
@@ -23820,10 +23886,15 @@ class Checker {
    * the colour is its own: a join is always a tie, and so is a variable that is
    * another callback's colour.
    */
-  #tiedTo(colour: Mono, name: string): { readonly phrase: string; readonly from?: Mono } | undefined {
-    const named = (variable: Variable): { readonly phrase: string; readonly from: Mono } | undefined => {
+  #tiedTo(colour: Mono, name: string): TiedTo | undefined {
+    const named = (variable: Variable): TiedTo | undefined => {
       const untyped = this.#untypedColours.get(variable).find((entry) => entry.name !== name);
-      if (untyped !== undefined) return { phrase: `\`${untyped.name}\`'s`, from: untyped.colour };
+      if (untyped !== undefined) {
+        const other = untyped.parameter === undefined || untyped.frame === undefined
+          ? undefined
+          : { parameter: untyped.parameter, frame: untyped.frame };
+        return { phrase: `\`${untyped.name}\`'s`, from: untyped.colour, other };
+      }
       const written = this.#scopesByColour.get(variable)[0];
       if (written === undefined) return undefined;
       return {
