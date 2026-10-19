@@ -23507,6 +23507,7 @@ class Checker {
   #noteConstantColours(frame: EffectFrame): void {
     for (const parameter of frame.untyped) {
       const type = this.#prune(parameter.type);
+      // One no function there is read as a shape a later line made (`#refuseTie`).
       if (type.kind !== "Function") continue;
       const colour = this.#prune(this.#ownColourAt(type, frameAxis(frame)));
       parameter.constantAtClose = colour.kind === "Effect" || colour.kind === "ErrorColour";
@@ -23928,7 +23929,8 @@ class Checker {
     const reports = pending ?? new Map<Mono, TieReport>();
     if (pending === undefined) {
       if (!report) {
-        this.#noteConstantColours(frame);
+        // A lambda the knot held keeps what its text left (`endedAt`).
+        if (frame.endedAt === undefined) this.#noteConstantColours(frame);
         frame.closedAt = this.#bindCount;
       }
       const named = new Set<EffectFrame["untyped"][number]>();
@@ -24175,7 +24177,11 @@ class Checker {
     reports: Map<Mono, TieReport>,
     named: Set<EffectFrame["untyped"][number]>,
   ): void {
-    const type = this.#prune(parameter.type);
+    // A lambda the knot held is read as its text left it (#1246): a
+    // parameter no function where it ended is one a later line shapes.
+    const type = frame.endedAt === undefined || this.#boundAt(parameter.type, frame.endedAt).kind === "Function"
+      ? this.#prune(parameter.type)
+      : this.#boundAt(parameter.type, frame.endedAt);
     if (type.kind !== "Function") {
       // Not a function yet where its body closed: a line of an enclosing body
       // still open may make it one, tied to that body's callback, so the open
@@ -24224,6 +24230,14 @@ class Checker {
   }
 
   /**
+   * The colour a tie read as it stood once `at` binds had been made is keyed
+   * by, so ties a later line merged stay the reports they were (#1220, #1246).
+   */
+  #tieKeyAt(type: Mono, axis: Axis, at: number): Mono {
+    return this.#ownColourPartsAt(type, axis, at)[0] ?? this.#prune(this.#ownColourAt(type, axis));
+  }
+
+  /**
    * A held lambda's tie whose colour a later line pinned to a constant, read
    * as it stood once `at` binds had been made, where the lambda's text ended
    * (#1246): with another of its own untyped callbacks sharing the colour
@@ -24241,13 +24255,13 @@ class Checker {
     if (type.kind !== "Function") return;
     const parts = this.#ownColourPartsAt(type, axis, at);
     const others = frame.untyped.filter((other) => {
-      if (other === parameter || other.ownAtClose === true || other.constantAtClose !== false) return false;
+      if (other === parameter || other.ownAtClose === true) return false;
       const theirs = this.#boundAt(other.type, at);
       return theirs.kind === "Function" && this.#ownColourPartsAt(theirs, axis, at).some((part) => parts.includes(part));
     });
     if (others.length > 0) {
       for (const other of others) named.add(other);
-      const key = parts[0]!;
+      const key = this.#tieKeyAt(type, axis, at);
       const report = reports.get(key) ?? new TieReport();
       reports.set(key, report);
       report.named.push({ parameter, phrase: `\`${others[0]!.name}\`'s`, from: others[0]!.type });
@@ -24302,14 +24316,14 @@ class Checker {
     // one a later line pinned, where the tie is read as it stood at `at`, the
     // callback it shared there still not a constant then (#1246).
     if (colour.kind === "Effect" || colour.kind === "ErrorColour") {
-      const shared = at === undefined || deferred.kind !== "with" ? undefined : this.#sharingUntyped(closing, parameter, at);
+      const shared = at !== undefined ? this.#sharingUntyped(closing, parameter, at) : undefined;
       if (shared?.constantAtClose !== false) return;
     }
     // Read as that close read it only where it was there then: with the
     // callback of `closing` it shared a colour with at the close, whichever
     // one it waited on now. One a later line made is read now, further out,
     // as that line's body reads it.
-    const then = at === undefined || deferred.kind !== "with" ? undefined : this.#sharingUntyped(closing, parameter, at);
+    const then = at !== undefined ? this.#sharingUntyped(closing, parameter, at) : undefined;
     const thenAt = then === undefined ? undefined : at;
     for (let open = closing.enclosing; open !== undefined; open = open.enclosing) {
       if (this.#tiesRead.has(open)) continue;
@@ -24355,7 +24369,7 @@ class Checker {
     }
     // Keyed by its colour as it stood then, so ties a later line merged stay
     // the reports they were.
-    const key = thenAt === undefined ? colour : this.#boundAt(this.#ownColourAt(type, axis), thenAt);
+    const key = thenAt === undefined ? colour : this.#tieKeyAt(type, axis, thenAt);
     const report = reports.get(key) ?? new TieReport();
     reports.set(key, report);
     report.named.push({
