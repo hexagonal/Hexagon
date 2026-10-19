@@ -2396,7 +2396,7 @@ export let probe(): Unit = walk!(save0, 2)
   });
 });
 
-describe("Effects §3.4 — a knot's facts decide together, and each check names its fact (#1240)", () => {
+describe("Effects §3.4 — a knot's facts decide together, and one fact is one report (#1240, #1310)", () => {
   const prelude = "module Main\n\n" + 'extern from "./world.js"\n    export fun log(s: String) ->~ Unit\n' +
     "    export fun save(s: String) ->! Unit\n    export fun parse(s: String) ->^ Int\n" +
     "let noop(): Unit = ()\nlet log0(): Unit = log~(\"x\")\nlet save0(): Unit = save!(\"x\")\n" +
@@ -2414,6 +2414,9 @@ describe("Effects §3.4 — a knot's facts decide together, and each check names
       fixes: (diagnostic.fixes ?? []).map(({ message }) => message),
     }));
   };
+  /** Every label of every report, in order. */
+  const labels = (source: string): readonly string[] =>
+    diagnostics(prelude + source).flatMap((diagnostic) => (diagnostic.labels ?? []).map(({ message }) => message));
   /** What the program reports once one fix of one of its reports is applied. */
   const fixed = (source: string, report: number, fix: number): readonly string[] => {
     let text = prelude + source;
@@ -2429,31 +2432,27 @@ describe("Effects §3.4 — a knot's facts decide together, and each check names
 
   it("decides a colour one member reads bare and another marks by the bare call, in either member order", () => {
     // `pong`'s bare `ping(n - 1, act)` makes `act` pure (R2). The marks and the
-    // probe handing `save0` contradict it: each is reported where it fails,
-    // naming the bare call, and marking it repairs every one.
+    // probe handing `save0` contradict it: one report, at the first of them in
+    // source order, the rest labels; marking the bare call repairs every one.
     const pong = "    pong(n: Int, act): Int = if n > 0 then ping(n - 1, act) else 0\n";
     const ping = "    ping(n: Int, act): Int =\n        let q = (cc: () ->! Unit) =>\n            cc!()\n" +
       "            let _ = if n > 0 then pong!(n - 1, act) else 0\n            ()\n        q!(act)\n        0\n";
     const probe = "export let probe(): Int = ping!(2, save0)\n";
-    const fact = " — `ping` is called bare, which makes `act` pure and unable to fail";
-    for (const knot of both(ping, pong)) {
-      const shown = reports(knot + probe);
-      expect(shown.map(({ message }) => message)).toEqual([
-        over("pong") + fact,
-        over("q") + fact,
-        over("ping") + fact,
-        handed + fact,
-      ]);
-      expect(shown.at(-1)!.at).toBe("L10 save0");
-      // A mark's report offers both sides' fixes; the function handed is no claim a fix removes.
-      expect(shown.map(({ fixes }) => fixes)).toEqual([
-        ["remove the mark", "mark the call of `ping` `!`"],
-        ["remove the mark", "mark the call of `ping` `!`"],
-        ["remove the mark", "mark the call of `ping` `!`"],
-        ["mark the call of `ping` `!`"],
-      ]);
-      for (const report of [0, 1, 2]) expect(fixed(knot + probe, report, 1)).toEqual([]);
-      expect(fixed(knot + probe, 3, 0)).toEqual([]);
+    const [pingFirst, pongFirst] = both(ping, pong);
+    for (const [knot, first] of [[pingFirst, "L5 !"], [pongFirst, "L6 !"]] as const) {
+      // Not "remove the marks": handing `save0` is no claim a fix removes.
+      expect(reports(knot + probe)).toEqual([{
+        at: first,
+        message: over("pong") + " — `ping` is called bare, which makes `act` pure and unable to fail",
+        fixes: ["mark the call of `ping` `!`"],
+      }]);
+      expect(labels(knot + probe)).toEqual(expect.arrayContaining([
+        "called bare here",
+        "`q` wants no mark, not `!`",
+        "`ping` wants no mark, not `!`",
+        "a function that is impure and may fail is handed here",
+      ]));
+      expect(fixed(knot + probe, 0, 0)).toEqual([]);
     }
   });
 
@@ -2472,9 +2471,12 @@ describe("Effects §3.4 — a knot's facts decide together, and each check names
     const ping = "    ping(n: Int, act): Int =\n        let q = (cc: () ->! Unit) =>\n            cc!()\n" +
       "            let _ = if n > 0 then pong!(n - 1, act) else 0\n            ()\n        q!(act)\n        0\n";
     for (const knot of both(ping, pong)) {
-      expect(reports(knot).map(({ message }) => message))
-        .toEqual([over("pong") + " — `ping` is called bare, which makes `f` pure and unable to fail",
-          over("q") + " — `ping` is called bare, which makes `f` pure and unable to fail"]);
+      // Both marks are the fact's checks: one report, and where every check
+      // is a mark, removing them is offered too.
+      expect(reports(knot).map(({ message, fixes }) => [message, fixes])).toEqual([[
+        over("pong") + " — `ping` is called bare, which makes `f` pure and unable to fail",
+        ["mark the call of `ping` `!`", "remove the marks"],
+      ]]);
     }
   });
 
@@ -2504,21 +2506,18 @@ describe("Effects §3.4 — a knot's facts decide together, and each check names
     }
   });
 
-  it("reports a function handed once, at the function, naming the fact on each colour, in either member order", () => {
+  it("makes one report of a world fact and a fail fact that one check fails, in either member order", () => {
     // `b^(…)` makes `act` pure, and the bare `act()` makes it unable to fail;
-    // which comes first follows the members' order, the report's place does not.
+    // the probe fails both, so they are one report, whichever member is first.
     const a = "    a(n: Int, act): Int =\n        let _ = if n > 0 then b^(n - 1, act) else 0\n        0\n";
     const b = "    b(n: Int, act): Int =\n        act()\n        if n > 0 then a!(n - 1, act) else 0\n";
     const probe = "export let probe(): Int = a!(2, save0)\n";
-    const [aFirst, bFirst] = both(a, b);
-    const at = (source: string) => reports(source).filter(({ at }) => at === "L8 save0");
-    expect(at(aFirst + probe).map(({ message }) => message)).toEqual([handed +
-      " — `b` is called `^`, which makes `act` pure, and `act` is called bare, which makes it unable to fail"]);
-    expect(at(bFirst + probe).map(({ message }) => message)).toEqual([handed +
-      " — `act` is called bare, which makes it pure and unable to fail"]);
-    for (const knot of [aFirst, bFirst]) {
-      expect(at(knot + probe)[0]!.fixes).toEqual(["mark every call that makes `act` pure and unable to fail"]);
-      expect(reports(knot + probe)).toHaveLength(4);
+    for (const knot of both(a, b)) {
+      const shown = reports(knot + probe);
+      expect(shown).toHaveLength(1);
+      expect(shown[0]!.fixes[0]).toBe("mark every call that makes `act` pure and unable to fail");
+      expect(labels(knot + probe)).toContain("a function that is impure and may fail is handed here");
+      expect(fixed(knot + probe, 0, 0)).toEqual([]);
     }
   });
 
@@ -2528,10 +2527,10 @@ describe("Effects §3.4 — a knot's facts decide together, and each check names
     // handed to `f`. Marking `f()` repairs both reports.
     const source = "let tw(f, g) =\n    f()\n    g^()\n    0\nexport let p(): Int = tw!(save0, noop)\n";
     expect(reports(source)).toEqual([
-      { at: "L5 !", message: over("tw") + " — `f` is called bare, which makes it pure and unable to fail", fixes: ["remove the mark", "mark the call of `f` `!`"] },
-      { at: "L5 save0", message: handed + " — `f` is called bare, which makes it pure and unable to fail", fixes: ["mark the call of `f` `!`"] },
+      { at: "L5 !", message: over("tw") + " — `f` is called bare, which makes it pure and unable to fail", fixes: ["mark the call of `f` `!`"] },
     ]);
-    expect(fixed(source, 0, 1)).toEqual([]);
+    expect(labels(source)).toEqual(["called bare here", "a function that is impure and may fail is handed here"]);
+    expect(fixed(source, 0, 0)).toEqual([]);
   });
 
   it("names no fact where the function handed does nothing there", () => {
@@ -2547,11 +2546,8 @@ describe("Effects §3.4 — a knot's facts decide together, and each check names
     // `log0` is impure but cannot fail: the fact explains the world part of
     // `tw!`, and once `f` is marked, the fail part is reported on its own.
     const source = "let tw(f) =\n    f()\n    0\nexport let p(): Int = tw!(log0)\n";
-    expect(reports(source).map(({ message }) => message)).toEqual([
-      over("tw") + " — `f` is called bare, which makes it pure",
-      "this function is impure, where the function handed must be pure — `f` is called bare, which makes it pure",
-    ]);
-    expect(fixed(source, 0, 1)).toEqual(["this call cannot fail, so `tw` wants `~`, not `!`"]);
+    expect(reports(source).map(({ message }) => message)).toEqual([over("tw") + " — `f` is called bare, which makes it pure"]);
+    expect(fixed(source, 0, 0)).toEqual(["this call cannot fail, so `tw` wants `~`, not `!`"]);
   });
 
   it("names a fact only where marking its calls settles the mark", () => {
@@ -2598,14 +2594,13 @@ describe("Effects §3.4 — a knot's facts decide together, and each check names
     ]);
   });
 
-  it("names the parameter the function is handed to, in its report and the mark's, in either member order", () => {
+  it("names the parameter the function is handed to, in either member order", () => {
     const a = "    a(p, n: Int): Int = if n > 0 then b(p, n - 1) else 0\n";
     const b = "    b(q, n: Int): Int =\n        q()\n        if n > 0 then a(q, n - 1) else 0\n";
     for (const knot of both(a, b)) {
+      // One report for the fact, named by the parameter the function goes to.
       const words = reports(knot + "export let x(): Int = b!(log0, 2)\n").map(({ message }) => message.split(" — ")[1]);
-      // The same fact, by the same parameter, in both reports.
-      expect(words).toHaveLength(2);
-      expect(words[0]).toBe(words[1]);
+      expect(words).toHaveLength(1);
       expect(words[0]).toContain("`q`");
     }
   });
@@ -3167,12 +3162,10 @@ describe("Effects §3.4 — what a held lambda's own callbacks run is not held (
     // whose callback is pure, which `probe` then hands `save0`.
     expect(check("fun a(n: Int) = (cb) => if n == 0 then cb() else a(n - 1)!(cb)\n" +
       "export let probe(): Unit = a(2)!(save0)\n")).toEqual([
+      // One report for the fact: `save0` handed against it is a label (#1310).
       "this call is pure and cannot fail, so this call wants no mark, not `!` — `cb` is called bare, which makes it pure " +
       "and unable to fail",
       "this call is pure and cannot fail, so this call wants no mark, not `!`",
-      // `save0` handed where the bare `cb()` made `cb` pure names that fact, at `save0` (#1240).
-      "this function is impure and may fail, where the function handed must be pure and unable to fail — `cb` is " +
-      "called bare, which makes it pure and unable to fail",
     ]);
     // Under a `match` too, where the refusal of a function the member was not
     // given stands alone.
@@ -3837,10 +3830,9 @@ describe("Effects §3.5 — a colour in error (#1223)", () => {
       // so `outer!(h)` is the extra mark, and `mid`'s callers meet a pure `h`.
       expect(check(mid("h", first, second))).toEqual([
         nopeType,
+        // One report for the fact, `save0` handed against it a label (#1310).
         "this call is pure and cannot fail, so `outer` wants no mark, not `!` — `h` is called bare, which makes it pure " +
         "and unable to fail",
-        "this function is impure and may fail, where the function handed must be pure and unable to fail — `h` is " +
-        "called bare, which makes it pure and unable to fail",
       ]);
     }
     // An untyped parameter handed to a call whose callee failed is in error,
