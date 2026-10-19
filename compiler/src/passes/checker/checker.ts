@@ -1393,6 +1393,28 @@ interface HardCase {
   readonly axis: Axis;
 }
 
+/**
+ * A fact that decided a colour silent (Effects §3.4): the first bare call in
+ * source order that runs it, the parameter it is named by, whether it is the
+ * only call that does, and every call that does.
+ */
+interface ColourFact {
+  readonly call: Resolved.CallExpr;
+  readonly name: string;
+  readonly only: boolean;
+  readonly readers: readonly Resolved.CallExpr[];
+  /** The colour it decides. */
+  readonly axis: Axis;
+}
+
+/** A fact as a report tells it: the parameter, the fact where one decided it, every call that makes it, and its colours. */
+interface Told {
+  readonly name: string;
+  readonly fact?: ColourFact;
+  readonly calls: readonly Resolved.CallExpr[];
+  readonly axes: readonly Axis[];
+}
+
 /** One written call, and the mark it wore, awaiting its solved colour. */
 interface MarkObligation {
   readonly effect: Mono;
@@ -4387,10 +4409,19 @@ class Checker {
    * Per marked call and colour, the fact that made silent what the call runs
    * there (Effects §3.4): the mark's report names it, and offers to mark it (§9).
    */
-  readonly #markFacts = new WeakMap<
-    Resolved.CallExpr,
-    Map<Axis, { readonly call: Resolved.CallExpr; readonly name: string; readonly only: boolean }>
-  >();
+  readonly #markFacts = new WeakMap<Resolved.CallExpr, Map<Axis, ColourFact>>();
+  /**
+   * The pure constant each colour a fact decided was settled to, minted for
+   * that colour (Effects §3.4, #1240): a function handed where it is read
+   * meets the colour itself, so its report names the fact.
+   */
+  readonly #factColours = new WeakMap<Mono, ColourFact>();
+  /**
+   * Each place a function is handed where a fact made a colour silent, with
+   * the fact on each colour (#1240): one report per place, made once the marks
+   * are known (`#reportFactDemands`).
+   */
+  readonly #factDemands = new Map<string, { readonly span: Source.Span; readonly facts: Map<Axis, ColourFact> }>();
   /**
    * Per bare call and colour, the untyped parameter it makes silent there
    * (Effects §3.4), and whether it is the only call that does: a `try` it
@@ -4406,6 +4437,16 @@ class Checker {
   readonly #ownArrowPins = new Map<string, { readonly silent: boolean; readonly span: Source.Span }>();
   /** The colours on which an untyped parameter is called bare by its own name: a fix writing its type writes those silent (§9). */
   readonly #calledBareItself = new Map<Resolved.SymbolId, Set<Axis>>();
+  /** Each untyped parameter's bare calls by its own name, per colour, read by `#explainFromText`. */
+  readonly #bareCallsOf = new Map<Resolved.SymbolId, Map<Axis, Resolved.CallExpr[]>>();
+  /**
+   * Each untyped parameter a fact decided silent, by its binding, per colour,
+   * and in a knot every member's parameter that shares the colour: where the
+   * decision is read from, by declaration (`#explainFromText`).
+   */
+  readonly #parameterFacts = new Map<Resolved.SymbolId, Map<Axis, ColourFact>>();
+  /** Each binding whose value is a lambda, with its parameters as written: a declaration, read by `#explainFromText`. */
+  readonly #lambdaParameters = new Map<Resolved.SymbolId, readonly Resolved.Parameter[]>();
   /** The colours on which an untyped parameter is called by its own name with a mark carrying them: no seam reading is offered there (§9). */
   readonly #calledMarkedItself = new Map<Resolved.SymbolId, Set<Axis>>();
   /** Each untyped parameter by its binding, for a report about a call of it. */
@@ -5821,6 +5862,17 @@ class Checker {
   readonly #letAliases = new Map<Resolved.SymbolId, Resolved.SymbolId>();
   /** The knot `#settleKnot` is closing. */
   #settlingKnot: Knot | undefined = undefined;
+  /**
+   * The closing knot's frames, every call any of them wrote, read by each
+   * frame's `#settleUntyped` (Effects §3.4, #1240): a colour the members share
+   * is decided by the facts of every member, before any member decides it.
+   */
+  #knotFacts: {
+    readonly frames: ReadonlySet<EffectFrame>;
+    readonly calls: readonly { readonly effect: Mono; readonly call: Resolved.CallExpr; readonly frame: EffectFrame }[];
+    /** The colours each frame's own untyped parameters share, read before any frame settles. */
+    readonly shared: ReadonlyMap<EffectFrame, readonly Variable[]>;
+  } | undefined = undefined;
   /**
    * The frames of a knot refused for handing on a function it was not given
    * (#1218):
@@ -21836,7 +21888,11 @@ class Checker {
       registerType(inner);
       if (inner.kind === "Let" || inner.kind === "Fun") {
         const value = ungrouped(inner.value);
-        if (value.kind === "Lambda") this.#namedLambdas.set(value, inner.binding.symbol);
+        if (value.kind === "Lambda") {
+          this.#namedLambdas.set(value, inner.binding.symbol);
+          // Its parameters as written, a declaration a report can read (#1240).
+          this.#lambdaParameters.set(inner.binding.symbol, value.parameters);
+        }
       }
       if (inner.kind === "Let") {
         const written = inner.annotation !== undefined && annotationWhole(inner.annotation);
@@ -23550,7 +23606,22 @@ class Checker {
     };
     const onAxis = (frame: EffectFrame): boolean => frameAxis(frame) === axis;
     const outermost = knot.frames.filter(onAxis).sort((left, right) => depth(left) - depth(right));
-    for (const frame of outermost) this.#closeFrame(frame, false);
+    // Every member's facts are read before any member decides a colour they
+    // share (§3.4's knot step 3, #1240).
+    const enclosingFacts = this.#knotFacts;
+    this.#knotFacts = {
+      frames: new Set(outermost),
+      calls: outermost.flatMap((frame) => (frame.calls ?? []).map(({ effect, call }) => ({ effect, call, frame }))),
+      shared: new Map(outermost.map((frame) => [
+        frame,
+        [...this.#ownedColours(frame)].filter(([, count]) => count > 1).map(([colour]) => colour),
+      ])),
+    };
+    try {
+      for (const frame of outermost) this.#closeFrame(frame, false);
+    } finally {
+      this.#knotFacts = enclosingFacts;
+    }
     // Innermost first; bodies at one depth in the order they were reached. A
     // frame around a lambda an enclosing knot holds decides its ties here and
     // reports them at that knot's close.
@@ -23639,6 +23710,30 @@ class Checker {
   }
 
   /**
+   * How many of a body's untyped parameters own each colour on their spines
+   * (§3.4): a colour is shared where another untyped parameter's spine holds
+   * it, this body's or one nested in it, which left the colour to this body.
+   */
+  #ownedColours(frame: EffectFrame): Map<Variable, number> {
+    const axis = frameAxis(frame);
+    const ownedBy = new Map<Variable, number>();
+    for (const parameter of frame.untyped) {
+      const spine = this.#spineColours(parameter.type, axis).flatMap(({ arrow }) => this.#colourParts(arrow));
+      const owned = spine.filter((colour) => !this.#isDependency(frame, colour));
+      for (const colour of new Set(owned.map((part) => this.#prune(part)))) {
+        if (colour.kind === "Variable") ownedBy.set(colour, (ownedBy.get(colour) ?? 0) + 1);
+      }
+    }
+    for (const type of frame.nestedUntyped) {
+      const spine = this.#spineColours(type, axis).flatMap(({ arrow }) => this.#colourParts(arrow));
+      for (const colour of new Set(spine.map((part) => this.#prune(part)))) {
+        if (colour.kind === "Variable" && ownedBy.has(colour)) ownedBy.set(colour, ownedBy.get(colour)! + 1);
+      }
+    }
+    return ownedBy;
+  }
+
+  /**
    * §3.4's second step: an untyped parameter the body uses as a function is
    * decided by the facts about it. A call written bare is one: everything it
    * runs is silent, through any label. A mark is no fact: it is checked
@@ -23685,7 +23780,7 @@ class Checker {
     const readBy = new Map<Variable, Resolved.CallExpr>();
     const readers = new Map<Variable, number>();
     const readersOf = new Map<Variable, Resolved.CallExpr[]>();
-    const marked: { readonly call: Resolved.CallExpr; readonly parts: Variable[] }[] = [];
+    const marked: { readonly call: Resolved.CallExpr; readonly parts: Variable[]; readonly elsewhere?: true }[] = [];
     for (const { effect, call } of frame.calls ?? []) {
       if (markParts(call.mark)[axis]) {
         marked.push({ call, parts: this.#colourParts(effect) });
@@ -23712,8 +23807,50 @@ class Checker {
         let axes = this.#calledBareItself.get(callee.symbol);
         if (axes === undefined) this.#calledBareItself.set(callee.symbol, axes = new Set());
         axes.add(axis);
+        let byAxis = this.#bareCallsOf.get(callee.symbol);
+        if (byAxis === undefined) this.#bareCallsOf.set(callee.symbol, byAxis = new Map());
+        const calls = byAxis.get(axis) ?? [];
+        if (!calls.includes(call)) calls.push(call);
+        byAxis.set(axis, calls);
       }
     }
+    // In a knot, every other member's calls too (#1240): a bare call there is
+    // a fact about a colour the members share, and a mark there is checked
+    // against it, whichever member closes first.
+    const factFrames = new Map<Resolved.CallExpr, EffectFrame>();
+    if (this.#knotFacts?.frames.has(frame) === true) {
+      for (const { effect, call, frame: other } of this.#knotFacts.calls) {
+        if (other === frame) continue;
+        if (markParts(call.mark)[axis]) {
+          marked.push({ call, parts: this.#colourParts(effect), elsewhere: true });
+          continue;
+        }
+        factFrames.set(call, other);
+        // A colour the writer's own untyped parameters share is decided by no
+        // fact there (§3.4), so its bare call is none here either.
+        const sharedThere = this.#knotFacts.shared.get(other) ?? [];
+        for (const part of this.#colourParts(effect)) {
+          if (sharedThere.some((colour) => this.#prune(colour) === this.#prune(part))) continue;
+          const first = readBy.get(part);
+          if (first === undefined || precedes(call.span, first.span)) readBy.set(part, call);
+          readers.set(part, (readers.get(part) ?? 0) + 1);
+          let calls = readersOf.get(part);
+          if (calls === undefined) readersOf.set(part, calls = []);
+          calls.push(call);
+        }
+      }
+    }
+    // A fact another member wrote names that member's parameter, so the
+    // report reads the same whichever member decides the colour.
+    const factName = (fact: Resolved.CallExpr, colour: Variable, own: string): string => {
+      const other = factFrames.get(fact);
+      const named = other?.untyped.find((each) =>
+        this.#spineColours(each.type, axis).some(({ arrow }) =>
+          this.#colourParts(arrow).some((part) => this.#prune(part) === colour)
+        )
+      );
+      return named?.name ?? own;
+    };
     // Where the text fixed a parameter's own arrow to a constant before its
     // body settled, read before anything here decides it (§9).
     for (const parameter of frame.untyped) {
@@ -23734,20 +23871,7 @@ class Checker {
         inError: spine.some((colour) => this.#errorFloors.has(colour) || failedHands.has(colour)),
       };
     });
-    // A colour is shared where another untyped parameter's spine holds it,
-    // this body's or one nested in it, which left the colour to this body.
-    const ownedBy = new Map<Variable, number>();
-    for (const { owned } of decisions) {
-      for (const colour of new Set(owned.map((part) => this.#prune(part)))) {
-        if (colour.kind === "Variable") ownedBy.set(colour, (ownedBy.get(colour) ?? 0) + 1);
-      }
-    }
-    for (const type of frame.nestedUntyped) {
-      const spine = this.#spineColours(type, frameAxis(frame)).flatMap(({ arrow }) => this.#colourParts(arrow));
-      for (const colour of new Set(spine.map((part) => this.#prune(part)))) {
-        if (colour.kind === "Variable" && ownedBy.has(colour)) ownedBy.set(colour, ownedBy.get(colour)! + 1);
-      }
-    }
+    const ownedBy = this.#ownedColours(frame);
     // A colour two untyped parameters share is decided by no fact: a bare
     // call through one says nothing of the other, though inference cannot keep
     // them apart (§3.4). It is silent where that leaves every mark true, and
@@ -23766,7 +23890,8 @@ class Checker {
         ? !shared(part) && !readBy.has(part)
         : this.#isLinkedColour(part) || this.#seatHeld.has(part);
     const needed = new Set<Variable>();
-    for (const { parts } of marked) {
+    for (const { parts, elsewhere } of marked) {
+      if (elsewhere === true) continue;
       if (parts.some((part) => shared(part)) && parts.every((part) => shared(part) || !keepsTrue(part))) {
         for (const part of parts) if (shared(part)) needed.add(part);
       }
@@ -23788,11 +23913,17 @@ class Checker {
           // The fact that silenced it, for a mark that then says otherwise (§9).
           const fact = shared(pruned) ? undefined : readBy.get(pruned);
           if (fact !== undefined) {
-            const told = { call: fact, name: parameter.name, only: readers.get(pruned) === 1 };
+            const told: ColourFact = {
+              call: fact,
+              name: factName(fact, pruned, parameter.name),
+              only: readers.get(pruned) === 1,
+              readers: [...new Set(readersOf.get(pruned) ?? [fact])],
+              axis,
+            };
             for (const reader of readersOf.get(pruned) ?? []) {
               let bare = this.#bareFacts.get(reader);
               if (bare === undefined) this.#bareFacts.set(reader, bare = new Map());
-              if (!bare.has(axis)) bare.set(axis, { name: parameter.name, only: told.only });
+              if (!bare.has(axis)) bare.set(axis, { name: factName(reader, pruned, parameter.name), only: told.only });
             }
             for (const { call, parts } of marked) {
               if (!parts.includes(pruned)) continue;
@@ -23800,6 +23931,25 @@ class Checker {
               if (facts === undefined) this.#markFacts.set(call, facts = new Map());
               const known = facts.get(axis);
               if (known === undefined || precedes(fact.span, known.call.span)) facts.set(axis, told);
+            }
+            // By declaration: this parameter, and in a knot each member's
+            // parameter that shares the colour.
+            for (const each of this.#knotFacts?.frames.has(frame) === true ? this.#knotFacts.frames : [frame]) {
+              for (const other of each.untyped) {
+                const holds = this.#spineColours(other.type, axis)
+                  .some(({ arrow }) => this.#colourParts(arrow).some((part) => this.#prune(part) === pruned));
+                if (!holds) continue;
+                let byAxis = this.#parameterFacts.get(other.symbol);
+                if (byAxis === undefined) this.#parameterFacts.set(other.symbol, byAxis = new Map());
+                if (!byAxis.has(axis)) byAxis.set(axis, told);
+              }
+            }
+            const decided = this.#undecidedColour(colour);
+            if (decided.kind === "Effect") {
+              const silent: EffectConstant = { ...decided };
+              this.#factColours.set(silent, told);
+              colour.instance = silent;
+              continue;
             }
           }
           colour.instance = this.#undecidedColour(colour);
@@ -25422,7 +25572,7 @@ class Checker {
     if (isImpure(own)) return;
     if (own.kind === "Variable" && !this.#isDependency(frame, own)) {
       const joined = this.#join(conducted.map(({ colour }) => colour).filter((colour) => colour !== own));
-      if (joined !== PURE) this.#unify(own, joined, conducted[0]!.span);
+      if (!(joined.kind === "Effect" && Colour.isBottom(joined))) this.#unify(own, joined, conducted[0]!.span);
       // A body pure only because what it runs was solved pure keeps that
       // solve's identity, so a failed seat or a lie of generality reaches the
       // marks read off it (§13.2; #873).
@@ -27539,10 +27689,6 @@ class Checker {
         : factOf.callee === "this call"
         ? ` — a call written ${how} runs \`${fact.name}\`, which makes it ${silent}`
         : ` — ${factOf.callee} is called ${how}, which makes \`${fact.name}\` ${silent}`;
-      const factMark = factOf === undefined ? undefined : {
-        world: markParts(factOf.mark).world || over.includes("world"),
-        fail: markParts(factOf.mark).fail || over.includes("fail"),
-      };
       // A reading is spelled as one (Effects §3.1, §9): it keeps the reading
       // while the call may fail, and on a call that cannot fail it goes, the
       // value kept as `Some(…)`.
@@ -27562,6 +27708,14 @@ class Checker {
         ? undefined
         : `Some(${source.text.slice(call.span.start.offset, obligation.markSpan.start.offset)}` +
           `${markSpelling(wanted)}${source.text.slice(obligation.markSpan.end.offset, call.span.end.offset)})`;
+      // Where the colour the mark is checked against is not a fact's own, the
+      // declarations may still say why it is silent (Effects §3.4, #1240).
+      const told = factWords === undefined && demanded === undefined && !reading
+        ? this.#explainFromText(obligation.call, over)
+        : [];
+      const toldWords = told.length === 0
+        ? undefined
+        : " — " + told.map((each) => this.#factPhrase(each, byCall)).join(", and ");
       this.#diagnostics.add({
         severity: "error",
         message: `this call ${does.join(" and ")}, so ${obligation.callee} wants ${wants}` +
@@ -27569,12 +27723,14 @@ class Checker {
             ? factWords
             : demanded !== undefined && parameter !== undefined
             ? ` — \`${parameter.name}\` meets a type that makes it ${silent}`
-            : ""),
+            : toldWords ?? ""),
         primary: obligation.markSpan ?? obligation.span,
         ...(factWords !== undefined && fact !== undefined
           ? { labels: [{ span: fact.call.span, message: `called ${how} here` }] }
           : demanded !== undefined && parameter !== undefined
           ? { labels: [{ span: demanded.span, message: `\`${parameter.name}\` meets a type here that makes it ${silent}` }] }
+          : told.length > 0
+          ? { labels: told.flatMap(({ calls }) => calls.map((each) => ({ span: each.span, message: `called ${this.#howCalled(each, byCall)} here` }))) }
           : {}),
         fixes: [
           ...(readingGoes
@@ -27590,18 +27746,172 @@ class Checker {
                   : { span: obligation.markSpan, replacement: spelled(wanted) },
               ],
             }]),
-          ...(factOf === undefined || factMark === undefined || fact === undefined || !fact.only ? [] : [{
-            message: `mark ${factOf.callee === "this call" ? "the bare call" : `the call of ${factOf.callee}`} ` +
-              markName(factMark),
-            edits: [
-              factOf.markSpan === undefined
-                ? { span: factOf.insertAt, replacement: markSpelling(factMark) }
-                : { span: factOf.markSpan, replacement: markSpelling(factMark) },
-            ],
-          }]),
+          ...this.#readerFixes(
+            fact === undefined ? told : [{ name: fact.name, fact, calls: fact.readers, axes: over }],
+            byCall,
+          ),
         ],
       });
     }
+    this.#reportFactDemands(byCall);
+  }
+
+  /**
+   * Why a call is silent on the colours given, read from declarations rather
+   * than from the solved colour, which a fact's pure leaves no trace in once
+   * it meets another colour (Effects §3.4, #1240). Two sides make a reason:
+   * a parameter of the callee's declaration that a fact silenced, where this
+   * call hands it a function that does something on that colour; and a
+   * function handed that is itself a parameter a fact silenced, where the
+   * callee runs what it is handed there. The calls that make each fact come
+   * from where the fact was decided, or else from the parameter's bare calls
+   * by its own name.
+   */
+  #explainFromText(
+    call: Resolved.CallExpr,
+    over: readonly Axis[],
+  ): Told[] {
+    const found = new Map<Resolved.SymbolId, { name: string; fact?: ColourFact; calls: Set<Resolved.CallExpr>; axes: Set<Axis> }>();
+    // The calls that make a parameter silent on a colour: the decision where a
+    // fact made it, else its bare calls by its own name.
+    const add = (symbol: Resolved.SymbolId, name: string, axis: Axis): void => {
+      const fact = this.#parameterFacts.get(symbol)?.get(axis);
+      const calls = fact?.readers ?? this.#bareCallsOf.get(symbol)?.get(axis) ?? [];
+      if (calls.length === 0) return;
+      let entry = found.get(symbol);
+      if (entry === undefined) found.set(symbol, entry = { name, ...(fact === undefined ? {} : { fact }), calls: new Set(), axes: new Set() });
+      for (const each of calls) entry.calls.add(each);
+      entry.axes.add(axis);
+    };
+    // Whether a function handed in does something on a colour: only then can
+    // a fact about where it goes be why the call is silent there.
+    const acts = (argument: Resolved.Expr, axis: Axis): boolean => {
+      // An untyped parameter handed on may be anything its caller hands: its
+      // silence here is a fact's doing, not the text's.
+      const named = ungrouped(argument);
+      if (named.kind === "Name" && this.#untypedBySymbol.has(named.symbol)) return true;
+      const type = this.#expressionTypes.get(argument);
+      const actual = type === undefined ? undefined : this.#prune(type);
+      if (actual?.kind !== "Function") return false;
+      const colour = this.#prune(colourAt(actual, axis) ?? PURE);
+      return !(colour.kind === "Effect" && Colour.isBottom(colour)) && colour.kind !== "ErrorColour";
+    };
+    // Whether the callee's declaration runs its parameter at all, by its own name.
+    const runs = (symbol: Resolved.SymbolId): boolean =>
+      this.#calledBareItself.has(symbol) || this.#calledMarkedItself.has(symbol);
+    const callee = ungrouped(call.callee);
+    const parameters = callee.kind === "Name" ? this.#lambdaParameters.get(callee.symbol) ?? [] : [];
+    for (const axis of over) {
+      for (const [index, argument] of call.arguments.entries()) {
+        const parameter = parameters[index];
+        // The callee's parameter silenced by a fact, hiding what is handed.
+        if (parameter !== undefined && acts(argument, axis)) add(parameter.symbol, parameter.name, axis);
+        // A function handed that a fact silenced, where the callee runs it.
+        const named = ungrouped(argument);
+        if (named.kind === "Name" && (parameter === undefined || runs(parameter.symbol))) add(named.symbol, named.text, axis);
+      }
+    }
+    return [...found.values()]
+      .map(({ name, fact, calls, axes }) => ({
+        name,
+        ...(fact === undefined ? {} : { fact }),
+        calls: [...calls],
+        axes: AXES.filter((axis) => axes.has(axis)),
+      }))
+      .sort((left, right) => precedes(left.calls[0]!.span, right.calls[0]!.span) ? -1 : 1);
+  }
+
+  /**
+   * A function handed where a fact made a colour silent (Effects §3.4, R4,
+   * #1240): reported at the place it is handed, naming the fact, with the fix
+   * that marks the fact's calls. The function handed is no claim a fix can
+   * remove.
+   */
+  #reportFactDemands(byCall: ReadonlyMap<Resolved.CallExpr, MarkObligation>): void {
+    for (const { span, facts } of this.#factDemands.values()) {
+      const over = AXES.filter((axis) => facts.has(axis));
+      const silent = over.map((axis) => axis === "world" ? "pure" : "unable to fail").join(" and ");
+      const told = this.#factsTold(over.map((axis) => facts.get(axis)!));
+      const fixes = this.#readerFixes(told, byCall);
+      this.#diagnostics.add({
+        severity: "error",
+        message: `this function ${colourDoes(over)}, where the function handed must be ${silent} — ` +
+          told.map((each) => this.#factPhrase(each, byCall)).join(", and "),
+        primary: span,
+        labels: [...new Set(told.flatMap(({ calls }) => calls))]
+          .map((call) => ({ span: call.span, message: `called ${this.#howCalled(call, byCall)} here` })),
+        ...(fixes.length === 0 ? {} : { fixes }),
+      });
+    }
+    this.#factDemands.clear();
+  }
+
+  /**
+   * Facts as a report tells them (#1240): one entry per call and parameter,
+   * with every colour it decides there, and every call that makes it.
+   */
+  #factsTold(facts: readonly ColourFact[]): Told[] {
+    const told = new Map<string, { name: string; fact: ColourFact; calls: Resolved.CallExpr[]; axes: Axis[] }>();
+    for (const fact of facts) {
+      const key = `${spanKey(fact.call.span)} ${fact.name}`;
+      let entry = told.get(key);
+      if (entry === undefined) told.set(key, entry = { name: fact.name, fact, calls: [], axes: [] });
+      if (!entry.axes.includes(fact.axis)) entry.axes.push(fact.axis);
+      for (const call of fact.readers) if (!entry.calls.includes(call)) entry.calls.push(call);
+    }
+    return [...told.values()].map((entry) => ({ ...entry, axes: AXES.filter((axis) => entry.axes.includes(axis)) }));
+  }
+
+  /** How a call is written, on the words' terms: "bare", or its mark. */
+  #howCalled(call: Resolved.CallExpr, byCall: ReadonlyMap<Resolved.CallExpr, MarkObligation>): string {
+    const obligation = byCall.get(call);
+    return obligation === undefined || obligation.mark === undefined ? "bare" : markName(markParts(obligation.mark));
+  }
+
+  /** "`ping` is called bare, which makes `act` pure": a fact in a report's words (Effects §9). */
+  #factPhrase(told: Told, byCall: ReadonlyMap<Resolved.CallExpr, MarkObligation>): string {
+    const silent = told.axes.map((axis) => axis === "world" ? "pure" : "unable to fail").join(" and ");
+    const call = told.fact?.call ?? told.calls[0]!;
+    const factOf = byCall.get(call);
+    const how = this.#howCalled(call, byCall);
+    return factOf === undefined || factOf.callee === `\`${told.name}\``
+      ? `\`${told.name}\` is called ${how}, which makes it ${silent}`
+      : factOf.callee === "this call"
+      ? `a call written ${how} runs \`${told.name}\`, which makes it ${silent}`
+      : `${factOf.callee} is called ${how}, which makes \`${told.name}\` ${silent}`;
+  }
+
+  /**
+   * The fix that takes the facts' side as the false one (R4, #1240): every
+   * call that makes them, marked on the colours concerned. None where one of
+   * those calls is not a call the marks can reach.
+   */
+  #readerFixes(told: readonly Told[], byCall: ReadonlyMap<Resolved.CallExpr, MarkObligation>): Diagnostics.Fix[] {
+    const marks = new Map<Resolved.CallExpr, Record<Axis, boolean>>();
+    for (const { calls, axes } of told) {
+      for (const each of calls) {
+        const obligation = byCall.get(each);
+        if (obligation === undefined) return [];
+        const parts = marks.get(each) ?? { ...markParts(obligation.mark) };
+        for (const axis of axes) parts[axis] = true;
+        marks.set(each, parts);
+      }
+    }
+    if (marks.size === 0) return [];
+    const axes = AXES.filter((axis) => told.some((each) => each.axes.includes(axis)));
+    const silent = axes.map((axis) => axis === "world" ? "pure" : "unable to fail").join(" and ");
+    const names = [...new Set(told.map(({ name }) => `\`${name}\``))];
+    const only = marks.size === 1 ? [...marks][0]! : undefined;
+    const onlyOf = only === undefined ? undefined : byCall.get(only[0])!;
+    return [{
+      message: onlyOf !== undefined
+        ? `mark ${onlyOf.callee === "this call" ? "the bare call" : `the call of ${onlyOf.callee}`} ${markName(only![1])}`
+        : `mark every call that makes ${names.length === 1 ? names[0] : `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`} ${silent}`,
+      edits: [...marks].map(([each, parts]) => ({
+        span: byCall.get(each)!.markSpan ?? byCall.get(each)!.insertAt,
+        replacement: markSpelling(parts),
+      })),
+    }];
   }
 
   /**
@@ -28807,6 +29117,19 @@ class Checker {
         return;
       }
       const direction = effectMismatch(demand, supply)!;
+      // A colour a fact made silent, handed a function that is not: the
+      // report names the fact (Effects §3.4, R4, #1240).
+      const fact = direction === "demand" ? this.#factColours.get(demand) : undefined;
+      if (fact !== undefined) {
+        // One report per place a function is handed, whatever facts its two
+        // colours meet there: the place is the text's, and which call of a
+        // fact comes first can follow the order of a knot's members.
+        const key = spanKey(span);
+        let known = this.#factDemands.get(key);
+        if (known === undefined) this.#factDemands.set(key, known = { span, facts: new Map() });
+        if (!known.facts.has(this.#currentAxis)) known.facts.set(this.#currentAxis, fact);
+        return;
+      }
       // The demand as written: its arrow's two colours (Effects §4.3, §9).
       const arrows = this.#meetingArrows;
       const demandArrow = arrows === undefined ? undefined : this.#parameterParity ? arrows.right : arrows.left;

@@ -3805,8 +3805,9 @@ honor C<R> =
             n)
         b!()
 `)).toEqual([
-      "a `->` arrow promises purity and that the function cannot fail, and this function is impure and may fail — the " +
-      "demand is written `->`",
+      // The bare `f(1)` made `f` pure: the report names that fact (#1240).
+      "this function is impure and may fail, where the function handed must be pure and unable to fail — `f` is " +
+      "called bare, which makes it pure and unable to fail",
     ]);
   });
 });

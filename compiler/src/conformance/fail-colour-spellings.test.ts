@@ -912,11 +912,13 @@ describe("Effects §3.4: a mark decides nothing; facts decide an untyped paramet
     expect(face(written, "k")).toBe("(() ->! Unit, () -> Unit, () -> Unit, Bool) >-> Unit");
   });
 
-  test("the second repair is offered only where its bare call is the one fact", () => {
-    // Two facts, or one through a label: marking the one named would not repair.
-    expect(fixes(PRE + "let z2(g) =\n    g()\n    g()\n    g!()\n")).toEqual([["remove the mark", [""]]]);
+  test("the second repair marks every call that makes the fact", () => {
+    // Two facts, or one through a label: marking only the one named would not
+    // repair, so the fix marks every call that makes it (#1240).
+    const every = ["mark every call that makes `g` pure and unable to fail", ["!", "!"]];
+    expect(fixes(PRE + "let z2(g) =\n    g()\n    g()\n    g!()\n")).toEqual([["remove the mark", [""]], every]);
     expect(reports(PRE + "let z2(g) =\n    g()\n    g()\n    g!()\n")).toEqual([told("`g`")]);
-    expect(fixes(PRE + "let y(g) =\n    let run = () => g()\n    run()\n    run!()\n")).toEqual([["remove the mark", [""]]]);
+    expect(fixes(PRE + "let y(g) =\n    let run = () => g()\n    run()\n    run!()\n")).toEqual([["remove the mark", [""]], every]);
     // Of several facts, the first in source order is the one named.
     expect(reports(PRE + "let z3(g) =\n    let k = g\n    k()\n    g()\n    g!()\n"))
       .toEqual([told("`g`", "`k` is called bare, which makes `g` pure and unable to fail")]);
