@@ -69,6 +69,10 @@ const SOLVED_IMPURE = "this signature's `>->` promises a colour the caller choos
   "rounds up, and its face is `->!`";
 const PURITY = "a `->` arrow promises purity and that the function cannot fail, and this function is impure and may fail — the demand " +
   "is written `->`";
+/** A function handed where a bare call made a callback pure: the report names the fact (Effects §3.4, #1240). */
+const BARE = (fact: string, made: string): string =>
+  "this function is impure and may fail, where the function handed must be pure and unable to fail — " +
+  `\`${fact}\` is called bare, which makes \`${made}\` pure and unable to fail`;
 const FIXED_BEFORE = "this position's arrow says the function is impure and may fail, and the pure arrow meeting it, which cannot fail, " +
   "was fixed before it arrived — by another use, by a type written where it was made, inside an " +
   "argument read invariantly, or in a parameter's type — so it cannot fit as a function used here does; " +
@@ -1677,7 +1681,7 @@ describe("a written result type decides the arrows it spells, whatever the call 
   test("what a variable fills, a `>->`, and a written `->!` stay as they stand", () => {
     // What fills the variable is the argument's, as inferred: here `p` itself.
     expect(reports(makers + "let use(p): Unit =\n    let (f, _) = mkVar(p)\n    let (g, h) = mkVar(p)\n    h()\n" +
-      "export let go(): Unit = use(save0)\n")).toEqual([["use(save0)", PURITY]]);
+      "export let go(): Unit = use(save0)\n")).toEqual([["save0", BARE("h", "p")]]);
     // A `>->` follows what the call is handed.
     expect(reports(makers + "let use(p, k): Unit =\n    let w: (() -> Unit, Int) = mkLinked(p, k)\n    ()\n" +
       "export let go(): Unit = use(1, save0)\n")).toEqual([["use(1, save0)", PURITY]]);
@@ -1792,7 +1796,7 @@ describe("a following arrow a written result type spells is read like any other 
     const called = ["let (g, _) = mkL(1, k)", "g()"];
     const seat = "let w: (() ->! Unit, Int) = mkL(1, k)";
     for (const lines of [[seat, ...called], [...called, seat]]) {
-      expect([lines, reports(use(lines, "use(save0)"))]).toEqual([lines, [["use(save0)", PURITY]]]);
+      expect([lines, reports(use(lines, "use(save0)"))]).toEqual([lines, [["save0", BARE("g", "k")]]]);
     }
   });
 
@@ -1985,7 +1989,7 @@ describe("an imported function's written types are read as this module's are (#1
     const seat = "    let w: (() ->! Unit, Int) = Maker.mkL(p, k)";
     for (const lines of [[seat, ...called], [...called, seat]]) {
       expect([lines, messages("let use(p, k): Unit =\n" + lines.join("\n") + "\n    ()\n" +
-        "export let go(): Unit = use(1, save0)\n")]).toEqual([lines, [PURITY]]);
+        "export let go(): Unit = use(1, save0)\n")]).toEqual([lines, [BARE("g", "k")]]);
     }
   });
 });
