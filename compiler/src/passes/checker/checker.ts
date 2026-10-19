@@ -4424,11 +4424,19 @@ class Checker {
   readonly #factDemands = new Map<string, {
     readonly span: Source.Span;
     readonly facts: Map<Axis, ColourFact>;
-    /** The callee's parameter the function is handed to, where it is a callback. */
-    readonly parameter: string | undefined;
+    /**
+     * The callee's parameter the function is handed to, where the facts sit on
+     * that parameter's own arrow: a fact on what it returns is no fact about it.
+     */
+    parameter: string | undefined;
   }>();
   /** The argument being handed while it meets its parameter, and that parameter's name where known (#1240). */
-  #handedArgument: { readonly argument: Resolved.Expr; readonly parameter: string | undefined } | undefined = undefined;
+  #handedArgument: {
+    readonly argument: Resolved.Expr;
+    readonly parameter: string | undefined;
+    /** The parameter's type, so a fact on its own arrow is told from one on what it returns. */
+    readonly type: Mono;
+  } | undefined = undefined;
   /**
    * Per bare call and colour, the untyped parameter it makes silent there
    * (Effects §3.4), and whether it is the only call that does: a `try` it
@@ -22481,6 +22489,7 @@ class Checker {
       this.#handedArgument = {
         argument: expression,
         parameter: declared !== undefined && this.#prune(actuals[index] ?? ERROR).kind === "Function" ? declared.name : undefined,
+        type: parameter,
       };
       // A sequence seat (Collections Part 5 §3.4) wherever the parameter is known
       // as the argument meets it — a constructor's, too, where its expected type
@@ -29146,9 +29155,14 @@ class Checker {
         const handed = this.#handedArgument;
         const place = handed?.argument.span ?? span;
         const key = spanKey(place);
+        const parameterType = handed === undefined ? undefined : this.#prune(handed.type);
+        const onOwnArrow = parameterType?.kind === "Function" &&
+          this.#prune(colourAt(parameterType, this.#currentAxis) ?? PURE) === demand;
         let known = this.#factDemands.get(key);
         if (known === undefined) {
-          this.#factDemands.set(key, known = { span: place, facts: new Map(), parameter: handed?.parameter });
+          this.#factDemands.set(key, known = { span: place, facts: new Map(), parameter: onOwnArrow ? handed?.parameter : undefined });
+        } else if (!onOwnArrow) {
+          known.parameter = undefined;
         }
         if (!known.facts.has(this.#currentAxis)) known.facts.set(this.#currentAxis, fact);
         return;
