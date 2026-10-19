@@ -4421,7 +4421,14 @@ class Checker {
    * the fact on each colour (#1240): one report per place, made once the marks
    * are known (`#reportFactDemands`).
    */
-  readonly #factDemands = new Map<string, { readonly span: Source.Span; readonly facts: Map<Axis, ColourFact> }>();
+  readonly #factDemands = new Map<string, {
+    readonly span: Source.Span;
+    readonly facts: Map<Axis, ColourFact>;
+    /** The callee's parameter the function is handed to, where it is a callback. */
+    readonly parameter: string | undefined;
+  }>();
+  /** The argument being handed while it meets its parameter, and that parameter's name where known (#1240). */
+  #handedArgument: { readonly argument: Resolved.Expr; readonly parameter: string | undefined } | undefined = undefined;
   /**
    * Per bare call and colour, the untyped parameter it makes silent there
    * (Effects §3.4), and whether it is the only call that does: a `try` it
@@ -4437,8 +4444,12 @@ class Checker {
   readonly #ownArrowPins = new Map<string, { readonly silent: boolean; readonly span: Source.Span }>();
   /** The colours on which an untyped parameter is called bare by its own name: a fix writing its type writes those silent (§9). */
   readonly #calledBareItself = new Map<Resolved.SymbolId, Set<Axis>>();
-  /** Each untyped parameter's bare calls by its own name, per colour, read by `#explainFromText`. */
-  readonly #bareCallsOf = new Map<Resolved.SymbolId, Map<Axis, Resolved.CallExpr[]>>();
+  /**
+   * Each untyped parameter its own body runs, where a call written in that body
+   * itself, not in a lambda nested in it, runs its colour: what a call of the
+   * function runs, read by `#explainFromText`.
+   */
+  readonly #runsAtCall = new Set<Resolved.SymbolId>();
   /**
    * Each untyped parameter a fact decided silent, by its binding, per colour,
    * and in a knot every member's parameter that shares the colour: where the
@@ -22459,8 +22470,18 @@ class Checker {
       // every argument at once.
       const enclosingPin = this.#pinSite;
       const enclosingSides = this.#pinSides;
+      const enclosingHanded = this.#handedArgument;
       this.#pinSite = expression.span;
       this.#pinSides = undefined;
+      // The function handed, so a fact it contradicts is reported where it
+      // stands, naming the parameter of the callee's declaration it goes to
+      // (Effects §3.4, #1240).
+      const callee = call.kind === "Call" && !receiver ? ungrouped(call.callee) : undefined;
+      const declared = callee?.kind === "Name" ? this.#lambdaParameters.get(callee.symbol)?.[index] : undefined;
+      this.#handedArgument = {
+        argument: expression,
+        parameter: declared !== undefined && this.#prune(actuals[index] ?? ERROR).kind === "Function" ? declared.name : undefined,
+      };
       // A sequence seat (Collections Part 5 §3.4) wherever the parameter is known
       // as the argument meets it — a constructor's, too, where its expected type
       // solved it (Functions §4.3) — but never a dot call's receiver.
@@ -22480,6 +22501,7 @@ class Checker {
       } finally {
         this.#pinSite = enclosingPin;
         this.#pinSides = enclosingSides;
+        this.#handedArgument = enclosingHanded;
       }
       for (const variable of open) {
         if (this.#prune(variable).kind !== "Variable") givers.set(variable, expression);
@@ -23609,6 +23631,7 @@ class Checker {
     // Every member's facts are read before any member decides a colour they
     // share (§3.4's knot step 3, #1240).
     const enclosingFacts = this.#knotFacts;
+    for (const frame of outermost) this.#noteRunsAtCall(frame);
     this.#knotFacts = {
       frames: new Set(outermost),
       calls: outermost.flatMap((frame) => (frame.calls ?? []).map(({ effect, call }) => ({ effect, call, frame }))),
@@ -23710,6 +23733,25 @@ class Checker {
   }
 
   /**
+   * What a call of a body runs (`#runsAtCall`): each untyped parameter a call
+   * written in the body itself runs, by its name, through a sibling, or
+   * through a label. Read before the body's colours are decided, and in a knot
+   * before any member decides them.
+   */
+  #noteRunsAtCall(frame: EffectFrame): void {
+    const axis = frameAxis(frame);
+    for (const { effect, call } of frame.calls ?? []) {
+      if (this.#callFrames.get(call) !== frame) continue;
+      const parts = new Set(this.#colourParts(effect).map((part) => this.#prune(part)));
+      for (const parameter of frame.untyped) {
+        if (this.#runsAtCall.has(parameter.symbol)) continue;
+        const spine = this.#spineColours(parameter.type, axis).flatMap(({ arrow }) => this.#colourParts(arrow));
+        if (spine.some((colour) => parts.has(this.#prune(colour)))) this.#runsAtCall.add(parameter.symbol);
+      }
+    }
+  }
+
+  /**
    * How many of a body's untyped parameters own each colour on their spines
    * (§3.4): a colour is shared where another untyped parameter's spine holds
    * it, this body's or one nested in it, which left the colour to this body.
@@ -23807,11 +23849,6 @@ class Checker {
         let axes = this.#calledBareItself.get(callee.symbol);
         if (axes === undefined) this.#calledBareItself.set(callee.symbol, axes = new Set());
         axes.add(axis);
-        let byAxis = this.#bareCallsOf.get(callee.symbol);
-        if (byAxis === undefined) this.#bareCallsOf.set(callee.symbol, byAxis = new Map());
-        const calls = byAxis.get(axis) ?? [];
-        if (!calls.includes(call)) calls.push(call);
-        byAxis.set(axis, calls);
       }
     }
     // In a knot, every other member's calls too (#1240): a bare call there is
@@ -23860,6 +23897,7 @@ class Checker {
     }
     // Every parameter is read before any is decided: a colour shared with a
     // sibling untyped parameter is still this body's to decide.
+    this.#noteRunsAtCall(frame);
     const decisions = frame.untyped.map((parameter) => {
       const spine = this.#spineColours(parameter.type, axis).flatMap(({ arrow }) => this.#colourParts(arrow));
       return {
@@ -27757,68 +27795,47 @@ class Checker {
   }
 
   /**
-   * Why a call is silent on the colours given, read from declarations rather
-   * than from the solved colour, which a fact's pure leaves no trace in once
-   * it meets another colour (Effects §3.4, #1240). Two sides make a reason:
-   * a parameter of the callee's declaration that a fact silenced, where this
-   * call hands it a function that does something on that colour; and a
-   * function handed that is itself a parameter a fact silenced, where the
-   * callee runs what it is handed there. The calls that make each fact come
-   * from where the fact was decided, or else from the parameter's bare calls
-   * by its own name.
+   * Why a call is silent on the colours given, read from the callee's
+   * declaration rather than from the solved colour, in which a fact's pure
+   * leaves no trace once it meets another colour (Effects §3.4, #1240). A
+   * reason has two sides: a parameter the callee's own body runs, which a fact
+   * silenced, and a function this call hands it that does something on that
+   * colour. Then the fact is what hides it, and marking the calls that make the
+   * fact makes the call what the mark says. Nothing is named where the function
+   * handed is silent there, since what silenced it may be no fact a report can
+   * name, nor where the callee's declaration is not known.
    */
   #explainFromText(
     call: Resolved.CallExpr,
     over: readonly Axis[],
   ): Told[] {
-    const found = new Map<Resolved.SymbolId, { name: string; fact?: ColourFact; calls: Set<Resolved.CallExpr>; axes: Set<Axis> }>();
-    // The calls that make a parameter silent on a colour: the decision where a
-    // fact made it, else its bare calls by its own name.
-    const add = (symbol: Resolved.SymbolId, name: string, axis: Axis): void => {
-      const fact = this.#parameterFacts.get(symbol)?.get(axis);
-      const calls = fact?.readers ?? this.#bareCallsOf.get(symbol)?.get(axis) ?? [];
-      if (calls.length === 0) return;
-      let entry = found.get(symbol);
-      if (entry === undefined) found.set(symbol, entry = { name, ...(fact === undefined ? {} : { fact }), calls: new Set(), axes: new Set() });
-      for (const each of calls) entry.calls.add(each);
-      entry.axes.add(axis);
-    };
-    // Whether a function handed in does something on a colour: only then can
-    // a fact about where it goes be why the call is silent there.
-    const acts = (argument: Resolved.Expr, axis: Axis): boolean => {
-      // An untyped parameter handed on may be anything its caller hands: its
-      // silence here is a fact's doing, not the text's.
-      const named = ungrouped(argument);
-      if (named.kind === "Name" && this.#untypedBySymbol.has(named.symbol)) return true;
-      const type = this.#expressionTypes.get(argument);
-      const actual = type === undefined ? undefined : this.#prune(type);
-      if (actual?.kind !== "Function") return false;
-      const colour = this.#prune(colourAt(actual, axis) ?? PURE);
-      return !(colour.kind === "Effect" && Colour.isBottom(colour)) && colour.kind !== "ErrorColour";
-    };
-    // Whether the callee's declaration runs its parameter at all, by its own name.
-    const runs = (symbol: Resolved.SymbolId): boolean =>
-      this.#calledBareItself.has(symbol) || this.#calledMarkedItself.has(symbol);
     const callee = ungrouped(call.callee);
-    const parameters = callee.kind === "Name" ? this.#lambdaParameters.get(callee.symbol) ?? [] : [];
+    const parameters = callee.kind === "Name" ? this.#lambdaParameters.get(callee.symbol) : undefined;
+    if (parameters === undefined) return [];
+    const found: ColourFact[] = [];
     for (const axis of over) {
       for (const [index, argument] of call.arguments.entries()) {
         const parameter = parameters[index];
-        // The callee's parameter silenced by a fact, hiding what is handed.
-        if (parameter !== undefined && acts(argument, axis)) add(parameter.symbol, parameter.name, axis);
-        // A function handed that a fact silenced, where the callee runs it.
-        const named = ungrouped(argument);
-        if (named.kind === "Name" && (parameter === undefined || runs(parameter.symbol))) add(named.symbol, named.text, axis);
+        if (parameter === undefined || !this.#runsAtCall.has(parameter.symbol)) continue;
+        const fact = this.#parameterFacts.get(parameter.symbol)?.get(axis);
+        if (fact === undefined) continue;
+        // Unless a type the text wrote fixed its arrow first: a sibling's fact,
+        // decided before this body settled, is no such type.
+        const own = this.#untypedBySymbol.get(parameter.symbol);
+        const ownType = own === undefined ? undefined : this.#prune(own.type);
+        const ownColour = ownType?.kind === "Function" ? this.#prune(colourAt(ownType, axis) ?? PURE) : undefined;
+        const factOwn = ownColour !== undefined && this.#factColours.has(ownColour);
+        if (!factOwn && this.#ownArrowPins.get(`${Number(parameter.symbol)}:${axis}`)?.silent === true) continue;
+        // What the function handed does there.
+        const type = this.#expressionTypes.get(argument);
+        const handed = type === undefined ? undefined : this.#prune(type);
+        if (handed?.kind !== "Function") continue;
+        const colour = this.#prune(colourAt(handed, axis) ?? PURE);
+        if (colour.kind === "ErrorColour" || colour.kind === "Effect" && Colour.isBottom(colour)) continue;
+        found.push({ ...fact, axis, name: parameter.name });
       }
     }
-    return [...found.values()]
-      .map(({ name, fact, calls, axes }) => ({
-        name,
-        ...(fact === undefined ? {} : { fact }),
-        calls: [...calls],
-        axes: AXES.filter((axis) => axes.has(axis)),
-      }))
-      .sort((left, right) => precedes(left.calls[0]!.span, right.calls[0]!.span) ? -1 : 1);
+    return this.#factsTold(found).sort((left, right) => precedes(left.calls[0]!.span, right.calls[0]!.span) ? -1 : 1);
   }
 
   /**
@@ -27828,10 +27845,12 @@ class Checker {
    * remove.
    */
   #reportFactDemands(byCall: ReadonlyMap<Resolved.CallExpr, MarkObligation>): void {
-    for (const { span, facts } of this.#factDemands.values()) {
+    for (const { span, facts, parameter } of this.#factDemands.values()) {
       const over = AXES.filter((axis) => facts.has(axis));
       const silent = over.map((axis) => axis === "world" ? "pure" : "unable to fail").join(" and ");
-      const told = this.#factsTold(over.map((axis) => facts.get(axis)!));
+      // Named by the parameter the function goes to, where the callee's
+      // declaration says, so the mark at the same call names the same one.
+      const told = this.#factsTold(over.map((axis) => ({ ...facts.get(axis)!, ...(parameter === undefined ? {} : { name: parameter }) })));
       const fixes = this.#readerFixes(told, byCall);
       this.#diagnostics.add({
         severity: "error",
@@ -29121,12 +29140,16 @@ class Checker {
       // report names the fact (Effects §3.4, R4, #1240).
       const fact = direction === "demand" ? this.#factColours.get(demand) : undefined;
       if (fact !== undefined) {
-        // One report per place a function is handed, whatever facts its two
-        // colours meet there: the place is the text's, and which call of a
-        // fact comes first can follow the order of a knot's members.
-        const key = spanKey(span);
+        // One report per function handed, whatever facts its two colours meet:
+        // the place is the text's, and which call of a fact comes first can
+        // follow the order of a knot's members.
+        const handed = this.#handedArgument;
+        const place = handed?.argument.span ?? span;
+        const key = spanKey(place);
         let known = this.#factDemands.get(key);
-        if (known === undefined) this.#factDemands.set(key, known = { span, facts: new Map() });
+        if (known === undefined) {
+          this.#factDemands.set(key, known = { span: place, facts: new Map(), parameter: handed?.parameter });
+        }
         if (!known.facts.has(this.#currentAxis)) known.facts.set(this.#currentAxis, fact);
         return;
       }

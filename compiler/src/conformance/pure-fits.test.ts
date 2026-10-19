@@ -1681,7 +1681,7 @@ describe("a written result type decides the arrows it spells, whatever the call 
   test("what a variable fills, a `>->`, and a written `->!` stay as they stand", () => {
     // What fills the variable is the argument's, as inferred: here `p` itself.
     expect(reports(makers + "let use(p): Unit =\n    let (f, _) = mkVar(p)\n    let (g, h) = mkVar(p)\n    h()\n" +
-      "export let go(): Unit = use(save0)\n")).toEqual([["use(save0)", BARE("h", "p")]]);
+      "export let go(): Unit = use(save0)\n")).toEqual([["save0", BARE("h", "p")]]);
     // A `>->` follows what the call is handed.
     expect(reports(makers + "let use(p, k): Unit =\n    let w: (() -> Unit, Int) = mkLinked(p, k)\n    ()\n" +
       "export let go(): Unit = use(1, save0)\n")).toEqual([["use(1, save0)", PURITY]]);
@@ -1796,7 +1796,7 @@ describe("a following arrow a written result type spells is read like any other 
     const called = ["let (g, _) = mkL(1, k)", "g()"];
     const seat = "let w: (() ->! Unit, Int) = mkL(1, k)";
     for (const lines of [[seat, ...called], [...called, seat]]) {
-      expect([lines, reports(use(lines, "use(save0)"))]).toEqual([lines, [["use(save0)", BARE("g", "k")]]]);
+      expect([lines, reports(use(lines, "use(save0)"))]).toEqual([lines, [["save0", BARE("g", "k")]]]);
     }
   });
 
