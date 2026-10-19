@@ -1415,6 +1415,28 @@ interface Told {
   readonly axes: readonly Axis[];
 }
 
+/**
+ * A check a fact fails, held until every check is known, so that the checks of
+ * one fact are one report (Effects §3.4, #1310): a mark the fact makes wrong,
+ * or a function handed against it.
+ */
+interface FactCheck {
+  readonly kind: "mark" | "handed";
+  readonly span: Source.Span;
+  /** Its report, where it is the fact's only check. */
+  readonly report: Diagnostics.Diagnostic;
+  /** The facts it is seen to fail: from the solve, or from the callee's declaration. */
+  readonly facts: readonly ColourFact[];
+  /** How it names each fact: by the parameter it reaches. */
+  readonly names: ReadonlyMap<ColourFact, string>;
+  /** Its words before the fact's, where it heads the report. */
+  readonly head: string;
+  /** Its words as a label on another check's report. */
+  readonly label: string;
+  /** The mark it then wears, where it is a mark: the other side's fix. */
+  readonly correction: Diagnostics.Edit | undefined;
+}
+
 /** One written call, and the mark it wore, awaiting its solved colour. */
 interface MarkObligation {
   readonly effect: Mono;
@@ -4410,6 +4432,12 @@ class Checker {
    * there (Effects §3.4): the mark's report names it, and offers to mark it (§9).
    */
   readonly #markFacts = new WeakMap<Resolved.CallExpr, Map<Axis, ColourFact>>();
+  /**
+   * Per marked call and colour, every fact that made silent what the call runs
+   * there, whichever decided first: the checks one report per fact joins
+   * (#1310).
+   */
+  readonly #markAllFacts = new WeakMap<Resolved.CallExpr, Map<Axis, ColourFact[]>>();
   /**
    * The pure constant each colour a fact decided was settled to, minted for
    * that colour (Effects §3.4, #1240): a function handed where it is read
@@ -23978,6 +24006,11 @@ class Checker {
               if (facts === undefined) this.#markFacts.set(call, facts = new Map());
               const known = facts.get(axis);
               if (known === undefined || precedes(fact.span, known.call.span)) facts.set(axis, told);
+              let all = this.#markAllFacts.get(call);
+              if (all === undefined) this.#markAllFacts.set(call, all = new Map());
+              const each = all.get(axis) ?? [];
+              if (!each.includes(told)) each.push(told);
+              all.set(axis, each);
             }
             // By declaration: this parameter, and in a knot each member's
             // parameter that shares the colour.
@@ -27611,6 +27644,8 @@ class Checker {
    */
   #checkMarks(): void {
     const byCall = new Map(this.#markObligations.map((obligation) => [obligation.call, obligation]));
+    // The checks that fail a fact, made one report per fact once all are known.
+    const checks: FactCheck[] = [];
     for (const obligation of this.#markObligations) {
       // Read before the prune below compresses the chain (`#pastHeldBack`).
       const pastHeldBack: Record<Axis, Mono[] | undefined> = {
@@ -27757,13 +27792,14 @@ class Checker {
           `${markSpelling(wanted)}${source.text.slice(obligation.markSpan.end.offset, call.span.end.offset)})`;
       // Where the colour the mark is checked against is not a fact's own, the
       // declarations may still say why it is silent (Effects §3.4, #1240).
-      const told = factWords === undefined && demanded === undefined && !reading
+      const explained = factWords === undefined && demanded === undefined && !reading
         ? this.#explainFromText(obligation.call, over)
-        : [];
+        : { told: [], facts: [] };
+      const told = explained.told;
       const toldWords = told.length === 0
         ? undefined
         : " — " + told.map((each) => this.#factPhrase(each, byCall)).join(", and ");
-      this.#diagnostics.add({
+      const report: Diagnostics.Diagnostic = {
         severity: "error",
         message: `this call ${does.join(" and ")}, so ${obligation.callee} wants ${wants}` +
           (factWords !== undefined
@@ -27798,9 +27834,31 @@ class Checker {
             byCall,
           ),
         ],
+      };
+      // The facts it is seen to fail, each on its own colour: recorded where
+      // the fact decided, or read from the callee's declaration.
+      const seen = factWords !== undefined
+        ? over.flatMap((axis) => this.#markAllFacts.get(obligation.call)?.get(axis) ?? []).map((each) => ({ fact: each, name: each.name }))
+        : explained.facts;
+      if (seen.length === 0) {
+        this.#diagnostics.add(report);
+        continue;
+      }
+      checks.push({
+        kind: "mark",
+        span: report.primary,
+        report,
+        facts: seen.map(({ fact }) => fact),
+        names: new Map(seen.map(({ fact, name }) => [fact, name])),
+        head: `this call ${does.join(" and ")}, so ${obligation.callee} wants ${wants}`,
+        label: `${obligation.callee} wants ${wants}`,
+        correction: readingGoes
+          ? undefined
+          : { span: obligation.markSpan ?? obligation.insertAt, replacement: spelled(wanted) },
       });
     }
-    this.#reportFactDemands(byCall);
+    this.#reportFactDemands(byCall, checks);
+    this.#reportFactChecks(checks, byCall);
   }
 
   /**
@@ -27817,11 +27875,12 @@ class Checker {
   #explainFromText(
     call: Resolved.CallExpr,
     over: readonly Axis[],
-  ): Told[] {
+  ): { readonly told: Told[]; readonly facts: readonly { readonly fact: ColourFact; readonly name: string }[] } {
     const callee = ungrouped(call.callee);
     const parameters = callee.kind === "Name" ? this.#lambdaParameters.get(callee.symbol) : undefined;
-    if (parameters === undefined) return [];
+    if (parameters === undefined) return { told: [], facts: [] };
     const found: ColourFact[] = [];
+    const facts: { fact: ColourFact; name: string }[] = [];
     for (const axis of over) {
       for (const [index, argument] of call.arguments.entries()) {
         const parameter = parameters[index];
@@ -27842,9 +27901,13 @@ class Checker {
         const colour = this.#prune(colourAt(handed, axis) ?? PURE);
         if (colour.kind === "ErrorColour" || colour.kind === "Effect" && Colour.isBottom(colour)) continue;
         found.push({ ...fact, axis, name: parameter.name });
+        if (!facts.some((each) => each.fact === fact)) facts.push({ fact, name: parameter.name });
       }
     }
-    return this.#factsTold(found).sort((left, right) => precedes(left.calls[0]!.span, right.calls[0]!.span) ? -1 : 1);
+    return {
+      told: this.#factsTold(found).sort((left, right) => precedes(left.calls[0]!.span, right.calls[0]!.span) ? -1 : 1),
+      facts,
+    };
   }
 
   /**
@@ -27853,7 +27916,7 @@ class Checker {
    * that marks the fact's calls. The function handed is no claim a fix can
    * remove.
    */
-  #reportFactDemands(byCall: ReadonlyMap<Resolved.CallExpr, MarkObligation>): void {
+  #reportFactDemands(byCall: ReadonlyMap<Resolved.CallExpr, MarkObligation>, checks: FactCheck[]): void {
     for (const { span, facts, parameter } of this.#factDemands.values()) {
       const over = AXES.filter((axis) => facts.has(axis));
       const silent = over.map((axis) => axis === "world" ? "pure" : "unable to fail").join(" and ");
@@ -27861,17 +27924,104 @@ class Checker {
       // declaration says, so the mark at the same call names the same one.
       const told = this.#factsTold(over.map((axis) => ({ ...facts.get(axis)!, ...(parameter === undefined ? {} : { name: parameter }) })));
       const fixes = this.#readerFixes(told, byCall);
-      this.#diagnostics.add({
-        severity: "error",
-        message: `this function ${colourDoes(over)}, where the function handed must be ${silent} — ` +
-          told.map((each) => this.#factPhrase(each, byCall)).join(", and "),
-        primary: span,
-        labels: [...new Set(told.flatMap(({ calls }) => calls))]
-          .map((call) => ({ span: call.span, message: `called ${this.#howCalled(call, byCall)} here` })),
-        ...(fixes.length === 0 ? {} : { fixes }),
+      const head = `this function ${colourDoes(over)}, where the function handed must be ${silent}`;
+      const seen = [...new Set(over.map((axis) => facts.get(axis)!))];
+      checks.push({
+        kind: "handed",
+        span,
+        report: {
+          severity: "error",
+          message: `${head} — ` + told.map((each) => this.#factPhrase(each, byCall)).join(", and "),
+          primary: span,
+          labels: [...new Set(told.flatMap(({ calls }) => calls))]
+            .map((call) => ({ span: call.span, message: `called ${this.#howCalled(call, byCall)} here` })),
+          ...(fixes.length === 0 ? {} : { fixes }),
+        },
+        facts: seen,
+        names: new Map(seen.map((fact) => [fact, parameter ?? fact.name])),
+        head,
+        label: `a function that ${colourDoes(over)} is handed here`,
+        correction: undefined,
       });
     }
     this.#factDemands.clear();
+  }
+
+  /**
+   * One report per fact (Effects §3.4, #1310): the checks seen to fail one
+   * fact are one report, and two facts are one only through a check they
+   * share. It stands at the first check in source order, names every fact,
+   * and labels each call that makes one and every other check. Its first fix
+   * marks the calls that make the facts, each on its own colour, and promises
+   * nothing of the other checks; correcting the marks is offered too where
+   * every check is a mark, since a function handed is no claim a fix removes.
+   * A fact with one check keeps that check's own report.
+   */
+  #reportFactChecks(checks: readonly FactCheck[], byCall: ReadonlyMap<Resolved.CallExpr, MarkObligation>): void {
+    const root = new Map<ColourFact, ColourFact>();
+    const find = (fact: ColourFact): ColourFact => {
+      const up = root.get(fact);
+      if (up === undefined || up === fact) return fact;
+      const top = find(up);
+      root.set(fact, top);
+      return top;
+    };
+    for (const { facts } of checks) {
+      for (const fact of facts.slice(1)) {
+        const [left, right] = [find(facts[0]!), find(fact)];
+        if (left !== right) root.set(right, left);
+      }
+    }
+    const bySource = (left: Source.Span, right: Source.Span): number =>
+      precedes(left, right) ? -1 : precedes(right, left) ? 1 : 0;
+    const groups = new Map<ColourFact, FactCheck[]>();
+    for (const check of checks) {
+      const top = find(check.facts[0]!);
+      const group = groups.get(top) ?? [];
+      group.push(check);
+      groups.set(top, group);
+    }
+    for (const group of groups.values()) {
+      const ordered = [...group].sort((left, right) => bySource(left.span, right.span));
+      const first = ordered[0]!;
+      if (ordered.length === 1) {
+        this.#diagnostics.add(first.report);
+        continue;
+      }
+      // Every fact, named as the first check in source order to reach it names it.
+      const names = new Map<ColourFact, string>();
+      for (const check of ordered) {
+        for (const fact of check.facts) if (!names.has(fact)) names.set(fact, check.names.get(fact) ?? fact.name);
+      }
+      const tell = (facts: readonly ColourFact[]): Told[] =>
+        this.#factsTold(facts.map((fact) => ({ ...fact, name: names.get(fact)! })))
+          .sort((left, right) => bySource(left.calls[0]!.span, right.calls[0]!.span));
+      // The headline's own facts, then the facts only the other checks meet,
+      // set apart, so the headline says nothing false of its own check.
+      const own = tell([...names.keys()].filter((fact) => first.facts.includes(fact)));
+      const others = tell([...names.keys()].filter((fact) => !first.facts.includes(fact)));
+      const told = [...own, ...others];
+      const fixes = this.#readerFixes(told, byCall);
+      const corrections = ordered.map(({ correction }) => correction);
+      if (corrections.every((edit) => edit !== undefined)) {
+        fixes.push({
+          message: corrections.every((edit) => edit!.replacement === "") ? "remove the marks" : "correct the marks",
+          edits: corrections as Diagnostics.Edit[],
+        });
+      }
+      this.#diagnostics.add({
+        severity: "error",
+        message: `${first.head} — ` + this.#factsPhrase(own, byCall) +
+          (others.length === 0 ? "" : ` (and for the other checks here, ${this.#factsPhrase(others, byCall)})`),
+        primary: first.span,
+        labels: [
+          ...[...new Set(told.flatMap(({ calls }) => calls))]
+            .map((call) => ({ span: call.span, message: `called ${this.#howCalled(call, byCall)} here` })),
+          ...ordered.slice(1).map(({ span, label }) => ({ span, message: label })),
+        ],
+        ...(fixes.length === 0 ? {} : { fixes }),
+      });
+    }
   }
 
   /**
@@ -27894,6 +28044,35 @@ class Checker {
   #howCalled(call: Resolved.CallExpr, byCall: ReadonlyMap<Resolved.CallExpr, MarkObligation>): string {
     const obligation = byCall.get(call);
     return obligation === undefined || obligation.mark === undefined ? "bare" : markName(markParts(obligation.mark));
+  }
+
+  /**
+   * Facts in a report's words, in source order: facts one call makes on the
+   * same colours are named together, "`ping` is called bare, which makes `act`
+   * and `k` pure".
+   */
+  #factsPhrase(told: readonly Told[], byCall: ReadonlyMap<Resolved.CallExpr, MarkObligation>): string {
+    const together: { call: Resolved.CallExpr; axes: readonly Axis[]; names: string[]; first: Told }[] = [];
+    for (const each of told) {
+      const call = each.fact?.call ?? each.calls[0]!;
+      const same = together.find((entry) =>
+        entry.call === call && entry.axes.length === each.axes.length && entry.axes.every((axis) => each.axes.includes(axis))
+      );
+      if (same !== undefined && byCall.get(call)?.callee !== `\`${same.names[0]}\``) same.names.push(each.name);
+      else together.push({ call, axes: each.axes, names: [each.name], first: each });
+    }
+    return together.map(({ names, first }) => {
+      if (names.length === 1) return this.#factPhrase(first, byCall);
+      const listed = names.map((name) => `\`${name}\``);
+      const made = `${listed.slice(0, -1).join(", ")} and ${listed.at(-1)!}`;
+      const silent = first.axes.map((axis) => axis === "world" ? "pure" : "unable to fail").join(" and ");
+      const call = first.fact?.call ?? first.calls[0]!;
+      const factOf = byCall.get(call);
+      const how = this.#howCalled(call, byCall);
+      return factOf === undefined || factOf.callee === "this call"
+        ? `a call written ${how} runs ${made}, which makes them ${silent}`
+        : `${factOf.callee} is called ${how}, which makes ${made} ${silent}`;
+    }).join(", and ");
   }
 
   /** "`ping` is called bare, which makes `act` pure": a fact in a report's words (Effects §9). */
@@ -27926,15 +28105,28 @@ class Checker {
       }
     }
     if (marks.size === 0) return [];
-    const axes = AXES.filter((axis) => told.some((each) => each.axes.includes(axis)));
-    const silent = axes.map((axis) => axis === "world" ? "pure" : "unable to fail").join(" and ");
-    const names = [...new Set(told.map(({ name }) => `\`${name}\``))];
+    // Each name on the colours its facts decide: "`f` pure and unable to fail,
+    // and `g` unable to fail".
+    const colours = new Map<string, Set<Axis>>();
+    for (const { name, axes } of told) {
+      const known = colours.get(name) ?? new Set<Axis>();
+      for (const axis of axes) known.add(axis);
+      colours.set(name, known);
+    }
+    const together = new Map<string, string[]>();
+    for (const [name, axes] of colours) {
+      const silent = AXES.filter((axis) => axes.has(axis)).map((axis) => axis === "world" ? "pure" : "unable to fail").join(" and ");
+      together.set(silent, [...(together.get(silent) ?? []), `\`${name}\``]);
+    }
+    const makes = [...together].map(([silent, names]) =>
+      `${names.length === 1 ? names[0] : `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`} ${silent}`
+    ).join(", and ");
     const only = marks.size === 1 ? [...marks][0]! : undefined;
     const onlyOf = only === undefined ? undefined : byCall.get(only[0])!;
     return [{
       message: onlyOf !== undefined
         ? `mark ${onlyOf.callee === "this call" ? "the bare call" : `the call of ${onlyOf.callee}`} ${markName(only![1])}`
-        : `mark every call that makes ${names.length === 1 ? names[0] : `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`} ${silent}`,
+        : `mark every call that makes ${makes}`,
       edits: [...marks].map(([each, parts]) => ({
         span: byCall.get(each)!.markSpan ?? byCall.get(each)!.insertAt,
         replacement: markSpelling(parts),
