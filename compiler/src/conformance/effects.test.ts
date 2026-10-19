@@ -2605,6 +2605,19 @@ describe("Effects §3.4 — a knot's facts decide together, and one fact is one 
     }
   });
 
+  it("sets apart the facts only the other checks meet, and names each on its own colours", () => {
+    // `save0` goes to `f`; `g` joins the report only through the `tw!` mark at
+    // the other call, so the headline at `save0` names it apart (#1311 r1).
+    const source = "let tw(f, g) =\n    f()\n    g()\n    0\n" +
+      "export let a(): Int = tw(save0, noop)\nexport let b(): Int = tw!(log0, oops0)\n";
+    expect(reports(source)).toEqual([{
+      at: "L5 save0",
+      message: handed + " — `f` is called bare, which makes it pure and unable to fail (and for the other checks here, " +
+        "`g` is called bare, which makes it unable to fail)",
+      fixes: ["mark every call that makes `f` pure and unable to fail, and `g` unable to fail"],
+    }]);
+  });
+
   it("explains a held lambda's marks as its plain twin's", () => {
     // `q!(noop, act)` hands `cb` a pure function, so nothing hides behind the
     // fact there; `q!(act, …)` hands it `act`, which is silent too, and what

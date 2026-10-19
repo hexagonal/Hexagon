@@ -27993,8 +27993,14 @@ class Checker {
       for (const check of ordered) {
         for (const fact of check.facts) if (!names.has(fact)) names.set(fact, check.names.get(fact) ?? fact.name);
       }
-      const told = this.#factsTold([...names].map(([fact, name]) => ({ ...fact, name })))
-        .sort((left, right) => bySource(left.calls[0]!.span, right.calls[0]!.span));
+      const tell = (facts: readonly ColourFact[]): Told[] =>
+        this.#factsTold(facts.map((fact) => ({ ...fact, name: names.get(fact)! })))
+          .sort((left, right) => bySource(left.calls[0]!.span, right.calls[0]!.span));
+      // The headline's own facts, then the facts only the other checks meet,
+      // set apart, so the headline says nothing false of its own check.
+      const own = tell([...names.keys()].filter((fact) => first.facts.includes(fact)));
+      const others = tell([...names.keys()].filter((fact) => !first.facts.includes(fact)));
+      const told = [...own, ...others];
       const fixes = this.#readerFixes(told, byCall);
       const corrections = ordered.map(({ correction }) => correction);
       if (corrections.every((edit) => edit !== undefined)) {
@@ -28005,7 +28011,8 @@ class Checker {
       }
       this.#diagnostics.add({
         severity: "error",
-        message: `${first.head} — ` + this.#factsPhrase(told, byCall),
+        message: `${first.head} — ` + this.#factsPhrase(own, byCall) +
+          (others.length === 0 ? "" : ` (and for the other checks here, ${this.#factsPhrase(others, byCall)})`),
         primary: first.span,
         labels: [
           ...[...new Set(told.flatMap(({ calls }) => calls))]
@@ -28098,15 +28105,28 @@ class Checker {
       }
     }
     if (marks.size === 0) return [];
-    const axes = AXES.filter((axis) => told.some((each) => each.axes.includes(axis)));
-    const silent = axes.map((axis) => axis === "world" ? "pure" : "unable to fail").join(" and ");
-    const names = [...new Set(told.map(({ name }) => `\`${name}\``))];
+    // Each name on the colours its facts decide: "`f` pure and unable to fail,
+    // and `g` unable to fail".
+    const colours = new Map<string, Set<Axis>>();
+    for (const { name, axes } of told) {
+      const known = colours.get(name) ?? new Set<Axis>();
+      for (const axis of axes) known.add(axis);
+      colours.set(name, known);
+    }
+    const together = new Map<string, string[]>();
+    for (const [name, axes] of colours) {
+      const silent = AXES.filter((axis) => axes.has(axis)).map((axis) => axis === "world" ? "pure" : "unable to fail").join(" and ");
+      together.set(silent, [...(together.get(silent) ?? []), `\`${name}\``]);
+    }
+    const makes = [...together].map(([silent, names]) =>
+      `${names.length === 1 ? names[0] : `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`} ${silent}`
+    ).join(", and ");
     const only = marks.size === 1 ? [...marks][0]! : undefined;
     const onlyOf = only === undefined ? undefined : byCall.get(only[0])!;
     return [{
       message: onlyOf !== undefined
         ? `mark ${onlyOf.callee === "this call" ? "the bare call" : `the call of ${onlyOf.callee}`} ${markName(only![1])}`
-        : `mark every call that makes ${names.length === 1 ? names[0] : `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`} ${silent}`,
+        : `mark every call that makes ${makes}`,
       edits: [...marks].map(([each, parts]) => ({
         span: byCall.get(each)!.markSpan ?? byCall.get(each)!.insertAt,
         replacement: markSpelling(parts),
