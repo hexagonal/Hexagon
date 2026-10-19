@@ -1712,6 +1712,136 @@ describe("Effects §3.4 — a tie between callbacks is refused, where it was mad
     }
   });
 
+  it("reads a held lambda's own tie where its text ends, as its plain twin does (#1246)", () => {
+    const world = "extern from \"./world.js\"\n    export fun save(s: String) ->! Unit\n" +
+      "let save0(): Unit = save!(\"x\")\nlet noop(): Unit = ()\nlet ident(x: t): t = x\n" +
+      "record Box = { run: () ->! Unit }\nrecord PBox = { run: () -> Unit }\n";
+    const b = "    b(g, c: Bool, n: Int): Unit = if n == 0 then () else a!(g, c, n)\n";
+    const member = (lines: readonly string[]): string[] => {
+      const a = "    a(g, c: Bool, n: Int): Unit =\n" + lines.map((line) => `        ${line}\n`).join("") + "        ()\n";
+      return [`fun\n${a}${b}`, `fun\n${b}${a}`];
+    };
+    // The plain twin: the recursive call replaced by an impure one, so no knot
+    // holds the lambda and it closes where its text ends.
+    const twin = (lines: readonly string[]): string =>
+      "let a(g, c: Bool, n: Int): Unit =\n" +
+      lines.map((line) => `    ${line.replace("b!(g, c, n - 1)", "save!(\"x\")")}\n`).join("") + "    ()\n";
+    const reportsOf = (program: string) => tieReports(world + program);
+    const tied = (parameter: string, other: string, at: string) => ({
+      at,
+      message: `\`${parameter}\`'s colour is tied to \`${other}\`'s here, and inference cannot keep them apart — ` +
+        `write \`${parameter}\`'s type, or wrap \`${parameter}\` where they meet`,
+      labels: [`${parameter}: \`${parameter}\` has no written type`, `${other}: \`${other}\` has no written type`],
+      fixes: [": () ->! Unit", ": () ->! Unit"],
+    });
+    const compilesFixed = (program: string): readonly string[] => {
+      const text = "module Main\n\n" + fixtures + world + program;
+      const edits = compileFiles([["/main.hex", text]]).diagnostics
+        .flatMap(({ fixes }) => (fixes ?? []).flatMap((fix) => fix.edits))
+        .sort((left, right) => right.span.start.offset - left.span.start.offset);
+      let fixed = text;
+      for (const edit of edits) fixed = fixed.slice(0, edit.span.start.offset) + edit.replacement + fixed.slice(edit.span.end.offset);
+      return compileFiles([["/main.hex", fixed]]).diagnostics.map(({ message }) => message);
+    };
+    const useOfG = {
+      at: "q!(g)",
+      message: "`g`'s colour is tied to `k`'s here, and inference cannot keep them apart — write `g`'s type, or wrap `g` where they meet",
+      labels: ["g: `g` has no written type"],
+      fixes: [": () ->! Unit"],
+    };
+    // (a) The body around `inner` is the held one: `inner`'s tie to `k` is
+    // read where that body's text ends, before `q!(g)` binds `k` to `g`. It
+    // stands at the merge, labelled `f` and `k`, as in the twin, and `q!(g)`
+    // keeps its own report (one for `a`'s `g`, one for `b`'s, as in #1220).
+    const held = ["g!()", "let q = ident((k) =>", "    b!(g, c, n - 1)", "    k!()", "    let inner = (f) => if c then k else f",
+      "    ())", "q!(g)"];
+    expect(reportsOf(twin(held))).toEqual([tied("f", "k", "if c then k else f"), useOfG]);
+    for (const program of member(held)) {
+      expect([program, reportsOf(program)]).toEqual([program, [tied("f", "k", "if c then k else f"), useOfG, useOfG]]);
+      expect([program, compilesFixed(program)]).toEqual([program, []]);
+    }
+    // (b) A later line pins the tied colour: `q!(g, g)` joins `k` with `h`,
+    // which the merge below `i1` made impure. The tie stood where `i1`'s text
+    // ended, so it is refused at the merge, as in the twin, not dissolved.
+    const pinnedByJoin = ["g!()", "let q = ident((k, h) =>", "    k!()", "    h!()", "    let i1 = (f1) =>",
+      "        b!(g, c, n - 1)", "        if c then k else f1", "    let _ = if c then h else (() => save!(\"y\"))", "    ())",
+      "q!(g, g)"];
+    // So where the use pins `k` to the constant itself...
+    const pinnedByUse = ["g!()", "let q = ident((k) =>", "    k!()", "    let i1 = (f1) =>", "        b!(g, c, n - 1)",
+      "        if c then k else f1", "    ())", "q!(save0)"];
+    // ...and where the held lambda's tie is between its own two callbacks.
+    const ownPinned = ["g!()", "let q = ident((k, h) =>", "    b!(g, c, n - 1)", "    k!()", "    h!()",
+      "    let _ = if c then k else h", "    ())", "q!(save0, save0)"];
+    for (const [lines, report] of [
+      [pinnedByJoin, tied("f1", "k", "if c then k else f1")],
+      [pinnedByUse, tied("f1", "k", "if c then k else f1")],
+      [ownPinned, tied("k", "h", "if c then k else h")],
+    ] as const) {
+      expect(reportsOf(twin(lines))).toEqual([report]);
+      for (const program of member(lines)) {
+        expect([program, reportsOf(program)]).toEqual([program, [report]]);
+        expect([program, compilesFixed(program)]).toEqual([program, []]);
+      }
+    }
+    // A tie that waits for a parameter to become a function is read where the
+    // text ends too: `f2` is one only once `k!()` (below it) shapes `k`, or,
+    // nested, once `i1`'s merge (below `i2`) shapes `f1`. Each with the line
+    // that shapes it above the nested lambda and below it; `i2` held or not.
+    const shape = (above: boolean, use: string) => ["g!()", "let q = ident((k) =>", "    b!(g, c, n - 1)",
+      ...(above ? ["    k!()"] : []), "    let i2 = (f2) => if c then k else f2", ...(above ? [] : ["    k!()"]), "    ())", use];
+    const viaF1 = (above: boolean, held: boolean) => ["g!()", "let q = ident((k) =>", "    k!()", "    let i1 = (f1) =>",
+      "        b!(g, c, n - 1)", ...(above ? ["        f1!()"] : []), "        let i2 = (f2) =>",
+      ...(held ? ["            b!(g, c, n - 1)"] : []), "            if c then f1 else f2", ...(above ? [] : ["        f1!()"]),
+      "        if c then k else f1", "    ())", "q!(save0)"];
+    // ...and where only `i2` is held: `i1` closes where its text ends, and
+    // `i2`'s tie reaches it at the knot's close, read as `i1` closed.
+    const viaF1Inner = (above: boolean) => viaF1(above, true).filter((line, index) => index !== 4);
+    const threeTied = {
+      ...tied("f1", "k", "if c then k else f1"),
+      labels: ["f1: `f1` has no written type", "k: `k` has no written type", "f2: `f2` has no written type"],
+      fixes: [": () ->! Unit", ": () ->! Unit", ": () ->! Unit"],
+    };
+    for (const above of [true, false]) {
+      const cases = [
+        [shape(above, "q!(save0)"), [tied("f2", "k", "if c then k else f2")]],
+        [shape(above, "q!(g)"), [tied("f2", "k", "if c then k else f2"), useOfG, useOfG]],
+        ...[false, true].map((held) => [viaF1(above, held), [threeTied]] as const),
+        [viaF1Inner(above), [threeTied]],
+      ] as const;
+      for (const [lines, reports] of cases) {
+        // The twin gives the same reports, `q!(g)`'s once (#1220).
+        expect([lines, reportsOf(twin(lines))]).toEqual([lines, reports.filter((each, index) => index < 2)]);
+        for (const program of member(lines)) {
+          expect([program, reportsOf(program)]).toEqual([program, reports]);
+          expect([program, compilesFixed(program)]).toEqual([program, []]);
+        }
+      }
+    }
+    // A colour already a constant where the text ends is no tie, as in the
+    // twin: a merge with an impure function, a pin inside the held lambda
+    // above its merge, a `->!` field; and the pure constant, by a written
+    // `->` or a `->` field, above the held lambda or below it.
+    const constantBy = (pin: readonly string[], inside: readonly string[] = [], use = "q!(g)", below = false) => [
+      "g!()", "let q = ident((k) =>", ...(use === "q!(g)" ? ["    k!()"] : []), ...(below ? [] : pin), "    let i1 = (f1) =>",
+      "        b!(g, c, n - 1)", ...inside, "        if c then k else f1", ...(below ? pin : []), "    ())", use];
+    const constants = [
+      constantBy(["    let _ = if c then k else save0"]),
+      constantBy([], ["        let _ = if c then f1 else save0"]),
+      constantBy(["    let bx = Box({ run = k })"]),
+      // A held lambda's own two callbacks, tied and then pinned where its text ends.
+      ["g!()", "let q = ident((k, h) =>", "    b!(g, c, n - 1)", "    k!()", "    h!()", "    let _ = if c then k else h",
+        "    let _ = if c then k else save0", "    ())", "q!(g, g)"],
+      ...[false, true].flatMap((below) => [
+        constantBy(["    let p: () -> Unit = k"], [], "q(noop)", below),
+        constantBy(["    let bx = PBox({ run = k })"], [], "q(noop)", below),
+      ]),
+    ];
+    for (const lines of constants) {
+      expect([lines, reportsOf(twin(lines))]).toEqual([lines, []]);
+      for (const program of member(lines)) expect([program, reportsOf(program)]).toEqual([program, []]);
+    }
+  });
+
   it("a member that hands its callback on is no tie where a sibling's ungeneralized lambda around a held one takes the written callback (#1244)", () => {
     // `b` only hands `g` on to `a`, and `hold` touches neither `g` nor `k`:
     // `k`'s written colour is the in-place lambda's own (#1250), so `q(g)`
