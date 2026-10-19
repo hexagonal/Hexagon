@@ -1088,8 +1088,8 @@ describe("Effects §3.4 — a parameter no call reaches keeps its own colour (#1
       [["keep(k)", "let g = () => runIt(k)"], "(() -> Unit) -> Unit", [BARE("`runIt` is called bare, which makes `k` pure and unable to fail")]],
       // A `!` call runs it, and no fact silences it: it is its own.
       [["keep(k)", "runIt!(k)"], "(() ->! Unit) >-> Unit", ["this call is impure and may fail, so `f` wants `!`, not no mark"]],
-      // A `->` demand pins it.
-      [["keep(k)", "pureOnly(k)"], "(() -> Unit) -> Unit", [PURITY]],
+      // A `->` demand pins it, and the report names that type (#1307).
+      [["keep(k)", "pureOnly(k)"], "(() -> Unit) -> Unit", [BARE("`k` meets a type that makes it pure and unable to fail")]],
     ];
     for (const [lines, face, reports] of cases) {
       for (const order of permutations(lines)) {
@@ -2616,6 +2616,40 @@ describe("Effects §3.4 — a knot's facts decide together, and one fact is one 
         "`g` is called bare, which makes it unable to fail)",
       fixes: ["mark every call that makes `f` pure and unable to fail, and `g` unable to fail"],
     }]);
+  });
+
+  it("makes a written type a parameter meets a fact the reports of its checks share (#1307)", () => {
+    // `pinned`'s `f` meets `pureOnly`'s `() -> Unit`: its own `f!()`, the mark
+    // on `pinned!`, and `save0` handed in are one report, naming the type.
+    const pinned = "let pinned(f) =\n    pureOnly(f)\n    f!()\n";
+    const source = pinned + "export let p(): Unit = pinned!(save0)\n";
+    expect(reports(source)).toEqual([{
+      at: "L3 !",
+      message: over("f") + " — `f` meets a type that makes it pure and unable to fail",
+      fixes: [],
+    }]);
+    expect(labels(source)).toEqual([
+      "`f` meets a type here that makes it pure and unable to fail",
+      "`pinned` wants no mark, not `!`",
+      "a function that is impure and may fail is handed here",
+    ]);
+    // With only marks against it, removing them is the fix.
+    const marks = pinned + "    f!()\n";
+    expect(reports(marks).map(({ fixes }) => fixes)).toEqual([["remove the marks"]]);
+    expect(fixed(marks, 0, 0)).toEqual([]);
+  });
+
+  it("reads a call of a value a function returned from that function's declaration, in either member order (#1307)", () => {
+    // `h` is what `mk` returns, `() => k()`, and `save0` goes to `k`: the later
+    // `h!()` is the fact's check too, a label on its one report.
+    const mk = "    mk(k, n: Int) = if n > 0 then use(k, n - 1) else () => k()\n";
+    const use = "    use(k, n: Int) =\n        let h = mk(k, n)\n        h!()\n        () => ()\n";
+    const probe = "export let probe(): Unit =\n    let h = mk(save0, 2)\n    h!()\n";
+    for (const knot of both(mk, use)) {
+      expect(reports(knot + probe)).toHaveLength(1);
+      expect(labels(knot + probe)).toContain("`h` wants no mark, not `!`");
+      expect(fixed(knot + probe, 0, 0)).toEqual(["this call is impure and may fail, so `mk` wants `!`, not no mark"]);
+    }
   });
 
   it("explains a held lambda's marks as its plain twin's", () => {
