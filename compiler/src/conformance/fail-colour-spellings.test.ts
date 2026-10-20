@@ -893,6 +893,35 @@ describe("Effects §3.4: a mark decides nothing; facts decide an untyped paramet
     ]);
   });
 
+  test("a call whose callee reads as the parameter is a call of it: an alias, a function handing it back, a label (#1263)", () => {
+    const message = "this call is impure and may fail only because `f`, which has no written type, meets `() ->! Unit` — " +
+      "write `f`'s type, or wrap `f` where it meets it: `() => f()`";
+    const held = "let s(f) =\n    let h = Holder({ run = f })\n";
+    for (const [body, calls] of [
+      ["    let k = f\n    k()\n", ["k()"]],
+      ["    id(f)()\n", ["id(f)()"]],
+      // The label's own `f()` is a call of `f` too.
+      ["    let run = () => f()\n    run()\n", ["f()", "run()"]],
+    ] as const) {
+      expect([body, reports(PRE + held + body)]).toEqual([body, calls.map((call) => [call, message])]);
+      expect([body, fixes(PRE + held + body)]).toEqual([body, calls.map(() => ["write `f`'s type", [": () -> Unit"]])]);
+    }
+    // A mark on a call that reads as `f` is a mark of `f`: the written type
+    // would make it the wrong one, so `f()` is the ordinary report.
+    expect(reports(PRE + held + "    let k = f\n    k!()\n    f()\n")).toEqual([
+      ["f()", "this call is impure and may fail, so `f` wants `!`, not no mark"],
+    ]);
+    // Not a parameter a function read on the way was handed, nor two of them.
+    expect(reports(PRE + "let mk(g) = () => g()\nlet s(f) =\n    let h = Holder({ run = f })\n    mk(f)()\n")
+      .map(([, text]) => text.includes("only because"))).toEqual([false]);
+    expect(reports(PRE + "let s(f, g, c: Bool) =\n    let h = Holder({ run = f })\n    pick(f, g)()\n")
+      .map(([, text]) => text.includes("only because"))).toEqual([false]);
+    // A tie answers a label that calls a tied parameter bare.
+    expect(reports(PRE + "let mg(g, f, c: Bool) =\n    let run = () => g()\n    run()\n    (if c then g else f)!()\n")).toEqual([
+      ["if c then g else f", "`g`'s colour is tied to `f`'s here, and inference cannot keep them apart — write `g`'s type, or wrap `g` where they meet"],
+    ]);
+  });
+
   test("a part another body decides may yet be made silent there: the shared colour a mark needs is a tie", () => {
     const tie = ["if c then g else f", "`g`'s colour is tied to `f`'s here, and inference cannot keep them apart — write `g`'s type, or wrap `g` where they meet"];
     for (const body of [
@@ -924,7 +953,7 @@ describe("Effects §3.4: a mark decides nothing; facts decide an untyped paramet
       .toEqual([told("`g`", "`k` is called bare, which makes `g` pure and unable to fail")]);
   });
 
-  test("a tie answers only a bare call of a tied parameter by its own name, where its own marks agree", () => {
+  test("a tie answers a bare call of a tied parameter, by its own name or read as one, where its own marks agree", () => {
     // `g`'s own calls contradict: the tie's fix writes `g` the constant, and the
     // bare call keeps its report, so the two fixes together compile.
     expect(reports(PRE + "let mg(g, f, c: Bool) =\n    g()\n    g!()\n    (if c then g else f)!()\n")).toEqual([
@@ -935,12 +964,13 @@ describe("Effects §3.4: a mark decides nothing; facts decide an untyped paramet
       ["mark the call `!`", ["!"]],
       ["write the types of `g` and `f`", [": () ->! Unit", ": () ->! Unit"]],
     ]);
-    // Its fix writes `g`'s own arrow silent only where `g` itself is called
-    // bare, so a bare call through an alias keeps its report.
-    expect(reports(PRE + "let mg(g, f, c: Bool) =\n    let k = g\n    k()\n    (if c then g else f)!()\n")).toEqual([
-      ["k()", "this call is impure and may fail, so `k` wants `!`, not no mark"],
+    // A bare call through an alias is a call of `g` (#1263): the fix writes
+    // `g`'s own arrow silent, and the tie answers it.
+    const aliased = PRE + "let mg(g, f, c: Bool) =\n    let k = g\n    k()\n    (if c then g else f)!()\n";
+    expect(reports(aliased)).toEqual([
       ["if c then g else f", "`g`'s colour is tied to `f`'s here, and inference cannot keep them apart — write `g`'s type, or wrap `g` where they meet"],
     ]);
+    expect(fixes(aliased)).toEqual([["write the types of `g` and `f`", [": () -> Unit", ": () ->! Unit"]]]);
   });
 });
 
