@@ -2698,6 +2698,43 @@ describe("Effects §3.4 — a knot's facts decide together, and one fact is one 
     expect(fixed(pinned, 0, 0)).toEqual([]);
   });
 
+  it("reads a callee as its value, so every spelling of one call reads alike (#1307)", () => {
+    // `save0` goes to `f`, which `f()` makes pure and unable to fail; the
+    // later `!` runs `f` through what `mk` returned, so it is the fact's check
+    // too, a label on its one report, however the text spells the callee.
+    const mk = "let mk(f) =\n    f()\n    () => f()\n";
+    const spellings = [
+      "export let p(): Unit =\n    let h = mk(save0)\n    h!()\n",
+      "export let p(): Unit = mk(save0)!()\n",
+      "export let p(): Unit =\n    let h = mk(save0)\n    let k = h\n    k!()\n",
+      "let mk2(g) = mk(g)\nexport let p(): Unit =\n    let h = mk2(save0)\n    h!()\n",
+      "export let p(): Unit =\n    let h = ident(mk(save0))\n    h!()\n",
+    ];
+    for (const spelling of spellings) {
+      expect(reports(mk + spelling)).toHaveLength(1);
+      expect(labels(mk + spelling).filter((label) => label.includes("wants no mark"))).toHaveLength(1);
+    }
+    const bound = "let mk(f) =\n    f()\n    let r = () => f()\n    r\nexport let p(): Unit =\n    let h = mk(save0)\n    h!()\n";
+    expect(reports(bound)).toHaveLength(1);
+    const curried = "let mk(f) =\n    f()\n    (x: Int) => () => f()\nexport let p(): Unit = mk(save0)(1)!()\n";
+    expect(reports(curried)).toHaveLength(1);
+    // What the returned lambda runs was handed `noop`: nothing hides behind
+    // the fact there, so the mark keeps its own report.
+    const quiet = "let mk(f, g) =\n    f()\n    g()\n    () => g()\nexport let p(): Unit =\n    let h = mk(save0, noop)\n    h!()\n";
+    expect(reports(quiet).map(({ fixes }) => fixes.at(-1))).toEqual(["mark the call of `f` `!`", "remove the mark"]);
+  });
+
+  it("reads a call of a value a knot member returned, in either member order (#1307)", () => {
+    const mk = "    mk(k, n: Int) = if n > 0 then use(k, n - 1) else () => k()\n";
+    const use = "    use(k, n: Int) =\n        let h = mk(k, n)\n        h!()\n        () => ()\n";
+    const probe = "export let probe(): Unit =\n    let h = mk(save0, 2)\n    h!()\n";
+    for (const knot of both(mk, use)) {
+      expect(reports(knot + probe)).toHaveLength(1);
+      expect(labels(knot + probe)).toContain("`h` wants no mark, not `!`");
+      expect(fixed(knot + probe, 0, 0)).toEqual(["this call is impure and may fail, so `mk` wants `!`, not no mark"]);
+    }
+  });
+
   it("explains a held lambda's marks as its plain twin's", () => {
     // `q!(noop, act)` hands `cb` a pure function, so nothing hides behind the
     // fact there; `q!(act, …)` hands it `act`, which is silent too, and what
@@ -3255,10 +3292,10 @@ describe("Effects §3.4 — what a held lambda's own callbacks run is not held (
     // whose callback is pure, which `probe` then hands `save0`.
     expect(check("fun a(n: Int) = (cb) => if n == 0 then cb() else a(n - 1)!(cb)\n" +
       "export let probe(): Unit = a(2)!(save0)\n")).toEqual([
-      // One report for the fact: `save0` handed against it is a label (#1310).
+      // One report for the fact: `save0` handed against it is a label (#1310),
+      // and so is `probe`'s `!`, read through the lambda `a(2)` hands back (#1307).
       "this call is pure and cannot fail, so this call wants no mark, not `!` — `cb` is called bare, which makes it pure " +
       "and unable to fail",
-      "this call is pure and cannot fail, so this call wants no mark, not `!`",
     ]);
     // Under a `match` too, where the refusal of a function the member was not
     // given stands alone.

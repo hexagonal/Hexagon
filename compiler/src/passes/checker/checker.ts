@@ -1433,6 +1433,24 @@ interface DemandFact {
 /** A fact a report names: a call that decided a colour, or a written type a parameter meets. */
 type ReportFact = ColourFact | DemandFact;
 
+/**
+ * What a parameter stands for while a report reads a callee as its value
+ * (`#valuesOf`, #1307): the argument written where the function was called,
+ * with what that argument's own names stand for.
+ */
+interface ValueBinding {
+  readonly expression: Resolved.Expr;
+  readonly env: ValueEnv;
+}
+type ValueEnv = ReadonlyMap<Resolved.SymbolId, ValueBinding>;
+/** A lambda a reading reached, with what its names stand for. */
+interface ValueRead {
+  readonly lambda: Resolved.LambdaExpr;
+  readonly env: ValueEnv;
+}
+/** How many distinct readings one reading of a callee as its value takes at most (Effects §3.4). */
+const VALUE_STEPS = 4096;
+
 function isDemandFact(fact: ReportFact): fact is DemandFact {
   return "kind" in fact && fact.kind === "demand";
 }
@@ -4524,8 +4542,24 @@ class Checker {
   readonly #parameterFacts = new Map<Resolved.SymbolId, Map<Axis, ColourFact>>();
   /** One `DemandFact` per parameter and colour, so the reports of one written type are one (#1307). */
   readonly #demandFacts = new Map<string, DemandFact>();
-  /** Each binding whose value is a lambda, with its parameters as written: a declaration, read by `#explainFromText`. */
+  /** Each binding whose value is a lambda, with its parameters as written: a declaration, read where a function is handed. */
   readonly #lambdaParameters = new Map<Resolved.SymbolId, readonly Resolved.Parameter[]>();
+  /** Each binding's value as written: what a report reads a name as (`#valuesOf`, #1307). */
+  readonly #bindingValues = new Map<Resolved.SymbolId, Resolved.Expr>();
+  /** The distinct readings left to one reading of a callee as its value (`#valuesOf`): past them it reads nothing. */
+  #valueSteps = 0;
+  /** Each node a reading meets, numbered, so equal readings share a key. */
+  readonly #valueNodeIds = new WeakMap<object, number>();
+  #valueNodeCount = 0;
+  /** Each environment a reading builds, by its key, so equal ones are one object with one number. */
+  readonly #valueEnvsByKey = new Map<string, ValueEnv>();
+  readonly #valueEnvIds = new WeakMap<ValueEnv, number>();
+  /** The names whose values a reading of a node can depend on (`#valueNames`). */
+  readonly #valueNamesOf = new WeakMap<object, ReadonlySet<Resolved.SymbolId>>();
+  /** Each lambda's parameters a reading of its body can depend on (`#valueParameters`). */
+  readonly #valueParametersOf = new WeakMap<Resolved.LambdaExpr, ReadonlySet<Resolved.SymbolId>>();
+  /** One reading's results, by node and environment: what is read twice is read once. */
+  #valueReads = new Map<string, readonly ValueRead[] | "reading">();
   /** The colours on which an untyped parameter is called by its own name with a mark carrying them: no seam reading is offered there (§9). */
   readonly #calledMarkedItself = new Map<Resolved.SymbolId, Set<Axis>>();
   /** Each untyped parameter by its binding, for a report about a call of it. */
@@ -21966,6 +22000,7 @@ class Checker {
     const register = (inner: Resolved.Item): void => {
       registerType(inner);
       if (inner.kind === "Let" || inner.kind === "Fun") {
+        this.#bindingValues.set(inner.binding.symbol, inner.value);
         const value = ungrouped(inner.value);
         if (value.kind === "Lambda") {
           this.#namedLambdas.set(value, inner.binding.symbol);
@@ -27911,41 +27946,73 @@ class Checker {
   }
 
   /**
-   * Why a call is silent on the colours given, read from the callee's
-   * declaration rather than from the solved colour, in which a fact's pure
-   * leaves no trace once it meets another colour (Effects §3.4, #1240). A
-   * reason has two sides: a parameter the callee's own body runs, which a fact
-   * silenced, and a function this call hands it that does something on that
-   * colour. Then the fact is what hides it, and marking the calls that make the
-   * fact makes the call what the mark says. Nothing is named where the function
-   * handed is silent there, since what silenced it may be no fact a report can
-   * name, nor where the callee's declaration is not known.
+   * Why a call is silent on the colours given, read from the text, the callee
+   * read as its value (`#valuesOf`), rather than from the solved colour, in
+   * which a fact's pure leaves no trace once it meets another colour (Effects
+   * §3.4, #1240, #1307). A reason has two sides: a parameter the lambda runs,
+   * its own or one of a function that made it, which a fact silenced; and the
+   * function handed to it, at this call or where the lambda was made, which
+   * does something on that colour. Then the fact is what hides it, and marking
+   * the calls that make the fact makes the call what the mark says. Nothing is
+   * named where the function handed is silent there, since what silenced it
+   * may be no fact a report can name, nor where the reading reaches no lambda.
    */
   #explainFromText(
     call: Resolved.CallExpr,
     over: readonly Axis[],
   ): { fact: ReportFact; name: string }[] {
-    const callee = ungrouped(call.callee);
-    const parameters = callee.kind === "Name" ? this.#lambdaParameters.get(callee.symbol) : undefined;
-    if (parameters === undefined) return [];
+    const top = this.#valueEnv([]);
     const found: { fact: ReportFact; name: string }[] = [];
-    for (const axis of over) {
-      for (const [index, argument] of call.arguments.entries()) {
-        const parameter = parameters[index];
-        if (parameter === undefined || !this.#runsAtCall.has(parameter.symbol)) continue;
-        // The fact that silenced the parameter: a written type it met before
-        // its body settled, which no sibling's fact is, or else the call that
-        // decided it.
-        const fact: ReportFact | undefined = this.#demandFact(parameter.symbol, parameter.name, axis) ??
-          this.#parameterFacts.get(parameter.symbol)?.get(axis);
-        if (fact === undefined) continue;
-        // What the function handed does there.
-        const type = this.#expressionTypes.get(argument);
-        const handed = type === undefined ? undefined : this.#prune(type);
-        if (handed?.kind !== "Function") continue;
-        const colour = this.#prune(colourAt(handed, axis) ?? PURE);
-        if (colour.kind === "ErrorColour" || colour.kind === "Effect" && Colour.isBottom(colour)) continue;
-        if (!found.some((each) => each.fact === fact)) found.push({ fact, name: parameter.name });
+    this.#valueSteps = VALUE_STEPS;
+    this.#valueReads = new Map();
+    const values = this.#valuesOf(call.callee, top);
+    // A reading cut short says nothing, so what it would name never depends
+    // on where it stopped.
+    if (this.#valueSteps < 0) return [];
+    for (const { lambda, env } of values) {
+      // What each name the lambda runs stands for: its own parameters, the
+      // arguments of this call; a parameter of a function that made it, what
+      // that function was handed.
+      const bound = new Map(env);
+      for (const [index, parameter] of lambda.parameters.entries()) {
+        const argument = call.arguments[index];
+        if (argument !== undefined) bound.set(parameter.symbol, { expression: argument, env: top });
+      }
+      const runs: { symbol: Resolved.SymbolId; name: string }[] = [];
+      for (const parameter of lambda.parameters) {
+        if (this.#runsAtCall.has(parameter.symbol)) runs.push({ symbol: parameter.symbol, name: parameter.name });
+      }
+      for (const named of this.#calledByName(lambda.body)) {
+        if (env.has(named.symbol) && !runs.some(({ symbol }) => symbol === named.symbol)) {
+          runs.push({ symbol: named.symbol, name: named.text });
+        }
+      }
+      for (const axis of over) {
+        for (const { symbol, name } of runs) {
+          let handedTo = bound.get(symbol);
+          if (handedTo === undefined) continue;
+          // Through the arguments of the functions read on the way, to the
+          // argument written where the reading began.
+          for (let named = ungrouped(handedTo.expression); named.kind === "Name";) {
+            const next: ValueBinding | undefined = handedTo.env.get(named.symbol);
+            if (next === undefined) break;
+            handedTo = next;
+            named = ungrouped(next.expression);
+          }
+          // The fact that silenced the parameter: a written type it met before
+          // its body settled, which no sibling's fact is, or else the call that
+          // decided it.
+          const fact: ReportFact | undefined = this.#demandFact(symbol, name, axis) ??
+            this.#parameterFacts.get(symbol)?.get(axis);
+          if (fact === undefined) continue;
+          // What the function handed does there.
+          const type = this.#expressionTypes.get(handedTo.expression);
+          const handed = type === undefined ? undefined : this.#prune(type);
+          if (handed?.kind !== "Function") continue;
+          const colour = this.#prune(colourAt(handed, axis) ?? PURE);
+          if (colour.kind === "ErrorColour" || colour.kind === "Effect" && Colour.isBottom(colour)) continue;
+          if (!found.some((each) => each.fact === fact)) found.push({ fact, name });
+        }
       }
     }
     return found;
@@ -27984,6 +28051,209 @@ class Checker {
     const names = pool.slice(0, handed.parameters.length).join(", ");
     const wrapped = `(${names}) => assume ${written}${Colour.isBottom(world) ? "^" : "!"}(${names})`;
     return { message: `assume it cannot fail here: \`${wrapped}\``, edits: [{ span: argument.span, replacement: wrapped }] };
+  }
+
+  /**
+   * A callee read as its value, as far as the text spells it (Effects §3.4,
+   * #1307): a name to its binding's value, or to what a parameter of a
+   * function read on the way was handed; a call of a function so read to the
+   * lambdas its body returns, its parameters standing for the call's
+   * arguments; a block, `if` or `match` to its result positions. It reads no
+   * solved type, and stops at anything else. Paths merge: a node is read once
+   * for each environment it can tell apart, keeping only the names its
+   * reading can depend on, and a node met again while it is being read
+   * gives nothing more.
+   */
+  #valuesOf(expression: Resolved.Expr, outer: ValueEnv): readonly ValueRead[] {
+    const node = ungrouped(expression);
+    const env = this.#valueRestrict(outer, this.#valueNames(node));
+    const key = `${this.#valueNodeId(node)}:${this.#valueEnvIds.get(env)!}`;
+    const known = this.#valueReads.get(key);
+    if (known === "reading") return [];
+    if (known !== undefined) return known;
+    if (--this.#valueSteps < 0) return [];
+    this.#valueReads.set(key, "reading");
+    const values: ValueRead[] = [];
+    const seen = new Set<string>();
+    const add = (each: readonly ValueRead[]): void => {
+      for (const value of each) {
+        const id = `${this.#valueNodeId(value.lambda)}:${this.#valueEnvIds.get(value.env)!}`;
+        if (!seen.has(id)) {
+          seen.add(id);
+          values.push(value);
+        }
+      }
+    };
+    switch (node.kind) {
+      case "Lambda":
+        add([{ lambda: node, env }]);
+        break;
+      case "Name": {
+        const handed = env.get(node.symbol);
+        if (handed !== undefined) add(this.#valuesOf(handed.expression, handed.env));
+        else {
+          const value = this.#bindingValues.get(node.symbol);
+          if (value !== undefined) add(this.#valuesOf(value, env));
+        }
+        break;
+      }
+      case "Call":
+        for (const { lambda, env: made } of this.#valuesOf(node.callee, env)) {
+          const relevant = this.#valueParameters(lambda);
+          const bound = new Map(made);
+          for (const [index, parameter] of lambda.parameters.entries()) {
+            const argument = node.arguments[index];
+            if (argument === undefined || !relevant.has(parameter.symbol)) continue;
+            bound.set(parameter.symbol, this.#valueBinding(argument, env));
+          }
+          add(this.#valuesOf(lambda.body, this.#valueEnv([...bound])));
+        }
+        break;
+      case "If":
+        add(this.#valuesOf(node.consequence, env));
+        add(this.#valuesOf(node.alternative, env));
+        break;
+      case "Match":
+        for (const arm of [...node.arms, ...(node.catchArms ?? [])]) add(this.#valuesOf(arm.body, env));
+        break;
+      case "Block": {
+        const last = node.items.at(-1);
+        if (last?.kind === "ExprItem") add(this.#valuesOf(last.expression, env));
+        break;
+      }
+    }
+    this.#valueReads.set(key, values);
+    return values;
+  }
+
+  /** What a parameter stands for: a name already standing for something stands for that. */
+  #valueBinding(argument: Resolved.Expr, env: ValueEnv): ValueBinding {
+    const node = ungrouped(argument);
+    if (node.kind === "Name") {
+      const handed = env.get(node.symbol);
+      if (handed !== undefined) return handed;
+    }
+    return { expression: argument, env: this.#valueRestrict(env, this.#valueNames(node)) };
+  }
+
+  #valueNodeId(node: object): number {
+    let id = this.#valueNodeIds.get(node);
+    if (id === undefined) this.#valueNodeIds.set(node, id = ++this.#valueNodeCount);
+    return id;
+  }
+
+  /** The one environment with these entries. */
+  #valueEnv(entries: readonly (readonly [Resolved.SymbolId, ValueBinding])[]): ValueEnv {
+    const sorted = [...entries].sort(([left], [right]) => Number(left) - Number(right));
+    const key = sorted.map(([symbol, { expression, env }]) =>
+      `${Number(symbol)}=${this.#valueNodeId(ungrouped(expression))}@${this.#valueEnvIds.get(env)!}`
+    ).join(",");
+    let env = this.#valueEnvsByKey.get(key);
+    if (env === undefined) {
+      env = new Map(sorted);
+      this.#valueEnvsByKey.set(key, env);
+      this.#valueEnvIds.set(env, this.#valueEnvsByKey.size);
+    }
+    return env;
+  }
+
+  #valueRestrict(env: ValueEnv, names: ReadonlySet<Resolved.SymbolId>): ValueEnv {
+    return this.#valueEnv([...env].filter(([symbol]) => names.has(symbol)));
+  }
+
+  /**
+   * The names a reading of a node can look up: every name in a lambda, which
+   * may be read when it is called; a name's own, and its binding's value's; a
+   * call's callee's, and its arguments' where the callee's parameter matters
+   * to its value; and a result position's. Too few only reads less.
+   */
+  #valueNames(node: Resolved.Expr): ReadonlySet<Resolved.SymbolId> {
+    const known = this.#valueNamesOf.get(node);
+    if (known !== undefined) return known;
+    const names = new Set<Resolved.SymbolId>();
+    this.#valueNamesOf.set(node, names);
+    const take = (expression: Resolved.Expr | undefined): void => {
+      if (expression !== undefined) for (const name of this.#valueNames(ungrouped(expression))) names.add(name);
+    };
+    switch (node.kind) {
+      case "Lambda": {
+        const walk = (each: unknown): void => {
+          if (each === null || typeof each !== "object") return;
+          const expression = each as Resolved.Expr;
+          if (expression.kind === "Name") {
+            names.add(expression.symbol);
+            const value = this.#bindingValues.get(expression.symbol);
+            if (value !== undefined && ungrouped(value).kind !== "Lambda") take(value);
+          }
+          for (const value of Object.values(each)) {
+            if (Array.isArray(value)) for (const item of value) walk(item);
+            else if (value !== null && typeof value === "object" && "kind" in value) walk(value);
+          }
+        };
+        walk(node.body);
+        break;
+      }
+      case "Name":
+        names.add(node.symbol);
+        take(this.#bindingValues.get(node.symbol));
+        break;
+      case "Call": {
+        take(node.callee);
+        const callee = ungrouped(node.callee);
+        const value = callee.kind === "Name" ? this.#bindingValues.get(callee.symbol) : undefined;
+        const lambda = value === undefined ? undefined : ungrouped(value);
+        const relevant = lambda?.kind === "Lambda" ? this.#valueParameters(lambda) : undefined;
+        for (const [index, argument] of node.arguments.entries()) {
+          const parameter = lambda?.kind === "Lambda" ? lambda.parameters[index] : undefined;
+          if (relevant === undefined || parameter === undefined || relevant.has(parameter.symbol)) take(argument);
+        }
+        break;
+      }
+      case "If":
+        take(node.consequence);
+        take(node.alternative);
+        break;
+      case "Match":
+        for (const arm of [...node.arms, ...(node.catchArms ?? [])]) take(arm.body);
+        break;
+      case "Block": {
+        const last = node.items.at(-1);
+        if (last?.kind === "ExprItem") take(last.expression);
+        break;
+      }
+    }
+    return names;
+  }
+
+  /** A lambda's parameters its body's value can depend on; all of them while that is being worked out. */
+  #valueParameters(lambda: Resolved.LambdaExpr): ReadonlySet<Resolved.SymbolId> {
+    const known = this.#valueParametersOf.get(lambda);
+    if (known !== undefined) return known;
+    this.#valueParametersOf.set(lambda, new Set(lambda.parameters.map(({ symbol }) => symbol)));
+    const names = this.#valueNames(ungrouped(lambda.body));
+    const relevant = new Set(lambda.parameters.map(({ symbol }) => symbol).filter((symbol) => names.has(symbol)));
+    this.#valueParametersOf.set(lambda, relevant);
+    return relevant;
+  }
+
+  /** The names a body calls, in the body itself, not in a lambda nested in it. */
+  #calledByName(body: Resolved.Expr): Resolved.NameExpr[] {
+    const called: Resolved.NameExpr[] = [];
+    const walk = (node: unknown): void => {
+      if (node === null || typeof node !== "object") return;
+      const expression = node as Resolved.Expr;
+      if (expression.kind === "Lambda") return;
+      if (expression.kind === "Call") {
+        const named = ungrouped(expression.callee);
+        if (named.kind === "Name") called.push(named);
+      }
+      for (const value of Object.values(node)) {
+        if (Array.isArray(value)) for (const each of value) walk(each);
+        else if (value !== null && typeof value === "object" && "kind" in value) walk(value);
+      }
+    };
+    walk(body);
+    return called;
   }
 
   /**
