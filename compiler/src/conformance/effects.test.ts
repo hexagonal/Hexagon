@@ -2718,10 +2718,31 @@ describe("Effects §3.4 — a knot's facts decide together, and one fact is one 
     expect(reports(bound)).toHaveLength(1);
     const curried = "let mk(f) =\n    f()\n    (x: Int) => () => f()\nexport let p(): Unit = mk(save0)(1)!()\n";
     expect(reports(curried)).toHaveLength(1);
+    // A written type is the face: the reading stops there, and the mark keeps
+    // its own report, since the fact is not why the call is silent.
+    const typedParameter = mk + "let mk2(g: () -> Unit) = mk(g)\nexport let p(): Unit =\n    let h = mk2(save0)\n    h!()\n";
+    expect(labels(typedParameter).filter((label) => label.includes("wants no mark"))).toEqual([]);
+    const typedLet = mk + "export let p(): Unit =\n    let h: () -> Unit = mk(save0)\n    h!()\n";
+    expect(labels(typedLet).filter((label) => label.includes("wants no mark"))).toEqual([]);
+    const typedResult = "let mk(f): () -> Unit =\n    f()\n    () => f()\nexport let p(): Unit =\n    let h = mk(save0)\n    h!()\n";
+    expect(labels(typedResult).filter((label) => label.includes("wants no mark"))).toEqual([]);
     // What the returned lambda runs was handed `noop`: nothing hides behind
     // the fact there, so the mark keeps its own report.
     const quiet = "let mk(f, g) =\n    f()\n    g()\n    () => g()\nexport let p(): Unit =\n    let h = mk(save0, noop)\n    h!()\n";
     expect(reports(quiet).map(({ fixes }) => fixes.at(-1))).toEqual(["mark the call of `f` `!`", "remove the mark"]);
+  });
+
+  it("reads a callee as its value the same way whatever else the text holds (#1307)", () => {
+    // `mk` returns through a local `let` and a knot sibling; an unrelated
+    // function before it changes nothing of the reading.
+    const knot = "fun\n    mk(f, n: Int) =\n        f()\n        let r = if n > 0 then use(f, n - 1) else () => f()\n        r\n" +
+      "    use(k, n: Int) =\n        if n > 0 then mk(k, n - 1) else () => k()\n";
+    const probe = "export let probe(): Unit =\n    let h = mk(save0, 2)\n    h!()\n";
+    const before = "export let probe0(): Unit =\n    let j = use(log0, 1)\n    j~()\n";
+    for (const source of [knot + probe, knot + before + probe]) {
+      expect(labels(source)).toContain("`h` wants no mark, not `!`");
+      expect(reports(source).filter(({ at }) => at.endsWith("!"))).toEqual([]);
+    }
   });
 
   it("reads a call of a value a knot member returned, in either member order (#1307)", () => {
