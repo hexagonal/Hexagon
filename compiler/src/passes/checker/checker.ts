@@ -1416,6 +1416,28 @@ interface Told {
 }
 
 /**
+ * A written type a parameter meets that made its own arrow silent on a colour
+ * (Effects §3.4, "a `->` demand is a fact too"): a fact with no call a fix can
+ * mark (#1307).
+ */
+interface DemandFact {
+  readonly kind: "demand";
+  readonly name: string;
+  readonly axis: Axis;
+  /** Where the parameter meets the type. */
+  readonly span: Source.Span;
+  /** The parameter's binding. */
+  readonly symbol: Resolved.SymbolId;
+}
+
+/** A fact a report names: a call that decided a colour, or a written type a parameter meets. */
+type ReportFact = ColourFact | DemandFact;
+
+function isDemandFact(fact: ReportFact): fact is DemandFact {
+  return "kind" in fact && fact.kind === "demand";
+}
+
+/**
  * A check a fact fails, held until every check is known, so that the checks of
  * one fact are one report (Effects §3.4, #1310): a mark the fact makes wrong,
  * or a function handed against it.
@@ -1426,9 +1448,9 @@ interface FactCheck {
   /** Its report, where it is the fact's only check. */
   readonly report: Diagnostics.Diagnostic;
   /** The facts it is seen to fail: from the solve, or from the callee's declaration. */
-  readonly facts: readonly ColourFact[];
+  readonly facts: readonly ReportFact[];
   /** How it names each fact: by the parameter it reaches. */
-  readonly names: ReadonlyMap<ColourFact, string>;
+  readonly names: ReadonlyMap<ReportFact, string>;
   /** Its words before the fact's, where it heads the report. */
   readonly head: string;
   /** Its words as a label on another check's report. */
@@ -4451,7 +4473,7 @@ class Checker {
    */
   readonly #factDemands = new Map<string, {
     readonly span: Source.Span;
-    readonly facts: Map<Axis, ColourFact>;
+    readonly facts: Map<Axis, ReportFact>;
     /**
      * The callee's parameter the function is handed to, where the facts sit on
      * that parameter's own arrow: a fact on what it returns is no fact about it.
@@ -4462,6 +4484,8 @@ class Checker {
   #handedArgument: {
     readonly argument: Resolved.Expr;
     readonly parameter: string | undefined;
+    /** That parameter's binding, where the callee's declaration says. */
+    readonly symbol: Resolved.SymbolId | undefined;
     /** The parameter's type, so a fact on its own arrow is told from one on what it returns. */
     readonly type: Mono;
   } | undefined = undefined;
@@ -4492,6 +4516,8 @@ class Checker {
    * decision is read from, by declaration (`#explainFromText`).
    */
   readonly #parameterFacts = new Map<Resolved.SymbolId, Map<Axis, ColourFact>>();
+  /** One `DemandFact` per parameter and colour, so the reports of one written type are one (#1307). */
+  readonly #demandFacts = new Map<string, DemandFact>();
   /** Each binding whose value is a lambda, with its parameters as written: a declaration, read by `#explainFromText`. */
   readonly #lambdaParameters = new Map<Resolved.SymbolId, readonly Resolved.Parameter[]>();
   /** The colours on which an untyped parameter is called by its own name with a mark carrying them: no seam reading is offered there (§9). */
@@ -22517,6 +22543,7 @@ class Checker {
       this.#handedArgument = {
         argument: expression,
         parameter: declared !== undefined && this.#prune(actuals[index] ?? ERROR).kind === "Function" ? declared.name : undefined,
+        symbol: declared?.symbol,
         type: parameter,
       };
       // A sequence seat (Collections Part 5 §3.4) wherever the parameter is known
@@ -23779,6 +23806,12 @@ class Checker {
     const axis = frameAxis(frame);
     for (const { effect, call } of frame.calls ?? []) {
       if (this.#callFrames.get(call) !== frame) continue;
+      // By its own name, whatever its colour is by now: a written type it met
+      // may have fixed it already.
+      const callee = ungrouped(call.callee);
+      if (callee.kind === "Name" && frame.untyped.some(({ symbol }) => symbol === callee.symbol)) {
+        this.#runsAtCall.add(callee.symbol);
+      }
       const parts = new Set(this.#colourParts(effect).map((part) => this.#prune(part)));
       for (const parameter of frame.untyped) {
         if (this.#runsAtCall.has(parameter.symbol)) continue;
@@ -27790,15 +27823,25 @@ class Checker {
         ? undefined
         : `Some(${source.text.slice(call.span.start.offset, obligation.markSpan.start.offset)}` +
           `${markSpelling(wanted)}${source.text.slice(obligation.markSpan.end.offset, call.span.end.offset)})`;
-      // Where the colour the mark is checked against is not a fact's own, the
-      // declarations may still say why it is silent (Effects §3.4, #1240).
-      const explained = factWords === undefined && demanded === undefined && !reading
-        ? this.#explainFromText(obligation.call, over)
-        : { told: [], facts: [] };
-      const told = explained.told;
-      const toldWords = told.length === 0
-        ? undefined
-        : " — " + told.map((each) => this.#factPhrase(each, byCall)).join(", and ");
+      // The facts it is seen to fail, other than the one recorded where it
+      // decided: a written type the parameter itself meets, or what the
+      // callee's declaration shows (Effects §3.4, #1240, #1307). The colour
+      // alone is not enough: a call's colour may be a fact's while what it is
+      // handed is silent anyway.
+      const seenOther: { fact: ReportFact; name: string }[] = [];
+      if (factWords === undefined && demanded !== undefined && parameter !== undefined) {
+        for (const axis of over) {
+          const each = this.#demandFact(parameter.symbol, parameter.name, axis);
+          if (each !== undefined) seenOther.push({ fact: each, name: parameter.name });
+        }
+      } else if (factWords === undefined && !reading) {
+        seenOther.push(...this.#explainFromText(obligation.call, over));
+      }
+      const words = factWords === undefined && demanded === undefined && seenOther.length > 0
+        ? this.#reportWords(seenOther, byCall)
+        : undefined;
+      const told = words?.told ?? [];
+      const toldWords = words === undefined ? undefined : ` — ${words.phrase}`;
       const report: Diagnostics.Diagnostic = {
         severity: "error",
         message: `this call ${does.join(" and ")}, so ${obligation.callee} wants ${wants}` +
@@ -27812,8 +27855,8 @@ class Checker {
           ? { labels: [{ span: fact.call.span, message: `called ${how} here` }] }
           : demanded !== undefined && parameter !== undefined
           ? { labels: [{ span: demanded.span, message: `\`${parameter.name}\` meets a type here that makes it ${silent}` }] }
-          : told.length > 0
-          ? { labels: told.flatMap(({ calls }) => calls.map((each) => ({ span: each.span, message: `called ${this.#howCalled(each, byCall)} here` }))) }
+          : words !== undefined
+          ? { labels: words.labels }
           : {}),
         fixes: [
           ...(readingGoes
@@ -27835,11 +27878,10 @@ class Checker {
           ),
         ],
       };
-      // The facts it is seen to fail, each on its own colour: recorded where
-      // the fact decided, or read from the callee's declaration.
-      const seen = factWords !== undefined
+      // Every fact it is seen to fail, each on its own colour.
+      const seen: readonly { fact: ReportFact; name: string }[] = factWords !== undefined
         ? over.flatMap((axis) => this.#markAllFacts.get(obligation.call)?.get(axis) ?? []).map((each) => ({ fact: each, name: each.name }))
-        : explained.facts;
+        : seenOther;
       if (seen.length === 0) {
         this.#diagnostics.add(report);
         continue;
@@ -27875,38 +27917,92 @@ class Checker {
   #explainFromText(
     call: Resolved.CallExpr,
     over: readonly Axis[],
-  ): { readonly told: Told[]; readonly facts: readonly { readonly fact: ColourFact; readonly name: string }[] } {
+  ): { fact: ReportFact; name: string }[] {
     const callee = ungrouped(call.callee);
     const parameters = callee.kind === "Name" ? this.#lambdaParameters.get(callee.symbol) : undefined;
-    if (parameters === undefined) return { told: [], facts: [] };
-    const found: ColourFact[] = [];
-    const facts: { fact: ColourFact; name: string }[] = [];
+    if (parameters === undefined) return [];
+    const found: { fact: ReportFact; name: string }[] = [];
     for (const axis of over) {
       for (const [index, argument] of call.arguments.entries()) {
         const parameter = parameters[index];
         if (parameter === undefined || !this.#runsAtCall.has(parameter.symbol)) continue;
-        const fact = this.#parameterFacts.get(parameter.symbol)?.get(axis);
+        // The fact that silenced the parameter: a written type it met before
+        // its body settled, which no sibling's fact is, or else the call that
+        // decided it.
+        const fact: ReportFact | undefined = this.#demandFact(parameter.symbol, parameter.name, axis) ??
+          this.#parameterFacts.get(parameter.symbol)?.get(axis);
         if (fact === undefined) continue;
-        // Unless a type the text wrote fixed its arrow first: a sibling's fact,
-        // decided before this body settled, is no such type.
-        const own = this.#untypedBySymbol.get(parameter.symbol);
-        const ownType = own === undefined ? undefined : this.#prune(own.type);
-        const ownColour = ownType?.kind === "Function" ? this.#prune(colourAt(ownType, axis) ?? PURE) : undefined;
-        const factOwn = ownColour !== undefined && this.#factColours.has(ownColour);
-        if (!factOwn && this.#ownArrowPins.get(`${Number(parameter.symbol)}:${axis}`)?.silent === true) continue;
         // What the function handed does there.
         const type = this.#expressionTypes.get(argument);
         const handed = type === undefined ? undefined : this.#prune(type);
         if (handed?.kind !== "Function") continue;
         const colour = this.#prune(colourAt(handed, axis) ?? PURE);
         if (colour.kind === "ErrorColour" || colour.kind === "Effect" && Colour.isBottom(colour)) continue;
-        found.push({ ...fact, axis, name: parameter.name });
-        if (!facts.some((each) => each.fact === fact)) facts.push({ fact, name: parameter.name });
+        if (!found.some((each) => each.fact === fact)) found.push({ fact, name: parameter.name });
       }
     }
+    return found;
+  }
+
+  /**
+   * A written type a parameter meets that made its own arrow silent on a
+   * colour, as a fact a report names (#1307); none where the constant there is
+   * a sibling's fact, decided before this body settled.
+   */
+  #demandFact(symbol: Resolved.SymbolId, name: string, axis: Axis): DemandFact | undefined {
+    const key = `${Number(symbol)}:${axis}`;
+    const pin = this.#ownArrowPins.get(key);
+    if (pin?.silent !== true) return undefined;
+    const own = this.#untypedBySymbol.get(symbol);
+    const ownType = own === undefined ? undefined : this.#prune(own.type);
+    const ownColour = ownType?.kind === "Function" ? this.#prune(colourAt(ownType, axis) ?? PURE) : undefined;
+    if (ownColour !== undefined && this.#factColours.has(ownColour)) return undefined;
+    let fact = this.#demandFacts.get(key);
+    if (fact === undefined) this.#demandFacts.set(key, fact = { kind: "demand", name, axis, span: pin.span, symbol });
+    return fact;
+  }
+
+  /**
+   * Facts in a report's words, labels and calls (§9): calls that decided a
+   * colour, named together where one call makes several on the same colours;
+   * written types, "`f` meets a type that makes it pure"; each in source order.
+   */
+  #reportWords(
+    facts: readonly { readonly fact: ReportFact; readonly name: string }[],
+    byCall: ReadonlyMap<Resolved.CallExpr, MarkObligation>,
+  ): { readonly phrase: string; readonly labels: Diagnostics.Label[]; readonly told: Told[] } {
+    const bySource = (left: Source.Span, right: Source.Span): number =>
+      precedes(left, right) ? -1 : precedes(right, left) ? 1 : 0;
+    const told = this.#factsTold(facts.flatMap(({ fact, name }) => isDemandFact(fact) ? [] : [{ ...fact, name }]))
+      .sort((left, right) => bySource(left.calls[0]!.span, right.calls[0]!.span));
+    const demands = new Map<string, { name: string; span: Source.Span; axes: Set<Axis> }>();
+    for (const { fact, name } of facts) {
+      if (!isDemandFact(fact)) continue;
+      const key = `${spanKey(fact.span)} ${name}`;
+      const entry = demands.get(key) ?? { name, span: fact.span, axes: new Set<Axis>() };
+      entry.axes.add(fact.axis);
+      demands.set(key, entry);
+    }
+    const silentOf = (axes: ReadonlySet<Axis>): string =>
+      AXES.filter((axis) => axes.has(axis)).map((axis) => axis === "world" ? "pure" : "unable to fail").join(" and ");
+    const parts: { span: Source.Span; phrase: string }[] = [
+      ...(told.length === 0 ? [] : [{ span: told[0]!.calls[0]!.span, phrase: this.#factsPhrase(told, byCall) }]),
+      ...[...demands.values()].map(({ name, span, axes }) => ({
+        span,
+        phrase: `\`${name}\` meets a type that makes it ${silentOf(axes)}`,
+      })),
+    ].sort((left, right) => bySource(left.span, right.span));
     return {
-      told: this.#factsTold(found).sort((left, right) => precedes(left.calls[0]!.span, right.calls[0]!.span) ? -1 : 1),
-      facts,
+      phrase: parts.map(({ phrase }) => phrase).join(", and "),
+      labels: [
+        ...[...new Set(told.flatMap(({ calls }) => calls))]
+          .map((call) => ({ span: call.span, message: `called ${this.#howCalled(call, byCall)} here` })),
+        ...[...demands.values()].map(({ name, span, axes }) => ({
+          span,
+          message: `\`${name}\` meets a type here that makes it ${silentOf(axes)}`,
+        })),
+      ],
+      told,
     };
   }
 
@@ -27922,23 +28018,23 @@ class Checker {
       const silent = over.map((axis) => axis === "world" ? "pure" : "unable to fail").join(" and ");
       // Named by the parameter the function goes to, where the callee's
       // declaration says, so the mark at the same call names the same one.
-      const told = this.#factsTold(over.map((axis) => ({ ...facts.get(axis)!, ...(parameter === undefined ? {} : { name: parameter }) })));
-      const fixes = this.#readerFixes(told, byCall);
-      const head = `this function ${colourDoes(over)}, where the function handed must be ${silent}`;
       const seen = [...new Set(over.map((axis) => facts.get(axis)!))];
+      const named = seen.map((fact) => ({ fact, name: parameter ?? fact.name }));
+      const words = this.#reportWords(named, byCall);
+      const fixes = this.#readerFixes(words.told, byCall, seen.filter(isDemandFact));
+      const head = `this function ${colourDoes(over)}, where the function handed must be ${silent}`;
       checks.push({
         kind: "handed",
         span,
         report: {
           severity: "error",
-          message: `${head} — ` + told.map((each) => this.#factPhrase(each, byCall)).join(", and "),
+          message: `${head} — ${words.phrase}`,
           primary: span,
-          labels: [...new Set(told.flatMap(({ calls }) => calls))]
-            .map((call) => ({ span: call.span, message: `called ${this.#howCalled(call, byCall)} here` })),
+          labels: words.labels,
           ...(fixes.length === 0 ? {} : { fixes }),
         },
         facts: seen,
-        names: new Map(seen.map((fact) => [fact, parameter ?? fact.name])),
+        names: new Map(named.map(({ fact, name }) => [fact, name])),
         head,
         label: `a function that ${colourDoes(over)} is handed here`,
         correction: undefined,
@@ -27958,8 +28054,8 @@ class Checker {
    * A fact with one check keeps that check's own report.
    */
   #reportFactChecks(checks: readonly FactCheck[], byCall: ReadonlyMap<Resolved.CallExpr, MarkObligation>): void {
-    const root = new Map<ColourFact, ColourFact>();
-    const find = (fact: ColourFact): ColourFact => {
+    const root = new Map<ReportFact, ReportFact>();
+    const find = (fact: ReportFact): ReportFact => {
       const up = root.get(fact);
       if (up === undefined || up === fact) return fact;
       const top = find(up);
@@ -27974,7 +28070,7 @@ class Checker {
     }
     const bySource = (left: Source.Span, right: Source.Span): number =>
       precedes(left, right) ? -1 : precedes(right, left) ? 1 : 0;
-    const groups = new Map<ColourFact, FactCheck[]>();
+    const groups = new Map<ReportFact, FactCheck[]>();
     for (const check of checks) {
       const top = find(check.facts[0]!);
       const group = groups.get(top) ?? [];
@@ -27989,19 +28085,17 @@ class Checker {
         continue;
       }
       // Every fact, named as the first check in source order to reach it names it.
-      const names = new Map<ColourFact, string>();
+      const names = new Map<ReportFact, string>();
       for (const check of ordered) {
         for (const fact of check.facts) if (!names.has(fact)) names.set(fact, check.names.get(fact) ?? fact.name);
       }
-      const tell = (facts: readonly ColourFact[]): Told[] =>
-        this.#factsTold(facts.map((fact) => ({ ...fact, name: names.get(fact)! })))
-          .sort((left, right) => bySource(left.calls[0]!.span, right.calls[0]!.span));
+      const tell = (facts: readonly ReportFact[]) =>
+        this.#reportWords(facts.map((fact) => ({ fact, name: names.get(fact)! })), byCall);
       // The headline's own facts, then the facts only the other checks meet,
       // set apart, so the headline says nothing false of its own check.
       const own = tell([...names.keys()].filter((fact) => first.facts.includes(fact)));
       const others = tell([...names.keys()].filter((fact) => !first.facts.includes(fact)));
-      const told = [...own, ...others];
-      const fixes = this.#readerFixes(told, byCall);
+      const fixes = this.#readerFixes([...own.told, ...others.told], byCall, [...names.keys()].filter(isDemandFact));
       const corrections = ordered.map(({ correction }) => correction);
       if (corrections.every((edit) => edit !== undefined)) {
         fixes.push({
@@ -28011,12 +28105,12 @@ class Checker {
       }
       this.#diagnostics.add({
         severity: "error",
-        message: `${first.head} — ` + this.#factsPhrase(own, byCall) +
-          (others.length === 0 ? "" : ` (and for the other checks here, ${this.#factsPhrase(others, byCall)})`),
+        message: `${first.head} — ${own.phrase}` +
+          (others.phrase === "" ? "" : ` (and for the other checks here, ${others.phrase})`),
         primary: first.span,
         labels: [
-          ...[...new Set(told.flatMap(({ calls }) => calls))]
-            .map((call) => ({ span: call.span, message: `called ${this.#howCalled(call, byCall)} here` })),
+          ...own.labels,
+          ...others.labels,
           ...ordered.slice(1).map(({ span, label }) => ({ span, message: label })),
         ],
         ...(fixes.length === 0 ? {} : { fixes }),
@@ -28093,7 +28187,11 @@ class Checker {
    * call that makes them, marked on the colours concerned. None where one of
    * those calls is not a call the marks can reach.
    */
-  #readerFixes(told: readonly Told[], byCall: ReadonlyMap<Resolved.CallExpr, MarkObligation>): Diagnostics.Fix[] {
+  #readerFixes(
+    told: readonly Told[],
+    byCall: ReadonlyMap<Resolved.CallExpr, MarkObligation>,
+    demands: readonly DemandFact[] = [],
+  ): Diagnostics.Fix[] {
     const marks = new Map<Resolved.CallExpr, Record<Axis, boolean>>();
     for (const { calls, axes } of told) {
       for (const each of calls) {
@@ -28103,6 +28201,13 @@ class Checker {
         for (const axis of axes) parts[axis] = true;
         marks.set(each, parts);
       }
+    }
+    // A call of a parameter by its own name keeps silent the colours a type it
+    // meets makes silent: the report says that part is wrong (#1312 review).
+    for (const [each, parts] of marks) {
+      const callee = ungrouped(each.callee);
+      if (callee.kind !== "Name") continue;
+      for (const demand of demands) if (demand.symbol === callee.symbol) parts[demand.axis] = false;
     }
     if (marks.size === 0) return [];
     // Each name on the colours its facts decide: "`f` pure and unable to fail,
@@ -29339,7 +29444,18 @@ class Checker {
       const direction = effectMismatch(demand, supply)!;
       // A colour a fact made silent, handed a function that is not: the
       // report names the fact (Effects §3.4, R4, #1240).
-      const fact = direction === "demand" ? this.#factColours.get(demand) : undefined;
+      // A written type the parameter of the callee's declaration meets is a
+      // fact too, where the demand is that parameter's own arrow (#1307).
+      const handedTo = this.#handedArgument;
+      const ownArrow = handedTo === undefined ? undefined : this.#prune(handedTo.type);
+      const meetsOwn = ownArrow !== undefined && this.#meetingArrows !== undefined &&
+        (this.#meetingArrows.left === ownArrow || this.#meetingArrows.right === ownArrow);
+      const fact: ReportFact | undefined = direction !== "demand"
+        ? undefined
+        : this.#factColours.get(demand) ??
+          (meetsOwn && handedTo?.symbol !== undefined && handedTo.parameter !== undefined
+            ? this.#demandFact(handedTo.symbol, handedTo.parameter, this.#currentAxis)
+            : undefined);
       if (fact !== undefined) {
         // One report per function handed, whatever facts its two colours meet:
         // the place is the text's, and which call of a fact comes first can
