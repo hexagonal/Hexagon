@@ -2639,6 +2639,19 @@ describe("Effects §3.4 — a knot's facts decide together, and one fact is one 
     expect(fixed(marks, 0, 0)).toEqual([]);
   });
 
+  it("sets a written type apart from a call's fact, and its fix leaves silent what the type makes silent (#1312)", () => {
+    // `failsNot`'s `->~` makes `f` unable to fail; `f^()` is bare on the world
+    // colour, so it makes `f` pure. `save0` handed in fails both: one report.
+    const source = "let failsNot(g: () ->~ Unit): Unit = ()\nlet m(f) =\n    f^()\n    failsNot(f)\n    ()\n" +
+      "export let probe(): Unit = m(save0)\n";
+    expect(reports(source)).toEqual([{
+      at: "L3 ^",
+      message: "this call cannot fail, so `f` wants no mark, not `^` — `f` meets a type that makes it unable to fail " +
+        "(and for the other checks here, `f` is called `^`, which makes it pure)",
+      fixes: ["mark the call of `f` `~`"],
+    }]);
+  });
+
   it("reads a call of a value a function returned from that function's declaration, in either member order (#1307)", () => {
     // `h` is what `mk` returns, `() => k()`, and `save0` goes to `k`: the later
     // `h!()` is the fact's check too, a label on its one report.

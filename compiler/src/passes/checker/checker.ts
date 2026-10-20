@@ -1426,6 +1426,8 @@ interface DemandFact {
   readonly axis: Axis;
   /** Where the parameter meets the type. */
   readonly span: Source.Span;
+  /** The parameter's binding. */
+  readonly symbol: Resolved.SymbolId;
 }
 
 /** A fact a report names: a call that decided a colour, or a written type a parameter meets. */
@@ -28031,7 +28033,7 @@ class Checker {
     const ownColour = ownType?.kind === "Function" ? this.#prune(colourAt(ownType, axis) ?? PURE) : undefined;
     if (ownColour !== undefined && this.#factColours.has(ownColour)) return undefined;
     let fact = this.#demandFacts.get(key);
-    if (fact === undefined) this.#demandFacts.set(key, fact = { kind: "demand", name, axis, span: pin.span });
+    if (fact === undefined) this.#demandFacts.set(key, fact = { kind: "demand", name, axis, span: pin.span, symbol });
     return fact;
   }
 
@@ -28094,7 +28096,7 @@ class Checker {
       const seen = [...new Set(over.map((axis) => facts.get(axis)!))];
       const named = seen.map((fact) => ({ fact, name: parameter ?? fact.name }));
       const words = this.#reportWords(named, byCall);
-      const fixes = this.#readerFixes(words.told, byCall);
+      const fixes = this.#readerFixes(words.told, byCall, seen.filter(isDemandFact));
       const head = `this function ${colourDoes(over)}, where the function handed must be ${silent}`;
       checks.push({
         kind: "handed",
@@ -28168,7 +28170,7 @@ class Checker {
       // set apart, so the headline says nothing false of its own check.
       const own = tell([...names.keys()].filter((fact) => first.facts.includes(fact)));
       const others = tell([...names.keys()].filter((fact) => !first.facts.includes(fact)));
-      const fixes = this.#readerFixes([...own.told, ...others.told], byCall);
+      const fixes = this.#readerFixes([...own.told, ...others.told], byCall, [...names.keys()].filter(isDemandFact));
       const corrections = ordered.map(({ correction }) => correction);
       if (corrections.every((edit) => edit !== undefined)) {
         fixes.push({
@@ -28260,7 +28262,11 @@ class Checker {
    * call that makes them, marked on the colours concerned. None where one of
    * those calls is not a call the marks can reach.
    */
-  #readerFixes(told: readonly Told[], byCall: ReadonlyMap<Resolved.CallExpr, MarkObligation>): Diagnostics.Fix[] {
+  #readerFixes(
+    told: readonly Told[],
+    byCall: ReadonlyMap<Resolved.CallExpr, MarkObligation>,
+    demands: readonly DemandFact[] = [],
+  ): Diagnostics.Fix[] {
     const marks = new Map<Resolved.CallExpr, Record<Axis, boolean>>();
     for (const { calls, axes } of told) {
       for (const each of calls) {
@@ -28270,6 +28276,13 @@ class Checker {
         for (const axis of axes) parts[axis] = true;
         marks.set(each, parts);
       }
+    }
+    // A call of a parameter by its own name keeps silent the colours a type it
+    // meets makes silent: the report says that part is wrong (#1312 review).
+    for (const [each, parts] of marks) {
+      const callee = ungrouped(each.callee);
+      if (callee.kind !== "Name") continue;
+      for (const demand of demands) if (demand.symbol === callee.symbol) parts[demand.axis] = false;
     }
     if (marks.size === 0) return [];
     // Each name on the colours its facts decide: "`f` pure and unable to fail,
