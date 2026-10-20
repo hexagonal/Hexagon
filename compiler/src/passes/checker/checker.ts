@@ -1457,6 +1457,8 @@ interface FactCheck {
   readonly label: string;
   /** The mark it then wears, where it is a mark: the other side's fix. */
   readonly correction: Diagnostics.Edit | undefined;
+  /** Where it is a function handed that only its failure keeps out: `assume` around it (#1313). */
+  readonly assume?: Diagnostics.Fix;
 }
 
 /** One written call, and the mark it wore, awaiting its solved colour. */
@@ -4474,6 +4476,8 @@ class Checker {
   readonly #factDemands = new Map<string, {
     readonly span: Source.Span;
     readonly facts: Map<Axis, ReportFact>;
+    /** The function handed, where an argument is. */
+    readonly argument: Resolved.Expr | undefined;
     /**
      * The callee's parameter the function is handed to, where the facts sit on
      * that parameter's own arrow: a fact on what it returns is no fact about it.
@@ -4486,6 +4490,8 @@ class Checker {
     readonly parameter: string | undefined;
     /** That parameter's binding, where the callee's declaration says. */
     readonly symbol: Resolved.SymbolId | undefined;
+    /** That parameter as the callee's declaration writes it, where it does. */
+    readonly declared: Resolved.Parameter | undefined;
     /** The parameter's type, so a fact on its own arrow is told from one on what it returns. */
     readonly type: Mono;
   } | undefined = undefined;
@@ -22544,6 +22550,7 @@ class Checker {
         argument: expression,
         parameter: declared !== undefined && this.#prune(actuals[index] ?? ERROR).kind === "Function" ? declared.name : undefined,
         symbol: declared?.symbol,
+        declared,
         type: parameter,
       };
       // A sequence seat (Collections Part 5 §3.4) wherever the parameter is known
@@ -27944,6 +27951,38 @@ class Checker {
     return found;
   }
 
+  /** Where a callee's declaration writes the type of the parameter a value is handed to (#1313). */
+  #contractLabel(parameter: Resolved.Parameter): Diagnostics.Label | undefined {
+    const annotation = parameter.annotation;
+    const source = this.#sourceFile();
+    if (annotation === undefined || source === undefined || Number(annotation.span.fileId) !== this.#fileId) return undefined;
+    const text = source.text.slice(annotation.span.start.offset, annotation.span.end.offset);
+    return { span: annotation.span, message: `\`${parameter.name}\` is written \`${text}\` here` };
+  }
+
+  /**
+   * The writer's word that a function's failure cannot happen where it is
+   * handed (Exceptions §8.3, Declarations Preamble §1.1, #1313): offered only
+   * where its failure alone keeps it out, and only for a function handed by
+   * name, whose colours are constants so its call's mark is known.
+   */
+  #assumeFix(argument: Resolved.Expr, axes: readonly Axis[]): Diagnostics.Fix | undefined {
+    if (axes.length !== 1 || axes[0] !== "fail") return undefined;
+    const named = ungrouped(argument);
+    if (named.kind !== "Name") return undefined;
+    const type = this.#expressionTypes.get(argument);
+    const handed = type === undefined ? undefined : this.#prune(type);
+    if (handed?.kind !== "Function") return undefined;
+    const world = this.#prune(colourAt(handed, "world") ?? PURE);
+    const fail = this.#prune(colourAt(handed, "fail") ?? PURE);
+    if (world.kind !== "Effect" || fail.kind !== "Effect" || Colour.isBottom(fail)) return undefined;
+    const pool = ["x", "y", "z", "w", "v", "u"].filter((each) => each !== named.text);
+    if (handed.parameters.length > pool.length) return undefined;
+    const names = pool.slice(0, handed.parameters.length).join(", ");
+    const wrapped = `(${names}) => assume ${named.text}${Colour.isBottom(world) ? "^" : "!"}(${names})`;
+    return { message: `assume it cannot fail here: \`${wrapped}\``, edits: [{ span: argument.span, replacement: wrapped }] };
+  }
+
   /**
    * A written type a parameter meets that made its own arrow silent on a
    * colour, as a fact a report names (#1307); none where the constant there is
@@ -28013,8 +28052,9 @@ class Checker {
    * remove.
    */
   #reportFactDemands(byCall: ReadonlyMap<Resolved.CallExpr, MarkObligation>, checks: FactCheck[]): void {
-    for (const { span, facts, parameter } of this.#factDemands.values()) {
+    for (const { span, facts, parameter, argument } of this.#factDemands.values()) {
       const over = AXES.filter((axis) => facts.has(axis));
+      const assume = argument === undefined ? undefined : this.#assumeFix(argument, over);
       const silent = over.map((axis) => axis === "world" ? "pure" : "unable to fail").join(" and ");
       // Named by the parameter the function goes to, where the callee's
       // declaration says, so the mark at the same call names the same one.
@@ -28031,13 +28071,14 @@ class Checker {
           message: `${head} — ${words.phrase}`,
           primary: span,
           labels: words.labels,
-          ...(fixes.length === 0 ? {} : { fixes }),
+          ...(fixes.length === 0 && assume === undefined ? {} : { fixes: [...fixes, ...(assume === undefined ? [] : [assume])] }),
         },
         facts: seen,
         names: new Map(named.map(({ fact, name }) => [fact, name])),
         head,
         label: `a function that ${colourDoes(over)} is handed here`,
         correction: undefined,
+        ...(assume === undefined ? {} : { assume }),
       });
     }
     this.#factDemands.clear();
@@ -28101,6 +28142,16 @@ class Checker {
         fixes.push({
           message: corrections.every((edit) => edit!.replacement === "") ? "remove the marks" : "correct the marks",
           edits: corrections as Diagnostics.Edit[],
+        });
+      }
+      // `assume` keeps the facts, as correcting the marks does, so it too is
+      // offered only where it settles every check: each a function handed that
+      // only its failure keeps out (#1313).
+      const assumed = ordered.map(({ assume }) => assume);
+      if (assumed.every((fix) => fix !== undefined)) {
+        fixes.push(assumed.length === 1 ? assumed[0]! : {
+          message: "assume none of them can fail here",
+          edits: assumed.flatMap((fix) => fix!.edits),
         });
       }
       this.#diagnostics.add({
@@ -29468,7 +29519,12 @@ class Checker {
           this.#prune(colourAt(parameterType, this.#currentAxis) ?? PURE) === demand;
         let known = this.#factDemands.get(key);
         if (known === undefined) {
-          this.#factDemands.set(key, known = { span: place, facts: new Map(), parameter: onOwnArrow ? handed?.parameter : undefined });
+          this.#factDemands.set(key, known = {
+            span: place,
+            facts: new Map(),
+            argument: handed?.argument,
+            parameter: onOwnArrow ? handed?.parameter : undefined,
+          });
         } else if (!onOwnArrow) {
           known.parameter = undefined;
         }
@@ -29492,12 +29548,25 @@ class Checker {
       // At a lazy `Seq` position the failure would be thrown at a later pull,
       // outside any mark, so the report names where a mark sees it (§7).
       const lazy = direction === "demand" && this.#lazySeqCalls.has(spanKey(span));
-      this.#colourReport(`effect-mismatch ${spanKey(span)} ${direction} ${arrows?.id ?? ""}`, (axes) => ({
-        severity: "error",
-        message: effectMismatchMessage(direction, axes, demandWritten) +
-          (lazy && axes.includes("fail") ? LAZY_SEQ_ADVICE : ""),
-        primary: span,
-      }));
+      // A contract the value does not fit (Declarations Preamble §1.1, #1313):
+      // labelled where the callee's declaration writes it on the parameter the
+      // value is handed to, and on the fail colour alone, `assume` around it.
+      const contractOf = direction === "demand" ? this.#handedArgument : undefined;
+      const parameterArrow = contractOf === undefined ? undefined : this.#prune(contractOf.type);
+      const atParameter = parameterArrow !== undefined && arrows !== undefined &&
+        (arrows.left === parameterArrow || arrows.right === parameterArrow);
+      const contract = atParameter && contractOf?.declared !== undefined ? this.#contractLabel(contractOf.declared) : undefined;
+      this.#colourReport(`effect-mismatch ${spanKey(span)} ${direction} ${arrows?.id ?? ""}`, (axes) => {
+        const assume = atParameter && contractOf !== undefined && !lazy ? this.#assumeFix(contractOf.argument, axes) : undefined;
+        return {
+          severity: "error",
+          message: effectMismatchMessage(direction, axes, demandWritten) +
+            (lazy && axes.includes("fail") ? LAZY_SEQ_ADVICE : ""),
+          primary: span,
+          ...(contract === undefined ? {} : { labels: [contract] }),
+          ...(assume === undefined ? {} : { fixes: [assume] }),
+        };
+      });
       return;
     }
     if (actualLeft.kind === "Constructor" && actualRight.kind === "Constructor") {

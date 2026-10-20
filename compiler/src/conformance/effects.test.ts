@@ -2652,6 +2652,45 @@ describe("Effects §3.4 — a knot's facts decide together, and one fact is one 
     }]);
   });
 
+  it("names where a contract is written, and offers `assume` where only the failure keeps the function out (#1313)", () => {
+    // Declarations Preamble §1.1's contract clause: the label says where the
+    // contract is written; no fix widens it; `assume` is offered on the fail
+    // colour alone, by name, and compiles.
+    const written = "let applyPure(g: (Int) -> Int): Int = g(1)\nlet risky(n: Int): Int = parse^(\"1\") + n\n";
+    const contract = "`f` is written `() -> Unit` here";
+    const fail = written + "export let p(): Unit = pureOnly(oops0)\n";
+    expect(reports(fail).map(({ fixes }) => fixes)).toEqual([["assume it cannot fail here: `() => assume oops0^()`"]]);
+    expect(labels(fail)).toEqual([contract]);
+    expect(fixed(fail, 0, 0)).toEqual([]);
+    const arity = written + "export let q(): Int = applyPure(risky)\n";
+    expect(reports(arity).map(({ fixes }) => fixes)).toEqual([["assume it cannot fail here: `(x) => assume risky^(x)`"]]);
+    expect(labels(arity)).toEqual(["`g` is written `(Int) -> Int` here"]);
+    expect(fixed(arity, 0, 0)).toEqual([]);
+    // The world part keeps `save0` and `log0` out: nothing turns them pure, so no fixit.
+    for (const impure of ["save0", "log0"]) {
+      const world = written + `export let r(): Unit = pureOnly(${impure})\n`;
+      expect(reports(world).map(({ fixes }) => fixes)).toEqual([[]]);
+      expect(labels(world)).toEqual([contract]);
+    }
+    // Where the contract allows the world, only the failure is in the way, and `assume` keeps the world.
+    const failsNot = "let failsNot(g: () ->~ Unit): Unit = ()\nexport let t(): Unit = failsNot(save0)\n";
+    expect(reports(failsNot).map(({ fixes }) => fixes)).toEqual([["assume it cannot fail here: `() => assume save0!()`"]]);
+    expect(fixed(failsNot, 0, 0)).toEqual([]);
+    // A fact's report offers `assume` only where it settles every check (§3.4).
+    const twice = "let tw(f) =\n    f()\n    0\nexport let a(): Int = tw(oops0)\nexport let b(): Int = tw(oops0)\n";
+    expect(reports(twice).map(({ fixes }) => fixes)).toEqual([[
+      "mark the call of `f` `^`",
+      "assume none of them can fail here",
+    ]]);
+    expect(fixed(twice, 0, 1)).toEqual([]);
+    const mixed = "let tw(f) =\n    f()\n    0\nexport let a(): Int = tw(oops0)\nexport let b(): Int = tw^(oops0)\n";
+    expect(reports(mixed).flatMap(({ fixes }) => fixes).filter((fix) => fix.startsWith("assume"))).toEqual([]);
+    // Through a parameter that meets the written type, the same fix.
+    const pinned = "let pinned(h) =\n    pureOnly(h)\n    ()\nexport let s(): Unit = pinned(oops0)\n";
+    expect(reports(pinned).map(({ fixes }) => fixes)).toEqual([["assume it cannot fail here: `() => assume oops0^()`"]]);
+    expect(fixed(pinned, 0, 0)).toEqual([]);
+  });
+
   it("explains a held lambda's marks as its plain twin's", () => {
     // `q!(noop, act)` hands `cb` a pure function, so nothing hides behind the
     // fact there; `q!(act, …)` hands it `act`, which is silent too, and what
