@@ -1453,13 +1453,14 @@ const VALUE_STEPS = 4096;
 
 /**
  * Whether a reading of a value reads through a written type (#1307): only a
- * hole or a bare type variable, which decide nothing of what they hold (a
- * type variable another parameter also writes ties the two, so it is no
- * longer bare); any other written type is the face, and the reading stops.
+ * bare type variable, which decides nothing of what it holds (a type
+ * variable another parameter also writes ties the two, so it is no longer
+ * bare); any other written type is the face, and the reading stops. A hole
+ * on a parameter is filled as written arrows, so it stops the reading too;
+ * only a `let`'s hole is read through (`register`).
  */
 function readsThrough(annotation: Resolved.TypeAnnotation | undefined, tied?: ReadonlySet<string>): boolean {
-  return annotation === undefined || annotation.kind === "Hole" ||
-    annotation.kind === "TypeVariable" && tied?.has(annotation.name) !== true;
+  return annotation === undefined || annotation.kind === "TypeVariable" && tied?.has(annotation.name) !== true;
 }
 
 /** The type variables more than one of a lambda's parameters writes. */
@@ -22036,8 +22037,10 @@ class Checker {
       registerType(inner);
       if (inner.kind === "Let" || inner.kind === "Fun") {
         // A written type is the binding's face: a reading stops there (#1307),
-        // unless it is a bare type variable, which decides nothing.
-        if (inner.kind === "Fun" || readsThrough(inner.annotation)) this.#bindingValues.set(inner.binding.symbol, inner.value);
+        // unless it is a bare type variable or a hole, which decide nothing.
+        if (inner.kind === "Fun" || readsThrough(inner.annotation) || inner.annotation?.kind === "Hole") {
+          this.#bindingValues.set(inner.binding.symbol, inner.value);
+        }
         const value = ungrouped(inner.value);
         if (value.kind === "Lambda") {
           this.#namedLambdas.set(value, inner.binding.symbol);

@@ -2726,10 +2726,13 @@ describe("Effects §3.4 — a knot's facts decide together, and one fact is one 
     expect(labels(typedLet).filter((label) => label.includes("wants no mark"))).toEqual([]);
     const typedResult = "let mk(f): () -> Unit =\n    f()\n    () => f()\nexport let p(): Unit =\n    let h = mk(save0)\n    h!()\n";
     expect(labels(typedResult).filter((label) => label.includes("wants no mark"))).toEqual([]);
-    // A hole decides nothing, so the reading goes through it; a type variable
-    // two parameters write ties them, so it stops there.
+    // A `let`'s hole decides nothing, so the reading goes through it; a
+    // parameter's hole is filled as written arrows, and a type variable two
+    // parameters write ties them, so each stops it.
     const hole = mk + "export let p(): Unit =\n    let h: _ = mk(save0)\n    h!()\n";
     expect(labels(hole)).toContain("`h` wants no mark, not `!`");
+    const parameterHole = mk + "let mk2(g: _) = mk(g)\nexport let p(): Unit =\n    let h = mk2(save0)\n    h!()\n";
+    expect(labels(parameterHole).filter((label) => label.includes("wants no mark"))).toEqual([]);
     const tied = mk + "let mk2(g: t, w: t) = mk(g)\nlet pw: () -> Unit = noop\nexport let p(): Unit =\n    let h = mk2(save0, pw)\n    h!()\n";
     expect(reports(tied).filter(({ message }) => message.includes("is called bare") && message.startsWith("this call"))).toEqual([]);
     // A long chain of makers that forward to one another reads through.
