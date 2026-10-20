@@ -215,7 +215,7 @@ let k = pick(noop)
     // each callback of `apply2` has a colour of its own (§2.4).
     expect(reports("export let outer(action: () ->! Unit): Unit = apply2!(action, save0)\n"))
       .toEqual([]);
-    expect(reports("export let go(): Unit = pureOnly(save0)\n")).toEqual([["pureOnly(save0)", PURITY]]);
+    expect(reports("export let go(): Unit = pureOnly(save0)\n")).toEqual([["save0", PURITY]]);
   });
 });
 
@@ -1497,7 +1497,7 @@ describe("where a use hands something, a `->!` the value's own written type spel
       .toEqual([["applyImp(h.run)", PURITY]]);
     // The merge accepts only what `pureOnly` accepts, and an effectful function is handed to it.
     expect(reports(holders + "export let go(b: Bool, h: Holder): Unit =\n    let m = if b then h.run else pureOnly\n    m(save0)\n"))
-      .toEqual([["m(save0)", PURITY]]);
+      .toEqual([["save0", PURITY]]);
   });
 
   test("a pattern takes a declared record's field out as the field read does, in a `let`, a `match` and a `for` (#1207)", () => {
@@ -1526,7 +1526,7 @@ describe("where a use hands something, a `->!` the value's own written type spel
         expect([source, reports(source)]).toEqual([source, []]);
         // A pure seat still refuses an effectful function handed to it.
         const handed = records + `export let go(${parameter}): Unit =\n` + form(value, pattern, [seat, "k(save0)"]);
-        expect([handed, reports(handed)]).toEqual([handed, [["k(save0)", PURITY]]]);
+        expect([handed, reports(handed)]).toEqual([handed, [["save0", PURITY]]]);
       }
     }
     // Through a union's constructor, a tuple, a vector and a structural record around the record's pattern.
