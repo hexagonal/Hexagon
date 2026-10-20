@@ -1453,11 +1453,37 @@ const VALUE_STEPS = 4096;
 
 /**
  * Whether a reading of a value reads through a written type (#1307): only a
- * bare type variable, which decides nothing of what it holds; any other
- * written type is the face, and the reading stops there.
+ * hole or a bare type variable, which decide nothing of what they hold (a
+ * type variable another parameter also writes ties the two, so it is no
+ * longer bare); any other written type is the face, and the reading stops.
  */
-function readsThrough(annotation: Resolved.TypeAnnotation | undefined): boolean {
-  return annotation === undefined || annotation.kind === "TypeVariable";
+function readsThrough(annotation: Resolved.TypeAnnotation | undefined, tied?: ReadonlySet<string>): boolean {
+  return annotation === undefined || annotation.kind === "Hole" ||
+    annotation.kind === "TypeVariable" && tied?.has(annotation.name) !== true;
+}
+
+/** The type variables more than one of a lambda's parameters writes. */
+function tiedTypeVariables(lambda: Resolved.LambdaExpr): ReadonlySet<string> {
+  const seen = new Set<string>();
+  const tied = new Set<string>();
+  for (const { annotation } of lambda.parameters) {
+    const written = new Set<string>();
+    const walk = (node: unknown): void => {
+      if (node === null || typeof node !== "object") return;
+      const each = node as { kind?: unknown; name?: unknown };
+      if (each.kind === "TypeVariable" && typeof each.name === "string") written.add(each.name);
+      for (const value of Object.values(node)) {
+        if (Array.isArray(value)) for (const item of value) walk(item);
+        else if (value !== null && typeof value === "object") walk(value);
+      }
+    };
+    walk(annotation);
+    for (const name of written) {
+      if (seen.has(name)) tied.add(name);
+      seen.add(name);
+    }
+  }
+  return tied;
 }
 
 function isDemandFact(fact: ReportFact): fact is DemandFact {
@@ -28193,6 +28219,7 @@ class Checker {
   #valueNamesFrom(
     root: Resolved.Expr,
     relevance: ReadonlyMap<Resolved.LambdaExpr, ReadonlySet<Resolved.SymbolId>>,
+    callees?: Set<Resolved.LambdaExpr>,
   ): Set<Resolved.SymbolId> {
     const names = new Set<Resolved.SymbolId>();
     const seen = new Set<object>();
@@ -28235,6 +28262,7 @@ class Checker {
           const value = callee.kind === "Name" ? this.#bindingValues.get(callee.symbol) : undefined;
           const lambda = value === undefined ? undefined : ungrouped(value);
           const relevant = lambda?.kind === "Lambda" ? relevance.get(lambda) : undefined;
+          if (lambda?.kind === "Lambda") callees?.add(lambda);
           for (const [index, argument] of node.arguments.entries()) {
             const parameter = lambda?.kind === "Lambda" ? lambda.parameters[index] : undefined;
             if (relevant === undefined || parameter === undefined || relevant.has(parameter.symbol)) {
@@ -28274,16 +28302,34 @@ class Checker {
       if (lambda.kind === "Lambda") lambdas.push(lambda);
     }
     const relevance = new Map<Resolved.LambdaExpr, Set<Resolved.SymbolId>>(lambdas.map((lambda) => [lambda, new Set()]));
-    for (let changed = true; changed;) {
-      changed = false;
-      for (const lambda of lambdas) {
-        const names = this.#valueNamesFrom(lambda.body, relevance);
-        const counted = relevance.get(lambda)!;
-        for (const { symbol, annotation } of lambda.parameters) {
-          if (readsThrough(annotation) && names.has(symbol) && !counted.has(symbol)) {
-            counted.add(symbol);
-            changed = true;
-          }
+    // Each lambda's callers, so a change is passed on only to those it can change.
+    const callers = new Map<Resolved.LambdaExpr, Set<Resolved.LambdaExpr>>();
+    const queued = new Set(lambdas);
+    const queue = [...lambdas];
+    for (let next = 0; next < queue.length; next++) {
+      const lambda = queue[next]!;
+      queued.delete(lambda);
+      const callees = new Set<Resolved.LambdaExpr>();
+      const names = this.#valueNamesFrom(lambda.body, relevance, callees);
+      for (const callee of callees) {
+        let each = callers.get(callee);
+        if (each === undefined) callers.set(callee, each = new Set());
+        each.add(lambda);
+      }
+      const counted = relevance.get(lambda)!;
+      const tied = tiedTypeVariables(lambda);
+      let changed = false;
+      for (const { symbol, annotation } of lambda.parameters) {
+        if (readsThrough(annotation, tied) && names.has(symbol) && !counted.has(symbol)) {
+          counted.add(symbol);
+          changed = true;
+        }
+      }
+      if (!changed) continue;
+      for (const caller of callers.get(lambda) ?? []) {
+        if (!queued.has(caller)) {
+          queued.add(caller);
+          queue.push(caller);
         }
       }
     }
@@ -28296,7 +28342,8 @@ class Checker {
     const known = this.#valueRelevanceOf().get(lambda);
     if (known !== undefined) return known;
     const names = this.#valueNames(ungrouped(lambda.body));
-    return new Set(lambda.parameters.filter(({ symbol, annotation }) => readsThrough(annotation) && names.has(symbol))
+    const tied = tiedTypeVariables(lambda);
+    return new Set(lambda.parameters.filter(({ symbol, annotation }) => readsThrough(annotation, tied) && names.has(symbol))
       .map(({ symbol }) => symbol));
   }
 
