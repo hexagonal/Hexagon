@@ -2652,19 +2652,6 @@ describe("Effects §3.4 — a knot's facts decide together, and one fact is one 
     }]);
   });
 
-  it("reads a call of a value a function returned from that function's declaration, in either member order (#1307)", () => {
-    // `h` is what `mk` returns, `() => k()`, and `save0` goes to `k`: the later
-    // `h!()` is the fact's check too, a label on its one report.
-    const mk = "    mk(k, n: Int) = if n > 0 then use(k, n - 1) else () => k()\n";
-    const use = "    use(k, n: Int) =\n        let h = mk(k, n)\n        h!()\n        () => ()\n";
-    const probe = "export let probe(): Unit =\n    let h = mk(save0, 2)\n    h!()\n";
-    for (const knot of both(mk, use)) {
-      expect(reports(knot + probe)).toHaveLength(1);
-      expect(labels(knot + probe)).toContain("`h` wants no mark, not `!`");
-      expect(fixed(knot + probe, 0, 0)).toEqual(["this call is impure and may fail, so `mk` wants `!`, not no mark"]);
-    }
-  });
-
   it("explains a held lambda's marks as its plain twin's", () => {
     // `q!(noop, act)` hands `cb` a pure function, so nothing hides behind the
     // fact there; `q!(act, …)` hands it `act`, which is silent too, and what

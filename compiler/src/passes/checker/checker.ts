@@ -4516,10 +4516,6 @@ class Checker {
    * decision is read from, by declaration (`#explainFromText`).
    */
   readonly #parameterFacts = new Map<Resolved.SymbolId, Map<Axis, ColourFact>>();
-  /** Each binding whose value is a lambda, the lambda: a declaration `#resultRuns` reads (#1307). */
-  readonly #lambdaOfBinding = new Map<Resolved.SymbolId, Resolved.LambdaExpr>();
-  /** Each `let` whose value is a call: what a call of the binding runs is what that call returns (#1307). */
-  readonly #letCalls = new Map<Resolved.SymbolId, Resolved.CallExpr>();
   /** One `DemandFact` per parameter and colour, so the reports of one written type are one (#1307). */
   readonly #demandFacts = new Map<string, DemandFact>();
   /** Each binding whose value is a lambda, with its parameters as written: a declaration, read by `#explainFromText`. */
@@ -21969,9 +21965,6 @@ class Checker {
           this.#namedLambdas.set(value, inner.binding.symbol);
           // Its parameters as written, a declaration a report can read (#1240).
           this.#lambdaParameters.set(inner.binding.symbol, value.parameters);
-          this.#lambdaOfBinding.set(inner.binding.symbol, value);
-        } else if (value.kind === "Call") {
-          this.#letCalls.set(inner.binding.symbol, value);
         }
       }
       if (inner.kind === "Let") {
@@ -27832,9 +27825,9 @@ class Checker {
           `${markSpelling(wanted)}${source.text.slice(obligation.markSpan.end.offset, call.span.end.offset)})`;
       // The facts it is seen to fail, other than the one recorded where it
       // decided: a written type the parameter itself meets, or what the
-      // callee's declaration shows, or the declaration of what returned the
-      // callee (Effects §3.4, #1240, #1307). The colour alone is not enough: a
-      // call's colour may be a fact's while what it is handed is silent anyway.
+      // callee's declaration shows (Effects §3.4, #1240, #1307). The colour
+      // alone is not enough: a call's colour may be a fact's while what it is
+      // handed is silent anyway.
       const seenOther: { fact: ReportFact; name: string }[] = [];
       if (factWords === undefined && demanded !== undefined && parameter !== undefined) {
         for (const axis of over) {
@@ -27843,7 +27836,6 @@ class Checker {
         }
       } else if (factWords === undefined && !reading) {
         seenOther.push(...this.#explainFromText(obligation.call, over));
-        if (seenOther.length === 0) seenOther.push(...this.#explainFromResult(obligation.call, over));
       }
       const words = factWords === undefined && demanded === undefined && seenOther.length > 0
         ? this.#reportWords(seenOther, byCall)
@@ -27941,73 +27933,6 @@ class Checker {
           this.#parameterFacts.get(parameter.symbol)?.get(axis);
         if (fact === undefined) continue;
         // What the function handed does there.
-        const type = this.#expressionTypes.get(argument);
-        const handed = type === undefined ? undefined : this.#prune(type);
-        if (handed?.kind !== "Function") continue;
-        const colour = this.#prune(colourAt(handed, axis) ?? PURE);
-        if (colour.kind === "ErrorColour" || colour.kind === "Effect" && Colour.isBottom(colour)) continue;
-        if (!found.some((each) => each.fact === fact)) found.push({ fact, name: parameter.name });
-      }
-    }
-    return found;
-  }
-
-  /**
-   * Why a call of a value a function returned is silent (#1307): where the
-   * callee is a `let` bound to a call of a known declaration, a lambda that
-   * declaration returns, written in its result, runs by name a parameter a
-   * fact silenced, and the call hands that parameter a function that does
-   * something there. Read from the text: the lambdas in the body's result
-   * positions, and the calls by name in each lambda's own body.
-   */
-  #explainFromResult(call: Resolved.CallExpr, over: readonly Axis[]): { fact: ReportFact; name: string }[] {
-    const callee = ungrouped(call.callee);
-    const made = callee.kind === "Name" ? this.#letCalls.get(callee.symbol) : undefined;
-    const maker = made === undefined ? undefined : ungrouped(made.callee);
-    const lambda = maker?.kind === "Name" ? this.#lambdaOfBinding.get(maker.symbol) : undefined;
-    if (made === undefined || lambda === undefined) return [];
-    // The lambdas the body returns: in its result positions, through `if`,
-    // `match` arms and a block's last item.
-    const returned: Resolved.LambdaExpr[] = [];
-    const result = (expression: Resolved.Expr): void => {
-      const node = ungrouped(expression);
-      if (node.kind === "Lambda") returned.push(node);
-      else if (node.kind === "If") {
-        result(node.consequence);
-        result(node.alternative);
-      } else if (node.kind === "Match") {
-        for (const arm of [...node.arms, ...(node.catchArms ?? [])]) result(arm.body);
-      } else if (node.kind === "Block") {
-        const last = node.items.at(-1);
-        if (last?.kind === "ExprItem") result(last.expression);
-      }
-    };
-    result(lambda.body);
-    // The parameters a returned lambda calls by name in its own body.
-    const symbols = new Set(lambda.parameters.map(({ symbol }) => symbol));
-    const runs = new Set<Resolved.SymbolId>();
-    const walk = (node: unknown): void => {
-      if (node === null || typeof node !== "object") return;
-      const expression = node as Resolved.Expr;
-      if (expression.kind === "Lambda") return;
-      if (expression.kind === "Call") {
-        const named = ungrouped(expression.callee);
-        if (named.kind === "Name" && symbols.has(named.symbol)) runs.add(named.symbol);
-      }
-      for (const value of Object.values(node)) {
-        if (Array.isArray(value)) for (const each of value) walk(each);
-        else if (value !== null && typeof value === "object" && "kind" in value) walk(value);
-      }
-    };
-    for (const each of returned) walk(each.body);
-    const found: { fact: ReportFact; name: string }[] = [];
-    for (const axis of over) {
-      for (const [index, parameter] of lambda.parameters.entries()) {
-        const argument = made.arguments[index];
-        if (argument === undefined || !runs.has(parameter.symbol)) continue;
-        const fact: ReportFact | undefined = this.#demandFact(parameter.symbol, parameter.name, axis) ??
-          this.#parameterFacts.get(parameter.symbol)?.get(axis);
-        if (fact === undefined) continue;
         const type = this.#expressionTypes.get(argument);
         const handed = type === undefined ? undefined : this.#prune(type);
         if (handed?.kind !== "Function") continue;
