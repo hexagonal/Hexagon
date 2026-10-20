@@ -2676,15 +2676,16 @@ describe("Effects §3.4 — a knot's facts decide together, and one fact is one 
     const failsNot = "let failsNot(g: () ->~ Unit): Unit = ()\nexport let t(): Unit = failsNot(save0)\n";
     expect(reports(failsNot).map(({ fixes }) => fixes)).toEqual([["assume it cannot fail here: `() => assume save0!()`"]]);
     expect(fixed(failsNot, 0, 0)).toEqual([]);
-    // A fact's report offers `assume` only where it settles every check (§3.4).
-    const twice = "let tw(f) =\n    f()\n    0\nexport let a(): Int = tw(oops0)\nexport let b(): Int = tw(oops0)\n";
-    expect(reports(twice).map(({ fixes }) => fixes)).toEqual([[
-      "mark the call of `f` `^`",
-      "assume none of them can fail here",
-    ]]);
-    expect(fixed(twice, 0, 1)).toEqual([]);
-    const mixed = "let tw(f) =\n    f()\n    0\nexport let a(): Int = tw(oops0)\nexport let b(): Int = tw^(oops0)\n";
+    // A type a parameter meets is such a contract: its report offers `assume`
+    // only where it settles every check (§3.4).
+    const twice = "let pinned(h) =\n    pureOnly(h)\n    0\nexport let a(): Int = pinned(oops0)\nexport let b(): Int = pinned(oops0)\n";
+    expect(reports(twice).map(({ fixes }) => fixes)).toEqual([["assume none of them can fail here"]]);
+    expect(fixed(twice, 0, 0)).toEqual([]);
+    const mixed = "let pinned(h) =\n    pureOnly(h)\n    h^()\n    0\nexport let a(): Int = pinned^(oops0)\n";
     expect(reports(mixed).flatMap(({ fixes }) => fixes).filter((fix) => fix.startsWith("assume"))).toEqual([]);
+    // A fact a bare call makes is not offered it.
+    const called = "let tw(f) =\n    f()\n    0\nexport let a(): Int = tw(oops0)\n";
+    expect(reports(called).flatMap(({ fixes }) => fixes).filter((fix) => fix.startsWith("assume"))).toEqual([]);
     // Through a parameter that meets the written type, the same fix.
     const pinned = "let pinned(h) =\n    pureOnly(h)\n    ()\nexport let s(): Unit = pinned(oops0)\n";
     expect(reports(pinned).map(({ fixes }) => fixes)).toEqual([["assume it cannot fail here: `() => assume oops0^()`"]]);

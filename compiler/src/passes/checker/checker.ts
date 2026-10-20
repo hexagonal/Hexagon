@@ -28054,11 +28054,13 @@ class Checker {
   #reportFactDemands(byCall: ReadonlyMap<Resolved.CallExpr, MarkObligation>, checks: FactCheck[]): void {
     for (const { span, facts, parameter, argument } of this.#factDemands.values()) {
       const over = AXES.filter((axis) => facts.has(axis));
-      const assume = argument === undefined ? undefined : this.#assumeFix(argument, over);
       const silent = over.map((axis) => axis === "world" ? "pure" : "unable to fail").join(" and ");
       // Named by the parameter the function goes to, where the callee's
       // declaration says, so the mark at the same call names the same one.
       const seen = [...new Set(over.map((axis) => facts.get(axis)!))];
+      // `assume` keeps a written contract (Declarations Preamble §1.1); a fact
+      // a call makes is not offered it (#1313).
+      const assume = argument === undefined || !seen.every(isDemandFact) ? undefined : this.#assumeFix(argument, over);
       const named = seen.map((fact) => ({ fact, name: parameter ?? fact.name }));
       const words = this.#reportWords(named, byCall);
       const fixes = this.#readerFixes(words.told, byCall, seen.filter(isDemandFact));
