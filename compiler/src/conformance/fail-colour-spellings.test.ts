@@ -364,12 +364,12 @@ describe("Effects §9: a report about one colour names that colour, and the arro
         "export let a1(): Unit = apply(chk)\n",
     )).toEqual([
       [
-        "takesF(log0)",
+        "log0",
         "a `->^` arrow promises purity, and this function is impure — the demand is written " +
           "`->^`",
       ],
       [
-        "takesG(oops0)",
+        "oops0",
         "a `->~` arrow promises the function cannot fail, and this function may fail — the demand is written " +
           "`->~`",
       ],

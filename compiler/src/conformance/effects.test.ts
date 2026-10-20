@@ -2660,12 +2660,18 @@ describe("Effects §3.4 — a knot's facts decide together, and one fact is one 
     const contract = "`f` is written `() -> Unit` here";
     const fail = written + "export let p(): Unit = pureOnly(oops0)\n";
     expect(reports(fail).map(({ fixes }) => fixes)).toEqual([["assume it cannot fail here: `() => assume oops0^()`"]]);
+    // Refused at the value handed, where the contract is the parameter's.
+    expect(reports(fail).map(({ at }) => at)).toEqual(["L3 oops0"]);
     expect(labels(fail)).toEqual([contract]);
     expect(fixed(fail, 0, 0)).toEqual([]);
     const arity = written + "export let q(): Int = applyPure(risky)\n";
     expect(reports(arity).map(({ fixes }) => fixes)).toEqual([["assume it cannot fail here: `(x) => assume risky^(x)`"]]);
     expect(labels(arity)).toEqual(["`g` is written `(Int) -> Int` here"]);
     expect(fixed(arity, 0, 0)).toEqual([]);
+    // A qualified name keeps its qualifier.
+    const qualified = "let applyF(g: (String) -> Float): Float = g(\"1\")\nexport let q(): Float = applyF(Float.parse)\n";
+    expect(reports(qualified).map(({ fixes }) => fixes)).toEqual([["assume it cannot fail here: `(x) => assume Float.parse^(x)`"]]);
+    expect(fixed(qualified, 0, 0)).toEqual([]);
     // The world part keeps `save0` and `log0` out: nothing turns them pure, so no fixit.
     for (const impure of ["save0", "log0"]) {
       const world = written + `export let r(): Unit = pureOnly(${impure})\n`;

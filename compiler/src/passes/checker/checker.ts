@@ -27969,7 +27969,10 @@ class Checker {
   #assumeFix(argument: Resolved.Expr, axes: readonly Axis[]): Diagnostics.Fix | undefined {
     if (axes.length !== 1 || axes[0] !== "fail") return undefined;
     const named = ungrouped(argument);
-    if (named.kind !== "Name") return undefined;
+    const source = this.#sourceFile();
+    if (named.kind !== "Name" || source === undefined || Number(named.span.fileId) !== this.#fileId) return undefined;
+    // As written, so a qualified name keeps its qualifier.
+    const written = source.text.slice(named.span.start.offset, named.span.end.offset);
     const type = this.#expressionTypes.get(argument);
     const handed = type === undefined ? undefined : this.#prune(type);
     if (handed?.kind !== "Function") return undefined;
@@ -27979,7 +27982,7 @@ class Checker {
     const pool = ["x", "y", "z", "w", "v", "u"].filter((each) => each !== named.text);
     if (handed.parameters.length > pool.length) return undefined;
     const names = pool.slice(0, handed.parameters.length).join(", ");
-    const wrapped = `(${names}) => assume ${named.text}${Colour.isBottom(world) ? "^" : "!"}(${names})`;
+    const wrapped = `(${names}) => assume ${written}${Colour.isBottom(world) ? "^" : "!"}(${names})`;
     return { message: `assume it cannot fail here: \`${wrapped}\``, edits: [{ span: argument.span, replacement: wrapped }] };
   }
 
@@ -29559,12 +29562,13 @@ class Checker {
         (arrows.left === parameterArrow || arrows.right === parameterArrow);
       const contract = atParameter && contractOf?.declared !== undefined ? this.#contractLabel(contractOf.declared) : undefined;
       this.#colourReport(`effect-mismatch ${spanKey(span)} ${direction} ${arrows?.id ?? ""}`, (axes) => {
-        const assume = atParameter && contractOf !== undefined && !lazy ? this.#assumeFix(contractOf.argument, axes) : undefined;
+        const assume = atParameter && contractOf !== undefined ? this.#assumeFix(contractOf.argument, axes) : undefined;
         return {
           severity: "error",
           message: effectMismatchMessage(direction, axes, demandWritten) +
             (lazy && axes.includes("fail") ? LAZY_SEQ_ADVICE : ""),
-          primary: span,
+          // Refused at the value handed, where the contract is the parameter's.
+          primary: atParameter && contractOf !== undefined ? contractOf.argument.span : span,
           ...(contract === undefined ? {} : { labels: [contract] }),
           ...(assume === undefined ? {} : { fixes: [assume] }),
         };
