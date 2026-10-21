@@ -1468,12 +1468,16 @@ function readsThrough(annotation: Resolved.TypeAnnotation | undefined, tied?: Re
   return annotation === undefined || annotation.kind === "TypeVariable" && tied?.has(annotation.name) !== true;
 }
 
-/** Whether a call is written anywhere in an expression, a lambda in it included. */
-function containsCall(expression: Resolved.Expr): boolean {
+/**
+ * Whether an expression may run anything where it stands, a lambda in it
+ * included: a call, a `throw`, or anything written with a mark.
+ */
+function runsAnything(expression: Resolved.Expr): boolean {
   let found = false;
   const walk = (node: unknown): void => {
     if (found || node === null || typeof node !== "object") return;
-    if ((node as { kind?: unknown }).kind === "Call") {
+    const each = node as { kind?: unknown; mark?: unknown };
+    if (each.kind === "Call" || each.kind === "Throw" || each.mark !== undefined && each.mark !== null) {
       found = true;
       return;
     }
@@ -27434,10 +27438,13 @@ class Checker {
    * a tie answers it as one.
    */
   #readCallsOfParameters(): void {
+    // No untyped parameter, no call of one to read, and no tie.
+    if (this.#untypedBySymbol.size === 0) return;
+    const reads = new Map<string, readonly ValueRead[] | "reading">();
     for (const obligation of this.#markObligations) {
       const callee = ungrouped(obligation.call.callee);
       if (callee.kind === "Name" && this.#untypedBySymbol.has(callee.symbol)) continue;
-      const symbol = this.#untypedRunBy(obligation.call);
+      const symbol = this.#untypedRunBy(obligation.call, reads);
       if (symbol === undefined) continue;
       this.#runsParameter.set(obligation.call, symbol);
       const written = markParts(obligation.mark);
@@ -27468,9 +27475,11 @@ class Checker {
    * reaches a label whose body is one bare call of it. None where it reaches
    * none, or more than one.
    */
-  #untypedRunBy(call: Resolved.CallExpr): Resolved.SymbolId | undefined {
+  #untypedRunBy(call: Resolved.CallExpr, reads?: Map<string, readonly ValueRead[] | "reading">): Resolved.SymbolId | undefined {
     this.#valueSteps = VALUE_STEPS;
-    this.#valueReads = new Map();
+    // Every reading starts from no environment, so readings of one module's
+    // calls may share what they read (`#readCallsOfParameters`).
+    this.#valueReads = reads ?? new Map();
     const values = this.#valuesOf(call.callee, this.#valueEnv([]));
     if (this.#valueSteps < 0) return undefined;
     const hits = new Set<Resolved.SymbolId>();
@@ -27489,7 +27498,7 @@ class Checker {
         body = ungrouped(body.items[0]!.expression);
       }
       // Its arguments run nothing: a call in them would add its own colour.
-      const runs = body.kind === "Call" && body.mark === undefined && !body.arguments.some(containsCall)
+      const runs = body.kind === "Call" && body.mark === undefined && !body.arguments.some(runsAnything)
         ? ungrouped(body.callee)
         : undefined;
       if (runs?.kind !== "Name" || !this.#untypedBySymbol.has(runs.symbol) || env.has(runs.symbol) ||

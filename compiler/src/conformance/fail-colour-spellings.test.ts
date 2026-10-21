@@ -922,6 +922,10 @@ describe("Effects §3.4: a mark decides nothing; facts decide an untyped paramet
     expect(reports(partial).map(([, text]) => text.includes("only because"))).toEqual([false]);
     const busy = PRE + "let s(f) =\n    let h = Holder({ run = (x: Unit) => f(x) })\n    let run = () => f(save0())\n    run()\n";
     expect(reports(busy).filter(([at]) => at === "run()").map(([, text]) => text.includes("only because"))).toEqual([false]);
+    // A `throw` in its arguments runs something too.
+    const throwing = PRE + "exception Oops\nrecord H1 = { run: (Int) ->! Unit }\nlet s(f, n: Int) =\n" +
+      "    let h = H1({ run = f })\n    let run = () => f(if n > 0 then n else throw^(Oops))\n    run()\n";
+    expect(reports(throwing).filter(([at]) => at === "run()").map(([, text]) => text.includes("only because"))).toEqual([false]);
     // A mark through an alias is a mark of `g` whichever line the tie is found on.
     expect(reports(PRE + "let mg(g, f, c: Bool) =\n    let k = g\n    k!()\n    g()\n    (if c then g else f)!()\n")).toEqual([
       ["g()", "this call is impure and may fail, so `g` wants `!`, not no mark"],
