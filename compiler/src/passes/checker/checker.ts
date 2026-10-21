@@ -1443,11 +1443,16 @@ interface ValueBinding {
   readonly env: ValueEnv;
 }
 type ValueEnv = ReadonlyMap<Resolved.SymbolId, ValueBinding>;
-/** A lambda a reading reached, with what its names stand for. */
-interface ValueRead {
-  readonly lambda: Resolved.LambdaExpr;
-  readonly env: ValueEnv;
-}
+/**
+ * What a reading reached: a lambda, with what its names stand for, or an
+ * untyped parameter of an enclosing function, which stands for nothing the
+ * reading can see further (#1263, D1).
+ */
+type ValueRead =
+  | { readonly lambda: Resolved.LambdaExpr; readonly env: ValueEnv }
+  | { readonly parameter: Resolved.SymbolId }
+  /** Something the reading cannot see into: a field, a written type, a foreign function, a call of a parameter. */
+  | { readonly opaque: true };
 /** How many distinct readings one reading of a callee as its value takes at most (Effects §3.4). */
 const VALUE_STEPS = 4096;
 
@@ -1461,6 +1466,28 @@ const VALUE_STEPS = 4096;
  */
 function readsThrough(annotation: Resolved.TypeAnnotation | undefined, tied?: ReadonlySet<string>): boolean {
   return annotation === undefined || annotation.kind === "TypeVariable" && tied?.has(annotation.name) !== true;
+}
+
+/**
+ * Whether an expression may run anything where it stands, a lambda in it
+ * included: a call, a `throw`, or anything written with a mark.
+ */
+function runsAnything(expression: Resolved.Expr): boolean {
+  let found = false;
+  const walk = (node: unknown): void => {
+    if (found || node === null || typeof node !== "object") return;
+    const each = node as { kind?: unknown; mark?: unknown };
+    if (each.kind === "Call" || each.kind === "Throw" || each.mark !== undefined && each.mark !== null) {
+      found = true;
+      return;
+    }
+    for (const value of Object.values(node)) {
+      if (Array.isArray(value)) for (const item of value) walk(item);
+      else if (value !== null && typeof value === "object") walk(value);
+    }
+  };
+  walk(expression);
+  return found;
 }
 
 /** The type variables more than one of a lambda's parameters writes. */
@@ -4596,6 +4623,10 @@ class Checker {
   #valueRelevance: ReadonlyMap<Resolved.LambdaExpr, ReadonlySet<Resolved.SymbolId>> | undefined;
   /** One reading's results, by node and environment: what is read twice is read once. */
   #valueReads = new Map<string, readonly ValueRead[] | "reading">();
+  /** Each call whose callee reads as an untyped parameter other than by its own name (#1263, D1). */
+  readonly #runsParameter = new Map<Resolved.CallExpr, Resolved.SymbolId>();
+  /** Each tie's parameters, to answer at the marks' check the calls that read as one of them (#1263, D1). */
+  readonly #tiesToAnswer: (readonly Resolved.SymbolId[])[] = [];
   /** The colours on which an untyped parameter is called by its own name with a mark carrying them: no seam reading is offered there (§9). */
   readonly #calledMarkedItself = new Map<Resolved.SymbolId, Set<Axis>>();
   /** Each untyped parameter by its binding, for a report about a call of it. */
@@ -24863,17 +24894,12 @@ class Checker {
       ...fixes(),
     };
     this.#diagnostics.add(diagnostic);
-    // The tie answers a bare call of a tied parameter by its own name on a
-    // colour its fix writes silent (§9). A call any other way, or one its own
-    // marks contradict, keeps its report.
-    const symbols = new Set(tied.map((each) => each.symbol));
-    for (const obligation of this.#markObligations) {
-      const callee = ungrouped(obligation.call.callee);
-      if (callee.kind !== "Name" || !symbols.has(callee.symbol)) continue;
-      const written = markParts(obligation.mark);
-      const silent = this.#silentByItself(callee.symbol);
-      for (const axis of AXES) if (!written[axis] && silent.has(axis)) this.#answerCall(obligation, axis);
-    }
+    // The tie answers a bare call of a tied parameter, by its own name or read
+    // as one, on a colour its fix writes silent (§9); a call any other way, or
+    // one its own marks contradict, keeps its report. Answered where the marks
+    // are checked, once every call of a tied parameter is read
+    // (`#readCallsOfParameters`).
+    this.#tiesToAnswer.push(tied.map((each) => each.symbol));
     // A tie found on the world colour is found before the fail colour settles,
     // and the fix writes each colour as it settles (§3.4's black-box reading):
     // its fix is read again at the module's end.
@@ -27398,8 +27424,89 @@ class Checker {
     for (const outcome of this.#outcomeColours) {
       if (this.#prune(outcome) === outcome) outcome.instance = PURE;
     }
+    this.#readCallsOfParameters();
     this.#checkMarks();
     this.#checkGuards(inferred);
+  }
+
+  /**
+   * A call of an untyped parameter is a call whose callee reads as it, by its
+   * own name or along a reading's line of sight (Effects §3.4, #1263, D1): an
+   * alias, a function returning what it was handed, a label whose body is one
+   * bare call of it. Read once every binding is known: such a call marks or
+   * leaves bare the parameter's colours, as a call by its own name does, and
+   * a tie answers it as one.
+   */
+  #readCallsOfParameters(): void {
+    // No untyped parameter, no call of one to read, and no tie.
+    if (this.#untypedBySymbol.size === 0) return;
+    for (const obligation of this.#markObligations) {
+      const callee = ungrouped(obligation.call.callee);
+      if (callee.kind === "Name" && this.#untypedBySymbol.has(callee.symbol)) continue;
+      const symbol = this.#untypedRunBy(obligation.call);
+      if (symbol === undefined) continue;
+      this.#runsParameter.set(obligation.call, symbol);
+      const written = markParts(obligation.mark);
+      for (const axis of AXES) {
+        const calls = written[axis] ? this.#calledMarkedItself : this.#calledBareItself;
+        let axes = calls.get(symbol);
+        if (axes === undefined) calls.set(symbol, axes = new Set());
+        axes.add(axis);
+      }
+    }
+    for (const symbols of this.#tiesToAnswer) {
+      for (const obligation of this.#markObligations) {
+        const callee = ungrouped(obligation.call.callee);
+        const symbol = callee.kind === "Name" && this.#untypedBySymbol.has(callee.symbol)
+          ? callee.symbol
+          : this.#runsParameter.get(obligation.call);
+        if (symbol === undefined || !symbols.includes(symbol)) continue;
+        const written = markParts(obligation.mark);
+        const silent = this.#silentByItself(symbol);
+        for (const axis of AXES) if (!written[axis] && silent.has(axis)) this.#answerCall(obligation, axis);
+      }
+    }
+  }
+
+  /**
+   * The one untyped parameter a call's callee reads as, other than by its own
+   * name (#1263, D1): where the reading (`#valuesOf`) reaches it by name, or
+   * reaches a label whose body is one bare call of it. None where it reaches
+   * none, or more than one.
+   */
+  #untypedRunBy(call: Resolved.CallExpr): Resolved.SymbolId | undefined {
+    // Each call's reading on its own: what one reading cut short must not
+    // decide another's, nor spare it the steps that bound it.
+    this.#valueSteps = VALUE_STEPS;
+    this.#valueReads = new Map();
+    const values = this.#valuesOf(call.callee, this.#valueEnv([]));
+    if (this.#valueSteps < 0) return undefined;
+    const hits = new Set<Resolved.SymbolId>();
+    for (const read of values) {
+      // A callee read only in part is no call of one parameter.
+      if ("opaque" in read) return undefined;
+      if ("parameter" in read) {
+        hits.add(read.parameter);
+        continue;
+      }
+      // A label: its body one bare call of an untyped parameter it captures
+      // from around it, not one a function read on the way was handed.
+      const { lambda, env } = read;
+      let body = ungrouped(lambda.body);
+      if (body.kind === "Block" && body.items.length === 1 && body.items[0]!.kind === "ExprItem") {
+        body = ungrouped(body.items[0]!.expression);
+      }
+      // Its arguments run nothing: a call in them would add its own colour.
+      const runs = body.kind === "Call" && body.mark === undefined && !body.arguments.some(runsAnything)
+        ? ungrouped(body.callee)
+        : undefined;
+      if (runs?.kind !== "Name" || !this.#untypedBySymbol.has(runs.symbol) || env.has(runs.symbol) ||
+        lambda.parameters.some(({ symbol }) => symbol === runs.symbol)) {
+        return undefined;
+      }
+      hits.add(runs.symbol);
+    }
+    return hits.size === 1 ? [...hits][0] : undefined;
   }
 
   /**
@@ -27820,10 +27927,14 @@ class Checker {
           ? required.world ? "is impure" : "is pure"
           : required.fail ? "may fail" : "cannot fail"
       );
-      // A call of an untyped parameter by its own name, for what the text
-      // fixed of its own arrow (`#ownArrowPins`).
+      // A call of an untyped parameter, by its own name or read as one
+      // (`#readCallsOfParameters`), for what the text fixed of its own arrow
+      // (`#ownArrowPins`).
       const callee = ungrouped(obligation.call.callee);
-      const parameter = callee.kind === "Name" ? this.#untypedBySymbol.get(callee.symbol) : undefined;
+      const runs = this.#runsParameter.get(obligation.call);
+      const parameter = callee.kind === "Name" && this.#untypedBySymbol.has(callee.symbol)
+        ? this.#untypedBySymbol.get(callee.symbol)
+        : runs === undefined ? undefined : this.#untypedBySymbol.get(runs);
       const pinOn = (axis: Axis) =>
         parameter === undefined ? undefined : this.#ownArrowPins.get(`${Number(parameter.symbol)}:${axis}`);
       const over = wrong.filter((axis) => written[axis] && required[axis] === false);
@@ -28009,7 +28120,9 @@ class Checker {
     // A reading cut short says nothing, so what it would name never depends
     // on where it stopped.
     if (this.#valueSteps < 0) return [];
-    for (const { lambda, env } of values) {
+    for (const read of values) {
+      if (!("lambda" in read)) continue;
+      const { lambda, env } = read;
       // What each name the lambda runs stands for: its own parameters, the
       // arguments of this call; a parameter of a function that made it, what
       // that function was handed.
@@ -28109,15 +28222,19 @@ class Checker {
     const env = this.#valueRestrict(outer, this.#valueNames(node));
     const key = `${this.#valueNodeId(node)}:${this.#valueEnvIds.get(env)!}`;
     const known = this.#valueReads.get(key);
-    if (known === "reading") return [];
+    if (known === "reading") return [{ opaque: true }];
     if (known !== undefined) return known;
-    if (--this.#valueSteps < 0) return [];
+    if (--this.#valueSteps < 0) return [{ opaque: true }];
     this.#valueReads.set(key, "reading");
     const values: ValueRead[] = [];
     const seen = new Set<string>();
     const add = (each: readonly ValueRead[]): void => {
       for (const value of each) {
-        const id = `${this.#valueNodeId(value.lambda)}:${this.#valueEnvIds.get(value.env)!}`;
+        const id = "opaque" in value
+          ? "o"
+          : "parameter" in value
+          ? `p${Number(value.parameter)}`
+          : `${this.#valueNodeId(value.lambda)}:${this.#valueEnvIds.get(value.env)!}`;
         if (!seen.has(id)) {
           seen.add(id);
           values.push(value);
@@ -28134,13 +28251,24 @@ class Checker {
         else {
           const value = this.#bindingValues.get(node.symbol);
           if (value !== undefined) add(this.#valuesOf(value, env));
+          else if (this.#untypedBySymbol.has(node.symbol)) add([{ parameter: node.symbol }]);
+          else add([{ opaque: true }]);
         }
         break;
       }
       case "Call":
-        for (const { lambda, env: made } of this.#valuesOf(node.callee, env)) {
+        for (const read of this.#valuesOf(node.callee, env)) {
+          // What a call of a parameter returns is nothing the text spells.
+          if (!("lambda" in read)) {
+            add([{ opaque: true }]);
+            continue;
+          }
+          const { lambda, env: made } = read;
           // A written result type is what the call returns: the reading stops.
-          if (!readsThrough(lambda.returnAnnotation)) continue;
+          if (!readsThrough(lambda.returnAnnotation)) {
+            add([{ opaque: true }]);
+            continue;
+          }
           const relevant = this.#valueParameters(lambda);
           const bound = new Map(made);
           for (const [index, parameter] of lambda.parameters.entries()) {
@@ -28160,9 +28288,11 @@ class Checker {
         break;
       case "Block": {
         const last = node.items.at(-1);
-        if (last?.kind === "ExprItem") add(this.#valuesOf(last.expression, env));
+        add(last?.kind === "ExprItem" ? this.#valuesOf(last.expression, env) : [{ opaque: true }]);
         break;
       }
+      default:
+        add([{ opaque: true }]);
     }
     this.#valueReads.set(key, values);
     return values;
