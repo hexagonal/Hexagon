@@ -4,6 +4,16 @@ import { AnalysisSession } from "../analysis/session.js";
 import { compileFiles, runMain } from "../support/test-project.js";
 
 /**
+ * A mark that claims more than its call does, where the report names no
+ * cause, is hedged (Declarations Preamble §1.1): it names the other
+ * possibility, its removal is a suggestion, and only the first such report in
+ * a module is given.
+ */
+const perhaps = (message: string, claims: string, silent: string): string =>
+  `${message} — perhaps the mark is wrong; or, if this call ${claims}, something makes it ${silent} ` +
+  "that this report does not name";
+
+/**
  * Conformance for where a failure starts and where it ends (Effects §3.6;
  * Exceptions §3, §5.3, §5.4; Phase 3 step 8c-i): `throw` reads its argument's
  * text, so an exception's throw may fail and a fault's is bare; a catch-all
@@ -100,7 +110,7 @@ describe("Effects §3.6: a catch-all handles what it guards", () => {
 
   test("handling is no demand: the callback's call keeps its mark, and `->!` is no lie of generality", () => {
     expect(messages(ORZERO + "let a(): Int = orZero~(() => 1)\n")).toEqual([
-      "this call is pure, so `orZero` wants no mark, not `~`",
+      perhaps("this call is pure, so `orZero` wants no mark, not `~`", "is impure", "pure"),
     ]);
     expect(messages(ORZERO + "let b(): Int = orZero(() => parse^(\"1\"))\n")).toEqual([]);
     expect(messages(ORZERO + "let d(): Int = orZero~(() =>\n    save0!()\n    1)\n")).toEqual([]);
@@ -153,7 +163,7 @@ describe("Effects §13.3: a call at a known instance follows an instance body th
       "let q = Q({ n = 1 })\n";
     expect(messages(source + "let a(): Unit = guard(q, () => ())\nlet b(): Unit = guard~(q, save0)\n")).toEqual([]);
     expect(messages(source + "let c(): Unit = guard!(q, save0)\n"))
-      .toEqual(["this call cannot fail, so `guard` wants `~`, not `!`"]);
+      .toEqual([perhaps("this call cannot fail, so `guard` wants `~`, not `!`", "may fail", "unable to fail")]);
   });
 });
 
@@ -188,14 +198,18 @@ describe("Exceptions §3: `throw` reads its argument's text", () => {
         "let e(): Int = throw((IndexFault(1, 2)))\n",
     )).toEqual([
       ["throw(Oops)", "this call may fail, so `throw` wants `^`, not no mark"],
-      ["^", "this call cannot fail, so `throw` wants no mark, not `^`"],
+      ["^", perhaps("this call cannot fail, so `throw` wants no mark, not `^`", "may fail", "unable to fail")],
     ]);
   });
 
   test("`throw` is pure: a world mark on it is the wrong mark", () => {
-    expect(reports("let a(): Int = throw!(Oops)\nlet b(): Int = throw~(IndexFault(1, 2))\n")).toEqual([
-      ["!", "this call is pure, so `throw` wants `^`, not `!`"],
-      ["~", "this call is pure, so `throw` wants no mark, not `~`"],
+    // Each is hedged, and only the first in a module is given, so each is
+    // checked in a module of its own.
+    expect(reports("let a(): Int = throw!(Oops)\n")).toEqual([
+      ["!", perhaps("this call is pure, so `throw` wants `^`, not `!`", "is impure", "pure")],
+    ]);
+    expect(reports("let b(): Int = throw~(IndexFault(1, 2))\n")).toEqual([
+      ["~", perhaps("this call is pure, so `throw` wants no mark, not `~`", "is impure", "pure")],
     ]);
   });
 
@@ -390,7 +404,7 @@ describe("Exceptions §5.3: over a part that cannot fail, an arm that only catch
 
   test("a fail mark a callee's type refuses is a second defect, and the arm is refused beside it", () => {
     expect(messages("let a(): Int =\n    try\n        throw^(IndexFault(1, 2))\n    catch\n        _ => 0\n")).toEqual([
-      "this call cannot fail, so `throw` wants no mark, not `^`",
+      perhaps("this call cannot fail, so `throw` wants no mark, not `^`", "may fail", "unable to fail"),
       "this arm can never run: nothing in this `try` may fail — a fault passes `_`; to catch one, name it or write `fault e`",
     ]);
   });

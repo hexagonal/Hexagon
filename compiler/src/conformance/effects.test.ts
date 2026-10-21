@@ -20,6 +20,19 @@ import { hoverMarkdown } from "../analysis/hover-text.js";
 import { AnalysisSession } from "../analysis/session.js";
 import { compileFiles } from "../support/test-project.js";
 
+/**
+ * A mark that claims more than its call does, where the report names no
+ * cause, is hedged (Declarations Preamble §1.1): it names the other
+ * possibility, its removal is a suggestion, and only the first such report in
+ * a module is given.
+ */
+const perhaps = (message: string, claims: string, silent: string): string =>
+  `${message} — perhaps the mark is wrong; or, if this call ${claims}, something makes it ${silent} ` +
+  "that this report does not name";
+
+/** A hedged report on a mark that claims both colours where the call has neither. */
+const pureAndTotal = (message: string): string => perhaps(message, "is impure and may fail", "pure and unable to fail");
+
 /** Diagnostics of a compiled project. */
 function effectDiagnostics(
   files: readonly (readonly [string, string])[],
@@ -182,7 +195,7 @@ export let run(document: String): Unit = save(document)
 
   it("`!` -> bare: symmetric enforcement, a mark on a provably pure call", () => {
     expect(foldWith("!", "!")).toEqual([
-      "this call is pure and cannot fail, so `next` wants no mark, not `!`",
+      pureAndTotal("this call is pure and cannot fail, so `next` wants no mark, not `!`"),
     ]);
   });
 
@@ -2535,25 +2548,23 @@ describe("Effects §3.4 — a knot's facts decide together, and one fact is one 
 
   it("names no fact where the function handed does nothing there", () => {
     // `a!` claims what nothing it runs does: `save0` goes to `f`, which nothing
-    // runs, and `noop`, which is pure, to `g`. No fact is named. `a` hands `f`
-    // on, out of sight, so the removal is a suggestion (Declarations Preamble §1.1).
+    // runs, and `noop`, which is pure, to `g`. No fact is named, so the removal
+    // is a suggestion (Declarations Preamble §1.1).
     const source = "fun\n    a(f, g, n: Int): Int = if n > 0 then b(f, g, n - 1) else 0\n" +
       "    b(f, g, n: Int): Int =\n        g^()\n        if n > 0 then a(f, g, n - 1) else 0\n" +
       "export let p(): Int = a!(save0, noop, 2)\n";
     expect(reports(source).at(-1)).toEqual({
       at: "L6 !",
-      message: over("a") + " — perhaps the mark is wrong; or, if this call is impure and may fail, something makes it " +
-        "pure and unable to fail that cannot be seen here",
+      message: pureAndTotal(over("a")),
       fixes: ["perhaps remove the mark"],
     });
   });
 
   it("offers a removal no cause explains as a suggestion, and gives only the first (Declarations Preamble §1.1)", () => {
     // `tw` calls `f` bare, so `fwd(k) = tw(k)` is pure, and `fwd!(save0)`'s
-    // mark is true at run time: what makes it pure is out of sight here.
+    // mark is true at run time: no fact, demand or limitation is named.
     const fwd = "let tw(f) =\n    f()\n    0\nlet fwd(k) = tw(k)\n";
-    const hedged = over("fwd") + " — perhaps the mark is wrong; or, if this call is impure and may fail, something makes " +
-      "it pure and unable to fail that cannot be seen here";
+    const hedged = pureAndTotal(over("fwd"));
     const one = fwd + "export let p(): Int = fwd!(save0)\n";
     expect(reports(one).map(({ message }) => message)).toContain(hedged);
     const fixesOf = diagnostics(prelude + one).flatMap((diagnostic) => diagnostic.fixes ?? [])
@@ -2562,9 +2573,19 @@ describe("Effects §3.4 — a knot's facts decide together, and one fact is one 
     // Only the first such report in source order is given; the rest wait.
     const two = fwd + "export let p(): Int = fwd!(save0)\nexport let q(): Int = fwd!(log0)\n";
     expect(reports(two).filter(({ message }) => message.includes("perhaps")).map(({ at }) => at)).toEqual(["L5 !"]);
-    // Where the text shows why the call is silent, the removal is the fix.
+    // Where the text shows why the call is silent but the report names no
+    // cause, the removal is a suggestion all the same.
     const plain = "export let p(): Unit = noop!()\n";
-    expect(reports(plain)).toEqual([{ at: "L1 !", message: over("noop"), fixes: ["remove the mark"] }]);
+    expect(reports(plain)).toEqual([{ at: "L1 !", message: pureAndTotal(over("noop")), fixes: ["perhaps remove the mark"] }]);
+    // A part the call wants that the mark lacks stays a fix; only the whole
+    // mark is a suggestion: `log0` is impure, and nothing named says why it
+    // cannot fail.
+    const partly = "export let p(): Unit = log0^()\n";
+    const partlyFixes = diagnostics(prelude + partly).flatMap((diagnostic) => diagnostic.fixes ?? []);
+    expect(partlyFixes.map(({ message, suggestion }) => [message, suggestion === true])).toEqual([
+      ["mark the call `!`", false],
+      ["perhaps mark the call `~`", true],
+    ]);
   });
 
   it("explains each colour on its own: a part the fact does not explain keeps its own report", () => {
@@ -2572,7 +2593,7 @@ describe("Effects §3.4 — a knot's facts decide together, and one fact is one 
     // `tw!`, and once `f` is marked, the fail part is reported on its own.
     const source = "let tw(f) =\n    f()\n    0\nexport let p(): Int = tw!(log0)\n";
     expect(reports(source).map(({ message }) => message)).toEqual([over("tw") + " — `f` is called bare, which makes it pure"]);
-    expect(fixed(source, 0, 0)).toEqual(["this call cannot fail, so `tw` wants `~`, not `!`"]);
+    expect(fixed(source, 0, 0)).toEqual([perhaps("this call cannot fail, so `tw` wants `~`, not `!`", "may fail", "unable to fail")]);
   });
 
   it("names a fact only where marking its calls settles the mark", () => {
@@ -2768,7 +2789,7 @@ describe("Effects §3.4 — a knot's facts decide together, and one fact is one 
     // What the returned lambda runs was handed `noop`: nothing hides behind
     // the fact there, so the mark keeps its own report.
     const quiet = "let mk(f, g) =\n    f()\n    g()\n    () => g()\nexport let p(): Unit =\n    let h = mk(save0, noop)\n    h!()\n";
-    expect(reports(quiet).map(({ fixes }) => fixes.at(-1))).toEqual(["mark the call of `f` `!`", "remove the mark"]);
+    expect(reports(quiet).map(({ fixes }) => fixes.at(-1))).toEqual(["mark the call of `f` `!`", "perhaps remove the mark"]);
   });
 
   it("reads a callee as its value the same way whatever else the text holds (#1307)", () => {
@@ -2807,15 +2828,12 @@ describe("Effects §3.4 — a knot's facts decide together, and one fact is one 
     const lone = "let ping(n: Int, act): Int =\n" + q("    ").replace("REC", "");
     const probe = "export let probe(): Int = ping!(2, save0)\n";
     const messages = (source: string) => reports(source).map(({ message }) => message);
-    // Where no fact explains a mark, and one is out of sight, the removal is a
-    // suggestion, and only the first such report is given (Declarations
-    // Preamble §1.1): `q!(noop, act)` hands `act` on, and what becomes of it
-    // there is out of sight, in the knot and in its twin alike.
-    const perhaps = (callee: string) => over(callee) + " — perhaps the mark is wrong; or, if this call is impure and " +
-      "may fail, something makes it pure and unable to fail that cannot be seen here";
+    // Where no fact explains a mark, the removal is a suggestion, and only the
+    // first such report is given (Declarations Preamble §1.1), in the knot and
+    // in its twin alike.
     const fact = handed + " — `cb` is called bare, which makes `act` pure and unable to fail";
     expect(messages(knot + probe)).toEqual(messages(lone + probe));
-    expect(messages(lone + probe)).toEqual([perhaps("q"), fact]);
+    expect(messages(lone + probe)).toEqual([pureAndTotal(over("q")), fact]);
   });
 });
 
@@ -3526,7 +3544,7 @@ describe("Effects §2.6 — a short form reads as its longhand twin (#1213 (T))"
         "    let (r, _) = make()\n" + before + `    tieTwo(${lambda}, r)\n    ${call}\n    ()\n`;
       expect([lambda, effectDiagnostics([["/world.js", ""], ["/main.hex", source("r(() => ())")]])]).toEqual([lambda, []]);
       expect([lambda, effectDiagnostics([["/world.js", ""], ["/main.hex", source("r!(() => ())")]])])
-        .toEqual([lambda, ["this call is pure and cannot fail, so `r` wants no mark, not `!`"]]);
+        .toEqual([lambda, [pureAndTotal("this call is pure and cannot fail, so `r` wants no mark, not `!`")]]);
     }
   });
 
@@ -3796,6 +3814,8 @@ describe("Effects §3.5 — a colour in error (#1223)", () => {
   const unknown = "unknown name `nope`";
   const wants = (callee: string): string => `this call is impure and may fail, so ${callee} wants \`!\`, not no mark`;
   const noMark = (callee: string): string => `this call is pure and cannot fail, so ${callee} wants no mark, not \`!\``;
+  /** `noMark`, hedged: no cause is named (Declarations Preamble §1.1). */
+  const hedged = (callee: string): string => pureAndTotal(noMark(callee));
   const made = "this function is not one `a` was given, and a recursive call hands on only the callbacks it was given";
   const bothMarks = (source: (mark: string) => string): readonly (readonly string[])[] =>
     ["!", ""].map((mark) => check(source(mark)));
@@ -4080,15 +4100,15 @@ describe("Effects §3.5 — a colour in error (#1223)", () => {
         "export let p1(): Unit = both(save0, save0)\n",
     )).toEqual([nopeType, wants("`h`"), wants("`both`")]);
     expect(check("let outer(f: () ->! Unit): Unit =\n    let g: Nope = f\n    f!()\nexport let p1(): Unit = outer!(noop)\n"))
-      .toEqual([nopeType, noMark("`outer`")]);
+      .toEqual([nopeType, hedged("`outer`")]);
     // A callback written `->` is pure as written.
-    expect(check("let outer(f: () -> Unit): Unit =\n    let g: Nope = f\n    f!()\n")).toEqual([nopeType, noMark("`f`")]);
+    expect(check("let outer(f: () -> Unit): Unit =\n    let g: Nope = f\n    f!()\n")).toEqual([nopeType, hedged("`f`")]);
   });
 
   it("keeps every report that does not depend on it", () => {
     // `keep` is pure whatever it is handed.
     expect(check("let user(): Unit = nope!(1)\nexport let probe(): Unit = keep!(user)\n"))
-      .toEqual([unknown, noMark("`keep`")]);
+      .toEqual([unknown, hedged("`keep`")]);
     // A tie is the merge's, not the error's.
     expect(check("let g(c: Bool, f, h) =\n    nope!()\n    let k = if c then f else h\n    k!()\n")).toEqual([
       unknown,
@@ -4120,7 +4140,7 @@ describe("Effects §3.5 — a colour in error (#1223)", () => {
     expect(check(
       "fun a(cb: (() -> Unit) ->! Unit, n: Int): Unit = if n == 0 then cb!(noop) else a!((h) => cb!(h), n - 1)\n" +
         "export let p(): Unit = a!((h) => h!(), 1)\n",
-    )).toEqual([made, noMark("`h`")]);
+    )).toEqual([made, hedged("`h`")]);
     // So is one inside a type argument, handed (#1243 review r2, N1)…
     for (
       const [type, value] of [
@@ -4136,20 +4156,19 @@ describe("Effects §3.5 — a colour in error (#1223)", () => {
           `export let p(): Unit = a!(${value}, noop, 1)\n`,
       )).toEqual([made, purity]);
     }
-    // …or handed back. A name a pattern binds holds what the reading cannot
-    // see into, so the removal is a suggestion (Declarations Preamble §1.1).
+    // …or handed back. No cause is named, so the removal is a suggestion
+    // (Declarations Preamble §1.1).
     expect(check(
       "fun a(cb: () ->! Unit, n: Int): Option(() -> Unit) = if n == 0 then Some(noop) else a(() => cb!(), n - 1)\n" +
         "export let p(): Unit =\n    match a(save0, 1)\n        Some(g) => g!()\n        None => ()\n",
-    )).toEqual([made, noMark("`g`") + " — perhaps the mark is wrong; or, if this call is impure and may fail, something " +
-      "makes it pure and unable to fail that cannot be seen here"]);
+    )).toEqual([made, hedged("`g`")]);
     // An arrow its text writes as a constant is the text's: the refused member
     // draws what its repair draws, beside the refusal.
     const written = (handed: string) =>
       `fun a(n: Int): (() -> Unit) -> Unit = (cb) => if n == 0 then () else a(n - 1)(${handed})\n` +
       "export let p1(): Unit = a(2)!(noop)\nexport let p2(): Unit = a(2)(save0)\n";
-    expect(check(written("noop"))).toEqual([made, noMark("this call"), purity]);
-    expect(check(written("cb"))).toEqual([noMark("this call"), purity]);
+    expect(check(written("noop"))).toEqual([made, hedged("this call"), purity]);
+    expect(check(written("cb"))).toEqual([hedged("this call"), purity]);
     // A callback's own written `->!` is its colour, which the refused
     // recursion decided (here, impure): it is in error, not the text's.
     expect(check(
@@ -4246,7 +4265,7 @@ describe("Effects §3.5 — a colour in error (#1223)", () => {
     expect(bothMarks((mark) => `let mk(): () -> Unit = () => nope!()\nexport let p(): Unit = mk()${mark}()\n`))
       .toEqual([[unknown], [unknown]]);
     expect(check("let k: () -> Unit = () => nope!()\nexport let p(): Unit = k!()\n"))
-      .toEqual([unknown, noMark("`k`")]);
+      .toEqual([unknown, hedged("`k`")]);
     // A binding annotation over a lambda whose body is in error.
     expect(bothMarks((mark) =>
       `let w: (() ->! Unit) >-> Unit = (cb) =>\n    nope!()\n    cb!()\nexport let probe(): Unit = w${mark}(noop)\n`
@@ -4683,7 +4702,7 @@ describe("a binding annotation's outer arrow is the face of the value it writes 
       .toEqual(["this call is impure and may fail, so `q` wants `!`, not no mark"]);
     expect(compile(knot("() -> Int", "q()", ""))).toEqual([]);
     expect(compile(knot("() -> Int", "q!()", "")))
-      .toEqual(["this call is pure and cannot fail, so `q` wants no mark, not `!`"]);
+      .toEqual([pureAndTotal("this call is pure and cannot fail, so `q` wants no mark, not `!`")]);
   });
 });
 
@@ -4740,7 +4759,7 @@ export let stamped(values: Vector(String)): Vector(String) =
     map!(values, (text) => text ++ ".")
 `]]),
     ).toEqual([
-      "this call is pure and cannot fail, so `map` wants no mark, not `!`",
+      pureAndTotal("this call is pure and cannot fail, so `map` wants no mark, not `!`"),
     ]);
   });
 });
@@ -5385,7 +5404,7 @@ let drive(source): String = (source.next)!()
 
 export let x: Int = 1
 `]]),
-    ).toEqual(["this call is pure and cannot fail, so this call wants no mark, not `!`"]);
+    ).toEqual([pureAndTotal("this call is pure and cannot fail, so this call wants no mark, not `!`")]);
     expect(
       effectDiagnostics([["/main.hex", "module Main\n\n" + `
 let drive(source): String = (source.next)()
@@ -6120,7 +6139,7 @@ export let useDefer(action: () ->! Unit): (() >-> Unit) = defer(action)
 `;
       expect(hover(source, "defer(")).toBe("(() ->! Unit) -> () >-> Unit");
       expect(check(source)).toEqual([]);
-      expect(check(source.replace("= defer(action)", "= defer!(action)"))).toEqual([wantsBare("defer", "!")]);
+      expect(check(source.replace("= defer(action)", "= defer!(action)"))).toEqual([pureAndTotal(wantsBare("defer", "!"))]);
     }
   });
 
@@ -6178,7 +6197,7 @@ export let total(value: Int, cb: () ->! Unit): Int =
       expect(check(twoMember)).toEqual([]);
       expect(hover(twoMember, "a(cb")).toBe("(() ->! Unit) -> Int");
       expect(hover(twoMember, "b(cb")).toBe("(() ->! Unit) -> Int");
-      expect(check(twoMember.replace("= b(cb)", "= b!(cb)"))).toEqual([wantsBare("b", "!")]);
+      expect(check(twoMember.replace("= b(cb)", "= b!(cb)"))).toEqual([pureAndTotal(wantsBare("b", "!"))]);
     });
 
     it("conducts through `even`/`odd`, and through a member that only calls the sibling that does", () => {

@@ -3,6 +3,16 @@ import { describe, expect, test } from "vitest";
 import { AnalysisSession } from "../analysis/session.js";
 import { compileFiles, runMain, runProject } from "../support/test-project.js";
 
+/**
+ * A mark that claims more than its call does, where the report names no
+ * cause, is hedged (Declarations Preamble §1.1): it names the other
+ * possibility, its removal is a suggestion, and only the first such report in
+ * a module is given.
+ */
+const perhaps = (message: string, claims: string, silent: string): string =>
+  `${message} — perhaps the mark is wrong; or, if this call ${claims}, something makes it ${silent} ` +
+  "that this report does not name";
+
 function messages(source: string): readonly string[] {
   return compileFiles([["/main.hex", "module Main\n\n" + source]])
     .diagnostics.map(({ message }) => message);
@@ -501,7 +511,7 @@ export let guarded(r: Result(Int, Exn)): Int =
         "let c(r: Result(Int, Exn)): Int = r.orThrow()\n",
     )).toEqual([
       "this call may fail, so `orThrow` wants `^`, not no mark",
-      "this call is pure, so `orThrow` wants `^`, not `!`",
+      perhaps("this call is pure, so `orThrow` wants `^`, not `!`", "is impure", "pure"),
       "this call may fail, so `.orThrow` wants `^`, not no mark",
     ]);
   });

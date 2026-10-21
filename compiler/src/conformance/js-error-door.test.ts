@@ -4,6 +4,16 @@ import { compileProject, Source } from "../index";
 import { compileFiles, compileMain, projectDiagnostics } from "../support/test-project.js";
 
 /**
+ * A mark that claims more than its call does, where the report names no
+ * cause, is hedged (Declarations Preamble §1.1): it names the other
+ * possibility, its removal is a suggestion, and only the first such report in
+ * a module is given.
+ */
+const perhaps = (message: string, claims: string, silent: string): string =>
+  `${message} — perhaps the mark is wrong; or, if this call ${claims}, something makes it ${silent} ` +
+  "that this report does not name";
+
+/**
  * Conformance for **the `JsError` door** — Exceptions §6, FFI Part 11 §7,
  * `attempt` (§8.2), and the guard §7.6 withholds (#509).
  *
@@ -610,17 +620,21 @@ describe("the accessors are total and conservative (FFI Part 11 §7)", () => {
    * **Both accessors are `->`** (§7): the read is kept, so it is a value, and
    * the guard swallows what it throws, so a call cannot fail. A call is bare,
    * a pure face holds either, and every mark is refused with the fix that
-   * removes it.
+   * removes it. A wrong mark no cause explains is hedged, and only the first in
+   * a module is given, so `stack!` is checked in a module of its own.
    */
   test("each is pure and cannot fail, so a call is bare", () => {
     expect(projectDiagnostics("module Main\n\n" +
         "export let m(v: JsValue): String = JsError.message~(v)\n" +
-        "export let s(v: JsValue): Option(String) = JsError.stack!(v)\n" +
         "export let r(v: JsValue): Option(String) = JsError.message?(v)\n",
     )).toEqual([
-      "this call is pure, so `message` wants no mark, not `~`",
-      "this call is pure and cannot fail, so `stack` wants no mark, not `!`",
+      perhaps("this call is pure, so `message` wants no mark, not `~`", "is impure", "pure"),
       "this call cannot fail, so `message` wants no `?`",
+    ]);
+    expect(projectDiagnostics("module Main\n\n" +
+        "export let s(v: JsValue): Option(String) = JsError.stack!(v)\n",
+    )).toEqual([
+      perhaps("this call is pure and cannot fail, so `stack` wants no mark, not `!`", "is impure and may fail", "pure and unable to fail"),
     ]);
     expect(projectDiagnostics("module Main\n\n" +
         "export let m: (JsValue) -> String = JsError.message\n" +

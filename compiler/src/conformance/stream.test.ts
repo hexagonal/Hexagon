@@ -23,6 +23,16 @@ import { AnalysisSession } from "../analysis/session.js";
 import { compileFiles, projectDiagnostics, runMain } from "../support/test-project.js";
 
 /**
+ * A mark that claims more than its call does, where the report names no
+ * cause, is hedged (Declarations Preamble §1.1): it names the other
+ * possibility, its removal is a suggestion, and only the first such report in
+ * a module is given.
+ */
+const perhaps = (message: string, claims: string, silent: string): string =>
+  `${message} — perhaps the mark is wrong; or, if this call ${claims}, something makes it ${silent} ` +
+  "that this report does not name";
+
+/**
  * The budget `module-imports.test.ts` names, for the one test in this file that
  * sits on it — §4's "demands `!` at every consumer", which compiles fifteen
  * whole projects, prelude included, and #829 put the whole standard library in
@@ -218,7 +228,7 @@ describe("§4 the faces: wiring is silent, consumption is spelled", () => {
       `    Stream.map${mark}(source, step)\n`;
     expect(projectDiagnostics(body(""))).toEqual([]);
     expect(projectDiagnostics(body("!"))).toEqual([
-      "this call is pure and cannot fail, so `map` wants no mark, not `!`",
+      perhaps("this call is pure and cannot fail, so `map` wants no mark, not `!`", "is impure and may fail", "pure and unable to fail"),
     ]);
     expect(hoveredType("export let held: Int = Stream.map\n", "map"))
       .toBe("(Stream(a), a ->! b) -> Stream(b)");

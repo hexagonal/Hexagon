@@ -4,6 +4,16 @@ import { AnalysisSession } from "../analysis/session.js";
 import { compileFiles, runProject } from "../support/test-project.js";
 
 /**
+ * A mark that claims more than its call does, where the report names no
+ * cause, is hedged (Declarations Preamble §1.1): it names the other
+ * possibility, its removal is a suggestion, and only the first such report in
+ * a module is given.
+ */
+const perhaps = (message: string, claims: string, silent: string): string =>
+  `${message} — perhaps the mark is wrong; or, if this call ${claims}, something makes it ${silent} ` +
+  "that this report does not name";
+
+/**
  * Conformance for **a pure function fits wherever a function is expected**
  * (#1119): Effects §2.6, §3.4, §4.2, §4.3.
  *
@@ -155,7 +165,7 @@ export let go(): Unit =
     expect(reports("export let go(): Unit = apply2!(() => (), save0)\n")).toEqual([]);
     expect(reports("export let go(): Unit = apply2(noop, () => ())\n")).toEqual([]);
     expect(reports("export let go(): Unit = apply2!(noop, noop)\n"))
-      .toEqual([["!", "this call is pure and cannot fail, so `apply2` wants no mark, not `!`"]]);
+      .toEqual([["!", perhaps("this call is pure and cannot fail, so `apply2` wants no mark, not `!`", "is impure and may fail", "pure and unable to fail")]]);
     expect(reports("export let go(): Unit = apply2(save0, noop)\n"))
       .toEqual([["apply2(save0, noop)", "this call is impure and may fail, so `apply2` wants `!`, not no mark"]]);
   });
@@ -1158,7 +1168,7 @@ describe("a colour no parameter holds is published function by function (#1169)"
     expect(hovered(offSpine, "make() =")).toBe("() -> ((() ->! Unit) >-> Unit, () -> Unit)");
     // A mark on it is now a mark on a pure call.
     expect(reports(offSpine + "export let go(): Unit =\n    let (r, g) = make()\n    r!(save0)\n    g!()\n"))
-      .toEqual([["!", "this call is pure and cannot fail, so `g` wants no mark, not `!`"]]);
+      .toEqual([["!", perhaps("this call is pure and cannot fail, so `g` wants no mark, not `!`", "is impure and may fail", "pure and unable to fail")]]);
   });
 
   test("two functions that hold it get a colour each, in either order", () => {

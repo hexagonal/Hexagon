@@ -4,6 +4,16 @@ import { AnalysisSession } from "../analysis/session.js";
 import { compileFiles } from "../support/test-project.js";
 
 /**
+ * A mark that claims more than its call does, where the report names no
+ * cause, is hedged (Declarations Preamble §1.1): it names the other
+ * possibility, its removal is a suggestion, and only the first such report in
+ * a module is given.
+ */
+const perhaps = (message: string, claims: string, silent: string): string =>
+  `${message} — perhaps the mark is wrong; or, if this call ${claims}, something makes it ${silent} ` +
+  "that this report does not name";
+
+/**
  * Conformance for the fail colour's spellings (Effects §1–§4, §10, §13; Phase 3
  * step 8b-ii): the arrows `->^` and `->~` beside `->` and `->!`, the following
  * arrows `>->`, `>~>`, `>~>^`, `>^>` and `>^>~` (§2.2: between the `>`s the
@@ -84,6 +94,9 @@ describe("Effects §1, §3.1: four marks, each a part for each colour", () => {
   });
 
   test("§4.1's sentences name what the call does on each colour whose part is wrong", () => {
+    // A mark that claims more than the call does, with no cause named, is
+    // hedged, and only the first in a module is given: `d` and `e` are each
+    // checked in a module of their own.
     expect(reports(
       "export let a(): Unit = save(\"x\")\n" +
         "export let b(): Int = parse(\"1\")\n" +
@@ -94,10 +107,15 @@ describe("Effects §1, §3.1: four marks, each a part for each colour", () => {
     )).toEqual([
       ["save(\"x\")", "this call is impure and may fail, so `save` wants `!`, not no mark"],
       ["parse(\"1\")", "this call may fail, so `parse` wants `^`, not no mark"],
-      ["!", "this call cannot fail, so `log` wants `~`, not `!`"],
-      ["!", "this call is pure and cannot fail, so `noop` wants no mark, not `!`"],
-      ["!", "this call is pure, so `parse` wants `^`, not `!`"],
+      ["!", perhaps("this call cannot fail, so `log` wants `~`, not `!`", "may fail", "unable to fail")],
       ["~", "this call may fail, so `save` wants `!`, not `~`"],
+    ]);
+    expect(reports("export let d(): Unit = noop!()\n")).toEqual([
+      ["!", perhaps("this call is pure and cannot fail, so `noop` wants no mark, not `!`",
+        "is impure and may fail", "pure and unable to fail")],
+    ]);
+    expect(reports("export let e(): Int = parse!(\"1\")\n")).toEqual([
+      ["!", perhaps("this call is pure, so `parse` wants `^`, not `!`", "is impure", "pure")],
     ]);
   });
 
@@ -108,9 +126,11 @@ describe("Effects §1, §3.1: four marks, each a part for each colour", () => {
         "export let c(): Unit = noop^()\n",
     )).toEqual([
       ["mark the call `^`", ["^"]],
-      ["mark the call `~`", ["~"]],
-      ["remove the mark", [""]],
+      ["perhaps mark the call `~`", ["~"]],
     ]);
+    // `noop^()`'s report waits for `log!`'s, the first hedged one; alone, its
+    // removal is a suggestion too.
+    expect(fixes("export let c(): Unit = noop^()\n")).toEqual([["perhaps remove the mark", [""]]]);
   });
 
   test("a callback has a colour on each colour its own arrow marks, and is silent on the other", () => {
@@ -123,10 +143,11 @@ describe("Effects §1, §3.1: four marks, each a part for each colour", () => {
         "export let c(): Bool = check1^(() => check^(1))\n" +
         "export let d(): Unit = run!(noop)\n",
     )).toEqual([
-      ["!", "this call is pure and cannot fail, so `run` wants no mark, not `!`"],
+      ["!", perhaps("this call is pure and cannot fail, so `run` wants no mark, not `!`",
+        "is impure and may fail", "pure and unable to fail")],
     ]);
     expect(reports("export let r(f: () ->~ Unit): Unit = f!()\n")).toEqual([
-      ["!", "this call cannot fail, so `f` wants `~`, not `!`"],
+      ["!", perhaps("this call cannot fail, so `f` wants `~`, not `!`", "may fail", "unable to fail")],
     ]);
   });
 });
@@ -214,7 +235,7 @@ describe("Effects §2.2, §2.4: each colour passes through, or not, on its own",
         "export let q2(): Unit =\n    let r = mk(log0)\n    r~(() => ())\n" +
         "export let q3(): Unit = mk(log0)!(() => ())\n",
     )).toEqual([
-      ["!", "this call cannot fail, so this call wants `~`, not `!`"],
+      ["!", perhaps("this call cannot fail, so this call wants `~`, not `!`", "may fail", "unable to fail")],
     ]);
   });
 
@@ -289,7 +310,7 @@ describe("Effects §13.3: a known instance's call is marked for what the instanc
         "export let a(j: Job): Unit = run2(j, () => (), () => ())\n" +
         "export let b(j: Job): Unit = run2~(j, () => (), () => ())\n",
     )).toEqual([
-      ["~", "this call is pure, so `run2` wants no mark, not `~`"],
+      ["~", perhaps("this call is pure, so `run2` wants no mark, not `~`", "is impure", "pure")],
     ]);
   });
 });
