@@ -27440,11 +27440,10 @@ class Checker {
   #readCallsOfParameters(): void {
     // No untyped parameter, no call of one to read, and no tie.
     if (this.#untypedBySymbol.size === 0) return;
-    const reads = new Map<string, readonly ValueRead[] | "reading">();
     for (const obligation of this.#markObligations) {
       const callee = ungrouped(obligation.call.callee);
       if (callee.kind === "Name" && this.#untypedBySymbol.has(callee.symbol)) continue;
-      const symbol = this.#untypedRunBy(obligation.call, reads);
+      const symbol = this.#untypedRunBy(obligation.call);
       if (symbol === undefined) continue;
       this.#runsParameter.set(obligation.call, symbol);
       const written = markParts(obligation.mark);
@@ -27475,11 +27474,11 @@ class Checker {
    * reaches a label whose body is one bare call of it. None where it reaches
    * none, or more than one.
    */
-  #untypedRunBy(call: Resolved.CallExpr, reads?: Map<string, readonly ValueRead[] | "reading">): Resolved.SymbolId | undefined {
+  #untypedRunBy(call: Resolved.CallExpr): Resolved.SymbolId | undefined {
+    // Each call's reading on its own: what one reading cut short must not
+    // decide another's, nor spare it the steps that bound it.
     this.#valueSteps = VALUE_STEPS;
-    // Every reading starts from no environment, so readings of one module's
-    // calls may share what they read (`#readCallsOfParameters`).
-    this.#valueReads = reads ?? new Map();
+    this.#valueReads = new Map();
     const values = this.#valuesOf(call.callee, this.#valueEnv([]));
     if (this.#valueSteps < 0) return undefined;
     const hits = new Set<Resolved.SymbolId>();
