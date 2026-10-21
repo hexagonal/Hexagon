@@ -28,7 +28,7 @@ Operational form, binding on every spec session:
 
 **"Local" means: at the error site, using constructs already in the language.** The rule does not require the rewrite to be pleasant — only present, nameable, and applicable where the error points.
 
-**A contract a value does not fit.** A value handed where a written contract demands what it is not (a pure function, one that cannot fail) is refused at the value. The diagnostic names what fits there, as the promise the contract makes ("a `->` arrow promises purity"), and where the contract is written or inferred. A contract is a promise to every caller, so no fix edits it from a use, and nothing turns an effect into its absence. Where a local rewrite keeps the contract, such as `assume` over a failure the writer says cannot happen here (Exceptions §8.3), it is offered too (Effects §4.3).
+**A contract a value does not fit.** A value handed where a written contract demands what it is not (a pure function, one that cannot fail) is refused at the value. The diagnostic names what fits there, as the promise the contract makes ("a `->` arrow promises purity"), and where the contract is written or inferred. A contract is a promise to every caller, so no fix edits it from a use, and nothing turns an effect into its absence. Where a local rewrite keeps the contract, such as `assume` over a failure the writer says cannot happen here (Exceptions §8.3), it is offered too (Effects §4.3). A value that is not what the contract forbids, but an untyped parameter read exactly where it met a written type, fits once its own type is written: that is Effects §3.4's limitation, and the diagnostic is its, naming that type.
 
 ### 1.2 The Deferred-Goals Doctrine (corpus doctrine; permanent home)
 

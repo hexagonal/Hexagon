@@ -937,6 +937,31 @@ describe("Effects §3.4: a mark decides nothing; facts decide an untyped paramet
     ]);
   });
 
+  test("a `->` demand on a parameter a written type's impure constant fixed is the limitation, not the contract (#1263)", () => {
+    const pure = "let pureOnly(g: () -> Unit): Unit = ()\n";
+    const message = "this function is impure and may fail only because `f`, which has no written type, meets `() ->! Unit` — " +
+      "write `f`'s type, or wrap `f` where it meets it: `() => f()`";
+    const held = "let s(f) =\n    let h = Holder({ run = f })\n";
+    // Directly, through an alias, and through a type a parameter meets.
+    for (const [lines, at] of [
+      ["    pureOnly(f)\n", "f"],
+      ["    let k = f\n    pureOnly(k)\n", "k"],
+    ] as const) {
+      expect([lines, reports(PRE + pure + held + lines)]).toEqual([lines, [[at, message]]]);
+      expect([lines, fixes(PRE + pure + held + lines)]).toEqual([lines, [["write `f`'s type", [": () -> Unit"]]]]);
+    }
+    const through = PRE + pure + "let pinned(k) =\n    pureOnly(k)\n    ()\n" + held + "    pinned(f)\n";
+    expect(reports(through)).toEqual([["f", message]]);
+    // Where a call of `f` marks the colour, the writer means `f` impure: the contract's report.
+    expect(reports(PRE + pure + held + "    f!()\n    pureOnly(f)\n").map(([, text]) => text.includes("only because"))).toEqual([false]);
+    // On the fail colour alone, `assume` is offered beside the written type.
+    const failing = PRE + "record HF = { run: () ->^ Unit }\n" + pure + "let s(f) =\n    let h = HF({ run = f })\n    pureOnly(f)\n";
+    expect(fixes(failing)).toEqual([
+      ["write `f`'s type", [": () -> Unit"]],
+      ["assume it cannot fail here: `() => assume f^()`", ["() => assume f^()"]],
+    ]);
+  });
+
   test("a part another body decides may yet be made silent there: the shared colour a mark needs is a tie", () => {
     const tie = ["if c then g else f", "`g`'s colour is tied to `f`'s here, and inference cannot keep them apart — write `g`'s type, or wrap `g` where they meet"];
     for (const body of [

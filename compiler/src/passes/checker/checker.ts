@@ -4625,6 +4625,8 @@ class Checker {
   #valueReads = new Map<string, readonly ValueRead[] | "reading">();
   /** Each call whose callee reads as an untyped parameter other than by its own name (#1263, D1). */
   readonly #runsParameter = new Map<Resolved.CallExpr, Resolved.SymbolId>();
+  /** Whether every call of a parameter has been read (`#readCallsOfParameters`), so a reading may run. */
+  #callsOfParametersRead = false;
   /** Each tie's parameters, to answer at the marks' check the calls that read as one of them (#1263, D1). */
   readonly #tiesToAnswer: (readonly Resolved.SymbolId[])[] = [];
   /** The colours on which an untyped parameter is called by its own name with a mark carrying them: no seam reading is offered there (§9). */
@@ -7445,6 +7447,7 @@ class Checker {
     // colour its body proved (Modules §4.1.1), and #355 ruling 9 is what makes
     // that colour computable from the interface alone.
     this.#settleEffects();
+    this.#rereadDemandReports();
     this.#checkPublicSignatures(module.items);
     this.#refuseExportedMemberSpellings(module.items);
     // The two colours' reports made one before any report's colours are
@@ -27438,6 +27441,7 @@ class Checker {
    * a tie answers it as one.
    */
   #readCallsOfParameters(): void {
+    this.#callsOfParametersRead = true;
     // No untyped parameter, no call of one to read, and no tie.
     if (this.#untypedBySymbol.size === 0) return;
     for (const obligation of this.#markObligations) {
@@ -27507,6 +27511,68 @@ class Checker {
       hits.add(runs.symbol);
     }
     return hits.size === 1 ? [...hits][0] : undefined;
+  }
+
+  /**
+   * A `->` demand's reports, rendered again once every call of a parameter is
+   * read (`#readCallsOfParameters`): one on an untyped parameter that a
+   * written type's impure constant fixed is §3.4's limitation (#1263, D2).
+   */
+  #rereadDemandReports(): void {
+    for (const bag of [this.#diagnostics, this.#failReports]) {
+      for (let index = 0; index < bag.count; index += 1) {
+        const tag = bag.tagAt(index);
+        if (!isColourReportTag(tag) || !tag.key.startsWith("effect-mismatch ")) continue;
+        bag.replace(index, tag.render([tag.axis]));
+      }
+    }
+  }
+
+  /**
+   * §3.4's limitation at a `->` demand (#1263, D2): the function handed is an
+   * untyped parameter, by its own name or read as one, whose own arrow a
+   * written type's impure constant fixed on every colour the demand refuses,
+   * and no call of it marks those colours. It fits once its type is written,
+   * so the report names that type, or the wrapper where it met the constant,
+   * as a bare call of it does (§9), and not the contract.
+   */
+  #seamAtDemand(argument: Resolved.Expr, axes: readonly Axis[]): Diagnostics.Diagnostic | undefined {
+    const node = ungrouped(argument);
+    let symbol = node.kind === "Name" && this.#untypedBySymbol.has(node.symbol) ? node.symbol : undefined;
+    if (symbol === undefined && this.#callsOfParametersRead) {
+      this.#valueSteps = VALUE_STEPS;
+      this.#valueReads = new Map();
+      const values = this.#valuesOf(argument, this.#valueEnv([]));
+      const only = values.length === 1 && this.#valueSteps >= 0 ? values[0]! : undefined;
+      if (only !== undefined && "parameter" in only) symbol = only.parameter;
+    }
+    const parameter = symbol === undefined ? undefined : this.#untypedBySymbol.get(symbol);
+    if (parameter === undefined) return undefined;
+    const pins = axes.map((axis) => this.#ownArrowPins.get(`${Number(parameter.symbol)}:${axis}`));
+    if (pins.some((pin) => pin?.silent !== false)) return undefined;
+    if (axes.some((axis) => this.#calledMarkedItself.get(parameter.symbol)?.has(axis) === true)) return undefined;
+    const name = parameter.name;
+    const type = this.#prune(parameter.type);
+    const silentOn = new Set<Axis>([...axes, ...(this.#calledBareItself.get(parameter.symbol) ?? [])]);
+    const reading = type.kind === "Function" ? this.#blackBoxReading(this.#silencedOwn(type, silentOn)) : undefined;
+    const met = this.#display(parameter.type, "callback");
+    // Where only the failure is in the way, `assume` keeps the contract too.
+    const assume = this.#assumeFix(argument, axes);
+    const fixes: Diagnostics.Fix[] = [
+      ...(reading === undefined ? [] : [{
+        message: `write \`${name}\`'s type`,
+        edits: [{ span: { ...parameter.span, start: parameter.span.end }, replacement: `: ${reading}` }],
+      }]),
+      ...(assume === undefined ? [] : [assume]),
+    ];
+    return {
+      severity: "error",
+      message: `this function ${colourDoes(axes)} only because \`${name}\`, which has no written type, meets ` +
+        `\`${met}\` — write \`${name}\`'s type, or wrap \`${name}\` where it meets it: \`() => ${name}()\``,
+      primary: argument.span,
+      labels: [{ span: pins[0]!.span, message: `\`${name}\` meets \`${met}\` here` }],
+      ...(fixes.length === 0 ? {} : { fixes }),
+    };
   }
 
   /**
@@ -28575,6 +28641,15 @@ class Checker {
       // Named by the parameter the function goes to, where the callee's
       // declaration says, so the mark at the same call names the same one.
       const seen = [...new Set(over.map((axis) => facts.get(axis)!))];
+      // §3.4's limitation, not the contract, where the function handed is an
+      // untyped parameter a written type's impure constant fixed (#1263, D2).
+      const seam = argument === undefined || !seen.every(isDemandFact) || !this.#callsOfParametersRead
+        ? undefined
+        : this.#seamAtDemand(argument, over);
+      if (seam !== undefined) {
+        this.#diagnostics.add(seam);
+        continue;
+      }
       // `assume` keeps a written contract (Declarations Preamble §1.1); a fact
       // a call makes is not offered it (#1313).
       const assume = argument === undefined || !seen.every(isDemandFact) ? undefined : this.#assumeFix(argument, over);
@@ -30076,6 +30151,11 @@ class Checker {
         (arrows.left === parameterArrow || arrows.right === parameterArrow);
       const contract = atParameter && contractOf?.declared !== undefined ? this.#contractLabel(contractOf.declared) : undefined;
       this.#colourReport(`effect-mismatch ${spanKey(span)} ${direction} ${arrows?.id ?? ""}`, (axes) => {
+        // §3.4's limitation, not the contract: an untyped parameter a written
+        // type's impure constant fixed fits once its own type is written
+        // (#1263, D2). Read again once every call of a parameter is known.
+        const seam = atParameter && contractOf !== undefined ? this.#seamAtDemand(contractOf.argument, axes) : undefined;
+        if (seam !== undefined) return seam;
         const assume = atParameter && contractOf !== undefined ? this.#assumeFix(contractOf.argument, axes) : undefined;
         return {
           severity: "error",
