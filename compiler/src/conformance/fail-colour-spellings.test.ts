@@ -916,6 +916,17 @@ describe("Effects §3.4: a mark decides nothing; facts decide an untyped paramet
       .map(([, text]) => text.includes("only because"))).toEqual([false]);
     expect(reports(PRE + "let s(f, g, c: Bool) =\n    let h = Holder({ run = f })\n    pick(f, g)()\n")
       .map(([, text]) => text.includes("only because"))).toEqual([false]);
+    // A callee read only in part, or a label whose call runs something in its
+    // arguments, is no call of `f`.
+    const partial = PRE + "let s(f, h: Holder, c: Bool) =\n    let k = Holder({ run = f })\n    (if c then f else h.run)()\n";
+    expect(reports(partial).map(([, text]) => text.includes("only because"))).toEqual([false]);
+    const busy = PRE + "let s(f) =\n    let h = Holder({ run = (x: Unit) => f(x) })\n    let run = () => f(save0())\n    run()\n";
+    expect(reports(busy).filter(([at]) => at === "run()").map(([, text]) => text.includes("only because"))).toEqual([false]);
+    // A mark through an alias is a mark of `g` whichever line the tie is found on.
+    expect(reports(PRE + "let mg(g, f, c: Bool) =\n    let k = g\n    k!()\n    g()\n    (if c then g else f)!()\n")).toEqual([
+      ["g()", "this call is impure and may fail, so `g` wants `!`, not no mark"],
+      ["if c then g else f", "`g`'s colour is tied to `f`'s here, and inference cannot keep them apart — write `g`'s type, or wrap `g` where they meet"],
+    ]);
     // A tie answers a label that calls a tied parameter bare.
     expect(reports(PRE + "let mg(g, f, c: Bool) =\n    let run = () => g()\n    run()\n    (if c then g else f)!()\n")).toEqual([
       ["if c then g else f", "`g`'s colour is tied to `f`'s here, and inference cannot keep them apart — write `g`'s type, or wrap `g` where they meet"],
