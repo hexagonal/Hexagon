@@ -22,6 +22,19 @@ import { STDLIB_SOURCES } from "../stdlib-sources.js";
 import { compileFiles, runProject } from "../support/test-project.js";
 
 /**
+ * A mark that claims more than its call does, where the report names no
+ * cause, is hedged (Declarations Preamble §1.1): it names the other
+ * possibility, its removal is a suggestion, and only the first such report in
+ * a module is given.
+ */
+const perhaps = (message: string, claims: string, silent: string): string =>
+  `${message} — perhaps the mark is wrong; or, if this call ${claims}, something makes it ${silent} ` +
+  "that this report does not name";
+
+/** A hedged report on a mark that claims both colours where the call has neither. */
+const pureAndTotal = (message: string): string => perhaps(message, "is impure and may fail", "pure and unable to fail");
+
+/**
  * An invariant constructor for §13.2's invariant positions: `Cell` writes no
  * sigil, so an arrow under it is read invariantly. (`Array` served here until
  * its row wrote `+a`, Verdict Table row 14.)
@@ -316,7 +329,7 @@ describe("Effects §13.2: the constant table", () => {
       "export record P = { name: String }\n" +
       "honor R<P> =\n    read(s) = s.name\n" +
       "export let dot(p: P): String = p.read!()\n",
-    )).toEqual(["this call is pure and cannot fail, so `.read` wants no mark, not `!`"]);
+    )).toEqual([pureAndTotal("this call is pure and cannot fail, so `.read` wants no mark, not `!`")]);
   });
 });
 
@@ -454,7 +467,7 @@ describe("Effects §13.3: a known instance's calls follow it, a generic call the
         "export let qualified(n: Lib.Note): String = Lib.read!(n)\n"],
     ])).toEqual([
       "this call is impure and may fail, so `.read` wants `!`, not no mark",
-      "this call is pure and cannot fail, so `Lib.read` wants no mark, not `!`",
+      pureAndTotal("this call is pure and cannot fail, so `Lib.read` wants no mark, not `!`"),
     ]);
   });
 
@@ -472,7 +485,7 @@ describe("Effects §13.3: a known instance's calls follow it, a generic call the
     ] as const;
     expect(projectMessages(files("s.name", ""))).toEqual([]);
     expect(projectMessages(files("s.name", "!")))
-      .toEqual(["this call is pure and cannot fail, so `Note.read` wants no mark, not `!`"]);
+      .toEqual([pureAndTotal("this call is pure and cannot fail, so `Note.read` wants no mark, not `!`")]);
     expect(projectMessages(files("readIt!(s.name)", "!"))).toEqual([]);
     expect(projectMessages(files("readIt!(s.name)", "")))
       .toEqual(["this call is impure and may fail, so `Note.read` wants `!`, not no mark"]);
@@ -547,7 +560,7 @@ describe("Effects §13.3: an instance's own colour, and the calls that follow it
     // The refusal is the honor's place, never a mark: a refused call owes none.
     expect(messages(IO + R + "let p(x: P): String = read!(x)\n" + PURE_P)).toEqual([BELOW("R<P>")]);
     expect(messages(IO + R + PURE_P + "let p(x: P): String = read!(x)\n"))
-      .toEqual(["this call is pure and cannot fail, so `read` wants no mark, not `!`"]);
+      .toEqual([pureAndTotal("this call is pure and cannot fail, so `read` wants no mark, not `!`")]);
   });
 
   test("a call above its honor is told once, and what it returns owes no mark (review r1)", () => {
@@ -615,7 +628,7 @@ describe("Effects §13.3: an instance's own colour, and the calls that follow it
       "record M = { n: Int }\nhonor S<M> =\n    all(ms) = ()\n" + `let k(m: M, ms: Vector(M)): Unit = ${call}\n`;
     expect(messages(all("all(ms)"))).toEqual([]);
     expect(messages(all("all([m])"))).toEqual([]);
-    expect(messages(all("all!(ms)"))).toEqual(["this call is pure and cannot fail, so `all` wants no mark, not `!`"]);
+    expect(messages(all("all!(ms)"))).toEqual([pureAndTotal("this call is pure and cannot fail, so `all` wants no mark, not `!`")]);
     // An element only inference decides is not decided by the text, in
     // either order of the lines (review r1).
     const loose = (body: string) => IO + "constraint S<s> =\n    all(stores: Vector(s)) ->! Unit\n" +
@@ -980,7 +993,7 @@ describe("Constraints §4.7: the `widens` door is compared, and follows its body
       ["/lib.hex", LIB("->!")],
       ["/main.hex", door("s.name", "tag!(p, 2n)")],
       ["/io.js", ""],
-    ])).toEqual(["this call is pure and cannot fail, so `tag` wants no mark, not `!`"]);
+    ])).toEqual([pureAndTotal("this call is pure and cannot fail, so `tag` wants no mark, not `!`")]);
     expect(projectMessages([
       ["/lib.hex", LIB("->!")],
       ["/main.hex", door('readIt!("x")', "tag(p, 2n)")],
@@ -1519,7 +1532,7 @@ describe("Effects §13.2: a consistent seat fixes its slots for the marks", () =
     // The seat is consistent and fixes `k`'s slot to the contract's `->`, so
     // the mark is read off a pure colour: the ordinary extra-mark report.
     expect(messages(RUN("k: () -> Unit", "->", "k!()"))).toEqual([
-      "this call is pure and cannot fail, so `k` wants no mark, not `!`",
+      pureAndTotal("this call is pure and cannot fail, so `k` wants no mark, not `!`"),
     ]);
   });
 
@@ -2612,7 +2625,7 @@ describe("Effects §13.2: a failed seat's held-back marks, and where its report 
     ]);
     expect(messages(source)).toEqual([
       pureConflict("go", "b"),
-      "this call is pure and cannot fail, so `quiet` wants no mark, not `!`",
+      pureAndTotal("this call is pure and cannot fail, so `quiet` wants no mark, not `!`"),
     ]);
     expect(primaries(source)).toEqual(["b!()", "!"]);
   });
@@ -2637,7 +2650,7 @@ describe("Effects §13.2: a failed seat's held-back marks, and where its report 
       "two!()",
     ]);
     expect(messages(removed)).toEqual([
-      "this call is pure and cannot fail, so `two` wants no mark, not `!`",
+      pureAndTotal("this call is pure and cannot fail, so `two` wants no mark, not `!`"),
     ]);
   });
 
@@ -2743,7 +2756,7 @@ describe("Effects §13.2: a failed seat's held-back marks, and where its report 
       "    a!()\n",
     );
     expect(inSeat).toEqual(outside);
-    expect(inSeat).toEqual(["this call is pure and cannot fail, so `spare` wants no mark, not `!`"]);
+    expect(inSeat).toEqual([pureAndTotal("this call is pure and cannot fail, so `spare` wants no mark, not `!`")]);
   });
 });
 
@@ -3015,7 +3028,7 @@ describe("Effects §13.2: a callback narrowed through a helper", () => {
     ]);
     expect(messages(source)).toEqual([
       narrowerAcceptance("go", "b"),
-      "this call is pure and cannot fail, so `quiet` wants no mark, not `!`",
+      pureAndTotal("this call is pure and cannot fail, so `quiet` wants no mark, not `!`"),
     ]);
   });
 

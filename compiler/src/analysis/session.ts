@@ -164,6 +164,8 @@ export interface CodeAction {
   readonly kind?: "quickfix" | "refactor";
   readonly edits: readonly ActionEdit[];
   readonly disabled?: string;
+  /** A repair the compiler offered only as a suggestion (`Diagnostics.Fix.suggestion`): never preferred. */
+  readonly suggestion?: true;
 }
 
 /**
@@ -780,7 +782,7 @@ export class AnalysisSession {
         }`;
         if (written.has(key)) continue;
         written.add(key);
-        actions.push({ title: fix.message, diagnostic, kind: "quickfix", edits });
+        actions.push({ title: fix.message, diagnostic, kind: "quickfix", edits, ...(fix.suggestion ? { suggestion: true } : {}) });
       }
       if (diagnostic.renameRepair !== undefined) {
         const rename = this.#renameAction(normalized, diagnostic, diagnostic.renameRepair.newName);

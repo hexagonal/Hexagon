@@ -4,6 +4,16 @@ import { compileFiles, runProject } from "../support/test-project";
 import regexRuntimeSource from "../../../stdlib/Runtime/Regex.hex?raw";
 
 /**
+ * A mark that claims more than its call does, where the report names no
+ * cause, is hedged (Declarations Preamble §1.1): it names the other
+ * possibility, its removal is a suggestion, and only the first such report in
+ * a module is given.
+ */
+const perhaps = (message: string, claims: string, silent: string): string =>
+  `${message} — perhaps the mark is wrong; or, if this call ${claims}, something makes it ${silent} ` +
+  "that this report does not name";
+
+/**
  * What the `Buffer` rows actually *do* (`spec/regex.md` §7, `spec/intrinsics.md`
  * §3.3, #927) — the behavioural half of the `type` form, where
  * `intrinsic-door.test.ts` holds what the door accepts and what it says when it
@@ -256,7 +266,7 @@ describe("the honest arrows (§3.3, `regex.md` §7)", () => {
     )).toEqual([]);
     expect(diagnostics(
       "let scratch(b: Buffer(Int)): Int = read!(b, 1)\n",
-    )).toEqual(["this call cannot fail, so `read` wants `~`, not `!`"]);
+    )).toEqual([perhaps("this call cannot fail, so `read` wants `~`, not `!`", "may fail", "unable to fail")]);
   });
 });
 

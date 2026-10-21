@@ -6,6 +6,16 @@ import regexRuntimeSource from "../../../stdlib/Runtime/Regex.hex?raw";
 import { intrinsicKeys } from "../intrinsics";
 
 /**
+ * A mark that claims more than its call does, where the report names no
+ * cause, is hedged (Declarations Preamble §1.1): it names the other
+ * possibility, its removal is a suggestion, and only the first such report in
+ * a module is given.
+ */
+const perhaps = (message: string, claims: string, silent: string): string =>
+  `${message} — perhaps the mark is wrong; or, if this call ${claims}, something makes it ${silent} ` +
+  "that this report does not name";
+
+/**
  * Conformance for the intrinsic door itself (`spec/intrinsics.md`): the gate
  * (§5), verification (§4.2), the admitted forms (§3.3), and the genericity grant
  * that deliberately does *not* reopen foreign externs (§3.4).
@@ -275,7 +285,9 @@ describe("an intrinsic row writes its arrow (§4.2, #869)", () => {
     )).toEqual(["this call is impure and may fail, so `impureRow` wants `!`, not no mark"]);
     expect(privileged(ROWS +
       "export let a: Int = pureRow!(\"x\")\n",
-    )).toEqual(["this call is pure and cannot fail, so `pureRow` wants no mark, not `!`"]);
+    )).toEqual([
+      perhaps("this call is pure and cannot fail, so `pureRow` wants no mark, not `!`", "is impure and may fail", "pure and unable to fail"),
+    ]);
     expect(privileged(ROWS +
       "export let d: Int = linkedRow(() => impureRow!(\"a\", \"b\"))\n",
     )).toEqual(["this call is impure and may fail, so `linkedRow` wants `!`, not no mark"]);

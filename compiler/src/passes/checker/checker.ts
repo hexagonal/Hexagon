@@ -27934,6 +27934,10 @@ class Checker {
     const byCall = new Map(this.#markObligations.map((obligation) => [obligation.call, obligation]));
     // The checks that fail a fact, made one report per fact once all are known.
     const checks: FactCheck[] = [];
+    // The marks no fact, demand, tie or limitation explains: the root cause is
+    // not found, so only the first in source order is given (Declarations
+    // Preamble §1.1).
+    const unexplained: Diagnostics.Diagnostic[] = [];
     for (const obligation of this.#markObligations) {
       // Read before the prune below compresses the chain (`#pastHeldBack`).
       const pastHeldBack: Record<Axis, Mono[] | undefined> = {
@@ -28142,6 +28146,38 @@ class Checker {
         ? over.flatMap((axis) => this.#markAllFacts.get(obligation.call)?.get(axis) ?? []).map((each) => ({ fact: each, name: each.name }))
         : seenOther;
       if (seen.length === 0) {
+        // The root cause not found (Declarations Preamble §1.1): a mark that
+        // claims more than the call does, and no fact, demand or limitation
+        // named why. The removal may itself be wrong, so it is a suggestion,
+        // and the report names the other possibility; a part the call
+        // certainly wants stays a fix, and its report is always given.
+        // Only the first of the others is given.
+        if (over.length > 0 && !readingGoes && factWords === undefined && demanded === undefined && words === undefined) {
+          const claims = over.map((axis) => axis === "world" ? "is impure" : "may fail").join(" and ");
+          const silent = over.map((axis) => axis === "world" ? "pure" : "unable to fail").join(" and ");
+          const [first, ...rest] = report.fixes ?? [];
+          const kept: Record<Axis, boolean> = {
+            world: written.world || missing.includes("world"),
+            fail: written.fail || missing.includes("fail"),
+          };
+          const certain: Diagnostics.Fix[] = missing.length === 0 ? [] : [{
+            message: `mark the call ${named(kept)}`,
+            edits: [{ span: obligation.markSpan ?? obligation.insertAt, replacement: spelled(kept) }],
+          }];
+          const hedged: Diagnostics.Diagnostic = {
+            ...report,
+            message: `${report.message} — perhaps the mark is wrong; or, if this call ${claims}, something makes it ` +
+              `${silent} that this report does not name`,
+            fixes: [
+              ...certain,
+              ...(first === undefined ? [] : [{ ...first, message: `perhaps ${first.message}`, suggestion: true as const }]),
+              ...rest,
+            ],
+          };
+          if (certain.length > 0) this.#diagnostics.add(hedged);
+          else unexplained.push(hedged);
+          continue;
+        }
         this.#diagnostics.add(report);
         continue;
       }
@@ -28158,6 +28194,10 @@ class Checker {
           : { span: obligation.markSpan ?? obligation.insertAt, replacement: spelled(wanted) },
       });
     }
+    const [firstUnexplained] = [...unexplained].sort((left, right) =>
+      precedes(left.primary, right.primary) ? -1 : precedes(right.primary, left.primary) ? 1 : 0
+    );
+    if (firstUnexplained !== undefined) this.#diagnostics.add(firstUnexplained);
     this.#reportFactDemands(byCall, checks);
     this.#reportFactChecks(checks, byCall);
   }

@@ -111,6 +111,9 @@ export function toLspCodeAction(
     title: action.title,
     kind,
     ...(diagnostics === undefined ? {} : { diagnostics }),
+    // A suggestion is never the repair an editor applies on its own
+    // (Declarations Preamble §1.1).
+    ...(action.suggestion === true ? { isPreferred: false } : {}),
     edit: { changes },
   };
 }

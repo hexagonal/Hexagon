@@ -19,6 +19,12 @@ export interface Edit {
 export interface Fix {
   readonly message: string;
   readonly edits: readonly Edit[];
+  /**
+   * A rewrite offered where the checker cannot see why the check fails, so it
+   * may itself be wrong (Declarations Preamble §1.1): worded "perhaps", never
+   * the preferred repair, and never applied with other fixes.
+   */
+  readonly suggestion?: true;
 }
 
 export interface Diagnostic {

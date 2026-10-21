@@ -2,6 +2,16 @@ import { describe, expect, test } from "vitest";
 
 import { compileFiles, projectDiagnostics, runMain, runProject } from "../support/test-project.js";
 
+/**
+ * A mark that claims more than its call does, where the report names no
+ * cause, is hedged (Declarations Preamble §1.1): it names the other
+ * possibility, its removal is a suggestion, and only the first such report in
+ * a module is given.
+ */
+const perhaps = (message: string, claims: string, silent: string): string =>
+  `${message} — perhaps the mark is wrong; or, if this call ${claims}, something makes it ${silent} ` +
+  "that this report does not name";
+
 const STDLIB = import.meta.glob("../../../stdlib/*.hex", {
   eager: true,
   query: "?raw",
@@ -324,7 +334,7 @@ describe("suffix construction marks (§14)", () => {
         "let wrong = (1)maker!()\n",
     )).toEqual([
       "this call is impure and may fail, so this call wants `!`, not no mark",
-      "this call is pure and cannot fail, so `maker` wants no mark, not `!`",
+      perhaps("this call is pure and cannot fail, so `maker` wants no mark, not `!`", "is impure and may fail", "pure and unable to fail"),
     ]);
   });
 });

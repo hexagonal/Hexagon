@@ -109,6 +109,14 @@ describe("converting one action", () => {
     ]);
   });
 
+  test("a suggestion is never the preferred repair (Declarations Preamble §1.1)", () => {
+    // Where the compiler cannot see why a check fails, its rewrite is a
+    // suggestion: an editor must not apply it on its own.
+    const suggested: CodeAction = { ...action, title: "perhaps remove the mark", suggestion: true };
+    expect(convert({ literals: true, disabled: false }, suggested)?.isPreferred).toBe(false);
+    expect(convert({ literals: true, disabled: false }) && "isPreferred" in convert({ literals: true, disabled: false })!).toBe(false);
+  });
+
   test("a refusal carries its reason and no edit, and only where it can be shown", () => {
     const refused: CodeAction = { ...action, edits: [], disabled: "the body has an error" };
     const shown = convert({ literals: true, disabled: true }, refused);

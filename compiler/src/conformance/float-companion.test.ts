@@ -3,6 +3,16 @@ import { describe, expect, test } from "vitest";
 import { compileFiles, compileMain, projectDiagnostics, runMain } from "../support/test-project.js";
 
 /**
+ * A mark that claims more than its call does, where the report names no
+ * cause, is hedged (Declarations Preamble §1.1): it names the other
+ * possibility, its removal is a suggestion, and only the first such report in
+ * a module is given.
+ */
+const perhaps = (message: string, claims: string, silent: string): string =>
+  `${message} — perhaps the mark is wrong; or, if this call ${claims}, something makes it ${silent} ` +
+  "that this report does not name";
+
+/**
  * PR δ3 of #344: **`Float` is a source companion.** `stdlib/Float.hex` is the
  * primitive's home module (Constraints §5.3), its eight instances are ordinary
  * `honor` blocks, `Float.mod` and `Float.rem` are its plain exports — `Float`
@@ -837,7 +847,7 @@ describe("Primitive Types §3's one edge, and `roundsToInt`, which tests it (#11
 
   test("it cannot fail, so it takes no mark and no reading, and it has no bare spelling", () => {
     expect(projectDiagnostics("module Main\n\n" + "export let f(x: Float): Bool = Float.roundsToInt^(x)\n"))
-      .toEqual(["this call cannot fail, so `roundsToInt` wants no mark, not `^`"]);
+      .toEqual([perhaps("this call cannot fail, so `roundsToInt` wants no mark, not `^`", "may fail", "unable to fail")]);
     expect(projectDiagnostics(
       "module Main\n\n" + "export let f(x: Float): Option(Bool) = Float.roundsToInt?(x)\n",
     )).toEqual(["this call cannot fail, so `roundsToInt` wants no `?`"]);
