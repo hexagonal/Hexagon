@@ -2535,11 +2535,36 @@ describe("Effects §3.4 — a knot's facts decide together, and one fact is one 
 
   it("names no fact where the function handed does nothing there", () => {
     // `a!` claims what nothing it runs does: `save0` goes to `f`, which nothing
-    // runs, and `noop`, which is pure, to `g`. The mark is simply wrong.
+    // runs, and `noop`, which is pure, to `g`. No fact is named. `a` hands `f`
+    // on, out of sight, so the removal is a suggestion (Declarations Preamble §1.1).
     const source = "fun\n    a(f, g, n: Int): Int = if n > 0 then b(f, g, n - 1) else 0\n" +
       "    b(f, g, n: Int): Int =\n        g^()\n        if n > 0 then a(f, g, n - 1) else 0\n" +
       "export let p(): Int = a!(save0, noop, 2)\n";
-    expect(reports(source).at(-1)).toEqual({ at: "L6 !", message: over("a"), fixes: ["remove the mark"] });
+    expect(reports(source).at(-1)).toEqual({
+      at: "L6 !",
+      message: over("a") + " — perhaps the mark is wrong; or, if this call is impure and may fail, something makes it " +
+        "pure and unable to fail that cannot be seen here",
+      fixes: ["perhaps remove the mark"],
+    });
+  });
+
+  it("offers a removal no cause explains as a suggestion, and gives only the first (Declarations Preamble §1.1)", () => {
+    // `tw` calls `f` bare, so `fwd(k) = tw(k)` is pure, and `fwd!(save0)`'s
+    // mark is true at run time: what makes it pure is out of sight here.
+    const fwd = "let tw(f) =\n    f()\n    0\nlet fwd(k) = tw(k)\n";
+    const hedged = over("fwd") + " — perhaps the mark is wrong; or, if this call is impure and may fail, something makes " +
+      "it pure and unable to fail that cannot be seen here";
+    const one = fwd + "export let p(): Int = fwd!(save0)\n";
+    expect(reports(one).map(({ message }) => message)).toContain(hedged);
+    const fixesOf = diagnostics(prelude + one).flatMap((diagnostic) => diagnostic.fixes ?? [])
+      .filter(({ message }) => message === "perhaps remove the mark");
+    expect(fixesOf.map(({ suggestion }) => suggestion)).toEqual([true]);
+    // Only the first such report in source order is given; the rest wait.
+    const two = fwd + "export let p(): Int = fwd!(save0)\nexport let q(): Int = fwd!(log0)\n";
+    expect(reports(two).filter(({ message }) => message.includes("perhaps")).map(({ at }) => at)).toEqual(["L5 !"]);
+    // Where the text shows why the call is silent, the removal is the fix.
+    const plain = "export let p(): Unit = noop!()\n";
+    expect(reports(plain)).toEqual([{ at: "L1 !", message: over("noop"), fixes: ["remove the mark"] }]);
   });
 
   it("explains each colour on its own: a part the fact does not explain keeps its own report", () => {
@@ -2782,13 +2807,15 @@ describe("Effects §3.4 — a knot's facts decide together, and one fact is one 
     const lone = "let ping(n: Int, act): Int =\n" + q("    ").replace("REC", "");
     const probe = "export let probe(): Int = ping!(2, save0)\n";
     const messages = (source: string) => reports(source).map(({ message }) => message);
+    // Where no fact explains a mark, and one is out of sight, the removal is a
+    // suggestion, and only the first such report is given (Declarations
+    // Preamble §1.1): `q!(noop, act)` hands `act` on, and what becomes of it
+    // there is out of sight, in the knot and in its twin alike.
+    const perhaps = (callee: string) => over(callee) + " — perhaps the mark is wrong; or, if this call is impure and " +
+      "may fail, something makes it pure and unable to fail that cannot be seen here";
+    const fact = handed + " — `cb` is called bare, which makes `act` pure and unable to fail";
     expect(messages(knot + probe)).toEqual(messages(lone + probe));
-    expect(messages(lone + probe)).toEqual([
-      over("q"),
-      over("q"),
-      over("ping"),
-      handed + " — `cb` is called bare, which makes `act` pure and unable to fail",
-    ]);
+    expect(messages(lone + probe)).toEqual([perhaps("q"), fact]);
   });
 });
 
@@ -3355,11 +3382,18 @@ describe("Effects §3.4 — what a held lambda's own callbacks run is not held (
       "    pong(n: Int, act): Int = if n > 0 then ping(n - 1, act) else 0\n";
     const lone = "let ping(n: Int, act): Int =\n" + indent(q.replace("REC", ""), "    ");
     const probe = "export let probe(): Int = ping!(2, save0)\n";
-    expect(check(knot + probe)).toEqual(check(lone + probe));
     // `save0` handed where the bare `cb()` made `act` pure names that fact, and
-    // the parameter of `ping` it is handed to (#1240).
-    expect(check(lone + probe)).toContain("this function is impure and may fail, where the function handed must be pure " +
-      "and unable to fail — `cb` is called bare, which makes `act` pure and unable to fail");
+    // the parameter of `ping` it is handed to (#1240), in both.
+    const fact = "this function is impure and may fail, where the function handed must be pure " +
+      "and unable to fail — `cb` is called bare, which makes `act` pure and unable to fail";
+    expect(check(knot + probe).filter((message) => !message.includes("perhaps"))).toEqual(
+      check(lone + probe).filter((message) => !message.includes("perhaps") && !message.startsWith("this call is pure")),
+    );
+    expect(check(lone + probe)).toContain(fact);
+    // A mark no fact explains is a suggestion where something is out of sight
+    // (Declarations Preamble §1.1): in the knot, `q`'s recursion hands `act`
+    // on, so whether `q!(noop, act)` runs it is out of sight; its twin's is not.
+    expect(check(knot + probe).filter((message) => message.includes("perhaps"))).toHaveLength(1);
   });
 });
 
@@ -4102,11 +4136,13 @@ describe("Effects §3.5 — a colour in error (#1223)", () => {
           `export let p(): Unit = a!(${value}, noop, 1)\n`,
       )).toEqual([made, purity]);
     }
-    // …or handed back.
+    // …or handed back. A name a pattern binds holds what the reading cannot
+    // see into, so the removal is a suggestion (Declarations Preamble §1.1).
     expect(check(
       "fun a(cb: () ->! Unit, n: Int): Option(() -> Unit) = if n == 0 then Some(noop) else a(() => cb!(), n - 1)\n" +
         "export let p(): Unit =\n    match a(save0, 1)\n        Some(g) => g!()\n        None => ()\n",
-    )).toEqual([made, noMark("`g`")]);
+    )).toEqual([made, noMark("`g`") + " — perhaps the mark is wrong; or, if this call is impure and may fail, something " +
+      "makes it pure and unable to fail that cannot be seen here"]);
     // An arrow its text writes as a constant is the text's: the refused member
     // draws what its repair draws, beside the refusal.
     const written = (handed: string) =>

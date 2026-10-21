@@ -30,6 +30,8 @@ Operational form, binding on every spec session:
 
 **A contract a value does not fit.** A value handed where a written contract demands what it is not (a pure function, one that cannot fail) is refused at the value. The diagnostic names what fits there, as the promise the contract makes ("a `->` arrow promises purity"), and where the contract is written or inferred. A contract is a promise to every caller, so no fix edits it from a use, and nothing turns an effect into its absence. Where a local rewrite keeps the contract, such as `assume` over a failure the writer says cannot happen here (Exceptions §8.3), it is offered too (Effects §4.3). A value that is not what the contract forbids, but an untyped parameter read exactly where it met a written type, fits once its own type is written: that is Effects §3.4's limitation, and the diagnostic is its, naming that type.
 
+**When the root cause cannot be found.** The rule assumes the checker knows why a check fails. Where it cannot see the cause, so that the report can name no fact, demand, tie or limitation behind it, the rewrite might itself be wrong. So it is offered as a suggestion, not as the fix: worded "perhaps", naming the other possibility, never preferred, and never applied with other fixes. Only the first such report in source order is given; the rest wait until it is fixed (Effects §3.4).
+
 ### 1.2 The Deferred-Goals Doctrine (corpus doctrine; permanent home)
 
 > **Deferred inference goals are exceptional.** Each deferred-goal kind must have a **finite, deterministic resolution rule**; must **not search globally**; must **not survive generalisation**; and must **preserve principal types**.

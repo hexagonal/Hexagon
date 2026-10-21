@@ -1451,8 +1451,12 @@ type ValueEnv = ReadonlyMap<Resolved.SymbolId, ValueBinding>;
 type ValueRead =
   | { readonly lambda: Resolved.LambdaExpr; readonly env: ValueEnv }
   | { readonly parameter: Resolved.SymbolId }
-  /** Something the reading cannot see into: a field, a written type, a foreign function, a call of a parameter. */
-  | { readonly opaque: true };
+  /**
+   * Something the reading cannot see into: a field, a written type, a foreign
+   * function, a call of a parameter. `written` where it stopped at a written
+   * result type, which itself says what the call returns.
+   */
+  | { readonly opaque: true; readonly written?: true };
 /** How many distinct readings one reading of a callee as its value takes at most (Effects §3.4). */
 const VALUE_STEPS = 4096;
 
@@ -4625,6 +4629,12 @@ class Checker {
   #valueReads = new Map<string, readonly ValueRead[] | "reading">();
   /** Each call whose callee reads as an untyped parameter other than by its own name (#1263, D1). */
   readonly #runsParameter = new Map<Resolved.CallExpr, Resolved.SymbolId>();
+  /** An `honor` member's parameters, whose types the constraint's signature writes (`#parameterAnnotations`). */
+  readonly #contractParameters = new Set<Resolved.SymbolId>();
+  /** The module's items, for a reading of every lambda in it (`#parameterAnnotations`). */
+  #moduleItems: readonly Resolved.Item[] = [];
+  /** Every lambda parameter's written type, once read (`#parameterAnnotations`). */
+  #parameterAnnotationsRead: ReadonlyMap<Resolved.SymbolId, Resolved.TypeAnnotation | undefined> | undefined;
   /** Whether every call of a parameter has been read (`#readCallsOfParameters`), so a reading may run. */
   #callsOfParametersRead = false;
   /** Each tie's parameters, to answer at the marks' check the calls that read as one of them (#1263, D1). */
@@ -6620,6 +6630,7 @@ class Checker {
       }
     }
     for (const symbol of module.symbols) this.#symbolKinds.set(symbol.id, symbol.kind);
+    this.#moduleItems = module.items;
     for (const declaration of [...this.#programNominals.records, ...module.records]) {
       if (!this.#constructedRecords.has(declaration.constructor.symbol)) {
         this.#constructedRecords.set(declaration.constructor.symbol, declaration);
@@ -27934,6 +27945,10 @@ class Checker {
     const byCall = new Map(this.#markObligations.map((obligation) => [obligation.call, obligation]));
     // The checks that fail a fact, made one report per fact once all are known.
     const checks: FactCheck[] = [];
+    // The marks no fact, demand, tie or limitation explains: the root cause is
+    // not found, so only the first in source order is given (Declarations
+    // Preamble §1.1).
+    const unexplained: Diagnostics.Diagnostic[] = [];
     for (const obligation of this.#markObligations) {
       // Read before the prune below compresses the chain (`#pastHeldBack`).
       const pastHeldBack: Record<Axis, Mono[] | undefined> = {
@@ -28142,6 +28157,25 @@ class Checker {
         ? over.flatMap((axis) => this.#markAllFacts.get(obligation.call)?.get(axis) ?? []).map((each) => ({ fact: each, name: each.name }))
         : seenOther;
       if (seen.length === 0) {
+        // The root cause not found (Declarations Preamble §1.1): a mark that
+        // claims more than the call does, and nothing named why. The rewrite
+        // may itself be wrong, so it is a suggestion, and the report names the
+        // other possibility.
+        if (over.length > 0 && !readingGoes && factWords === undefined && demanded === undefined && words === undefined &&
+          !this.#silenceVisible(obligation.call, over)) {
+          const claims = over.map((axis) => axis === "world" ? "is impure" : "may fail").join(" and ");
+          const silent = over.map((axis) => axis === "world" ? "pure" : "unable to fail").join(" and ");
+          const [first, ...rest] = report.fixes ?? [];
+          unexplained.push({
+            ...report,
+            message: `${report.message} — perhaps the mark is wrong; or, if this call ${claims}, something makes it ` +
+              `${silent} that cannot be seen here`,
+            ...(first === undefined ? {} : {
+              fixes: [{ ...first, message: `perhaps ${first.message}`, suggestion: true as const }, ...rest],
+            }),
+          });
+          continue;
+        }
         this.#diagnostics.add(report);
         continue;
       }
@@ -28158,6 +28192,10 @@ class Checker {
           : { span: obligation.markSpan ?? obligation.insertAt, replacement: spelled(wanted) },
       });
     }
+    const [firstUnexplained] = [...unexplained].sort((left, right) =>
+      precedes(left.primary, right.primary) ? -1 : precedes(right.primary, left.primary) ? 1 : 0
+    );
+    if (firstUnexplained !== undefined) this.#diagnostics.add(firstUnexplained);
     this.#reportFactDemands(byCall, checks);
     this.#reportFactChecks(checks, byCall);
   }
@@ -28297,7 +28335,7 @@ class Checker {
     const add = (each: readonly ValueRead[]): void => {
       for (const value of each) {
         const id = "opaque" in value
-          ? "o"
+          ? value.written === true ? "ow" : "o"
           : "parameter" in value
           ? `p${Number(value.parameter)}`
           : `${this.#valueNodeId(value.lambda)}:${this.#valueEnvIds.get(value.env)!}`;
@@ -28332,7 +28370,7 @@ class Checker {
           const { lambda, env: made } = read;
           // A written result type is what the call returns: the reading stops.
           if (!readsThrough(lambda.returnAnnotation)) {
-            add([{ opaque: true }]);
+            add([{ opaque: true, written: true }]);
             continue;
           }
           const relevant = this.#valueParameters(lambda);
@@ -28544,6 +28582,159 @@ class Checker {
     const tied = tiedTypeVariables(lambda);
     return new Set(lambda.parameters.filter(({ symbol, annotation }) => readsThrough(annotation, tied) && names.has(symbol))
       .map(({ symbol }) => symbol));
+  }
+
+  /**
+   * Whether the text shows why a call is silent on these colours, though no
+   * fact is named (Declarations Preamble §1.1): what it calls, and every
+   * function it hands, is read in full (`#valuesOf`), and an untyped parameter
+   * it runs whose colour a fact decided is handed, where it runs, a function
+   * whose own text is silent there. A fact's silence that left no trace is the
+   * one cause a report cannot see; a written face, a field's written type, or
+   * a body that involves no such fact, is one it can.
+   */
+  #silenceVisible(call: Resolved.CallExpr, over: readonly Axis[], depth = 0): boolean {
+    if (depth > 8) return false;
+    const factSilenced = (symbol: Resolved.SymbolId): boolean => {
+      const parameter = this.#untypedBySymbol.get(symbol);
+      if (parameter === undefined) return false;
+      const type = this.#prune(parameter.type);
+      if (type.kind !== "Function") return true;
+      return over.some((axis) => {
+        const colour = this.#prune(colourAt(type, axis) ?? PURE);
+        return this.#factColours.has(colour) || this.#demandFact(symbol, parameter.name, axis) !== undefined ||
+          this.#parameterFacts.get(symbol)?.get(axis) !== undefined;
+      });
+    };
+    // A function handed whose own text is silent on these colours: what runs
+    // there does nothing, whatever a fact made of the parameter.
+    const silentHanded = (expression: Resolved.Expr): boolean => {
+      const type = this.#expressionTypes.get(expression);
+      const handed = type === undefined ? undefined : this.#prune(type);
+      if (handed?.kind !== "Function") return false;
+      const silent = over.every((axis) => {
+        const colour = this.#prune(colourAt(handed, axis) ?? PURE);
+        return colour.kind === "Effect" && Colour.isBottom(colour) && !this.#factColours.has(colour);
+      });
+      return silent && clean(expression, []);
+    };
+    const clean = (expression: Resolved.Expr, args: readonly Resolved.Expr[]): boolean => {
+      const node = ungrouped(expression);
+      // A field or a method: its type is written where it is declared.
+      if (node.kind === "Access") return true;
+      // A name with no binding this module reads, and no untyped parameter: a
+      // function whose face is written or settled elsewhere, or a parameter
+      // whose written type decides it. A parameter its context typed, a name a
+      // pattern bound, or a `var` holds what this call does not show.
+      if (node.kind === "Name" && !this.#bindingValues.has(node.symbol) && !this.#untypedBySymbol.has(node.symbol)) {
+        const kind = this.#symbolKinds.get(node.symbol);
+        if (kind === "pattern" || kind === "var") return false;
+        if (kind === "parameter") {
+          const annotations = this.#parameterAnnotations();
+          // A member of an `honor`: the constraint's signature writes its type.
+          if (this.#contractParameters.has(node.symbol)) return true;
+          const annotation = annotations.get(node.symbol);
+          return annotation !== undefined && !readsThrough(annotation) && annotation.kind !== "Hole";
+        }
+        return true;
+      }
+      if (depth > 8) return false;
+      depth += 1;
+      const top = this.#valueEnv([]);
+      this.#valueSteps = VALUE_STEPS;
+      this.#valueReads = new Map();
+      const values = this.#valuesOf(expression, top);
+      if (this.#valueSteps < 0) return false;
+      for (const read of values) {
+        // A written result type says itself what the call returns.
+        if ("opaque" in read) {
+          if (read.written === true) continue;
+          return false;
+        }
+        // An untyped parameter silent here was made so by what it met or was
+        // handed, which this call does not show.
+        if ("parameter" in read) return false;
+        const { lambda, env } = read;
+        const bound = new Map(env);
+        for (const [index, parameter] of lambda.parameters.entries()) {
+          const argument = args[index];
+          if (argument !== undefined) bound.set(parameter.symbol, { expression: argument, env: top });
+        }
+        // Every untyped parameter the body names, run or handed on, a lambda
+        // nested in it included: what it does with one may be out of sight.
+        const named = new Set<Resolved.SymbolId>();
+        const walk = (each: unknown): void => {
+          if (each === null || typeof each !== "object") return;
+          const expression = each as Resolved.Expr;
+          if (expression.kind === "Name" && this.#untypedBySymbol.has(expression.symbol)) named.add(expression.symbol);
+          for (const value of Object.values(each)) {
+            if (Array.isArray(value)) for (const item of value) walk(item);
+            else if (value !== null && typeof value === "object" && "kind" in value) walk(value);
+          }
+        };
+        walk(lambda.body);
+        for (const symbol of named) {
+          if (!factSilenced(symbol)) continue;
+          let handedTo = bound.get(symbol);
+          if (handedTo === undefined) return false;
+          for (let named = ungrouped(handedTo.expression); named.kind === "Name";) {
+            const next: ValueBinding | undefined = handedTo.env.get(named.symbol);
+            if (next === undefined) break;
+            handedTo = next;
+            named = ungrouped(next.expression);
+          }
+          if (!silentHanded(handedTo.expression)) return false;
+        }
+      }
+      return true;
+    };
+    if (!clean(call.callee, call.arguments)) return false;
+    // A callee may follow what it is handed: every function handed is read too.
+    for (const argument of call.arguments) {
+      const type = this.#expressionTypes.get(argument);
+      if (type === undefined || this.#prune(type).kind !== "Function") continue;
+      if (!clean(argument, [])) return false;
+    }
+    return true;
+  }
+
+  /** Every lambda parameter's written type, by its binding, from every item of the module: read once. */
+  #parameterAnnotations(): ReadonlyMap<Resolved.SymbolId, Resolved.TypeAnnotation | undefined> {
+    if (this.#parameterAnnotationsRead !== undefined) return this.#parameterAnnotationsRead;
+    const annotations = new Map<Resolved.SymbolId, Resolved.TypeAnnotation | undefined>();
+    const seen = new Set<object>();
+    const walk = (node: unknown): void => {
+      if (node === null || typeof node !== "object" || seen.has(node)) return;
+      seen.add(node);
+      const expression = node as Resolved.Expr;
+      if (expression.kind === "Lambda") {
+        for (const { symbol, annotation } of expression.parameters) annotations.set(symbol, annotation);
+      }
+      // A lambda handed where the callee's declaration writes the parameter's
+      // type: its parameters' types are written there.
+      if (expression.kind === "Call") {
+        const callee = ungrouped(expression.callee);
+        const declared = callee.kind === "Name" ? this.#lambdaParameters.get(callee.symbol) : undefined;
+        for (const [index, argument] of expression.arguments.entries()) {
+          const lambda = ungrouped(argument);
+          const annotation = declared?.[index]?.annotation;
+          if (lambda.kind !== "Lambda" || annotation === undefined || readsThrough(annotation)) continue;
+          for (const { symbol } of lambda.parameters) this.#contractParameters.add(symbol);
+        }
+      }
+      for (const value of Object.values(node)) {
+        if (Array.isArray(value)) for (const item of value) walk(item);
+        else if (value !== null && typeof value === "object") walk(value);
+      }
+    };
+    for (const item of this.#moduleItems) {
+      if (item.kind === "Honor") {
+        for (const member of item.members) for (const { symbol } of member.value.parameters) this.#contractParameters.add(symbol);
+      }
+      walk(item);
+    }
+    this.#parameterAnnotationsRead = annotations;
+    return annotations;
   }
 
   /** The names a body calls, in the body itself, not in a lambda nested in it. */
