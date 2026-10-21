@@ -2586,6 +2586,10 @@ describe("Effects §3.4 — a knot's facts decide together, and one fact is one 
       ["mark the call `!`", false],
       ["perhaps mark the call `~`", true],
     ]);
+    // A report with a part the call certainly wants is always given, even
+    // after another report that names no cause.
+    const after = "export let p(): Unit = noop!()\nexport let q(): Unit = log0^()\n";
+    expect(reports(after).map(({ at }) => at)).toEqual(["L1 !", "L2 ^"]);
   });
 
   it("explains each colour on its own: a part the fact does not explain keeps its own report", () => {

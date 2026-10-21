@@ -28150,7 +28150,8 @@ class Checker {
         // claims more than the call does, and no fact, demand or limitation
         // named why. The removal may itself be wrong, so it is a suggestion,
         // and the report names the other possibility; a part the call
-        // certainly wants stays a fix. Only the first is given.
+        // certainly wants stays a fix, and its report is always given.
+        // Only the first of the others is given.
         if (over.length > 0 && !readingGoes && factWords === undefined && demanded === undefined && words === undefined) {
           const claims = over.map((axis) => axis === "world" ? "is impure" : "may fail").join(" and ");
           const silent = over.map((axis) => axis === "world" ? "pure" : "unable to fail").join(" and ");
@@ -28163,7 +28164,7 @@ class Checker {
             message: `mark the call ${named(kept)}`,
             edits: [{ span: obligation.markSpan ?? obligation.insertAt, replacement: spelled(kept) }],
           }];
-          unexplained.push({
+          const hedged: Diagnostics.Diagnostic = {
             ...report,
             message: `${report.message} — perhaps the mark is wrong; or, if this call ${claims}, something makes it ` +
               `${silent} that this report does not name`,
@@ -28172,7 +28173,9 @@ class Checker {
               ...(first === undefined ? [] : [{ ...first, message: `perhaps ${first.message}`, suggestion: true as const }]),
               ...rest,
             ],
-          });
+          };
+          if (certain.length > 0) this.#diagnostics.add(hedged);
+          else unexplained.push(hedged);
           continue;
         }
         this.#diagnostics.add(report);
