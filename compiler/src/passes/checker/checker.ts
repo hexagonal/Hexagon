@@ -30155,7 +30155,9 @@ class Checker {
         // type's impure constant fixed fits once its own type is written
         // (#1263, D2). Read again once every call of a parameter is known.
         const seam = atParameter && contractOf !== undefined ? this.#seamAtDemand(contractOf.argument, axes) : undefined;
-        if (seam !== undefined) return seam;
+        if (seam !== undefined) {
+          return lazy && axes.includes("fail") ? { ...seam, message: seam.message + LAZY_SEQ_ADVICE } : seam;
+        }
         const assume = atParameter && contractOf !== undefined ? this.#assumeFix(contractOf.argument, axes) : undefined;
         return {
           severity: "error",
