@@ -1056,6 +1056,40 @@ describe("Effects §3.4 — a parameter no call reaches keeps its own colour (#1
     // A fact on the parameter's own arrow names the parameter, as before.
     expect(check("let tw2(f) =\n    f()\n    0\nexport let q(): Int = tw2(save0)\n"))
       .toEqual([BARE("`f` is called bare, which makes it pure and unable to fail")]);
+    // Handed through a wrapper onto the arrow `k` is called through, it is
+    // `k`'s own arrow the demand sits on: what is handed is impure itself.
+    expect(check(twice + "let w(k) = tw(() => k)\nexport let p(): Int = w(save0)\n"))
+      .toEqual([BARE("`h` is called bare, which makes `k` pure and unable to fail")]);
+    // Handed where what it returns meets the fact, it is what the lambda
+    // returns that does not fit, whatever the fact is about.
+    expect(check("let tw(f) =\n    f()\n    0\nlet w(k) = tw(k())\nexport let p(): Int = w(() => save0)\n")).toEqual([
+      "this function returns a function that is impure and may fail, where the function handed must return one that " +
+      "is pure and unable to fail — `f` is called bare, which makes it pure and unable to fail",
+    ]);
+    // Through a call with arguments, and in the fix that marks every call.
+    expect(check("let tw(f) =\n    let h = f(1)()\n    h()\n    h!()\n    0\n")).toEqual([
+      "this call is pure and cannot fail, so `h` wants no mark, not `!` — `h` is called bare, which makes what `f(…)` " +
+      "returns pure and unable to fail",
+    ]);
+    const fixes = effectFixes([["/world.js", ""], ["/main.hex",
+      text("let tw(f) =\n    let h = f()\n    h()\n    h()\n    0\nexport let p(): Int = tw(() => save0)\n")]]);
+    expect(fixes).toContain("mark every call that makes what `f` returns pure and unable to fail: \"!\"");
+    // A guard's report, and a grouped report's label at the function handed.
+    expect(check("exception Oops\nlet tw(f) =\n    let h = f()\n    try\n        h()\n    catch\n        Oops => ()\n    0\n"))
+      .toContain("this arm can never run: nothing in this `try` may fail — `h` is called bare, which makes what `f` returns unable to fail");
+    const labels = compileFiles([["/world.js", ""], ["/main.hex",
+      text("let tw(f) =\n    let h = f()\n    h()\n    h!()\n    0\nexport let p(): Int = tw(() => save0)\n")]])
+      .diagnostics.flatMap(({ labels: each }) => (each ?? []).map(({ message }) => message));
+    expect(labels).toContain("a function that returns a function that is impure and may fail is handed here");
+    // Where the two colours sit on different arrows, each is told on its own.
+    const ones = 'extern from "./world.js"\n    export fun log(s: String) ->~ Unit\n' +
+      'let log0(): Unit = log~("x")\nexception Oops\nlet oops0(): Unit = throw^(Oops)\n';
+    expect(check(ones + "let tw(f) =\n    let h = f^()\n    h~()\n    0\nlet mk() =\n    log0~()\n    oops0\n" +
+      "export let p(): Int = tw(mk)\n")).toEqual([
+      "this function is impure, and returns a function that may fail, where the function handed must be pure, and return " +
+      "one that is unable to fail — `f` is called `^`, which makes it pure, and `h` is called `~`, which makes what `f` " +
+      "returns unable to fail",
+    ]);
   });
 
   it("a parameter only handed on is the parameter's own, as writing its type would make it", () => {

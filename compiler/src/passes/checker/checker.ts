@@ -1413,6 +1413,15 @@ interface ColourFact {
   readonly axis: Axis;
 }
 
+/**
+ * The parameter a report names a fact by (#1308): `own` where it names the
+ * parameter whose own arrow the fact decides, not the one it was made on.
+ */
+interface FactName {
+  readonly name: string;
+  readonly own?: true;
+}
+
 /** A fact as a report tells it: the parameter, the fact where one decided it, every call that makes it, and its colours. */
 interface Told {
   readonly name: string;
@@ -1589,7 +1598,7 @@ interface FactCheck {
   /** The facts it is seen to fail: from the solve, or from the callee's declaration. */
   readonly facts: readonly ReportFact[];
   /** How it names each fact: by the parameter it reaches. */
-  readonly names: ReadonlyMap<ReportFact, string>;
+  readonly names: ReadonlyMap<ReportFact, FactName>;
   /** Its words before the fact's, where it heads the report. */
   readonly head: string;
   /** Its words as a label on another check's report. */
@@ -4622,6 +4631,8 @@ class Checker {
      * that parameter's own arrow: a fact on what it returns is no fact about it.
      */
     parameter: string | undefined;
+    /** On each colour, how far down the spine of that parameter the demand sits: 0 its own arrow (#1308). */
+    readonly depths: Map<Axis, number>;
   }>();
   /** The argument being handed while it meets its parameter, and that parameter's name where known (#1240). */
   #handedArgument: {
@@ -23983,15 +23994,28 @@ class Checker {
    * that reach that arrow, `""` one arrow down; none on its own arrow, or off
    * the spine.
    */
-  #returnedAt(type: Mono, axis: Axis, colour: Variable): string | undefined {
+  #returnedAt(type: Mono, axis: Axis, colour: Mono): string | undefined {
     const calls: string[] = [];
     for (let node = this.#prune(type); node.kind === "Function"; node = this.#prune(node.result)) {
-      if (this.#colourParts(colourAt(node, axis) ?? PURE).some((part) => this.#prune(part) === colour)) {
-        return calls.length === 0 ? undefined : calls.slice(0, -1).join("");
-      }
+      if (this.#onArrow(node, axis, colour)) return calls.length === 0 ? undefined : calls.slice(0, -1).join("");
       calls.push(node.parameters.length === 0 ? "()" : "(…)");
     }
     return undefined;
+  }
+
+  /** How far down a function type's spine a colour sits: 0 on its own arrow, none off the spine (#1308). */
+  #spineDepth(type: Mono, axis: Axis, colour: Mono): number | undefined {
+    let depth = 0;
+    for (let node = this.#prune(type); node.kind === "Function"; node = this.#prune(node.result), depth += 1) {
+      if (this.#onArrow(node, axis, colour)) return depth;
+    }
+    return undefined;
+  }
+
+  #onArrow(node: FunctionMono, axis: Axis, colour: Mono): boolean {
+    const target = this.#prune(colour);
+    const at = this.#prune(colourAt(node, axis) ?? PURE);
+    return at === target || this.#colourParts(at).some((part) => this.#prune(part) === target);
   }
 
   /**
@@ -28454,7 +28478,7 @@ class Checker {
         span: report.primary,
         report,
         facts: seen.map(({ fact }) => fact),
-        names: new Map(seen.map(({ fact, name }) => [fact, name])),
+        names: new Map(seen.map(({ fact, name }) => [fact, { name }])),
         head: `this call ${does.join(" and ")}, so ${obligation.callee} wants ${wants}`,
         label: `${obligation.callee} wants ${wants}`,
         correction: readingGoes
@@ -28898,12 +28922,19 @@ class Checker {
    * written types, "`f` meets a type that makes it pure"; each in source order.
    */
   #reportWords(
-    facts: readonly { readonly fact: ReportFact; readonly name: string }[],
+    facts: readonly ({ readonly fact: ReportFact } & FactName)[],
     byCall: ReadonlyMap<Resolved.CallExpr, MarkObligation>,
   ): { readonly phrase: string; readonly labels: Diagnostics.Label[]; readonly told: Told[] } {
     const bySource = (left: Source.Span, right: Source.Span): number =>
       precedes(left, right) ? -1 : precedes(right, left) ? 1 : 0;
-    const told = this.#factsTold(facts.flatMap(({ fact, name }) => isDemandFact(fact) ? [] : [{ ...fact, name }]))
+    // Named by a parameter whose own arrow it decides, it is no fact about
+    // what that one returns (#1308).
+    const told = this.#factsTold(facts.flatMap(({ fact, name, own }) => {
+      if (isDemandFact(fact)) return [];
+      if (own !== true) return [{ ...fact, name }];
+      const { returns: _, ...rest } = fact;
+      return [{ ...rest, name }];
+    }))
       .sort((left, right) => bySource(left.calls[0]!.span, right.calls[0]!.span));
     const demands = new Map<string, { name: string; span: Source.Span; axes: Set<Axis> }>();
     for (const { fact, name } of facts) {
@@ -28943,9 +28974,8 @@ class Checker {
    * remove.
    */
   #reportFactDemands(byCall: ReadonlyMap<Resolved.CallExpr, MarkObligation>, checks: FactCheck[]): void {
-    for (const { span, facts, parameter, argument } of this.#factDemands.values()) {
+    for (const { span, facts, parameter, argument, depths } of this.#factDemands.values()) {
       const over = AXES.filter((axis) => facts.has(axis));
-      const silent = over.map((axis) => axis === "world" ? "pure" : "unable to fail").join(" and ");
       // Named by the parameter the function goes to, where the callee's
       // declaration says, so the mark at the same call names the same one.
       const seen = [...new Set(over.map((axis) => facts.get(axis)!))];
@@ -28961,18 +28991,28 @@ class Checker {
       // `assume` keeps a written contract (Declarations Preamble §1.1); a fact
       // a call makes is not offered it (#1313).
       const assume = argument === undefined || !seen.every(isDemandFact) ? undefined : this.#assumeFix(argument, over);
-      const named = seen.map((fact) => ({ fact, name: parameter ?? fact.name }));
+      const named = seen.map((fact) =>
+        parameter === undefined ? { fact, name: fact.name } : { fact, name: parameter, own: true as const }
+      );
       const words = this.#reportWords(named, byCall);
       const fixes = this.#readerFixes(words.told, byCall, seen.filter(isDemandFact));
-      // Where every fact decides an arrow the parameter returns, it is what
-      // the function handed returns that does not fit (#1308).
-      const returns = seen.every((fact) => !isDemandFact(fact) && fact.returns !== undefined) &&
-          new Set(seen.map((fact) => (fact as ColourFact).returns)).size === 1
-        ? (seen[0] as ColourFact).returns!
-        : undefined;
-      const depth = returns === undefined ? 0 : returns.length - returns.replaceAll("(", "").length + 1;
-      const head = `this function ${returnedWords(depth, "returns a function that ")}${colourDoes(over)}, ` +
-        `where the function handed must ${depth === 0 ? "be" : `${returnedWords(depth, "return one that ")}is`} ${silent}`;
+      // Where the demand sits on an arrow the parameter returns, it is what
+      // the function handed returns that does not fit, on each colour as far
+      // down as it sits (#1308).
+      const groups: { depth: number; axes: Axis[] }[] = [];
+      for (const axis of over) {
+        const depth = depths.get(axis) ?? 0;
+        const group = groups.find((each) => each.depth === depth);
+        if (group === undefined) groups.push({ depth, axes: [axis] });
+        else group.axes.push(axis);
+      }
+      const does = groups.map(({ depth, axes }) => `${returnedWords(depth, "returns a function that ")}${colourDoes(axes)}`)
+        .join(", and ");
+      const must = groups.map(({ depth, axes }) => {
+        const silentOn = axes.map((axis) => axis === "world" ? "pure" : "unable to fail").join(" and ");
+        return depth === 0 ? `be ${silentOn}` : `${returnedWords(depth, "return one that ")}is ${silentOn}`;
+      }).join(", and ");
+      const head = `this function ${does}, where the function handed must ${must}`;
       checks.push({
         kind: "handed",
         span,
@@ -28984,9 +29024,9 @@ class Checker {
           ...(fixes.length === 0 && assume === undefined ? {} : { fixes: [...fixes, ...(assume === undefined ? [] : [assume])] }),
         },
         facts: seen,
-        names: new Map(named.map(({ fact, name }) => [fact, name])),
+        names: new Map(named.map(({ fact, ...name }) => [fact, name])),
         head,
-        label: `a function that ${returnedWords(depth, "returns a function that ")}${colourDoes(over)} is handed here`,
+        label: `a function that ${does} is handed here`,
         correction: undefined,
         ...(assume === undefined ? {} : { assume }),
       });
@@ -29036,12 +29076,12 @@ class Checker {
         continue;
       }
       // Every fact, named as the first check in source order to reach it names it.
-      const names = new Map<ReportFact, string>();
+      const names = new Map<ReportFact, FactName>();
       for (const check of ordered) {
-        for (const fact of check.facts) if (!names.has(fact)) names.set(fact, check.names.get(fact) ?? fact.name);
+        for (const fact of check.facts) if (!names.has(fact)) names.set(fact, check.names.get(fact) ?? { name: fact.name });
       }
       const tell = (facts: readonly ReportFact[]) =>
-        this.#reportWords(facts.map((fact) => ({ fact, name: names.get(fact)! })), byCall);
+        this.#reportWords(facts.map((fact) => ({ fact, ...names.get(fact)! })), byCall);
       // The headline's own facts, then the facts only the other checks meet,
       // set apart, so the headline says nothing false of its own check.
       const own = tell([...names.keys()].filter((fact) => first.facts.includes(fact)));
@@ -30441,11 +30481,16 @@ class Checker {
             facts: new Map(),
             argument: handed?.argument,
             parameter: onOwnArrow ? handed?.parameter : undefined,
+            depths: new Map(),
           });
         } else if (!onOwnArrow) {
           known.parameter = undefined;
         }
-        if (!known.facts.has(this.#currentAxis)) known.facts.set(this.#currentAxis, fact);
+        if (!known.facts.has(this.#currentAxis)) {
+          known.facts.set(this.#currentAxis, fact);
+          const depth = parameterType === undefined ? undefined : this.#spineDepth(parameterType, this.#currentAxis, demand);
+          if (depth !== undefined) known.depths.set(this.#currentAxis, depth);
+        }
         return;
       }
       // The demand as written: its arrow's two colours (Effects §4.3, §9).
