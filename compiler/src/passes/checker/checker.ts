@@ -23856,10 +23856,11 @@ class Checker {
 
   /**
    * A lambda the knot holds, where its text ends: a tie between its own
-   * untyped callbacks stands however the knot settles, since its ties are read
-   * as its text left them (#1246), so those callbacks read as their fix from
-   * here, as its plain twin's do from its close. A use of its value before
-   * the knot closes meets no tie a second time (Effects §3.4, #1305).
+   * untyped callbacks that no callback of a body around it shares stands
+   * however the knot settles, since its ties are read as its text left them
+   * (#1246), so those callbacks read as their fix from here, as its plain
+   * twin's do from its close. A use of its value before the knot closes meets
+   * no tie a second time (Effects §3.4, #1305).
    */
   #readOwnTiesFromEnd(frame: EffectFrame): void {
     for (const parameter of frame.untyped) {
@@ -23869,8 +23870,26 @@ class Checker {
       if (colour.kind !== "Variable") continue;
       const tie = this.#tieOf(frame, parameter, colour);
       if (tie === undefined || tie.waits !== undefined || tie.others.length === 0) continue;
+      // Not where an enclosing body's untyped callback shares the colour too:
+      // a fact there may make it silent at the knot's close, and with no tie
+      // left to report, a fix reading would let the program through.
+      if (this.#sharedOutward(frame, parameter, colour)) continue;
       for (const each of [parameter, ...tie.others]) (frame.tieReadings ??= new Set()).add(each.index);
     }
+  }
+
+  /** Whether an untyped callback of a body around `frame` not yet decided shares this colour (`#tieOf`'s wait). */
+  #sharedOutward(frame: EffectFrame, parameter: EffectFrame["untyped"][number], colour: Mono): boolean {
+    const parts = this.#colourParts(colour);
+    const axis = entryAxis(parameter);
+    for (let open = frame.enclosing; open !== undefined; open = open.enclosing) {
+      if (this.#tiesRead.has(open)) continue;
+      for (const outer of open.untyped) {
+        const spine = this.#spineColours(outer.type, axis).flatMap(({ arrow }) => this.#colourParts(arrow));
+        if (parts.some((part) => spine.includes(part))) return true;
+      }
+    }
+    return false;
   }
 
   /**
