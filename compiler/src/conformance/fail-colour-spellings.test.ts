@@ -1012,17 +1012,29 @@ describe("Effects §3.4: a mark decides nothing; facts decide an untyped paramet
     // The written type marks what the mark claims.
     expect(fixes(PRE + pure + "let j3(g, f) =\n    pureOnly(g)\n    pick(g, f)~()\n")[0])
       .toEqual(["write the types of `g` and `f`", [": () -> Unit", ": () ->~ Unit"]]);
-    // Not where the other is named on its own too, by a demand of its own or a
-    // bare call, nor where the sharing is in data: no cause is named.
+    // Not where the other, or a binding or parameter the reading passes on
+    // the way, is named on its own too (a demand, a bare call, a written
+    // type), whichever line comes first, nor where the sharing is in data: no
+    // cause is named.
     for (const body of [
       "    pureOnly(g)\n    pureOnly(f)\n    pick(g, f)!()\n",
       "    let h = pick(g, f)\n    pureOnly(g)\n    pureOnly(f)\n    h!()\n",
       "    pureOnly(g)\n    f()\n    pick(g, f)!()\n",
       "    pureOnly(g)\n    let xs = [g, f]\n    xs[0]!()\n",
+      "    pureOnly(g)\n    let h = pick(g, f)\n    pureOnly(h)\n    h!()\n",
+      "    let h = pick(g, f)\n    pureOnly(h)\n    pureOnly(g)\n    h!()\n",
+      "    pureOnly(g)\n    let h = pick(g, f)\n    h()\n    h!()\n",
+      "    pureOnly(g)\n    let h = pick(g, f)\n    let k: () -> Unit = h\n    h!()\n",
+      "    pureOnly(g)\n    wrap(g, f)!()\n",
     ]) {
-      expect([body, reports(PRE + pure + `let j3(g, f) =\n${body}`).map(([, text]) => text.includes("perhaps"))])
+      const wrap = "let wrap(x, y) =\n    pureOnly(y)\n    pick(x, y)\n";
+      expect([body, reports(PRE + pure + wrap + `let j3(g, f) =\n${body}`).map(([, text]) => text.includes("perhaps"))])
         .toEqual([body, [true]]);
     }
+    // Every parameter a demand meets is named.
+    expect(reports(PRE + pure + "let pick3(a: t, b: t, c: t): t = a\nlet j3(g, f, k) =\n    pureOnly(g)\n    pureOnly(k)\n    pick3(g, f, k)!()\n"))
+      .toEqual([["!", "this call is pure and cannot fail only because `f`'s colour is tied to `g`'s and `k`'s here, and " +
+        "`g` and `k` meet `() -> Unit` — write their types, or wrap `g` and `k` where they meet"]]);
     // Where the sharing is a tie, the tie's report stands for it, and its fix
     // writes what the mark claims.
     const total = "let total(g: () ->~ Unit): Unit = ()\nlet j3(g, f) =\n    total(g)\n    pick(g, f)!()\n";
@@ -1030,6 +1042,9 @@ describe("Effects §3.4: a mark decides nothing; facts decide an untyped paramet
       ["pick(g, f)", "`g`'s colour is tied to `f`'s here, and inference cannot keep them apart — write `g`'s type, or wrap `g` where they meet"],
     ]);
     expect(fixes(PRE + total)).toEqual([["write the types of `g` and `f`", [": () ->~ Unit", ": () ->! Unit"]]]);
+    // Not where a mark on the way is bare on the colour: the tie's fix keeps it.
+    const kept = "let total(g: () ->~ Unit): Unit = ()\nlet j3(g, f) =\n    total(g)\n    let h = pick(g, f)\n    h~()\n    h!()\n";
+    expect(fixes(PRE + kept)[0]).toEqual(["write the types of `g` and `f`", [": () ->~ Unit", ": () ->~ Unit"]]);
   });
 
   test("a part another body decides may yet be made silent there: the shared colour a mark needs is a tie", () => {

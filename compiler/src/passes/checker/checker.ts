@@ -4645,8 +4645,14 @@ class Checker {
   #valueThroughTies = false;
   /** The names a reading through shared result types passed on its way (`#sharedAtMark`). */
   #valuePath = new Set<Resolved.NameExpr>();
-  /** Where a reading through shared result types met a sharing: a merge, or such a call. */
-  #valueSharings: Source.Span[] = [];
+  /**
+   * The names such a reading read as a value on its way, a binding's or a
+   * parameter's: every other place each is named could decide the colour too.
+   * Not the name of a function it called through.
+   */
+  #valueCarriers = new Set<Resolved.SymbolId>();
+  /** The calls, merges and matches such a reading met, in the order it met them. */
+  #valueSites: Resolved.Expr[] = [];
   /** Every name in the text, by what it names (`#sharedAtMark`). */
   readonly #nameUses = new Map<Resolved.SymbolId, Resolved.NameExpr[]>();
   /**
@@ -4655,8 +4661,8 @@ class Checker {
    * arrow, so the mark holds.
    */
   readonly #markedThroughSharing = new Map<Resolved.SymbolId, Set<Axis>>();
-  /** The names written as a call's callee (`#sharedAtMark`). */
-  readonly #namesAsCallee = new WeakSet<Resolved.NameExpr>();
+  /** Each name written as a call's callee, with the call (`#sharedAtMark`). */
+  readonly #calleeCalls = new WeakMap<Resolved.NameExpr, Resolved.CallExpr>();
   /** `#valueNamesOf` and `#valueRelevance` for a reading through shared result types. */
   readonly #valueNamesOfTies = new WeakMap<object, ReadonlySet<Resolved.SymbolId>>();
   #valueRelevanceTies: ReadonlyMap<Resolved.LambdaExpr, ReadonlySet<Resolved.SymbolId>> | undefined;
@@ -22156,7 +22162,7 @@ class Checker {
       expression: (expression) => {
         if (expression.kind === "Call") {
           const named = ungrouped(expression.callee);
-          if (named.kind === "Name") this.#namesAsCallee.add(named);
+          if (named.kind === "Name") this.#calleeCalls.set(named, expression);
         }
         if (expression.kind === "Call") {
           const callee = ungrouped(expression.callee);
@@ -24958,7 +24964,8 @@ class Checker {
     // A tie found on the world colour is found before the fail colour settles,
     // and the fix writes each colour as it settles (§3.4's black-box reading),
     // and a mark through a sharing may yet write a colour (#1263, D3): its fix
-    // is read again at the module's end.
+    // is read again at the module's end. The fix reads only settled colours,
+    // so a tie on the fail colour reads the same there but for such a mark.
     this.#tieFixesOwed.push({ bag: this.#diagnostics, report: diagnostic, fixes });
     // The refused parameters read as their fix where the function is seen from
     // outside (`#readRefusedTies`), so no caller meets the tie a second time.
@@ -27586,8 +27593,12 @@ class Checker {
     this.#valueSteps = VALUE_STEPS;
     this.#valueReads = new Map();
     this.#valueThroughTies = true;
-    const path = this.#valuePath = new Set();
-    const sharings = this.#valueSharings = [];
+    const path = new Set<Resolved.NameExpr>();
+    const carriers = new Set<Resolved.SymbolId>();
+    const sites: Resolved.Expr[] = [];
+    this.#valuePath = path;
+    this.#valueCarriers = carriers;
+    this.#valueSites = sites;
     let values: readonly ValueRead[];
     try {
       values = this.#valuesOf(call.callee, this.#valueEnv([]));
@@ -27604,10 +27615,15 @@ class Checker {
       if (!parameters.includes(parameter)) parameters.push(parameter);
     }
     if (parameters.length < 2) return undefined;
-    // Each name of a parameter the reading did not pass on its way, other
-    // than as the callee of a call of it: a use of its own.
-    const ownUses = (parameter: EffectFrame["untyped"][number]): Resolved.NameExpr[] =>
-      (this.#nameUses.get(parameter.symbol) ?? []).filter((use) => !path.has(use));
+    // Each name the reading did not pass on its way: a use of its own.
+    const ownUses = (symbol: Resolved.SymbolId): Resolved.NameExpr[] =>
+      (this.#nameUses.get(symbol) ?? []).filter((use) => !path.has(use));
+    // A use that decides none of the colours the mark claims: the callee of a
+    // call whose mark carries them.
+    const claims = (use: Resolved.NameExpr): boolean => {
+      const parts = markParts(this.#calleeCalls.get(use)?.mark);
+      return this.#calleeCalls.has(use) && over.every((axis) => parts[axis]);
+    };
     // Where the shared colour met a `->` demand: a pin of any of them, which
     // of them is met there read from the text, by a name of its own in it.
     const pins = (axis: Axis) => parameters.flatMap((each) => {
@@ -27615,14 +27631,22 @@ class Checker {
       return pin?.silent === true && this.#demandFact(each.symbol, each.name, axis) !== undefined ? [pin] : [];
     });
     const demandOf = (parameter: EffectFrame["untyped"][number], axis: Axis) =>
-      pins(axis).find((pin) => ownUses(parameter).some((use) => spanWithin(use.span, pin.span)));
+      pins(axis).find((pin) => ownUses(parameter.symbol).some((use) => spanWithin(use.span, pin.span)));
     const demands = parameters.filter((each) => over.every((axis) => demandOf(each, axis) !== undefined));
     const free = parameters.filter((each) =>
-      !demands.includes(each) &&
-      ownUses(each).every((use) => this.#namesAsCallee.has(use)) &&
-      over.every((axis) => this.#calledBareItself.get(each.symbol)?.has(axis) !== true)
+      !demands.includes(each) && over.every((axis) => this.#calledBareItself.get(each.symbol)?.has(axis) !== true)
     );
     if (demands.length === 0 || free.length === 0 || demands.length + free.length < parameters.length) return undefined;
+    // Every name read on the way but a demanded parameter, the others and
+    // the bindings and parameters between, is named nowhere else, other than
+    // where a mark carries what this one claims: anything else could be what
+    // decided the colour.
+    const demanded = new Set(demands.map(({ symbol }) => symbol));
+    const quoted = (list: readonly EffectFrame["untyped"][number][]): string =>
+      list.length === 1
+        ? `\`${list[0]!.name}\``
+        : `${list.slice(0, -1).map(({ name }) => `\`${name}\``).join(", ")} and \`${list.at(-1)!.name}\``;
+    if ([...carriers].some((symbol) => !demanded.has(symbol) && !ownUses(symbol).every(claims))) return undefined;
     // Where the sharing is a tie, the tie's report is this one: its fix writes
     // what the mark claims, and answers it (§9).
     if (this.#tiesToAnswer.some((group) => parameters.every(({ symbol }) => group.includes(symbol)))) {
@@ -27633,12 +27657,13 @@ class Checker {
       }
       return "answered";
     }
-    const demand = demands[0]!;
-    const pin = demandOf(demand, over[0]!)!;
-    const met = this.#display(demand.type, "callback");
+    const met = (parameter: EffectFrame["untyped"][number]): string => this.#display(parameter.type, "callback");
+    const meets = demands.every((each) => met(each) === met(demands[0]!))
+      ? `${quoted(demands)} ${demands.length === 1 ? "meets" : "meet"} \`${met(demands[0]!)}\``
+      : demands.map((each) => `\`${each.name}\` meets \`${met(each)}\``).join(", and ");
     // The wrapper is spelled where it takes nothing to hand on.
-    const demandType = this.#prune(demand.type);
-    const nullary = demandType.kind === "Function" && demandType.parameters.length === 0;
+    const demandType = demands.length === 1 ? this.#prune(demands[0]!.type) : undefined;
+    const nullary = demandType?.kind === "Function" && demandType.parameters.length === 0;
     // Each written as the fix reads it: a demanded one as it is, its own
     // arrow silent where it is called bare (§9); one the demand reaches only
     // through the sharing, marking what the mark claims.
@@ -27655,12 +27680,13 @@ class Checker {
     const inOrder = [...parameters].sort((left, right) =>
       precedes(left.span, right.span) ? -1 : precedes(right.span, left.span) ? 1 : 0
     );
-    const quoted = (list: readonly EffectFrame["untyped"][number][]): string =>
-      list.length === 1
-        ? `\`${list[0]!.name}\``
-        : `${list.slice(0, -1).map(({ name }) => `\`${name}\``).join(", ")} and \`${list.at(-1)!.name}\``;
     const tied = free.length === 1 ? `${quoted(free)}'s colour is` : `the colours of ${quoted(free)} are`;
-    const at = sharings[0] ?? ungrouped(call.callee).span;
+    const theirs = demands.map(({ name }) => `\`${name}\`'s`).join(" and ");
+    // The sharing as this body writes it: the first place the reading met
+    // that names every parameter it reached.
+    const named = [...path].filter((use) => parameters.some(({ symbol }) => symbol === use.symbol));
+    const at = sites.find((site) => named.every((use) => spanWithin(use.span, site.span)))?.span ??
+      ungrouped(call.callee).span;
     const fixes: Diagnostics.Fix[] = [
       ...(readings.some((reading) => reading === undefined) ? [] : [{
         message: `write the types of ${quoted(inOrder)}`,
@@ -27673,13 +27699,13 @@ class Checker {
     ];
     return {
       severity: "error",
-      message: `this call ${colourSilent(over)} only because ${tied} tied to \`${demand.name}\`'s here, and ` +
-        `\`${demand.name}\` meets \`${met}\` — write their types, or wrap \`${demand.name}\` where they meet` +
-        (nullary ? `: \`() => ${demand.name}()\`` : ""),
+      message: `this call ${colourSilent(over)} only because ${tied} tied to ${theirs} here, and ${meets} — ` +
+        `write their types, or wrap ${quoted(demands)} where they meet` +
+        (nullary ? `: \`() => ${demands[0]!.name}()\`` : ""),
       primary: obligation.markSpan ?? obligation.span,
       labels: [
-        { span: pin.span, message: `\`${demand.name}\` meets \`${met}\` here` },
-        { span: at, message: `${tied} tied to \`${demand.name}\`'s here` },
+        ...demands.map((each) => ({ span: demandOf(each, over[0]!)!.span, message: `\`${each.name}\` meets \`${met(each)}\` here` })),
+        { span: at, message: `${tied} tied to ${theirs} here` },
         ...inOrder.map((each) => ({ span: each.span, message: `\`${each.name}\` has no written type` })),
       ],
       ...(fixes.length === 0 ? {} : { fixes }),
@@ -28530,7 +28556,13 @@ class Checker {
         add([{ lambda: node, env }]);
         break;
       case "Name": {
-        if (this.#valueThroughTies) this.#valuePath.add(node);
+        if (this.#valueThroughTies) {
+          this.#valuePath.add(node);
+          const written = this.#bindingValues.get(node.symbol);
+          if (env.has(node.symbol) || written === undefined || ungrouped(written).kind !== "Lambda") {
+            this.#valueCarriers.add(node.symbol);
+          }
+        }
         const handed = env.get(node.symbol);
         if (handed !== undefined) add(this.#valuesOf(handed.expression, handed.env));
         else {
@@ -28542,6 +28574,7 @@ class Checker {
         break;
       }
       case "Call":
+        if (this.#valueThroughTies) this.#valueSites.push(node);
         for (const read of this.#valuesOf(node.callee, env)) {
           // What a call of a parameter returns is nothing the text spells.
           if (!("lambda" in read)) {
@@ -28553,7 +28586,6 @@ class Checker {
           // is each of their arguments' (#1263, D3).
           const shared = this.#valueThroughTies ? tiedResultParameters(lambda) : new Set<Resolved.SymbolId>();
           if (shared.size > 0) {
-            this.#valueSharings.push(node.span);
             for (const [index, parameter] of lambda.parameters.entries()) {
               if (!shared.has(parameter.symbol)) continue;
               const argument = node.arguments[index];
@@ -28577,12 +28609,12 @@ class Checker {
         }
         break;
       case "If":
-        if (this.#valueThroughTies) this.#valueSharings.push(node.span);
+        if (this.#valueThroughTies) this.#valueSites.push(node);
         add(this.#valuesOf(node.consequence, env));
         add(this.#valuesOf(node.alternative, env));
         break;
       case "Match":
-        if (this.#valueThroughTies) this.#valueSharings.push(node.span);
+        if (this.#valueThroughTies) this.#valueSites.push(node);
         for (const arm of [...node.arms, ...(node.catchArms ?? [])]) add(this.#valuesOf(arm.body, env));
         break;
       case "Block": {
