@@ -1663,7 +1663,7 @@ describe("Effects §3.4 — a tie between callbacks is refused, where it was mad
     }
   });
 
-  it("a held lambda's tie between its own callbacks reads as its fix where its text ends, as its plain twin's does (#1305)", () => {
+  it("a held lambda's tie between its own callbacks reads as its fix where its text ends, as its plain twin's does, and stands (#1305, #1328)", () => {
     const b = "    b(g, c: Bool, n: Int): Unit = if n == 0 then () else a!(g, c, n)\n";
     const member = (lines: readonly string[]): string[] => {
       const a = "    a(g, c: Bool, n: Int): Unit =\n" + lines.map((line) => `        ${line}\n`).join("") + "        ()\n";
@@ -1689,6 +1689,27 @@ describe("Effects §3.4 — a tie between callbacks is refused, where it was mad
       const reports = compileFiles([["/world.js", ""], ["/main.hex", "module Main\n\n" + fixtures + withSave +
         "let ident(x: t): t = x\n" + program.replaceAll("a!(", "a(")]]).diagnostics.map(({ message }) => message);
       expect([program, reports.some((message) => message.includes("is tied to"))]).toEqual([program, true]);
+    }
+    // A bare call that silences the tied colour where the knot closes (the
+    // member's `g()`, which `h` shares) does not dissolve the tie (#1328).
+    const pinned = ["g()", "let q = ident((k, h) =>", "    b(g, c, n - 1)", "    let _ = if c then k else h",
+      "    let _ = if c then h else g", "    ())", "q(noop, noop)"];
+    for (const program of member(pinned)) {
+      const text = "let ident(x: t): t = x\nlet noop(): Unit = ()\n" + program.replaceAll("a!(", "a(");
+      expect([program, tieReports(text).map(({ at }) => at)]).toEqual([program, ["if c then k else h"]]);
+    }
+    // But a colour the held lambda's own bare call made silent is no tie,
+    // there as in its twin: `k()` silences what `x` meets, and `h()` what `f`
+    // meets (§3.4's own example, held).
+    for (const lines of [
+      ["let q = ident((k) =>", "    b(g, c, n - 1)", "    k()", "    let r = (x) =>", "        let _ = if c then x else k",
+        "        ()", "    ())", "q(noop)"],
+      ["let q = ident((h) =>", "    b(g, c, n - 1)", "    let inner = (f) => if c then h else f", "    h()", "    ())", "q(noop)"],
+    ]) {
+      for (const program of member(lines)) {
+        const text = "let ident(x: t): t = x\nlet noop(): Unit = ()\n" + program.replaceAll("a!(", "a(");
+        expect([program, tieReports(text)]).toEqual([program, []]);
+      }
     }
     // The twin: the same lambda, no knot holding it.
     const twin = own.filter((line) => !line.includes("b!("));
