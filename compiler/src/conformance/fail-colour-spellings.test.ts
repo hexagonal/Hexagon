@@ -1056,6 +1056,12 @@ describe("Effects §3.4: a mark decides nothing; facts decide an untyped paramet
       expect([body, said.some((text) => text.includes("tied to")), said.some((text) => text.includes("perhaps"))])
         .toEqual([body, false, true]);
     }
+    // Nor where a type the repair would write is not settled: the repair
+    // that keeps the mark cannot be offered.
+    const unsettled = reports(PRE + "let pureOnlyT(g: (a) -> Unit): Unit = ()\nlet j3(g, f, x, c: Bool) =\n" +
+      "    pureOnlyT(g)\n    (if c then g else f)!(x)\n").map(([, text]) => text);
+    expect([unsettled.some((text) => text.includes("tied to")), unsettled.some((text) => text.includes("perhaps"))])
+      .toEqual([false, true]);
     // Nor in a lambda no binding names, whose colour a demand may yet meet.
     expect(reports(PRE + pure + "let j3(): Unit = keep((g, f) =>\n    pureOnly(g)\n    pick(g, f)!())\n")
       .map(([, text]) => text.includes("perhaps"))).toEqual([true]);

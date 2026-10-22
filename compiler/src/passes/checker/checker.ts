@@ -27695,19 +27695,22 @@ class Checker {
         ...(over.includes("fail") ? { fail: IMPURE } : {}),
       });
     });
+    // Where a type cannot be written yet, the repair that keeps the mark
+    // cannot be offered, and the report names no cause.
+    if (readings.some((reading) => reading === undefined)) return undefined;
     const inOrder = [...parameters].sort((left, right) =>
       precedes(left.span, right.span) ? -1 : precedes(right.span, left.span) ? 1 : 0
     );
     const tied = free.length === 1 ? `${quoted(free)}'s colour is` : `the colours of ${quoted(free)} are`;
     const theirs = demands.map(({ name }) => `\`${name}\`'s`).join(" and ");
     const fixes: Diagnostics.Fix[] = [
-      ...(readings.some((reading) => reading === undefined) ? [] : [{
+      {
         message: `write the types of ${quoted(inOrder)}`,
         edits: inOrder.map((each) => ({
           span: { ...each.span, start: each.span.end },
           replacement: `: ${readings[parameters.indexOf(each)]!}`,
         })),
-      }]),
+      },
       ...(correction === undefined ? [] : [correction]),
     ];
     return {
@@ -27721,7 +27724,7 @@ class Checker {
         { span: sharing.span, message: `${tied} tied to ${theirs} here` },
         ...inOrder.map((each) => ({ span: each.span, message: `\`${each.name}\` has no written type` })),
       ],
-      ...(fixes.length === 0 ? {} : { fixes }),
+      fixes,
     };
   }
 
