@@ -29001,6 +29001,8 @@ class Checker {
       // down as it sits (#1308).
       const groups: { depth: number; axes: Axis[] }[] = [];
       for (const axis of over) {
+        // A demand found off the parameter's spine is told as on its own
+        // arrow, as before #1308: the report stands at the function handed.
         const depth = depths.get(axis) ?? 0;
         const group = groups.find((each) => each.depth === depth);
         if (group === undefined) groups.push({ depth, axes: [axis] });
