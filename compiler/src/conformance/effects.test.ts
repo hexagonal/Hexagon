@@ -1663,6 +1663,39 @@ describe("Effects §3.4 — a tie between callbacks is refused, where it was mad
     }
   });
 
+  it("a held lambda's tie between its own callbacks reads as its fix where its text ends, as its plain twin's does (#1305)", () => {
+    const b = "    b(g, c: Bool, n: Int): Unit = if n == 0 then () else a!(g, c, n)\n";
+    const member = (lines: readonly string[]): string[] => {
+      const a = "    a(g, c: Bool, n: Int): Unit =\n" + lines.map((line) => `        ${line}\n`).join("") + "        ()\n";
+      return [`fun\n${a}${b}`, `fun\n${b}${a}`];
+    };
+    const atOf = (program: string) => tieReports("let ident(x: t): t = x\n" + program).map(({ at }) => at);
+    // `q!(g, g)` comes after the lambda's text and before the knot closes:
+    // `k` already reads as its fix there, so `g` meets no tie, as in the twin.
+    const own = ["g!()", "let q = ident((k, h) =>", "    b!(g, c, n - 1)", "    k!()", "    let _ = if c then k else h",
+      "    ())", "q!(g, g)"];
+    for (const program of member(own)) expect([program, atOf(program)]).toEqual([program, ["if c then k else h"]]);
+    // So with three callbacks.
+    const three = ["g!()", "let q = ident((k, h, m) =>", "    b!(g, c, n - 1)", "    k!()", "    let _ = if c then k else h",
+      "    let _ = if c then h else m", "    ())", "q!(g, g, g)"];
+    for (const program of member(three)) expect([program, atOf(program)]).toEqual([program, ["if c then k else h"]]);
+    // Not where a callback of the member around it shares the colour too: a
+    // fact there may make it silent at the knot's close, and the tie must
+    // still be reported, not read as its fix with no report left.
+    const outward = ["g()", "let q = ident((k, h) =>", "    b(g, c, n - 1)", "    let _ = if c then k else h",
+      "    let _ = if c then h else g", "    ())", "q(save0, noop)"];
+    for (const program of member(outward.map((line) => line.replace("b!(", "b(")))) {
+      const withSave = 'extern from "./world.js"\n    export fun save(s: String) ->! Unit\nlet save0(): Unit = save!("x")\n';
+      const reports = compileFiles([["/world.js", ""], ["/main.hex", "module Main\n\n" + fixtures + withSave +
+        "let ident(x: t): t = x\n" + program.replaceAll("a!(", "a(")]]).diagnostics.map(({ message }) => message);
+      expect([program, reports.some((message) => message.includes("is tied to"))]).toEqual([program, true]);
+    }
+    // The twin: the same lambda, no knot holding it.
+    const twin = own.filter((line) => !line.includes("b!("));
+    expect(atOf("let a(g, c: Bool, n: Int): Unit =\n" + twin.map((line) => `    ${line}\n`).join("") + "    ()\n"))
+      .toEqual(["if c then k else h"]);
+  });
+
   it("reads a held lambda's tie against the body it waits on as that body closed (#1220)", () => {
     const b = "    b(g, c: Bool, n: Int): Unit = if n == 0 then () else a!(g, c, n)\n";
     const member = (lines: readonly string[]): string[] => {
