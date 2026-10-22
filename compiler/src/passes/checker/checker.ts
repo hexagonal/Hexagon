@@ -1514,6 +1514,20 @@ function tiedTypeVariables(lambda: Resolved.LambdaExpr): ReadonlySet<string> {
   return tied;
 }
 
+/**
+ * The parameters a lambda's written signature gives its result's type (#1263,
+ * D3): where the result is written as a bare type variable two or more
+ * parameters write, each parameter written as that variable alone. A call's
+ * type is then each of their arguments', whatever value it returns.
+ */
+function tiedResultParameters(lambda: Resolved.LambdaExpr): ReadonlySet<Resolved.SymbolId> {
+  const result = lambda.returnAnnotation;
+  if (result?.kind !== "TypeVariable" || !tiedTypeVariables(lambda).has(result.name)) return new Set();
+  return new Set(lambda.parameters.filter(({ annotation }) =>
+    annotation?.kind === "TypeVariable" && annotation.name === result.name
+  ).map(({ symbol }) => symbol));
+}
+
 function isDemandFact(fact: ReportFact): fact is DemandFact {
   return "kind" in fact && fact.kind === "demand";
 }
@@ -4623,6 +4637,29 @@ class Checker {
   #valueRelevance: ReadonlyMap<Resolved.LambdaExpr, ReadonlySet<Resolved.SymbolId>> | undefined;
   /** One reading's results, by node and environment: what is read twice is read once. */
   #valueReads = new Map<string, readonly ValueRead[] | "reading">();
+  /**
+   * Whether a reading reads a call whose written result type is a variable its
+   * parameters share as each argument that variable types (`tiedResultParameters`,
+   * #1263, D3): the colours a call shares, rather than the value it returns.
+   */
+  #valueThroughTies = false;
+  /** The names a reading through shared result types passed on its way (`#sharedAtMark`). */
+  #valuePath = new Set<Resolved.NameExpr>();
+  /** Where a reading through shared result types met a sharing: a merge, or such a call. */
+  #valueSharings: Source.Span[] = [];
+  /** Every name in the text, by what it names (`#sharedAtMark`). */
+  readonly #nameUses = new Map<Resolved.SymbolId, Resolved.NameExpr[]>();
+  /**
+   * The colours a mark claims on a call that reads as a tied parameter through
+   * a sharing (#1263, D3): the tie's fix writes them on that parameter's own
+   * arrow, so the mark holds.
+   */
+  readonly #markedThroughSharing = new Map<Resolved.SymbolId, Set<Axis>>();
+  /** The names written as a call's callee (`#sharedAtMark`). */
+  readonly #namesAsCallee = new WeakSet<Resolved.NameExpr>();
+  /** `#valueNamesOf` and `#valueRelevance` for a reading through shared result types. */
+  readonly #valueNamesOfTies = new WeakMap<object, ReadonlySet<Resolved.SymbolId>>();
+  #valueRelevanceTies: ReadonlyMap<Resolved.LambdaExpr, ReadonlySet<Resolved.SymbolId>> | undefined;
   /** Each call whose callee reads as an untyped parameter other than by its own name (#1263, D1). */
   readonly #runsParameter = new Map<Resolved.CallExpr, Resolved.SymbolId>();
   /** Whether every call of a parameter has been read (`#readCallsOfParameters`), so a reading may run. */
@@ -22111,7 +22148,16 @@ class Checker {
     };
     this.#walkItem(item, {
       item: register,
+      name: (name) => {
+        let uses = this.#nameUses.get(name.symbol);
+        if (uses === undefined) this.#nameUses.set(name.symbol, uses = []);
+        uses.push(name);
+      },
       expression: (expression) => {
+        if (expression.kind === "Call") {
+          const named = ungrouped(expression.callee);
+          if (named.kind === "Name") this.#namesAsCallee.add(named);
+        }
         if (expression.kind === "Call") {
           const callee = ungrouped(expression.callee);
           if (callee.kind === "Lambda" && !this.#appliedLambdas.has(callee)) {
@@ -24867,10 +24913,16 @@ class Checker {
     const fixes = (): TieFixes => {
       const readings = tied.map((each) => {
         const eachType = this.#prune(each.type);
-        // Its own arrow silent where it is called bare by its own name (§9).
-        return eachType.kind === "Function"
-          ? this.#blackBoxReading(this.#silencedOwn(eachType, this.#silentByItself(each.symbol)))
-          : undefined;
+        // Its own arrow silent where it is called bare by its own name (§9),
+        // and marking what a mark through a sharing claims of it (#1263, D3).
+        if (eachType.kind !== "Function") return undefined;
+        const silenced = this.#silencedOwn(eachType, this.#silentByItself(each.symbol));
+        const marked = this.#markedThroughSharing.get(each.symbol);
+        return this.#blackBoxReading(marked === undefined ? silenced : {
+          ...silenced,
+          ...(marked.has("world") ? { effect: IMPURE } : {}),
+          ...(marked.has("fail") ? { fail: IMPURE } : {}),
+        });
       });
       if (readings.some((reading) => reading === undefined)) return {};
       return {
@@ -24904,9 +24956,10 @@ class Checker {
     // (`#readCallsOfParameters`).
     this.#tiesToAnswer.push(tied.map((each) => each.symbol));
     // A tie found on the world colour is found before the fail colour settles,
-    // and the fix writes each colour as it settles (§3.4's black-box reading):
-    // its fix is read again at the module's end.
-    if (this.#currentAxis === "world") this.#tieFixesOwed.push({ bag: this.#diagnostics, report: diagnostic, fixes });
+    // and the fix writes each colour as it settles (§3.4's black-box reading),
+    // and a mark through a sharing may yet write a colour (#1263, D3): its fix
+    // is read again at the module's end.
+    this.#tieFixesOwed.push({ bag: this.#diagnostics, report: diagnostic, fixes });
     // The refused parameters read as their fix where the function is seen from
     // outside (`#readRefusedTies`), so no caller meets the tie a second time.
     for (const { frame, index } of report.readings) (frame.tieReadings ??= new Set()).add(index);
@@ -27514,6 +27567,126 @@ class Checker {
   }
 
   /**
+   * §3.4's limitation where a mark's call runs a colour untyped parameters
+   * share (#1263, D3). Its callee reads, through a merge or a result type its
+   * parameters share (`tiedResultParameters`), as untyped parameters only.
+   * One of them meets a `->` demand silent on every colour the mark claims and
+   * the call does not do, where it is named outside the sharing; the others
+   * are named nowhere but on the way to the sharing and in calls of their own
+   * that carry those colours. Once their types are written, each is fitted
+   * where they meet and the mark holds, so the report names the sharing and
+   * the demand, and offers both repairs: the written types, and the mark.
+   */
+  #sharedAtMark(
+    obligation: MarkObligation,
+    over: readonly Axis[],
+    correction: Diagnostics.Fix | undefined,
+  ): Diagnostics.Diagnostic | "answered" | undefined {
+    const call = obligation.call;
+    this.#valueSteps = VALUE_STEPS;
+    this.#valueReads = new Map();
+    this.#valueThroughTies = true;
+    const path = this.#valuePath = new Set();
+    const sharings = this.#valueSharings = [];
+    let values: readonly ValueRead[];
+    try {
+      values = this.#valuesOf(call.callee, this.#valueEnv([]));
+    } finally {
+      this.#valueThroughTies = false;
+      this.#valueReads = new Map();
+    }
+    if (this.#valueSteps < 0) return undefined;
+    const parameters: EffectFrame["untyped"][number][] = [];
+    for (const read of values) {
+      if (!("parameter" in read)) return undefined;
+      const parameter = this.#untypedBySymbol.get(read.parameter);
+      if (parameter === undefined) return undefined;
+      if (!parameters.includes(parameter)) parameters.push(parameter);
+    }
+    if (parameters.length < 2) return undefined;
+    // Each name of a parameter the reading did not pass on its way, other
+    // than as the callee of a call of it: a use of its own.
+    const ownUses = (parameter: EffectFrame["untyped"][number]): Resolved.NameExpr[] =>
+      (this.#nameUses.get(parameter.symbol) ?? []).filter((use) => !path.has(use));
+    // Where the shared colour met a `->` demand: a pin of any of them, which
+    // of them is met there read from the text, by a name of its own in it.
+    const pins = (axis: Axis) => parameters.flatMap((each) => {
+      const pin = this.#ownArrowPins.get(`${Number(each.symbol)}:${axis}`);
+      return pin?.silent === true && this.#demandFact(each.symbol, each.name, axis) !== undefined ? [pin] : [];
+    });
+    const demandOf = (parameter: EffectFrame["untyped"][number], axis: Axis) =>
+      pins(axis).find((pin) => ownUses(parameter).some((use) => spanWithin(use.span, pin.span)));
+    const demands = parameters.filter((each) => over.every((axis) => demandOf(each, axis) !== undefined));
+    const free = parameters.filter((each) =>
+      !demands.includes(each) &&
+      ownUses(each).every((use) => this.#namesAsCallee.has(use)) &&
+      over.every((axis) => this.#calledBareItself.get(each.symbol)?.has(axis) !== true)
+    );
+    if (demands.length === 0 || free.length === 0 || demands.length + free.length < parameters.length) return undefined;
+    // Where the sharing is a tie, the tie's report is this one: its fix writes
+    // what the mark claims, and answers it (§9).
+    if (this.#tiesToAnswer.some((group) => parameters.every(({ symbol }) => group.includes(symbol)))) {
+      for (const each of free) {
+        let axes = this.#markedThroughSharing.get(each.symbol);
+        if (axes === undefined) this.#markedThroughSharing.set(each.symbol, axes = new Set());
+        for (const axis of over) axes.add(axis);
+      }
+      return "answered";
+    }
+    const demand = demands[0]!;
+    const pin = demandOf(demand, over[0]!)!;
+    const met = this.#display(demand.type, "callback");
+    // The wrapper is spelled where it takes nothing to hand on.
+    const demandType = this.#prune(demand.type);
+    const nullary = demandType.kind === "Function" && demandType.parameters.length === 0;
+    // Each written as the fix reads it: a demanded one as it is, its own
+    // arrow silent where it is called bare (§9); one the demand reaches only
+    // through the sharing, marking what the mark claims.
+    const readings = parameters.map((each) => {
+      const type = this.#prune(each.type);
+      if (type.kind !== "Function") return undefined;
+      if (demands.includes(each)) return this.#blackBoxReading(this.#silencedOwn(type, this.#silentByItself(each.symbol)));
+      return this.#blackBoxReading({
+        ...type,
+        ...(over.includes("world") ? { effect: IMPURE } : {}),
+        ...(over.includes("fail") ? { fail: IMPURE } : {}),
+      });
+    });
+    const inOrder = [...parameters].sort((left, right) =>
+      precedes(left.span, right.span) ? -1 : precedes(right.span, left.span) ? 1 : 0
+    );
+    const quoted = (list: readonly EffectFrame["untyped"][number][]): string =>
+      list.length === 1
+        ? `\`${list[0]!.name}\``
+        : `${list.slice(0, -1).map(({ name }) => `\`${name}\``).join(", ")} and \`${list.at(-1)!.name}\``;
+    const tied = free.length === 1 ? `${quoted(free)}'s colour is` : `the colours of ${quoted(free)} are`;
+    const at = sharings[0] ?? ungrouped(call.callee).span;
+    const fixes: Diagnostics.Fix[] = [
+      ...(readings.some((reading) => reading === undefined) ? [] : [{
+        message: `write the types of ${quoted(inOrder)}`,
+        edits: inOrder.map((each) => ({
+          span: { ...each.span, start: each.span.end },
+          replacement: `: ${readings[parameters.indexOf(each)]!}`,
+        })),
+      }]),
+      ...(correction === undefined ? [] : [correction]),
+    ];
+    return {
+      severity: "error",
+      message: `this call ${colourSilent(over)} only because ${tied} tied to \`${demand.name}\`'s here, and ` +
+        `\`${demand.name}\` meets \`${met}\` — write their types, or wrap \`${demand.name}\` where they meet` +
+        (nullary ? `: \`() => ${demand.name}()\`` : ""),
+      primary: obligation.markSpan ?? obligation.span,
+      labels: [
+        { span: pin.span, message: `\`${demand.name}\` meets \`${met}\` here` },
+        { span: at, message: `${tied} tied to \`${demand.name}\`'s here` },
+        ...inOrder.map((each) => ({ span: each.span, message: `\`${each.name}\` has no written type` })),
+      ],
+      ...(fixes.length === 0 ? {} : { fixes }),
+    };
+  }
+
+  /**
    * A `->` demand's reports, rendered again once every call of a parameter is
    * read (`#readCallsOfParameters`): one on an untyped parameter that a
    * written type's impure constant fixed is §3.4's limitation (#1263, D2).
@@ -28153,6 +28326,11 @@ class Checker {
         // certainly wants stays a fix, and its report is always given.
         // Only the first of the others is given.
         if (over.length > 0 && !readingGoes && factWords === undefined && demanded === undefined && words === undefined) {
+          const limitation = missing.length > 0 ? undefined : this.#sharedAtMark(obligation, over, report.fixes?.[0]);
+          if (limitation !== undefined) {
+            if (limitation !== "answered") this.#diagnostics.add(limitation);
+            continue;
+          }
           const claims = over.map((axis) => axis === "world" ? "is impure" : "may fail").join(" and ");
           const silent = over.map((axis) => axis === "world" ? "pure" : "unable to fail").join(" and ");
           const [first, ...rest] = report.fixes ?? [];
@@ -28352,6 +28530,7 @@ class Checker {
         add([{ lambda: node, env }]);
         break;
       case "Name": {
+        if (this.#valueThroughTies) this.#valuePath.add(node);
         const handed = env.get(node.symbol);
         if (handed !== undefined) add(this.#valuesOf(handed.expression, handed.env));
         else {
@@ -28370,6 +28549,18 @@ class Checker {
             continue;
           }
           const { lambda, env: made } = read;
+          // Read for the colours it shares, a result type its parameters share
+          // is each of their arguments' (#1263, D3).
+          const shared = this.#valueThroughTies ? tiedResultParameters(lambda) : new Set<Resolved.SymbolId>();
+          if (shared.size > 0) {
+            this.#valueSharings.push(node.span);
+            for (const [index, parameter] of lambda.parameters.entries()) {
+              if (!shared.has(parameter.symbol)) continue;
+              const argument = node.arguments[index];
+              add(argument === undefined ? [{ opaque: true }] : this.#valuesOf(argument, env));
+            }
+            continue;
+          }
           // A written result type is what the call returns: the reading stops.
           if (!readsThrough(lambda.returnAnnotation)) {
             add([{ opaque: true }]);
@@ -28386,10 +28577,12 @@ class Checker {
         }
         break;
       case "If":
+        if (this.#valueThroughTies) this.#valueSharings.push(node.span);
         add(this.#valuesOf(node.consequence, env));
         add(this.#valuesOf(node.alternative, env));
         break;
       case "Match":
+        if (this.#valueThroughTies) this.#valueSharings.push(node.span);
         for (const arm of [...node.arms, ...(node.catchArms ?? [])]) add(this.#valuesOf(arm.body, env));
         break;
       case "Block": {
@@ -28448,10 +28641,11 @@ class Checker {
    * never depends on where the gathering began.
    */
   #valueNames(node: Resolved.Expr): ReadonlySet<Resolved.SymbolId> {
-    const known = this.#valueNamesOf.get(node);
+    const cache = this.#valueThroughTies ? this.#valueNamesOfTies : this.#valueNamesOf;
+    const known = cache.get(node);
     if (known !== undefined) return known;
     const names = this.#valueNamesFrom(node, this.#valueRelevanceOf());
-    this.#valueNamesOf.set(node, names);
+    cache.set(node, names);
     return names;
   }
 
@@ -28534,7 +28728,9 @@ class Checker {
    * counts: the reading stops there (`readsThrough`).
    */
   #valueRelevanceOf(): ReadonlyMap<Resolved.LambdaExpr, ReadonlySet<Resolved.SymbolId>> {
-    if (this.#valueRelevance !== undefined) return this.#valueRelevance;
+    const ties = this.#valueThroughTies;
+    const cached = ties ? this.#valueRelevanceTies : this.#valueRelevance;
+    if (cached !== undefined) return cached;
     const lambdas: Resolved.LambdaExpr[] = [];
     for (const value of this.#bindingValues.values()) {
       const lambda = ungrouped(value);
@@ -28557,9 +28753,12 @@ class Checker {
       }
       const counted = relevance.get(lambda)!;
       const tied = tiedTypeVariables(lambda);
+      // Read for the colours it shares, every parameter the result type is
+      // counts, whether or not the value reaches it (#1263, D3).
+      const shared = ties ? tiedResultParameters(lambda) : new Set<Resolved.SymbolId>();
       let changed = false;
       for (const { symbol, annotation } of lambda.parameters) {
-        if (readsThrough(annotation, tied) && names.has(symbol) && !counted.has(symbol)) {
+        if ((shared.has(symbol) || readsThrough(annotation, tied) && names.has(symbol)) && !counted.has(symbol)) {
           counted.add(symbol);
           changed = true;
         }
@@ -28572,7 +28771,8 @@ class Checker {
         }
       }
     }
-    this.#valueRelevance = relevance;
+    if (ties) this.#valueRelevanceTies = relevance;
+    else this.#valueRelevance = relevance;
     return relevance;
   }
 
@@ -28582,8 +28782,10 @@ class Checker {
     if (known !== undefined) return known;
     const names = this.#valueNames(ungrouped(lambda.body));
     const tied = tiedTypeVariables(lambda);
-    return new Set(lambda.parameters.filter(({ symbol, annotation }) => readsThrough(annotation, tied) && names.has(symbol))
-      .map(({ symbol }) => symbol));
+    const shared = this.#valueThroughTies ? tiedResultParameters(lambda) : new Set<Resolved.SymbolId>();
+    return new Set(lambda.parameters.filter(({ symbol, annotation }) =>
+      shared.has(symbol) || readsThrough(annotation, tied) && names.has(symbol)
+    ).map(({ symbol }) => symbol));
   }
 
   /** The names a body calls, in the body itself, not in a lambda nested in it. */
