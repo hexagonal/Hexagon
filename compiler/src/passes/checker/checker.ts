@@ -750,6 +750,12 @@ interface EffectFrame {
      * a later line pinned is no reason to drop a tie that stood there (#1246).
      */
     constantAtClose?: boolean;
+    /**
+     * Which arrow of its own spine carried its colour where its body's facts
+     * first decided it (`#settleUntyped`): a tie read as it stood then reads
+     * that arrow, though a fact a later close decides silences it (#1328).
+     */
+    ownArrowAtClose?: number;
   }[];
   /**
    * Every call written in this body or in a body nested in it, with its
@@ -24350,6 +24356,14 @@ class Checker {
         }
       }
     }
+    for (const parameter of frame.untyped) {
+      if (parameter.ownArrowAtClose !== undefined) continue;
+      let index = 0;
+      for (let node = this.#prune(parameter.type); node.kind === "Function"; node = this.#prune(node.result), index += 1) {
+        if (!this.#silentAtClose(colourAt(node, axis) ?? PURE)) break;
+      }
+      parameter.ownArrowAtClose = index;
+    }
   }
 
   /**
@@ -24536,7 +24550,7 @@ class Checker {
     if (at !== undefined) {
       const type = this.#boundAt(parameter.type, at);
       if (type.kind !== "Function") return false;
-      const parts = this.#ownColourPartsAt(type, axis, at);
+      const parts = this.#ownColourPartsAt(type, axis, at, parameter.ownArrowAtClose);
       for (let node = this.#boundAt(outer.type, at); node.kind === "Function"; node = this.#boundAt(node.result, at)) {
         if (this.#colourPartsAt(colourAt(node, axis) ?? PURE, at).some((part) => parts.includes(part))) return true;
       }
@@ -24580,12 +24594,17 @@ class Checker {
    * `#ownColourAt`'s parts as they stood once `at` binds had been made
    * (`#boundAt`). Which arrow carries the colour is read as settled: silence
    * is decided where the parameter's own body closes, and a bare call's pure
-   * is no bind, so the arrows as they stood then cannot say it.
+   * is no bind, so the arrows as they stood then cannot say it. Where that
+   * close is known (`ownArrowAtClose`), it is the arrow then, not one a fact
+   * a later close decided made silent too (#1328).
    */
-  #ownColourPartsAt(type: Mono, axis: Axis, at: number): Variable[] {
+  #ownColourPartsAt(type: Mono, axis: Axis, at: number, ownArrow?: number): Variable[] {
     let index = 0;
-    for (let node = this.#prune(type); node.kind === "Function"; node = this.#prune(node.result), index += 1) {
-      if (!this.#silentAtClose(colourAt(node, axis) ?? PURE)) break;
+    if (ownArrow !== undefined) index = ownArrow;
+    else {
+      for (let node = this.#prune(type); node.kind === "Function"; node = this.#prune(node.result), index += 1) {
+        if (!this.#silentAtClose(colourAt(node, axis) ?? PURE)) break;
+      }
     }
     let node = this.#boundAt(type, at);
     for (let step = 0; step < index && node.kind === "Function"; step += 1) node = this.#boundAt(node.result, at);
@@ -24777,8 +24796,8 @@ class Checker {
    * The colour a tie read as it stood once `at` binds had been made is keyed
    * by, so ties a later line merged stay the reports they were (#1220, #1246).
    */
-  #tieKeyAt(type: Mono, axis: Axis, at: number): Mono {
-    return this.#ownColourPartsAt(type, axis, at)[0] ?? this.#prune(this.#ownColourAt(type, axis));
+  #tieKeyAt(type: Mono, axis: Axis, at: number, ownArrow?: number): Mono {
+    return this.#ownColourPartsAt(type, axis, at, ownArrow)[0] ?? this.#prune(this.#ownColourAt(type, axis));
   }
 
   /**
@@ -24797,15 +24816,16 @@ class Checker {
     const axis = entryAxis(parameter);
     const type = this.#boundAt(parameter.type, at);
     if (type.kind !== "Function") return;
-    const parts = this.#ownColourPartsAt(type, axis, at);
+    const parts = this.#ownColourPartsAt(type, axis, at, parameter.ownArrowAtClose);
     const others = frame.untyped.filter((other) => {
       if (other === parameter || other.ownAtClose === true) return false;
       const theirs = this.#boundAt(other.type, at);
-      return theirs.kind === "Function" && this.#ownColourPartsAt(theirs, axis, at).some((part) => parts.includes(part));
+      return theirs.kind === "Function" &&
+        this.#ownColourPartsAt(theirs, axis, at, other.ownArrowAtClose).some((part) => parts.includes(part));
     });
     if (others.length > 0) {
       for (const other of others) named.add(other);
-      const key = this.#tieKeyAt(type, axis, at);
+      const key = this.#tieKeyAt(type, axis, at, parameter.ownArrowAtClose);
       const report = reports.get(key) ?? new TieReport();
       reports.set(key, report);
       report.named.push({ parameter, phrase: `\`${others[0]!.name}\`'s`, from: others[0]!.type });
@@ -24913,7 +24933,7 @@ class Checker {
     }
     // Keyed by its colour as it stood then, so ties a later line merged stay
     // the reports they were.
-    const key = thenAt === undefined ? colour : this.#tieKeyAt(type, axis, thenAt);
+    const key = thenAt === undefined ? colour : this.#tieKeyAt(type, axis, thenAt, parameter.ownArrowAtClose);
     const report = reports.get(key) ?? new TieReport();
     reports.set(key, report);
     report.named.push({
