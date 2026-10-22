@@ -1034,6 +1034,30 @@ describe("Effects §3.4 — a parameter no call reaches keeps its own colour (#1
   const BARE = (fact: string): string =>
     `this function is impure and may fail, where the function handed must be pure and unable to fail — ${fact}`;
 
+  it("a fact on an arrow a parameter returns names what it returns (#1308)", () => {
+    // `h()` decides the arrow `f` returns, not `f`'s own: the function handed
+    // returns an impure one, and is itself pure.
+    const twice = "let tw(f) =\n    let h = f()\n    h()\n    0\n";
+    expect(check(twice + "export let p(): Int = tw(() => save0)\n")).toEqual([
+      "this function returns a function that is impure and may fail, where the function handed must return one that " +
+      "is pure and unable to fail — `h` is called bare, which makes what `f` returns pure and unable to fail",
+    ]);
+    // A mark on that arrow is told the same.
+    expect(check("let tw(f) =\n    let h = f()\n    h()\n    h!()\n    0\n")).toEqual([
+      "this call is pure and cannot fail, so `h` wants no mark, not `!` — `h` is called bare, which makes what `f` " +
+      "returns pure and unable to fail",
+    ]);
+    // One arrow further, through the call that reaches it.
+    expect(check("let tw(f) =\n    let h = f()()\n    h()\n    0\nexport let p(): Int = tw(() => () => save0)\n")).toEqual([
+      "this function returns a function that returns one that is impure and may fail, where the function handed must " +
+      "return one that returns one that is pure and unable to fail — `h` is called bare, which makes what `f()` returns " +
+      "pure and unable to fail",
+    ]);
+    // A fact on the parameter's own arrow names the parameter, as before.
+    expect(check("let tw2(f) =\n    f()\n    0\nexport let q(): Int = tw2(save0)\n"))
+      .toEqual([BARE("`f` is called bare, which makes it pure and unable to fail")]);
+  });
+
   it("a parameter only handed on is the parameter's own, as writing its type would make it", () => {
     // §3.4's examples: `hold` keeps what it is handed, `orNoop` returns it.
     const source = "let hold(cb) = keep(cb)\nlet orNoop(cb) = if c then cb else () => ()\n" +
