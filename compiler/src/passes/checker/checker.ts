@@ -24357,7 +24357,8 @@ class Checker {
       }
     }
     for (const parameter of frame.untyped) {
-      if (parameter.ownArrowAtClose !== undefined) continue;
+      // Not yet a function, its arrows are a later line's to make (`#refuseTie`).
+      if (parameter.ownArrowAtClose !== undefined || this.#prune(parameter.type).kind !== "Function") continue;
       let index = 0;
       for (let node = this.#prune(parameter.type); node.kind === "Function"; node = this.#prune(node.result), index += 1) {
         if (!this.#silentAtClose(colourAt(node, axis) ?? PURE)) break;
@@ -24551,7 +24552,14 @@ class Checker {
       const type = this.#boundAt(parameter.type, at);
       if (type.kind !== "Function") return false;
       const parts = this.#ownColourPartsAt(type, axis, at, parameter.ownArrowAtClose);
+      // The outer callback's arrows its own facts had silenced where they
+      // first decided it carry no colour of its own (#1328).
+      let silenced = outer.ownArrowAtClose ?? 0;
       for (let node = this.#boundAt(outer.type, at); node.kind === "Function"; node = this.#boundAt(node.result, at)) {
+        if (silenced > 0) {
+          silenced -= 1;
+          continue;
+        }
         if (this.#colourPartsAt(colourAt(node, axis) ?? PURE, at).some((part) => parts.includes(part))) return true;
       }
       return false;

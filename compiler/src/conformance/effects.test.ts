@@ -1698,6 +1698,19 @@ describe("Effects §3.4 — a tie between callbacks is refused, where it was mad
       const text = "let ident(x: t): t = x\nlet noop(): Unit = ()\n" + program.replaceAll("a!(", "a(");
       expect([program, tieReports(text).map(({ at }) => at)]).toEqual([program, ["if c then k else h"]]);
     }
+    // But a colour the held lambda's own bare call made silent is no tie,
+    // there as in its twin: `k()` silences what `x` meets, and `h()` what `f`
+    // meets (§3.4's own example, held).
+    for (const lines of [
+      ["let q = ident((k) =>", "    b(g, c, n - 1)", "    k()", "    let r = (x) =>", "        let _ = if c then x else k",
+        "        ()", "    ())", "q(noop)"],
+      ["let q = ident((h) =>", "    b(g, c, n - 1)", "    let inner = (f) => if c then h else f", "    h()", "    ())", "q(noop)"],
+    ]) {
+      for (const program of member(lines)) {
+        const text = "let ident(x: t): t = x\nlet noop(): Unit = ()\n" + program.replaceAll("a!(", "a(");
+        expect([program, tieReports(text)]).toEqual([program, []]);
+      }
+    }
     // The twin: the same lambda, no knot holding it.
     const twin = own.filter((line) => !line.includes("b!("));
     expect(atOf("let a(g, c: Bool, n: Int): Unit =\n" + twin.map((line) => `    ${line}\n`).join("") + "    ()\n"))
