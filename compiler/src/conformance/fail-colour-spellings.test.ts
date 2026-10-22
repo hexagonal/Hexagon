@@ -987,13 +987,12 @@ describe("Effects §3.4: a mark decides nothing; facts decide an untyped paramet
     const pure = "let pureOnly(g: () -> Unit): Unit = ()\n";
     const message = "this call is pure and cannot fail only because `f`'s colour is tied to `g`'s here, and `g` meets `() -> Unit` — " +
       "write their types, or wrap `g` where they meet: `() => g()`";
-    // Through a result type the parameters share, a merge, and an alias of
-    // the sharing, whichever line comes first.
+    // The sharing written at the mark: a call whose written signature gives
+    // the parameters its result's type, or a merge, whichever line comes first.
     for (const body of [
       "    pureOnly(g)\n    pick(g, f)!()\n",
       "    pureOnly(g)\n    (if c then g else f)!()\n",
-      "    pureOnly(g)\n    let h = pick(g, f)\n    h!()\n",
-      "    let h = pick(g, f)\n    pureOnly(g)\n    h!()\n",
+      "    pick(g, f)!()\n    pureOnly(g)\n",
     ]) {
       const program = PRE + pure + `let j3(g, f, c: Bool) =\n${body}`;
       expect([body, reports(program)]).toEqual([body, [["!", message]]]);
@@ -1002,6 +1001,9 @@ describe("Effects §3.4: a mark decides nothing; facts decide an untyped paramet
         ["remove the mark", [""]],
       ]]);
     }
+    // A `match` whose arms are the parameters is a merge too.
+    expect(reports(PRE + pure + "let j3(g, f, n: Int) =\n    pureOnly(g)\n    (match n\n        0 => g\n        _ => f)!()\n"))
+      .toEqual([["!", message]]);
     // Written, the mark holds; so it does with the wrapper.
     expect(reports(PRE + pure + "let j3(g: () -> Unit, f: () ->! Unit) =\n    pureOnly(g)\n    pick(g, f)!()\n")).toEqual([]);
     expect(reports(PRE + pure + "let j3(g, f) =\n    pureOnly(g)\n    pick(() => g(), f)!()\n")).toEqual([]);
@@ -1012,11 +1014,12 @@ describe("Effects §3.4: a mark decides nothing; facts decide an untyped paramet
     // The written type marks what the mark claims.
     expect(fixes(PRE + pure + "let j3(g, f) =\n    pureOnly(g)\n    pick(g, f)~()\n")[0])
       .toEqual(["write the types of `g` and `f`", [": () -> Unit", ": () ->~ Unit"]]);
-    // Not where the other, or a binding or parameter the reading passes on
-    // the way, is named on its own too (a demand, a bare call, a written
-    // type), whichever line comes first, nor where the sharing is in data: no
-    // cause is named.
+    // Not where the sharing is reached through a binding, a wrapper or a
+    // local function, nor where the other is named on its own too (a demand, a
+    // bare call, a written type), nor where the sharing is in data: the text
+    // cannot show the whole cause, and none is named.
     for (const body of [
+      "    pureOnly(g)\n    let h = pick(g, f)\n    h!()\n",
       "    pureOnly(g)\n    pureOnly(f)\n    pick(g, f)!()\n",
       "    let h = pick(g, f)\n    pureOnly(g)\n    pureOnly(f)\n    h!()\n",
       "    pureOnly(g)\n    f()\n    pick(g, f)!()\n",
@@ -1034,12 +1037,24 @@ describe("Effects §3.4: a mark decides nothing; facts decide an untyped paramet
       // A parameter of the sharing call writing the variable inside another
       // type decides it through what it is handed.
       "    pureOnly(g)\n    pickD(g, f, pureOnly)!()\n",
+      // So does one whose type is left to the body.
+      "    pureOnly(g)\n    pickK(g, f, pureOnly)!()\n",
+      // A local function's signature may name the enclosing declaration's
+      // type variables, so only a module's function is read.
+      "    let pick2(a: t, b: t): t = a\n    pureOnly(g)\n    pick2(g, f)!()\n",
+      // The mark in a function nested in the parameters' own: a demand on that
+      // function meets their colour.
+      "    pureOnly(g)\n    let run = () => pick(g, f)!()\n    pureOnly(run)\n",
+      // A call of `f` with the same mark, but in another body.
+      "    pureOnly(g)\n    let r = () => f!()\n    pick(g, f)!()\n",
       // Nor where the mark stands in a lambda a demand may meet.
       "    pureOnly(g)\n    pureOnly(() => pick(g, f)!())\n",
     ]) {
-      const wrap = "let wrap(x, y) =\n    pureOnly(y)\n    pick(x, y)\nlet pickD(a: t, b: t, d: (t) -> Unit): t = a\n";
-      expect([body, reports(PRE + pure + wrap + `let j3(g, f) =\n${body}`).map(([, text]) => text.includes("perhaps"))])
-        .toEqual([body, [true]]);
+      const wrap = "let wrap(x, y) =\n    pureOnly(y)\n    pick(x, y)\nlet pickD(a: t, b: t, d: (t) -> Unit): t = a\n" +
+        "let pickK(a: t, b: t, k): t =\n    k(a)\n    a\n";
+      const said = reports(PRE + pure + wrap + `let j3(g, f) =\n${body}`).map(([, text]) => text);
+      expect([body, said.some((text) => text.includes("tied to")), said.some((text) => text.includes("perhaps"))])
+        .toEqual([body, false, true]);
     }
     // Nor in a lambda no binding names, whose colour a demand may yet meet.
     expect(reports(PRE + pure + "let j3(): Unit = keep((g, f) =>\n    pureOnly(g)\n    pick(g, f)!())\n")
