@@ -1711,6 +1711,25 @@ describe("Effects §3.4 — a tie between callbacks is refused, where it was mad
         expect([program, tieReports(text)]).toEqual([program, []]);
       }
     }
+    // A colour the knot itself decides is read at its deadline: `m` calls a
+    // member, and the knot's close settles it pure, so `k` and `h`, merged
+    // with it, are no tie, as in the twin with `m` pure from the start; what
+    // is left is `save0` handed where a pure function must go (#1329).
+    const deadline = (inner: boolean) => [
+      ...(inner ? [] : ["let m = () => b(g, c, n - 1)"]),
+      "let q = ident((k, h) =>",
+      ...(inner ? ["    let m = () => b(g, c, n - 1)"] : ["    m()"]),
+      "    let _ = if c then k else h", "    let _ = if c then h else m", "    ())", "q(save0, noop)",
+    ];
+    for (const inner of [true, false]) {
+      for (const program of member(deadline(inner))) {
+        const world = 'extern from "./world.js"\n    export fun save(s: String) ->! Unit\nlet save0(): Unit = save!("x")\n';
+        const said = compileFiles([["/world.js", ""], ["/main.hex", "module Main\n\n" + fixtures + world +
+          "let ident(x: t): t = x\nlet noop(): Unit = ()\n" + program.replaceAll("a!(", "a(")]]).diagnostics.map(({ message }) => message);
+        expect([program, said.some((message) => message.includes("is tied to")), said.some((message) => message.includes("promises purity"))])
+          .toEqual([program, false, true]);
+      }
+    }
     // The twin: the same lambda, no knot holding it.
     const twin = own.filter((line) => !line.includes("b!("));
     expect(atOf("let a(g, c: Bool, n: Int): Unit =\n" + twin.map((line) => `    ${line}\n`).join("") + "    ()\n"))

@@ -756,6 +756,13 @@ interface EffectFrame {
      * that arrow, though a fact a later close decides silences it (#1328).
      */
     ownArrowAtClose?: number;
+    /**
+     * Whether, where a lambda the knot holds ended its text, its own colour
+     * shared a colour the knot decides (a member's, or a held lambda's): such
+     * a tie is read at that colour's deadline, so a constant the knot's close
+     * settles is no tie, as in its plain twin (Effects §3.4, #1329).
+     */
+    waitedOnKnot?: boolean;
   }[];
   /**
    * Every call written in this body or in a body nested in it, with its
@@ -4116,6 +4123,13 @@ interface Knot {
    * body's ties wait for every body nested in it (Effects §3.4, #1215).
    */
   readonly tieFrames: EffectFrame[];
+  /**
+   * Untyped callbacks of bodies that closed while the knot was open, whose
+   * own colour shared a colour it decides: their ties are decided at its
+   * close, once that colour has settled, as their plain twins' are at theirs
+   * (Effects §3.4's deadline, #1329).
+   */
+  readonly deadlineTies: { readonly frame: EffectFrame; readonly parameter: EffectFrame["untyped"][number] }[];
 }
 
 /** The module a receiver head's companion is addressed under (§4.1's table). */
@@ -4711,6 +4725,8 @@ class Checker {
   readonly #markedThroughSharing = new Map<Resolved.SymbolId, Set<Axis>>();
   /** Each name written as a call's callee, with the call (`#sharedAtMark`). */
   readonly #calleeCalls = new WeakMap<Resolved.NameExpr, Resolved.CallExpr>();
+  /** The knot whose close is deciding the ties that waited on its colours (`#closeKnotFrames`, #1329). */
+  #atKnotDeadline: Knot | undefined;
   /** Each call whose callee reads as an untyped parameter other than by its own name (#1263, D1). */
   readonly #runsParameter = new Map<Resolved.CallExpr, Resolved.SymbolId>();
   /** Whether every call of a parameter has been read (`#readCallsOfParameters`), so a reading may run. */
@@ -5348,6 +5364,7 @@ class Checker {
         // What its own callbacks run is not held (#1231).
         this.#noteOwnColours(frame);
         this.#noteConstantColours(frame);
+        this.#noteKnotColours(frame);
         this.#readOwnTiesFromEnd(frame);
         frame.endedAt = this.#bindCount;
         lambdaColours.set(axis, this.#onAxis(axis, () => this.#keepOwnCallbacks(frame, holding)));
@@ -10795,6 +10812,7 @@ class Checker {
         demands: [],
         held: new Set(),
         tieFrames: [],
+        deadlineTies: [],
       };
       this.#knots.push(knot);
       this.#knotEpoch += 1;
@@ -23874,6 +23892,9 @@ class Checker {
       if (type.kind !== "Function") continue;
       const colour = this.#prune(this.#ownColourAt(type, entryAxis(parameter)));
       if (colour.kind !== "Variable") continue;
+      // Not where it shares a colour the knot decides: settled to a constant at
+      // the knot's close, it is no tie (#1329).
+      if (parameter.waitedOnKnot === true) continue;
       const tie = this.#tieOf(frame, parameter, colour);
       if (tie === undefined || tie.waits !== undefined || tie.others.length === 0) continue;
       // Not where an enclosing body's untyped callback shares the colour too:
@@ -23881,6 +23902,19 @@ class Checker {
       // left to report, a fix reading would let the program through.
       if (this.#sharedOutward(frame, parameter, colour)) continue;
       for (const each of [parameter, ...tie.others]) (frame.tieReadings ??= new Set()).add(each.index);
+    }
+  }
+
+  /**
+   * A lambda the knot holds, where its text ends: which of its untyped
+   * callbacks' own colours share a colour the knot decides (`waitedOnKnot`).
+   */
+  #noteKnotColours(frame: EffectFrame): void {
+    for (const parameter of frame.untyped) {
+      const type = this.#prune(parameter.type);
+      if (type.kind !== "Function") continue;
+      const colour = this.#prune(this.#ownColourAt(type, entryAxis(parameter)));
+      parameter.waitedOnKnot = colour.kind !== "Effect" && this.#knots.some((knot) => this.#knotColour(knot, colour));
     }
   }
 
@@ -23965,6 +23999,21 @@ class Checker {
     } finally {
       this.#knotFacts = enclosingFacts;
     }
+    // The ties that waited on a colour this knot decides, now settled (#1329):
+    // with the body's own, where those are reported here, or on their own.
+    const late = new Map<EffectFrame, Map<Mono, TieReport>>();
+    this.#atKnotDeadline = knot;
+    try {
+      for (const { frame, parameter } of knot.deadlineTies.filter(({ frame }) => onAxis(frame))) {
+        const pending = this.#pendingTies.get(frame);
+        let reports = pending ?? late.get(frame);
+        if (reports === undefined) late.set(frame, reports = new Map());
+        this.#refuseTie(frame, parameter, reports, new Set());
+      }
+    } finally {
+      this.#atKnotDeadline = undefined;
+    }
+    for (const reports of late.values()) this.#reportTies([...reports.values()]);
     // Innermost first; bodies at one depth in the order they were reached. A
     // frame around a lambda an enclosing knot holds decides its ties here and
     // reports them at that knot's close.
@@ -24774,9 +24823,21 @@ class Checker {
     // twin's close does: a constant a later line pinned there is no reason to
     // drop a tie that stood (#1246).
     if (colour.kind === "Effect" || colour.kind === "ErrorColour") {
-      if (frame.endedAt !== undefined && parameter.constantAtClose === false) {
+      // A colour the knot decided is read at its deadline: a constant there is
+      // no tie, as in the twin (#1329).
+      if (frame.endedAt !== undefined && parameter.constantAtClose === false && parameter.waitedOnKnot !== true) {
         this.#refuseTieAt(frame, parameter, frame.endedAt, reports, named);
       }
+      return;
+    }
+    // A colour a knot still open decides is read at its deadline, the knot's
+    // close: settled to a constant there, it is no tie (#1329). A body the
+    // knot settles itself decides its ties there anyway.
+    const knot = frame.endedAt === undefined && this.#atKnotDeadline === undefined
+      ? this.#knots.find((each) => !each.frames.includes(frame) && this.#knotColour(each, colour))
+      : undefined;
+    if (knot !== undefined) {
+      knot.deadlineTies.push({ frame, parameter });
       return;
     }
     const tie = this.#tieOf(frame, parameter, colour);
