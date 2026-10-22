@@ -4648,7 +4648,8 @@ class Checker {
   /**
    * The names such a reading read as a value on its way, a binding's or a
    * parameter's: every other place each is named could decide the colour too.
-   * Not the name of a function it called through.
+   * Not the name of a module's function it called through, which captures
+   * nothing of the body.
    */
   #valueCarriers = new Set<Resolved.SymbolId>();
   /** The calls, merges and matches such a reading met, in the order it met them. */
@@ -27588,8 +27589,13 @@ class Checker {
     obligation: MarkObligation,
     over: readonly Axis[],
     correction: Diagnostics.Fix | undefined,
+    byCall: ReadonlyMap<Resolved.CallExpr, MarkObligation>,
   ): Diagnostics.Diagnostic | "answered" | undefined {
     const call = obligation.call;
+    // The mark stands in the body of a named function: no demand on a
+    // lambda around it decides its colour.
+    const body = obligation.frame;
+    if (body?.owner === undefined) return undefined;
     this.#valueSteps = VALUE_STEPS;
     this.#valueReads = new Map();
     this.#valueThroughTies = true;
@@ -27618,11 +27624,14 @@ class Checker {
     // Each name the reading did not pass on its way: a use of its own.
     const ownUses = (symbol: Resolved.SymbolId): Resolved.NameExpr[] =>
       (this.#nameUses.get(symbol) ?? []).filter((use) => !path.has(use));
-    // A use that decides none of the colours the mark claims: the callee of a
-    // call whose mark carries them.
-    const claims = (use: Resolved.NameExpr): boolean => {
-      const parts = markParts(this.#calleeCalls.get(use)?.mark);
-      return this.#calleeCalls.has(use) && over.every((axis) => parts[axis]);
+    // A use that decides nothing: the callee of another call in this body
+    // with the same mark.
+    const written = markParts(obligation.mark);
+    const harmless = (use: Resolved.NameExpr): boolean => {
+      const other = this.#calleeCalls.get(use);
+      const parts = markParts(other?.mark);
+      return other !== undefined && byCall.get(other)?.frame === body &&
+        AXES.every((axis) => parts[axis] === written[axis]);
     };
     // Where the shared colour met a `->` demand: a pin of any of them, which
     // of them is met there read from the text, by a name of its own in it.
@@ -27633,20 +27642,22 @@ class Checker {
     const demandOf = (parameter: EffectFrame["untyped"][number], axis: Axis) =>
       pins(axis).find((pin) => ownUses(parameter.symbol).some((use) => spanWithin(use.span, pin.span)));
     const demands = parameters.filter((each) => over.every((axis) => demandOf(each, axis) !== undefined));
+    // The others are the body's own, as the demanded ones may be anyone's.
     const free = parameters.filter((each) =>
-      !demands.includes(each) && over.every((axis) => this.#calledBareItself.get(each.symbol)?.has(axis) !== true)
+      !demands.includes(each) && body.untyped.some(({ symbol }) => symbol === each.symbol) &&
+      over.every((axis) => this.#calledBareItself.get(each.symbol)?.has(axis) !== true)
     );
     if (demands.length === 0 || free.length === 0 || demands.length + free.length < parameters.length) return undefined;
     // Every name read on the way but a demanded parameter, the others and
     // the bindings and parameters between, is named nowhere else, other than
-    // where a mark carries what this one claims: anything else could be what
-    // decided the colour.
+    // as another call in this body with the same mark: anything else could
+    // be what decided the colour.
     const demanded = new Set(demands.map(({ symbol }) => symbol));
     const quoted = (list: readonly EffectFrame["untyped"][number][]): string =>
       list.length === 1
         ? `\`${list[0]!.name}\``
         : `${list.slice(0, -1).map(({ name }) => `\`${name}\``).join(", ")} and \`${list.at(-1)!.name}\``;
-    if ([...carriers].some((symbol) => !demanded.has(symbol) && !ownUses(symbol).every(claims))) return undefined;
+    if ([...carriers].some((symbol) => !demanded.has(symbol) && !ownUses(symbol).every(harmless))) return undefined;
     // Where the sharing is a tie, the tie's report is this one: its fix writes
     // what the mark claims, and answers it (§9).
     if (this.#tiesToAnswer.some((group) => parameters.every(({ symbol }) => group.includes(symbol)))) {
@@ -28352,7 +28363,7 @@ class Checker {
         // certainly wants stays a fix, and its report is always given.
         // Only the first of the others is given.
         if (over.length > 0 && !readingGoes && factWords === undefined && demanded === undefined && words === undefined) {
-          const limitation = missing.length > 0 ? undefined : this.#sharedAtMark(obligation, over, report.fixes?.[0]);
+          const limitation = missing.length > 0 ? undefined : this.#sharedAtMark(obligation, over, report.fixes?.[0], byCall);
           if (limitation !== undefined) {
             if (limitation !== "answered") this.#diagnostics.add(limitation);
             continue;
@@ -28559,7 +28570,8 @@ class Checker {
         if (this.#valueThroughTies) {
           this.#valuePath.add(node);
           const written = this.#bindingValues.get(node.symbol);
-          if (env.has(node.symbol) || written === undefined || ungrouped(written).kind !== "Lambda") {
+          if (env.has(node.symbol) || written === undefined || ungrouped(written).kind !== "Lambda" ||
+            !this.#moduleBindings.has(node.symbol)) {
             this.#valueCarriers.add(node.symbol);
           }
         }

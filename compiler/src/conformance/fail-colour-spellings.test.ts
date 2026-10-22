@@ -1026,11 +1026,21 @@ describe("Effects §3.4: a mark decides nothing; facts decide an untyped paramet
       "    pureOnly(g)\n    let h = pick(g, f)\n    h()\n    h!()\n",
       "    pureOnly(g)\n    let h = pick(g, f)\n    let k: () -> Unit = h\n    h!()\n",
       "    pureOnly(g)\n    wrap(g, f)!()\n",
+      // A local lambda used again, a mark in a lambda a demand meets, or a
+      // mark on another colour, decides the colour as well.
+      "    pureOnly(g)\n    let w = () => pick(g, f)\n    pureOnly(w())\n    w()!()\n",
+      "    pureOnly(g)\n    let h = pick(g, f)\n    pureOnly(() => h!())\n    h!()\n",
+      "    pureOnly(g)\n    let h = pick(g, f)\n    h~()\n    h!()\n",
+      // Nor where the mark stands in a lambda a demand may meet.
+      "    pureOnly(g)\n    pureOnly(() => pick(g, f)!())\n",
     ]) {
       const wrap = "let wrap(x, y) =\n    pureOnly(y)\n    pick(x, y)\n";
       expect([body, reports(PRE + pure + wrap + `let j3(g, f) =\n${body}`).map(([, text]) => text.includes("perhaps"))])
         .toEqual([body, [true]]);
     }
+    // Nor in a lambda no binding names, whose colour a demand may yet meet.
+    expect(reports(PRE + pure + "let j3(): Unit = keep((g, f) =>\n    pureOnly(g)\n    pick(g, f)!())\n")
+      .map(([, text]) => text.includes("perhaps"))).toEqual([true]);
     // Every parameter a demand meets is named.
     expect(reports(PRE + pure + "let pick3(a: t, b: t, c: t): t = a\nlet j3(g, f, k) =\n    pureOnly(g)\n    pureOnly(k)\n    pick3(g, f, k)!()\n"))
       .toEqual([["!", "this call is pure and cannot fail only because `f`'s colour is tied to `g`'s and `k`'s here, and " +
