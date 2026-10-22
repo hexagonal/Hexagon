@@ -5342,6 +5342,7 @@ class Checker {
         // What its own callbacks run is not held (#1231).
         this.#noteOwnColours(frame);
         this.#noteConstantColours(frame);
+        this.#readOwnTiesFromEnd(frame);
         frame.endedAt = this.#bindCount;
         lambdaColours.set(axis, this.#onAxis(axis, () => this.#keepOwnCallbacks(frame, holding)));
         this.#sinkFrame(frame, holding.level);
@@ -21488,6 +21489,10 @@ class Checker {
     if (reopened === actual) return type;
     const lambdas = this.#lambdasOf.get(actual);
     if (lambdas !== undefined) this.#lambdasOf.set(reopened, lambdas);
+    // Still the lambda's: a refused tie reads as its fix through the copy too
+    // (`#readRefusedTies`, #1305).
+    const frame = this.#frameOfType.get(actual);
+    if (frame !== undefined) this.#frameOfType.set(reopened, frame);
     return reopened;
   }
 
@@ -23846,6 +23851,25 @@ class Checker {
       const colour = type.kind === "Function" ? this.#prune(colourAt(type, frameAxis(frame)) ?? PURE) : undefined;
       parameter.ownAtClose = colour?.kind === "Variable" &&
         this.#tieOf(frame, parameter, colour) === undefined;
+    }
+  }
+
+  /**
+   * A lambda the knot holds, where its text ends: a tie between its own
+   * untyped callbacks stands however the knot settles, since its ties are read
+   * as its text left them (#1246), so those callbacks read as their fix from
+   * here, as its plain twin's do from its close. A use of its value before
+   * the knot closes meets no tie a second time (Effects §3.4, #1305).
+   */
+  #readOwnTiesFromEnd(frame: EffectFrame): void {
+    for (const parameter of frame.untyped) {
+      const type = this.#prune(parameter.type);
+      if (type.kind !== "Function") continue;
+      const colour = this.#prune(this.#ownColourAt(type, entryAxis(parameter)));
+      if (colour.kind !== "Variable") continue;
+      const tie = this.#tieOf(frame, parameter, colour);
+      if (tie === undefined || tie.waits !== undefined || tie.others.length === 0) continue;
+      for (const each of [parameter, ...tie.others]) (frame.tieReadings ??= new Set()).add(each.index);
     }
   }
 

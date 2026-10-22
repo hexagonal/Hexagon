@@ -1663,6 +1663,24 @@ describe("Effects §3.4 — a tie between callbacks is refused, where it was mad
     }
   });
 
+  it("a held lambda's tie between its own callbacks reads as its fix where its text ends, as its plain twin's does (#1305)", () => {
+    const b = "    b(g, c: Bool, n: Int): Unit = if n == 0 then () else a!(g, c, n)\n";
+    const member = (lines: readonly string[]): string[] => {
+      const a = "    a(g, c: Bool, n: Int): Unit =\n" + lines.map((line) => `        ${line}\n`).join("") + "        ()\n";
+      return [`fun\n${a}${b}`, `fun\n${b}${a}`];
+    };
+    const atOf = (program: string) => tieReports("let ident(x: t): t = x\n" + program).map(({ at }) => at);
+    // `q!(g, g)` comes after the lambda's text and before the knot closes:
+    // `k` already reads as its fix there, so `g` meets no tie, as in the twin.
+    const own = ["g!()", "let q = ident((k, h) =>", "    b!(g, c, n - 1)", "    k!()", "    let _ = if c then k else h",
+      "    ())", "q!(g, g)"];
+    for (const program of member(own)) expect([program, atOf(program)]).toEqual([program, ["if c then k else h"]]);
+    // The twin: the same lambda, no knot holding it.
+    const twin = own.filter((line) => !line.includes("b!("));
+    expect(atOf("let a(g, c: Bool, n: Int): Unit =\n" + twin.map((line) => `    ${line}\n`).join("") + "    ()\n"))
+      .toEqual(["if c then k else h"]);
+  });
+
   it("reads a held lambda's tie against the body it waits on as that body closed (#1220)", () => {
     const b = "    b(g, c: Bool, n: Int): Unit = if n == 0 then () else a!(g, c, n)\n";
     const member = (lines: readonly string[]): string[] => {
