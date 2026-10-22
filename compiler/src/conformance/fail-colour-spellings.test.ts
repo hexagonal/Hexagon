@@ -1044,6 +1044,11 @@ describe("Effects §3.4: a mark decides nothing; facts decide an untyped paramet
     // Nor in a lambda no binding names, whose colour a demand may yet meet.
     expect(reports(PRE + pure + "let j3(): Unit = keep((g, f) =>\n    pureOnly(g)\n    pick(g, f)!())\n")
       .map(([, text]) => text.includes("perhaps"))).toEqual([true]);
+    // Nor where a module function on the way reads a module value that may
+    // not generalize: another call of the function shares its type.
+    expect(reports(PRE + pure + "let pickW = id(pick)\nlet wrapW(x, y) = pickW(x, y)\n" +
+      "let other(): Unit = pureOnly(wrapW(noop, noop))\nlet j3(g, f) =\n    pureOnly(g)\n    wrapW(g, f)!()\n")
+      .map(([, text]) => text.includes("perhaps"))).toEqual([true]);
     // Every parameter a demand meets is named.
     expect(reports(PRE + pure + "let pick3(a: t, b: t, c: t): t = a\nlet j3(g, f, k) =\n    pureOnly(g)\n    pureOnly(k)\n    pick3(g, f, k)!()\n"))
       .toEqual([["!", "this call is pure and cannot fail only because `f`'s colour is tied to `g`'s and `k`'s here, and " +

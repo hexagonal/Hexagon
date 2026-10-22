@@ -27681,6 +27681,10 @@ class Checker {
         ? `\`${list[0]!.name}\``
         : `${list.slice(0, -1).map(({ name }) => `\`${name}\``).join(", ")} and \`${list.at(-1)!.name}\``;
     if ([...carriers].some((symbol) => !demanded.has(symbol) && !ownUses(symbol).every(harmless))) return undefined;
+    // A module's value that is no function may not generalize, so every use
+    // of a function that reads it shares its one type: one the reading cannot
+    // follow, so the cause is not found.
+    if ([...carriers].some((symbol) => this.#moduleBindings.has(symbol))) return undefined;
     // Where the sharing is a tie, the tie's report is this one: its fix writes
     // what the mark claims, and answers it (§9).
     if (this.#tiesToAnswer.some((group) => parameters.every(({ symbol }) => group.includes(symbol)))) {
