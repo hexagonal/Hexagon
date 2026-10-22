@@ -1523,9 +1523,32 @@ function tiedTypeVariables(lambda: Resolved.LambdaExpr): ReadonlySet<string> {
 function tiedResultParameters(lambda: Resolved.LambdaExpr): ReadonlySet<Resolved.SymbolId> {
   const result = lambda.returnAnnotation;
   if (result?.kind !== "TypeVariable" || !tiedTypeVariables(lambda).has(result.name)) return new Set();
-  return new Set(lambda.parameters.filter(({ annotation }) =>
+  const bare = lambda.parameters.filter(({ annotation }) =>
     annotation?.kind === "TypeVariable" && annotation.name === result.name
-  ).map(({ symbol }) => symbol));
+  );
+  // A parameter that writes the variable inside another type (`d: (t) -> Unit`)
+  // decides it through what it is handed, which no reading of the others sees.
+  const inside = lambda.parameters.some((parameter) => !bare.includes(parameter) && writesVariable(parameter.annotation, result.name));
+  return inside ? new Set() : new Set(bare.map(({ symbol }) => symbol));
+}
+
+/** Whether an annotation writes this type variable anywhere in it. */
+function writesVariable(annotation: Resolved.TypeAnnotation | undefined, name: string): boolean {
+  let found = false;
+  const walk = (node: unknown): void => {
+    if (found || node === null || typeof node !== "object") return;
+    const each = node as { kind?: unknown; name?: unknown };
+    if (each.kind === "TypeVariable" && each.name === name) {
+      found = true;
+      return;
+    }
+    for (const value of Object.values(node)) {
+      if (Array.isArray(value)) for (const item of value) walk(item);
+      else if (value !== null && typeof value === "object") walk(value);
+    }
+  };
+  walk(annotation);
+  return found;
 }
 
 function isDemandFact(fact: ReportFact): fact is DemandFact {

@@ -1031,10 +1031,13 @@ describe("Effects §3.4: a mark decides nothing; facts decide an untyped paramet
       "    pureOnly(g)\n    let w = () => pick(g, f)\n    pureOnly(w())\n    w()!()\n",
       "    pureOnly(g)\n    let h = pick(g, f)\n    pureOnly(() => h!())\n    h!()\n",
       "    pureOnly(g)\n    let h = pick(g, f)\n    h~()\n    h!()\n",
+      // A parameter of the sharing call writing the variable inside another
+      // type decides it through what it is handed.
+      "    pureOnly(g)\n    pickD(g, f, pureOnly)!()\n",
       // Nor where the mark stands in a lambda a demand may meet.
       "    pureOnly(g)\n    pureOnly(() => pick(g, f)!())\n",
     ]) {
-      const wrap = "let wrap(x, y) =\n    pureOnly(y)\n    pick(x, y)\n";
+      const wrap = "let wrap(x, y) =\n    pureOnly(y)\n    pick(x, y)\nlet pickD(a: t, b: t, d: (t) -> Unit): t = a\n";
       expect([body, reports(PRE + pure + wrap + `let j3(g, f) =\n${body}`).map(([, text]) => text.includes("perhaps"))])
         .toEqual([body, [true]]);
     }
