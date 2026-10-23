@@ -4053,6 +4053,25 @@ interface InstanceWait {
  * `#declaringMember` — a reference may sit inside a nested lambda or a nested
  * `fun` block, and the dictionaries in scope there are still the host's.
  */
+/** The argument being handed while it meets its parameter (`Checker.#handedArgument`, #1240). */
+interface HandedArgument {
+  readonly argument: Resolved.Expr;
+  readonly parameter: string | undefined;
+  /** That parameter's binding, where the callee's declaration says. */
+  readonly symbol: Resolved.SymbolId | undefined;
+  /** That parameter as the callee's declaration writes it, where it does. */
+  readonly declared: Resolved.Parameter | undefined;
+  /** The parameter's type, so a fact on its own arrow is told from one on what it returns. */
+  readonly type: Mono;
+}
+
+/** The two arrows meeting in a unification (`Checker.#meetingArrows`). */
+interface MeetingArrows {
+  readonly left: FunctionMono;
+  readonly right: FunctionMono;
+  readonly id: number;
+}
+
 interface Knot {
   readonly members: readonly KnotMember[];
   host: Resolved.SymbolId | undefined;
@@ -4103,6 +4122,12 @@ interface Knot {
     readonly pinSides?: { readonly annotation: Source.Span; readonly value: Source.Span } | undefined;
     /** Whether the colour stood on the left of the unification, to keep its orientation. */
     readonly colourFirst: boolean;
+    /**
+     * The argument being handed and the arrows meeting where the demand was
+     * met, so the comparison at the close reports it where a lone body's
+     * would: at the function handed (#1329).
+     */
+    readonly handed?: { readonly argument: HandedArgument | undefined; readonly arrows: MeetingArrows | undefined };
   }[];
   /**
    * The lambdas the knot holds, which it treats as members *(#947)*: their
@@ -4515,7 +4540,7 @@ class Checker {
   /** Whether `#unify` stands inside an odd number of parameter positions, where demand and supply turn over. */
   #parameterParity = false;
   /** The two function types whose colours `#unify` is meeting, for §4.3's report: the demand as written. */
-  #meetingArrows: { readonly left: FunctionMono; readonly right: FunctionMono; readonly id: number } | undefined;
+  #meetingArrows: MeetingArrows | undefined;
   #meetings = 0;
   /** Every opened colour not yet settled, for the binding that minted it to close (`#generalize`). */
   #openedPending: Variable[] = [];
@@ -4641,16 +4666,7 @@ class Checker {
     readonly depths: Map<Axis, number>;
   }>();
   /** The argument being handed while it meets its parameter, and that parameter's name where known (#1240). */
-  #handedArgument: {
-    readonly argument: Resolved.Expr;
-    readonly parameter: string | undefined;
-    /** That parameter's binding, where the callee's declaration says. */
-    readonly symbol: Resolved.SymbolId | undefined;
-    /** That parameter as the callee's declaration writes it, where it does. */
-    readonly declared: Resolved.Parameter | undefined;
-    /** The parameter's type, so a fact on its own arrow is told from one on what it returns. */
-    readonly type: Mono;
-  } | undefined = undefined;
+  #handedArgument: HandedArgument | undefined = undefined;
   /**
    * Per bare call and colour, the untyped parameter it makes silent there
    * (Effects §3.4), and whether it is the only call that does: a `try` it
@@ -24781,6 +24797,15 @@ class Checker {
     }
     const tie = this.#tieOf(frame, parameter, colour);
     if (tie === undefined) return;
+    // A held lambda's sibling that only a later use made share the colour
+    // (`q!(g, g)` handing one value to both) is no tie its text made: its
+    // ties are read as its text left them, so a later use neither moves the
+    // tie nor names another partner (#1329).
+    const endedAt = frame.endedAt;
+    if (endedAt !== undefined && tie.others.length > 0 && !tie.others.every((other) => this.#sharedAt(parameter, other, endedAt))) {
+      this.#refuseTieAt(frame, parameter, endedAt, reports, named);
+      return;
+    }
     if (tie.waits !== undefined) {
       (tie.waits.frame.deferredTies ??= []).push({ kind: "with", frame, parameter, with: tie.waits.parameter });
       // A tie whichever way the wait settles reads as its fix from here, so a
@@ -24798,6 +24823,16 @@ class Checker {
     // other share it and are one (#1217). Another body's callback is not: a
     // use of that body's value meets the tie on its own account.
     if (tie.other?.frame === frame) report.add(frame, tie.other.parameter, true);
+  }
+
+  /** Whether two untyped callbacks' own colours shared a part once `at` binds had been made. */
+  #sharedAt(parameter: EffectFrame["untyped"][number], other: EffectFrame["untyped"][number], at: number): boolean {
+    const axis = entryAxis(parameter);
+    const mine = this.#boundAt(parameter.type, at);
+    const theirs = this.#boundAt(other.type, at);
+    if (mine.kind !== "Function" || theirs.kind !== "Function") return false;
+    const parts = this.#ownColourPartsAt(mine, axis, at, parameter.ownArrowAtClose);
+    return this.#ownColourPartsAt(theirs, axis, at, other.ownArrowAtClose).some((part) => parts.includes(part));
   }
 
   /**
@@ -26555,11 +26590,19 @@ class Checker {
    * `->!` its reverse. Run after `#settleKnot`.
    */
   #compareKnotDemands(knot: Knot): void {
-    for (const { demand, colour, axis, span, colourFirst, pinSite, pinSides } of knot.demands) {
+    for (const { demand, colour, axis, span, colourFirst, pinSite, pinSides, handed } of knot.demands) {
       const enclosingSite = this.#pinSite;
       const enclosingSides = this.#pinSides;
+      const enclosingHanded = this.#handedArgument;
+      const enclosingArrows = this.#meetingArrows;
       this.#pinSite = pinSite;
       this.#pinSides = pinSides;
+      // Where the demand met the function handed, the report stands there,
+      // as a lone body's does (#1329).
+      if (handed !== undefined) {
+        this.#handedArgument = handed.argument;
+        this.#meetingArrows = handed.arrows;
+      }
       try {
         this.#onAxis(axis ?? "world", () => {
           if (colourFirst) this.#unify(colour, demand, span);
@@ -26568,6 +26611,8 @@ class Checker {
       } finally {
         this.#pinSite = enclosingSite;
         this.#pinSides = enclosingSides;
+        this.#handedArgument = enclosingHanded;
+        this.#meetingArrows = enclosingArrows;
       }
     }
   }
@@ -31240,6 +31285,7 @@ class Checker {
             pinSite: this.#pinSite,
             pinSides: this.#pinSides,
             colourFirst: !variableOnRight,
+            handed: { argument: this.#handedArgument, arrows: this.#meetingArrows },
           });
           return;
         }
@@ -31264,6 +31310,7 @@ class Checker {
               pinSite: this.#pinSite,
               pinSides: this.#pinSides,
               colourFirst: !variableOnRight,
+              handed: { argument: this.#handedArgument, arrows: this.#meetingArrows },
             });
             copy = { ...copy, ...colourSlot(axis, colour) };
           }

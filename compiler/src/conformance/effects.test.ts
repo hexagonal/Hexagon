@@ -1717,6 +1717,37 @@ describe("Effects §3.4 — a tie between callbacks is refused, where it was mad
       .toEqual(["if c then k else h"]);
   });
 
+  it("a later use neither moves a held lambda's tie nor joins another partner to it; a knot's demand stands at the function handed (#1329)", () => {
+    const b = "    b(g, c: Bool, n: Int): Unit = if n == 0 then () else a!(g, c, n)\n";
+    const member = (lines: readonly string[]): string[] => {
+      const a = "    a(g, c: Bool, n: Int): Unit =\n" + lines.map((line) => `        ${line}\n`).join("") + "        ()\n";
+      return [`fun\n${a}${b}`, `fun\n${b}${a}`];
+    };
+    // `k` waits on the member's `g` where the lambda's text ends; the later
+    // `q!(g, g)` hands `h` the same value, which is no tie the text made: the
+    // tie stands at the merge, with `g`, as in the twin.
+    const waits = ["g!()", "let q = ident((k, h) =>", "    b!(g, c, n - 1)", "    k!()", "    let _ = if c then k else g", "    ())",
+      "q!(g, g)"];
+    for (const program of member(waits)) {
+      const reports = tieReports("let ident(x: t): t = x\n" + program);
+      expect([program, reports.map(({ at, message }) => [at, message.slice(0, message.indexOf(" here"))])]).toEqual([program, [
+        ["if c then k else g", "`k`'s colour is tied to `g`'s"],
+      ]]);
+    }
+    // A demand the knot records and compares at its close is reported at the
+    // function handed, as in the twin.
+    const handed = ["let m = () => b(g, c, n - 1)", "let q = ident((k, h) =>", "    m()", "    let _ = if c then k else h",
+      "    let _ = if c then h else m", "    ())", "q(save0, noop)"];
+    for (const program of member(handed)) {
+      const world = 'extern from "./world.js"\n    export fun save(s: String) ->! Unit\nlet save0(): Unit = save!("x")\n';
+      const text = "module Main\n\n" + fixtures + world + "let ident(x: t): t = x\nlet noop(): Unit = ()\n" + program.replaceAll("a!(", "a(");
+      const at = compileFiles([["/world.js", ""], ["/main.hex", text]]).diagnostics
+        .filter(({ message }) => message.includes("promises purity"))
+        .map(({ primary }) => text.slice(primary.start.offset, primary.end.offset));
+      expect([program, at]).toEqual([program, ["save0"]]);
+    }
+  });
+
   it("reads a held lambda's tie against the body it waits on as that body closed (#1220)", () => {
     const b = "    b(g, c: Bool, n: Int): Unit = if n == 0 then () else a!(g, c, n)\n";
     const member = (lines: readonly string[]): string[] => {
