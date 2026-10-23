@@ -4127,7 +4127,11 @@ interface Knot {
      * met, so the comparison at the close reports it where a lone body's
      * would: at the function handed (#1329).
      */
-    readonly handed?: { readonly argument: HandedArgument | undefined; readonly arrows: MeetingArrows | undefined };
+    readonly handed: {
+      readonly argument: HandedArgument | undefined;
+      readonly arrows: MeetingArrows | undefined;
+      readonly parity: boolean;
+    };
   }[];
   /**
    * The lambdas the knot holds, which it treats as members *(#947)*: their
@@ -26595,14 +26599,14 @@ class Checker {
       const enclosingSides = this.#pinSides;
       const enclosingHanded = this.#handedArgument;
       const enclosingArrows = this.#meetingArrows;
+      const enclosingParity = this.#parameterParity;
       this.#pinSite = pinSite;
       this.#pinSides = pinSides;
-      // Where the demand met the function handed, the report stands there,
-      // as a lone body's does (#1329).
-      if (handed !== undefined) {
-        this.#handedArgument = handed.argument;
-        this.#meetingArrows = handed.arrows;
-      }
+      // As where the demand was met: at the function handed, if one was, the
+      // report stands there, as a lone body's does (#1329).
+      this.#handedArgument = handed.argument;
+      this.#meetingArrows = handed.arrows;
+      this.#parameterParity = handed.parity;
       try {
         this.#onAxis(axis ?? "world", () => {
           if (colourFirst) this.#unify(colour, demand, span);
@@ -26613,6 +26617,7 @@ class Checker {
         this.#pinSides = enclosingSides;
         this.#handedArgument = enclosingHanded;
         this.#meetingArrows = enclosingArrows;
+        this.#parameterParity = enclosingParity;
       }
     }
   }
@@ -31285,7 +31290,7 @@ class Checker {
             pinSite: this.#pinSite,
             pinSides: this.#pinSides,
             colourFirst: !variableOnRight,
-            handed: { argument: this.#handedArgument, arrows: this.#meetingArrows },
+            handed: { argument: this.#handedArgument, arrows: this.#meetingArrows, parity: this.#parameterParity },
           });
           return;
         }
@@ -31310,7 +31315,7 @@ class Checker {
               pinSite: this.#pinSite,
               pinSides: this.#pinSides,
               colourFirst: !variableOnRight,
-              handed: { argument: this.#handedArgument, arrows: this.#meetingArrows },
+              handed: { argument: this.#handedArgument, arrows: this.#meetingArrows, parity: this.#parameterParity },
             });
             copy = { ...copy, ...colourSlot(axis, colour) };
           }
