@@ -31463,7 +31463,10 @@ class Checker {
       // What a member's value holds is what it is: met where its name takes
       // it, it binds (`#definingMember`).
       const defining = this.#definingMember && !variableOnRight;
-      if (type.kind === "Effect" && !defining) {
+      // Room a use added (a slack) is no colour the knot's text decides, even
+      // where the knot holds it: it takes what the use hands, as the join
+      // fragment's rule 2 gives it, so that reaches the members' arms (#1334).
+      if (type.kind === "Effect" && !defining && !this.#openedColours.has(variable)) {
         const knot = this.#knots.find((open) => this.#knotColour(open, variable));
         if (knot !== undefined) {
           knot.demands.push({

@@ -3619,6 +3619,29 @@ describe("Effects §3.4 — what a held lambda's own callbacks run is not held (
     expect(check(knot + probe).filter((message) => message.includes("perhaps"))).toHaveLength(1);
   });
 
+  it("carries what a use hands a held lambda into the knot's colours, through room the knot holds (#1334)", () => {
+    // `q` merges its callback with `r`, which runs `ping`, and with `outer`'s
+    // `f`, so the room of that merge is the knot's to hold. `save0`, handed
+    // to `q` inside a lambda handed to `q`, makes both calls impure, and
+    // `ping` with them, as outside the knot; main recorded the meeting as a
+    // demand and accepted every call bare.
+    const knot = (mark: string): string =>
+      "let outer(f): Int =\n    fun\n        ping(n: Int): Int =\n" +
+      `            let r = () =>\n                let _ = if n > 0 then ping${mark}(n - 1) else 0\n                ()\n` +
+      "            let q = (cb, c: Bool) =>\n                let h = if c then cb else (if c then r else f)\n" +
+      `                h!()\n                ()\n            q${mark}(() => q${mark}(save0, True), True)\n            0\n` +
+      `    ping${mark}(2)\nexport let probe(): Int = outer${mark}(noop)\n`;
+    const wants = (callee: string) => `this call is impure and may fail, so \`${callee}\` wants \`!\`, not no mark`;
+    expect(reports(knot(""))).toEqual([
+      ["ping(n - 1)", wants("ping")],
+      ["q(() => q(save0, True), True)", wants("q")],
+      ["q(save0, True)", wants("q")],
+      ["ping(2)", wants("ping")],
+      ["outer(noop)", wants("outer")],
+    ]);
+    expect(check(knot("!"))).toEqual([]);
+  });
+
   it("gives what a use meets to what the use chose, never to a colour its knot decides (#1247)", () => {
     // `r` runs `ping`, so where `q!(save0, True)` meets `save0` its colour
     // waits on the knot. The merge joined it with room, which `q`'s instance
