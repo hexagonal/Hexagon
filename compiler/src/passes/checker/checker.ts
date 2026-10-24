@@ -30012,7 +30012,9 @@ class Checker {
    *
    * 1. a join meeting pure makes every part pure;
    * 2. a join meeting the impure constant gives the impurity to its slack,
-   *    where it has one;
+   *    where it has one, and otherwise, where a part waits for an open knot,
+   *    is read on its other parts alone, the knot's part being the knot's to
+   *    decide (#1247);
    * 3. (a join meeting a free variable binds the variable: `#bind`'s);
    * 4. a join meeting a join cancels the parts they share; where one remainder
    *    is a single slack, that slack takes the other remainder; where one
