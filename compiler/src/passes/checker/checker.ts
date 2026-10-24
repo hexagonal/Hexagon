@@ -5350,7 +5350,6 @@ class Checker {
       const frame = frameOn(effectFrame, axis);
       lambdaColours.set(axis, frame.own);
       if (member !== undefined) {
-        this.#noteOwnColours(frame);
         member.frames.push(frame);
         continue;
       }
@@ -6121,6 +6120,12 @@ class Checker {
    * so is never where a tie was made (`#tieSpan`).
    */
   readonly #knotCallsBySpan = new Map<string, { readonly host: Resolved.SymbolId; readonly call: Resolved.CallExpr }>();
+  /**
+   * For each knot member's parameter, the parameters a recursive call hands
+   * into its place, read at the knot's close (#1224): by turns it holds their
+   * function, so a tie's fix writes it silent only where they are silent too.
+   */
+  readonly #handedInto = new Map<Resolved.SymbolId, Set<Resolved.SymbolId>>();
   /**
    * Each knot member's parameters, by symbol: the callbacks it was given and
    * can hand on, a curried member's included — the parameters of the
@@ -25102,7 +25107,7 @@ class Checker {
         // Its own arrow silent where it is called bare by its own name (§9),
         // and marking what a mark through a sharing claims of it (#1263, D3).
         if (eachType.kind !== "Function") return undefined;
-        const silenced = this.#silencedOwn(eachType, this.#silentByItself(each.symbol));
+        const silenced = this.#silencedOwn(eachType, this.#tieSilent(each.symbol));
         const marked = this.#markedThroughSharing.get(each.symbol);
         return this.#blackBoxReading(marked === undefined ? silenced : {
           ...silenced,
@@ -26155,6 +26160,21 @@ class Checker {
         }
       }
       const own = this.#memberParameters.get(host) ?? [];
+      // Which of the member's parameters each argument stands in: its spine's,
+      // counted past the arguments the applications before this one gave.
+      let offset = 0;
+      for (let earlier = this.#bare(call.callee); earlier.kind === "Call"; earlier = this.#bare(earlier.callee)) {
+        offset += earlier.arguments.length;
+      }
+      const spine = this.#memberSpines.get(member.symbol) ?? [];
+      call.arguments.forEach((argument, index) => {
+        const given = this.#givenSymbol(argument, own);
+        const slot = spine[offset + index]?.symbol;
+        if (given === undefined || slot === undefined) return;
+        const into = this.#handedInto.get(slot) ?? new Set();
+        this.#handedInto.set(slot, into);
+        into.add(given);
+      });
       const caller = knot.members.find((candidate) => candidate.symbol === host)?.name ?? member.name;
       for (const argument of call.arguments) {
         const type = this.#expressionTypes.get(argument);
@@ -26421,13 +26441,18 @@ class Checker {
    * that function, unchanged.
    */
   #isGiven(argument: Resolved.Expr, own: readonly Resolved.SymbolId[]): boolean {
+    return this.#givenSymbol(argument, own) !== undefined;
+  }
+
+  /** The parameter `argument` hands on (`#isGiven`), if it is one its member was given. */
+  #givenSymbol(argument: Resolved.Expr, own: readonly Resolved.SymbolId[]): Resolved.SymbolId | undefined {
     const node = unwrapped(argument);
-    if (node.kind !== "Name") return false;
+    if (node.kind !== "Name") return undefined;
     let symbol = node.symbol;
     for (let alias = this.#letAliases.get(symbol); alias !== undefined; alias = this.#letAliases.get(symbol)) {
       symbol = alias;
     }
-    return own.includes(symbol);
+    return own.includes(symbol) ? symbol : undefined;
   }
 
   /**
@@ -26489,6 +26514,11 @@ class Checker {
     const enclosingSettling = this.#settlingKnot;
     this.#settlingKnot = knot;
     try {
+      // A member's callbacks still their own are noted once every member's
+      // body is in, not where its own closed: what a sibling's body hands
+      // back into its slots is the knot's, read the same in every member
+      // order (#1224). A lambda the knot holds noted its own where it ended.
+      for (const frame of knot.frames) if (!knot.held.has(frame)) this.#noteOwnColours(frame);
       // Each colour's frames on their own (Effects §1): a frame's calls carry
       // only its colour, so the two colours' sibling graphs never meet.
       for (const axis of AXES) this.#onAxis(axis, () => this.#settleKnotBody(knot, axis));
@@ -27717,7 +27747,7 @@ class Checker {
           : this.#runsParameter.get(obligation.call);
         if (symbol === undefined || !symbols.includes(symbol)) continue;
         const written = markParts(obligation.mark);
-        const silent = this.#silentByItself(symbol);
+        const silent = this.#tieSilent(symbol);
         for (const axis of AXES) if (!written[axis] && silent.has(axis)) this.#answerCall(obligation, axis);
       }
     }
@@ -31464,6 +31494,41 @@ class Checker {
   #silentByItself(symbol: Resolved.SymbolId, also: readonly Axis[] = []): Set<Axis> {
     const marked = this.#calledMarkedItself.get(symbol);
     return new Set([...also, ...this.#calledBareItself.get(symbol) ?? []].filter((axis) => marked?.has(axis) !== true));
+  }
+
+  /**
+   * The colours a tie's fix writes silent on a tied parameter's own arrow
+   * (§9, `#silentByItself`), along the recursion (#1224): a knot member's
+   * parameter holds, by turns, every function a recursive call hands into its
+   * place, so it is silent only where each of those is: an untyped one by its
+   * own calls, a written one by its written arrow.
+   */
+  #tieSilent(symbol: Resolved.SymbolId): Set<Axis> {
+    const silent = this.#silentByItself(symbol);
+    const reached = new Set<Resolved.SymbolId>([symbol]);
+    const pending = [symbol];
+    for (let next = pending.pop(); next !== undefined && silent.size > 0; next = pending.pop()) {
+      for (const handed of this.#handedInto.get(next) ?? []) {
+        if (reached.has(handed)) continue;
+        reached.add(handed);
+        pending.push(handed);
+        const theirs = this.#silentOf(handed);
+        for (const axis of [...silent]) if (!theirs.has(axis)) silent.delete(axis);
+      }
+    }
+    return silent;
+  }
+
+  /** The colours a parameter handed on is silent on: an untyped one's by its own calls, a written one's by its arrow. */
+  #silentOf(symbol: Resolved.SymbolId): Set<Axis> {
+    if (this.#untypedBySymbol.has(symbol)) return this.#silentByItself(symbol);
+    const type = this.#schemes.get(symbol)?.type;
+    const actual = type === undefined ? undefined : this.#prune(type);
+    if (actual?.kind !== "Function") return new Set();
+    return new Set(AXES.filter((axis) => {
+      const colour = this.#prune(colourAt(actual, axis) ?? PURE);
+      return colour.kind === "Effect" && !isImpure(colour);
+    }));
   }
 
   /** A function type with its own arrow silent on these colours, as a fix writing it reads (§9). */
