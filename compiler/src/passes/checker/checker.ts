@@ -26663,60 +26663,69 @@ class Checker {
     const owns = new Set<Mono>();
     for (const frame of knot.frames) if (frameAxis(frame) === axis) owns.add(this.#prune(frame.own));
     // The callbacks of the bodies around the knot, which their own closes
-    // decide, after this one.
-    const outside = new Set<Mono>();
+    // decide, after this one: their colours' parts, read afresh each round,
+    // since a case met here rebinds them.
     const inKnot = new Set(knot.frames);
+    const around: EffectFrame["untyped"][number][] = [];
     for (const frame of knot.frames) {
       for (let open = frame.enclosing; open !== undefined; open = open.enclosing) {
         if (inKnot.has(open) || frameAxis(open) !== axis) continue;
-        for (const { type } of open.untyped) {
-          for (const { arrow } of this.#spineColours(type, axis)) {
-            for (const part of this.#colourParts(arrow)) outside.add(this.#prune(part));
+        for (const each of open.untyped) if (!around.includes(each)) around.push(each);
+      }
+    }
+    // To a fixpoint: a case met here may tie a later one to the callback.
+    const handled = new Set<HardCase>();
+    for (;;) {
+      const outside = new Set<Mono>();
+      for (const { type } of around) {
+        for (const { arrow } of this.#spineColours(type, axis)) {
+          for (const part of this.#colourParts(arrow)) outside.add(this.#prune(part));
+        }
+      }
+      const solved = new Set<HardCase>();
+      for (const hardCase of this.#hardCases) {
+        if (hardCase.axis !== axis || handled.has(hardCase)) continue;
+        const parts = [...this.#colourParts(hardCase.left), ...this.#colourParts(hardCase.right)];
+        const knotParts = parts.filter((part) => owns.has(this.#prune(part)));
+        if (knotParts.length === 0) continue;
+        const left = this.#prune(hardCase.left);
+        const right = this.#prune(hardCase.right);
+        if (left.kind === "Effect" && right.kind === "Effect") continue;
+        // A meeting with the impure constant demands impurity of its parts.
+        // One between two joins the knot can meet on its own, unless a part is
+        // a callback of a body around it, which that body decides only after
+        // this close.
+        const impure = (colour: Mono): boolean => colour.kind === "Effect" && isImpure(colour);
+        if (impure(left) || impure(right)) {
+          handled.add(hardCase);
+          for (const part of knotParts) {
+            if (this.#prune(part).kind === "Variable") this.#unify(part, IMPURE, hardCase.span);
           }
+          continue;
         }
-      }
-    }
-    const solved = new Set<HardCase>();
-    for (const hardCase of this.#hardCases) {
-      if (hardCase.axis !== axis) continue;
-      const parts = [...this.#colourParts(hardCase.left), ...this.#colourParts(hardCase.right)];
-      const knotParts = parts.filter((part) => owns.has(this.#prune(part)));
-      if (knotParts.length === 0) continue;
-      const left = this.#prune(hardCase.left);
-      const right = this.#prune(hardCase.right);
-      if (left.kind === "Effect" && right.kind === "Effect") continue;
-      // A meeting with the impure constant demands impurity of its parts. One
-      // between two joins the knot can meet on its own, unless a part is a
-      // callback of a body around it, which that body decides only after
-      // this close: the knot cannot wait for it, so Swift's answer is given
-      // here.
-      const impure = (colour: Mono): boolean => colour.kind === "Effect" && isImpure(colour);
-      if (impure(left) || impure(right)) {
+        const tied = parts.map((part) => this.#prune(part)).filter((part) => outside.has(part));
+        if (tied.length === 0) continue;
+        // Tied to a callback of a body around the knot, which only that body's
+        // callers decide: the knot's colours follow it, beside room of their
+        // own, so its face carries the callback and each caller decides (#1334).
         for (const part of knotParts) {
-          if (this.#prune(part).kind === "Variable") this.#unify(part, IMPURE, hardCase.span);
+          if (this.#prune(part).kind !== "Variable") continue;
+          const room = this.#fresh(knot.level, false);
+          this.#openedColours.add(room);
+          this.#openedPending.push(room);
+          this.#unify(part, this.#join([...new Set(tied), room]), hardCase.span);
         }
-        continue;
+        // Followed, the case is the fragment's again: met now, it is no
+        // longer set aside for a later collapse to make the callback a
+        // constant.
+        handled.add(hardCase);
+        solved.add(hardCase);
       }
-      const around = parts.map((part) => this.#prune(part)).filter((part) => outside.has(part));
-      if (around.length === 0) continue;
-      // Tied to a callback of a body around the knot, which only that body's
-      // callers decide: the knot's colours follow it, beside room of their
-      // own, so its face carries the callback and each caller decides (#1334).
-      for (const part of knotParts) {
-        if (this.#prune(part).kind !== "Variable") continue;
-        const room = this.#fresh(knot.level, false);
-        this.#openedColours.add(room);
-        this.#openedPending.push(room);
-        this.#unify(part, this.#join([...new Set(around), room]), hardCase.span);
+      if (solved.size === 0) return;
+      this.#hardCases = this.#hardCases.filter((each) => !solved.has(each));
+      for (const hardCase of solved) {
+        this.#onAxis(hardCase.axis, () => this.#unify(hardCase.left, hardCase.right, hardCase.span));
       }
-      // Followed, the case is the fragment's again: met now, it is no longer
-      // set aside for a later collapse to make the callback a constant.
-      solved.add(hardCase);
-    }
-    if (solved.size === 0) return;
-    this.#hardCases = this.#hardCases.filter((each) => !solved.has(each));
-    for (const hardCase of solved) {
-      this.#onAxis(hardCase.axis, () => this.#unify(hardCase.left, hardCase.right, hardCase.span));
     }
   }
 

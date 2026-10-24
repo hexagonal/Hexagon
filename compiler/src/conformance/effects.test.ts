@@ -3662,6 +3662,14 @@ describe("Effects §3.4 — what a held lambda's own callbacks run is not held (
       knot(mark)
         .replace(`q${mark}(() => q${mark}(save0, True), True)`, `q${mark}(() => q${mark}(noop, False), False)\n            q${mark}(() => q${mark}(noop, False), False)`)
         .replace(`outer${mark}(noop)`, `outer${mark}(save0)`);
+    // A third use ties a second case to `f` only through the first, read
+    // again once the first is met: the face follows in both.
+    const thrice = (mark: string): string =>
+      viaF(mark).replace(`            outer${mark}(save0)`, `            outer${mark}(save0)`)
+        .replace(`q${mark}(() => q${mark}(noop, False), False)\n            0`, `q${mark}(() => q${mark}(noop, False), False)\n            q${mark}(() => q${mark}(noop, False), False)\n            0`);
+    for (const each of [viaF("!"), thrice("!")]) {
+      expect([each, hover(each, "outer(f)")]).toEqual([each, "(() ->! Unit) >-> Int"]);
+    }
     for (const mark of ["", "!"]) {
       const text = prelude + viaF(mark);
       const ties = compileFiles([["/world.js", ""], ["/main.hex", text]]).diagnostics
