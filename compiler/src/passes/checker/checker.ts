@@ -6201,6 +6201,11 @@ class Checker {
     ReadonlyMap<Resolved.CallExpr, MarkObligation>,
     WeakMap<ColourFact, Map<string, Diagnostics.Fix[]>>
   >();
+  /**
+   * Colours another knot member's own callbacks share, left by a sibling's
+   * close for that member's to decide (#1336): no sibling defaults them.
+   */
+  readonly #siblingsShared = new WeakMap<Variable, Set<EffectFrame>>();
   /** `#sharersOf`'s counts, by knot and colour. */
   readonly #sharers = new WeakMap<Knot, Map<Variable, SharersOf>>();
   /**
@@ -24405,9 +24410,9 @@ class Checker {
         : this.#isLinkedColour(part) || this.#seatHeld.has(part);
     const needed = new Set<Variable>();
     for (const { parts, elsewhere } of marked) {
-      // Another member's mark on a colour its own parameters share keeps it
-      // true here too.
-      if (elsewhere === true && !parts.some((part) => knotShared.has(this.#prune(part)))) continue;
+      // Another member's mark on a colour callbacks share keeps it true here
+      // too.
+      if (elsewhere === true && !parts.some((part) => shared(part))) continue;
       if (parts.some((part) => shared(part)) && parts.every((part) => shared(part) || !keepsTrue(part))) {
         for (const part of parts) if (shared(part)) needed.add(part);
       }
@@ -24416,6 +24421,15 @@ class Checker {
       for (const colour of owned) {
         const pruned = this.#prune(colour);
         if (pruned.kind !== "Variable") continue;
+        // A colour another member's own callbacks share is that member's to
+        // decide, with every member's marks in hand, never a sibling's
+        // (#1336).
+        if (knotShared.has(pruned) && (ownedBy.get(pruned) ?? 0) <= 1) {
+          let siblings = this.#siblingsShared.get(pruned);
+          if (siblings === undefined) this.#siblingsShared.set(pruned, siblings = new Set());
+          siblings.add(frame);
+          continue;
+        }
         if (inError) {
           colour.instance = ERROR_COLOUR;
         } else if (shared(pruned) ? needed.has(pruned) : !readBy.has(pruned)) {
@@ -26904,7 +26918,9 @@ class Checker {
   ): boolean {
     const pruned = this.#prune(colour);
     if (pruned.kind !== "Variable") return false;
-    if (this.#isLinkedColour(pruned) || this.#seatHeld.has(pruned)) return true;
+    if (this.#isLinkedColour(pruned) || this.#seatHeld.has(pruned) || this.#siblingsShared.get(pruned)?.has(frame) === true) {
+      return true;
+    }
     // An outcome is decided by its comparison, never defaulted (`#publishOutcomes`).
     if (this.#outcomeColours.has(pruned)) return true;
     // A value's own colour, or the room it took in, the value an enclosing

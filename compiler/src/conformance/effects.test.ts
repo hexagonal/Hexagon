@@ -2535,6 +2535,13 @@ fun
         "this call is impure and may fail, so `p` wants `!`, not no mark",
       ].sort()]);
     }
+    // With nothing marking the colour, the sibling read first leaves it to
+    // `a`, which decides it: no order names a bare call as a type it met.
+    const bare = "    a(f, g, n: Int): Unit =\n        f()\n        g()\n        if n > 0 then b(f, n - 1) else ()\n";
+    const quiet = "    b(p, n: Int): Unit =\n        if n > 0 then a(p, p, n - 1) else ()\n";
+    const [first, second] = members(bare, quiet).map((knot) => [...check(knot + "export let probe(): Unit = a!(noop, save0, 2)\n")].sort());
+    expect(second).toEqual(first);
+    expect(first.some((message) => message.includes("meets a type"))).toBe(false);
   });
 
   it("reads a merge with the member's own written parameter as a tie, in either member order", () => {
