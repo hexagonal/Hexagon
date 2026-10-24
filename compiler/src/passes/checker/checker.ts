@@ -26676,6 +26676,7 @@ class Checker {
         }
       }
     }
+    const solved = new Set<HardCase>();
     for (const hardCase of this.#hardCases) {
       if (hardCase.axis !== axis) continue;
       const parts = [...this.#colourParts(hardCase.left), ...this.#colourParts(hardCase.right)];
@@ -26708,6 +26709,14 @@ class Checker {
         this.#openedPending.push(room);
         this.#unify(part, this.#join([...new Set(around), room]), hardCase.span);
       }
+      // Followed, the case is the fragment's again: met now, it is no longer
+      // set aside for a later collapse to make the callback a constant.
+      solved.add(hardCase);
+    }
+    if (solved.size === 0) return;
+    this.#hardCases = this.#hardCases.filter((each) => !solved.has(each));
+    for (const hardCase of solved) {
+      this.#onAxis(hardCase.axis, () => this.#unify(hardCase.left, hardCase.right, hardCase.span));
     }
   }
 

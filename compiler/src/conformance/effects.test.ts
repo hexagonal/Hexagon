@@ -3655,13 +3655,24 @@ describe("Effects §3.4 — what a held lambda's own callbacks run is not held (
     ]);
     expect(check(first("!"))).toEqual([]);
     // Two pure nested uses tie the knot's colours to `f`'s, with no room left:
-    // they follow `f`'s, so `outer`'s caller, handing `save0`, owes the mark.
+    // they follow `f`'s, so `outer`'s face carries `f`, and the merge is the
+    // tie its twin reports, written the same way: `outer`'s caller, handing
+    // `save0`, owes the mark too.
     const viaF = (mark: string): string =>
       knot(mark)
         .replace(`q${mark}(() => q${mark}(save0, True), True)`, `q${mark}(() => q${mark}(noop, False), False)\n            q${mark}(() => q${mark}(noop, False), False)`)
         .replace(`outer${mark}(noop)`, `outer${mark}(save0)`);
+    for (const mark of ["", "!"]) {
+      const text = prelude + viaF(mark);
+      const ties = compileFiles([["/world.js", ""], ["/main.hex", text]]).diagnostics
+        .filter(({ message }) => message.includes("inference cannot keep them apart"))
+        .map(({ labels, fixes }) => [
+          (labels ?? []).map(({ span }) => text.slice(span.start.offset, span.end.offset)).sort(),
+          (fixes ?? []).flatMap((fix) => fix.edits.map((edit) => edit.replacement)),
+        ]);
+      expect([mark, ties]).toEqual([mark, [[["cb", "f"], [": () ->! Unit", ": () ->! Unit"]]]]);
+    }
     expect(reports(viaF(""))).toContainEqual(["outer(save0)", wants("outer")]);
-    expect(check(viaF("!"))).toEqual([]);
   });
 
   it("gives what a use meets to what the use chose, never to a colour its knot decides (#1247)", () => {
