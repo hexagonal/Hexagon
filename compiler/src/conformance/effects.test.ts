@@ -2541,7 +2541,7 @@ fun
     const quiet = "    b(p, n: Int): Unit =\n        if n > 0 then a(p, p, n - 1) else ()\n";
     const [first, second] = members(bare, quiet).map((knot) => [...check(knot + "export let probe(): Unit = a!(noop, save0, 2)\n")].sort());
     expect(second).toEqual(first);
-    expect(first.some((message) => message.includes("meets a type"))).toBe(false);
+    expect(first!.some((message) => message.includes("meets a type"))).toBe(false);
   });
 
   it("reads a merge with the member's own written parameter as a tie, in either member order", () => {
