@@ -26662,6 +26662,20 @@ class Checker {
     if (this.#hardCases.length === 0) return;
     const owns = new Set<Mono>();
     for (const frame of knot.frames) if (frameAxis(frame) === axis) owns.add(this.#prune(frame.own));
+    // The callbacks of the bodies around the knot, which their own closes
+    // decide, after this one.
+    const outside = new Set<Mono>();
+    const inKnot = new Set(knot.frames);
+    for (const frame of knot.frames) {
+      for (let open = frame.enclosing; open !== undefined; open = open.enclosing) {
+        if (inKnot.has(open) || frameAxis(open) !== axis) continue;
+        for (const { type } of open.untyped) {
+          for (const { arrow } of this.#spineColours(type, axis)) {
+            for (const part of this.#colourParts(arrow)) outside.add(this.#prune(part));
+          }
+        }
+      }
+    }
     for (const hardCase of this.#hardCases) {
       if (hardCase.axis !== axis) continue;
       const parts = [...this.#colourParts(hardCase.left), ...this.#colourParts(hardCase.right)];
@@ -26669,13 +26683,30 @@ class Checker {
       if (knotParts.length === 0) continue;
       const left = this.#prune(hardCase.left);
       const right = this.#prune(hardCase.right);
-      // Only a meeting with the impure constant demands impurity of its
-      // parts; one between two joins may yet be met by the knot's own answer.
-      const impure = (colour: Mono): boolean => colour.kind === "Effect" && isImpure(colour);
       if (left.kind === "Effect" && right.kind === "Effect") continue;
-      if (!impure(left) && !impure(right)) continue;
+      // A meeting with the impure constant demands impurity of its parts. One
+      // between two joins the knot can meet on its own, unless a part is a
+      // callback of a body around it, which that body decides only after
+      // this close: the knot cannot wait for it, so Swift's answer is given
+      // here.
+      const impure = (colour: Mono): boolean => colour.kind === "Effect" && isImpure(colour);
+      if (impure(left) || impure(right)) {
+        for (const part of knotParts) {
+          if (this.#prune(part).kind === "Variable") this.#unify(part, IMPURE, hardCase.span);
+        }
+        continue;
+      }
+      const around = parts.map((part) => this.#prune(part)).filter((part) => outside.has(part));
+      if (around.length === 0) continue;
+      // Tied to a callback of a body around the knot, which only that body's
+      // callers decide: the knot's colours follow it, beside room of their
+      // own, so its face carries the callback and each caller decides (#1334).
       for (const part of knotParts) {
-        if (this.#prune(part).kind === "Variable") this.#unify(part, IMPURE, hardCase.span);
+        if (this.#prune(part).kind !== "Variable") continue;
+        const room = this.#fresh(knot.level, false);
+        this.#openedColours.add(room);
+        this.#openedPending.push(room);
+        this.#unify(part, this.#join([...new Set(around), room]), hardCase.span);
       }
     }
   }

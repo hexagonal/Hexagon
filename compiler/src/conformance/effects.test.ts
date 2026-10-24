@@ -3654,6 +3654,14 @@ describe("Effects §3.4 — what a held lambda's own callbacks run is not held (
       ["outer(noop)", wants("outer")],
     ]);
     expect(check(first("!"))).toEqual([]);
+    // Two pure nested uses tie the knot's colours to `f`'s, with no room left:
+    // they follow `f`'s, so `outer`'s caller, handing `save0`, owes the mark.
+    const viaF = (mark: string): string =>
+      knot(mark)
+        .replace(`q${mark}(() => q${mark}(save0, True), True)`, `q${mark}(() => q${mark}(noop, False), False)\n            q${mark}(() => q${mark}(noop, False), False)`)
+        .replace(`outer${mark}(noop)`, `outer${mark}(save0)`);
+    expect(reports(viaF(""))).toContainEqual(["outer(save0)", wants("outer")]);
+    expect(check(viaF("!"))).toEqual([]);
   });
 
   it("gives what a use meets to what the use chose, never to a colour its knot decides (#1247)", () => {
