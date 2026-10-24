@@ -1201,10 +1201,13 @@ class LinkedColours {
  */
 class ByRepresentative<T> {
   readonly #entries = new Map<Variable, T[]>();
+  /** Counts the changes, so a reading of the entries can be kept until they change. */
+  version = 0;
   constructor(readonly prune: (colour: Mono) => Mono) {}
   add(colour: Mono, entry: T): void {
     const pruned = this.prune(colour);
     if (pruned.kind !== "Variable") return;
+    this.version += 1;
     const entries = this.#entries.get(pruned);
     if (entries === undefined) this.#entries.set(pruned, [entry]);
     else entries.push(entry);
@@ -1215,9 +1218,26 @@ class ByRepresentative<T> {
   moved(from: Variable, to: Variable): void {
     const entries = this.#entries.get(from);
     if (entries === undefined) return;
+    this.version += 1;
     const theirs = this.#entries.get(to);
     this.#entries.set(to, theirs === undefined ? [...entries] : [...theirs, ...entries]);
   }
+}
+
+/** Who shares one colour, read once for a knot (`#sharersOf`). */
+interface SharersOf {
+  readonly untypedVersion: number;
+  readonly writtenVersion: number;
+  /** The untyped parameters sharing it, and the written callbacks. */
+  readonly untyped: number;
+  readonly written: number;
+  /** The untyped ones by owner and name, and by owner. */
+  readonly untypedByName: Map<string, number>;
+  readonly untypedByOwner: Map<string | undefined, number>;
+  /** The owners of the written ones. */
+  readonly writtenByOwner: ReadonlySet<string | undefined>;
+  /** Whether every one is a parameter of one of the knot's members. */
+  readonly allMembers: boolean;
 }
 
 /** A written callback colour and the region that owns it (Effects §10). */
@@ -6169,6 +6189,20 @@ class Checker {
     /** The colours each frame's own untyped parameters share, read before any frame settles. */
     readonly shared: ReadonlyMap<EffectFrame, readonly Variable[]>;
   } | undefined = undefined;
+  /**
+   * The closing knot's calls by the colours they run (#1309): each colour's
+   * positions in `#knotFacts.calls`, so a member's close reads only the calls
+   * that can tell it anything. Keyed by representative; a key a later bind
+   * moved is re-keyed where it is next read.
+   */
+  #knotFactIndex: Map<Variable, number[]> | undefined = undefined;
+  /** `#factReaderFixes`'s fixes, by the obligations they read, the fact, and its colours. */
+  readonly #readerFixesOf = new WeakMap<
+    ReadonlyMap<Resolved.CallExpr, MarkObligation>,
+    WeakMap<ColourFact, Map<string, Diagnostics.Fix[]>>
+  >();
+  /** `#sharersOf`'s counts, by knot and colour. */
+  readonly #sharers = new WeakMap<Knot, Map<Variable, SharersOf>>();
   /**
    * The frames of a knot refused for handing on a function it was not given
    * (#1218):
@@ -23985,10 +24019,23 @@ class Checker {
         [...this.#ownedColours(frame)].filter(([, count]) => count > 1).map(([colour]) => colour),
       ])),
     };
+    const enclosingIndex = this.#knotFactIndex;
+    const index = new Map<Variable, number[]>();
+    this.#knotFacts.calls.forEach(({ effect }, position) => {
+      for (const part of this.#colourParts(effect)) {
+        const key = this.#prune(part);
+        if (key.kind !== "Variable") continue;
+        const positions = index.get(key);
+        if (positions === undefined) index.set(key, [position]);
+        else if (positions.at(-1) !== position) positions.push(position);
+      }
+    });
+    this.#knotFactIndex = index;
     try {
       for (const frame of outermost) this.#closeFrame(frame, false);
     } finally {
       this.#knotFacts = enclosingFacts;
+      this.#knotFactIndex = enclosingIndex;
     }
     // Innermost first; bodies at one depth in the order they were reached. A
     // frame around a lambda an enclosing knot holds decides its ties here and
@@ -24157,6 +24204,40 @@ class Checker {
   }
 
   /**
+   * The positions in `#knotFacts.calls` of the calls that run a colour of
+   * `frame`'s untyped parameters, in order (#1309), or none where the index
+   * cannot say: a colour a bind made a join may hide in any call, so every
+   * call is read then. A key a bind moved is re-keyed first.
+   */
+  #knotFactPositions(frame: EffectFrame, axis: Axis): number[] | undefined {
+    let index = this.#knotFactIndex;
+    if (index === undefined) return undefined;
+    if ([...index.keys()].some((key) => this.#prune(key) !== key)) {
+      const rekeyed = new Map<Variable, number[]>();
+      for (const [key, positions] of index) {
+        const now = this.#prune(key);
+        if (now.kind === "Join") {
+          this.#knotFactIndex = undefined;
+          return undefined;
+        }
+        if (now.kind === "Variable") rekeyed.set(now, [...rekeyed.get(now) ?? [], ...positions]);
+      }
+      this.#knotFactIndex = index = rekeyed;
+    }
+    const found = new Set<number>();
+    for (const parameter of frame.untyped) {
+      for (const { arrow } of this.#spineColours(parameter.type, axis)) {
+        for (const part of this.#colourParts(arrow)) {
+          const now = this.#prune(part);
+          if (now.kind !== "Variable") continue;
+          for (const position of index.get(now) ?? []) found.add(position);
+        }
+      }
+    }
+    return [...found].sort((left, right) => left - right);
+  }
+
+  /**
    * §3.4's second step: an untyped parameter the body uses as a function is
    * decided by the facts about it. A call written bare is one: everything it
    * runs is silent, through any label. A mark is no fact: it is checked
@@ -24237,7 +24318,12 @@ class Checker {
     // against it, whichever member closes first.
     const factFrames = new Map<Resolved.CallExpr, EffectFrame>();
     if (this.#knotFacts?.frames.has(frame) === true) {
-      for (const { effect, call, frame: other } of this.#knotFacts.calls) {
+      const calls = this.#knotFacts.calls;
+      // Only a call that runs one of this body's own colours can tell it
+      // anything; the rest are read where they can (#1309).
+      const positions = this.#knotFactPositions(frame, axis);
+      for (const position of positions ?? calls.keys()) {
+        const { effect, call, frame: other } = calls[position]!;
         if (other === frame) continue;
         if (markParts(call.mark)[axis]) {
           marked.push({ call, parts: this.#colourParts(effect), elsewhere: true });
@@ -24709,15 +24795,48 @@ class Checker {
     const knots = this.#settlingKnot === undefined ? this.#knots : [...this.#knots, this.#settlingKnot];
     const knot = knots.find((candidate) => candidate.members.some((member) => member.name === frame.owner));
     if (knot === undefined) return false;
-    const members = new Set(knot.members.map((member) => member.name));
-    const untyped = this.#untypedColours.get(colour).filter((entry) => !(entry.name === name && entry.owner === frame.owner));
-    const written = this.#scopesByColour.get(colour);
-    if (untyped.length + written.length === 0) return false;
-    if (untyped.some((entry) => entry.owner === frame.owner) || written.some((scope) => scope.owner === frame.owner)) {
-      return false;
+    const sharers = this.#sharersOf(knot, colour);
+    const own = sharers.untypedByName.get(`${frame.owner}\u0000${name}`) ?? 0;
+    if (sharers.untyped - own + sharers.written === 0) return false;
+    if ((sharers.untypedByOwner.get(frame.owner) ?? 0) > own || sharers.writtenByOwner.has(frame.owner)) return false;
+    return sharers.allMembers;
+  }
+
+  /**
+   * Who shares a colour, counted once for a knot and kept until either table
+   * changes (#1309): every member asks it of the same shared colour.
+   */
+  #sharersOf(knot: Knot, colour: Variable): SharersOf {
+    const kept = this.#sharers.get(knot)?.get(colour);
+    if (
+      kept !== undefined && kept.untypedVersion === this.#untypedColours.version &&
+      kept.writtenVersion === this.#scopesByColour.version
+    ) {
+      return kept;
     }
-    return untyped.every((entry) => entry.owner !== undefined && members.has(entry.owner)) &&
-      written.every((scope) => scope.parameter !== undefined && scope.owner !== undefined && members.has(scope.owner));
+    const members = new Set(knot.members.map((member) => member.name));
+    const untyped = this.#untypedColours.get(colour);
+    const written = this.#scopesByColour.get(colour);
+    const sharers: SharersOf = {
+      untypedVersion: this.#untypedColours.version,
+      writtenVersion: this.#scopesByColour.version,
+      untyped: untyped.length,
+      written: written.length,
+      untypedByName: new Map(),
+      untypedByOwner: new Map(),
+      writtenByOwner: new Set(written.map((scope) => scope.owner)),
+      allMembers: untyped.every((entry) => entry.owner !== undefined && members.has(entry.owner)) &&
+        written.every((scope) => scope.parameter !== undefined && scope.owner !== undefined && members.has(scope.owner)),
+    };
+    for (const entry of untyped) {
+      const key = `${entry.owner}\u0000${entry.name}`;
+      sharers.untypedByName.set(key, (sharers.untypedByName.get(key) ?? 0) + 1);
+      sharers.untypedByOwner.set(entry.owner, (sharers.untypedByOwner.get(entry.owner) ?? 0) + 1);
+    }
+    let byColour = this.#sharers.get(knot);
+    if (byColour === undefined) this.#sharers.set(knot, byColour = new Map());
+    byColour.set(colour, sharers);
+    return sharers;
   }
 
   /**
@@ -26557,8 +26676,13 @@ class Checker {
     }
     // The conduit arm over what remains: a sibling's own colour is no colour
     // of the member that calls it, but what the sibling runs is.
-    const siblingOf = (colour: Variable): EffectFrame | undefined =>
-      frames.find((frame) => this.#prune(frame.own) === colour);
+    // Each member's own colour once, the first frame that has it (#1309).
+    const byOwn = new Map<Mono, EffectFrame>();
+    for (const frame of frames) {
+      const own = this.#prune(frame.own);
+      if (!byOwn.has(own)) byOwn.set(own, frame);
+    }
+    const siblingOf = (colour: Variable): EffectFrame | undefined => byOwn.get(colour);
     const runs = new Map<EffectFrame, Set<Variable>>();
     const edges = new Map<EffectFrame, Set<EffectFrame>>();
     // A solved constant a member runs, kept by identity as a lone body keeps
@@ -28567,16 +28691,7 @@ class Checker {
                   : { span: obligation.markSpan, replacement: spelled(wanted) },
               ],
             }]),
-          ...this.#readerFixes(
-            fact === undefined ? told : [{
-              name: fact.name,
-              ...(fact.returns === undefined ? {} : { returns: fact.returns }),
-              fact,
-              calls: fact.readers,
-              axes: over,
-            }],
-            byCall,
-          ),
+          ...(fact === undefined ? this.#readerFixes(told, byCall) : this.#factReaderFixes(fact, over, byCall)),
         ],
       };
       // Every fact it is seen to fail, each on its own colour.
@@ -29340,6 +29455,34 @@ class Checker {
       : factOf.callee === "this call"
       ? `a call written ${how} runs ${subject}, which makes it ${silent}`
       : `${factOf.callee} is called ${how}, which makes ${subject} ${silent}`;
+  }
+
+  /**
+   * `#readerFixes` for the one fact a report names, built once for every
+   * report that names it on the same colours (#1309): it marks every call
+   * that makes it, so a knot's reports would each list them all again.
+   */
+  #factReaderFixes(
+    fact: ColourFact,
+    over: readonly Axis[],
+    byCall: ReadonlyMap<Resolved.CallExpr, MarkObligation>,
+  ): Diagnostics.Fix[] {
+    let byFact = this.#readerFixesOf.get(byCall);
+    if (byFact === undefined) this.#readerFixesOf.set(byCall, byFact = new WeakMap());
+    let byAxes = byFact.get(fact);
+    if (byAxes === undefined) byFact.set(fact, byAxes = new Map());
+    const key = over.join(" ");
+    const kept = byAxes.get(key);
+    if (kept !== undefined) return kept;
+    const fixes = this.#readerFixes([{
+      name: fact.name,
+      ...(fact.returns === undefined ? {} : { returns: fact.returns }),
+      fact,
+      calls: fact.readers,
+      axes: over,
+    }], byCall);
+    byAxes.set(key, fixes);
+    return fixes;
   }
 
   /**
