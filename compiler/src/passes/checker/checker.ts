@@ -30043,6 +30043,15 @@ class Checker {
         meet(slack);
         return;
       }
+      // A part an open knot holds is the knot's to decide, by its members'
+      // text, never a meeting's (#1232): the meeting is read on the other
+      // parts, as it is once the knot's colour is decided (#1247).
+      const free = join.parts.filter((part) => !this.#knots.some((knot) => this.#knotColour(knot, part)));
+      if (free.length > 0 && free.length < join.parts.length) {
+        if (join === left) this.#unify(this.#join(free), other, span, message);
+        else this.#unify(other, this.#join(free), span, message);
+        return;
+      }
       this.#recordHardCase(join, other, span);
       return;
     }
