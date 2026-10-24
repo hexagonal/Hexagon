@@ -3640,6 +3640,20 @@ describe("Effects §3.4 — what a held lambda's own callbacks run is not held (
       ["outer(noop)", wants("outer")],
     ]);
     expect(check(knot("!"))).toEqual([]);
+    // A pure nested use first leaves the merge no room, so `save0` meets the
+    // colours of `r` and of the lambda alone, a hard case `f` sank below the
+    // knot: it settles at the knot's close, which reads it as a source.
+    const first = (mark: string): string =>
+      knot(mark).replace(`q${mark}(() => q${mark}(save0, True), True)`, `q${mark}(() => q${mark}(noop, True), True)\n            q${mark}(save0, True)`);
+    expect(reports(first(""))).toEqual([
+      ["ping(n - 1)", wants("ping")],
+      ["q(() => q(noop, True), True)", wants("q")],
+      ["q(noop, True)", wants("q")],
+      ["q(save0, True)", wants("q")],
+      ["ping(2)", wants("ping")],
+      ["outer(noop)", wants("outer")],
+    ]);
+    expect(check(first("!"))).toEqual([]);
   });
 
   it("gives what a use meets to what the use chose, never to a colour its knot decides (#1247)", () => {

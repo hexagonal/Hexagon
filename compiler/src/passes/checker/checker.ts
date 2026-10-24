@@ -26633,6 +26633,10 @@ class Checker {
     const enclosingSettling = this.#settlingKnot;
     this.#settlingKnot = knot;
     try {
+      // A hard case on the knot's own colours settles here, its deadline,
+      // before the arms read them: whatever its level, the members are
+      // decided now (#1334).
+      for (const axis of AXES) this.#onAxis(axis, () => this.#settleKnotHardCases(knot, axis));
       // A member's callbacks still their own are noted once every member's
       // body is in, not where its own closed: what a sibling's body hands
       // back into its slots is the knot's, read the same in every member
@@ -26643,6 +26647,36 @@ class Checker {
       for (const axis of AXES) this.#onAxis(axis, () => this.#settleKnotBody(knot, axis));
     } finally {
       this.#settlingKnot = enclosingSettling;
+    }
+  }
+
+  /**
+   * The hard cases a body of this knot owns a part of (Effects §3.4): a part
+   * that is a frame's own colour waits for the knot, and the knot's close is
+   * its deadline, so the case settles here, however low another part sank
+   * it. Not satisfied by now, Swift's collapse makes those parts the impure
+   * constant, which the arms then read as a source; a part another body
+   * decides keeps waiting for that body's close (#1334).
+   */
+  #settleKnotHardCases(knot: Knot, axis: Axis): void {
+    if (this.#hardCases.length === 0) return;
+    const owns = new Set<Mono>();
+    for (const frame of knot.frames) if (frameAxis(frame) === axis) owns.add(this.#prune(frame.own));
+    for (const hardCase of this.#hardCases) {
+      if (hardCase.axis !== axis) continue;
+      const parts = [...this.#colourParts(hardCase.left), ...this.#colourParts(hardCase.right)];
+      const knotParts = parts.filter((part) => owns.has(this.#prune(part)));
+      if (knotParts.length === 0) continue;
+      const left = this.#prune(hardCase.left);
+      const right = this.#prune(hardCase.right);
+      // Only a meeting with the impure constant demands impurity of its
+      // parts; one between two joins may yet be met by the knot's own answer.
+      const impure = (colour: Mono): boolean => colour.kind === "Effect" && isImpure(colour);
+      if (left.kind === "Effect" && right.kind === "Effect") continue;
+      if (!impure(left) && !impure(right)) continue;
+      for (const part of knotParts) {
+        if (this.#prune(part).kind === "Variable") this.#unify(part, IMPURE, hardCase.span);
+      }
     }
   }
 
