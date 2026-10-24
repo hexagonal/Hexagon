@@ -24378,13 +24378,21 @@ class Checker {
       };
     });
     const ownedBy = this.#ownedColours(frame);
+    // In a knot, a colour another member's own untyped parameters share is
+    // shared here too, whichever member decides it first (#1336).
+    const knotShared = new Set<Mono>();
+    if (this.#knotFacts?.frames.has(frame) === true) {
+      for (const [other, colours] of this.#knotFacts.shared) {
+        if (other !== frame) for (const colour of colours) knotShared.add(this.#prune(colour));
+      }
+    }
     // A colour two untyped parameters share is decided by no fact: a bare
     // call through one says nothing of the other, though inference cannot keep
     // them apart (§3.4). It is silent where that leaves every mark true, and
     // otherwise the parameters' own, which the close refuses as a tie.
     const shared = (colour: Mono): boolean => {
       const pruned = this.#prune(colour);
-      return pruned.kind === "Variable" && (ownedBy.get(pruned) ?? 0) > 1;
+      return pruned.kind === "Variable" && ((ownedBy.get(pruned) ?? 0) > 1 || knotShared.has(pruned));
     };
     // A part keeps a mark true where it is a colour that may be impure for
     // good: this body's parameter's own, or a callback's. A part another body
@@ -24397,7 +24405,9 @@ class Checker {
         : this.#isLinkedColour(part) || this.#seatHeld.has(part);
     const needed = new Set<Variable>();
     for (const { parts, elsewhere } of marked) {
-      if (elsewhere === true) continue;
+      // Another member's mark on a colour its own parameters share keeps it
+      // true here too.
+      if (elsewhere === true && !parts.some((part) => knotShared.has(this.#prune(part)))) continue;
       if (parts.some((part) => shared(part)) && parts.every((part) => shared(part) || !keepsTrue(part))) {
         for (const part of parts) if (shared(part)) needed.add(part);
       }

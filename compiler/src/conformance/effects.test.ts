@@ -2520,6 +2520,23 @@ fun
     }
   });
 
+  it("reads a sibling's bare call as no fact about a colour two of a member's own callbacks share, in either member order (#1336)", () => {
+    // `b` hands its one `p` into both of `a`'s places, so `a`'s `f` and `g`
+    // share a colour: `p()` says `p`'s function is pure, and nothing of `g`'s,
+    // whichever member is read first. The tie stands, and `p()` keeps its
+    // report.
+    const a = "    a(f, g, n: Int): Unit =\n        f()\n        g!()\n        if n > 0 then b!(f, n - 1) else ()\n";
+    const b = "    b(p, n: Int): Unit =\n        p()\n        if n > 0 then a!(p, p, n - 1) else ()\n";
+    const tie = "`f`'s colour is tied to `g`'s here, and inference cannot keep them apart — write `f`'s type, or wrap `f` " +
+      "where they meet";
+    for (const knot of members(a, b)) {
+      expect([knot, [...check(knot)].sort()]).toEqual([knot, [
+        tie,
+        "this call is impure and may fail, so `p` wants `!`, not no mark",
+      ].sort()]);
+    }
+  });
+
   it("reads a merge with the member's own written parameter as a tie, in either member order", () => {
     // The colour `f` shares with `act` is not one only handing on made, so it
     // is a tie whichever member is read first.
