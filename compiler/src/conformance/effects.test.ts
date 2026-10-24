@@ -2499,6 +2499,27 @@ fun
     }
   });
 
+  it("follows the recursion's hand-ons into a curried member's later places too (#1224)", () => {
+    // `a` hands `f` to `b`'s first application and `g` to its second; `b`
+    // hands `q` back into `f`'s place and `p` into `g`'s. `f` holds `q`'s
+    // function by turns, and `q` holds `g`'s, which `a` marks: so `f` and `q`,
+    // though each is called bare, are written impure, and keep their reports.
+    const a = "    a(n: Int, f) = (g) =>\n        f()\n        g!()\n        if n > 0 then b(n - 1, f)!(g) else ()\n";
+    const b = "    b(n: Int, p) = (q) =>\n        q()\n        if n > 0 then a(n - 1, q)!(p) else ()\n";
+    for (const knot of members(a, b)) {
+      const reports = compileFiles([["/world.js", ""], ["/main.hex", prelude + knot]]).diagnostics;
+      const written = reports.filter(({ message }) => message.includes("inference cannot keep them apart"))
+        .flatMap(({ fixes }) => (fixes ?? []).flatMap((fix) => fix.edits.map((edit) => edit.replacement)));
+      expect([knot, [...new Set(written)]]).toEqual([knot, [": () ->! Unit"]]);
+      const marks = reports.filter(({ message }) => message.startsWith("this call is impure"))
+        .map(({ message }) => message).sort();
+      expect([knot, marks]).toEqual([knot, [
+        "this call is impure and may fail, so `f` wants `!`, not no mark",
+        "this call is impure and may fail, so `q` wants `!`, not no mark",
+      ]]);
+    }
+  });
+
   it("reads a merge with the member's own written parameter as a tie, in either member order", () => {
     // The colour `f` shares with `act` is not one only handing on made, so it
     // is a tie whichever member is read first.
