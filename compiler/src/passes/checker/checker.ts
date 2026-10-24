@@ -30012,7 +30012,9 @@ class Checker {
    *
    * 1. a join meeting pure makes every part pure;
    * 2. a join meeting the impure constant gives the impurity to its slack,
-   *    where it has one;
+   *    where it has one, and otherwise, where a part waits for an open knot,
+   *    is read on its other parts alone, the knot's part being the knot's to
+   *    decide (#1247);
    * 3. (a join meeting a free variable binds the variable: `#bind`'s);
    * 4. a join meeting a join cancels the parts they share; where one remainder
    *    is a single slack, that slack takes the other remainder; where one
@@ -30041,6 +30043,15 @@ class Checker {
         join.parts.find((part) => this.#openedColours.has(part));
       if (slack !== undefined) {
         meet(slack);
+        return;
+      }
+      // A part an open knot holds is the knot's to decide, by its members'
+      // text, never a meeting's (#1232): the meeting is read on the other
+      // parts, as it is once the knot's colour is decided (#1247).
+      const free = join.parts.filter((part) => !this.#knots.some((knot) => this.#knotColour(knot, part)));
+      if (free.length > 0 && free.length < join.parts.length) {
+        if (join === left) this.#unify(this.#join(free), other, span, message);
+        else this.#unify(other, this.#join(free), span, message);
         return;
       }
       this.#recordHardCase(join, other, span);

@@ -3560,6 +3560,28 @@ describe("Effects §3.4 — what a held lambda's own callbacks run is not held (
     // on, so whether `q!(noop, act)` runs it is out of sight; its twin's is not.
     expect(check(knot + probe).filter((message) => message.includes("perhaps"))).toHaveLength(1);
   });
+
+  it("gives what a use meets to what the use chose, never to a colour its knot decides (#1247)", () => {
+    // `r` runs `ping`, so where `q!(save0, True)` meets `save0` its colour
+    // waits on the knot. The merge joined it with room, which `q`'s instance
+    // makes the use's: the use's part takes `save0`, as in the twin, where
+    // `r`'s colour is decided before `q` closes and the join is the room alone.
+    const q = (merge: string) =>
+      "        let r = () =>\n            let _ = if n > 0 then REC else 0\n            ()\n" +
+      `        let q = (cb, b: Bool) =>\n            let h = ${merge}\n            h!()\n            ()\n`;
+    for (const merge of ["if b then cb else r", "pick(cb, r)"]) {
+      const marked = ping(q(merge), "        q!(save0, True)\n", "ping!(n - 1)", "ping!(2)");
+      expect([marked, check(marked)]).toEqual([marked, []]);
+      // `ping` is impure, so the call `r` writes bare is refused, and only it.
+      const bare = ping(q(merge), "        q!(save0, True)\n", "ping(n - 1)", "ping!(2)");
+      expect([bare, reports(bare)]).toEqual([bare, [
+        ["ping(n - 1)", "this call is impure and may fail, so `ping` wants `!`, not no mark"],
+      ]]);
+      // Where `ping` runs no impure call, the knot decides `r` pure.
+      const later = ping(q(merge), "        let later = () => q!(save0, True)\n        q(noop, True)\n");
+      expect([later, check(later)]).toEqual([later, []]);
+    }
+  });
 });
 
 describe("Effects §2.6 — a short form reads as its longhand twin (#1213 (T))", () => {
