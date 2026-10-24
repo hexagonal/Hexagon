@@ -3619,6 +3619,70 @@ describe("Effects §3.4 — what a held lambda's own callbacks run is not held (
     expect(check(knot + probe).filter((message) => message.includes("perhaps"))).toHaveLength(1);
   });
 
+  it("carries what a use hands a held lambda into the knot's colours, through room the knot holds (#1334)", () => {
+    // `q` merges its callback with `r`, which runs `ping`, and with `outer`'s
+    // `f`, so the room of that merge is the knot's to hold. `save0`, handed
+    // to `q` inside a lambda handed to `q`, makes both calls impure, and
+    // `ping` with them, as outside the knot; main recorded the meeting as a
+    // demand and accepted every call bare.
+    const knot = (mark: string): string =>
+      "let outer(f): Int =\n    fun\n        ping(n: Int): Int =\n" +
+      `            let r = () =>\n                let _ = if n > 0 then ping${mark}(n - 1) else 0\n                ()\n` +
+      "            let q = (cb, c: Bool) =>\n                let h = if c then cb else (if c then r else f)\n" +
+      `                h!()\n                ()\n            q${mark}(() => q${mark}(save0, True), True)\n            0\n` +
+      `    ping${mark}(2)\nexport let probe(): Int = outer${mark}(noop)\n`;
+    const wants = (callee: string) => `this call is impure and may fail, so \`${callee}\` wants \`!\`, not no mark`;
+    expect(reports(knot(""))).toEqual([
+      ["ping(n - 1)", wants("ping")],
+      ["q(() => q(save0, True), True)", wants("q")],
+      ["q(save0, True)", wants("q")],
+      ["ping(2)", wants("ping")],
+      ["outer(noop)", wants("outer")],
+    ]);
+    expect(check(knot("!"))).toEqual([]);
+    // A pure nested use first leaves the merge no room, so `save0` meets the
+    // colours of `r` and of the lambda alone, a hard case `f` sank below the
+    // knot: it settles at the knot's close, which reads it as a source.
+    const first = (mark: string): string =>
+      knot(mark).replace(`q${mark}(() => q${mark}(save0, True), True)`, `q${mark}(() => q${mark}(noop, True), True)\n            q${mark}(save0, True)`);
+    expect(reports(first(""))).toEqual([
+      ["ping(n - 1)", wants("ping")],
+      ["q(() => q(noop, True), True)", wants("q")],
+      ["q(noop, True)", wants("q")],
+      ["q(save0, True)", wants("q")],
+      ["ping(2)", wants("ping")],
+      ["outer(noop)", wants("outer")],
+    ]);
+    expect(check(first("!"))).toEqual([]);
+    // Two pure nested uses tie the knot's colours to `f`'s, with no room left:
+    // they follow `f`'s, so `outer`'s face carries `f`, and the merge is the
+    // tie its twin reports, written the same way: `outer`'s caller, handing
+    // `save0`, owes the mark too.
+    const viaF = (mark: string): string =>
+      knot(mark)
+        .replace(`q${mark}(() => q${mark}(save0, True), True)`, `q${mark}(() => q${mark}(noop, False), False)\n            q${mark}(() => q${mark}(noop, False), False)`)
+        .replace(`outer${mark}(noop)`, `outer${mark}(save0)`);
+    // A third use ties a second case to `f` only through the first, read
+    // again once the first is met: the face follows in both.
+    const thrice = (mark: string): string =>
+      viaF(mark).replace(`            outer${mark}(save0)`, `            outer${mark}(save0)`)
+        .replace(`q${mark}(() => q${mark}(noop, False), False)\n            0`, `q${mark}(() => q${mark}(noop, False), False)\n            q${mark}(() => q${mark}(noop, False), False)\n            0`);
+    for (const each of [viaF("!"), thrice("!")]) {
+      expect([each, hover(each, "outer(f)")]).toEqual([each, "(() ->! Unit) >-> Int"]);
+    }
+    for (const mark of ["", "!"]) {
+      const text = prelude + viaF(mark);
+      const ties = compileFiles([["/world.js", ""], ["/main.hex", text]]).diagnostics
+        .filter(({ message }) => message.includes("inference cannot keep them apart"))
+        .map(({ labels, fixes }) => [
+          (labels ?? []).map(({ span }) => text.slice(span.start.offset, span.end.offset)).sort(),
+          (fixes ?? []).flatMap((fix) => fix.edits.map((edit) => edit.replacement)),
+        ]);
+      expect([mark, ties]).toEqual([mark, [[["cb", "f"], [": () ->! Unit", ": () ->! Unit"]]]]);
+    }
+    expect(reports(viaF(""))).toContainEqual(["outer(save0)", wants("outer")]);
+  });
+
   it("gives what a use meets to what the use chose, never to a colour its knot decides (#1247)", () => {
     // `r` runs `ping`, so where `q!(save0, True)` meets `save0` its colour
     // waits on the knot. The merge joined it with room, which `q`'s instance
