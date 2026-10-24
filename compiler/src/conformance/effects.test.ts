@@ -2462,6 +2462,64 @@ fun
     }
   });
 
+  it("reads a member's callbacks a written sibling hands back crossed as a tie in either member order (#1224)", () => {
+    // `b` writes `p` and `q` and hands them back to `a` swapped, so `f` and
+    // `g` hold each other's function by turns. Read where `a`'s own body
+    // closed, before `b`'s was in, they had looked like their own.
+    const b = "    b(act: () ->! Unit, p: () ->! Unit, q: () ->! Unit, c: Bool, n: Int): Unit =\n" +
+      "        if n == 0 then p!() else a!(act, q, p, c, n - 1)\n";
+    const tie = "`f`'s colour is tied to `g`'s here, and inference cannot keep them apart — write `f`'s type, or wrap `f` " +
+      "where they meet";
+    for (const g of ["g", "g: () ->! Unit"]) {
+      const a = `    a(act: () ->! Unit, f, ${g}, c: Bool, n: Int): Unit =\n        f!()\n        g!()\n` +
+        "        if n > 0 then b!(act, f, g, c, n - 1) else ()\n";
+      for (const knot of members(a, b)) expect([knot, check(knot)]).toEqual([knot, [tie]]);
+    }
+  });
+
+  it("writes a tied callback silent only where every callback the recursion hands into its place is too (#1224)", () => {
+    // `a` calls `f` bare, but `b` hands `g`'s function back into `f`'s place,
+    // and `g`'s is any function, so by turns `f` holds one that may do
+    // anything: its fix writes the constant, and the bare call keeps its own
+    // report, in either member order.
+    const a = "    a(f, g, n: Int): Unit =\n        f()\n        if n > 0 then b!(f, g, n - 1) else ()\n";
+    const b = "    b(p, q, n: Int): Unit =\n        if n > 0 then a!(q, p, n - 1) else ()\n";
+    const tie = (parameter: string, other: string): string =>
+      `\`${parameter}\`'s colour is tied to \`${other}\`'s here, and inference cannot keep them apart — ` +
+      `write \`${parameter}\`'s type, or wrap \`${parameter}\` where they meet`;
+    for (const knot of members(a, b)) {
+      const reports = compileFiles([["/world.js", ""], ["/main.hex", prelude + knot]]).diagnostics
+        .map(({ message, fixes }) => [message, (fixes ?? []).flatMap((fix) => fix.edits.map((edit) => edit.replacement))])
+        .sort((left, right) => String(left[0]).localeCompare(String(right[0])));
+      expect([knot, reports]).toEqual([knot, [
+        [tie("f", "g"), [": () ->! Unit", ": () ->! Unit"]],
+        [tie("p", "q"), [": () ->! Unit", ": () ->! Unit"]],
+        ["this call is impure and may fail, so `f` wants `!`, not no mark", ["!"]],
+      ].sort((left, right) => String(left[0]).localeCompare(String(right[0])))]);
+    }
+  });
+
+  it("follows the recursion's hand-ons into a curried member's later places too (#1224)", () => {
+    // `a` hands `f` to `b`'s first application and `g` to its second; `b`
+    // hands `q` back into `f`'s place and `p` into `g`'s. `f` holds `q`'s
+    // function by turns, and `q` holds `g`'s, which `a` marks: so `f` and `q`,
+    // though each is called bare, are written impure, and keep their reports.
+    const a = "    a(n: Int, f) = (g) =>\n        f()\n        g!()\n        if n > 0 then b(n - 1, f)!(g) else ()\n";
+    const b = "    b(n: Int, p) = (q) =>\n        q()\n        if n > 0 then a(n - 1, q)!(p) else ()\n";
+    for (const knot of members(a, b)) {
+      const reports = compileFiles([["/world.js", ""], ["/main.hex", prelude + knot]]).diagnostics;
+      const written = reports.filter(({ message }) => message.includes("inference cannot keep them apart"))
+        .flatMap(({ fixes }) => (fixes ?? []).flatMap((fix) => fix.edits.map((edit) => edit.replacement)));
+      expect([knot, [...new Set(written)]]).toEqual([knot, [": () ->! Unit"]]);
+      const marks = reports.filter(({ message }) => message.startsWith("this call is impure"))
+        .map(({ message }) => message).sort();
+      expect([knot, marks]).toEqual([knot, [
+        "this call is impure and may fail, so `f` wants `!`, not no mark",
+        "this call is impure and may fail, so `q` wants `!`, not no mark",
+      ]]);
+    }
+  });
+
   it("reads a merge with the member's own written parameter as a tie, in either member order", () => {
     // The colour `f` shares with `act` is not one only handing on made, so it
     // is a tie whichever member is read first.
