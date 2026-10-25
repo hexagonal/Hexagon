@@ -2555,6 +2555,14 @@ fun
     const [first, second] = members(a, b).map((knot) => [...check(knot + "export let probe(): Unit = a!(noop, save0, 2)\n")].sort());
     expect(second).toEqual(first);
     expect(first!.some((message) => message.includes("meets a type"))).toBe(false);
+    // A curried member's inner lambda is the member's too: the default its
+    // outer frame takes is no type `g` met there either, as the twin without
+    // the recursion reads it.
+    const curried = "fun\n    a(f, n: Int) =\n        (g) =>\n            let h = if n > 0 then f else g\n            h()\n" +
+      "            f()\n            g()\n            if n > 0 then a(f, n - 1)(g) else ()\n";
+    const twin = "let a(f, n: Int) =\n    (g) =>\n        let h = if n > 0 then f else g\n        h()\n        f()\n        g()\n";
+    const probe = "export let probe(): Unit = a(noop, 2)!(save0)\n";
+    expect([...check(curried + probe)].sort()).toEqual([...check(twin + probe)].sort());
   });
 
   it("reads a merge with the member's own written parameter as a tie, in either member order", () => {

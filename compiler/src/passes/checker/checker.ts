@@ -24016,9 +24016,10 @@ class Checker {
     // share (§3.4's knot step 3, #1240).
     const enclosingFacts = this.#knotFacts;
     for (const frame of outermost) this.#noteRunsAtCall(frame);
-    // And what the text fixed of every member's own arrows, so a sibling's
-    // decision never reads as a type its callback met (#1344). A held lambda
-    // closes after every member, so it reads them whatever their order.
+    // And what the text fixed of every member's own arrows, a curried
+    // member's inner lambdas' too, so a sibling's decision never reads as a
+    // type its callback met (#1344). A held lambda still reads its own where
+    // it settles (#1347).
     for (const frame of outermost) if (frame.spine === true) this.#noteOwnArrowPins(frame);
     this.#knotFacts = {
       frames: new Set(outermost),
