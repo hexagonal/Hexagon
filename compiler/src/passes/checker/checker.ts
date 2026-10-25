@@ -5587,6 +5587,12 @@ class Checker {
   readonly #requirementChains = new Map<Requirement, readonly ChainEntry[]>();
   /** The `fun` members a refused declared variable belongs to (#704). */
   readonly #refusedDeclarations = new Set<Resolved.SymbolId>();
+  /**
+   * The other side of each reported rigid-vs-rigid clash (#1061): a demand on
+   * it that its declaration mentions but could not quantify is the clash's
+   * casualty, which the clash's report already accounts for.
+   */
+  readonly #clashedVariables = new Set<number>();
   /** Each `fun` member's knot — the members checked with it (#1048). */
   readonly #knotMembers = new Map<Resolved.SymbolId, readonly Resolved.SymbolId[]>();
   /**
@@ -31447,6 +31453,7 @@ class Checker {
         });
       }
       this.#markDeclarationsRefused(variable);
+      if (type.kind === "Variable") this.#clashedVariables.add(type.id);
       variable.instance = ERROR;
       return;
     }
@@ -35592,6 +35599,10 @@ class Checker {
     for (const { requirement, variable, named, mentioned } of unrouted) {
       requirement.reported = true;
       if (mentioned && explained.has(variable)) continue;
+      // Nor where a clash that is reported sank it: which side the clash
+      // refused follows the order the bodies meet in, and the other side's
+      // declaration then cannot quantify it either (#1061; Functions §10).
+      if (mentioned && this.#clashedVariables.has(variable.id)) continue;
       const key = `${variable.id}:${named.symbol}:${requirement.identity}`;
       if (reported.has(key)) continue;
       reported.add(key);

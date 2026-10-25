@@ -139,6 +139,19 @@ describe("a knot's survivor gets no report of its own", () => {
       .toBe(true);
   });
 
+  test("a clash's other side owes no report of its own, in either member order (#1061)", () => {
+    // `outer`'s `t` meets `ib`'s own `f` inside the knot {ia, ib}. Which side the
+    // clash refuses follows which body meets the other first, and `ib` cannot be
+    // quantified over `f` either way: the clash is the one report.
+    const ia = "        ia(y: t, k: Int): String = if k <= 0 then show(y) else ib(y, k - 1)\n";
+    const ib = "        ib(y: f, k: Int): String = if k <= 0 then show(y) else ia(y, k - 1)\n";
+    for (const members of [[ia, ib], [ib, ia]]) {
+      const messages = verdict("fun outer<t: Show>(x: t, n: Int): String =\n    fun\n" + members.join("") + "    ia(x, n)\n");
+      expect([members, messages.length, messages[0]?.includes("are distinct declared type variables")])
+        .toEqual([members, 1, true]);
+    }
+  });
+
   test("a clash outside the knot is not the knot's refusal, and hides nothing", () => {
     // `h` meets `u` only because it leaked from `c`, which `a`'s reach left
     // unquantified. `h`'s own clash is reported, and so is the knot's cause.
