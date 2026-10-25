@@ -5359,18 +5359,29 @@ class Checker {
 
   /**
    * A lambda's frames where its body ends, each on its own colour (Effects §1,
-   * §3.4): a knot member's wait for its knot; any other settles now, unless its
+   * §3.4): a knot member's wait for its knot, and so do those of a lambda its
+   * value hands back, whose parameters are the member's (`result`), sunk to
+   * the knot's level as a held lambda's are; any other settles now, unless its
    * calls reach a sibling's colour, when it is held by that knot. Returns each
    * colour's arrow. A method of its own, so the recursion through nested
    * lambdas (`#inferExpr`) carries none of it on the stack.
    */
-  #closeLambdaFrames(effectFrame: EffectFrame, member: Knot | undefined): ReadonlyMap<Axis, Mono> {
+  #closeLambdaFrames(
+    effectFrame: EffectFrame,
+    member: Knot | undefined,
+    result: Knot | undefined,
+  ): ReadonlyMap<Axis, Mono> {
     const lambdaColours = new Map<Axis, Mono>();
     for (const axis of AXES) {
       const frame = frameOn(effectFrame, axis);
       lambdaColours.set(axis, frame.own);
       if (member !== undefined) {
         member.frames.push(frame);
+        continue;
+      }
+      if (result !== undefined) {
+        this.#sinkFrame(frame, result.level);
+        result.frames.push(frame);
         continue;
       }
       // A lambda whose calls reach a sibling's colour cannot be decided
@@ -12530,6 +12541,7 @@ class Checker {
         const lambdaColours = this.#closeLambdaFrames(
           effectFrame,
           declaringMember !== undefined && knot?.host === declaringMember.symbol ? knot : undefined,
+          knot?.host !== undefined && this.#memberResults.get(knot.host)?.has(expression) === true ? knot : undefined,
         );
 
         this.#arrowRole = enclosingRole;
