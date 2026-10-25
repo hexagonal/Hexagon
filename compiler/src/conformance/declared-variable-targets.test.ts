@@ -173,7 +173,7 @@ describe("a Nat or Int argument widens into a caller's declared type variable (#
         "export let r: Int = a(3, True)\n",
       );
       expect(messages).toHaveLength(1);
-      expect(messages[0]).toContain("`u` is a declared type variable, but the body requires");
+      expect(messages[0]).toContain("`u` is a declared type variable, but this recursive call uses `b`");
       expect(messages[0]).not.toContain("internal compiler error");
     }
   });

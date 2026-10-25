@@ -5593,6 +5593,8 @@ class Checker {
    * casualty, which the clash's report already accounts for.
    */
   readonly #clashedVariables = new Set<number>();
+  /** The composites a recursive call bound a variable to, with the call (#703). */
+  readonly #knotCallBinds = new WeakMap<Mono, Source.Span>();
   /** Each `fun` member's knot — the members checked with it (#1048). */
   readonly #knotMembers = new Map<Resolved.SymbolId, readonly Resolved.SymbolId[]>();
   /**
@@ -31438,17 +31440,24 @@ class Checker {
           });
         }
       } else {
-        const required = Typed.displayScheme({
-          variables: [],
-          constraints: [],
-          type: this.#publicType(type),
-        });
+        // Named as every report names a type (#649), never by a number (#699).
+        const required = this.#display(type);
+        const recursive = this.#knotCallAt(span);
         this.#diagnostics.add({
           severity: "error",
-          message:
-            `\`${variable.rigidName}\` is a declared type variable, but the body requires ` +
-            `\`${required}\`; change the annotation to \`${required}\`, or remove it to let ` +
-            "the type be inferred",
+          message: recursive === undefined
+            ? `\`${variable.rigidName}\` is a declared type variable, but the body requires ` +
+              `\`${required}\`; change the annotation to \`${required}\`, or remove it to let ` +
+              "the type be inferred"
+            // The SCC hint (Functions §10, #703). The annotation's repair stands
+            // where the type it names is one the variable could be; a type built
+            // from the variable itself is polymorphic recursion, which no
+            // annotation repairs, so none is offered.
+            : `\`${variable.rigidName}\` is a declared type variable, but this recursive call uses ` +
+              `\`${recursive}\` at \`${required}\`; ${KNOT_RULE}, so ` +
+              (this.#occurs(variable, type)
+                ? `a call inside the knot cannot use \`${recursive}\` at another type`
+                : `change the annotation to \`${required}\`, or remove it to let the type be inferred`),
           primary: span,
         });
       }
@@ -31524,10 +31533,19 @@ class Checker {
     // demand leaves it in error, and only the impure constant raises it.
     if (type.kind === "Effect" && Colour.isBottom(type) && this.#errorFloors.has(variable)) type = ERROR_COLOUR;
     if (this.#occurs(variable, type)) {
+      // A recursive call that hands a member a type built from its own meets
+      // its member's type only at the member's defining unify: the call made
+      // the bind, so the report stands there and takes the SCC hint (#703).
+      const origin = this.#definingMember ? this.#bindSpanOf(type) : span;
+      const recursive = origin === undefined ? undefined : this.#knotCallAt(origin);
       this.#diagnostics.add({
         severity: "error",
-        message: "infinite type: a type variable occurs inside itself",
-        primary: span,
+        message: recursive === undefined
+          ? "infinite type: a type variable occurs inside itself"
+          : `infinite type: this recursive call would use \`${recursive}\` at a type built from the one ` +
+            `it already has; ` +
+            `${KNOT_RULE}, so a call inside the knot cannot use \`${recursive}\` at another type`,
+        primary: recursive === undefined ? span : origin!,
       });
       variable.instance = ERROR;
       return;
@@ -31642,6 +31660,7 @@ class Checker {
       }
     }
     if (type.kind !== "Effect") this.#binds.set(variable, { span, order: this.#bindCount++, target: type });
+    if (type.kind !== "Effect" && this.#knotCallAt(span) !== undefined) this.#knotCallBinds.set(type, span);
     // *(#873.)* A signature's colour solved to a constant is solved to a
     // constant of its own, carrying the act that solved it (`ColourSolve`); so
     // is a seat's slot, so a failed seat can hold back the marks read off it
@@ -35503,6 +35522,23 @@ class Checker {
     };
     walk(type, "co");
     return positions;
+  }
+
+  /**
+   * The member a call at `span` names, where that call is inside its live
+   * knot (Functions §7.4): an SCC-internal use, whose unification failures
+   * carry §10's SCC hint (#703).
+   */
+  #knotCallAt(span: Source.Span): string | undefined {
+    const known = this.#knotCallsBySpan.get(spanKey(span));
+    if (known === undefined || !this.#knots.some((knot) => knot.types.has(known.host))) return undefined;
+    const { head } = this.#chainRoot(known.call);
+    return head.kind === "Name" ? head.text : undefined;
+  }
+
+  /** Where a recursive call bound a variable to `type`, if one did (`#knotCallBinds`). */
+  #bindSpanOf(type: Mono): Source.Span | undefined {
+    return this.#knotCallBinds.get(type);
   }
 
   /**
@@ -43983,6 +44019,9 @@ function knotHeadSite(knot: Knot, owner: HeadOwner): HeadSite | undefined {
  *   the sibling drops its own — or the head, or the wrapper.
  * - **Both export**: neither may drop, so the head or the wrapper.
  */
+/** Functions §10's SCC hint: the rule a refused recursive use breaks (#368, #703). */
+const KNOT_RULE = "members of a recursive knot are checked together at not-yet-general types";
+
 function knotHeadCollisionMessage(
   leftName: string,
   rightName: string,
@@ -43994,8 +44033,7 @@ function knotHeadCollisionMessage(
       ? `\`${name}\` declared on the \`fun\` block head`
       : `\`${name}\` declared on \`${site.member.name}\``;
   const heads = `${qualify(leftName, left)} and ${qualify(rightName, right)} are distinct ` +
-    "declared type variables, but members of a recursive knot are checked together at " +
-    "not-yet-general types";
+    `declared type variables, but ${KNOT_RULE}`;
   const block = "declare one head on the `fun` block that both members write";
   const wrapper = "move the contract to a non-recursive wrapper";
   if (left.kind === "block" || right.kind === "block") {
