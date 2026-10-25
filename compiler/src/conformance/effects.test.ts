@@ -2537,6 +2537,10 @@ fun
     const twins = read(members(...twin));
     expect(read(members(...curried))).toEqual(twins);
     expect(twins[0]!.filter((message) => message.includes("inference cannot keep them apart")).length).toBe(2);
+    // Curried twice: both lambdas the value hands back take the member's
+    // parameters, so a lone member reads as `a(f, g, n: Int)` does.
+    expect(check("fun\n    a(n: Int) = (f) => (g) =>\n        f!()\n        g!()\n        if n > 0 then a(n - 1)(f)!(g) else ()\n"))
+      .toEqual(check("fun\n    a(f, g, n: Int): Unit =\n        f!()\n        g!()\n        if n > 0 then a!(f, g, n - 1) else ()\n"));
   });
 
   it("reads a sibling's bare call as no fact about a colour two of a member's own callbacks share, in either member order (#1336)", () => {
