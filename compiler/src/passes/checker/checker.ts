@@ -6201,6 +6201,11 @@ class Checker {
     ReadonlyMap<Resolved.CallExpr, MarkObligation>,
     WeakMap<ColourFact, Map<string, Diagnostics.Fix[]>>
   >();
+  /**
+   * Colours another knot member's own callbacks share, left by a sibling's
+   * close for that member's to decide (#1336): no sibling defaults them.
+   */
+  readonly #siblingsShared = new WeakMap<Variable, Set<EffectFrame>>();
   /** `#sharersOf`'s counts, by knot and colour. */
   readonly #sharers = new WeakMap<Knot, Map<Variable, SharersOf>>();
   /**
@@ -24378,13 +24383,21 @@ class Checker {
       };
     });
     const ownedBy = this.#ownedColours(frame);
+    // In a knot, a colour another member's own untyped parameters share is
+    // shared here too, whichever member decides it first (#1336).
+    const knotShared = new Set<Mono>();
+    if (this.#knotFacts?.frames.has(frame) === true) {
+      for (const [other, colours] of this.#knotFacts.shared) {
+        if (other !== frame) for (const colour of colours) knotShared.add(this.#prune(colour));
+      }
+    }
     // A colour two untyped parameters share is decided by no fact: a bare
     // call through one says nothing of the other, though inference cannot keep
     // them apart (§3.4). It is silent where that leaves every mark true, and
     // otherwise the parameters' own, which the close refuses as a tie.
     const shared = (colour: Mono): boolean => {
       const pruned = this.#prune(colour);
-      return pruned.kind === "Variable" && (ownedBy.get(pruned) ?? 0) > 1;
+      return pruned.kind === "Variable" && ((ownedBy.get(pruned) ?? 0) > 1 || knotShared.has(pruned));
     };
     // A part keeps a mark true where it is a colour that may be impure for
     // good: this body's parameter's own, or a callback's. A part another body
@@ -24397,7 +24410,9 @@ class Checker {
         : this.#isLinkedColour(part) || this.#seatHeld.has(part);
     const needed = new Set<Variable>();
     for (const { parts, elsewhere } of marked) {
-      if (elsewhere === true) continue;
+      // Another member's mark on a colour callbacks share keeps it true here
+      // too.
+      if (elsewhere === true && !parts.some((part) => shared(part))) continue;
       if (parts.some((part) => shared(part)) && parts.every((part) => shared(part) || !keepsTrue(part))) {
         for (const part of parts) if (shared(part)) needed.add(part);
       }
@@ -24406,6 +24421,15 @@ class Checker {
       for (const colour of owned) {
         const pruned = this.#prune(colour);
         if (pruned.kind !== "Variable") continue;
+        // A colour another member's own callbacks share is that member's to
+        // decide, with every member's marks in hand, never a sibling's
+        // (#1336).
+        if (knotShared.has(pruned) && (ownedBy.get(pruned) ?? 0) <= 1) {
+          let siblings = this.#siblingsShared.get(pruned);
+          if (siblings === undefined) this.#siblingsShared.set(pruned, siblings = new Set());
+          siblings.add(frame);
+          continue;
+        }
         if (inError) {
           colour.instance = ERROR_COLOUR;
         } else if (shared(pruned) ? needed.has(pruned) : !readBy.has(pruned)) {
@@ -26894,7 +26918,9 @@ class Checker {
   ): boolean {
     const pruned = this.#prune(colour);
     if (pruned.kind !== "Variable") return false;
-    if (this.#isLinkedColour(pruned) || this.#seatHeld.has(pruned)) return true;
+    if (this.#isLinkedColour(pruned) || this.#seatHeld.has(pruned) || this.#siblingsShared.get(pruned)?.has(frame) === true) {
+      return true;
+    }
     // An outcome is decided by its comparison, never defaulted (`#publishOutcomes`).
     if (this.#outcomeColours.has(pruned)) return true;
     // A value's own colour, or the room it took in, the value an enclosing
