@@ -24016,6 +24016,11 @@ class Checker {
     // share (§3.4's knot step 3, #1240).
     const enclosingFacts = this.#knotFacts;
     for (const frame of outermost) this.#noteRunsAtCall(frame);
+    // And what the text fixed of every member's own arrows, a curried
+    // member's inner lambdas' too, so a sibling's decision never reads as a
+    // type its callback met (#1344). A held lambda still reads its own where
+    // it settles (#1347).
+    for (const frame of outermost) if (frame.spine === true) this.#noteOwnArrowPins(frame);
     this.#knotFacts = {
       frames: new Set(outermost),
       calls: outermost.flatMap((frame) => (frame.calls ?? []).map(({ effect, call }) => ({ effect, call, frame }))),
@@ -24362,12 +24367,9 @@ class Checker {
       return { name: named.name, ...(returns === undefined ? {} : { returns }) };
     };
     // Where the text fixed a parameter's own arrow to a constant before its
-    // body settled, read before anything here decides it (§9).
-    for (const parameter of frame.untyped) {
-      this.#untypedBySymbol.set(parameter.symbol, parameter);
-      const pin = this.#ownArrowPin(parameter.type, axis);
-      if (pin !== undefined) this.#ownArrowPins.set(`${Number(parameter.symbol)}:${axis}`, pin);
-    }
+    // body settled, read before anything here decides it (§9): a knot
+    // member's, before any member does.
+    if (frame.spine !== true || this.#knotFacts?.frames.has(frame) !== true) this.#noteOwnArrowPins(frame);
     // Every parameter is read before any is decided: a colour shared with a
     // sibling untyped parameter is still this body's to decide.
     this.#noteRunsAtCall(frame);
@@ -31720,6 +31722,16 @@ class Checker {
     if (!this.#firstMeetings.has(variable)) this.#firstMeetings.set(variable, span);
     for (const part of join.parts) if (!this.#firstMeetings.has(part)) this.#firstMeetings.set(part, span);
     variable.instance = join;
+  }
+
+  /** Each untyped parameter's `#ownArrowPin` on its body's colour, read before anything decides it (§9). */
+  #noteOwnArrowPins(frame: EffectFrame): void {
+    const axis = frameAxis(frame);
+    for (const parameter of frame.untyped) {
+      this.#untypedBySymbol.set(parameter.symbol, parameter);
+      const pin = this.#ownArrowPin(parameter.type, axis);
+      if (pin !== undefined) this.#ownArrowPins.set(`${Number(parameter.symbol)}:${axis}`, pin);
+    }
   }
 
   /**
