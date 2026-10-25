@@ -2520,6 +2520,25 @@ fun
     }
   });
 
+  it("reads a curried member's callbacks a sibling hands back crossed as its uncurried twin does, in either member order (#1337)", () => {
+    // The lambda `a`'s value hands back takes the member's own parameters, so
+    // they are read once every member's body is in, as `a(f, g, n: Int)`'s
+    // are: `b` hands them back crossed, and they are tied whichever member
+    // comes first.
+    const curried = [
+      "    a(n: Int) = (f, g) =>\n        f()\n        g!()\n        if n > 0 then b(n - 1)!(f, g) else ()\n",
+      "    b(n: Int) = (p, q) =>\n        q()\n        if n > 0 then a(n - 1)!(q, p) else ()\n",
+    ] as const;
+    const twin = [
+      "    a(f, g, n: Int): Unit =\n        f()\n        g!()\n        if n > 0 then b!(f, g, n - 1) else ()\n",
+      "    b(p, q, n: Int): Unit =\n        q()\n        if n > 0 then a!(q, p, n - 1) else ()\n",
+    ] as const;
+    const read = (knots: readonly string[]) => knots.map((knot) => [...check(knot)].sort());
+    const twins = read(members(...twin));
+    expect(read(members(...curried))).toEqual(twins);
+    expect(twins[0]!.filter((message) => message.includes("inference cannot keep them apart")).length).toBe(2);
+  });
+
   it("reads a sibling's bare call as no fact about a colour two of a member's own callbacks share, in either member order (#1336)", () => {
     // `b` hands its one `p` into both of `a`'s places, so `a`'s `f` and `g`
     // share a colour: `p()` says `p`'s function is pure, and nothing of `g`'s,

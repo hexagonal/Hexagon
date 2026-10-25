@@ -5384,11 +5384,16 @@ class Checker {
         // its calls' are decided at the knot's close, and what they meet
         // before then is recorded and compared there, never choosing them.
         // Sunk to the knot's level, nothing around it generalizes them.
-        // What its own callbacks run is not held (#1231).
-        this.#noteOwnColours(frame);
-        this.#noteConstantColours(frame);
-        this.#readOwnTiesFromEnd(frame);
-        frame.endedAt = this.#bindCount;
+        // What its own callbacks run is not held (#1231). Its ties are read
+        // as its text left them (#1246), unless a member's value hands it
+        // back: then its parameters are the member's, read once every
+        // member's body is in (#1337).
+        if (frame.spine !== true) {
+          this.#noteOwnColours(frame);
+          this.#noteConstantColours(frame);
+          this.#readOwnTiesFromEnd(frame);
+          frame.endedAt = this.#bindCount;
+        }
         lambdaColours.set(axis, this.#onAxis(axis, () => this.#keepOwnCallbacks(frame, holding)));
         this.#sinkFrame(frame, holding.level);
         holding.frames.push(frame);
@@ -26666,8 +26671,10 @@ class Checker {
       // A member's callbacks still their own are noted once every member's
       // body is in, not where its own closed: what a sibling's body hands
       // back into its slots is the knot's, read the same in every member
-      // order (#1224). A lambda the knot holds noted its own where it ended.
-      for (const frame of knot.frames) if (!knot.held.has(frame)) this.#noteOwnColours(frame);
+      // order (#1224). A lambda the knot holds noted its own where it ended,
+      // unless a member's value hands it back: its parameters are the
+      // member's (#1337).
+      for (const frame of knot.frames) if (!knot.held.has(frame) || frame.spine === true) this.#noteOwnColours(frame);
       // Each colour's frames on their own (Effects §1): a frame's calls carry
       // only its colour, so the two colours' sibling graphs never meet.
       for (const axis of AXES) this.#onAxis(axis, () => this.#settleKnotBody(knot, axis));
