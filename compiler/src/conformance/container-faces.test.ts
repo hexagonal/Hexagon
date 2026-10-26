@@ -481,9 +481,16 @@ describe("the argument's spine (#1096)", () => {
     )).toEqual([settledAtNat]);
   });
 
-  test("a dot call's receiver is on no spine", () => {
-    expect(refusals("let a = [m].append(n)\n")).toHaveLength(1);
+  test("a literal receiver is the call's first argument, as in its fundamental spelling (#1356)", () => {
+    // Its written head chooses the operation; its parts then join the call's
+    // groups, so the dot spelling means what `Vector.append([m], n)` means.
+    expect(typeOf("let a = [m].append(n)\n", "a")).toBe("Vector(Int)");
     expect(typeOf("let a = Vector.append([m], n)\n", "a")).toBe("Vector(Int)");
+    expect(typeOf("let a = [n].append(m)\n", "a")).toBe("Vector(Int)");
+    // Across a widening, in either order, as `Vector.append` does.
+    expect(typeOf("let a = [n].append(price)\n", "a")).toBe("Vector(Dec)");
+    expect(typeOf("let a = [price].append(n)\n", "a")).toBe("Vector(Dec)");
+    expect(typeOf("let a = [[n]].append([price])\n", "a")).toBe("Vector(Vector(Dec))");
   });
 
   test("a literal at a bare type variable meets a type a callback's written face gives, in either order (#1298)", () => {
