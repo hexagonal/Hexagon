@@ -552,7 +552,7 @@ describe("the declared-heads refusal", () => {
       );
     const cannot = (callee: string) =>
       `members of a recursive knot are checked together at not-yet-general types, so a call inside the knot ` +
-      `cannot use \`${callee}\` at another type`;
+      `cannot use \`${callee}\` at another type: Hexagon has no polymorphic recursion`;
     expect(report("fun grow(x, n: Int): Int = if n <= 0 then 0 else grow([x], n - 1)\n")).toEqual([[
       "grow([x], n - 1)",
       "infinite type: this recursive call would use `grow` at a type built from the one it already has; " +

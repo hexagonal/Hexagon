@@ -31456,7 +31456,8 @@ class Checker {
             : `\`${variable.rigidName}\` is a declared type variable, but this recursive call uses ` +
               `\`${recursive}\` at \`${required}\`; ${KNOT_RULE}, so ` +
               (this.#occurs(variable, type)
-                ? `a call inside the knot cannot use \`${recursive}\` at another type`
+                ? `a call inside the knot cannot use \`${recursive}\` at another type: ` +
+                  NO_POLYMORPHIC_RECURSION
                 : `change the annotation to \`${required}\`, or remove it to let the type be inferred`),
           primary: span,
         });
@@ -31544,7 +31545,8 @@ class Checker {
           ? "infinite type: a type variable occurs inside itself"
           : `infinite type: this recursive call would use \`${recursive}\` at a type built from the one ` +
             `it already has; ` +
-            `${KNOT_RULE}, so a call inside the knot cannot use \`${recursive}\` at another type`,
+            `${KNOT_RULE}, so a call inside the knot cannot use \`${recursive}\` at another type: ` +
+            NO_POLYMORPHIC_RECURSION,
         primary: recursive === undefined ? span : origin!,
       });
       variable.instance = ERROR;
@@ -44021,6 +44023,11 @@ function knotHeadSite(knot: Knot, owner: HeadOwner): HeadSite | undefined {
  */
 /** Functions §10's SCC hint: the rule a refused recursive use breaks (#368, #703). */
 const KNOT_RULE = "members of a recursive knot are checked together at not-yet-general types";
+/**
+ * The named limitation a polymorphic recursion meets (Declarations Preamble
+ * §1.1; annotations §9.11): no annotation repairs it, so the report names it.
+ */
+const NO_POLYMORPHIC_RECURSION = "Hexagon has no polymorphic recursion";
 
 function knotHeadCollisionMessage(
   leftName: string,

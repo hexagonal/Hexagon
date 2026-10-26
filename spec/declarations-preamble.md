@@ -32,6 +32,8 @@ Operational form, binding on every spec session:
 
 **When the root cause cannot be found.** The rule assumes the checker knows why a check fails. Where it cannot see the cause, so that the report can name no fact, demand, tie or limitation behind it, the rewrite might itself be wrong. So it is offered as a suggestion, not as the fix: worded "perhaps", naming the other possibility, never preferred, and never applied with other fixes. Only the first such report in source order is given; the rest wait until it is fixed (Effects §3.4).
 
+**A named limitation.** One restriction has no local rewrite, and the language keeps it on purpose: **polymorphic recursion**, a recursive call that uses a member of its knot at a type built from its own (Functions §7.4). The rewrite other languages offer, a polymorphic signature, is the annotation-enabled typability `decisions-ml-dialect-annotations-2026-08.md` §9.11 rejects permanently, and a written signature lands as the member's monotype, never a scheme. So the diagnostic names the rule it meets and the limitation itself, "Hexagon has no polymorphic recursion" (Functions §10's polymorphic-recursion row), and offers no rewrite, since any it named would be wrong.
+
 ### 1.2 The Deferred-Goals Doctrine (corpus doctrine; permanent home)
 
 > **Deferred inference goals are exceptional.** Each deferred-goal kind must have a **finite, deterministic resolution rule**; must **not search globally**; must **not survive generalisation**; and must **preserve principal types**.
