@@ -8621,12 +8621,13 @@ class Checker {
     if (!nominal && !primitive_) return undefined;
     let claimants = this.#dotClaimants(actual, name, callee, expression.arguments);
     // A receiver dispatched on its written head is read as an argument only by
-    // a companion operation; any other claimant reads its whole type, so it
-    // elaborates first and the claimants are read again (#1356).
-    if (
-      this.#deferredReceivers.has(callee.receiver) &&
-      (claimants.members.length > 0 || claimants.operation === undefined || claimants.field !== undefined)
-    ) {
+    // a companion operation it reaches; any other claimant reads its whole
+    // type, and a refusal names it, so it elaborates first and the claimants
+    // are read again (#1356).
+    const companionCall = claimants.members.length === 0 && claimants.field === undefined &&
+      claimants.operation !== undefined && claimants.scheme !== undefined && claimants.unreachable === undefined &&
+      !this.#forbiddenProviderPaths.has(this.#operationHomes.get(claimants.operation.id)?.path ?? "");
+    if (this.#deferredReceivers.has(callee.receiver) && !companionCall) {
       this.#settleDeferredReceiver(callee.receiver, receiver);
       actual = this.#prune(receiver);
       claimants = this.#dotClaimants(actual, name, callee, expression.arguments);
