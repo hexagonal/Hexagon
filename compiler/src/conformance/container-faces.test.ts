@@ -287,7 +287,9 @@ describe("a face through a function's result (Numeric Literals §6's function-re
 
   test("is a seat's own: a type siblings settled among themselves was expected by no one", () => {
     const mismatch = ["type mismatch: expected Dec, found Int"];
-    expect(refusals(wrap + "let pick<a>(x: a, y: a): a = x\nlet a = pick(Some(price), wrap(n))\n")).toEqual(mismatch);
+    // `Some(price)`'s part joins the group a call's result already fixed at `Int`.
+    expect(refusals(wrap + "let pick<a>(x: a, y: a): a = x\nlet a = pick(Some(price), wrap(n))\n"))
+      .toEqual(["`price` is a `Dec` and cannot enter `Int`, the home `wrap(n)` gives this argument"]);
     expect(refusals(wrap + "let a = [Some(price), wrap(n)]\n")).toEqual(mismatch);
     expect(refusals(wrap + "let a = if c then Some(price) else wrap(n)\n")).toEqual(mismatch);
     // A parameter written as a bare variable supplies no home.
@@ -442,8 +444,14 @@ describe("the argument's spine (#1096)", () => {
     expect(refusals(k + "let a = k(ident, (n, price))\n")).toHaveLength(1);
   });
 
-  test("where the shapes part, a literal is one value", () => {
-    expect(refusals("let pick<a>(x: a, y: a): a = x\nlet a = pick([n], [price])\n")).toHaveLength(1);
+  test("a literal at a bare type variable takes the shape its own form writes, in either order (#1298)", () => {
+    // `[ … ]` writes `Vector`, `( … )` a tuple, `{ … }` a record, `Some(…)` its
+    // union: the parts join the call's groups, and the home is chosen once.
+    const pick = "let pick<a>(x: a, y: a): a = x\n";
+    for (const [left, right] of [["[n]", "[price]"], ["(n, 1)", "(price, 2)"], ["{x = n}", "{x = price}"], ["Some(n)", "Some(price)"]]) {
+      expect(refusals(`${pick}let a = pick(${left}, ${right})\n`)).toEqual([]);
+      expect(refusals(`${pick}let a = pick(${right}, ${left})\n`)).toEqual([]);
+    }
   });
 
   test("a `with` update's override joins no group, and its callback waits", () => {
@@ -465,12 +473,12 @@ describe("the argument's spine (#1096)", () => {
     expect(typeOf("let a = Vector.append([m], n)\n", "a")).toBe("Vector(Int)");
   });
 
-  test("a literal whose shape the spine does not read receives what the schedule solved", () => {
+  test("a literal at a bare type variable meets a type a callback's written face gives, in either order (#1298)", () => {
     const vecDecToInt = "let vecDecToInt(v: Vector(Dec)): Int = 1\n";
     expect(refusals(vecDecToInt + "let pickF<a>(f: (a) -> Int, y: a): Int = 1\nlet a = pickF(vecDecToInt, [n])\n"))
       .toEqual([]);
     expect(refusals(vecDecToInt + "let pickF2<a>(y: a, f: (a) -> Int): Int = 1\nlet a = pickF2([n], vecDecToInt)\n"))
-      .toHaveLength(1);
+      .toEqual([]);
   });
 
   test("a constructor whose shape the spine does not read groups its own literal's fields", () => {
