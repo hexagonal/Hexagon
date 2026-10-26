@@ -22781,6 +22781,12 @@ class Checker {
       else group.push(member);
     };
     const read: Resolved.Expr[] = [];
+    // Only a callee whose type the text decides writes its parameters' type
+    // variables; an open knot member's or an untyped local function's are
+    // inference's, and a literal there stays one value (#1298).
+    const callee = call.kind === "Call" ? ungrouped(call.callee) : undefined;
+    const writtenVariables = callee !== undefined && !defersAsLambda(callee) &&
+      !(callee.kind === "Name" && this.#openMember(callee.symbol) !== undefined) && this.#typeDecided(callee);
     for (const [index, expression] of expressions.entries()) {
       if (powerSeat?.index === index || defersAsLambda(expression)) continue;
       // A value an enclosing call read as a sibling on its own spine is that
@@ -22793,7 +22799,7 @@ class Checker {
       // so they join the groups their parts stand on, as values deeper on any
       // spine do (Friendly Numerics §4's first rule, #1298). The home is then
       // chosen once every value is in, whichever argument comes first.
-      if (parameter.kind === "Variable" && parameter.rigidName === undefined && !preset.has(index)) {
+      if (parameter.kind === "Variable" && parameter.rigidName === undefined && !preset.has(index) && writtenVariables) {
         const shape = this.#writtenShape(ungrouped(expression), level);
         if (shape !== undefined) {
           this.#unify(parameter, shape, expression.span);
