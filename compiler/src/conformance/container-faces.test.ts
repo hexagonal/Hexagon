@@ -452,6 +452,19 @@ describe("the argument's spine (#1096)", () => {
       expect(refusals(`${pick}let a = pick(${left}, ${right})\n`)).toEqual([]);
       expect(refusals(`${pick}let a = pick(${right}, ${left})\n`)).toEqual([]);
     }
+    // So does a literal deeper on the spine, at any depth.
+    const both3 = "let both3<a>(y: Vector(a), z: Vector(a)): a = y[0]\n";
+    for (const [left, right] of [["[[n]]", "[[price]]"], ["[Some(n)]", "[Some(price)]"]]) {
+      expect(refusals(`${both3}let a = both3(${left}, ${right})\n`)).toEqual([]);
+      expect(refusals(`${both3}let a = both3(${right}, ${left})\n`)).toEqual([]);
+    }
+    expect(refusals(`${pick}let a = pick(([n], 1), ([price], 2))\n`)).toEqual([]);
+    // A parameter only inference typed writes no variable: the literal is one
+    // value there, refused in either order.
+    const local = (args: string) =>
+      `let c: Bool = True\nlet g(p) =\n    let pk = (x, y) => if c then x else (if c then y else p)\n    pk(${args})\n`;
+    expect(refusals(local("[n], [price]"))).not.toEqual([]);
+    expect(refusals(local("[price], [n]"))).not.toEqual([]);
   });
 
   test("a `with` update's override joins no group, and its callback waits", () => {

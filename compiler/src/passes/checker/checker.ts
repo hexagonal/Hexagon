@@ -22781,12 +22781,14 @@ class Checker {
       else group.push(member);
     };
     const read: Resolved.Expr[] = [];
-    // Only a callee whose type the text decides writes its parameters' type
-    // variables; an open knot member's or an untyped local function's are
-    // inference's, and a literal there stays one value (#1298).
+    // Only a parameter whose type the text decides writes its type variables:
+    // an open knot member's or an untyped local function's are inference's, so
+    // a literal there stays one value (#1298).
     const callee = call.kind === "Call" ? ungrouped(call.callee) : undefined;
-    const writtenVariables = callee !== undefined && !defersAsLambda(callee) &&
+    const calleeDecided = callee !== undefined && !defersAsLambda(callee) &&
       !(callee.kind === "Name" && this.#openMember(callee.symbol) !== undefined) && this.#typeDecided(callee);
+    const writtenVariables = (index: number): boolean =>
+      calleeDecided && this.#parameterSeatDecided(callee!, true, index);
     for (const [index, expression] of expressions.entries()) {
       if (powerSeat?.index === index || defersAsLambda(expression)) continue;
       // A value an enclosing call read as a sibling on its own spine is that
@@ -22794,12 +22796,14 @@ class Checker {
       // spines of its own).
       if (this.#spineSiblings.has(expression)) continue;
       let parameter = this.#prune(parameters[index] ?? ERROR);
-      // A vector or tuple literal at a bare variable is that literal's shape:
-      // its own form writes the head, and its elements are the call's values,
-      // so they join the groups their parts stand on, as values deeper on any
-      // spine do (Friendly Numerics §4's first rule, #1298). The home is then
-      // chosen once every value is in, whichever argument comes first.
-      if (parameter.kind === "Variable" && parameter.rigidName === undefined && !preset.has(index) && writtenVariables) {
+      // A literal at a bare variable is that literal's shape: its own form
+      // writes the head (a vector, a tuple, a record, a data constructor's
+      // type), and its parts are the call's values, so they join the groups
+      // their parts stand on, as values deeper on any spine do (Friendly
+      // Numerics §4's first rule, #1298). The home is then chosen once every
+      // value is in, whichever argument comes first.
+      const shapes = writtenVariables(index);
+      if (parameter.kind === "Variable" && parameter.rigidName === undefined && !preset.has(index) && shapes) {
         const shape = this.#writtenShape(ungrouped(expression), level);
         if (shape !== undefined) {
           this.#unify(parameter, shape, expression.span);
@@ -22819,7 +22823,7 @@ class Checker {
         join(variable, member);
         read.push(value);
         this.#spineSiblings.set(value, { variable, collect: (part) => member.part = part });
-      });
+      }, shapes ? level : undefined);
     }
     let closed = false;
 
@@ -23050,10 +23054,21 @@ class Checker {
     argument: Resolved.Expr,
     parameter: Mono,
     sibling: (value: Resolved.Expr, variable: Mono) => void,
+    /** Where the callee's parameter writes its variables, the level a literal's own shape is made at (#1298). */
+    shapeLevel?: number,
   ): void {
     const visit = (expression: Resolved.Expr, type: Mono, top: boolean): void => {
-      const read = this.#prune(type);
+      let read = this.#prune(type);
       if (defersAsLambda(expression) || read.kind === "Error") return;
+      // A literal deeper on the spine at a bare variable writes its own shape,
+      // as one at the top does, and is read through it (#1298).
+      if (read.kind === "Variable" && !top && shapeLevel !== undefined && read.rigidName === undefined) {
+        const shape = this.#writtenShape(ungrouped(expression), shapeLevel);
+        if (shape !== undefined) {
+          this.#unify(read, shape, expression.span);
+          read = this.#prune(read);
+        }
+      }
       // A value is a sibling as written, its grouping included: that is the
       // expression its literal or constructor elaborates.
       if (read.kind === "Variable") {
