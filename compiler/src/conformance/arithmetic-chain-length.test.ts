@@ -77,8 +77,9 @@ describe("an operator's operands are emitted once", () => {
         "export let r: Int = a(3n, True)\n",
     );
     expect(messages(project)).toEqual([
-      "`u` is a declared type variable, but the body requires `BigInt`; change the " +
-        "annotation to `BigInt`, or remove it to let the type be inferred",
+      "`u` is a declared type variable, but this recursive call uses `b` at `BigInt`; " +
+        "members of a recursive knot are checked together at not-yet-general types, so " +
+        "change the annotation to `BigInt`, or remove it to let the type be inferred",
     ]);
     expect(mainText(project)).not.toContain("FromBigInt");
   });

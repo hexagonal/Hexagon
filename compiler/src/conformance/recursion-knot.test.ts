@@ -533,9 +533,47 @@ describe("the declared-heads refusal", () => {
           "export let answer: String = alpha(1, 3)\n",
       ),
     ).toEqual([
-      "`a` is a declared type variable, but the body requires `String`; change the " +
-        "annotation to `String`, or remove it to let the type be inferred",
+      "`a` is a declared type variable, but this recursive call uses `alpha` at `String`; " +
+        "members of a recursive knot are checked together at not-yet-general types, so " +
+        "change the annotation to `String`, or remove it to let the type be inferred",
     ]);
+  });
+
+  /**
+   * Polymorphic recursion's other two shapes take the SCC hint too, at the
+   * recursive call (#703): an occurs-check failure, and a headed member used at
+   * a type built from its own variable, which no annotation repairs. The type
+   * reads as every report reads one, never by a number (#699).
+   */
+  test("polymorphic recursion carries the SCC hint at the call, in all its shapes (#703, #699)", () => {
+    const report = (source: string) =>
+      compileFiles([["/main.hex", "module Main\n\n" + source]]).diagnostics.map(({ message, primary }) =>
+        [("module Main\n\n" + source).slice(primary.start.offset, primary.end.offset), message]
+      );
+    const cannot = (callee: string) =>
+      `members of a recursive knot are checked together at not-yet-general types, so a call inside the knot ` +
+      `cannot use \`${callee}\` at another type: Hexagon has no polymorphic recursion`;
+    expect(report("fun grow(x, n: Int): Int = if n <= 0 then 0 else grow([x], n - 1)\n")).toEqual([[
+      "grow([x], n - 1)",
+      "infinite type: this recursive call would use `grow` at a type built from the one it already has; " +
+      cannot("grow"),
+    ]]);
+    expect(report("fun\n    ga(x, n: Int): Int = if n <= 0 then 0 else gb([x], n - 1)\n    gb(y, n: Int): Int = ga(y, n)\n"))
+      .toEqual([[
+        "gb([x], n - 1)",
+        "infinite type: this recursive call would use `gb` at a type built from the one it already has; " +
+        cannot("gb"),
+      ]]);
+    expect(report("fun sizes<a: Show>(x: a, n: Int): Int =\n    if n <= 0 then 0\n    else sizes([x], n - 1)\n"))
+      .toEqual([[
+        "sizes([x], n - 1)",
+        "`a` is a declared type variable, but this recursive call uses `sizes` at `Vector(a)`; " + cannot("sizes"),
+      ]]);
+    // An occurs failure that no recursive call made keeps the plain message.
+    expect(report("fun h(n: Int): Int =\n    let q = (y) => y(y)\n    n\n")).toEqual([[
+      "y(y)",
+      "infinite type: a type variable occurs inside itself",
+    ]]);
   });
 
   /**
@@ -569,8 +607,9 @@ describe("the declared-heads refusal", () => {
         "declare one head on the `fun` block that both members write, drop the members' own " +
         "variable annotations and let inference link the knot, or move the contract to a " +
         "non-recursive wrapper",
-      "`a` is a declared type variable, but the body requires `String`; change the " +
-        "annotation to `String`, or remove it to let the type be inferred",
+      "`a` is a declared type variable, but this recursive call uses `r1` at `String`; " +
+        "members of a recursive knot are checked together at not-yet-general types, so " +
+        "change the annotation to `String`, or remove it to let the type be inferred",
     ]);
   });
 

@@ -155,8 +155,9 @@ describe("a constrained binder its function's type does not mention (#712)", () 
     );
     expect(messages.some((message) => message.includes("does not mention"))).toBe(false);
     expect(messages).toContain(
-      "`b` is a declared type variable, but the body requires `String`; change the " +
-        "annotation to `String`, or remove it to let the type be inferred",
+      "`b` is a declared type variable, but this recursive call uses `p2` at `String`; " +
+        "members of a recursive knot are checked together at not-yet-general types, so " +
+        "change the annotation to `String`, or remove it to let the type be inferred",
     );
   });
 

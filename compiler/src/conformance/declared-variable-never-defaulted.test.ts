@@ -12,8 +12,9 @@ function verdict(source: string): readonly string[] {
 }
 
 const REFUSED_B =
-  "`b` is a declared type variable, but the body requires `String`; change the " +
-  "annotation to `String`, or remove it to let the type be inferred";
+  "`b` is a declared type variable, but this recursive call uses `p2` at `String`; " +
+  "members of a recursive knot are checked together at not-yet-general types, so " +
+  "change the annotation to `String`, or remove it to let the type be inferred";
 
 describe("a knot's survivor gets no report of its own", () => {
   // `p2`'s call `p3(x, n - 1)` meets the head `p3`'s text wrote where the
@@ -51,8 +52,9 @@ describe("a knot's survivor gets no report of its own", () => {
       "    p2(x: b, n: Int): String = if n <= 0 then show(x) else p3(\"s\", n - 1)\n",
     )).toEqual([
       distinct("c", "b"),
-      "`c` is a declared type variable, but the body requires `String`; change the " +
-        "annotation to `String`, or remove it to let the type be inferred",
+      "`c` is a declared type variable, but this recursive call uses `p3` at `String`; " +
+        "members of a recursive knot are checked together at not-yet-general types, so " +
+        "change the annotation to `String`, or remove it to let the type be inferred",
     ]);
   });
 
