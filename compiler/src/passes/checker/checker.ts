@@ -8619,8 +8619,20 @@ class Checker {
     // are their whole dot surface — `42n.show()` is `Show`'s member at `BigInt`.
     const primitive_ = actual.kind === "Constructor";
     if (!nominal && !primitive_) return undefined;
-    const { field, operation, scheme, unreachable, claimed, members } = this
-      .#dotClaimants(actual, name, callee, expression.arguments);
+    let claimants = this.#dotClaimants(actual, name, callee, expression.arguments);
+    // A receiver dispatched on its written head is read as an argument only by
+    // a companion operation it reaches; any other claimant reads its whole
+    // type, and a refusal names it, so it elaborates first and the claimants
+    // are read again (#1356).
+    const companionCall = claimants.members.length === 0 && claimants.field === undefined &&
+      claimants.operation !== undefined && claimants.scheme !== undefined && claimants.unreachable === undefined &&
+      !this.#forbiddenProviderPaths.has(this.#operationHomes.get(claimants.operation.id)?.path ?? "");
+    if (this.#deferredReceivers.has(callee.receiver) && !companionCall) {
+      this.#settleDeferredReceiver(callee.receiver, receiver);
+      actual = this.#prune(receiver);
+      claimants = this.#dotClaimants(actual, name, callee, expression.arguments);
+    }
+    const { field, operation, scheme, unreachable, claimed, members } = claimants;
     const recordHasField = field !== undefined;
     const operationHome = operation === undefined ? undefined : this.#operationHomes.get(operation.id);
     if (operationHome !== undefined && this.#forbiddenProviderPaths.has(operationHome.path)) {
@@ -8653,6 +8665,7 @@ class Checker {
             }${recordHasField ? `, or \`(…​.${name})\` for the field` : ""}.`,
         );
       }
+      this.#settleDeferredReceiver(callee.receiver, receiver);
       return this.#elaborateMemberCall(expression, callee, receiver, members[0]!, level, expected);
     }
     // A visible field still wins the fused form outright, exactly as it did
@@ -8989,8 +9002,12 @@ class Checker {
     // conversion or a mismatch reports where the reader wrote it.
     const seats: Mono[] = [receiver, ...expression.arguments.map(() => ERROR)];
     // A literal receiver is a value of the call through its grouping (#1062,
-    // ruling b′), so it joins a sibling group as the literal it is.
+    // ruling b′), so it joins a sibling group as the literal it is. One that
+    // dispatched on its written head is not elaborated yet: it is the call's
+    // first argument, read like any other (#1356).
     const expressions = [literalReceiver(callee.receiver), ...expression.arguments];
+    const deferred = this.#deferredReceivers.has(callee.receiver);
+    if (deferred) this.#deferredReceivers.delete(callee.receiver);
     // The lambda literals deeper on the arguments' spines wait for this call's
     // second pass as well (#1096).
     const owner = this.#claimSpine(expression.arguments);
@@ -9002,9 +9019,15 @@ class Checker {
       level,
       expression.span,
       powerSeat,
-      new Set([0]),
+      deferred ? new Set() : new Set([0]),
       owner,
     );
+    if (deferred) {
+      seats[0] = pass === undefined
+        ? this.#inferExpr(callee.receiver, level, parameters?.[0])
+        : pass.argument(0, parameters?.[0]);
+      if (pass === undefined) this.#unify(receiver, seats[0], callee.receiver.span);
+    }
     // Seat indices, so the one set serves the sweep and the elaboration alike.
     const deferredLambdas = new Set(
       expression.arguments.flatMap((argument, index) =>
@@ -12850,7 +12873,17 @@ class Checker {
           // Whether the receiver's own elaboration reported: a subject that
           // already failed draws no second report at the dot (Method Syntax §3.5).
           const reportsBefore = this.#reportCount;
-          const receiver = this.#inferExpr(expression.callee.receiver, level, face);
+          // A vector literal or a data constructor's application before the dot
+          // writes its own head, which is all dispatch reads (§3.1, B2): it is
+          // dispatched on that shape and read as the call's first argument, so
+          // its parts join the call's groups as its fundamental spelling's do
+          // (#1356). Anything else elaborates here, before dispatch.
+          const literal = ungrouped(expression.callee.receiver);
+          const shape = face === undefined && (literal.kind === "Vector" || literal.kind === "Call")
+            ? this.#writtenShape(literal, level)
+            : undefined;
+          if (shape !== undefined) this.#deferredReceivers.set(expression.callee.receiver, level);
+          const receiver = shape ?? this.#inferExpr(expression.callee.receiver, level, face);
           const subjectReported = this.#reportCount > reportsBefore ||
             this.#holdsErrorNode(expression.callee.receiver);
           this.#receiverRoot = enclosingRoot;
@@ -12905,6 +12938,7 @@ class Checker {
             subjectReported,
             expected,
           );
+          this.#settleDeferredReceiver(expression.callee.receiver, receiver);
           if (dispatched !== undefined) {
             type = dispatched;
             break;
@@ -23008,6 +23042,21 @@ class Checker {
         for (let index = 0; index < actuals.length; index += 1) eager(index);
       },
     };
+  }
+
+  /** Receivers dispatched on their written head and not yet elaborated, with their level (#1356). */
+  readonly #deferredReceivers = new Map<Resolved.Expr, number>();
+
+  /**
+   * Elaborates a receiver that dispatched on its written head where no
+   * companion call read it as an argument: it meets the shape it dispatched on.
+   */
+  #settleDeferredReceiver(receiver: Resolved.Expr, shape: Mono): void {
+    const level = this.#deferredReceivers.get(receiver);
+    if (level === undefined) return;
+    this.#deferredReceivers.delete(receiver);
+    const actual = this.#inferExpr(receiver, level, shape);
+    this.#unify(shape, actual, receiver.span);
   }
 
   /**

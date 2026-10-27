@@ -257,7 +257,7 @@ chosen once for the whole expression — never operation by operation from the i
   grouping parentheses, written as an operator or as a member called bare, qualified
   through its constraint, or as a pipe stage, is never a `Range`, so it is a position,
   faced by `Int`: `xs[k - 1]` runs at `Int` for a `k: Nat`, as `Vector.at(xs, k - 1)`
-  does. A dot call spells nothing decisive — its receiver closes first, and its name need
+  does. A dot call spells nothing decisive — its receiver closes first (a literal receiver, whose head is written, is an argument instead: Method Syntax §2.2), and its name need
   not be a tower member's — and neither does a forwarding form, whose values may be
   ranges. An index that closed on its own meets its seat as any finished value does: a
   `Range` slices, and anything else enters the position by exact unification or one of
