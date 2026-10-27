@@ -32751,8 +32751,8 @@ class Checker {
     // expected takes `toSeq`; a sequence where an iterable is expected takes
     // that iterable's `fromSeq`.
     if (seqElement !== undefined && foundItem !== undefined && agree(seqElement, foundItem.element)) {
-      return `${mismatch}; ${article(this.#display(found))} \`${this.#display(found)}\` becomes a sequence only where ` +
-        "a written type asks for `Seq`, and none does here — convert it with `Iterable.toSeq(…)`";
+      return `${mismatch}; ${article(this.#display(found))} \`${this.#display(found)}\` becomes a sequence only at ` +
+        "a seat that adapts it (Collections Part 5 §3.4), and this is not one — convert it with `Iterable.toSeq(…)`";
     }
     const foundElement = this.#asSequence(found);
     const expectedItem = item(expected);

@@ -55,7 +55,7 @@ function emitted(body: string): string {
 }
 
 /** The conversion a sequence mismatch at a whole seat names, in each direction (Collections Part 5 §3.4, #1357). */
-const TO_SEQ = "; a `Vector(String)` becomes a sequence only where a written type asks for `Seq`, and none does here — convert it with `Iterable.toSeq(…)`";
+const TO_SEQ = "; a `Vector(String)` becomes a sequence only at a seat that adapts it (Collections Part 5 §3.4), and this is not one — convert it with `Iterable.toSeq(…)`";
 const FROM_SEQ = "; a sequence becomes a `Vector(String)` only by conversion — convert it with `Vector.fromSeq(…)`";
 
 const RIGID_SOURCE = "`xs` has the generic type `c`, and `Iterable` declares an implied type and " +
