@@ -22781,13 +22781,35 @@ class Checker {
       else group.push(member);
     };
     const read: Resolved.Expr[] = [];
+    // Only a parameter whose type the text decides writes its type variables:
+    // an open knot member's or an untyped local function's are inference's, so
+    // a literal there stays one value (#1298).
+    const callee = call.kind === "Call" ? ungrouped(call.callee) : undefined;
+    const calleeDecided = callee !== undefined && !defersAsLambda(callee) &&
+      !(callee.kind === "Name" && this.#openMember(callee.symbol) !== undefined) && this.#typeDecided(callee);
+    const writtenVariables = (index: number): boolean =>
+      calleeDecided && this.#parameterSeatDecided(callee!, true, index);
     for (const [index, expression] of expressions.entries()) {
       if (powerSeat?.index === index || defersAsLambda(expression)) continue;
       // A value an enclosing call read as a sibling on its own spine is that
       // call's (a constructor application whose shape the call read has no
       // spines of its own).
       if (this.#spineSiblings.has(expression)) continue;
-      const parameter = this.#prune(parameters[index] ?? ERROR);
+      let parameter = this.#prune(parameters[index] ?? ERROR);
+      // A literal at a bare variable is that literal's shape: its own form
+      // writes the head (a vector, a tuple, a record, a data constructor's
+      // type), and its parts are the call's values, so they join the groups
+      // their parts stand on, as values deeper on any spine do (Friendly
+      // Numerics §4's first rule, #1298). The home is then chosen once every
+      // value is in, whichever argument comes first.
+      const shapes = writtenVariables(index);
+      if (parameter.kind === "Variable" && parameter.rigidName === undefined && !preset.has(index) && shapes) {
+        const shape = this.#writtenShape(ungrouped(expression), level);
+        if (shape !== undefined) {
+          this.#unify(parameter, shape, expression.span);
+          parameter = this.#prune(parameter);
+        }
+      }
       if (parameter.kind === "Variable") {
         join(parameter, index);
         grouped.add(index);
@@ -22801,7 +22823,7 @@ class Checker {
         join(variable, member);
         read.push(value);
         this.#spineSiblings.set(value, { variable, collect: (part) => member.part = part });
-      });
+      }, shapes ? level : undefined);
     }
     let closed = false;
 
@@ -22989,6 +23011,35 @@ class Checker {
   }
 
   /**
+   * The shape a literal or a constructor application writes by its own form
+   * (#1298): a vector's, a tuple's, a structural record's (its fields, closed),
+   * or the declared type a data constructor builds, each part a fresh variable.
+   * `undefined` for anything else, and for an empty vector or a record with a
+   * spread, whose form writes no part.
+   */
+  #writtenShape(expression: Resolved.Expr, level: number): Mono | undefined {
+    switch (expression.kind) {
+      case "Vector":
+        return expression.elements.length === 0 ? undefined : { kind: "Vector", element: this.#fresh(level, false) };
+      case "Tuple":
+        return { kind: "Tuple", elements: expression.elements.map(() => this.#fresh(level, false)) };
+      case "Record":
+        return expression.spread !== undefined
+          ? undefined
+          : { kind: "Record", fields: new Map(expression.fields.map((field) => [field.name.text, this.#fresh(level, false)])) };
+      case "Call": {
+        if (!this.#appliesDataConstructor(expression)) return undefined;
+        const declared = this.#prune(this.#scheme((ungrouped(expression.callee) as Resolved.NameExpr).symbol).type);
+        const result = declared.kind === "Function" ? this.#prune(declared.result) : undefined;
+        if (result?.kind !== "Union" && result?.kind !== "NominalRecord") return undefined;
+        return { ...result, arguments: result.arguments.map(() => this.#fresh(level, false)) };
+      }
+      default:
+        return undefined;
+    }
+  }
+
+  /**
    * Reads an argument's **spine** against its parameter type as the call
    * finds it (Functions §4.3, #1096) — through grouping, the written shapes of
    * its literals and of the constructor applications whose constructor's type
@@ -23003,10 +23054,21 @@ class Checker {
     argument: Resolved.Expr,
     parameter: Mono,
     sibling: (value: Resolved.Expr, variable: Mono) => void,
+    /** Where the callee's parameter writes its variables, the level a literal's own shape is made at (#1298). */
+    shapeLevel?: number,
   ): void {
     const visit = (expression: Resolved.Expr, type: Mono, top: boolean): void => {
-      const read = this.#prune(type);
+      let read = this.#prune(type);
       if (defersAsLambda(expression) || read.kind === "Error") return;
+      // A literal deeper on the spine at a bare variable writes its own shape,
+      // as one at the top does, and is read through it (#1298).
+      if (read.kind === "Variable" && !top && shapeLevel !== undefined && read.rigidName === undefined) {
+        const shape = this.#writtenShape(ungrouped(expression), shapeLevel);
+        if (shape !== undefined) {
+          this.#unify(read, shape, expression.span);
+          read = this.#prune(read);
+        }
+      }
       // A value is a sibling as written, its grouping included: that is the
       // expression its literal or constructor elaborates.
       if (read.kind === "Variable") {

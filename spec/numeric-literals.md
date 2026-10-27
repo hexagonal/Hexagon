@@ -198,12 +198,12 @@ inference variable whose only reason to acquire `Num` would be the proposed conv
 The substitution these tests read is the one Functions §4.3's normative elaboration
 schedule built, read once per tree when its last part is in (below): within a tree the order of the
 parts never decides the choice of home, though what a part received at its own turn — an
-expectation the schedule had solved by then — is the schedule's residue. Across trees a
-part still receives at its turn what the schedule has solved by then from values the text
-decides — `pickF(vecDecToInt, [n])` compiles where `pickF2([n], vecDecToInt)` is refused
-(Functions §4.3) — but a type only inference gave converts nothing and chooses no home
-(below), so no line or argument checked earlier decides, through such a type, whether a
-later one converts (Functions §4.3's ordering pin).
+expectation the schedule had solved by then — is the schedule's residue. A literal at a bare
+type variable writes its own shape, so its parts are the call's values and wait with them
+(`pickF(vecDecToInt, [n])` and `pickF2([n], vecDecToInt)` both compile, Functions §4.3,
+#1298), and a type only inference gave converts nothing and chooses no home (below), so no
+line or argument checked earlier decides, through such a type, whether a later one converts
+(Functions §4.3's ordering pin).
 
 **One expression, one home** *(#1062)*. An expression's arithmetic runs at one type,
 chosen once for the whole expression — never operation by operation from the inside out.
