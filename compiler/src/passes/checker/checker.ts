@@ -23352,6 +23352,13 @@ class Checker {
         actual.elements.forEach((element, index) => this.#landInto(element, parts[index]!, span));
         return;
       }
+      case "Record": {
+        const other = face as typeof actual;
+        if (actual.tail !== undefined || other.tail !== undefined || other.fields.size !== actual.fields.size) return;
+        if ([...actual.fields.keys()].some((name) => !other.fields.has(name))) return;
+        for (const [name, field] of actual.fields) this.#landInto(field, other.fields.get(name)!, span);
+        return;
+      }
       case "Union":
       case "NominalRecord": {
         const other = face as typeof actual;
@@ -23395,6 +23402,10 @@ class Checker {
         return this.#readsCleanly(annotation.value);
       case "Tuple":
         return annotation.elements.every((element) => this.#readsCleanly(element));
+      // A closed record writes no row to read (#1358); an open one does.
+      case "Record":
+        return !annotation.open && annotation.tail === undefined &&
+          annotation.fields.every((field) => this.#readsCleanly(field.annotation));
       case "Union":
       case "RecordDeclaration":
         return annotation.arguments.every((argument) => this.#readsCleanly(argument));
