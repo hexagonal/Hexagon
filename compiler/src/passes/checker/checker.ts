@@ -14935,7 +14935,25 @@ class Checker {
     return fixes;
   }
 
+  /** How many patterns are being checked, so no mismatch inside one advises converting the pattern (#1357). */
+  #patternChecks = 0;
+
   #inferPattern(
+    pattern: Resolved.Pattern,
+    expected: Mono,
+    level: number,
+    generalizable: boolean,
+    evaluated: Mono = expected,
+  ): void {
+    this.#patternChecks += 1;
+    try {
+      this.#inferPatternOnce(pattern, expected, level, generalizable, evaluated);
+    } finally {
+      this.#patternChecks -= 1;
+    }
+  }
+
+  #inferPatternOnce(
     pattern: Resolved.Pattern,
     expected: Mono,
     level: number,
@@ -30644,16 +30662,21 @@ class Checker {
     // with no surviving diagnostic to explain the silence, and this read is
     // where that would have to become "reported, and still reported".
     const before = this.#reportCount;
-    this.#unify(
-      expected,
-      actual,
-      pattern.span,
-      pattern.kind === "Constructor"
-        ? () => this.#rivalConstructorMessage(pattern, expected)
-        : pattern.kind === "Float"
-        ? () => this.#decimalPatternMessage(pattern, expected)
-        : undefined,
-    );
+    this.#patternChecks += 1;
+    try {
+      this.#unify(
+        expected,
+        actual,
+        pattern.span,
+        pattern.kind === "Constructor"
+          ? () => this.#rivalConstructorMessage(pattern, expected)
+          : pattern.kind === "Float"
+          ? () => this.#decimalPatternMessage(pattern, expected)
+          : undefined,
+      );
+    } finally {
+      this.#patternChecks -= 1;
+    }
     if (this.#reportCount > before) this.#brokenPatterns.add(pattern);
   }
 
@@ -30921,6 +30944,9 @@ class Checker {
     this.#brokenPatterns.add(pattern);
   }
 
+  /** How deep inside a type the current unification is, 0 at a seat's whole type (#1357). */
+  #unifyNesting = 0;
+
   #unify(
     left: Mono,
     right: Mono,
@@ -30930,7 +30956,12 @@ class Checker {
   ): void {
     const unifyChild = (left: Mono, right: Mono): boolean => {
       const before = this.#reportCount;
-      this.#unify(left, right, span, message);
+      this.#unifyNesting += 1;
+      try {
+        this.#unify(left, right, span, message);
+      } finally {
+        this.#unifyNesting -= 1;
+      }
       return message !== undefined && this.#reportCount > before;
     };
     const actualLeft = this.#prune(left);
@@ -32685,19 +32716,55 @@ class Checker {
    * conversion, and the written type that would adapt there. `undefined`
    * for any other mismatch.
    */
-  #unadaptedSequence(left: Mono, right: Mono): string | undefined {
-    const iterable = (type: Mono): boolean =>
-      type.kind === "Vector" || type.kind === "Set" || type.kind === "Map" || type.kind === "Range" ||
-      type.kind === "Array" || type.kind === "JsSet" || type.kind === "JsMap";
-    const sequence = this.#asSequence(left) !== undefined ? left : this.#asSequence(right) !== undefined ? right : undefined;
-    const other = sequence === left ? right : left;
-    if (sequence === undefined || !iterable(other)) return undefined;
-    const companion = other.kind === "Range" || other.kind === "Array" ? undefined : other.kind;
-    return `type mismatch: expected ${this.#display(left)}, found ${this.#display(right)}; a \`${this.#display(other)}\` ` +
-      "becomes a sequence only where a written type asks for `Seq`, and none does here — convert one of them: " +
-      "`Iterable.toSeq(…)` on the " + `\`${this.#display(other)}\`` +
-      (companion === undefined ? "" : `, or \`${companion}.fromSeq(…)\` on the sequence`);
+  #unadaptedSequence(expected: Mono, found: Mono): string | undefined {
+    // Only at a seat's whole type, outside patterns: advice about a part of a
+    // larger type, or about a pattern, names a conversion nobody can write.
+    if (this.#unifyNesting > 0 || this.#patternChecks > 0) return undefined;
+    // The item a prelude iterable's `toSeq` gives, and its companion.
+    const item = (type: Mono): { readonly element: Mono; readonly companion?: string } | undefined => {
+      switch (type.kind) {
+        case "Vector":
+        case "Set":
+        case "JsSet":
+          return { element: type.element, companion: type.kind };
+        case "Array":
+          return { element: type.element };
+        case "Map":
+        case "JsMap":
+          return { element: { kind: "Tuple", elements: [type.key, type.value] }, companion: type.kind };
+        case "Range":
+          return { element: primitive("Int") };
+        default:
+          return undefined;
+      }
+    };
+    const agree = (left: Mono, right: Mono): boolean => {
+      const a = this.#prune(left);
+      const b = this.#prune(right);
+      return a.kind === "Variable" && a.rigidName === undefined || b.kind === "Variable" && b.rigidName === undefined ||
+        this.#display(a) === this.#display(b);
+    };
+    const mismatch = `type mismatch: expected ${this.#display(expected)}, found ${this.#display(found)}`;
+    const seqElement = this.#asSequence(expected);
+    const foundItem = item(found);
+    // The value checked is the one to convert: an iterable where a sequence is
+    // expected takes `toSeq`; a sequence where an iterable is expected takes
+    // that iterable's `fromSeq`.
+    if (seqElement !== undefined && foundItem !== undefined && agree(seqElement, foundItem.element)) {
+      return `${mismatch}; ${article(this.#display(found))} \`${this.#display(found)}\` becomes a sequence only where ` +
+        "a written type asks for `Seq`, and none does here — convert it with `Iterable.toSeq(…)`";
+    }
+    const foundElement = this.#asSequence(found);
+    const expectedItem = item(expected);
+    if (
+      foundElement !== undefined && expectedItem?.companion !== undefined && agree(foundElement, expectedItem.element)
+    ) {
+      return `${mismatch}; a sequence becomes ${article(this.#display(expected))} \`${this.#display(expected)}\` only ` +
+        `by conversion — convert it with \`${expectedItem.companion}.fromSeq(…)\``;
+    }
+    return undefined;
   }
+
 
   /**
    * Whether a value checked against `face` meets a sequence seat — false for a
