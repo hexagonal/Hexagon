@@ -54,6 +54,10 @@ function emitted(body: string): string {
     .join("\n");
 }
 
+/** The conversion a sequence mismatch at a whole seat names, in each direction (Collections Part 5 §3.4, #1357). */
+const TO_SEQ = "; a `Vector(String)` becomes a sequence only at a seat that adapts it (Collections Part 5 §3.4), and this is not one — convert it with `Iterable.toSeq(…)`";
+const FROM_SEQ = "; a sequence becomes a `Vector(String)` only by conversion — convert it with `Vector.fromSeq(…)`";
+
 const RIGID_SOURCE = "`xs` has the generic type `c`, and `Iterable` declares an implied type and " +
   "cannot constrain a type variable in v1; take a `Seq(a)` parameter instead";
 
@@ -125,15 +129,15 @@ describe("every seat headed by `Seq` adapts (Part 5 §3.4)", () => {
 describe("what never adapts (Part 5 §3.4, §3.6)", () => {
   test("a `var`'s annotation, and an assignment with everything its face reaches", () => {
     expect(refusals("let f() =\n    var s: Seq(String) = words\n    Seq.length(s)\n"))
-      .toEqual(["type mismatch: expected Seq(String), found Vector(String)"]);
+      .toEqual(["type mismatch: expected Seq(String), found Vector(String)" + TO_SEQ]);
     expect(refusals(
       "let f(c: Bool) =\n    var s: Seq(String) = Vector.toSeq(words)\n" +
         "    s := if c then words else Vector.toSeq(words)\n    Seq.length(s)\n",
-    )).toEqual(["type mismatch: expected Seq(String), found Vector(String)"]);
+    )).toEqual(["type mismatch: expected Seq(String), found Vector(String)" + TO_SEQ]);
     expect(refusals(
       "let f() =\n    var p: (Seq(String), Int) = (Vector.toSeq(words), 1)\n    p := (words, 2)\n" +
         "    Seq.length(p.item1)\n",
-    )).toEqual(["type mismatch: expected Seq(String), found Vector(String)"]);
+    )).toEqual(["type mismatch: expected Seq(String), found Vector(String)" + TO_SEQ]);
   });
 
   test("an existing value, an element, a sibling, and a head with no instance", () => {
@@ -145,7 +149,7 @@ describe("what never adapts (Part 5 §3.4, §3.6)", () => {
     ]);
     expect(refusals(
       "let pick(x: a, y: a): a = x\nlet p = pick(Vector.toSeq(words), words)\n",
-    )).toEqual(["type mismatch: expected Seq(String), found Vector(String)"]);
+    )).toEqual(["type mismatch: expected Seq(String), found Vector(String)" + TO_SEQ]);
     expect(refusals("let s: Seq(Int) = (1, 2)\n"))
       .toEqual(["type mismatch: expected Seq(Int), found (a, b)"]);
   });
@@ -578,7 +582,7 @@ describe("an unknown value on a form's path, or grouped, waits too (Part 5 §3.5
 });
 
 describe("the waiting path through a form's face (Part 5 §3.5)", () => {
-  const refused = "type mismatch: expected Vector(String), found Seq(String)";
+  const refused = "type mismatch: expected Vector(String), found Seq(String)" + FROM_SEQ;
 
   test("an assignment's face never makes its unknown values wait", () => {
     expect(refusals(
