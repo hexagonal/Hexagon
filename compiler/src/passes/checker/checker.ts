@@ -31268,6 +31268,7 @@ class Checker {
       severity: "error",
       message: message?.() ??
         this.#postFinalisationRedirect(actualLeft, actualRight) ??
+        this.#unadaptedSequence(actualLeft, actualRight) ??
         `type mismatch: expected ${this.#display(actualLeft)}, found ` +
           this.#display(actualRight),
       primary: span,
@@ -32675,6 +32676,27 @@ class Checker {
   /** The prelude `Iterable` declaration, where this module is seated after it. */
   #iterableDeclaration(): Resolved.ConstraintItem | undefined {
     return this.#constraintsByIdentity.get(preRegisteredConstraintIdentity("Iterable"));
+  }
+
+  /**
+   * The report where a sequence meets a prelude iterable at a seat whose
+   * written type is not headed by `Seq` (Collections Part 5 §3.4, #1357):
+   * adaptation happens only where the text writes `Seq`, so it names the
+   * conversion, and the written type that would adapt there. `undefined`
+   * for any other mismatch.
+   */
+  #unadaptedSequence(left: Mono, right: Mono): string | undefined {
+    const iterable = (type: Mono): boolean =>
+      type.kind === "Vector" || type.kind === "Set" || type.kind === "Map" || type.kind === "Range" ||
+      type.kind === "Array" || type.kind === "JsSet" || type.kind === "JsMap";
+    const sequence = this.#asSequence(left) !== undefined ? left : this.#asSequence(right) !== undefined ? right : undefined;
+    const other = sequence === left ? right : left;
+    if (sequence === undefined || !iterable(other)) return undefined;
+    const companion = other.kind === "Range" || other.kind === "Array" ? undefined : other.kind;
+    return `type mismatch: expected ${this.#display(left)}, found ${this.#display(right)}; a \`${this.#display(other)}\` ` +
+      "becomes a sequence only where a written type asks for `Seq`, and none does here — convert one of them: " +
+      "`Iterable.toSeq(…)` on the " + `\`${this.#display(other)}\`` +
+      (companion === undefined ? "" : `, or \`${companion}.fromSeq(…)\` on the sequence`);
   }
 
   /**

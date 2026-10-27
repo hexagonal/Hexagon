@@ -54,6 +54,9 @@ function emitted(body: string): string {
     .join("\n");
 }
 
+/** The fix a sequence mismatch names where no written type asks for `Seq` (Collections Part 5 §3.4, #1357). */
+const UNADAPTED = "; a `Vector(String)` becomes a sequence only where a written type asks for `Seq`, and none does here — convert one of them: `Iterable.toSeq(…)` on the `Vector(String)`, or `Vector.fromSeq(…)` on the sequence";
+
 const RIGID_SOURCE = "`xs` has the generic type `c`, and `Iterable` declares an implied type and " +
   "cannot constrain a type variable in v1; take a `Seq(a)` parameter instead";
 
@@ -125,27 +128,27 @@ describe("every seat headed by `Seq` adapts (Part 5 §3.4)", () => {
 describe("what never adapts (Part 5 §3.4, §3.6)", () => {
   test("a `var`'s annotation, and an assignment with everything its face reaches", () => {
     expect(refusals("let f() =\n    var s: Seq(String) = words\n    Seq.length(s)\n"))
-      .toEqual(["type mismatch: expected Seq(String), found Vector(String)"]);
+      .toEqual(["type mismatch: expected Seq(String), found Vector(String)" + UNADAPTED]);
     expect(refusals(
       "let f(c: Bool) =\n    var s: Seq(String) = Vector.toSeq(words)\n" +
         "    s := if c then words else Vector.toSeq(words)\n    Seq.length(s)\n",
-    )).toEqual(["type mismatch: expected Seq(String), found Vector(String)"]);
+    )).toEqual(["type mismatch: expected Seq(String), found Vector(String)" + UNADAPTED]);
     expect(refusals(
       "let f() =\n    var p: (Seq(String), Int) = (Vector.toSeq(words), 1)\n    p := (words, 2)\n" +
         "    Seq.length(p.item1)\n",
-    )).toEqual(["type mismatch: expected Seq(String), found Vector(String)"]);
+    )).toEqual(["type mismatch: expected Seq(String), found Vector(String)" + UNADAPTED]);
   });
 
   test("an existing value, an element, a sibling, and a head with no instance", () => {
     expect(refusals(
       "let o: Option(Vector(String)) = Some(words)\nlet s: Option(Seq(String)) = o\n",
-    )).toEqual(["type mismatch: expected Seq(String), found Vector(String)"]);
+    )).toEqual(["type mismatch: expected Seq(String), found Vector(String)" + UNADAPTED]);
     expect(refusals("let s: Seq(Float) = ints\n")).toEqual([
       "type mismatch: expected Seq(Float), found Vector(Int), which supplies Seq(Int)",
     ]);
     expect(refusals(
       "let pick(x: a, y: a): a = x\nlet p = pick(Vector.toSeq(words), words)\n",
-    )).toEqual(["type mismatch: expected Seq(String), found Vector(String)"]);
+    )).toEqual(["type mismatch: expected Seq(String), found Vector(String)" + UNADAPTED]);
     expect(refusals("let s: Seq(Int) = (1, 2)\n"))
       .toEqual(["type mismatch: expected Seq(Int), found (a, b)"]);
   });
@@ -487,7 +490,7 @@ describe("the rest of what never adapts, and what it costs", () => {
       "let s: Stream(Int) = Stream.fromSeq(Vector.toSeq([1]))\nlet n = Seq.length(s)\n",
     )).toEqual(["type mismatch: expected Seq(a), found Stream(Int)"]);
     expect(refusals("let mk(): Vector(String) = [\"a\"]\nlet g: () -> Seq(String) = mk\n"))
-      .toEqual(["type mismatch: expected Seq(String), found Vector(String)"]);
+      .toEqual(["type mismatch: expected Seq(String), found Vector(String)" + UNADAPTED]);
     expect(refusals(
       "record Tag(a) = {items: Vector(a)}\nhonor<a: Show> Iterable<Tag(a)> =\n    type Item = a\n" +
         "    toSeq(t) = t.items\nlet n = Seq.length(Tag({items = [(x) => x + 1]}))\n",
@@ -578,7 +581,7 @@ describe("an unknown value on a form's path, or grouped, waits too (Part 5 §3.5
 });
 
 describe("the waiting path through a form's face (Part 5 §3.5)", () => {
-  const refused = "type mismatch: expected Vector(String), found Seq(String)";
+  const refused = "type mismatch: expected Vector(String), found Seq(String)" + UNADAPTED;
 
   test("an assignment's face never makes its unknown values wait", () => {
     expect(refusals(
