@@ -465,12 +465,50 @@ describe("the argument's spine (#1096)", () => {
       `let g(p) =\n    let pk = (x, y) => if c then x else (if c then y else p)\n    pk(${args})\n`;
     expect(refusals(local("[n], [price]"))).toEqual(["type mismatch: expected Int, found Dec"]);
     expect(refusals(local("[price], [n]"))).toEqual(["type mismatch: expected Dec, found Int"]);
-    // Nor does a value deeper on that seat's spine join a group: it meets the
-    // seat whole, and is refused where it would have widened (#1359).
-    const spine = "let g(p) =\n    let pk = (y) => if c then y else (p, p)\n    pk((n, price))\n";
-    expect(refusals(spine)).toEqual(["type mismatch: expected Int, found Dec"]);
-    // A vector literal's own elements still share their own home.
+    // Nor does a value deeper on that seat's spine widen (#1359): it meets its
+    // position by unification, and is refused where it stands, in its plain
+    // twin's words, once (#1365).
+    const notWidened = "`n` is not widened into `pk`'s parameter, a `Dec` only by inference: write `pk`'s " +
+      "type where it is made, or convert it — `Dec.fromInt(n)`";
+    for (
+      const [shape, args] of [
+        ["(p, p)", "(n, price)"],
+        ["((p, p), p)", "((n, price), price)"],
+        ["{a = p, b = p}", "{a = n, b = price}"],
+        ["(Some(p), p)", "(Some(n), price)"],
+      ]
+    ) {
+      const spine = `let g(p) =\n    let pk = (y) => if c then y else ${shape}\n    pk(${args})\n`;
+      expect([args, refusals(spine)]).toEqual([args, [notWidened]]);
+    }
+    expect(refusals("let g(p) =\n    let pk = (x, y) => if c then x else (if c then y else p)\n    pk(n, price)\n"))
+      .toEqual([notWidened]);
+    // The value named is the one whose own position meets the type another
+    // value of the argument gave, not one that fits its own.
+    expect(refusals("let g(p) =\n    let pk = (y) => if c then y else (p, p)\n    pk((m, n))\nlet h = g(n)\n"))
+      .toEqual([
+        "`m` is not widened into `pk`'s parameter, an `Int` only by inference: write `pk`'s type where it is " +
+        "made, or convert it — `Int.fromNat(m)`",
+      ]);
+    // A seat's own pair with a sibling at the variable: the value refused once,
+    // and no home is said to be chosen.
+    expect(refusals("let g(p) =\n    let pk = (x, y) => if c then (x, y) else ((p, p), p)\n    pk((n, price), price)\n"))
+      .toEqual([notWidened]);
+    // A recursive call's spine at a declared variable is the knot's own report,
+    // naming the call.
+    expect(refusals("fun f<a>(y: (a, a), k: Int): a = if k == 0 then y.item1 else f((n, price), k - 1)\n")
+      .map((message) => message.split(";")[0])).toEqual([
+      "`a` is a declared type variable, but this recursive call uses `f` at `Int`",
+    ]);
+    // A forwarding form's value paths are read through, as at any seat.
+    expect(refusals("let g(p) =\n    let pk = (y) => if c then y else (p, p)\n    pk(if c then (n, price) else (price, price))\n"))
+      .toEqual([notWidened]);
+    // A vector literal's own elements still share their own home, and so does
+    // an `if` at one position: the seat relates only the positions its type
+    // writes.
     expect(refusals("let g(p) =\n    let pk = (y) => if c then y else [p]\n    pk([n, price])\n"))
+      .toEqual([]);
+    expect(refusals("let g(p) =\n    let pk = (y) => if c then y else (p, 1)\n    pk((if c then n else price, 2))\n"))
       .toEqual([]);
   });
 
@@ -503,7 +541,29 @@ describe("the argument's spine (#1096)", () => {
     expect(refusals(picks + "let a = pickF2([(q) => q + n], (v: Vector((Dec) -> Dec)) => 1)\n")).toEqual([]);
     // Where it conflicts with a sibling, the report names it as the home.
     expect(refusals(picks + "let a = pickF2([price], (v: Vector(Int)) => 1)\n")).toEqual([
-      "`price` is a `Dec` and cannot enter `Int`, the home the callback's written type gives this argument",
+      "`price` is a `Dec` and cannot enter `Int`, the home `v`'s written type gives this argument",
+    ]);
+    // A callback waiting on an undecided seat's spine gives the home as its
+    // plain twin's does.
+    for (const args of ["((v: Int) => v, price)", "(price, (v: Int) => v)"]) {
+      const shape = args.startsWith("(price") ? "(p, (v) => v + p)" : "((v) => v + p, p)";
+      expect([args, refusals(`let g(p) =\n    let pk = (y) => if c then y else ${shape}\n    pk(${args})\n`)]).toEqual([args, [
+        "`price` is a `Dec` and cannot enter `Int`, the home `v`'s written type gives this argument",
+      ]]);
+    }
+    // A refused written parameter type is said once, and the rest of the
+    // callback still meets its seat.
+    expect(refusals("let one(f: (Int) -> Int): Int = 1\nlet r = one((w: Dec) => \"s\")\n")).toEqual([
+      "type mismatch: expected Int, found String",
+      "type mismatch: expected Dec, found Int",
+    ]);
+    // With two callbacks, the one that gave the home is named, and the other's
+    // conflict is said once, at its written type (#1365).
+    expect(refusals(
+      "let two<a>(f: (a) -> Int, k: (a) -> Int, y: a): Int = 1\nlet a = two((v: Int) => 1, (w: Dec) => 2, price)\n",
+    )).toEqual([
+      "type mismatch: expected Dec, found Int",
+      "`price` is a `Dec` and cannot enter `Int`, the home `v`'s written type gives this argument",
     ]);
   });
 
