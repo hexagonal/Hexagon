@@ -23285,20 +23285,93 @@ class Checker {
     if (face.kind !== "Function" || face.parameters.length !== expression.parameters.length) return;
     const land = (annotation: Resolved.TypeAnnotation | undefined, component: Mono): void => {
       if (annotation === undefined || !this.#readsCleanly(annotation)) return;
-      const target = this.#prune(component);
-      if (target.kind !== "Variable" || target.rigidName !== undefined) return;
+      if (!this.#landable(component)) return;
       const written = this.#annotationType(
         annotation,
         level + 1,
         new Map(),
         this.#annotationVariableScope ?? new Map(),
       );
-      this.#unify(target, written, annotation.span);
+      this.#landInto(component, written, annotation.span);
     };
     for (const [index, written] of expression.parameters.entries()) {
       land(written.annotation, face.parameters[index]!);
     }
     land(expression.returnAnnotation, face.result);
+  }
+
+  /**
+   * Whether a written face may land on `component`: an unsolved variable, or a
+   * shape a literal's own form wrote (#1298) with an open part to fill.
+   */
+  #landable(component: Mono): boolean {
+    const target = this.#prune(component);
+    if (target.kind === "Variable") return target.rigidName === undefined;
+    return this.#openParts(target).length > 0;
+  }
+
+  /** The unsolved, non-rigid variables a type holds. */
+  #openParts(type: Mono): Variable[] {
+    return this.#collectVariables(type).filter((variable) => variable.rigidName === undefined);
+  }
+
+  /**
+   * Lands `written` on `target` where it cannot fail (#1062 ruling A2, #1358):
+   * an unsolved variable takes it whole; a part of the same head is walked
+   * into, so a literal's written shape (`Vector(β)`) takes the face's element;
+   * anything else is left to the lambda's own landing, which checks and
+   * reports.
+   */
+  #landInto(target: Mono, written: Mono, span: Source.Span): void {
+    const actual = this.#prune(target);
+    const face = this.#prune(written);
+    if (actual.kind === "Variable") {
+      if (actual.rigidName === undefined) this.#unify(actual, face, span);
+      return;
+    }
+    if (actual.kind !== face.kind) return;
+    switch (actual.kind) {
+      case "Vector":
+      case "Set":
+      case "Array":
+      case "JsSet":
+      case "Node":
+        this.#landInto(actual.element, (face as typeof actual).element, span);
+        return;
+      case "Nullable":
+        this.#landInto(actual.value, (face as typeof actual).value, span);
+        return;
+      case "Map":
+      case "JsMap":
+        this.#landInto(actual.key, (face as typeof actual).key, span);
+        this.#landInto(actual.value, (face as typeof actual).value, span);
+        return;
+      case "Tuple": {
+        const parts = (face as typeof actual).elements;
+        if (parts.length !== actual.elements.length) return;
+        actual.elements.forEach((element, index) => this.#landInto(element, parts[index]!, span));
+        return;
+      }
+      case "Record": {
+        const other = face as typeof actual;
+        if (actual.tail !== undefined || other.tail !== undefined || other.fields.size !== actual.fields.size) return;
+        if ([...actual.fields.keys()].some((name) => !other.fields.has(name))) return;
+        for (const [name, field] of actual.fields) this.#landInto(field, other.fields.get(name)!, span);
+        return;
+      }
+      case "Union":
+      case "NominalRecord": {
+        const other = face as typeof actual;
+        const same = actual.kind === "Union"
+          ? (other as typeof actual).union === actual.union
+          : (other as typeof actual).record === actual.record;
+        if (!same || other.arguments.length !== actual.arguments.length) return;
+        actual.arguments.forEach((argument, index) => this.#landInto(argument, other.arguments[index]!, span));
+        return;
+      }
+      default:
+        return;
+    }
   }
 
   /**
@@ -23329,6 +23402,10 @@ class Checker {
         return this.#readsCleanly(annotation.value);
       case "Tuple":
         return annotation.elements.every((element) => this.#readsCleanly(element));
+      // A closed record writes no row to read (#1358); an open one does.
+      case "Record":
+        return !annotation.open && annotation.tail === undefined &&
+          annotation.fields.every((field) => this.#readsCleanly(field.annotation));
       case "Union":
       case "RecordDeclaration":
         return annotation.arguments.every((argument) => this.#readsCleanly(argument));

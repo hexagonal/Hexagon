@@ -499,6 +499,14 @@ describe("the argument's spine (#1096)", () => {
       .toEqual([]);
     expect(refusals(vecDecToInt + "let pickF2<a>(y: a, f: (a) -> Int): Int = 1\nlet a = pickF2([n], vecDecToInt)\n"))
       .toEqual([]);
+    // So does an annotated lambda's written parameter type, landing through the
+    // literal's own shape: the two spellings of one written fact agree (#1358).
+    for (const call of ["pickF((v: Vector(Dec)) => 1, [n])", "pickF2([n], (v: Vector(Dec)) => 1)"]) {
+      expect([call, refusals(
+        "let pickF<a>(f: (a) -> Int, y: a): Int = 1\nlet pickF2<a>(y: a, f: (a) -> Int): Int = 1\n" +
+          `let a = ${call}\n`,
+      )]).toEqual([call, []]);
+    }
   });
 
   test("a constructor whose shape the spine does not read groups its own literal's fields", () => {
