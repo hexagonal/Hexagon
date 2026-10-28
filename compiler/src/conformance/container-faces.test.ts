@@ -463,17 +463,12 @@ describe("the argument's spine (#1096)", () => {
     // value there, refused in either order.
     const local = (args: string) =>
       `let g(p) =\n    let pk = (x, y) => if c then x else (if c then y else p)\n    pk(${args})\n`;
-    const notWidened = "`n` is not widened into `pk`'s parameter, a `Dec` only by inference: write `pk`'s type where it " +
-      "is made, or convert it — `Dec.fromInt(n)`";
-    expect(refusals(local("[n], [price]"))).toEqual([notWidened]);
-    expect(refusals(local("[price], [n]"))).toEqual([notWidened]);
+    expect(refusals(local("[n], [price]"))).toEqual(["type mismatch: expected Int, found Dec"]);
+    expect(refusals(local("[price], [n]"))).toEqual(["type mismatch: expected Dec, found Int"]);
     // Nor does a value deeper on that seat's spine join a group: it meets the
     // seat whole, and is refused where it would have widened (#1359).
     const spine = "let g(p) =\n    let pk = (y) => if c then y else (p, p)\n    pk((n, price))\n";
-    expect(refusals(spine)).toEqual([
-      "`n` is not widened into `pk`'s parameter, a `Dec` only by inference: write `pk`'s type where it is made, " +
-        "or convert it — `Dec.fromInt(n)`",
-    ]);
+    expect(refusals(spine)).toEqual(["type mismatch: expected Int, found Dec"]);
     // A vector literal's own elements still share their own home.
     expect(refusals("let g(p) =\n    let pk = (y) => if c then y else [p]\n    pk([n, price])\n"))
       .toEqual([]);

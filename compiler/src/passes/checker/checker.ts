@@ -22863,7 +22863,6 @@ class Checker {
         }
       }
       if (parameter.kind === "Variable") {
-        if (!shapes) this.#notePlainSpine(expression, call, span);
         join(parameter, index);
         grouped.add(index);
         continue;
@@ -22874,10 +22873,7 @@ class Checker {
       // gave (#1195, #1359). The argument elaborates whole, its own literals
       // keeping their own homes, and meets the seat by unification, as a
       // whole argument there does.
-      if (!shapes) {
-        this.#notePlainSpine(expression, call, span);
-        continue;
-      }
+      if (!shapes) continue;
       this.#readSpine(expression, parameter, (value, variable) => {
         // Read already, by a call this one's application stands on the spine of.
         if (this.#spineSiblings.has(value)) return;
@@ -23070,66 +23066,6 @@ class Checker {
         for (let index = 0; index < actuals.length; index += 1) eager(index);
       },
     };
-  }
-
-  /**
-   * The values on the spines of arguments at seats only inference typed, by
-   * the call's span (#1359): where the argument then meets its seat with a
-   * number that would have widened, the report stands at that value.
-   */
-  readonly #plainSpines = new Map<string, { readonly values: Resolved.Expr[]; readonly call: Resolved.Expr }>();
-
-  /**
-   * Records an undecided seat's argument's literal parts (`#plainSpines`). They
-   * are only read where the argument then fails to meet its seat, so a
-   * vector's elements, which share their own home, are recorded too.
-   */
-  #notePlainSpine(expression: Resolved.Expr, call: Resolved.Expr, span: Source.Span): void {
-    const node = ungrouped(expression);
-    const parts = node.kind === "Tuple" || node.kind === "Vector"
-      ? node.elements
-      : node.kind === "Record" && node.spread === undefined
-      ? node.fields.map((field) => field.value)
-      : node.kind === "Call" && this.#appliesDataConstructor(node)
-      ? node.arguments
-      : undefined;
-    if (parts === undefined) return;
-    const key = spanKey(span);
-    const entry = this.#plainSpines.get(key) ?? { values: [], call };
-    this.#plainSpines.set(key, entry);
-    for (const part of parts) {
-      const inner = ungrouped(part);
-      if (inner.kind === "Tuple" || inner.kind === "Vector" || inner.kind === "Record" || inner.kind === "Call") {
-        this.#notePlainSpine(part, call, span);
-      }
-      else entry.values.push(part);
-    }
-  }
-
-  /**
-   * The report where a value on an undecided seat's spine would have widened
-   * into what the seat met (#1359): #1195's, at the value, naming the callee.
-   */
-  #plainSpineMismatch(span: Source.Span, expected: Mono, found: Mono): Diagnostics.Diagnostic | undefined {
-    const entry = this.#plainSpines.get(spanKey(span));
-    if (entry === undefined) return undefined;
-    const root = entry.call.kind === "Call" ? ungrouped(entry.call.callee) : undefined;
-    const name = root?.kind === "Name" ? `\`${root.text}\`` : "the callee";
-    // Either side may be the value's: the unification meets the seat's type
-    // and the argument's in whichever order the argument was read.
-    for (const [source, target] of [[found, expected], [expected, found]] as const) {
-      for (const value of entry.values) {
-        const type = this.#expressionTypes.get(value);
-        if (type === undefined || this.#display(type) !== this.#display(source)) continue;
-        const had = this.#plainSeatValues.get(value);
-        this.#plainSeatValues.set(value, { seat: `${name}'s parameter`, owner: name });
-        const message = this.#inferredConversionRefusal(value, source, target);
-        if (had === undefined) this.#plainSeatValues.delete(value);
-        else this.#plainSeatValues.set(value, had);
-        if (message !== undefined) return { severity: "error", message, primary: value.span };
-      }
-    }
-    return undefined;
   }
 
   /** Receivers dispatched on their written head and not yet elaborated, with their level (#1356). */
@@ -31442,11 +31378,6 @@ class Checker {
       return;
     }
 
-    const plainSpine = message === undefined ? this.#plainSpineMismatch(span, actualLeft, actualRight) : undefined;
-    if (plainSpine !== undefined) {
-      this.#diagnostics.add(plainSpine);
-      return;
-    }
     this.#diagnostics.add({
       severity: "error",
       message: message?.() ??
