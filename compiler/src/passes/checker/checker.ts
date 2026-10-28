@@ -1333,8 +1333,6 @@ type DeferredTie =
     readonly parameter: EffectFrame["untyped"][number];
     /** Where the body made it one with what it captured, if it did. */
     readonly captured: Source.Span | undefined;
-    /** What its type was where its body closed. */
-    readonly variable: Variable;
   };
 
 /** What an untyped callback's colour is tied to (`Checker.#tiedTo`). */
@@ -25206,7 +25204,7 @@ class Checker {
         const open = this.#openEnclosing(frame);
         const captured = type.level < frame.level ? this.#capturedSpan(parameter.type) ?? parameter.span : undefined;
         if (open !== undefined) {
-          (open.deferredTies ??= []).push({ kind: "shape", frame, parameter, captured, variable: type });
+          (open.deferredTies ??= []).push({ kind: "shape", frame, parameter, captured });
         }
       }
       return;
@@ -25221,6 +25219,24 @@ class Checker {
         this.#refuseTieAt(frame, parameter, frame.endedAt, reports, named);
       }
       return;
+    }
+    // A colour it shares with a type it captured is the body's further out,
+    // which no generalization here reaches (HM's levels): that body's close
+    // reads it from all its facts, whatever order the lines come in (#1293).
+    const parts = this.#colourParts(colour);
+    if (frame.endedAt === undefined && this.#capturedColour(frame, parts)) {
+      const owner = this.#owningOpen(frame, Math.max(...parts.map((part) => part.level)));
+      if (owner !== undefined) {
+        const captured = this.#capturedSpan(parameter.type) ?? this.#shapedAt(parameter.type) ?? parameter.span;
+        (owner.deferredTies ??= []).push({ kind: "shape", frame, parameter, captured });
+        // A written callback's colour is already part of it, so it is a tie
+        // however that body settles the rest: the parameter reads as its fix
+        // from here, and a use of this body meets no tie of its own (#1217).
+        if (parts.some((part) => this.#scopesByColour.get(part).length > 0)) {
+          (frame.tieReadings ??= new Set()).add(parameter.index);
+        }
+        return;
+      }
     }
     const tie = this.#tieOf(frame, parameter, colour);
     if (tie === undefined) return;
@@ -25375,19 +25391,27 @@ class Checker {
       // A tie that waited on a callback its colour no longer shares (the
       // callback turned pure) is read as its own close would have read it,
       // had it not stopped at the wait: a captured colour, a sibling's, a join.
-      // So is a shape its body had made one with a type it captured, where its
-      // colour holds a written callback's: the sharing is the body's, a later
-      // line only made it a function, and a written colour stays its own, so
-      // it reads here as it would have there (#1216). Any other colour a later
-      // line gave it is one that line's body decided, closing arrows the
-      // parameter's own close would have closed, so it is not read again. A
-      // shape no captured type held is shared by a use of the body's value, if
-      // by anything, and that use's body reads it.
-      if (deferred.kind === "shape" && !(deferred.captured !== undefined && this.#shapedWritten(deferred.variable, parameter))) {
+      // So is a colour its body had made one with a type it captured: it is
+      // this body's, which no generalization there reached, so it is read here
+      // from all this body's facts, whichever line made it a function or
+      // joined a colour in (#1216, #1293). A shape no captured type held is
+      // shared by a use of the body's value, if by anything, and that use's
+      // body reads it.
+      if (deferred.kind === "shape" && deferred.captured === undefined) {
         return;
       }
       const tie = this.#tieOf(frame, parameter, colour);
       if (tie === undefined || tie.waits !== undefined) return;
+      // A captured colour no written callback's colour reaches is this body's
+      // to decide, as it decides its own callbacks': the
+      // nested parameters that share it are not tied by that (#1293).
+      if (
+        deferred.kind === "shape" && this.#colourParts(colour).every((part) =>
+          this.#scopesByColour.get(part).length === 0 && !this.#knots.some((knot) => this.#knotColour(knot, part))
+        )
+      ) {
+        return;
+      }
       // A shape's report is its own, as its own close would have made it,
       // though later lines merged its colour with another's.
       const key = deferred.kind === "shape" ? parameter.type : colour;
@@ -25417,33 +25441,13 @@ class Checker {
     report.add(closing, enclosing, false);
   }
 
-  /**
-   * Whether the unification that made `variable` a function gave the parameter's own
-   * colour a written callback's colour as a part (#1216): one the parameter's
-   * colour now holds, met within that line's unification — the line's own
-   * fitting and the lambdas written in it included — and not by a still later
-   * line that joined another colour in.
-   */
-  #shapedWritten(variable: Variable, parameter: EffectFrame["untyped"][number]): boolean {
-    let node: Mono = variable;
-    let shaping: Source.Span | undefined;
-    while (node.kind === "Variable") {
-      const bind = this.#binds.get(node);
-      if (bind === undefined) return false;
-      shaping = bind.span;
-      node = bind.target;
+  /** Where the parameter's type was made a function: the bind of its last variable (#1293). */
+  #shapedAt(type: Mono): Source.Span | undefined {
+    let span: Source.Span | undefined;
+    for (let node: Mono | undefined = type; node?.kind === "Variable"; node = this.#binds.get(node)?.target) {
+      span = this.#binds.get(node)?.span ?? span;
     }
-    if (node.kind !== "Function" || shaping === undefined) return false;
-    const within = (span: Source.Span): boolean =>
-      span.start.offset >= shaping.start.offset && span.end.offset <= shaping.end.offset;
-    const colour = this.#prune(this.#ownColourAt(node, entryAxis(parameter)));
-    return this.#colourParts(colour).some((part) =>
-      this.#scopesByColour.get(part).some((scope) => {
-        const met = this.#tieSpan(parameter.type, scope.effect);
-        // No bind between them: the colour was the written one from the start.
-        return met === undefined || within(met);
-      })
-    );
+    return span;
   }
 
   /** Where the parameter's type first met a type of a body further out (`#capturedAt`). */
@@ -25473,6 +25477,23 @@ class Checker {
   #waitingEnclosing(frame: EffectFrame): EffectFrame | undefined {
     for (let open = frame.enclosing; open !== undefined; open = open.enclosing) {
       if (!this.#tiesRead.has(open) && (open.deferredTies?.length ?? 0) > 0) return open;
+    }
+    return undefined;
+  }
+
+  /**
+   * Whether every part of a colour is one a body around `frame`, still open,
+   * holds: shared with a type `frame` captured, so no generalization at its
+   * close reaches it (#1293).
+   */
+  #capturedColour(frame: EffectFrame, parts: readonly Variable[]): boolean {
+    return parts.length > 0 && parts.every((part) => part.level < frame.level && this.#owningOpen(frame, part.level)?.level === part.level);
+  }
+
+  /** The innermost body around `frame` still open whose level holds a type at `level` (#1293). */
+  #owningOpen(frame: EffectFrame, level: number): EffectFrame | undefined {
+    for (let open = frame.enclosing; open !== undefined; open = open.enclosing) {
+      if (!this.#tiesRead.has(open) && open.level <= level) return open;
     }
     return undefined;
   }

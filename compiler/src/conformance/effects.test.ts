@@ -1427,13 +1427,48 @@ describe("Effects §3.4 — a tie between callbacks is refused, where it was mad
         expect([order, tieReports(source)]).toEqual([order, []]);
       }
     }
-    // Nor where the line that shapes it carries no written colour, and a still
-    // later line joins one in: that line's body reads the colour it grew.
+  });
+
+  it("to a captured colour, read where the body that owns it closes, from all its facts, in every order (#1293)", () => {
+    const outer = (lines: readonly string[], head = "action: () ->! Unit, p, c: Bool"): string =>
+      `let noop(): Unit = ()\nlet outer(${head}): Unit =\n` + lines.map((line) => `    ${line}\n`).join("") + "    ()\n";
     const inner = "let inner = (f) =>\n        let (a, _) = p\n        if c then a else f";
-    for (const later of [["tieTwo(p, (noop, 1))", "tieTwo(p, (action, 1))"], ["tieTwo(p, (noop, 1))", "let (q, _) = p", "tieTwo(q, action)"]]) {
-      const source = "let noop(): Unit = ()\nlet outer(action: () ->! Unit, p, c: Bool): Unit =\n" +
-        [inner, ...later].map((line) => `    ${line}\n`).join("") + "    ()\n";
-      expect([later, tieReports(source)]).toEqual([later, []]);
+    const tiedToAction = "`f`'s colour is tied to `action`'s here, and inference cannot keep them apart — write `f`'s type, or wrap `f` where they meet";
+    // Two nested bodies share `p`'s colour, which no written callback reaches:
+    // `outer` decides it, so neither is tied, whichever line comes first.
+    const i1 = "let i1 = (f) =>\n        let (a, _) = p\n        if c then a else f";
+    const i2 = "let i2 = (g) =>\n        let (a, _) = p\n        if c then a else g";
+    for (const order of orders([i1, i2, "tieTwo(p, (noop, 1))"])) {
+      expect([order, tieReports(outer(order))]).toEqual([order, []]);
+    }
+    // A written colour a later line joins in is part of it, whichever line
+    // shaped `p` and wherever the join stands, so `f` is tied to `action`.
+    for (
+      const lines of [
+        [inner, "tieTwo(p, (noop, 1))", "tieTwo(p, (action, 1))"],
+        [inner, "tieTwo(p, (noop, 1))", "let (q, _) = p\n    tieTwo(q, action)"],
+        [inner, "if c then tieTwo(p, (noop, 1)) else tieTwo(p, (action, 1))"],
+        [inner, "if c then tieTwo(p, (action, 1)) else tieTwo(p, (noop, 1))"],
+      ]
+    ) {
+      for (const order of orders(lines)) {
+        const reports = tieReports(outer(order));
+        expect([order, reports.map(({ at, message, fixes }) => [at, message, fixes])])
+          .toEqual([order, [["if c then a else f", tiedToAction, [": () ->! Unit"]]]]);
+      }
+    }
+    // Once a written colour is part of it at `inner`'s close, `f` reads as its
+    // fix from there, so a forwarder meets no tie of its own.
+    expect(tieReports(outer(["tieTwo(p, (action, 1))", inner, "let fwd = (k) => inner(k)"])).map(({ at }) => at))
+      .toEqual(["if c then a else f"]);
+    // An outer callback a later line ties to the same colour shares a tied
+    // parameter with `f`: one report, in every order.
+    for (const order of orders([inner, "tieTwo(p, (action, 1))", "tieTwo(h, action)"])) {
+      const reports = tieReports(outer(order, "action: () ->! Unit, p, h, c: Bool"));
+      expect([order, reports.map(({ at, labels }) => [at, labels])]).toEqual([order, [[
+        "tieTwo(h, action)",
+        ["h: `h` has no written type", "f: `f` has no written type"],
+      ]]]);
     }
   });
 
@@ -3945,8 +3980,13 @@ describe("Effects §2.6, §3.4 — a written callback colour a value took in gro
       expect([uses, reports(source)]).toEqual([uses, []]);
       expect([uses, hoveredType(source, "outer(a1"), hoveredType(source, "user(p")]).toEqual([uses, follows, follows]);
     }
-    // As the untyped twin, which no hold ever reached, reads it.
-    expect(reports(outer(["let lam = (g) => r!(g)", "lam!(a1)", "lam!(a2)"]))).toEqual([]);
+    // The untyped twin's `g` shares `r`'s colour, which `outer` reads where it
+    // closes, from all its facts: it holds the written `a1`, so `g` is tied,
+    // in every order, and the fix is the written lambda above (#1293).
+    for (const uses of [["lam!(a1)", "lam!(a2)"], ["r!(a1)", "lam!(a2)"], ["lam!(a2)", "r!(a1)"]]) {
+      const messages = reports(outer(["let lam = (g) => r!(g)", ...uses]));
+      expect([uses, messages.length, messages[0]?.startsWith("`g`'s colour is tied to `a")]).toEqual([uses, 1, true]);
+    }
   });
 
   it("neither ties nor rounds up where it meets the value as one type, in every order", () => {
