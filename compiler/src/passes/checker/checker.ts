@@ -13056,6 +13056,15 @@ class Checker {
           const plain = named === undefined
             ? { seat: "this parameter", owner }
             : { seat: `\`${named}\`'s parameter`, owner };
+          // A name handed whole to a lambda's parameter (#1369).
+          const lambdaParameters = root.kind === "Name" && root === ungrouped(expression.callee)
+            ? this.#lambdaParameters.get(root.symbol)
+            : undefined;
+          for (const [index, argument] of expression.arguments.entries()) {
+            const handed = ungrouped(argument);
+            const declared = lambdaParameters?.[index];
+            if (declared !== undefined && handed.kind === "Name") this.#handedOn.set(handed.symbol, declared.symbol);
+          }
           for (const [index, argument] of expression.arguments.entries()) {
             if (!plainSeat(index)) continue;
             this.#plainSeatValues.set(argument, plain);
@@ -22949,8 +22958,7 @@ class Checker {
       // (Effects §3.4, #1240).
       const callee = call.kind === "Call" && !receiver ? ungrouped(call.callee) : undefined;
       const declared = callee?.kind === "Name" ? this.#lambdaParameters.get(callee.symbol)?.[index] : undefined;
-      const handed = ungrouped(expression);
-      if (declared !== undefined && handed.kind === "Name") this.#handedOn.set(handed.symbol, declared.symbol);
+
       this.#handedArgument = {
         argument: expression,
         parameter: declared !== undefined && this.#prune(actuals[index] ?? ERROR).kind === "Function" ? declared.name : undefined,

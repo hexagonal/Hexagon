@@ -1476,9 +1476,9 @@ describe("Effects §3.4 — a tie between callbacks is refused, where it was mad
         .toEqual([order, [["if c then a else f", tiedToAction]]]);
     }
     // A forwarder's parameter is the refused lambda's, one report in every order.
-    for (const order of orders([inner, "tieTwo(p, (action, 1))"])) {
-      expect([order, tieReports(outer([...order, "let fwd = (k) => inner(k)"])).map(({ at }) => at)])
-        .toEqual([order, ["if c then a else f"]]);
+    for (const order of [...orders([inner, "tieTwo(p, (action, 1))"]).map((lines) => [...lines, "let fwd = (k) => inner(k)"]),
+      [inner, "let fwd = (k) => inner(k)", "tieTwo(p, (action, 1))"]]) {
+      expect([order, tieReports(outer(order)).map(({ at }) => at)]).toEqual([order, ["if c then a else f"]]);
     }
     // An outer callback merged with the captured value is decided with it.
     const b = "let (b, _) = p\n    let y = if c then b else h";
