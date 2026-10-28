@@ -488,6 +488,25 @@ describe("the argument's spine (#1096)", () => {
     )).toEqual([settledAtNat]);
   });
 
+  test("a lambda inside a literal receiver waits for the call's second pass, as in the fundamental spelling (#1360)", () => {
+    const g = "let g(s: String): Int = 0\n";
+    expect(refusals(g + "let a = [f => f.length()].append(g)\n")).toEqual([]);
+    expect(refusals(g + "let a = Vector.append([f => f.length()], g)\n")).toEqual([]);
+    expect(refusals("let a = [(1, x => x.length())].append((2, (s: String) => 0))\n")).toEqual([]);
+  });
+
+  test("a lambda's written face is a home as a named function's type is (#1363)", () => {
+    const picks = "let pickF2<a>(y: a, f: (a) -> Int): Int = 1\n";
+    // Its clean parts land through an arrow, so a lambda nested in a sibling
+    // literal meets at the face's type as its named twin does.
+    expect(refusals(picks + "let a = pickF2((n, (q) => q), (v: (Dec, (Int) -> Int)) => 1)\n")).toEqual([]);
+    expect(refusals(picks + "let a = pickF2([(q) => q + n], (v: Vector((Dec) -> Dec)) => 1)\n")).toEqual([]);
+    // Where it conflicts with a sibling, the report names it as the home.
+    expect(refusals(picks + "let a = pickF2([price], (v: Vector(Int)) => 1)\n")).toEqual([
+      "`price` is a `Dec` and cannot enter `Int`, the home the callback's written type gives this argument",
+    ]);
+  });
+
   test("a literal receiver is the call's first argument, as in its fundamental spelling (#1356)", () => {
     // Its written head chooses the operation; its parts then join the call's
     // groups, so the dot spelling means what `Vector.append([m], n)` means.

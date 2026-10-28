@@ -9009,8 +9009,9 @@ class Checker {
     const deferred = this.#deferredReceivers.has(callee.receiver);
     if (deferred) this.#deferredReceivers.delete(callee.receiver);
     // The lambda literals deeper on the arguments' spines wait for this call's
-    // second pass as well (#1096).
-    const owner = this.#claimSpine(expression.arguments);
+    // second pass as well (#1096), and so do a deferred receiver's, which is
+    // the call's first argument (#1360).
+    const owner = this.#claimSpine(deferred ? [callee.receiver, ...expression.arguments] : expression.arguments);
     const pass = parameters === undefined ? undefined : this.#argumentPass(
       expression,
       parameters,
@@ -19501,11 +19502,13 @@ class Checker {
     if (!numeric(actual) || !numeric(home) || this.#sameSeat(actual, home)) return undefined;
     if (this.#operandReaches(actual, home, value.expression)) return undefined;
     const spelled = this.#writtenOperand(value.expression) ?? this.#spelledExpression(value.expression);
-    const gave = this.#spelledExpression(giver);
+    // A callback's written face is a home as a named function's type is (#1363).
+    const gave = ungrouped(giver).kind === "Lambda" ? "the callback's written type" : this.#spelledExpression(giver);
     if (spelled === undefined || gave === undefined) return undefined;
     const door = this.#numericDoor(spelled, actual, home);
+    const giverText = ungrouped(giver).kind === "Lambda" ? gave : `\`${gave}\``;
     return `\`${spelled}\` is a \`${this.#display(actual)}\` and cannot enter ` +
-      `\`${this.#display(home)}\`, the home \`${gave}\` gives this argument` +
+      `\`${this.#display(home)}\`, the home ${giverText} gives this argument` +
       (door === undefined ? "" : `; convert it explicitly — \`${door}\``);
   }
 
@@ -22372,7 +22375,14 @@ class Checker {
           }
         }
         if (expression.kind === "Call") {
-          for (const argument of expression.arguments) {
+          // A vector literal or data constructor's application before the dot
+          // is the call's first argument (#1356), so its lambdas land from
+          // the call as an argument's do (#1360).
+          const before = expression.callee.kind === "Access" ? expression.callee.receiver : undefined;
+          const receiver = before === undefined ? undefined : ungrouped(before);
+          const receiverIsLiteral = receiver !== undefined &&
+            (receiver.kind === "Vector" || receiver.kind === "Call" && this.#appliesDataConstructor(receiver));
+          for (const argument of receiverIsLiteral ? [before!, ...expression.arguments] : expression.arguments) {
             spineOf(argument, (lambda) => {
               if (this.#landingContexts.has(lambda)) return;
               this.#landingContexts.set(lambda, expression);
@@ -23044,7 +23054,16 @@ class Checker {
         for (const index of deferredLambdas) {
           const expression = expressions[index];
           const lambda = expression === undefined ? undefined : deferredLambda(expression);
-          if (lambda !== undefined) this.#landWrittenFace(lambda, parameters[index], level);
+          if (lambda === undefined) continue;
+          // What a callback's written face solves, it gave, as an argument
+          // that solves a group's variable does: the report names it (#1363).
+          const open = [...groups.keys()].filter((variable) =>
+            !givers.has(variable) && this.#prune(variable).kind === "Variable"
+          );
+          this.#landWrittenFace(lambda, parameters[index], level);
+          for (const variable of open) {
+            if (this.#prune(variable).kind !== "Variable") givers.set(variable, lambda);
+          }
         }
         if (owner !== undefined) this.#landWaiting(owner, level);
         closeGroups(deferredLambdas);
@@ -23290,15 +23309,37 @@ class Checker {
     const face = this.#prune(parameter);
     if (face.kind !== "Function" || face.parameters.length !== expression.parameters.length) return;
     const land = (annotation: Resolved.TypeAnnotation | undefined, component: Mono): void => {
-      if (annotation === undefined || !this.#readsCleanly(annotation)) return;
-      if (!this.#landable(component)) return;
-      const written = this.#annotationType(
-        annotation,
-        level + 1,
-        new Map(),
-        this.#annotationVariableScope ?? new Map(),
-      );
-      this.#landInto(component, written, annotation.span);
+      if (annotation === undefined || !this.#landable(component)) return;
+      if (this.#readsCleanly(annotation)) {
+        const written = this.#annotationType(
+          annotation,
+          level + 1,
+          new Map(),
+          this.#annotationVariableScope ?? new Map(),
+        );
+        this.#landInto(component, written, annotation.span);
+        return;
+      }
+      // A face that holds a part not read cleanly (an arrow, a hole, a row)
+      // lands its clean parts through the shape they share, and leaves the
+      // rest to the lambda's own landing (#1363): a tuple's or a vector's
+      // parts, and an arrow's parameters and result, its colour never read.
+      const target = this.#prune(component);
+      if (annotation.kind === "Tuple" && target.kind === "Tuple" && target.elements.length === annotation.elements.length) {
+        annotation.elements.forEach((element, index) => land(element, target.elements[index]!));
+      } else if (
+        (annotation.kind === "Vector" && target.kind === "Vector") ||
+        (annotation.kind === "Set" && target.kind === "Set") ||
+        (annotation.kind === "Array" && target.kind === "Array")
+      ) {
+        land(annotation.element, target.element);
+      } else if (
+        annotation.kind === "Function" && target.kind === "Function" &&
+        target.parameters.length === annotation.parameters.length
+      ) {
+        annotation.parameters.forEach((parameter, index) => land(parameter, target.parameters[index]!));
+        land(annotation.result, target.result);
+      }
     };
     for (const [index, written] of expression.parameters.entries()) {
       land(written.annotation, face.parameters[index]!);
