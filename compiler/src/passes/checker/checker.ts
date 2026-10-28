@@ -12406,7 +12406,9 @@ class Checker {
               false,
             );
             metParameters[index] = met;
+            const before = this.#reportCount;
             this.#unify(instanceOf(met), component, parameter.span);
+            if (this.#reportCount > before) this.#faceRefused.add(expression);
           }
           this.#schemes.set(parameter.symbol, {
             variables: [],
@@ -19500,11 +19502,20 @@ class Checker {
     if (!numeric(actual) || !numeric(home) || this.#sameSeat(actual, home)) return undefined;
     if (this.#operandReaches(actual, home, value.expression)) return undefined;
     const spelled = this.#writtenOperand(value.expression) ?? this.#spelledExpression(value.expression);
-    // A callback's written face is a home as a named function's type is (#1363).
-    const gave = ungrouped(giver).kind === "Lambda" ? "the callback's written type" : this.#spelledExpression(giver);
+    // A callback's written face is a home as a named function's type is
+    // (#1363), named by the parameter whose written type gave it (#1365).
+    const lambda = ungrouped(giver);
+    const written = lambda.kind === "Lambda"
+      ? lambda.parameters.find((parameter) => parameter.annotation !== undefined)
+      : undefined;
+    const gave = lambda.kind !== "Lambda"
+      ? this.#spelledExpression(giver)
+      : written === undefined
+      ? "the callback's written type"
+      : `\`${written.name}\`'s written type`;
     if (spelled === undefined || gave === undefined) return undefined;
     const door = this.#numericDoor(spelled, actual, home);
-    const giverText = ungrouped(giver).kind === "Lambda" ? gave : `\`${gave}\``;
+    const giverText = lambda.kind === "Lambda" ? gave : `\`${gave}\``;
     return `\`${spelled}\` is a \`${this.#display(actual)}\` and cannot enter ` +
       `\`${this.#display(home)}\`, the home ${giverText} gives this argument` +
       (door === undefined ? "" : `; convert it explicitly — \`${door}\``);
@@ -22876,20 +22887,20 @@ class Checker {
         continue;
       }
       if (preset.has(index)) continue;
-      // A seat whose type only inference gave reads no spine: its values join
-      // no group of the call, so none converts into a type only inference
-      // gave (#1195, #1359). The argument elaborates whole, its own literals
-      // keeping their own homes, and meets the seat by unification, as a
-      // whole argument there does.
-      if (!shapes) continue;
+      // A seat whose type only inference gave converts nothing on its spine
+      // (#1195, #1359): its values meet the seat's parts as the argument meets
+      // the seat, by unification, each refused where it stands, in the words
+      // its plain twin's argument is (#1365).
+      const plain = shapes ? undefined : this.#plainSeatValues.get(expression);
       this.#readSpine(expression, parameter, (value, variable) => {
         // Read already, by a call this one's application stands on the spine of.
         if (this.#spineSiblings.has(value)) return;
+        if (plain !== undefined) this.#plainSeatValues.set(value, plain);
         const member: { part?: TreePart } = {};
         join(variable, member);
         read.push(value);
         this.#spineSiblings.set(value, { variable, collect: (part) => member.part = part });
-      }, shapes ? level : undefined);
+      }, shapes ? level : undefined, plain !== undefined);
     }
     let closed = false;
 
@@ -22940,6 +22951,14 @@ class Checker {
       // as the argument meets it — a constructor's, too, where its expected type
       // solved it (Functions §4.3) — but never a dot call's receiver.
       const seated = this.#prune(parameter);
+      // A callback whose written parameter type was refused where the seat's
+      // type met it is that refusal, said once, at the written type (#1365).
+      if (this.#faceRefused.has(ungrouped(expression))) {
+        this.#pinSite = enclosingPin;
+        this.#pinSides = enclosingSides;
+        this.#handedArgument = enclosingHanded;
+        return;
+      }
       try {
         this.#atParameterSeat(() =>
           this.#unifyExpected(
@@ -23146,6 +23165,13 @@ class Checker {
     sibling: (value: Resolved.Expr, variable: Mono) => void,
     /** Where the callee's parameter writes its variables, the level a literal's own shape is made at (#1298). */
     shapeLevel?: number,
+    /**
+     * Whether the seat's type is one only inference gave (#1365): it relates
+     * only the positions its own type writes, so values its text makes
+     * siblings of one another (a vector's elements, an `if`'s branches) are
+     * one value there, keeping the home they share.
+     */
+    plainSeat = false,
   ): void {
     const visit = (expression: Resolved.Expr, type: Mono, top: boolean): void => {
       let read = this.#prune(type);
@@ -23184,7 +23210,7 @@ class Checker {
           }
           return;
         case "Vector":
-          if (read.kind !== "Vector") return;
+          if (read.kind !== "Vector" || plainSeat) return;
           for (const element of expression.elements) visit(element, read.element, false);
           return;
         case "Call": {
@@ -23197,18 +23223,21 @@ class Checker {
           return;
         }
         case "If":
-          if (expression.elseless === true) return;
+          if (expression.elseless === true || plainSeat) return;
           visit(expression.consequence, read, false);
           visit(expression.alternative, read, false);
           return;
         case "Match":
+          if (plainSeat) return;
           for (const arm of [...expression.arms, ...expression.catchArms ?? []]) visit(arm.body, read, false);
           return;
         case "Try":
+          if (plainSeat) return;
           visit(expression.body, read, false);
           for (const arm of expression.arms) visit(arm.body, read, false);
           return;
         case "Block": {
+          if (plainSeat) return;
           const final = expression.items.at(-1);
           if (final?.kind === "ExprItem") visit(final.expression, read, false);
           return;
@@ -32332,6 +32361,9 @@ class Checker {
    * seat is, in a report's words — "`g`'s parameter" — and the name whose
    * type the reader can write.
    */
+  /** Lambdas whose written parameter type met its seat's and was refused there (#1365). */
+  readonly #faceRefused = new WeakSet<Resolved.Expr>();
+
   readonly #plainSeatValues = new WeakMap<Resolved.Expr, { readonly seat: string; readonly owner: string }>();
 
   /**
