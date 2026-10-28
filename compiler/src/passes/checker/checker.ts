@@ -738,6 +738,12 @@ interface EffectFrame {
     /** The colour its frame solves (absent: the world colour), so a step handed it reads that colour. */
     readonly axis?: "fail";
     /**
+     * Whether the seat it stands at handed it its type, a variable there: a
+     * use of the lambda, so a type further out it shares that way is no
+     * capture of its body's (#1213 (T), #1369).
+     */
+    readonly landed?: boolean;
+    /**
      * Whether its colour was still its own where the body closed, for a body
      * whose colour is decided later — a knot's member, a held lambda. A use of
      * such a body meanwhile is monomorphic and may bind the colour to what it
@@ -4723,6 +4729,8 @@ class Checker {
   readonly #demandFacts = new Map<string, DemandFact>();
   /** Each binding whose value is a lambda, with its parameters as written: a declaration, read where a function is handed. */
   readonly #lambdaParameters = new Map<Resolved.SymbolId, readonly Resolved.Parameter[]>();
+  /** A name handed whole to a lambda's parameter, by the parameter it was handed to (#1369). */
+  readonly #handedOn = new Map<Resolved.SymbolId, Resolved.SymbolId>();
   /** Each binding's value as written: what a report reads a name as (`#valuesOf`, #1307). */
   readonly #bindingValues = new Map<Resolved.SymbolId, Resolved.Expr>();
   /** The distinct readings left to one reading of a callee as its value (`#valuesOf`): past them it reads nothing. */
@@ -12381,6 +12389,7 @@ class Checker {
                   span: parameter.span,
                   index,
                   ...(axis === "fail" ? { axis } : {}),
+                  ...(component === undefined ? {} : { landed: true }),
                 });
                 for (let enclosing = frame.enclosing; enclosing !== undefined; enclosing = enclosing.enclosing) {
                   enclosing.nestedUntyped.push(parameterType);
@@ -22940,6 +22949,8 @@ class Checker {
       // (Effects §3.4, #1240).
       const callee = call.kind === "Call" && !receiver ? ungrouped(call.callee) : undefined;
       const declared = callee?.kind === "Name" ? this.#lambdaParameters.get(callee.symbol)?.[index] : undefined;
+      const handed = ungrouped(expression);
+      if (declared !== undefined && handed.kind === "Name") this.#handedOn.set(handed.symbol, declared.symbol);
       this.#handedArgument = {
         argument: expression,
         parameter: declared !== undefined && this.#prune(actuals[index] ?? ERROR).kind === "Function" ? declared.name : undefined,
@@ -24744,6 +24755,12 @@ class Checker {
         }
         if (inError) {
           colour.instance = ERROR_COLOUR;
+        } else if (parameter.landed !== true && this.#capturedColour(frame, [pruned])) {
+          // One it shares with a type it captured is the body's further out,
+          // which decides it from all its facts, whatever order the lines come
+          // in: nothing here keeps it, silences it, or makes it this
+          // parameter's own (#1293, #1369).
+          continue;
         } else if (shared(pruned) ? needed.has(pruned) : !readBy.has(pruned)) {
           this.#linkedColours.push(colour);
           if (!this.#untypedColours.get(this.#prune(colour)).some((entry) => entry.name === parameter.name)) {
@@ -25263,11 +25280,29 @@ class Checker {
     // which no generalization here reaches (HM's levels): that body's close
     // reads it from all its facts, whatever order the lines come in (#1293).
     const parts = this.#colourParts(colour);
-    if (frame.endedAt === undefined && this.#capturedColour(frame, parts)) {
-      const owner = this.#owningOpen(frame, Math.max(...parts.map((part) => part.level)));
+    // The rest of it, if any, is no callback's: a nested lambda's own colour,
+    // which nothing here gives a name (#1369).
+    const captured = parts.filter((part) => this.#capturedColour(frame, [part]));
+    const unnamed = (part: Variable): boolean =>
+      this.#untypedColours.get(part).every((entry) => entry.parameter === parameter) &&
+      this.#scopesByColour.get(part).length === 0 &&
+      !frame.untyped.some((untyped) =>
+        untyped !== parameter && this.#spineColours(untyped.type, frameAxis(frame)).some(({ arrow }) => this.#colourParts(arrow).includes(part))
+      );
+    if (
+      frame.endedAt === undefined && parameter.landed !== true && captured.length > 0 &&
+      parts.every((part) => captured.includes(part) || unnamed(part))
+    ) {
+      const owner = this.#owningOpen(frame, Math.min(...captured.map((part) => part.level)));
       if (owner !== undefined) {
-        const captured = this.#capturedSpan(parameter.type) ?? this.#shapedAt(parameter.type) ?? parameter.span;
-        (owner.deferredTies ??= []).push({ kind: "shape", frame, parameter, captured });
+        // It stands where this body made it one with what it captured: where
+        // it met a written callback's colour, if it did, else where it was
+        // made a function.
+        const met = parts.flatMap((part) => this.#scopesByColour.get(part))
+          .map((scope) => this.#tieSpan(parameter.type, scope.effect))
+          .find((span) => span !== undefined && this.#within(span, frame.span));
+        const at = this.#capturedSpan(parameter.type) ?? met ?? this.#shapedAt(parameter.type) ?? parameter.span;
+        (owner.deferredTies ??= []).push({ kind: "shape", frame, parameter, captured: at });
         // A written callback's colour is already part of it, so it is a tie
         // however that body settles the rest: the parameter reads as its fix
         // from here, and a use of this body meets no tie of its own (#1217).
@@ -25439,8 +25474,31 @@ class Checker {
       if (deferred.kind === "shape" && deferred.captured === undefined) {
         return;
       }
-      const tie = this.#tieOf(frame, parameter, colour);
+      // A parameter a use of a refused lambda hands its own to is a label on
+      // that lambda's report (§3.4, `let fwd = (h) => inner(h)`), in every
+      // order of the lines (#1369).
+      const to = this.#handedOn.get(parameter.symbol);
+      const joined = to === undefined
+        ? undefined
+        : [...reports.values()].find((report) => report.tied.some((each) => each.symbol === to));
+      if (joined !== undefined) {
+        joined.add(frame, parameter, false);
+        return;
+      }
+        let tie = this.#tieOf(frame, parameter, colour);
       if (tie === undefined || tie.waits !== undefined) return;
+      // Its siblings sharing a part of it, though their joins were built apart:
+      // the body's own close would have found them (#1369).
+      if (deferred.kind === "shape" && tie.others.length === 0) {
+        const parts = this.#colourParts(colour);
+        const siblings = frame.untyped.filter((other) => {
+          if (other === parameter) return false;
+          const theirs = this.#prune(other.type);
+          return theirs.kind === "Function" &&
+            this.#colourParts(this.#prune(this.#ownColourAt(theirs, axis))).some((part) => parts.includes(part));
+        });
+        if (siblings.length > 0) tie = { others: siblings, phrase: `\`${siblings[0]!.name}\`'s`, from: siblings[0]!.type };
+      }
       // A captured colour no written callback's colour reaches is this body's
       // to decide, as it decides its own callbacks': the
       // nested parameters that share it are not tied by that (#1293).
@@ -25451,11 +25509,15 @@ class Checker {
       ) {
         return;
       }
-      // A shape's report is its own, as its own close would have made it,
-      // though later lines merged its colour with another's.
-      const key = deferred.kind === "shape" ? parameter.type : colour;
+      // A shape's report is its own body's, as its own close would have made
+      // it, though later lines merged its colour with another body's: the
+      // siblings that share it there are one report.
+      const key = deferred.kind === "shape"
+        ? frame.untyped.find((each) => each === parameter || tie!.others.includes(each))!.type
+        : colour;
       const report = reports.get(key) ?? new TieReport();
       reports.set(key, report);
+      if (report.tied.includes(parameter)) return;
       // A sibling's tie stands at the merge, which its own close made.
       const madeAt = deferred.kind === "shape" && tie.others.length === 0 ? deferred.captured : undefined;
       report.named.push({ parameter, phrase: tie.phrase, from: tie.from, madeAt });
@@ -25526,7 +25588,18 @@ class Checker {
    * close reaches it (#1293).
    */
   #capturedColour(frame: EffectFrame, parts: readonly Variable[]): boolean {
-    return parts.length > 0 && parts.every((part) => part.level < frame.level && this.#owningOpen(frame, part.level)?.level === part.level);
+    return parts.length > 0 && parts.every((part) => {
+      if (part.level >= frame.level || this.#owningOpen(frame, part.level)?.level !== part.level) return false;
+      // Its own text made it one with the type further out: a use of the body's
+      // value, where it is handed in, makes no capture (#1213 (T), #1369).
+      const at = this.#capturedSpan(part);
+      return at === undefined || frame.span === undefined || this.#within(at, frame.span);
+    });
+  }
+
+  /** Whether `span` lies inside `around`, where there is one. */
+  #within(span: Source.Span, around: Source.Span | undefined): boolean {
+    return around === undefined || (span.start.offset >= around.start.offset && span.end.offset <= around.end.offset);
   }
 
   /** The innermost body around `frame` still open whose level holds a type at `level` (#1293). */
@@ -27262,6 +27335,16 @@ class Checker {
     // body's: that body decides it from every use, so a body nested in it never
     // defaults it.
     if ((this.#valueColours.has(pruned) || this.#valueSlacks.has(pruned)) && pruned.level < frame.level) return true;
+    // So does a colour a body around it holds, which this body took from a
+    // value it captured (#1293, #1369).
+    if (
+      this.#capturedColour(frame, [pruned]) && !frame.untyped.some((untyped) =>
+        untyped.landed === true &&
+        this.#spineColours(untyped.type, frameAxis(frame)).some(({ arrow }) => this.#colourParts(arrow).includes(pruned))
+      )
+    ) {
+      return true;
+    }
     if (this.#ownedByEnclosing(frame, pruned)) return true;
     for (let open: EffectFrame | undefined = frame; open !== undefined; open = open.enclosing) {
       if (this.#settledFrames.has(open) && open !== frame) continue;
