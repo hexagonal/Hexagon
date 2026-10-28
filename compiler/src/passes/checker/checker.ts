@@ -24707,11 +24707,7 @@ class Checker {
           colour.instance = ERROR_COLOUR;
         } else if (shared(pruned) ? needed.has(pruned) : !readBy.has(pruned)) {
           this.#linkedColours.push(colour);
-          // One it shares with a type it captured stays open, but is not this
-          // parameter's own: the body further out reads it, from all its
-          // facts, whatever order the lines come in (#1293).
-          const captured = this.#capturedColour(frame, [pruned]);
-          if (!captured && !this.#untypedColours.get(this.#prune(colour)).some((entry) => entry.name === parameter.name)) {
+          if (!this.#untypedColours.get(this.#prune(colour)).some((entry) => entry.name === parameter.name)) {
             this.#untypedColours.add(colour, { colour, name: parameter.name, owner: frame.owner, parameter, frame });
           }
           // A pattern parameter's minted binder is no name to show (Lexer §3.2).
@@ -25233,6 +25229,12 @@ class Checker {
       if (owner !== undefined) {
         const captured = this.#capturedSpan(parameter.type) ?? this.#shapedAt(parameter.type) ?? parameter.span;
         (owner.deferredTies ??= []).push({ kind: "shape", frame, parameter, captured });
+        // A written callback's colour is already part of it, so it is a tie
+        // however that body settles the rest: the parameter reads as its fix
+        // from here, and a use of this body meets no tie of its own (#1217).
+        if (parts.some((part) => this.#scopesByColour.get(part).length > 0)) {
+          (frame.tieReadings ??= new Set()).add(parameter.index);
+        }
         return;
       }
     }
@@ -25398,19 +25400,8 @@ class Checker {
       if (deferred.kind === "shape" && deferred.captured === undefined) {
         return;
       }
-      let tie = this.#tieOf(frame, parameter, colour);
+      const tie = this.#tieOf(frame, parameter, colour);
       if (tie === undefined || tie.waits !== undefined) return;
-      // Its siblings sharing a part of it, though their joins were built apart.
-      if (deferred.kind === "shape" && tie.others.length === 0) {
-        const parts = this.#colourParts(colour);
-        const siblings = frame.untyped.filter((other) => {
-          if (other === parameter) return false;
-          const theirs = this.#prune(other.type);
-          return theirs.kind === "Function" &&
-            this.#colourParts(this.#prune(this.#ownColourAt(theirs, axis))).some((part) => parts.includes(part));
-        });
-        if (siblings.length > 0) tie = { others: siblings, phrase: `\`${siblings[0]!.name}\`'s`, from: siblings[0]!.type };
-      }
       // A captured colour no written callback's colour reaches is this body's
       // to decide, as it decides its own callbacks': the
       // nested parameters that share it are not tied by that (#1293).
@@ -25421,15 +25412,11 @@ class Checker {
       ) {
         return;
       }
-      // A shape's report is its own body's, as its own close would have made
-      // it, though later lines merged its colour with another body's: the
-      // siblings that share it there are one report.
-      const key = deferred.kind === "shape"
-        ? frame.untyped.find((each) => each === parameter || tie.others.includes(each))!.type
-        : colour;
+      // A shape's report is its own, as its own close would have made it,
+      // though later lines merged its colour with another's.
+      const key = deferred.kind === "shape" ? parameter.type : colour;
       const report = reports.get(key) ?? new TieReport();
       reports.set(key, report);
-      if (report.tied.includes(parameter)) return;
       // A sibling's tie stands at the merge, which its own close made.
       const madeAt = deferred.kind === "shape" && tie.others.length === 0 ? deferred.captured : undefined;
       report.named.push({ parameter, phrase: tie.phrase, from: tie.from, madeAt });

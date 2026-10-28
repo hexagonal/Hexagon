@@ -1457,6 +1457,10 @@ describe("Effects §3.4 — a tie between callbacks is refused, where it was mad
           .toEqual([order, [["if c then a else f", tiedToAction, [": () ->! Unit"]]]]);
       }
     }
+    // Once a written colour is part of it at `inner`'s close, `f` reads as its
+    // fix from there, so a forwarder meets no tie of its own.
+    expect(tieReports(outer(["tieTwo(p, (action, 1))", inner, "let fwd = (k) => inner(k)"])).map(({ at }) => at))
+      .toEqual(["if c then a else f"]);
     // An outer callback a later line ties to the same colour shares a tied
     // parameter with `f`: one report, in every order.
     for (const order of orders([inner, "tieTwo(p, (action, 1))", "tieTwo(h, action)"])) {
