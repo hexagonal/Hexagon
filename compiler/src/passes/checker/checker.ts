@@ -22951,18 +22951,20 @@ class Checker {
       // as the argument meets it — a constructor's, too, where its expected type
       // solved it (Functions §4.3) — but never a dot call's receiver.
       const seated = this.#prune(parameter);
-      // A callback whose written parameter type was refused where the seat's
-      // type met it is that refusal, said once, at the written type (#1365).
-      if (this.#faceRefused.has(ungrouped(expression))) {
-        this.#pinSite = enclosingPin;
-        this.#pinSides = enclosingSides;
-        this.#handedArgument = enclosingHanded;
-        return;
-      }
+      // A callback whose written parameter types were refused where the seat's
+      // type met them is that refusal, said once, at the written type (#1365):
+      // the seat meets the rest of it, its result and colours, with its own
+      // parameter types in their place.
+      const actual = this.#prune(actuals[index] ?? ERROR);
+      const face = this.#prune(parameter);
+      const met = this.#faceRefused.has(ungrouped(expression)) && actual.kind === "Function" &&
+          face.kind === "Function" && face.parameters.length === actual.parameters.length
+        ? { ...face, parameters: actual.parameters }
+        : parameter;
       try {
         this.#atParameterSeat(() =>
           this.#unifyExpected(
-            parameter,
+            met,
             actuals[index] ?? ERROR,
             expression,
             span,
@@ -23082,7 +23084,18 @@ class Checker {
             if (this.#prune(variable).kind !== "Variable") givers.set(variable, lambda);
           }
         }
-        if (owner !== undefined) this.#landWaiting(owner, level);
+        // So does a lambda waiting deeper on a spine, each landed in turn.
+        if (owner !== undefined) {
+          for (const [lambda, standIn] of owner.waiting) {
+            const open = [...groups.keys()].filter((variable) =>
+              !givers.has(variable) && this.#prune(variable).kind === "Variable"
+            );
+            this.#landWrittenFace(lambda, standIn, level);
+            for (const variable of open) {
+              if (this.#prune(variable).kind !== "Variable") givers.set(variable, lambda);
+            }
+          }
+        }
         closeGroups(deferredLambdas);
         for (let index = 0; index < actuals.length; index += 1) {
           // The second pass's own arguments have not elaborated yet; their

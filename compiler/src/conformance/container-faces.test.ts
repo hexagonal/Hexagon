@@ -543,6 +543,20 @@ describe("the argument's spine (#1096)", () => {
     expect(refusals(picks + "let a = pickF2([price], (v: Vector(Int)) => 1)\n")).toEqual([
       "`price` is a `Dec` and cannot enter `Int`, the home `v`'s written type gives this argument",
     ]);
+    // A callback waiting on an undecided seat's spine gives the home as its
+    // plain twin's does.
+    for (const args of ["((v: Int) => v, price)", "(price, (v: Int) => v)"]) {
+      const shape = args.startsWith("(price") ? "(p, (v) => v + p)" : "((v) => v + p, p)";
+      expect([args, refusals(`let g(p) =\n    let pk = (y) => if c then y else ${shape}\n    pk(${args})\n`)]).toEqual([args, [
+        "`price` is a `Dec` and cannot enter `Int`, the home `v`'s written type gives this argument",
+      ]]);
+    }
+    // A refused written parameter type is said once, and the rest of the
+    // callback still meets its seat.
+    expect(refusals("let one(f: (Int) -> Int): Int = 1\nlet r = one((w: Dec) => \"s\")\n")).toEqual([
+      "type mismatch: expected Int, found String",
+      "type mismatch: expected Dec, found Int",
+    ]);
     // With two callbacks, the one that gave the home is named, and the other's
     // conflict is said once, at its written type (#1365).
     expect(refusals(
