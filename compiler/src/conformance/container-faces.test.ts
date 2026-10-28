@@ -500,8 +500,12 @@ describe("the argument's spine (#1096)", () => {
       .map((message) => message.split(";")[0])).toEqual([
       "`a` is a declared type variable, but this recursive call uses `f` at `Int`",
     ]);
-    // A vector literal's own elements still share their own home, and so do an
-    // `if`'s branches: the seat relates only the positions its type writes.
+    // A forwarding form's value paths are read through, as at any seat.
+    expect(refusals("let g(p) =\n    let pk = (y) => if c then y else (p, p)\n    pk(if c then (n, price) else (price, price))\n"))
+      .toEqual([notWidened]);
+    // A vector literal's own elements still share their own home, and so does
+    // an `if` at one position: the seat relates only the positions its type
+    // writes.
     expect(refusals("let g(p) =\n    let pk = (y) => if c then y else [p]\n    pk([n, price])\n"))
       .toEqual([]);
     expect(refusals("let g(p) =\n    let pk = (y) => if c then y else (p, 1)\n    pk((if c then n else price, 2))\n"))

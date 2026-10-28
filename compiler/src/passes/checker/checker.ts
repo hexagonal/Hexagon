@@ -23167,9 +23167,9 @@ class Checker {
     shapeLevel?: number,
     /**
      * Whether the seat's type is one only inference gave (#1365): it relates
-     * only the positions its own type writes, so values its text makes
-     * siblings of one another (a vector's elements, an `if`'s branches) are
-     * one value there, keeping the home they share.
+     * only the positions its own type writes, so a vector literal's elements,
+     * siblings of one another by its own text, are one value there, keeping
+     * the home they share.
      */
     plainSeat = false,
   ): void {
@@ -23223,21 +23223,18 @@ class Checker {
           return;
         }
         case "If":
-          if (expression.elseless === true || plainSeat) return;
+          if (expression.elseless === true) return;
           visit(expression.consequence, read, false);
           visit(expression.alternative, read, false);
           return;
         case "Match":
-          if (plainSeat) return;
           for (const arm of [...expression.arms, ...expression.catchArms ?? []]) visit(arm.body, read, false);
           return;
         case "Try":
-          if (plainSeat) return;
           visit(expression.body, read, false);
           for (const arm of expression.arms) visit(arm.body, read, false);
           return;
         case "Block": {
-          if (plainSeat) return;
           const final = expression.items.at(-1);
           if (final?.kind === "ExprItem") visit(final.expression, read, false);
           return;
