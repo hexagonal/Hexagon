@@ -22868,6 +22868,12 @@ class Checker {
         continue;
       }
       if (preset.has(index)) continue;
+      // A seat whose type only inference gave reads no spine: its values join
+      // no group of the call, so none converts into a type only inference
+      // gave (#1195, #1359). The argument elaborates whole, its own literals
+      // keeping their own homes, and meets the seat by unification, as a
+      // whole argument there does.
+      if (!shapes) continue;
       this.#readSpine(expression, parameter, (value, variable) => {
         // Read already, by a call this one's application stands on the spine of.
         if (this.#spineSiblings.has(value)) return;
