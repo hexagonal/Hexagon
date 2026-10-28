@@ -24755,12 +24755,6 @@ class Checker {
         }
         if (inError) {
           colour.instance = ERROR_COLOUR;
-        } else if (parameter.landed !== true && this.#capturedColour(frame, [pruned])) {
-          // One it shares with a type it captured is the body's further out,
-          // which decides it from all its facts, whatever order the lines come
-          // in: nothing here keeps it, silences it, or makes it this
-          // parameter's own (#1293, #1369).
-          continue;
         } else if (shared(pruned) ? needed.has(pruned) : !readBy.has(pruned)) {
           this.#linkedColours.push(colour);
           if (!this.#untypedColours.get(this.#prune(colour)).some((entry) => entry.name === parameter.name)) {
@@ -25517,7 +25511,6 @@ class Checker {
         : colour;
       const report = reports.get(key) ?? new TieReport();
       reports.set(key, report);
-      if (report.tied.includes(parameter)) return;
       // A sibling's tie stands at the merge, which its own close made.
       const madeAt = deferred.kind === "shape" && tie.others.length === 0 ? deferred.captured : undefined;
       report.named.push({ parameter, phrase: tie.phrase, from: tie.from, madeAt });
@@ -25588,13 +25581,8 @@ class Checker {
    * close reaches it (#1293).
    */
   #capturedColour(frame: EffectFrame, parts: readonly Variable[]): boolean {
-    return parts.length > 0 && parts.every((part) => {
-      if (part.level >= frame.level || this.#owningOpen(frame, part.level)?.level !== part.level) return false;
-      // Its own text made it one with the type further out: a use of the body's
-      // value, where it is handed in, makes no capture (#1213 (T), #1369).
-      const at = this.#capturedSpan(part);
-      return at === undefined || frame.span === undefined || this.#within(at, frame.span);
-    });
+    return parts.length > 0 &&
+      parts.every((part) => part.level < frame.level && this.#owningOpen(frame, part.level)?.level === part.level);
   }
 
   /** Whether `span` lies inside `around`, where there is one. */
