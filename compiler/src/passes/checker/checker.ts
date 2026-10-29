@@ -25295,7 +25295,8 @@ class Checker {
       frame.endedAt === undefined && parameter.landed !== true && captured.length > 0 &&
       parts.every((part) => captured.includes(part) || unnamed(part))
     ) {
-      const owner = this.#owningOpen(frame, Math.min(...captured.map((part) => part.level)));
+      const owners = captured.map((part) => this.#captureOwner(frame, part)!);
+      const owner = owners.reduce((outer, each) => each.level < outer.level ? each : outer);
       if (owner !== undefined) {
         // It stands where this body made it one with what it captured: where
         // it met a written callback's colour, if it did, else where it was
@@ -25476,17 +25477,12 @@ class Checker {
       if (deferred.kind === "shape" && deferred.captured === undefined) {
         return;
       }
-      // A parameter a use of a refused lambda hands its own to is a label on
-      // that lambda's report (§3.4, `let fwd = (h) => inner(h)`), in every
-      // order of the lines (#1369).
-      const to = this.#handedOn.get(parameter.symbol);
-      const joined = to === undefined
-        ? undefined
-        : [...reports.values()].find((report) => report.tied.some((each) => each.symbol === to));
-      if (joined !== undefined) {
-        joined.add(frame, parameter, false);
-        return;
-      }
+      // A parameter a use of a refused lambda hands its own to, whose colour
+      // is that lambda's parameter's and nothing else's, meets no tie of its
+      // own: the refused parameter reads as its fix, which fits it where it is
+      // handed (§3.4, `let fwd = (h) => inner(h)`), in every order of the
+      // lines (#1372). Its siblings that share only that colour are the same.
+      if (this.#meetsRefusedFix(frame, parameter, colour, reports)) return;
         let tie = this.#tieOf(frame, parameter, colour);
       if (tie === undefined || tie.waits !== undefined) return;
       // Its siblings sharing a part of it, though their joins were built apart:
@@ -25543,6 +25539,37 @@ class Checker {
     report.add(closing, enclosing, false);
   }
 
+  /**
+   * Whether a deferred parameter's colour is only that of a refused lambda's
+   * parameter it, or a sibling sharing its colour, was handed to (#1372):
+   * every part of it is that parameter's.
+   */
+  #meetsRefusedFix(
+    frame: EffectFrame,
+    parameter: EffectFrame["untyped"][number],
+    colour: Mono,
+    reports: ReadonlyMap<Mono, TieReport>,
+  ): boolean {
+    const axis = entryAxis(parameter);
+    const parts = this.#colourParts(colour);
+    const handers = frame.untyped.filter((each) => {
+      if (this.#handedOn.get(each.symbol) === undefined) return false;
+      const theirs = this.#prune(each.type);
+      return theirs.kind === "Function" &&
+        this.#colourParts(this.#prune(this.#ownColourAt(theirs, axis))).some((part) => parts.includes(part));
+    });
+    for (const hander of handers) {
+      const to = this.#handedOn.get(hander.symbol);
+      const refused = [...reports.values()].flatMap((report) => report.tied).find((each) => each.symbol === to);
+      if (refused === undefined) continue;
+      const theirs = this.#prune(refused.type);
+      if (theirs.kind !== "Function") continue;
+      const own = this.#colourParts(this.#prune(this.#ownColourAt(theirs, axis)));
+      if (parts.every((part) => own.includes(part))) return true;
+    }
+    return false;
+  }
+
   /** Where the parameter's type was made a function: the bind of its last variable (#1293). */
   #shapedAt(type: Mono): Source.Span | undefined {
     let span: Source.Span | undefined;
@@ -25589,8 +25616,29 @@ class Checker {
    * close reaches it (#1293).
    */
   #capturedColour(frame: EffectFrame, parts: readonly Variable[]): boolean {
-    return parts.length > 0 &&
-      parts.every((part) => part.level < frame.level && this.#owningOpen(frame, part.level)?.level === part.level);
+    return parts.length > 0 && parts.every((part) => this.#captureOwner(frame, part) !== undefined);
+  }
+
+  /**
+   * The body around `frame`, still open, that holds `part`: the one at its
+   * level, or, inside a knot, whose members' parameters sit at the knot's
+   * level, the one whose parameter's type holds it off any arrow of its spine
+   * (#1372).
+   */
+  #captureOwner(frame: EffectFrame, part: Variable): EffectFrame | undefined {
+    if (part.level >= frame.level) return undefined;
+    const exact = this.#owningOpen(frame, part.level);
+    if (exact?.level === part.level) return exact;
+    for (let open = frame.enclosing; open !== undefined; open = open.enclosing) {
+      if (this.#tiesRead.has(open)) continue;
+      const axis = frameAxis(open);
+      const holds = open.untyped.some((untyped) =>
+        this.#colourVariables(untyped.type).includes(part) &&
+        !this.#spineColours(untyped.type, axis).some(({ arrow }) => this.#colourParts(arrow).includes(part))
+      );
+      if (holds) return open;
+    }
+    return undefined;
   }
 
   /** Whether `span` lies inside `around`, where there is one. */
