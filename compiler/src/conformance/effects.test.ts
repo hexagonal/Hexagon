@@ -1461,6 +1461,36 @@ describe("Effects §3.4 — a tie between callbacks is refused, where it was mad
     // fix from there, so a forwarder meets no tie of its own.
     expect(tieReports(outer(["tieTwo(p, (action, 1))", inner, "let fwd = (k) => inner(k)"])).map(({ at }) => at))
       .toEqual(["if c then a else f"]);
+    // The nested body neither keeps, silences nor defaults the captured
+    // colour: a bare call or a mark beside it reads as it would with no nested
+    // body, and so do the nested body's own calls (#1369).
+    const z = (call: string): string => `let (z, _) = p\n    ${call}`;
+    for (const order of orders([z("z()"), inner])) expect([order, tieReports(outer(order))]).toEqual([order, []]);
+    const marked = orders([z("z!()"), inner]).map((order) => tieReports(outer(order)).map(({ message }) => message));
+    expect([marked[0]!.length, marked[0]![0]?.startsWith("this call is pure and cannot fail, so `z` wants no mark")])
+      .toEqual([1, true]);
+    expect(marked[1]).toEqual(marked[0]);
+    const calls = "let inner = (f) =>\n        let (a, _) = p\n        let x = if c then a else f\n        f()";
+    for (const order of orders([calls, "tieTwo(p, (action, 1))"])) {
+      expect([order, tieReports(outer(order)).map(({ at, message }) => [at, message])])
+        .toEqual([order, [["if c then a else f", tiedToAction]]]);
+    }
+    // A forwarder's parameter is the refused lambda's, one report in every order.
+    for (const order of [...orders([inner, "tieTwo(p, (action, 1))"]).map((lines) => [...lines, "let fwd = (k) => inner(k)"]),
+      [inner, "let fwd = (k) => inner(k)", "tieTwo(p, (action, 1))"]]) {
+      expect([order, tieReports(outer(order)).map(({ at }) => at)]).toEqual([order, ["if c then a else f"]]);
+    }
+    // An outer callback merged with the captured value is decided with it.
+    const b = "let (b, _) = p\n    let y = if c then b else h";
+    for (const order of orders(["tieTwo(p, (noop, 1))", inner.replace("inner", "i1"), b])) {
+      expect([order, tieReports(outer(order, "action: () ->! Unit, p, h, c: Bool"))]).toEqual([order, []]);
+    }
+    // A colour two bodies' values make is read where the outer one closes.
+    const mid = "let mid = (q) =>\n        let inner = (f) =>\n            let (a, _) = p\n            let (b, _) = q\n" +
+      "            if c then f else () =>\n                a!()\n                b!()\n        tieTwo(q, (noop, 1))\n        1";
+    const both = orders([mid, "tieTwo(p, (action, 1))"]).map((order) => tieReports(outer(order)).map(({ at, message }) => [at, message]));
+    expect(both[0]![0]).toEqual(["if c then f else () =>\n                a!()\n                b!()", tiedToAction]);
+    expect(both[1]).toEqual(both[0]);
     // An outer callback a later line ties to the same colour shares a tied
     // parameter with `f`: one report, in every order.
     for (const order of orders([inner, "tieTwo(p, (action, 1))", "tieTwo(h, action)"])) {
