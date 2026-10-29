@@ -25477,14 +25477,12 @@ class Checker {
       if (deferred.kind === "shape" && deferred.captured === undefined) {
         return;
       }
-      // A parameter a use of a refused lambda hands its own to meets no tie of
-      // its own: the lambda's parameter reads as its fix, which fits it where
-      // it is handed (§3.4, `let fwd = (h) => inner(h)`), in every order of
-      // the lines (#1369, #1372).
-      const to = this.#handedOn.get(parameter.symbol);
-      if (to !== undefined && [...reports.values()].some((report) => report.tied.some((each) => each.symbol === to))) {
-        return;
-      }
+      // A parameter a use of a refused lambda hands its own to, whose colour
+      // is that lambda's parameter's and nothing else's, meets no tie of its
+      // own: the refused parameter reads as its fix, which fits it where it is
+      // handed (§3.4, `let fwd = (h) => inner(h)`), in every order of the
+      // lines (#1372). Its siblings that share only that colour are the same.
+      if (this.#meetsRefusedFix(frame, parameter, colour, reports)) return;
         let tie = this.#tieOf(frame, parameter, colour);
       if (tie === undefined || tie.waits !== undefined) return;
       // Its siblings sharing a part of it, though their joins were built apart:
@@ -25539,6 +25537,37 @@ class Checker {
     // fix only where its own close found the tie.
     report.add(frame, parameter, false);
     report.add(closing, enclosing, false);
+  }
+
+  /**
+   * Whether a deferred parameter's colour is only that of a refused lambda's
+   * parameter it, or a sibling sharing its colour, was handed to (#1372):
+   * every part of it is that parameter's.
+   */
+  #meetsRefusedFix(
+    frame: EffectFrame,
+    parameter: EffectFrame["untyped"][number],
+    colour: Mono,
+    reports: ReadonlyMap<Mono, TieReport>,
+  ): boolean {
+    const axis = entryAxis(parameter);
+    const parts = this.#colourParts(colour);
+    const handers = frame.untyped.filter((each) => {
+      if (this.#handedOn.get(each.symbol) === undefined) return false;
+      const theirs = this.#prune(each.type);
+      return theirs.kind === "Function" &&
+        this.#colourParts(this.#prune(this.#ownColourAt(theirs, axis))).some((part) => parts.includes(part));
+    });
+    for (const hander of handers) {
+      const to = this.#handedOn.get(hander.symbol);
+      const refused = [...reports.values()].flatMap((report) => report.tied).find((each) => each.symbol === to);
+      if (refused === undefined) continue;
+      const theirs = this.#prune(refused.type);
+      if (theirs.kind !== "Function") continue;
+      const own = this.#colourParts(this.#prune(this.#ownColourAt(theirs, axis)));
+      if (parts.every((part) => own.includes(part))) return true;
+    }
+    return false;
   }
 
   /** Where the parameter's type was made a function: the bind of its last variable (#1293). */
