@@ -1480,6 +1480,19 @@ describe("Effects §3.4 — a tie between callbacks is refused, where it was mad
       [inner, "let fwd = (k) => inner(k)", "tieTwo(p, (action, 1))"]]) {
       expect([order, tieReports(outer(order)).map(({ at }) => at)]).toEqual([order, ["if c then a else f"]]);
     }
+    // In a knot, where a member's parameters sit at the knot's level, the
+    // member that holds the value decides it, in every order (#1372).
+    const knotLines = [z("z()"), "b(p, c, n - 1)", "let i1 = (f) =>\n        let (a2, _) = p\n        if c then a2 else f"];
+    for (const order of orders(knotLines)) {
+      const program = "fun\n    a(p, c: Bool, n: Int): Unit =\n" + order.map((line) => `        ${line.replaceAll("\n    ", "\n        ")}\n`).join("") +
+        "        ()\n    b(p, c: Bool, n: Int): Unit = if n == 0 then () else a(p, c, n)\n";
+      expect([order, tieReports(program)]).toEqual([order, []]);
+    }
+    // A forwarder meets no tie of its own, and the fix writes `f` alone, in
+    // every order.
+    for (const order of [[inner, "tieTwo(p, (action, 1))", "let fwd = (k) => inner(k)"], ["tieTwo(p, (action, 1))", inner, "let fwd = (k) => inner(k)"]]) {
+      expect([order, tieReports(outer(order)).map(({ labels }) => labels)]).toEqual([order, [["f: `f` has no written type"]]]);
+    }
     // An outer callback merged with the captured value is decided with it.
     const b = "let (b, _) = p\n    let y = if c then b else h";
     for (const order of orders(["tieTwo(p, (noop, 1))", inner.replace("inner", "i1"), b])) {
