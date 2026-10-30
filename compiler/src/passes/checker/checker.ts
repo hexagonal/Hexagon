@@ -24705,8 +24705,8 @@ class Checker {
     // sibling untyped parameter is still this body's to decide.
     this.#noteRunsAtCall(frame);
     // A bare call through a part of an untyped parameter's data, an arrow
-    // off its spine, is a fact about that arrow too: the defaulting that
-    // settles it pure names the call (#1376).
+    // off its spine, is a fact about that arrow too: it pins it pure, and a
+    // report names the call (#1376, #1380).
     for (const parameter of frame.untyped) {
       const spine = this.#spineColours(parameter.type, axis).flatMap(({ arrow }) => this.#colourParts(arrow));
       for (const part of this.#colourVariables(parameter.type)) {
@@ -24746,7 +24746,14 @@ class Checker {
           axis,
         };
         this.#dataFacts.set(part, fact);
-        this.#dataFactSet.add(fact);
+        // The fact pins it pure here, before the black box closes the rest of
+        // the data to `->!` (§3.4, #1380). One a body further out holds is
+        // that body's to decide.
+        if (!this.#isDependency(frame, part)) {
+          const silent: EffectConstant = { ...PURE };
+          this.#factColours.set(silent, fact);
+          this.#unify(part, silent, parameter.span);
+        }
       }
     }
     const decisions = frame.untyped.map((parameter) => {
@@ -24896,9 +24903,20 @@ class Checker {
    */
   #closeCallbacks(frame: EffectFrame): void {
     const axis = frameAxis(frame);
+    // An arrow in data the body receives is the written twin's constant
+    // (#1380): `->` where a bare call pinned it (`#settleUntyped`), `->!`
+    // otherwise. Only this body's own arrows: a callback's colour, or one a
+    // body further out holds, is not this one's to close.
+    const free = (colour: Mono): EffectConstant | undefined =>
+      this.#colourParts(colour).every((part) => !this.#isDependency(frame, part) && this.#scopesByColour.get(part).length === 0)
+        ? IMPURE
+        : undefined;
     for (const parameter of frame.untyped) {
       const type = this.#prune(parameter.type);
-      if (type.kind !== "Function") continue;
+      if (type.kind !== "Function") {
+        if (type.kind !== "Variable") this.#closeInnerArrows(type, parameter.span, free, frame);
+        continue;
+      }
       const spine: FunctionMono[] = [];
       for (let node: Mono = type; node.kind === "Function"; node = this.#prune(node.result)) spine.push(node);
       // What it hands back first: its own function type's arrows are its
@@ -24937,7 +24955,7 @@ class Checker {
   #closeInnerArrows(
     type: Mono,
     span: Source.Span,
-    decide: (colour: Mono) => EffectConstant,
+    decide: (colour: Mono) => EffectConstant | undefined,
     frame: EffectFrame,
     seen = new Set<Mono>(),
   ): void {
@@ -24948,7 +24966,8 @@ class Checker {
     switch (actual.kind) {
       case "Function": {
         const colour = this.#prune(colourAt(actual, frameAxis(frame)) ?? PURE);
-        if (colour.kind !== "Effect") this.#unify(colour, decide(colour), span);
+        const decided = colour.kind === "Effect" ? undefined : decide(colour);
+        if (decided !== undefined) this.#unify(colour, decided, span);
         for (const parameter of actual.parameters) walk(parameter);
         walk(actual.result);
         return;
@@ -27400,14 +27419,7 @@ class Checker {
    */
   #undecidedColour(colour: Variable): Mono {
     if (this.#errorFloors.has(colour)) return ERROR_COLOUR;
-    // Its own pure point, so a report can tell it from a written `->` (#1303),
-    // and the bare call that made it so, where one did (#1376).
-    const fact = this.#dataFacts.get(colour);
-    if (fact !== undefined) {
-      const silent: EffectConstant = { ...PURE };
-      this.#factColours.set(silent, fact);
-      return silent;
-    }
+    // Its own pure point, so a report can tell it from a written `->` (#1303).
     const settled: EffectConstant = { ...PURE };
     this.#settledPure.add(settled);
     return settled;
@@ -27415,7 +27427,6 @@ class Checker {
 
   /** A bare call through a part of an untyped parameter's data, by the arrow it runs (#1376). */
   readonly #dataFacts = new Map<Variable, ColourFact>();
-  readonly #dataFactSet = new WeakSet<ReportFact>();
 
   /** The pure points defaulting settled, which no text wrote (#1303). */
   readonly #settledPure = new WeakSet<Mono>();
@@ -29900,9 +29911,7 @@ class Checker {
       // A mark keeps a parameter's own arrow open, but not an arrow in its
       // data, so marking a bare call through one repairs nothing: no fix
       // offers it (#1376).
-      const fixes = seen.some((fact) => this.#dataFactSet.has(fact))
-        ? []
-        : this.#readerFixes(words.told, byCall, seen.filter(isDemandFact));
+      const fixes = this.#readerFixes(words.told, byCall, seen.filter(isDemandFact));
       // Where the demand sits on an arrow the parameter returns, it is what
       // the function handed returns that does not fit, on each colour as far
       // down as it sits (#1308).
