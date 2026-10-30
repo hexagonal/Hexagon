@@ -109,6 +109,10 @@ let fault(message: String, position: Int): RegexError =
 // indexes.
 let points(pattern: String): Vector(String) = Vector.fromSeq(Iterable.toSeq(pattern))
 
+// A codepoint's value, and -1 for a lone surrogate: `String.toCodepoint` answers
+// only scalar values, and the door row that will read one (`spec/regex.md` §3.6,
+// §5) waits for the door to open to library modules, so until then the parser
+// refuses a pattern holding one.
 let codeOf(point: String): Int = match String.toCodepoint(point)
     Some(value) => value
     None => -1

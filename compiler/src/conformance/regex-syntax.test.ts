@@ -357,6 +357,14 @@ describe("Regex.Syntax: RegexError (§2.9)", () => {
     expect(parse(pattern)).toBe(refusal);
   });
 
+  test("a lone surrogate is refused at its position until the parser's door row lands (§3.6)", () => {
+    const refusal = "a lone surrogate cannot be read in a pattern yet";
+    expect(parse("a\uD800")).toBe(`error 2: ${refusal}`);
+    expect(parse("\\\uDC00")).toBe(`error 2: ${refusal}`);
+    expect(parse("[a\uD83D]")).toBe(`error 3: ${refusal}`);
+    expect(parse("\uD83D\uDE00")).toBe("#128512 #0");
+  });
+
   test("the first fault in reading order is the one reported", () => {
     expect(parse("\\q(")).toBe("error 1: `\\q` is not an escape; write `q`, or see the escape table");
     expect(parse("(a{40}\\q){40}")).toBe("error 7: `\\q` is not an escape; write `q`, or see the escape table");
