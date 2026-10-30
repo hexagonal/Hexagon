@@ -485,8 +485,8 @@ describe("a trusted replacement invalidates from its own seat", () => {
       compileFiles([
         [supplied(member)[0], source],
         main(
-          `import ${member.name}\n\n` +
-          `export let added: Int = ${member.name}.addedByThisTest\n`,
+          `import ${member.name} as Member\n\n` +
+          `export let added: Int = Member.addedByThisTest\n`,
         ),
       ], { trustedStandardLibraryModules: new Set([member.name]) });
 
