@@ -188,6 +188,43 @@ describe("Regex.Syntax: trees (§5)", () => {
     expect(parse(pattern)).toBe(tree);
   });
 
+  test.each([
+    ["\\p{Uppercase_Letter}", "[\\p{gc=Lu}] #0"],
+    ["\\p{gc=Uppercase_Letter}", "[\\p{gc=Lu}] #0"],
+    ["\\p{General_Category:Nd}", "[\\p{gc=Nd}] #0"],
+    ["\\p{LC}", "[\\p{gc=LC}] #0"],
+    ["\\p{Cs}", "[\\p{gc=Cs}] #0"],
+    ["\\p{Grek}", "[\\p{sc=Greek}] #0"],
+    ["\\p{Script=Latn}", "[\\p{sc=Latin}] #0"],
+    ["\\p{scx=Zinh}", "[\\p{scx=Inherited}] #0"],
+    ["\\p{Hrkt}", "[\\p{sc=Katakana_Or_Hiragana}] #0"],
+    ["\\p{Gara}", "[\\p{sc=Garay}] #0"],
+    ["\\p{WSpace}", "[\\p{bin=White_Space}] #0"],
+    ["\\p{space}", "[\\p{bin=White_Space}] #0"],
+    ["\\p{Alpha}", "[\\p{bin=Alphabetic}] #0"],
+    ["\\p{Upper}", "[\\p{bin=Uppercase}] #0"],
+    ["\\p{Lower}", "[\\p{bin=Lowercase}] #0"],
+    ["\\p{NChar}", "[\\p{bin=Noncharacter_Code_Point}] #0"],
+    ["\\p{DI}", "[\\p{bin=Default_Ignorable_Code_Point}] #0"],
+    ["\\pN", "[\\p{gc=N}] #0"],
+    ["\\p{Any}", "[\\p{Any}] #0"],
+    ["\\p{ASCII}", "[\\p{ASCII}] #0"],
+    ["\\P{Assigned}", "[^\\p{Assigned}] #0"],
+    ["\\p{digit}", "error 1: `\\p{digit}` names no supported property"],
+    ["\\p{punct}", "error 1: `\\p{punct}` names no supported property"],
+    ["\\p{Combining_Mark}", "error 1: `\\p{Combining_Mark}` names no supported property"],
+    ["\\p{Qaai}", "error 1: `\\p{Qaai}` names no supported property"],
+    ["\\p{Word}", "error 1: `\\p{Word}` names no supported property"],
+    ["\\p{ID_Start}", "error 1: `\\p{ID_Start}` names no supported property"],
+    ["\\p{Uppercase_Letter=Yes}", "error 1: `\\p{Uppercase_Letter=Yes}` names no supported property"],
+    ["\\p{alpha}", "error 1: `\\p{alpha}` names no supported property; write `\\p{Alpha}`"],
+    ["\\p{uppercase letter}", "error 1: `\\p{uppercase letter}` names no supported property; write `\\p{Uppercase_Letter}`"],
+    ["\\p{sc=greek}", "error 1: `\\p{sc=greek}` names no supported property; write `\\p{sc=Greek}`"],
+    ["\\p{any}", "error 1: `\\p{any}` names no supported property; write `\\p{Any}`"],
+  ])("Unicode 17.0.0's property names, exactly (§2.4): %j", (pattern, tree) => {
+    expect(parse(pattern)).toBe(tree);
+  });
+
   test("group names map to their numbers", () => {
     expect(groupIndex("(a)(?<year>b)(?P<day>c)", "year")).toBe(2);
     expect(groupIndex("(a)(?<year>b)(?P<day>c)", "day")).toBe(3);
