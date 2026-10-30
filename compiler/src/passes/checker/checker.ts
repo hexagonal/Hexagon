@@ -1640,6 +1640,16 @@ interface FactCheck {
 }
 
 /** One written call, and the mark it wore, awaiting its solved colour. */
+/** A sharing of untyped parameters whose cause the text shows whole (`#sharingCause`, #1324). */
+interface SharingCause {
+  readonly sharing: Resolved.Expr;
+  readonly parameters: readonly EffectFrame["untyped"][number][];
+  /** The parameters a written type meets where their own names stand, and where. */
+  readonly demands: readonly { readonly parameter: EffectFrame["untyped"][number]; readonly span: Source.Span }[];
+  /** The others, the body's own, named nowhere else but in calls with the same mark. */
+  readonly free: readonly EffectFrame["untyped"][number][];
+}
+
 interface MarkObligation {
   readonly effect: Mono;
   /** The call's fail colour (Effects §1), settled where the mark is read. */
@@ -4757,6 +4767,10 @@ class Checker {
   readonly #markedThroughSharing = new Map<Resolved.SymbolId, Set<Axis>>();
   /** Each name written as a call's callee, with the call (`#sharedAtMark`). */
   readonly #calleeCalls = new WeakMap<Resolved.NameExpr, Resolved.CallExpr>();
+  /** Each name written as a merge's branch or a call's argument, with it (`#sharedAtCall`, #1324). */
+  readonly #sharingAt = new WeakMap<Resolved.NameExpr, Resolved.Expr>();
+  /** Each merge or call written as a call's callee, with that call (`#sharingCause`, #1324). */
+  readonly #sharingCalls = new WeakMap<Resolved.Expr, Resolved.CallExpr>();
   /** Each call whose callee reads as an untyped parameter other than by its own name (#1263, D1). */
   readonly #runsParameter = new Map<Resolved.CallExpr, Resolved.SymbolId>();
   /** Whether every call of a parameter has been read (`#readCallsOfParameters`), so a reading may run. */
@@ -22381,6 +22395,19 @@ class Checker {
         if (expression.kind === "Call") {
           const named = ungrouped(expression.callee);
           if (named.kind === "Name") this.#calleeCalls.set(named, expression);
+          if (named.kind === "If" || named.kind === "Match" || named.kind === "Call") this.#sharingCalls.set(named, expression);
+        }
+        // What may be a sharing's sides, by name (#1324).
+        const sides = expression.kind === "If"
+          ? [expression.consequence, expression.alternative]
+          : expression.kind === "Match"
+          ? expression.arms.map(({ body }) => body)
+          : expression.kind === "Call"
+          ? expression.arguments
+          : [];
+        for (const side of sides) {
+          const name = ungrouped(side);
+          if (name.kind === "Name") this.#sharingAt.set(name, expression);
         }
         if (expression.kind === "Call") {
           const callee = ungrouped(expression.callee);
@@ -28635,27 +28662,70 @@ class Checker {
   /**
    * §3.4's limitation where a mark's call runs a colour untyped parameters
    * share (#1263, D3), only where the sharing is written at the mark, so that
-   * the cause is shown whole: the mark's callee is a merge whose every branch
-   * is one of them by name, or a call of a module function whose signature,
-   * written whole, gives them its result's type (`tiedResultParameters`), each
-   * argument there one of them by name. One of them is met by a `->` demand
-   * silent on every colour the mark claims and the call does not do, where its
-   * own name stands; each of the others is the named function's own parameter
-   * around the mark, named nowhere else but in calls in that body with the
-   * same mark. Then every type the colour passes is written or theirs, and
-   * once theirs are written the mark holds; the report names the sharing and
-   * the demand, and offers both repairs: the written types, and the mark.
+   * the cause is shown whole (`#sharingCause`). The report names the sharing
+   * and the demand, and offers both repairs: the written types, and the mark.
    */
   #sharedAtMark(
     obligation: MarkObligation,
     over: readonly Axis[],
     correction: Diagnostics.Fix | undefined,
     byCall: ReadonlyMap<Resolved.CallExpr, MarkObligation>,
-  ): Diagnostics.Diagnostic | "answered" | undefined {
-    const call = obligation.call;
-    const body = obligation.frame;
-    if (body?.owner === undefined) return undefined;
-    const sharing = ungrouped(call.callee);
+  ): { readonly sharing: Resolved.Expr; readonly report: Diagnostics.Diagnostic | "answered" } | undefined {
+    const sharing = ungrouped(obligation.call.callee);
+    const cause = this.#sharingCause(sharing, obligation.frame, markParts(obligation.mark), over, true, byCall);
+    const report = cause === undefined ? undefined : this.#sharedReport(cause, obligation, over, true, correction);
+    return report === undefined ? undefined : { sharing, report };
+  }
+
+  /**
+   * The same report at a call of one of a closed sharing's other parameters
+   * by its own name (#1324): a call with the same mark in that body, which the
+   * sharing's reading already allows, so its colour is what it is only
+   * through the sharing. On a colour `silent`, the call is silent only because
+   * of it; otherwise it does what the meeting makes it do only because of it.
+   */
+  #sharedAtCall(
+    parameter: EffectFrame["untyped"][number],
+    obligation: MarkObligation,
+    axes: readonly Axis[],
+    silent: boolean,
+    correction: Diagnostics.Fix,
+    byCall: ReadonlyMap<Resolved.CallExpr, MarkObligation>,
+  ): { readonly sharing: Resolved.Expr; readonly report: Diagnostics.Diagnostic | "answered" } | undefined {
+    const written = markParts(obligation.mark);
+    for (const use of this.#nameUses.get(parameter.symbol) ?? []) {
+      const sharing = this.#sharingAt.get(use);
+      if (sharing === undefined) continue;
+      const cause = this.#sharingCause(sharing, obligation.frame, written, axes, silent, byCall);
+      if (cause === undefined || !cause.free.includes(parameter)) continue;
+      const report = this.#sharedReport(cause, obligation, axes, silent, correction);
+      if (report !== undefined) return { sharing, report };
+    }
+    return undefined;
+  }
+
+  /**
+   * A sharing of untyped parameters whose cause the text shows whole (§3.4,
+   * #1263 D3): it is written with them by name at a merge (`if`, or a `match`
+   * with no exception arms) whose every branch is one of them, or at a call of
+   * a module function whose signature, written whole, gives them its result's
+   * type (`tiedResultParameters`), and it is run only by a call in `body` with
+   * the mark `written`. One of them is met by a written type on every colour
+   * of `axes` where its own name stands: a `->` demand where `silent`, the
+   * impure constant otherwise. Each of the others is `body`'s own, named
+   * nowhere else but in calls in that body with that mark, since a mark is no
+   * fact. Then every type the colour passes is written or theirs, and once
+   * theirs are written the colour is what each says.
+   */
+  #sharingCause(
+    sharing: Resolved.Expr,
+    body: EffectFrame | undefined,
+    written: Readonly<Record<Axis, boolean>>,
+    axes: readonly Axis[],
+    silent: boolean,
+    byCall: ReadonlyMap<Resolved.CallExpr, MarkObligation>,
+  ): SharingCause | undefined {
+    if (body?.owner === undefined || axes.length === 0) return undefined;
     // The names the sharing is written with.
     const named: Resolved.Expr[] = [];
     if (sharing.kind === "If") {
@@ -28689,40 +28759,63 @@ class Checker {
       if (!parameters.includes(parameter)) parameters.push(parameter);
     }
     if (parameters.length < 2) return undefined;
+    // A use that decides nothing: the callee of another call in this body
+    // with the same mark (a mark is no fact).
+    const sameMark = (call: Resolved.CallExpr | undefined): boolean => {
+      const parts = markParts(call?.mark);
+      return call !== undefined && byCall.get(call)?.frame === body && AXES.every((axis) => parts[axis] === written[axis]);
+    };
+    if (!sameMark(this.#sharingCalls.get(sharing))) return undefined;
     // Each name of a parameter other than at the sharing: a use of its own.
     const ownUses = (symbol: Resolved.SymbolId): Resolved.NameExpr[] =>
       (this.#nameUses.get(symbol) ?? []).filter((use) => !uses.includes(use));
-    // Where the shared colour met a `->` demand: a pin of any of them, which
-    // of them is met there read from the text, by a name of its own in it.
-    const pins = (axis: Axis) => parameters.flatMap((each) => {
-      const pin = this.#ownArrowPins.get(`${Number(each.symbol)}:${axis}`);
-      return pin?.silent === true && this.#demandFact(each.symbol, each.name, axis) !== undefined ? [pin] : [];
-    });
-    const demandOf = (parameter: EffectFrame["untyped"][number], axis: Axis) =>
-      pins(axis).find((pin) => ownUses(parameter.symbol).some((use) => spanWithin(use.span, pin.span)));
-    const demands = parameters.filter((each) => over.every((axis) => demandOf(each, axis) !== undefined));
-    // A use that decides nothing: the callee of another call in this body
-    // with the same mark (a mark is no fact).
-    const written = markParts(obligation.mark);
-    const harmless = (use: Resolved.NameExpr): boolean => {
-      const other = this.#calleeCalls.get(use);
-      const parts = markParts(other?.mark);
-      return other !== undefined && byCall.get(other)?.frame === body &&
-        AXES.every((axis) => parts[axis] === written[axis]);
+    // Where the written type met the shared colour: the parameter's own pin,
+    // where a name of its own stands.
+    const metAt = (parameter: EffectFrame["untyped"][number]): Source.Span | undefined => {
+      const pins = axes.map((axis) => {
+        const pin = this.#ownArrowPins.get(`${Number(parameter.symbol)}:${axis}`);
+        if (pin === undefined || pin.silent !== silent) return undefined;
+        if (silent && this.#demandFact(parameter.symbol, parameter.name, axis) === undefined) return undefined;
+        return ownUses(parameter.symbol).some((use) => spanWithin(use.span, pin.span)) ? pin : undefined;
+      });
+      return pins.every((pin) => pin !== undefined) ? pins[0]!.span : undefined;
     };
+    const demands = parameters.flatMap((parameter) => {
+      const span = metAt(parameter);
+      return span === undefined ? [] : [{ parameter, span }];
+    });
     // The others are this body's own, named nowhere else.
     const free = parameters.filter((each) =>
-      !demands.includes(each) && body.untyped.some(({ symbol }) => symbol === each.symbol) &&
-      ownUses(each.symbol).every(harmless)
+      !demands.some(({ parameter }) => parameter === each) && body.untyped.some(({ symbol }) => symbol === each.symbol) &&
+      ownUses(each.symbol).every((use) => sameMark(this.#calleeCalls.get(use)))
     );
     if (demands.length === 0 || free.length === 0 || demands.length + free.length < parameters.length) return undefined;
+    return { sharing, parameters, demands, free };
+  }
+
+  /**
+   * A closed sharing's report (§3.4, #1263 D3, #1324): on a colour `silent`,
+   * the call is silent only because of it; otherwise it does what the meeting
+   * makes it do only because of it. Both repairs are offered: the written
+   * types, and the mark (`correction`). None where a type cannot be written
+   * yet: the repair that keeps the mark cannot be offered.
+   */
+  #sharedReport(
+    cause: SharingCause,
+    obligation: MarkObligation,
+    axes: readonly Axis[],
+    silent: boolean,
+    correction: Diagnostics.Fix | undefined,
+  ): Diagnostics.Diagnostic | "answered" | undefined {
+    const { parameters, free } = cause;
+    const demands = cause.demands.map(({ parameter }) => parameter);
     // Where the sharing is a tie, the tie's report is this one: its fix writes
     // what the mark claims, and answers it (§9).
-    if (this.#tiesToAnswer.some((group) => parameters.every(({ symbol }) => group.includes(symbol)))) {
+    if (silent && this.#tiesToAnswer.some((group) => parameters.every(({ symbol }) => group.includes(symbol)))) {
       for (const each of free) {
-        let axes = this.#markedThroughSharing.get(each.symbol);
-        if (axes === undefined) this.#markedThroughSharing.set(each.symbol, axes = new Set());
-        for (const axis of over) axes.add(axis);
+        let marked = this.#markedThroughSharing.get(each.symbol);
+        if (marked === undefined) this.#markedThroughSharing.set(each.symbol, marked = new Set());
+        for (const axis of axes) marked.add(axis);
       }
       return "answered";
     }
@@ -28737,49 +28830,80 @@ class Checker {
     // The wrapper is spelled where it takes nothing to hand on.
     const demandType = demands.length === 1 ? this.#prune(demands[0]!.type) : undefined;
     const nullary = demandType?.kind === "Function" && demandType.parameters.length === 0;
-    // Each written as the fix reads it: a demanded one as it is, its own
-    // arrow silent where it is called bare (§9); one the demand reaches only
-    // through the sharing, marking what the mark claims.
+    // Each written as the fix reads it: a met one as it is, its own arrow
+    // silent where it is called bare (§9); one the meeting reaches only
+    // through the sharing marking what the mark claims where `silent`, and
+    // silent on those colours otherwise, as its bare call reads it.
     const readings = parameters.map((each) => {
       const type = this.#prune(each.type);
       if (type.kind !== "Function") return undefined;
       if (demands.includes(each)) return this.#blackBoxReading(this.#silencedOwn(type, this.#silentByItself(each.symbol)));
+      if (!silent) {
+        return this.#blackBoxReading(this.#silencedOwn(type, new Set([...axes, ...this.#calledBareItself.get(each.symbol) ?? []])));
+      }
       return this.#blackBoxReading({
         ...type,
-        ...(over.includes("world") ? { effect: IMPURE } : {}),
-        ...(over.includes("fail") ? { fail: IMPURE } : {}),
+        ...(axes.includes("world") ? { effect: IMPURE } : {}),
+        ...(axes.includes("fail") ? { fail: IMPURE } : {}),
       });
     });
-    // Where a type cannot be written yet, the repair that keeps the mark
-    // cannot be offered, and the report names no cause.
     if (readings.some((reading) => reading === undefined)) return undefined;
     const inOrder = [...parameters].sort((left, right) =>
       precedes(left.span, right.span) ? -1 : precedes(right.span, left.span) ? 1 : 0
     );
     const tied = free.length === 1 ? `${quoted(free)}'s colour is` : `the colours of ${quoted(free)} are`;
     const theirs = demands.map(({ name }) => `\`${name}\`'s`).join(" and ");
-    const fixes: Diagnostics.Fix[] = [
-      {
-        message: `write the types of ${quoted(inOrder)}`,
-        edits: inOrder.map((each) => ({
-          span: { ...each.span, start: each.span.end },
-          replacement: `: ${readings[parameters.indexOf(each)]!}`,
-        })),
-      },
-      ...(correction === undefined ? [] : [correction]),
-    ];
+    const wrap = silent
+      ? `wrap ${quoted(demands)} where they meet`
+      : `wrap ${quoted(demands)} where ${demands.length === 1 ? "it meets it" : "they meet it"}`;
     return {
       severity: "error",
-      message: `this call ${colourSilent(over)} only because ${tied} tied to ${theirs} here, and ${meets} — ` +
-        `write their types, or wrap ${quoted(demands)} where they meet` +
-        (nullary ? `: \`() => ${demands[0]!.name}()\`` : ""),
+      message: `this call ${silent ? colourSilent(axes) : colourDoes(axes)} only because ${tied} tied to ${theirs} here, ` +
+        `and ${meets} — write their types, or ${wrap}` + (nullary ? `: \`() => ${demands[0]!.name}()\`` : ""),
       primary: obligation.markSpan ?? obligation.span,
       labels: [
-        ...demands.map((each) => ({ span: demandOf(each, over[0]!)!.span, message: `\`${each.name}\` meets \`${met(each)}\` here` })),
-        { span: sharing.span, message: `${tied} tied to ${theirs} here` },
+        ...cause.demands.map(({ parameter, span }) => ({ span, message: `\`${parameter.name}\` meets \`${met(parameter)}\` here` })),
+        { span: cause.sharing.span, message: `${tied} tied to ${theirs} here` },
         ...inOrder.map((each) => ({ span: each.span, message: `\`${each.name}\` has no written type` })),
       ],
-      fixes,
+      fixes: [
+        {
+          message: `write the types of ${quoted(inOrder)}`,
+          edits: inOrder.map((each) => ({
+            span: { ...each.span, start: each.span.end },
+            replacement: `: ${readings[parameters.indexOf(each)]!}`,
+          })),
+        },
+        ...(correction === undefined ? [] : [correction]),
+      ],
+    };
+  }
+
+  /**
+   * One report per sharing (#1324): a closed sharing's reports, each at one
+   * of its marks, are one, at the first in source order, labelled at the
+   * others ("this call is pure and cannot fail too"), the types written once
+   * and every mark's repair one fix.
+   */
+  #foldShared(found: readonly { readonly report: Diagnostics.Diagnostic; readonly label: string }[]): Diagnostics.Diagnostic {
+    const inOrder = [...found].sort((left, right) =>
+      precedes(left.report.primary, right.report.primary) ? -1 : precedes(right.report.primary, left.report.primary) ? 1 : 0
+    );
+    const [first, ...rest] = inOrder;
+    if (rest.length === 0) return first!.report;
+    const [types, mark] = first!.report.fixes ?? [];
+    const marks = inOrder.flatMap(({ report }) => report.fixes?.slice(1, 2) ?? []);
+    return {
+      ...first!.report,
+      labels: [...first!.report.labels ?? [], ...rest.map(({ report, label }) => ({ span: report.primary, message: label }))],
+      fixes: [
+        ...(types === undefined ? [] : [types]),
+        ...(mark === undefined ? [] : [{
+          ...mark,
+          message: mark.message.replace(/^(remove|mark) the (mark|call)\b/, "$1 the $2s"),
+          edits: marks.flatMap((fix) => fix.edits),
+        }]),
+      ],
     };
   }
 
@@ -29208,6 +29332,13 @@ class Checker {
     // not found, so only the first in source order is given (Declarations
     // Preamble §1.1).
     const unexplained: Diagnostics.Diagnostic[] = [];
+    // A closed sharing's reports, made one per sharing (`#foldShared`, #1324).
+    const shared = new Map<Resolved.Expr, { readonly report: Diagnostics.Diagnostic; readonly label: string }[]>();
+    const share = (found: { readonly sharing: Resolved.Expr; readonly report: Diagnostics.Diagnostic }, label: string) => {
+      const each = shared.get(found.sharing) ?? [];
+      each.push({ report: found.report, label });
+      shared.set(found.sharing, each);
+    };
     for (const obligation of this.#markObligations) {
       // Read before the prune below compresses the chain (`#pastHeldBack`).
       const pastHeldBack: Record<Axis, Mono[] | undefined> = {
@@ -29287,6 +29418,20 @@ class Checker {
       const fixSilent = parameter === undefined
         ? new Set<Axis>()
         : new Set<Axis>([...missing, ...(this.#calledBareItself.get(parameter.symbol) ?? [])]);
+      // A call of the parameter by its own name beside a closed sharing whose
+      // other parameter met the impure constant is the sharing's (#1324).
+      if (parameter !== undefined && over.length === 0 && missing.length > 0 && missing.length === wrong.length &&
+        missing.every((axis) => pinOn(axis)?.silent === false) && callee.kind === "Name" &&
+        callee.symbol === parameter.symbol && obligation.call.reading !== true) {
+        const found = this.#sharedAtCall(parameter, obligation, missing, false, {
+          message: `mark the call ${markName(wanted)}`,
+          edits: [{ span: obligation.markSpan ?? obligation.insertAt, replacement: markSpelling(wanted) }],
+        }, byCall);
+        if (found !== undefined) {
+          if (found.report !== "answered") share({ sharing: found.sharing, report: found.report }, `this call ${colourDoes(missing)} too`);
+          continue;
+        }
+      }
       if (parameter !== undefined && over.length === 0 && missing.length === wrong.length &&
         missing.every((axis) => pinOn(axis)?.silent === false) &&
         ![...fixSilent].some((axis) => this.#calledMarkedItself.get(parameter.symbol)?.has(axis) === true)) {
@@ -29321,6 +29466,20 @@ class Checker {
       const demanded = fact === undefined && over.some((axis) => pinOn(axis)?.silent === true)
         ? pinOn(over.find((axis) => pinOn(axis)?.silent === true)!)
         : undefined;
+      // A call of the parameter by its own name beside a closed sharing whose
+      // other parameter a demand met is the sharing's, not a type it met
+      // (#1324).
+      if (demanded !== undefined && parameter !== undefined && missing.length === 0 && callee.kind === "Name" &&
+        callee.symbol === parameter.symbol && obligation.call.reading !== true) {
+        const found = this.#sharedAtCall(parameter, obligation, over, true, {
+          message: wanted.world || wanted.fail ? `mark the call ${markName(wanted)}` : "remove the mark",
+          edits: [{ span: obligation.markSpan ?? obligation.insertAt, replacement: markSpelling(wanted) }],
+        }, byCall);
+        if (found !== undefined) {
+          if (found.report !== "answered") share({ sharing: found.sharing, report: found.report }, `this call ${colourSilent(over)} too`);
+          continue;
+        }
+      }
       const silent = over.map((axis) => axis === "world" ? "pure" : "unable to fail").join(" and ");
       const factOf = fact === undefined ? undefined : byCall.get(fact.call);
       // The bare call is named as written: the parameter itself, or the
@@ -29422,7 +29581,9 @@ class Checker {
         if (over.length > 0 && !readingGoes && factWords === undefined && demanded === undefined && words === undefined) {
           const limitation = missing.length > 0 ? undefined : this.#sharedAtMark(obligation, over, report.fixes?.[0], byCall);
           if (limitation !== undefined) {
-            if (limitation !== "answered") this.#diagnostics.add(limitation);
+            if (limitation.report !== "answered") {
+              share({ sharing: limitation.sharing, report: limitation.report }, `this call ${colourSilent(over)} too`);
+            }
             continue;
           }
           const claims = over.map((axis) => axis === "world" ? "is impure" : "may fail").join(" and ");
@@ -29469,6 +29630,7 @@ class Checker {
     const [firstUnexplained] = [...unexplained].sort((left, right) =>
       precedes(left.primary, right.primary) ? -1 : precedes(right.primary, left.primary) ? 1 : 0
     );
+    for (const found of shared.values()) this.#diagnostics.add(this.#foldShared(found));
     if (firstUnexplained !== undefined) this.#diagnostics.add(firstUnexplained);
     this.#reportFactDemands(byCall, checks);
     this.#reportFactChecks(checks, byCall);
