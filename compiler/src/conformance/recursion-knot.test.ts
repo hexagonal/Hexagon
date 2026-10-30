@@ -296,8 +296,8 @@ describe("the asymmetric knot", () => {
     // `blip(x)` gives an `Int`, so the stuck type is `x`'s, and the report
     // stands there, where an annotation pins it (Numeric Literals §6).
     expect(messages).toContain(
-      "this expression's type cannot default to `Int`: `Blip` is not a defaultable " +
-        "constraint; add a type annotation to pin the type",
+      "nothing chooses this expression's type, and its `Blip` evidence needs one: " +
+        "add a type annotation naming a type that honors `Blip`",
     );
   });
 });

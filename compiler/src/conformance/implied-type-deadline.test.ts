@@ -251,8 +251,8 @@ describe("the deadline is the owner's close", () => {
     // No use settles it: the module's close is Numeric Literals §4's ambiguity.
     expect(reports(held)).toEqual([[
       "h(y)",
-      "this expression's type cannot default to `Int`: `Iterable` is not a defaultable constraint; " +
-        "add a type annotation to pin the type",
+      "nothing chooses this expression's type, and its `Iterable` evidence needs one: " +
+        "add a type annotation naming a type that honors `Iterable`",
     ]]);
   });
 
@@ -276,8 +276,8 @@ describe("the deadline is the owner's close", () => {
         "let k(): Int = Seq.length(Iterable.toSeq(bottom(1)))\n",
     )).toEqual([[
       "bottom(1)",
-      "this expression's type cannot default to `Int`: `Iterable` is not a defaultable constraint; " +
-        "add a type annotation to pin the type",
+      "nothing chooses this expression's type, and its `Iterable` evidence needs one: " +
+        "add a type annotation naming a type that honors `Iterable`",
     ]]);
   });
 

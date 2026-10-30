@@ -5557,6 +5557,8 @@ class Checker {
   // `a` as the signature (functions.md §4.1). `undefined` at module level, where each
   // binding is its own definition and gets a fresh scope. Saved/restored per lambda.
   #annotationVariableScope: Map<string, Variable> | undefined = undefined;
+  /** The declared variables a requirement's site could name, where it had any (#1352). */
+  readonly #requirementScopes = new WeakMap<Requirement, ReadonlyMap<string, Variable>>();
   /**
    * The `let`/`fun` bindings whose right-hand sides enclose the point being
    * checked, outermost first — the declarations whose generalization can carry a
@@ -32452,6 +32454,7 @@ class Checker {
     sequenceSeat?: Mono,
   ): Requirement {
     const demandedBy = this.#annotationOwner;
+    const scope = this.#annotationVariableScope;
     const requirement: Requirement = {
       name,
       identity,
@@ -32465,6 +32468,7 @@ class Checker {
       ...(this.#literalPatternSeat ? { patternSeat: true as const } : {}),
       reported: false,
     };
+    if (scope !== undefined && scope.size > 0) this.#requirementScopes.set(requirement, scope);
     const actual = this.#prune(type);
     if (actual.kind === "Variable") this.#acceptRequirement(actual, requirement);
     else this.#validate(requirement);
@@ -36415,6 +36419,38 @@ class Checker {
     // the result pins nothing: the report stands at the first value supplied
     // that carries it, where one does — `label(None)` at `None`.
     const supplier = literal === undefined ? this.#stuckSupplier(blocking, variable) : undefined;
+    // Where no blocking constraint holds at `Int`, defaulting to `Int` was
+    // never in reach: say what is seen, the type never chosen and what needs
+    // one, and offer a declared variable in scope that carries every one of
+    // the constraints, where there is one (#1352; Way 8).
+    const blockers = [...new Map(variable.requirements
+      .filter((requirement) => !this.#defaultableAtInt(requirement))
+      .map((requirement) => [requirement.identity, requirement])).values()];
+    const intInReach = blockers.every((requirement) =>
+      this.#instances.has(this.#instanceKey(requirement.identity, primitive("Int")))
+    );
+    if (!intInReach) {
+      const named = blockers.map((requirement) => `\`${requirement.name}\``).join(" and ");
+      const at = literal?.span ?? supplier?.span ?? blocking.span;
+      const what = literal?.literal !== undefined
+        ? `the literal \`${literal.literal}\`'s type`
+        : supplier === undefined && blocking.use !== undefined
+        ? `the type this use of \`${blocking.use.usedAs}\` gives`
+        : "this expression's type";
+      const fix = this.#blockedDefaultingFix(variable, blockers, literal?.span === undefined ? supplier : undefined);
+      this.#reportRequirement(undefined, {
+        severity: "error",
+        message: `nothing chooses ${what}, and its ${named} evidence needs one: ` +
+          (fix === undefined
+            ? `add a type annotation naming a type that honors ${named}`
+            : `write \`${fix.written}\``),
+        primary: at,
+        ...(fix === undefined ? {} : {
+          fixes: [{ message: `write \`${fix.written}\``, edits: [{ span: fix.span, replacement: fix.written }] }],
+        }),
+      });
+      return;
+    }
     this.#reportRequirement(undefined, {
       severity: "error",
       message: literal?.literal !== undefined
@@ -36429,6 +36465,50 @@ class Checker {
           `\`${blocking.name}\` is not a defaultable constraint; add a type annotation to pin the type`,
       primary: literal?.span ?? supplier?.span ?? blocking.span,
     });
+  }
+
+  /**
+   * The ascription that pins a stuck type to a declared variable in scope at
+   * the use, where one carries every blocking constraint (#1352): `None`
+   * becomes `(None : Option(u))`. `undefined` where no value is named, no
+   * such variable is in scope, or the value cannot be spelled.
+   */
+  #blockedDefaultingFix(
+    variable: Variable,
+    blockers: readonly Requirement[],
+    supplier: Resolved.Expr | undefined,
+  ): { readonly span: Source.Span; readonly written: string } | undefined {
+    if (supplier === undefined) return undefined;
+    const scope = blockers.map((requirement) => this.#requirementScopes.get(requirement)).find((each) => each !== undefined);
+    if (scope === undefined) return undefined;
+    const chain = blockers.map((requirement) => this.#requirementChains.get(requirement)).find((each) => each !== undefined) ?? [];
+    // Every demand on the stuck type, not only the blocking ones, and evidence
+    // that reaches the site: a head's variable only where the member around
+    // the site mentions it (#1048), a member's own only inside that member.
+    const reaches = (candidate: Variable): boolean => {
+      const owner = this.#declaredHeadOwners.get(candidate.id);
+      if (owner === undefined) return true;
+      if (owner.kind === "member") return chain.some(({ symbol }) => symbol === owner.symbol);
+      const member = [...chain].reverse().find(({ symbol }) => owner.members.includes(symbol));
+      const type = member === undefined ? undefined : this.#schemes.get(member.symbol)?.type;
+      return type !== undefined && this.#collectVariables(type).includes(candidate);
+    };
+    const honors = [...scope.values()].find((candidate) =>
+      candidate.rigidName !== undefined && this.#prune(candidate) === candidate &&
+      variable.requirements.every((requirement) =>
+        (candidate.declaredConstraints ?? []).some((name) => this.#constraintIdentity(name) === requirement.identity)
+      ) &&
+      reaches(candidate)
+    );
+    const type = this.#expressionTypes.get(supplier);
+    const spelled = this.#spelledExpression(supplier);
+    if (honors === undefined || type === undefined || spelled === undefined) return undefined;
+    // Any other type the value leaves open would be a guess: no fix.
+    if (this.#shapeVariables(type).some((other) => this.#prune(other) !== variable && this.#prune(other).kind === "Variable")) {
+      return undefined;
+    }
+    const pinned = this.#replaceVariables(type, new Map([[variable.id, honors]]));
+    return { span: supplier.span, written: `(${spelled} : ${this.#display(pinned)})` };
   }
 
   /**
