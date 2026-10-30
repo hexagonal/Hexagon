@@ -1469,10 +1469,9 @@ describe("Effects §3.4 — a tie between callbacks is refused, where it was mad
     // body, and so do the nested body's own calls (#1369).
     const z = (call: string): string => `let (z, _) = p\n    ${call}`;
     for (const order of orders([z("z()"), inner])) expect([order, tieReports(outer(order))]).toEqual([order, []]);
-    const marked = orders([z("z!()"), inner]).map((order) => tieReports(outer(order)).map(({ message }) => message));
-    expect([marked[0]!.length, marked[0]![0]?.startsWith("this call is pure and cannot fail, so `z` wants no mark")])
-      .toEqual([1, true]);
-    expect(marked[1]).toEqual(marked[0]);
+    // A mark through `p`'s data is true: that arrow is the written twin's
+    // `->!` (#1380).
+    for (const order of orders([z("z!()"), inner])) expect([order, tieReports(outer(order))]).toEqual([order, []]);
     const calls = "let inner = (f) =>\n        let (a, _) = p\n        let x = if c then a else f\n        f()";
     for (const order of orders([calls, "tieTwo(p, (action, 1))"])) {
       expect([order, tieReports(outer(order)).map(({ at, message }) => [at, message])])
@@ -1505,11 +1504,11 @@ describe("Effects §3.4 — a tie between callbacks is refused, where it was mad
       expect([order, tieReports(outer(order, "action: () ->! Unit, p, h, c: Bool"))]).toEqual([order, []]);
     }
     // A colour two bodies' values make is read where the outer one closes.
+    // `b!()` runs `q`'s data, the written twin's `->!` (#1380), so the lambda
+    // is impure on its own account, and `f` meets that constant: no tie.
     const mid = "let mid = (q) =>\n        let inner = (f) =>\n            let (a, _) = p\n            let (b, _) = q\n" +
       "            if c then f else () =>\n                a!()\n                b!()\n        tieTwo(q, (noop, 1))\n        1";
-    const both = orders([mid, "tieTwo(p, (action, 1))"]).map((order) => tieReports(outer(order)).map(({ at, message }) => [at, message]));
-    expect(both[0]![0]).toEqual(["if c then f else () =>\n                a!()\n                b!()", tiedToAction]);
-    expect(both[1]).toEqual(both[0]);
+    for (const order of orders([mid, "tieTwo(p, (action, 1))"])) expect([order, tieReports(outer(order))]).toEqual([order, []]);
     // An outer callback a later line ties to the same colour shares a tied
     // parameter with `f`: one report, in every order.
     for (const order of orders([inner, "tieTwo(p, (action, 1))", "tieTwo(h, action)"])) {
@@ -3707,14 +3706,10 @@ describe("Effects §3.4 — what a held lambda's own callbacks run is not held (
 
   it("closes the arrows inside a held lambda's untyped callback where it closes", () => {
     // An arrow under a constructor in what the callback hands back is `->!`,
-    // as outside a knot; main closed it only after `q` generalized it.
+    // as outside a knot, unless a bare call pins it pure (#1380): `h()` does.
     const source = "fun\n    ping(n: Int): Int =\n        let q = (cb) =>\n            let _ = if n > 0 then ping(n - 1) else 0\n" +
       "            match cb()\n                Some(h) => h()\n                None => ()\n        q(() => Some(noop))\n        0\n";
-    expect(check(source)).toEqual([
-      "this call is impure and may fail, so `ping` wants `!`, not no mark",
-      "this call is impure and may fail, so `h` wants `!`, not no mark",
-      "this call is impure and may fail, so `q` wants `!`, not no mark",
-    ]);
+    expect(check(source)).toEqual([]);
   });
 
   it("still runs through the recursion what one use hands", () => {
@@ -5843,16 +5838,16 @@ export let x: Int = 1
   });
 
   it("makes a field call on a row the pure one, and enforces it", () => {
-    // The parenthesized field call is the record spelling (§3.6): it imposes
-    // `{next: () -> a, ...}` — a `->`, and a row is data (Effects §2.5). So the
-    // call is pure and a mark on it is refused.
+    // The parenthesized field call is the record spelling (§3.6), and a row is
+    // data (Effects §2.5): its arrow is the written twin's constant (#1380).
+    // Marked, it is `->!`, and the mark is true.
     expect(
       effectDiagnostics([["/main.hex", "module Main\n\n" + `
 let drive(source): String = (source.next)!()
 
 export let x: Int = 1
 `]]),
-    ).toEqual([pureAndTotal("this call is pure and cannot fail, so this call wants no mark, not `!`")]);
+    ).toEqual([]);
     expect(
       effectDiagnostics([["/main.hex", "module Main\n\n" + `
 let drive(source): String = (source.next)()
@@ -5911,14 +5906,56 @@ export let x: Int = 1
     ]);
   });
 
-  it("a bare call through a tuple part names itself, with no fix a mark would not keep (#1376)", () => {
+  it("an arrow in data the body receives is its written twin's constant, bare or marked (#1380)", () => {
+    const fixtures = `${world}let noop(): Unit = ()\nlet save0(): Unit = save!("x")\n`;
+    const check = (source: string) =>
+      compileFiles([["/world.js", ""], ["/main.hex", "module Main\n\n" + fixtures + source]]).diagnostics.map(({ message }) => message);
+    const face = (source: string): string | undefined => hoveredType("module Main\n\n" + fixtures + source, "use(");
+    const held = "let (a, _) = t";
+    const back = "let (a, _) = f()";
+    // The parameter's own data, and what a callback hands back: `->` where a
+    // bare call pins it, `->!` otherwise, so a mark is true.
+    for (const [head, take, pure, impure] of [
+      ["use(t)", held, "use((noop, 1))", "use!((save0, 1))"],
+      ["use(f)", back, "use(() => (noop, 1))", "use!(() => (save0, 1))"],
+    ]) {
+      expect(check(`let ${head} =\n    ${take}\n    a()\nexport let p(): Unit = ${pure}\n`)).toEqual([]);
+      expect(check(`let ${head} =\n    ${take}\n    a!()\nexport let p(): Unit = ${impure}\n`)).toEqual([]);
+    }
+    expect(face(`let use(t) =\n    ${held}\n    a()\n`)).toBe("((() -> a, b)) -> a");
+    expect(face(`let use(t) =\n    ${held}\n    a!()\n`)).toBe("((() ->! a, b)) ->! a");
+    expect(face(`let use(f) =\n    ${back}\n    a()\n`)).toBe("(() -> (() -> a, b)) -> a");
+    // A field and an `Option`'s contents, the same.
+    expect(check("let use(r) =\n    (r.run)!()\nexport let p(): Unit = use!({ run = save0 })\n")).toEqual([]);
+    expect(check("let use(o) =\n    match o\n        Some(f) => f!()\n        None => ()\nexport let p(): Unit = use!(Some(save0))\n"))
+      .toEqual([]);
+    // What the body hands a function it received is `->` where only pure
+    // functions flowed into it, as for a callback's parameters.
+    const g = "let g(f: () -> Unit): Unit = f()\n";
+    expect(check(g + "let use(t) =\n    let (a, _) = t\n    a(noop)\nexport let p(): Unit = use((g, 1))\n")).toEqual([]);
+    expect(check(g + "let use(o) =\n    match o\n        Some(a) => a(noop)\n        None => ()\nexport let p(): Unit = use(Some(g))\n"))
+      .toEqual([]);
+    // A bare call through data two parameters share leaves it pure, though no
+    // fact names it.
+    expect(check(
+      "let use(t, u, c: Bool) =\n    let (a, _) = t\n    let (b, _) = u\n    let x = if c then a else b\n    b()\n" +
+        "export let p(): Unit = use((noop, 1), (noop, 2), True)\n",
+    )).toEqual([]);
+    // The cost the written twin has too: the marked body wears its mark,
+    // whatever it is handed.
+    expect(check(`let use(t) =\n    ${held}\n    a!()\nexport let p(): Unit = use((noop, 1))\n`)).toEqual([
+      "this call is impure and may fail, so `use` wants `!`, not no mark",
+    ]);
+  });
+
+  it("a bare call through a tuple part names itself, and the mark that repairs it (#1376, #1380)", () => {
     const reports = (source: string) =>
       compileFiles([["/world.js", ""], ["/main.hex", "module Main\n\n" + `${world}let save0(): Unit = save!("x")\n` + source]])
         .diagnostics.map(({ message, fixes }) => [message, (fixes ?? []).length]);
     expect(reports("let use(t) =\n    let (a, _) = t\n    a()\nexport let p(): Unit = use((save0, 1))\n")).toEqual([[
       "this function is impure and may fail, where the function handed must be pure and unable to fail — " +
         "`a` is called bare, which makes it pure and unable to fail",
-      0,
+      1,
     ]]);
     // In a knot, a sibling's bare call is named, whichever member comes first (#1379).
     const ping = "    ping(t, n: Int): Unit = if n > 0 then pong(t, n - 1) else ()\n";
@@ -5927,7 +5964,7 @@ export let x: Int = 1
       expect([members, reports("fun\n" + members.join("") + "export let p(): Unit = ping((save0, 1), 3)\n")]).toEqual([members, [[
         "this function is impure and may fail, where the function handed must be pure and unable to fail — " +
           "`a` is called bare, which makes it pure and unable to fail",
-        0,
+        1,
       ]]]);
     }
     // Nor is a sibling's bare call a fact where its own parameters share the
