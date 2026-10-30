@@ -66,12 +66,15 @@ import {
   PRIMITIVE_COMPANION_MODULES,
 } from "./prelude.js";
 import { RUNTIME_MODULES } from "./runtime-modules.js";
+import { deepFreeze } from "./support/deep-freeze.js";
 
-/** The runtime members with no seat of their own, ordered with the library (above). */
+/**
+ * The runtime members with no seat of their own (`RuntimeModule.precedes`
+ * absent), which are ordered with the library members by their imports.
+ */
 const UNSEATED_RUNTIME_MODULES: ReadonlySet<string> = new Set(
   RUNTIME_MODULES.filter(({ precedes }) => precedes === undefined).map(({ name }) => name),
 );
-import { deepFreeze } from "./support/deep-freeze.js";
 
 export interface CompiledModule {
   readonly source: Source.File;
@@ -2598,21 +2601,22 @@ interface InjectedModule {
 
 /**
  * The package `Hex` as one ordered list: the prelude set with each runtime
- * member at the seat its `precedes` names, and the rest of the standard library
- * after both.
+ * member at the seat its `precedes` names, then the library members, then the
+ * runtime members with no seat of their own.
  *
- * A `precedes` naming no prelude member would silently put the module last,
- * which is the one placement its seat exists to forbid, so it lands at the end
- * only when that is what the list already says. *(#927.)* A member with **no**
- * `precedes` asks for that last seat outright — the seat is stated by its
- * absence rather than reached by a name that missed — and the conformance test
- * pins the resulting order either way.
+ * A `precedes` naming no prelude member is a compiler defect and is refused
+ * here: it would silently put the module after the prelude, which is the one
+ * placement its seat exists to forbid. *(#927.)* A member with **no**
+ * `precedes` has no seat of its own — the absence says so, rather than a name
+ * that missed — and the compile orders it with the library members by their
+ * imports, after any library member it imports (`regex.md` §6.1); its place
+ * here, last, is only where that ordering starts from.
  *
- * The library members take the **last** seats, and the seat is all they take:
- * they put no name in bare scope (Modules §5.5's set is the prelude's), and
- * their own visibility is the ordinary one — the whole prelude, plus whatever
- * they import. Seating them after everything is what makes the second half true
- * with no case of its own.
+ * The library members take their seats after the prelude, and the seat is all
+ * they take: they put no name in bare scope (Modules §5.5's set is the
+ * prelude's), and their own visibility is the ordinary one — the whole
+ * prelude, plus whatever they import. Seating them after the prelude is what
+ * makes the second half true with no case of its own.
  */
 function weaveInjected(
   prelude: readonly { readonly name: string; readonly source: string }[],
@@ -2625,6 +2629,11 @@ function weaveInjected(
   library: readonly { readonly name: string; readonly source: string }[],
 ): readonly InjectedModule[] {
   const woven: InjectedModule[] = [];
+  for (const module of runtime) {
+    if (module.precedes !== undefined && !prelude.some(({ name }) => name === module.precedes)) {
+      throw new Error(`compiler defect: runtime module ${module.name} precedes ${module.precedes}, which is no prelude member`);
+    }
+  }
   for (const member of prelude) {
     for (const module of runtime) {
       if (module.precedes === member.name) {

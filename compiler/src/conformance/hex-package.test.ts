@@ -222,11 +222,11 @@ describe("the runtime modules are registered members of `Hex`", () => {
     expect(RUNTIME_MODULES.map(({ name }) => name))
       .toEqual(["Runtime.VectorTrie", "Runtime.HashTrie", "Runtime.Regex"]);
     // *(#927.)* `Runtime.Regex` is the first member with **no seat of its own**:
-    // nothing inside the prelude names the regex engine and the engine needs
-    // nothing from inside it, so it takes the seat after the whole prelude.
-    // Pinned here rather than left implicit, because an absent `precedes` and a
-    // `precedes` that named nothing land in the same place and mean opposite
-    // things (`weaveInjected`).
+    // nothing inside the prelude names the regex engine, and it imports the
+    // library member `Regex.Syntax`, so it is ordered with the library members
+    // after the one it imports. Pinned here rather than left implicit: an
+    // absent `precedes` is that ordering, and a `precedes` that named no prelude
+    // member is refused (`weaveInjected`).
     expect(RUNTIME_MODULES.map(({ name, precedes }) => [name, precedes])).toEqual([
       ["Runtime.VectorTrie", "Vector"],
       ["Runtime.HashTrie", "Map"],

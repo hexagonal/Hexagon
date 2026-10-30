@@ -169,6 +169,11 @@ describe("`propertyRanges` (§7)", () => {
   test("an unknown name answers the empty vector", () => {
     expect(ranges("Script", "Klingon")).toEqual([]);
     expect(ranges("Binary", "ID_Start")).toEqual([]);
+    // A prototype member's name is no table entry (the helper's tables are Maps).
+    for (const value of ["toString", "constructor", "__proto__", "Lx"]) {
+      expect(ranges("GeneralCategory", value), value).toEqual([]);
+    }
+    expect(ranges("Script", "constructor")).toEqual([]);
   });
 });
 
