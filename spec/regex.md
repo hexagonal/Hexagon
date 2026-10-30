@@ -410,7 +410,7 @@ No pattern the parser accepts has super-linear behaviour in the subject: that is
 
 ## 7. The door: rows and keys
 
-Two of the arc's three modules declare through the door; the inventory (Intrinsics §4.1) gains the type key `regexProgram` beside the foundations' `buffer`, and four operation keys beside its four. `Regex.Syntax` declares no table key; its one row, the lone-surrogate read of §5, waits for the door to open to library modules, and until then it declares nothing (§3.6, §5).
+Two of the arc's three modules declare through the door; the inventory (Intrinsics §4.1) gains the type key `regexProgram` beside the foundations' `buffer`, and seven operation keys beside its four. `Regex.Syntax` declares no table key; its one row, the lone-surrogate read of §5, waits for the door to open to library modules, and until then it declares nothing (§3.6, §5).
 
 **`Hex.Runtime.Regex`** — the storage, honest arrows (Intrinsics §3.3), and the two Unicode tables:
 
@@ -423,11 +423,15 @@ extern from "hex:intrinsic"
     fun bufferLength as length(buffer: Buffer(a)) -> Int
     fun regexPropertyRanges as propertyRanges(kind: Syntax.PropertyKind, value: String) -> Vector((Int, Int))   -- surrogates excluded
     fun regexFoldOrbit as foldOrbit(point: Int) -> Vector(Int)
+    fun regexCodepointAt as codepointAt(text: String, offset: Int) -> Int
+    fun regexCodeUnits as codeUnits(text: String) -> Int
+    fun regexCut as cut(text: String, from: Int, to: Int) -> String
 ```
 
 - `Buffer` is zero-based, fill required, bounds unchecked under runtime discipline — the engine never reads or writes outside a buffer it sized, and that is a conformance obligation on the engine, not a check.
 - `propertyRanges` answers a property's codepoints as sorted, disjoint, inclusive ranges, keyed by §5's `PropertyKind` and canonical value (the runtime module imports `Regex.Syntax` for the `Pattern` it compiles, so the kind is the tree's own); the tables are the compiler's Unicode 17.0.0 tables, generated from the same pinned Unicode data as those `String.hex`'s rows read, kept in the runtime module's emitted helpers and **referenced by name, never inlined** into an emitted program (§8). **Every property's ranges exclude U+D800–U+DFFF** — the table carves the surrogate block out of `C`, `Cs`, `Assigned`, and every other property, so that no `\p{…}` naming a property matches a lone surrogate (§2.4, §3.6) — and `Any` alone answers U+0000–U+10FFFF whole. `Word` answers §2.4's union, Alphabetic, `M`, `Nd`, `Pc`, and Join_Control, from the same tables. An unknown name is unreachable — the parser closed the set — and answers the empty vector rather than a fault.
 - `foldOrbit` answers every codepoint whose simple case folding equals `point`'s, `point` included, ascending: the closure §3.4 needs. Both rows are `->` reads of fixed tables, the shape `stringIsWhitespace` already takes.
+- `codepointAt`, `codeUnits`, and `cut` read the subject by code unit: the codepoint whose first code unit is at a zero-based offset (a well-formed pair one codepoint, a lone surrogate itself, §3.6), the length in code units, and the text between two offsets. They are what lets the search walk to `start` once, scan forward, and cut each group's text from the offsets the scan has in hand (§6.2, §6.4) — readings the public `String` surface deliberately does not offer, which reads by codepoint position and gives a lone surrogate no value. Each is a `->` read of a value, the shape `stringCodepointUnchecked` already takes; like every row of this block, none is reachable outside the runtime module.
 
 **`Regex.hex`** — the confined program type and the two sealed rows (Intrinsics §4.2, Effects §6.2 species (d)):
 
@@ -514,7 +518,7 @@ Each below needs its own ruling; none is implied by this document.
 | `\w` is one item, `Property(Word, "")`, answered by the engine's table by kind alone, so that `\W` inside a class (`[\W\d]`) has a tree; `Word` has no `\p{…}` spelling | §5, §7 |
 | Decision 4 amended: the Unicode-table keys and the resolution they serve move from `Regex.Syntax` to the engine; the parser keeps the names as a generated table | §5, §7 |
 | Engine: class resolution on first use, fold before complement; alphabet partition; ordered lazy DFA forward then reverse; Pike VM for captures and fallback; two transparent memos (the cache Ruling 3 named, and the resolved classes) and no memo of the subject; a resumption cursor instead; a runtime module with an import; bounds table | §6 |
-| Door: `buffer` + four rows and the two table keys in the runtime, every property's ranges excluding surrogates; two sealed rows in `Regex.hex`, the search row taking a cursor and a spans mode and cutting the texts; no third sealed row | §7 |
+| Door: `buffer` + four rows, the two table keys and the three subject reads by code unit in the runtime, every property's ranges excluding surrogates; two sealed rows in `Regex.hex`, the search row taking a cursor and a spans mode and cutting the texts; no third sealed row | §7 |
 | `regexProgram`, a second confined type key beyond the foundations' `buffer`, declarer `Hex.Regex`, under Intrinsics §3.3's confinement bar (#930): the engine's unexported `Compiled` record is the door's linkage, as `HashTrie` is `Map`'s, not a representation of the row's type | §7, Intrinsics §3.3 |
 | Species (d) gains a third shape, frozen storage — filled before the row returns, never written again, its memos excepted — beside scratch and memo; `compileProgram` is its first member, its fresh identity unobservable through any row; Effects §6.2 and Intrinsics §4.2 carry the shape | §7, Effects §6.2, Intrinsics §4.2 |
 | Opaque brands for `Regex`/`Match`; transparent faces for `Group`, `RegexError`, the tree; no face for `Program` | §9 |
