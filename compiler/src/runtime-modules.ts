@@ -50,13 +50,15 @@ export interface RuntimeModule {
    * they are the same thing seen from either end: what this module can see, and
    * what can see it.
    *
-   * *(#927.)* **Absent** where the module needs nothing seated before the end of
-   * the prelude and nothing before the end of the prelude names it. Such a
-   * module takes the first seat after the prelude (`weaveInjected`), which is
-   * the same guarantee stated the only other way it can be: everything is
+   * *(#927.)* **Absent** where nothing in the prelude names the module. Such a
+   * module has no seat of its own: it is ordered with the library members by
+   * their imports (`weaveInjected`, and the compile's topological pass), after
+   * every prelude member and after any library member it imports — the same
+   * guarantee stated the only other way it can be: everything it can name is
    * emitted before it, and nothing it can name imports it. `Runtime.Regex` is
-   * the first — `Hex.Regex`, its only consumer, is a library member seated later
-   * still (`regex.md` §6), and no prelude member names the engine.
+   * the first: it imports `Regex.Syntax` for the tree it compiles (`regex.md`
+   * §6.1), and `Hex.Regex`, its only consumer, reaches it through the door
+   * alone, an edge only the emitted JavaScript carries.
    *
    * `Runtime.VectorTrie` sits before `Vector` because `Vector`'s *emission*
    * imports the trie. That edge exists only in the emitted JavaScript — no
@@ -87,13 +89,10 @@ export interface RuntimeModule {
  * behind `Vector` for its text-processing dependencies.
  *
  * `Runtime.Regex` is the regular-expression engine (`regex.md` §6), and it is
- * the first member with **no seat of its own**: nothing it needs is inside the
- * prelude and no prelude member names it, so it takes the seat after all of
- * them. Its consumer, `Hex.Regex`, is a library member and later still. At this
- * landing the module holds the `Buffer` storage rows alone (#927 arc 1); the
- * engine follows in the arc's later steps, and its dependencies — the whole
- * prelude's arithmetic and collections — are exactly what the last seat gives
- * it.
+ * the first member with **no seat of its own**: no prelude member names it, and
+ * it imports a library member, `Regex.Syntax`, so it is ordered after that
+ * member among the library's, with the whole prelude's arithmetic and
+ * collections beneath it.
  */
 export const RUNTIME_MODULES: readonly RuntimeModule[] = [
   { name: "Runtime.VectorTrie", precedes: "Vector" },

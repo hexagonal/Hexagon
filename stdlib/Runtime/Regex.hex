@@ -1,5 +1,7 @@
 module Runtime.Regex
 
+import Regex.Syntax as Syntax
+
 // The regular-expression engine (`spec/regex.md` §6) — the RE2-shaped matcher
 // that `Hex.Regex`'s two sealed rows reach through the intrinsic door. This is a
 // runtime-internal module in `Hex.Runtime.HashTrie`'s exact sense: it is
@@ -8,21 +10,18 @@ module Runtime.Regex
 // an export list the emitter writes. No Hexagon module can import this one, by
 // name or by accident, however the compiler happens to place the file.
 //
-// **What is here now is the storage and nothing else** (#927, implementation arc
-// 1). The engine itself — program construction (§6.1), the lazy DFA and the Pike
-// VM (§6.2), the two Unicode table rows, and the `Compiled` record the sealed
-// rows hand back and forth — lands in later arcs of the same issue. The module
-// exists now because `Buffer` has to be declared somewhere, and §3.3's inventory
-// entry names this module as its one declarer.
+// **What is here now is the storage and the two Unicode tables** (#927,
+// implementation arcs 1 and 3a). The engine itself — program construction
+// (§6.1), the lazy DFA and the Pike VM (§6.2), and the `Compiled` record the
+// sealed rows hand back and forth — lands in the arc's later steps.
 //
-// **The seat.** This module has no `precedes`, which seats it after the whole
-// prelude (`runtime-modules.ts`, `weaveInjected`). Nothing it needs is earlier:
-// the door rows below name `Int`, `Unit` and their own `Buffer`, and the engine
-// the later arcs bring wants the whole prelude's arithmetic and collections
-// beneath it. A `precedes` would buy the seat's usual guarantee — that nothing
-// this module can name imports it — and here that guarantee is free: no prelude
-// member names this one, and the emitted `Regex.js` is reached only from
-// `Regex.hex`'s own emitted door rows, which sit later still.
+// **The seat.** This module has no `precedes`: no prelude member names it, and
+// it imports a library member, `Regex.Syntax`, for the tree it compiles and the
+// `PropertyKind` its table row is keyed by (§6.1, §7). So it is ordered with the
+// library members, after the one it imports (`runtime-modules.ts`), with the
+// whole prelude's arithmetic and collections beneath it. The emitted `Regex.js`
+// is reached only from `Regex.hex`'s own emitted door rows, which sit later
+// still.
 //
 // **The storage is confined.** A `Buffer(a)` is addressable from this module and
 // nowhere else (`spec/intrinsics.md` §3.3): it may not appear in an exported
@@ -66,3 +65,18 @@ extern from "hex:intrinsic"
 
     // The slot count the buffer was created with.
     fun bufferLength as length(buffer: Buffer(a)) -> Int
+
+    // A property's codepoints as sorted, disjoint, inclusive ranges, keyed by
+    // the tree's own kind and canonical value (§7). The tables are Unicode
+    // 17.0.0's, kept in one place and referenced by name, never inlined into an
+    // emitted program. Every property's ranges exclude U+D800–U+DFFF, so no
+    // `\p{…}` naming a property matches a lone surrogate; `Any` alone answers
+    // U+0000–U+10FFFF whole. An unknown name is unreachable, the parser having
+    // closed the set, and answers the empty vector rather than a fault. A `->`
+    // read of a fixed table.
+    fun regexPropertyRanges as propertyRanges(kind: Syntax.PropertyKind, value: String) -> Vector((Int, Int))
+
+    // Every codepoint whose simple case folding equals `point`'s, `point`
+    // included, ascending: the closure a folded class needs (§3.4). A `->` read
+    // of a fixed table.
+    fun regexFoldOrbit as foldOrbit(point: Int) -> Vector(Int)

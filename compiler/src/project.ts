@@ -66,6 +66,11 @@ import {
   PRIMITIVE_COMPANION_MODULES,
 } from "./prelude.js";
 import { RUNTIME_MODULES } from "./runtime-modules.js";
+
+/** The runtime members with no seat of their own, ordered with the library (above). */
+const UNSEATED_RUNTIME_MODULES: ReadonlySet<string> = new Set(
+  RUNTIME_MODULES.filter(({ precedes }) => precedes === undefined).map(({ name }) => name),
+);
 import { deepFreeze } from "./support/deep-freeze.js";
 
 export interface CompiledModule {
@@ -1075,16 +1080,22 @@ export function compileProject(
   };
   for (const unit of seated) visitRecognition(unit.path);
 
-  // Prelude and runtime placement is fixed by `weaveInjected`. Ordinary
-  // library members have no bare-scope prefix of their own, but an explicit
-  // import must be checked before its consumer. Give them their topological
-  // order here, before consulting the cache or assigning visibility seats.
-  // The original discovery order determines ties, through the DFS above.
+  // Prelude placement, and each seated runtime member's, is fixed by
+  // `weaveInjected`. Ordinary library members have no bare-scope prefix of
+  // their own, but an explicit import must be checked before its consumer, and
+  // so must a runtime member with no seat (`RuntimeModule.precedes`), which may
+  // import a library member (`regex.md` §6.1: the engine imports
+  // `Regex.Syntax`). Give them their topological order here, before consulting
+  // the cache or assigning visibility seats. The original discovery order
+  // determines ties, through the DFS above.
   const injectedByPath = new Map(injectedUnits.map((unit) => [unit.path, unit]));
-  const fixedInjected = injectedUnits.filter(({ injected }) => injected !== "library");
+  const floats = (unit: (typeof injectedUnits)[number]): boolean =>
+    unit.injected === "library" ||
+    (unit.injected === "runtime" && UNSEATED_RUNTIME_MODULES.has(unit.declaredName));
+  const fixedInjected = injectedUnits.filter((unit) => !floats(unit));
   const orderedLibrary = ordered.flatMap((path) => {
     const unit = injectedByPath.get(path);
-    return unit?.injected === "library" ? [unit] : [];
+    return unit !== undefined && floats(unit) ? [unit] : [];
   });
   injectedUnits = [...fixedInjected, ...orderedLibrary].map((unit, seat) => ({ ...unit, seat }));
   /** Each injected path's seat, for the "sees only what precedes it" slice. */
@@ -2623,12 +2634,14 @@ function weaveInjected(
     woven.push({ name: member.name, source: member.source, kind: "prelude" });
   }
   const seated = new Set(woven.map(({ name }) => name));
+  for (const member of library) {
+    woven.push({ name: member.name, source: member.source, kind: "library" });
+  }
+  // A runtime member with no seat comes last, after the library members it may
+  // import; the compile orders the two together by their imports.
   for (const module of runtime) {
     if (seated.has(module.name)) continue;
     woven.push({ name: module.name, source: module.source, kind: "runtime" });
-  }
-  for (const member of library) {
-    woven.push({ name: member.name, source: member.source, kind: "library" });
   }
   return woven;
 }

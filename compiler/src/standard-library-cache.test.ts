@@ -10,6 +10,7 @@ import {
   type CompiledProject,
 } from "./project.js";
 import { LIBRARY_MODULES, PRELUDE_MODULES } from "./prelude.js";
+import { RUNTIME_MODULES } from "./runtime-modules.js";
 import { moduleInterface } from "./passes/resolver/resolver.js";
 
 /**
@@ -40,6 +41,16 @@ function supplied(
   member: { readonly name: string; readonly source: string },
 ): readonly [string, string] {
   return [`/${member.name.replaceAll(".", "-")}.hex`, member.source];
+}
+
+/**
+ * The member in the last seat: the last runtime member with no seat of its own,
+ * which follows the library members it may import, or else the last library
+ * member.
+ */
+function lastSeat(): { readonly name: string; readonly source: string } {
+  return RUNTIME_MODULES.filter(({ precedes }) => precedes === undefined).at(-1) ??
+    LIBRARY_MODULES.at(-1)!;
 }
 
 function replacing(
@@ -334,7 +345,7 @@ describe("a trusted replacement invalidates from its own seat", () => {
     expect(messagesOf(compileFiles([main("export let n: Int = 1\n")]))).toEqual([]);
     const warm = standardLibraryCacheStatistics();
 
-    const last = LIBRARY_MODULES.at(-1)!;
+    const last = lastSeat();
     expect(messagesOf(replacing(last))).toEqual([]);
     const after = standardLibraryCacheStatistics();
     expect(after.seatsChecked - warm.seatsChecked).toBe(1);
@@ -355,7 +366,7 @@ describe("a trusted replacement invalidates from its own seat", () => {
       return standardLibraryCacheStatistics().seatsChecked - warm.seatsChecked;
     };
     const first = rebuilt(PRELUDE_MODULES[0]!);
-    const last = rebuilt(LIBRARY_MODULES.at(-1)!);
+    const last = rebuilt(lastSeat());
     expect(last).toBe(1);
     expect(first).toBeGreaterThan(last);
   });
@@ -423,7 +434,7 @@ describe("a trusted replacement invalidates from its own seat", () => {
   test("a replacement that reports is not kept, and neither is anything after it", () => {
     resetStandardLibraryCache();
     compileFiles([main("export let n: Int = 1\n")]);
-    const last = LIBRARY_MODULES.at(-1)!;
+    const last = lastSeat();
     const broken = compileFiles([
       [supplied(last)[0], `${last.source}\nlet ruined: Int = "not an Int"\n`],
       main("export let n: Int = 1\n"),
