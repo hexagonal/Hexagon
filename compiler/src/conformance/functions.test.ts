@@ -222,7 +222,7 @@ describe("Functions specification conformance", () => {
     // resolver keeps only the member (`Frac.divide`).
     expect(reports("let y = Frac.divide(Num.fromNat(1), Num.fromNat(2))").map(([message]) =>
       message!.slice(0, message!.indexOf(" gives"))
-    )).toContain("the type this use of `Frac.divide`");
+    )).toContain("nothing chooses the type this use of `Frac.divide`");
     const bandCall = reports(n + "let h(a, b) = a band b\nlet x = h(n, n)");
     expect(bandCall.map(([, at]) => at)).toEqual(["h"]);
     expect(bandCall[0]![0]).not.toContain("face");
@@ -244,7 +244,7 @@ describe("Functions specification conformance", () => {
     // is on `k`, whose own type is a function, not the type that is blocked.
     expect(reports("let k(u: Unit) = 1 / 2\nlet y = k(())")).toEqual([
       [
-        "the type this use of `k` gives cannot default to `Int`: `Frac` is not a defaultable constraint; add a type annotation to pin it",
+        "nothing chooses the type this use of `k` gives, and its `Frac` evidence needs one: add a type annotation naming a type that honors `Frac`",
         "k",
       ],
     ]);
@@ -252,8 +252,24 @@ describe("Functions specification conformance", () => {
     // Where the call's result does not carry the stuck type, an annotation on
     // it pins nothing: the report stands at the first value supplied that
     // carries it — an argument, or a dot call's argument — where one does.
+    // Where no blocking constraint holds at `Int`, `Int` is never named, and a
+    // declared variable in scope that honors every one of them is the fix
+    // (#1352): `b` holds `u`, so `(None : Option(u))` compiles.
+    const frac = "fun<u: Frac>\n    b(x: u, go: Bool): Int =\n        let y = x / x\n        if go then a(False, NONE) else 1\n" +
+      "    a(flag: Bool, w: Option(u)): Int =\n        if flag then 1 else 0\n";
+    const stuck = checkSource(frac.replace("NONE", "None")).diagnostics;
+    expect(stuck.map(({ message }) => message)).toEqual([
+      "nothing chooses this expression's type, and its `Frac` evidence needs one: write `(None : Option(u))`",
+    ]);
+    expect(stuck[0]!.fixes?.flatMap((fix) => fix.edits.map((edit) => edit.replacement))).toEqual(["(None : Option(u))"]);
+    expect(checkSource(frac.replace("NONE", "(None : Option(u))")).diagnostics).toEqual([]);
+    // With none in scope, the constraint is named and no type is guessed.
+    expect(reports("let c<u: Frac>(w: Option(u)): Int = 0\nlet d = c(None)")).toEqual([[
+      "nothing chooses this expression's type, and its `Frac` evidence needs one: add a type annotation naming a type that honors `Frac`",
+      "None",
+    ]]);
     const tag = "constraint Tag<a> =\n    tag(x: a) -> String\nhonor Tag<String> =\n    tag(x) = x\n";
-    const blocked = "this expression's type cannot default to `Int`: `Tag` is not a defaultable constraint; add a type annotation to pin the type";
+    const blocked = "nothing chooses this expression's type, and its `Tag` evidence needs one: add a type annotation naming a type that honors `Tag`";
     expect(reports(tag + "let label<a: Tag>(x: Option(a)): String = \"s\"\nlet v = label(None)"))
       .toEqual([[blocked, "None"]]);
     expect(reports(tag + "let t<a: Tag>(x: a): String = \"s\"\nlet v = t(Num.fromNat(1))"))
@@ -272,7 +288,7 @@ describe("Functions specification conformance", () => {
     expect(reports(tag + optionTag + "let v = tag(Some(None))")).toEqual([[blocked, "Some(None)"]]);
     expect(reports(tag + optionTag + "let idt<a: Tag>(x: a): a = x\nlet v = idt(Some(None))")
       .map(([message, at]) => [message!.slice(0, message!.indexOf(" gives")), at]))
-      .toEqual([["the type this use of `idt`", "idt"]]);
+      .toEqual([["nothing chooses the type this use of `idt`", "idt"]]);
     // A grouped callee is still a call: its values are supplied as any call's.
     expect(reports(tag + "let label<a: Tag>(x: Option(a)): String = \"s\"\nlet v = (label)(None)"))
       .toEqual([[blocked, "None"]]);
@@ -286,7 +302,7 @@ describe("Functions specification conformance", () => {
     for (const written of ["Frac.\n    divide", "Frac. // why\n    divide", "Frac.(* a (* b *) *)divide"]) {
       expect(reports(`let y = ${written}(Num.fromNat(1), Num.fromNat(2))`).map(([message]) =>
         message!.slice(0, message!.indexOf(" gives"))
-      )).toContain("the type this use of `Frac.divide`");
+      )).toContain("nothing chooses the type this use of `Frac.divide`");
     }
     // The repair it names compiles.
     expect(reports(tag + "let label<a: Tag>(x: Option(a)): String = \"s\"\nlet v = label((None : Option(String)))"))
@@ -294,7 +310,7 @@ describe("Functions specification conformance", () => {
     // Where the result carries it, the use keeps the report.
     expect(reports(tag + "let pair<a: Tag>(x: Option(a)): (Option(a), Int) = (x, 1)\nlet v = pair(None)")
       .map(([message, at]) => [message!.slice(0, message!.indexOf(" gives")), at]))
-      .toEqual([["the type this use of `pair`", "pair"]]);
+      .toEqual([["nothing chooses the type this use of `pair`", "pair"]]);
 
     // Entailment still discharges a copied demand: `Hash` provides `Eq`.
     const accepted = checkSource(

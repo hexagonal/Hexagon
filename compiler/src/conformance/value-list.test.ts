@@ -645,8 +645,8 @@ describe("Step 1: the completed syntactic-value list", () => {
     // gains the emission message when the suppression is removed. Any further
     // member losing its second message is this rule operating, not a regression.
     const onlyTheCheckersError = [
-      "the type this use of `describe` gives cannot default to `Int`: `Tag` is not a " +
-      "defaultable constraint; add a type annotation to pin it",
+      "nothing chooses the type this use of `describe` gives, and its `Tag` evidence needs one: " +
+      "add a type annotation naming a type that honors `Tag`",
     ];
     for (
       const binding of [
