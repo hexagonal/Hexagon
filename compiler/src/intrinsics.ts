@@ -693,6 +693,8 @@ const INTRINSIC_OPERATIONS: readonly (readonly [string, number])[] = [
   ["bufferRead", 2],
   ["bufferWrite", 3],
   ["bufferLength", 1],
+  ["regexPropertyRanges", 2],
+  ["regexFoldOrbit", 1],
 ];
 
 /**

@@ -45,6 +45,7 @@ import {
   uppercaseMapping,
   whiteSpacePattern,
 } from "./unicode-text-17.js";
+import { regexPropertyTable, regexSimpleFolds } from "./unicode-regex-17.js";
 import {
   faceOnlyEditionInstances,
   fundamentalInstanceDictionaries,
@@ -11848,6 +11849,12 @@ class JavaScriptEmitter {
       // creation and no row changes it, so this is a read of a value (§3.3).
       case "bufferLength":
         return "__a => __a.length";
+      // The engine's two Unicode tables (`regex.md` §7), each a `->` read of a
+      // fixed table that the helper decodes once and keeps.
+      case "regexPropertyRanges":
+        return this.#useHelper("regexPropertyRanges");
+      case "regexFoldOrbit":
+        return this.#useHelper("regexFoldOrbit");
       default:
         // The **operation** grade only (#927): a `fun` row keyed by a *type*
         // key is the author's mistake, already reported by the resolver as a
@@ -13670,6 +13677,8 @@ type Helper =
   | "unicodeLowercase"
   | "unicodeUppercase"
   | "unicodeCaseFold"
+  | "regexPropertyRanges"
+  | "regexFoldOrbit"
   | "ordering"
   | "exception"
   | "floatEquals"
@@ -13737,6 +13746,8 @@ const HELPER_DEPENDENCIES: Readonly<Record<Helper, readonly Helper[]>> = {
   unicodeLowercase: [],
   unicodeUppercase: [],
   unicodeCaseFold: [],
+  regexPropertyRanges: ["vectorOf"],
+  regexFoldOrbit: ["vectorOf"],
   ordering: [],
   exception: [],
   floatEquals: [],
@@ -14444,6 +14455,98 @@ function renderHelper(
       return unicodeMappingHelper(name, uppercaseMapping, spell);
     case "unicodeCaseFold":
       return unicodeMappingHelper(name, caseFoldMapping, spell);
+    // The engine's two table rows (`regex.md` §7). Both are `->` reads of fixed
+    // tables, decoded once on first use and kept: a memo of a value. The tables
+    // themselves are generated (`unicode-regex-17.ts`) and stored as the leaves
+    // only; the groupings, `Any`, `ASCII`, `Assigned` and `Word` are unions and
+    // complements of them, built here. Every property's ranges exclude the
+    // surrogate block, carved out at generation, and `Any` alone is whole.
+    case "regexPropertyRanges":
+      return [
+        `const ${name}Table = new ${spell("Map")}(${asciiJson(Object.entries(regexPropertyTable))});`,
+        `const ${name}Groups = new ${spell("Map")}([["L", ["Ll", "Lm", "Lo", "Lt", "Lu"]], ["LC", ["Ll", "Lt", "Lu"]], ["M", ["Mc", "Me", "Mn"]], ["N", ["Nd", "Nl", "No"]], ["P", ["Pc", "Pd", "Pe", "Pf", "Pi", "Po", "Ps"]], ["S", ["Sc", "Sk", "Sm", "So"]], ["Z", ["Zl", "Zp", "Zs"]], ["C", ["Cc", "Cf", "Cn", "Co", "Cs"]]]);`,
+        `const ${name}Memo = new ${spell("Map")}();`,
+        `function ${name}Leaf(__key) {`,
+        `  const __text = ${name}Table.get(__key);`,
+        "  const __ranges = [];",
+        `  if (__text === ${spell("undefined")} || __text === "") return __ranges;`,
+        "  let __value = 0;",
+        `  const __numbers = __text.split(",").map((__digits) => (__value += ${spell("Number")}.parseInt(__digits, 36)));`,
+        "  for (let __at = 0; __at < __numbers.length; __at += 2) __ranges.push([__numbers[__at], __numbers[__at + 1]]);",
+        "  return __ranges;",
+        "}",
+        `function ${name}Union(__lists) {`,
+        "  const __all = __lists.flat().sort((__left, __right) => __left[0] - __right[0]);",
+        "  const __merged = [];",
+        "  for (const [__low, __high] of __all) {",
+        "    const __last = __merged[__merged.length - 1];",
+        `    if (__last !== ${spell("undefined")} && __low <= __last[1] + 1) { if (__high > __last[1]) __last[1] = __high; }`,
+        "    else __merged.push([__low, __high]);",
+        "  }",
+        "  return __merged;",
+        "}",
+        `function ${name}Complement(__ranges) {`,
+        "  const __result = [];",
+        "  let __next = 0;",
+        "  for (const [__low, __high] of __ranges) { if (__low > __next) __result.push([__next, __low - 1]); __next = __high + 1; }",
+        "  if (__next <= 0x10FFFF) __result.push([__next, 0x10FFFF]);",
+        "  return __result;",
+        "}",
+        `function ${name}Category(__value) {`,
+        `  const __group = ${name}Groups.get(__value);`,
+        `  return __group === ${spell("undefined")} ? ${name}Leaf("GeneralCategory:" + __value) : ${name}Union(__group.map((__leaf) => ${name}Leaf("GeneralCategory:" + __leaf)));`,
+        "}",
+        `function ${name}Compute(__kind, __value) {`,
+        "  switch (__kind) {",
+        `    case "GeneralCategory": return ${name}Category(__value);`,
+        `    case "Script": return ${name}Leaf("Script:" + __value);`,
+        `    case "ScriptExtensions": return ${name}Leaf("ScriptExtensions:" + __value);`,
+        `    case "Binary": return ${name}Leaf("Binary:" + __value);`,
+        "    case \"Any\": return [[0, 0x10FFFF]];",
+        "    case \"Ascii\": return [[0, 0x7F]];",
+        `    case "Assigned": return ${name}Complement(${name}Union([${name}Leaf("GeneralCategory:Cn"), [[0xD800, 0xDFFF]]]));`,
+        `    case "Word": return ${name}Union([${name}Leaf("Binary:Alphabetic"), ${name}Category("M"), ${name}Leaf("GeneralCategory:Nd"), ${name}Leaf("GeneralCategory:Pc"), [[0x200C, 0x200D]]]);`,
+        "    default: return [];",
+        "  }",
+        "}",
+        `function ${name}(__kind, __value) {`,
+        "  const __key = __kind.tag + \":\" + __value;",
+        `  let __answer = ${name}Memo.get(__key);`,
+        `  if (__answer === ${spell("undefined")}) { __answer = ${dependencyName("vectorOf")}(${name}Compute(__kind.tag, __value)); ${name}Memo.set(__key, __answer); }`,
+        "  return __answer;",
+        "}",
+      ];
+    case "regexFoldOrbit":
+      return [
+        `const ${name}Folds = new ${spell("Map")}();`,
+        `const ${name}Members = new ${spell("Map")}();`,
+        `const ${name}Memo = new ${spell("Map")}();`,
+        `function ${name}Load() {`,
+        `  if (${name}Folds.size > 0) return;`,
+        "  let __value = 0;",
+        `  const __numbers = ${asciiJson(regexSimpleFolds)}.split(",").map((__digits) => (__value += ${spell("Number")}.parseInt(__digits, 36)));`,
+        "  for (let __at = 0; __at < __numbers.length; __at += 2) {",
+        "    const __point = __numbers[__at], __fold = __numbers[__at + 1];",
+        `    ${name}Folds.set(__point, __fold);`,
+        `    const __members = ${name}Members.get(__fold);`,
+        `    if (__members === ${spell("undefined")}) ${name}Members.set(__fold, [__point]); else __members.push(__point);`,
+        "  }",
+        "}",
+        `function ${name}(__point) {`,
+        `  let __answer = ${name}Memo.get(__point);`,
+        `  if (__answer !== ${spell("undefined")}) return __answer;`,
+        `  ${name}Load();`,
+        `  const __fold = ${name}Folds.get(__point) ?? __point;`,
+        `  const __members = ${name}Members.get(__fold);`,
+        // A point no folding touches is its own orbit, answered without a memo
+        // entry: a folded class over a large range asks for every point in it.
+        `  if (__fold === __point && __members === ${spell("undefined")}) return ${dependencyName("vectorOf")}([__point]);`,
+        `  const __orbit = new ${spell("Set")}([__point, __fold, ...(__members ?? [])]);`,
+        `  __answer = ${dependencyName("vectorOf")}([...__orbit].sort((__left, __right) => __left - __right));`,
+        `  ${name}Memo.set(__point, __answer);`,
+        "  return __answer;",
+        "}",
+      ];
     case "range":
       return [
         `function ${name}(__start, __end) {`,

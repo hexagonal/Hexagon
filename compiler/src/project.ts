@@ -68,6 +68,14 @@ import {
 import { RUNTIME_MODULES } from "./runtime-modules.js";
 import { deepFreeze } from "./support/deep-freeze.js";
 
+/**
+ * The runtime members with no seat of their own (`RuntimeModule.precedes`
+ * absent), which are ordered with the library members by their imports.
+ */
+const UNSEATED_RUNTIME_MODULES: ReadonlySet<string> = new Set(
+  RUNTIME_MODULES.filter(({ precedes }) => precedes === undefined).map(({ name }) => name),
+);
+
 export interface CompiledModule {
   readonly source: Source.File;
   /**
@@ -1075,16 +1083,22 @@ export function compileProject(
   };
   for (const unit of seated) visitRecognition(unit.path);
 
-  // Prelude and runtime placement is fixed by `weaveInjected`. Ordinary
-  // library members have no bare-scope prefix of their own, but an explicit
-  // import must be checked before its consumer. Give them their topological
-  // order here, before consulting the cache or assigning visibility seats.
-  // The original discovery order determines ties, through the DFS above.
+  // Prelude placement, and each seated runtime member's, is fixed by
+  // `weaveInjected`. Ordinary library members have no bare-scope prefix of
+  // their own, but an explicit import must be checked before its consumer, and
+  // so must a runtime member with no seat (`RuntimeModule.precedes`), which may
+  // import a library member (`regex.md` §6.1: the engine imports
+  // `Regex.Syntax`). Give them their topological order here, before consulting
+  // the cache or assigning visibility seats. The original discovery order
+  // determines ties, through the DFS above.
   const injectedByPath = new Map(injectedUnits.map((unit) => [unit.path, unit]));
-  const fixedInjected = injectedUnits.filter(({ injected }) => injected !== "library");
+  const floats = (unit: (typeof injectedUnits)[number]): boolean =>
+    unit.injected === "library" ||
+    (unit.injected === "runtime" && UNSEATED_RUNTIME_MODULES.has(unit.declaredName));
+  const fixedInjected = injectedUnits.filter((unit) => !floats(unit));
   const orderedLibrary = ordered.flatMap((path) => {
     const unit = injectedByPath.get(path);
-    return unit?.injected === "library" ? [unit] : [];
+    return unit !== undefined && floats(unit) ? [unit] : [];
   });
   injectedUnits = [...fixedInjected, ...orderedLibrary].map((unit, seat) => ({ ...unit, seat }));
   /** Each injected path's seat, for the "sees only what precedes it" slice. */
@@ -2587,21 +2601,22 @@ interface InjectedModule {
 
 /**
  * The package `Hex` as one ordered list: the prelude set with each runtime
- * member at the seat its `precedes` names, and the rest of the standard library
- * after both.
+ * member at the seat its `precedes` names, then the library members, then the
+ * runtime members with no seat of their own.
  *
- * A `precedes` naming no prelude member would silently put the module last,
- * which is the one placement its seat exists to forbid, so it lands at the end
- * only when that is what the list already says. *(#927.)* A member with **no**
- * `precedes` asks for that last seat outright — the seat is stated by its
- * absence rather than reached by a name that missed — and the conformance test
- * pins the resulting order either way.
+ * A `precedes` naming no prelude member is a compiler defect and is refused
+ * here: it would silently put the module after the prelude, which is the one
+ * placement its seat exists to forbid. *(#927.)* A member with **no**
+ * `precedes` has no seat of its own — the absence says so, rather than a name
+ * that missed — and the compile orders it with the library members by their
+ * imports, after any library member it imports (`regex.md` §6.1); its place
+ * here, last, is only where that ordering starts from.
  *
- * The library members take the **last** seats, and the seat is all they take:
- * they put no name in bare scope (Modules §5.5's set is the prelude's), and
- * their own visibility is the ordinary one — the whole prelude, plus whatever
- * they import. Seating them after everything is what makes the second half true
- * with no case of its own.
+ * The library members take their seats after the prelude, and the seat is all
+ * they take: they put no name in bare scope (Modules §5.5's set is the
+ * prelude's), and their own visibility is the ordinary one — the whole
+ * prelude, plus whatever they import. Seating them after the prelude is what
+ * makes the second half true with no case of its own.
  */
 function weaveInjected(
   prelude: readonly { readonly name: string; readonly source: string }[],
@@ -2614,6 +2629,11 @@ function weaveInjected(
   library: readonly { readonly name: string; readonly source: string }[],
 ): readonly InjectedModule[] {
   const woven: InjectedModule[] = [];
+  for (const module of runtime) {
+    if (module.precedes !== undefined && !prelude.some(({ name }) => name === module.precedes)) {
+      throw new Error(`compiler defect: runtime module ${module.name} precedes ${module.precedes}, which is no prelude member`);
+    }
+  }
   for (const member of prelude) {
     for (const module of runtime) {
       if (module.precedes === member.name) {
@@ -2623,12 +2643,14 @@ function weaveInjected(
     woven.push({ name: member.name, source: member.source, kind: "prelude" });
   }
   const seated = new Set(woven.map(({ name }) => name));
+  for (const member of library) {
+    woven.push({ name: member.name, source: member.source, kind: "library" });
+  }
+  // A runtime member with no seat comes last, after the library members it may
+  // import; the compile orders the two together by their imports.
   for (const module of runtime) {
     if (seated.has(module.name)) continue;
     woven.push({ name: module.name, source: module.source, kind: "runtime" });
-  }
-  for (const member of library) {
-    woven.push({ name: member.name, source: member.source, kind: "library" });
   }
   return woven;
 }
