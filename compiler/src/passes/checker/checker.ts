@@ -27354,8 +27354,15 @@ class Checker {
    * is a use's opening of a function in error (`#errorFloors`, §3.5).
    */
   #undecidedColour(colour: Variable): Mono {
-    return this.#errorFloors.has(colour) ? ERROR_COLOUR : PURE;
+    if (this.#errorFloors.has(colour)) return ERROR_COLOUR;
+    // Its own pure point, so a report can tell it from a written `->` (#1303).
+    const settled: EffectConstant = { ...PURE };
+    this.#settledPure.add(settled);
+    return settled;
   }
+
+  /** The pure points defaulting settled, which no text wrote (#1303). */
+  readonly #settledPure = new WeakSet<Mono>();
 
   /**
    * What §3.4's defaulting never touches *(#868)*: a callback's colour, written
@@ -31422,7 +31429,7 @@ class Checker {
         const assume = atParameter && contractOf !== undefined ? this.#assumeFix(contractOf.argument, axes) : undefined;
         return {
           severity: "error",
-          message: effectMismatchMessage(direction, axes, demandWritten) +
+          message: effectMismatchMessage(direction, axes, demandWritten, this.#settledPure.has(demand)) +
             (lazy && axes.includes("fail") ? LAZY_SEQ_ADVICE : ""),
           // Refused at the value handed, where the contract is the parameter's.
           primary: atParameter && contractOf !== undefined ? contractOf.argument.span : span,
@@ -43357,7 +43364,13 @@ const LAZY_SEQ_ADVICE = "; a lazy `Seq` would throw it at a later pull, so keep 
   "a strict operation (`Vector.map^`), a strict consumer (`Seq.fold^`), or elements that carry it " +
   "as data (`(x) => f?(x)` gives `Option`s, and `attempt` in the function gives `Result`s)";
 
-function effectMismatchMessage(direction: "demand" | "reverse", axes: readonly Axis[], written?: string): string {
+function effectMismatchMessage(
+  direction: "demand" | "reverse",
+  axes: readonly Axis[],
+  written?: string,
+  /** Whether no text wrote the demand's silence: inference settled it (#1303). */
+  settled = false,
+): string {
   const world = axes.includes("world");
   const fail = axes.includes("fail");
   if (direction === "reverse") {
@@ -43369,6 +43382,12 @@ function effectMismatchMessage(direction: "demand" | "reverse", axes: readonly A
   }
   const demand = written ?? (world ? "->" : "->~");
   const promise = world ? fail ? "purity and that the function cannot fail" : "purity" : "the function cannot fail";
+  if (settled) {
+    const settledBy = world ? fail ? "is impure or may fail" : "is impure" : "may fail";
+    return `a \`${demand}\` arrow promises ${promise}, and this function ${colourDoes(axes)} — no \`${demand}\` ` +
+      `is written here: inference settled it, since nothing it was decided from ${settledBy}; ` +
+      "write the type you mean where it is decided";
+  }
   return `a \`${demand}\` arrow promises ${promise}, and this function ${colourDoes(axes)} — the demand is ` +
     `written \`${demand}\``;
 }

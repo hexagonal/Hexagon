@@ -1121,7 +1121,10 @@ describe("Effects §3.4 — a parameter no call reaches keeps its own colour (#1
     const source = "let both(k, j) = keep(if c then k else j)\n";
     expect(check(source + "export let user(): Unit = both(noop, noop)\n")).toEqual([]);
     expect(hoveredType(text(source), "both(k")).toBe("(() -> Unit, () -> Unit) -> Unit");
-    expect(check(source + "export let user(): Unit = both(save0, noop)\n")).toEqual([PURITY]);
+    // No `->` is written: inference settled it, and the report says so (#1303).
+    expect(check(source + "export let user(): Unit = both(save0, noop)\n")).toEqual([
+      "a `->` arrow promises purity and that the function cannot fail, and this function is impure and may fail — no `->` is written here: inference settled it, since nothing it was decided from is impure or may fail; write the type you mean where it is decided",
+    ]);
   });
 
   it("a colour shared with an untyped parameter of a nested body is shared too, in every order of the lines", () => {
@@ -5859,6 +5862,25 @@ export let x: Int = 1
     ).toEqual([]);
   });
 
+  it("names no written `->` where inference settled the demand (#1303)", () => {
+    const settled = "a `->` arrow promises purity and that the function cannot fail, and this function is impure and " +
+      "may fail — no `->` is written here: inference settled it, since nothing it was decided from is impure or may " +
+      "fail; write the type you mean where it is decided";
+    const fixtures = `${world}let noop(): Unit = ()\nlet save0(): Unit = save!("x")\nlet ident(x: a): a = x\n`;
+    const reports = (source: string): readonly string[] =>
+      effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + fixtures + source]]);
+    // A returned lambda whose parameter follows a callback a pure one filled.
+    expect(reports(
+      "let make() =\n    let run = ident((f) => f!())\n    run!(() => ())\n    (run, 1)\n" +
+        "let mk(a1: () ->! Unit) =\n    let (r, _) = make()\n    let lam = (g: () ->! Unit) => r!(g)\n    lam!(a1)\n    lam\n" +
+        "export let probe(): Unit =\n    let l = mk(noop)\n    l(save0)\n",
+    )).toContain(settled);
+    // A structural field an untyped parameter's bare call closed pure.
+    expect(reports(
+      "let use(r) =\n    (r.run)()\nlet tw(f) =\n    f!()\n    { run = f }\nexport let p(): Unit = use(tw!(save0))\n",
+    )).toEqual([settled]);
+  });
+
   it("refuses an impure field at the row a field call imposed", () => {
     // The other half of the same arrow: the row demands purity, so supplying an
     // impure step is §4.3's refusal rather than a silent widening.
@@ -5869,8 +5891,7 @@ let drive(source): Unit = (source.step)()
 export let go(): Unit = drive({ step = () => save!("x") })
 `]]),
     ).toEqual([
-      "a `->` arrow promises purity and that the function cannot fail, and this function is impure and may fail — the " +
-      "demand is written `->`",
+      "a `->` arrow promises purity and that the function cannot fail, and this function is impure and may fail — no `->` is written here: inference settled it, since nothing it was decided from is impure or may fail; write the type you mean where it is decided",
     ]);
   });
 });
