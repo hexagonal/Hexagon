@@ -24712,6 +24712,10 @@ class Checker {
       for (const part of this.#colourVariables(parameter.type)) {
         const call = readBy.get(part);
         if (call === undefined || spine.includes(part) || this.#dataFacts.has(part)) continue;
+        // One another parameter holds too, on its spine or in its data, is
+        // decided by no fact: a bare call through one says nothing of the
+        // other (§3.4).
+        if (frame.untyped.some((other) => other !== parameter && this.#colourVariables(other.type).includes(part))) continue;
         const spelled = this.#spelledExpression(ungrouped(call.callee));
         if (spelled === undefined) continue;
         const fact: ColourFact = {

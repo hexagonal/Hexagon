@@ -5920,6 +5920,16 @@ export let x: Int = 1
         "`a` is called bare, which makes it pure and unable to fail",
       0,
     ]]);
+    // A colour another parameter holds too is decided by no fact (§3.4).
+    for (const source of [
+      "let use(f, g, t) =\n    let (a, _) = t\n    let h = if True then (if True then f else g) else a\n    a()\n" +
+        "export let p(): Unit = use(save0, noop, (noop, 1))\n",
+      "let use(t, u) =\n    let (a, _) = t\n    let (b, _) = u\n    let h = if True then a else b\n    a()\n" +
+        "export let p(): Unit = use((noop, 1), (save0, 2))\n",
+    ]) {
+      const messages = reports("let noop(): Unit = ()\n" + source).map(([message]) => message as string);
+      expect([source, messages.some((message) => message.includes("is called bare"))]).toEqual([source, false]);
+    }
   });
 
   it("refuses an impure field at the row a field call imposed", () => {
