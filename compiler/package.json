@@ -17,6 +17,7 @@
     "check": "tsc -p tsconfig.json --noEmit",
     "coverage": "vitest run --coverage",
     "generate:prelude": "node scripts/generate-prelude.mjs",
+    "generate:regex-names": "node scripts/generate-regex-names.mjs",
     "generate:unicode": "node scripts/generate-unicode.mjs",
     "test": "vitest run",
     "test:update": "vitest run --update",
