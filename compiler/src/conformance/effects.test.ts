@@ -5862,6 +5862,31 @@ export let x: Int = 1
     ).toEqual([]);
   });
 
+  it("a nested lambda leaves a colour in an untyped parameter's data to the body around it, in every order (#1210)", () => {
+    const fixtures = `${world}let noop(): Unit = ()\nlet save0(): Unit = save!("x")\nlet keep(f: () ->! Unit): Unit = ()\n` +
+      "export let tieTwo(x: a, y: a): Unit = ()\nlet fst(t: (a, b)): a =\n    let (x, _) = t\n    x\n";
+    const reports = (source: string): readonly string[] =>
+      effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + fixtures + source]]);
+    const g = "let g = () => fst(p)!()";
+    const tie = "tieTwo(p, (save0, 1))";
+    for (const lines of [[g, tie], [tie, g]]) {
+      const source = "let f(p) =\n" + [...lines, "g!()"].map((line) => `    ${line}\n`).join("") +
+        "export let user(): Unit = f!((save0, 1))\n";
+      expect([lines, reports(source)]).toEqual([lines, []]);
+    }
+    // In a knot: the bare call in the unused lambda is a fact either way, so
+    // both member orders give the same reports.
+    const ping = "    ping(n: Int, cb): Int =\n        let k = () => cb()\n        if n > 0 then pong!(n - 1, cb) else 0\n";
+    const pong = "    pong(n: Int, cb): Int =\n        keep(cb)\n        if n > 0 then ping!(n - 1, cb) else 0\n";
+    const probe = "export let probe(): Int = ping!(2, save0)\n";
+    const first = reports("fun\n" + ping + pong + probe);
+    const second = reports("fun\n" + pong + ping + probe);
+    expect(first.some((message) => message.includes("`cb` is called bare"))).toBe(true);
+    expect(second.filter((message) => message.includes("`cb` is called bare"))).toEqual(
+      first.filter((message) => message.includes("`cb` is called bare")),
+    );
+  });
+
   it("names no written `->` where inference settled the demand (#1303)", () => {
     const settled = "a `->` arrow promises purity and that the function cannot fail, and this function is impure and " +
       "may fail — no `->` is written here: inference settled it, since nothing it was decided from is impure or may " +
