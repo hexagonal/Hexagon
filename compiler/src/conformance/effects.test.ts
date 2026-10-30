@@ -5900,10 +5900,36 @@ export let x: Int = 1
         "let mk(a1: () ->! Unit) =\n    let (r, _) = make()\n    let lam = (g: () ->! Unit) => r!(g)\n    lam!(a1)\n    lam\n" +
         "export let probe(): Unit =\n    let l = mk(noop)\n    l(save0)\n",
     )).toContain(settled);
-    // A structural field an untyped parameter's bare call closed pure.
+    // A structural field an untyped parameter's bare call closed pure names
+    // the call (#1376), with no `!` fix: a mark keeps no arrow in a
+    // parameter's data open.
     expect(reports(
       "let use(r) =\n    (r.run)()\nlet tw(f) =\n    f!()\n    { run = f }\nexport let p(): Unit = use(tw!(save0))\n",
-    )).toEqual([settled]);
+    )).toEqual([
+      "this function is impure and may fail, where the function handed must be pure and unable to fail — " +
+        "a call written bare runs `r.run`, which makes it pure and unable to fail",
+    ]);
+  });
+
+  it("a bare call through a tuple part names itself, with no fix a mark would not keep (#1376)", () => {
+    const reports = (source: string) =>
+      compileFiles([["/world.js", ""], ["/main.hex", "module Main\n\n" + `${world}let save0(): Unit = save!("x")\n` + source]])
+        .diagnostics.map(({ message, fixes }) => [message, (fixes ?? []).length]);
+    expect(reports("let use(t) =\n    let (a, _) = t\n    a()\nexport let p(): Unit = use((save0, 1))\n")).toEqual([[
+      "this function is impure and may fail, where the function handed must be pure and unable to fail — " +
+        "`a` is called bare, which makes it pure and unable to fail",
+      0,
+    ]]);
+    // A colour another parameter holds too is decided by no fact (§3.4).
+    for (const source of [
+      "let use(f, g, t) =\n    let (a, _) = t\n    let h = if True then (if True then f else g) else a\n    a()\n" +
+        "export let p(): Unit = use(save0, noop, (noop, 1))\n",
+      "let use(t, u) =\n    let (a, _) = t\n    let (b, _) = u\n    let h = if True then a else b\n    a()\n" +
+        "export let p(): Unit = use((noop, 1), (save0, 2))\n",
+    ]) {
+      const messages = reports("let noop(): Unit = ()\n" + source).map(([message]) => message as string);
+      expect([source, messages.some((message) => message.includes("is called bare"))]).toEqual([source, false]);
+    }
   });
 
   it("refuses an impure field at the row a field call imposed", () => {
@@ -5916,7 +5942,8 @@ let drive(source): Unit = (source.step)()
 export let go(): Unit = drive({ step = () => save!("x") })
 `]]),
     ).toEqual([
-      "a `->` arrow promises purity and that the function cannot fail, and this function is impure and may fail — no `->` is written here: inference settled it, since nothing it was decided from is impure or may fail; write the type you mean where it is decided",
+      "this function is impure and may fail, where the function handed must be pure and unable to fail — " +
+        "a call written bare runs `source.step`, which makes it pure and unable to fail",
     ]);
   });
 });

@@ -24704,6 +24704,31 @@ class Checker {
     // Every parameter is read before any is decided: a colour shared with a
     // sibling untyped parameter is still this body's to decide.
     this.#noteRunsAtCall(frame);
+    // A bare call through a part of an untyped parameter's data, an arrow
+    // off its spine, is a fact about that arrow too: the defaulting that
+    // settles it pure names the call (#1376).
+    for (const parameter of frame.untyped) {
+      const spine = this.#spineColours(parameter.type, axis).flatMap(({ arrow }) => this.#colourParts(arrow));
+      for (const part of this.#colourVariables(parameter.type)) {
+        const call = readBy.get(part);
+        if (call === undefined || spine.includes(part) || this.#dataFacts.has(part)) continue;
+        // One another parameter holds too, on its spine or in its data, is
+        // decided by no fact: a bare call through one says nothing of the
+        // other (§3.4).
+        if (frame.untyped.some((other) => other !== parameter && this.#colourVariables(other.type).includes(part))) continue;
+        const spelled = this.#spelledExpression(ungrouped(call.callee));
+        if (spelled === undefined) continue;
+        const fact: ColourFact = {
+          call,
+          name: spelled,
+          only: readers.get(part) === 1,
+          readers: [...new Set(readersOf.get(part) ?? [call])],
+          axis,
+        };
+        this.#dataFacts.set(part, fact);
+        this.#dataFactSet.add(fact);
+      }
+    }
     const decisions = frame.untyped.map((parameter) => {
       const spine = this.#spineColours(parameter.type, axis).flatMap(({ arrow }) => this.#colourParts(arrow));
       return {
@@ -27355,11 +27380,22 @@ class Checker {
    */
   #undecidedColour(colour: Variable): Mono {
     if (this.#errorFloors.has(colour)) return ERROR_COLOUR;
-    // Its own pure point, so a report can tell it from a written `->` (#1303).
+    // Its own pure point, so a report can tell it from a written `->` (#1303),
+    // and the bare call that made it so, where one did (#1376).
+    const fact = this.#dataFacts.get(colour);
+    if (fact !== undefined) {
+      const silent: EffectConstant = { ...PURE };
+      this.#factColours.set(silent, fact);
+      return silent;
+    }
     const settled: EffectConstant = { ...PURE };
     this.#settledPure.add(settled);
     return settled;
   }
+
+  /** A bare call through a part of an untyped parameter's data, by the arrow it runs (#1376). */
+  readonly #dataFacts = new Map<Variable, ColourFact>();
+  readonly #dataFactSet = new WeakSet<ReportFact>();
 
   /** The pure points defaulting settled, which no text wrote (#1303). */
   readonly #settledPure = new WeakSet<Mono>();
@@ -29841,7 +29877,12 @@ class Checker {
         parameter === undefined ? { fact, name: fact.name } : { fact, name: parameter, own: true as const }
       );
       const words = this.#reportWords(named, byCall);
-      const fixes = this.#readerFixes(words.told, byCall, seen.filter(isDemandFact));
+      // A mark keeps a parameter's own arrow open, but not an arrow in its
+      // data, so marking a bare call through one repairs nothing: no fix
+      // offers it (#1376).
+      const fixes = seen.some((fact) => this.#dataFactSet.has(fact))
+        ? []
+        : this.#readerFixes(words.told, byCall, seen.filter(isDemandFact));
       // Where the demand sits on an arrow the parameter returns, it is what
       // the function handed returns that does not fit, on each colour as far
       // down as it sits (#1308).
@@ -31418,6 +31459,7 @@ class Checker {
       const atParameter = parameterArrow !== undefined && arrows !== undefined &&
         (arrows.left === parameterArrow || arrows.right === parameterArrow);
       const contract = atParameter && contractOf?.declared !== undefined ? this.#contractLabel(contractOf.declared) : undefined;
+      const reportAxis = this.#currentAxis;
       this.#colourReport(`effect-mismatch ${spanKey(span)} ${direction} ${arrows?.id ?? ""}`, (axes) => {
         // §3.4's limitation, not the contract: an untyped parameter a written
         // type's impure constant fixed fits once its own type is written
@@ -31429,7 +31471,15 @@ class Checker {
         const assume = atParameter && contractOf !== undefined ? this.#assumeFix(contractOf.argument, axes) : undefined;
         return {
           severity: "error",
-          message: effectMismatchMessage(direction, axes, demandWritten, this.#settledPure.has(demand)) +
+          // Settled only where inference settled every colour the report
+          // names; one written there keeps the written clause (#1376).
+          message: effectMismatchMessage(direction, axes, demandWritten, axes.every((axis) =>
+            this.#settledPure.has(
+              axis === reportAxis || demandArrow === undefined
+                ? demand
+                : this.#prune(colourAt(demandArrow, axis) ?? PURE),
+            )
+          )) +
             (lazy && axes.includes("fail") ? LAZY_SEQ_ADVICE : ""),
           // Refused at the value handed, where the contract is the parameter's.
           primary: atParameter && contractOf !== undefined ? contractOf.argument.span : span,
