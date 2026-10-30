@@ -432,21 +432,27 @@ let looseIn(names: Vector(String), name: String): Option(String) =
 
 let spellings(table: Map(String, String)): Vector(String) = Vector.fromSeq(Map.keys(table))
 
-let looseValue(kind: PropertyKind, value: String): Option(String) = looseIn(spellings(tableOf(kind)), value)
+// The canonical spelling of the table entry `name` loosely matches.
+let looseCanonical(table: Map(String, String), name: String): Option(String) =
+    match looseIn(spellings(table), name)
+        Some(alias) => Map.get(table, alias)
+        None => None
+
+let looseValue(kind: PropertyKind, value: String): Option(String) = looseCanonical(tableOf(kind), value)
 
 let looseOrExact(kind: PropertyKind, value: String): Option(String) = match lookupValue(kind, value)
-    Some(_) => Some(value)
+    Some(canonical) => Some(canonical)
     None => looseValue(kind, value)
 
 let looseProperty(property: String): Option(String) =
     looseIn(["gc", "General_Category", "sc", "Script", "scx", "Script_Extensions"], property)
 
 let looseBare(name: String): Option(String) =
-    match looseIn(spellings(generalCategoryNames), name)
+    match looseCanonical(generalCategoryNames, name)
         Some(found) => Some(found)
-        None => match looseIn(spellings(scriptNames), name)
+        None => match looseCanonical(scriptNames, name)
             Some(found) => Some(found)
-            None => match looseIn(spellings(binaryNames), name)
+            None => match looseCanonical(binaryNames, name)
                 Some(found) => Some(found)
                 None => looseIn(["Any", "ASCII", "Assigned"], name)
 
@@ -506,10 +512,15 @@ let readProperty(pattern: String, text: Vector(String), position: Int, negated: 
             Err(badForm)
         else
             let body = slice(pattern, open + 1, close - 1)
-            if text[open + 1] == "^" then
-                let name = slice(pattern, open + 2, close - 1)
+            let name = slice(pattern, open + 2, close - 1)
+            let known = match lookupProperty(name)
+                Ok(_) => True
+                Err(_) => False
+            if text[open + 1] == "^" and known then
                 let other = if negated then "p" else "P"
                 Err(fault("`\\" ++ letter ++ "{^" ++ name ++ "}` is not a spelling; write `\\" ++ other ++ "{" ++ name ++ "}`", position))
+            else if text[open + 1] == "^" then
+                Err(fault("`\\" ++ letter ++ "{" ++ body ++ "}` names no supported property", position))
             else
                 propertyEscape(lookupProperty(body), letter, body, True, negated, position, close + 1)
     else if isAsciiLetter(text[open]) then
@@ -556,10 +567,7 @@ let readEscape(pattern: String, text: Vector(String), position: Int): Result((Es
         let letter = text[position + 1]
         let next = position + 2
         if not (isAsciiLetter(letter) or isAsciiDigit(letter)) then
-            if codeOf(letter) < 0 then
-                Err(fault("a lone surrogate cannot be read in a pattern yet", position + 1))
-            else
-                Ok((EscapedPoint(codeOf(letter)), next))
+            Ok((EscapedPoint(codeOf(letter)), next))
         else
             match letter
                 "n" => Ok((EscapedPoint(10), next))
@@ -612,6 +620,8 @@ let complemented(items: Vector(ClassItem)): Vector(ClassItem) =
             Range(low, high) => Range(low, high))
     result
 
+let isAssertionLetter(letter: String): Bool = letter == "b" or letter == "B" or letter == "A" or letter == "z"
+
 let rangeEndFault(position: Int): RegexError =
     fault("a range's ends are single codepoints; write `\\-` for a literal hyphen", position)
 
@@ -634,8 +644,6 @@ let readMember(pattern: String, text: Vector(String), position: Int): Result((Me
             Err(error) => Err(error)
     else if point == "[" then
         Err(innerBracketFault(text, position))
-    else if codeOf(point) < 0 then
-        Err(fault("a lone surrogate cannot be read in a pattern yet", position))
     else
         Ok((Single(codeOf(point)), position + 1))
 
@@ -662,7 +670,7 @@ let readClass(pattern: String, text: Vector(String), open: Int, folded: Bool): R
         else if text[position] == "]" then
             position := position + 1
             reading := False
-        else if text[position] == "-" and position != first and not (position + 1 <= size and text[position + 1] == "]") then
+        else if text[position] == "-" and position != first and position + 1 <= size and text[position + 1] != "]" then
             failure := Some(rangeEndFault(position))
             reading := False
         else
@@ -676,11 +684,15 @@ let readClass(pattern: String, text: Vector(String), open: Int, folded: Bool): R
                 Ok((Single(low), next)) =>
                     let hyphen = next
                     let isRange = hyphen + 1 <= size and text[hyphen] == "-" and text[hyphen + 1] != "]"
-                    if not isRange then
+                    let highAt = hyphen + 1
+                    let assertionEnd = isRange and highAt + 1 <= size and text[highAt] == "\\" and isAssertionLetter(text[highAt + 1])
+                    if assertionEnd then
+                        failure := Some(rangeEndFault(hyphen))
+                        reading := False
+                    else if not isRange then
                         ranges := addRange(ranges, low, low)
                         position := next
                     else
-                        let highAt = hyphen + 1
                         match readMember(pattern, text, highAt)
                             Err(error) =>
                                 failure := Some(error)
@@ -833,7 +845,9 @@ let readPrefix(pattern: String, text: Vector(String), opening: Int, flags: Flags
             readName(pattern, text, at)
         else if point == "P" and next == "<" then
             readName(pattern, text, at + 1)
-        else if point == "P" and next == "=" then
+        else if point == "P" and next != "=" then
+            Err(generic)
+        else if point == "P" then
             Err(fault("`(?P=` is a backreference, which the dialect does not have", question))
         else if isAsciiLetter(point) or point == "-" or point == ")" then
             match readFlags(text, at, opening, flags)
@@ -957,10 +971,17 @@ let quantify(
 // ---------------------------------------------------------------------------
 // The parser
 
-(** Parses `pattern` as the dialect of `spec/regex.md` §2: the tree, or the
-    first fault in reading order. *)
-export let parse(pattern: String): Result(Pattern, RegexError) =
-    let text = points(pattern)
+// The position of the pattern's first lone surrogate, which the parser refuses
+// before reading anything else until its door row lands (§3.6).
+let firstSurrogate(text: Vector(String)): Option(Int) =
+    var at = 1
+    var found = None
+    for point in text
+        if isAbsent(found) and codeOf(point) < 0 then found := Some(at)
+        at := at + 1
+    found
+
+let parseText(pattern: String, text: Vector(String)): Result(Pattern, RegexError) =
     let size = Vector.length(text)
     var frames: Vector(Frame) = [frameOf(0, None, None, noFlags)]
     var flags = noFlags
@@ -997,11 +1018,26 @@ export let parse(pattern: String): Result(Pattern, RegexError) =
                     frames := withPiece(Vector.dropLast(frames), piece)
                     position := position + 1
             else if point == "(" then
-                if depth > limit then
+                // A flag setting opens no group, so only a group is held to the
+                // nesting bound; past it, the opening is the fault whatever its
+                // prefix would have said.
+                let opened = if position + 1 <= size and text[position + 1] == "?" then
+                    readPrefix(pattern, text, position, flags)
+                else
+                    Ok(OpenedGroup(flags, position + 1))
+                let isSetting = match opened
+                    Ok(OpenedSetting(_, _)) => True
+                    _ => False
+                let isCapture = not (position + 1 <= size and text[position + 1] == "?")
+                if depth > limit and not isSetting then
                     failure := Some(fault("nesting deeper than 1000", position))
                     reading := False
-                else if position + 1 <= size and text[position + 1] == "?" then
-                    match readPrefix(pattern, text, position, flags)
+                else if isCapture then
+                    count := count + 1
+                    frames := frames.append(frameOf(position, Some(count), None, flags))
+                    position := position + 1
+                else
+                    match opened
                         Err(error) =>
                             failure := Some(error)
                             reading := False
@@ -1028,10 +1064,6 @@ export let parse(pattern: String): Result(Pattern, RegexError) =
                                 names := Map.set(names, name, count)
                                 frames := frames.append(frameOf(position, Some(count), Some(name), flags))
                                 position := next
-                else
-                    count := count + 1
-                    frames := frames.append(frameOf(position, Some(count), None, flags))
-                    position := position + 1
             else if isQuantifier(point) then
                 match quantify(pattern, text, frames, position, flags)
                     Err(error) =>
@@ -1074,9 +1106,6 @@ export let parse(pattern: String): Result(Pattern, RegexError) =
             else if point == "." then
                 frames := withPiece(frames, atom(Dot(flags.dotAll), position))
                 position := position + 1
-            else if codeOf(point) < 0 then
-                failure := Some(fault("a lone surrogate cannot be read in a pattern yet", position))
-                reading := False
             else
                 frames := withPiece(frames, atom(literalOf(codeOf(point), flags), position))
                 position := position + 1
@@ -1086,7 +1115,13 @@ export let parse(pattern: String): Result(Pattern, RegexError) =
             let depth = Vector.length(frames)
             let top = frames[depth]
             if depth > 1 then
-                Err(fault("missing `)` for the group opened here", top.opening))
+                Err(fault("missing `)` for the group opened here", frames[2].opening))
             else
                 let root = alternationOf(top.branches.append(sequenceOf(top.pieces)))
                 Ok(Pattern({ root = root, groupCount = count, names = names }))
+
+(** Parses `pattern` as the dialect of `spec/regex.md` §2: the tree, or the
+    first fault in reading order. *)
+export let parse(pattern: String): Result(Pattern, RegexError) = match firstSurrogate(points(pattern))
+    Some(at) => Err(fault("a lone surrogate cannot be read in a pattern yet", at))
+    None => parseText(pattern, points(pattern))

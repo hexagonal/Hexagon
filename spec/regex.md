@@ -120,7 +120,7 @@ A **lone surrogate** has no properties (§3.6): every `\p{…}` naming a propert
 
 A quantifier must follow an atom: `*a`, `|*`, `(*)`, a quantifier on an assertion or a flag setting (`^*`, `\b+`, `(?i)?`), and a quantifier on a quantifier (`a**`, `a+?*`) are refused — write `(a*)*` if that is meant. `{` that does not begin a well-formed counted repetition (`a{`, `a{,3}`, `a{x}`) is refused, never read as a literal brace; the literal is `\{`. That is the Scala-refusal rule of this corpus at the pattern's scale: one committed reading or a refusal that names the boundary.
 
-Nesting of groups and quantifiers is bounded at depth 1000, refused beyond.
+Nesting of groups is bounded at depth 1000, refused at the opening beyond; a quantifier nests only through a group, so the bound holds the tree's depth too. A flag setting `(?i)` opens no group and does not count.
 
 ### 2.6 Groups, names, and flags
 
@@ -177,7 +177,7 @@ The record is ordinary data — a bad pattern is an answer, not a fault — and 
 
 | Fault | Position | Message |
 |---|---|---|
-| `(` without `)` | the `(` | missing `)` for the group opened here |
+| `(` without `)` | the first `(` left open | missing `)` for the group opened here |
 | `)` without `(` | the `)` | unmatched `)`; write `\)` for a literal |
 | `[` without `]` | the `[` | missing `]` for the class opened here |
 | `[]`, `[^]` | the `[` | empty class; write `\]` for a literal `]` |
@@ -203,9 +203,9 @@ The record is ordinary data — a bad pattern is an answer, not a fault — and 
 | bad flags | the offending letter, else the `)` | `U` is not a flag; the flags are `i`, `m`, `s`, `x`; `i` is set twice; nothing follows `-`; `(?)` sets no flag |
 | bad name | the name | group name must match `[A-Za-z_][A-Za-z0-9_]*` |
 | duplicate name | the second name | group `year` is already defined |
-| lone surrogate, until §5's row lands | the surrogate | a lone surrogate cannot be read in a pattern yet |
+| lone surrogate, until §5's row lands (checked before anything else) | the first surrogate | a lone surrogate cannot be read in a pattern yet |
 
-One report per pattern, at the first fault in reading order; the parser does not recover and go on. Two routings the table cannot carry: a well-formed `{3}` with nothing before it takes the nothing-to-repeat row, not the `{` row; `[[:` takes the `[`-inside-a-class row with its POSIX clause, never the missing-`]` row; and `(?)` takes the bad-flags row, not the bad-prefix row.
+One report per pattern, at the first fault in reading order; the parser does not recover and go on. Three routings the table cannot carry: a well-formed `{3}` with nothing before it takes the nothing-to-repeat row, not the `{` row; `[[:` takes the `[`-inside-a-class row with its POSIX clause, never the missing-`]` row; and `(?)` takes the bad-flags row, not the bad-prefix row.
 
 ## 3. Matching semantics
 
@@ -240,7 +240,7 @@ A pattern may match the empty string, and `findAll` (§4.3) enumerates successiv
 
 ### 3.6 Lone surrogates and the Unicode version
 
-A lone surrogate reaching the engine through a JavaScript string is one codepoint with no properties (§2.4) that matches itself literally, matches `.` and every negated class, and is neither `\w` nor `\s`. In the subject it is never rejected and never replaced with U+FFFD. In a pattern it can arrive only from JavaScript, since `\u{D800}` is refused there as Lexer §6.2 refuses it, and there it is one codepoint too, a literal matching itself; but its value is a reading `String.toCodepoint` deliberately does not give (`string-text-processing.md` §1), so the parser reads it through a door row of its own (§5), and that row waits for the door to open to library modules (Intrinsics §5.2, the surface's arc). Until it lands, the parser refuses a pattern holding a lone surrogate (§2.9). The Unicode version is the repository's, 17.0.0, adopted by a recorded compatibility update together with every table (`string-text-processing.md` §1); no host setting reaches the engine.
+A lone surrogate reaching the engine through a JavaScript string is one codepoint with no properties (§2.4) that matches itself literally, matches `.` and every negated class, and is neither `\w` nor `\s`. In the subject it is never rejected and never replaced with U+FFFD. In a pattern it can arrive only from JavaScript, since `\u{D800}` is refused there as Lexer §6.2 refuses it, and there it is one codepoint too, a literal matching itself; but its value is a reading `String.toCodepoint` deliberately does not give (`string-text-processing.md` §1), so the parser reads it through a door row of its own (§5), and that row waits for the door to open to library modules (Intrinsics §5.2, the surface's arc). Until it lands, the parser refuses a pattern holding a lone surrogate anywhere, at the first one, before reading anything else (§2.9). The Unicode version is the repository's, 17.0.0, adopted by a recorded compatibility update together with every table (`string-text-processing.md` §1); no host setting reaches the engine.
 
 ## 4. The surface — `Regex.hex`
 
@@ -327,7 +327,7 @@ Regex.groups(match: Match): Vector(Option(Group))
 
 `Regex.Syntax` (`stdlib/Regex/Syntax.hex`, `module Regex.Syntax`) is an ordinary pure module with **no door rows** but one: the parser, the tree, the name lists, and the class-set algebra over explicit ranges are all expressible Hexagon, and Unicode tables are the engine's (§7). The one row reads a lone surrogate's value (§3.6), a `->` read of a value beside `String.hex`'s own `stringCodepointUnchecked`, and it is declared when the door opens to library modules; until then the module has no row and refuses such a pattern. Its tree is public API so that the compiler and the language server load one parser (§8, §10) and a program that wants to inspect a pattern can.
 
-*Decision 4 assigned the Unicode-table keys and folding to `Regex.Syntax`; this document amends it.* The tree carries a property by **name** and a fold by a **flag**, and resolving either needs tables, so this document places the table keys and the resolution in the engine (§6.1, §7) and leaves `Regex.Syntax` door-free. It resolves a tension inside the rulings rather than departing from Decision 4 alone: Ruling 3 already keeps the Unicode tables in the runtime, referenced by name. What it costs: a language server that wants to know what `\p{Greek}` matches goes through the engine. What it buys: one parser with no lowering to load, and the tables in one place. The admitted **names** are a generated table in `Regex.Syntax`, regenerated from PropertyAliases.txt and PropertyValueAliases.txt with every Unicode update alongside the engine's range tables (`string-text-processing.md` §1): the names are the parser's, the ranges the engine's, and a version bump touches both or neither.
+*Decision 4 assigned the Unicode-table keys and folding to `Regex.Syntax`; this document amends it.* The tree carries a property by **name** and a fold by a **flag**, and resolving either needs tables, so this document places the table keys and the resolution in the engine (§6.1, §7) and leaves `Regex.Syntax` free of table keys. It resolves a tension inside the rulings rather than departing from Decision 4 alone: Ruling 3 already keeps the Unicode tables in the runtime, referenced by name. What it costs: a language server that wants to know what `\p{Greek}` matches goes through the engine. What it buys: one parser with no lowering to load, and the tables in one place. The admitted **names** are a generated table in `Regex.Syntax`, regenerated from PropertyAliases.txt and PropertyValueAliases.txt with every Unicode update alongside the engine's range tables (`string-text-processing.md` §1): the names are the parser's, the ranges the engine's, and a version bump touches both or neither.
 
 ```
 export union Expr =
@@ -410,7 +410,7 @@ No pattern the parser accepts has super-linear behaviour in the subject: that is
 
 ## 7. The door: rows and keys
 
-Two of the arc's three modules declare through the door; the inventory (Intrinsics §4.1) gains the type key `regexProgram` beside the foundations' `buffer`, and four operation keys beside its four. `Regex.Syntax` declares nothing (§5).
+Two of the arc's three modules declare through the door; the inventory (Intrinsics §4.1) gains the type key `regexProgram` beside the foundations' `buffer`, and four operation keys beside its four. `Regex.Syntax` declares no table key; its one row, the lone-surrogate read of §5, waits for the door to open to library modules, and until then it declares nothing (§3.6, §5).
 
 **`Hex.Runtime.Regex`** — the storage, honest arrows (Intrinsics §3.3), and the two Unicode tables:
 
@@ -493,7 +493,7 @@ Each below needs its own ruling; none is implied by this document.
 |---|---|
 | Own engine on the RE2 path; no host `RegExp`; codepoint unit; pure surface over a `->~` engine | §1 |
 | Spans are 1-based codepoint positions and counts; empty matches at boundary positions; no code unit on the public surface, the search row's cursor the one internal exception | §3.1 |
-| Lone surrogates: one codepoint, no properties, never rejected or replaced; Unicode 17.0.0 by recorded update | §3.6 |
+| Lone surrogates: one codepoint, no properties, never rejected or replaced in the subject (in a pattern, refused until §5's row lands); Unicode 17.0.0 by recorded update | §3.6 |
 | A pattern is a `String`; positions 1-based codepoints; no raw-string form in v1 | §2.1 |
 | Grammar; metacharacters; `]`/`}` literal outside, `{` refused unless a counted repetition | §2.2, §2.5 |
 | Escapes: Lexer §6.2's table plus the class/assertion escapes; `\` + non-alphanumeric is literal; `\x`, `\f`, `\v`, `\Q`, `\Z`, backreferences refused by name | §2.3 |
@@ -509,7 +509,7 @@ Each below needs its own ruling; none is implied by this document.
 | Surface: `compile`, `escape`, `source`, `groupCount`, `groupIndex`, `isMatch`, `find`, `findFrom`, `findAll`, `replace`/`replaceFirst`/`replaceWith`/`replaceFirstWith`, `split` | §4.2–§4.4 |
 | Decision 7 amended: replacement callbacks are `Match ->! String` callbacks where it wrote `Match -> String`; an effectful replacer is ordinary under its mark rather than a type error | §4.4 |
 | Refusals: no token language, no flags argument, no `RegExp` conversion, no `Eq`/`Hash`, no re-export of `RegexError`, no `Vector`/`count` conveniences | §4.6 |
-| `Regex.Syntax` door-free and pure; flags resolved in the tree; property values canonical; explicit ranges normalized; one tree per construct; no source spans in v1 | §5 |
+| `Regex.Syntax` pure, with no door row but the deferred lone-surrogate read; flags resolved in the tree; property values canonical; explicit ranges normalized; one tree per construct; no source spans in v1 | §5 |
 | A lone surrogate in a pattern is one codepoint, read through `Regex.Syntax`'s one door row when the door opens to library modules; until then refused | §3.6, §5, §2.9 |
 | `\w` is one item, `Property(Word, "")`, answered by the engine's table by kind alone, so that `\W` inside a class (`[\W\d]`) has a tree; `Word` has no `\p{…}` spelling | §5, §7 |
 | Decision 4 amended: the Unicode-table keys and the resolution they serve move from `Regex.Syntax` to the engine; the parser keeps the names as a generated table | §5, §7 |

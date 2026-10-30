@@ -126,6 +126,7 @@ describe("Regex.Syntax: trees (§5)", () => {
     ["\\b\\B\\A\\z", "cat(\\b \\B \\A \\z) #0"],
     ["a{2,3}?", "rep{2,3}?(a) #0"],
     ["a{2,}", "rep{2,}(a) #0"],
+    ["a{2,}?", "rep{2,}?(a) #0"],
     ["a{3}", "rep{3,3}(a) #0"],
     ["x*?y+z?", "cat(rep{0,}?(x) rep{1,}(y) rep{0,1}(z)) #0"],
     ["(?<y>a)(b)(?P<z>c)", "cat(cap1<y>(a) cap2(b) cap3<z>(c)) #3"],
@@ -142,6 +143,8 @@ describe("Regex.Syntax: trees (§5)", () => {
     ["(?i)k", "[k]i #0"],
     ["(?i)[a-z]", "[a-z]i #0"],
     ["(?i)\\d", "[\\p{gc=Nd}]i #0"],
+    ["(?i)\\P{L}", "[^\\p{gc=L}]i #0"],
+    ["(?i)\\u{41}", "[A]i #0"],
     ["a(?i)b|c", "alt(cat(a [b]i) | [c]i) #0"],
     ["(?i:a)b", "cat([a]i b) #0"],
     ["(?i-s:a)", "[a]i #0"],
@@ -154,6 +157,9 @@ describe("Regex.Syntax: trees (§5)", () => {
   test.each([
     ["\\d", "[\\p{gc=Nd}] #0"],
     ["\\D", "[^\\p{gc=Nd}] #0"],
+    ["\\S", "[^\\p{bin=White_Space}] #0"],
+    ["[\\S]", "[\\P{bin=White_Space}] #0"],
+    ["[\\D]", "[\\P{gc=Nd}] #0"],
     ["\\s", "[\\p{bin=White_Space}] #0"],
     ["\\w", "[\\p{Word}] #0"],
     ["\\W", "[^\\p{Word}] #0"],
@@ -179,6 +185,8 @@ describe("Regex.Syntax: trees (§5)", () => {
     ["(?x) a b # c\n c", "cat(a b c) #0"],
     ["(?x)[ ]", "[#32] #0"],
     ["(?x)\\ a", "cat(#32 a) #0"],
+    ["(?x)a\u0085b\u00A0c\u200Bd", "cat(a b c #8203 d) #0"],
+    ["(?x)a* ?", "rep{0,}?(a) #0"],
     ["(?x)\\#", "# #0"],
     ["(?x)a #x\n *", "rep{0,}(a) #0"],
     ["(?x:a b)c d", "cat(cat(a b) c #32 d) #0"],
@@ -217,8 +225,8 @@ describe("Regex.Syntax: trees (§5)", () => {
     ["\\p{Word}", "error 1: `\\p{Word}` names no supported property"],
     ["\\p{ID_Start}", "error 1: `\\p{ID_Start}` names no supported property"],
     ["\\p{Uppercase_Letter=Yes}", "error 1: `\\p{Uppercase_Letter=Yes}` names no supported property"],
-    ["\\p{alpha}", "error 1: `\\p{alpha}` names no supported property; write `\\p{Alpha}`"],
-    ["\\p{uppercase letter}", "error 1: `\\p{uppercase letter}` names no supported property; write `\\p{Uppercase_Letter}`"],
+    ["\\p{alpha}", "error 1: `\\p{alpha}` names no supported property; write `\\p{Alphabetic}`"],
+    ["\\p{uppercase letter}", "error 1: `\\p{uppercase letter}` names no supported property; write `\\p{Lu}`"],
     ["\\p{sc=greek}", "error 1: `\\p{sc=greek}` names no supported property; write `\\p{sc=Greek}`"],
     ["\\p{any}", "error 1: `\\p{any}` names no supported property; write `\\p{Any}`"],
   ])("Unicode 17.0.0's property names, exactly (§2.4): %j", (pattern, tree) => {
@@ -236,6 +244,8 @@ describe("Regex.Syntax: bounds (§2.5)", () => {
   test("nesting is bounded at a thousand groups, refused at the opening beyond", () => {
     expect(parse("(".repeat(1000) + "a" + ")".repeat(1000))).toMatch(/^cap1\(/u);
     expect(parse("(".repeat(1001) + "a" + ")".repeat(1001))).toBe("error 1001: nesting deeper than 1000");
+    expect(parse("(".repeat(1000) + "(?i)a" + ")".repeat(1000))).toMatch(/^cap1\(/u);
+    expect(parse("(".repeat(1000) + "(?:a)" + ")".repeat(1000))).toBe("error 1001: nesting deeper than 1000");
   });
 
   test.each([
@@ -248,6 +258,7 @@ describe("Regex.Syntax: bounds (§2.5)", () => {
     ["(a{40}){0,40}", "error 8: nested repetition counts multiply past 1000"],
     ["((a{10}){10}){11}", "error 14: nested repetition counts multiply past 1000"],
     ["(a{40}|b){40}", "error 10: nested repetition counts multiply past 1000"],
+    ["(a{40,}){40}", "error 9: nested repetition counts multiply past 1000"],
   ])("%j", (pattern, tree) => {
     expect(parse(pattern)).toBe(tree);
   });
@@ -334,6 +345,15 @@ describe("Regex.Syntax: RegexError (§2.9)", () => {
     ["\\p1", "error 1: `\\p` takes one letter or a braced name"],
     ["\\p{^Greek}", "error 1: `\\p{^Greek}` is not a spelling; write `\\P{Greek}`"],
     ["\\P{^Greek}", "error 1: `\\P{^Greek}` is not a spelling; write `\\p{Greek}`"],
+    ["\\p{^Foo}", "error 1: `\\p{^Foo}` names no supported property"],
+    ["\\p{^}", "error 1: `\\p{^}` names no supported property"],
+    ["(?P>x)", "error 2: `(?` must be followed by `:`, `P<`, `<`, or flags"],
+    ["(?P", "error 2: `(?` must be followed by `:`, `P<`, `<`, or flags"],
+    ["[a-", "error 1: missing `]` for the class opened here"],
+    ["([a", "error 2: missing `]` for the class opened here"],
+    ["(a(b", "error 1: missing `)` for the group opened here"],
+    ["[a-\\b]", "error 3: a range's ends are single codepoints; write `\\-` for a literal hyphen"],
+    ["(?<a>(?<b>x))(?<b>y)", "error 17: group `b` is already defined"],
     ["(?=a)", "error 2: `(?=` is lookahead, which the dialect does not have"],
     ["(?!a)", "error 2: `(?!` is negative lookahead, which the dialect does not have"],
     ["(?<=a)", "error 2: `(?<=` is lookbehind, which the dialect does not have"],
@@ -360,6 +380,10 @@ describe("Regex.Syntax: RegexError (§2.9)", () => {
   test("a lone surrogate is refused at its position until the parser's door row lands (§3.6)", () => {
     const refusal = "a lone surrogate cannot be read in a pattern yet";
     expect(parse("a\uD800")).toBe(`error 2: ${refusal}`);
+    expect(parse("(?x)#\uD800")).toBe(`error 6: ${refusal}`);
+    expect(parse("(?<a\uD800>x)")).toBe(`error 5: ${refusal}`);
+    expect(parse("\\p{\uD800}")).toBe(`error 4: ${refusal}`);
+    expect(parse("(\\q\uD800")).toBe(`error 4: ${refusal}`);
     expect(parse("\\\uDC00")).toBe(`error 2: ${refusal}`);
     expect(parse("[a\uD83D]")).toBe(`error 3: ${refusal}`);
     expect(parse("\uD83D\uDE00")).toBe("#128512 #0");
