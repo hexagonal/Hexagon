@@ -1,0 +1,955 @@
+module Regex.Syntax
+
+// The parser of the regular-expression dialect and its public syntax tree
+// (`spec/regex.md` §2, §5). This module is ordinary pure Hexagon with no door
+// rows: the parser, the tree, the admitted property names, and the explicit
+// ranges a class writes are all expressible here. What needs the Unicode tables
+// — a property's codepoints, the folding of a class, every complement — is the
+// engine's (`Hex.Runtime.Regex`, §6.1), so the tree carries a property by name
+// and a fold by a flag.
+//
+// The tree is public so that the compiler and the language server load the one
+// parser `Regex.compile` runs (§8), and so that a program can inspect a pattern.
+//
+// **The parser reads a pattern once, left to right, and stops at the first
+// fault** (§2.9). It keeps its open groups on an explicit stack of frames rather
+// than recursing, so a pattern nested to the dialect's bound of a thousand groups
+// costs a thousand frames of data and no host stack.
+
+// A pattern, as a tree. Flags are already resolved (§5): `m` chose the anchors,
+// `s` set `Dot`'s `newline`, and `i` set `folded` on every class, a literal under
+// it having become a one-range class. A non-capturing group is its body.
+export union Expr =
+    | Empty
+    | Literal(point: Int)
+    | Dot(newline: Bool)
+    | Class(items: Vector(ClassItem), negated: Bool, folded: Bool)
+    | Anchor(kind: AnchorKind)
+    | Concat(parts: Vector(Expr))
+    | Alternate(branches: Vector(Expr))
+    | Repeat(body: Expr, min: Int, max: Option(Int), greedy: Bool)
+    | Capture(body: Expr, index: Int, name: Option(String))
+
+// One member of a class. The written ranges come first, sorted, disjoint and
+// merged; the property items follow in written order. `negated` is set only on a
+// complemented item written inside a class, as in `[\P{L}\d]`.
+export union ClassItem =
+    | Range(low: Int, high: Int)
+    | Property(kind: PropertyKind, value: String, negated: Bool)
+
+// Which table a property item names. `value` is the canonical spelling for the
+// first four kinds and `""` for the rest, which the engine answers by kind alone.
+// `Word` is Annex C's `\w`, the one kind with no `\p{…}` spelling.
+export union PropertyKind = GeneralCategory | Script | ScriptExtensions | Binary | Any | Ascii | Assigned | Word
+
+export union AnchorKind = TextStart | TextEnd | LineStart | LineEnd | WordBoundary | NotWordBoundary
+
+// A parsed pattern: its tree, the number of capturing groups (group 0 not
+// counted), and each group name's number.
+export record Pattern = { root: Expr, groupCount: Int, names: Map(String, Int) }
+
+// Why a pattern was refused: one sentence, and the 1-based codepoint position of
+// the fault in the pattern — its length + 1 when the pattern ended early.
+export record RegexError derives (Eq, Show) = { message: String, position: Int }
+
+// The flags in force at a point in the pattern (§2.6).
+record Flags = { folded: Bool, multiLine: Bool, dotAll: Bool, extended: Bool }
+
+// What a piece of a sequence was, which decides what a quantifier after it may
+// do (§2.5). An assertion and a flag setting carry their text for the message.
+union PieceKind =
+    | Atom
+    | Asserted(text: String)
+    | Setting(text: String)
+    | Quantified(text: String)
+
+// One piece of a sequence: its tree, what it was, where it began, and the
+// product of the counted repetitions nested in it (§2.5's bound).
+record Piece = { expr: Expr, kind: PieceKind, start: Int, product: Int }
+
+// An open group. The top frame stands for the whole pattern and has no opening.
+record Frame = {
+    opening: Int,
+    capture: Option(Int),
+    name: Option(String),
+    saved: Flags,
+    branches: Vector(Expr),
+    pieces: Vector(Piece),
+    product: Int,
+}
+
+// What a backslash escape read (§2.3).
+union Escaped =
+    | EscapedPoint(point: Int)
+    | EscapedItems(items: Vector(ClassItem), negated: Bool)
+    | EscapedAnchor(kind: AnchorKind, text: String)
+
+// What a `(?` prefix opened (§2.6).
+union Opened =
+    | OpenedGroup(flags: Flags, next: Int)
+    | OpenedNamed(name: String, nameAt: Int, next: Int)
+    | OpenedSetting(flags: Flags, next: Int)
+
+// One member read inside a class.
+union Member =
+    | Single(point: Int)
+    | Several(items: Vector(ClassItem))
+
+let limit: Int = 1000
+
+let noFlags: Flags = Flags({ folded = False, multiLine = False, dotAll = False, extended = False })
+
+let fault(message: String, position: Int): RegexError =
+    RegexError({ message = message, position = position })
+
+// ---------------------------------------------------------------------------
+// Codepoints
+
+// The pattern's codepoints, each a one-codepoint `String`, so that positions are
+// indexes.
+let points(pattern: String): Vector(String) = Vector.fromSeq(Iterable.toSeq(pattern))
+
+let codeOf(point: String): Int = match String.toCodepoint(point)
+    Some(value) => value
+    None => -1
+
+let isAsciiLetter(point: String): Bool =
+    let code = codeOf(point)
+    (code >= 65 and code <= 90) or (code >= 97 and code <= 122)
+
+let isAsciiDigit(point: String): Bool =
+    let code = codeOf(point)
+    code >= 48 and code <= 57
+
+let digitValue(point: String): Int = codeOf(point) - 48
+
+let hexValue(point: String): Option(Int) =
+    let code = codeOf(point)
+    if code >= 48 and code <= 57 then
+        Some(code - 48)
+    else if code >= 65 and code <= 70 then
+        Some(code - 55)
+    else if code >= 97 and code <= 102 then
+        Some(code - 87)
+    else
+        None
+
+let isWhiteSpace(point: String): Bool = String.trim(point) == ""
+
+let isNameStart(point: String): Bool = isAsciiLetter(point) or point == "_"
+
+let isNameContinue(point: String): Bool = isNameStart(point) or isAsciiDigit(point)
+
+let isValidName(name: String): Bool =
+    var valid = name != ""
+    var first = True
+    for point in name
+        if first then
+            valid := valid and isNameStart(point)
+            first := False
+        else
+            valid := valid and isNameContinue(point)
+    valid
+
+// The pattern's text from `start` to `end`, inclusive; `""` when empty.
+let slice(pattern: String, start: Int, end: Int): String =
+    if start > end then "" else pattern[start..end]
+
+// The position after the run of ignored whitespace and comments at `position`
+// under `x` (§2.6), or `position` itself without it. An escaped codepoint is
+// never ignored, so the scan stops at a backslash.
+let skipIgnored(text: Vector(String), position: Int, extended: Bool): Int =
+    let size = Vector.length(text)
+    var at = position
+    var scanning = extended
+    while scanning and at <= size
+        let point = text[at]
+        if isWhiteSpace(point) then
+            at := at + 1
+        else if point == "#" then
+            at := at + 1
+            var inComment = True
+            while inComment and at <= size
+                if text[at] == "\n" then inComment := False
+                at := at + 1
+        else
+            scanning := False
+    at
+
+// ---------------------------------------------------------------------------
+// Escapes (§2.3)
+
+let refusedEscape(letter: String): Option(String) =
+    if isAsciiDigit(letter) and letter != "0" then
+        Some("`\\" ++ letter ++ "` is a backreference, which the dialect does not have")
+    else
+        match letter
+            "0" => Some("`\\0` is not an escape; write `\\u{…}`")
+            "x" => Some("`\\x` is not an escape; write `\\u{…}`")
+            "f" => Some("`\\f` is not an escape; write `\\u{…}`")
+            "v" => Some("`\\v` is not an escape; write `\\u{…}`")
+            "a" => Some("`\\a` is not an escape; write `\\u{…}`")
+            "e" => Some("`\\e` is not an escape; write `\\u{…}`")
+            "Q" => Some("`\\Q` is not an escape; quote text with `Regex.escape`")
+            "X" => Some("`\\X` is not an escape; the dialect has no grapheme atom")
+            "R" => Some("`\\R` is not an escape; the dialect has no linebreak atom")
+            "h" => Some("`\\h` is not an escape; the dialect has no horizontal-space atom")
+            "C" => Some("`\\C` is not an escape; the dialect has no byte atom")
+            "Z" => Some("`\\Z` is not an escape; write `\\z`, since the dialect has no before-final-newline anchor")
+            _ => None
+
+let perl(kind: PropertyKind, value: String, negated: Bool): Escaped =
+    EscapedItems([Property(kind, value, False)], negated)
+
+// ---------------------------------------------------------------------------
+// The admitted names (§2.4), generated from Unicode 17.0.0's PropertyAliases.txt
+// and PropertyValueAliases.txt by `compiler/scripts/generate-regex-names.mjs`.
+// Each table maps every admitted spelling to its canonical one: General_Category
+// values to their short names, Script values to their long names, and the six
+// binary properties to their long names.
+// BEGIN GENERATED NAMES
+let generalCategoryNames: Map(String, String) = Map.fromVector([
+    ("Lu", "Lu"), ("Uppercase_Letter", "Lu"), ("L", "L"), ("Letter", "L"), ("Nd", "Nd"), ("Decimal_Number", "Nd"),
+    ("M", "M"), ("Mark", "M"), ("Pc", "Pc"), ("Cs", "Cs"), ("C", "C"),
+])
+
+let scriptNames: Map(String, String) = Map.fromVector([
+    ("Grek", "Greek"), ("Greek", "Greek"), ("Latn", "Latin"), ("Latin", "Latin"),
+])
+
+let binaryNames: Map(String, String) = Map.fromVector([
+    ("Alphabetic", "Alphabetic"), ("Alpha", "Alphabetic"), ("White_Space", "White_Space"), ("WSpace", "White_Space"),
+    ("space", "White_Space"),
+])
+// END GENERATED NAMES
+
+// ---------------------------------------------------------------------------
+// Property names (§2.4)
+
+// The spelling a property was written with, for a message: `\p{Greek}` or `\pL`.
+let writtenProperty(letter: String, body: String, braced: Bool): String =
+    if braced then "\\" ++ letter ++ "{" ++ body ++ "}" else "\\" ++ letter ++ body
+
+let separatorAt(body: String): Option(Int) =
+    var at = 1
+    var found = None
+    for point in body
+        if found == None and (point == "=" or point == ":") then found := Some(at)
+        at := at + 1
+    found
+
+// The kind a property name before `=` selects. Only the three enumerated
+// properties take a value; the binary properties have no `=Yes` form.
+let valueKind(property: String): Option(PropertyKind) =
+    if property == "gc" or property == "General_Category" then
+        Some(GeneralCategory)
+    else if property == "sc" or property == "Script" then
+        Some(Script)
+    else if property == "scx" or property == "Script_Extensions" then
+        Some(ScriptExtensions)
+    else
+        None
+
+let tableOf(kind: PropertyKind): Map(String, String) = match kind
+    GeneralCategory => generalCategoryNames
+    Script => scriptNames
+    ScriptExtensions => scriptNames
+    _ => Map.empty
+
+let lookupValue(kind: PropertyKind, value: String): Option(String) = Map.get(tableOf(kind), value)
+
+// A bare name: a General_Category value, then a Script value, then a binary
+// property, then `Any`, `ASCII`, `Assigned` (§2.4; the spaces are disjoint).
+let lookupBare(name: String): Option((PropertyKind, String)) =
+    match Map.get(generalCategoryNames, name)
+        Some(value) => Some((GeneralCategory, value))
+        None => match Map.get(scriptNames, name)
+            Some(value) => Some((Script, value))
+            None => match Map.get(binaryNames, name)
+                Some(value) => Some((Binary, value))
+                None =>
+                    if name == "Any" then
+                        Some((Any, ""))
+                    else if name == "ASCII" then
+                        Some((Ascii, ""))
+                    else if name == "Assigned" then
+                        Some((Assigned, ""))
+                    else
+                        None
+
+// A name with case, underscores, hyphens and spaces erased, for the advice a
+// refused loose spelling gets.
+let loosened(name: String): String =
+    var chunks: Vector(String) = []
+    for point in name
+        let code = codeOf(point)
+        if not (point == "_" or point == "-" or point == " ") then
+            chunks := chunks.append(if code >= 65 and code <= 90 then String.toLower(point) else point)
+    String.join(Iterable.toSeq(chunks), "")
+
+let looseIn(names: Vector(String), name: String): Option(String) =
+    let wanted = loosened(name)
+    var found = None
+    for candidate in names
+        if found == None and loosened(candidate) == wanted then found := Some(candidate)
+    found
+
+let spellings(table: Map(String, String)): Vector(String) = Vector.fromSeq(Map.keys(table))
+
+let looseValue(kind: PropertyKind, value: String): Option(String) = looseIn(spellings(tableOf(kind)), value)
+
+let looseOrExact(kind: PropertyKind, value: String): Option(String) = match lookupValue(kind, value)
+    Some(_) => Some(value)
+    None => looseValue(kind, value)
+
+let looseProperty(property: String): Option(String) =
+    looseIn(["gc", "General_Category", "sc", "Script", "scx", "Script_Extensions"], property)
+
+let looseBare(name: String): Option(String) =
+    match looseIn(spellings(generalCategoryNames), name)
+        Some(found) => Some(found)
+        None => match looseIn(spellings(scriptNames), name)
+            Some(found) => Some(found)
+            None => match looseIn(spellings(binaryNames), name)
+                Some(found) => Some(found)
+                None => looseIn(["Any", "ASCII", "Assigned"], name)
+
+// The property a `\p` body names, by exact spelling; or, refused, the canonical
+// spelling of what it loosely matches, if anything (§2.4: no loose matching, but
+// the message names the spelling).
+let lookupProperty(body: String): Result((PropertyKind, String), Option(String)) =
+    match separatorAt(body)
+        Some(at) =>
+            let property = slice(body, 1, at - 1)
+            let separator = body[at..at]
+            let value = slice(body, at + 1, String.length(body))
+            match valueKind(property)
+                Some(kind) => match lookupValue(kind, value)
+                    Some(canonical) => Ok((kind, canonical))
+                    None => Err(looseValue(kind, value).map((spelling) => property ++ separator ++ spelling))
+                None => Err(looseProperty(property).flatMap((spelling) =>
+                    match valueKind(spelling)
+                        Some(kind) => looseOrExact(kind, value).map((found) => spelling ++ separator ++ found)
+                        None => None))
+        None => match lookupBare(body)
+            Some(found) => Ok(found)
+            None => Err(looseBare(body))
+
+let propertyEscape(
+    found: Result((PropertyKind, String), Option(String)),
+    letter: String,
+    body: String,
+    braced: Bool,
+    negated: Bool,
+    position: Int,
+    next: Int,
+): Result((Escaped, Int), RegexError) =
+    match found
+        Ok((kind, value)) => Ok((perl(kind, value, negated), next))
+        Err(suggestion) =>
+            let written = writtenProperty(letter, body, braced)
+            let advice = match suggestion
+                Some(spelling) => "; write `\\" ++ letter ++ "{" ++ spelling ++ "}`"
+                None => ""
+            Err(fault("`" ++ written ++ "` names no supported property" ++ advice, position))
+
+// `\p{…}` or `\pL` whose backslash is at `position`.
+let readProperty(pattern: String, text: Vector(String), position: Int, negated: Bool): Result((Escaped, Int), RegexError) =
+    let size = Vector.length(text)
+    let letter = if negated then "P" else "p"
+    let badForm = fault("`\\" ++ letter ++ "` takes one letter or a braced name", position)
+    let open = position + 2
+    if open > size then
+        Err(badForm)
+    else if text[open] == "{" then
+        var close = open + 1
+        while close <= size and text[close] != "}"
+            close := close + 1
+        if close > size or close == open + 1 then
+            Err(badForm)
+        else
+            let body = slice(pattern, open + 1, close - 1)
+            if text[open + 1] == "^" then
+                let name = slice(pattern, open + 2, close - 1)
+                let other = if negated then "p" else "P"
+                Err(fault("`\\" ++ letter ++ "{^" ++ name ++ "}` is not a spelling; write `\\" ++ other ++ "{" ++ name ++ "}`", position))
+            else
+                propertyEscape(lookupProperty(body), letter, body, True, negated, position, close + 1)
+    else if isAsciiLetter(text[open]) then
+        let body = text[open]
+        propertyEscape(lookupProperty(body), letter, body, False, negated, position, open + 1)
+    else
+        Err(badForm)
+
+// ---------------------------------------------------------------------------
+// Reading an escape (§2.3)
+
+// `\u{H…}`, read whole: one to six hexadecimal digits, at most U+10FFFF, not a
+// surrogate (Lexer §6.2's form and bounds).
+let readCodeEscape(text: Vector(String), position: Int): Result((Escaped, Int), RegexError) =
+    let size = Vector.length(text)
+    let refusal = fault("`\\u{…}` takes one to six hexadecimal digits up to 10FFFF, not a surrogate", position)
+    if position + 2 > size or text[position + 2] != "{" then
+        Err(refusal)
+    else
+        var at = position + 3
+        var value = 0
+        var digits = 0
+        var reading = True
+        while reading and at <= size
+            match hexValue(text[at])
+                Some(digit) =>
+                    value := value * 16 + digit
+                    digits := digits + 1
+                    at := at + 1
+                None => reading := False
+        if digits == 0 or digits > 6 or at > size or text[at] != "}" then
+            Err(refusal)
+        else if value > 1_114_111 or (value >= 55_296 and value <= 57_343) then
+            Err(refusal)
+        else
+            Ok((EscapedPoint(value), at + 1))
+
+// The escape whose backslash is at `position`, and the position after it.
+let readEscape(pattern: String, text: Vector(String), position: Int): Result((Escaped, Int), RegexError) =
+    let size = Vector.length(text)
+    if position + 1 > size then
+        Err(fault("pattern ends inside an escape", size + 1))
+    else
+        let letter = text[position + 1]
+        let next = position + 2
+        if not (isAsciiLetter(letter) or isAsciiDigit(letter)) then
+            if codeOf(letter) < 0 then
+                Err(fault("a lone surrogate cannot be read in a pattern yet", position + 1))
+            else
+                Ok((EscapedPoint(codeOf(letter)), next))
+        else
+            match letter
+                "n" => Ok((EscapedPoint(10), next))
+                "t" => Ok((EscapedPoint(9), next))
+                "r" => Ok((EscapedPoint(13), next))
+                "u" => readCodeEscape(text, position)
+                "d" => Ok((perl(GeneralCategory, "Nd", False), next))
+                "D" => Ok((perl(GeneralCategory, "Nd", True), next))
+                "s" => Ok((perl(Binary, "White_Space", False), next))
+                "S" => Ok((perl(Binary, "White_Space", True), next))
+                "w" => Ok((perl(Word, "", False), next))
+                "W" => Ok((perl(Word, "", True), next))
+                "p" => readProperty(pattern, text, position, False)
+                "P" => readProperty(pattern, text, position, True)
+                "b" => Ok((EscapedAnchor(WordBoundary, "\\b"), next))
+                "B" => Ok((EscapedAnchor(NotWordBoundary, "\\B"), next))
+                "A" => Ok((EscapedAnchor(TextStart, "\\A"), next))
+                "z" => Ok((EscapedAnchor(TextEnd, "\\z"), next))
+                _ => match refusedEscape(letter)
+                    Some(message) => Err(fault(message, position))
+                    None => Err(fault("`\\" ++ letter ++ "` is not an escape; write `" ++ letter ++ "`, or see the escape table", position))
+
+// ---------------------------------------------------------------------------
+// Classes (§2.4)
+
+// `ranges` with `[low, high]` added, kept sorted, disjoint and merged.
+let addRange(ranges: Vector((Int, Int)), low: Int, high: Int): Vector((Int, Int)) =
+    var result: Vector((Int, Int)) = []
+    var pendingLow = low
+    var pendingHigh = high
+    var placed = False
+    for (existingLow, existingHigh) in ranges
+        if placed then
+            result := result.append((existingLow, existingHigh))
+        else if existingHigh + 1 < pendingLow then
+            result := result.append((existingLow, existingHigh))
+        else if pendingHigh + 1 < existingLow then
+            result := result.append((pendingLow, pendingHigh)).append((existingLow, existingHigh))
+            placed := True
+        else
+            pendingLow := if existingLow < pendingLow then existingLow else pendingLow
+            pendingHigh := if existingHigh > pendingHigh then existingHigh else pendingHigh
+    if placed then result else result.append((pendingLow, pendingHigh))
+
+let complemented(items: Vector(ClassItem)): Vector(ClassItem) =
+    var result: Vector(ClassItem) = []
+    for item in items
+        result := result.append(match item
+            Property(kind, value, negated) => Property(kind, value, not negated)
+            Range(low, high) => Range(low, high))
+    result
+
+let rangeEndFault(position: Int): RegexError =
+    fault("a range's ends are single codepoints; write `\\-` for a literal hyphen", position)
+
+let innerBracketFault(text: Vector(String), position: Int): RegexError =
+    if position + 1 <= Vector.length(text) and text[position + 1] == ":" then
+        fault("`[` inside a class must be written `\\[`; POSIX classes are not part of the dialect; write `\\p{Alphabetic}`", position)
+    else
+        fault("`[` inside a class must be written `\\[`", position)
+
+// One member at `position` inside a class: a codepoint or a class escape's items.
+let readMember(pattern: String, text: Vector(String), position: Int): Result((Member, Int), RegexError) =
+    let point = text[position]
+    if point == "\\" then
+        match readEscape(pattern, text, position)
+            Ok((EscapedPoint(value), next)) => Ok((Single(value), next))
+            Ok((EscapedItems(items, negated), next)) =>
+                Ok((Several(if negated then complemented(items) else items), next))
+            Ok((EscapedAnchor(_, written), _)) =>
+                Err(fault("`" ++ written ++ "` is an assertion, not a codepoint; a class cannot hold it", position))
+            Err(error) => Err(error)
+    else if point == "[" then
+        Err(innerBracketFault(text, position))
+    else if codeOf(point) < 0 then
+        Err(fault("a lone surrogate cannot be read in a pattern yet", position))
+    else
+        Ok((Single(codeOf(point)), position + 1))
+
+// The class whose `[` is at `open`, and the position after its `]`.
+let readClass(pattern: String, text: Vector(String), open: Int, folded: Bool): Result((Expr, Int), RegexError) =
+    let size = Vector.length(text)
+    var position = open + 1
+    var negated = False
+    if position <= size and text[position] == "^" then
+        negated := True
+        position := position + 1
+    let first = position
+    var ranges: Vector((Int, Int)) = []
+    var properties: Vector(ClassItem) = []
+    var failure: Option(RegexError) = None
+    var reading = True
+    if position <= size and text[position] == "]" then
+        failure := Some(fault("empty class; write `\\]` for a literal `]`", open))
+        reading := False
+    while reading
+        if position > size then
+            failure := Some(fault("missing `]` for the class opened here", open))
+            reading := False
+        else if text[position] == "]" then
+            position := position + 1
+            reading := False
+        else if text[position] == "-" and position != first and not (position + 1 <= size and text[position + 1] == "]") then
+            failure := Some(rangeEndFault(position))
+            reading := False
+        else
+            match readMember(pattern, text, position)
+                Err(error) =>
+                    failure := Some(error)
+                    reading := False
+                Ok((Several(items), next)) =>
+                    properties := properties ++ items
+                    position := next
+                Ok((Single(low), next)) =>
+                    let hyphen = next
+                    let isRange = hyphen + 1 <= size and text[hyphen] == "-" and text[hyphen + 1] != "]"
+                    if not isRange then
+                        ranges := addRange(ranges, low, low)
+                        position := next
+                    else
+                        let highAt = hyphen + 1
+                        match readMember(pattern, text, highAt)
+                            Err(error) =>
+                                failure := Some(error)
+                                reading := False
+                            Ok((Several(_), _)) =>
+                                failure := Some(rangeEndFault(hyphen))
+                                reading := False
+                            Ok((Single(highValue), after)) =>
+                                if highValue < low then
+                                    let written = slice(pattern, position, after - 1)
+                                    failure := Some(fault("range `" ++ written ++ "` is reversed", highAt))
+                                    reading := False
+                                else
+                                    ranges := addRange(ranges, low, highValue)
+                                    position := after
+    match failure
+        Some(error) => Err(error)
+        None =>
+            var items: Vector(ClassItem) = []
+            for (low, high) in ranges
+                items := items.append(Range(low, high))
+            Ok((Class(items ++ properties, negated, folded), position))
+
+// ---------------------------------------------------------------------------
+// Repetition (§2.5)
+
+let readDigits(text: Vector(String), position: Int): (Int, Int, Int) =
+    let size = Vector.length(text)
+    var at = position
+    var value = 0
+    while at <= size and isAsciiDigit(text[at])
+        value := if value > 100_000 then value else value * 10 + digitValue(text[at])
+        at := at + 1
+    (value, at - position, at)
+
+// The counted repetition whose `{` is at `open`: its minimum, its maximum, and
+// the position after its `}`; read whole, so no `x`-mode space may fall inside.
+let readCount(text: Vector(String), open: Int): Result((Int, Option(Int), Int), RegexError) =
+    let size = Vector.length(text)
+    let refusal = fault("`{` must begin a counted repetition `{n}`, `{n,}`, or `{n,m}`; write `\\{` for a literal", open)
+    let (low, lowDigits, afterLow) = readDigits(text, open + 1)
+    if lowDigits == 0 or afterLow > size then
+        Err(refusal)
+    else if text[afterLow] == "}" then
+        Ok((low, Some(low), afterLow + 1))
+    else if text[afterLow] != "," then
+        Err(refusal)
+    else if afterLow + 1 <= size and text[afterLow + 1] == "}" then
+        Ok((low, None, afterLow + 2))
+    else
+        let (high, highDigits, afterHigh) = readDigits(text, afterLow + 1)
+        if highDigits == 0 or afterHigh > size or text[afterHigh] != "}" then
+            Err(refusal)
+        else
+            Ok((low, Some(high), afterHigh + 1))
+
+// ---------------------------------------------------------------------------
+// Groups and flags (§2.6)
+
+let flagLetter(flags: Flags, letter: String, value: Bool): Flags = match letter
+    "i" => { flags with folded = value }
+    "m" => { flags with multiLine = value }
+    "s" => { flags with dotAll = value }
+    _ => { flags with extended = value }
+
+// The flags of `(?flags)` or `(?flags:` whose first letter is at `position`, the
+// position of its closing `)` or `:`, and whether it closed with `)`.
+let readFlags(text: Vector(String), position: Int, opening: Int, flags: Flags): Result((Flags, Int, Bool), RegexError) =
+    let size = Vector.length(text)
+    var at = position
+    var result = flags
+    var seen: Vector(String) = []
+    var clearing = False
+    var afterHyphen = 0
+    var failure: Option(RegexError) = None
+    var closed = False
+    var reading = True
+    while reading
+        if at > size then
+            failure := Some(fault("missing `)` for the group opened here", opening))
+            reading := False
+        else
+            let point = text[at]
+            if point == ")" or point == ":" then
+                if not clearing and Vector.length(seen) == 0 then
+                    failure := Some(fault("`(?)` sets no flag", at))
+                else if clearing and afterHyphen == 0 then
+                    failure := Some(fault("nothing follows `-`", at))
+                closed := point == ")"
+                reading := False
+            else if point == "-" and not clearing then
+                clearing := True
+                at := at + 1
+            else if point == "i" or point == "m" or point == "s" or point == "x" then
+                var twice = False
+                for letter in seen
+                    if letter == point then twice := True
+                if twice then
+                    failure := Some(fault("`" ++ point ++ "` is set twice", at))
+                    reading := False
+                else
+                    seen := seen.append(point)
+                    result := flagLetter(result, point, not clearing)
+                    if clearing then afterHyphen := afterHyphen + 1
+                    at := at + 1
+            else
+                failure := Some(fault("`" ++ point ++ "` is not a flag; the flags are `i`, `m`, `s`, `x`", at))
+                reading := False
+    match failure
+        Some(error) => Err(error)
+        None => Ok((result, at, closed))
+
+// A group name after the `<` at `angle`.
+let readName(pattern: String, text: Vector(String), angle: Int): Result(Opened, RegexError) =
+    let size = Vector.length(text)
+    var close = angle + 1
+    while close <= size and text[close] != ">" and text[close] != ")"
+        close := close + 1
+    if close > size or text[close] == ")" then
+        Err(fault("group name is not closed; write `(?<year>…)`", angle))
+    else
+        let name = slice(pattern, angle + 1, close - 1)
+        if isValidName(name) then
+            Ok(OpenedNamed(name, angle + 1, close + 1))
+        else
+            Err(fault("group name must match `[A-Za-z_][A-Za-z0-9_]*`", angle + 1))
+
+// The `(?` prefix whose `(` is at `opening`.
+let readPrefix(pattern: String, text: Vector(String), opening: Int, flags: Flags): Result(Opened, RegexError) =
+    let size = Vector.length(text)
+    let question = opening + 1
+    let at = opening + 2
+    let generic = fault("`(?` must be followed by `:`, `P<`, `<`, or flags", question)
+    let next = if at + 1 <= size then text[at + 1] else ""
+    if at > size then
+        Err(generic)
+    else
+        let point = text[at]
+        if point == ":" then
+            Ok(OpenedGroup(flags, at + 1))
+        else if point == "=" then
+            Err(fault("`(?=` is lookahead, which the dialect does not have", question))
+        else if point == "!" then
+            Err(fault("`(?!` is negative lookahead, which the dialect does not have", question))
+        else if point == "<" and next == "=" then
+            Err(fault("`(?<=` is lookbehind, which the dialect does not have", question))
+        else if point == "<" and next == "!" then
+            Err(fault("`(?<!` is negative lookbehind, which the dialect does not have", question))
+        else if point == "<" then
+            readName(pattern, text, at)
+        else if point == "P" and next == "<" then
+            readName(pattern, text, at + 1)
+        else if point == "P" and next == "=" then
+            Err(fault("`(?P=` is a backreference, which the dialect does not have", question))
+        else if isAsciiLetter(point) or point == "-" or point == ")" then
+            match readFlags(text, at, opening, flags)
+                Ok((result, close, True)) => Ok(OpenedSetting(result, close + 1))
+                Ok((result, close, False)) => Ok(OpenedGroup(result, close + 1))
+                Err(error) => Err(error)
+        else
+            Err(generic)
+
+// ---------------------------------------------------------------------------
+// Sequences
+
+let sequenceOf(pieces: Vector(Piece)): Expr =
+    var parts: Vector(Expr) = []
+    for piece in pieces
+        let isSetting = match piece.kind
+            Setting(_) => True
+            _ => False
+        if not isSetting then parts := parts.append(piece.expr)
+    match parts
+        [] => Empty
+        [only] => only
+        _ => Concat(parts)
+
+let alternationOf(branches: Vector(Expr)): Expr = match branches
+    [only] => only
+    _ => Alternate(branches)
+
+let productOf(pieces: Vector(Piece)): Int =
+    var largest = 1
+    for piece in pieces
+        if piece.product > largest then largest := piece.product
+    largest
+
+let literalOf(point: Int, flags: Flags): Expr =
+    if flags.folded then Class([Range(point, point)], False, True) else Literal(point)
+
+let atom(expr: Expr, start: Int): Piece = Piece({ expr = expr, kind = Atom, start = start, product = 1 })
+
+let frameOf(opening: Int, capture: Option(Int), name: Option(String), saved: Flags): Frame =
+    Frame({
+        opening = opening,
+        capture = capture,
+        name = name,
+        saved = saved,
+        branches = [],
+        pieces = [],
+        product = 1,
+    })
+
+let withPiece(frames: Vector(Frame), piece: Piece): Vector(Frame) =
+    let depth = Vector.length(frames)
+    let top = frames[depth]
+    Vector.set(frames, depth, { top with pieces = top.pieces.append(piece) })
+
+let isQuantifier(point: String): Bool = point == "*" or point == "+" or point == "?" or point == "{"
+
+// The quantifier at `position` applied to the last piece of the top frame.
+let quantify(
+    pattern: String,
+    text: Vector(String),
+    frames: Vector(Frame),
+    position: Int,
+    flags: Flags,
+): Result((Vector(Frame), Int), RegexError) =
+    let size = Vector.length(text)
+    let point = text[position]
+    let counted = if point == "{" then
+        readCount(text, position)
+    else if point == "*" then
+        Ok((0, None, position + 1))
+    else if point == "+" then
+        Ok((1, None, position + 1))
+    else
+        Ok((0, Some(1), position + 1))
+    match counted
+        Err(error) => Err(error)
+        Ok((low, high, afterCount)) =>
+            let lazyAt = skipIgnored(text, afterCount, flags.extended)
+            let lazy = lazyAt <= size and text[lazyAt] == "?"
+            let after = if lazy then lazyAt + 1 else afterCount
+            let written = slice(pattern, position, after - 1)
+            let depth = Vector.length(frames)
+            let top = frames[depth]
+            let count = Vector.length(top.pieces)
+            if count == 0 then
+                Err(fault("nothing to repeat before `" ++ written ++ "`", position))
+            else
+                let last = top.pieces[count]
+                match last.kind
+                    Asserted(assertion) =>
+                        Err(fault("nothing to repeat before `" ++ written ++ "`; `" ++ assertion ++ "` is an assertion, not an atom", position))
+                    Setting(setting) =>
+                        Err(fault("nothing to repeat before `" ++ written ++ "`; `" ++ setting ++ "` sets flags, not an atom", position))
+                    Quantified(previous) =>
+                        let repeated = slice(pattern, last.start, position - 1)
+                        Err(fault("`" ++ previous ++ written ++ "` repeats a repetition; write `(" ++ repeated ++ ")" ++ written ++ "`", position))
+                    Atom =>
+                        let maximum = match high
+                            Some(value) => value
+                            None => low
+                        if point == "{" and (low > limit or maximum > limit) then
+                            Err(fault("repetition count exceeds 1000", position))
+                        else if low > maximum and high != None then
+                            Err(fault("`" ++ slice(pattern, position, afterCount - 1) ++ "` has a minimum above its maximum", position))
+                        else
+                            let factor = if point == "{" and maximum > 1 then maximum else 1
+                            let product = factor * last.product
+                            if product > limit then
+                                Err(fault("nested repetition counts multiply past 1000", position))
+                            else
+                                let repeated = Piece({
+                                    expr = Repeat(last.expr, low, high, not lazy),
+                                    kind = Quantified(written),
+                                    start = last.start,
+                                    product = product,
+                                })
+                                let pieces = Vector.set(top.pieces, count, repeated)
+                                Ok((Vector.set(frames, depth, { top with pieces = pieces }), after))
+
+// ---------------------------------------------------------------------------
+// The parser
+
+(** Parses `pattern` as the dialect of `spec/regex.md` §2: the tree, or the
+    first fault in reading order. *)
+export let parse(pattern: String): Result(Pattern, RegexError) =
+    let text = points(pattern)
+    let size = Vector.length(text)
+    var frames: Vector(Frame) = [frameOf(0, None, None, noFlags)]
+    var flags = noFlags
+    var count = 0
+    var names: Map(String, Int) = Map.empty
+    var position = 1
+    var failure: Option(RegexError) = None
+    var reading = True
+    while reading
+        position := skipIgnored(text, position, flags.extended)
+        if position > size then
+            reading := False
+        else
+            let point = text[position]
+            let depth = Vector.length(frames)
+            let top = frames[depth]
+            if point == "|" then
+                let finished = top.branches.append(sequenceOf(top.pieces))
+                let product = if productOf(top.pieces) > top.product then productOf(top.pieces) else top.product
+                frames := Vector.set(frames, depth, { top with branches = finished, pieces = [], product = product })
+                position := position + 1
+            else if point == ")" then
+                if depth == 1 then
+                    failure := Some(fault("unmatched `)`; write `\\)` for a literal", position))
+                    reading := False
+                else
+                    let body = alternationOf(top.branches.append(sequenceOf(top.pieces)))
+                    let product = if productOf(top.pieces) > top.product then productOf(top.pieces) else top.product
+                    let group = match top.capture
+                        Some(index) => Capture(body, index, top.name)
+                        None => body
+                    flags := top.saved
+                    let piece = Piece({ expr = group, kind = Atom, start = top.opening, product = product })
+                    frames := withPiece(Vector.dropLast(frames), piece)
+                    position := position + 1
+            else if point == "(" then
+                if depth > limit then
+                    failure := Some(fault("nesting deeper than 1000", position))
+                    reading := False
+                else if position + 1 <= size and text[position + 1] == "?" then
+                    match readPrefix(pattern, text, position, flags)
+                        Err(error) =>
+                            failure := Some(error)
+                            reading := False
+                        Ok(OpenedGroup(inner, next)) =>
+                            frames := frames.append(frameOf(position, None, None, flags))
+                            flags := inner
+                            position := next
+                        Ok(OpenedSetting(inner, next)) =>
+                            let setting = Piece({
+                                expr = Empty,
+                                kind = Setting(slice(pattern, position, next - 1)),
+                                start = position,
+                                product = 1,
+                            })
+                            frames := withPiece(frames, setting)
+                            flags := inner
+                            position := next
+                        Ok(OpenedNamed(name, nameAt, next)) =>
+                            if Map.containsKey(names, name) then
+                                failure := Some(fault("group `" ++ name ++ "` is already defined", nameAt))
+                                reading := False
+                            else
+                                count := count + 1
+                                names := Map.set(names, name, count)
+                                frames := frames.append(frameOf(position, Some(count), Some(name), flags))
+                                position := next
+                else
+                    count := count + 1
+                    frames := frames.append(frameOf(position, Some(count), None, flags))
+                    position := position + 1
+            else if isQuantifier(point) then
+                match quantify(pattern, text, frames, position, flags)
+                    Err(error) =>
+                        failure := Some(error)
+                        reading := False
+                    Ok((updated, next)) =>
+                        frames := updated
+                        position := next
+            else if point == "[" then
+                match readClass(pattern, text, position, flags.folded)
+                    Err(error) =>
+                        failure := Some(error)
+                        reading := False
+                    Ok((expr, next)) =>
+                        frames := withPiece(frames, atom(expr, position))
+                        position := next
+            else if point == "\\" then
+                match readEscape(pattern, text, position)
+                    Err(error) =>
+                        failure := Some(error)
+                        reading := False
+                    Ok((EscapedPoint(value), next)) =>
+                        frames := withPiece(frames, atom(literalOf(value, flags), position))
+                        position := next
+                    Ok((EscapedItems(items, negated), next)) =>
+                        frames := withPiece(frames, atom(Class(items, negated, flags.folded), position))
+                        position := next
+                    Ok((EscapedAnchor(kind, written), next)) =>
+                        let piece = Piece({ expr = Anchor(kind), kind = Asserted(written), start = position, product = 1 })
+                        frames := withPiece(frames, piece)
+                        position := next
+            else if point == "^" or point == "$" then
+                let kind = if point == "^" then
+                    if flags.multiLine then LineStart else TextStart
+                else
+                    if flags.multiLine then LineEnd else TextEnd
+                let piece = Piece({ expr = Anchor(kind), kind = Asserted(point), start = position, product = 1 })
+                frames := withPiece(frames, piece)
+                position := position + 1
+            else if point == "." then
+                frames := withPiece(frames, atom(Dot(flags.dotAll), position))
+                position := position + 1
+            else if codeOf(point) < 0 then
+                failure := Some(fault("a lone surrogate cannot be read in a pattern yet", position))
+                reading := False
+            else
+                frames := withPiece(frames, atom(literalOf(codeOf(point), flags), position))
+                position := position + 1
+    match failure
+        Some(error) => Err(error)
+        None =>
+            let depth = Vector.length(frames)
+            let top = frames[depth]
+            if depth > 1 then
+                Err(fault("missing `)` for the group opened here", top.opening))
+            else
+                let root = alternationOf(top.branches.append(sequenceOf(top.pieces)))
+                Ok(Pattern({ root = root, groupCount = count, names = names }))

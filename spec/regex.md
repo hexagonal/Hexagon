@@ -1,6 +1,6 @@
 # Hexagon Spec: `Regex`
 
-**Status:** Decided (#927 — the eight rulings this document records; the foundations it stands on landed at #928). Scheduled, nothing shipped: `stdlib/Regex.hex`, `stdlib/Regex/Syntax.hex`, and `stdlib/Runtime/Regex.hex` implement this surface when the arc's implementation lands, and this document is their contract (`stdlib-roadmap.md` §5 records the row).
+**Status:** Decided (#927 — the eight rulings this document records; the foundations it stands on landed at #928). Partly shipped: `stdlib/Regex/Syntax.hex`, the parser and tree of §2 and §5, has landed; `stdlib/Regex.hex` and the engine in `stdlib/Runtime/Regex.hex` implement the rest when their arcs land, and this document is the contract of all three (`stdlib-roadmap.md` §5 records the row).
 **Scope:** The pattern language (the dialect), matching semantics, the public surface of `Regex`, the public syntax tree of `Regex.Syntax`, the obligations on the engine `Hex.Runtime.Regex`, the door inventory the three modules declare, and literal-pattern emission.
 **Not in scope:** The intrinsic `type` form and the Hex-wide door (Intrinsics §3.3, §5.2 — assumed); species (d) itself (Effects §6.2 — assumed); the String companion's own text-processing surface (`string-text-processing.md`, whose currency this document adopts and whose one divergence it names); compile-time diagnostics for literal patterns and typed captures (§10, later rulings).
 **Companions:** `string-text-processing.md` (positions, the codepoint unit, Unicode version, full folding), `intrinsics.md` (§3.3 the `type` form, §4.2 sealed rows, §5.2 the gate), `effects.md` (§6.2 species (d), §7 the sequence posture), Loops §6 (`Seq`), Modules §4.2 (`opaque`), Method Syntax §4 (the dot), `stdlib-roadmap.md`.
@@ -295,7 +295,7 @@ Regex.split(regex: Regex, text: String): Vector(String)
 ```
 
 - `replace` and `replaceFirst` replace every match of §3.5's enumeration, or the first, with `replacement` **unchanged** — a literal, with no `$1`, `${name}`, or `\1` interpretation, the String companion's rule (`string-text-processing.md` §6). Unmatched text keeps its spelling; inserted text is never searched again; no match leaves the input unchanged.
-- `replaceWith` and `replaceFirstWith` compute each replacement from its `Match` — group text, positions, the subject — which is the whole of what a token language would have said, in Hexagon. The callback is a `->!` callback on the `Seq` consumers' precedent, with a colour of its own (Effects §2.4): pure in, pure and bare out; anything else in, and the call wears `!` (Effects §4.1). This amends Decision 7, which wrote the parameter `Match -> String`: the callback makes an effectful replacer ordinary under `!` where the pure arrow would make it a type error (§13). The callback is invoked once per replaced match, in order, and never for a match it does not replace; an exception it throws propagates from the call, and no partial result escapes.
+- `replaceWith` and `replaceFirstWith` compute each replacement from its `Match` — group text, positions, the subject — which is the whole of what a token language would have said, in Hexagon. The callback is a `->!` callback on the `Seq` consumers' precedent, with a colour of its own on each colour (Effects §2.4): a replacer that is pure and cannot fail leaves the call bare, and any other makes the call wear the mark its colours call for (Effects §3.1). This amends Decision 7, which wrote the parameter `Match -> String`: the callback makes an effectful replacer ordinary under its mark where the pure arrow would make it a type error (§13). The callback is invoked once per replaced match, in order, and never for a match it does not replace; an exception it throws propagates from the call, and no partial result escapes.
 - `split` answers the pieces of `text` between the matches of §3.5's enumeration — assembled in one pass over the subject, as are the unmatched runs of the `replace` family (§6.4) —, preserving empty pieces at both ends and between adjacent matches, so that `String.join(regex.split(text).toSeq(), sep)` reconstructs `text` when every match spelled `sep`. On the empty pattern it agrees with `String.split(text, "")`; a pattern that matches nowhere answers `[text]`.
 
 ### 4.5 `Match` accessors
@@ -490,7 +490,7 @@ Each below needs its own ruling; none is implied by this document.
 
 | Decision | Where |
 |---|---|
-| Own engine on the RE2 path; no host `RegExp`; codepoint unit; pure surface over a `->!` engine | §1 |
+| Own engine on the RE2 path; no host `RegExp`; codepoint unit; pure surface over a `->~` engine | §1 |
 | Spans are 1-based codepoint positions and counts; empty matches at boundary positions; no code unit on the public surface, the search row's cursor the one internal exception | §3.1 |
 | Lone surrogates: one codepoint, no properties, never rejected or replaced; Unicode 17.0.0 by recorded update | §3.6 |
 | A pattern is a `String`; positions 1-based codepoints; no raw-string form in v1 | §2.1 |
@@ -506,7 +506,7 @@ Each below needs its own ruling; none is implied by this document.
 | Empty-match iteration = RE2/Go's rule; `split` agrees with `String.split` on `""` | §3.5 |
 | `Regex` opaque over `Program`, no `Eq`/`Hash`, `Show` = source; `Match` opaque — `whole`, `groups`, `names` — holding its `Group`s with texts cut by the engine, eager cut accepted, accessors are reads — a field read, one vector read, one name-table lookup; `Group` transparent | §4.1, §4.5 |
 | Surface: `compile`, `escape`, `source`, `groupCount`, `groupIndex`, `isMatch`, `find`, `findFrom`, `findAll`, `replace`/`replaceFirst`/`replaceWith`/`replaceFirstWith`, `split` | §4.2–§4.4 |
-| Decision 7 amended: replacement callbacks are `Match ->! String` callbacks where it wrote `Match -> String`; an effectful replacer is ordinary under `!` rather than a type error | §4.4 |
+| Decision 7 amended: replacement callbacks are `Match ->! String` callbacks where it wrote `Match -> String`; an effectful replacer is ordinary under its mark rather than a type error | §4.4 |
 | Refusals: no token language, no flags argument, no `RegExp` conversion, no `Eq`/`Hash`, no re-export of `RegexError`, no `Vector`/`count` conveniences | §4.6 |
 | `Regex.Syntax` door-free and pure; flags resolved in the tree; property values canonical; explicit ranges normalized; one tree per construct; no source spans in v1 | §5 |
 | Decision 4 amended: the Unicode-table keys and the resolution they serve move from `Regex.Syntax` to the engine; the parser keeps the names as a generated table | §5, §7 |
