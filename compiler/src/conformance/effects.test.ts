@@ -5920,6 +5920,16 @@ export let x: Int = 1
         "`a` is called bare, which makes it pure and unable to fail",
       0,
     ]]);
+    // In a knot, a sibling's bare call is named, whichever member comes first (#1379).
+    const ping = "    ping(t, n: Int): Unit = if n > 0 then pong(t, n - 1) else ()\n";
+    const pong = "    pong(t, n: Int): Unit =\n        let (a, _) = t\n        a()\n        ping(t, n)\n";
+    for (const members of [[ping, pong], [pong, ping]]) {
+      expect([members, reports("fun\n" + members.join("") + "export let p(): Unit = ping((save0, 1), 3)\n")]).toEqual([members, [[
+        "this function is impure and may fail, where the function handed must be pure and unable to fail — " +
+          "`a` is called bare, which makes it pure and unable to fail",
+        0,
+      ]]]);
+    }
     // A colour another parameter holds too is decided by no fact (§3.4).
     for (const source of [
       "let use(f, g, t) =\n    let (a, _) = t\n    let h = if True then (if True then f else g) else a\n    a()\n" +

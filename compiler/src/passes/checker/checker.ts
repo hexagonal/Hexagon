@@ -24716,13 +24716,27 @@ class Checker {
         // decided by no fact: a bare call through one says nothing of the
         // other (§3.4).
         if (frame.untyped.some((other) => other !== parameter && this.#colourVariables(other.type).includes(part))) continue;
-        const spelled = this.#spelledExpression(ungrouped(call.callee));
+        // Named by a call that runs the arrow itself (`a()`), where the first
+        // reader is a call of a function that runs it (`pong(t, n - 1)`).
+        // In a knot, a sibling's bare call reads it too, whichever member
+        // closes first (#1379).
+        const knotReaders = this.#knotFacts?.frames.has(frame) === true
+          ? this.#knotFacts.calls.filter(({ call: each }) => !markParts(each.mark)[axis]).map(({ call: each }) => each)
+          : [];
+        const direct = [...(readersOf.get(part) ?? [call]), ...knotReaders].find((reader) => {
+          const named = ungrouped(reader.callee);
+          if (named.kind === "Name" && this.#knotMembers.has(named.symbol)) return false;
+          const type = this.#expressionTypes.get(reader.callee);
+          const callee = type === undefined ? undefined : this.#prune(type);
+          return callee?.kind === "Function" && this.#prune(colourAt(callee, axis) ?? PURE) === part;
+        });
+        const spelled = direct === undefined ? undefined : this.#spelledExpression(ungrouped(direct.callee));
         if (spelled === undefined) continue;
         const fact: ColourFact = {
-          call,
+          call: direct!,
           name: spelled,
           only: readers.get(part) === 1,
-          readers: [...new Set(readersOf.get(part) ?? [call])],
+          readers: [...new Set([direct!, ...readersOf.get(part) ?? [call]])],
           axis,
         };
         this.#dataFacts.set(part, fact);
