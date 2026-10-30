@@ -5929,6 +5929,18 @@ export let x: Int = 1
     expect(check("let use(r) =\n    (r.run)!()\nexport let p(): Unit = use!({ run = save0 })\n")).toEqual([]);
     expect(check("let use(o) =\n    match o\n        Some(f) => f!()\n        None => ()\nexport let p(): Unit = use!(Some(save0))\n"))
       .toEqual([]);
+    // What the body hands a function it received is `->` where only pure
+    // functions flowed into it, as for a callback's parameters.
+    const g = "let g(f: () -> Unit): Unit = f()\n";
+    expect(check(g + "let use(t) =\n    let (a, _) = t\n    a(noop)\nexport let p(): Unit = use((g, 1))\n")).toEqual([]);
+    expect(check(g + "let use(o) =\n    match o\n        Some(a) => a(noop)\n        None => ()\nexport let p(): Unit = use(Some(g))\n"))
+      .toEqual([]);
+    // A bare call through data two parameters share leaves it pure, though no
+    // fact names it.
+    expect(check(
+      "let use(t, u, c: Bool) =\n    let (a, _) = t\n    let (b, _) = u\n    let x = if c then a else b\n    b()\n" +
+        "export let p(): Unit = use((noop, 1), (noop, 2), True)\n",
+    )).toEqual([]);
     // The cost the written twin has too: the marked body wears its mark,
     // whatever it is handed.
     expect(check(`let use(t) =\n    ${held}\n    a!()\nexport let p(): Unit = use((noop, 1))\n`)).toEqual([
