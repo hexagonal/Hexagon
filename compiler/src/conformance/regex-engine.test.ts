@@ -99,10 +99,12 @@ describe("the NFA (§6.1): every split in §3.2's priority order", () => {
     ["a|b|c", "0:save 0; 1:split 2,4; 2:c0; 3:jump 8; 4:split 5,7; 5:c1; 6:jump 8; 7:c2; 8:save 1; 9:match"],
     ["a*", "0:save 0; 1:split 2,4; 2:c0; 3:jump 1; 4:save 1; 5:match"],
     ["a*?", "0:save 0; 1:split 4,2; 2:c0; 3:jump 1; 4:save 1; 5:match"],
-    ["a+", "0:save 0; 1:c0; 2:split 3,5; 3:c1; 4:jump 2; 5:save 1; 6:match"],
+    ["a+", "0:save 0; 1:c0; 2:split 3,5; 3:c0; 4:jump 2; 5:save 1; 6:match"],
     ["a?", "0:save 0; 1:split 2,3; 2:c0; 3:save 1; 4:match"],
     ["a??", "0:save 0; 1:split 3,2; 2:c0; 3:save 1; 4:match"],
-    ["a{2,4}", "0:save 0; 1:c0; 2:c1; 3:split 4,7; 4:c2; 5:split 6,7; 6:c3; 7:save 1; 8:match"],
+    ["a{2,4}", "0:save 0; 1:c0; 2:c0; 3:split 4,7; 4:c0; 5:split 6,7; 6:c0; 7:save 1; 8:match"],
+    // A star over a body that can match empty is `(?:x+)?` (RE2, Go issue 46123).
+    ["(?:|a)*", "0:save 0; 1:split 2,6; 2:split 3,4; 3:jump 5; 4:c0; 5:split 2,6; 6:save 1; 7:match"],
     ["(a)", "0:save 0; 1:save 2; 2:c0; 3:save 3; 4:save 1; 5:match"],
     ["^a$", "0:save 0; 1:assert 0; 2:c0; 3:assert 1; 4:save 1; 5:match"],
     ["(?:ab|c)*d", "0:save 0; 1:split 2,8; 2:split 3,6; 3:c0; 4:c1; 5:jump 7; 6:c2; 7:jump 1; 8:c3; 9:save 1; 10:match"],
@@ -112,6 +114,11 @@ describe("the NFA (§6.1): every split in §3.2's priority order", () => {
 });
 
 describe("class resolution (§6.1, §3.4)", () => {
+  test("a class the program already holds is reused, so a repetition's copies resolve once", () => {
+    expect(program("(?i)\\p{L}{3}")).toBe("0:save 0; 1:c0; 2:c0; 3:c0; 4:save 1; 5:match");
+    expect(program("abab")).toBe("0:save 0; 1:c0; 2:c1; 3:c0; 4:c1; 5:save 1; 6:match");
+  });
+
   test.each([
     ["(?i)k", [[0x4B, 0x4B], [0x6B, 0x6B], [0x212A, 0x212A]]],
     ["(?i)[a-z]", [[0x41, 0x5A], [0x61, 0x7A], [0x17F, 0x17F], [0x212A, 0x212A]]],
@@ -178,6 +185,27 @@ describe("matching semantics (§3), through the Pike VM", () => {
   });
 });
 
+/**
+ * Repetitions whose body can match empty, where engines part (§3.2, §3.3). The
+ * answers are RE2's, as Go's `regexp` gives them since issue 46123, recorded
+ * here as `[start, end, group 1 start, group 1 end]` code-unit offsets: the
+ * dialect is RE2's, and this is the construction it names.
+ */
+describe("nullable repetitions answer as RE2 and Go do", () => {
+  test.each([
+    ["(|a)*", "aa", "1+0'' 1+0'' @1/0"],
+    ["(?:|a){0,5}", "aa", "1+0'' @1/0"],
+    ["(a*)*", "b", "1+0'' 1+0'' @1/0"],
+    ["(a|)*", "aa", "1+2'aa' 2+1'a' @3/2"],
+    ["(a*?)+?b", "aab", "1+3'aab' 1+2'aa' @4/3"],
+    ["(a*)+", "b", "1+0'' 1+0'' @1/0"],
+    ["(a|)+", "aa", "1+2'aa' 2+1'a' @3/2"],
+    ["(?:a|)*b", "aab", "1+3'aab' @4/3"],
+  ])("%j on %j", (pattern, text, answer) => {
+    expect(find(pattern, text, 1)).toBe(answer);
+  });
+});
+
 describe("the cursor (§6.2)", () => {
   test("a cursor this row answered resumes the walk, and decides nothing else", () => {
     const text = "😀a😀a😀a";
@@ -208,15 +236,21 @@ describe("the whole match agrees with JavaScript's leftmost-first engine", () =>
     .map(([body, quantifier]) => (body === "^" || body === "$" ? body : body + quantifier));
   const branch = fc.array(piece, { minLength: 0, maxLength: 4 }).map((pieces) => pieces.join(""));
   const pattern = fc.array(branch, { minLength: 1, maxLength: 3 }).map((branches) => branches.join("|"));
-  const subject = fc.array(fc.constantFrom("a", "b", "c", "\n"), { maxLength: 8 }).map((chars) => chars.join(""));
+  const subject = fc.array(fc.constantFrom("a", "b", "c", "\n", "😀"), { maxLength: 8 }).map((chars) => chars.join(""));
 
-  test("for every generated pattern and subject", () => {
-    fc.assert(fc.property(pattern, subject, (source, text) => {
-      const host = new RegExp(source, "u").exec(text);
-      const expected = host === null
+  // JavaScript searches from a code-unit `lastIndex`; the engine from a
+  // codepoint position, with the text before it still seen by `^` (§4.3).
+  test("for every generated pattern, subject and start", () => {
+    fc.assert(fc.property(pattern, subject, fc.nat(9), (source, text, skip) => {
+      const points = [...text];
+      const start = Math.min(skip, points.length) + 1;
+      const host = new RegExp(source, "gu");
+      host.lastIndex = points.slice(0, start - 1).join("").length;
+      const found = host.exec(text);
+      const expected = found === null
         ? "none"
-        : `${[...text.slice(0, host.index)].length + 1}+${[...host[0]].length}'${host[0]}'`;
-      const answer = find(source, text, 1);
+        : `${[...text.slice(0, found.index)].length + 1}+${[...found[0]].length}'${found[0]}'`;
+      const answer = find(source, text, start);
       expect(answer === "none" ? "none" : answer.split(" ")[0]).toBe(expected);
     }), { numRuns: 400 });
   });

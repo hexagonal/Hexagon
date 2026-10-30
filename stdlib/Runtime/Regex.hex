@@ -149,11 +149,36 @@ let contains(set: Vector((Int, Int)), point: Int): Bool =
             found := True
     found
 
-// `points`, ascending, as a set.
+// `points` in ascending order, by merge sort.
+fun sortedPoints(points: Vector(Int)): Vector(Int) =
+    let count = Vector.length(points)
+    if count <= 1 then
+        points
+    else
+        let half = Int.div(count, 2)
+        let left = sortedPoints(points[1..half])
+        let right = sortedPoints(points[half + 1..count])
+        var merged: Vector(Int) = []
+        var leftAt = 1
+        var rightAt = 1
+        while leftAt <= half or rightAt <= count - half
+            if rightAt > count - half or (leftAt <= half and left[leftAt] <= right[rightAt]) then
+                merged := merged.append(left[leftAt])
+                leftAt := leftAt + 1
+            else
+                merged := merged.append(right[rightAt])
+                rightAt := rightAt + 1
+        merged
+
+// `points`, in any order, as a set.
 let setOfPoints(points: Vector(Int)): Vector((Int, Int)) =
     var result: Vector((Int, Int)) = []
-    for point in points
-        result := unionOf(result, [(point, point)])
+    for point in sortedPoints(points)
+        let count = Vector.length(result)
+        if count > 0 and point <= result[count].item2 + 1 then
+            if point > result[count].item2 then result := Vector.set(result, count, (result[count].item1, point))
+        else
+            result := result.append((point, point))
     result
 
 // `set` closed under simple case folding (§3.4): every codepoint whose folding
@@ -239,8 +264,44 @@ let setFirst(code: Code, at: Int, target: Int): Code = { code with first = Vecto
 
 let setSecond(code: Code, at: Int, target: Int): Code = { code with second = Vector.set(code.second, at + 1, target) }
 
+let kindCode(kind: Syntax.PropertyKind): Int = match kind
+    Syntax.GeneralCategory => 0
+    Syntax.Script => 1
+    Syntax.ScriptExtensions => 2
+    Syntax.Binary => 3
+    Syntax.Any => 4
+    Syntax.Ascii => 5
+    Syntax.Assigned => 6
+    Syntax.Word => 7
+
+let sameItem(left: Syntax.ClassItem, right: Syntax.ClassItem): Bool = match (left, right)
+    (Syntax.Range(leftLow, leftHigh), Syntax.Range(rightLow, rightHigh)) => leftLow == rightLow and leftHigh == rightHigh
+    (Syntax.Property(leftKind, leftValue, leftNegated), Syntax.Property(rightKind, rightValue, rightNegated)) =>
+        kindCode(leftKind) == kindCode(rightKind) and leftValue == rightValue and leftNegated == rightNegated
+    _ => False
+
+let sameSpec(left: ClassSpec, right: ClassSpec): Bool =
+    var same = left.negated == right.negated and left.folded == right.folded and
+        Vector.length(left.items) == Vector.length(right.items)
+    var index = 1
+    while same and index <= Vector.length(left.items)
+        same := sameItem(left.items[index], right.items[index])
+        index := index + 1
+    same
+
+// A `consume` of `spec`'s class. A class the program already holds is reused,
+// so that a counted repetition's copies, and every repeated literal, resolve
+// once (§6.4: a folded `\p{L}` costs its membership once).
 let emitClass(code: Code, spec: ClassSpec): Code =
-    emit({ code with classes = code.classes.append(spec) }, opConsume, Vector.length(code.classes), 0)
+    var found = -1
+    var index = 1
+    while found < 0 and index <= Vector.length(code.classes)
+        if sameSpec(code.classes[index], spec) then found := index - 1
+        index := index + 1
+    if found >= 0 then
+        emit(code, opConsume, found, 0)
+    else
+        emit({ code with classes = code.classes.append(spec) }, opConsume, Vector.length(code.classes), 0)
 
 let singleClass(point: Int): ClassSpec = ClassSpec({ items = [Syntax.Range(point, point)], negated = False, folded = False })
 
@@ -248,6 +309,26 @@ let singleClass(point: Int): ClassSpec = ClassSpec({ items = [Syntax.Range(point
 // other is `out` — or the other way round where the repetition is lazy.
 let setSplit(code: Code, at: Int, out: Int, greedy: Bool): Code =
     if greedy then setSecond(setFirst(code, at, at + 1), at, out) else setSecond(setFirst(code, at, out), at, at + 1)
+
+// Whether `expr` can match the empty string.
+fun nullable(expr: Syntax.Expr): Bool = match expr
+    Syntax.Empty => True
+    Syntax.Literal(_) => False
+    Syntax.Dot(_) => False
+    Syntax.Class(_, _, _) => False
+    Syntax.Anchor(_) => True
+    Syntax.Concat(parts) =>
+        var all = True
+        for part in parts
+            all := all and nullable(part)
+        all
+    Syntax.Alternate(branches) =>
+        var any = False
+        for branch in branches
+            any := any or nullable(branch)
+        any
+    Syntax.Repeat(body, min, _, _) => min == 0 or nullable(body)
+    Syntax.Capture(body, _, _) => nullable(body)
 
 fun emitExpr(code: Code, expr: Syntax.Expr): Code = match expr
     Syntax.Empty => code
@@ -292,11 +373,29 @@ fun emitExpr(code: Code, expr: Syntax.Expr): Code = match expr
             copies := copies + 1
         match max
             None =>
-                // `x*` after the required copies: a split back over the body.
-                let loop = counter(current)
-                current := emitExpr(emit(current, opSplit, 0, 0), body)
-                current := emit(current, opJump, loop, 0)
-                setSplit(current, loop, counter(current), greedy)
+                if nullable(body) then
+                    // `x*` over a body that can match empty is `(?:x+)?`, as
+                    // RE2 and Go compile it (Go issue 46123): one optional
+                    // entry, then a loop back that the body must reach. Read
+                    // as a plain loop, the program-counter dedupe would end
+                    // every path through an empty iteration, and `(|a)*` on
+                    // `aa` would match `aa` where `(?:|a){0,5}` matches the
+                    // empty string (§3.2).
+                    let entry = counter(current)
+                    let start = entry + 1
+                    current := emitExpr(emit(current, opSplit, 0, 0), body)
+                    let back = counter(current)
+                    current := emit(current, opSplit, 0, 0)
+                    let end = counter(current)
+                    let looped = if greedy then setSecond(setFirst(current, back, start), back, end)
+                        else setSecond(setFirst(current, back, end), back, start)
+                    setSplit(looped, entry, end, greedy)
+                else
+                    // `x*` after the required copies: a split back over the body.
+                    let loop = counter(current)
+                    current := emitExpr(emit(current, opSplit, 0, 0), body)
+                    current := emit(current, opJump, loop, 0)
+                    setSplit(current, loop, counter(current), greedy)
             Some(most) =>
                 // The optional copies nest, each split's way out the end:
                 // `x{1,3}` is `x(x(x)?)?`.
@@ -496,7 +595,7 @@ let search(
 ): Option((Vector(Option((Int, Int, String))), (Int, Int))) =
     let units = codeUnits(text)
     let (cursorPosition, cursorOffset) = cursor
-    let fromCursor = cursorPosition <= start
+    let fromCursor = cursorPosition >= 1 and cursorPosition <= start
     var position = if fromCursor then cursorPosition else 1
     var offset = if fromCursor then cursorOffset else 0
     while position < start and offset < units

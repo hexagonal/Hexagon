@@ -220,13 +220,13 @@ Of every way the pattern can match the subject, the match is the one whose start
 - in `x|y`, every match through `x` precedes every match through `y`;
 - in a greedy repetition, more iterations precede fewer; in a lazy one, fewer precede more;
 - in `xy`, the priority of `x` decides first, and `y` decides among matches that agree on `x`;
-- an empty iteration of a repetition is never taken twice in a row.
+- a repetition whose body can match the empty string reads as RE2 and Go compile it: `x*` as `(?:x+)?`, entered at most once without consuming (Go issue 46123). So `(|a)*` on `aa` matches the empty string, as `(?:|a){0,5}` does, and `(a*)*` on `b` captures the empty string in group 1. Perl agrees on the whole match and parts from RE2 on some captures under such a repetition — `(a|)*` on `aa` captures `a` here and the empty string in Perl — and where they part, this dialect answers as RE2.
 
 So `a|ab` on `ab` matches `a`; `a*?` on `aaa` matches the empty string at 1; `(a+)(a*)` on `aaa` captures `aaa` and the empty string. This is the only matching mode: there is no leftmost-longest (POSIX) mode, and the DFA's states are ordered so that the scan finds the leftmost-first match's end, not the longest's (§6.2).
 
 ### 3.3 Captures
 
-A capturing group's capture is the span of the group's **last entry on the chosen path**; a group the chosen path never enters has no capture, and its `Group` is `None` (§4.5). Nothing resets a capture — in `(?:(a)|b)*` on `ab` group 1 captures `a`, the second iteration having not entered it — which is what a Pike VM computes and what Perl and RE2 answer; JavaScript, alone among §3.2's engines, resets a group on each iteration of an enclosing quantifier, and this dialect does not. Group 0 is the whole match and always present.
+A capturing group's capture is the span of the group's **last entry on the chosen path**; a group the chosen path never enters has no capture, and its `Group` is `None` (§4.5). Nothing resets a capture — in `(?:(a)|b)*` on `ab` group 1 captures `a`, the second iteration having not entered it — which is what a Pike VM computes and what RE2 and Perl answer; JavaScript, alone among §3.2's engines, resets a group on each iteration of an enclosing quantifier, and this dialect does not. Group 0 is the whole match and always present.
 
 ### 3.4 Case-insensitivity is simple case folding
 
@@ -368,7 +368,7 @@ The tree carries no source spans in v1. The literal-diagnostics arc (§10) needs
 
 ## 6. The engine — `Hex.Runtime.Regex`
 
-`Hex.Runtime.Regex` (`stdlib/Runtime/Regex.hex`, `module Runtime.Regex`) is a runtime module in `Hex.Runtime.HashTrie`'s sense (Packages §2.4): it exports nothing at the Hexagon level, its operations reach the program through `Regex.hex`'s sealed rows (§7), and it is written **`->~` wherever it touches a buffer's contents**, impure and unable to fail — `bufferLength` and the two table rows are `->` reads of values, Intrinsics §3.3. What follows is its contract; the construction it names is the ruling's (§1), and the bounds are what the surface promises.
+`Hex.Runtime.Regex` (`stdlib/Runtime/Regex.hex`, `module Runtime.Regex`) is a runtime module in `Hex.Runtime.HashTrie`'s sense (Packages §2.4): it exports nothing at the Hexagon level, its operations reach the program through `Regex.hex`'s sealed rows (§7), and it is written **`->~` wherever it touches a buffer's contents**, impure and unable to fail — `bufferLength`, the two table rows, and the three subject reads are `->` reads of values, Intrinsics §3.3. What follows is its contract; the construction it names is the ruling's (§1), and the bounds are what the surface promises.
 
 ### 6.1 Program construction
 
