@@ -80,3 +80,273 @@ extern from "hex:intrinsic"
     // included, ascending: the closure a folded class needs (§3.4). A `->` read
     // of a fixed table.
     fun regexFoldOrbit as foldOrbit(point: Int) -> Vector(Int)
+
+// ---------------------------------------------------------------------------
+// Codepoint sets (§6.1)
+//
+// A set is a vector of sorted, disjoint, inclusive ranges, never adjacent: the
+// shape the property row answers and every operation below keeps.
+
+let lastPoint: Int = 1_114_111
+
+// The union of two sets, in one pass over both.
+let unionOf(left: Vector((Int, Int)), right: Vector((Int, Int))): Vector((Int, Int)) =
+    let leftSize = Vector.length(left)
+    let rightSize = Vector.length(right)
+    var result: Vector((Int, Int)) = []
+    var leftAt = 1
+    var rightAt = 1
+    while leftAt <= leftSize or rightAt <= rightSize
+        let takeLeft = rightAt > rightSize or (leftAt <= leftSize and left[leftAt].item1 <= right[rightAt].item1)
+        let (low, high) = if takeLeft then left[leftAt] else right[rightAt]
+        if takeLeft then leftAt := leftAt + 1 else rightAt := rightAt + 1
+        let count = Vector.length(result)
+        if count > 0 and low <= result[count].item2 + 1 then
+            if high > result[count].item2 then result := Vector.set(result, count, (result[count].item1, high))
+        else
+            result := result.append((low, high))
+    result
+
+// Every codepoint not in `set`, over U+0000–U+10FFFF.
+let complementOf(set: Vector((Int, Int))): Vector((Int, Int)) =
+    var result: Vector((Int, Int)) = []
+    var next = 0
+    for (low, high) in set
+        if low > next then result := result.append((next, low - 1))
+        next := high + 1
+    if next <= lastPoint then result.append((next, lastPoint)) else result
+
+// Whether `point` is in `set`, by binary search.
+let contains(set: Vector((Int, Int)), point: Int): Bool =
+    var low = 1
+    var high = Vector.length(set)
+    var found = False
+    while not found and low <= high
+        let middle = Int.div(low + high, 2)
+        let (from, to) = set[middle]
+        if point < from then
+            high := middle - 1
+        else if point > to then
+            low := middle + 1
+        else
+            found := True
+    found
+
+// `points`, ascending, as a set.
+let setOfPoints(points: Vector(Int)): Vector((Int, Int)) =
+    var result: Vector((Int, Int)) = []
+    for point in points
+        result := unionOf(result, [(point, point)])
+    result
+
+// `set` closed under simple case folding (§3.4): every codepoint whose folding
+// equals a member's. The points a member's orbit adds are few beside the set,
+// so they are gathered first and merged once.
+let foldedSet(set: Vector((Int, Int))): Vector((Int, Int)) =
+    var added: Vector(Int) = []
+    for (low, high) in set
+        var point = low
+        while point <= high
+            let orbit = foldOrbit(point)
+            if Vector.length(orbit) > 1 then
+                for other in orbit
+                    if not contains(set, other) then added := added.append(other)
+            point := point + 1
+    unionOf(set, setOfPoints(added))
+
+// The codepoints one class item stands for.
+let itemSet(item: Syntax.ClassItem): Vector((Int, Int)) = match item
+    Syntax.Range(low, high) => [(low, high)]
+    Syntax.Property(kind, value, negated) =>
+        let ranges = propertyRanges(kind, value)
+        if negated then complementOf(ranges) else ranges
+
+// A class's codepoints, in §6.1's order: each item resolved and complemented
+// where it is negated, the union taken, folded where the class is folded, and
+// complemented where the class is negated. Fold before complement is what makes
+// `(?i)[^a]` not match `A`.
+let classSet(items: Vector(Syntax.ClassItem), negated: Bool, folded: Bool): Vector((Int, Int)) =
+    var set: Vector((Int, Int)) = []
+    for item in items
+        set := unionOf(set, itemSet(item))
+    let closed = if folded then foldedSet(set) else set
+    if negated then complementOf(closed) else closed
+
+// ---------------------------------------------------------------------------
+// The NFA (§6.1)
+//
+// One Thompson construction over the tree. An instruction is an operation and
+// two operands, at a zero-based program counter:
+//
+//  - `consume c`: one codepoint in class `c`, then the next instruction;
+//  - `split x y`: both, `x` first in priority (§3.2);
+//  - `jump x`;
+//  - `save s`: the position into capture slot `s` (group `g` is slots `2g`
+//    and `2g + 1`);
+//  - `assert a`: an assertion (`anchorCode`), consuming nothing;
+//  - `match`.
+//
+// The construction is pure: it builds vectors, which `compile` then freezes
+// into buffers.
+
+let opMatch: Int = 0
+let opConsume: Int = 1
+let opSplit: Int = 2
+let opJump: Int = 3
+let opSave: Int = 4
+let opAssert: Int = 5
+
+record ClassSpec = { items: Vector(Syntax.ClassItem), negated: Bool, folded: Bool }
+
+record Code = {
+    ops: Vector(Int),
+    first: Vector(Int),
+    second: Vector(Int),
+    classes: Vector(ClassSpec),
+}
+
+let anchorCode(kind: Syntax.AnchorKind): Int = match kind
+    Syntax.TextStart => 0
+    Syntax.TextEnd => 1
+    Syntax.LineStart => 2
+    Syntax.LineEnd => 3
+    Syntax.WordBoundary => 4
+    Syntax.NotWordBoundary => 5
+
+let counter(code: Code): Int = Vector.length(code.ops)
+
+let emit(code: Code, op: Int, first: Int, second: Int): Code =
+    { code with ops = code.ops.append(op), first = code.first.append(first), second = code.second.append(second) }
+
+let setFirst(code: Code, at: Int, target: Int): Code = { code with first = Vector.set(code.first, at + 1, target) }
+
+let setSecond(code: Code, at: Int, target: Int): Code = { code with second = Vector.set(code.second, at + 1, target) }
+
+let emitClass(code: Code, spec: ClassSpec): Code =
+    emit({ code with classes = code.classes.append(spec) }, opConsume, Vector.length(code.classes), 0)
+
+let singleClass(point: Int): ClassSpec = ClassSpec({ items = [Syntax.Range(point, point)], negated = False, folded = False })
+
+// A `split` at `at` whose preferred branch is the next instruction and whose
+// other is `out` — or the other way round where the repetition is lazy.
+let setSplit(code: Code, at: Int, out: Int, greedy: Bool): Code =
+    if greedy then setSecond(setFirst(code, at, at + 1), at, out) else setSecond(setFirst(code, at, out), at, at + 1)
+
+fun emitExpr(code: Code, expr: Syntax.Expr): Code = match expr
+    Syntax.Empty => code
+    Syntax.Literal(point) => emitClass(code, singleClass(point))
+    Syntax.Dot(newline) =>
+        if newline then
+            emitClass(code, ClassSpec({ items = [Syntax.Range(0, lastPoint)], negated = False, folded = False }))
+        else
+            emitClass(code, ClassSpec({ items = [Syntax.Range(10, 10)], negated = True, folded = False }))
+    Syntax.Class(items, negated, folded) =>
+        emitClass(code, ClassSpec({ items = items, negated = negated, folded = folded }))
+    Syntax.Anchor(kind) => emit(code, opAssert, anchorCode(kind), 0)
+    Syntax.Concat(parts) =>
+        var current = code
+        for part in parts
+            current := emitExpr(current, part)
+        current
+    Syntax.Alternate(branches) =>
+        // Each branch but the last behind a split preferring it, each ending
+        // in a jump past the rest.
+        var current = code
+        var jumps: Vector(Int) = []
+        let count = Vector.length(branches)
+        var index = 1
+        while index < count
+            let split = counter(current)
+            current := emitExpr(emit(current, opSplit, split + 1, 0), branches[index])
+            jumps := jumps.append(counter(current))
+            current := emit(current, opJump, 0, 0)
+            current := setSecond(current, split, counter(current))
+            index := index + 1
+        current := emitExpr(current, branches[count])
+        let end = counter(current)
+        for jump in jumps
+            current := setFirst(current, jump, end)
+        current
+    Syntax.Repeat(body, min, max, greedy) =>
+        var current = code
+        var copies = 0
+        while copies < min
+            current := emitExpr(current, body)
+            copies := copies + 1
+        match max
+            None =>
+                // `x*` after the required copies: a split back over the body.
+                let loop = counter(current)
+                current := emitExpr(emit(current, opSplit, 0, 0), body)
+                current := emit(current, opJump, loop, 0)
+                setSplit(current, loop, counter(current), greedy)
+            Some(most) =>
+                // The optional copies nest, each split's way out the end:
+                // `x{1,3}` is `x(x(x)?)?`.
+                var splits: Vector(Int) = []
+                while copies < most
+                    splits := splits.append(counter(current))
+                    current := emitExpr(emit(current, opSplit, 0, 0), body)
+                    copies := copies + 1
+                let end = counter(current)
+                for split in splits
+                    current := setSplit(current, split, end, greedy)
+                current
+    Syntax.Capture(body, index, _) =>
+        let opened = emitExpr(emit(code, opSave, 2 * index, 0), body)
+        emit(opened, opSave, 2 * index + 1, 0)
+
+// The whole pattern's program: group 0 saved around the tree, then `match`.
+let codeOf(pattern: Syntax.Pattern): Code =
+    let empty = Code({ ops = [], first = [], second = [], classes = [] })
+    let body = emitExpr(emit(empty, opSave, 0, 0), pattern.root)
+    emit(emit(body, opSave, 1, 0), opMatch, 0, 0)
+
+// ---------------------------------------------------------------------------
+// The compiled program (§6.1, §6.3)
+//
+// The program a `Regex` carries: the instructions, frozen into buffers that no
+// row writes after `compile` returns, and the classes by their tree items, with
+// the one memo resolution fills on first use (§6.2's second transparent memo).
+record Compiled = {
+    ops: Buffer(Int),
+    first: Buffer(Int),
+    second: Buffer(Int),
+    size: Int,
+    classes: Vector(ClassSpec),
+    resolved: Buffer(Option(Vector((Int, Int)))),
+    groupCount: Int,
+}
+
+let frozen(values: Vector(Int)): Buffer(Int) =
+    let buffer = create~(Vector.length(values), 0)
+    var index = 0
+    for value in values
+        write~(buffer, index, value)
+        index := index + 1
+    buffer
+
+// The program for `pattern`. It reads no table: class resolution waits for the
+// program's first use (§6.1), so a program emitted as a constant carries its
+// properties by name.
+let compile(pattern: Syntax.Pattern): Compiled =
+    let code = codeOf(pattern)
+    Compiled({
+        ops = frozen~(code.ops),
+        first = frozen~(code.first),
+        second = frozen~(code.second),
+        size = Vector.length(code.ops),
+        classes = code.classes,
+        resolved = create~(Vector.length(code.classes), None),
+        groupCount = pattern.groupCount,
+    })
+
+// Class `index`'s codepoints, resolved once and kept in the program.
+let classOf(program: Compiled, index: Int): Vector((Int, Int)) =
+    match read~(program.resolved, index)
+        Some(set) => set
+        None =>
+            let spec = program.classes[index + 1]
+            let set = classSet(spec.items, spec.negated, spec.folded)
+            write~(program.resolved, index, Some(set))
+            set
