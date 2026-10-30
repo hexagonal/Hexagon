@@ -1017,8 +1017,7 @@ describe("Effects §3.4: a mark decides nothing; facts decide an untyped paramet
     // Not where the sharing is reached through a binding, a wrapper or a
     // local function, nor where the other is named on its own too (a demand, a
     // bare call, a written type), nor where the sharing is in data: the text
-    // cannot show the whole cause, so none is claimed. A sharing the text
-    // shows may be named, but only as the fallback's "perhaps" (#1324).
+    // cannot show the whole cause, and none is named.
     for (const body of [
       "    pureOnly(g)\n    let h = pick(g, f)\n    h!()\n",
       "    pureOnly(g)\n    pureOnly(f)\n    pick(g, f)!()\n",
@@ -1054,17 +1053,15 @@ describe("Effects §3.4: a mark decides nothing; facts decide an untyped paramet
       const wrap = "let wrap(x, y) =\n    pureOnly(y)\n    pick(x, y)\nlet pickD(a: t, b: t, d: (t) -> Unit): t = a\n" +
         "let pickK(a: t, b: t, k): t =\n    k(a)\n    a\n";
       const said = reports(PRE + pure + wrap + `let j3(g, f) =\n${body}`).map(([, text]) => text);
-      expect([body, said.some((text) => text.includes("only because")), said.some((text) => text.includes("perhaps"))])
+      expect([body, said.some((text) => text.includes("tied to")), said.some((text) => text.includes("perhaps"))])
         .toEqual([body, false, true]);
     }
     // Nor where a type the repair would write is not settled: the repair
-    // that keeps the mark cannot be offered, even as a suggestion.
-    const unsettledSource = PRE + "let pureOnlyT(g: (a) -> Unit): Unit = ()\nlet j3(g, f, x, c: Bool) =\n" +
-      "    pureOnlyT(g)\n    (if c then g else f)!(x)\n";
-    const unsettled = reports(unsettledSource).map(([, text]) => text);
-    expect([unsettled.some((text) => text.includes("only because")), unsettled.some((text) => text.includes("perhaps"))])
+    // that keeps the mark cannot be offered.
+    const unsettled = reports(PRE + "let pureOnlyT(g: (a) -> Unit): Unit = ()\nlet j3(g, f, x, c: Bool) =\n" +
+      "    pureOnlyT(g)\n    (if c then g else f)!(x)\n").map(([, text]) => text);
+    expect([unsettled.some((text) => text.includes("tied to")), unsettled.some((text) => text.includes("perhaps"))])
       .toEqual([false, true]);
-    expect(fixes(unsettledSource).map(([message]) => message)).toEqual(["perhaps remove the mark"]);
     // Nor in a lambda no binding names, whose colour a demand may yet meet.
     expect(reports(PRE + pure + "let j3(): Unit = keep((g, f) =>\n    pureOnly(g)\n    pick(g, f)!())\n")
       .map(([, text]) => text.includes("perhaps"))).toEqual([true]);
@@ -1089,54 +1086,55 @@ describe("Effects §3.4: a mark decides nothing; facts decide an untyped paramet
     expect(fixes(PRE + kept)[0]).toEqual(["write the types of `g` and `f`", [": () ->~ Unit", ": () ->~ Unit"]]);
   });
 
-  test("a call of a parameter whose colour a sharing brought names the sharing, never a type the parameter met (#1324)", () => {
+  test("a call of a parameter by its own name beside a closed sharing is the sharing's, never a type it met (#1324)", () => {
     const pure = "let pureOnly(g: () -> Unit): Unit = ()\n";
-    // Its call by name beside the closed sharing is the sharing's: one report
-    // for both marks, whose repairs keep them or remove both.
+    // Its colour is silent only through the sharing, whose report it joins:
+    // one report for both marks, whose repairs keep them or remove both.
     for (const sharing of ["pick(g, f)", "(if c then g else f)"]) {
-      const program = PRE + pure + `let j3(g, f, c: Bool) =\n    pureOnly(g)\n    f!()\n    ${sharing}!()\n`;
-      expect([sharing, reports(program)]).toEqual([sharing, [[
-        "!",
-        "this call is pure and cannot fail only because `f`'s colour is tied to `g`'s here, and `g` meets `() -> Unit` — " +
-        "write their types, or wrap `g` where they meet: `() => g()`",
-      ]]]);
-      expect([sharing, fixes(program)]).toEqual([sharing, [
-        ["write the types of `g` and `f`", [": () -> Unit", ": () ->! Unit"]],
-        ["remove the marks", ["", ""]],
-      ]]);
+      for (const order of ["    f!()\n    SHARING!()\n", "    SHARING!()\n    f!()\n"]) {
+        const program = PRE + pure + "let j3(g, f, c: Bool) =\n    pureOnly(g)\n" + order.replace("SHARING", sharing);
+        expect([sharing, order, reports(program)]).toEqual([sharing, order, [[
+          "!",
+          "this call is pure and cannot fail only because `f`'s colour is tied to `g`'s here, and `g` meets `() -> Unit` — " +
+          "write their types, or wrap `g` where they meet: `() => g()`",
+        ]]]);
+        expect([sharing, order, fixes(program)]).toEqual([sharing, order, [
+          ["write the types of `g` and `f`", [": () -> Unit", ": () ->! Unit"]],
+          ["remove the marks", ["", ""]],
+        ]]);
+      }
     }
-    // Where the sharing runs under no such mark, the cause is not shown whole:
-    // it is named as the fallback's "perhaps", and its repairs are suggestions.
-    const open = PRE + pure + "let j3(g, f) =\n    pureOnly(g)\n    f!()\n    let _ = pick(g, f)\n    ()\n";
-    expect(reports(open)).toEqual([[
-      "!",
-      "this call is pure and cannot fail, so `f` wants no mark, not `!` — perhaps the mark is wrong; or perhaps it is so " +
-      "because `f`'s colour is tied to `g`'s here, and `g` meets `() -> Unit`",
-    ]]);
-    expect(fixes(open)).toEqual([
-      ["perhaps write the types of `g` and `f`", [": () -> Unit", ": () ->! Unit"]],
-      ["perhaps remove the mark", [""]],
+    // Three marks: still one report, and one repair of them all.
+    expect(fixes(PRE + pure + "let j3(g, f) =\n    pureOnly(g)\n    f!()\n    f!()\n    pick(g, f)!()\n")).toEqual([
+      ["write the types of `g` and `f`", [": () -> Unit", ": () ->! Unit"]],
+      ["remove the marks", ["", "", ""]],
     ]);
-    // The impure side: the written type the other meets, through a merge, a
-    // signature or a vector, is named as a "perhaps" beside the certain mark.
-    for (const sharing of ["pick(f, g)", "if c then f else g", "[f, g]"]) {
-      const program = PRE + `let s(f, g, c: Bool) =\n    let h = Holder({ run = g })\n    let _ = ${sharing}\n    f()\n`;
-      expect([sharing, reports(program)]).toEqual([sharing, [[
+    // The impure side: a bare call beside a sharing run bare, whose other
+    // parameter met the impure constant. The sharing's own call runs `g`, and
+    // wants its mark whatever is written.
+    const impure = PRE + "let s(f, g) =\n    let h = Holder({ run = g })\n    pick(f, g)()\n    f()\n";
+    expect(reports(impure)).toEqual([
+      ["pick(f, g)()", "this call is impure and may fail, so this call wants `!`, not no mark"],
+      [
         "f()",
-        "this call is impure and may fail, so `f` wants `!`, not no mark — perhaps because `f`'s colour is tied to `g`'s " +
-        "here, and `g` meets `() ->! Unit`",
-      ]]]);
-      expect([sharing, fixes(program)]).toEqual([sharing, [
-        ["mark the call `!`", ["!"]],
-        ["perhaps write the types of `f` and `g`", [": () -> Unit", ": () ->! Unit"]],
-      ]]);
-    }
-    // A type the parameter meets itself is still named so: directly, through
-    // an alias, or in a merge with a function whose face it meets.
-    for (const met of ["Holder({ run = f })", "Holder({ run = k })", "if c then f else save0"]) {
-      const program = PRE + `let s(f, c: Bool) =\n    let k = f\n    let h = ${met}\n    f()\n`;
-      expect([met, reports(program).map(([, text]) => text.includes("only because `f`, which has no written type, meets"))])
-        .toEqual([met, [true]]);
+        "this call is impure and may fail only because `f`'s colour is tied to `g`'s here, and `g` meets `() ->! Unit` — " +
+        "write their types, or wrap `g` where it meets it: `() => g()`",
+      ],
+    ]);
+    expect(fixes(impure)).toEqual([
+      ["mark the call `!`", ["!"]],
+      ["write the types of `f` and `g`", [": () -> Unit", ": () ->! Unit"]],
+      ["mark the call `!`", ["!"]],
+    ]);
+    // Where the sharing is not closed, the call keeps its own report: the
+    // sharing's result meets the demand itself, or the parameter is named on
+    // its own too.
+    for (const body of [
+      "    pureOnly(g)\n    pureOnly(pick(f, g))\n    f!()\n",
+      "    pureOnly(g)\n    let w = () => f()\n    pureOnly(w)\n    pick(g, f)!()\n    f!()\n",
+    ]) {
+      const said = reports(PRE + pure + `let j3(g, f) =\n${body}`).map(([, text]) => text);
+      expect([body, said.some((text) => text.includes("only because"))]).toEqual([body, false]);
     }
   });
 
