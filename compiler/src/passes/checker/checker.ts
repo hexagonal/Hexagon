@@ -36426,7 +36426,7 @@ class Checker {
     const blockers = [...new Map(variable.requirements
       .filter((requirement) => !this.#defaultableAtInt(requirement))
       .map((requirement) => [requirement.identity, requirement])).values()];
-    const intInReach = blockers.some((requirement) =>
+    const intInReach = blockers.every((requirement) =>
       this.#instances.has(this.#instanceKey(requirement.identity, primitive("Int")))
     );
     if (!intInReach) {
@@ -36481,16 +36481,33 @@ class Checker {
     if (supplier === undefined) return undefined;
     const scope = blockers.map((requirement) => this.#requirementScopes.get(requirement)).find((each) => each !== undefined);
     if (scope === undefined) return undefined;
-    const honours = [...scope.values()].find((candidate) =>
-      candidate.rigidName !== undefined &&
-      blockers.every((requirement) =>
+    const chain = blockers.map((requirement) => this.#requirementChains.get(requirement)).find((each) => each !== undefined) ?? [];
+    // Every demand on the stuck type, not only the blocking ones, and evidence
+    // that reaches the site: a head's variable only where the member around
+    // the site mentions it (#1048), a member's own only inside that member.
+    const reaches = (candidate: Variable): boolean => {
+      const owner = this.#declaredHeadOwners.get(candidate.id);
+      if (owner === undefined) return true;
+      if (owner.kind === "member") return chain.some(({ symbol }) => symbol === owner.symbol);
+      const member = [...chain].reverse().find(({ symbol }) => owner.members.includes(symbol));
+      const type = member === undefined ? undefined : this.#schemes.get(member.symbol)?.type;
+      return type !== undefined && this.#collectVariables(type).includes(candidate);
+    };
+    const honors = [...scope.values()].find((candidate) =>
+      candidate.rigidName !== undefined && this.#prune(candidate) === candidate &&
+      variable.requirements.every((requirement) =>
         (candidate.declaredConstraints ?? []).some((name) => this.#constraintIdentity(name) === requirement.identity)
-      )
+      ) &&
+      reaches(candidate)
     );
     const type = this.#expressionTypes.get(supplier);
     const spelled = this.#spelledExpression(supplier);
-    if (honours === undefined || type === undefined || spelled === undefined) return undefined;
-    const pinned = this.#replaceVariables(type, new Map([[variable.id, honours]]));
+    if (honors === undefined || type === undefined || spelled === undefined) return undefined;
+    // Any other type the value leaves open would be a guess: no fix.
+    if (this.#shapeVariables(type).some((other) => this.#prune(other) !== variable && this.#prune(other).kind === "Variable")) {
+      return undefined;
+    }
+    const pinned = this.#replaceVariables(type, new Map([[variable.id, honors]]));
     return { span: supplier.span, written: `(${spelled} : ${this.#display(pinned)})` };
   }
 

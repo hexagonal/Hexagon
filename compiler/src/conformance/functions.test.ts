@@ -263,6 +263,24 @@ describe("Functions specification conformance", () => {
     ]);
     expect(stuck[0]!.fixes?.flatMap((fix) => fix.edits.map((edit) => edit.replacement))).toEqual(["(None : Option(u))"]);
     expect(checkSource(frac.replace("NONE", "(None : Option(u))")).diagnostics).toEqual([]);
+    // No variable is offered whose evidence does not reach the site, nor one
+    // that misses a demand the blocked one does not name.
+    const c = "let c<v: Frac>(w: Option(v)): Int = 0\n";
+    for (const program of [
+      c + "fun<u: Frac>\n    b(x: u): Int = a(1)\n    a(n: Int): Int = c(None)\n",
+      "let c<v: (Frac, Hash)>(w: Option(v)): Int = 0\nlet e<t: Frac>(x: t): Int = c(None)\n",
+      "let c2<v: Frac, w>(p: (Option(v), Option(w))): Int = 0\nlet e<t: Frac>(x: t): Int = c2((None, None))\n",
+    ]) {
+      expect([program, checkSource(program).diagnostics.flatMap(({ fixes }) => fixes ?? [])]).toEqual([program, []]);
+    }
+    // `Int` is out of reach where any blocker has no instance there.
+    expect(reports(
+      "constraint Tag<a> =\n    tag(x: a) -> String\nhonor Tag<Int> =\n    tag(x) = \"i\"\n" +
+        "let c<v: (Frac, Tag)>(w: Option(v)): Int = 0\nlet d = c(None)",
+    )).toEqual([[
+      "nothing chooses this expression's type, and its `Frac` and `Tag` evidence needs one: add a type annotation naming a type that honors `Frac` and `Tag`",
+      "None",
+    ]]);
     // With none in scope, the constraint is named and no type is guessed.
     expect(reports("let c<u: Frac>(w: Option(u)): Int = 0\nlet d = c(None)")).toEqual([[
       "nothing chooses this expression's type, and its `Frac` evidence needs one: add a type annotation naming a type that honors `Frac`",
