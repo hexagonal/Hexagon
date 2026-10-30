@@ -14537,7 +14537,11 @@ function renderHelper(
         `  if (__answer !== ${spell("undefined")}) return __answer;`,
         `  ${name}Load();`,
         `  const __fold = ${name}Folds.get(__point) ?? __point;`,
-        `  const __orbit = new ${spell("Set")}([__point, __fold, ...(${name}Members.get(__fold) ?? [])]);`,
+        `  const __members = ${name}Members.get(__fold);`,
+        // A point no folding touches is its own orbit, answered without a memo
+        // entry: a folded class over a large range asks for every point in it.
+        `  if (__fold === __point && __members === ${spell("undefined")}) return ${dependencyName("vectorOf")}([__point]);`,
+        `  const __orbit = new ${spell("Set")}([__point, __fold, ...(__members ?? [])]);`,
         `  __answer = ${dependencyName("vectorOf")}([...__orbit].sort((__left, __right) => __left - __right));`,
         `  ${name}Memo.set(__point, __answer);`,
         "  return __answer;",
