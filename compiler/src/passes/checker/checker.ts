@@ -24705,13 +24705,17 @@ class Checker {
     // sibling untyped parameter is still this body's to decide.
     this.#noteRunsAtCall(frame);
     // A bare call through a part of an untyped parameter's data, an arrow
-    // off its spine, is a fact about that arrow too: the defaulting that
-    // settles it pure names the call (#1376).
+    // off its spine, is a fact about that arrow too: it pins it pure, and a
+    // report names the call (#1376, #1380).
     for (const parameter of frame.untyped) {
       const spine = this.#spineColours(parameter.type, axis).flatMap(({ arrow }) => this.#colourParts(arrow));
       for (const part of this.#colourVariables(parameter.type)) {
         const call = readBy.get(part);
-        if (call === undefined || spine.includes(part) || this.#dataFacts.has(part)) continue;
+        if (call === undefined || spine.includes(part)) continue;
+        // Read bare, it is not closed to `->!` (#1380), even where it is shared
+        // and so no fact names it: it defaults pure, as the written `->` reads.
+        this.#bareReadData.add(part);
+        if (this.#dataFacts.has(part)) continue;
         // One another parameter holds too, on its spine or in its data, is
         // decided by no fact: a bare call through one says nothing of the
         // other (§3.4).
@@ -24746,7 +24750,14 @@ class Checker {
           axis,
         };
         this.#dataFacts.set(part, fact);
-        this.#dataFactSet.add(fact);
+        // The fact pins it pure here, before the black box closes the rest of
+        // the data to `->!` (§3.4, #1380). One a body further out holds is
+        // that body's to decide.
+        if (!this.#isDependency(frame, part)) {
+          const silent: EffectConstant = { ...PURE };
+          this.#factColours.set(silent, fact);
+          this.#unify(part, silent, parameter.span);
+        }
       }
     }
     const decisions = frame.untyped.map((parameter) => {
@@ -24896,9 +24907,24 @@ class Checker {
    */
   #closeCallbacks(frame: EffectFrame): void {
     const axis = frameAxis(frame);
+    // An arrow in data the body receives is the written twin's constant
+    // (#1380): `->` where a bare call pinned it (`#settleUntyped`), `->!`
+    // otherwise. Only this body's own arrows: a callback's colour, or one a
+    // body further out holds, is not this one's to close.
+    const own = (colour: Mono): boolean =>
+      this.#colourParts(colour).every((part) => !this.#isDependency(frame, part) && this.#scopesByColour.get(part).length === 0);
+    // What the body receives: `->!` unless a bare call read it.
+    const received = (colour: Mono): EffectConstant | undefined =>
+      own(colour) && !this.#colourParts(colour).some((part) => this.#bareReadData.has(part)) ? IMPURE : undefined;
+    // What the body hands a function it received: `->` where only pure
+    // functions flowed into it, as for a callback's parameters.
+    const handed = (colour: Mono): EffectConstant | undefined => own(colour) ? PURE : undefined;
     for (const parameter of frame.untyped) {
       const type = this.#prune(parameter.type);
-      if (type.kind !== "Function") continue;
+      if (type.kind !== "Function") {
+        if (type.kind !== "Variable") this.#closeReceivedData(type, parameter.span, received, handed, frame);
+        continue;
+      }
       const spine: FunctionMono[] = [];
       for (let node: Mono = type; node.kind === "Function"; node = this.#prune(node.result)) spine.push(node);
       // What it hands back first: its own function type's arrows are its
@@ -24933,11 +24959,68 @@ class Checker {
     return actual.kind === "Effect" && !isImpure(actual);
   }
 
+  /**
+   * Closes the arrows in data a body receives (#1380): each arrow there by
+   * `received`, and the arrows in what the body hands one of those functions,
+   * its parameters, by `handed`, the polarity turning at each parameter.
+   */
+  #closeReceivedData(
+    type: Mono,
+    span: Source.Span,
+    received: (colour: Mono) => EffectConstant | undefined,
+    handed: (colour: Mono) => EffectConstant | undefined,
+    frame: EffectFrame,
+    seen = new Set<Mono>(),
+  ): void {
+    const actual = this.#prune(type);
+    if (seen.has(actual)) return;
+    seen.add(actual);
+    if (actual.kind === "Function") {
+      const colour = this.#prune(colourAt(actual, frameAxis(frame)) ?? PURE);
+      const decided = colour.kind === "Effect" ? undefined : received(colour);
+      if (decided !== undefined) this.#unify(colour, decided, span);
+      for (const parameter of actual.parameters) this.#closeReceivedData(parameter, span, handed, received, frame, seen);
+      this.#closeReceivedData(actual.result, span, received, handed, frame, seen);
+      return;
+    }
+    const walk = (part: Mono): void => this.#closeReceivedData(part, span, received, handed, frame, seen);
+    switch (actual.kind) {
+      case "Tuple":
+        for (const element of actual.elements) walk(element);
+        return;
+      case "Record":
+        for (const field of actual.fields.values()) walk(field);
+        return;
+      case "Union":
+      case "NominalRecord":
+      case "ExternType":
+        for (const argument of actual.arguments) walk(argument);
+        return;
+      case "Vector":
+      case "Set":
+      case "Array":
+      case "JsSet":
+      case "Node":
+        walk(actual.element);
+        return;
+      case "Nullable":
+        walk(actual.value);
+        return;
+      case "Map":
+      case "JsMap":
+        walk(actual.key);
+        walk(actual.value);
+        return;
+      default:
+        return;
+    }
+  }
+
   /** Closes every arrow inside `type` still undecided to the constant `decide` picks. */
   #closeInnerArrows(
     type: Mono,
     span: Source.Span,
-    decide: (colour: Mono) => EffectConstant,
+    decide: (colour: Mono) => EffectConstant | undefined,
     frame: EffectFrame,
     seen = new Set<Mono>(),
   ): void {
@@ -24948,7 +25031,8 @@ class Checker {
     switch (actual.kind) {
       case "Function": {
         const colour = this.#prune(colourAt(actual, frameAxis(frame)) ?? PURE);
-        if (colour.kind !== "Effect") this.#unify(colour, decide(colour), span);
+        const decided = colour.kind === "Effect" ? undefined : decide(colour);
+        if (decided !== undefined) this.#unify(colour, decided, span);
         for (const parameter of actual.parameters) walk(parameter);
         walk(actual.result);
         return;
@@ -27400,14 +27484,7 @@ class Checker {
    */
   #undecidedColour(colour: Variable): Mono {
     if (this.#errorFloors.has(colour)) return ERROR_COLOUR;
-    // Its own pure point, so a report can tell it from a written `->` (#1303),
-    // and the bare call that made it so, where one did (#1376).
-    const fact = this.#dataFacts.get(colour);
-    if (fact !== undefined) {
-      const silent: EffectConstant = { ...PURE };
-      this.#factColours.set(silent, fact);
-      return silent;
-    }
+    // Its own pure point, so a report can tell it from a written `->` (#1303).
     const settled: EffectConstant = { ...PURE };
     this.#settledPure.add(settled);
     return settled;
@@ -27415,7 +27492,8 @@ class Checker {
 
   /** A bare call through a part of an untyped parameter's data, by the arrow it runs (#1376). */
   readonly #dataFacts = new Map<Variable, ColourFact>();
-  readonly #dataFactSet = new WeakSet<ReportFact>();
+  /** Arrows in an untyped parameter's data that a bare call reads (#1380). */
+  readonly #bareReadData = new WeakSet<Variable>();
 
   /** The pure points defaulting settled, which no text wrote (#1303). */
   readonly #settledPure = new WeakSet<Mono>();
@@ -29900,9 +29978,7 @@ class Checker {
       // A mark keeps a parameter's own arrow open, but not an arrow in its
       // data, so marking a bare call through one repairs nothing: no fix
       // offers it (#1376).
-      const fixes = seen.some((fact) => this.#dataFactSet.has(fact))
-        ? []
-        : this.#readerFixes(words.told, byCall, seen.filter(isDemandFact));
+      const fixes = this.#readerFixes(words.told, byCall, seen.filter(isDemandFact));
       // Where the demand sits on an arrow the parameter returns, it is what
       // the function handed returns that does not fit, on each colour as far
       // down as it sits (#1308).
