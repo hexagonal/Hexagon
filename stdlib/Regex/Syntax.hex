@@ -155,6 +155,17 @@ let isValidName(name: String): Bool =
             valid := valid and isNameContinue(point)
     valid
 
+// Whether `value` is `None`, read by matching: this module never asks for
+// `Option`'s instances or its companion's operations, so that it compiles beside
+// any prelude member the host replaces.
+let isAbsent(value: Option(a)): Bool = match value
+    Some(_) => False
+    None => True
+
+let prefixed(prefix: String, value: Option(String)): Option(String) = match value
+    Some(text) => Some(prefix ++ text)
+    None => None
+
 // The pattern's text from `start` to `end`, inclusive; `""` when empty.
 let slice(pattern: String, start: Int, end: Int): String =
     if start > end then "" else pattern[start..end]
@@ -359,7 +370,7 @@ let separatorAt(body: String): Option(Int) =
     var at = 1
     var found = None
     for point in body
-        if found == None and (point == "=" or point == ":") then found := Some(at)
+        if isAbsent(found) and (point == "=" or point == ":") then found := Some(at)
         at := at + 1
     found
 
@@ -416,7 +427,7 @@ let looseIn(names: Vector(String), name: String): Option(String) =
     let wanted = loosened(name)
     var found = None
     for candidate in names
-        if found == None and loosened(candidate) == wanted then found := Some(candidate)
+        if isAbsent(found) and loosened(candidate) == wanted then found := Some(candidate)
     found
 
 let spellings(table: Map(String, String)): Vector(String) = Vector.fromSeq(Map.keys(table))
@@ -451,11 +462,12 @@ let lookupProperty(body: String): Result((PropertyKind, String), Option(String))
             match valueKind(property)
                 Some(kind) => match lookupValue(kind, value)
                     Some(canonical) => Ok((kind, canonical))
-                    None => Err(looseValue(kind, value).map((spelling) => property ++ separator ++ spelling))
-                None => Err(looseProperty(property).flatMap((spelling) =>
-                    match valueKind(spelling)
-                        Some(kind) => looseOrExact(kind, value).map((found) => spelling ++ separator ++ found)
-                        None => None))
+                    None => Err(prefixed(property ++ separator, looseValue(kind, value)))
+                None => Err(match looseProperty(property)
+                    Some(spelling) => match valueKind(spelling)
+                        Some(kind) => prefixed(spelling ++ separator, looseOrExact(kind, value))
+                        None => None
+                    None => None)
         None => match lookupBare(body)
             Some(found) => Ok(found)
             None => Err(looseBare(body))
@@ -925,7 +937,7 @@ let quantify(
                             None => low
                         if point == "{" and (low > limit or maximum > limit) then
                             Err(fault("repetition count exceeds 1000", position))
-                        else if low > maximum and high != None then
+                        else if low > maximum then
                             Err(fault("`" ++ slice(pattern, position, afterCount - 1) ++ "` has a minimum above its maximum", position))
                         else
                             let factor = if point == "{" and maximum > 1 then maximum else 1
