@@ -1086,6 +1086,58 @@ describe("Effects §3.4: a mark decides nothing; facts decide an untyped paramet
     expect(fixes(PRE + kept)[0]).toEqual(["write the types of `g` and `f`", [": () ->~ Unit", ": () ->~ Unit"]]);
   });
 
+  test("a call of a parameter by its own name beside a closed sharing is the sharing's, never a type it met (#1324)", () => {
+    const pure = "let pureOnly(g: () -> Unit): Unit = ()\n";
+    // Its colour is silent only through the sharing, whose report it joins:
+    // one report for both marks, whose repairs keep them or remove both.
+    for (const sharing of ["pick(g, f)", "(if c then g else f)"]) {
+      for (const order of ["    f!()\n    SHARING!()\n", "    SHARING!()\n    f!()\n"]) {
+        const program = PRE + pure + "let j3(g, f, c: Bool) =\n    pureOnly(g)\n" + order.replace("SHARING", sharing);
+        expect([sharing, order, reports(program)]).toEqual([sharing, order, [[
+          "!",
+          "this call is pure and cannot fail only because `f`'s colour is tied to `g`'s here, and `g` meets `() -> Unit` — " +
+          "write their types, or wrap `g` where they meet: `() => g()`",
+        ]]]);
+        expect([sharing, order, fixes(program)]).toEqual([sharing, order, [
+          ["write the types of `g` and `f`", [": () -> Unit", ": () ->! Unit"]],
+          ["remove the marks", ["", ""]],
+        ]]);
+      }
+    }
+    // Three marks: still one report, and one repair of them all.
+    expect(fixes(PRE + pure + "let j3(g, f) =\n    pureOnly(g)\n    f!()\n    f!()\n    pick(g, f)!()\n")).toEqual([
+      ["write the types of `g` and `f`", [": () -> Unit", ": () ->! Unit"]],
+      ["remove the marks", ["", "", ""]],
+    ]);
+    // The impure side: a bare call beside a sharing run bare, whose other
+    // parameter met the impure constant. The sharing's own call runs `g`, and
+    // wants its mark whatever is written.
+    const impure = PRE + "let s(f, g) =\n    let h = Holder({ run = g })\n    pick(f, g)()\n    f()\n";
+    expect(reports(impure)).toEqual([
+      ["pick(f, g)()", "this call is impure and may fail, so this call wants `!`, not no mark"],
+      [
+        "f()",
+        "this call is impure and may fail only because `f`'s colour is tied to `g`'s here, and `g` meets `() ->! Unit` — " +
+        "write their types, or wrap `g` where it meets it: `() => g()`",
+      ],
+    ]);
+    expect(fixes(impure)).toEqual([
+      ["mark the call `!`", ["!"]],
+      ["write the types of `f` and `g`", [": () -> Unit", ": () ->! Unit"]],
+      ["mark the call `!`", ["!"]],
+    ]);
+    // Where the sharing is not closed, the call keeps its own report: the
+    // sharing's result meets the demand itself, or the parameter is named on
+    // its own too.
+    for (const body of [
+      "    pureOnly(g)\n    pureOnly(pick(f, g))\n    f!()\n",
+      "    pureOnly(g)\n    let w = () => f()\n    pureOnly(w)\n    pick(g, f)!()\n    f!()\n",
+    ]) {
+      const said = reports(PRE + pure + `let j3(g, f) =\n${body}`).map(([, text]) => text);
+      expect([body, said.some((text) => text.includes("only because"))]).toEqual([body, false]);
+    }
+  });
+
   test("a part another body decides may yet be made silent there: the shared colour a mark needs is a tie", () => {
     const tie = ["if c then g else f", "`g`'s colour is tied to `f`'s here, and inference cannot keep them apart — write `g`'s type, or wrap `g` where they meet"];
     for (const body of [
