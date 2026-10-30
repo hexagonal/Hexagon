@@ -5930,6 +5930,16 @@ export let x: Int = 1
         0,
       ]]]);
     }
+    // Nor is a sibling's bare call a fact where its own parameters share the
+    // colour there.
+    const ping2 = "    ping(t, n: Int): Unit =\n        let (_, b) = t\n        if n > 0 then pong(t, (b, 1), n - 1) else ()\n";
+    const pong2 = "    pong(t, s, n: Int): Unit =\n        let (a, _) = t\n        let (g, _) = s\n" +
+      "        let h = if True then g else a\n        g()\n        ping(t, n)\n";
+    for (const members of [[ping2, pong2], [pong2, ping2]]) {
+      const messages = reports("let noop(): Unit = ()\nfun\n" + members.join("") + "export let p(): Unit = ping((save0, noop), 3)\n")
+        .map(([message]) => message as string);
+      expect([members, messages.some((message) => message.includes("is called bare"))]).toEqual([members, false]);
+    }
     // A colour another parameter holds too is decided by no fact (§3.4).
     for (const source of [
       "let use(f, g, t) =\n    let (a, _) = t\n    let h = if True then (if True then f else g) else a\n    a()\n" +

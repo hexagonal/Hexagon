@@ -24720,8 +24720,14 @@ class Checker {
         // reader is a call of a function that runs it (`pong(t, n - 1)`).
         // In a knot, a sibling's bare call reads it too, whichever member
         // closes first (#1379).
+        // A call in a sibling whose own parameters share the colour, on their
+        // spines or in their data, decides nothing there either (§3.4).
         const knotReaders = this.#knotFacts?.frames.has(frame) === true
-          ? this.#knotFacts.calls.filter(({ call: each }) => !markParts(each.mark)[axis]).map(({ call: each }) => each)
+          ? this.#knotFacts.calls.filter(({ call: each, frame: other }) =>
+            !markParts(each.mark)[axis] &&
+            !(this.#knotFacts!.shared.get(other) ?? []).some((colour) => this.#prune(colour) === part) &&
+            other.untyped.filter((held) => this.#colourVariables(held.type).includes(part)).length <= 1
+          ).map(({ call: each }) => each)
           : [];
         const direct = [...(readersOf.get(part) ?? [call]), ...knotReaders].find((reader) => {
           const named = ungrouped(reader.callee);
