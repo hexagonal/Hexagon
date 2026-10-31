@@ -1215,6 +1215,14 @@ describe("a function in the data a signature returns is a signature of its own (
   const T = "((() ->! Unit) >-> Unit, Int)";
   const user = (lines: readonly string[]): string =>
     "export let user(): Unit =\n" + lines.map((line) => `    ${line}\n`).join("");
+  // Under a type argument a declaration reads backwards or both ways (#1184).
+  const UNDER_BACKWARDS = (name: string) => "`>->` means only as effectful as what it is handed, and nothing is " +
+    `handed here — a function under \`${name}\`'s argument, which \`${name}\` reads backwards, is one a caller may ` +
+    "hand in; write `->!`, which accepts any function, as the caller's choice does, or `->` for one that is pure and cannot fail";
+  const UNDER_BOTH_WAYS = (name: string) => "`>->` means only as effectful as what it is handed, and nothing is " +
+    `handed here — a function under \`${name}\`'s argument, which \`${name}\` reads both ways, has no written face ` +
+    "that follows what it is handed, a limitation Hexagon keeps (Effects §10); write `->!`, which claims more of it, or " +
+    "`->` for one that is pure and cannot fail";
   const NOTHING_HANDED = "`>->` means only as effectful as what it is handed, and nothing is handed here — no callback of " +
     "this signature has been handed over by the time this arrow runs; write `->!` for a function that is impure and may fail, or `->` for one that is pure and cannot fail";
 
@@ -1346,7 +1354,7 @@ describe("a function in the data a signature returns is a signature of its own (
     // the world through a call that wears no mark.
     const sink = "record Sink(a) = { put: (a) -> Unit }\nlet ident(x: a): a = x\n";
     expect(reports(sink + "let mk(): Sink((() ->! Unit) >-> Unit) = ident(Sink({ put = (h) => h(() => ()) }))\n" +
-      user(["mk().put((f) => save0!())"]))).toContainEqual([">->", NOTHING_HANDED]);
+      user(["mk().put((f) => save0!())"]))).toContainEqual([">->", UNDER_BACKWARDS("Sink")]);
     for (const result of ["Sink(() >-> Unit)", "(Sink(() >-> Unit), Int)", "Option(Sink(() >-> Unit))"]) {
       const value = result.startsWith("(") ? "(ident(Sink({ put = (h) => h() })), 1)"
         : result.startsWith("Option") ? "Some(ident(Sink({ put = (h) => h() })))"
@@ -1385,7 +1393,7 @@ describe("a function in the data a signature returns is a signature of its own (
     for (const result of ["Sink(Cell((() ->! Unit) >-> Unit))", "Cell(Sink((() ->! Unit) >-> Unit))"]) {
       const value = result.startsWith("Sink") ? "Sink({ put = (c) => () })"
         : "Cell({ get = () => Sink({ put = (h) => h!(() => ()) }), put = (s) => () })";
-      expect([result, reports(decls + `let mk(): ${result} = ${value}\n`)]).toEqual([result, [[">->", NOTHING_HANDED]]]);
+      expect([result, reports(decls + `let mk(): ${result} = ${value}\n`)]).toEqual([result, [[">->", UNDER_BOTH_WAYS("Cell")]]]);
     }
   });
 
@@ -1401,7 +1409,7 @@ describe("a function in the data a signature returns is a signature of its own (
     ] as const) {
       expect(hovered(decls + inferred, "mk(")).toBe(`() -> ${written}`);
       const value = inferred.slice(inferred.indexOf("= ") + 2);
-      expect(reports(decls + `let mk(): ${written} = ${value}`)).toEqual([[">->", NOTHING_HANDED]]);
+      expect(reports(decls + `let mk(): ${written} = ${value}`)).toEqual([[">->", UNDER_BOTH_WAYS(written.slice(0, written.indexOf("(")))]]);
       expect([constant, reports(decls + `let mk(): ${constant} = ${value}` + user(uses))]).toEqual([constant, []]);
     }
     // Unified, not fitted, at any depth: fitted, a `put` that runs what it is

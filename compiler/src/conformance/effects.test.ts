@@ -305,6 +305,45 @@ export record Source = { step: () >-> String }
     ).toEqual(['write `->!`: "->!"']);
   });
 
+  it("names the declaration and how it reads the argument, where a pasted `>->` stands under one (#1184)", () => {
+    // Backwards (`Sink`): a function a caller may hand in, whose constant is the
+    // caller's choice. Both ways (`Cell`, an opaque `Box`): Effects §10's kept
+    // limitation, the constant claiming more. Either way the fix is the constant.
+    const head = "`>->` means only as effectful as what it is handed, and nothing is handed here — ";
+    const both = (name: string) => head + `a function under \`${name}\`'s argument, which \`${name}\` reads both ways, ` +
+      "has no written face that follows what it is handed, a limitation Hexagon keeps (Effects §10); write `->!`, " +
+      "which claims more of it, or `->` for one that is pure and cannot fail";
+    const sink = "record Sink(a) = { put: (a) ->! Unit }\nlet mk(): Sink((() -> Unit) >-> Unit) = Sink({ put = (h) => h!(() => ()) })\n";
+    expect(effectDiagnostics([["/main.hex", "module Main\n\n" + sink]])).toEqual([
+      head + "a function under `Sink`'s argument, which `Sink` reads backwards, is one a caller may hand in; write `->!`, " +
+      "which accepts any function, as the caller's choice does, or `->` for one that is pure and cannot fail",
+    ]);
+    const cell = "record Cell(a) = { get: () -> a, put: (a) ->! Unit }\n" +
+      "let mkC(): Cell((() ->! Unit) >-> Unit) = Cell({ get = () => (f) => f!(), put = (h) => () })\n";
+    expect(effectDiagnostics([["/main.hex", "module Main\n\n" + cell]])).toEqual([both("Cell")]);
+    expect(effectFixes([["/main.hex", "module Main\n\n" + cell]])).toEqual(['write `->!`: "->!"']);
+    const box = "opaque record Box(a) = { value: a }\nlet wrapB(x: a): Box(a) = Box({ value = x })\n" +
+      "let mkB(): Box((() ->! Unit) >-> Unit) = wrapB((f) => f!())\n";
+    expect(effectDiagnostics([["/main.hex", "module Main\n\n" + box]])).toEqual([both("Box")]);
+    // The constant compiles.
+    expect(effectDiagnostics([["/main.hex", "module Main\n\n" + cell.replace(">-> Unit) =", "->! Unit) =")]])).toEqual([]);
+    // Two backwards readings cancel: the function is the maker's own, and the
+    // refusal says only that nothing is handed. A local annotation keeps its
+    // own advice first.
+    const twice = "record Sink(a) = { put: (a) -> Unit }\n" +
+      "let mk(): Sink(Sink((() -> Unit) >-> Unit)) = Sink({ put = (s) => s.put((k) => k()) })\n";
+    expect(effectDiagnostics([["/main.hex", "module Main\n\n" + twice]])).toEqual([
+      head + "no callback of this signature has been handed over by the time this arrow runs; write `->!` for a " +
+      "function that is impure and may fail, or `->` for one that is pure and cannot fail",
+    ]);
+    const local = "record Sink(a) = { put: (a) ->! Unit }\nexport let outer(): Unit =\n" +
+      "    let mk(): Sink((() -> Unit) >-> Unit) = Sink({ put = (h) => h!(() => ()) })\n    ()\n";
+    expect(effectDiagnostics([["/main.hex", "module Main\n\n" + local]])).toEqual([
+      head + "this annotation has no callbacks of its own, and a local `>->` does not borrow the enclosing function's — " +
+      "leave its type to inference, or write `->!`",
+    ]);
+  });
+
   it("refuses `>->` in a `union` field for the same reason", () => {
     expect(
       effectDiagnostics([["/main.hex", "module Main\n\n" + `
