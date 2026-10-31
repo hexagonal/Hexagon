@@ -3465,8 +3465,26 @@ class JavaScriptEmitter {
    */
   #eagerEvidenceDepth = 0;
 
+  /**
+   * *(#927, `regex.md` §8.)* The symbols this module binds `Hex.Regex`'s
+   * `compile` under, and the lazy module-level constants its literal-pattern
+   * calls became: a call `Regex.compile("…")` whose argument is a string
+   * literal is compiled once per load, at its first evaluation, and every later
+   * evaluation reads the same `Result`. `compile` is a value function of its
+   * argument (Effects §6.2, species (d)), so no semantics ride on the sharing.
+   */
+  readonly #regexCompileSymbols: ReadonlySet<Resolved.SymbolId>;
+  readonly #regexLiterals: string[] = [];
+
   constructor(module: Core.Module, options: JavaScriptEmissionOptions) {
     this.#module = module;
+    this.#regexCompileSymbols = new Set(module.items.flatMap((item) =>
+      item.kind === "Import" && item.moduleName === "Hex.Regex"
+        ? item.form.names.flatMap(({ imported, symbol }) =>
+          imported === "compile" && symbol !== undefined ? [symbol] : []
+        )
+        : []
+    ));
     this.#docs = new DocIndex(module.docs);
     this.#prelude = preludeIds(module);
     this.#instanceDictionaryHeads = fundamentalInstanceDictionaries(module, this.#prelude.bool);
@@ -3914,6 +3932,10 @@ class JavaScriptEmitter {
         ),
         "",
       );
+    }
+
+    if (this.#regexLiterals.length > 0) {
+      body.push(`let ${this.#regexLiterals.join(", ")};`, "");
     }
 
     const seated = this.#docs.seatedComments();
@@ -5733,6 +5755,16 @@ class JavaScriptEmitter {
             // Not a literal (`Seq(existing)`): splice the shared method on
             // rather than mutate a value that may already be someone else's.
             : `{ ...${this.#emitExpr(constructed, depth, evidenceNames)}, ${face} }`;
+        }
+        if (
+          expression.callee.kind === "Name" &&
+          this.#regexCompileSymbols.has(expression.callee.symbol) &&
+          expression.arguments.length === 1 &&
+          expression.arguments[0]!.kind === "String"
+        ) {
+          const constant = `__regexLiteral${this.#regexLiterals.length + 1}`;
+          this.#regexLiterals.push(constant);
+          return `(${constant} ??= ${this.#emitCall(expression, depth, evidenceNames)})`;
         }
         return this.#emitCall(expression, depth, evidenceNames);
       }
