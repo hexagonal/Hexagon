@@ -701,11 +701,11 @@ export interface ResolveOptions {
   readonly runtime?: boolean;
   /**
    * Whether this module is compiled as **standard-library source**, the privilege
-   * the intrinsic door is gated on (`spec/intrinsics.md` §5.2). Two seats hold it
-   * in v1: the prelude set, and the injected runtime-module set (§5.2's runtime
-   * bullet, #365). A host may explicitly grant a supplied source the registered
-   * member's seat when compiling the standard library itself; names and paths
-   * never infer that grant.
+   * the intrinsic door is gated on (`spec/intrinsics.md` §5.2). Every member of
+   * the package `Hex` holds it (#927): the prelude set, the injected runtime
+   * modules, and the library members reached by import. A host may explicitly
+   * grant a supplied source the registered member's seat when compiling the
+   * standard library itself; names and paths never infer that grant.
    *
    * The privilege attaches to *how the module is compiled*, never to its text, and
    * unlike `runtime` it puts no name into scope: the door is a declaration form,
@@ -714,6 +714,14 @@ export interface ResolveOptions {
    * closed with a named rewrite.
    */
   readonly privileged?: boolean;
+  /**
+   * Whether this module may declare the core constraints the prelude declares
+   * (`NON_REDECLARABLE_CONSTRAINTS`) rather than having them refused as twins: a
+   * prelude or runtime member's privilege, which follows membership as
+   * `privileged` does. A library member of `Hex` holds the door without it
+   * (#927): opening the door to every member opened nothing else.
+   */
+  readonly declaresCoreConstraints?: boolean;
   /**
    * The primitive this module is the fixed prelude companion of, when it is one
    * (`Resolved.Module.companionPrimitive` — #344). Settled by the caller from
@@ -1424,6 +1432,7 @@ class Resolver {
   readonly #dataIds: ResolveOptions["dataIds"];
   readonly #runtime: boolean;
   readonly #privileged: boolean;
+  readonly #declaresCoreConstraints: boolean;
   readonly #companionPrimitive: Resolved.PrimitiveName | undefined;
   /** This module's own path; see `ResolveOptions.path`. */
   readonly #path: string | undefined;
@@ -1716,6 +1725,7 @@ class Resolver {
     this.#repairs = options.repairs;
     this.#runtime = options.runtime ?? false;
     this.#privileged = options.privileged ?? false;
+    this.#declaresCoreConstraints = options.declaresCoreConstraints ?? false;
     this.#companionPrimitive = options.companionPrimitive;
     this.#path = options.path;
     this.#identity = options.identity ?? "";
@@ -1746,7 +1756,7 @@ class Resolver {
         }
       }
     }
-    if (!this.#privileged) {
+    if (!this.#declaresCoreConstraints) {
       for (const name of NON_REDECLARABLE_CONSTRAINTS) this.#constraintNames.add(name);
     }
     for (const preludeImport of options.prelude ?? []) {

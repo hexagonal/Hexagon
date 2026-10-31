@@ -105,10 +105,11 @@ describe("Regex.Syntax: the module", () => {
     eager: true, query: "?raw", import: "default",
   }) as Record<string, string>;
 
-  test("the embedded source matches the canonical module, which declares no door rows (§5)", () => {
-    const [source] = Object.values(originals);
+  test("the embedded source matches the canonical module, whose one door row is the codepoint read (§5)", () => {
+    const source = Object.values(originals)[0]!;
     expect(STDLIB_SOURCES["Regex.Syntax"]).toBe(source);
-    expect(source).not.toMatch(/^\s*extern\b/mu);
+    expect(source.match(/^\s*extern\b/gmu)).toHaveLength(1);
+    expect(source.match(/^\s*fun \w+ as /gmu)).toEqual(["    fun stringCodepointUnchecked as "]);
   });
 });
 
@@ -377,16 +378,17 @@ describe("Regex.Syntax: RegexError (§2.9)", () => {
     expect(parse(pattern)).toBe(refusal);
   });
 
-  test("a lone surrogate is refused at its position until the parser's door row lands (§3.6)", () => {
-    const refusal = "a lone surrogate cannot be read in a pattern yet";
-    expect(parse("a\uD800")).toBe(`error 2: ${refusal}`);
-    expect(parse("(?x)#\uD800")).toBe(`error 6: ${refusal}`);
-    expect(parse("(?<a\uD800>x)")).toBe(`error 5: ${refusal}`);
-    expect(parse("\\p{\uD800}")).toBe(`error 4: ${refusal}`);
-    expect(parse("(\\q\uD800")).toBe(`error 4: ${refusal}`);
-    expect(parse("\\\uDC00")).toBe(`error 2: ${refusal}`);
-    expect(parse("[a\uD83D]")).toBe(`error 3: ${refusal}`);
+  test("a lone surrogate is one codepoint, a literal (§3.6)", () => {
+    expect(parse("a\uD800")).toBe("cat(a #55296) #0");
+    expect(parse("\\\uDC00")).toBe("#56320 #0");
+    expect(parse("[a\uD83D]")).toBe("[a #55357] #0");
+    expect(parse("(?i)\uD800")).toBe("[#55296]i #0");
+    expect(parse("(?x)#\uD800")).toBe("() #0");
     expect(parse("\uD83D\uDE00")).toBe("#128512 #0");
+    // A message quotes a lone surrogate by its code (§2.9).
+    expect(parse("\\p{\uD800}")).toBe("error 1: `\\p{U+D800}` names no supported property");
+    expect(parse("[\uDBFF-\uD800]")).toBe("error 4: range `U+DBFF-U+D800` is reversed");
+    expect(parse("(?<a\uD800>x)")).toBe("error 4: group name must match `[A-Za-z_][A-Za-z0-9_]*`");
   });
 
   test("the first fault in reading order is the one reported", () => {
