@@ -12,21 +12,22 @@ import Regex
 // A pattern is compiled by Regex.compile, which answers a Result: a pattern
 // can be malformed, and the Err says why and where. The dialect is RE2's, so
 // matching takes time linear in the text. A pattern written as a literal is
-// compiled once per load, not at every call.
+// compiled once per load, even inside a function called many times.
 //
 // (?P<year>...) captures under a name as well as a number; (?<year>...) is
 // the same group. ^ and $ anchor the match to the whole string.
 let isoDate = Regex.compile("^(?P<year>[0-9]{4})-(?P<month>[0-9]{2})-(?P<day>[0-9]{2})$")
 
-// Regex.find answers the leftmost match, or None. Regex.named reads one named
-// group from it, which is an Option too: a group in an alternative the match
-// did not take has no text.
+// find answers the leftmost match, or None. named reads one named group from
+// it, which is an Option too: a name the pattern does not define has none, and
+// neither does a group in an alternative the match did not take. Both are
+// called with a dot, on the regex and on the match.
 let check(text: String) = match isoDate
     Err(error) => Debug.log("bad pattern: \${error}")
-    Ok(regex) => match Regex.find(regex, text)
+    Ok(regex) => match regex.find(text)
         None => Debug.log("\${text}: not an ISO date")
         Some(found) =>
-            let part(name: String) = match Regex.named(found, name)
+            let part(name: String) = match found.named(name)
                 Some(group) => group.text
                 None => "?"
             Debug.log("\${text}: year \${part("year")}, month \${part("month")}, day \${part("day")}")
@@ -39,9 +40,9 @@ check("x2026-10-31")
 // The pattern checks the shape, not the calendar: month 13 still matches.
 check("2026-13-45")
 
-// When only yes or no matters, Regex.isMatch answers a Bool.
+// When only yes or no matters, isMatch answers a Bool.
 match isoDate
-    Ok(regex) => Debug.log("is 1999-12-31 a date? \${Regex.isMatch(regex, "1999-12-31")}")
+    Ok(regex) => Debug.log("is 1999-12-31 a date? \${regex.isMatch("1999-12-31")}")
     Err(error) => Debug.log("bad pattern: \${error}")
 `,
   specificationReferences: ["spec/regex.md"],
