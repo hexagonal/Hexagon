@@ -4059,7 +4059,68 @@ interface InstanceBody {
   readonly type: FunctionMono;
 }
 
+/**
+ * An honor's knot while its bodies are checked *(Constraints §4.8, Effects
+ * §13.3)*: the honor's own span, or its group's. A known-instance call inside
+ * it, at an instance whose member body the knot writes, follows the knot: its
+ * waiting colour stays a variable until the knot closes (`#closeHonorKnot`).
+ * Only the instances' own colours wait; the callbacks a call hands are joined
+ * beside the wait where the call ends, as at any call.
+ */
+interface HonorKnot {
+  readonly span: Source.Span;
+  /**
+   * The knot the bodies' colours settle in, a `fun` knot's machinery (§3.4):
+   * a lambda whose calls reach a wait is held by it, and a member body whose
+   * calls do is one of its frames. Its level is the one a `fun` knot's
+   * monotypes stand at, below the bodies; a wait sinks to it, so no binding
+   * inside the knot generalizes it.
+   */
+  readonly knot: Knot;
+  /** The waits the knot decides, each with the instance member it follows (`${instance key} ${member}`). */
+  readonly waits: { readonly wait: InstanceWait; readonly target: string }[];
+  /** Each held member body's frame, by the instance member it is. */
+  readonly members: Map<string, EffectFrame>;
+  /** The seat comparisons of the bodies whose colours wait, run once the own colours settle (§13.2). */
+  readonly seats: (() => void)[];
+}
+
+/** `#knownCallColour`'s answer for a call that follows its honor's knot, decided where the knot closes. */
+const FOLLOWS_KNOT = Symbol("follows the knot");
+
+/**
+ * What kind of use of an instance a requirement is, and where it stands
+ * (Constraints §4.8, #1227): `site` is what the top-down law reads, `primary`
+ * where a refusal stands (a `derives` entry, an extending honor's head), and
+ * `from` the honor whose own head or derivation makes the use.
+ */
+interface OrderTag {
+  readonly kind: "call" | "evidence" | "operator" | "interpolation" | "for" | "literal" | "base" | "derived";
+  readonly site: Source.Span;
+  readonly primary?: Source.Span;
+  readonly from?: Resolved.HonorItem;
+}
+
+/** One node of the module's use graph (`#honorOrderReports`): an honor, or a term declaration. */
+interface OrderNode {
+  readonly key: string;
+  readonly kind: "honor" | "function" | "door" | "other";
+  /** The instance's display, `Show<Ping>`, or the declaration's name. */
+  readonly label: string;
+  readonly honor?: Resolved.HonorItem;
+  readonly span: Source.Span;
+}
+
+/** A use of an instance above its honor, outside its knot, reported at the module's close. */
+interface OrderViolation {
+  readonly primary: Source.Span;
+  readonly from: OrderNode | undefined;
+  readonly instance: Resolved.HonorItem;
+  readonly label: string;
+}
+
 /** A member call's `->!` arrow waiting for its subject's instance (`#instanceWaits`, Effects §13.3). */
+
 interface InstanceWait {
   readonly colour: Variable;
   /** The colour it waits on (Effects §1): each colour of a spine arrow waits on its own. */
@@ -4184,6 +4245,18 @@ interface Knot {
    * body's ties wait for every body nested in it (Effects §3.4, #1215).
    */
   readonly tieFrames: EffectFrame[];
+  /**
+   * An honor's knot (Constraints §4.8, Effects §13.3): the instances' own
+   * colours its calls wait on, which are its colours as a sibling's are, and
+   * how its close decides them. A member frame that turns out a source makes
+   * its instance's own colour the impure constant there, one in error makes
+   * it in error, and what is left before the conduit arm is silent.
+   */
+  readonly honor?: {
+    readonly waits: Set<Variable>;
+    readonly decided: (frame: EffectFrame, answer: Mono) => void;
+    readonly beforeConduit: (axis: Axis) => void;
+  };
 }
 
 /** The module a receiver head's companion is addressed under (§4.1's table). */
@@ -4971,6 +5044,10 @@ class Checker {
    * (Effects §13.2).
    */
   readonly #instanceBodies = new Map<string, InstanceBody>();
+  /** The honor knot whose bodies are being checked, if any (`HonorKnot`). */
+  #honorKnot: HonorKnot | undefined;
+  /** The honor knot whose close is settling its frames (`#decideHonorWaits`). */
+  #honorClosing: HonorKnot | undefined;
   readonly #defaultBodies = new Map<string, InstanceBody>();
   /** This module's honors, each with its instance key, for publishing their colours (§13.3). */
   readonly #localHonors: { readonly key: string; readonly identity: string; readonly declaration: Resolved.ConstraintItem }[] = [];
@@ -5080,6 +5157,31 @@ class Checker {
   readonly #chosenAtUse = new Set<Variable>();
   /** The `widens` doors whose bodies are being checked, by `${identity} ${member}`. */
   readonly #openDoors = new Set<string>();
+  /**
+   * Constraints §4.8's top-down law for instances (#1227): a use of an instance
+   * this module declares stands below its honor's knot, or inside it. The tag
+   * the next `#require` takes says what kind of use it is and where it stands.
+   */
+  #orderNextTag: OrderTag | undefined;
+  /** Set while the checker compares faces of its own accord, which uses no instance. */
+  #orderQuiet = false;
+  readonly #orderTags = new WeakMap<Requirement, OrderTag>();
+  /** `widens` doors by `${identity} ${member}`. */
+  readonly #orderDoors = new Map<string, { readonly span: Source.Span; readonly symbol: Resolved.SymbolId }>();
+  /** Door bindings, by symbol: the door's span and the keys it supplies. */
+  readonly #orderDoorSymbols = new Map<Resolved.SymbolId, { readonly span: Source.Span; readonly keys: readonly string[] }>();
+  /** This module's honors, in source order. */
+  #orderHonors: readonly Resolved.HonorItem[] = [];
+  /** This module's top-level declarations, the use graph's nodes, in source order. */
+  #orderNodes: readonly OrderNode[] = [];
+  /** Term declarations' nodes, by the symbol they bind. */
+  readonly #orderSymbolNodes = new Map<Resolved.SymbolId, OrderNode>();
+  /** Honors' nodes. */
+  readonly #orderHonorNodes = new Map<Resolved.HonorItem, OrderNode>();
+  /** The use graph: each node's uses, honors and term references alike. */
+  readonly #orderEdges = new Map<string, Set<string>>();
+  /** The uses refused, by where they stand and what they use: one report each. */
+  readonly #orderViolations = new Map<string, OrderViolation>();
 
   readonly #expressionTypes = new WeakMap<Resolved.Expr, Mono>();
   /** Suffix constructions are ordinary build calls after pattern selection. */
@@ -6879,6 +6981,7 @@ class Checker {
     // wrote: module `Option` is bound and exports no such constraint.
     for (const { alias } of module.moduleAliases) this.#moduleAliases.add(alias);
     this.#modulePath = module.path;
+    this.#orderPrescan(module);
     this.#preludeUnionIds = new Set(module.preludeUnions.values());
     this.#preludeRecordIds = new Set(module.preludeRecords.values());
     this.#buildSpellingTables(module);
@@ -7630,7 +7733,12 @@ class Checker {
     // widen has no restriction to derive and a second report at the honor block
     // would be the same fault said twice, in the wrong place — which is the
     // dependency, load-bearing and measured, that this ordering exists for.
+    // The signature check instantiates each member at its door's type: a
+    // comparison of two faces, which relies on no instance, so no use of one
+    // (Constraints §4.8).
+    this.#orderQuiet = true;
     this.#checkWidensDeclarations(module.items);
+    this.#orderQuiet = false;
     for (const { key, check } of this.#derivedMembers) {
       if (!this.#failedWidens.has(key)) check();
     }
@@ -7643,6 +7751,9 @@ class Checker {
     while (this.#settleSequenceDefaults(-1));
     this.#defaultRemainingVariables();
     this.#closeInstances();
+    // Constraints §4.8: every use is known now, so each refusal's advice can
+    // read whether the honor reaches back to the declaration that uses it.
+    this.#reportHonorOrder();
     // After the unmentioned-variable row, which absorbs the refusals of the
     // variables it refuses. Inference and defaulting are done, so every
     // demand the bodies make is known.
@@ -8730,7 +8841,11 @@ class Checker {
         callee.field.span,
         unreachable ??
           (selfReference
-            ? `\`${name}\` is not in scope in its own \`let\` definition; \`let\` is non-recursive — use \`fun\`.`
+            ? this.#orderDoorSymbols.has(operation.id)
+              // Constraints §8: a door's body reaches its own binding in no
+              // spelling, the dot included (§4.8).
+              ? "a `widens` door cannot call itself — let a function recurse by itself, and call it from the door"
+              : `\`${name}\` is not in scope in its own \`let\` definition; \`let\` is non-recursive — use \`fun\`.`
             : this.#noSuchOperation(actual, name, claimed)),
       );
     }
@@ -9632,6 +9747,11 @@ class Checker {
     for (let index = 0; index < items.length; index += 1) {
       const item = items[index];
       if (item === undefined) continue;
+      // An honor's knot closes at its last honor (Constraints §4.8).
+      if (
+        moduleItems && this.#honorKnot !== undefined &&
+        !(item.kind === "Honor" && spanKey(this.#knotOf(item)) === spanKey(this.#honorKnot.span))
+      ) this.#closeHonorKnot();
       if (enclosingVariableScope === undefined) this.#annotationVariableScope = new Map();
 
       // *(#700.)* A `fun` **block** is the one place a body may name a binding
@@ -10160,6 +10280,8 @@ class Checker {
         continue;
       }
       if (item.kind === "Honor") {
+        // The honor's knot opens with its first honor (Constraints §4.8).
+        if (moduleItems && this.#honorKnot === undefined) this.#openHonorKnot(item, level);
         // By identity: this instance answers one declaration, which may be an
         // imported one this module reaches under an alias or through a module
         // namespace (§6.5's "a reference to its declaration").
@@ -10245,17 +10367,25 @@ class Checker {
           } else {
             this.#instanceComponents.set(
               item,
-              this.#derivationComponents(actual, item.span).map((component) => ({
-                key: component.key,
-                requirement: this.#require(
-                  item.constraint,
-                  component.type,
-                  component.span,
-                  "operation",
-                  undefined,
-                  item.constraintIdentity,
-                ),
-              })),
+              this.#derivationComponents(actual, item.span).map((component) => {
+                this.#orderNextTag = {
+                  kind: "derived",
+                  site: item.span,
+                  primary: item.derivesEntry ?? item.span,
+                  from: item,
+                };
+                return {
+                  key: component.key,
+                  requirement: this.#require(
+                    item.constraint,
+                    component.type,
+                    component.span,
+                    "operation",
+                    undefined,
+                    item.constraintIdentity,
+                  ),
+                };
+              }),
             );
           }
           this.#instanceBaseConstraints.set(
@@ -10459,6 +10589,10 @@ class Checker {
           ) {
             this.#ownToSeq = { key: this.#subjectKey(instanceSubject), subject: instanceSubject };
           }
+          // What the honor's knot holds before the body (Constraints §4.8).
+          const knotBefore = this.#honorKnot === undefined
+            ? undefined
+            : { frames: this.#honorKnot.knot.frames.length, waits: this.#honorKnot.waits.length };
           let body: Mono;
           try {
             body = this.#inferExpr(
@@ -10517,7 +10651,7 @@ class Checker {
               });
             }
           } else {
-            this.#settleSeatBody(frame, () =>
+            const compare = (): void =>
               this.#checkSeat(contract, {
                 type: bodyType,
                 frame,
@@ -10526,7 +10660,26 @@ class Checker {
                 seat: member.span,
                 fix: true,
                 handsBack: this.#givenValue(member.value.body).span,
-              }));
+              });
+            const open = this.#honorKnot;
+            if (
+              open !== undefined && knotBefore !== undefined &&
+              (open.knot.frames.length > knotBefore.frames || open.waits.length > knotBefore.waits)
+            ) {
+              // A body with a call that follows the knot, or a lambda the knot
+              // holds, is one of its frames, settled where the knot closes,
+              // and its seat compares once the knot has settled the instances'
+              // own colours (Effects §3.4, §13.2): its slots stay held until
+              // then, whatever the lambdas it holds have met.
+              for (const axis of AXES) open.knot.frames.push(frameOn(frame, axis));
+              open.members.set(
+                `${this.#instanceKey(item.constraintIdentity, instanceSubject)} ${required.binding.symbol}`,
+                frame,
+              );
+              open.seats.push(compare);
+            } else {
+              this.#settleSeatBody(frame, compare);
+            }
           }
         };
         for (const member of item.members) {
@@ -10688,6 +10841,7 @@ class Checker {
       if (item.kind === "TypeAlias") continue;
       if (item.kind === "Exception") continue;
     }
+    if (moduleItems && this.#honorKnot !== undefined) this.#closeHonorKnot();
     this.#linkedArrowPosition = enclosingPosition;
     this.#annotationVariableScope = enclosingVariableScope;
 
@@ -11772,6 +11926,7 @@ class Checker {
    * the seat's own final check remains the typing authority.
    */
   #inferExpr(expression: Resolved.Expr, level: number, expected?: Mono): Mono {
+    if (expression.kind === "Name") this.#orderTermReference(expression);
     if ((expression.kind === "Call" || expression.kind === "Throw") && expression.reading === true &&
       !this.#insideReading.has(expression)) {
       return this.#inferReading(expression, level, expected);
@@ -26262,31 +26417,8 @@ class Checker {
    * little.
    */
   #ownColourImpure(body: InstanceBody, arrow: number, axis: Axis): boolean {
-    let type: Mono = body.type;
-    for (let index = 0; index < arrow; index += 1) {
-      const pruned = this.#prune(type);
-      if (pruned.kind !== "Function") return true;
-      type = pruned.result;
-    }
-    const pruned = this.#prune(type);
-    if (pruned.kind !== "Function") return true;
-    const colour = this.#prune(colourAt(pruned, axis) ?? PURE);
-    if (isImpure(colour)) return true;
-    // Every callback handed by this arrow: the parameters of each spine arrow
-    // up to it, as a call's join reads them (`#awaitInstance`).
-    const callbacks = new Set<Variable>();
-    for (let index = 0, level: Mono = body.type; index <= arrow; index += 1) {
-      const spine = this.#prune(level);
-      if (spine.kind !== "Function") break;
-      for (const parameter of spine.parameters) {
-        const callback = this.#prune(parameter);
-        if (callback.kind === "Function") {
-          for (const part of this.#colourParts(colourAt(callback, axis) ?? PURE)) callbacks.add(part);
-        }
-      }
-      level = spine.result;
-    }
-    return this.#colourParts(colour).some((part) => !callbacks.has(part));
+    const read = this.#ownColourReading(body, arrow, axis);
+    return read.constant === "impure" || read.parts.length > 0;
   }
 
   /**
@@ -26389,6 +26521,14 @@ class Checker {
     const parts = this.#colourParts(colour);
     if (parts.length === 0) return false;
     const owns = (variable: Variable): boolean => {
+      if (knot.honor !== undefined) {
+        // An honor knot decides only the instances' own colours, and what
+        // its held bodies run through them: a seat's slot or a callback's
+        // colour a held body's own colour has met is the seat's, or the
+        // callback's, never the knot's (Effects §13.3, §13.4).
+        if (this.#seatHeld.has(variable) || this.#isLinkedColour(variable)) return false;
+        if ([...knot.honor.waits].some((wait) => this.#prune(wait) === variable)) return true;
+      }
       if (knot.frames.some((frame) => this.#colourParts(frame.own).includes(variable))) return true;
       for (const frame of knot.held) {
         if (frame.absorbed.some(({ effect }) => this.#colourParts(effect).includes(variable))) return true;
@@ -27418,6 +27558,7 @@ class Checker {
         sources.add(frame);
         growing = true;
         this.#sourceArm(frame);
+        knot.honor?.decided(frame, IMPURE);
       }
     }
     // Then a call in error, or a sibling in error, makes a member in error
@@ -27427,12 +27568,15 @@ class Checker {
       for (let growing = true; growing;) {
         growing = false;
         for (const frame of frames) {
-          if (this.#errorArmBody(frame)) growing = true;
+          if (!this.#errorArmBody(frame)) continue;
+          growing = true;
+          knot.honor?.decided(frame, ERROR_COLOUR);
         }
       }
     } finally {
       this.#settlingArms -= 1;
     }
+    knot.honor?.beforeConduit(axis);
     // The conduit arm over what remains: a sibling's own colour is no colour
     // of the member that calls it, but what the sibling runs is.
     // Each member's own colour once, the first frame that has it (#1309).
@@ -27585,6 +27729,8 @@ class Checker {
     if (this.#isLinkedColour(pruned) || this.#seatHeld.has(pruned) || this.#siblingsShared.get(pruned)?.has(frame) === true) {
       return true;
     }
+    // A colour that waits for its instance (Effects §3.4, §13.3).
+    if (this.#waitingColours.has(pruned)) return true;
     // An outcome is decided by its comparison, never defaulted (`#publishOutcomes`).
     if (this.#outcomeColours.has(pruned)) return true;
     // A value's own colour, or the room it took in, the value an enclosing
@@ -32436,7 +32582,11 @@ class Checker {
       // fragment's rule 2 gives it, so that reaches the members' arms (#1334).
       if (type.kind === "Effect" && !defining && !this.#openedColours.has(variable)) {
         const knot = this.#knots.find((open) => this.#knotColour(open, variable));
-        if (knot !== undefined) {
+        // An honor knot's held body that meets the impure constant is impure:
+        // the meeting binds, so the knot's arms read it as a source, and no
+        // own colour they settle misses it (Effects §13.3). Nothing is above
+        // the impure constant for the body to choose.
+        if (knot !== undefined && !(knot.honor !== undefined && isImpure(type))) {
           knot.demands.push({
             demand: type,
             colour: variable,
@@ -32830,6 +32980,9 @@ class Checker {
       ...(this.#literalPatternSeat ? { patternSeat: true as const } : {}),
       reported: false,
     };
+    const orderTag = this.#orderNextTag;
+    this.#orderNextTag = undefined;
+    if (orderTag !== undefined) this.#orderTags.set(requirement, orderTag);
     if (scope !== undefined && scope.size > 0) this.#requirementScopes.set(requirement, scope);
     const actual = this.#prune(type);
     if (actual.kind === "Variable") this.#acceptRequirement(actual, requirement);
@@ -34008,16 +34161,17 @@ class Checker {
     item: Resolved.HonorItem,
     subject: Mono,
   ): readonly Requirement[] {
-    return this.#baseConstraintsOf(item.constraintIdentity).map((base) =>
-      this.#require(
+    return this.#baseConstraintsOf(item.constraintIdentity).map((base) => {
+      this.#orderNextTag = { kind: "base", site: item.span, primary: this.#honorHeadSpan(item), from: item };
+      return this.#require(
         base.name,
         subject,
         item.span,
         "operation",
         undefined,
         base.identity,
-      )
-    );
+      );
+    });
   }
 
   /**
@@ -34422,6 +34576,9 @@ class Checker {
     if (absorbed === undefined || (requirement.validated !== true && !requirement.reported)) return;
     this.#absorbedDemands.delete(requirement);
     for (const dropped of absorbed) {
+      if (
+        !requirement.reported && requirement.selected !== undefined && dropped.identity === requirement.identity
+      ) this.#checkHonorOrder(dropped, requirement.selected);
       if (dropped.patternSeat === true) continue;
       if (requirement.reported) {
         dropped.reported = true;
@@ -34500,20 +34657,23 @@ class Checker {
       // instance the component contributes, and emission renders that selection
       // rather than re-walking the type — the re-walk is what silently ignored a
       // hand-written component instance and read through `opaque`.
-      requirement.components = selection.obligations.map((obligation) => ({
-        key: obligation.key,
-        requirement: this.#require(
-          obligation.name,
-          obligation.type,
-          // A component's demand stands where its whole was demanded
-          // (Functions §10's "Where a report stands", #1063).
-          requirement.span,
-          "derived",
-          undefined,
-          obligation.identity,
-          requirement.use,
-        ),
-      }));
+      requirement.components = selection.obligations.map((obligation) => {
+        this.#orderNextTag = this.#orderTagOf(requirement);
+        return {
+          key: obligation.key,
+          requirement: this.#require(
+            obligation.name,
+            obligation.type,
+            // A component's demand stands where its whole was demanded
+            // (Functions §10's "Where a report stands", #1063).
+            requirement.span,
+            "derived",
+            undefined,
+            obligation.identity,
+            requirement.use,
+          ),
+        };
+      });
       requirement.structural = true;
       return;
     }
@@ -34559,6 +34719,7 @@ class Checker {
       if (this.#refusesOwnSubject(requirement)) return;
       this.#pinInstanceSubject(instance, type, requirement.span);
       requirement.selected = instance;
+      this.#checkHonorOrder(requirement, instance);
       requirement.dictionary = instance.dictionary;
       requirement.dictionaryArguments = this.#instanceArguments(instance, type, requirement);
       if (
@@ -34894,12 +35055,20 @@ class Checker {
     const name = this.#constraintsByIdentity.get(requirement.identity)?.name ??
       requirement.name;
     const spelling = this.#derivationSpelling(requirement.identity, name, type);
+    // Constraints §8 (#1227): a derived instance stands at its type's line
+    // (§4.8), so where the declaration stands below the use, the fixit moves
+    // it above too — promising the place, not the components.
+    const declared = declaration.span;
+    const move = Number(declared.fileId) === Number(requirement.span.fileId) &&
+        declared.start.offset > requirement.span.start.offset
+      ? ", and move the declaration above this use"
+      : "";
     if (requirement.identity !== preRegisteredConstraintIdentity("Hash")) {
       return {
         replaces: false,
-        text: carriesList
+        text: (carriesList
           ? `; add \`${spelling}\` to the \`derives\` list of \`${declaration.name}\``
-          : `; add \`derives ${spelling}\` to the declaration of \`${declaration.name}\``,
+          : `; add \`derives ${spelling}\` to the declaration of \`${declaration.name}\``) + move,
       };
     }
     // The provenance channel is the instance record's own `derived` flag — the
@@ -34929,7 +35098,7 @@ class Checker {
           ? `adding \`${spelling}\` to \`${declaration.name}\`'s \`derives\` list in module ` +
             `\`${seat}\``
           : `\`derives ${spelling}\` on the declaration of \`${declaration.name}\` in module ` +
-            `\`${seat}\``),
+            `\`${seat}\``) + move,
     };
   }
 
@@ -35376,7 +35545,7 @@ class Checker {
       // (#762): the binder's word belongs to the declaring module, and this
       // module may have no spelling for the constraint at all.
       return parameter.constraints.map((constraint, index) =>
-        this.#require(
+        (this.#orderNextTag = this.#orderTagOf(from), this.#require(
           constraint,
           actual,
           from.span,
@@ -35384,7 +35553,7 @@ class Checker {
           undefined,
           parameter.constraintIdentities?.[index] ?? this.#constraintIdentity(constraint),
           from.use,
-        )
+        ))
       );
     });
   }
@@ -37545,6 +37714,10 @@ class Checker {
           // constraint is the one copy that is its seat: `n.subtract(n)` is
           // where the subtraction is. A member passed as a value (`let f =
           // Signed.subtract`) writes no operation.
+          this.#orderNextTag = {
+            kind: requirement.identity === scheme.constraintIdentity ? "call" : "evidence",
+            site: useSpan ?? requirement.span,
+          };
           const copied = this.#require(
             requirement.name,
             replacement,
@@ -37749,15 +37922,27 @@ class Checker {
     const deciding = this.#instanceWaits.filter((wait) => wait.use >= firstUse);
     this.#instanceWaits = this.#instanceWaits.filter((wait) => wait.use < firstUse);
     const answers = new Map<InstanceWait, Mono>();
+    const knotted = new Set<InstanceWait>();
     for (const wait of deciding) {
       const callee = call.callee.span;
       const own = wait.span !== undefined &&
         callee.start.offset <= wait.span.start.offset && wait.span.end.offset <= callee.end.offset;
-      answers.set(wait, (own ? this.#knownCallColour(call, wait, reported) : undefined) ?? IMPURE);
+      const answer = own ? this.#knownCallColour(call, wait, reported) : undefined;
+      if (answer === FOLLOWS_KNOT) {
+        knotted.add(wait);
+        continue;
+      }
+      answers.set(wait, answer ?? IMPURE);
     }
     // Each colour's wait settles on its own (Effects §1): nothing widens a
     // colour to its constant (§2.4).
     for (const wait of deciding) {
+      if (knotted.has(wait)) {
+        // It follows the knot (Effects §13.3): it keeps waiting, at the knot's
+        // level, so nothing inside the knot generalizes it meanwhile (§3.4).
+        this.#lowerLevels(wait.colour, this.#honorKnot!.knot.level);
+        continue;
+      }
       const colour = this.#prune(wait.colour);
       if (colour.kind === "Variable") this.#onAxis(wait.axis, () => this.#settleWaiting(colour, answers.get(wait)!, wait.span));
       this.#waitingColours.delete(wait.colour);
@@ -37773,7 +37958,11 @@ class Checker {
    * declaration used above itself is; inside its own body, the contract, the
    * body not yet read. An imported instance's colour is published.
    */
-  #knownCallColour(call: Resolved.CallExpr, wait: InstanceWait, reported: Set<number>): Mono | undefined {
+  #knownCallColour(
+    call: Resolved.CallExpr,
+    wait: InstanceWait,
+    reported: Set<number>,
+  ): Mono | typeof FOLLOWS_KNOT | undefined {
     const key = this.#resolvedSubjectKey(this.#prune(wait.subject));
     if (key === undefined) return undefined;
     // The subject's argument: a dot call's receiver, or the first argument
@@ -37806,22 +37995,42 @@ class Checker {
             : this.#ownColourImpure({ type: door.type }, wait.arrow, wait.axis) ? IMPURE : PURE);
         }
         // Inside the door's own body, that body is not yet read: the contract.
+        // The use itself is the top-down law's (Constraints §4.8): a door
+        // stands above its honor, so its own instance is a use above it.
         if (this.#openDoors.has(`${wait.identity} ${name}`)) return undefined;
-        // Doors are checked where they are written: not yet checked is below.
-        this.#refuseAboveBody(call, wait, reported,
-          `this call follows the \`widens\` door that supplies \`${name}\` at ` +
-            `\`${this.#display(this.#prune(wait.subject))}\`, and that door is declared below it; ` +
-            "declarations are read top-down — move the door above this call");
+        // Doors are checked where they are written: not yet checked is below
+        // the call. Either the call stands above the honor, the one refusal
+        // the law makes of it, or the door stands below its honor, refused at
+        // the honor's `= widened` line; the call follows nothing.
+        this.#refuseAboveBody(call, wait, reported, local);
         return ERROR_COLOUR;
       }
       const honor = local.span;
       if (Number(honor.fileId) === Number(call.span.fileId)) {
-        // The honor's own body: its colour is not yet read off it.
-        if (honor.start.offset <= call.span.start.offset && call.span.end.offset <= honor.end.offset) return undefined;
-        if (honor.start.offset > call.span.start.offset) {
-          this.#refuseAboveBody(call, wait, reported,
-            `this call follows what \`${local.constraint}<${this.#display(this.#prune(wait.subject))}>\` does, ` +
-              "and that honor is declared below it; declarations are read top-down — move the honor above this call");
+        // Inside the honor's knot — its own body, or its group's: the call
+        // follows the knot (Effects §13.3). The instance's own colour there is
+        // solved with its siblings' where the knot closes, as a `fun` knot's
+        // colours are (§3.4), and the call's wait waits for it. A member the
+        // honor leaves to the default follows the default's own colour, which
+        // the constraint above decided.
+        const knot = this.#knotOf(local);
+        if (knot.start.offset <= call.span.start.offset && call.span.end.offset <= knot.end.offset) {
+          const open = this.#honorKnot;
+          // Only the outer arrow follows the knot here: an arrow of a function
+          // the member returns follows the contract inside the knot, a named
+          // limit of Effects §13.3 (the instance's own colour there is read
+          // off a seat slot the bodies' lambdas met, which the knot's arms do
+          // not decide).
+          if (wait.arrow > 0) return undefined;
+          if (name !== undefined && local.members.some((member) => member.name === name)) {
+            if (open === undefined || spanKey(open.span) !== spanKey(knot)) return undefined;
+            if (wait.span !== undefined) this.#knownMemberUses.add(memberUseKey(wait.span));
+            open.waits.push({ wait, target: memberKey });
+            open.knot.honor!.waits.add(wait.colour);
+            return FOLLOWS_KNOT;
+          }
+        } else if (honor.start.offset > call.span.start.offset) {
+          this.#refuseAboveBody(call, wait, reported, local);
           return ERROR_COLOUR;
         }
       }
@@ -37833,15 +38042,498 @@ class Checker {
   }
 
   /**
+   * An honor's knot opens with its first honor *(Constraints §4.8)*: a `fun`
+   * knot with no members, whose colours are the waits of the calls inside it
+   * that follow it (Effects §13.3), the member bodies whose calls reach them,
+   * and the lambdas it holds.
+   */
+  #openHonorKnot(item: Resolved.HonorItem, level: number): void {
+    const waits = new Set<Variable>();
+    const knot: Knot = {
+      members: [],
+      host: undefined,
+      references: [],
+      refused: false,
+      types: new Map(),
+      frames: [],
+      level,
+      demands: [],
+      held: new Set(),
+      tieFrames: [],
+      honor: {
+        waits,
+        decided: (frame, answer) => this.#decideHonorWaits(frame, answer),
+        beforeConduit: (axis) => this.#silenceHonorWaits(axis),
+      },
+    };
+    this.#honorKnot = { span: this.#knotOf(item), knot, waits: [], members: new Map(), seats: [] };
+    this.#knots.push(knot);
+    this.#knotEpoch += 1;
+  }
+
+  /** Settles one wait of the open honor knot to its instance's own colour. */
+  #settleHonorWait(wait: InstanceWait, answer: Mono): void {
+    const colour = this.#prune(wait.colour);
+    if (colour.kind === "Variable") {
+      this.#onAxis(wait.axis, () => this.#settleWaiting(colour, answer, wait.span));
+      this.#waitingColours.delete(colour);
+    }
+    this.#waitingColours.delete(wait.colour);
+  }
+
+  /**
+   * A held member body turned out a source, or in error, at its colour
+   * (`#settleKnotBody`): its instance's own colour at its outer arrow is that,
+   * and so is every call's wait that follows it (Effects §13.2, §13.3).
+   */
+  #decideHonorWaits(frame: EffectFrame, answer: Mono): void {
+    const open = this.#honorClosing;
+    if (open === undefined) return;
+    const axis = frameAxis(frame);
+    for (const [target, member] of open.members) {
+      if (frameOn(member, axis) !== frame) continue;
+      for (const entry of open.waits) {
+        if (entry.target === target && entry.wait.arrow === 0 && entry.wait.axis === axis) {
+          this.#settleHonorWait(entry.wait, answer);
+        }
+      }
+    }
+  }
+
+  /** What no held member body made a source or in error is silent, before the conduit arm reads it. */
+  #silenceHonorWaits(axis: Axis): void {
+    const open = this.#honorClosing;
+    if (open === undefined) return;
+    for (const { wait, target } of open.waits) {
+      if (wait.arrow === 0 && wait.axis === axis && open.members.has(target)) this.#settleHonorWait(wait, PURE);
+    }
+  }
+
+  /**
+   * An honor knot's close *(Constraints §4.8, Effects §13.3)*, as a `fun`
+   * knot's (§3.4). Each instance's own colour at each arrow a call inside the
+   * knot follows is its body with every callback silent (§13.2), solved with
+   * those of the instances it reaches through such calls:
+   * - a body whose calls reach none of the knot's colours settled where it
+   *   closed, and its own colour is read off it now;
+   * - the held bodies settle together: a member body that turns out a source
+   *   makes its instance's own colour the impure constant, which the bodies
+   *   that call it then read, to a fixpoint; then one in error, in error; and
+   *   what is left is silent before the conduit arm. Callback colours never
+   *   waited: each call joined its own beside its wait, so an instance that
+   *   only recurses is silent whatever its calls hand.
+   *
+   * Then the meetings recorded meanwhile are compared, and only then does each
+   * honor's seat compare against its contract (§13.2).
+   */
+  #closeHonorKnot(): void {
+    const open = this.#honorKnot!;
+    this.#honorKnot = undefined;
+    const knot = open.knot;
+    const at = this.#knots.lastIndexOf(knot);
+    if (at >= 0) this.#knots.splice(at, 1);
+    this.#knotEpoch += 1;
+    // A body read already, outside the knot's frames: its own colour now.
+    for (const entry of open.waits) {
+      if (open.members.has(entry.target)) continue;
+      const body = this.#instanceBodies.get(entry.target);
+      if (body === undefined) {
+        // No body read (a member in error): the contract's constant.
+        this.#settleHonorWait(entry.wait, IMPURE);
+        continue;
+      }
+      const read = this.#ownColourReading(body, 0, entry.wait.axis);
+      this.#settleHonorWait(
+        entry.wait,
+        read.constant === "error" ? ERROR_COLOUR : read.constant === "impure" || read.parts.length > 0 ? IMPURE : PURE,
+      );
+    }
+    if (knot.frames.length > 0) {
+      const enclosing = this.#honorClosing;
+      this.#honorClosing = open;
+      try {
+        this.#settleKnot(knot);
+      } finally {
+        this.#honorClosing = enclosing;
+      }
+    }
+    // Anything still waiting (a member frame's colour no arm reached): the contract.
+    for (const { wait } of open.waits) {
+      if (this.#prune(wait.colour).kind === "Variable") this.#settleHonorWait(wait, IMPURE);
+    }
+    this.#replayDecidedDemands();
+    this.#compareKnotDemands(knot);
+    for (const compare of open.seats) compare();
+  }
+
+  /**
+   * A body's colour at one spine arrow with every callback it was handed
+   * silent *(Effects §13.2)*: the constant it is, or the colours left once the
+   * callbacks' are taken out.
+   */
+  #ownColourReading(
+    body: InstanceBody,
+    arrow: number,
+    axis: Axis,
+  ): { readonly constant: "impure" | "error" | undefined; readonly parts: readonly Variable[] } {
+    let type: Mono = body.type;
+    for (let index = 0; index < arrow; index += 1) {
+      const pruned = this.#prune(type);
+      if (pruned.kind !== "Function") return { constant: "impure", parts: [] };
+      type = pruned.result;
+    }
+    const pruned = this.#prune(type);
+    if (pruned.kind !== "Function") return { constant: "impure", parts: [] };
+    const colour = this.#prune(colourAt(pruned, axis) ?? PURE);
+    if (colour.kind === "ErrorColour") return { constant: "error", parts: [] };
+    if (isImpure(colour)) return { constant: "impure", parts: [] };
+    const callbacks = new Set<Variable>();
+    for (let index = 0, level: Mono = body.type; index <= arrow; index += 1) {
+      const spine = this.#prune(level);
+      if (spine.kind !== "Function") break;
+      for (const parameter of spine.parameters) {
+        const callback = this.#prune(parameter);
+        if (callback.kind === "Function") {
+          for (const part of this.#colourParts(colourAt(callback, axis) ?? PURE)) callbacks.add(part);
+        }
+      }
+      level = spine.result;
+    }
+    return { constant: undefined, parts: this.#colourParts(colour).filter((part) => !callbacks.has(part)) };
+  }
+
+  /**
    * A call above the body it would follow, refused once per call (Effects
    * §13.3). The call owes no mark, nor does any call of what it returns
    * (`#refusedHonorCalls`), and what it does is in error (§3.5, #1223).
    */
-  #refuseAboveBody(call: Resolved.CallExpr, wait: InstanceWait, reported: Set<number>, message: string): void {
+  #refuseAboveBody(
+    call: Resolved.CallExpr,
+    wait: InstanceWait,
+    reported: Set<number>,
+    instance: Resolved.HonorItem,
+  ): void {
     this.#refusedHonorCalls.add(call);
     if (reported.has(wait.use)) return;
     reported.add(wait.use);
-    this.#diagnostics.add({ severity: "error", message, primary: wait.span ?? call.span });
+    // The one report is the top-down law's (Constraints §4.8, §8), made where
+    // the call's instance is selected; this records it too, so a call the
+    // selection did not see is still told, and once.
+    const primary = wait.span ?? call.span;
+    this.#orderUse(primary, call.span, instance, this.#orderNodeAt(call.span), this.#display(this.#prune(wait.subject)));
+  }
+
+  /**
+   * Constraints §4.8 (#1227): the module's honors, doors and term declarations,
+   * the nodes of its use graph, read before any body; and the one order fact
+   * the text alone decides, a `member = widened` line above its door.
+   */
+  #orderPrescan(module: Resolved.Module): void {
+    this.#orderHonors = module.items.filter((item): item is Resolved.HonorItem => item.kind === "Honor");
+    const nodes: OrderNode[] = [];
+    let index = 0;
+    for (const item of module.items) {
+      index += 1;
+      if (Number(item.span.fileId) !== this.#fileId) continue;
+      if (item.kind === "Honor") {
+        const node: OrderNode = {
+          key: `h${index}`,
+          kind: "honor",
+          label: this.#honorLabel(item),
+          honor: item,
+          span: item.span,
+        };
+        nodes.push(node);
+        this.#orderHonorNodes.set(item, node);
+      } else if (item.kind === "Let" || item.kind === "Fun") {
+        const door = item.kind === "Let" && item.widens !== undefined;
+        const node: OrderNode = {
+          key: `t${index}`,
+          kind: door ? "door" : "function",
+          label: item.binding.name,
+          span: item.span,
+        };
+        nodes.push(node);
+        this.#orderSymbolNodes.set(item.binding.symbol, node);
+      } else if (item.kind !== "Import" && item.kind !== "ExternImport") {
+        nodes.push({ key: `o${index}`, kind: "other", label: "", span: item.span });
+      }
+    }
+    // In source order, for `#orderNodeAt`'s search: elaborated items (a
+    // `derives` clause's instances) may follow the type whose span they share.
+    this.#orderNodes = [...nodes].sort((left, right) => left.span.start.offset - right.span.start.offset);
+    for (const item of module.items) {
+      if (item.kind !== "Let" || item.widens === undefined) continue;
+      const keys = item.widens.map(({ constraintIdentity, member }) => `${constraintIdentity} ${member}`);
+      for (const key of keys) this.#orderDoors.set(key, { span: item.span, symbol: item.binding.symbol });
+      this.#orderDoorSymbols.set(item.binding.symbol, { span: item.span, keys });
+    }
+    for (const honor of this.#orderHonors) {
+      for (const member of honor.members) {
+        if (member.derived !== true) continue;
+        const door = this.#orderDoors.get(`${honor.constraintIdentity} ${member.name}`);
+        if (door === undefined || door.span.start.offset < honor.span.start.offset) continue;
+        // §8's row: the door stands above every honor that accounts for it.
+        this.#diagnostics.add({
+          severity: "error",
+          message: `\`${member.name} = widened\` names the \`widens\` door declared below it; ` +
+            "declarations are read top-down — move the door above this honor",
+          primary: member.span,
+          labels: [{ span: door.span, message: "the door is declared here" }],
+        });
+      }
+    }
+  }
+
+  /** An honor's head as the reader wrote it, `Show<Ping>`. */
+  #honorLabel(honor: Resolved.HonorItem): string {
+    return `${honor.constraint}<${this.#annotationText(honor.subject)}>`;
+  }
+
+  /** A head's subject, spelled for a message: the type's own name and arguments. */
+  #annotationText(annotation: Resolved.TypeAnnotation): string {
+    const text = this.#sourceSlice(annotation.span);
+    // A `derives` clause's synthesized head spans the whole declaration: its
+    // subject is the type's name over its parameters.
+    if (annotation.kind === "Union" || annotation.kind === "RecordDeclaration") {
+      if (text === undefined || /[=\n]/u.test(text)) {
+        const parameters = annotation.arguments.map((argument) =>
+          argument.kind === "TypeVariable" ? argument.name : "_"
+        );
+        return parameters.length === 0 ? annotation.name : `${annotation.name}(${parameters.join(", ")})`;
+      }
+    }
+    if (text !== undefined) return text;
+    const named = annotation as { readonly name?: unknown };
+    const head = annotation.kind === "TypeVariable" || annotation.kind === "Primitive" ||
+        typeof named.name === "string"
+      ? String(named.name)
+      : annotation.kind;
+    const children = annotationChildren(annotation);
+    return children.length === 0 ? head : `${head}(${children.map((child) => this.#annotationText(child)).join(", ")})`;
+  }
+
+  /** The source text under a span of this module's file, where it has one. */
+  #sourceSlice(span: Source.Span): string | undefined {
+    if (Number(span.fileId) !== this.#fileId || this.#sourceText === undefined) return undefined;
+    return this.#sourceText.slice(span.start.offset, span.end.offset);
+  }
+
+  /** Where an honor's head stands: from its first token to its subject, the extending honor's head of §8. */
+  #honorHeadSpan(item: Resolved.HonorItem): Source.Span {
+    if (item.derivesEntry !== undefined) return item.derivesEntry;
+    const subject = item.subject.span;
+    if (subject.end.offset > item.span.end.offset || subject.start.offset < item.span.start.offset) return item.span;
+    return { ...item.span, end: subject.end };
+  }
+
+  /** The knot an honor stands in (§4.8): its group, or itself — a `derives` clause's instance's is its type's line. */
+  #knotOf(honor: Resolved.HonorItem): Source.Span {
+    return honor.group?.span ?? honor.span;
+  }
+
+  /** The node of the use graph a site of this module stands in: the innermost top-level declaration holding it. */
+  #orderNodeAt(site: Source.Span): OrderNode | undefined {
+    // Top-level items do not overlap, so the node holding a site is the last
+    // one starting at or before it; the first of several sharing that span
+    // (a type and its `derives` clause's instances) answers. Anything else
+    // falls back to the scan below.
+    const nodes = this.#orderNodes;
+    let low = 0;
+    let high = nodes.length - 1;
+    while (low <= high) {
+      const middle = (low + high) >> 1;
+      if (nodes[middle]!.span.start.offset <= site.start.offset) low = middle + 1;
+      else high = middle - 1;
+    }
+    let candidate = high;
+    while (candidate > 0 && nodes[candidate - 1]!.span.start.offset === nodes[candidate]!.span.start.offset &&
+      nodes[candidate - 1]!.span.end.offset === nodes[candidate]!.span.end.offset) candidate -= 1;
+    const near = candidate >= 0 ? nodes[candidate] : undefined;
+    if (near !== undefined && site.end.offset <= near.span.end.offset) return near;
+    let found: OrderNode | undefined;
+    for (const node of this.#orderNodes) {
+      if (node.span.start.offset > site.start.offset || site.end.offset > node.span.end.offset) continue;
+      // A `derives` clause's instances share their type's span: the type's own
+      // node answers for the line, unless a tag named the instance.
+      if (found !== undefined && node.span.start.offset === found.span.start.offset &&
+        node.span.end.offset === found.span.end.offset) continue;
+      if (found === undefined || node.span.end.offset - node.span.start.offset <
+        found.span.end.offset - found.span.start.offset) found = node;
+    }
+    return found;
+  }
+
+  #orderNodeOfHonor(honor: Resolved.HonorItem): OrderNode | undefined {
+    return this.#orderHonorNodes.get(honor);
+  }
+
+  #orderEdge(from: OrderNode | undefined, to: OrderNode | undefined): void {
+    if (from === undefined || to === undefined || from.key === to.key) return;
+    let edges = this.#orderEdges.get(from.key);
+    if (edges === undefined) this.#orderEdges.set(from.key, edges = new Set());
+    edges.add(to.key);
+  }
+
+  /** The kind and site of a requirement's use, read from its tag or its origin. */
+  #orderTagOf(requirement: Requirement): OrderTag {
+    const tag = this.#orderTags.get(requirement);
+    if (tag !== undefined) return tag;
+    const kind = ({
+      operation: "operator",
+      interpolation: "interpolation",
+      iteration: "for",
+      literal: "literal",
+      conversion: "evidence",
+      annotation: "evidence",
+      use: "evidence",
+      derived: "evidence",
+    } as const)[requirement.origin];
+    return { kind, site: requirement.span };
+  }
+
+  /**
+   * Constraints §4.8: an instance this module declares, used above its honor
+   * outside the honor's knot, is refused at the use. Every use, legal or not,
+   * is an edge of the use graph the refusal's advice reads.
+   */
+  #checkHonorOrder(requirement: Requirement, instance: Resolved.HonorItem): void {
+    // An instance this module declares is one its prescan saw. A file number
+    // is no test: the standard library's modules are numbered in their own
+    // program, so one of theirs can share this file's.
+    if (this.#orderQuiet || !this.#orderHonorNodes.has(instance)) return;
+    const tag = this.#orderTagOf(requirement);
+    if (Number(tag.site.fileId) !== this.#fileId) return;
+    const from = tag.from !== undefined ? this.#orderNodeOfHonor(tag.from) : this.#orderNodeAt(tag.site);
+    this.#orderEdge(from, this.#orderNodeOfHonor(instance));
+    this.#orderUse(tag.primary ?? tag.site, tag.site, instance, from, this.#display(this.#prune(requirement.type)));
+  }
+
+  /**
+   * One use of `instance` standing at `site`: legal below its knot's last
+   * line and inside the knot, and otherwise refused once (§8's row), the
+   * report waiting for the module's close, where the advice can read every
+   * use the module makes.
+   */
+  #orderUse(
+    primary: Source.Span,
+    site: Source.Span,
+    instance: Resolved.HonorItem,
+    from: OrderNode | undefined,
+    type: string,
+  ): boolean {
+    const knot = this.#knotOf(instance);
+    if (site.start.offset >= knot.end.offset) return true;
+    if (knot.start.offset <= site.start.offset && site.end.offset <= knot.end.offset) return true;
+    // A `derives` clause's instances share their type's span, so the
+    // constraint tells them apart.
+    const key = `${primary.start.offset}:${primary.end.offset} ${instance.constraintIdentity} ` +
+      `${instance.span.start.offset}:${instance.span.end.offset}`;
+    if (!this.#orderViolations.has(key)) {
+      this.#orderViolations.set(key, {
+        primary,
+        from,
+        instance,
+        label: `${instance.constraint}<${type}>`,
+      });
+    }
+    return false;
+  }
+
+  /**
+   * A reference to a module-level term (§4.8): an edge of the use graph. A
+   * `widens` door's two own rows — its body calling the door, a reference
+   * above it — are the resolver's, which reads them off the text (the
+   * dot spelling's, `#dispatchDotCall`'s).
+   */
+  #orderTermReference(expression: Resolved.NameExpr): void {
+    const target = this.#orderSymbolNodes.get(expression.symbol);
+    if (target === undefined) return;
+    const site = expression.span;
+    if (Number(site.fileId) !== this.#fileId) return;
+    this.#orderEdge(this.#orderNodeAt(site), target);
+  }
+
+  /**
+   * §8's above-honor refusals, at the module's close: every use is known, so
+   * the advice can say whether the honor reaches back to the using
+   * declaration, through other honors (one honor group), through a function
+   * (the function recurses by itself), or from the door that supplies it.
+   */
+  #reportHonorOrder(): void {
+    for (const violation of this.#orderViolations.values()) {
+      const { instance, from, label } = violation;
+      const honorNode = this.#orderNodeOfHonor(instance);
+      const opening = `\`${label}\` is used here, and its honor is declared below it; declarations are read top-down — `;
+      let advice: string;
+      const doorKeys = from?.kind === "door"
+        ? [...this.#orderDoorSymbols.values()].find((door) => door.span === from.span)?.keys ?? []
+        : [];
+      const supplies = instance.members.some((member) =>
+        member.derived === true && doorKeys.includes(`${instance.constraintIdentity} ${member.name}`)
+      );
+      const path = honorNode !== undefined && from !== undefined ? this.#orderPath(honorNode.key, from.key) : undefined;
+      if (supplies) {
+        advice = "a door cannot use the instance it supplies; let a function recurse by itself, and call it from the door";
+      } else if (path !== undefined) {
+        const nodes = path.map((key) => this.#orderNodes.find((node) => node.key === key)!);
+        const name = (node: OrderNode): string => node.kind === "honor" ? `\`${node.label}\`` : `\`${node.label}\``;
+        const chain = nodes.slice(1).map(name);
+        const reach = `\`${nodes[0]!.label}\`'s honor uses ${chain.length === 1 ? `${chain[0]} too` : `${chain.slice(0, -1).join(", which uses ")}, which uses ${chain.at(-1)} too`}`;
+        if (nodes.some((node) => node.kind !== "honor")) {
+          advice = `${reach} — let the function recurse by itself, and call it from the honor`;
+        } else {
+          const honors = [...new Set(nodes.map((node) => node.honor!))]
+            .sort((left, right) => left.span.start.offset - right.span.start.offset);
+          const clause = (honor: Resolved.HonorItem): boolean => honor.derivesEntry !== undefined;
+          const spelled = (honor: Resolved.HonorItem): string =>
+            clause(honor) ? `\`${this.#honorLabel(honor)} = derive\`` : `\`${this.#honorLabel(honor)}\``;
+          const listed = honors.length <= 2
+            ? honors.map(spelled).join(" and ")
+            : `${honors.slice(0, -1).map(spelled).join(", ")} and ${spelled(honors.at(-1)!)}`;
+          advice = honors.every(clause)
+            ? `${reach} — derive them in one honor group: ${listed}`
+            : `${reach} — declare ${listed} in one honor group`;
+        }
+      } else if (instance.derivesEntry !== undefined) {
+        const type = instance.subject.kind === "Union" || instance.subject.kind === "RecordDeclaration"
+          ? instance.subject.name
+          : this.#annotationText(instance.subject);
+        advice = `\`${label}\` is derived by \`${type}\`'s declaration, below this use — move the declaration above this use`;
+      } else {
+        advice = "move the honor above this use";
+      }
+      this.#diagnostics.add({
+        severity: "error",
+        message: opening + advice,
+        primary: violation.primary,
+        labels: [{
+          span: instance.derivesEntry ?? this.#honorHeadSpan(instance),
+          message: instance.derivesEntry !== undefined ? "the instance is derived here" : "the honor is declared here",
+        }],
+      });
+    }
+    this.#orderViolations.clear();
+  }
+
+  /** The shortest path of uses from one node to another, both ends included, if any. */
+  #orderPath(from: string, to: string): readonly string[] | undefined {
+    const previous = new Map<string, string>([[from, from]]);
+    const queue = [from];
+    while (queue.length > 0) {
+      const key = queue.shift()!;
+      if (key === to) {
+        const path = [key];
+        for (let at = key; at !== from;) path.unshift(at = previous.get(at)!);
+        return path;
+      }
+      for (const next of this.#orderEdges.get(key) ?? []) {
+        if (previous.has(next)) continue;
+        previous.set(next, key);
+        queue.push(next);
+      }
+    }
+    return undefined;
   }
 
   /** The meetings recorded while a colour waited, compared once it is decided (`#instanceDemands`). */

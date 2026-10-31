@@ -159,20 +159,14 @@ describe("the law at a namespace-imported user constraint (Modules §5.3)", () =
   });
 });
 
-describe("`honor` may stand above the declaration it accounts for (§4.7)", () => {
+describe("`honor` may not stand above the declaration it accounts for (§4.8)", () => {
   /**
    * The same module with the two halves swapped: the block first, its `widens`
-   * declaration below it. Legal by Declarations Preamble §7.2 — `honor` may
-   * precede any declaration it mentions — and the one place in a module where a
-   * body reads *downward*: the derived member names a binding written below its
-   * own block, which no ordinary member body may do.
-   *
-   * Pinned behaviourally rather than through a guard. No single line enforces
-   * it — what makes it hold is that derived members are checked at the end of
-   * the module's items, and that deferral is there for a different measured
-   * reason (a failed door must derive nothing). This is the pin that would
-   * notice if the property were lost while that reason was served some other
-   * way.
+   * declaration below it. A door is read at its own line, as a `let`-bound
+   * function is, and the honor's `scale = widened` line names it, so the door
+   * stands above every honor that accounts for it (Constraints §4.8). This
+   * order once compiled — the derived members are checked at the end of the
+   * module's items — and is refused now, once, at the accounting line.
    */
   function blockFirst(tag: string): string {
     return [
@@ -189,8 +183,8 @@ describe("`honor` may stand above the declaration it accounts for (§4.7)", () =
     ].join("\n");
   }
 
-  test("the block above its declaration compiles, and both faces answer", async () => {
-    const exports = await runProject([
+  test("the block above its declaration is refused at its accounting line", () => {
+    expect(compileFiles([
       ["/scale.hex", scaleModule("block first")],
       ["/matrix.hex", "module Matrix\n\n" + [
         blockFirst("block first"),
@@ -200,30 +194,37 @@ describe("`honor` may stand above the declaration it accounts for (§4.7)", () =
         "export let shared: Float = scale(Matrix({n = 4.0}), two).n",
         "",
       ].join("\n")],
+    ]).diagnostics.map(({ message }) => message)).toEqual([
+      "`scale = widened` names the `widens` door declared below it; declarations are read top-down — " +
+      "move the door above this honor",
+    ]);
+  });
+
+  test("swapped back, the same module compiles, and both faces answer", async () => {
+    const exports = await runProject([
+      ["/scale.hex", scaleModule("door first")],
+      ["/matrix.hex", "module Matrix\n\n" + [
+        "// matrix door first",
+        "import Scale",
+        "",
+        "export record Matrix = {n: Float}",
+        "",
+        DOOR,
+        "",
+        "honor Scale.Scale<Matrix> =",
+        "    scale = widened",
+        "",
+        "let two: Int = 2",
+        "export let wider: Float = scale(Matrix({n = 4.0}), 0.5).n",
+        "export let restricted: Float = Scale.scaledTwice(Matrix({n = 4.0})).n",
+        "export let shared: Float = scale(Matrix({n = 4.0}), two).n",
+        "",
+      ].join("\n")],
     ], { entry: "/matrix.hex" });
 
-    // The wider face, which only the declaration accepts; the member, reached
-    // polymorphically from the declaring side; and the shared domain, where the
-    // bare spelling is the declaration and both faces agree by construction.
     expect(exports["wider"]).toBe(2);
     expect(exports["restricted"]).toBe(16);
     expect(exports["shared"]).toBe(8);
-  });
-
-  test("the derived member is still the declaration restricted, in this order too", () => {
-    // The order cannot be allowed to change *what* the member is, only when it
-    // is checked: the seat is emitted and the polymorphic route reads it.
-    const javascript = emitted([
-      ["/scale.hex", scaleModule("block first route")],
-      ["/matrix.hex", "module Matrix\n\n" + [
-        blockFirst("block first route"),
-        "export let restricted: Float = Scale.scaledTwice(Matrix({n = 4.0})).n",
-        "",
-      ].join("\n")],
-    ], "/matrix.hex");
-
-    expect(javascript).toContain("const __Scale_Matrix_scale = ");
-    expect(javascript).toContain("scale(value, factor)");
   });
 });
 

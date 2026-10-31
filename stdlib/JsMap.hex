@@ -80,6 +80,10 @@ export let get(map: JsMap(k, v), key: k): Option(v) =
     else
         None
 
+honor Iterable<JsMap(k, v)> =
+    type Item = (k, v)
+    toSeq(map) = nativeToSeq(map)
+
 (** Every key/value pair of `map`, lazily, in the captured map's native
     insertion order — the order the source yielded at the crossing
     (section 6.2).
@@ -87,7 +91,7 @@ export let get(map: JsMap(k, v), key: k): Option(v) =
     This is `toSeq` under a second name and nothing else — the same walk, not a
     second traversal (section 6.3). It exists because the persistent `Map` has
     `entries` and the mirror costs one alias. `toSeq` itself is the member of
-    this file's `Iterable<JsMap(k, v)>` below, reached as the dot call
+    this file's `Iterable<JsMap(k, v)>` above, reached as the dot call
     `map.toSeq()` or qualified as `JsMap.toSeq(map)`; a module-level binding of
     the member's spelling beside the instance would be the Constraints
     section 4.6 rebinding error.
@@ -96,7 +100,3 @@ export let get(map: JsMap(k, v), key: k): Option(v) =
     It may be forced at any time and observes the same entries, because the
     map cannot change (section 6.3). *)
 export let entries(map: JsMap(k, v)): Seq((k, v)) = Iterable.toSeq(map)
-
-honor Iterable<JsMap(k, v)> =
-    type Item = (k, v)
-    toSeq(map) = nativeToSeq(map)

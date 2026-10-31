@@ -199,10 +199,9 @@ show(box) = "Box(${box.value.show()})"
 The outer `show` defines how to display the box. The inner `box.value.show()` displays
 the value inside it, using the `Show<a>` instance required by the first part of the
 header. Why the dot call and not a bare `show(box.value)`? Inside this body, `show` is
-the very member being defined, and a definition that is not a `fun` cannot call its own
-name — the same top-down rule every other binding follows. Recursion into `Show` is
-spelled through dispatch instead: the dot call says "use the instance for this value's
-type," which is exactly what is meant.
+the very member being defined, and a member never calls its own name. Recursion into
+`Show` is spelled through dispatch instead: the dot call says "use the instance for
+this value's type," which is exactly what is meant.
 
 Put together, the declaration says: **if `a` can be displayed, then `Box(a)` can be
 displayed**. `Box(Int)` uses the existing `Show<Int>` instance; `Box(String)` uses
@@ -276,6 +275,72 @@ union Ordering = Less | Equal | Greater
 
 Returning a union rather than a magic negative, zero, or positive integer makes all
 three outcomes explicit and exhaustively matchable.
+
+## Instances are read top-down
+
+An instance is read where its `honor` is written, the way a function is read where it
+is defined (chapter 3). Code below the honor can use the instance; code above it
+cannot:
+
+```hexagon
+record Point = {x: Int, y: Int}
+
+let early(point: Point): String = "${point}"
+// error: `Show<Point>` is used here, and its honor is declared below it;
+//        declarations are read top-down — move the honor above this use
+
+honor Show<Point> =
+    show(point) = "(${point.x}, ${point.y})"
+
+let late(point: Point): String = "${point}"   // fine
+```
+
+Every way of relying on an instance counts as a use: interpolation, an operator, a
+member call in any spelling, and a generic call such as `sort(points)` that is handed
+the instance. So does another honor that builds on it: `honor Ord<Point>` stands below
+`honor Eq<Point>`, because `Ord` requires `Eq`. Types are different. `Point` may appear
+in a type annotation anywhere in the module, above or below its declaration, because a
+type does nothing when the module runs.
+
+An honor's own body sees its own instance. A recursive type can display its parts with
+the instance being defined:
+
+```hexagon
+union Tree = Leaf | Node(Tree, Int, Tree)
+
+honor Show<Tree> =
+    show(tree) = match tree
+        Leaf => "."
+        Node(left, value, right) => "(${left} ${value} ${right})"
+```
+
+Interpolating `left` and `right` uses `Show<Tree>` inside its own honor. Like a `fun`,
+an honor is a **knot**: its body may refer to what it defines. The member still never
+calls its own name, as `Box` showed; recursion goes through the instance.
+
+When two honors need each other, neither can stand above the other. Declare them
+together in an **honor group**: `honor` on a line of its own, with the instances
+indented below it and written without the keyword:
+
+```hexagon
+record Ping = {label: Int, next: Option(Pong)}
+record Pong = {label: Int, back: Option(Ping)}
+
+honor
+    Show<Ping> =
+        show(ping) = match ping.next
+            Some(pong) => "Ping(${ping.label} ${pong})"
+            None => "Ping(${ping.label})"
+    Show<Pong> =
+        show(pong) = match pong.back
+            Some(ping) => "Pong(${pong.label} ${ping})"
+            None => "Pong(${pong.label})"
+```
+
+Inside the group each instance sees the other, in either order, as the members of a
+`fun` block see each other, and code below the group sees both. A group is for honors
+that really call each other. When one honor merely relies on another, order them
+instead, and write the one it relies on first.
 
 ## One type gets one answer
 
@@ -357,6 +422,8 @@ exporting constrained polymorphic functions.
   against, and the mark every call through the member wears;
 - `Eq.equals` is required and `Eq.notEquals` defaults to its Boolean negation;
 - an `honor` declaration supplies the unique instance of a constraint for a type;
+- an instance is used below its `honor`; an honor's body sees its own instance, and
+  honors that need each other form an honor group;
 - a base constraint is an obligation that another constraint builds on;
 - coherence gives every constraint/type pair one program-wide meaning;
 - the orphan rule places an instance with either its constraint or its type; and

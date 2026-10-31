@@ -63,6 +63,30 @@ honor Iterable<String> =
     type Item = String
     toSeq(text) = nativeToSeq(text)
 
+honor Eq<String> =
+    (** Whether `left` and `right` are the same text. *)
+    equals(left, right) = nativeEquals(left, right)
+
+honor Ord<String> =
+    (** How `left` orders against `right`, by Unicode code point. An astral
+        character therefore orders after every character of the basic plane,
+        which is where a host's own string comparison disagrees. *)
+    compare(left, right) = nativeCompare(left, right)
+
+honor Show<String> =
+    (** `value` itself: a string's canonical textual form is the string, with no
+        quoting and no escaping. *)
+    show(value) = value
+
+honor Concat<String> =
+    (** `left` followed by `right`. *)
+    concat(left, right) = nativeConcat(left, right)
+
+honor Hash<String> =
+    (** A hash of `value`. Equal strings hash equally, which is what `Eq` above
+        is checked against. *)
+    hash(value) = nativeHash(value)
+
 let points(text: String): Vector(String) =
     Vector.fromSeq(toSeq(text))
 
@@ -450,27 +474,3 @@ export let toLower(text: String): String =
         if not nativeIsCaseIgnorable(point) then beforeCased := nativeIsCased(point)
         index := index + 1
     joinChunks(chunks)
-
-honor Eq<String> =
-    (** Whether `left` and `right` are the same text. *)
-    equals(left, right) = nativeEquals(left, right)
-
-honor Ord<String> =
-    (** How `left` orders against `right`, by Unicode code point. An astral
-        character therefore orders after every character of the basic plane,
-        which is where a host's own string comparison disagrees. *)
-    compare(left, right) = nativeCompare(left, right)
-
-honor Show<String> =
-    (** `value` itself: a string's canonical textual form is the string, with no
-        quoting and no escaping. *)
-    show(value) = value
-
-honor Concat<String> =
-    (** `left` followed by `right`. *)
-    concat(left, right) = nativeConcat(left, right)
-
-honor Hash<String> =
-    (** A hash of `value`. Equal strings hash equally, which is what `Eq` above
-        is checked against. *)
-    hash(value) = nativeHash(value)
