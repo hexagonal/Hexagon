@@ -66,6 +66,8 @@ refuses it before a `fun` block head (Functions §7.3; layout stays agnostic).
 | `else` or `catch` with no same-line body | Clause body / arm block |
 | `constraint ... =` or `honor ... =` | Member block |
 | A `fun` head ending its logical item — the keyword alone, or with its binder list (`fun<a: Eq>`), no member on the line (Functions §7.3) | `fun` member block |
+| An `honor` head ending its logical item — the keyword alone, or with a binder list (`honor<a: Show>`, which the parser refuses, Constraints §8), no instance on the line (Constraints §4.8) | Honor group (member block) |
+| An honor group's item ending in `=` — `Show<Ping> =`, `<a: Show> Show<Rose(a)> =` (Constraints §4.8) | Member block |
 | A `pattern` head ending its logical item — the name, alone or with its binder list, component list, and result type (`pattern rat(top: BigInt, bottom: BigInt): Rat`, `pattern parts`; Pattern Declarations §2.1). The alias form `pattern rgb = Color.rgb` opens nothing: a deeper-indented following line is a continuation of the item, as everywhere, and the alias rule reads the one name it finds there (Pattern Declarations §3.4) | `pattern` member block |
 | `extern from "specifier"` head (FFI Part 4 §2.2 — one item per line under ordinary layout; the row was owed from that part and is added with the kind taxonomy) | Member block |
 | An `extern class` head — `class` and its name, alias or modifiers, ending its logical item (FFI Part 5 §6.1). **Optional:** a head followed by no deeper-indented line is a class with no members and complete, never "expected an indented block" | Member block |
@@ -85,7 +87,7 @@ beginning a line keeps §2.3's continuation reading.
 decides which: **expression blocks** — bodies and binding blocks, item
 sequences whose final expression is the block's value (Statements §3) —
 **arm blocks** — a `match`'s or `catch`'s arms — and **member blocks** —
-the `constraint`, `honor`, `extern from`, `extern class`, `fun`, and `pattern` heads' bodies, plus the
+the `constraint`, `honor` (an honor's members, and an honor group's honors), `extern from`, `extern class`, `fun`, and `pattern` heads' bodies, plus the
 module's own implicit block: sequences that declare rather than compute — no
 value, no final-expression law (Statements §3.1; the module top level also
 runs `Unit`-typed items, Modules §8.2). A member block is not an expression —
@@ -285,4 +287,5 @@ These are binding on the implementation, same status as the Functions spec's dia
 | `catch` continues a preceding `match` item exactly as it continues `try` — the match catch clause (Exceptions §5.4); attachment by column, no new layout machinery | §2 |
 | A scrutinee-less `match` head opens its arm block through the same inventory row — the match function (Pattern Matching §6.7) needs no new layout rule | §2.1 |
 | A `fun` head ending its logical item opens the member block; member lines are ordinary term-binding rows; the once-recorded §7.1 read-through exception retired with the `fun` RHS (#700) | §2.1 |
+| An `honor` head ending its logical item opens the honor group (a member block), and each item's `C<T> =` opens that honor's member block (#1227) | §2.1 |
 | Block-kind terminology (#700): expression blocks (value), arm blocks, member blocks (`constraint`/`honor`/`extern from`/`fun`/module top level — they declare rather than compute, and are not expressions); one layout mechanism serves all three; the `extern from` row joins the inventory (owed from FFI Part 4 §2.2) | §2.1, §1 |

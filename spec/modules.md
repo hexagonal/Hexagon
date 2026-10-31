@@ -440,7 +440,7 @@ An exported constraint crosses as a **reference to its declaration** (identity: 
 
 ### 7.1 Globality (restated, now operational)
 
-Instances are visible program-wide once their module is in the import graph — not imported, not exported, not hidden (Constraints §5.3). `export honor` is the §4.1 error. No form loads a module for its instances alone (§3.3); §7.6 explains why none is needed.
+Instances are visible program-wide once their module is in the import graph — not imported, not exported, not hidden (Constraints §5.3) — and within their own module are read top-down (Constraints §4.8). `export honor` is the §4.1 error. No form loads a module for its instances alone (§3.3); §7.6 explains why none is needed.
 
 ### 7.2 "Home module," operationally
 
