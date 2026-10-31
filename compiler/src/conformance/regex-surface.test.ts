@@ -105,6 +105,7 @@ export let reconstructs(pattern: String, text: String, separator: String): Bool 
 // A literal pattern, and the same pattern built at run time (§8).
 export let literal(): Result(Regex.Regex, Syntax.RegexError) = Regex.compile("a+b")
 export let built(pattern: String): Result(Regex.Regex, Syntax.RegexError) = Regex.compile(pattern)
+export let refusedLiteral(): Result(Regex.Regex, Syntax.RegexError) = Regex.compile("(")
 
 exception Boom(text: String)
 
@@ -159,11 +160,19 @@ describe("literal patterns (§8)", () => {
   });
 
   test("a refused literal is the same Err at every evaluation", () => {
-    const refused = compileMain(
-      "module Main\nimport Hex.Regex as Regex\n\n" +
-      "export let bad(): Bool = match Regex.compile(\"(\")\n    Ok(_) => True\n    Err(_) => False\n",
-    );
-    expect(refused.diagnostics).toEqual([]);
+    const first = call<{ tag: string }>("refusedLiteral");
+    expect(first.tag).toBe("Err");
+    expect(call("refusedLiteral")).toBe(first);
+  });
+
+  test("an interpolated pattern is no literal: each evaluation compiles its own", async () => {
+    const source = "module Main\nimport Hex.Regex as Regex\n\n" +
+      "export let sourceOf(x: String): String = match Regex.compile(\"a$" + "{x}\")\n" +
+      "    Ok(regex) => regex.source()\n    Err(_) => \"refused\"\n";
+    const program = await runMain(source);
+    const sourceOf = program.sourceOf as (x: string) => string;
+    expect(sourceOf("x")).toBe("ax");
+    expect(sourceOf("y")).toBe("ay");
   });
 });
 

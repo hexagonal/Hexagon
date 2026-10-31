@@ -3933,7 +3933,8 @@ class JavaScriptEmitter {
         "",
       );
     }
-
+    // The literal patterns' lazy constants (`regex.md` §8), after every import
+    // and before any term binding that evaluates one at load.
     if (this.#regexLiterals.length > 0) {
       body.push(`let ${this.#regexLiterals.join(", ")};`, "");
     }
@@ -5760,9 +5761,9 @@ class JavaScriptEmitter {
           expression.callee.kind === "Name" &&
           this.#regexCompileSymbols.has(expression.callee.symbol) &&
           expression.arguments.length === 1 &&
-          expression.arguments[0]!.kind === "String"
+          isLiteralText(expression.arguments[0]!)
         ) {
-          const constant = `__regexLiteral${this.#regexLiterals.length + 1}`;
+          const constant = this.#generatedNames.hoisted("regexLiteral");
           this.#regexLiterals.push(constant);
           return `(${constant} ??= ${this.#emitCall(expression, depth, evidenceNames)})`;
         }
@@ -14012,6 +14013,11 @@ function unicodePropertyHelper(
     `const ${table} = new ${spell("RegExp")}(${JSON.stringify(pattern)}, "u");`,
     `function ${name}(__point) { return ${table}.test(__point); }`,
   ];
+}
+
+/** Whether `expression` is a string literal with no interpolated part. */
+function isLiteralText(expression: Core.Expr): boolean {
+  return expression.kind === "String" && expression.parts.every((part) => part.kind === "Text");
 }
 
 function unicodeMappingHelper(
