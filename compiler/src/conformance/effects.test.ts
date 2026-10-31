@@ -4690,8 +4690,8 @@ describe("Effects §3.5 — a colour in error (#1223)", () => {
     const saving = "honor R<D> =\n    read(s) =\n        save!(s.name)\n        s.name\n";
     for (const mark of ["!", ""]) {
       expect(check(`${honor}let d(x: D): String = read(x)\nlet probe(x: D): String = d${mark}(x)\n${saving}`)).toEqual([
-        "this call follows what `R<D>` does, and that honor is declared below it; declarations are read top-down — " +
-        "move the honor above this call",
+        "`R<D>` is used here, and its honor is declared below it; declarations are read top-down — " +
+        "move the honor above this use",
       ]);
     }
     const failed = "honor R<D> =\n    read(s) =\n        nope!(s.name)\n        s.name\n";

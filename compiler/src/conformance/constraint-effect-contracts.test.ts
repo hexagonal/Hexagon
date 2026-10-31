@@ -546,10 +546,13 @@ describe("Effects §13.3: an instance's own colour, and the calls that follow it
     "record D = { name: String }\n";
   const PURE_P = "honor R<P> =\n    read(s) = s.name\n";
   const SAVING_D = "honor R<D> =\n    read(s) =\n        readIt!(s.name)\n";
-  /** §13.3's refusal of a call that stands above the honor it follows. */
+  /**
+   * A call above the honor it would follow is a use above its honor
+   * (Constraints §4.8): refused once, in §8's words.
+   */
   const BELOW = (instance: string) =>
-    `this call follows what \`${instance}\` does, and that honor is declared below it; ` +
-    "declarations are read top-down — move the honor above this call";
+    `\`${instance}\` is used here, and its honor is declared below it; ` +
+    "declarations are read top-down — move the honor above this use";
 
   test("a call follows an honor above it, and one below it is refused in every spelling", () => {
     const calls = "let p(x: P): String = read(x)\nlet d(x: D): String = read!(x)\n";
@@ -571,14 +574,22 @@ describe("Effects §13.3: an instance's own colour, and the calls that follow it
     expect(messages(made("make(A({ n = 1 }))()"))).toEqual([BELOW("M<A>")]);
   });
 
-  test("everything else about an honor is free of source order", () => {
-    // A `->` member, a generic call and a reference read no honor's body.
-    const show = "constraint Tag<a> =\n    tag(s: a) -> String\nhonor Tag<P> =\n    tag(s) = s.name\n";
-    expect(messages(IO + R + "constraint Tag<a> =\n    tag(s: a) -> String\n" +
-      "let t(x: P): String = tag(x)\nhonor Tag<P> =\n    tag(s) = s.name\n")).toEqual([]);
-    expect(messages(IO + R + "let g<a: R>(x: a): String = read!(x)\n" +
-      'let u(): String = g!(P({ name = "p" }))\n' + PURE_P + show)).toEqual([]);
-    expect(messages(IO + R + "let r = read\n" + 'let u(x: P): String = r!(x)\n' + PURE_P)).toEqual([]);
+  test("every other use of an instance stands below its honor too (Constraints §4.8)", () => {
+    // A `->` member, a generic call handed the evidence, and a reference
+    // called at the type read no honor's body, but each uses the instance:
+    // below the honor it is free, above it refused — never a matter of colour.
+    const tag = "constraint Tag<a> =\n    tag(s: a) -> String\n";
+    const show = "honor Tag<P> =\n    tag(s) = s.name\n";
+    expect(messages(IO + R + tag + "let t(x: P): String = tag(x)\n" + show)).toEqual([BELOW("Tag<P>")]);
+    expect(messages(IO + R + tag + show + "let t(x: P): String = tag(x)\n")).toEqual([]);
+    const generic = "let g<a: R>(x: a): String = read!(x)\n" + 'let u(): String = g!(P({ name = "p" }))\n';
+    expect(messages(IO + R + generic + PURE_P + tag + show)).toEqual([BELOW("R<P>")]);
+    expect(messages(IO + R + PURE_P + tag + show + generic)).toEqual([]);
+    // A binding pinned by its first use: the use stands where it is written,
+    // at the reference, even where a later line decides the instance.
+    expect(messages(IO + R + "let r = read\n" + 'let u(x: P): String = r!(x)\n' + PURE_P)).toEqual([BELOW("R<P>")]);
+    expect(messages(IO + R + "let r = read\n" + PURE_P + 'let u(x: P): String = r!(x)\n')).toEqual([BELOW("R<P>")]);
+    expect(messages(IO + R + PURE_P + "let r = read\n" + 'let u(x: P): String = r!(x)\n')).toEqual([]);
   });
 
   test("a callback whose body binds names is decided where the outer call ends (review r1)", () => {
@@ -615,12 +626,27 @@ describe("Effects §13.3: an instance's own colour, and the calls that follow it
     expect(messages(pair("pair(x, m)"))).toEqual(["this call is impure and may fail, so `pair` wants `!`, not no mark"]);
   });
 
-  test("a member calling a sibling at its own instance follows the contract, the honor not yet read", () => {
-    const two = (second: string, call: string) => "constraint Two<a> =\n    first(s: a) ->! Int\n    second(s: a) ->! Int\n" +
-      `record P = { n: Int }\nhonor Two<P> =\n    first(s) = 1\n    second(s) = ${second}\nlet k(p: P): Int = ${call}\n`;
-    expect(messages(two("s.first!()", "second!(p)"))).toEqual([]);
-    expect(messages(two("s.first()", "second!(p)"))).toEqual(["this call is impure and may fail, so `.first` wants `!`, not no mark"]);
-    expect(messages(two("s.first!()", "second(p)"))).toEqual(["this call is impure and may fail, so `second` wants `!`, not no mark"]);
+  test("a member calling a sibling at its own instance follows the knot", () => {
+    // §13.3: inside the honor's knot the call follows the instance's own
+    // colour, settled where the knot closes, whichever member comes first.
+    const two = (second: string, call: string, firstBody = "1", secondFirst = false) => {
+      const first = `    first(s) = ${firstBody}\n`;
+      const other = `    second(s) = ${second}\n`;
+      return IO + "constraint Two<a> =\n    first(s: a) ->! Int\n    second(s: a) ->! Int\n" +
+        `record P = { n: Int }\nhonor Two<P> =\n${secondFirst ? other + first : first + other}let k(p: P): Int = ${call}\n`;
+    };
+    for (const secondFirst of [false, true]) {
+      expect(messages(two("s.first()", "second(p)", "1", secondFirst))).toEqual([]);
+      expect(messages(two("s.first!()", "second(p)", "1", secondFirst))).toEqual([
+        pureAndTotal("this call is pure and cannot fail, so `.first` wants no mark, not `!`"),
+      ]);
+      const reads = "String.length(readIt!(\"x\"))";
+      expect(messages(two("s.first!()", "second!(p)", reads, secondFirst))).toEqual([]);
+      expect(messages(two("s.first()", "second!(p)", reads, secondFirst)))
+        .toEqual(["this call is impure and may fail, so `.first` wants `!`, not no mark"]);
+      expect(messages(two("s.first!()", "second(p)", reads, secondFirst)))
+        .toEqual(["this call is impure and may fail, so `second` wants `!`, not no mark"]);
+    }
   });
 
   test("a subject inside a parameter is decided by its whole type", () => {
@@ -651,19 +677,26 @@ describe("Effects §13.3: an instance's own colour, and the calls that follow it
       .toBe("<a: R> a ->! String");
   });
 
-  test("inside its own honor, a call at its own instance follows the contract", () => {
-    // Its body is not yet read (§13.3); declared honor knots are open
-    // (Constraints §9.8).
-    const tree = (mark: string) =>
+  test("inside its own honor, a call at its own instance follows the knot", () => {
+    // §13.3 (Verdict Table row 97): a recursive instance of a `->!` member
+    // whose body touches nothing is bare at its recursive calls and at every
+    // call below the honor; one whose body reads the disk wears `!` at both.
+    const tree = (mark: string, leaf = "0") =>
       "constraint Size<a> =\n    size(x: a) ->! Int\n" +
       "union T = Leaf | Node(T, T)\n" +
       "honor Size<T> =\n    size(t) = match t\n" +
-      "        Leaf => 0\n" +
+      `        Leaf => ${leaf}\n` +
       `        Node(l, r) => l.size${mark}() + r.size${mark}()\n`;
-    expect(messages(IO + tree("!") + "let k(t: T): Int = size!(t)\n")).toEqual([]);
+    expect(messages(IO + tree("") + "let k(t: T): Int = size(t)\n")).toEqual([]);
     expect(messages(IO + tree("!") + "let k(t: T): Int = size(t)\n"))
+      .toEqual([pureAndTotal("this call is pure and cannot fail, so `.size` wants no mark, not `!`")]);
+    expect(messages(IO + tree("") + "let k(t: T): Int = size!(t)\n"))
+      .toEqual([pureAndTotal("this call is pure and cannot fail, so `size` wants no mark, not `!`")]);
+    const reads = "String.length(readIt!(\"x\"))";
+    expect(messages(IO + tree("!", reads) + "let k(t: T): Int = size!(t)\n")).toEqual([]);
+    expect(messages(IO + tree("!", reads) + "let k(t: T): Int = size(t)\n"))
       .toEqual(["this call is impure and may fail, so `size` wants `!`, not no mark"]);
-    expect(messages(IO + tree("") + "let k(t: T): Int = size!(t)\n")).toEqual([
+    expect(messages(IO + tree("", reads) + "let k(t: T): Int = size!(t)\n")).toEqual([
       "this call is impure and may fail, so `.size` wants `!`, not no mark",
       "this call is impure and may fail, so `.size` wants `!`, not no mark",
     ]);
@@ -681,9 +714,32 @@ describe("Effects §13.3: an instance's own colour, and the calls that follow it
       .toEqual([]);
     expect(messages(IO + pair("s.name", "s.a.read3()", false) + "let k(b: B): String = read3(b)\n"))
       .toEqual([BELOW("R3<A>")]);
-    // A function and an honor that need each other: one stands below the other.
+    // A function and an honor that need each other: one stands below the
+    // other, and the advice is the fundamental spelling (Constraints §4.8).
     expect(messages(IO + "constraint R3<a> =\n    read3(s: a) ->! String\nrecord A = { name: String }\n" +
-      "let h(a: A): String = a.read3!()\nhonor R3<A> =\n    read3(s) = h(s)\n")).toEqual([BELOW("R3<A>")]);
+      "let h(a: A): String = a.read3!()\nhonor R3<A> =\n    read3(s) = h(s)\n")).toEqual([
+      "`R3<A>` is used here, and its honor is declared below it; declarations are read top-down — " +
+      "`R3<A>`'s honor uses `h` too — let the function recurse by itself, and call it from the honor",
+    ]);
+    // Two honors that need each other are one honor group, in either order.
+    // Inside the knot a call follows the knot (Effects §13.3): `R3<B>` reads
+    // nothing, so `s.b.read3()` and the call below are bare; where it reads
+    // the disk, both wear `!`.
+    const grouped = (aFirst: boolean, mark: string, bBody: string) => {
+      const a = `    R3<A> =\n        read3(s) = s.b.read3${mark}()\n`;
+      const b = `    R3<B> =\n        read3(s) = ${bBody}\n`;
+      return "constraint R3<a> =\n    read3(s: a) ->! String\n" +
+        "record A = { b: B }\nrecord B = { name: String }\nhonor\n" + (aFirst ? a + b : b + a) +
+        `let k(a: A): String = read3${mark}(a)\n`;
+    };
+    for (const aFirst of [true, false]) {
+      expect(messages(IO + grouped(aFirst, "", "s.name"))).toEqual([]);
+      expect(messages(IO + grouped(aFirst, "!", "readIt!(s.name)"))).toEqual([]);
+      expect(messages(IO + grouped(aFirst, "", "readIt!(s.name)"))).toEqual([
+        "this call is impure and may fail, so `.read3` wants `!`, not no mark",
+        "this call is impure and may fail, so `read3` wants `!`, not no mark",
+      ]);
+    }
   });
 
   test("a call hands its callbacks to the instance's own colour", () => {
@@ -948,11 +1004,21 @@ describe("Constraints §4.7: the `widens` door is compared, and follows its body
     const door = "widens Lib.tag(s: P, n: BigInt): String = s.name\n";
     const honor = "honor Lib.R<P> =\n    tag = widened\n";
     const calls = "export let through(p: P): String = tag(p, 2n) ++ p.tag(2) ++ Lib.tag(p, 2)\n";
-    expect(projectMessages(order([door, calls, honor]))).toEqual([]);
-    expect(projectMessages(order([honor, door, calls]))).toEqual([]);
-    expect(projectMessages(order([honor, "export let early(p: P): String = Lib.tag(p, 2)\n", door])))
-      .toEqual(["this call follows the `widens` door that supplies `tag` at `P`, and that door is declared below it; " +
-        "declarations are read top-down — move the door above this call"]);
+    // The door's own binding (`tag(p, 2n)`, `p.tag(2)`) is a reference to the
+    // door, which stands above it; `Lib.tag(p, 2)` selects the instance, a
+    // use, which stands below the honor (Constraints §4.8).
+    expect(projectMessages(order([door, honor, calls]))).toEqual([]);
+    expect(projectMessages(order([door, "export let early(p: P): String = tag(p, 2n) ++ p.tag(2)\n", honor])))
+      .toEqual([]);
+    expect(projectMessages(order([door, calls, honor]))).toEqual([
+      "`Lib.R<P>` is used here, and its honor is declared below it; declarations are read top-down — " +
+      "move the honor above this use",
+    ]);
+    // A door stands above the honor that accounts for it.
+    expect(projectMessages(order([honor, door, calls]))).toEqual([
+      "`tag = widened` names the `widens` door declared below it; declarations are read top-down — " +
+      "move the door above this honor",
+    ]);
   });
 
   test("a door's own body, and an honor's, read a door-supplied member as the rules say (review r2)", () => {
@@ -961,13 +1027,20 @@ describe("Constraints §4.7: the `widens` door is compared, and follows its body
       ["/lib.hex", lib],
       ["/main.hex", "module Main\n\nimport Lib\n\nexport record P = { name: String }\n" + items.join("")],
     ] as const;
-    // Inside the door's own body the door is not yet read: the contract, in
-    // either order of the door and the honor.
+    // A door cannot use the instance it supplies: it stands above the honor
+    // that accounts for it (Constraints §4.8). A door that recurses is spelled
+    // as a function that recurses by itself, and a door that calls it.
     const recursive = "widens Lib.tag(s: P, n: BigInt): String = if n == 0n then s.name else Lib.tag!(s, 0)\n";
     const accounts = "honor Lib.R<P> =\n    tag = widened\n    read(s) = 1\n";
     const call = 'export let p1(): String = Lib.tag!(P({ name = "a" }), 2)\n';
-    expect(projectMessages(order([accounts, recursive, call]))).toEqual([]);
-    expect(projectMessages(order([recursive, accounts, call]))).toEqual([]);
+    expect(projectMessages(order([recursive, accounts, call]))).toEqual([
+      "`Lib.R<P>` is used here, and its honor is declared below it; declarations are read top-down — " +
+      "a door cannot use the instance it supplies; let a function recurse by itself, and call it from the door",
+    ]);
+    const helper = "fun tagged(s: P, n: BigInt): String = if n == 0n then s.name else tagged(s, 0n)\n" +
+      "widens Lib.tag(s: P, n: BigInt): String = tagged(s, n)\n";
+    expect(projectMessages(order([helper, accounts, 'export let p1(): String = Lib.tag(P({ name = "a" }), 2)\n'])))
+      .toEqual([]);
     // An honor's own body calling the member a door above supplies reads the door.
     const quiet = "widens Lib.tag(s: P, n: BigInt): String =\n    s.name\n";
     const reads = "honor Lib.R<P> =\n    tag = widened\n    read(s) = String.length(s.tag(2))\n";

@@ -361,6 +361,14 @@ interface ExternClassRows {
 }
 
 /** Doc Comments §5: the head binds no name, so it documents nothing (#700). */
+/** Constraints §4.8's honor-group refusals (§8's rows, #1227). */
+const HONOR_GROUP_HOLDS_HONORS = "an honor group holds honors only";
+const EMPTY_HONOR_GROUP = "an honor group needs at least one honor";
+const HONOR_GROUP_HEAD_DOC =
+  "documentation attaches to an honor group's instances, not to the group — move " +
+  "it above the instance it describes, or make it an ordinary comment " +
+  "(`(* ... *)`).";
+
 const FUN_BLOCK_HEAD_DOC =
   "documentation attaches to a `fun` block's members, not to the block — move " +
   "it above the member it describes, or make it an ordinary comment " +
@@ -653,6 +661,7 @@ class Parser {
    * back to back are two heads, and nothing groups their members together.
    */
   #funBlockId = 0;
+  #honorGroupId = 0;
   /**
    * The lambdas a **match function** desugared to (Pattern Matching §6.7).
    *
@@ -1087,6 +1096,8 @@ class Parser {
         this.#moduleMarkers.push(this.#parseModuleMarker(items.length));
       } else if (this.#atFunBlockHead()) {
         items.push(...this.#parseFunBlock(moduleItems, start));
+      } else if (moduleItems && this.#atHonorGroupHead()) {
+        items.push(...this.#parseHonorGroup(start));
       } else {
         const item = this.#parseItem(moduleItems);
         this.#documentItem(start, item);
@@ -3275,8 +3286,174 @@ class Parser {
     };
   }
 
-  #parseHonor(): Parsed.HonorItem {
-    const start = this.#advance();
+  /**
+   * Whether the cursor is at an **honor group head** (Constraints §4.8,
+   * #1227): `honor` with nothing after it on the logical item but, optionally,
+   * a complete `<...>` binder list — which `#parseHonorGroup` refuses.
+   */
+  #atHonorGroupHead(): boolean {
+    let index = this.#index;
+    if (this.#tokens[index]?.kind !== "Honor") return false;
+    index += 1;
+    if (this.#tokens[index]?.kind === "Less") {
+      let depth = 1;
+      index += 1;
+      while (depth > 0) {
+        const kind = this.#tokens[index]?.kind;
+        if (kind === undefined || kind === "Eof") return false;
+        if (kind === "Less") depth += 1;
+        else if (kind === "Greater") depth -= 1;
+        index += 1;
+      }
+    }
+    const next = this.#tokens[index]?.kind;
+    return next === "VOpen" || next === "VSep" || next === "VClose" ||
+      next === "Semicolon" || next === "Eof";
+  }
+
+  /**
+   * One **honor group** (Constraints §4.8, #1227): the `honor` head, then its
+   * items, each an honor written without the keyword. As a `fun` block's
+   * members are, the items are returned as items of the enclosing block, each
+   * carrying the group on its `group` field — which is what makes them one
+   * knot, and all that survives of the head.
+   */
+  #parseHonorGroup(docStart: number): readonly Parsed.Item[] {
+    const honorToken = this.#advance();
+    const binders = this.#at("Less") ? this.#parseTypeParameters() : undefined;
+    const headSpan = spanFrom(honorToken.span, this.#previous().span);
+    this.#docs.refuse(docStart, HONOR_GROUP_HEAD_DOC);
+    if (!this.#at("VOpen")) {
+      this.#errorAt(headSpan, EMPTY_HONOR_GROUP);
+      return [];
+    }
+    this.#advance();
+    const items: Parsed.Item[] = [];
+    const honors: Parsed.HonorItem[] = [];
+    const enclosingItemStart = this.#itemStart;
+    this.#skipSeparators();
+    while (!this.#at("VClose") && !this.#at("Eof")) {
+      const start = this.#current().span.start.offset;
+      this.#itemStart = this.#index;
+      if (this.#at("Catch")) {
+        this.#reportUnattachedCatch();
+        continue;
+      }
+      if (this.#at("Less") || this.#at("UpperName")) {
+        const honor = this.#parseHonor(true);
+        this.#documentItem(start, honor);
+        honors.push(honor);
+        items.push(honor);
+      } else {
+        items.push(...this.#refuseHonorGroupItem());
+      }
+      this.#itemStart = enclosingItemStart;
+      if (this.#at("Catch")) {
+        this.#reportUnattachedCatch();
+        continue;
+      }
+      if (this.#at("VSep") || this.#at("Semicolon")) {
+        this.#skipSeparators();
+      } else if (!this.#at("VClose") && !this.#at("Eof")) {
+        this.#error("expected a newline or `;` between block items");
+        this.#synchronize(itemEnds);
+        this.#skipSeparators();
+      }
+    }
+    this.#itemStart = enclosingItemStart;
+    const closing = this.#expect("VClose", "expected the honor group to close");
+    if (honors.length === 0 && items.length === 0) this.#errorAt(headSpan, EMPTY_HONOR_GROUP);
+    const group: Parsed.HonorGroup = {
+      id: (this.#honorGroupId += 1),
+      span: spanFrom(honorToken.span, closing?.span ?? items.at(-1)?.span ?? headSpan),
+    };
+    if (binders !== undefined) this.#refuseHonorGroupBinders(binders, honors);
+    // Recovery: the head's binders are refused, and an item that uses a
+    // variable they declare and declares none of its own takes them, so the
+    // one mistake is reported once rather than again at every body.
+    const recovered = (honor: Parsed.HonorItem): Parsed.HonorItem => {
+      if (binders === undefined || honor.typeParameters.length > 0) return honor;
+      const taken = binders.filter(({ name }) => this.#headMentions(honor, name.text));
+      return taken.length === 0 ? honor : { ...honor, typeParameters: taken };
+    };
+    return items.map((item) => item.kind === "Honor" ? { ...recovered(item), group } : item);
+  }
+
+  /**
+   * §8's binder-list row: an honor group's head takes none, because each
+   * instance quantifies its own (Constraints §4.8). The advice names the items
+   * whose heads use each variable.
+   */
+  #refuseHonorGroupBinders(
+    binders: readonly Parsed.TypeParameter[],
+    honors: readonly Parsed.HonorItem[],
+  ): void {
+    const clauses = binders.map((binder) => {
+      const written = binder.constraints.length === 0
+        ? `<${binder.name.text}>`
+        : binder.constraints.length === 1
+        ? `<${binder.name.text}: ${binder.constraints[0]!.text}>`
+        : `<${binder.name.text}: (${binder.constraints.map(({ text }) => text).join(", ")})>`;
+      const users = honors
+        .filter((honor) => this.#headMentions(honor, binder.name.text))
+        .map((honor) => `\`${this.#sourceText(honor.constraint.span)}<${this.#sourceText(honor.subject.span)}>\``);
+      return users.length === 0
+        ? `write \`${written}\` on the item that uses it`
+        : `write \`${written}\` on the item that uses it: ${
+          users.length === 1 ? users[0] : `${users.slice(0, -1).join(", ")} and ${users.at(-1)}`
+        }`;
+    });
+    this.#errorAt(
+      spanFrom(binders[0]!.span, binders.at(-1)!.span),
+      `an honor group's instances declare their own binders — ${clauses.join("; ")}`,
+    );
+  }
+
+  #sourceText(span: Source.Span): string {
+    return this.#text.slice(span.start.offset, span.end.offset);
+  }
+
+  /** Whether an honor's head subject mentions the type variable `name`. */
+  #headMentions(honor: Parsed.HonorItem, name: string): boolean {
+    return new RegExp(`(^|[^\\p{L}\\p{N}_])${name}($|[^\\p{L}\\p{N}_])`, "u")
+      .test(this.#sourceText(honor.subject.span));
+  }
+
+  /**
+   * §8's row for anything but an honor as an honor group's item: a parse
+   * error, with the fundamental spelling named for a function and for a door.
+   * A declaration the module grammar knows is still read as one, so its name
+   * binds and the refusal is the only report; anything else is skipped.
+   */
+  #refuseHonorGroupItem(): readonly Parsed.Item[] {
+    const at = this.#current().span;
+    const functionLike = this.#at("Fun") ||
+      (this.#at("NonUpperName") && this.#peek(1).kind === "LeftParen");
+    const door = this.#atWidensHead();
+    this.#errorAt(
+      at,
+      functionLike
+        ? `${HONOR_GROUP_HOLDS_HONORS} — let the function recurse by itself, and call it from the honor`
+        : door
+        ? `${HONOR_GROUP_HOLDS_HONORS} — a \`widens\` door stands above the honor that accounts for it, outside the group`
+        : HONOR_GROUP_HOLDS_HONORS,
+    );
+    if (door || this.#at("Fun") || this.#at("Let") || this.#at("Var")) {
+      return [this.#parseItem(true)];
+    }
+    let depth = 0;
+    while (!this.#at("Eof")) {
+      const kind = this.#current().kind;
+      if (depth === 0 && (kind === "VSep" || kind === "Semicolon" || kind === "VClose")) break;
+      if (kind === "VOpen") depth += 1;
+      else if (kind === "VClose") depth -= 1;
+      this.#advance();
+    }
+    return [];
+  }
+
+  #parseHonor(grouped = false): Parsed.HonorItem {
+    const start = grouped ? this.#current() : this.#advance();
     const typeParameters = this.#at("Less") ? this.#parseTypeParameters() : [];
     // Qualified by a module alias where the constraint was namespace-imported
     // (Modules §3.3): `honor Geo.Area<Tile>` is the only spelling available to a

@@ -465,9 +465,13 @@ describe("the exclusion holds however late the head arrives (Part 5 §3.6)", () 
   });
 
   test("a helper one call removed still adapts (D8)", () => {
+    // The adaptation selects `Iterable<Stack(a)>`, a use of it, so the helper
+    // stands below the honor (Constraints §4.8), and the honor no longer
+    // reaches back through it.
     expect(emitted(
-      "record Stack(a) = {items: Vector(a)}\nlet flat(s: Stack(a)): Seq(a) = s\n" +
-        "honor Iterable<Stack(a)> =\n    type Item = a\n    toSeq(s) = flat(s)\n",
+      "record Stack(a) = {items: Vector(a)}\n" +
+        "honor Iterable<Stack(a)> =\n    type Item = a\n    toSeq(s) = Vector.toSeq(s.items)\n" +
+        "let flat(s: Stack(a)): Seq(a) = s\nlet twice(s: Stack(a)): Seq(a) = flat(s)\n",
     )).toContain("const flat = s => __Iterable_Stack_toSeq(s);");
   });
 });

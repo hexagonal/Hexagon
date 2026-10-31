@@ -452,6 +452,18 @@ export interface HonorItem {
   readonly derived: boolean;
   readonly impliedTypes: readonly HonorImpliedType[];
   readonly members: readonly HonorMember[];
+  /**
+   * The honor group this instance is an item of (Constraints §4.8, #1227):
+   * absent for a lone `honor`, the fused spelling of the one-item group.
+   */
+  readonly group?: HonorGroup;
+  readonly span: Source.Span;
+}
+
+/** An honor group's identity and extent: its items are one knot (§4.8). */
+export interface HonorGroup {
+  readonly id: number;
+  /** From the `honor` head to the group's close. */
   readonly span: Source.Span;
 }
 
