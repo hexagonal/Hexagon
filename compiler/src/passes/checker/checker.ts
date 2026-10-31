@@ -621,8 +621,11 @@ type ArrowRole =
      * reads "claims more" the wrong way round at a parameter).
      */
     readonly against?: boolean;
-    /** The declaration that reads it so, and how, for a refusal's words (#1184). */
-    readonly under?: { readonly name: string; readonly read: "contra" | "inv" };
+    /**
+     * The declaration that reads it so, and how, for a refusal's words
+     * (#1184): `co` where backwards reads cancel, an even number of them.
+     */
+    readonly under?: { readonly name: string; readonly read: "contra" | "inv" | "co" };
   }
   | { readonly kind: "callback"; readonly callback: CallbackColour }
   | { readonly kind: "inside" };
@@ -23769,12 +23772,16 @@ class Checker {
         if (AXES.every((axis) => marking(axis).length === 0)) {
           const local = role.face.local && role.spine.handed.every((callbacks) => callbacks.length === 0);
           const untyped = role.spine.untyped.slice(0, role.application + 1).some((some) => some);
+          // A function a caller may hand in (#1184), where no other reason
+          // comes first: a local annotation, an untyped parameter's, or an
+          // extern row's advice.
+          const under = role.under?.read === "contra" || role.under?.read === "inv" ? role.under : undefined;
           this.#refuseFollowsArrow(
             arrowSpan,
-            role.under !== undefined ? "argument" : local ? "local" : untyped ? "untyped" : "unhanded",
+            local ? "local" : untyped ? "untyped" : under !== undefined && !this.#atExternRow ? "argument" : "unhanded",
             written,
             [],
-            role.under,
+            under,
           );
           return constantReading(IMPURE, IMPURE);
         }
@@ -23841,7 +23848,7 @@ class Checker {
       | "argument",
     written: FollowingArrow = "linked",
     empty: readonly Axis[] = [],
-    under?: { readonly name: string; readonly read: "contra" | "inv" },
+    under?: { readonly name: string; readonly read: "contra" | "inv" | "co" },
   ): void {
     if (arrowSpan === undefined) return;
     // A member header is refused at the declaration and nowhere else (#867):
@@ -37914,11 +37921,13 @@ class Checker {
       if (role?.kind !== "component") return elaborated();
       const read = variance();
       // Nested, a both-ways reading anywhere on the way is the one a report
-      // names: it is Effects §10's limitation.
+      // names, Effects §10's limitation; two backwards readings cancel.
       if (role.against === true) {
-        return read === "inv" && role.under?.read === "contra"
-          ? this.#inRole({ ...role, under: { name, read } }, elaborated)
-          : elaborated();
+        if (role.under?.read === "inv" || (read !== "inv" && read !== "contra")) return elaborated();
+        const under = read === "inv"
+          ? { name, read: "inv" as const }
+          : { name, read: role.under?.read === "contra" ? "co" as const : "contra" as const };
+        return this.#inRole({ ...role, under }, elaborated);
       }
       return read === "contra" || read === "inv"
         ? this.#inRole({ ...role, against: true, under: { name, read } }, elaborated)

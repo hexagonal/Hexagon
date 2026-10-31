@@ -327,6 +327,21 @@ export record Source = { step: () >-> String }
     expect(effectDiagnostics([["/main.hex", "module Main\n\n" + box]])).toEqual([both("Box")]);
     // The constant compiles.
     expect(effectDiagnostics([["/main.hex", "module Main\n\n" + cell.replace(">-> Unit) =", "->! Unit) =")]])).toEqual([]);
+    // Two backwards readings cancel: the function is the maker's own, and the
+    // refusal says only that nothing is handed. A local annotation keeps its
+    // own advice first.
+    const twice = "record Sink(a) = { put: (a) -> Unit }\n" +
+      "let mk(): Sink(Sink((() -> Unit) >-> Unit)) = Sink({ put = (s) => s.put((k) => k()) })\n";
+    expect(effectDiagnostics([["/main.hex", "module Main\n\n" + twice]])).toEqual([
+      head + "no callback of this signature has been handed over by the time this arrow runs; write `->!` for a " +
+      "function that is impure and may fail, or `->` for one that is pure and cannot fail",
+    ]);
+    const local = "record Sink(a) = { put: (a) ->! Unit }\nexport let outer(): Unit =\n" +
+      "    let mk(): Sink((() -> Unit) >-> Unit) = Sink({ put = (h) => h!(() => ()) })\n    ()\n";
+    expect(effectDiagnostics([["/main.hex", "module Main\n\n" + local]])).toEqual([
+      head + "this annotation has no callbacks of its own, and a local `>->` does not borrow the enclosing function's — " +
+      "leave its type to inference, or write `->!`",
+    ]);
   });
 
   it("refuses `>->` in a `union` field for the same reason", () => {
