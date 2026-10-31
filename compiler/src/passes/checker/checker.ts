@@ -38300,7 +38300,10 @@ class Checker {
     const knot = this.#knotOf(instance);
     if (site.start.offset >= knot.end.offset) return true;
     if (knot.start.offset <= site.start.offset && site.end.offset <= knot.end.offset) return true;
-    const key = `${primary.start.offset}:${primary.end.offset} ${instance.span.start.offset}:${instance.span.end.offset}`;
+    // A `derives` clause's instances share their type's span, so the
+    // constraint tells them apart.
+    const key = `${primary.start.offset}:${primary.end.offset} ${instance.constraintIdentity} ` +
+      `${instance.span.start.offset}:${instance.span.end.offset}`;
     if (!this.#orderViolations.has(key)) {
       this.#orderViolations.set(key, {
         primary,

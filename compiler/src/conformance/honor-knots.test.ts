@@ -271,6 +271,16 @@ describe("derived instances (§4.8)", () => {
     ]);
   });
 
+  test("one clause's instances used at one spot are reported one each", () => {
+    const diagnostics = projectDiagnostics(MAIN +
+      "let both<x: (Show, Eq)>(v: x): String = if v == v then \"${v}\" else \"\"\n" +
+      "let early(a: A): String = both(a)\n" +
+      "record A derives (Show, Eq) = {n: Int}\n");
+    expect(diagnostics).toHaveLength(2);
+    expect(diagnostics.some((message) => message.startsWith(opening("Show<A>")))).toBe(true);
+    expect(diagnostics.some((message) => message.startsWith(opening("Eq<A>")))).toBe(true);
+  });
+
   test("an instance another module declares is never this module's to order, code outside a module included", () => {
     expect(projectDiagnostics("let stray: Int = 1\nmodule Main\n\nexport let p: Int = 2\n")).toEqual([
       "code outside a module: a module begins with its header; move `module Main` above this item",
