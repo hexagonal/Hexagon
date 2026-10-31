@@ -14,6 +14,12 @@ interface Block {
   readonly delimiterDepth: number;
   readonly item: Lexed.Token[];
   hasContent: boolean;
+  /**
+   * Whether this block is an **honor group** (Constraints §4.8): opened by an
+   * `honor` head ending its logical item, its items are honors written without
+   * the keyword, so each `C<T> =` item opens that honor's member block.
+   */
+  readonly honorGroup?: boolean;
 }
 
 type DelimiterKind = "LeftParen" | "LeftBracket" | "LeftBrace";
@@ -154,7 +160,7 @@ export function applyLayout(file: Lexed.File): LaidOut.File {
   }
 
   const finalBlock = currentBlock(blocks);
-  if (expectsBlock(finalBlock.item)) {
+  if (expectsBlock(finalBlock.item, finalBlock.honorGroup === true)) {
     diagnostics.add({
       severity: "error",
       message: "expected an indented block",
@@ -190,11 +196,18 @@ function beginLine(
 
   if (
     indentation > block.indentation &&
-    (expectsBlock(block.item) || opensClassBlock(block.item))
+    (expectsBlock(block.item, block.honorGroup === true) || opensClassBlock(block.item))
   ) {
     output.push(virtual("VOpen", token.span));
+    const honorGroup = opensHonorGroup(block.item);
     block.item.length = 0;
-    blocks.push({ indentation, delimiterDepth, item: [], hasContent: false });
+    blocks.push({
+      indentation,
+      delimiterDepth,
+      item: [],
+      hasContent: false,
+      ...(honorGroup ? { honorGroup } : {}),
+    });
     return;
   }
 
@@ -230,7 +243,7 @@ function beginLine(
   }
 
   if (indentation <= block.indentation) {
-    if (expectsBlock(block.item)) {
+    if (expectsBlock(block.item, block.honorGroup === true)) {
       diagnostics.add({
         severity: "error",
         message: "expected an indented block",
@@ -245,10 +258,14 @@ function beginLine(
   }
 }
 
-function expectsBlock(item: readonly Lexed.Token[]): boolean {
+function expectsBlock(item: readonly Lexed.Token[], honorGroup = false): boolean {
   if (item.length === 0) {
     return false;
   }
+  // *(#1227.)* An `honor` head ending its logical item — the keyword alone, or
+  // with the binder list the parser refuses there — opens the honor group, a
+  // member block (§2.1's row).
+  if (opensHonorGroup(item)) return true;
 
   const last = item.at(-1);
   if (
@@ -312,6 +329,13 @@ function expectsBlock(item: readonly Lexed.Token[]): boolean {
   }
 
   if (first?.kind === "Constraint" || first?.kind === "Honor") {
+    return true;
+  }
+  // An honor group's item ending in `=` — `Show<Ping> =`, `<a: Show>
+  // Show<Rose(a)> =` — opens that honor's member block (§2.1's row). An item
+  // that is some other declaration lays out as itself, for the parser to
+  // refuse in its own words.
+  if (honorGroup && (first?.kind === "UpperName" || first?.kind === "Less")) {
     return true;
   }
   // A union declaration head is recognized contextually here for the same
@@ -382,6 +406,15 @@ function declarationStart(item: readonly Lexed.Token[]): number {
       : index;
   }
   return opensDeclaration.has(next.kind) ? index + 1 : index;
+}
+
+/**
+ * Whether an item is an **honor group head** (Constraints §4.8): `honor` and
+ * nothing after it on the logical item but, optionally, a complete `<...>`
+ * binder list — the parser's to refuse.
+ */
+function opensHonorGroup(item: readonly Lexed.Token[]): boolean {
+  return item[0]?.kind === "Honor" && funBlockHeadEnds(item, 0);
 }
 
 /**

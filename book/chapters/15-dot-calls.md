@@ -162,6 +162,12 @@ name — `describe(rest)`. The same rule covers every member of a block, so two
 mutually recursive operations call each other by name as well. Recursion is always
 visible as recursion, never hidden behind a dot.
 
+A dot call that reaches a constraint member at a known type, such as `point.show()`,
+uses an instance, so it follows that instance's `honor` (chapter 12): it stands below
+the honor, or inside the honor's knot (its own body, or its honor group), where it is
+how instances recurse. The `fun` block's rule has no counterpart there, because an
+honor already declares its own knot.
+
 Primitive and prelude types follow the same idea through their fixed companions:
 `String`, `Option`, `Result`, and later `Vector` and `Map` are not special runtime
 objects. Their dot calls are still rewrites to ordinary functions.
