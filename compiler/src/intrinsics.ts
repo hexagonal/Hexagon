@@ -473,6 +473,7 @@ export type IntrinsicEntry = IntrinsicOperationEntry | IntrinsicTypeEntry;
  */
 const INTRINSIC_TYPES: readonly (readonly [string, IntrinsicTypeEntry])[] = [
   ["buffer", { grade: "type", arity: 1, declarers: ["Runtime.Regex"], reach: "confined" }],
+  ["regexProgram", { grade: "type", arity: 0, declarers: ["Regex"], reach: "confined" }],
   [
     "vector",
     {
@@ -698,6 +699,8 @@ const INTRINSIC_OPERATIONS: readonly (readonly [string, number])[] = [
   ["regexCodepointAt", 2],
   ["regexCodeUnits", 1],
   ["regexCut", 3],
+  ["regexCompile", 1],
+  ["regexSearch", 5],
 ];
 
 /**

@@ -1096,10 +1096,24 @@ export function compileProject(
     unit.injected === "library" ||
     (unit.injected === "runtime" && UNSEATED_RUNTIME_MODULES.has(unit.declaredName));
   const fixedInjected = injectedUnits.filter((unit) => !floats(unit));
-  const orderedLibrary = ordered.flatMap((path) => {
+  const importOrdered = ordered.flatMap((path) => {
     const unit = injectedByPath.get(path);
     return unit !== undefined && floats(unit) ? [unit] : [];
   });
+  // An unseated runtime member also comes before every library member whose
+  // door rows lower to it (`RuntimeModule.consumers`): that edge is the
+  // emitted JavaScript's alone, so the import order above cannot see it.
+  const orderedLibrary = [...importOrdered];
+  for (const module of RUNTIME_MODULES) {
+    for (const consumer of module.consumers ?? []) {
+      const runtimeAt = orderedLibrary.findIndex(({ declaredName }) => declaredName === module.name);
+      const consumerAt = orderedLibrary.findIndex(({ declaredName }) => declaredName === consumer);
+      if (runtimeAt > consumerAt && consumerAt >= 0) {
+        const [runtime] = orderedLibrary.splice(runtimeAt, 1);
+        orderedLibrary.splice(consumerAt, 0, runtime!);
+      }
+    }
+  }
   injectedUnits = [...fixedInjected, ...orderedLibrary].map((unit, seat) => ({ ...unit, seat }));
   /** Each injected path's seat, for the "sees only what precedes it" slice. */
   const injectedSeats = new Map(injectedUnits.map(({ path, seat }) => [path, seat!]));
