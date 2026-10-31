@@ -4045,6 +4045,7 @@ class Resolver {
       }
       case "TypeAlias": {
         const parameters = new Set(item.parameters.map(({ text }) => text));
+        this.#refuseUnboundTypeVariables("type", item, [item.annotation]);
         const used = parsedAnnotationTypeVariables(item.annotation);
         for (const parameter of item.parameters) {
           if (!used.has(parameter.text)) {
@@ -4084,7 +4085,6 @@ class Resolver {
           name: item.name.text,
           parameters: item.parameters.map(({ text }) => text),
           annotation,
-          parametersEnd: parametersEnd(item.name, item.parameters),
           span: item.span,
         };
         this.#typeAliases.set(item.name.text, resolvedAlias);
@@ -4144,6 +4144,11 @@ class Resolver {
         };
       }
       case "Union": {
+        this.#refuseUnboundTypeVariables(
+          "union",
+          item,
+          item.constructors.flatMap((constructor) => constructor.slots.map((slot) => slot.annotation)),
+        );
         const union = this.#unionDeclarations.get(item) ?? Resolved.unionId(this.#nextUnion++);
         const typeParameters = new Set(item.parameters.map(({ text }) => text));
         const seenConstructors = new Set<string>();
@@ -4234,11 +4239,11 @@ class Resolver {
           ...externEnum,
           ...foreign,
           ...(conversions === undefined ? {} : { conversions }),
-          parametersEnd: parametersEnd(item.name, item.parameters),
           span: item.span,
         };
       }
       case "RecordDeclaration": {
+        this.#refuseUnboundTypeVariables("record", item, item.fields.map((field) => field.annotation));
         const record = this.#recordDeclarations.get(item) ?? Resolved.recordId(this.#nextRecord++);
         // A record's name is its constructor in the term namespace (Products §5.1; Modules §3.1), so
         // it occludes exactly as a union's constructors do; see the union arm.
@@ -4278,7 +4283,6 @@ class Resolver {
           derives: declaration.derives,
           constructor,
           fields,
-          parametersEnd: parametersEnd(item.name, item.parameters),
           span: item.span,
         };
       }
@@ -6974,6 +6978,58 @@ class Resolver {
     return found;
   }
 
+  /**
+   * A declaration's parameters are the only type variables scoped over its
+   * right-hand side (Declarations Preamble §3, #1288). A variable the head does
+   * not bind is free at every use, so the declaration would say "any type" and
+   * be believed: `union V = V((b) -> Int)` hands an `Int` function a `String`.
+   *
+   * Read from the text as written, before any alias is inlined: an alias's own
+   * body is the alias's report, and a variable written as an alias's argument
+   * (`V(F(b))`) is this declaration's.
+   */
+  #refuseUnboundTypeVariables(
+    form: "type" | "record" | "union",
+    item: Parsed.TypeAliasItem | Parsed.UnionItem | Parsed.RecordItem,
+    annotations: readonly Parsed.TypeAnnotation[],
+  ): void {
+    const bound = new Set(item.parameters.map(({ text }) => text));
+    const unbound = new Map<string, Source.Span>();
+    for (const annotation of annotations) {
+      for (const variable of parsedAnnotationTypeVariableNodes(annotation)) {
+        if (!bound.has(variable.name.text) && !unbound.has(variable.name.text)) {
+          unbound.set(variable.name.text, variable.span);
+        }
+      }
+    }
+    if (unbound.size === 0) return;
+    // One rewrite for the whole head, the written claims kept, so applying any
+    // report's edit reaches legal code and a host applying them all applies one.
+    const added = [...unbound.keys()];
+    const written = item.kind === "TypeAlias"
+      ? item.parameters.map(({ text }) => text)
+      : item.declaredParameters.map(({ name, claim }) =>
+        `${claim === "co" ? "+" : claim === "contra" ? "-" : ""}${name}`);
+    const head = `${form} ${item.name.text}(${[...written, ...added].join(", ")})`;
+    const after = (item.parameters.at(-1) ?? item.name).span;
+    const fixes = [{
+      message: `write \`${head}\``,
+      edits: [{
+        span: { fileId: after.fileId, start: after.end, end: after.end },
+        replacement: item.parameters.length === 0 ? `(${added.join(", ")})` : `, ${added.join(", ")}`,
+      }],
+    }];
+    for (const [name, span] of unbound) {
+      this.#diagnostics.add({
+        severity: "error",
+        message: `type variable \`${name}\` is not a parameter of \`${item.name.text}\`; ` +
+          `a \`${form}\` declaration binds every type variable it names: write \`${head}\``,
+        primary: span,
+        fixes,
+      });
+    }
+  }
+
   #instantiateResolvedAlias(
     alias: Resolved.TypeAliasItem,
     arguments_: readonly Resolved.TypeAnnotation[],
@@ -8587,6 +8643,23 @@ function annotationTypeVariables(annotation: Resolved.TypeAnnotation): readonly 
   }
 }
 
+/** Every type variable written inside one parsed annotation, in source order. */
+function parsedAnnotationTypeVariableNodes(annotation: Parsed.TypeAnnotation): readonly Parsed.TypeVariable[] {
+  const nodes: Parsed.TypeVariable[] = [];
+  const visit = (type: Parsed.TypeAnnotation): void => {
+    if (type.kind === "TypeVariable") nodes.push(type);
+    else if (type.kind === "Tuple") type.elements.forEach(visit);
+    else if (type.kind === "Record") type.fields.forEach((field) => visit(field.annotation));
+    else if (type.kind === "AppliedType") type.arguments.forEach(visit);
+    else if (type.kind === "Function") {
+      type.parameters.forEach(visit);
+      visit(type.result);
+    }
+  };
+  visit(annotation);
+  return nodes;
+}
+
 function parsedAnnotationTypeVariables(annotation: Parsed.TypeAnnotation): ReadonlySet<string> {
   const names = new Set<string>();
   const visit = (type: Parsed.TypeAnnotation): void => {
@@ -8653,12 +8726,6 @@ function markOpenRowsThroughAlias(
     }
   };
   return mark(type);
-}
-
-/** The zero-width point after a declaration head's last parameter, or its name. */
-function parametersEnd(name: Parsed.Name, parameters: readonly Parsed.Name[]): Source.Span {
-  const last = parameters.at(-1)?.span ?? name.span;
-  return { fileId: last.fileId, start: last.end, end: last.end };
 }
 
 function withTypeSpan(type: Resolved.TypeAnnotation, span: Source.Span): Resolved.TypeAnnotation {

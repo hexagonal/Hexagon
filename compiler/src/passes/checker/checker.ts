@@ -7004,7 +7004,6 @@ class Checker {
     this.#verifyPinnedBoolShape(module);
     this.#verifyVarianceClaims(module);
     this.#rejectTypeHoles(module);
-    this.#rejectUnboundTypeVariables(module);
     this.#rejectOpenRowsInDeclarations(module);
     for (const externType of module.externTypes) {
       this.#externTypes.set(externType.externType, externType);
@@ -41820,83 +41819,6 @@ class Checker {
     }
   }
 
-  /**
-   * A declaration's parameters are the only type variables scoped over its
-   * right-hand side (Declarations Preamble §3, #1288). A variable the head does
-   * not bind is free at every use, so the declaration would say "any type" and
-   * be believed: `union V = V((b) -> Int)` hands an `Int` function a `String`.
-   * It is the `_` that `#rejectTypeHoles` fences, written with a name.
-   *
-   * A variable that reached the right-hand side through an alias carries the
-   * alias body's span, outside this declaration, and is the alias's report.
-   */
-  #rejectUnboundTypeVariables(module: Resolved.Module): void {
-    const reject = (
-      annotations: readonly Resolved.TypeAnnotation[],
-      form: string,
-      name: string,
-      parameters: readonly string[],
-      parametersEnd: Source.Span | undefined,
-      span: Source.Span,
-      declared?: readonly Resolved.DeclaredTypeParameter[],
-    ): void => {
-      const bound = new Set(parameters);
-      const unbound = new Map<string, Source.Span>();
-      for (const annotation of annotations) {
-        for (const variable of typeAnnotationVariableNodes(annotation)) {
-          if (bound.has(variable.name) || unbound.has(variable.name)) continue;
-          if (!spanWithin(variable.span, span)) continue;
-          unbound.set(variable.name, variable.span);
-        }
-      }
-      if (unbound.size === 0) return;
-      // One rewrite for the whole head, so applying any report's edit reaches
-      // legal code and a host applying them all applies one (Modules §5.2).
-      const added = [...unbound.keys()];
-      // The head as written, variance claims kept, so the rewrite is the line.
-      const written = declared?.map(({ name: parameter, claim }) =>
-        `${claim === "co" ? "+" : claim === "contra" ? "-" : ""}${parameter}`) ?? parameters;
-      const head = `${form} ${name}(${[...written, ...added].join(", ")})`;
-      const fixes = parametersEnd === undefined ? undefined : [{
-        message: `write \`${head}\``,
-        edits: [{
-          span: parametersEnd,
-          replacement: parameters.length === 0 ? `(${added.join(", ")})` : `, ${added.join(", ")}`,
-        }],
-      }];
-      for (const [variable, at] of unbound) {
-        this.#diagnostics.add({
-          severity: "error",
-          message: `type variable \`${variable}\` is not a parameter of \`${name}\`; ` +
-            `a \`${form}\` declaration binds every type variable it names: write \`${head}\``,
-          primary: at,
-          ...(fixes === undefined ? {} : { fixes }),
-        });
-      }
-    };
-    for (const item of module.items) {
-      switch (item.kind) {
-        case "TypeAlias":
-          reject([item.annotation], "type", item.name, item.parameters, item.parametersEnd, item.span);
-          break;
-        case "RecordDeclaration":
-          reject(
-            item.fields.map((field) => field.annotation),
-            "record", item.name, item.parameters, item.parametersEnd, item.span, item.declaredParameters,
-          );
-          break;
-        case "Union":
-          reject(
-            item.constructors.flatMap((constructor) => constructor.slots.map((slot) => slot.annotation)),
-            "union", item.name, item.parameters, item.parametersEnd, item.span, item.declaredParameters,
-          );
-          break;
-        default:
-          break;
-      }
-    }
-  }
-
   #checkCompleteExportSignature(
     item: Resolved.LetItem | Resolved.FunItem,
   ): void {
@@ -45048,50 +44970,6 @@ function typeAnnotationHoleNodes(
       return [];
   }
 }
-/** Every type variable node inside one resolved annotation, copies included. */
-function typeAnnotationVariableNodes(
-  annotation: Resolved.TypeAnnotation,
-): readonly Resolved.TypeVariableAnnotation[] {
-  switch (annotation.kind) {
-    case "TypeVariable":
-      return [annotation];
-    case "Function":
-      return [
-        ...annotation.parameters.flatMap(typeAnnotationVariableNodes),
-        ...typeAnnotationVariableNodes(annotation.result),
-      ];
-    case "Vector":
-    case "Set":
-    case "Array":
-    case "JsSet":
-    case "Node":
-      return typeAnnotationVariableNodes(annotation.element);
-    case "Nullable":
-      return typeAnnotationVariableNodes(annotation.value);
-    case "Map":
-    case "JsMap":
-      return [
-        ...typeAnnotationVariableNodes(annotation.key),
-        ...typeAnnotationVariableNodes(annotation.value),
-      ];
-    case "Tuple":
-      return annotation.elements.flatMap(typeAnnotationVariableNodes);
-    case "Record":
-      return annotation.fields.flatMap((field) => typeAnnotationVariableNodes(field.annotation));
-    case "Union":
-    case "RecordDeclaration":
-    case "ExternType":
-      return annotation.arguments.flatMap(typeAnnotationVariableNodes);
-    case "Primitive":
-    case "Range":
-    case "JsValue":
-    case "ImpliedType":
-    case "Hole":
-    case "ErrorType":
-      return [];
-  }
-}
-
 /**
  * The first **open** row inside one written annotation, at any depth — the
  * `...` Products §4 refuses inside a nominal declaration (#962).

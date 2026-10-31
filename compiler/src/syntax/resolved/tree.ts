@@ -1558,13 +1558,6 @@ export interface TypeAliasItem {
   readonly name: string;
   readonly parameters: readonly string[];
   readonly annotation: TypeAnnotation;
-  /**
-   * Where a new type parameter would be written in the head: a zero-width span
-   * after the last parameter, or after the name where there is none. The
-   * applied edit of the unbound-variable refusal (#1288). Absent on the
-   * synthesized declarations that have no written head.
-   */
-  readonly parametersEnd?: Source.Span;
   readonly span: Source.Span;
 }
 
@@ -1692,13 +1685,6 @@ export interface UnionItem {
   readonly conversions?: EnumConversions;
   /** See `Union.foreign` — §2.1's object-reading form. */
   readonly foreign?: ForeignEnumSource;
-  /**
-   * Where a new type parameter would be written in the head: a zero-width span
-   * after the last parameter, or after the name where there is none. The
-   * applied edit of the unbound-variable refusal (#1288). Absent on the
-   * synthesized declarations that have no written head.
-   */
-  readonly parametersEnd?: Source.Span;
   readonly span: Source.Span;
 }
 
@@ -1728,13 +1714,6 @@ export interface RecordItem {
   readonly derives: readonly string[];
   readonly constructor: Binding;
   readonly fields: readonly RecordTypeField[];
-  /**
-   * Where a new type parameter would be written in the head: a zero-width span
-   * after the last parameter, or after the name where there is none. The
-   * applied edit of the unbound-variable refusal (#1288). Absent on the
-   * synthesized declarations that have no written head.
-   */
-  readonly parametersEnd?: Source.Span;
   readonly span: Source.Span;
 }
 

@@ -73,6 +73,28 @@ describe("#1288 an unbound type variable in a declaration is refused", () => {
       .toBe("module Main\n\nrecord R(b) = { f: b }\n");
   });
 
+  test("a variable written as an alias's argument is the declaration's own", () => {
+    // Inlined, `F(b)` puts `b` where F's body wrote `a`; read as written, it is
+    // V's, and the program is the unsound one above with an alias in between.
+    const messages = projectDiagnostics(
+      "module Main\n\n" +
+      "type F(a) = (a) -> Int\n" +
+      "union V = V(F(b))\n" +
+      "let v = V((x: Int) => x + 1)\n" +
+      "export let n: Int = match v\n" +
+      "    V(f) => f(\"s\")\n",
+    );
+    expect(messages).toEqual([
+      "type variable `b` is not a parameter of `V`; a `union` declaration binds every type variable it names: write `union V(b)`",
+    ]);
+  });
+
+  test("an alias whose whole body is an unbound variable is reported once, at the alias", () => {
+    expect(projectDiagnostics("module Main\n\ntype F = b\nunion V = V(F)\n")).toEqual([
+      "type variable `b` is not a parameter of `F`; a `type` declaration binds every type variable it names: write `type F(b)`",
+    ]);
+  });
+
   test("a variable reached through an alias is the alias's report, once, even across modules", () => {
     const project = compileFiles([
       ["/main.hex", "module Main\nimport Lib\nunion V = V(Lib.F)\n"],
