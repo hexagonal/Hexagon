@@ -305,6 +305,14 @@ export interface Scheme {
    * in an importer as at home. Absent where there are none.
    */
   readonly heldBack?: readonly TypeVariableId[];
+  /**
+   * The quantified colours that stand only on the own arrows of a function a
+   * declaration's argument reads backwards, where a caller hands it in
+   * (`spec/effects.md` §10, #1184): displayed as the constant `->!`, the
+   * caller's choice, which is the face that writes back. Absent where there
+   * are none.
+   */
+  readonly callersChoice?: readonly TypeVariableId[];
 }
 
 /** The constraint a constraint member's scheme belongs to; see `Scheme`. */

@@ -42,7 +42,9 @@ export function displayFace(
   const colours = effectVariables(scheme);
   const variables = variableNames(scheme, colours);
   return {
-    type: `${displayConstraints(scheme, variables)}${displayType(scheme.type, variables, "spine")}`,
+    type: `${displayConstraints(scheme, variables)}${
+      displayType(scheme.type, variables, "spine", new Set(scheme.callersChoice ?? []))
+    }`,
     owners: ownerLines(scheme, context),
   };
 }
@@ -170,23 +172,47 @@ type ArrowPlace = "spine" | "callback" | "inside";
  * exactly the `->` it always has — silence is the strong claim (§1). No colour
  * is numbered.
  */
-function displayArrow(type: Typed.FunctionType, place: ArrowPlace): string {
+function displayArrow(
+  type: Typed.FunctionType,
+  place: ArrowPlace,
+  chosen: ReadonlySet<Typed.TypeVariableId> = NONE_CHOSEN,
+): string {
   // A colour in error shows its constant (§3.5, §10, #1223): nothing is claimed
-  // silent for a function whose body could not be read.
+  // silent for a function whose body could not be read. A colour that is the
+  // caller's choice, where an argument read backwards hands the function in,
+  // is any function: the constant (§10, #1184).
   const shown = (effect: Typed.Effect | undefined): ShownColour =>
-    effect === undefined ? "silent" : effect === "impure" || effect === "error" ? "constant" : "follows";
+    effect === undefined
+      ? "silent"
+      : effect === "impure" || effect === "error" || isCallersChoice(effect, chosen)
+      ? "constant"
+      : "follows";
   return displayedArrow(shown(type.effect), shown(type.fail), place);
+}
+
+/** No colour is the caller's choice. */
+const NONE_CHOSEN: ReadonlySet<Typed.TypeVariableId> = new Set();
+
+/**
+ * Whether a colour is the caller's choice (`Scheme.callersChoice`): a variable
+ * among `chosen`, or a join of them only. It is shown and written as the
+ * constant (`spec/effects.md` §10, #1184).
+ */
+export function isCallersChoice(effect: Typed.Effect, chosen: ReadonlySet<Typed.TypeVariableId>): boolean {
+  return typeof effect === "object" &&
+    ("variable" in effect ? chosen.has(effect.variable) : effect.join.every((variable) => chosen.has(variable)));
 }
 
 function displayType(
   type: Typed.Type,
   variables: ReadonlyMap<Typed.TypeVariableId, string>,
   place: ArrowPlace,
+  chosen: ReadonlySet<Typed.TypeVariableId> = NONE_CHOSEN,
 ): string {
   // Every component that is not the spine's own next arrow stands inside what
   // this arrow returns or is handed; a function there keeps the place's
   // reading, and so does everything beneath it.
-  const inner = (part: Typed.Type): string => displayType(part, variables, place);
+  const inner = (part: Typed.Type): string => displayType(part, variables, place, chosen);
   switch (type.kind) {
     case "Primitive":
       return type.name;
@@ -262,7 +288,7 @@ function displayType(
       // arrows — and those of the functions they return — carry their colours;
       // everything else in a parameter means what it says (Effects §2.4).
       const parameters = type.parameters.map((parameter) =>
-        displayType(parameter, variables, place === "spine" && parameter.kind === "Function" ? "callback" : "inside"),
+        displayType(parameter, variables, place === "spine" && parameter.kind === "Function" ? "callback" : "inside", chosen),
       );
       const soleParameter = type.parameters[0];
       const domain =
@@ -278,8 +304,8 @@ function displayType(
               : parameters[0]!
             : `(${parameters.join(", ")})`;
       return (
-        `${domain} ${displayArrow(type, place)} ` +
-        displayType(type.result, variables, place === "callback" && type.result.kind !== "Function" ? "inside" : place)
+        `${domain} ${displayArrow(type, place, chosen)} ` +
+        displayType(type.result, variables, place === "callback" && type.result.kind !== "Function" ? "inside" : place, chosen)
       );
     }
   }
