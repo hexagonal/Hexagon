@@ -8,6 +8,7 @@ import { patterns } from "./patterns";
 import { payloadUnions } from "./payload-unions";
 import { polymorphism } from "./polymorphism";
 import { records } from "./records";
+import { regexes } from "./regexes";
 import { rat } from "./rat";
 import { temperatures } from "./temperatures";
 import { recursion } from "./recursion";
@@ -31,6 +32,7 @@ export const playgroundExamples: readonly PlaygroundExample[] = [
   modules,
   specializations,
   exceptions,
+  regexes,
   internationalIdentifiers,
 ];
 
