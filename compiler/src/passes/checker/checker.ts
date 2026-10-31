@@ -37893,7 +37893,7 @@ class Checker {
           const open = this.#honorKnot;
           // Only the outer arrow follows the knot here: an arrow of a function
           // the member returns follows the contract inside the knot, a named
-          // limit of #1392's phase B (the instance's own colour there is read
+          // limit of Effects §13.3 (the instance's own colour there is read
           // off a seat slot the bodies' lambdas met, which the knot's arms do
           // not decide).
           if (wait.arrow > 0) return undefined;
@@ -38134,7 +38134,9 @@ class Checker {
         nodes.push({ key: `o${index}`, kind: "other", label: "", span: item.span });
       }
     }
-    this.#orderNodes = nodes;
+    // In source order, for `#orderNodeAt`'s search: elaborated items (a
+    // `derives` clause's instances) may follow the type whose span they share.
+    this.#orderNodes = [...nodes].sort((left, right) => left.span.start.offset - right.span.start.offset);
     for (const item of module.items) {
       if (item.kind !== "Let" || item.widens === undefined) continue;
       const keys = item.widens.map(({ constraintIdentity, member }) => `${constraintIdentity} ${member}`);
@@ -38207,6 +38209,23 @@ class Checker {
 
   /** The node of the use graph a site of this module stands in: the innermost top-level declaration holding it. */
   #orderNodeAt(site: Source.Span): OrderNode | undefined {
+    // Top-level items do not overlap, so the node holding a site is the last
+    // one starting at or before it; the first of several sharing that span
+    // (a type and its `derives` clause's instances) answers. Anything else
+    // falls back to the scan below.
+    const nodes = this.#orderNodes;
+    let low = 0;
+    let high = nodes.length - 1;
+    while (low <= high) {
+      const middle = (low + high) >> 1;
+      if (nodes[middle]!.span.start.offset <= site.start.offset) low = middle + 1;
+      else high = middle - 1;
+    }
+    let candidate = high;
+    while (candidate > 0 && nodes[candidate - 1]!.span.start.offset === nodes[candidate]!.span.start.offset &&
+      nodes[candidate - 1]!.span.end.offset === nodes[candidate]!.span.end.offset) candidate -= 1;
+    const near = candidate >= 0 ? nodes[candidate] : undefined;
+    if (near !== undefined && site.end.offset <= near.span.end.offset) return near;
     let found: OrderNode | undefined;
     for (const node of this.#orderNodes) {
       if (node.span.start.offset > site.start.offset || site.end.offset > node.span.end.offset) continue;
@@ -38254,7 +38273,10 @@ class Checker {
    * is an edge of the use graph the refusal's advice reads.
    */
   #checkHonorOrder(requirement: Requirement, instance: Resolved.HonorItem): void {
-    if (this.#orderQuiet || Number(instance.span.fileId) !== this.#fileId) return;
+    // An instance this module declares is one its prescan saw. A file number
+    // is no test: the standard library's modules are numbered in their own
+    // program, so one of theirs can share this file's.
+    if (this.#orderQuiet || !this.#orderHonorNodes.has(instance)) return;
     const tag = this.#orderTagOf(requirement);
     if (Number(tag.site.fileId) !== this.#fileId) return;
     const from = tag.from !== undefined ? this.#orderNodeOfHonor(tag.from) : this.#orderNodeAt(tag.site);
@@ -38278,7 +38300,7 @@ class Checker {
     const knot = this.#knotOf(instance);
     if (site.start.offset >= knot.end.offset) return true;
     if (knot.start.offset <= site.start.offset && site.end.offset <= knot.end.offset) return true;
-    const key = `${primary.start.offset}:${primary.end.offset} ${instance.constraintIdentity}`;
+    const key = `${primary.start.offset}:${primary.end.offset} ${instance.span.start.offset}:${instance.span.end.offset}`;
     if (!this.#orderViolations.has(key)) {
       this.#orderViolations.set(key, {
         primary,

@@ -164,7 +164,8 @@ visible as recursion, never hidden behind a dot.
 
 A dot call that reaches a constraint member at a known type, such as `point.show()`,
 uses an instance, so it follows that instance's `honor` (chapter 12): it stands below
-the honor, or inside the honor's own body, where it is how an instance recurses. The
+the honor, or inside the honor's knot (its own body, or its honor group), where it is
+how instances recurse. The
 `fun` block's rule has no counterpart there, because an honor already declares its own
 knot.
 

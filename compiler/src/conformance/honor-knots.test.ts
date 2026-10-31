@@ -4,7 +4,7 @@ import { compileFiles, projectDiagnostics, runMain, runProject } from "../suppor
 
 /**
  * Conformance for Constraints §4.8, **honor knots and the honor group** (#1227,
- * #1392 phase A), with §4.6's member bindings and §8's rows.
+ * #1392), with §4.6's member bindings and §8's rows.
  *
  * Every honor is a knot, as every `fun` is: its own body sees its instance, and
  * honors that need each other are declared as one honor group. Every use of an
@@ -12,7 +12,7 @@ import { compileFiles, projectDiagnostics, runMain, runProject } from "../suppor
  * `derives` clause's instances stand at their type's line as one knot; a
  * `widens` door stands above the honors that account for it, outside any knot.
  *
- * Phase B (#1392): the knot's colours (Effects §13.3's inside-the-knot
+ * The knot's colours (Effects §13.3's inside-the-knot
  * bullet, §3.4). A call at an instance of the knot, from inside it, follows
  * the knot: the instance's own colour, its body with every callback silent,
  * solved with its siblings' and settled where the knot closes. Only own
@@ -259,6 +259,22 @@ describe("derived instances (§4.8)", () => {
     ]);
     expect(projectDiagnostics(MAIN +
       "record Thing derives Show = {n: Int}\nrecord Box derives Show = {value: Thing}\n")).toEqual([]);
+  });
+
+  test("two instances used at one spot are two uses, each reported", () => {
+    expect(projectDiagnostics(MAIN +
+      "record Box derives Show = {a: A, b: B}\nrecord A derives Show = {n: Int}\nrecord B derives Show = {n: Int}\n")).toEqual([
+      opening("Show<A>") +
+      "`Show<A>` is derived by `A`'s declaration, below this use — move the declaration above this use",
+      opening("Show<B>") +
+      "`Show<B>` is derived by `B`'s declaration, below this use — move the declaration above this use",
+    ]);
+  });
+
+  test("an instance another module declares is never this module's to order, code outside a module included", () => {
+    expect(projectDiagnostics("let stray: Int = 1\nmodule Main\n\nexport let p: Int = 2\n")).toEqual([
+      "code outside a module: a module begins with its header; move `module Main` above this item",
+    ]);
   });
 
   test("two types whose derived instances need each other derive them in one honor group", async () => {
@@ -526,7 +542,7 @@ describe("the knot's colours (Effects §13.3, §3.4)", () => {
     expect(colours(defaulted(""))).toEqual([wants(".twice")]);
   });
 
-  test("a function the member returns follows the contract inside the knot (a named limit of phase B)", () => {
+  test("a function the member returns follows the contract inside the knot (a named limit, Effects §13.3)", () => {
     // The outer arrow follows the knot (`k.make()` is bare); the returned
     // function's arrow keeps the contract's colour inside the knot, and so
     // the instance's own colour there is impure below it too.
