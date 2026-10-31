@@ -385,6 +385,10 @@ describe("Regex.Syntax: RegexError (§2.9)", () => {
     expect(parse("(?i)\uD800")).toBe("[#55296]i #0");
     expect(parse("(?x)#\uD800")).toBe("() #0");
     expect(parse("\uD83D\uDE00")).toBe("#128512 #0");
+    // A message quotes a lone surrogate by its code (§2.9).
+    expect(parse("\\p{\uD800}")).toBe("error 1: `\\p{U+D800}` names no supported property");
+    expect(parse("[\uDBFF-\uD800]")).toBe("error 4: range `U+DBFF-U+D800` is reversed");
+    expect(parse("(?<a\uD800>x)")).toBe("error 4: group name must match `[A-Za-z_][A-Za-z0-9_]*`");
   });
 
   test("the first fault in reading order is the one reported", () => {

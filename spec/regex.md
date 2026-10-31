@@ -204,7 +204,7 @@ The record is ordinary data — a bad pattern is an answer, not a fault — and 
 | bad name | the name | group name must match `[A-Za-z_][A-Za-z0-9_]*` |
 | duplicate name | the second name | group `year` is already defined |
 
-One report per pattern, at the first fault in reading order; the parser does not recover and go on. Three routings the table cannot carry: a well-formed `{3}` with nothing before it takes the nothing-to-repeat row, not the `{` row; `[[:` takes the `[`-inside-a-class row with its POSIX clause, never the missing-`]` row; and `(?)` takes the bad-flags row, not the bad-prefix row.
+One report per pattern, at the first fault in reading order; the parser does not recover and go on. A lone surrogate a message quotes is written as its code, `U+D800`, since it is no character to show. Three routings the table cannot carry: a well-formed `{3}` with nothing before it takes the nothing-to-repeat row, not the `{` row; `[[:` takes the `[`-inside-a-class row with its POSIX clause, never the missing-`]` row; and `(?)` takes the bad-flags row, not the bad-prefix row.
 
 ## 3. Matching semantics
 

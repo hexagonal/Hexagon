@@ -715,6 +715,14 @@ export interface ResolveOptions {
    */
   readonly privileged?: boolean;
   /**
+   * Whether this module may declare the core constraints the prelude declares
+   * (`NON_REDECLARABLE_CONSTRAINTS`) rather than having them refused as twins: a
+   * **prelude** member's privilege alone, which follows membership as
+   * `privileged` does. A library member of `Hex` holds the door without it
+   * (#927): opening the door to every member opened nothing else.
+   */
+  readonly declaresCoreConstraints?: boolean;
+  /**
    * The primitive this module is the fixed prelude companion of, when it is one
    * (`Resolved.Module.companionPrimitive` — #344). Settled by the caller from
    * registered membership and never from the module's text, because a primitive has
@@ -1424,6 +1432,7 @@ class Resolver {
   readonly #dataIds: ResolveOptions["dataIds"];
   readonly #runtime: boolean;
   readonly #privileged: boolean;
+  readonly #declaresCoreConstraints: boolean;
   readonly #companionPrimitive: Resolved.PrimitiveName | undefined;
   /** This module's own path; see `ResolveOptions.path`. */
   readonly #path: string | undefined;
@@ -1716,6 +1725,7 @@ class Resolver {
     this.#repairs = options.repairs;
     this.#runtime = options.runtime ?? false;
     this.#privileged = options.privileged ?? false;
+    this.#declaresCoreConstraints = options.declaresCoreConstraints ?? false;
     this.#companionPrimitive = options.companionPrimitive;
     this.#path = options.path;
     this.#identity = options.identity ?? "";
@@ -1746,7 +1756,7 @@ class Resolver {
         }
       }
     }
-    if (!this.#privileged) {
+    if (!this.#declaresCoreConstraints) {
       for (const name of NON_REDECLARABLE_CONSTRAINTS) this.#constraintNames.add(name);
     }
     for (const preludeImport of options.prelude ?? []) {

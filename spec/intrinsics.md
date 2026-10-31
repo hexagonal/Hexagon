@@ -87,7 +87,9 @@ A wrapper whose body is exactly the door call collapses to its declaration. A wr
 > `stringUppercaseMapping`, `stringCaseFoldMapping`,
 > `stringCodepointUnchecked`, and `stringFromCodepointUnchecked`. The first six
 > are lookups in compiler-generated Unicode 17.0.0 data; the last two expose the
-> host scalar primitives behind source validation. Scanning, original-span
+> host scalar primitives behind source validation. *(#927.)* `Regex.Syntax`
+> declares `stringCodepointUnchecked` too, to read a lone surrogate in a
+> pattern (`regex.md` §3.6, §5); two rows for one key bind one lowering (§3.3). Scanning, original-span
 > matching, empty-pattern policy, replacement, and construction remain ordinary
 > Hexagon in `stdlib/String.hex`, as String Text Processing §11 requires.
 
