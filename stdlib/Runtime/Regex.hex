@@ -10,10 +10,10 @@ import Regex.Syntax as Syntax
 // an export list the emitter writes. No Hexagon module can import this one, by
 // name or by accident, however the compiler happens to place the file.
 //
-// **What is here now** (#927, implementation arcs 1, 3a and 3b): the storage,
-// the Unicode tables and the subject reads, program construction (§6.1), and the
-// search as a Pike VM (§6.2). The lazy DFA that runs in front of the VM lands in
-// the arc's next step; the sealed rows that hand a `Compiled` back and forth
+// **What is here now** (#927, implementation arcs 1 and 3): the storage, the
+// Unicode tables and the subject reads, program construction (§6.1), and the
+// search — the lazy DFA forward and reverse, and the Pike VM for captures and as
+// the fallback (§6.2). The sealed rows that hand a `Compiled` back and forth
 // land with the surface.
 //
 // **The seat.** This module has no `precedes`: no prelude member names it, and
@@ -330,7 +330,10 @@ fun nullable(expr: Syntax.Expr): Bool = match expr
     Syntax.Repeat(body, min, _, _) => min == 0 or nullable(body)
     Syntax.Capture(body, _, _) => nullable(body)
 
-fun emitExpr(code: Code, expr: Syntax.Expr): Code = match expr
+// `expr`'s instructions after `code`'s. `backward` builds the program for the
+// reverse scan (§6.2): a sequence's parts in reverse order and no capture
+// slots, since that scan locates a match's start and assigns no captures.
+fun emitExpr(code: Code, expr: Syntax.Expr, backward: Bool): Code = match expr
     Syntax.Empty => code
     Syntax.Literal(point) => emitClass(code, singleClass(point))
     Syntax.Dot(newline) =>
@@ -343,8 +346,11 @@ fun emitExpr(code: Code, expr: Syntax.Expr): Code = match expr
     Syntax.Anchor(kind) => emit(code, opAssert, anchorCode(kind), 0)
     Syntax.Concat(parts) =>
         var current = code
-        for part in parts
-            current := emitExpr(current, part)
+        let count = Vector.length(parts)
+        var index = 1
+        while index <= count
+            current := emitExpr(current, parts[if backward then count + 1 - index else index], backward)
+            index := index + 1
         current
     Syntax.Alternate(branches) =>
         // Each branch but the last behind a split preferring it, each ending
@@ -355,12 +361,12 @@ fun emitExpr(code: Code, expr: Syntax.Expr): Code = match expr
         var index = 1
         while index < count
             let split = counter(current)
-            current := emitExpr(emit(current, opSplit, split + 1, 0), branches[index])
+            current := emitExpr(emit(current, opSplit, split + 1, 0), branches[index], backward)
             jumps := jumps.append(counter(current))
             current := emit(current, opJump, 0, 0)
             current := setSecond(current, split, counter(current))
             index := index + 1
-        current := emitExpr(current, branches[count])
+        current := emitExpr(current, branches[count], backward)
         let end = counter(current)
         for jump in jumps
             current := setFirst(current, jump, end)
@@ -369,7 +375,7 @@ fun emitExpr(code: Code, expr: Syntax.Expr): Code = match expr
         var current = code
         var copies = 0
         while copies < min
-            current := emitExpr(current, body)
+            current := emitExpr(current, body, backward)
             copies := copies + 1
         match max
             None =>
@@ -383,7 +389,7 @@ fun emitExpr(code: Code, expr: Syntax.Expr): Code = match expr
                     // empty string (§3.2).
                     let entry = counter(current)
                     let start = entry + 1
-                    current := emitExpr(emit(current, opSplit, 0, 0), body)
+                    current := emitExpr(emit(current, opSplit, 0, 0), body, backward)
                     let back = counter(current)
                     current := emit(current, opSplit, 0, 0)
                     let end = counter(current)
@@ -393,7 +399,7 @@ fun emitExpr(code: Code, expr: Syntax.Expr): Code = match expr
                 else
                     // `x*` after the required copies: a split back over the body.
                     let loop = counter(current)
-                    current := emitExpr(emit(current, opSplit, 0, 0), body)
+                    current := emitExpr(emit(current, opSplit, 0, 0), body, backward)
                     current := emit(current, opJump, loop, 0)
                     setSplit(current, loop, counter(current), greedy)
             Some(most) =>
@@ -402,21 +408,40 @@ fun emitExpr(code: Code, expr: Syntax.Expr): Code = match expr
                 var splits: Vector(Int) = []
                 while copies < most
                     splits := splits.append(counter(current))
-                    current := emitExpr(emit(current, opSplit, 0, 0), body)
+                    current := emitExpr(emit(current, opSplit, 0, 0), body, backward)
                     copies := copies + 1
                 let end = counter(current)
                 for split in splits
                     current := setSplit(current, split, end, greedy)
                 current
     Syntax.Capture(body, index, _) =>
-        let opened = emitExpr(emit(code, opSave, 2 * index, 0), body)
-        emit(opened, opSave, 2 * index + 1, 0)
+        if backward then
+            emitExpr(code, body, backward)
+        else
+            let opened = emitExpr(emit(code, opSave, 2 * index, 0), body, backward)
+            emit(opened, opSave, 2 * index + 1, 0)
 
 // The whole pattern's program: group 0 saved around the tree, then `match`.
 let codeOf(pattern: Syntax.Pattern): Code =
     let empty = Code({ ops = [], first = [], second = [], classes = [] })
-    let body = emitExpr(emit(empty, opSave, 0, 0), pattern.root)
+    let body = emitExpr(emit(empty, opSave, 0, 0), pattern.root, False)
     emit(emit(body, opSave, 1, 0), opMatch, 0, 0)
+
+// A new program after `code`'s, sharing its classes.
+let after(code: Code): Code = { code with ops = [], first = [], second = [] }
+
+// The forward scan's program (§6.2): the pattern behind a lazy `(?s:.)*?`, so
+// that every start is tried at the lowest priority and the first match found
+// cuts the rest, as leftmost-first wants.
+let forwardOf(code: Code, pattern: Syntax.Pattern): Code =
+    let any = ClassSpec({ items = [Syntax.Range(0, lastPoint)], negated = False, folded = False })
+    let seeded = emitClass(emit(after(code), opSplit, 3, 1), any)
+    let looped = emit(seeded, opJump, 0, 0)
+    emit(emitExpr(looped, pattern.root, False), opMatch, 0, 0)
+
+// The reverse scan's program: the pattern read backwards, anchored.
+let backwardOf(code: Code, pattern: Syntax.Pattern): Code =
+    emit(emitExpr(after(code), pattern.root, True), opMatch, 0, 0)
 
 // ---------------------------------------------------------------------------
 // The compiled program (§6.1, §6.3)
@@ -432,7 +457,14 @@ record Compiled = {
     classes: Vector(ClassSpec),
     resolved: Buffer(Option(Vector((Int, Int)))),
     groupCount: Int,
+    forward: Machine,
+    backward: Machine,
+    alphabet: Buffer(Option(Vector(Int))),
+    caches: Buffer(Option(Dfa)),
 }
+
+// One program of instructions, frozen: the forward and reverse scans' own.
+record Machine = { ops: Buffer(Int), first: Buffer(Int), second: Buffer(Int), size: Int }
 
 let frozen(values: Vector(Int)): Buffer(Int) =
     let buffer = create~(Vector.length(values), 0)
@@ -442,20 +474,30 @@ let frozen(values: Vector(Int)): Buffer(Int) =
         index := index + 1
     buffer
 
+let machineOf(code: Code): Machine =
+    Machine({ ops = frozen~(code.ops), first = frozen~(code.first), second = frozen~(code.second), size = Vector.length(code.ops) })
+
 // The program for `pattern`. It reads no table: class resolution waits for the
 // program's first use (§6.1), so a program emitted as a constant carries its
 // properties by name.
 let compile(pattern: Syntax.Pattern): Compiled =
     let code = codeOf(pattern)
+    let forward = forwardOf(code, pattern)
+    let backward = backwardOf(forward, pattern)
     Compiled({
         ops = frozen~(code.ops),
         first = frozen~(code.first),
         second = frozen~(code.second),
         size = Vector.length(code.ops),
-        classes = code.classes,
-        resolved = create~(Vector.length(code.classes), None),
+        classes = backward.classes,
+        resolved = create~(Vector.length(backward.classes), None),
         groupCount = pattern.groupCount,
+        forward = machineOf~(forward),
+        backward = machineOf~(backward),
+        alphabet = create~(1, None),
+        caches = create~(2, None),
     })
+
 
 // Class `index`'s codepoints, resolved once and kept in the program.
 let classOf(program: Compiled, index: Int): Vector((Int, Int)) =
@@ -583,9 +625,313 @@ let groupsOf(text: String, groupCount: Int, slots: Vector(Int)): Vector(Option((
         group := group + 1
     groups
 
+// The Pike VM's search from a place already walked to: the slots of the
+// leftmost-first match there or after, or, `anchored`, of the leftmost-first
+// match starting exactly there. With `spans` clear it stops at the first match.
+let pike(program: Compiled, text: String, units: Int, start: Place, spans: Bool, anchored: Bool): Option(Vector(Int)) =
+    let mark = create~(program.size, -1)
+    let fresh = Thread({ pc = 0, slots = unsaved(program.groupCount) })
+    var place = start
+    var stamp = 0
+    var threads: Vector(Thread) = []
+    var found: Option(Vector(Int)) = None
+    var seeding = True
+    var running = True
+    while running
+        if seeding and isNone(found) then threads := follow~(program, mark, stamp, fresh, threads, place)
+        if anchored then seeding := False
+        let point = place.after
+        let nextPlace = if point < 0 then place else placeAt(text, units, place.position + 1, place.offset + width(point))
+        stamp := stamp + 1
+        var next: Vector(Thread) = []
+        var stepping = True
+        var index = 1
+        while stepping and index <= Vector.length(threads)
+            let thread = threads[index]
+            let op = read~(program.ops, thread.pc)
+            if op == opMatch then
+                found := Some(thread.slots)
+                stepping := False
+            else if point >= 0 and contains(classOf~(program, read~(program.first, thread.pc)), point) then
+                next := follow~(program, mark, stamp, { thread with pc = thread.pc + 1 }, next, nextPlace)
+            index := index + 1
+        threads := next
+        if not spans and isSome(found) then
+            running := False
+        else if point < 0 or (Vector.length(threads) == 0 and (isSome(found) or not seeding)) then
+            running := False
+        else
+            place := nextPlace
+    found
+
+// ---------------------------------------------------------------------------
+// The lazy DFA (§6.2)
+//
+// Built on demand from the forward and reverse programs. A state is the
+// priority-ordered list of instructions threads wait at, before the
+// instructions that consume nothing are followed, together with what the
+// codepoint behind the scan was — the text's edge, a `\n`, a word codepoint, or
+// another — which is all an assertion reads of it. A transition reads the
+// alphabet class of the codepoint ahead (or the text's edge) and answers the
+// next state and whether a match ends here, before that codepoint. Every state
+// is a value function of the list it names, so the cache is a transparent memo
+// (Effects §6.2 species (d)); it is bounded, and discarded when it fills.
+//
+// The forward scan runs the forward program, whose lazy `(?s:.)*?` seeds a
+// start at every position below every thread already running, and stops at the
+// leftmost-first match's end. The reverse scan runs the pattern backwards from
+// that end, anchored there, and the last place it matches is the start. Where
+// the program has capturing groups, the Pike VM then runs over that span alone
+// to assign them.
+
+record Dfa = {
+    ids: Map(String, Int),
+    lists: Vector(Vector(Int)),
+    edges: Vector(Int),
+    moves: Map(Int, Int),
+}
+
+// States a cache may hold before it is discarded and rebuilt.
+let dfaBudget: Int = 4096
+
+let emptyDfa: Dfa = Dfa({ ids = Map.empty, lists = [], edges = [], moves = Map.empty })
+
+// What a codepoint is to an assertion: 0 the text's edge, 1 a `\n`, 2 a word
+// codepoint, 3 another; and a codepoint standing for each.
+let edgeOf(point: Int): Int =
+    if point < 0 then 0 else if point == 10 then 1 else if isWord(point) then 2 else 3
+
+let standIn(edge: Int): Int =
+    if edge == 0 then -1 else if edge == 1 then 10 else if edge == 2 then 97 else 32
+
+// The partition of the codepoint space the DFA reads (§6.1): the boundaries of
+// every class, of the word class, and of `\n`, as the ascending first codepoint
+// of each part. Built on the program's first use and kept.
+let alphabetOf(program: Compiled): Vector(Int) =
+    match read~(program.alphabet, 0)
+        Some(starts) => starts
+        None =>
+            var cuts: Vector(Int) = [0]
+            var index = 0
+            while index < Vector.length(program.classes)
+                for (low, high) in classOf~(program, index)
+                    cuts := cuts.append(low).append(high + 1)
+                index := index + 1
+            for (low, high) in propertyRanges(Syntax.Word, "")
+                cuts := cuts.append(low).append(high + 1)
+            cuts := cuts.append(10).append(11)
+            var starts: Vector(Int) = []
+            for cut in sortedPoints(cuts)
+                let count = Vector.length(starts)
+                if cut <= lastPoint and (count == 0 or starts[count] != cut) then starts := starts.append(cut)
+            write~(program.alphabet, 0, Some(starts))
+            starts
+
+// The alphabet class of `point`, by binary search; the class count for the
+// text's edge.
+let letterOf(starts: Vector(Int), point: Int): Int =
+    if point < 0 then
+        Vector.length(starts)
+    else
+        var low = 1
+        var high = Vector.length(starts)
+        while low < high
+            let middle = Int.div(low + high + 1, 2)
+            if starts[middle] <= point then low := middle else high := middle - 1
+        low - 1
+
+// From the instructions in `waiting`, in priority order, the consuming
+// instructions threads reach without consuming, and whether a `match` is
+// reached. Under `cut` a `match` ends the list, as leftmost-first wants; the
+// reverse scan keeps going, since it wants every start.
+let reach(machine: Machine, mark: Buffer(Int), stamp: Int, waiting: Vector(Int), place: Place, cut: Bool): (Vector(Int), Bool) =
+    var consuming: Vector(Int) = []
+    var matched = False
+    var index = 1
+    while index <= Vector.length(waiting) and not (cut and matched)
+        var pending: Vector(Int) = [waiting[index]]
+        while Vector.length(pending) > 0 and not (cut and matched)
+            let pc = pending[Vector.length(pending)]
+            pending := Vector.dropLast(pending)
+            if read~(mark, pc) != stamp then
+                write~(mark, pc, stamp)
+                let op = read~(machine.ops, pc)
+                if op == opJump then
+                    pending := pending.append(read~(machine.first, pc))
+                else if op == opSplit then
+                    pending := pending.append(read~(machine.second, pc)).append(read~(machine.first, pc))
+                else if op == opSave then
+                    pending := pending.append(pc + 1)
+                else if op == opAssert then
+                    if holds(read~(machine.first, pc), place) then pending := pending.append(pc + 1)
+                else if op == opMatch then
+                    matched := True
+                else
+                    consuming := consuming.append(pc)
+        index := index + 1
+    (consuming, matched)
+
+let keyOf(list: Vector(Int), edge: Int): String =
+    var parts: Vector(String) = [show(edge)]
+    for pc in list
+        parts := parts.append(show(pc))
+    String.join(Iterable.toSeq(parts), ",")
+
+// The id of the state for `list` and `edge` in `dfa`, added where it is new.
+let stateIn(dfa: Dfa, list: Vector(Int), edge: Int): (Dfa, Int) =
+    let key = keyOf(list, edge)
+    match Map.get(dfa.ids, key)
+        Some(id) => (dfa, id)
+        None =>
+            let id = Vector.length(dfa.lists)
+            ({ dfa with ids = Map.set(dfa.ids, key, id), lists = dfa.lists.append(list), edges = dfa.edges.append(edge) }, id)
+
+// One transition: from state `id` over the codepoint class `letter` (whose
+// first codepoint is `point`, -1 for the text's edge), the next state and
+// whether a match ends before it. Forward, the state's edge is the codepoint
+// behind and `point` the one ahead; backward, the other way round.
+let move(
+    program: Compiled,
+    machine: Machine,
+    mark: Buffer(Int),
+    stamp: Int,
+    dfa: Dfa,
+    id: Int,
+    letter: Int,
+    point: Int,
+    forward: Bool,
+): (Dfa, Int, Bool) =
+    let key = id * (Vector.length(alphabetOf~(program)) + 1) + letter
+    match Map.get(dfa.moves, key)
+        Some(encoded) => (dfa, Int.div(encoded, 2), Int.mod(encoded, 2) == 1)
+        None =>
+            let edge = dfa.edges[id + 1]
+            let behind = if forward then standIn(edge) else point
+            let ahead = if forward then point else standIn(edge)
+            let place = Place({ position = if behind < 0 then 1 else 2, offset = 0, before = behind, after = ahead })
+            let (consuming, matched) = reach~(machine, mark, stamp, dfa.lists[id + 1], place, forward)
+            var next: Vector(Int) = []
+            if point >= 0 then
+                for pc in consuming
+                    if contains(classOf~(program, read~(machine.first, pc)), point) then next := next.append(pc + 1)
+            let (grown, target) = stateIn(dfa, next, edgeOf(point))
+            let encoded = target * 2 + (if matched then 1 else 0)
+            ({ grown with moves = Map.set(grown.moves, key, encoded) }, target, matched)
+
+// A scan's cache, or a fresh one.
+let cacheOf(program: Compiled, which: Int): Dfa = match read~(program.caches, which)
+    Some(dfa) => dfa
+    None => emptyDfa
+
+// The leftmost-first match's end from `start`, forward: `Some(Some(end))`, or
+// `Some(None)` where there is none; `None` where the cache filled twice in this
+// scan and the VM must finish it (§6.2). With `first` set it stops at the first
+// match end, which is all `isMatch` asks.
+let scanForward(program: Compiled, text: String, units: Int, start: Place, first: Bool): Option(Option((Int, Int))) =
+    let starts = alphabetOf~(program)
+    let mark = create~(program.forward.size, -1)
+    var stamp = 0
+    var flushes = 0
+    let (seeded, initial) = stateIn(cacheOf~(program, 0), [0], edgeOf(start.before))
+    var dfa = seeded
+    var state = initial
+    var position = start.position
+    var offset = start.offset
+    var last: Option((Int, Int)) = None
+    var running = True
+    var exhausted = False
+    while running
+        let point = if offset < units then codepointAt(text, offset) else -1
+        let letter = letterOf(starts, point)
+        let probe = if point < 0 then -1 else starts[letter + 1]
+        stamp := stamp + 1
+        let (grown, next, matched) = move~(program, program.forward, mark, stamp, dfa, state, letter, probe, True)
+        dfa := grown
+        if matched then last := Some((position, offset))
+        if (first and matched) or point < 0 or Vector.length(dfa.lists[next + 1]) == 0 then
+            running := False
+        else
+            position := position + 1
+            offset := offset + width(point)
+            state := next
+            if Vector.length(dfa.lists) > dfaBudget then
+                flushes := flushes + 1
+                if flushes >= 2 then
+                    exhausted := True
+                    running := False
+                else
+                    let (fresh, restarted) = stateIn(emptyDfa, dfa.lists[next + 1], dfa.edges[next + 1])
+                    dfa := fresh
+                    state := restarted
+    write~(program.caches, 0, Some(if Vector.length(dfa.lists) > dfaBudget then emptyDfa else dfa))
+    if exhausted then None else Some(last)
+
+// The match's start, scanning backward from its end `(position, offset)` no
+// further than position `floor`: the leftmost place the pattern matches there.
+// `None` where the cache filled twice.
+let scanBackward(program: Compiled, text: String, end: (Int, Int), floor: Int): Option((Int, Int)) =
+    let starts = alphabetOf~(program)
+    let mark = create~(program.backward.size, -1)
+    let (endPosition, endOffset) = end
+    let ahead = if endOffset < codeUnits(text) then codepointAt(text, endOffset) else -1
+    var stamp = 0
+    var flushes = 0
+    let (seeded, initial) = stateIn(cacheOf~(program, 1), [0], edgeOf(ahead))
+    var dfa = seeded
+    var state = initial
+    var position = endPosition
+    var offset = endOffset
+    var best = (endPosition, endOffset)
+    var running = True
+    var exhausted = False
+    while running
+        let point = pointBefore(text, offset)
+        let letter = letterOf(starts, point)
+        let probe = if point < 0 then -1 else starts[letter + 1]
+        stamp := stamp + 1
+        let (grown, next, matched) = move~(program, program.backward, mark, stamp, dfa, state, letter, probe, False)
+        dfa := grown
+        if matched then best := (position, offset)
+        if position <= floor or point < 0 or Vector.length(dfa.lists[next + 1]) == 0 then
+            running := False
+        else
+            position := position - 1
+            offset := offset - width(point)
+            state := next
+            if Vector.length(dfa.lists) > dfaBudget then
+                flushes := flushes + 1
+                if flushes >= 2 then
+                    exhausted := True
+                    running := False
+                else
+                    let (fresh, restarted) = stateIn(emptyDfa, dfa.lists[next + 1], dfa.edges[next + 1])
+                    dfa := fresh
+                    state := restarted
+    write~(program.caches, 1, Some(if Vector.length(dfa.lists) > dfaBudget then emptyDfa else dfa))
+    if exhausted then None else Some(best)
+
+// The match `pike` found, as the row answers it.
+let answerOf(program: Compiled, text: String, slots: Vector(Int)): (Vector(Option((Int, Int, String))), (Int, Int)) =
+    (groupsOf(text, program.groupCount, slots), (slots[3], slots[4]))
+
+// The whole search on the VM, from a place already walked to.
+let viaVm(
+    program: Compiled,
+    text: String,
+    units: Int,
+    place: Place,
+    spans: Bool,
+    cursor: (Int, Int),
+): Option((Vector(Option((Int, Int, String))), (Int, Int))) =
+    match pike~(program, text, units, place, spans, False)
+        None => None
+        Some(slots) => if spans then Some(answerOf(program, text, slots)) else Some(([], cursor))
+
 // The leftmost-first match at or after position `start`, with the cursor the
 // next search resumes from (§6.2): every group when `spans` is set, and with it
-// clear only whether there is one, the given cursor echoed.
+// clear only whether there is one, the given cursor echoed. The DFAs find the
+// match and the VM assigns its captures; where a cache fills twice in one scan
+// the VM runs the whole search. Every route answers the same match.
 let search(
     program: Compiled,
     text: String,
@@ -604,41 +950,42 @@ let search(
     if position < start then
         None
     else
-        let mark = create~(program.size, -1)
-        let fresh = Thread({ pc = 0, slots = unsaved(program.groupCount) })
-        var place = placeAt(text, units, position, offset)
-        var stamp = 0
-        var threads: Vector(Thread) = []
-        var found: Option(Vector(Int)) = None
-        var running = True
-        while running
-            if isNone(found) then threads := follow~(program, mark, stamp, fresh, threads, place)
-            let point = place.after
-            let nextPlace = if point < 0 then place else placeAt(text, units, place.position + 1, place.offset + width(point))
-            stamp := stamp + 1
-            var next: Vector(Thread) = []
-            var stepping = True
-            var index = 1
-            while stepping and index <= Vector.length(threads)
-                let thread = threads[index]
-                let op = read~(program.ops, thread.pc)
-                if op == opMatch then
-                    found := Some(thread.slots)
-                    stepping := False
-                else if point >= 0 and contains(classOf~(program, read~(program.first, thread.pc)), point) then
-                    next := follow~(program, mark, stamp, { thread with pc = thread.pc + 1 }, next, nextPlace)
-                index := index + 1
-            threads := next
-            if not spans and isSome(found) then
-                running := False
-            else if point < 0 or (Vector.length(threads) == 0 and isSome(found)) then
-                running := False
-            else
-                place := nextPlace
-        match found
-            None => None
-            Some(slots) =>
+        let place = placeAt(text, units, position, offset)
+        match scanForward~(program, text, units, place, not spans)
+            None => viaVm~(program, text, units, place, spans, cursor)
+            Some(None) => None
+            Some(Some((endPosition, endOffset))) =>
                 if not spans then
                     Some(([], cursor))
                 else
-                    Some((groupsOf(text, program.groupCount, slots), (slots[3], slots[4])))
+                    match scanBackward~(program, text, (endPosition, endOffset), position)
+                        None => viaVm~(program, text, units, place, spans, cursor)
+                        Some((startPosition, startOffset)) =>
+                            if program.groupCount == 0 then
+                                Some(([Some((startPosition, endPosition - startPosition, cut(text, startOffset, endOffset)))], (endPosition, endOffset)))
+                            else
+                                let from = placeAt(text, units, startPosition, startOffset)
+                                match pike~(program, text, units, from, True, True)
+                                    Some(slots) => Some(answerOf(program, text, slots))
+                                    None => viaVm~(program, text, units, place, spans, cursor)
+
+// The search on the VM alone, every time: the route the DFA must agree with,
+// kept for the tests that check it does.
+let searchByVm(
+    program: Compiled,
+    text: String,
+    start: Int,
+    spans: Bool,
+): Option((Vector(Option((Int, Int, String))), (Int, Int))) =
+    let units = codeUnits(text)
+    var position = 1
+    var offset = 0
+    while position < start and offset < units
+        offset := offset + width(codepointAt(text, offset))
+        position := position + 1
+    if position < start then
+        None
+    else
+        match pike~(program, text, units, placeAt(text, units, position, offset), spans, False)
+            None => None
+            Some(slots) => if spans then Some(answerOf(program, text, slots)) else Some(([], (1, 0)))
