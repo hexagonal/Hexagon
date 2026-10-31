@@ -67,6 +67,39 @@ export let findWith(pattern: String, text: String, start: Int, position: Int, of
         Ok(parsed) => rendered(search~(compile~(parsed), text, start, (position, offset), spans))
         Err(error) => "error " ++ error.message
 
+export let findVm(pattern: String, text: String, start: Int, spans: Bool): String = match Syntax.parse(pattern)
+    Ok(parsed) => rendered(searchByVm~(compile~(parsed), text, start, spans))
+    Err(error) => "error " ++ error.message
+
+// How the forward scan over the text from its start went: how many times its
+// cache filled, and whether it finished ("dfa") or handed over ("vm").
+export let forwardRoute(pattern: String, text: String): String = match Syntax.parse(pattern)
+    Ok(parsed) =>
+        let compiled = compile~(parsed)
+        let flushes = create~(1, 0)
+        let units = codeUnits(text)
+        let finished = match scanForward~(compiled, text, units, placeAt(text, units, 1, 0), False, flushes)
+            Some(_) => "dfa"
+            None => "vm"
+        finished ++ " " ++ show(read~(flushes, 0))
+    Err(error) => error.message
+
+// One compiled program searched over two subjects at every start, so that its
+// caches and alphabet carry from search to search: every answer, joined; and the
+// same through the VM alone.
+export let everyStart(pattern: String, first: String, second: String, viaVm: Bool): String = match Syntax.parse(pattern)
+    Ok(parsed) =>
+        let compiled = compile~(parsed)
+        var answers: Vector(String) = []
+        for text in [first, second, first]
+            var start = 1
+            while start <= String.length(text) + 1
+                let answer = if viaVm then searchByVm~(compiled, text, start, True) else search~(compiled, text, start, (1, 0), True)
+                answers := answers.append(rendered(answer))
+                start := start + 1
+        String.join(Iterable.toSeq(answers), " | ")
+    Err(error) => error.message
+
 export let probe: Int = 1
 `;
 
@@ -74,6 +107,9 @@ let program: (pattern: string) => string;
 let set: (pattern: string) => readonly (readonly [number, number])[];
 let find: (pattern: string, text: string, start: number) => string;
 let findWith: (pattern: string, text: string, start: number, position: number, offset: number, spans: boolean) => string;
+let findVm: (pattern: string, text: string, start: number, spans: boolean) => string;
+let forwardRoute: (pattern: string, text: string) => string;
+let everyStart: (pattern: string, first: string, second: string, viaVm: boolean) => string;
 
 beforeAll(async () => {
   const exports = await runProject(
@@ -85,6 +121,9 @@ beforeAll(async () => {
   set = (pattern) => [...(setRow(pattern) as Iterable<[number, number]>)];
   find = exports.find as typeof find;
   findWith = exports.findWith as typeof findWith;
+  findVm = exports.findVm as typeof findVm;
+  forwardRoute = exports.forwardRoute as typeof forwardRoute;
+  everyStart = exports.everyStart as typeof everyStart;
 }, 60_000);
 
 describe("the shipped engine compiles cleanly", () => {
@@ -254,4 +293,68 @@ describe("the whole match agrees with JavaScript's leftmost-first engine", () =>
       expect(answer === "none" ? "none" : answer.split(" ")[0]).toBe(expected);
     }), { numRuns: 400 });
   });
+});
+
+/**
+ * The lazy DFA (§6.2) runs in front of the VM: the forward scan finds the match's
+ * end, the reverse scan its start, and the VM assigns captures over that span.
+ * Every route answers the same match, so the DFA route is checked against the
+ * VM alone, groups and cursor included, over patterns with captures and every
+ * assertion.
+ */
+describe("the DFA route answers what the VM alone answers", () => {
+  const atom = fc.constantFrom("a", "b", ".", "[ab]", "[^a]", "\\w", "\\W", "(a)", "(a|b)", "(?:ab|a)", "(b*)",
+    "(?:)", "^", "$", "\\b", "\\B", "\\A", "\\z", "(?m:^)", "(?m:$)", "(|a)");
+  const piece = fc.tuple(atom, fc.constantFrom("", "*", "+", "?", "*?", "+?", "{2}", "{0,2}"))
+    // An assertion takes no quantifier (§2.5).
+    .map(([body, quantifier]) => (["^", "$", "\\b", "\\B", "\\A", "\\z"].includes(body) ? body : body + quantifier));
+  const branch = fc.array(piece, { maxLength: 4 }).map((pieces) => pieces.join(""));
+  const pattern = fc.array(branch, { minLength: 1, maxLength: 3 }).map((branches) => branches.join("|"));
+  const subject = fc.array(fc.constantFrom("a", "b", " ", "\n", "😀"), { maxLength: 8 }).map((chars) => chars.join(""));
+
+  test("for every generated pattern, subject and start", () => {
+    fc.assert(fc.property(pattern, subject, fc.nat(9), fc.boolean(), (source, text, skip, spans) => {
+      const start = Math.min(skip, [...text].length + 1) + 1;
+      const viaDfa = findWith(source, text, start, 1, 0, spans);
+      const viaVm = findVm(source, text, start, spans);
+      expect(viaDfa).toBe(spans ? viaVm : viaVm.replace(/ @.*$/u, " @1/0"));
+    }), { numRuns: 400 });
+  });
+
+  // A pseudo-random subject over `a` and `b`, so that the windows are many and
+  // the states with them: a seeded linear congruential generator.
+  const coinFlips = (length: number): string => {
+    let text = "";
+    let seed = 12345;
+    for (let index = 0; index < length; index += 1) {
+      seed = (seed * 1103515245 + 12345) % 2147483648;
+      text += Math.floor(seed / 65536) % 2 === 0 ? "a" : "b";
+    }
+    return text;
+  };
+
+  // `(a|b)*a(a|b){12}` needs a state for every window of the last thirteen
+  // codepoints, past the 4096-state budget on a long enough subject.
+  test("a cache that fills once is discarded and the scan goes on", () => {
+    const source = "(a|b)*a(a|b){12}";
+    const text = coinFlips(7000);
+    expect(forwardRoute(source, text)).toBe("dfa 1");
+    expect(findWith(source, text, 1, 1, 0, true)).toBe(findVm(source, text, 1, true));
+    // Its mirror image fills the reverse scan's cache instead.
+    expect(findWith("(a|b){12}a(a|b)*", text, 1, 1, 0, true)).toBe(findVm("(a|b){12}a(a|b)*", text, 1, true));
+  }, 60_000);
+
+  test("a cache that fills twice in one search hands the search to the VM", () => {
+    const source = "(a|b)*a(a|b){12}";
+    const text = coinFlips(20000);
+    expect(forwardRoute(source, text)).toBe("vm 2");
+    expect(findWith(source, text, 1, 1, 0, true)).toBe(findVm(source, text, 1, true));
+  }, 60_000);
+
+  // The caches and the alphabet persist in the program between searches.
+  test("one program searched again and again answers as the VM does", () => {
+    fc.assert(fc.property(pattern, subject, subject, (source, first, second) => {
+      expect(everyStart(source, first, second, false)).toBe(everyStart(source, first, second, true));
+    }), { numRuns: 150 });
+  }, 60_000);
 });
