@@ -35668,6 +35668,10 @@ class Checker {
     type = this.#readRefusedTies(type, level);
     type = this.#widenFace(type, level);
     type = this.#readRefusedArrows(type);
+    // A use's caller's choice this binding keeps is the binding's now: it is
+    // published again below where it still is one, and where the binding does
+    // not generalize, its first use decides it (Effects §10, #1184).
+    for (const variable of this.#colourVariables(type)) this.#chosenAtUse.delete(variable);
     type = this.#publishUnheldColours(type, level, allow);
     let variables = this.#collectVariables(type).filter(
       (variable) => variable.level > level,

@@ -1437,6 +1437,10 @@ describe("a function in the data a signature returns is a signature of its own (
     // A report spells a use's type as hover spells the face.
     const misused = reports(decls + "let mk() = Sink({ put = (h) => h!(() => ()) })\nlet n: Int = mk()\n");
     expect(misused.map(([, message]) => message).join("\n")).toContain("found Sink((() -> Unit) ->! Unit)");
+    // A binding that does not generalize keeps the colour for its first use to decide.
+    const kept = reports(decls + "let mk() = Sink({ put = (h) => h!(() => ()) })\nlet xv = mk()\nlet n: Int = xv\n");
+    expect(kept.map(([, message]) => message).join("\n")).toContain("found Sink((() -> Unit) >-> Unit)");
+    expect(hovered(decls + "let mk() = Sink({ put = (h) => h!(() => ()) })\nlet xv = mk()\n", "xv ")).toBe("Sink((() -> Unit) >-> Unit)");
   });
 
   test("a function a declaration reads both ways is handed in too: its face is not written, and its `>->` is unified", () => {
