@@ -39,7 +39,7 @@ quantifier  ::= ('*' | '+' | '?' | '{' n '}' | '{' n ',' '}' | '{' n ',' m '}') 
 atom        ::= literal | '.' | class | classescape | codeescape | group
 group       ::= '(' alternation ')'
               | '(?:' alternation ')'
-              | '(?P<' name '>' alternation ')' | '(?<' name '>' alternation ')'
+              | '(?<' name '>' alternation ')' | '(?P<' name '>' alternation ')'
               | '(?' flags ':' alternation ')'
 setting     ::= '(?' flags ')'
 flags       ::= flag+ ('-' flag+)? | '-' flag+   -- flag ::= 'i' | 'm' | 's' | 'x', each at most once
@@ -124,7 +124,7 @@ Nesting of groups is bounded at depth 1000, refused at the opening beyond; a qua
 
 ### 2.6 Groups, names, and flags
 
-`(…)` is a **capturing group**, numbered by the position of its `(` among capturing groups, from 1; group 0 is the whole match. `(?:…)` groups without capturing. `(?P<name>…)` and `(?<name>…)` — both of RE2's spellings — capture under a name as well as a number; a name is `[A-Za-z_][A-Za-z0-9_]*`, refused otherwise, and a name used twice in one pattern is refused.
+`(…)` is a **capturing group**, numbered by the position of its `(` among capturing groups, from 1; group 0 is the whole match. `(?:…)` groups without capturing. `(?<name>…)` captures under a name as well as a number and is the canonical spelling; `(?P<name>…)`, RE2's other spelling, is accepted and means the same. A name is `[A-Za-z_][A-Za-z0-9_]*`, refused otherwise, and a name used twice in one pattern is refused.
 
 **Flags are inline only.** `(?flags)` sets flags for the rest of the enclosing group (or the pattern) — to its closing `)`, across `|`, so that in `a(?i)b|c` the `c` is folded, as in RE2 and Rust; `(?flags:…)` sets them for the group's body alone. `flags` is a sequence of the letters below, optionally followed by `-` and letters to clear, each letter at most once across both sides (`(?i-i)` is refused) — `(?i)`, `(?-i)`, `(?i-s:…)`. `(?)` and `(?i-)` are refused. There is no flags argument to `compile` (§4.2) and no other flag: `U` (RE2's ungreedy) is refused by name.
 

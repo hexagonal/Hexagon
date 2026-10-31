@@ -14,9 +14,9 @@ import Regex
 // matching takes time linear in the text. A pattern written as a literal is
 // compiled once per load, even inside a function called many times.
 //
-// (?P<year>...) captures under a name as well as a number; (?<year>...) is
-// the same group. ^ and $ anchor the match to the whole string.
-let isoDate = Regex.compile("^(?P<year>[0-9]{4})-(?P<month>[0-9]{2})-(?P<day>[0-9]{2})$")
+// (?<year>...) captures under a name as well as a number. ^ and $ anchor the
+// match to the whole string.
+let isoDate = Regex.compile("^(?<year>[0-9]{4})-(?<month>[0-9]{2})-(?<day>[0-9]{2})$")
 
 // find answers the leftmost match, or None. named reads one named group from
 // it, which is an Option too: a name the pattern does not define has none, and
