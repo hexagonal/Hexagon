@@ -106,7 +106,7 @@ describe("Regex.Syntax: the module", () => {
   }) as Record<string, string>;
 
   test("the embedded source matches the canonical module, whose one door row is the codepoint read (§5)", () => {
-    const [source] = Object.values(originals);
+    const source = Object.values(originals)[0]!;
     expect(STDLIB_SOURCES["Regex.Syntax"]).toBe(source);
     expect(source.match(/^\s*extern\b/gmu)).toHaveLength(1);
     expect(source.match(/^\s*fun \w+ as /gmu)).toEqual(["    fun stringCodepointUnchecked as "]);
