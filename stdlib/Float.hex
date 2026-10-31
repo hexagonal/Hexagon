@@ -80,6 +80,15 @@ honor Hash<Float> =
         hashes alike, and `-0.0` hashes as `0.0`. *)
     hash(value) = nativeHash(value)
 
+honor Num<Float> =
+    (** The sum of `left` and `right`, rounded to the nearest float. *)
+    add(left, right) = nativeAdd(left, right)
+    (** The product of `left` and `right`, rounded to the nearest float. *)
+    multiply(left, right) = nativeMultiply(left, right)
+    (** The natural number `value` as a `Float`, through the two conversions
+        beneath it: every `Nat` is an `Int`, and every `Int` is a `Float`. *)
+    fromNat(value) = nativeFromInt(Int.fromNat(value))
+
 honor Signed<Float> =
     (** The difference of `left` and `right`, rounded to the nearest float. *)
     subtract(left, right) = nativeSubtract(left, right)
@@ -89,15 +98,6 @@ honor Signed<Float> =
     (** The integer `value` as a `Float`. Total and exact: the range an `Int`
         holds is exactly the range a float holds without rounding. *)
     fromInt(value) = nativeFromInt(value)
-
-honor Num<Float> =
-    (** The sum of `left` and `right`, rounded to the nearest float. *)
-    add(left, right) = nativeAdd(left, right)
-    (** The product of `left` and `right`, rounded to the nearest float. *)
-    multiply(left, right) = nativeMultiply(left, right)
-    (** The natural number `value` as a `Float`, through the two conversions
-        beneath it: every `Nat` is an `Int`, and every `Int` is a `Float`. *)
-    fromNat(value) = Signed.fromInt(Int.fromNat(value))
 
 honor Frac<Float> =
     (** `left` divided by `right`, following IEEE 754. It never throws: a zero
