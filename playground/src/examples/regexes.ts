@@ -44,4 +44,5 @@ match isoDate
     Ok(regex) => Debug.log("is 1999-12-31 a date? \${Regex.isMatch(regex, "1999-12-31")}")
     Err(error) => Debug.log("bad pattern: \${error}")
 `,
+  specificationReferences: ["spec/regex.md"],
 };
