@@ -11,6 +11,7 @@ import { compileMain, runMain } from "../support/test-project";
  */
 const PROGRAM = String.raw`module Main
 import Hex.Regex as Regex
+import Hex.Regex.Syntax as Syntax
 
 let shown(found: Option(Regex.Match)): String = match found
     Some(m) => show(m.start()) ++ "+" ++ show(m.length()) ++ "'" ++ m.text() ++ "'"
@@ -101,6 +102,11 @@ export let escapedFinds(text: String, subject: String): String = match Regex.com
 export let reconstructs(pattern: String, text: String, separator: String): Bool =
     using(pattern, False, (regex) => String.join(Iterable.toSeq(regex.split(text)), separator) == text)
 
+// A literal pattern, and the same pattern built at run time (§8).
+export let literal(): Result(Regex.Regex, Syntax.RegexError) = Regex.compile("a+b")
+export let built(pattern: String): Result(Regex.Regex, Syntax.RegexError) = Regex.compile(pattern)
+export let refusedLiteral(): Result(Regex.Regex, Syntax.RegexError) = Regex.compile("(")
+
 exception Boom(text: String)
 
 // A callback that fails on the letter b: the call propagates its failure.
@@ -141,6 +147,32 @@ describe("the program compiles against the surface", () => {
       'module Main\n\nextern from "hex:intrinsic"\n    type regexProgram as Program\n',
     ).diagnostics.map(({ message }) => message);
     expect(impostor.join("\n")).toContain("reserved to standard-library source");
+  });
+});
+
+describe("literal patterns (§8)", () => {
+  test("a literal pattern is compiled once per load, and a built one at every call", () => {
+    expect(call("literal")).toBe(call("literal"));
+    expect(call("built", "a+b")).not.toBe(call("built", "a+b"));
+    const main = compileMain(PROGRAM).modules.find(({ name }) => name === "Main")!.javascript.text;
+    expect(main).toContain('??= Regex.compile("a+b")');
+    expect(main).not.toContain("??= Regex.compile(pattern)");
+  });
+
+  test("a refused literal is the same Err at every evaluation", () => {
+    const first = call<{ tag: string }>("refusedLiteral");
+    expect(first.tag).toBe("Err");
+    expect(call("refusedLiteral")).toBe(first);
+  });
+
+  test("an interpolated pattern is no literal: each evaluation compiles its own", async () => {
+    const source = "module Main\nimport Hex.Regex as Regex\n\n" +
+      "export let sourceOf(x: String): String = match Regex.compile(\"a$" + "{x}\")\n" +
+      "    Ok(regex) => regex.source()\n    Err(_) => \"refused\"\n";
+    const program = await runMain(source);
+    const sourceOf = program.sourceOf as (x: string) => string;
+    expect(sourceOf("x")).toBe("ax");
+    expect(sourceOf("y")).toBe("ay");
   });
 });
 
