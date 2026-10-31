@@ -217,6 +217,17 @@ describe("AnalysisSession", () => {
     expect(fromDeclaration).toEqual(fromUse);
   });
 
+  test("an imported face keeps the caller's choice as the constant (#1184)", () => {
+    // Exported without a signature, which is refused at home; the importer
+    // still reads the face home shows.
+    const lib = "module Lib\n\n" + "export record Sink(a) = { put: (a) ->! Unit }\n" +
+      "export fun mk() = Sink({ put = (h) => h!(() => ()) })\n";
+    const main = "module Main\n\n" + "import Lib\n\n" + "let made = Lib.mk()\n";
+    const { session } = sessionOf({ "/lib.hex": lib, "/main.hex": main });
+    expect(session.hover("/lib.hex", at(lib, "mk"))?.displayedType).toBe("() -> Sink((() -> Unit) ->! Unit)");
+    expect(session.hover("/main.hex", at(main, "mk"))?.displayedType).toBe("() -> Sink((() -> Unit) ->! Unit)");
+  });
+
   test("hover carries the checker's type for a value", () => {
     const { session } = sessionOf({ "/helper.hex": HELPER, "/main.hex": MAIN });
     const hover = session.hover("/main.hex", at(MAIN, "brighten"));

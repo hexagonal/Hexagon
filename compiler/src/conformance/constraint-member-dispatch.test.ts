@@ -636,7 +636,7 @@ describe("duplicate claimants refuse, and never rank (§6, §9 row 6)", () => {
   });
 });
 
-describe("member bindings enter the module's order at their own line (§4.6)", () => {
+describe("member bindings enter the module's order with their honor's knot (§4.6, §4.8)", () => {
   test("a block above the one that binds a sibling's name takes the declared-later error", () => {
     const messages = projectDiagnostics([
       "module Main",
@@ -654,12 +654,36 @@ describe("member bindings enter the module's order at their own line (§4.6)", (
     ].join("\n"));
 
     // Never "unknown name", which would be false — the fix is the ordinary one:
-    // order the blocks.
+    // order the blocks, or group them (Constraints §4.6, §4.8). Dispatch is no
+    // way round it: a dot call is a use of the instance, read by the same law.
     expect(messages).toContain(
       "`multiply` is bound by the `Num` instance below this use; declarations " +
-      "are read top-down — move the instance above this use, or reach it " +
-      "through dispatch",
+      "are read top-down — move the instance above this use, or declare both " +
+      "honors in one honor group",
     );
+  });
+
+  test("inside one honor group, a member sees every member, earlier and later alike (§4.8)", () => {
+    expect(projectDiagnostics([
+      "module Main",
+      "",
+      "export record Ratio = {top: Int, bottom: Int}",
+      "",
+      "honor",
+      "    Frac<Ratio> =",
+      "        divide(left, right) = multiply(left, right)",
+      "    Num<Ratio> =",
+      "        add(left, right) = left",
+      "        multiply(left, right) = right",
+      "        fromNat(n) = Ratio({top = 0, bottom = 1})",
+      "    Signed<Ratio> =",
+      "        subtract(left, right) = left",
+      "        negate(value) = value",
+      "        fromInt(n) = Ratio({top = 0, bottom = 1})",
+      "",
+      "export let r: Ratio = Ratio({top = 1, bottom = 2}) / Ratio({top = 3, bottom = 4})",
+      "",
+    ].join("\n"))).toEqual([]);
   });
 
   test("the same module reordered compiles, and the sibling call runs", async () => {

@@ -153,6 +153,10 @@ export let ceil(decimal: Dec): BigInt =
         else
             truncated
 
+// A whole number as a `Dec`, with no places. `fromNat`, `fromInt` and `fromBigInt` all
+// start here, so no rung of the tower borrows from the rung above it.
+let fromWhole(value: BigInt): Dec = create(value, 0)
+
 honor Num<Dec> =
     add(left, right) =
         let retained = if left.places > right.places then left.places else right.places
@@ -165,7 +169,7 @@ honor Num<Dec> =
         else
             create(left.unscaled * right.unscaled, left.places + right.places)
 
-    fromNat(value) = FromBigInt.fromBigInt(BigInt.fromNat(value))
+    fromNat(value) = fromWhole(BigInt.fromNat(value))
 
 honor Signed<Dec> =
     subtract(left, right) =
@@ -173,10 +177,10 @@ honor Signed<Dec> =
         create(align(left, retained) - align(right, retained), retained)
 
     negate(decimal) = create(-decimal.unscaled, decimal.places)
-    fromInt(value) = FromBigInt.fromBigInt(BigInt.fromInt(value))
+    fromInt(value) = fromWhole(BigInt.fromInt(value))
 
 honor FromBigInt<Dec> =
-    fromBigInt(value) = create(value, 0)
+    fromBigInt(value) = fromWhole(value)
 
 // The one representation of a number: trailing zeros removed while places
 // remain, and every zero at `(0n, 0)`. Numerically equal decimals share this key

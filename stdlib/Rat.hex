@@ -62,6 +62,10 @@ honor Show<Rat> =
         visible. *)
     show(value) = "${value.top}/${value.bottom}"
 
+// A whole number as a `Rat`, over one. `fromNat`, `fromInt` and `fromBigInt` all
+// start here, so no rung of the tower borrows from the rung above it.
+let fromWhole(value: BigInt): Rat = create(value, 1n)
+
 honor Num<Rat> =
     (** The sum of `left` and `right`, exactly. *)
     add(left, right) =
@@ -74,7 +78,7 @@ honor Num<Rat> =
         create(left.top * right.top, left.bottom * right.bottom)
     (** The natural number `value` as a `Rat` — `value` over `1`. Total and
         exact. *)
-    fromNat(value) = FromBigInt.fromBigInt(BigInt.fromNat(value))
+    fromNat(value) = fromWhole(BigInt.fromNat(value))
 
 honor Signed<Rat> =
     (** The difference of `left` and `right`, exactly. *)
@@ -86,11 +90,11 @@ honor Signed<Rat> =
     (** The additive inverse of `value`. *)
     negate(value) = Rat({top = -value.top, bottom = value.bottom})
     (** The integer `value` as a `Rat` — `value` over `1`. Total and exact. *)
-    fromInt(value) = FromBigInt.fromBigInt(BigInt.fromInt(value))
+    fromInt(value) = fromWhole(BigInt.fromInt(value))
 
 honor FromBigInt<Rat> =
     (** The integer `value` as a rational over one. *)
-    fromBigInt(value) = create(value, 1n)
+    fromBigInt(value) = fromWhole(value)
 
 honor Frac<Rat> =
     (** The quotient of `left` and `right`, exactly. Throws `DivideByZeroFault`

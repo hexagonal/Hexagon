@@ -1397,6 +1397,52 @@ describe("a function in the data a signature returns is a signature of its own (
     }
   });
 
+  test("a function a declaration reads backwards shows the constant, the caller's choice, and pastes back (#1184)", () => {
+    const decls = "record Sink(a) = { put: (a) ->! Unit }\nunion EH(a) = EH((a) ->! Unit)\n";
+    for (const [made, face] of [
+      ["let mk() = Sink({ put = (h) => h!(() => ()) })\n", "() -> Sink((() -> Unit) ->! Unit)"],
+      ["let mk() = EH((h) => h!(() => ()))\n", "() -> EH((() -> Unit) ->! Unit)"],
+      ["let mk() = Some(Sink({ put = (h) => h!(save0) }))\n", "() -> Option(Sink((() ->! Unit) ->! Unit))"],
+    ] as const) {
+      expect(hovered(decls + made, "mk(")).toBe(face);
+    }
+    // Pasted back, each caller's verdict is the inferred face's.
+    for (const use of ["mk().put!((f) => f())", "mk().put!((f) => save0!())", "mk().put!((f) => ())"]) {
+      const inferred = reports(decls + "let mk() = Sink({ put = (h) => h!(() => ()) })\n" + user([use]));
+      const written = reports(decls + "let mk(): Sink((() -> Unit) ->! Unit) = Sink({ put = (h) => h!(() => ()) })\n" + user([use]));
+      expect([use, written]).toEqual([use, inferred]);
+    }
+    // Each colour apart, curried, several parameters, and a value's face; a
+    // colour a bare call pins is no choice.
+    for (const [made, needle, face] of [
+      ["let mk() = Sink({ put = (h) => h^(() => ()) })\n", "mk(", "() -> Sink((() -> Unit) ->^ Unit)"],
+      ["let mk() = Sink({ put = (h) => h~(() => ()) })\n", "mk(", "() -> Sink((() -> Unit) ->~ Unit)"],
+      ["let mk() = Sink({ put = (h) => h!(() => ())!(1) })\n", "mk(", "() -> Sink((() -> Unit) ->! Int ->! Unit)"],
+      ["let mk() = Sink({ put = (h) => h!(() => (), 1) })\n", "mk(", "() -> Sink((() -> Unit, Int) ->! Unit)"],
+      ["let mk() = Sink({ put = (h) => h(() => ()) })\n", "mk(", "() -> Sink((() -> Unit) -> Unit)"],
+      ["let sv = Sink({ put = (h) => h!(() => ()) })\n", "sv ", "Sink((() -> Unit) ->! Unit)"],
+      ["let ev = (EH((h) => h!(() => ())), 1)\n", "ev ", "(EH((() -> Unit) ->! Unit), Int)"],
+    ] as const) {
+      expect([made, hovered(decls + made, needle)]).toEqual([made, face]);
+    }
+    // Read backwards twice, a function is the face's own; three times, the caller's.
+    const feed = "let feed(s: Sink(a), x: a) = s.put!(x)\n";
+    expect(hovered(decls + feed + "let mk() = Sink({ put = (s) => feed!(s, (f) => f!()) })\n", "mk("))
+      .toBe("() -> Sink(Sink((() ->! a) >-> a))");
+    expect(hovered(decls + feed + "let mk() = Sink({ put = (s) => feed!(s, Sink({ put = (h) => h!(() => ()) })) })\n", "mk("))
+      .toBe("() -> Sink(Sink(Sink((() -> Unit) ->! Unit)))");
+    // Read both ways, the face is unchanged.
+    expect(hovered(decls + "record Cell(a) = { get: () -> a, put: (a) ->! Unit }\n" +
+      "let mk() = Cell({ get = () => (f) => f!(), put = (h) => () })\n", "mk(")).toBe("() -> Cell((() ->! a) >-> a)");
+    // A report spells a use's type as hover spells the face.
+    const misused = reports(decls + "let mk() = Sink({ put = (h) => h!(() => ()) })\nlet n: Int = mk()\n");
+    expect(misused.map(([, message]) => message).join("\n")).toContain("found Sink((() -> Unit) ->! Unit)");
+    // A binding that does not generalize keeps the colour for its first use to decide.
+    const kept = reports(decls + "let mk() = Sink({ put = (h) => h!(() => ()) })\nlet xv = mk()\nlet n: Int = xv\n");
+    expect(kept.map(([, message]) => message).join("\n")).toContain("found Sink((() -> Unit) >-> Unit)");
+    expect(hovered(decls + "let mk() = Sink({ put = (h) => h!(() => ()) })\nlet xv = mk()\n", "xv ")).toBe("Sink((() -> Unit) >-> Unit)");
+  });
+
   test("a function a declaration reads both ways is handed in too: its face is not written, and its `>->` is unified", () => {
     const decls = "record Cell(a) = { get: () -> a, put: (a) ->! Unit }\n" +
       "opaque record Box(a) = { value: a }\nlet wrap(x: a): Box(a) = Box({ value = x })\nlet open(b: Box(a)): a = b.value\n";

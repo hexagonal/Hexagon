@@ -203,6 +203,38 @@ TypeScript sees the same plain objects and tagged unions established earlier. De
 changes which Hexagon programs are accepted and which operations the compiler can
 generate; it does not attach JavaScript methods to the values.
 
+## Derived instances stand with their type
+
+A `derives` clause's instances stand at the type's declaration, like the `honor`
+declarations it abbreviates, so whatever they rely on stands above it (chapter 12). A
+record whose field has a hand-written instance comes below that instance:
+
+```hexagon
+record Label = {text: String}
+
+honor Show<Label> =
+    show(label) = "«${label.text}»"
+
+record Badge derives Show = {label: Label, rank: Int}   // below `Show<Label>`: fine
+```
+
+The instances of one clause see each other, so `derives (Eq, Ord)` works whichever
+order it lists them in. A type that refers to itself derives without ceremony: the
+derived `Show` of `union Tree derives Show = Leaf | Node(Tree, Int, Tree)` sees itself,
+as a hand-written one does.
+
+Two types that refer to each other cannot each derive above the other. Derive both in
+one honor group instead, using the core form:
+
+```hexagon
+union Expr = Number(Int) | Block(Statement)
+union Statement = Print(Expr) | Repeat(Int, Statement)
+
+honor
+    Show<Expr> = derive
+    Show<Statement> = derive
+```
+
 ## Summary
 
 - nominal records and unions opt into derivation with `derives`;
@@ -212,7 +244,9 @@ generate; it does not attach JavaScript methods to the values.
 - record derivation proceeds deterministically by fields;
 - union equality checks constructors, and union ordering follows declaration order;
 - derived hashing requires derived equality so hashed collections remain sound;
-- parameterized derivation requires the capability from contained types; and
+- parameterized derivation requires the capability from contained types;
+- derived instances stand at their type's declaration, and types that refer to each
+  other derive in one honor group; and
 - hand-written instances are better when representation does not express meaning.
 
 Capabilities are functions, and derived instances do not create objects with methods.

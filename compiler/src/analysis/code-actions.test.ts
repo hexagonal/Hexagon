@@ -181,6 +181,16 @@ describe("code actions: infer return type", () => {
     expect(session.diagnostics("/main.hex")).toEqual([]);
   });
 
+  test("writes a function a caller hands in as the constant, as hover shows it (#1184)", () => {
+    const source = "module Main\n\n" + "export record Sink(a) = { put: (a) ->! Unit }\n" +
+      "export fun mk() = Sink({ put = (h) => h!(() => ()) })\n";
+    const { session } = sessionOf({ "/main.hex": source });
+    const action = sole(actionsOn(session, "/main.hex", source, "mk"));
+    expect(applied(source, action)).toContain("export fun mk(): Sink((() -> Unit) ->! Unit) = ");
+    session.setFile("/main.hex", applied(source, action));
+    expect(session.diagnostics("/main.hex")).toEqual([]);
+  });
+
   test("keeps the spelling of a type variable the signature already wrote", () => {
     const source = "module Main\n\n" + "export fun listOf(value: a) = [value]\n";
     const { session } = sessionOf({ "/main.hex": source });

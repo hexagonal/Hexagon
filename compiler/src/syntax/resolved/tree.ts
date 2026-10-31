@@ -1854,6 +1854,17 @@ export interface HonorItem {
   readonly memberSeats: readonly MemberSeat[];
   readonly impliedTypes: readonly HonorImpliedType[];
   readonly members: readonly HonorMember[];
+  /**
+   * The honor group this instance is an item of (Constraints §4.8, #1227):
+   * absent for a lone `honor` and for a `derives` clause's instance.
+   */
+  readonly group?: { readonly id: number; readonly span: Source.Span };
+  /**
+   * A `derives` clause's instance: the entry that names it, where a use of
+   * the instance the entry relies on is reported (Constraints §8). The
+   * instance itself stands at its type's line, `span`.
+   */
+  readonly derivesEntry?: Source.Span;
   readonly span: Source.Span;
 }
 

@@ -1650,7 +1650,7 @@ class Resolver {
    */
   readonly #visibleExceptions = new Map<Resolved.SymbolId, Resolved.ExceptionItem>();
   readonly #impliedTypeOwners = new Map<string, Set<string>>();
-  readonly #pending: { readonly name: Parsed.Name; readonly kind: "let" | "var" }[] = [];
+  readonly #pending: { readonly name: Parsed.Name; readonly kind: "let" | "var"; readonly door?: true }[] = [];
   /** Each `extern class` member's class, by local type name (FFI Part 5 §8). */
   readonly #classMemberOwners = new Map<Resolved.SymbolId, string>();
   readonly #predeclaredBindings = new WeakMap<Parsed.FunItem | Parsed.ExternFunDeclaration | Parsed.ExternLetDeclaration, Resolved.Binding>();
@@ -3313,7 +3313,15 @@ class Resolver {
         }
       }
       const resolvedItem = this.#resolveItem(item, scope);
-      resolved.push(resolvedItem, ...this.#derivedHonors(resolvedItem));
+      resolved.push(
+        resolvedItem,
+        ...this.#derivedHonors(
+          resolvedItem,
+          item.kind === "Union" || item.kind === "RecordDeclaration"
+            ? item.derives.map(({ span }) => span)
+            : [],
+        ),
+      );
       if (item.kind === "Fun" || item.kind === "Let" || item.kind === "Var") {
         frame.later.delete(item.name.text);
       } else if (item.kind === "LetPattern") {
@@ -3340,7 +3348,10 @@ class Resolver {
 
 
   /** Expands declaration-header derivation sugar into ordinary instance items. */
-  #derivedHonors(item: Resolved.Item): readonly Resolved.HonorItem[] {
+  #derivedHonors(
+    item: Resolved.Item,
+    entries: readonly Source.Span[],
+  ): readonly Resolved.HonorItem[] {
     if (item.kind !== "Union" && item.kind !== "RecordDeclaration") return [];
     const requiredParameters = new Set(
       (item.kind === "Union"
@@ -3371,7 +3382,7 @@ class Resolver {
           })),
           span: item.span,
         };
-    return item.derives.map((constraint) => ({
+    return item.derives.map((constraint, index) => ({
       kind: "Honor",
       constraint,
       constraintIdentity: this.#constraintIdentity(constraint),
@@ -3397,6 +3408,7 @@ class Resolver {
       memberSeats: [],
       impliedTypes: [],
       members: [],
+      ...(entries[index] === undefined ? {} : { derivesEntry: entries[index] }),
       span: item.span,
     }));
   }
@@ -3959,6 +3971,7 @@ class Resolver {
             this.#honorMembers.pop();
             return { name: member.name.text, value, span: member.span };
           }),
+          ...(item.group === undefined ? {} : { group: item.group }),
           span: item.span,
         };
       }
@@ -3991,7 +4004,7 @@ class Resolver {
           : this.#resolveWidensHead(item.widens);
 
         const binding = this.#declare(item.name, "let", widens !== undefined);
-        this.#pending.push({ name: item.name, kind: "let" });
+        this.#pending.push({ name: item.name, kind: "let", ...(item.widens === undefined ? {} : { door: true as const }) });
         const value = this.#resolveExpr(Parsed.unwrapBindingValue(item.value), scope);
         this.#pending.pop();
 
@@ -6142,7 +6155,12 @@ class Resolver {
     if (pending !== undefined) {
       this.#diagnostics.add({
         severity: "error",
-        message: pending.kind === "let"
+        // Constraints §8's row: a door is read at its own line, and its body
+        // reaches its own binding no more than a member reaches its own name
+        // (§4.8); `fun` is no door's spelling, so the advice is the function.
+        message: pending.door === true
+          ? "a `widens` door cannot call itself — let a function recurse by itself, and call it from the door"
+          : pending.kind === "let"
           ? `\`${expression.name.text}\` is not in scope in its own \`let\` definition; \`let\` is non-recursive — use \`fun\`.`
           : `\`${expression.name.text}\` is not in scope in its own \`var\` definition; initialize it from an earlier binding`,
         primary: expression.span,
@@ -7395,7 +7413,7 @@ class Resolver {
 
   #findPending(
     name: string,
-  ): { readonly name: Parsed.Name; readonly kind: "let" | "var" } | undefined {
+  ): { readonly name: Parsed.Name; readonly kind: "let" | "var"; readonly door?: true } | undefined {
     for (let index = this.#pending.length - 1; index >= 0; index -= 1) {
       const pending = this.#pending[index];
       if (pending?.name.text === name) return pending;
@@ -7528,7 +7546,7 @@ class Resolver {
       if (item.kind === "Union" || item.kind === "RecordDeclaration") {
         for (const derive of item.derives) {
           for (const member of PRE_REGISTERED_CONSTRAINT_MEMBERS[derive.text] ?? []) {
-            record(member, { constraint: derive.text, span: item.span });
+            record(member, { constraint: derive.text, span: item.span, knot: item.span });
           }
         }
         continue;
@@ -7542,7 +7560,7 @@ class Resolver {
       ]);
       for (const name of names) {
         const written = item.members.find((member) => member.name.text === name);
-        record(name, { constraint, span: written?.span ?? item.span });
+        record(name, { constraint, span: written?.span ?? item.span, knot: item.group?.span ?? item.span });
         // §5.5's carve-out follows the **instance's completed member set** for a
         // block this module wrote — a member it omits is still bound here, as
         // the wrapper seat the emitter hoists for it (Constraints §2's defaults).
@@ -7621,17 +7639,24 @@ class Resolver {
       });
       return true;
     }
-    // A reference above **every** binding of the spelling is the ordinary
-    // declared-later error — never "unknown name", which would be false.
-    const earliest = bindings.reduce((first, binding) =>
-      binding.span.start.offset < first.span.start.offset ? binding : first
-    );
-    if (name.span.start.offset < earliest.span.start.offset) {
+    // A member binding enters the module's order with its honor's knot
+    // (§4.6, §4.8): a reference inside the knot sees it earlier and later
+    // alike, and one elsewhere sees it below the knot's last line. A reference
+    // that no binding of the spelling reaches is the ordinary declared-later
+    // error — never "unknown name", which would be false.
+    const reaches = (binding: HonoredMemberLine): boolean =>
+      name.span.start.offset >= binding.knot.end.offset ||
+      (binding.knot.start.offset <= name.span.start.offset && name.span.end.offset <= binding.knot.end.offset);
+    if (!bindings.some(reaches)) {
+      const earliest = bindings.reduce((first, binding) =>
+        binding.span.start.offset < first.span.start.offset ? binding : first
+      );
+      const inHonor = this.#honorMembers.length > 0;
       this.#diagnostics.add({
         severity: "error",
         message: `\`${name.text}\` is bound by the \`${earliest.constraint}\` instance ` +
           "below this use; declarations are read top-down — move the instance " +
-          "above this use, or reach it through dispatch",
+          (inHonor ? "above this use, or declare both honors in one honor group" : "above this use"),
         primary: name.span,
         labels: [{ span: earliest.span, message: "the member is bound here" }],
       });
@@ -8484,6 +8509,12 @@ function curatedCompanionMiss(
 interface HonoredMemberLine {
   readonly constraint: string;
   readonly span: Source.Span;
+  /**
+   * The knot the binding enters the module's order with (Constraints §4.6,
+   * §4.8): its honor, its honor group, or the line of the type whose
+   * `derives` clause declares it.
+   */
+  readonly knot: Source.Span;
 }
 
 function annotationHeadName(annotation: Resolved.TypeAnnotation): string {

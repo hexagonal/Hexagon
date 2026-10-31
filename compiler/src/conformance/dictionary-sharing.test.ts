@@ -302,14 +302,16 @@ describe("§3.3 — non-identity evidence inside a factory body stays call-time"
       '    rend(value) = "${value}"\n' +
       "union Tree2(a) = Tip(item: a) | Branch(kids: Forest(a))\n" +
       "union Forest(a) = Nil2 | More(head: Tree2(a), rest: Forest(a))\n" +
-      "honor<a: Rend> Rend<Tree2(a)> =\n" +
-      "    rend(t) = match t\n" +
-      "        Tip(v) => v.rend()\n" +
-      '        Branch(f) => "[${f.rend()}]"\n' +
-      "honor<a: Rend> Rend<Forest(a)> =\n" +
-      "    rend(f) = match f\n" +
-      '        Nil2 => ""\n' +
-      '        More(h, r) => "${h.rend()}${r.rend()}"\n' +
+      // The two instances use each other: one honor group (Constraints §4.8).
+      "honor\n" +
+      "    <a: Rend> Rend<Tree2(a)> =\n" +
+      "        rend(t) = match t\n" +
+      "            Tip(v) => v.rend()\n" +
+      '            Branch(f) => "[${f.rend()}]"\n' +
+      "    <a: Rend> Rend<Forest(a)> =\n" +
+      "        rend(f) = match f\n" +
+      '            Nil2 => ""\n' +
+      '            More(h, r) => "${h.rend()}${r.rend()}"\n' +
       "let forest: Tree2(Int) = Branch(More(Tip(1), More(Tip(2), Nil2)))\n" +
       "export let text: String = rend(forest)\n";
     const text = emitted(source);
