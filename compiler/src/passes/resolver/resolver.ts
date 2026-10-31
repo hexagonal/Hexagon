@@ -701,11 +701,11 @@ export interface ResolveOptions {
   readonly runtime?: boolean;
   /**
    * Whether this module is compiled as **standard-library source**, the privilege
-   * the intrinsic door is gated on (`spec/intrinsics.md` §5.2). Two seats hold it
-   * in v1: the prelude set, and the injected runtime-module set (§5.2's runtime
-   * bullet, #365). A host may explicitly grant a supplied source the registered
-   * member's seat when compiling the standard library itself; names and paths
-   * never infer that grant.
+   * the intrinsic door is gated on (`spec/intrinsics.md` §5.2). Every member of
+   * the package `Hex` holds it (#927): the prelude set, the injected runtime
+   * modules, and the library members reached by import. A host may explicitly
+   * grant a supplied source the registered member's seat when compiling the
+   * standard library itself; names and paths never infer that grant.
    *
    * The privilege attaches to *how the module is compiled*, never to its text, and
    * unlike `runtime` it puts no name into scope: the door is a declaration form,

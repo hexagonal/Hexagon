@@ -4,6 +4,7 @@ import { compileProject, Source } from "../index";
 import vectorTrieSource from "../../../stdlib/Runtime/VectorTrie.hex?raw";
 import regexRuntimeSource from "../../../stdlib/Runtime/Regex.hex?raw";
 import { intrinsicKeys } from "../intrinsics";
+import { compileFiles } from "../support/test-project";
 
 /**
  * A mark that claims more than its call does, where the report names no
@@ -100,6 +101,26 @@ describe("the gate (§5)", () => {
    * `JsValue.hex` seated after it and started answering with a `Result`
    * (FFI Part 11 §4.1).
    */
+  /**
+   * *(#927.)* A library member reached by import holds the privilege too
+   * (§5.2): `Hex.Regex.Syntax` declares a door row, and a program importing it
+   * compiles. A project module declaring the same name gains nothing.
+   */
+  test("a library member of `Hex` holds the door, and a project module of its name does not", () => {
+    const importer = compileFiles([["/main.hex",
+      "module Main\n\nimport Hex.Regex.Syntax as Syntax\n\n" +
+      "export let ok: Bool = match Syntax.parse(\"a\")\n    Ok(_) => True\n    Err(_) => False\n"]]);
+    expect(importer.diagnostics.map(({ message }) => message)).toEqual([]);
+    const impostor = compileFiles([["/Syntax.hex",
+      "module Regex.Syntax\n\nextern from \"hex:intrinsic\"\n" +
+      "    fun stringCodepointUnchecked as codepointValue(point: String) -> Int\n"]]);
+    expect(impostor.diagnostics.map(({ message }) => message)).toContain(
+      "the `hex:` specifier scheme is reserved to standard-library source; " +
+      "to bind your own JavaScript implementation, use an ordinary `extern from` " +
+      "block naming your module",
+    );
+  });
+
   test("the same text in an explicitly trusted prelude replacement is legal", () => {
     expect(debugDiagnostics([
       ["/main.hex", "module Main\n\n" + "export let ok: Int = 1\n"],
