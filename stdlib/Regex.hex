@@ -98,6 +98,8 @@ let matchOf(regex: Regex, spans: Vector(Option((Int, Int, String)))): Match =
     while index <= Vector.length(spans)
         groups := groups.append(groupOf(spans[index]))
         index := index + 1
+    // Group 0 is always present in an answer with spans (§3.3), so the
+    // fallback is unreachable; it is there because `Option` must be matched.
     let whole = match groupOf(spans[1])
         Some(group) => group
         None => Group({ start = 1, length = 0, text = "" })

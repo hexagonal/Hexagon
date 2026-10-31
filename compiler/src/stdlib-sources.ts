@@ -4312,6 +4312,8 @@ export const STDLIB_SOURCES: Readonly<Record<string, string>> = {
     + "    while index <= Vector.length(spans)\n"
     + "        groups := groups.append(groupOf(spans[index]))\n"
     + "        index := index + 1\n"
+    + "    // Group 0 is always present in an answer with spans (§3.3), so the\n"
+    + "    // fallback is unreachable; it is there because `Option` must be matched.\n"
     + "    let whole = match groupOf(spans[1])\n"
     + "        Some(group) => group\n"
     + "        None => Group({ start = 1, length = 0, text = \"\" })\n"

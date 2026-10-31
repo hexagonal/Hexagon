@@ -1114,6 +1114,17 @@ export function compileProject(
       }
     }
   }
+  // The move must not put a runtime member ahead of what it imports, which
+  // the import order alone guaranteed: a defect in the lists, never the
+  // program's, and refused rather than seated wrongly.
+  for (const [at, unit] of orderedLibrary.entries()) {
+    if (unit.injected !== "runtime") continue;
+    for (const target of importEdges.get(unit.path)?.values() ?? []) {
+      if (orderedLibrary.findIndex(({ path }) => path === target) > at) {
+        throw new Error(`compiler defect: runtime module ${unit.declaredName} is seated before a module it imports`);
+      }
+    }
+  }
   injectedUnits = [...fixedInjected, ...orderedLibrary].map((unit, seat) => ({ ...unit, seat }));
   /** Each injected path's seat, for the "sees only what precedes it" slice. */
   const injectedSeats = new Map(injectedUnits.map(({ path, seat }) => [path, seat!]));

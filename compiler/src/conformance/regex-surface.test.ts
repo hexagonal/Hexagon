@@ -101,6 +101,13 @@ export let escapedFinds(text: String, subject: String): String = match Regex.com
 export let reconstructs(pattern: String, text: String, separator: String): Bool =
     using(pattern, False, (regex) => String.join(Iterable.toSeq(regex.split(text)), separator) == text)
 
+exception Boom(text: String)
+
+// A callback that fails on the letter b: the call propagates its failure.
+export let failing(text: String): String = match Regex.compile("[a-z]")
+    Ok(regex) => regex.replaceWith^(text, (m) => if m.text() == "b" then throw^(Boom(m.text())) else m.text())
+    Err(_) => "refused"
+
 // The callback sees each replaced match, in order: each replacement names its match.
 export let calls(pattern: String, text: String): String =
     using(pattern, "refused", (regex) => regex.replaceWith(text, (m) => "<" ++ show(m.start()) ++ m.text() ++ ">"))
@@ -128,7 +135,12 @@ describe("the program compiles against the surface", () => {
     const diagnostics = compileMain(
       "module Main\nimport Hex.Regex as Regex\n\nexport let p(x: Regex.Program): Int = 1\n",
     ).diagnostics.map(({ message }) => message);
-    expect(diagnostics.length).toBeGreaterThan(0);
+    expect(diagnostics).toEqual(["module `Regex` does not export type `Program`"]);
+    // Nor may a project module declare the key itself (Intrinsics §3.3, §5.1).
+    const impostor = compileMain(
+      'module Main\n\nextern from "hex:intrinsic"\n    type regexProgram as Program\n',
+    ).diagnostics.map(({ message }) => message);
+    expect(impostor.join("\n")).toContain("reserved to standard-library source");
   });
 });
 
@@ -228,6 +240,21 @@ describe("replacement and splitting (§4.4)", () => {
   test("replaceWith computes each replacement from its match", () => {
     expect(call("replaceWith", "[a-z]+", "ab 12 cd")).toBe("<AB> 12 <CD>");
     expect(call("replaceFirstWith", "b", "abcb")).toBe("a<2>cb");
+  });
+
+  test("a failure the callback throws propagates from the call, and no partial result escapes", () => {
+    expect(call("failing", "xyz")).toBe("xyz");
+    expect(() => call("failing", "abc")).toThrow();
+  });
+
+  test("an impure callback makes the call wear its mark, and a pure one leaves it bare", () => {
+    const program = (call: string) => compileMain(
+      "module Main\nimport Hex.Regex as Regex\nimport Hex.Experimental.Stdio as Stdio\n\n" +
+      "export let run(regex: Regex.Regex, text: String): String =\n" +
+      `    ${call}(text, (m) =>\n        Stdio.write!(m.text())\n        m.text())\n`,
+    ).diagnostics.map(({ message }) => message);
+    expect(program("regex.replaceWith!")).toEqual([]);
+    expect(program("regex.replaceWith").join("\n")).toContain("wants `!`");
   });
 
   test("the callback is given each replaced match, in order", () => {
