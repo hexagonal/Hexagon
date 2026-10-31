@@ -287,22 +287,11 @@ export const RUNTIME_WIRINGS: readonly RuntimeModuleWiring[] = [
       { record: "HashSet", helper: "hashSetIterate" },
     ],
   },
-  // *(#927, arc 1.)* The regex engine's wiring, with **no operations yet**: at
-  // this landing `stdlib/Runtime/Regex.hex` holds the `Buffer` storage rows
-  // alone, and a door row is an ordinary binding of its own module's output
-  // rather than something another module imports. `Hex.Regex`'s two sealed rows
-  // (`regex.md` §7) are what will fill this list, in a later arc.
-  //
-  // An empty list is read on both channels and means nothing on either: no
-  // import line is written (`#runtimeImports` writes one only for a module with
-  // uses), and no export line is written (`#runtimeExports` returns none for an
-  // empty present set), so the emitted `Hex/Runtime/Regex.js` is a valid module
-  // with the door rows' own bindings and no export list. The row is present
-  // rather than absent so that the wiring and the injected list agree member for
-  // member, which is what the conformance test reads.
+  // *(#927.)* The regex engine's wiring: `compile` and `search`, the two
+  // compiled bodies `Hex.Regex`'s sealed rows lower to (`regex.md` §7).
   {
     name: "Runtime.Regex",
-    operations: [],
+    operations: ["compile", "search"],
     localStem: "regex",
     defaultSpecifier: "./Regex",
   },
@@ -310,6 +299,7 @@ export const RUNTIME_WIRINGS: readonly RuntimeModuleWiring[] = [
 
 const VECTOR_WIRING = RUNTIME_WIRINGS[0]!;
 const HASH_TRIE_WIRING = RUNTIME_WIRINGS[1]!;
+const REGEX_WIRING = RUNTIME_WIRINGS[2]!;
 
 export interface JavaScriptEmissionOptions {
   /** Includes private editions for inspection tools; ordinary builds omit them. */
@@ -11863,6 +11853,13 @@ class JavaScriptEmitter {
         return "__a => __a.length";
       case "regexCut":
         return "(__a, __b, __c) => __a.slice(__b, __c)";
+      // `Hex.Regex`'s two sealed rows (`regex.md` §7): `->` faces over the
+      // engine's compiled bodies, the linkage `Map`'s keys take over
+      // `Hex.Runtime.HashTrie`, under Effects §6.2's species (d).
+      case "regexCompile":
+        return this.#useRuntime(REGEX_WIRING, "compile");
+      case "regexSearch":
+        return this.#useRuntime(REGEX_WIRING, "search");
       default:
         // The **operation** grade only (#927): a `fun` row keyed by a *type*
         // key is the author's mistake, already reported by the resolver as a
