@@ -1389,6 +1389,26 @@ describe("a function in the data a signature returns is a signature of its own (
     }
   });
 
+  test("a function a declaration reads backwards shows the constant, the caller's choice, and pastes back (#1184)", () => {
+    const decls = "record Sink(a) = { put: (a) ->! Unit }\nunion EH(a) = EH((a) ->! Unit)\n";
+    for (const [made, face] of [
+      ["let mk() = Sink({ put = (h) => h!(() => ()) })\n", "() -> Sink((() -> Unit) ->! Unit)"],
+      ["let mk() = EH((h) => h!(() => ()))\n", "() -> EH((() -> Unit) ->! Unit)"],
+      ["let mk() = Some(Sink({ put = (h) => h!(save0) }))\n", "() -> Option(Sink((() ->! Unit) ->! Unit))"],
+    ] as const) {
+      expect(hovered(decls + made, "mk(")).toBe(face);
+    }
+    // Pasted back, each caller's verdict is the inferred face's.
+    for (const use of ["mk().put!((f) => f())", "mk().put!((f) => save0!())", "mk().put!((f) => ())"]) {
+      const inferred = reports(decls + "let mk() = Sink({ put = (h) => h!(() => ()) })\n" + user([use]));
+      const written = reports(decls + "let mk(): Sink((() -> Unit) ->! Unit) = Sink({ put = (h) => h!(() => ()) })\n" + user([use]));
+      expect([use, written]).toEqual([use, inferred]);
+    }
+    // Read both ways, or backwards twice, the face is unchanged.
+    expect(hovered(decls + "record Cell(a) = { get: () -> a, put: (a) ->! Unit }\n" +
+      "let mk() = Cell({ get = () => (f) => f!(), put = (h) => () })\n", "mk(")).toBe("() -> Cell((() ->! a) >-> a)");
+  });
+
   test("a function a declaration reads both ways is handed in too: its face is not written, and its `>->` is unified", () => {
     const decls = "record Cell(a) = { get: () -> a, put: (a) ->! Unit }\n" +
       "opaque record Box(a) = { value: a }\nlet wrap(x: a): Box(a) = Box({ value = x })\nlet open(b: Box(a)): a = b.value\n";

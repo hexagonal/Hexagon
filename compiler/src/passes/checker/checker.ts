@@ -5061,6 +5061,12 @@ class Checker {
    * so is what one is bound to (`#bind`, `#bindJoin`).
    */
   readonly #heldBackColours = new Set<Variable>();
+  /**
+   * Quantified colours that stand only on the own arrows of a function an
+   * argument reads backwards, where a caller hands it in: displayed as the
+   * constant `->!`, the caller's choice (Effects §10, #1184).
+   */
+  readonly #callersChoice = new Set<Variable>();
   /** The `widens` doors whose bodies are being checked, by `${identity} ${member}`. */
   readonly #openDoors = new Set<string>();
 
@@ -35998,13 +36004,75 @@ class Checker {
     level: number,
   ): readonly Mono[] {
     const held: number[] = [];
+    // A function's own arrows an argument reads backwards stand where a caller
+    // hands it in (Effects §10, #1184): what it does there is the caller's
+    // choice, which display spells as the constant `->!`, any function.
+    const backwards = new Set<number>();
+    const elsewhere = new Set<number>();
     parts.forEach((part, index) => {
-      if (variance(index) === "co") return;
+      const read = variance(index);
+      if (read === "co") {
+        for (const variable of this.#collectVariables(part)) elsewhere.add(variable.id);
+        return;
+      }
       for (const variable of this.#collectVariables(part)) held.push(variable.id);
+      if (read === "contra") this.#polarColours(part, false, backwards, elsewhere);
+      else for (const variable of this.#collectVariables(part)) elsewhere.add(variable.id);
     });
     const inner = this.#scopeOf(held, scopes, colours, level);
+    for (const id of backwards) {
+      const chosen = inner.get(id);
+      if (!colours.has(id) || elsewhere.has(id) || scopes.has(id) || chosen?.kind !== "Variable") continue;
+      this.#callersChoice.add(chosen);
+    }
     const published = parts.map((part) => this.#publishHeld(part, inner, colours, level));
     return published.every((part, index) => part === parts[index]) ? parts : published;
+  }
+
+  /**
+   * The colours of a type by the side they stand on (#1184): a function's own
+   * arrows on `positive`'s side, its parameters on the other, what it returns
+   * on the same; a type argument as its declaration reads it, both ways on
+   * both sides. Each colour on the negative side goes to `negative`, every
+   * other to `positive`.
+   */
+  #polarColours(type: Mono, positive: boolean, negative: Set<number>, others: Set<number>): void {
+    const actual = this.#prune(type);
+    const side = (node: Mono, flip: boolean): void => this.#polarColours(node, flip ? !positive : positive, negative, others);
+    const both = (node: Mono): void => {
+      for (const variable of this.#collectVariables(node)) others.add(variable.id);
+    };
+    switch (actual.kind) {
+      case "Function":
+        for (const colour of colourSlots(actual)) {
+          for (const part of this.#colourParts(colour)) (positive ? others : negative).add(part.id);
+        }
+        actual.parameters.forEach((parameter) => side(parameter, true));
+        side(actual.result, false);
+        return;
+      case "Tuple":
+        actual.elements.forEach((element) => side(element, false));
+        return;
+      case "Union":
+      case "NominalRecord":
+      case "ExternType":
+        actual.arguments.forEach((argument, index) => {
+          const read = actual.kind === "Union"
+            ? this.#variance.effectiveUnion(actual.union, index)
+            : actual.kind === "NominalRecord"
+            ? this.#variance.effectiveRecord(actual.record, index)
+            : this.#variance.externClaim(actual.externType, index);
+          if (read === "co") side(argument, false);
+          else if (read === "contra") side(argument, true);
+          else both(argument);
+        });
+        return;
+      case "Nullable":
+        side(actual.value, false);
+        return;
+      default:
+        both(type);
+    }
   }
 
   /**
@@ -41768,12 +41836,15 @@ class Checker {
       }
     }
     const heldBack = variables.filter((variable) => this.#heldBackColours.has(variable));
+    const callersChoice = variables.filter((variable) => this.#callersChoice.has(variable));
     return {
       variables: variables.map(({ id }) => Typed.typeVariableId(id)),
       constraints: [...constraints.values()],
       type: this.#publicType(scheme.type),
       // An importer's calls hold back the marks they do at home (§3.5, #1223).
       ...(heldBack.length === 0 ? {} : { heldBack: heldBack.map(({ id }) => Typed.typeVariableId(id)) }),
+      // Displayed as the constant, the caller's choice (Effects §10, #1184).
+      ...(callersChoice.length === 0 ? {} : { callersChoice: callersChoice.map(({ id }) => Typed.typeVariableId(id)) }),
       // A constraint member's scheme says so, so an importer can read it back
       // (Modules §6.5): without it, `describe` arrives as a function that
       // happens to be constrained and its implied types never project.
