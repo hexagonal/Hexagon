@@ -123,6 +123,7 @@ record Config derives (Eq) = {
 The header grammar being shared, each form's spec already fixed its parameterized semantics by reference ("the parameterised case must behave identically to the monomorphic case with the parameters instantiated" — Unions §2, Products §5.1). This doc anchors the shared part:
 
 - Parameters are ordinary type variables scoped over the RHS; the declaration introduces a **type constructor** of the declared arity. Use-site instantiation, generalisation of constructor types, and unification behaviour are as the form specs already state (`Tree(a)` unifies with `Tree(b)` by `a := b`; nominal names never unfold).
+- **They are the only type variables in scope there.** A `record`, `union` or `type` whose RHS names a variable its head does not bind is a hard error at that variable, under the Rewrite Rule: "type variable `b` is not a parameter of `V`; a `union` declaration binds every type variable it names: write `union V(b)`". The applied edit adds every unbound variable of the declaration to its head at once, written claims kept (`opaque union S(+a, q)`), so each of the declaration's reports carries the same edit. A variable that reaches the RHS through an alias is the alias's report, at the alias. *Why:* a constructor's type is quantified over the head's parameters, so a variable outside them would be quantified apart at each construction and each match, and the declaration would claim any type at all: `union V = V((b) -> Int)` builds from an `Int` function and hands it a `String`. It is the `_` that `decisions-ml-dialect-annotations-2026-08.md` §5.4 refuses in a declaration, written with a name. An existential reading (Haskell's `forall` in a constructor) is a separate feature Hexagon does not have. OCaml, SML, Haskell, Elm, Rust and Swift all refuse it.
 - A `derives` clause on a parameterized declaration produces parameterized instances with the expected instance contexts (Decisions Batch §2.5's note, now with its header grammar delivered): `record Pair(a, b) derives (Eq)` yields the instance whose obligations are `Eq<a>, Eq<b>`.
 - Phantom parameters (declared, not used in the body) are **legal on nominal declarations** — `union P(a) = X | Y` (already noted in Unions §6.2); the nominal wall is what makes them do work — and **illegal on aliases** (§5.3).
 
@@ -241,6 +242,7 @@ Two type-namespace declarations of the same name in one module — any mix of `r
 | `honor C<Alias>` | "`UserName` is an alias of `String`; aliases cannot carry their own instances — use a `record` or a single-constructor `union`" (§4) |
 | Under-/over-applied alias or nominal constructor | "`Handler` takes 1 type parameter…" family (§5.1–5.2) |
 | Unused alias parameter | "parameter `tag` is unused… for phantom typing use a `record` or `union`" (§5.3) |
+| Type variable the head does not bind | "type variable `b` is not a parameter of `V`; a `union` declaration binds every type variable it names: write `union V(b)`" + applied edit to the head (§3) |
 | Recursive alias (direct or mutual) | "type aliases cannot be recursive; use a `union` or `record` for recursive types" (§5.4) |
 | Declaration inside a block | "declarations live at module level" (§7.1) |
 | Duplicate type-namespace name in one module | error at the second, naming the first: "rename this declaration or remove the duplicate" (§7.3) |
@@ -263,6 +265,7 @@ Two type-namespace declarations of the same name in one module — any mix of `r
 | The `derives` duplicate refusal reads spellings — never wrong (one unqualified name, resolved once) but not the whole rule (a qualified spelling beside the bare one is a second spelling); the governing refusal is the elaborated instances' identity-keyed coherence slot, which catches any spelling pair naming one declaration | §2.3 |
 | Multi-line declarations = offside continuation; union alternatives are not a block; no VOPEN after `=` | §2.4 |
 | Phantom parameters legal on nominal declarations, illegal on aliases | §3, §5.3 |
+| The head's parameters are the only type variables in the RHS; an unbound one is a hard error with an applied edit to the head | §3 |
 | `type` = fully transparent alias; no instances; `honor`-on-alias and `derives`-on-alias both redirect to newtypes | §4 |
 | Parameterized aliases: fully applied always | §5.1 |
 | Unused alias parameters: hard error; syntactic check, proven sufficient by induction; stricter than Haskell on purpose | §5.3 |

@@ -4084,6 +4084,7 @@ class Resolver {
           name: item.name.text,
           parameters: item.parameters.map(({ text }) => text),
           annotation,
+          parametersEnd: parametersEnd(item.name, item.parameters),
           span: item.span,
         };
         this.#typeAliases.set(item.name.text, resolvedAlias);
@@ -4233,6 +4234,7 @@ class Resolver {
           ...externEnum,
           ...foreign,
           ...(conversions === undefined ? {} : { conversions }),
+          parametersEnd: parametersEnd(item.name, item.parameters),
           span: item.span,
         };
       }
@@ -4276,6 +4278,7 @@ class Resolver {
           derives: declaration.derives,
           constructor,
           fields,
+          parametersEnd: parametersEnd(item.name, item.parameters),
           span: item.span,
         };
       }
@@ -8650,6 +8653,12 @@ function markOpenRowsThroughAlias(
     }
   };
   return mark(type);
+}
+
+/** The zero-width point after a declaration head's last parameter, or its name. */
+function parametersEnd(name: Parsed.Name, parameters: readonly Parsed.Name[]): Source.Span {
+  const last = parameters.at(-1)?.span ?? name.span;
+  return { fileId: last.fileId, start: last.end, end: last.end };
 }
 
 function withTypeSpan(type: Resolved.TypeAnnotation, span: Source.Span): Resolved.TypeAnnotation {
