@@ -1285,6 +1285,7 @@ export function compileProject(
       recordBase: injected ? preludeRecordBase : recordBase,
       externTypeBase: injected ? preludeExternTypeBase : externTypeBase,
       privileged: injected,
+      declaresCoreConstraints: injected,
     });
     const dataTyped = check(dataResolved, {
       programNominals,
@@ -1523,16 +1524,17 @@ export function compileProject(
       // compiler supplied it or because the host explicitly trusted a supplied
       // declaration to replace that registered member.
       //
-      // Two seats hold it. Prelude membership is the first. The **runtime
-      // module set** is the second (§5.2's runtime bullet, #365): a runtime
-      // module is already trusted enough to spell `Node`, and the door lets its
-      // new operations arrive as declared, key-verified rows instead of as
-      // growth in the non-declared guard family.
+      // *(#927.)* Every member of the package `Hex` holds it: the prelude, the
+      // runtime modules, and the library members reached by import
+      // (`Hex.Regex`, `Hex.Regex.Syntax`, …), since the door is how a library
+      // member's representation reaches the engine beneath it (§5.2).
       //
-      // The two privileges stay **separate flags**, not one merged notion:
+      // The privileges stay **separate flags**, not one merged notion:
       // `runtime` puts a name in scope and `privileged` opens a declaration
-      // form, and a prelude member holds the second without the first.
-      privileged: isPrelude || isRuntimeModule,
+      // form, and every member but a runtime one holds the second without the
+      // first.
+      privileged: isInjected,
+      declaresCoreConstraints: isPrelude || isRuntimeModule,
       // A primitive's home module is its fixed prelude companion (Constraints
       // §5.3), and nothing in the module's text can say so — a primitive has no
       // declaration. Like the privilege above, the fact follows **membership
