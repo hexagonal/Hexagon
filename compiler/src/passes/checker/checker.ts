@@ -621,6 +621,11 @@ type ArrowRole =
      * reads "claims more" the wrong way round at a parameter).
      */
     readonly against?: boolean;
+    /**
+     * The declaration that reads it so, and how, for a refusal's words
+     * (#1184): `co` where backwards reads cancel, an even number of them.
+     */
+    readonly under?: { readonly name: string; readonly read: "contra" | "inv" | "co" };
   }
   | { readonly kind: "callback"; readonly callback: CallbackColour }
   | { readonly kind: "inside" };
@@ -23773,7 +23778,17 @@ class Checker {
         if (AXES.every((axis) => marking(axis).length === 0)) {
           const local = role.face.local && role.spine.handed.every((callbacks) => callbacks.length === 0);
           const untyped = role.spine.untyped.slice(0, role.application + 1).some((some) => some);
-          this.#refuseFollowsArrow(arrowSpan, local ? "local" : untyped ? "untyped" : "unhanded", written);
+          // A function a caller may hand in (#1184), where no other reason
+          // comes first: a local annotation, an untyped parameter's, or an
+          // extern row's advice.
+          const under = role.under?.read === "contra" || role.under?.read === "inv" ? role.under : undefined;
+          this.#refuseFollowsArrow(
+            arrowSpan,
+            local ? "local" : untyped ? "untyped" : under !== undefined && !this.#atExternRow ? "argument" : "unhanded",
+            written,
+            [],
+            under,
+          );
           return constantReading(IMPURE, IMPURE);
         }
         if (empty.length > 0) this.#refuseFollowsArrow(arrowSpan, "colour", written, empty);
@@ -23835,9 +23850,11 @@ class Checker {
       | "union"
       | "alias"
       | "no-signature"
-      | "colour",
+      | "colour"
+      | "argument",
     written: FollowingArrow = "linked",
     empty: readonly Axis[] = [],
+    under?: { readonly name: string; readonly read: "contra" | "inv" | "co" },
   ): void {
     if (arrowSpan === undefined) return;
     // A member header is refused at the declaration and nowhere else (#867):
@@ -23886,6 +23903,18 @@ class Checker {
     const message = position === "callback"
       ? `a callback's arrow says what the function accepts, and the function follows it — \`${fix}\` accepts any ` +
         `function${acceptance(marks)}, and \`->\` one that is pure and cannot fail`
+      : position === "argument" && under !== undefined
+      ? under.read === "contra"
+        // A function a caller may hand in: the constant is the caller's choice
+        // (Effects §10).
+        ? nothingHanded + `a function under \`${under.name}\`'s argument, which \`${under.name}\` reads backwards, ` +
+          `is one a caller may hand in; write \`${fix}\`, which accepts any function${acceptance(marks)}, as the ` +
+          "caller's choice does, or `->` for one that is pure and cannot fail"
+        // Effects §10's kept limitation: no written face follows a function a
+        // declaration reads both ways.
+        : nothingHanded + `a function under \`${under.name}\`'s argument, which \`${under.name}\` reads both ways, ` +
+          `has no written face that follows what it is handed, a limitation Hexagon keeps (Effects §10); write ` +
+          `\`${fix}\`, which claims more of it, or \`->\` for one that is pure and cannot fail`
       : position === "local"
       ? nothingHanded + `this annotation has no callbacks of its own, and a local \`${text}\` does not ` +
         `borrow the enclosing function's — leave its type to inference, or write \`${fix}\``
@@ -23894,6 +23923,7 @@ class Checker {
         untyped: "no callback of this signature has been handed over by the time this arrow runs; " +
           "write the parameter's type",
         unhanded: "no callback of this signature has been handed over by the time this arrow runs",
+        argument: "no callback of this signature has been handed over by the time this arrow runs",
         record: "a `record` field is data, not a signature",
         union: "a `union` field is data, not a signature",
         "no-signature": "this annotation is not a function signature",
@@ -37953,12 +37983,23 @@ class Checker {
     // §2.4 rung 3): it is a property of the *occurrence*, and this is the one
     // place an occurrence becomes a type.
     // A type argument read against the grain of the data around a spine.
-    const argument = (part: Resolved.TypeAnnotation, variance: () => string): Mono => {
+    const argument = (part: Resolved.TypeAnnotation, variance: () => string, name: string): Mono => {
       const role = this.#arrowRole;
       const elaborated = () => this.#annotationType(part, level, namedTails, typeParameters, impliedTypes, holes);
-      if (role?.kind !== "component" || role.against === true) return elaborated();
+      if (role?.kind !== "component") return elaborated();
       const read = variance();
-      return read === "contra" || read === "inv" ? this.#inRole({ ...role, against: true }, elaborated) : elaborated();
+      // Nested, a both-ways reading anywhere on the way is the one a report
+      // names, Effects §10's limitation; two backwards readings cancel.
+      if (role.against === true) {
+        if (role.under?.read === "inv" || (read !== "inv" && read !== "contra")) return elaborated();
+        const under = read === "inv"
+          ? { name, read: "inv" as const }
+          : { name, read: role.under?.read === "contra" ? "co" as const : "contra" as const };
+        return this.#inRole({ ...role, under }, elaborated);
+      }
+      return read === "contra" || read === "inv"
+        ? this.#inRole({ ...role, against: true, under: { name, read } }, elaborated)
+        : elaborated();
     };
     if (annotation.kind === "Union") {
       return {
@@ -37966,7 +38007,7 @@ class Checker {
         union: annotation.union,
         name: annotation.name,
         arguments: annotation.arguments.map((part, index) =>
-          argument(part, () => this.#variance.effectiveUnion(annotation.union, index))
+          argument(part, () => this.#variance.effectiveUnion(annotation.union, index), annotation.name)
         ),
         ...(annotation.qualifier === undefined ? {} : { qualifier: annotation.qualifier }),
       };
@@ -37977,7 +38018,7 @@ class Checker {
         record: annotation.record,
         name: annotation.name,
         arguments: annotation.arguments.map((part, index) =>
-          argument(part, () => this.#variance.effectiveRecord(annotation.record, index))
+          argument(part, () => this.#variance.effectiveRecord(annotation.record, index), annotation.name)
         ),
         ...(annotation.qualifier === undefined ? {} : { qualifier: annotation.qualifier }),
       };
@@ -37995,7 +38036,7 @@ class Checker {
             // contravariant claim is read as one.
             const claim = this.#variance.externClaim(annotation.externType, index);
             return claim === "inv" ? "co" : claim;
-          })
+          }, annotation.name)
         ),
         ...(annotation.qualifier === undefined ? {} : { qualifier: annotation.qualifier }),
       };
