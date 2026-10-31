@@ -1412,9 +1412,31 @@ describe("a function in the data a signature returns is a signature of its own (
       const written = reports(decls + "let mk(): Sink((() -> Unit) ->! Unit) = Sink({ put = (h) => h!(() => ()) })\n" + user([use]));
       expect([use, written]).toEqual([use, inferred]);
     }
-    // Read both ways, or backwards twice, the face is unchanged.
+    // Each colour apart, curried, several parameters, and a value's face; a
+    // colour a bare call pins is no choice.
+    for (const [made, needle, face] of [
+      ["let mk() = Sink({ put = (h) => h^(() => ()) })\n", "mk(", "() -> Sink((() -> Unit) ->^ Unit)"],
+      ["let mk() = Sink({ put = (h) => h~(() => ()) })\n", "mk(", "() -> Sink((() -> Unit) ->~ Unit)"],
+      ["let mk() = Sink({ put = (h) => h!(() => ())!(1) })\n", "mk(", "() -> Sink((() -> Unit) ->! Int ->! Unit)"],
+      ["let mk() = Sink({ put = (h) => h!(() => (), 1) })\n", "mk(", "() -> Sink((() -> Unit, Int) ->! Unit)"],
+      ["let mk() = Sink({ put = (h) => h(() => ()) })\n", "mk(", "() -> Sink((() -> Unit) -> Unit)"],
+      ["let sv = Sink({ put = (h) => h!(() => ()) })\n", "sv ", "Sink((() -> Unit) ->! Unit)"],
+      ["let ev = (EH((h) => h!(() => ())), 1)\n", "ev ", "(EH((() -> Unit) ->! Unit), Int)"],
+    ] as const) {
+      expect([made, hovered(decls + made, needle)]).toEqual([made, face]);
+    }
+    // Read backwards twice, a function is the face's own; three times, the caller's.
+    const feed = "let feed(s: Sink(a), x: a) = s.put!(x)\n";
+    expect(hovered(decls + feed + "let mk() = Sink({ put = (s) => feed!(s, (f) => f!()) })\n", "mk("))
+      .toBe("() -> Sink(Sink((() ->! a) >-> a))");
+    expect(hovered(decls + feed + "let mk() = Sink({ put = (s) => feed!(s, Sink({ put = (h) => h!(() => ()) })) })\n", "mk("))
+      .toBe("() -> Sink(Sink(Sink((() -> Unit) ->! Unit)))");
+    // Read both ways, the face is unchanged.
     expect(hovered(decls + "record Cell(a) = { get: () -> a, put: (a) ->! Unit }\n" +
       "let mk() = Cell({ get = () => (f) => f!(), put = (h) => () })\n", "mk(")).toBe("() -> Cell((() ->! a) >-> a)");
+    // A report spells a use's type as hover spells the face.
+    const misused = reports(decls + "let mk() = Sink({ put = (h) => h!(() => ()) })\nlet n: Int = mk()\n");
+    expect(misused.map(([, message]) => message).join("\n")).toContain("found Sink((() -> Unit) ->! Unit)");
   });
 
   test("a function a declaration reads both ways is handed in too: its face is not written, and its `>->` is unified", () => {

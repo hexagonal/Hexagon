@@ -181,13 +181,10 @@ function displayArrow(
   // silent for a function whose body could not be read. A colour that is the
   // caller's choice, where an argument read backwards hands the function in,
   // is any function: the constant (§10, #1184).
-  const isChosen = (effect: Typed.Effect): boolean =>
-    typeof effect === "object" &&
-    ("variable" in effect ? chosen.has(effect.variable) : effect.join.every((variable) => chosen.has(variable)));
   const shown = (effect: Typed.Effect | undefined): ShownColour =>
     effect === undefined
       ? "silent"
-      : effect === "impure" || effect === "error" || isChosen(effect)
+      : effect === "impure" || effect === "error" || isCallersChoice(effect, chosen)
       ? "constant"
       : "follows";
   return displayedArrow(shown(type.effect), shown(type.fail), place);
@@ -195,6 +192,16 @@ function displayArrow(
 
 /** No colour is the caller's choice. */
 const NONE_CHOSEN: ReadonlySet<Typed.TypeVariableId> = new Set();
+
+/**
+ * Whether a colour is the caller's choice (`Scheme.callersChoice`): a variable
+ * among `chosen`, or a join of them only. It is shown and written as the
+ * constant (`spec/effects.md` §10, #1184).
+ */
+export function isCallersChoice(effect: Typed.Effect, chosen: ReadonlySet<Typed.TypeVariableId>): boolean {
+  return typeof effect === "object" &&
+    ("variable" in effect ? chosen.has(effect.variable) : effect.join.every((variable) => chosen.has(variable)));
+}
 
 function displayType(
   type: Typed.Type,

@@ -5072,6 +5072,12 @@ class Checker {
    * constant `->!`, the caller's choice (Effects §10, #1184).
    */
   readonly #callersChoice = new Set<Variable>();
+  /**
+   * The copies of `#callersChoice` colours a use made, still the caller's
+   * choice there: a report shows them as the constant, as hover shows the face
+   * (Effects §10, #1184). One bound to a colour that is not is no longer.
+   */
+  readonly #chosenAtUse = new Set<Variable>();
   /** The `widens` doors whose bodies are being checked, by `${identity} ${member}`. */
   readonly #openDoors = new Set<string>();
 
@@ -32308,6 +32314,11 @@ class Checker {
       // and a prune may cut the held one out of the other's chain.
       if (this.#heldBackColours.has(variable)) this.#heldBackColours.add(type);
       else if (this.#heldBackColours.has(type)) this.#heldBackColours.add(variable);
+      // A caller's choice tied to a colour that is not one is no longer the caller's.
+      if (this.#chosenAtUse.has(variable) !== this.#chosenAtUse.has(type)) {
+        this.#chosenAtUse.delete(variable);
+        this.#chosenAtUse.delete(type);
+      }
       // A seat's hold on its colour moves with the representative (§13.2), and
       // so does a callback's.
       if (this.#seatHeld.has(variable)) this.#seatHeld.add(type);
@@ -35866,7 +35877,11 @@ class Checker {
    */
   #publishUnheldColours(type: Mono, level: number, allow: boolean): Mono {
     const actual = this.#prune(type);
-    if (actual.kind !== "Function") return type;
+    if (actual.kind !== "Function") {
+      // An expansive value's colours there are not quantified: its first use decides them.
+      if (allow) this.#noteValueChoices(actual, level);
+      return type;
+    }
     const spineHeld = this.#inputVariables(actual);
     const unheld = (part: Variable): boolean => part.level > level && !spineHeld.has(part.id);
     let published = type;
@@ -35883,6 +35898,22 @@ class Checker {
     }
     const colours = new Set(this.#colourVariables(published).filter(unheld).map(({ id }) => id));
     return colours.size === 0 ? published : this.#publishHeld(published, new Map(), colours, level);
+  }
+
+  /**
+   * A value's colours that stand only on the own arrows of a function a
+   * caller hands in (#1184), as `#publishArguments` finds a function's. Its
+   * colours are quantified as they stand, so these are the caller's choice.
+   */
+  #noteValueChoices(type: Mono, level: number): void {
+    const backwards = new Set<number>();
+    const elsewhere = new Set<number>();
+    this.#polarColours(type, true, backwards, elsewhere);
+    for (const variable of this.#colourVariables(type)) {
+      if (variable.level > level && backwards.has(variable.id) && !elsewhere.has(variable.id)) {
+        this.#callersChoice.add(variable);
+      }
+    }
   }
 
   /** Every variable part of every colour in a type, each once. */
@@ -36072,6 +36103,11 @@ class Checker {
     const both = (node: Mono): void => {
       for (const variable of this.#collectVariables(node)) others.add(variable.id);
     };
+    const read = (node: Mono, variance: Variance): void => {
+      if (variance === "co") side(node, false);
+      else if (variance === "contra") side(node, true);
+      else both(node);
+    };
     switch (actual.kind) {
       case "Function":
         for (const colour of colourSlots(actual)) {
@@ -36083,22 +36119,37 @@ class Checker {
       case "Tuple":
         actual.elements.forEach((element) => side(element, false));
         return;
+      case "Record":
+        for (const field of actual.fields.values()) side(field, false);
+        return;
       case "Union":
       case "NominalRecord":
       case "ExternType":
-        actual.arguments.forEach((argument, index) => {
-          const read = actual.kind === "Union"
-            ? this.#variance.effectiveUnion(actual.union, index)
-            : actual.kind === "NominalRecord"
-            ? this.#variance.effectiveRecord(actual.record, index)
-            : this.#variance.externClaim(actual.externType, index);
-          if (read === "co") side(argument, false);
-          else if (read === "contra") side(argument, true);
-          else both(argument);
-        });
+        actual.arguments.forEach((argument, index) =>
+          read(
+            argument,
+            actual.kind === "Union"
+              ? this.#variance.effectiveUnion(actual.union, index)
+              : actual.kind === "NominalRecord"
+              ? this.#variance.effectiveRecord(actual.record, index)
+              : this.#variance.externClaim(actual.externType, index),
+          )
+        );
+        return;
+      case "Vector":
+      case "Set":
+      case "Array":
+      case "JsSet":
+      case "Node":
+        read(actual.element, this.#variance.kindClaim(actual.kind, 0));
         return;
       case "Nullable":
         side(actual.value, false);
+        return;
+      case "Map":
+      case "JsMap":
+        read(actual.key, this.#variance.kindClaim(actual.kind, 0));
+        read(actual.value, this.#variance.kindClaim(actual.kind, 1));
         return;
       default:
         both(type);
@@ -37477,6 +37528,8 @@ class Checker {
         if (this.#heldBackColours.has(actual) && replacement.kind === "Variable") {
           this.#heldBackColours.add(replacement);
         }
+        // A caller's choice is this use's caller's (Effects §10, #1184).
+        if (this.#callersChoice.has(actual) && replacement.kind === "Variable") this.#chosenAtUse.add(replacement);
         if (copiedRequirements.has(actual.id)) return replacement;
         copiedRequirements.add(actual.id);
         for (const requirement of actual.requirements) {
@@ -38455,6 +38508,11 @@ class Checker {
     for (const id of scheme.heldBack ?? []) {
       const variable = minted.get(id);
       if (variable !== undefined) this.#heldBackColours.add(variable);
+    }
+    // And the caller's choice is the caller's here too (Effects §10, #1184).
+    for (const id of scheme.callersChoice ?? []) {
+      const variable = minted.get(id);
+      if (variable !== undefined) this.#callersChoice.add(variable);
     }
     const copy = (type: Typed.Type): Mono => {
       switch (type.kind) {
@@ -43561,6 +43619,9 @@ class Checker {
       // A colour still waiting for its instance shows the contract's constant
       // (Effects §10, §13.3).
       if (this.#colourParts(colour).some((part) => this.#waitingColours.has(part))) return "constant";
+      // So does a use's caller's choice, as hover shows the face (§10, #1184).
+      const parts = this.#colourParts(colour);
+      if (parts.length > 0 && parts.every((part) => this.#chosenAtUse.has(part))) return "constant";
       return "follows";
     };
     const colours: Record<Axis, ShownColour> = { world: shown("world"), fail: shown("fail") };

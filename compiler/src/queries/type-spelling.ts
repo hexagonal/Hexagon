@@ -23,6 +23,7 @@
  */
 
 import { markedArrow } from "../support/arrows.js";
+import { isCallersChoice } from "../syntax/typed/display.js";
 import type * as Resolved from "../syntax/resolved/index.js";
 import type * as Source from "../support/source.js";
 import type * as Typed from "../syntax/typed/index.js";
@@ -210,6 +211,21 @@ export function typeNamesOf(
 export class VariableNames {
   readonly #names = new Map<Typed.TypeVariableId, string>();
   readonly #taken = new Set<string>();
+  readonly #chosen = new Set<Typed.TypeVariableId>();
+
+  /**
+   * Records the scheme's colours that are the caller's choice
+   * (`Scheme.callersChoice`), written as the constant, as hover shows them
+   * (`spec/effects.md` §10, #1184).
+   */
+  choose(ids: Iterable<Typed.TypeVariableId>): void {
+    for (const id of ids) this.#chosen.add(id);
+  }
+
+  /** Whether a colour is the caller's choice, which writes as the constant. */
+  isChosen(effect: Typed.Effect): boolean {
+    return isCallersChoice(effect, this.#chosen);
+  }
 
   /** Reserves a spelling the signature already uses, whatever it names. */
   reserve(name: string): void {
@@ -442,7 +458,11 @@ export function spellType(
       if (type.effect === "error" || type.fail === "error") {
         return { unspellable: "part of the inferred type is unknown, because the definition has an error" };
       }
-      if ((type.effect !== undefined && type.effect !== "impure") || (type.fail !== undefined && type.fail !== "impure")) {
+      // A colour that is the caller's choice is any function: the constant
+      // (`spec/effects.md` §10, #1184).
+      const variable = (effect: Typed.Effect | undefined): boolean =>
+        effect !== undefined && effect !== "impure" && !variables.isChosen(effect);
+      if (variable(type.effect) || variable(type.fail)) {
         return {
           unspellable:
             "this function type's arrow is an effect variable, and writing a following arrow here " +

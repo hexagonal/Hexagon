@@ -128,6 +128,7 @@ export function planReturnAnnotation(
   const type = symbol.scheme.type;
 
   const variables = new VariableNames();
+  variables.choose(symbol.scheme.callersChoice ?? []);
   // Every spelling the signature already uses is reserved before anything is
   // minted, including the type parameters, whose names are declared but need not
   // appear in any annotation.
