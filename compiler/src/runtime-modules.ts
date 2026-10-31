@@ -73,6 +73,14 @@ export interface RuntimeModule {
    * cycle still cannot form.
    */
   readonly precedes?: string;
+  /**
+   * *(#927.)* The library members whose door rows lower to this module's
+   * compiled bodies — an edge only the emitted JavaScript carries, as
+   * `Vector`'s to the trie is. An unseated member is ordered before each of
+   * them, so that everything a consumer's emission imports is emitted before
+   * it.
+   */
+  readonly consumers?: readonly string[];
 }
 
 /**
@@ -97,10 +105,11 @@ export interface RuntimeModule {
 export const RUNTIME_MODULES: readonly RuntimeModule[] = [
   { name: "Runtime.VectorTrie", precedes: "Vector" },
   { name: "Runtime.HashTrie", precedes: "Map" },
-  { name: "Runtime.Regex" },
-].map(({ name, precedes }) => ({
+  { name: "Runtime.Regex", consumers: ["Regex"] },
+].map(({ name, precedes, consumers }: { name: string; precedes?: string; consumers?: readonly string[] }) => ({
   name,
   ...(precedes === undefined ? {} : { precedes }),
+  ...(consumers === undefined ? {} : { consumers }),
   source: STDLIB_SOURCES[name]!,
 }));
 

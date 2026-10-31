@@ -1096,10 +1096,35 @@ export function compileProject(
     unit.injected === "library" ||
     (unit.injected === "runtime" && UNSEATED_RUNTIME_MODULES.has(unit.declaredName));
   const fixedInjected = injectedUnits.filter((unit) => !floats(unit));
-  const orderedLibrary = ordered.flatMap((path) => {
+  const importOrdered = ordered.flatMap((path) => {
     const unit = injectedByPath.get(path);
     return unit !== undefined && floats(unit) ? [unit] : [];
   });
+  // An unseated runtime member also comes before every library member whose
+  // door rows lower to it (`RuntimeModule.consumers`): that edge is the
+  // emitted JavaScript's alone, so the import order above cannot see it.
+  const orderedLibrary = [...importOrdered];
+  for (const module of RUNTIME_MODULES) {
+    for (const consumer of module.consumers ?? []) {
+      const runtimeAt = orderedLibrary.findIndex(({ declaredName }) => declaredName === module.name);
+      const consumerAt = orderedLibrary.findIndex(({ declaredName }) => declaredName === consumer);
+      if (runtimeAt > consumerAt && consumerAt >= 0) {
+        const [runtime] = orderedLibrary.splice(runtimeAt, 1);
+        orderedLibrary.splice(consumerAt, 0, runtime!);
+      }
+    }
+  }
+  // The move must not put a runtime member ahead of what it imports, which
+  // the import order alone guaranteed: a defect in the lists, never the
+  // program's, and refused rather than seated wrongly.
+  for (const [at, unit] of orderedLibrary.entries()) {
+    if (unit.injected !== "runtime") continue;
+    for (const target of importEdges.get(unit.path)?.values() ?? []) {
+      if (orderedLibrary.findIndex(({ path }) => path === target) > at) {
+        throw new Error(`compiler defect: runtime module ${unit.declaredName} is seated before a module it imports`);
+      }
+    }
+  }
   injectedUnits = [...fixedInjected, ...orderedLibrary].map((unit, seat) => ({ ...unit, seat }));
   /** Each injected path's seat, for the "sees only what precedes it" slice. */
   const injectedSeats = new Map(injectedUnits.map(({ path, seat }) => [path, seat!]));
@@ -1285,6 +1310,7 @@ export function compileProject(
       recordBase: injected ? preludeRecordBase : recordBase,
       externTypeBase: injected ? preludeExternTypeBase : externTypeBase,
       privileged: injected,
+      declaresCoreConstraints: injected,
     });
     const dataTyped = check(dataResolved, {
       programNominals,
@@ -1523,16 +1549,17 @@ export function compileProject(
       // compiler supplied it or because the host explicitly trusted a supplied
       // declaration to replace that registered member.
       //
-      // Two seats hold it. Prelude membership is the first. The **runtime
-      // module set** is the second (§5.2's runtime bullet, #365): a runtime
-      // module is already trusted enough to spell `Node`, and the door lets its
-      // new operations arrive as declared, key-verified rows instead of as
-      // growth in the non-declared guard family.
+      // *(#927.)* Every member of the package `Hex` holds it: the prelude, the
+      // runtime modules, and the library members reached by import
+      // (`Hex.Regex`, `Hex.Regex.Syntax`, …), since the door is how a library
+      // member's representation reaches the engine beneath it (§5.2).
       //
-      // The two privileges stay **separate flags**, not one merged notion:
+      // The privileges stay **separate flags**, not one merged notion:
       // `runtime` puts a name in scope and `privileged` opens a declaration
-      // form, and a prelude member holds the second without the first.
-      privileged: isPrelude || isRuntimeModule,
+      // form, and every member but a runtime one holds the second without the
+      // first.
+      privileged: isInjected,
+      declaresCoreConstraints: isPrelude || isRuntimeModule,
       // A primitive's home module is its fixed prelude companion (Constraints
       // §5.3), and nothing in the module's text can say so — a primitive has no
       // declaration. Like the privilege above, the fact follows **membership

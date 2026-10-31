@@ -4,6 +4,8 @@ import { compileProject, Source } from "../index";
 import vectorTrieSource from "../../../stdlib/Runtime/VectorTrie.hex?raw";
 import regexRuntimeSource from "../../../stdlib/Runtime/Regex.hex?raw";
 import { intrinsicKeys } from "../intrinsics";
+import { compileFiles } from "../support/test-project";
+import { STDLIB_SOURCES } from "../stdlib-sources";
 
 /**
  * A mark that claims more than its call does, where the report names no
@@ -100,6 +102,43 @@ describe("the gate (§5)", () => {
    * `JsValue.hex` seated after it and started answering with a `Result`
    * (FFI Part 11 §4.1).
    */
+  /**
+   * *(#927.)* A library member reached by import holds the privilege too
+   * (§5.2): `Hex.Regex.Syntax` declares a door row, and a program importing it
+   * compiles. A project module declaring the same name gains nothing.
+   */
+  test("a library member of `Hex` holds the door, and a project module of its name does not", () => {
+    const importer = compileFiles([["/main.hex",
+      "module Main\n\nimport Hex.Regex.Syntax as Syntax\n\n" +
+      "export let ok: Bool = match Syntax.parse(\"a\")\n    Ok(_) => True\n    Err(_) => False\n"]]);
+    expect(importer.diagnostics.map(({ message }) => message)).toEqual([]);
+    const impostor = compileFiles([["/Syntax.hex",
+      "module Regex.Syntax\n\nextern from \"hex:intrinsic\"\n" +
+      "    fun stringCodepointUnchecked as codepointValue(point: String) -> Int\n"]]);
+    expect(impostor.diagnostics.map(({ message }) => message)).toContain(
+      "the `hex:` specifier scheme is reserved to standard-library source; " +
+      "to bind your own JavaScript implementation, use an ordinary `extern from` " +
+      "block naming your module",
+    );
+  });
+
+  /**
+   * A trusted replacement of a library member takes that member's role and no
+   * more (§5.2): the door, but neither the runtime modules' `Node` nor the
+   * leave to declare a core constraint, which the prelude and runtime members
+   * hold.
+   */
+  test("a trusted library replacement holds the door and nothing a prelude or runtime member holds", () => {
+    const source = STDLIB_SOURCES["Regex.Syntax"]!;
+    const replacing = (extra: string) => compileFiles([["/Syntax.hex", source + extra]], {
+      trustedStandardLibraryModules: new Set(["Regex.Syntax"]),
+    }).diagnostics.map(({ message }) => message);
+    expect(replacing("")).toEqual([]);
+    expect(replacing("\nlet size(node: Node(Int)): Int = 0\n")).toContain("unknown generic type `Node`");
+    expect(replacing("\nconstraint Eq<a> =\n    equal(left: a, right: a) -> Bool\n"))
+      .toContain("constraint `Eq` is pre-registered and cannot be redeclared");
+  });
+
   test("the same text in an explicitly trusted prelude replacement is legal", () => {
     expect(debugDiagnostics([
       ["/main.hex", "module Main\n\n" + "export let ok: Int = 1\n"],
@@ -499,8 +538,11 @@ describe("the `type` form (§3.3)", () => {
    * already declares `buffer`, and a second row for the key beside it is the
    * duplicate refusal rather than whatever the specimen is about.
    */
+  // A bare replacement still names the two operations its wiring exports
+  // (`RUNTIME_WIRINGS`), so that the specimen is the only thing under test.
   function inBareRegexRuntime(block: string): readonly string[] {
-    return diagnostics([["/Regex.hex", `module Runtime.Regex\n\n${block}`]], TRUST_REGEX);
+    return diagnostics([["/Regex.hex",
+      `module Runtime.Regex\n\n${block}\nlet compile: Int = 0\nlet search: Int = 0\n`]], TRUST_REGEX);
   }
 
   /** A specimen in a *runtime* module that is not a named declarer of `buffer`. */
@@ -783,7 +825,8 @@ describe("confinement (§3.3, §11)", () => {
     expect(diagnostics([["/Regex.hex",
       "module Runtime.Regex\n\n" +
       'extern from "hex:intrinsic"\n' +
-      "    export type buffer as Buffer(a)\n",
+      "    export type buffer as Buffer(a)\n" +
+      "\nlet compile: Int = 0\nlet search: Int = 0\n",
     ]], TRUST_REGEX)).toEqual([
       "the intrinsic type `Buffer` is private to this module; drop the `export`",
     ]);
