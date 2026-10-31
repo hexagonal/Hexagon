@@ -695,6 +695,9 @@ const INTRINSIC_OPERATIONS: readonly (readonly [string, number])[] = [
   ["bufferLength", 1],
   ["regexPropertyRanges", 2],
   ["regexFoldOrbit", 1],
+  ["regexCodepointAt", 2],
+  ["regexCodeUnits", 1],
+  ["regexCut", 3],
 ];
 
 /**

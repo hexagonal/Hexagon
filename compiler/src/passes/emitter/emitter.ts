@@ -11855,6 +11855,14 @@ class JavaScriptEmitter {
         return this.#useHelper("regexPropertyRanges");
       case "regexFoldOrbit":
         return this.#useHelper("regexFoldOrbit");
+      // The engine's three reads of the subject by code unit (`regex.md` §7).
+      // `codePointAt` answers a lone surrogate's own value, as §3.6 needs.
+      case "regexCodepointAt":
+        return "(__a, __b) => __a.codePointAt(__b)";
+      case "regexCodeUnits":
+        return "__a => __a.length";
+      case "regexCut":
+        return "(__a, __b, __c) => __a.slice(__b, __c)";
       default:
         // The **operation** grade only (#927): a `fun` row keyed by a *type*
         // key is the author's mistake, already reported by the resolver as a
