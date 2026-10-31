@@ -95,6 +95,15 @@ describe("#1288 an unbound type variable in a declaration is refused", () => {
     ]);
   });
 
+  test("an alias that also leaves a parameter unused gets no edit, which could not reach legal code", () => {
+    const compiled = compileMain("module Main\n\ntype T(a) = b\n");
+    expect(compiled.diagnostics.map(({ message }) => message).sort()).toEqual([
+      "type parameter `a` is not used by alias `T`",
+      "type variable `b` is not a parameter of `T`; a `type` declaration binds every type variable it names: write `type T(a, b)`",
+    ]);
+    expect(compiled.diagnostics.every(({ fixes }) => fixes === undefined || fixes.length === 0)).toBe(true);
+  });
+
   test("a variable reached through an alias is the alias's report, once, even across modules", () => {
     const project = compileFiles([
       ["/main.hex", "module Main\nimport Lib\nunion V = V(Lib.F)\n"],

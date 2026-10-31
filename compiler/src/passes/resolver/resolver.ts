@@ -7012,7 +7012,10 @@ class Resolver {
         `${claim === "co" ? "+" : claim === "contra" ? "-" : ""}${name}`);
     const head = `${form} ${item.name.text}(${[...written, ...added].join(", ")})`;
     const after = (item.parameters.at(-1) ?? item.name).span;
-    const fixes = [{
+    // An alias with an unused parameter is refused for that too, and adding to
+    // its head cannot reach legal code; the two reports stand without an edit.
+    const used = item.kind === "TypeAlias" ? parsedAnnotationTypeVariables(item.annotation) : undefined;
+    const fixes = used !== undefined && item.parameters.some(({ text }) => !used.has(text)) ? undefined : [{
       message: `write \`${head}\``,
       edits: [{
         span: { fileId: after.fileId, start: after.end, end: after.end },
@@ -7025,7 +7028,7 @@ class Resolver {
         message: `type variable \`${name}\` is not a parameter of \`${item.name.text}\`; ` +
           `a \`${form}\` declaration binds every type variable it names: write \`${head}\``,
         primary: span,
-        fixes,
+        ...(fixes === undefined ? {} : { fixes }),
       });
     }
   }
