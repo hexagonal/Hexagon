@@ -125,7 +125,8 @@ describe("the gate (§5)", () => {
   /**
    * A trusted replacement of a library member takes that member's role and no
    * more (§5.2): the door, but neither the runtime modules' `Node` nor the
-   * prelude's leave to declare a core constraint.
+   * leave to declare a core constraint, which the prelude and runtime members
+   * hold.
    */
   test("a trusted library replacement holds the door and nothing a prelude or runtime member holds", () => {
     const source = STDLIB_SOURCES["Regex.Syntax"]!;

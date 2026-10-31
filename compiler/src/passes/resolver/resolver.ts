@@ -717,7 +717,7 @@ export interface ResolveOptions {
   /**
    * Whether this module may declare the core constraints the prelude declares
    * (`NON_REDECLARABLE_CONSTRAINTS`) rather than having them refused as twins: a
-   * **prelude** member's privilege alone, which follows membership as
+   * prelude or runtime member's privilege, which follows membership as
    * `privileged` does. A library member of `Hex` holds the door without it
    * (#927): opening the door to every member opened nothing else.
    */

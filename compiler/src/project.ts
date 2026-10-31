@@ -1534,7 +1534,7 @@ export function compileProject(
       // form, and every member but a runtime one holds the second without the
       // first.
       privileged: isInjected,
-      declaresCoreConstraints: isPrelude,
+      declaresCoreConstraints: isPrelude || isRuntimeModule,
       // A primitive's home module is its fixed prelude companion (Constraints
       // §5.3), and nothing in the module's text can say so — a primitive has no
       // declaration. Like the privilege above, the fact follows **membership
