@@ -44,13 +44,15 @@ function supplied(
 }
 
 /**
- * The member in the last seat: the last runtime member with no seat of its own,
- * which follows the library members it may import, or else the last library
- * member.
+ * The member in the last seat: the library member a runtime member with no
+ * seat of its own is ordered before (`RuntimeModule.consumers`), or that runtime
+ * member, which follows the library members it imports, or else the last
+ * library member.
  */
 function lastSeat(): { readonly name: string; readonly source: string } {
-  return RUNTIME_MODULES.filter(({ precedes }) => precedes === undefined).at(-1) ??
-    LIBRARY_MODULES.at(-1)!;
+  const unseated = RUNTIME_MODULES.filter(({ precedes }) => precedes === undefined).at(-1);
+  const consumer = unseated?.consumers?.at(-1);
+  return LIBRARY_MODULES.find(({ name }) => name === consumer) ?? unseated ?? LIBRARY_MODULES.at(-1)!;
 }
 
 function replacing(

@@ -1,0 +1,261 @@
+module Regex
+
+// Regular expressions (`spec/regex.md`): the dialect of §2, matched as §3 says,
+// through the surface of §4. A pattern is parsed by `Regex.Syntax` and compiled
+// by the engine `Hex.Runtime.Regex`, which this module reaches through two
+// sealed rows (§7): everything here is ordinary pure Hexagon over them.
+
+import Regex.Syntax as Syntax
+
+extern from "hex:intrinsic"
+    // The engine's compiled program, confined to this module (Intrinsics §3.3):
+    // it travels only inside the opaque `Regex`.
+    type regexProgram as Program
+
+    // The program for a parsed pattern. A value function of its argument: the
+    // storage it fills it freezes before it returns (Effects §6.2, species (d)).
+    fun regexCompile as compileProgram(syntax: Syntax.Pattern) -> Program
+
+    // The leftmost-first match at or after `start`: each group's span and text
+    // with `spans` set, only whether there is one with it clear, and the cursor
+    // the next search resumes from (§6.2). The cursor is `(1, 0)` or one this
+    // row answered for the same text; anything else is a defect of this module.
+    fun regexSearch as searchProgram(
+        program: Program,
+        text: String,
+        start: Int,
+        cursor: (Int, Int),
+        spans: Bool,
+    ) -> Option((Vector(Option((Int, Int, String))), (Int, Int)))
+
+(** A compiled pattern: a value, immutable and sharable. Two regexes are compared
+    by their `source`. *)
+opaque record Regex = { source: String, groupCount: Int, names: Map(String, Int), program: Program }
+
+(** One match against one subject: the whole match, every capturing group, and
+    the group names. Read it with `start`, `length`, `text`, `group`, `named`
+    and `groups`. *)
+opaque record Match = { whole: Group, groups: Vector(Option(Group)), names: Map(String, Int) }
+
+(** A captured span: its 1-based codepoint start, its length in codepoints, and
+    its text. *)
+export record Group derives (Eq, Show) = { start: Int, length: Int, text: String }
+
+honor Show<Regex> =
+    (** The pattern the regex was compiled from. *)
+    show(regex) = regex.source
+
+// ---------------------------------------------------------------------------
+// Compilation (§4.2)
+
+(** Compiles `pattern`, or answers why it is not one: the message and the
+    1-based position of the first fault (§2.9). *)
+export let compile(pattern: String): Result(Regex, Syntax.RegexError) = match Syntax.parse(pattern)
+    Ok(parsed) => Ok(Regex({
+        source = pattern,
+        groupCount = parsed.groupCount,
+        names = parsed.names,
+        program = compileProgram(parsed),
+    }))
+    Err(error) => Err(error)
+
+// Whether a codepoint is one `escape` writes behind a backslash: a
+// metacharacter in any position, or White_Space.
+let needsEscape(point: String): Bool =
+    point == "\\" or point == "." or point == "+" or point == "*" or point == "?" or point == "(" or
+        point == ")" or point == "|" or point == "[" or point == "]" or point == "{" or point == "}" or
+        point == "^" or point == "$" or point == "#" or point == "-" or String.trim(point) == ""
+
+(** `text` as a pattern matching exactly `text`, under every flag: a backslash
+    before every metacharacter and every White_Space codepoint. The sanctioned
+    way to put untrusted text in a pattern. *)
+export let escape(text: String): String =
+    var chunks: Vector(String) = []
+    for point in text
+        chunks := chunks.append(if needsEscape(point) then "\\" ++ point else point)
+    String.join(Iterable.toSeq(chunks), "")
+
+(** The pattern `regex` was compiled from. *)
+export let source(regex: Regex): String = regex.source
+
+(** The number of capturing groups, group 0 not counted. *)
+export let groupCount(regex: Regex): Int = regex.groupCount
+
+(** The number of the group `name` names, or `None` if the pattern names none. *)
+export let groupIndex(regex: Regex, name: String): Option(Int) = Map.get(regex.names, name)
+
+// ---------------------------------------------------------------------------
+// Searching (§4.3)
+
+let groupOf(span: Option((Int, Int, String))): Option(Group) = match span
+    Some((start, length, text)) => Some(Group({ start = start, length = length, text = text }))
+    None => None
+
+// The `Match` the search row answered: group 0 first, then each group.
+let matchOf(regex: Regex, spans: Vector(Option((Int, Int, String)))): Match =
+    var groups: Vector(Option(Group)) = []
+    var index = 2
+    while index <= Vector.length(spans)
+        groups := groups.append(groupOf(spans[index]))
+        index := index + 1
+    // Group 0 is always present in an answer with spans (§3.3), so the
+    // fallback is unreachable; it is there because `Option` must be matched.
+    let whole = match groupOf(spans[1])
+        Some(group) => group
+        None => Group({ start = 1, length = 0, text = "" })
+    Match({ whole = whole, groups = groups, names = regex.names })
+
+(** Whether `regex` matches anywhere in `text`. *)
+export let isMatch(regex: Regex, text: String): Bool = match searchProgram(regex.program, text, 1, (1, 0), False)
+    Some(_) => True
+    None => False
+
+(** The leftmost match starting at position `start` or later. The whole text is
+    still the subject: `^`, `\b` and `$` see the codepoints before `start`. A
+    `start` below 1 acts as 1. *)
+export let findFrom(regex: Regex, text: String, start: Int): Option(Match) =
+    let from = if start < 1 then 1 else start
+    match searchProgram(regex.program, text, from, (1, 0), True)
+        Some((spans, _)) => Some(matchOf(regex, spans))
+        None => None
+
+(** The leftmost match in `text`, or `None` (§3.2). *)
+export let find(regex: Regex, text: String): Option(Match) = findFrom(regex, text, 1)
+
+// The enumeration's state: where the next search starts, the cursor it starts
+// from, and where the previous match ended (-1 before the first).
+record Enumeration = { start: Int, cursor: (Int, Int), previousEnd: Int }
+
+// The next match of §3.5's enumeration and the state after it: an empty match
+// abutting the previous match is skipped, and after any empty match the search
+// resumes one codepoint past it.
+let nextMatch(regex: Regex, text: String, state: Enumeration): Option((Match, Enumeration)) =
+    var current = state
+    var answer = None
+    var searching = True
+    while searching
+        match searchProgram(regex.program, text, current.start, current.cursor, True)
+            None => searching := False
+            Some((spans, cursor)) =>
+                let found = matchOf(regex, spans)
+                let end = found.whole.start + found.whole.length
+                let empty = found.whole.length == 0
+                let resume = if empty then end + 1 else end
+                if empty and found.whole.start == current.previousEnd then
+                    current := Enumeration({ start = resume, cursor = cursor, previousEnd = -1 })
+                else
+                    answer := Some((found, Enumeration({ start = resume, cursor = cursor, previousEnd = end })))
+                    searching := False
+    answer
+
+(** Every match in `text`, left to right, without overlapping (§3.5): lazy, and
+    re-derived on each traversal. *)
+export let findAll(regex: Regex, text: String): Seq(Match) =
+    Seq.unfold(Enumeration({ start = 1, cursor = (1, 0), previousEnd = -1 }), (state) => nextMatch(regex, text, state))
+
+// ---------------------------------------------------------------------------
+// Replacement and splitting (§4.4)
+
+// The matches of the enumeration, all of them or the first.
+let matchesOf(regex: Regex, text: String, all: Bool): Vector(Match) =
+    if all then Vector.fromSeq(findAll(regex, text)) else Vector.fromSeq(Seq.take(findAll(regex, text), 1))
+
+// The text between the matches, in one pass over the subject's codepoints:
+// one more run than there are matches.
+let runsBetween(text: String, matches: Vector(Match)): Vector(String) =
+    var runs: Vector(String) = []
+    var chunks: Vector(String) = []
+    var position = 1
+    var index = 1
+    let count = Vector.length(matches)
+    for point in text
+        // Close every run that ends here: a match starting at this position,
+        // empty ones included, then skip what the match covers.
+        while index <= count and matches[index].whole.start == position
+            runs := runs.append(String.join(Iterable.toSeq(chunks), ""))
+            chunks := []
+            index := index + 1
+        let inside = index > 1 and position < matches[index - 1].whole.start + matches[index - 1].whole.length
+        if not inside then chunks := chunks.append(point)
+        position := position + 1
+    while index <= count
+        runs := runs.append(String.join(Iterable.toSeq(chunks), ""))
+        chunks := []
+        index := index + 1
+    runs.append(String.join(Iterable.toSeq(chunks), ""))
+
+// The runs with each match's replacement between them.
+let interleaved(runs: Vector(String), replacements: Vector(String)): String =
+    var chunks: Vector(String) = [runs[1]]
+    var index = 1
+    while index <= Vector.length(replacements)
+        chunks := chunks.append(replacements[index]).append(runs[index + 1])
+        index := index + 1
+    String.join(Iterable.toSeq(chunks), "")
+
+let replaceLiteral(regex: Regex, text: String, replacement: String, all: Bool): String =
+    let matches = matchesOf(regex, text, all)
+    var replacements: Vector(String) = []
+    for _ in matches
+        replacements := replacements.append(replacement)
+    interleaved(runsBetween(text, matches), replacements)
+
+(** `text` with every match replaced by `replacement`, unchanged: there is no
+    `$1` or `\1` in it (§4.4). *)
+export let replace(regex: Regex, text: String, replacement: String): String =
+    replaceLiteral(regex, text, replacement, True)
+
+(** `text` with its first match replaced by `replacement`, unchanged. *)
+export let replaceFirst(regex: Regex, text: String, replacement: String): String =
+    replaceLiteral(regex, text, replacement, False)
+
+let replaceComputed(regex: Regex, text: String, replacement: Match ->! String, all: Bool): String =
+    let matches = matchesOf(regex, text, all)
+    var replacements: Vector(String) = []
+    for found in matches
+        replacements := replacements.append(replacement!(found))
+    interleaved(runsBetween(text, matches), replacements)
+
+(** `text` with every match replaced by what `replacement` makes of it, called
+    once per match, in order. *)
+export let replaceWith(regex: Regex, text: String, replacement: Match ->! String): String =
+    replaceComputed!(regex, text, replacement, True)
+
+(** `text` with its first match replaced by what `replacement` makes of it. *)
+export let replaceFirstWith(regex: Regex, text: String, replacement: Match ->! String): String =
+    replaceComputed!(regex, text, replacement, False)
+
+(** The pieces of `text` between the matches, empty pieces kept at both ends and
+    between adjacent matches. *)
+export let split(regex: Regex, text: String): Vector(String) = runsBetween(text, matchesOf(regex, text, True))
+
+// ---------------------------------------------------------------------------
+// `Match` accessors (§4.5)
+
+(** Where the whole match starts: a 1-based codepoint position. *)
+export let start(found: Match): Int = found.whole.start
+
+(** The whole match's length in codepoints. *)
+export let length(found: Match): Int = found.whole.length
+
+(** The whole match's text. *)
+export let text(found: Match): String = found.whole.text
+
+(** Group `index`: 0 the whole match, `1` to `groupCount` a capture, `None` where
+    the group took no part or the index is out of range. *)
+export let group(found: Match, index: Int): Option(Group) =
+    if index == 0 then
+        Some(found.whole)
+    else if index >= 1 and index <= Vector.length(found.groups) then
+        found.groups[index]
+    else
+        None
+
+(** The group `name` names, as `group` answers it; `None` for a name the
+    pattern does not define. *)
+export let named(found: Match, name: String): Option(Group) = match Map.get(found.names, name)
+    Some(index) => group(found, index)
+    None => None
+
+(** Groups 1 to `groupCount`, in order. *)
+export let groups(found: Match): Vector(Option(Group)) = found.groups

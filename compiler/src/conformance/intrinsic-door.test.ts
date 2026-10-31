@@ -538,8 +538,11 @@ describe("the `type` form (§3.3)", () => {
    * already declares `buffer`, and a second row for the key beside it is the
    * duplicate refusal rather than whatever the specimen is about.
    */
+  // A bare replacement still names the two operations its wiring exports
+  // (`RUNTIME_WIRINGS`), so that the specimen is the only thing under test.
   function inBareRegexRuntime(block: string): readonly string[] {
-    return diagnostics([["/Regex.hex", `module Runtime.Regex\n\n${block}`]], TRUST_REGEX);
+    return diagnostics([["/Regex.hex",
+      `module Runtime.Regex\n\n${block}\nlet compile: Int = 0\nlet search: Int = 0\n`]], TRUST_REGEX);
   }
 
   /** A specimen in a *runtime* module that is not a named declarer of `buffer`. */
@@ -822,7 +825,8 @@ describe("confinement (§3.3, §11)", () => {
     expect(diagnostics([["/Regex.hex",
       "module Runtime.Regex\n\n" +
       'extern from "hex:intrinsic"\n' +
-      "    export type buffer as Buffer(a)\n",
+      "    export type buffer as Buffer(a)\n" +
+      "\nlet compile: Int = 0\nlet search: Int = 0\n",
     ]], TRUST_REGEX)).toEqual([
       "the intrinsic type `Buffer` is private to this module; drop the `export`",
     ]);
