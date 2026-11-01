@@ -2,8 +2,9 @@
 
 **Status:** Normative. The public surface was agreed on 2026-09-06 and promoted
 on 2026-09-16 after the runtime String-domain and Unicode-version questions were
-settled. This document owns the text-processing operations exported by
-`stdlib/String.hex`.
+settled; amended 2026-11-01 — §1 and §11 state `length`'s cost and that scans
+read through Collections Part 3 §9's positions (#1413). This document owns the
+text-processing operations exported by `stdlib/String.hex`.
 
 **Home:** Public companion functions in `stdlib/String.hex`. Related Vector
 changes are kept separately in [Vector API follow-ups](notes/vector-string-api-followups.md).
@@ -24,7 +25,10 @@ String.length(text: String): Int
 ```
 
 It counts the codepoint items described above. The text-processing operations
-below build on that same unit.
+below build on that same unit. `length` is O(n) on a string's first read and
+O(log n) on a string read again: it finds the last nonempty one-codepoint
+window, and Collections Part 3 §9 keeps a string's positions once it has been
+read.
 
 Hexagon remains representation-compatible with every JavaScript string. A
 well-formed surrogate pair is one codepoint. A lone leading or trailing
@@ -321,7 +325,9 @@ ordinary source uses, including `Iterable` and `Vector`. This is a dependency
 order, not a new public import or a cyclic exception.
 
 Operations perform at least the traversal their result requires. Codepoint
-scans are linear in the traversed input. Output-producing operations also count
+scans are linear in the traversed input: they read the text by a forward pass or
+through brackets, whose positions Collections Part 3 §9 keeps, never through a
+copy of the whole text. Output-producing operations also count
 the produced output, including expanded case mappings and folds. `join` counts
 sequence traversal even when every element and separator is empty. Search
 algorithms state their implemented bound; no blanket constant-time String

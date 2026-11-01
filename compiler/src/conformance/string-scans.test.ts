@@ -1,0 +1,198 @@
+import fc from "fast-check";
+import { beforeAll, describe, expect, test } from "vitest";
+
+import { runMain } from "../support/test-project.js";
+
+/**
+ * #1413: **String's scans read the text, not a copy of it.** `stdlib/String.hex`
+ * used to start most operations by copying the whole text into a vector of
+ * codepoints, so `length`, `startsWith` and every search paid about 250 ns per
+ * codepoint of the text on every call. They now read it through brackets,
+ * which Collections Part 3 §9's position table makes amortised O(1) on a
+ * string read again, and `length` finds the last nonempty one-codepoint window
+ * by doubling and halving, O(log n) once the string has been read.
+ *
+ * The oracle is the old reading: the text as `Array.from` codepoints, which
+ * pairs a high surrogate with a following low one and leaves every other
+ * surrogate a codepoint of its own (String Text Processing §1).
+ */
+
+const SOURCE = `module Main
+
+export let size(text: String): Int = text.length()
+export let starts(text: String, prefix: String): Bool = text.startsWith(prefix)
+export let ends(text: String, suffix: String): Bool = text.endsWith(suffix)
+export let first(text: String, target: String): Int = match text.indexOf(target)
+    Some(at) => at
+    None => 0
+export let last(text: String, target: String): Int = match text.lastIndexOf(target)
+    Some(at) => at
+    None => 0
+export let pieces(text: String, delimiter: String): Vector(String) = text.split(delimiter)
+export let code(text: String): Int = match text.toCodepoint()
+    Some(value) => value
+    None => -1
+export let piecesCi(text: String, delimiter: String): Vector(String) = text.splitCi(delimiter)
+export let replacedCi(text: String, target: String): String = text.replaceCi(target, "_")
+export let lastCi(text: String, target: String): Int = match text.lastIndexOfCi(target)
+    Some(at) => at
+    None => 0
+`;
+
+type Exports = {
+  readonly size: (text: string) => number;
+  readonly starts: (text: string, prefix: string) => boolean;
+  readonly ends: (text: string, suffix: string) => boolean;
+  readonly first: (text: string, target: string) => number;
+  readonly last: (text: string, target: string) => number;
+  readonly pieces: (text: string, delimiter: string) => readonly string[] | Iterable<string>;
+  readonly code: (text: string) => number;
+  readonly piecesCi: (text: string, delimiter: string) => Iterable<string>;
+  readonly replacedCi: (text: string, target: string) => string;
+  readonly lastCi: (text: string, target: string) => number;
+};
+
+let main: Exports;
+
+beforeAll(async () => {
+  main = (await runMain(SOURCE)) as unknown as Exports;
+});
+
+const points = (text: string): string[] => Array.from(text);
+
+/** Whether `target`'s codepoints occur in `source`'s at 0-based `at`. */
+function occursAt(source: string[], target: string[], at: number): boolean {
+  if (at < 0 || at + target.length > source.length) return false;
+  return target.every((point, offset) => source[at + offset] === point);
+}
+
+function oracleFirst(text: string, target: string): number {
+  const source = points(text);
+  const wanted = points(target);
+  if (wanted.length === 0) return 1;
+  for (let at = 0; at < source.length; at += 1) if (occursAt(source, wanted, at)) return at + 1;
+  return 0;
+}
+
+function oracleLast(text: string, target: string): number {
+  const source = points(text);
+  const wanted = points(target);
+  if (wanted.length === 0) return source.length + 1;
+  let found = 0;
+  for (let at = 0; at < source.length; at += 1) if (occursAt(source, wanted, at)) found = at + 1;
+  return found;
+}
+
+function oracleSplit(text: string, delimiter: string): string[] {
+  const source = points(text);
+  const wanted = points(delimiter);
+  if (wanted.length === 0) return ["", ...source, ""];
+  const result: string[] = [];
+  let from = 0;
+  let at = 0;
+  while (at < source.length) {
+    if (occursAt(source, wanted, at)) {
+      result.push(source.slice(from, at).join(""));
+      at += wanted.length;
+      from = at;
+    } else {
+      at += 1;
+    }
+  }
+  result.push(source.slice(from).join(""));
+  return result;
+}
+
+// Every surrogate shape, as Part 3 §9's own tests use: letters on both sides
+// of Latin-1, an astral character (a pair), and the three halves alone, which
+// pair up with each other only when a high one happens to precede a low one.
+const unit = fc.constantFrom("a", "b", "é", "😀", "\uD800", "\uDBFF", "\uDC00");
+// Up to 150 pieces, so texts land on both sides of the position table's
+// 32-unit threshold and cross its 64-codepoint stride.
+const text = fc.array(unit, { maxLength: 150 }).map((pieces) => pieces.join(""));
+const needle = fc.array(unit, { maxLength: 3 }).map((pieces) => pieces.join(""));
+
+describe("the scans answer what the codepoint reading answers", () => {
+  test("`length` counts codepoints, every size from 0 to past two strides", () => {
+    for (const piece of ["a", "😀", "\uD800", "a😀", "\uDC00\uD800"]) {
+      for (let count = 0; count <= 140; count += 1) {
+        const value = piece.repeat(count);
+        expect(main.size(value)).toBe(points(value).length);
+      }
+    }
+    fc.assert(fc.property(text, (value) => {
+      expect(main.size(value)).toBe(points(value).length);
+    }), { numRuns: 1000 });
+  });
+
+  test("`startsWith` and `endsWith` compare codepoints, a pair never split", () => {
+    fc.assert(fc.property(text, needle, (value, affix) => {
+      const source = points(value);
+      const wanted = points(affix);
+      expect(main.starts(value, affix)).toBe(occursAt(source, wanted, 0));
+      expect(main.ends(value, affix)).toBe(occursAt(source, wanted, source.length - wanted.length));
+    }), { numRuns: 1000 });
+    expect(main.starts("𐀀", "\uD800")).toBe(false);
+    expect(main.ends("𐀀", "\uDC00")).toBe(false);
+  });
+
+  test("`indexOf`, `lastIndexOf` and `split` find the same matches", () => {
+    fc.assert(fc.property(text, needle, (value, target) => {
+      expect(main.first(value, target)).toBe(oracleFirst(value, target));
+      expect(main.last(value, target)).toBe(oracleLast(value, target));
+      expect(Array.from(main.pieces(value, target) as Iterable<string>)).toEqual(oracleSplit(value, target));
+    }), { numRuns: 1000 });
+  });
+
+  /**
+   * The `Ci` family compares the text's folded codepoints with the folded
+   * target, so a target that folding changes must still match: an uppercase
+   * letter, and `ß`, whose full folding is `ss` (String Text Processing §5).
+   */
+  test("the `Ci` searches match a target that folding changes", () => {
+    expect(Array.from(main.piecesCi("aXbxc", "X"))).toEqual(["a", "b", "c"]);
+    expect(Array.from(main.piecesCi("maßeMASSE", "SS"))).toEqual(["ma", "eMA", "E"]);
+    expect(main.replacedCi("aXbxc", "X")).toBe("a_b_c");
+    expect(main.replacedCi("Straße", "SS")).toBe("Stra_e");
+    expect(main.lastCi("aXbxc", "X")).toBe(4);
+    expect(main.lastCi("Straße", "SS")).toBe(5);
+  });
+
+  test("`toCodepoint` still answers only for one scalar value", () => {
+    expect(main.code("😀")).toBe(0x1F600);
+    expect(main.code("a")).toBe(0x61);
+    expect(main.code("")).toBe(-1);
+    expect(main.code("ab")).toBe(-1);
+    expect(main.code("\uD800")).toBe(-1);
+    expect(main.code("😀".repeat(40))).toBe(-1);
+  });
+});
+
+describe("the cost: a question about a long text no longer copies it", () => {
+  /**
+   * The bound separates "the whole text on every call" from "a scan once,
+   * then O(log n) or the prefix". Before #1413, 1,000 `length` calls on a
+   * 205,307-character text took 48 s and 1,000 `startsWith` calls 50 s; the
+   * loops below, on 100,000 codepoints, would take over 20 s each. Afterwards
+   * each runs in tens of milliseconds.
+   */
+  const BOUND_MS = 5_000;
+
+  test("1,000 `length` and `startsWith` calls on a 100,000-codepoint text", async () => {
+    const program = await runMain(`module Main
+
+export let asked(text: String): Int =
+    var total = 0
+    for _ in 1..1000
+        total := total + text.length()
+        if text.startsWith("12") then total := total + 1
+        if text.endsWith("90") then total := total + 1
+    total
+`) as { asked: (text: string) => number };
+    for (const value of ["1234567890".repeat(10_000), "1234😀67890".repeat(10_000)]) {
+      const started = Date.now();
+      expect(program.asked(value)).toBe(1000 * (points(value).length + 2));
+      expect(Date.now() - started).toBeLessThan(BOUND_MS);
+    }
+  });
+});
