@@ -13896,6 +13896,7 @@ type Helper =
   | "vectorOf"
   | "vectorSet"
   | "vectorSlice"
+  | "stringPositions"
   | "stringIndex"
   | "stringSlice"
   | "stableHash"
@@ -13977,13 +13978,13 @@ const HELPER_DEPENDENCIES: Readonly<Record<Helper, readonly Helper[]>> = {
   vectorOf: [],
   vectorSet: [],
   vectorSlice: [],
-  // Empty since the trie: `stringIndex`/`stringSlice` reached the vector
-  // helpers when a `Vector(a)` was a JS array and a codepoint array was one.
-  // Each now carries its own array reading (§9), because a string is not a
-  // trie and re-tying them would put the codepoint path through a trie
-  // build it has no use for.
-  stringIndex: [],
-  stringSlice: [],
+  // `stringIndex`/`stringSlice` reached the vector helpers when a `Vector(a)`
+  // was a JS array and a codepoint array was one. A string is not a trie, so
+  // since the trie each reads its own codepoint positions (§9), both through
+  // the one position memo (#1410).
+  stringPositions: [],
+  stringIndex: ["stringPositions"],
+  stringSlice: ["stringPositions"],
   stableHash: [],
   mixHash: [],
   hashTrieMix: [],
@@ -15280,17 +15281,97 @@ function renderHelper(
     // the vector helpers over a codepoint array, and stopped when `Vector(a)`
     // became a trie — a string is not one, and `Array.from` of one is not a
     // vector. The duplicated bounds arithmetic below is the price of that, and
-    // the honest price: these two are the only place the array reading lives
-    // now, so nothing about them can drift when the trie changes.
+    // the honest price: these two are the only place the codepoint reading
+    // lives, so nothing about them can drift when the trie changes.
+    //
+    // Both read positions through `stringPositions`, so §9's cost is O(n) in
+    // the worst case and amortised O(1) when one string is indexed again
+    // (#1410). Before it, each bracket copied the whole string into a codepoint
+    // array to read one element, and a `lines()` over a long text paid that
+    // once per line.
+    case "stringPositions":
+      // Where a string's codepoints start, as JavaScript offsets. `null` means
+      // no surrogate pair, so every code unit is one codepoint and a position
+      // is its own offset. Otherwise the answer is `{ size, marks }`: `size`
+      // is the codepoint count and `marks[k]` the offset of codepoint
+      // `64 * k` (0-based). `${name}Unit` finds codepoint `point < size` by
+      // walking at most 63 codepoints from the nearest mark below it; a window
+      // that reaches the end is cut at the string's length instead. The table
+      // is sparse on purpose, as Swift's breadcrumbs are: a dense one costs a
+      // number per codepoint for as long as the memo keeps it. A pair is a
+      // high surrogate followed by a low one; any other surrogate is a
+      // codepoint of its own, as §9 and `Array.from` read it.
+      //
+      // The scan stops looking for pairs at the first one it finds, and every
+      // code unit before it is a codepoint, so the marks below it are their
+      // own offsets: one pass, however late the first pair comes.
+      //
+      // The four most recently read strings keep their answers, most recent
+      // first. The memo is transparent on Effects §6.2's terms for an owned
+      // memo: the answer is a function of the string's contents alone, so a
+      // hit and a miss are indistinguishable to every caller. Its price, which
+      // §9 states, is that in each module that brackets strings the four
+      // strings and their marks stay reachable until four others displace
+      // them. A string shorter than 32 code units is scanned each time
+      // instead, which costs no more than a lookup and never evicts a long
+      // string from the four.
+      return [
+        `const ${name}Recent = [];`,
+        `function ${name}Pair(__text, __unit) {`,
+        "  const __code = __text.charCodeAt(__unit);",
+        "  if (__code < 0xD800 || __code > 0xDBFF || __unit + 1 >= __text.length) return false;",
+        "  const __next = __text.charCodeAt(__unit + 1);",
+        "  return __next >= 0xDC00 && __next <= 0xDFFF;",
+        "}",
+        `function ${name}Unit(__text, __entry, __point) {`,
+        "  let __unit = __entry.marks[__point >> 6];",
+        `  for (let __step = __point & 63; __step > 0; __step -= 1) __unit += ${name}Pair(__text, __unit) ? 2 : 1;`,
+        "  return __unit;",
+        "}",
+        `function ${name}(__text) {`,
+        `  const __recent = ${name}Recent;`,
+        "  for (let __slot = 0; __slot < __recent.length; __slot += 1) {",
+        "    const __kept = __recent[__slot];",
+        "    if (__kept.text === __text) {",
+        "      if (__slot > 0) { __recent.splice(__slot, 1); __recent.unshift(__kept); }",
+        "      return __kept.entry;",
+        "    }",
+        "  }",
+        "  const __length = __text.length;",
+        "  let __first = 0;",
+        `  while (__first < __length && !${name}Pair(__text, __first)) __first += 1;`,
+        "  let __entry = null;",
+        "  if (__first < __length) {",
+        "    const __marks = [];",
+        "    for (let __point = 0; __point < __first; __point += 64) __marks.push(__point);",
+        "    let __unit = __first;",
+        "    let __point = __first;",
+        "    while (__unit < __length) {",
+        "      if ((__point & 63) === 0) __marks.push(__unit);",
+        `      __unit += ${name}Pair(__text, __unit) ? 2 : 1;`,
+        "      __point += 1;",
+        "    }",
+        "    __entry = { size: __point, marks: __marks };",
+        "  }",
+        "  if (__length >= 32) {",
+        "    __recent.unshift({ text: __text, entry: __entry });",
+        "    if (__recent.length > 4) __recent.pop();",
+        "  }",
+        "  return __entry;",
+        "}",
+      ];
     case "stringIndex":
       return [
         `function ${name}(__text, __index) {`,
-        `  const __points = ${spell("Array")}.from(__text);`,
-        `  if (__index < 1 || __index > __points.length) { const __error = new ${
+        `  const __entry = ${dependencyName("stringPositions")}(__text);`,
+        "  const __size = __entry === null ? __text.length : __entry.size;",
+        `  if (__index < 1 || __index > __size) { const __error = new ${
           spell("RangeError")
         }` +
-        "(`index ${__index} out of bounds for size ${__points.length}`); __error.name = \"IndexFault\"; __error.$hex = " + JSON.stringify(HEX_VECTOR) + "; __error.index = __index; __error.size = __points.length; throw __error; }",
-        "  return __points[__index - 1];",
+        "(`index ${__index} out of bounds for size ${__size}`); __error.name = \"IndexFault\"; __error.$hex = " + JSON.stringify(HEX_VECTOR) + "; __error.index = __index; __error.size = __size; throw __error; }",
+        "  if (__entry === null) return __text[__index - 1];",
+        `  const __unit = ${dependencyName("stringPositions")}Unit(__text, __entry, __index - 1);`,
+        `  return ${dependencyName("stringPositions")}Pair(__text, __unit) ? __text.slice(__unit, __unit + 2) : __text[__unit];`,
         "}",
       ];
     case "stringSlice":
@@ -15298,9 +15379,14 @@ function renderHelper(
         `function ${name}(__text, __range) {`,
         `  if (__range.descending) { const __error = new ${spell("RangeError")}` +
         "(\"a slice window cannot descend\"); __error.name = \"SliceFault\"; __error.$hex = " + JSON.stringify(HEX_VECTOR) + "; __error.start = __range.start; __error.end = __range.end; throw __error; }",
-        `  return ${spell("Array")}.from(__text).slice(${spell("Math")}.max(0, __range.start - 1), ${
-          spell("Math")
-        }.max(0, __range.end)).join("");`,
+        `  const __entry = ${dependencyName("stringPositions")}(__text);`,
+        "  const __size = __entry === null ? __text.length : __entry.size;",
+        `  const __start = ${spell("Math")}.max(0, __range.start - 1);`,
+        `  const __end = ${spell("Math")}.min(__size, ${spell("Math")}.max(0, __range.end));`,
+        "  if (__start >= __end) return \"\";",
+        "  if (__entry === null) return __text.slice(__start, __end);",
+        `  const __to = __end === __size ? __text.length : ${dependencyName("stringPositions")}Unit(__text, __entry, __end);`,
+        `  return __text.slice(${dependencyName("stringPositions")}Unit(__text, __entry, __start), __to);`,
         "}",
       ];
     // ---------------------------------------------------------------------

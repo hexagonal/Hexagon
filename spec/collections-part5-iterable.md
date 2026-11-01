@@ -249,7 +249,7 @@ This closes the question Loops §11.6 left open, in the only way it could close:
 
 - Hexagon has no `Char` (Primitive Types §5.1); a one-codepoint `String` is the established unit — it is exactly what `s[i]` returns (Part 3 §9).
 - Part 2 §8 already carried `String` in the iterable inventory; Part 3 §9 already tells users "the linear idiom is `for c in s`". The source declaration now makes that capability visible where readers meet the type.
-- **`for c in s` is O(n) total** — a single pass — which is precisely the escape from the O(n²) bracket-in-a-loop trap Part 3 §9 warns about. The doc states the pairing: brackets for occasional access, the loop for traversal.
+- **`for c in s` is O(n) total** — a single pass that keeps nothing. Brackets reach the same total over one string once Part 3 §9's memo holds its positions, and scan per access past what the memo holds; the loop is the traversal idiom that never depends on it.
 - Grapheme-cluster iteration, if it ever ships, is a named stdlib function (mirroring Part 3 §9's indexing stance); the instance is codepoints, permanently.
 
 ### 5.2 `String.toSeq`
