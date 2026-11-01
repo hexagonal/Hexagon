@@ -13753,6 +13753,7 @@ type Helper =
   | "vectorOf"
   | "vectorSet"
   | "vectorSlice"
+  | "stringPositions"
   | "stringIndex"
   | "stringSlice"
   | "stableHash"
@@ -13834,13 +13835,13 @@ const HELPER_DEPENDENCIES: Readonly<Record<Helper, readonly Helper[]>> = {
   vectorOf: [],
   vectorSet: [],
   vectorSlice: [],
-  // Empty since the trie: `stringIndex`/`stringSlice` reached the vector
-  // helpers when a `Vector(a)` was a JS array and a codepoint array was one.
-  // Each now carries its own array reading (§9), because a string is not a
-  // trie and re-tying them would put the codepoint path through a trie
-  // build it has no use for.
-  stringIndex: [],
-  stringSlice: [],
+  // `stringIndex`/`stringSlice` reached the vector helpers when a `Vector(a)`
+  // was a JS array and a codepoint array was one. A string is not a trie, so
+  // since the trie each reads its own codepoint positions (§9), both through
+  // the one position memo (#1410).
+  stringPositions: [],
+  stringIndex: ["stringPositions"],
+  stringSlice: ["stringPositions"],
   stableHash: [],
   mixHash: [],
   hashTrieMix: [],
@@ -15137,17 +15138,76 @@ function renderHelper(
     // the vector helpers over a codepoint array, and stopped when `Vector(a)`
     // became a trie — a string is not one, and `Array.from` of one is not a
     // vector. The duplicated bounds arithmetic below is the price of that, and
-    // the honest price: these two are the only place the array reading lives
-    // now, so nothing about them can drift when the trie changes.
+    // the honest price: these two are the only place the codepoint reading
+    // lives, so nothing about them can drift when the trie changes.
+    //
+    // Both read positions through `stringPositions`, so §9's cost is O(n) in
+    // the worst case and amortised O(1) when one string is indexed again
+    // (#1410). Before it, each bracket copied the whole string into a codepoint
+    // array to read one element, and a `lines()` over a long text paid that
+    // once per line.
+    case "stringPositions":
+      // The string's codepoint positions, as JavaScript offsets. `null` means
+      // no surrogate pair, so every code unit is one codepoint and a position
+      // is its own offset. Otherwise `offsets[k]` is where codepoint `k + 1`
+      // starts and the last entry is the length, so `offsets.length - 1` is
+      // the codepoint count. A pair is a high surrogate followed by a low
+      // one; any other surrogate is a codepoint of its own, as §9 and
+      // `Array.from` read it.
+      //
+      // The four most recently read strings keep their answers, most recent
+      // first: an owned memo (Effects §6.2), transparent because the answer is
+      // a function of the string's contents alone, so a hit and a miss are
+      // indistinguishable to every caller. A string shorter than 32 code units
+      // is scanned each time instead, which costs no more than a lookup and
+      // never evicts a long string from the four.
+      return [
+        `const ${name}Recent = [];`,
+        `function ${name}Pair(__text, __unit) {`,
+        "  const __code = __text.charCodeAt(__unit);",
+        "  if (__code < 0xD800 || __code > 0xDBFF || __unit + 1 >= __text.length) return false;",
+        "  const __next = __text.charCodeAt(__unit + 1);",
+        "  return __next >= 0xDC00 && __next <= 0xDFFF;",
+        "}",
+        `function ${name}(__text) {`,
+        `  const __recent = ${name}Recent;`,
+        "  for (let __slot = 0; __slot < __recent.length; __slot += 1) {",
+        "    const __entry = __recent[__slot];",
+        "    if (__entry.text === __text) {",
+        "      if (__slot > 0) { __recent.splice(__slot, 1); __recent.unshift(__entry); }",
+        "      return __entry.offsets;",
+        "    }",
+        "  }",
+        "  const __length = __text.length;",
+        "  let __offsets = null;",
+        "  for (let __unit = 0; __unit < __length; __unit += 1) {",
+        `    if (${name}Pair(__text, __unit)) { __offsets = []; break; }`,
+        "  }",
+        "  if (__offsets !== null) {",
+        "    let __unit = 0;",
+        "    while (__unit < __length) {",
+        "      __offsets.push(__unit);",
+        `      __unit += ${name}Pair(__text, __unit) ? 2 : 1;`,
+        "    }",
+        "    __offsets.push(__length);",
+        "  }",
+        "  if (__length >= 32) {",
+        "    __recent.unshift({ text: __text, offsets: __offsets });",
+        "    if (__recent.length > 4) __recent.pop();",
+        "  }",
+        "  return __offsets;",
+        "}",
+      ];
     case "stringIndex":
       return [
         `function ${name}(__text, __index) {`,
-        `  const __points = ${spell("Array")}.from(__text);`,
-        `  if (__index < 1 || __index > __points.length) { const __error = new ${
+        `  const __offsets = ${dependencyName("stringPositions")}(__text);`,
+        "  const __size = __offsets === null ? __text.length : __offsets.length - 1;",
+        `  if (__index < 1 || __index > __size) { const __error = new ${
           spell("RangeError")
         }` +
-        "(`index ${__index} out of bounds for size ${__points.length}`); __error.name = \"IndexFault\"; __error.$hex = " + JSON.stringify(HEX_VECTOR) + "; __error.index = __index; __error.size = __points.length; throw __error; }",
-        "  return __points[__index - 1];",
+        "(`index ${__index} out of bounds for size ${__size}`); __error.name = \"IndexFault\"; __error.$hex = " + JSON.stringify(HEX_VECTOR) + "; __error.index = __index; __error.size = __size; throw __error; }",
+        "  return __offsets === null ? __text[__index - 1] : __text.slice(__offsets[__index - 1], __offsets[__index]);",
         "}",
       ];
     case "stringSlice":
@@ -15155,9 +15215,12 @@ function renderHelper(
         `function ${name}(__text, __range) {`,
         `  if (__range.descending) { const __error = new ${spell("RangeError")}` +
         "(\"a slice window cannot descend\"); __error.name = \"SliceFault\"; __error.$hex = " + JSON.stringify(HEX_VECTOR) + "; __error.start = __range.start; __error.end = __range.end; throw __error; }",
-        `  return ${spell("Array")}.from(__text).slice(${spell("Math")}.max(0, __range.start - 1), ${
-          spell("Math")
-        }.max(0, __range.end)).join("");`,
+        `  const __offsets = ${dependencyName("stringPositions")}(__text);`,
+        "  const __size = __offsets === null ? __text.length : __offsets.length - 1;",
+        `  const __start = ${spell("Math")}.max(0, __range.start - 1);`,
+        `  const __end = ${spell("Math")}.min(__size, ${spell("Math")}.max(0, __range.end));`,
+        "  if (__start >= __end) return \"\";",
+        "  return __offsets === null ? __text.slice(__start, __end) : __text.slice(__offsets[__start], __offsets[__end]);",
         "}",
       ];
     // ---------------------------------------------------------------------
