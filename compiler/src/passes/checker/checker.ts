@@ -6771,13 +6771,13 @@ class Checker {
    */
   readonly #honorBinderVariables = new Set<number>();
   readonly #constraintSubjectVariables = new Set<number>();
+  /** A constraint's implied-type variables, by id, to the constraint's name. */
+  readonly #impliedTypeVariables = new Map<number, string>();
   /**
    * A constraint subject's own implied types, by the subject variable's id
    * (#1123): the given a default body is checked under, which settles every
    * demand of the same constraint on the subject (`#acceptRequirement`).
    */
-  /** A constraint's implied-type variables, by id, to the constraint's name. */
-  readonly #impliedTypeVariables = new Map<number, string>();
   readonly #subjectImpliedTypes = new Map<number, {
     readonly identity: string;
     readonly impliedTypes: ReadonlyMap<string, Variable>;
@@ -32363,7 +32363,23 @@ class Checker {
         this.#bind(type, variable, span);
         return;
       }
-      if (type.kind === "Variable" && type.rigidName !== undefined) {
+      // A constraint's implied type, met in a default body (#1123): each honor
+      // binds it, so no body checked once in the generic context can fix it,
+      // and no annotation of the author's says otherwise.
+      const impliedSide = this.#impliedTypeVariables.has(variable.id)
+        ? { own: variable, other: type }
+        : type.kind === "Variable" && this.#impliedTypeVariables.has(type.id)
+        ? { own: type, other: variable }
+        : undefined;
+      if (impliedSide !== undefined) {
+        this.#diagnostics.add({
+          severity: "error",
+          message: `\`${impliedSide.own.rigidName}\` is \`${this.#impliedTypeVariables.get(impliedSide.own.id)}\`'s ` +
+            `implied type, which each \`honor\` binds, so a default body cannot make it ` +
+            `\`${this.#display(impliedSide.other)}\`; write this member's body in each \`honor\` instead`,
+          primary: span,
+        });
+      } else if (type.kind === "Variable" && type.rigidName !== undefined) {
         const collision = this.#knotHeadCollision(variable, type);
         if (collision === undefined) {
           // Two of one block head's variables are named in the order the head

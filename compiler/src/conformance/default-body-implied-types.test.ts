@@ -66,4 +66,14 @@ describe("#1123 a default body leaves its implied types the declaration's", () =
         `and this one requires ${demand}; write this member's body in each \`honor\` instead`,
     ]);
   });
+
+  test.each([
+    ["again(xs: c) -> Int = head(xs)", "`Int`"],
+    ["id(xs: c) -> Elem = xs", "`c`"],
+  ])("a default may not fix an implied type, which each honor binds: %s", (member, fixed) => {
+    expect(projectDiagnostics("module Main\n\n" + COLL + "    " + member + "\n")).toEqual([
+      `\`Elem\` is \`Coll2\`'s implied type, which each \`honor\` binds, so a default body cannot make it ` +
+        `${fixed}; write this member's body in each \`honor\` instead`,
+    ]);
+  });
 });
