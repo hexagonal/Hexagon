@@ -7023,7 +7023,13 @@ class Resolver {
     const after = (item.parameters.at(-1) ?? item.name).span;
     // An alias with an unused parameter is refused for that too, and adding to
     // its head cannot reach legal code; the two reports stand without an edit.
-    const used = item.kind === "TypeAlias" ? parsedAnnotationTypeVariables(item.annotation) : undefined;
+    // A parameter written only as a named tail is not reported unused (#1406).
+    const used = item.kind === "TypeAlias"
+      ? new Set([
+        ...parsedAnnotationTypeVariables(item.annotation),
+        ...parsedNamedTails(item.annotation).map(({ text }) => text),
+      ])
+      : undefined;
     const fixes = used !== undefined && item.parameters.some(({ text }) => !used.has(text)) ? undefined : [{
       message: `write \`${head}\``,
       edits: [{
@@ -7050,10 +7056,12 @@ class Resolver {
    */
   #refuseNamedAliasTails(item: Parsed.TypeAliasItem): void {
     const parameters = new Set(item.parameters.map(({ text }) => text));
+    const variables = parsedAnnotationTypeVariables(item.annotation);
     for (const tail of parsedNamedTails(item.annotation)) {
-      // Written as a parameter too, the name has two repairs, and deleting it
-      // here alone would leave the parameter unused: no edit is offered.
-      const parameter = parameters.has(tail.text);
+      // Written as a parameter the body uses nowhere else, the name has two
+      // repairs, and deleting it here alone would leave the parameter unused:
+      // no edit is offered. A parameter the body also uses as a type keeps.
+      const parameter = parameters.has(tail.text) && !variables.has(tail.text);
       this.#diagnostics.add({
         severity: "error",
         message: `a \`type\` alias's row tail is fresh at each use, so it cannot be named; ` +

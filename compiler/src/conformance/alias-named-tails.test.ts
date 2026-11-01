@@ -61,7 +61,20 @@ describe("#1406 a type alias's row tail cannot be named", () => {
       REFUSAL("r") + ", and remove the parameter `r`",
     ]);
     expect(compiled.diagnostics[0]!.fixes ?? []).toEqual([]);
-    expect(projectDiagnostics("module Main\n\ntype Row = {n: Int, ...}\n")).toEqual([]);
+  });
+
+  test("a parameter the body also uses as a type keeps; only the tail goes", () => {
+    const source = "module Main\n\ntype Row(r) = {n: r, ...r}\n";
+    const compiled = compileMain(source);
+    expect(compiled.diagnostics.map(({ message }) => message)).toEqual([REFUSAL("r")]);
+    expect(projectDiagnostics(applyEdits(source, compiled.diagnostics[0]!.fixes![0]!.edits))).toEqual([]);
+  });
+
+  test("an alias whose parameter is only a tail still gets the unbound-variable edit", () => {
+    const compiled = compileMain("module Main\n\ntype Row(r) = {n: a, ...r}\n");
+    const unbound = compiled.diagnostics.find(({ message }) => message.startsWith("type variable `a`"));
+    expect(unbound?.message).toContain("write `type Row(r, a)`");
+    expect(unbound?.fixes?.length).toBe(1);
   });
 
   test("a tail written in an alias's argument at a use site is the signature's, and kept", () => {
@@ -72,4 +85,3 @@ describe("#1406 a type alias's row tail cannot be named", () => {
     )).toEqual([]);
   });
 });
-
