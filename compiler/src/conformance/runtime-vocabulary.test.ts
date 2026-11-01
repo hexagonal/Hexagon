@@ -832,6 +832,7 @@ const ALL_CONTESTED = [
   "export let vs: String = Show.show([1, 2, 3])",
   "export let vh: Int = Hash.hash([1, 2, 3])",
   "export let cs: Ordering = Ord.compare(\"a\", \"b\")",
+  "export let before: Bool = \"a\" < \"b\"",
   "export let big(x: Int): BigInt = x",
   "export let sliced: Vector(Int) = [1, 2, 3][1..2]",
   "export let ch: String = \"hello\"[1]",
@@ -896,7 +897,7 @@ describe("completeness — the worst-contested module writes no bare global", ()
     expect(text).toContain("new __global_WeakMap()");
     expect(text).toContain('throw new __global_RangeError("Unexpected pattern.");');
     expect(text).toContain("__global_BigInt(x)");
-    expect(text).toContain("__global_Array.from(__text)");
+    expect(text).toContain("__global_Array.from(__left)");
     expect(text).toContain("__global_Number.isNaN(__value)");
     expect(text).toContain("__global_Math.imul(");
     expect(text).toContain("new __global_TypeError(");
