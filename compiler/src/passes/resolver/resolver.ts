@@ -4046,6 +4046,7 @@ class Resolver {
       case "TypeAlias": {
         const parameters = new Set(item.parameters.map(({ text }) => text));
         this.#refuseUnboundTypeVariables("type", item, [item.annotation]);
+        this.#refuseNamedAliasTails(item);
         const used = parsedAnnotationTypeVariables(item.annotation);
         for (const parameter of item.parameters) {
           if (!used.has(parameter.text)) {
@@ -6432,7 +6433,12 @@ class Resolver {
           span: field.span,
         })),
         open: annotation.open,
-        ...(annotation.tail === undefined ? {} : { tail: annotation.tail.text }),
+        // Inside an alias body a named tail is refused (#1406) and read as the
+        // bare `...` its rewrite writes: kept, it would join the using
+        // signature's tail of that name, a cascade of the one refusal.
+        ...(annotation.tail === undefined || this.#resolvingAliases.length > 0
+          ? {}
+          : { tail: annotation.tail.text }),
         span: annotation.span,
       };
     }
@@ -7029,6 +7035,24 @@ class Resolver {
           `a \`${form}\` declaration binds every type variable it names: write \`${head}\``,
         primary: span,
         ...(fixes === undefined ? {} : { fixes }),
+      });
+    }
+  }
+
+  /**
+   * An alias's row tail is fresh at each use (Products §4), so it cannot be
+   * named (#1406). A name would be no parameter of the alias (Declarations
+   * Preamble §3), and inlined it would join whatever tail of that name the
+   * using signature has, tying rows the author never related.
+   */
+  #refuseNamedAliasTails(item: Parsed.TypeAliasItem): void {
+    for (const tail of parsedNamedTails(item.annotation)) {
+      this.#diagnostics.add({
+        severity: "error",
+        message: `a \`type\` alias's row tail is fresh at each use, so it cannot be named; ` +
+          `write \`...\` for \`...${tail.text}\``,
+        primary: tail.span,
+        fixes: [{ message: "write `...`", edits: [{ span: tail.span, replacement: "" }] }],
       });
     }
   }
@@ -8644,6 +8668,24 @@ function annotationTypeVariables(annotation: Resolved.TypeAnnotation): readonly 
     case "ErrorType":
       return [];
   }
+}
+
+/** Every named row tail written inside one parsed annotation, in source order. */
+function parsedNamedTails(annotation: Parsed.TypeAnnotation): readonly Parsed.Name[] {
+  const tails: Parsed.Name[] = [];
+  const visit = (type: Parsed.TypeAnnotation): void => {
+    if (type.kind === "Tuple") type.elements.forEach(visit);
+    else if (type.kind === "Record") {
+      type.fields.forEach((field) => visit(field.annotation));
+      if (type.tail !== undefined) tails.push(type.tail);
+    } else if (type.kind === "AppliedType") type.arguments.forEach(visit);
+    else if (type.kind === "Function") {
+      type.parameters.forEach(visit);
+      visit(type.result);
+    }
+  };
+  visit(annotation);
+  return tails;
 }
 
 /** Every type variable written inside one parsed annotation, in source order. */
