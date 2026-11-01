@@ -287,12 +287,12 @@ export let asked(text: String): Int =
    * The memo finds a string equal to one it keeps by comparing contents, and
    * on that hit keeps the string just read, so a copy of a text already read,
    * built separately, pays one comparison rather than one per bracket. Kept
-   * the other way, `indexOf` over this copy compared 300,000 code units at
+   * the other way, `indexOf` over this copy compared 600,000 code units at
    * every bracket.
    */
   test("a separately built copy of a text already read is scanned in one pass", () => {
     for (const piece of ["1234567890", "1234😀67890"]) {
-      const value = piece.repeat(30_000);
+      const value = piece.repeat(60_000);
       expect(main.size(value)).toBe(points(value).length);
       const fresh = Array.from(value).join("");
       const started = Date.now();
