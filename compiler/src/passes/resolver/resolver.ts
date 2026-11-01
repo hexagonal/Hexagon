@@ -4048,8 +4048,11 @@ class Resolver {
         this.#refuseUnboundTypeVariables("type", item, [item.annotation]);
         this.#refuseNamedAliasTails(item);
         const used = parsedAnnotationTypeVariables(item.annotation);
+        // A parameter written as a named tail is used, wrongly: the tail's own
+        // refusal names both repairs (#1406).
+        const tailNames = new Set(parsedNamedTails(item.annotation).map(({ text }) => text));
         for (const parameter of item.parameters) {
-          if (!used.has(parameter.text)) {
+          if (!used.has(parameter.text) && !tailNames.has(parameter.text)) {
             this.#diagnostics.add({
               severity: "error",
               message: `type parameter \`${parameter.text}\` is not used by alias \`${item.name.text}\``,
@@ -7046,13 +7049,18 @@ class Resolver {
    * using signature has, tying rows the author never related.
    */
   #refuseNamedAliasTails(item: Parsed.TypeAliasItem): void {
+    const parameters = new Set(item.parameters.map(({ text }) => text));
     for (const tail of parsedNamedTails(item.annotation)) {
+      // Written as a parameter too, the name has two repairs, and deleting it
+      // here alone would leave the parameter unused: no edit is offered.
+      const parameter = parameters.has(tail.text);
       this.#diagnostics.add({
         severity: "error",
         message: `a \`type\` alias's row tail is fresh at each use, so it cannot be named; ` +
-          `write \`...\` for \`...${tail.text}\``,
+          `write \`...\` for \`...${tail.text}\`` +
+          (parameter ? `, and remove the parameter \`${tail.text}\`` : ""),
         primary: tail.span,
-        fixes: [{ message: "write `...`", edits: [{ span: tail.span, replacement: "" }] }],
+        ...(parameter ? {} : { fixes: [{ message: "write `...`", edits: [{ span: tail.span, replacement: "" }] }] }),
       });
     }
   }
@@ -8670,7 +8678,11 @@ function annotationTypeVariables(annotation: Resolved.TypeAnnotation): readonly 
   }
 }
 
-/** Every named row tail written inside one parsed annotation, in source order. */
+/**
+ * Every named row tail written inside one parsed annotation, in source order.
+ * The type-variable walkers below skip tails on purpose: a tail is refused in
+ * every declaration that reads them (#1406, Products §4).
+ */
 function parsedNamedTails(annotation: Parsed.TypeAnnotation): readonly Parsed.Name[] {
   const tails: Parsed.Name[] = [];
   const visit = (type: Parsed.TypeAnnotation): void => {

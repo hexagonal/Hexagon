@@ -54,4 +54,22 @@ describe("#1406 a type alias's row tail cannot be named", () => {
       "export let touch(p: {x: Float, ...r}): {x: Float, ...r} = {p with x = p.x + 1.0}\n",
     )).toEqual([]);
   });
+
+  test("a tail written as an alias parameter too is one report naming both repairs, with no edit", () => {
+    const compiled = compileMain("module Main\n\ntype Row(r) = {n: Int, ...r}\n");
+    expect(compiled.diagnostics.map(({ message }) => message)).toEqual([
+      REFUSAL("r") + ", and remove the parameter `r`",
+    ]);
+    expect(compiled.diagnostics[0]!.fixes ?? []).toEqual([]);
+    expect(projectDiagnostics("module Main\n\ntype Row = {n: Int, ...}\n")).toEqual([]);
+  });
+
+  test("a tail written in an alias's argument at a use site is the signature's, and kept", () => {
+    expect(projectDiagnostics(
+      "module Main\n\n" +
+      "type Box(a) = {v: a}\n" +
+      "export let f(p: Box({x: Int, ...r})): {x: Int, ...r} = p.v\n",
+    )).toEqual([]);
+  });
 });
+
