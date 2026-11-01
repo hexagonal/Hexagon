@@ -1443,15 +1443,12 @@ describe("doors are addressed by the receiver (§6.1, #783)", () => {
     // the widest face, and its argument seats widen *into* it by §5.1's ordinary
     // seat widening — which is what `BigInt.pow(b, i)` always did.
     expect(verdict("let probe = b.pow(i)\n")).toEqual([]);
-    // The call, argument for argument — which is what §6.1 fixes, and it is the
-    // same shape either way. The two spellings still reach the door through
-    // different import channels and so bind it under different *local* names
-    // (`pow` for the qualified spelling, a `__prelude_`-prefixed alias for the
-    // dot): #585's channel, filed as **#816**, and not this ruling's. It is why
-    // `stdlib/Rat.hex` keeps the qualified spelling for now — the dot's emission
-    // is not yet the doctrine's — so this seat is pinned on a fixture, where the
-    // claim is about the seat and nothing else.
-    expect(probeLine("let probe = b.pow(i)\n")).toContain("(b, BigInt(i))");
+    // The call, argument for argument — which is what §6.1 fixes — and the
+    // emitted line too: both spellings reach the door through the one
+    // synthesized prelude import, which binds under the door's own name where
+    // nothing here contests it (Method Syntax §8.1, #816). The seat is pinned
+    // on a fixture, where the claim is about the seat and nothing else.
+    expect(probeLine("let probe = b.pow(i)\n")).toBe("const probe = pow(b, BigInt(i));");
     expect(probeLine("let probe = BigInt.pow(b, i)\n")).toBe("const probe = pow(b, BigInt(i));");
     expect(verdict("let probe = f.pow(i)\n")).toEqual([]);
     expect(probeLine("let probe = f.pow(i)\n")).toContain("(f, i)");

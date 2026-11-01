@@ -160,12 +160,11 @@ describe("the synthesized prelude import is what Core references", () => {
       "export let out: Vector(Int) =\n" +
       "    Vector.fromSeq(Vector.toSeq([5, 6]).map(x => x * 2))\n";
     const javascript = emitted([["/main.hex", "module Main\n\n" + source]], "/main.hex");
-    // `Seq.js` comes first because the `r.length(4)` candidate registered its
-    // `length` before anything named `Vector.hex` — one import item per
-    // specifier, in the order the module first reached that member.
+    // In the order the rendering first referenced each term: `Vector.fromSeq`
+    // is the outer call. The `r.length(4)` candidate, dropped, places nothing.
     expect(importLines(javascript)).toEqual([
-      'import { map } from "./Hex/Seq.js";',
       'import { fromSeq } from "./Hex/Vector.js";',
+      'import { map } from "./Hex/Seq.js";',
       VECTOR_TO_SEQ_IMPORT,
       VECTOR_LITERAL_IMPORT,
     ]);
