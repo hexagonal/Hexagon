@@ -262,7 +262,11 @@ describe("the dot call reaches the door as one claimant (Method Syntax §6.1)", 
       "export let root: Float = two.pow(0.5)\n",
     );
 
-    expect(javascript).toContain('pow as __prelude_pow');
+    // Under the door's own name: the candidates the resolver registered for the
+    // dot and the emitter dropped hold no spelling in the emitted file (#816).
+    expect(javascript).toContain('import { pow } from "./Hex/Float.js";');
+    expect(javascript).toContain("const root = pow(two, 0.5);");
+    expect(javascript).not.toContain("__prelude_pow");
     expect(javascript).toContain('from "./Hex/Float.js"');
     expect(javascript).not.toContain("__Pow_Float");
   });
