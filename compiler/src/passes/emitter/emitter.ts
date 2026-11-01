@@ -432,7 +432,7 @@ export function emitJavaScript(
   const discovery = new JavaScriptEmitter(module, options);
   const emitted = discovery.emit();
   const memberSeatLocals = discovery.memberSeatSpellings();
-  // After the seats, and contested by them, so the two plans cannot hand one
+  // After the seats, and around them, so the two plans cannot hand one
   // spelling to two bindings.
   const preludeImportLocals = discovery.preludeImportSpellings(memberSeatLocals);
   const materializedConstructors = discovery.constructorDemand();
@@ -3590,10 +3590,6 @@ class JavaScriptEmitter {
       ),
       ...module.preludeInstances.map(({ localDictionary }) => localDictionary),
       ...this.#unsafeModuleLocals.values(),
-      // The plain prelude import locals the discovery pass settled (#816). It
-      // found each one free of every claim, so seeding changes no other name;
-      // it keeps the claim visible to anything minted after it.
-      ...(options.preludeImportLocals?.values() ?? []),
     ]);
     // FFI Part 5 §7: this module's own classes claim their locals before any
     // other allocation, so a class's spelling here is the one its importers
@@ -6894,9 +6890,10 @@ class JavaScriptEmitter {
    *   because a seat's generated spelling is already unique and reads better
    *   here than `show_1` would.
    * - **an ordinary binding**, whether the module's own or an import's
-   *   (`#moduleBindings`), plus the prelude terms rendering actually
-   *   referenced — the same filter `#preludeTermImports` applies, asked here so
-   *   a prelude term and a seat cannot both claim one name.
+   *   (`#moduleBindings`), plus the constraint members rendering actually
+   *   referenced, a prelude constraint's among them. Any other prelude term
+   *   yields to the seat instead: `preludeImportSpellings` runs after this
+   *   plan and around it, so the two cannot both claim one name.
    *
    * A **local** instance's member counts as a contestant too. Honoring a
    * constraint claims each member's name in the module's term space (§4.6), and
@@ -6910,13 +6907,26 @@ class JavaScriptEmitter {
     );
     if (routed.length === 0) return undefined;
     const contested = this.#ownBindingContest();
-    // The two import channels rendering decides — a synthesized prelude import
-    // and a constraint's members — read exactly as their own renderers read
-    // them, so a name that survives the filter there is a binding here.
-    for (const item of [...this.#synthesizedImports, ...this.#constraintImports]) {
+    // A constraint's members, the import channel rendering decides, read
+    // exactly as its renderer reads them, so a name that survives the filter
+    // there is a binding here.
+    for (const item of this.#constraintImports) {
       for (const { imported, local, symbol } of item.form.names) {
         if (symbol === undefined || !this.#referencedSymbols.has(symbol)) continue;
         contested.add(this.#internalEditionImports.get(symbol) ?? local ?? imported);
+      }
+    }
+    // A prelude constraint's forwarder the rendering referenced — the member
+    // itself, used other than through a seat — by its **own** spelling, never
+    // by the resolver's local, which a dropped candidate may have pushed aside
+    // (#816). Any other prelude term of the name is planned after the seats,
+    // around them (`preludeImportSpellings`), so the two plans cannot meet.
+    for (const item of this.#synthesizedImports) {
+      for (const name of item.form.names) {
+        if (!this.#emitsPreludeTerm(name)) continue;
+        if (this.#symbols.get(name.symbol!)?.kind === "constraint-member") {
+          contested.add(name.imported);
+        }
       }
     }
     const wanted = new Map<string, number>();
@@ -6971,9 +6981,9 @@ class JavaScriptEmitter {
 
   /**
    * Dictionary Sharing §5's collision-only rule for the synthesized prelude
-   * imports, answered once every body is rendered (#816): which referenced
-   * prelude terms bind under their **own** spelling where the resolver gave
-   * them a `__prelude_` one, by symbol. `undefined` when none do.
+   * imports, answered once every body is rendered (#816): the local each
+   * referenced prelude term binds under, by symbol, or `undefined` where every
+   * one is what the resolver already chose.
    *
    * The resolver names these imports before type checking, so a dot call
    * registers every prelude function of its name as a candidate
@@ -6981,74 +6991,83 @@ class JavaScriptEmitter {
    * prelude order: `b.pow(e)` at `BigInt` registers `Pow.pow`, `Float.pow` and
    * `BigInt.pow`, so the door the checker chose came third, as
    * `__prelude_pow_1`, behind two that `#preludeTermImports` then dropped. A
-   * dropped candidate occupies nothing in the emitted file, so only what is
-   * really there may contest a name:
+   * dropped candidate occupies nothing in the emitted file, so the resolver's
+   * allocation is run again here over the referenced terms alone — the answer
+   * it would have given had only the chosen candidates existed, which is the
+   * hand-written call's answer by construction. Each term, in order of first
+   * reference, takes its own name unless it is held, and otherwise the
+   * resolver's `__prelude_` probe. A name is held by:
    *
    * - **the module's own source** (`#ownBindingContest`) — a module-level
    *   binding or explicit import, a binder anywhere in the file (a parameter
    *   `pow` would shadow the import inside its function), or an honored member;
    * - **the routed seats** `memberSeatSpellings` planned, which are settled
    *   first and so are never moved by this plan;
-   * - **every other referenced import** on the minted channels, by the local it
-   *   keeps, and every name rendering claimed at module level (a §8.2
-   *   companion's local, an edition's, an enum member's);
-   * - **a second referenced prelude term of the same spelling.** One the
-   *   resolver left plain keeps it (`Option.map` beside `Result.map`); two it
-   *   moved (`o.map(f)` beside `r.map(g)`) are, as for two seats, both left
-   *   where they are.
+   * - **an earlier term of the same spelling** — `Result.map` after
+   *   `Option.map` — which keeps it, the later one taking the probe.
+   *
+   * No generated name can hold a term's own spelling: every one carries Lexer
+   * §3.2's prefix, and a public one minted at module level (a §8.2 companion's
+   * local, an edition's) probes against every name in `Module.symbols`, the
+   * prelude term's own among them.
    */
   preludeImportSpellings(
     seatPlan: ReadonlyMap<string, string> | undefined,
   ): ReadonlyMap<Resolved.SymbolId, string> | undefined {
-    type Term = { readonly symbol: Resolved.SymbolId; readonly own: string; readonly local: string };
-    const terms: Term[] = [];
-    const seen = new Set<Resolved.SymbolId>();
+    const terms = new Map<Resolved.SymbolId, { readonly own: string; readonly local: string }>();
     for (const item of this.#synthesizedImports) {
       if (item.form.kind !== "Named") continue;
-      for (const { imported, local, symbol, typeOnly } of item.form.names) {
-        if (symbol === undefined || seen.has(symbol)) continue;
-        if (!this.#referencedSymbols.has(symbol) || typeOnly === true) continue;
-        if (this.#pinnedBoolLiteral(symbol) !== undefined) continue;
-        seen.add(symbol);
-        terms.push({
-          symbol,
+      for (const name of item.form.names) {
+        const { imported, local, symbol } = name;
+        if (symbol === undefined || !this.#emitsPreludeTerm(name)) continue;
+        terms.set(symbol, {
           own: imported,
           local: this.#internalEditionImports.get(symbol) ?? this.#importLocals.get(symbol) ??
             local,
         });
       }
     }
-    if (!terms.some(({ own, local }) => own !== local)) return undefined;
-    const contested = this.#ownBindingContest();
-    for (const local of seatPlan?.values() ?? []) contested.add(local);
-    for (const name of this.#generatedNames.claimedAtModuleLevel()) contested.add(name);
-    for (const item of this.#constraintImports) {
-      for (const { imported, symbol, constraintMember } of item.form.names) {
-        if (constraintMember !== true || symbol === undefined) continue;
-        if (!this.#referencedSymbols.has(symbol)) continue;
-        contested.add(
-          this.#internalEditionImports.get(symbol) ?? this.#mintedHazardLocals.get(symbol) ??
-            imported,
-        );
-      }
-    }
-    const wanted = new Map<string, number>();
-    for (const { own, local } of terms) {
-      wanted.set(own, (wanted.get(own) ?? 0) + 1);
-      // A term the resolver already left plain holds its spelling; one it moved
-      // holds the `__` spelling it keeps unless planned below.
-      if (own === local) contested.add(local);
-    }
+    if (terms.size === 0) return undefined;
+    const taken = this.#ownBindingContest();
+    for (const local of seatPlan?.values() ?? []) taken.add(local);
     const plan = new Map<Resolved.SymbolId, string>();
-    for (const { symbol, own, local } of terms) {
-      if (own === local || wanted.get(own) !== 1 || contested.has(own)) continue;
-      // FFI Part 7 §1.2 rule 1, as for a seat: a minted local never takes the
-      // runtime vocabulary or a reserved word.
-      if (MINTED_LOCAL_HAZARDS.has(own) || reservedWords.has(own)) continue;
-      plan.set(symbol, own);
+    let moved = false;
+    // First reference first: the order a rendering meets the terms in, which
+    // is a function of the elaborated Core and so the same for a dot call and
+    // its hand-written call.
+    for (const symbol of this.#referencedSymbols) {
+      const term = terms.get(symbol);
+      if (term === undefined) continue;
+      // FFI Part 7 §1.2 rule 1: a minted local never takes the runtime
+      // vocabulary or a reserved word. Such a term keeps `#importedLocal`'s
+      // own answer, which steps it aside.
+      if (MINTED_LOCAL_HAZARDS.has(term.own) || reservedWords.has(term.own)) continue;
+      // The resolver's probe, over what is really there.
+      let local = term.own;
+      for (let attempt = 0; taken.has(local); attempt += 1) {
+        local = `__prelude_${term.own}${attempt === 0 ? "" : `_${attempt}`}`;
+      }
+      taken.add(local);
+      plan.set(symbol, local);
+      if (local !== term.local) moved = true;
     }
-    return plan.size === 0 ? undefined : plan;
+    return moved ? plan : undefined;
   }
+
+  /**
+   * Whether a synthesized prelude import's name survives into its emitted line
+   * — the one filter `#preludeTermImports` renders by and
+   * `preludeImportSpellings` plans by, so the plan names exactly the bindings
+   * the line will hold.
+   */
+  #emitsPreludeTerm({ symbol }: { readonly symbol?: Resolved.SymbolId }): boolean {
+    if (symbol === undefined || !this.#referencedSymbols.has(symbol)) return false;
+    // A pinned `Bool` constructor is emitted as its literal (#147), so the
+    // import that would bind it has nothing to bind. (No `typeOnly` test: the
+    // resolver's `#preludeImport` builds no type-only name.)
+    return this.#pinnedBoolLiteral(symbol) === undefined;
+  }
+
 
   /**
    * `import` lines for the member seats this module's concrete calls reach in
@@ -10487,15 +10506,25 @@ class JavaScriptEmitter {
     readonly line: string;
     readonly specifier: string;
   }[] {
-    return this.#synthesizedImports.flatMap((item) => {
-      // `#preludeImport` builds nothing else; the other forms have no seat here.
+    // Lines and the names on them in order of first reference (#816). The
+    // resolver's order is its use order, and a dot call registers every prelude
+    // term of its name at the dot, so that order holds the dropped candidates'
+    // positions too; a rendering's first references hold only what the module
+    // uses, the same for a dot call and its hand-written call.
+    const rank = new Map<Resolved.SymbolId, number>();
+    for (const symbol of this.#referencedSymbols) rank.set(symbol, rank.size);
+    const ranked = this.#synthesizedImports.flatMap((item) => {
       if (item.form.kind !== "Named") return [];
-      const names = item.form.names.flatMap(({ imported, local, symbol, typeOnly }) => {
-        if (symbol === undefined || !this.#referencedSymbols.has(symbol)) return [];
-        // A pinned `Bool` constructor is emitted as its literal (#147), so the
-        // import that would bind it has nothing to bind.
-        if (this.#pinnedBoolLiteral(symbol) !== undefined) return [];
-        if (typeOnly === true) return [];
+      const names = item.form.names
+        .filter((name) => this.#emitsPreludeTerm(name))
+        .map((name) => ({ name, rank: rank.get(name.symbol!)! }))
+        .sort((left, right) => left.rank - right.rank);
+      return names.length === 0 ? [] : [{ item, names, first: names[0]!.rank }];
+    }).sort((left, right) => left.first - right.first);
+    return ranked.flatMap(({ item, names: kept }) => {
+      const names = kept.flatMap(({ name }) => {
+        const { imported, local, symbol } = name;
+        if (symbol === undefined) return [];
         // The local, never the imported name: a module that binds `map` itself
         // reaches the prelude's under a distinguished local (Modules §6.4), and
         // spelling the imported name here would redeclare its binding.
@@ -16216,7 +16245,6 @@ function componentDispatch(
  */
 class GeneratedNames {
   readonly #module: Set<string>;
-  readonly #seeded: ReadonlySet<string>;
   readonly #functions: Set<string>[] = [];
 
   constructor(existing: Iterable<string>) {
@@ -16226,15 +16254,6 @@ class GeneratedNames {
     // mint's answers a function of the module's own names rather than of a
     // condition settled elsewhere.
     this.#module = new Set([...RESERVED_CAPTURES.map(reservedCapture), ...existing]);
-    this.#seeded = new Set(this.#module);
-  }
-
-  /**
-   * Every module-level name claimed since construction — a companion's local,
-   * an edition's, an enum member's, a pattern door's — and not merely seeded.
-   */
-  claimedAtModuleLevel(): readonly string[] {
-    return [...this.#module].filter((name) => !this.#seeded.has(name));
   }
 
   /**

@@ -145,27 +145,120 @@ describe("a real holder of the name keeps the alias", () => {
     expect([exports["p"], exports["q"]]).toEqual([2, 20]);
   });
 
-  test("two dot calls of one name on different prelude types both stay aliased", async () => {
-    // Neither was the resolver's plain candidate, and each contests the other,
-    // so — as for two seats of one member — neither takes the spelling.
-    const source = "let o: Option(Int) = Some(1)\n" +
-      "let r: Result(Int, String) = Ok(2)\n" +
-      "let v: Vector(Int) = [1, 2]\n" +
-      "let t: String = \"abc\"\n" +
-      "export let p: Int = Option.defaultValue(o.map((x: Int) => x + 1), 0)\n" +
-      "export let q: Int = Result.defaultValue(r.map((x: Int) => x * 10), 0)\n" +
-      "export let n: Int = v.length() + t.length()\n";
-    const javascript = emittedMain(source);
-    const locals = [...javascript.matchAll(/\b(?:map|length) as (\w+)/gu)].map(([, local]) =>
-      local
-    );
+  describe("a dot call beside a second prelude function of its name emits its hand-written call", () => {
+    // The pairs differ only in spelling one call as a dot; §8.1 makes their
+    // emitted modules one text. Each module names `map` or `length` from two
+    // prelude modules, so one of each pair is a real contestant and takes the
+    // probe — the later one by first use, as the hand-written module has it.
+    const options = "let o: Option(Int) = Some(1)\nlet r: Result(Int, String) = Ok(2)\n";
+    const lengths = "let v: Vector(Int) = [1, 2]\nlet t: String = \"abc\"\n";
+    const pairs: readonly {
+      readonly name: string;
+      readonly dot: string;
+      readonly written: string;
+      readonly exports: Readonly<Record<string, unknown>>;
+    }[] = [
+      {
+        name: "`o.map(f)` beside `Result.map(r, g)`",
+        dot: options +
+          "export let p: Int = Option.defaultValue(o.map((x: Int) => x + 1), 0)\n" +
+          "export let q: Int = Result.defaultValue(Result.map(r, (x: Int) => x * 10), 0)\n",
+        written: options +
+          "export let p: Int = Option.defaultValue(Option.map(o, (x: Int) => x + 1), 0)\n" +
+          "export let q: Int = Result.defaultValue(Result.map(r, (x: Int) => x * 10), 0)\n",
+        exports: { p: 2, q: 20 },
+      },
+      {
+        name: "`t.length()` beside `Vector.length(v)`",
+        dot: lengths + "export let n: Int = Vector.length(v) + t.length()\n",
+        written: lengths + "export let n: Int = Vector.length(v) + String.length(t)\n",
+        exports: { n: 5 },
+      },
+      {
+        // First use decides, not prelude order: the dot registers `Vector.length`
+        // ahead of `String.length`, and neither placing may survive the drop.
+        name: "`t.length()` before `Vector.length(v)`",
+        dot: lengths + "export let n: Int = t.length() + Vector.length(v)\n",
+        written: lengths + "export let n: Int = String.length(t) + Vector.length(v)\n",
+        exports: { n: 5 },
+      },
+      {
+        name: "four dot calls, two of each name",
+        dot: options + lengths +
+          "export let p: Int = Option.defaultValue(o.map((x: Int) => x + 1), 0)\n" +
+          "export let q: Int = Result.defaultValue(r.map((x: Int) => x * 10), 0)\n" +
+          "export let n: Int = v.length() + t.length()\n",
+        written: options + lengths +
+          "export let p: Int = Option.defaultValue(Option.map(o, (x: Int) => x + 1), 0)\n" +
+          "export let q: Int = Result.defaultValue(Result.map(r, (x: Int) => x * 10), 0)\n" +
+          "export let n: Int = Vector.length(v) + String.length(t)\n",
+        exports: { p: 2, q: 20, n: 5 },
+      },
+    ];
 
-    expect(locals).toHaveLength(4);
-    expect(new Set(locals).size).toBe(4);
-    for (const local of locals) expect(local).toMatch(/^__prelude_/u);
-    expect(javascript).not.toMatch(/^import \{[^}]*\b(?:map|length)\b(?! as)/mu);
+    for (const { name, dot, written, exports } of pairs) {
+      test(name, async () => {
+        expect(emittedMain(dot)).toBe(emittedMain(written));
+        const ran = await runProject([mainFile(dot)]);
+        for (const [key, value] of Object.entries(exports)) expect(ran[key]).toBe(value);
+      });
+    }
+
+    test("the first use keeps the name and the second takes the probe", () => {
+      const javascript = emittedMain(pairs.find(({ name }) => name.startsWith("four"))!.dot);
+
+      expect(javascript).toMatch(/^import \{ defaultValue, map \} from "\.\/Hex\/Option\.js";$/mu);
+      expect(javascript).toMatch(
+        /^import \{ defaultValue as __prelude_defaultValue, map as __prelude_map \} from "\.\/Hex\/Result\.js";$/mu,
+      );
+      expect(javascript).toContain('import { length } from "./Hex/Vector.js";');
+      expect(javascript).toContain('import { length as __prelude_length } from "./Hex/String.js";');
+      expect(javascript).toContain("const n = length(v) + __prelude_length(t);");
+    });
+  });
+
+  test("a namespace import of the name keeps the alias", async () => {
+    // `import JsError` binds `JsError` at module level; the prelude's exception
+    // constructor, reached bare, steps around it.
+    const files: Files = [
+      ["/jserror.hex", "module JsError\n\nexport fun answer(): Int = 42\n"],
+      mainFile(
+        "import JsError\n" +
+          "export fun f(v: JsValue): Exn = JsError(v)\n" +
+          "export let n: Int = JsError.answer()\n",
+      ),
+    ];
+    const javascript = emitted(files);
+
+    expect(javascript).toContain('import * as JsError from "./JsError.js";');
+    expect(javascript).toMatch(/^import \{ JsError as __prelude_JsError \} from "\.\/Hex\/JsError\.js";$/mu);
+    const exports = await runProject(files);
+    expect(exports["n"]).toBe(42);
+    expect(typeof exports["f"]).toBe("function");
+  });
+
+  test("a pinned `Bool` constructor is a literal and imports nothing", async () => {
+    // It is referenced, but #147 emits it as `true`, so it neither earns an
+    // import line nor takes a name from a term that does.
+    const source = "let t: String = \"ab\"\nexport let yes: Bool = True\nexport let n: Int = t.length()\n";
+    const javascript = emittedMain(source);
+
+    expect(importLines(javascript)).toEqual(['import { length } from "./Hex/String.js";']);
+    expect(javascript).toContain("const yes = true;");
     const exports = await runProject([mainFile(source)]);
-    expect([exports["p"], exports["q"], exports["n"]]).toEqual([2, 20, 5]);
+    expect([exports["yes"], exports["n"]]).toEqual([true, 2]);
+  });
+
+  test("a runtime-vocabulary name never binds bare", async () => {
+    // FFI Part 7 §1.2 rule 1: `Nullable.undefined` is minted aside, whatever
+    // else holds the spelling.
+    const source = "export let missing(): Nullable(String) = Nullable.undefined\n";
+    const javascript = emittedMain(source);
+
+    expect(javascript).not.toMatch(/^import \{[^}]*\bundefined\b(?! as)/mu);
+    expect(javascript).toMatch(/^import \{[^}]*\bundefined as __\w+/mu);
+    const exports = await runProject([mainFile(source)]);
+    expect((exports["missing"] as () => unknown)()).toBe(undefined);
   });
 
   test("an honored member of the name keeps the alias", async () => {
