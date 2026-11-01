@@ -286,18 +286,54 @@ describe("a real holder of the name keeps the alias", () => {
     expect([exports["n"], exports["m"]]).toEqual([3, 4]);
   });
 
-  test("a routed seat of the name keeps it, and the import keeps the alias", async () => {
-    // `i.pow(2)` routes to `Int`'s seat, which §8 binds under `pow`; the
-    // `BigInt` door is planned after the seats and so steps aside.
-    const source = "let i: Int = 3\nlet b: BigInt = 2n\n" +
-      "export let s: Int = i.pow(2)\nexport let x: BigInt = b.pow(3n)\n";
-    const javascript = emittedMain(source);
+  describe("a prelude import of the name contests a routed seat (Dictionary Sharing §8)", () => {
+    // The import keeps the name and the seat binds under its generated
+    // spelling, whichever way the prelude call is written.
+    test("`b.pow(3n)` beside `i.pow(2)`", async () => {
+      const source = "let i: Int = 3\nlet b: BigInt = 2n\n" +
+        "export let s: Int = i.pow(2)\nexport let x: BigInt = b.pow(3n)\n";
+      const javascript = emittedMain(source);
 
-    expect(javascript).toContain('import { __Pow_Int_pow as pow } from "./Hex/Int.js";');
-    expect(javascript).toMatch(/^import \{ pow as __prelude_pow\w* \} from "\.\/Hex\/BigInt\.js";$/mu);
-    expect(javascript).toContain("const s = pow(i, 2);");
-    expect(javascript).toMatch(/const x = __prelude_pow\w*\(b, 3n\);/u);
-    const exports = await runProject([mainFile(source)]);
-    expect([exports["s"], exports["x"]]).toEqual([9, 8n]);
+      expect(javascript).toContain('import { pow } from "./Hex/BigInt.js";');
+      expect(javascript).toContain('import { __Pow_Int_pow } from "./Hex/Int.js";');
+      expect(javascript).toContain("const s = __Pow_Int_pow(i, 2);");
+      expect(javascript).toContain("const x = pow(b, 3n);");
+      expect(javascript).toBe(emittedMain(
+        "let i: Int = 3\nlet b: BigInt = 2n\n" +
+          "export let s: Int = i.pow(2)\nexport let x: BigInt = BigInt.pow(b, 3n)\n",
+      ));
+      const exports = await runProject([mainFile(source)]);
+      expect([exports["s"], exports["x"]]).toEqual([9, 8n]);
+    });
+
+    test("`BigInt.pow(b, 3n)` beside `i.pow(2)` emits main's text", async () => {
+      const source = "let i: Int = 3\nlet b: BigInt = 2n\n" +
+        "export let x: BigInt = BigInt.pow(b, 3n)\nexport let s: Int = i.pow(2)\n";
+      const javascript = emittedMain(source);
+
+      expect(importLines(javascript)).toEqual([
+        'import { pow } from "./Hex/BigInt.js";',
+        'import { __Pow_Int_pow } from "./Hex/Int.js";',
+      ]);
+      expect(javascript).toContain("const x = pow(b, 3n);");
+      expect(javascript).toContain("const s = __Pow_Int_pow(i, 2);");
+      const exports = await runProject([mainFile(source)]);
+      expect([exports["x"], exports["s"]]).toEqual([8n, 9]);
+    });
+
+    test("`Float.pow(f, 0.5)` beside `i.pow(2)` emits main's text", async () => {
+      const source = "let i: Int = 3\nlet f: Float = 4.0\n" +
+        "export let r: Float = Float.pow(f, 0.5)\nexport let s: Int = i.pow(2)\n";
+      const javascript = emittedMain(source);
+
+      expect(importLines(javascript)).toEqual([
+        'import { pow } from "./Hex/Float.js";',
+        'import { __Pow_Int_pow } from "./Hex/Int.js";',
+      ]);
+      expect(javascript).toContain("const r = pow(f, 0.5);");
+      expect(javascript).toContain("const s = __Pow_Int_pow(i, 2);");
+      const exports = await runProject([mainFile(source)]);
+      expect([exports["r"], exports["s"]]).toEqual([2, 9]);
+    });
   });
 });
