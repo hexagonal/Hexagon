@@ -174,6 +174,10 @@ describe("the scans answer what the codepoint reading answers", () => {
     expect(main.startsCi("Straße", "STRASSX")).toBe(false);
     expect(main.endsCi("Straße", "SSE")).toBe(true);
     expect(main.endsCi("Straße", "XSSE")).toBe(false);
+    for (const value of ["", "Straße"]) {
+      expect(main.startsCi(value, "")).toBe(true);
+      expect(main.endsCi(value, "")).toBe(true);
+    }
   });
 
   /**
@@ -275,6 +279,25 @@ export let asked(text: String): Int =
       expect(main.ends(value, copy)).toBe(true);
       expect(main.first(value, near)).toBe(0);
       expect(Array.from(main.piecesCi(value, copy))).toEqual(["", ""]);
+      expect(Date.now() - started).toBeLessThan(BOUND_MS);
+    }
+  });
+
+  /**
+   * The memo finds a string equal to one it keeps by comparing contents, and
+   * on that hit keeps the string just read, so a copy of a text already read,
+   * built separately, pays one comparison rather than one per bracket. Kept
+   * the other way, `indexOf` over this copy compared 300,000 code units at
+   * every bracket.
+   */
+  test("a separately built copy of a text already read is scanned in one pass", () => {
+    for (const piece of ["1234567890", "1234😀67890"]) {
+      const value = piece.repeat(30_000);
+      expect(main.size(value)).toBe(points(value).length);
+      const fresh = Array.from(value).join("");
+      const started = Date.now();
+      expect(main.first(fresh, "x")).toBe(0);
+      expect(Array.from(main.lined(fresh))).toEqual([value]);
       expect(Date.now() - started).toBeLessThan(BOUND_MS);
     }
   });

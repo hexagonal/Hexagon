@@ -395,7 +395,7 @@ export let startsWith(text: String, prefix: String): Bool = match exactEnd(text,
 
 (** Whether a full-fold match of `prefix` begins at the first original boundary. *)
 export let startsWithCi(text: String, prefix: String): Bool =
-    if length(prefix) == 0 then True else match foldedEnd(text, length(text), points(foldedText(prefix)), 1)
+    if prefix == "" then True else match foldedEnd(text, length(text), points(foldedText(prefix)), 1)
         Some(_) => True
         None => False
 
@@ -410,7 +410,7 @@ export let endsWith(text: String, suffix: String): Bool =
 
 (** Whether a full-fold match of `suffix` ends at the last original boundary. *)
 export let endsWithCi(text: String, suffix: String): Bool =
-    if length(suffix) == 0 then
+    if suffix == "" then
         True
     else
         let sourceLength = length(text)

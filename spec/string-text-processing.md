@@ -324,11 +324,11 @@ ordinary source uses, including `Iterable` and `Vector`. This is a dependency
 order, not a new public import or a cyclic exception.
 
 Operations perform at least the traversal their result requires. Codepoint
-scans are linear in the traversed input: they read the text by a forward pass or
-through brackets, whose positions Collections Part 3 §9 keeps, never through a
-copy of the whole text. A scan brackets no string but its text, and a search
-reads its target's codepoints once, so §9's memo never tells two strings apart
-within a scan. Output-producing operations also count
+scans are linear in the traversed input, beyond what Collections Part 3 §9
+states a bracket costs: they read the text by a forward pass or through
+brackets, never through a copy of the whole text. A scan brackets no string but
+its text, and a search reads its target's codepoints once. Output-producing
+operations also count
 the produced output, including expanded case mappings and folds. `join` counts
 sequence traversal even when every element and separator is empty. Search
 algorithms state their implemented bound; no blanket constant-time String
