@@ -6771,6 +6771,17 @@ class Checker {
    */
   readonly #honorBinderVariables = new Set<number>();
   readonly #constraintSubjectVariables = new Set<number>();
+  /** A constraint's implied-type variables, by id, to the constraint's name. */
+  readonly #impliedTypeVariables = new Map<number, string>();
+  /**
+   * A constraint subject's own implied types, by the subject variable's id
+   * (#1123): the given a default body is checked under, which settles every
+   * demand of the same constraint on the subject (`#acceptRequirement`).
+   */
+  readonly #subjectImpliedTypes = new Map<number, {
+    readonly identity: string;
+    readonly impliedTypes: ReadonlyMap<string, Variable>;
+  }>();
   #diagnostics: Diagnostics.Bag;
   /**
    * The reports the fail colour's runs of the machinery make (Effects §1),
@@ -7250,8 +7261,16 @@ class Checker {
       this.#constraintSubjects.set(item, subject);
       const typeParameters = new Map<string, Mono>([[item.subject, subject]]);
       const impliedTypes = new Map(
-        item.impliedTypes.map(({ name }) => [name, this.#fresh(0, false)] as const),
+        item.impliedTypes.map(({ name }) => [name, this.#fresh(0, false, name, [])] as const),
       );
+      // Rigid and quantified for the subject's reason above (#1123): a default
+      // body naming one would otherwise bind the declaration's own variable,
+      // and every member's scheme would then carry one global type.
+      for (const implied of impliedTypes.values()) {
+        this.#quantified.add(implied.id);
+        this.#impliedTypeVariables.set(implied.id, item.name);
+      }
+      this.#subjectImpliedTypes.set(subject.id, { identity: item.identity, impliedTypes });
       const seenImpliedTypes = new Set<string>();
       for (const impliedType of item.impliedTypes) {
         if (seenImpliedTypes.has(impliedType.name)) {
@@ -32344,7 +32363,23 @@ class Checker {
         this.#bind(type, variable, span);
         return;
       }
-      if (type.kind === "Variable" && type.rigidName !== undefined) {
+      // A constraint's implied type, met in a default body (#1123): each honor
+      // binds it, so no body checked once in the generic context can fix it,
+      // and no annotation of the author's says otherwise.
+      const impliedSide = this.#impliedTypeVariables.has(variable.id)
+        ? { own: variable, other: type }
+        : type.kind === "Variable" && this.#impliedTypeVariables.has(type.id)
+        ? { own: type, other: variable }
+        : undefined;
+      if (impliedSide !== undefined) {
+        this.#diagnostics.add({
+          severity: "error",
+          message: `\`${impliedSide.own.rigidName}\` is \`${this.#impliedTypeVariables.get(impliedSide.own.id)}\`'s ` +
+            `implied type, which each \`honor\` binds, so a default body cannot make it ` +
+            `\`${this.#display(impliedSide.other)}\`; write this member's body in each \`honor\` instead`,
+          primary: span,
+        });
+      } else if (type.kind === "Variable" && type.rigidName !== undefined) {
         const collision = this.#knotHeadCollision(variable, type);
         if (collision === undefined) {
           // Two of one block head's variables are named in the order the head
@@ -33774,6 +33809,17 @@ class Checker {
   }
 
   #acceptRequirement(variable: Variable, requirement: Requirement): void {
+    // A default body's demand of its own constraint on the subject is the
+    // given it is checked under: one subject, one instance, so its implied
+    // types are the declaration's own (Collections Part 2 §5.4's functional
+    // dependency, #1123).
+    const given = this.#subjectImpliedTypes.get(variable.id);
+    if (given !== undefined && given.identity === requirement.identity) {
+      for (const [name, projection] of requirement.impliedTypes ?? []) {
+        const own = given.impliedTypes.get(name);
+        if (own !== undefined) this.#unify(own, projection, requirement.span);
+      }
+    }
     const declared = variable.declaredConstraints;
     if (
       declared !== undefined &&
@@ -33902,6 +33948,20 @@ class Checker {
     // that is actually legal at its declaration site — a constraint cannot
     // list itself as a base, and an `honor` binder's constraints are written,
     // never inferred, so the function-binder wording misleads at both.
+    // An implied type declares nothing of its own (Constraints §2), so a
+    // default body may demand nothing of it (#1123): the demand belongs to
+    // the instances, which know the type.
+    const impliedOwner = this.#impliedTypeVariables.get(variable.id);
+    if (impliedOwner !== undefined) {
+      this.#reportRequirement(variable, {
+        severity: "error",
+        message: `\`${variable.rigidName}\` is \`${impliedOwner}\`'s implied type, so a default body knows ` +
+          `nothing of it but its name, and this one requires ${requiredMention}; ` +
+          `write this member's body in each \`honor\` instead`,
+        primary: requirement.span,
+      });
+      return;
+    }
     if (this.#constraintSubjectVariables.has(variable.id)) {
       const constraint = declared[0]!;
       const bases = this.#subjectBaseSpellings(constraint, demands);
