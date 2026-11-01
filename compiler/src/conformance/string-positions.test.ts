@@ -73,10 +73,12 @@ function actualIndex(text: string, position: number): string | Fault {
 const unit = fc.constantFrom("a", "7", "é", "—", "😀", "\uD800", "\uDBFF", "\uDC00");
 // Up to 40 pieces, so strings land on both sides of the helper's 32-unit
 // threshold: shorter ones are scanned every time, longer ones are kept.
-const text = fc.array(unit, { maxLength: 40 }).map((pieces) => pieces.join(""));
+// `size: "max"` here and below, because fast-check's default size draws at
+// most ten pieces whatever `maxLength` says.
+const text = fc.array(unit, { maxLength: 40, size: "max" }).map((pieces) => pieces.join(""));
 // Up to 300 pieces, so a kept string crosses the table's 64-codepoint stride
 // several times and a read walks from a mark that is not the first.
-const longText = fc.array(unit, { maxLength: 300 }).map((pieces) => pieces.join(""));
+const longText = fc.array(unit, { maxLength: 300, size: "max" }).map((pieces) => pieces.join(""));
 
 /** Every index from 0 to one past the end, and windows from both sides of each stride. */
 function agreesEverywhere(value: string): void {
@@ -165,7 +167,10 @@ describe("the kept answers never leak between strings", () => {
     ];
     fc.assert(
       fc.property(
-        fc.array(fc.tuple(fc.integer({ min: 0, max: 5 }), fc.integer({ min: 1, max: 40 })), { minLength: 1, maxLength: 60 }),
+        fc.array(
+          fc.tuple(fc.integer({ min: 0, max: 5 }), fc.integer({ min: 1, max: 40 })),
+          { minLength: 1, maxLength: 60, size: "max" },
+        ),
         (reads) => {
           for (const [which, position] of reads) {
             const value = strings[which]!;

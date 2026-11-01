@@ -122,8 +122,9 @@ function oracleSplit(text: string, delimiter: string): string[] {
 // pair up with each other only when a high one happens to precede a low one.
 const unit = fc.constantFrom("a", "b", "é", "😀", "\uD800", "\uDBFF", "\uDC00");
 // Up to 150 pieces, so texts land on both sides of the position table's
-// 32-unit threshold and cross its 64-codepoint stride.
-const text = fc.array(unit, { maxLength: 150 }).map((pieces) => pieces.join(""));
+// 32-unit threshold and cross its 64-codepoint stride. `size: "max"`, because
+// fast-check's default size draws at most ten pieces whatever `maxLength` says.
+const text = fc.array(unit, { maxLength: 150, size: "max" }).map((pieces) => pieces.join(""));
 const needle = fc.array(unit, { maxLength: 3 }).map((pieces) => pieces.join(""));
 
 describe("the scans answer what the codepoint reading answers", () => {
@@ -185,7 +186,7 @@ describe("the scans answer what the codepoint reading answers", () => {
    * a text that is all `White_Space`, and the drops count from either end.
    */
   test("`lines`, the trims and the drops at the ends of the text", () => {
-    const spaced = fc.array(fc.constantFrom("a", "😀", "\uD800", " ", "\r", "\n"), { maxLength: 80 })
+    const spaced = fc.array(fc.constantFrom("a", "😀", "\uD800", " ", "\r", "\n"), { maxLength: 80, size: "max" })
       .map((pieces) => pieces.join(""));
     const blank = (point: string): boolean => point === " " || point === "\r" || point === "\n";
     fc.assert(fc.property(spaced, fc.integer({ min: -2, max: 90 }), (value, count) => {
@@ -287,12 +288,12 @@ export let asked(text: String): Int =
    * The memo finds a string equal to one it keeps by comparing contents, and
    * on that hit keeps the string just read, so a copy of a text already read,
    * built separately, pays one comparison rather than one per bracket. Kept
-   * the other way, `indexOf` over this copy compared 300,000 code units at
-   * every bracket.
+   * the other way, `indexOf` over this copy compared the whole copy at every
+   * bracket.
    */
   test("a separately built copy of a text already read is scanned in one pass", () => {
     for (const piece of ["1234567890", "1234😀67890"]) {
-      const value = piece.repeat(30_000);
+      const value = piece.repeat(60_000);
       expect(main.size(value)).toBe(points(value).length);
       const fresh = Array.from(value).join("");
       const started = Date.now();

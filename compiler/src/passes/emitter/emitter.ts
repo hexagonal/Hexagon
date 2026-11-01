@@ -15309,10 +15309,12 @@ function renderHelper(
       // The four most recently read strings keep their answers, most recent
       // first. A hit is found by comparing contents, so it adopts the string
       // just read as its key: a string equal to a kept one but built
-      // separately pays one full comparison, then every later bracket on it
-      // is an identity check. The memo is transparent on Effects §6.2's terms for an owned
-      // memo: the answer is a function of the string's contents alone, so a
-      // hit and a miss are indistinguishable to every caller. Its price, which
+      // separately pays one full comparison, then its own entry recognises it
+      // by identity (a kept string of its length ranked before that entry
+      // still costs the prefix the two share, as §9 states). The memo is
+      // transparent on Effects §6.2's terms for an owned memo: the answer is
+      // a function of the string's contents alone, so a hit and a miss are
+      // indistinguishable to every caller. Its price, which
       // §9 states, is that in each module that brackets strings the four
       // strings and their marks stay reachable until four others displace
       // them. A string shorter than 32 code units is scanned each time

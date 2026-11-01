@@ -83,10 +83,9 @@ extern from "hex:intrinsic"
     fun regexFoldOrbit as foldOrbit(point: Int) -> Vector(Int)
 
     // The subject, read by code unit (§6.2, §6.4). The public `String` surface
-    // reads by codepoint position, walking from the start each time, and gives
-    // no value for a lone surrogate; the engine reads the subject once, forward,
-    // and cuts each group's text from the offsets the scan has in hand. All
-    // three are `->` reads of a value.
+    // reads by codepoint position and gives no value for a lone surrogate; the
+    // engine reads the subject forward, and cuts each group's text from the
+    // offsets the scan has in hand. All three are `->` reads of a value.
     //
     // The codepoint whose first code unit is at `offset`, zero-based: a
     // well-formed pair is one codepoint, a lone surrogate is itself (§3.6).
@@ -982,10 +981,20 @@ let search(
 ): Option((Vector(Option((Int, Int, String))), (Int, Int))) =
     let units = codeUnits(text)
     let (cursorPosition, cursorOffset) = cursor
-    let fromCursor = cursorPosition >= 1 and cursorPosition <= start
-    var position = if fromCursor then cursorPosition else 1
-    var offset = if fromCursor then cursorOffset else 0
-    while position < start and offset < units
+    // Walk on to `start` from the cursor when `start` is at most 64 codepoints
+    // past it, so an enumeration, whose cursor is the last match's end, or a
+    // start near the subject's beginning never brackets the subject.
+    // Otherwise, for a `start` above 1: when position `start - 1` exists,
+    // `start`'s offset is the code-unit length of the text before it, read
+    // through Collections Part 3 §9's positions (§6.2); when it does not,
+    // `start` is past `length + 1` and there is no match to find. A `start` at
+    // or below 1 is searched from position 1.
+    let fromCursor = cursorPosition >= 1 and cursorPosition <= start and start - cursorPosition <= 64
+    let located = not fromCursor and start > 1 and text[(start - 1)..(start - 1)] != ""
+    let beyond = not fromCursor and not located and start > 1
+    var position = if fromCursor then cursorPosition else if located then start else 1
+    var offset = if fromCursor then cursorOffset else if located then codeUnits(text[1..(start - 1)]) else 0
+    while not beyond and position < start and offset < units
         offset := offset + width(codepointAt(text, offset))
         position := position + 1
     if position < start then
