@@ -15307,7 +15307,10 @@ function renderHelper(
       // own offsets: one pass, however late the first pair comes.
       //
       // The four most recently read strings keep their answers, most recent
-      // first. The memo is transparent on Effects §6.2's terms for an owned
+      // first. A hit is found by comparing contents, so it adopts the string
+      // just read as its key: a string equal to a kept one but built
+      // separately pays one full comparison, then every later bracket on it
+      // is an identity check. The memo is transparent on Effects §6.2's terms for an owned
       // memo: the answer is a function of the string's contents alone, so a
       // hit and a miss are indistinguishable to every caller. Its price, which
       // §9 states, is that in each module that brackets strings the four
@@ -15333,6 +15336,7 @@ function renderHelper(
         "  for (let __slot = 0; __slot < __recent.length; __slot += 1) {",
         "    const __kept = __recent[__slot];",
         "    if (__kept.text === __text) {",
+        "      __kept.text = __text;",
         "      if (__slot > 0) { __recent.splice(__slot, 1); __recent.unshift(__kept); }",
         "      return __kept.entry;",
         "    }",

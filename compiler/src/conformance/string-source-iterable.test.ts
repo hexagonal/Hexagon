@@ -19,7 +19,6 @@ describe("String owns its Iterable instance in source", () => {
     const source = STDLIB_SOURCES["String"]!;
     expect(source).toContain("fun stringToSeq as nativeToSeq(text: String) -> Seq(String)");
     expect(source).toContain(SOURCE_INSTANCE.trim());
-    expect(source).toContain("Vector.fromSeq(toSeq(text))");
     expect(source).toContain("fromSeq(Iterable.toSeq(chunks))");
 
     const project = compileFiles([
@@ -95,10 +94,7 @@ describe("String owns its Iterable instance in source", () => {
       ["/Iterable.hex", iterable],
       [
         "/String.hex",
-        withoutStringInstance().replace(
-          "Vector.fromSeq(toSeq(text))",
-          "Vector.fromSeq(Iterable.toSeq(text))",
-        ),
+        withoutStringInstance(),
       ],
       ["/main.hex", [
         "module Main",
