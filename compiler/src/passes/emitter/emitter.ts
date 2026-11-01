@@ -15153,10 +15153,11 @@ function renderHelper(
       // is the codepoint count and `marks[k]` the offset of codepoint
       // `64 * k` (0-based). `${name}Unit` finds codepoint `point < size` by
       // walking at most 63 codepoints from the nearest mark below it; a window
-      // that reaches the end is cut at the string's length instead. The table is sparse on purpose, as Swift's breadcrumbs
-      // are: a dense one costs a number per codepoint for as long as the memo
-      // keeps it. A pair is a high surrogate followed by a low one; any other
-      // surrogate is a codepoint of its own, as §9 and `Array.from` read it.
+      // that reaches the end is cut at the string's length instead. The table
+      // is sparse on purpose, as Swift's breadcrumbs are: a dense one costs a
+      // number per codepoint for as long as the memo keeps it. A pair is a
+      // high surrogate followed by a low one; any other surrogate is a
+      // codepoint of its own, as §9 and `Array.from` read it.
       //
       // The scan stops looking for pairs at the first one it finds, and every
       // code unit before it is a codepoint, so the marks below it are their
@@ -15165,11 +15166,12 @@ function renderHelper(
       // The four most recently read strings keep their answers, most recent
       // first. The memo is transparent on Effects §6.2's terms for an owned
       // memo: the answer is a function of the string's contents alone, so a
-      // hit and a miss are indistinguishable to every caller. Its price is that
-      // the four strings and their marks stay reachable until four others
-      // displace them, which §9 states. A string shorter than 32 code units is
-      // scanned each time instead, which costs no more than a lookup and never
-      // evicts a long string from the four.
+      // hit and a miss are indistinguishable to every caller. Its price, which
+      // §9 states, is that in each module that brackets strings the four
+      // strings and their marks stay reachable until four others displace
+      // them. A string shorter than 32 code units is scanned each time
+      // instead, which costs no more than a lookup and never evicts a long
+      // string from the four.
       return [
         `const ${name}Recent = [];`,
         `function ${name}Pair(__text, __unit) {`,
