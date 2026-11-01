@@ -15147,20 +15147,29 @@ function renderHelper(
     // array to read one element, and a `lines()` over a long text paid that
     // once per line.
     case "stringPositions":
-      // The string's codepoint positions, as JavaScript offsets. `null` means
+      // Where a string's codepoints start, as JavaScript offsets. `null` means
       // no surrogate pair, so every code unit is one codepoint and a position
-      // is its own offset. Otherwise `offsets[k]` is where codepoint `k + 1`
-      // starts and the last entry is the length, so `offsets.length - 1` is
-      // the codepoint count. A pair is a high surrogate followed by a low
-      // one; any other surrogate is a codepoint of its own, as §9 and
-      // `Array.from` read it.
+      // is its own offset. Otherwise the answer is `{ size, marks }`: `size`
+      // is the codepoint count and `marks[k]` the offset of codepoint
+      // `64 * k` (0-based). `${name}Unit` finds codepoint `point < size` by
+      // walking at most 63 codepoints from the nearest mark below it; a window
+      // that reaches the end is cut at the string's length instead. The table is sparse on purpose, as Swift's breadcrumbs
+      // are: a dense one costs a number per codepoint for as long as the memo
+      // keeps it. A pair is a high surrogate followed by a low one; any other
+      // surrogate is a codepoint of its own, as §9 and `Array.from` read it.
+      //
+      // The scan stops looking for pairs at the first one it finds, and every
+      // code unit before it is a codepoint, so the marks below it are their
+      // own offsets: one pass, however late the first pair comes.
       //
       // The four most recently read strings keep their answers, most recent
-      // first: an owned memo (Effects §6.2), transparent because the answer is
-      // a function of the string's contents alone, so a hit and a miss are
-      // indistinguishable to every caller. A string shorter than 32 code units
-      // is scanned each time instead, which costs no more than a lookup and
-      // never evicts a long string from the four.
+      // first. The memo is transparent on Effects §6.2's terms for an owned
+      // memo: the answer is a function of the string's contents alone, so a
+      // hit and a miss are indistinguishable to every caller. Its price is that
+      // the four strings and their marks stay reachable until four others
+      // displace them, which §9 states. A string shorter than 32 code units is
+      // scanned each time instead, which costs no more than a lookup and never
+      // evicts a long string from the four.
       return [
         `const ${name}Recent = [];`,
         `function ${name}Pair(__text, __unit) {`,
@@ -15169,45 +15178,55 @@ function renderHelper(
         "  const __next = __text.charCodeAt(__unit + 1);",
         "  return __next >= 0xDC00 && __next <= 0xDFFF;",
         "}",
+        `function ${name}Unit(__text, __entry, __point) {`,
+        "  let __unit = __entry.marks[__point >> 6];",
+        `  for (let __step = __point & 63; __step > 0; __step -= 1) __unit += ${name}Pair(__text, __unit) ? 2 : 1;`,
+        "  return __unit;",
+        "}",
         `function ${name}(__text) {`,
         `  const __recent = ${name}Recent;`,
         "  for (let __slot = 0; __slot < __recent.length; __slot += 1) {",
-        "    const __entry = __recent[__slot];",
-        "    if (__entry.text === __text) {",
-        "      if (__slot > 0) { __recent.splice(__slot, 1); __recent.unshift(__entry); }",
-        "      return __entry.offsets;",
+        "    const __kept = __recent[__slot];",
+        "    if (__kept.text === __text) {",
+        "      if (__slot > 0) { __recent.splice(__slot, 1); __recent.unshift(__kept); }",
+        "      return __kept.entry;",
         "    }",
         "  }",
         "  const __length = __text.length;",
-        "  let __offsets = null;",
-        "  for (let __unit = 0; __unit < __length; __unit += 1) {",
-        `    if (${name}Pair(__text, __unit)) { __offsets = []; break; }`,
-        "  }",
-        "  if (__offsets !== null) {",
-        "    let __unit = 0;",
+        "  let __first = 0;",
+        `  while (__first < __length && !${name}Pair(__text, __first)) __first += 1;`,
+        "  let __entry = null;",
+        "  if (__first < __length) {",
+        "    const __marks = [];",
+        "    for (let __point = 0; __point < __first; __point += 64) __marks.push(__point);",
+        "    let __unit = __first;",
+        "    let __point = __first;",
         "    while (__unit < __length) {",
-        "      __offsets.push(__unit);",
+        "      if ((__point & 63) === 0) __marks.push(__unit);",
         `      __unit += ${name}Pair(__text, __unit) ? 2 : 1;`,
+        "      __point += 1;",
         "    }",
-        "    __offsets.push(__length);",
+        "    __entry = { size: __point, marks: __marks };",
         "  }",
         "  if (__length >= 32) {",
-        "    __recent.unshift({ text: __text, offsets: __offsets });",
+        "    __recent.unshift({ text: __text, entry: __entry });",
         "    if (__recent.length > 4) __recent.pop();",
         "  }",
-        "  return __offsets;",
+        "  return __entry;",
         "}",
       ];
     case "stringIndex":
       return [
         `function ${name}(__text, __index) {`,
-        `  const __offsets = ${dependencyName("stringPositions")}(__text);`,
-        "  const __size = __offsets === null ? __text.length : __offsets.length - 1;",
+        `  const __entry = ${dependencyName("stringPositions")}(__text);`,
+        "  const __size = __entry === null ? __text.length : __entry.size;",
         `  if (__index < 1 || __index > __size) { const __error = new ${
           spell("RangeError")
         }` +
         "(`index ${__index} out of bounds for size ${__size}`); __error.name = \"IndexFault\"; __error.$hex = " + JSON.stringify(HEX_VECTOR) + "; __error.index = __index; __error.size = __size; throw __error; }",
-        "  return __offsets === null ? __text[__index - 1] : __text.slice(__offsets[__index - 1], __offsets[__index]);",
+        "  if (__entry === null) return __text[__index - 1];",
+        `  const __unit = ${dependencyName("stringPositions")}Unit(__text, __entry, __index - 1);`,
+        `  return ${dependencyName("stringPositions")}Pair(__text, __unit) ? __text.slice(__unit, __unit + 2) : __text[__unit];`,
         "}",
       ];
     case "stringSlice":
@@ -15215,12 +15234,14 @@ function renderHelper(
         `function ${name}(__text, __range) {`,
         `  if (__range.descending) { const __error = new ${spell("RangeError")}` +
         "(\"a slice window cannot descend\"); __error.name = \"SliceFault\"; __error.$hex = " + JSON.stringify(HEX_VECTOR) + "; __error.start = __range.start; __error.end = __range.end; throw __error; }",
-        `  const __offsets = ${dependencyName("stringPositions")}(__text);`,
-        "  const __size = __offsets === null ? __text.length : __offsets.length - 1;",
+        `  const __entry = ${dependencyName("stringPositions")}(__text);`,
+        "  const __size = __entry === null ? __text.length : __entry.size;",
         `  const __start = ${spell("Math")}.max(0, __range.start - 1);`,
         `  const __end = ${spell("Math")}.min(__size, ${spell("Math")}.max(0, __range.end));`,
         "  if (__start >= __end) return \"\";",
-        "  return __offsets === null ? __text.slice(__start, __end) : __text.slice(__offsets[__start], __offsets[__end]);",
+        "  if (__entry === null) return __text.slice(__start, __end);",
+        `  const __to = __end === __size ? __text.length : ${dependencyName("stringPositions")}Unit(__text, __entry, __end);`,
+        `  return __text.slice(${dependencyName("stringPositions")}Unit(__text, __entry, __start), __to);`,
         "}",
       ];
     // ---------------------------------------------------------------------

@@ -8,8 +8,10 @@ import { runMain } from "../support/test-project.js";
  * addresses a string by codepoint, so `s[i]` and `s[lo..hi]` must find where
  * codepoint `i` starts, and that is a scan wherever a surrogate pair can come
  * first. The emitter's `stringPositions` helper does the scan once per string
- * and keeps the answer for the four strings read most recently, so indexing one
- * string again is amortised O(1) while the worst case stays §9's O(n).
+ * and keeps a sparse table of where its codepoints start (one entry every 64
+ * codepoints) for the four strings read most recently, so indexing one string
+ * again walks at most 63 codepoints: amortised O(1), while the worst case stays
+ * §9's O(n).
  *
  * Before it, every bracket ran `Array.from` over the whole string, so a loop of
  * `s[i]` was quadratic with a large constant, and so was every `String`
@@ -40,23 +42,28 @@ beforeAll(async () => {
   main = (await runMain(SOURCE)) as unknown as Exports;
 });
 
+/** A thrown fault as plain data: its identity (Exceptions §7.1), payload and message. */
+type Fault = { fault: string; hex: string; index: number; size: number; message: string };
+
 /** What the old helper answered, or the fault it threw, as plain data. */
-function oracleIndex(text: string, position: number): string | { fault: string; size: number } {
-  const points = Array.from(text);
-  if (position < 1 || position > points.length) return { fault: "IndexFault", size: points.length };
-  return points[position - 1]!;
+function oracleIndex(text: string, position: number): string | Fault {
+  const size = Array.from(text).length;
+  if (position < 1 || position > size) {
+    return { fault: "IndexFault", hex: "Hex.Vector", index: position, size, message: `index ${position} out of bounds for size ${size}` };
+  }
+  return Array.from(text)[position - 1]!;
 }
 
 function oracleSlice(text: string, low: number, high: number): string {
   return Array.from(text).slice(Math.max(0, low - 1), Math.max(0, high)).join("");
 }
 
-function actualIndex(text: string, position: number): string | { fault: string; size: number } {
+function actualIndex(text: string, position: number): string | Fault {
   try {
     return main.index(text, position);
   } catch (error) {
-    const { name, size } = error as { name: string; size: number };
-    return { fault: name, size };
+    const { name, $hex, index, size, message } = error as { name: string; $hex: string; index: number; size: number; message: string };
+    return { fault: name, hex: $hex, index, size, message };
   }
 }
 
@@ -67,6 +74,22 @@ const unit = fc.constantFrom("a", "7", "é", "—", "😀", "\uD800", "\uDBFF", 
 // Up to 40 pieces, so strings land on both sides of the helper's 32-unit
 // threshold: shorter ones are scanned every time, longer ones are kept.
 const text = fc.array(unit, { maxLength: 40 }).map((pieces) => pieces.join(""));
+// Up to 300 pieces, so a kept string crosses the table's 64-codepoint stride
+// several times and a read walks from a mark that is not the first.
+const longText = fc.array(unit, { maxLength: 300 }).map((pieces) => pieces.join(""));
+
+/** Every index from 0 to one past the end, and windows from both sides of each stride. */
+function agreesEverywhere(value: string): void {
+  const size = Array.from(value).length;
+  for (let position = 0; position <= size + 1; position += 1) {
+    expect(actualIndex(value, position)).toEqual(oracleIndex(value, position));
+  }
+  for (const low of [0, 1, 2, 63, 64, 65, 66, 128, 129, size, size + 1]) {
+    for (const high of [low, low + 1, low + 62, low + 63, low + 64, size - 1, size, size + 1]) {
+      expect(main.slice(value, low, high)).toBe(oracleSlice(value, low, high));
+    }
+  }
+}
 
 describe("positions agree with the codepoint reading, short strings and kept ones", () => {
   test("`s[i]` answers the codepoint or the fault, with §5.5's size", () => {
@@ -99,7 +122,27 @@ describe("positions agree with the codepoint reading, short strings and kept one
       for (let position = 1; position <= points.length; position += 1) {
         expect(main.index(value, position)).toBe(points[position - 1]);
       }
-      expect(actualIndex(value, points.length + 1)).toEqual({ fault: "IndexFault", size: points.length });
+      expect(actualIndex(value, points.length + 1)).toEqual(oracleIndex(value, points.length + 1));
+    }
+  });
+
+  test("past the table's stride: every index and window of a long string", () => {
+    fc.assert(fc.property(longText, agreesEverywhere), { numRuns: 200 });
+  });
+
+  /**
+   * The table's edges: the first pair before, on and after a multiple of 64
+   * (the marks below it are their own offsets), and sizes on and beside a
+   * multiple of 64, where the last mark is the last codepoint's or there is
+   * none past the final stride and a window reaching the end is cut at the
+   * string's length.
+   */
+  test("first pairs and sizes on both sides of the 64-codepoint stride", () => {
+    for (const before of [0, 1, 31, 63, 64, 65, 127, 128, 129, 200]) {
+      for (const after of [0, 1, 62, 63, 64, 65, 126, 127]) {
+        agreesEverywhere("a".repeat(before) + "😀" + "b".repeat(after));
+        agreesEverywhere("a".repeat(before) + "😀" + "😀b".repeat(after >> 1));
+      }
     }
   });
 });
