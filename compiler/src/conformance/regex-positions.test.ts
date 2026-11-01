@@ -1,7 +1,7 @@
 import fc from "fast-check";
 import { beforeAll, describe, expect, test } from "vitest";
 
-import { runMain } from "../support/test-project.js";
+import { runProject } from "../support/test-project.js";
 
 /**
  * #1414: **A `findFrom` start far from any cursor is read through Collections
@@ -48,6 +48,14 @@ export let pieces(text: String): Vector(String) = Regex.split(bs, text)
 export let replaced(text: String): String = Regex.replace(bs, text, "_")
 export let emptyPieces(text: String): Vector(String) = Regex.split(xs, text)
 
+export let allCount(text: String): Int =
+    var total = 0
+    for _ in Regex.findAll(xs, text)
+        total := total + 1
+    total
+
+export let matched(text: String): Bool = Regex.isMatch(bs, text)
+
 export let count(text: String): Int =
     let digit = regexOf("[0-9]")
     var position = 1
@@ -79,15 +87,35 @@ type Exports = {
   readonly pieces: (text: string) => Iterable<string>;
   readonly replaced: (text: string) => string;
   readonly emptyPieces: (text: string) => Iterable<string>;
+  readonly allCount: (text: string) => number;
+  readonly matched: (text: string) => boolean;
   readonly count: (text: string) => number;
   readonly pastEnd: (text: string, times: number) => number;
 };
 
 let main: Exports;
 
+/**
+ * The engine's module counts its brackets: each one enters the emitted
+ * `__stringPositions` helper, Collections Part 3 §9's memo, which is what keeps
+ * a bracketed subject reachable (`regex.md` §6.2).
+ */
+const ENGINE = "/Hex/Runtime/Regex.hex";
+const HELPER = "function __stringPositions(__text) {";
+const counter = globalThis as unknown as { __engineBrackets?: number };
+
+function countBrackets(path: string, javascript: string): string {
+  if (path !== ENGINE) return javascript;
+  if (!javascript.includes(HELPER)) throw new Error(`${ENGINE} no longer emits \`${HELPER}\``);
+  return javascript.replace(
+    HELPER,
+    `${HELPER} globalThis.__engineBrackets = (globalThis.__engineBrackets ?? 0) + 1;`,
+  );
+}
+
 // Compiling `Regex` and its engine takes longer than the default hook timeout.
 beforeAll(async () => {
-  main = (await runMain(SOURCE)) as unknown as Exports;
+  main = (await runProject([["/main.hex", SOURCE]], { transform: countBrackets })) as unknown as Exports;
 }, 120_000);
 
 const points = (text: string): string[] => Array.from(text);
@@ -184,6 +212,37 @@ describe("positions read through the table answer what the walk answered", () =>
 
   test("empty matches split between every codepoint, pairs kept whole", () => {
     expect(Array.from(main.emptyPieces("a😀\uD800b"))).toEqual(["", "a", "😀", "\uD800", "b", ""]);
+  });
+});
+
+describe("only a far `findFrom` start keeps the subject", () => {
+  const brackets = (run: () => unknown): number => {
+    counter.__engineBrackets = 0;
+    run();
+    return counter.__engineBrackets;
+  };
+
+  /**
+   * The enumerations walk from their cursor and a start within 64 codepoints
+   * of the beginning walks from it, so neither brackets the subject, and §9's
+   * memo never holds it. A start 65 codepoints past the cursor `(1, 0)` reads
+   * its offset through the memo, and so does a start past `length + 1`, whose
+   * existence check is a bracket.
+   */
+  test("the enumerations and near starts bracket nothing; a far start does", () => {
+    const long = "a😀b x".repeat(60) + "b";
+    const size = points(long).length;
+    expect(brackets(() => main.allCount(long))).toBe(0);
+    expect(brackets(() => Array.from(main.pieces(long)))).toBe(0);
+    expect(brackets(() => Array.from(main.emptyPieces(long)))).toBe(0);
+    expect(brackets(() => main.replaced(long))).toBe(0);
+    expect(brackets(() => main.matched(long))).toBe(0);
+    for (const start of [-1, 0, 1, 2, 40, 65]) {
+      expect(brackets(() => main.runFrom(long, start))).toBe(0);
+    }
+    for (const start of [66, 200, size, size + 1, size + 2]) {
+      expect(brackets(() => main.runFrom(long, start))).toBeGreaterThan(0);
+    }
   });
 });
 

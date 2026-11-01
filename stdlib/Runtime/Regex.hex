@@ -984,10 +984,11 @@ let search(
     // Walk on to `start` from the cursor when `start` is at most 64 codepoints
     // past it, so an enumeration, whose cursor is the last match's end, or a
     // start near the subject's beginning never brackets the subject.
-    // Otherwise, when position `start - 1` exists, `start`'s offset is the
-    // code-unit length of the text before it, read through Collections Part 3
-    // §9's positions (§6.2); when it does not, `start` is past `length + 1`
-    // and there is no match to find.
+    // Otherwise, for a `start` above 1: when position `start - 1` exists,
+    // `start`'s offset is the code-unit length of the text before it, read
+    // through Collections Part 3 §9's positions (§6.2); when it does not,
+    // `start` is past `length + 1` and there is no match to find. A `start` at
+    // or below 1 is searched from position 1.
     let fromCursor = cursorPosition >= 1 and cursorPosition <= start and start - cursorPosition <= 64
     let located = not fromCursor and start > 1 and text[(start - 1)..(start - 1)] != ""
     let beyond = not fromCursor and not located and start > 1
