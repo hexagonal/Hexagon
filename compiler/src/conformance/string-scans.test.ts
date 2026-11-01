@@ -37,6 +37,13 @@ export let replacedCi(text: String, target: String): String = text.replaceCi(tar
 export let lastCi(text: String, target: String): Int = match text.lastIndexOfCi(target)
     Some(at) => at
     None => 0
+export let startsCi(text: String, prefix: String): Bool = text.startsWithCi(prefix)
+export let endsCi(text: String, suffix: String): Bool = text.endsWithCi(suffix)
+export let lined(text: String): Vector(String) = text.lines()
+export let trimmedStart(text: String): String = text.trimStart()
+export let trimmedEnd(text: String): String = text.trimEnd()
+export let droppedFirst(text: String, count: Int): String = text.dropFirstN(count)
+export let droppedLast(text: String, count: Int): String = text.dropLastN(count)
 `;
 
 type Exports = {
@@ -50,6 +57,13 @@ type Exports = {
   readonly piecesCi: (text: string, delimiter: string) => Iterable<string>;
   readonly replacedCi: (text: string, target: string) => string;
   readonly lastCi: (text: string, target: string) => number;
+  readonly startsCi: (text: string, prefix: string) => boolean;
+  readonly endsCi: (text: string, suffix: string) => boolean;
+  readonly lined: (text: string) => Iterable<string>;
+  readonly trimmedStart: (text: string) => string;
+  readonly trimmedEnd: (text: string) => string;
+  readonly droppedFirst: (text: string, count: number) => string;
+  readonly droppedLast: (text: string, count: number) => string;
 };
 
 let main: Exports;
@@ -156,6 +170,52 @@ describe("the scans answer what the codepoint reading answers", () => {
     expect(main.replacedCi("Straße", "SS")).toBe("Stra_e");
     expect(main.lastCi("aXbxc", "X")).toBe(4);
     expect(main.lastCi("Straße", "SS")).toBe(5);
+    expect(main.startsCi("Straße", "STRASS")).toBe(true);
+    expect(main.startsCi("Straße", "STRASSX")).toBe(false);
+    expect(main.endsCi("Straße", "SSE")).toBe(true);
+    expect(main.endsCi("Straße", "XSSE")).toBe(false);
+  });
+
+  /**
+   * `lines` looks one past a CR for its LF, the trims run off either end of
+   * a text that is all `White_Space`, and the drops count from either end.
+   */
+  test("`lines`, the trims and the drops at the ends of the text", () => {
+    const spaced = fc.array(fc.constantFrom("a", "😀", "\uD800", " ", "\r", "\n"), { maxLength: 80 })
+      .map((pieces) => pieces.join(""));
+    const blank = (point: string): boolean => point === " " || point === "\r" || point === "\n";
+    fc.assert(fc.property(spaced, fc.integer({ min: -2, max: 90 }), (value, count) => {
+      const source = points(value);
+      const lines: string[] = [];
+      let current = "";
+      let pending = false;
+      for (let at = 0; at < source.length; at += 1) {
+        const point = source[at]!;
+        if (point === "\r" || point === "\n") {
+          lines.push(current);
+          current = "";
+          pending = false;
+          if (point === "\r" && source[at + 1] === "\n") at += 1;
+        } else {
+          current += point;
+          pending = true;
+        }
+      }
+      if (pending) lines.push(current);
+      expect(Array.from(main.lined(value))).toEqual(lines);
+      let start = 0;
+      while (start < source.length && blank(source[start]!)) start += 1;
+      let end = source.length;
+      while (end > 0 && blank(source[end - 1]!)) end -= 1;
+      expect(main.trimmedStart(value)).toBe(source.slice(start).join(""));
+      expect(main.trimmedEnd(value)).toBe(source.slice(0, end).join(""));
+      const kept = Math.max(count, 0);
+      expect(main.droppedFirst(value, count)).toBe(source.slice(kept).join(""));
+      expect(main.droppedLast(value, count)).toBe(source.slice(0, Math.max(source.length - kept, 0)).join(""));
+    }), { numRuns: 1000 });
+    expect(Array.from(main.lined("a\r"))).toEqual(["a"]);
+    expect(main.trimmedStart(" ".repeat(40))).toBe("");
+    expect(main.trimmedEnd(" ")).toBe("");
   });
 
   test("`toCodepoint` still answers only for one scalar value", () => {
@@ -178,7 +238,7 @@ describe("the cost: a question about a long text no longer copies it", () => {
    */
   const BOUND_MS = 5_000;
 
-  test("1,000 `length` and `startsWith` calls on a 100,000-codepoint text", async () => {
+  test("1,000 `length`, `startsWith`, `endsWith` and `contains` calls on a 100,000-codepoint text", async () => {
     const program = await runMain(`module Main
 
 export let asked(text: String): Int =
@@ -187,11 +247,34 @@ export let asked(text: String): Int =
         total := total + text.length()
         if text.startsWith("12") then total := total + 1
         if text.endsWith("90") then total := total + 1
+        if text.contains("34") then total := total + 1
     total
 `) as { asked: (text: string) => number };
     for (const value of ["1234567890".repeat(10_000), "1234😀67890".repeat(10_000)]) {
       const started = Date.now();
-      expect(program.asked(value)).toBe(1000 * (points(value).length + 2));
+      expect(program.asked(value)).toBe(1000 * (points(value).length + 3));
+      expect(Date.now() - started).toBeLessThan(BOUND_MS);
+    }
+  });
+
+  /**
+   * Collections Part 3 §9's memo tells two strings of one length apart by
+   * comparing them, which costs the prefix they share. A search that read
+   * its target through brackets too would pay that on every bracket, and
+   * with a target as long as the text that is quadratic: read that way,
+   * these four took 23 s together on 300,000 ASCII codepoints and 52 s with
+   * pairs, against under a second when the target is read once.
+   */
+  test("a target as long as the text and sharing its contents is read once", () => {
+    for (const piece of ["1234567890", "1234😀67890"]) {
+      const value = piece.repeat(30_000);
+      const copy = Array.from(value).join("");
+      const near = Array.from(value).slice(0, -1).join("") + "x";
+      const started = Date.now();
+      expect(main.starts(value, copy)).toBe(true);
+      expect(main.ends(value, copy)).toBe(true);
+      expect(main.first(value, near)).toBe(0);
+      expect(Array.from(main.piecesCi(value, copy))).toEqual(["", ""]);
       expect(Date.now() - started).toBeLessThan(BOUND_MS);
     }
   });

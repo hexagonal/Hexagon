@@ -2,8 +2,9 @@
 
 **Status:** Normative. The public surface was agreed on 2026-09-06 and promoted
 on 2026-09-16 after the runtime String-domain and Unicode-version questions were
-settled; amended 2026-11-01 — §1 and §11 state `length`'s cost and that scans
-read through Collections Part 3 §9's positions (#1413). This document owns the
+settled; amended 2026-11-01 — §1 and §11 state `length`'s cost, that scans
+read through Collections Part 3 §9's positions, and that a search reads its
+target once (#1413). This document owns the
 text-processing operations exported by `stdlib/String.hex`.
 
 **Home:** Public companion functions in `stdlib/String.hex`. Related Vector
@@ -26,9 +27,7 @@ String.length(text: String): Int
 
 It counts the codepoint items described above. The text-processing operations
 below build on that same unit. `length` is O(n) on a string's first read and
-O(log n) on a string read again: it finds the last nonempty one-codepoint
-window, and Collections Part 3 §9 keeps a string's positions once it has been
-read.
+O(log n) on a string whose positions Collections Part 3 §9's memo still keeps.
 
 Hexagon remains representation-compatible with every JavaScript string. A
 well-formed surrogate pair is one codepoint. A lone leading or trailing
@@ -327,7 +326,9 @@ order, not a new public import or a cyclic exception.
 Operations perform at least the traversal their result requires. Codepoint
 scans are linear in the traversed input: they read the text by a forward pass or
 through brackets, whose positions Collections Part 3 §9 keeps, never through a
-copy of the whole text. Output-producing operations also count
+copy of the whole text. A scan brackets no string but its text, and a search
+reads its target's codepoints once, so §9's memo never tells two strings apart
+within a scan. Output-producing operations also count
 the produced output, including expanded case mappings and folds. `join` counts
 sequence traversal even when every element and separator is empty. Search
 algorithms state their implemented bound; no blanket constant-time String

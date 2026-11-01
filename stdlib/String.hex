@@ -87,11 +87,19 @@ honor Hash<String> =
         is checked against. *)
     hash(value) = nativeHash(value)
 
-// The scans below read the text through brackets, `text[i]` and `text[lo..hi]`,
-// rather than copying it into a vector of codepoints first: Collections Part 3
-// §9 keeps each string's codepoint positions once it has been read, so a
-// bracket on a string read again is amortised O(1), and a scan costs its
-// traversal, not a copy of the whole text (#1413).
+// The scans below read the text they scan through brackets, `text[i]` and
+// `text[lo..hi]`: Collections Part 3 §9 keeps a string's codepoint positions
+// once it has been read, so a bracket on a string read again is amortised
+// O(1), and a scan costs its traversal. A search reads its target through
+// `points` once instead, so no scan alternates brackets between two strings:
+// §9's memo tells strings apart by comparing them, which for two long strings
+// of one length costs the prefix they share, on every bracket.
+
+let points(text: String): Vector(String) =
+    var result: Vector(String) = []
+    for point in text
+        result := result.append(point)
+    result
 
 (** The number of codepoints in `text`. Lone surrogates supplied by JavaScript
     count as one preserved item. *)
@@ -124,7 +132,8 @@ let foldedText(text: String): String =
 let slicePoints(text: String, start: Int, end: Int): String =
     if start > end then "" else text[start..end]
 
-let exactEnd(source: String, sourceLength: Int, target: String, targetLength: Int, start: Int): Option(Int) =
+let exactEnd(source: String, sourceLength: Int, target: Vector(String), start: Int): Option(Int) =
+    let targetLength = Vector.length(target)
     if targetLength == 0 then
         Some(start - 1)
     else if start < 1 or start + targetLength - 1 > sourceLength then
@@ -139,20 +148,19 @@ let exactEnd(source: String, sourceLength: Int, target: String, targetLength: In
                 offset := offset + 1
         if equal then Some(start + targetLength - 1) else None
 
-let foldedEnd(source: String, sourceLength: Int, target: String, targetLength: Int, start: Int): Option(Int) =
+let foldedEnd(source: String, sourceLength: Int, target: Vector(String), start: Int): Option(Int) =
+    let targetLength = Vector.length(target)
     var sourceIndex = start
     var targetIndex = 1
     var matching = True
     var result = None
     while matching and sourceIndex <= sourceLength
-        let expansion = nativeCaseFoldMapping(source[sourceIndex])
-        let expansionLength = length(expansion)
-        var expansionIndex = 1
-        while matching and expansionIndex <= expansionLength
-            if targetIndex > targetLength or expansion[expansionIndex] != target[targetIndex] then
+        // A mismatch ends the match: the rest of this expansion may still
+        // advance `targetIndex`, but nothing reads it once `matching` is false.
+        for point in nativeCaseFoldMapping(source[sourceIndex])
+            if targetIndex > targetLength or point != target[targetIndex] then
                 matching := False
             else
-                expansionIndex := expansionIndex + 1
                 targetIndex := targetIndex + 1
         if matching then
             if targetIndex > targetLength then
@@ -169,24 +177,24 @@ let counted(text: String): Counted = Counted({ text = text, size = length(text) 
 
 let matchEnd(
     source: Counted,
-    target: Counted,
-    foldedTarget: Counted,
+    target: Vector(String),
+    foldedTarget: Vector(String),
     start: Int,
     insensitive: Bool,
 ): Option(Int) =
     if insensitive then
-        foldedEnd(source.text, source.size, foldedTarget.text, foldedTarget.size, start)
+        foldedEnd(source.text, source.size, foldedTarget, start)
     else
-        exactEnd(source.text, source.size, target.text, target.size, start)
+        exactEnd(source.text, source.size, target, start)
 
 let findMatch(
     source: Counted,
-    target: Counted,
-    foldedTarget: Counted,
+    target: Vector(String),
+    foldedTarget: Vector(String),
     start: Int,
     insensitive: Bool,
 ): Option((Int, Int)) =
-    if target.size == 0 then
+    if Vector.length(target) == 0 then
         Some((start, start - 1))
     else
         var position = start
@@ -202,10 +210,10 @@ let findMatch(
 
 let splitWith(text: String, delimiter: String, insensitive: Bool): Vector(String) =
     let source = counted(text)
-    let target = counted(delimiter)
-    let foldedTarget = if insensitive then counted(foldedText(delimiter)) else target
+    let target = points(delimiter)
+    let foldedTarget = if insensitive then points(foldedText(delimiter)) else target
     let sourceLength = source.size
-    if target.size == 0 then
+    if Vector.length(target) == 0 then
         var pieces: Vector(String) = [""]
         var index = 1
         while index <= sourceLength
@@ -234,10 +242,10 @@ let replaceWith(
     firstOnly: Bool,
 ): String =
     let source = counted(text)
-    let target = counted(targetText)
-    let foldedTarget = if insensitive then counted(foldedText(targetText)) else target
+    let target = points(targetText)
+    let foldedTarget = if insensitive then points(foldedText(targetText)) else target
     let sourceLength = source.size
-    if target.size == 0 then
+    if Vector.length(target) == 0 then
         var chunks: Vector(String) = [replacement]
         var index = 1
         var running = True
@@ -339,22 +347,21 @@ export let trim(text: String): String = trimEnd(trimStart(text))
 
 (** The 1-based position of the first exact literal match, or `None`. *)
 export let indexOf(text: String, targetText: String): Option(Int) =
-    let target = counted(targetText)
-    match findMatch(counted(text), target, target, 1, False)
+    match findMatch(counted(text), points(targetText), [], 1, False)
         None => None
         Some((start, _)) => Some(start)
 
 (** The 1-based position of the first full-fold literal match, or `None`. *)
 export let indexOfCi(text: String, targetText: String): Option(Int) =
-    match findMatch(counted(text), counted(targetText), counted(foldedText(targetText)), 1, True)
+    match findMatch(counted(text), points(targetText), points(foldedText(targetText)), 1, True)
         None => None
         Some((start, _)) => Some(start)
 
 let lastIndexWith(text: String, targetText: String, insensitive: Bool): Option(Int) =
     let source = counted(text)
-    let target = counted(targetText)
-    let foldedTarget = if insensitive then counted(foldedText(targetText)) else target
-    if target.size == 0 then
+    let target = points(targetText)
+    let foldedTarget = if insensitive then points(foldedText(targetText)) else target
+    if Vector.length(target) == 0 then
         Some(source.size + 1)
     else
         var position = 1
@@ -382,23 +389,22 @@ export let containsCi(text: String, targetText: String): Bool = match indexOfCi(
     None => False
 
 (** Whether `text` begins with the exact literal `prefix`. *)
-export let startsWith(text: String, prefix: String): Bool = match exactEnd(text, length(text), prefix, length(prefix), 1)
+export let startsWith(text: String, prefix: String): Bool = match exactEnd(text, length(text), points(prefix), 1)
     Some(_) => True
     None => False
 
 (** Whether a full-fold match of `prefix` begins at the first original boundary. *)
 export let startsWithCi(text: String, prefix: String): Bool =
-    let target = foldedText(prefix)
-    if length(prefix) == 0 then True else match foldedEnd(text, length(text), target, length(target), 1)
+    if length(prefix) == 0 then True else match foldedEnd(text, length(text), points(foldedText(prefix)), 1)
         Some(_) => True
         None => False
 
 (** Whether `text` ends with the exact literal `suffix`. *)
 export let endsWith(text: String, suffix: String): Bool =
     let textLength = length(text)
-    let suffixLength = length(suffix)
-    let start = textLength - suffixLength + 1
-    match exactEnd(text, textLength, suffix, suffixLength, start)
+    let target = points(suffix)
+    let start = textLength - Vector.length(target) + 1
+    match exactEnd(text, textLength, target, start)
         Some(end) => end == textLength
         None => False
 
@@ -408,12 +414,11 @@ export let endsWithCi(text: String, suffix: String): Bool =
         True
     else
         let sourceLength = length(text)
-        let target = foldedText(suffix)
-        let targetLength = length(target)
+        let target = points(foldedText(suffix))
         var position = 1
         var found = False
         while position <= sourceLength
-            match foldedEnd(text, sourceLength, target, targetLength, position)
+            match foldedEnd(text, sourceLength, target, position)
                 Some(end) => if end == sourceLength then found := True
                 None => ()
             position := position + 1
