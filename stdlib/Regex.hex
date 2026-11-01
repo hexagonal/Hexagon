@@ -160,17 +160,29 @@ export let findAll(regex: Regex, text: String): Seq(Match) =
 let matchesOf(regex: Regex, text: String, all: Bool): Vector(Match) =
     if all then Vector.fromSeq(findAll(regex, text)) else Vector.fromSeq(Seq.take(findAll(regex, text), 1))
 
-// The text between the matches, one slice per run: one more run than there
-// are matches. A slice finds its ends through Collections Part 3 §9's
-// positions, so a run costs its own length, not a walk from the subject's
-// start (§6.4).
+// The text between the matches, in one pass over the subject's codepoints:
+// one more run than there are matches.
 let runsBetween(text: String, matches: Vector(Match)): Vector(String) =
     var runs: Vector(String) = []
-    var from = 1
-    for found in matches
-        runs := runs.append(text[from..(found.whole.start - 1)])
-        from := found.whole.start + found.whole.length
-    runs.append(text[from..String.length(text)])
+    var chunks: Vector(String) = []
+    var position = 1
+    var index = 1
+    let count = Vector.length(matches)
+    for point in text
+        // Close every run that ends here: a match starting at this position,
+        // empty ones included, then skip what the match covers.
+        while index <= count and matches[index].whole.start == position
+            runs := runs.append(String.join(Iterable.toSeq(chunks), ""))
+            chunks := []
+            index := index + 1
+        let inside = index > 1 and position < matches[index - 1].whole.start + matches[index - 1].whole.length
+        if not inside then chunks := chunks.append(point)
+        position := position + 1
+    while index <= count
+        runs := runs.append(String.join(Iterable.toSeq(chunks), ""))
+        chunks := []
+        index := index + 1
+    runs.append(String.join(Iterable.toSeq(chunks), ""))
 
 // The runs with each match's replacement between them.
 let interleaved(runs: Vector(String), replacements: Vector(String)): String =
