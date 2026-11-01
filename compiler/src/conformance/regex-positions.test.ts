@@ -7,11 +7,12 @@ import { runMain } from "../support/test-project.js";
  * #1414: **A `findFrom` start far from any cursor is read through Collections
  * Part 3 §9's table.** `findFrom` passes the cursor `(1, 0)`, so the engine used
  * to walk from the subject's start to `start` on every call, and a loop of
- * `findFrom` calls was quadratic. The engine still walks from a cursor it
- * answered, or when `start` is at most 64 codepoints past the cursor; otherwise
- * it reads `start`'s offset as the code-unit length of `text[1..start - 1]`,
- * which the table makes amortised O(1) on a subject read again, and a `start`
- * past `length + 1` answers no match at once (`regex.md` §6.2). The
+ * `findFrom` calls was quadratic. The engine still walks to `start` from its
+ * cursor when the cursor is at or before `start` and at most 64 codepoints
+ * before it, as it is in every enumeration; otherwise it reads `start`'s
+ * offset as the code-unit length of `text[1..start - 1]`, which the table
+ * makes amortised O(1) on a subject read again, and a `start` past
+ * `length + 1` answers no match at once (`regex.md` §6.2). The
  * enumerations, `split` and the `replace` family keep their cursor and their
  * one pass; their tests here guard that they still agree with the oracle.
  *
