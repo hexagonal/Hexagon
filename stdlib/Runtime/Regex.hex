@@ -83,10 +83,9 @@ extern from "hex:intrinsic"
     fun regexFoldOrbit as foldOrbit(point: Int) -> Vector(Int)
 
     // The subject, read by code unit (§6.2, §6.4). The public `String` surface
-    // reads by codepoint position, walking from the start each time, and gives
-    // no value for a lone surrogate; the engine reads the subject once, forward,
-    // and cuts each group's text from the offsets the scan has in hand. All
-    // three are `->` reads of a value.
+    // reads by codepoint position and gives no value for a lone surrogate; the
+    // engine reads the subject forward, and cuts each group's text from the
+    // offsets the scan has in hand. All three are `->` reads of a value.
     //
     // The codepoint whose first code unit is at `offset`, zero-based: a
     // well-formed pair is one codepoint, a lone surrogate is itself (§3.6).
@@ -982,9 +981,15 @@ let search(
 ): Option((Vector(Option((Int, Int, String))), (Int, Int))) =
     let units = codeUnits(text)
     let (cursorPosition, cursorOffset) = cursor
-    let fromCursor = cursorPosition >= 1 and cursorPosition <= start
-    var position = if fromCursor then cursorPosition else 1
-    var offset = if fromCursor then cursorOffset else 0
+    // From a cursor past the subject's start, walk on to `start`. Otherwise
+    // `start`'s offset is the code-unit length of the text before it, read
+    // through Collections Part 3 §9's positions (§6.2) when position
+    // `start - 1` exists; a `start` past the end is left to the walk, which
+    // refuses it.
+    let fromCursor = cursorPosition > 1 and cursorPosition <= start
+    let located = not fromCursor and start > 1 and text[(start - 1)..(start - 1)] != ""
+    var position = if fromCursor then cursorPosition else if located then start else 1
+    var offset = if fromCursor then cursorOffset else if located then codeUnits(text[1..(start - 1)]) else 0
     while position < start and offset < units
         offset := offset + width(codepointAt(text, offset))
         position := position + 1
