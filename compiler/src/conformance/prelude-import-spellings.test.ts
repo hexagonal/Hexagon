@@ -261,10 +261,10 @@ describe("a real holder of the name keeps the alias", () => {
     expect((exports["missing"] as () => unknown)()).toBe(undefined);
   });
 
-  test("an honored member of the name keeps the alias", async () => {
-    // Honoring `Lengthy` claims `length` in this module's term space (§4.6), so
-    // the `String` import binding it would make the emitted spelling mean what
-    // the source spelling does not.
+  test("an honored member of the name holds nothing, so the import stays plain", async () => {
+    // The member is emitted under its seat's generated name,
+    // `__Lengthy_Gauge_length`, and the module binds no `length` of its own,
+    // so nothing in the emitted JavaScript collides with the `String` import.
     const files: Files = [
       ["/lengthy.hex", "module Lengthy\n\nexport constraint Lengthy<a> =\n    length(value: a) -> Int\n"],
       mainFile(
@@ -278,8 +278,10 @@ describe("a real holder of the name keeps the alias", () => {
     ];
     const javascript = emitted(files);
 
-    expect(javascript).toMatch(/^import \{ length as __prelude_length\w* \} from "\.\/Hex\/String\.js";$/mu);
-    expect(javascript).toMatch(/const n = __prelude_length\w*\(t\);/u);
+    expect(javascript).toContain('import { length } from "./Hex/String.js";');
+    expect(javascript).toContain("const n = length(t);");
+    expect(javascript).toContain("const m = __Lengthy_Gauge_length({ n: 4 });");
+    expect(javascript).not.toMatch(/\b(?:const|let|function) length\b/u);
     const exports = await runProject(files);
     expect([exports["n"], exports["m"]]).toEqual([3, 4]);
   });

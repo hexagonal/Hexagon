@@ -6907,6 +6907,10 @@ class JavaScriptEmitter {
     );
     if (routed.length === 0) return undefined;
     const contested = this.#ownBindingContest();
+    for (const item of this.#module.items) {
+      if (item.kind !== "Honor") continue;
+      for (const { member } of item.memberSeats) contested.add(member);
+    }
     // A constraint's members, the import channel rendering decides, read
     // exactly as its renderer reads them, so a name that survives the filter
     // there is a binding here.
@@ -6948,9 +6952,9 @@ class JavaScriptEmitter {
   /**
    * The names this module's own source holds, which no minted import local may
    * take: its module-level bindings, explicit imports included
-   * (`#moduleBindings`); every binder in the file, at any depth; and the members
-   * of each constraint it honors. The part of §8's contest set the seat rule
-   * and the prelude-import rule share.
+   * (`#moduleBindings`); and every binder in the file, at any depth. The part
+   * of §8's contest set the seat rule and the prelude-import rule share; the
+   * seat rule adds the members of each constraint the module honors.
    */
   #ownBindingContest(): Set<string> {
     const contested = new Set<string>(this.#moduleBindings);
@@ -6971,10 +6975,6 @@ class JavaScriptEmitter {
     // every spelling the rule exists to hand out.
     for (const { name, bindingSpan } of this.#module.symbols) {
       if (bindingSpan.fileId === this.#module.fileId) contested.add(name);
-    }
-    for (const item of this.#module.items) {
-      if (item.kind !== "Honor") continue;
-      for (const { member } of item.memberSeats) contested.add(member);
     }
     return contested;
   }
@@ -6999,8 +6999,10 @@ class JavaScriptEmitter {
    * resolver's `__prelude_` probe. A name is held by:
    *
    * - **the module's own source** (`#ownBindingContest`) — a module-level
-   *   binding or explicit import, a binder anywhere in the file (a parameter
-   *   `pow` would shadow the import inside its function), or an honored member;
+   *   binding or explicit import, or a binder anywhere in the file (a parameter
+   *   `pow` would shadow the import inside its function). An honored member is
+   *   not one: it is emitted under its seat's generated name and binds nothing
+   *   of its own spelling;
    * - **the routed seats** `memberSeatSpellings` planned, which are settled
    *   first and so are never moved by this plan;
    * - **an earlier term of the same spelling** — `Result.map` after
