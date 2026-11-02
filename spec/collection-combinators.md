@@ -64,8 +64,9 @@ on both, and visit items in the order Part 4 §7.1 gives them.
 **1.3 Traversal order never chooses what a resulting `Map` or `Set` holds:**
 which keys or elements are present, up to `equals`, and each key's value, for
 callbacks whose answers do not depend on the order of the calls (§1.1's laws
-assume the same). It is why `Map.map` refuses a repeated key (§5.1) instead of
-keeping the last. The one thing the order can choose is a representative: of
+assume as much). It is why `Map.map` refuses a repeated key (§5.1) instead of
+keeping the last. Besides the result's own traversal order (Collections Part 4
+§7.1), the one thing the order can choose is a representative: of
 two equal images that are distinguishable, which one `Set.map` keeps (§4),
 exactly as `Set.fromSeq` chooses over a set's traversal (Collections Part 4
 §3.3).
@@ -140,8 +141,8 @@ all(s: Set(a), matches: a ->! Bool): Bool
 
 - All six are §1.1's law at `Set`, in traversal order.
 - `Set.map` merges elements whose images are equal, as `Set.fromSeq` does.
-  Where two images are equal but distinguishable (`0.0` and `-0.0`, bare or
-  inside a structure, Part 4 §5.4), the representative kept is
+  Where two images are equal but distinguishable (for example `0.0` and
+  `-0.0`, bare or inside a structure, Part 4 §5.4), the representative kept is
   the first produced in traversal order, exactly as for
   `Set.fromSeq(Seq.map(s, transform))`. Which one that is can differ from run
   to run (§1.3).
@@ -183,9 +184,9 @@ callback has run. Whether a repeat occurs depends only on the entries
 returned, not on the order, so the fault is as deterministic as the result. A
 callback that fails ends the call first, so its failure, not the fault, is
 what propagates. A caller who wants last-wins writes
-`Map.fromSeq(Seq.map(m, transform))`, or, for a callback that may fail,
-`Map.fromSeq(Vector.fromSeq(m).map^(transform))` (with whichever mark the
-callback's colour calls for), where the dependence on order is visible.
+`Map.fromSeq(Seq.map(m, transform))`, or, for a callback that is impure or may
+fail, `Map.fromSeq(Vector.fromSeq(m).map^(transform))` with the mark its colour
+calls for (`~`, `^` or `!`), where the dependence on order is visible.
 
 ```hexagon
 (** Raised when two entries passed through `Map.map` come back with equal
@@ -256,12 +257,11 @@ places a key by that hash alone, so the slot is where placing the returned key
 afresh would put it, and it takes the returned key and the new value. A key
 handed back unchanged keeps its slot whenever `j`'s `Hash` agrees with `k`'s
 on it, as it does when `j` is `k`; `0.0` and `-0.0` hash alike (Collections
-Part 2 §2.3),
-so a key turned from one into the other keeps its slot too. Every other
-returned key is placed afresh. Kept keys that share a collision node, which
-holds the keys of one mixed hash, are compared with each other under `j`'s
-`Eq`, and a key placed afresh is compared as it is placed, so every repeat is
-found (§5.1). Kept keys in different slots have different hashes, so they
+Part 2 §2.3), so a key turned from one into the other keeps its slot too.
+Every other returned key is placed afresh. Kept keys that share a collision
+node, which holds the keys of one mixed hash, are compared with each other
+under `j`'s `Eq`, and a key placed afresh is compared as it is placed, so every
+repeat is found (§5.1). Kept keys in different slots have different hashes, so they
 cannot be equal.
 
 The shortcut changes nothing this listing or Collections Part 4 promises: the
@@ -288,9 +288,10 @@ carry `Hash` on the new element or key type, which they place.
   beneath `Map.map`; `filter` and the rebuild read each entry's stored hash.
   The rest are ordinary Hexagon in the companions, `Vector`'s over its `for`
   loop.
-- The rebuilds keep the trie's invariants, as its own removal does: a branch
-  is never empty, a collision node holds at least two entries, and a branch
-  left with one entry or collision node below it is replaced by that child.
+- `filter`'s and `Map.map`'s rebuilds keep the trie's invariants, as its own
+  removal does: a branch is never empty, a collision node holds at least two
+  entries, and a branch left with one entry or collision node below it is
+  replaced by that child.
 - The walks are parametric (Intrinsics §4.2): they move the values at their
   type parameters and compare keys only through `Eq` and `Hash` evidence. No
   new comparison door is needed.
@@ -373,7 +374,7 @@ those two expose is already public through `toSeq`, `entries` and `for`.
 |---|---|---|
 | 1 | One combinator family across `Vector`, `Set` and `Map`, each name meaning `Seq`'s over the items, eager, with callbacks of any colour; no generic family over `Iterable` | §1.1, §2, §9.5 |
 | 2 | Positional names on `Vector` only | §1.2 |
-| 3 | Traversal order never chooses which items a resulting `Map` or `Set` holds, or a key's value | §1.3 |
+| 3 | Traversal order never chooses which items a resulting `Map` or `Set` holds, or a key's value, for callbacks whose answers do not depend on call order | §1.3 |
 | 4 | v1 ship-lists: `Vector` twelve, `Set` six, `Map` six, with `fold` and `find` on all three | §3–§5, §9.7 |
 | 5 | `Map` callbacks take the entry, destructured with a tuple pattern; `(k, v) => …` is never adapted | §5.2, §9.4 |
 | 6 | `Map.map` is entries in, entries out; a repeated key throws `DuplicateKeyFault`; no `mapValues` | §5.1, §9.1–§9.3 |
