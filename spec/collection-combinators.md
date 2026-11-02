@@ -9,9 +9,10 @@ rebuilds' shapes in `hash-trie.test.ts`. §12, sorting on `Vector`, added
 `compiler/src/conformance/vector-sort.test.ts`. §13, extremes and totals
 (`max`, `min`, `sum` and `product`, with `Ord.max` and `Ord.min` and `Seq`'s
 consumers), added 2026-11-02 and ruled by James, with `Ord.max` and `Ord.min`
-made defaulted members of `Ord` the same day, also ruled by James; SPEC-ONLY
-until #1431 lands.
-This document is the stdlib listing's
+made defaulted members of `Ord` the same day, also ruled by James, and
+implemented by #1431; conformance:
+`compiler/src/conformance/collection-extremes.test.ts`. This document is the
+stdlib listing's
 part for the combinator families over `Vector(a)`, `Set(a)` and `Map(k, v)`: their shared
 doctrine, the v1 ship-list, and the deliberate absence of combinators on the
 foreign collections. It discharges the "Combinator families" row of

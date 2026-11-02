@@ -223,6 +223,87 @@ export let sortBy<b: Ord>(values: Vector(a), key: a ->! b): Vector(a) =
         result := append(result, value)
     result
 
+// Extremes and totals (`collection-combinators.md` section 13), each one walk
+// of `fold`. Of items that tie, `min` keeps the first and `max` the last, so
+// both agree with `sort`.
+//
+// The `Using` forms write their steps' parameter types: a match on the
+// comparator's answer is not decided without them (#1433). Each arm names
+// its constructor bare, `Greater`, which a pattern reads against the matched
+// value's own `Ordering` (Pattern Matching section 2.2).
+
+// One step of `maxBy`: the ranked element replaces the best unless the best's
+// key is greater.
+let laterBy<b: Ord>(best: Option((b, a)), ranked: (b, a)): Option((b, a)) =
+    match (best, ranked)
+        (Some((keptKey, _)), (rankedKey, _)) =>
+            match Ord.compare(keptKey, rankedKey)
+                Greater => best
+                _ => Some(ranked)
+        _ => Some(ranked)
+
+// One step of `minBy`: the ranked element replaces the best only when the
+// best's key is greater.
+let earlierBy<b: Ord>(best: Option((b, a)), ranked: (b, a)): Option((b, a)) =
+    match (best, ranked)
+        (Some((keptKey, _)), (rankedKey, _)) =>
+            match Ord.compare(keptKey, rankedKey)
+                Greater => Some(ranked)
+                _ => best
+        _ => Some(ranked)
+
+let unranked(best: Option((b, a))): Option(a) = match best
+    Some((_, value)) => Some(value)
+    None => None
+
+(** The element of `values` that `compare` ranks greatest, or `None` when
+    `values` is empty, and of elements it ranks equal, the last. `compare` runs
+    once for each element after the first, as `compare(best, element)`. *)
+export let maxUsing(values: Vector(a), compare: (a, a) ->! Ordering): Option(a) =
+    fold!(values, None, (best: Option(a), value: a) => match best
+        Some(kept) => match compare!(kept, value)
+            Greater => best
+            _ => Some(value)
+        None => Some(value))
+
+(** The element of `values` that `compare` ranks least, or `None` when `values`
+    is empty, and of elements it ranks equal, the first. `compare` runs once for
+    each element after the first, as `compare(best, element)`. *)
+export let minUsing(values: Vector(a), compare: (a, a) ->! Ordering): Option(a) =
+    fold!(values, None, (best: Option(a), value: a) => match best
+        Some(kept) => match compare!(kept, value)
+            Greater => Some(value)
+            _ => best
+        None => Some(value))
+
+(** The greatest element of `values` under its `Ord`, or `None` when `values` is
+    empty, and of equal greatest elements, the last, where `sort` puts it. *)
+export let max<a: Ord>(values: Vector(a)): Option(a) = maxUsing(values, Ord.compare)
+
+(** The least element of `values` under its `Ord`, or `None` when `values` is
+    empty, and of equal least elements, the first, where `sort` puts it. *)
+export let min<a: Ord>(values: Vector(a)): Option(a) = minUsing(values, Ord.compare)
+
+(** The element of `values` whose key is greatest, or `None` when `values` is
+    empty, and of elements whose keys are equal, the last. `key` runs once per
+    element, in order. *)
+export let maxBy<b: Ord>(values: Vector(a), key: a ->! b): Option(a) =
+    unranked(fold!(values, None, (best, value) => laterBy(best, (key!(value), value))))
+
+(** The element of `values` whose key is least, or `None` when `values` is
+    empty, and of elements whose keys are equal, the first. `key` runs once per
+    element, in order. *)
+export let minBy<b: Ord>(values: Vector(a), key: a ->! b): Option(a) =
+    unranked(fold!(values, None, (best, value) => earlierBy(best, (key!(value), value))))
+
+(** The elements of `values` added left to right, starting from zero, so the
+    empty vector's sum is zero. *)
+export let sum<a: Num>(values: Vector(a)): a = fold(values, 0, Num.add)
+
+(** The elements of `values` multiplied left to right, starting from one, so the
+    empty vector's product is one. *)
+export let product<a: Num>(values: Vector(a)): a = fold(values, 1, Num.multiply)
+
 honor Iterable<Vector(a)> =
     type Item = a
     toSeq(values) = elements(values)

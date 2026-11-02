@@ -213,6 +213,88 @@ export let all(s: Set(a), matches: a ->! Bool): Bool =
         None => True
         Some(_) => False
 
+// Extremes and totals (`collection-combinators.md` section 13), each one walk
+// of `fold`, so in the order `toSeq` yields the elements. A set's elements are
+// distinct and `Ord` agrees with `equals`, so `max` and `min` never meet a tie.
+// The `By` and `Using` forms can, and of elements that tie they keep the last
+// for `max` and the first for `min`.
+//
+// The `Using` forms write their steps' parameter types: a match on the
+// comparator's answer is not decided without them (#1433). Each arm names
+// its constructor bare, `Greater`, which a pattern reads against the matched
+// value's own `Ordering` (Pattern Matching section 2.2).
+
+// One step of `maxBy`: the ranked element replaces the best unless the best's
+// key is greater.
+let laterBy<b: Ord>(best: Option((b, a)), ranked: (b, a)): Option((b, a)) =
+    match (best, ranked)
+        (Some((keptKey, _)), (rankedKey, _)) =>
+            match Ord.compare(keptKey, rankedKey)
+                Greater => best
+                _ => Some(ranked)
+        _ => Some(ranked)
+
+// One step of `minBy`: the ranked element replaces the best only when the
+// best's key is greater.
+let earlierBy<b: Ord>(best: Option((b, a)), ranked: (b, a)): Option((b, a)) =
+    match (best, ranked)
+        (Some((keptKey, _)), (rankedKey, _)) =>
+            match Ord.compare(keptKey, rankedKey)
+                Greater => Some(ranked)
+                _ => best
+        _ => Some(ranked)
+
+let unranked(best: Option((b, a))): Option(a) = match best
+    Some((_, element)) => Some(element)
+    None => None
+
+(** The element of `s` that `compare` ranks greatest, or `None` when `s` is
+    empty, and of elements it ranks equal, the last in traversal order.
+    `compare` runs once for each element after the first, as
+    `compare(best, element)`. *)
+export let maxUsing(s: Set(a), compare: (a, a) ->! Ordering): Option(a) =
+    fold!(s, None, (best: Option(a), element: a) => match best
+        Some(kept) => match compare!(kept, element)
+            Greater => best
+            _ => Some(element)
+        None => Some(element))
+
+(** The element of `s` that `compare` ranks least, or `None` when `s` is empty,
+    and of elements it ranks equal, the first in traversal order. `compare`
+    runs once for each element after the first, as `compare(best, element)`. *)
+export let minUsing(s: Set(a), compare: (a, a) ->! Ordering): Option(a) =
+    fold!(s, None, (best: Option(a), element: a) => match best
+        Some(kept) => match compare!(kept, element)
+            Greater => Some(element)
+            _ => best
+        None => Some(element))
+
+(** The greatest element of `s` under its `Ord`, or `None` when `s` is empty. *)
+export let max<a: Ord>(s: Set(a)): Option(a) = maxUsing(s, Ord.compare)
+
+(** The least element of `s` under its `Ord`, or `None` when `s` is empty. *)
+export let min<a: Ord>(s: Set(a)): Option(a) = minUsing(s, Ord.compare)
+
+(** The element of `s` whose key is greatest, or `None` when `s` is empty, and
+    of elements whose keys are equal, the last in traversal order. `key` runs
+    once per element, in traversal order. *)
+export let maxBy<b: Ord>(s: Set(a), key: a ->! b): Option(a) =
+    unranked(fold!(s, None, (best, element) => laterBy(best, (key!(element), element))))
+
+(** The element of `s` whose key is least, or `None` when `s` is empty, and of
+    elements whose keys are equal, the first in traversal order. `key` runs
+    once per element, in traversal order. *)
+export let minBy<b: Ord>(s: Set(a), key: a ->! b): Option(a) =
+    unranked(fold!(s, None, (best, element) => earlierBy(best, (key!(element), element))))
+
+(** The elements of `s` added in traversal order, starting from zero, so the
+    empty set's sum is zero. *)
+export let sum<a: Num>(s: Set(a)): a = fold(s, 0, Num.add)
+
+(** The elements of `s` multiplied in traversal order, starting from one, so the
+    empty set's product is one. *)
+export let product<a: Num>(s: Set(a)): a = fold(s, 1, Num.multiply)
+
 honor Iterable<Set(a)> =
     type Item = a
     toSeq(s) = elements(s)

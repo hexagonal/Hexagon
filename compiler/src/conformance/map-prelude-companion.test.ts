@@ -508,6 +508,12 @@ describe("the companion's surface", () => {
       "isEmpty",
       "keys",
       "map",
+      "max",
+      "maxBy",
+      "maxUsing",
+      "min",
+      "minBy",
+      "minUsing",
       "remove",
       "set",
       "singleton",
@@ -516,6 +522,8 @@ describe("the companion's surface", () => {
     ]);
     // `remap` is the rebuild beneath `map` (#1417): a door row, unexported.
     expect(exported).not.toContain("remap");
+    // The extremes' steps (`collection-combinators.md` §13) are private too.
+    for (const hidden of ["laterBy", "earlierBy", "unranked"]) expect(exported).not.toContain(hidden);
     const javascript = map!.javascript.text;
     for (const name of exported) {
       const index = javascript.indexOf(`const ${name} =`);

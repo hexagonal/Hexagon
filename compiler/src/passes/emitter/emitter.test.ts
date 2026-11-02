@@ -1894,7 +1894,7 @@ describe("emitJavaScript", () => {
     // record itself is Dictionary Sharing §3.4's hoisted module constant since #446 — ground,
     // and §9.1's reduction declines because the body names neither parameter.
     expect(output.text).toContain(
-      "const __Ord_Unit = ({ compare: (__left, __right) => __Equal });",
+      "const __Ord_Unit = ({ compare: (__left, __right) => __Equal, max: (__left, __right) => __right, min: (__left, __right) => __left });",
     );
     expect(output.text).toContain(
       'const unitOrder = __Ord_Unit.compare(undefined, undefined).tag !== "Greater";',

@@ -273,17 +273,31 @@ describe("the companion is the type's home (Constraints §4.4, §5.3)", () => {
    * has no structural answer — and its head binds its variables like any
    * head's (Constraints §4.4, #390): written bare, the base constraint's demand
    * on them is reported at the header; written with the prefix, it is admitted.
+   *
+   * Filling it would also claim `Ord`'s defaulted members `max` and `min` in
+   * `Map.hex`, which already binds them as its collection forms
+   * (`collection-combinators.md` §13.1), so each injection below draws those
+   * two rebinding reports as well (Constraints §4.6). They are the same with
+   * or without the prefix, which is what shows the prefix answering the
+   * header's two.
    */
   test("the companion's own head binds its variables, as any head does", () => {
+    const claimed = [
+      "the `Ord<Map(k, v)>` instance binds `max`, which is already bound (line 220); " +
+      "Hexagon does not allow rebinding — choose a different name.",
+      "the `Ord<Map(k, v)>` instance binds `min`, which is already bound (line 224); " +
+      "Hexagon does not allow rebinding — choose a different name.",
+    ];
     expect(inCompanion("Map", "\nhonor Ord<Map(k, v)> =\n    compare(l, r) = Ordering.Equal\n"))
       .toEqual([
         "`k` is declared without constraints, but the body requires `Hash`; write `<k: Hash>` on the `honor` header",
         "`v` is declared without constraints, but the body requires `Eq`; write `<v: Eq>` on the `honor` header",
+        ...claimed,
       ]);
     expect(inCompanion(
       "Map",
       "\nhonor<k: Hash, v: Eq> Ord<Map(k, v)> =\n    compare(l, r) = Ordering.Equal\n",
-    )).toEqual([]);
+    )).toEqual(claimed);
   });
 
   /**

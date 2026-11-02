@@ -6659,8 +6659,9 @@ class Checker {
    * was typed in another module, so this checker's tables cannot reconstruct
    * it). What answers those defaults instead is the compiler's own wired-in
    * completion, which predates the declarations and is what the pre-registered
-   * inventory means: `Eq`'s `notEquals` is completed by the emitter for every
-   * instance that omits it, declaration or no declaration.
+   * inventory means: `Eq`'s `notEquals`, and `Ord`'s `max` and `min`, are
+   * completed by the emitter for every instance that omits them, declaration
+   * or no declaration.
    *
    * Without this gate the two answers are emitted *both*, as duplicate keys of
    * one instance literal — a hoisted-fork `notEquals` calling an unbound
@@ -11677,6 +11678,8 @@ class Checker {
       });
     } else if (item.constraint === "Ord") {
       members.set("compare", { parameters: [subject, subject], result: this.#orderingType(item.span) });
+      members.set("max", { parameters: [subject, subject], result: subject, optional: true });
+      members.set("min", { parameters: [subject, subject], result: subject, optional: true });
     } else if (item.constraint === "Show") {
       members.set("show", { parameters: [subject], result: primitive("String") });
     } else if (item.constraint === "Num") {

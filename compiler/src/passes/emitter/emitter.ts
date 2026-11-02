@@ -4968,6 +4968,30 @@ class JavaScriptEmitter {
         }(${[localDictionary, ...parameters_].join(", ")})`,
       };
     });
+    // `Ord`'s two defaults are completed the way `Eq`'s `notEquals` is below,
+    // and for the same reason: a prelude constraint's default body does not
+    // travel to the honoring module (the checker's `#reachableConstraintHelpers`
+    // note), so its seat carries the body materialized (Constraints §6.1).
+    // These are `Ord.hex`'s `max` and `min` exactly: `left` only when
+    // `compare` answers `Greater`, so a tie gives `max` its second argument
+    // and `min` its first (Collection Combinators §13.2). A derived instance
+    // takes them here too, since `#derivedMembers` generates only `compare`;
+    // a written `max` or `min` is supplied and is not replaced.
+    const supplied = (name: string): boolean =>
+      members.some((member) => member.name === name) ||
+      inheritedDefaults.some((member) => member.name === name);
+    const ordCompletion = item.constraint === "Ord"
+      ? [
+          ...(supplied("max") ? [] : [{
+            name: "max",
+            rendered: `(__left, __right) => ${localDictionary}.compare(__left, __right).tag === "Greater" ? __left : __right`,
+          }]),
+          ...(supplied("min") ? [] : [{
+            name: "min",
+            rendered: `(__left, __right) => ${localDictionary}.compare(__left, __right).tag === "Greater" ? __right : __left`,
+          }]),
+        ]
+      : [];
     const completedMembers =
       !item.derived && item.constraint === "Eq" &&
         !item.members.some(({ name }) => name === "notEquals")
@@ -4979,7 +5003,7 @@ class JavaScriptEmitter {
               rendered: `(__left, __right) => !${localDictionary}.equals(__left, __right)`,
             },
           ]
-        : [...members, ...inheritedDefaults];
+        : [...members, ...inheritedDefaults, ...ordCompletion];
     if (this.#exportInstanceEvidence) {
       this.#exportEvidence(item.dictionary, item.exportedDictionary ?? item.dictionary);
     }
@@ -9909,9 +9933,10 @@ class JavaScriptEmitter {
     type: Typed.Type,
     components: ComponentEvidence,
     evidenceNames: EvidenceNames,
+    self?: string,
   ): string {
     return dictionaryLiteral(
-      this.#derivedSlots(constraint, type, components, evidenceNames),
+      this.#derivedSlots(constraint, type, components, evidenceNames, self),
     );
   }
 
@@ -9923,12 +9948,18 @@ class JavaScriptEmitter {
    * reads the slot's arrow and reduces it — and a use site that needs the whole
    * record cannot disagree about what the dictionary contains. Every derived
    * body is rendered here exactly once whichever face the caller takes.
+   *
+   * `self` is the module-level name the literal is about to be bound to, when
+   * it is the initializer of a hoisted binding (Dictionary Sharing §3.4); a
+   * slot may then reach a sibling through it at call time, as an instance's
+   * seats reach their record.
    */
   #derivedSlots(
     constraint: Typed.ConstraintName,
     type: Typed.Type,
     components: ComponentEvidence,
     evidenceNames: EvidenceNames,
+    self?: string,
   ): readonly DerivedSlot[] {
     if (constraint === "Hash") {
       const equals = this.#derivedEquals(type, "__left", "__right", evidenceNames, true, components);
@@ -9957,11 +9988,28 @@ class JavaScriptEmitter {
       ];
     }
     if (constraint === "Ord") {
-      return [derivedArrow(
-        "compare",
-        ["__left", "__right"],
-        this.#derivedCompare(type, "__left", "__right", evidenceNames, components),
-      )];
+      // A structural instance inherits `Ord`'s defaults as it inherits `Eq`'s
+      // `notEquals` above (Constraints §2). A hoisted literal reads its own
+      // `compare` through the binding's name, as a declared instance's seats
+      // read their record; a literal written in place has no name, so its
+      // defaults repeat the walk, as `notEquals` repeats `equals`. The walk is
+      // what `Map.max`'s 49 tuple dictionaries would otherwise carry three
+      // times over. At `Unit` every pair is equal, so the defaults' tie answers
+      // are the whole of them.
+      const compare = this.#derivedCompare(type, "__left", "__right", evidenceNames, components);
+      if (isUnit(type)) {
+        return [
+          derivedArrow("compare", ["__left", "__right"], compare),
+          derivedArrow("max", ["__left", "__right"], "__right"),
+          derivedArrow("min", ["__left", "__right"], "__left"),
+        ];
+      }
+      const ordered = self === undefined ? `(${compare})` : `${self}.compare(__left, __right)`;
+      return [
+        derivedArrow("compare", ["__left", "__right"], compare),
+        derivedArrow("max", ["__left", "__right"], `${ordered}.tag === "Greater" ? __left : __right`),
+        derivedArrow("min", ["__left", "__right"], `${ordered}.tag === "Greater" ? __right : __left`),
+      ];
     }
     if (constraint === "Show") {
       return [derivedArrow(
@@ -10053,7 +10101,10 @@ class JavaScriptEmitter {
     // a binding already exists this rendering is discarded and the binding's own
     // initializer — the identical literal, interned at the first site — stands.
     const hoisted = evidence.kind === "Structural"
-      ? this.#hoistStructuralEvidence(constraint, evidence, () => dictionaryLiteral(slots))
+      ? this.#hoistStructuralEvidence(constraint, evidence, (self) =>
+        dictionaryLiteral(
+          this.#derivedSlots(constraint, subject.type, subject.components, evidenceNames, self),
+        ))
       : undefined;
     return `${hoisted ?? dictionaryLiteral(slots)}.${applied}`;
   }
@@ -10110,8 +10161,8 @@ class JavaScriptEmitter {
       // the same component selection (#278). Without it these bypassed a
       // hand-written component instance exactly as a container's did.
       const components = componentEvidence(evidence.components);
-      const literal = () =>
-        this.#derivedDictionary(constraint, evidence.type, components, evidenceNames);
+      const literal = (self?: string) =>
+        this.#derivedDictionary(constraint, evidence.type, components, evidenceNames, self);
       // Dictionary Sharing §3.4: at a ground shape the literal is the
       // *initializer* of one module-level binding, and this site is a reference
       // to it. Only a free component (§3.4's second paragraph) leaves the
@@ -10208,17 +10259,20 @@ class JavaScriptEmitter {
   #hoistStructuralEvidence(
     constraint: Typed.ConstraintName,
     evidence: Core.StructuralEvidence,
-    initializer: () => string,
+    initializer: (self: string) => string,
   ): string | undefined {
     if (this.#eagerEvidenceDepth > 0) return undefined;
     if (!isGroundEvidence(evidence)) return undefined;
     const key = this.#structuralEvidenceKey(constraint, evidence);
     const existing = this.#hoistedEvidence.get(key);
     if (existing !== undefined) return existing.name;
-    const rendered = initializer();
+    // Named before it is rendered, so the initializer may read its own
+    // binding at call time (`#derivedSlots`' `self`). Registered after, so a
+    // component's binding minted while rendering is still declared first.
     const name = this.#generatedNames.hoisted(
       [constraint, ...flattenTypeSpelling(evidence.type)].join("_"),
     );
+    const rendered = initializer(name);
     this.#hoistedEvidence.set(key, { name, initializer: rendered });
     return name;
   }
