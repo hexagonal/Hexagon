@@ -2,8 +2,9 @@
 
 **Status:** Decided 2026-11-02, and revised on review before landing: §1.3
 states what traversal order never chooses, and §7's shortcut keys on the
-stored hash, so no comparison door is needed. Not yet implemented; the
-implementation is tracked by #1417. This document is the stdlib listing's
+stored hash, so no comparison door is needed. Implemented by #1417;
+conformance: `compiler/src/conformance/collection-combinators.test.ts`, and the
+rebuilds' shapes in `hash-trie.test.ts`. This document is the stdlib listing's
 part for the combinator families over `Vector(a)`, `Set(a)` and `Map(k, v)`: their shared
 doctrine, the v1 ship-list, and the deliberate absence of combinators on the
 foreign collections. It discharges the "Combinator families" row of
@@ -66,10 +67,9 @@ which keys or elements are present, up to `equals`, and each key's value, for
 callbacks whose answers do not depend on the order of the calls (§1.1's laws
 assume as much). It is why `Map.map` refuses a repeated key (§5.1) instead of
 keeping the last. Besides the result's own traversal order (Collections Part 4
-§7.1), the one thing the order can choose is a representative: of
-two equal images that are distinguishable, which one `Set.map` keeps (§4),
-exactly as `Set.fromSeq` chooses over a set's traversal (Collections Part 4
-§3.3).
+§7.1), the one thing the order can choose is a representative: of two equal
+images that are distinguishable, which one `Set.map` keeps (§4), exactly as
+`Set.fromSeq` chooses over a set's traversal (Collections Part 4 §3.3).
 
 **1.4 The foreign collections get no combinators** (§6).
 
@@ -185,8 +185,8 @@ returned, not on the order, so the fault is as deterministic as the result. A
 callback that fails ends the call first, so its failure, not the fault, is
 what propagates. A caller who wants last-wins writes
 `Map.fromSeq(Seq.map(m, transform))`, or, for a callback that is impure or may
-fail, `Map.fromSeq(Vector.fromSeq(m).map^(transform))` with the mark its colour
-calls for (`~`, `^` or `!`), where the dependence on order is visible.
+fail, `Map.fromSeq(Vector.fromSeq(m).map^(transform))` with the mark its colours
+call for (`~`, `^` or `!`), where the dependence on order is visible.
 
 ```hexagon
 (** Raised when two entries passed through `Map.map` come back with equal
@@ -261,8 +261,8 @@ Part 2 §2.3), so a key turned from one into the other keeps its slot too.
 Every other returned key is placed afresh. Kept keys that share a collision
 node, which holds the keys of one mixed hash, are compared with each other
 under `j`'s `Eq`, and a key placed afresh is compared as it is placed, so every
-repeat is found (§5.1). Kept keys in different slots have different hashes, so they
-cannot be equal.
+repeat is found (§5.1). Kept keys in different slots have different hashes, so
+they cannot be equal.
 
 The shortcut changes nothing this listing or Collections Part 4 promises: the
 result holds exactly the entries placing every returned entry afresh would

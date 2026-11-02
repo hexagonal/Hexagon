@@ -862,6 +862,178 @@ describe("HashTrie unplaced singleton (§12.4, #370)", () => {
   });
 });
 
+/**
+ * The combinators' rebuilds keep the trie's invariants (`collection-combinators.md`
+ * §8): `filterEntries` prunes in place and `remapEntries` keeps slots, splits
+ * and places, and neither may leave a shape `insert` and `discard` never build.
+ *
+ * Most such shapes answer every lookup correctly, so the oracle suites in
+ * `collection-combinators.test.ts` cannot see them: a collision node holding one
+ * entry, or a branch left above a lone entry, reads back fine and only costs a
+ * later operation its assumptions. So the shape is read directly, by a checker
+ * written over the trie's own declarations:
+ *
+ * - every entry's stored hash is `placement` of its key, and the digit of that
+ *   hash at each branch on its path is the bit it sits under;
+ * - a collision node holds at least two keys, none equal, all of its hash;
+ * - a branch is never empty, and one with a single child has a branch there;
+ * - the maintained `size` is the number of entries.
+ */
+describe("HashTrie shape after the combinators' rebuilds", () => {
+  const CHECKER =
+    "fun digitsAgree(tree: Tree(k, v), shift: Int, expected: Int): Bool =\n" +
+    "    match tree\n" +
+    "        Entry(hash, _, _) => digit(hash, shift) == expected\n" +
+    "        Collision(hash, _, _) => digit(hash, shift) == expected\n" +
+    "        Branch(bitmap, children) =>\n" +
+    "            let count = bitCount(bitmap)\n" +
+    "            var agree = True\n" +
+    "            var index = 0\n" +
+    "            while index < count\n" +
+    "                if not digitsAgree(Node.get(children, index), shift, expected) then agree := False\n" +
+    "                index := index + 1\n" +
+    "            agree\n" +
+    "fun counted(tree: Tree(k, v)): Int =\n" +
+    "    match tree\n" +
+    "        Entry(_, _, _) => 1\n" +
+    "        Collision(_, count, _) => count\n" +
+    "        Branch(bitmap, children) =>\n" +
+    "            let count = bitCount(bitmap)\n" +
+    "            var total = 0\n" +
+    "            var index = 0\n" +
+    "            while index < count\n" +
+    "                total := total + counted(Node.get(children, index))\n" +
+    "                index := index + 1\n" +
+    "            total\n" +
+    "let loneLeaf(tree: Tree(k, v)): Bool =\n" +
+    "    match tree\n" +
+    "        Branch(_, _) => False\n" +
+    "        Entry(_, _, _) => True\n" +
+    "        Collision(_, _, _) => True\n" +
+    "fun faults<k: Hash>(tree: Tree(k, v), shift: Int): Int =\n" +
+    "    match tree\n" +
+    "        Entry(hash, key, _) => if placement(key) == hash then 0 else 1\n" +
+    "        Collision(hash, count, pairs) =>\n" +
+    "            var found = if count < 2 then 1 else 0\n" +
+    "            var i = 0\n" +
+    "            while i < count\n" +
+    "                let (key, _) = Node.get(pairs, i)\n" +
+    "                if placement(key) != hash then found := found + 1\n" +
+    "                var j = i + 1\n" +
+    "                while j < count\n" +
+    "                    let (other, _) = Node.get(pairs, j)\n" +
+    "                    if key == other then found := found + 1\n" +
+    "                    j := j + 1\n" +
+    "                i := i + 1\n" +
+    "            found\n" +
+    "        Branch(bitmap, children) =>\n" +
+    "            let count = bitCount(bitmap)\n" +
+    "            var found = if count == 0 then 1 else 0\n" +
+    "            if count == 1 and loneLeaf(Node.get(children, 0)) then found := found + 1\n" +
+    "            var d = 0\n" +
+    "            while d <= 31\n" +
+    "                if bitTest(bitmap, d) then\n" +
+    "                    let child = Node.get(children, bitCountBelow(bitmap, d))\n" +
+    "                    if not digitsAgree(child, shift, d) then found := found + 1\n" +
+    "                    found := found + faults(child, shift + step)\n" +
+    "                d := d + 1\n" +
+    "            found\n" +
+    "let shapeFaults<k: Hash>(trie: HashTrie(k, v)): Int =\n" +
+    "    match trie.root\n" +
+    "        NoRoot => if trie.size == 0 then 0 else 1\n" +
+    "        Sole(_, _) => if trie.size == 1 then 0 else 1\n" +
+    "        Rooted(tree) => faults(tree, 0) + (if counted(tree) == trie.size then 0 else 1)\n" +
+    "let remapped<j: Hash>(result: Option(HashTrie(j, w))): HashTrie(j, w) =\n" +
+    "    match result\n" +
+    "        Some(trie) => trie\n" +
+    "        None => throw(TrieCorruptionFault(\"unexpected repeat\"))\n" +
+    "let repeated(result: Option(HashTrie(j, w))): Bool =\n" +
+    "    match result\n" +
+    "        Some(_) => False\n" +
+    "        None => True\n";
+
+  // Five hundred ordinary keys and the colliding four, so every shape is
+  // present: branches several levels deep, a collision node, lone entries.
+  const MIXED =
+    "let mixed(): HashTrie(String, Int) =\n" +
+    "    var acc: HashTrie(String, Int) = empty\n" +
+    "    for i in 1..500\n" +
+    "        acc := set(acc, \"k${i}\", i)\n" +
+    "    set(set(set(set(acc, \"AaAa\", 1001), \"AaBB\", 1002), \"BBAa\", 1003), \"BBBB\", 1004)\n" +
+    "let big: HashTrie(String, Int) = mixed()\n" +
+    "let pair: HashTrie(String, Int) = set(set(empty, \"AaAa\", 1), \"BBBB\", 2)\n" +
+    "let two: HashTrie(Int, Int) = set(set(empty, 1, 1), 2, 2)\n";
+
+  test("the checker passes what insert builds, and is not vacuous", async () => {
+    const m = await runTrie(CHECKER + MIXED +
+      "export let built: Int = shapeFaults(big)\n" +
+      "export let builtPair: Int = shapeFaults(pair)\n" +
+      // A collision of one and a branch over one entry, each built by hand.
+      "let lonely: HashTrie(String, Int) = HashTrie({ size = 1, root = Rooted(Collision(placement(\"x\"), 1, nodeSingleton((\"x\", 1)))) })\n" +
+      "let lonelyBranch: HashTrie(String, Int) = HashTrie({ size = 1, root = Rooted(Branch(bitSet(0, digit(placement(\"x\"), 0)), nodeSingleton(Entry(placement(\"x\"), \"x\", 1)))) })\n" +
+      "let misplaced: HashTrie(String, Int) = HashTrie({ size = 1, root = Rooted(Entry(placement(\"x\") + 1, \"x\", 1)) })\n" +
+      "export let lonelyFaults: Int = shapeFaults(lonely)\n" +
+      "export let lonelyBranchFaults: Int = shapeFaults(lonelyBranch)\n" +
+      "export let misplacedFaults: Int = shapeFaults(misplaced)\n");
+    expect(m.built).toBe(0);
+    expect(m.builtPair).toBe(0);
+    expect(m.lonelyFaults).toBeGreaterThan(0);
+    expect(m.lonelyBranchFaults).toBeGreaterThan(0);
+    expect(m.misplacedFaults).toBeGreaterThan(0);
+  });
+
+  test("filterEntries leaves every shape well formed", async () => {
+    const m = await runTrie(CHECKER + MIXED +
+      "let kept(trie: HashTrie(String, Int), keep: ((String, Int)) -> Bool): (Int, Int) =\n" +
+      "    let result = filterEntries(trie, keep)\n" +
+      "    (shapeFaults(result), size(result))\n" +
+      "export let evens: (Int, Int) = kept(big, ((_, v)) => v.mod(2) == 0)\n" +
+      "export let thirds: (Int, Int) = kept(big, ((_, v)) => v.mod(3) == 1)\n" +
+      "export let none: (Int, Int) = kept(big, ((_, _)) => False)\n" +
+      "export let one: (Int, Int) = kept(big, ((_, v)) => v == 250)\n" +
+      "export let oneColliding: (Int, Int) = kept(big, ((k, _)) => k == \"BBAa\")\n" +
+      // The collision node of four left with one: it must become an entry.
+      "export let collisionToOne: (Int, Int) = kept(big, ((k, v)) => v < 1000 or k == \"BBBB\")\n" +
+      "export let pairToOne: (Int, Int) = kept(pair, ((k, _)) => k == \"AaAa\")\n" +
+      // A branch over two entries left with one: it must collapse to it.
+      "export let branchToOne: Int = shapeFaults(filterEntries(two, ((k, _)) => k == 1))\n");
+    expect(m.evens).toEqual([0, 252]);
+    expect(m.thirds).toEqual([0, 167 + 1]);
+    expect(m.none).toEqual([0, 0]);
+    expect(m.one).toEqual([0, 1]);
+    expect(m.oneColliding).toEqual([0, 1]);
+    expect(m.collisionToOne).toEqual([0, 501]);
+    expect(m.pairToOne).toEqual([0, 1]);
+    expect(m.branchToOne).toBe(0);
+  });
+
+  test("remapEntries leaves every shape well formed", async () => {
+    const m = await runTrie(CHECKER + MIXED +
+      "let moved(trie: HashTrie(String, Int), transform: ((String, Int)) -> (String, Int)): (Int, Int) =\n" +
+      "    let result = remapped(remapEntries(trie, transform))\n" +
+      "    (shapeFaults(result), size(result))\n" +
+      "export let values: (Int, Int) = moved(big, ((k, v)) => (k, v + 1))\n" +
+      "export let some: (Int, Int) = moved(big, ((k, v)) => (if v.mod(7) == 0 then \"m${k}\" else k, v))\n" +
+      "export let all: (Int, Int) = moved(big, ((k, v)) => (\"z${k}\", v))\n" +
+      // Keys leaving the collision node, and an ordinary key joining it.
+      "export let leaving: (Int, Int) = moved(big, ((k, v)) => (if v > 1001 then \"out${v}\" else k, v))\n" +
+      "export let joining: (Int, Int) = moved(pair, ((k, v)) => (if k == \"AaAa\" then \"AaBB\" else k, v))\n" +
+      "export let pairApart: (Int, Int) = moved(pair, ((k, v)) => (if k == \"AaAa\" then \"apart\" else k, v))\n" +
+      "export let intoCollision: (Int, Int) = moved(big, ((k, v)) => (if k == \"k1\" then \"BBAa\" else if k == \"BBAa\" then \"k1\" else k, v))\n" +
+      "export let keyType: Int = shapeFaults(remapped(remapEntries(two, ((k, v)) => (\"n${k}\", v))))\n" +
+      "export let repeat: Bool = repeated(remapEntries(big, ((k, v)) => (if k == \"k1\" then \"AaAa\" else k, v)))\n");
+    expect(m.values).toEqual([0, 504]);
+    expect(m.some).toEqual([0, 504]);
+    expect(m.all).toEqual([0, 504]);
+    expect(m.leaving).toEqual([0, 504]);
+    expect(m.joining).toEqual([0, 2]);
+    expect(m.pairApart).toEqual([0, 2]);
+    expect(m.intoCollision).toEqual([0, 504]);
+    expect(m.keyType).toBe(0);
+    expect(m.repeat).toBe(true);
+  });
+});
+
 describe("HashTrie entries", () => {
   test("§7.1 yields exactly the pairs that were inserted", async () => {
     const m = await runTrie(

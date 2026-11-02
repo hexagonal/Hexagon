@@ -206,7 +206,8 @@ describe("the runtime modules are registered members of `Hex`", () => {
     // makes the absence of the `Node` report meaningful rather than vacuous.
     expect(privileged.diagnostics.map(({ message }) => message)).toEqual([
       "this module is `Runtime.VectorTrie` but declares no `empty`, `get`, " +
-      "`set`, `append`, `prepend`, `slice`, `window`, `concat`, `nodeRun`",
+      "`set`, `append`, `prepend`, `slice`, `window`, `concat`, `nodeRun`, " +
+      "`findPosition`, `zip`",
     ]);
     // The same text under any other name is an ordinary module, and `Node` is
     // not a type it may spell.

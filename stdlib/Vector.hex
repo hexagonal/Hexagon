@@ -16,7 +16,9 @@ export fault SliceFault(start: Int, end: Int)
 // the eager/lazy bridge — the seven operations after the type row. The eighth is
 // a different document's: `toArray` is FFI Part 2 section 9's outbound
 // conversion, and it is declared here because section 9.1's obligation 2 says
-// the intrinsic door is its mechanism and this file its home. `Array` is
+// the intrinsic door is its mechanism and this file its home. The last two are
+// `collection-combinators.md`'s, walks over the trie's leaves: the search
+// beneath `find` and its siblings, and `zip`. `Array` is
 // declared by `Array.hex`, seated after this file; the data seat of its type
 // row, just before this one, is what lets `toArray` name it (Modules
 // section 5.5). Everything below the block is ordinary Hexagon over these.
@@ -68,6 +70,17 @@ extern from "hex:intrinsic"
         empty array. *)
     export fun vectorToArray as toArray(values: Vector(a)) -> Array(a)
 
+    // Unexported, beneath `find`, `any`, `all`, `contains` and `indexOf` below:
+    // the 1-based position of the first element `matches` accepts, or 0. A door
+    // row because the walk stops at that element, which a `for` loop cannot, and
+    // reads leaf by leaf, which a loop of brackets would not
+    // (`collection-combinators.md` section 8).
+    fun vectorFindPosition as findPosition(values: Vector(a), matches: a ->! Bool) >-> Int
+
+    (** The elements of `left` and `right` paired by position, as many pairs as
+        the shorter holds: `Seq.zip`, run at once. *)
+    export fun vectorZip as zip(left: Vector(a), right: Vector(b)) -> Vector((a, b))
+
 (** The empty vector. *)
 export let empty: Vector(a) = []
 
@@ -104,6 +117,89 @@ export let get(values: Vector(a), index: Int): Option(a) =
         None
     else
         Some(values[index])
+
+// The combinators (`collection-combinators.md` section 3): each name means
+// `Seq`'s over the elements, run at once, with a callback of any colour
+// (Effects section 2.4). The ones that walk every element are `for` loops, which
+// read the trie leaf by leaf through the vector's iterator; the search and `zip`
+// are the door rows above.
+
+(** `transform` applied to each element of `values`, in order: `Seq.map`, run at
+    once, so `transform` may be impure or fail. *)
+export let map(values: Vector(a), transform: a ->! b): Vector(b) =
+    var result: Vector(b) = []
+    for value in values
+        result := append(result, transform!(value))
+    result
+
+(** The elements of `values` that `keep` accepts, in order: `Seq.filter`, run at
+    once, so `keep` may be impure or fail. *)
+export let filter(values: Vector(a), keep: a ->! Bool): Vector(a) =
+    var result: Vector(a) = []
+    for value in values
+        if keep!(value) then
+            result := append(result, value)
+    result
+
+(** The vectors `transform` returns for the elements of `values`, joined in
+    order. *)
+export let flatMap(values: Vector(a), transform: a ->! Vector(b)): Vector(b) =
+    var result: Vector(b) = []
+    for value in values
+        for produced in transform!(value)
+            result := append(result, produced)
+    result
+
+(** `initial` combined with every element of `values`, left to right:
+    `Seq.fold`, whose `combine` may be impure or fail. *)
+export let fold(values: Vector(a), initial: b, combine: (b, a) ->! b): b =
+    var accumulated = initial
+    for value in values
+        accumulated := combine!(accumulated, value)
+    accumulated
+
+(** The first element of `values` that `matches` accepts, or `None`. It stops
+    there: no later element is handed to `matches`. *)
+export let find(values: Vector(a), matches: a ->! Bool): Option(a) =
+    let position = findPosition!(values, matches)
+    if position == 0 then None else Some(values[position])
+
+(** Whether some element of `values` satisfies `matches`. It stops at the first
+    that does. *)
+export let any(values: Vector(a), matches: a ->! Bool): Bool =
+    findPosition!(values, matches) != 0
+
+(** Whether every element of `values` satisfies `matches`, which the empty
+    vector does. It stops at the first that does not. *)
+export let all(values: Vector(a), matches: a ->! Bool): Bool =
+    findPosition!(values, (value) => not matches!(value)) == 0
+
+(** Whether some element of `values` equals `element`. *)
+export let contains<a: Eq>(values: Vector(a), element: a): Bool =
+    findPosition(values, (value) => value == element) != 0
+
+(** The 1-based position of the first element of `values` that equals
+    `element`, or `None`. *)
+export let indexOf<a: Eq>(values: Vector(a), element: a): Option(Int) =
+    let position = findPosition(values, (value) => value == element)
+    if position == 0 then None else Some(position)
+
+(** The elements of `values` in the opposite order. *)
+export let reverse(values: Vector(a)): Vector(a) =
+    var result: Vector(a) = []
+    for value in values
+        result := prepend(result, value)
+    result
+
+(** Each element of `values` paired with its 1-based position, position first:
+    `indexed(["a", "b"])` is `[(1, "a"), (2, "b")]`. *)
+export let indexed(values: Vector(a)): Vector((Int, a)) =
+    var result: Vector((Int, a)) = []
+    var position = 0
+    for value in values
+        position := position + 1
+        result := append(result, (position, value))
+    result
 
 honor Iterable<Vector(a)> =
     type Item = a

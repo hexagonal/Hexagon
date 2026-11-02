@@ -2,10 +2,10 @@ module Set
 
 // The public Set companion over the runtime's hash array mapped trie.
 
-// Eight rows: the seven Collections Part 4 section 6.2 pins — construction, the
-// maintained size, the keyed trio, and the one traversal — and one unexported
-// eighth the algebra needs, which is documented at its own line. Everything
-// below is ordinary Hexagon over them.
+// Eleven rows: the seven Collections Part 4 section 6.2 pins — construction,
+// the maintained size, the keyed trio, and the one traversal — one unexported
+// eighth the algebra needs, and the combinators' three walks, each documented at
+// its own lines. Everything below is ordinary Hexagon over them.
 //
 // Section 5.4's left-representative retention does **not** fall out of the
 // traversal side, and section 5.4 says so itself: the rule is deliberately
@@ -75,6 +75,24 @@ extern from "hex:intrinsic"
     // the smaller side is the right one, the left's representative has to be
     // looked up rather than taken from the element in hand.
     fun setLookup as storedMember<a: Hash>(s: Set(a), element: a) -> Option(a)
+
+    // The three eager walks `collection-combinators.md` section 8 sends through
+    // the door, because each is a loop over the trie's own nodes. `map`, `any`
+    // and `all` are ordinary Hexagon over them, below.
+
+    (** `initial` combined with every element of `s`, in the order `toSeq` yields
+        them: `Seq.fold` over the elements, run at once, whose `combine` may be
+        impure or fail. *)
+    export fun setFold as fold(s: Set(a), initial: b, combine: (b, a) ->! b) >-> b
+
+    (** The first element of `s`, in the order `toSeq` yields them, that `matches`
+        accepts, or `None`. It stops there: no later element is handed to
+        `matches`. *)
+    export fun setFind as find(s: Set(a), matches: a ->! Bool) >-> Option(a)
+
+    (** The elements of `s` that `keep` accepts, each the representative `s`
+        holds. No element is hashed again. *)
+    export fun setFilter as filter(s: Set(a), keep: a ->! Bool) >-> Set(a)
 
 (** The empty set. *)
 export let empty: Set(a) = emptySet()
@@ -174,6 +192,26 @@ export let fromSeq<a: Hash>(elements: Seq(a)): Set(a) =
 (** The elements of `values` collected into a set, left to right. *)
 export let fromVector<a: Hash>(values: Vector(a)): Set(a) =
     fromSeq(values.toSeq())
+
+(** The images of the elements of `s` under `transform`, as a set. Equal images
+    are one element, and of two that are distinguishable, such as `0.0` and
+    `-0.0`, the first produced in traversal order is kept. *)
+export let map<b: Hash>(s: Set(a), transform: a ->! b): Set(b) =
+    fold!(s, empty, (images, element) => add(images, transform!(element)))
+
+(** Whether some element of `s` satisfies `matches`. It stops at the first that
+    does. *)
+export let any(s: Set(a), matches: a ->! Bool): Bool =
+    match find!(s, matches)
+        None => False
+        Some(_) => True
+
+(** Whether every element of `s` satisfies `matches`, which the empty set does.
+    It stops at the first that does not. *)
+export let all(s: Set(a), matches: a ->! Bool): Bool =
+    match find!(s, (element) => not matches!(element))
+        None => True
+        Some(_) => False
 
 honor Iterable<Set(a)> =
     type Item = a

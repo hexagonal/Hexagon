@@ -427,7 +427,8 @@ describe("two prelude members exporting one bare name", () => {
    * because the line was written to demonstrate a name staying bare. #373
    * moved nothing and only lengthened three enumerations, and #511's
    * `Array.hex` moved nothing either — it lengthens `length`'s, and its other
-   * export `get` was already `Vector`'s and `Map`'s.
+   * export `get` was already `Vector`'s and `Map`'s. #1417's combinators moved
+   * nothing and lengthened `map`'s.
    */
   test("every collided name is refused, and only those", () => {
     expect(projectDiagnostics("module Main\n\n" + "export let a: Vector(Int) = empty\n" +
@@ -452,6 +453,9 @@ describe("two prelude members exporting one bare name", () => {
       "`Seq.map(Seq.empty, (x: Int): Int => x)`, " +
       "`Option.map(Seq.empty, (x: Int): Int => x)`, " +
       "`Result.map(Seq.empty, (x: Int): Int => x)`, " +
+      "`Vector.map(Seq.empty, (x: Int): Int => x)`, " +
+      "`Map.map(Seq.empty, (x: Int): Int => x)`, " +
+      "`Set.map(Seq.empty, (x: Int): Int => x)`, " +
       "or `Stream.map(Seq.empty, (x: Int): Int => x)`",
       "no bare `last`; write `b.last()` or `Vector.last(b)`",
     ]);
@@ -641,8 +645,8 @@ describe("the public-name door is gone", () => {
    * against a module that is now perfectly ordinary.
    */
   test("an operation the module does not export is an ordinary missing export", () => {
-    expect(projectDiagnostics("module Main\n\n" + "export let n: Int = Vector.reverse([1, 2])\n")).toEqual([
-      "module `Vector` does not export `reverse`",
+    expect(projectDiagnostics("module Main\n\n" + "export let n: Int = Vector.rotate([1, 2])\n")).toEqual([
+      "module `Vector` does not export `rotate`",
     ]);
   });
 });

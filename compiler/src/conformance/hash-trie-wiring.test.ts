@@ -175,8 +175,9 @@ describe("the import surface", () => {
    * is a function of what the module uses rather than of where it uses it.
    *
    * Since #373 the inventory has two halves and each companion takes its own:
-   * `Map.hex` declares the map-facing seven and imports exactly those, and
-   * `Set.hex` declares the set-facing eight and imports exactly those. Neither
+   * `Map.hex` declares the map-facing eleven and imports exactly those, and
+   * `Set.hex` declares the set-facing eleven and imports exactly those (the
+   * last four and three of each are the combinators' walks, #1417). Neither
    * reaches the other's, which is what "a function of what the module uses"
    * means when one runtime module backs two public types. Both lists are read
    * out of `HASH_TRIE_RUNTIME_OPERATIONS` by position rather than transcribed,
@@ -192,9 +193,21 @@ describe("the import surface", () => {
           .join(", ")
       } } from "./Runtime/HashTrie.js";`;
 
-    const mapOperations = HASH_TRIE_RUNTIME_OPERATIONS.slice(0, 7);
-    const setOperations = HASH_TRIE_RUNTIME_OPERATIONS.slice(7);
-    expect(mapOperations).toEqual(["empty", "singleton", "size", "get", "set", "remove", "entries"]);
+    const mapOperations = HASH_TRIE_RUNTIME_OPERATIONS.slice(0, 11);
+    const setOperations = HASH_TRIE_RUNTIME_OPERATIONS.slice(11);
+    expect(mapOperations).toEqual([
+      "empty",
+      "singleton",
+      "size",
+      "get",
+      "set",
+      "remove",
+      "entries",
+      "foldEntries",
+      "findEntry",
+      "filterEntries",
+      "remapEntries",
+    ]);
     expect(setOperations).toEqual([
       "emptySet",
       "soleMember",
@@ -204,6 +217,9 @@ describe("the import surface", () => {
       "addMember",
       "removeMember",
       "members",
+      "foldMembers",
+      "findMember",
+      "filterMembers",
     ]);
 
     expect(emitted([["/main.hex", "module Main\n\n" + ONE_MAP]], "/Hex/Map.hex"))
@@ -267,6 +283,19 @@ describe("the seven door lowerings", () => {
     expect(javascript).toContain("const remove = __hashTrieRemove;");
     expect(javascript).toContain("const entries = __hashTrieEntries;");
     expect(javascript).toContain("const empty = emptyMap();");
+  });
+
+  /**
+   * The combinators' four rows (#1417, `spec/intrinsics.md` §3.2) take the same
+   * shape: each is the trie's walk under its imported name. `remap` is the one
+   * unexported row, the rebuild beneath `Map.map`.
+   */
+  test("the combinators' rows are aliases of the trie's walks", () => {
+    const javascript = emitted([["/main.hex", "module Main\n\n" + ONE_MAP]], "/Hex/Map.hex");
+    expect(javascript).toContain("const fold = __hashTrieFoldEntries;");
+    expect(javascript).toContain("const find = __hashTrieFindEntry;");
+    expect(javascript).toContain("const filter = __hashTrieFilterEntries;");
+    expect(javascript).toContain("const remap = __hashTrieRemapEntries;");
   });
 
   /**

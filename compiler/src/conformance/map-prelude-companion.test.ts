@@ -493,21 +493,29 @@ describe("the companion's surface", () => {
         : []
     );
     expect(exported.sort()).toEqual([
+      "all",
+      "any",
       "containsKey",
       "empty",
       "entries",
+      "filter",
+      "find",
+      "fold",
       "fromEntries",
       "fromSeq",
       "fromVector",
       "get",
       "isEmpty",
       "keys",
+      "map",
       "remove",
       "set",
       "singleton",
       "size",
       "values",
     ]);
+    // `remap` is the rebuild beneath `map` (#1417): a door row, unexported.
+    expect(exported).not.toContain("remap");
     const javascript = map!.javascript.text;
     for (const name of exported) {
       const index = javascript.indexOf(`const ${name} =`);
