@@ -115,17 +115,49 @@ export interface JavaScript extends Output {
    * that was never written and dies at its first import.
    */
   readonly importsRuntimeGlobals: boolean;
+  /**
+   * The copies this file's calls reach in the modules it imports (Zero-Cost
+   * Fundamental Exports §8.3), one row per export and tuple, sorted.
+   *
+   * The exporter cannot see its callers, so a copy exists only because some
+   * importer reported it here: `compileProject` emits every importer before
+   * the module it imports, gathers these rows, and hands the exporter its own
+   * as `copyDemand`. A row the exporter never received would leave this file
+   * importing a name its exporter does not export, which fails at load after a
+   * clean compile.
+   */
+  readonly copyDemands: readonly CopyDemand[];
 }
 
+/** One copy a file demands of a module it imports (`JavaScript.copyDemands`). */
+export interface CopyDemand {
+  /** The import's specifier, in source form — the spelling an `Import` item carries. */
+  readonly specifier: string;
+  /**
+   * The exporter's full module name, for a host that matches demands to the
+   * modules it re-emits by name rather than resolving `specifier` itself.
+   */
+  readonly module: string;
+  /** The export's source name. */
+  readonly term: string;
+  /** One fundamental type per constrained variable, in scheme order. */
+  readonly types: readonly FundamentalTypeName[];
+}
+
+/** Zero-Cost Fundamental Exports §2.1's seven types, by name. */
+export type FundamentalTypeName = "Nat" | "Int" | "Float" | "BigInt" | "Bool" | "String" | "Unit";
+
 /**
- * One emitted edition of a constrained export, located in the file it was
- * rendered into: a generated *body* in `JavaScript`, a generated *face* with its
- * own documentation in `Declarations`.
+ * One emitted edition or §8.3 copy of a constrained export, located in the file
+ * it was rendered into: a generated *body* in `JavaScript`, a generated *face*
+ * with its own documentation in `Declarations`. A copy has a body and no face,
+ * so its rows appear in `JavaScript` alone.
  *
  * The §10 measurement in the shape §10 asks for — "the emitted JS size and
- * `.d.ts` size attributable to generated specializations (count and bytes), per
- * emitted module" — with the count being the array's length and the bytes each
- * row's own, so no artefact carries a total that could disagree with its rows.
+ * `.d.ts` size attributable to generated specializations and to §8.3's copies
+ * (count and bytes), per emitted module" — with the count being the rows of
+ * each kind and the bytes each row's own, so no artefact carries a total that
+ * could disagree with its rows.
  * `bytes` is UTF-8, the encoding the file is written in; the offsets are into
  * `text` as JavaScript indexes it, so `text.slice(startOffset, endOffset)` is
  * the rendered edition and `bytes` is what it weighs on disk.
@@ -134,7 +166,7 @@ export interface JavaScript extends Output {
  * separately from the source-derived text around it.
  */
 export interface GeneratedSection {
-  readonly kind: "FundamentalSpecialization";
+  readonly kind: "FundamentalSpecialization" | "Copy";
   readonly sourceName: string;
   readonly generatedName: string;
   readonly typeArguments: readonly string[];
@@ -155,15 +187,17 @@ export interface Declarations extends Output {
    * block is re-emitted once per edition, each carrying that specialization's
    * own Hexagon face — text that exists only because the editions exist, which
    * is what "attributable to generated specializations" asks for and where most
-   * of a documented module's Cartesian growth actually sits. The JavaScript side
-   * has no counterpart: there the item's documentation precedes the whole
-   * rendered block once, source binding and editions together.
+   * of a documented module's growth actually sits. The JavaScript side has no
+   * counterpart: there the item's documentation precedes the whole rendered
+   * block once, source binding and editions together.
    *
-   * The two artefacts' rows are the same plan read twice, so they agree on
-   * count, `sourceName`, `generatedName` and `typeArguments` for every module
-   * that emits both. What differs is `bytes`, and that is the point of measuring
-   * both rather than summing them: the two artefacts grow differently with the
-   * product, and §10 asks for the two sizes.
+   * The two artefacts' specialization rows are the same plan read twice, so
+   * they agree on count, `sourceName`, `generatedName` and `typeArguments` for
+   * every module that emits both. The JavaScript side's `Copy` rows have no
+   * counterpart here, a copy having no face (§8.3). What differs is `bytes`,
+   * and that is the point of measuring both rather than summing them: the two
+   * artefacts grow differently with the editions, and §10 asks for the two
+   * sizes.
    */
   readonly generatedSections: readonly GeneratedSection[];
   /**

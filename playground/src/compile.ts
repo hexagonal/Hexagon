@@ -1,4 +1,5 @@
 import {
+  Emitted,
   Source,
   Typed,
   compileProject,
@@ -77,9 +78,13 @@ function compileWorkspace(
 
   const project = compileProject(files);
   const root = rootModuleOf(project.modules);
-  const outputs = project.modules.map((module) => ({
-    module,
-    javascript: emitJavaScript(module.core, {
+  // Importers first, as `compileProject` emits, so each exporter is re-emitted
+  // after every module that calls it — see `copyDemand` below.
+  // `project.modules` lists dependencies first.
+  const demanded = new Map<string, Map<string, Map<string, Emitted.CopyDemand["types"]>>>();
+  const reemitted = new Map<CompiledModule, Emitted.JavaScript>();
+  for (const module of [...project.modules].reverse()) {
+    const javascript = emitJavaScript(module.core, {
       previewPrivateSpecializations: true,
       // Every module but the root, which nothing imports: the JS pane shows the
       // root's emission, and the reserved evidence handles exist for importers.
@@ -106,7 +111,32 @@ function compileWorkspace(
       fundamentalInstances: project.fundamentalSeats.get(module.name) ??
         project.fundamentalInstances,
       fundamentalSeats: project.fundamentalSeats,
-    }),
+      // A fifth (Zero-Cost Fundamental Exports §8.3): the copies other modules
+      // call. A re-emission without them writes none, and the importer that
+      // calls one fails at load. `module.copyDemand` alone is not enough: it is
+      // what the *ordinary* emissions demanded, and this pane's previews of
+      // private editions are bodies too, which call copies of their own. So
+      // the demand is the re-emitted importers', gathered as `compileProject`
+      // gathers it, together with the project's.
+      copyDemand: mergedCopyDemand(module.copyDemand, demanded.get(module.name)),
+    });
+    for (const { module: exporter, term, types } of javascript.copyDemands) {
+      // As `compileProject` checks: an exporter already re-emitted would leave
+      // this module importing a copy nobody wrote, and the pane would fail at load.
+      if ([...reemitted.keys()].some(({ name }) => name === exporter)) {
+        throw new Error(`compiler defect: ${module.name} demands a copy of ${term} from ${exporter}, which was re-emitted first`);
+      }
+      const byTerm = demanded.get(exporter) ?? new Map<string, Map<string, Emitted.CopyDemand["types"]>>();
+      const tuples = byTerm.get(term) ?? new Map<string, Emitted.CopyDemand["types"]>();
+      tuples.set(types.join(","), types);
+      byTerm.set(term, tuples);
+      demanded.set(exporter, byTerm);
+    }
+    reemitted.set(module, javascript);
+  }
+  const outputs = project.modules.map((module) => ({
+    module,
+    javascript: reemitted.get(module)!,
   }));
   // Diagnostics are anchored rather than mapped: every one of them has to be
   // shown, including the ones from a module the buffer never wrote — the
@@ -205,6 +235,26 @@ function compileWorkspace(
     ),
     diagnostics,
   };
+}
+
+/**
+ * The copies one re-emitted module has to write: those the project's own
+ * emission was handed, and those the re-emitted importers demand, each tuple
+ * once.
+ */
+function mergedCopyDemand(
+  project: CompiledModule["copyDemand"],
+  reemitted: ReadonlyMap<string, ReadonlyMap<string, Emitted.CopyDemand["types"]>> | undefined,
+): CompiledModule["copyDemand"] {
+  const merged = new Map<string, Map<string, Emitted.CopyDemand["types"]>>();
+  const add = (term: string, types: Emitted.CopyDemand["types"]): void => {
+    const tuples = merged.get(term) ?? new Map<string, Emitted.CopyDemand["types"]>();
+    tuples.set(types.join(","), types);
+    merged.set(term, tuples);
+  };
+  for (const [term, tuples] of project) for (const types of tuples) add(term, types);
+  for (const [term, tuples] of reemitted ?? []) for (const types of tuples.values()) add(term, types);
+  return new Map([...merged].map(([term, tuples]) => [term, [...tuples.values()]] as const));
 }
 
 function collectBindingTypes(

@@ -57,6 +57,7 @@ import {
   fundamentalSeatsOf,
   preludeBoolUnion,
   type FundamentalInstances,
+  type FundamentalType,
 } from "./passes/emitter/specializations.js";
 import type { ModuleImport, PreludeImport } from "./passes/resolver/resolver.js";
 import type { RuntimeLocations } from "./passes/emitter/emitter.js";
@@ -124,6 +125,16 @@ export interface CompiledModule {
    * prelude's early members, an import cycle through `Option.js`.
    */
   readonly dataOnlyHomes: ReadonlySet<string>;
+  /**
+   * The §8.3 copies of this module's exports that other modules' calls demand
+   * (Zero-Cost Fundamental Exports), as `emitJavaScript`'s `copyDemand` takes
+   * them; empty where none does. Carried for `runtimes`' reason: a host that
+   * re-emits this module without them writes none of those copies, and every
+   * importer that calls one then fails at load. It is what this compile's own
+   * emissions demanded, so a host that re-emits the importers with other
+   * options also adds the `JavaScript.copyDemands` its re-emissions report.
+   */
+  readonly copyDemand: ReadonlyMap<string, readonly (readonly FundamentalType[])[]>;
 }
 
 /** One explicitly selected source file and the modules it contributes. */
@@ -135,10 +146,14 @@ export interface CompiledRoot {
 
 /**
  * One module through elaboration, before emission — `CompiledModule` minus the
- * two emitted artefacts and the data-only edges their emission read. See
- * `checked` in `compileProject` for why the compile has a seam here at all.
+ * two emitted artefacts and the data-only edges and copy demand their emission
+ * read. See `checked` in `compileProject` for why the compile has a seam here at
+ * all.
  */
-type CheckedModule = Omit<CompiledModule, "javascript" | "declarations" | "dataOnlyHomes">;
+type CheckedModule = Omit<
+  CompiledModule,
+  "javascript" | "declarations" | "dataOnlyHomes" | "copyDemand"
+>;
 
 /**
  * The declaration surface needed to recognize providers without traversing an
@@ -647,6 +662,7 @@ function rememberStandardLibrary(
   bases: readonly (InjectedIdBases | undefined)[],
   runtimeBasename: string,
   reused: readonly StandardLibrarySeat[],
+  copied: ReadonlySet<string>,
 ): void {
   const seats: StandardLibrarySeat[] = [];
   for (const unit of injected) {
@@ -659,10 +675,16 @@ function rememberStandardLibrary(
       module.declarations.diagnostics.length > 0
     ) break;
     const seat = reused[index] ?? newStandardLibrarySeat(unit, module, basis);
-    seat.emission.set(
-      runtimeBasename,
-      keep({ javascript: module.javascript, declarations: module.declarations }),
-    );
+    // An emission carrying §8.3 copies is this program's, not the seat's: the
+    // copies are the ones its calls demanded. The seat keeps whatever
+    // copy-free emission it already had, and is re-emitted for any program
+    // that demands copies of it.
+    if (!copied.has(unit.path)) {
+      seat.emission.set(
+        runtimeBasename,
+        keep({ javascript: module.javascript, declarations: module.declarations }),
+      );
+    }
     // Oldest first, `Map` iteration order being insertion order. Which one goes
     // is not the caveat worth stating — an LRU of two over three keys misses
     // exactly as often — the **bound** is: a host rotating three distinct stems
@@ -1759,7 +1781,16 @@ export function compileProject(
   // one of its exports from the same seat (`fundamentalSeatsOf`).
   const fundamentalSeats = fundamentalSeatsOf(preludeSeats, preludeBool);
 
-  for (const path of ordered) {
+  // Zero-Cost Fundamental Exports §8.3: a module's copies are the ones its
+  // importers' calls demand, so every module is emitted after every module that
+  // imports it — `ordered` read backwards, importers first — and hands the
+  // copies it demands to the modules it imports, which are still to come.
+  // `compiled` is filled in `ordered`'s own order below, so nothing downstream
+  // sees the order emission ran in.
+  const copyDemand = new Map<string, Map<string, Map<string, readonly FundamentalType[]>>>();
+  const emittedPaths = new Set<string>();
+  const emittedModules = new Map<string, CompiledModule>();
+  for (const path of [...ordered].reverse()) {
     const module = checked.get(path);
     if (module === undefined) continue;
     const { source, parsed: parsedModule, resolved, typed, core, runtimes } = module;
@@ -1768,7 +1799,14 @@ export function compileProject(
     // Modules §11: a prelude member this module sees as data only is no load
     // edge, so its constructors are made here and nothing is imported.
     const dataOnlyHomes = new Set(dataSeatsAt(seat).map(({ path: home }) => home));
-    const reusedEmission = reusableEmission && seat !== undefined
+    const demanded = copyDemand.get(path);
+    const demand = demanded === undefined ? undefined : new Map(
+      [...demanded].map(([term, tuples]) => [term, [...tuples.values()]] as const),
+    );
+    // A seat's cached emission holds only the copies its own calls demand, so a
+    // seat another module demands a copy of is emitted afresh, and that
+    // emission is not cached (`rememberStandardLibrary`).
+    const reusedEmission = reusableEmission && seat !== undefined && demand === undefined
       ? reusableSeats[seat]?.emission.get(runtimeBasename)
       : undefined;
     if (seat !== undefined) {
@@ -1782,7 +1820,23 @@ export function compileProject(
       runtimeGlobalsSpecifier,
       fundamentalInstances: fundamentalSeats.get(module.name) ?? fundamentalInstances,
       fundamentalSeats,
+      ...(demand === undefined ? {} : { copyDemand: demand }),
     });
+    emittedPaths.add(path);
+    for (const { specifier, term, types } of javascript.copyDemands) {
+      const target = resolveSpecifier(path, specifier);
+      // An import edge always points at a module `ordered` put earlier, so its
+      // exporter is still to be emitted; one already emitted would leave this
+      // module importing a copy nobody wrote.
+      if (emittedPaths.has(target)) {
+        throw new Error(`compiler defect: ${path} demands a copy of ${term} from ${target}, which was emitted first`);
+      }
+      const byTerm = copyDemand.get(target) ?? new Map<string, Map<string, readonly FundamentalType[]>>();
+      const tuples = byTerm.get(term) ?? new Map<string, readonly FundamentalType[]>();
+      tuples.set(types.join(","), types);
+      byTerm.set(term, tuples);
+      copyDemand.set(target, byTerm);
+    }
     const declarations = reusedEmission?.declarations ?? emitDeclarations(core, {
       runtimeSpecifier: emittedModuleSpecifier(
         relativeSpecifier(path, `/${runtimeBasename}.hex`),
@@ -1791,7 +1845,7 @@ export function compileProject(
       modulePath: path,
       fundamentalInstances: fundamentalSeats.get(module.name) ?? fundamentalInstances,
     });
-    compiled.set(path, {
+    emittedModules.set(path, {
       source,
       name: module.name,
       path,
@@ -1804,7 +1858,19 @@ export function compileProject(
       dataOnlyHomes,
       javascript,
       declarations,
+      copyDemand: demand ?? new Map(),
     });
+  }
+  // And every demand reached a module this compile emitted: one that did not
+  // would leave its importer calling a copy nobody wrote.
+  for (const [target, byTerm] of copyDemand) {
+    if (!emittedPaths.has(target)) {
+      throw new Error(`compiler defect: copies of ${[...byTerm.keys()].join(", ")} demanded from ${target}, which was not emitted`);
+    }
+  }
+  for (const path of ordered) {
+    const module = emittedModules.get(path);
+    if (module !== undefined) compiled.set(path, module);
   }
 
 
@@ -1980,6 +2046,7 @@ export function compileProject(
       seatBases,
       runtimeBasename,
       reusableSeats,
+      new Set(copyDemand.keys()),
     );
   }
 

@@ -41,7 +41,7 @@ export interface TypeOccurrence {
  * only ever read from `bytes` and never computed as `endOffset - startOffset`.
  */
 export interface GeneratedSection {
-  readonly kind: "FundamentalSpecialization";
+  readonly kind: "FundamentalSpecialization" | "Copy";
   readonly sourceName: string;
   readonly generatedName: string;
   readonly typeArguments: readonly string[];
@@ -68,15 +68,16 @@ export interface CompileSuccess {
    * documentation block re-emitted above it.
    *
    * Not derivable from `generatedJavaScript`, which is why it travels: the two
-   * artefacts grow differently with the Cartesian product, and §10 asks for both
-   * sizes.
+   * artefacts grow differently, and §10 asks for both sizes.
    *
    * The relation to `generatedJavaScript` is containment and not equality: this
    * pane previews *private* editions and a private declaration reaches no
-   * `.d.ts` at all, so every row here has a JavaScript counterpart and the
-   * reverse fails for exactly the private ones. The two lists measure equal on a
-   * module whose constrained declarations are all exported, which is why nothing
-   * downstream may read either length as evidence about the other.
+   * `.d.ts` at all, and §8.3's copies publish no face either, so every row here
+   * has a JavaScript counterpart and the reverse fails for exactly the private
+   * editions and the copies. The two lists measure equal on a module whose
+   * constrained declarations are all exported and which writes no copy, which
+   * is why nothing downstream may read either length as evidence about the
+   * other.
    */
   readonly generatedDeclarations: readonly GeneratedSection[];
   /**

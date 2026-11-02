@@ -314,16 +314,18 @@ describe("the derived walks reach an edition's substituted component types", () 
   });
 });
 
-describe("the multi-variable cartesian, the defect's largest instance", () => {
+describe("the multi-variable instance, the defect's largest", () => {
   /**
-   * Seven fundamentals per specialized variable, and a two-variable binder is
+   * Seven fundamentals per specialized variable, and a two-variable binder was
    * their product: 49 editions, and at base **98** ICEs from one seven-line
-   * program — fourteen times the four filed probes.
+   * program — fourteen times the four filed probes. Since #1438 such a binder
+   * publishes no editions, and each tuple a call uses gets a copy instead
+   * (Zero-Cost Fundamental Exports §8.3), whose body is an edition's.
    *
    * This is the one shape a substitution keyed to a *single* variable would have
    * survived, so it is the row that says the assignment is carried whole.
    */
-  test("`<k: Eq, v: Eq>` mints 49 editions and every one of them walks", async () => {
+  test("`<k: Eq, v: Eq>` makes one copy per tuple used, and every one of them walks", async () => {
     const source = [
       "export let paired<k: Eq, v: Eq>(x: (k, v), y: (k, v)): Bool =",
       "    x == y",
@@ -331,28 +333,33 @@ describe("the multi-variable cartesian, the defect's largest instance", () => {
       "let numbered: (Int, String) = (1, \"u\")",
       "let alsoNumbered: (Int, String) = (1, \"u\")",
       "let renamed: (Int, String) = (1, \"w\")",
+      "let swapped: (String, Int) = (\"u\", 1)",
       "let flagBlank: (Bool, Unit) = (True, ())",
       "let sameFlagBlank: (Bool, Unit) = (True, ())",
       "",
       "export let pairsAgree: Bool = paired(numbered, alsoNumbered)",
       "export let pairsDiffer: Bool = paired(numbered, renamed)",
+      "export let swappedAgree: Bool = paired(swapped, swapped)",
       "export let mixedAgree: Bool = paired(flagBlank, sameFlagBlank)",
       "",
     ].join("\n");
     const emitted = javascript(source);
     expect(emitted).not.toContain("undefined.");
-    // The scale itself, so a regression that substituted only the first
-    // variable — or minted fewer editions — is visible as a number.
-    expect(emitted.match(/^function paired[A-Za-z]+\(/gmu)).toHaveLength(49);
-    // Both positions substituted, in the same edition and in both orders.
-    expect(emitted).toContain("function pairedIntString(");
-    expect(emitted).toContain("function pairedStringInt(");
+    // The whole list, so a regression that made copies the program never asked
+    // for — or the product again — is visible. In candidate order, the first
+    // variable most significant: `Int` and `Bool` come before `String`.
+    expect(emitted.match(/^function [_A-Za-z]*paired[_A-Za-z]*\(/gmu)).toEqual([
+      "function __paired_IntString(",
+      "function __paired_BoolUnit(",
+      "function __paired_StringInt(",
+    ]);
     const module = await runMain("module Main\n\n" + source);
-    // `pairedIntString` and `pairedBoolUnit` are the two run here: a primitive
-    // beside a primitive, and the two `Structural`-evidence fundamentals beside
-    // each other — the pairing a `Primitive`-only repair would miss twice over.
+    // Both positions substituted, in both orders: a primitive beside a
+    // primitive, and the two `Structural`-evidence fundamentals beside each
+    // other — the pairing a `Primitive`-only repair would miss twice over.
     expect(module.pairsAgree).toBe(true);
     expect(module.pairsDiffer).toBe(false);
+    expect(module.swappedAgree).toBe(true);
     expect(module.mixedAgree).toBe(true);
   });
 });

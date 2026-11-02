@@ -114,6 +114,54 @@ describe("compileSource", () => {
     expect(entry.result[3]).toBe(Math.sqrt(2));
   });
 
+  test("re-emits a prelude module with the copy the program calls", () => {
+    // Zero-Cost Fundamental Exports §8.3: `Map.max` binds two variables, so the
+    // call reaches a copy that only exists because this program calls it. The
+    // pane re-emits every module, and a re-emitted `Map.js` that dropped the
+    // copy would fail at load after a clean compile. (Read rather than run:
+    // `Map.js`'s import graph nests too deep for `data:` URL linking.)
+    const response = compileSource(
+      4,
+      MAIN +
+        'export let result: Option((String, Int)) = Map.max(Map.fromEntries([("a", 1), ("b", 2)]))\n',
+    );
+
+    expect(response.kind).toBe("compile-success");
+    if (response.kind !== "compile-success") return;
+    expect(response.javascript).toContain("__max_StringInt(");
+    const map = response.executionModules.find(({ path }) => path === "/Hex/Map.hex");
+    expect(map?.javascript).toContain("function __max_StringInt(");
+    expect(map?.javascript).toContain("export { __max_StringInt };");
+  });
+
+  test("re-emits a prelude module with the copies its private previews call", () => {
+    // The pane previews private editions, which `compileProject` never emits:
+    // each of `biggest`'s is a body that calls `Map.max` at its own tuple, and
+    // so demands a copy the project's emission of `Map` was never told about.
+    // Every copy the re-emitted program imports has to be one the re-emitted
+    // `Map.js` writes and exports, or the program fails at load.
+    const response = compileSource(
+      6,
+      MAIN +
+        "let biggest<k: Ord>(m: Map(k, Int)): Option((k, Int)) = Map.max(m)\n" +
+        'export let result: Option((String, Int)) = biggest(Map.fromEntries([("a", 1), ("b", 2)]))\n',
+    );
+
+    expect(response.kind).toBe("compile-success");
+    if (response.kind !== "compile-success") return;
+    const imported = [
+      ...response.javascript.matchAll(/import \{([^}]*)\} from "\.\/Hex\/Map\.js";/gu),
+    ].flatMap(([, names]) => names!.split(",").map((name) => name.trim()))
+      .filter((name) => name.startsWith("__max_"));
+    expect(imported).toContain("__max_StringInt");
+    expect(imported).toContain("__max_IntInt");
+    const map = response.executionModules.find(({ path }) => path === "/Hex/Map.hex")!.javascript;
+    for (const name of imported) {
+      expect(map).toContain(`function ${name}(`);
+      expect(map).toContain(`export { ${name} };`);
+    }
+  });
+
   test("compiles the canonical Vector module surface", () => {
     const response = compileSource(5, vectors.source);
 

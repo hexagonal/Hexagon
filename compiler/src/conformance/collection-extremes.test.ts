@@ -526,6 +526,7 @@ describe("editions (§13.5)", () => {
     "export let b: Option(Float) = Set.fromVector([1.5]).max()",
     "export let c: Option(Int) = Seq.min(1..3)",
     "export let d: Option((Int, String)) = Map.fromVector([(1, \"a\")]).maxBy(((key, _)) => key)",
+    "export let e: Option((Int, Float)) = Map.fromVector([(1, 2.5)]).max()",
     "",
   ].join("\n"));
 
@@ -542,9 +543,16 @@ describe("editions (§13.5)", () => {
     for (const name of ["maxBy", "minBy"]) {
       for (const type of ["Int", "Nat", "Float", "BigInt"]) expect(text("/Hex/Map.hex")).toContain(`function ${name}${type}(`);
     }
-    expect(text("/Hex/Map.hex")).toContain("function maxIntFloat(");
+    // `Map.max` and `Map.min` bind two variables, so they publish no editions
+    // (Zero-Cost Fundamental Exports §3.2 step 1), and a call at fundamental
+    // types reaches the one copy it uses (§8.3).
+    expect(text("/Hex/Map.hex")).not.toMatch(/function m(?:ax|in)(?:Nat|Int|Float|BigInt|Bool|String|Unit)+\(/u);
+    expect([...text("/Hex/Map.hex").matchAll(/^function (__m(?:ax|in)_\w+)\(/gmu)].map((match) => match[1]))
+      .toEqual(["__max_IntFloat"]);
     const consumer = text("/main.hex");
-    for (const edition of ["sumInt(", "maxFloat(", "minInt(", "maxByInt("]) expect(consumer).toContain(edition);
+    for (const edition of ["sumInt(", "maxFloat(", "minInt(", "maxByInt(", "__max_IntFloat("]) {
+      expect(consumer).toContain(edition);
+    }
   });
 
   test("Ord.max and Ord.min have no editions: a call goes through the instance", () => {

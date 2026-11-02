@@ -15,13 +15,14 @@ export function groupGeneratedSections(
 
 /**
  * One edition as the build report shows it: the JavaScript body this module
- * renders, and the `.d.ts` face rendered from the same plan row.
+ * renders, and the `.d.ts` face rendered from the same plan row. A §8.3 copy is
+ * reported the same way, and never has a face.
  *
  * The two sizes are carried side by side and never summed. Zero-Cost
- * Fundamental Exports §10 accepts the Cartesian product on the condition that
- * "the emitted JS size and `.d.ts` size attributable to generated
- * specializations" are available, and the two artefacts grow differently with
- * the product — a total would hide the very difference the measurement is for.
+ * Fundamental Exports §10 accepts the editions on the condition that "the
+ * emitted JS size and `.d.ts` size attributable to generated specializations
+ * and to §8.3's copies" are available, and the two artefacts grow differently —
+ * a total would hide the very difference the measurement is for.
  */
 export interface ReportedEdition {
   readonly section: GeneratedSection;
@@ -82,7 +83,8 @@ export function generatedSectionsPanel(
  * they were minted from.
  *
  * The JavaScript list leads because it is the containing one — every face has a
- * body and the reverse fails for private editions — and the pairing key is the
+ * body and the reverse fails for private editions and for §8.3's copies — and
+ * the pairing key is the
  * generated name: both artefacts render from one plan, so a name identifies an
  * edition across them (Algorithm N, §6.1).
  *
@@ -123,19 +125,31 @@ export function reportGeneratedEditions(
   });
 }
 
-/** `plusInt · Int · 148 B JS · 96 B .d.ts` — one edition, both artefacts. */
+/**
+ * `plusInt · Int · 148 B JS · 96 B .d.ts` — one edition, both artefacts — or
+ * `__max_StringInt · String, Int · copy · 210 B JS · no .d.ts face` for a copy,
+ * which is named as one because it is there only because a call uses it.
+ */
 export function formatEditionLabel({ section, declarationBytes }: ReportedEdition): string {
   return [
     section.generatedName,
     section.typeArguments.join(", "),
+    ...(section.kind === "Copy" ? ["copy"] : []),
     `${section.bytes} B JS`,
     declarationBytes === undefined ? "no .d.ts face" : `${declarationBytes} B .d.ts`,
   ].join(" · ");
 }
 
-/** `plus (4, 592 B JS · 384 B .d.ts)` — one declaration's editions, totalled. */
+/**
+ * `plus (4, 592 B JS · 384 B .d.ts)` — one declaration's editions, totalled —
+ * or `max (2 copies, 420 B JS · no .d.ts faces)`. A declaration has editions or
+ * copies and never both: copies are made only of an export with two or more
+ * constrained variables, which has no editions (§3.2, §8.3).
+ */
 export function formatExportLabel(entry: ReportedExport): string {
-  return `${entry.sourceName} (${entry.editions.length}, ` +
+  const count = entry.editions.length;
+  const copies = entry.editions.every(({ section }) => section.kind === "Copy");
+  return `${entry.sourceName} (${copies ? `${count} ${count === 1 ? "copy" : "copies"}` : count}, ` +
     `${entry.javaScriptBytes} B JS · ${formatDeclarationTotal(entry)})`;
 }
 

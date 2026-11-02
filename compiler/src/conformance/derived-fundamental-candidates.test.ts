@@ -595,9 +595,10 @@ describe("the collections API gains its JavaScript entry points", () => {
     // seven for each `Ord`-bound function and four for each `Num`-bound one:
     // `Set`'s four order forms and two totals add 36. `Map.maxBy` and
     // `Map.minBy` add seven each, and `Map.max` and `Map.min`, with two
-    // `Ord`-bound variables, the full product, 49 each.
+    // `Ord`-bound variables, add none (Zero-Cost Fundamental Exports §3.2
+    // step 1, #1438).
     expect(editionsOf("Set")).toBe(85);
-    expect(editionsOf("Map")).toBe(147);
+    expect(editionsOf("Map")).toBe(49);
   });
 
   test("a `Hash`-bound export is callable from JavaScript at every fundamental", async () => {
