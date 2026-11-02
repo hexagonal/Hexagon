@@ -92,12 +92,11 @@ does not promise that one occurs.
 
 - **Eager.** Each function runs to completion before it returns, and stores no
   callback for later.
-- **Order of calls.** The callback is called at most once per item: on a
-  `Vector` in index order, from 1; on a `Set` or `Map` in the collection's
-  traversal order (Collections Part 4 §7.1). `find`, `any` and `all` stop at
-  the first item that decides the answer. Every other function calls the
-  callback on every item, except `sortUsing`, whose comparator is called as
-  §12.3 says.
+- **Order of calls.** Except `sortUsing`'s comparator (§12.3), the callback
+  is called at most once per item: on a `Vector` in index order, from 1; on a
+  `Set` or `Map` in the collection's traversal order (Collections Part 4
+  §7.1). `find`, `any` and `all` stop at the first item that decides the
+  answer. Every other function calls the callback on every item.
 - **Failures.** A failure in a callback propagates unchanged and ends the
   call; nothing is caught or converted. It becomes data at the call with the
   reading `?`, and over a block with `attempt` (Effects §3.1, Exceptions §8.2).
@@ -431,8 +430,8 @@ let board = players.sortUsing((a, b) => Ord.compare((b.score, a.name), (a.score,
   `compare(x, y)` is `Less` exactly when `compare(y, x)` is `Greater`, and
   `Less` and `Equal` are each transitive. It need not agree with `equals`:
   `Ord.compare` under Constraints §7's laws is consistent, and so is a
-  comparison of keys under such an `Ord`. §12.3 covers a comparator that is
-  not consistent.
+  comparison of keys under such an `Ord`, which answers `Equal` for distinct
+  elements with one key. §12.3 covers a comparator that is not consistent.
 - **Stable.** Elements for which `compare` answers `Equal` keep the order they
   had in `values`. Elements that compare equal can still be told apart: `0.0`
   and `-0.0` under `Ord<Float>` (Decisions Batch §1), or two records with one
@@ -491,9 +490,9 @@ For a vector of `n` elements, not counting the callbacks' own costs:
 - **The row seals nothing.** The lowering writes only to arrays it allocates,
   which no Hexagon code can reach while it writes them, the comparator
   included, and which nothing writes after it returns. A comparator that sorts
-  again gets arrays of its own. So a call whose comparator is pure has no
-  observable effect (Effects §2.1) and throws nothing the comparator does not,
-  as Intrinsics §4.2 requires of the lowering at `>->`. This is not Effects
+  again gets arrays of its own. So a call has no observable effect its
+  comparator does not have (Effects §2.1), and throws nothing its comparator
+  does not, as Intrinsics §4.2 requires of the lowering at `>->`. This is not Effects
   §6.2's species (d), which seals impure Hexagon code beneath a `->` face and
   takes no callback.
 - **Why a door** (Stdlib Roadmap §5.1). At 100,000 `Int` elements, a merge
@@ -509,9 +508,9 @@ For a vector of `n` elements, not counting the callbacks' own costs:
 - **No comparator form, only `sort` and `sortBy`.** Orders such as "names
   descending, scores ascending" would need a wrapper type with a flipped
   `Ord` (Haskell's `Down`, Rust's `Reverse`) before they could be written.
-  Keeping the sugar while dropping the fundamental is what restricting sugar,
-  never a fundamental, forbids. A `Down`-style type may still come later
-  beside the comparator form.
+  That keeps the sugar and drops the fundamental it stands for; the library
+  may restrict sugar, but never a fundamental. A `Down`-style type may still
+  come later beside the comparator form.
 - **No key form, only `sort` and `sortUsing`** (OCaml). The most common sort,
   by a field, would write its key twice and compute it on every comparison,
   and an effectful key would run in the comparator's unspecified order.
