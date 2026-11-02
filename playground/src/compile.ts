@@ -121,6 +121,11 @@ function compileWorkspace(
       copyDemand: mergedCopyDemand(module.copyDemand, demanded.get(module.name)),
     });
     for (const { module: exporter, term, types } of javascript.copyDemands) {
+      // As `compileProject` checks: an exporter already re-emitted would leave
+      // this module importing a copy nobody wrote, and the pane would fail at load.
+      if ([...reemitted.keys()].some(({ name }) => name === exporter)) {
+        throw new Error(`compiler defect: ${module.name} demands a copy of ${term} from ${exporter}, which was re-emitted first`);
+      }
       const byTerm = demanded.get(exporter) ?? new Map<string, Map<string, Emitted.CopyDemand["types"]>>();
       const tuples = byTerm.get(term) ?? new Map<string, Emitted.CopyDemand["types"]>();
       tuples.set(types.join(","), types);
