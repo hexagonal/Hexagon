@@ -111,15 +111,15 @@ The doctrine is fixed here; the normative surfaces live with their owners: `Vect
 - **`Using` takes a method.** The parameter is the procedure that decides, such as a comparator in place of `Ord.compare`. A sort's comparator form would be named `sortUsing`, and a maximum's `maxUsing`.
 - **`With` takes a producer.** The parameter makes part of the answer: the fallback of `Option.defaultWith` and `Result.defaultWith`, each element of `Seq.zipWith`, each replacement of `Regex.replaceWith` and `Regex.replaceFirstWith`.
 
-Which of these functions ship is the stdlib listing's decision; this section fixes only what each suffix means. The parameter a suffix names never plays another suffix's role. Beside a suffixed name, the name without the suffix takes no function in that place: `Seq.zip` pairs rather than combines, and `Regex.replace` and `Regex.replaceFirst` take the replacement as a value.
+Which sort and maximum functions ship is the stdlib listing's decision; this section fixes only what each suffix means. The parameter a suffix names never plays another suffix's role. Where a name without the suffix stands beside a suffixed one, it takes no function in that place: `Seq.zip` pairs rather than combines, and `Regex.replace` and `Regex.replaceFirst` take the replacement as a value.
 
-**Rationale.** In English, and in SQL's `ORDER BY` and C#'s `OrderBy`, "by" is followed by the thing ordered on, as it is in lodash's `sortBy` and `maxBy`, Elm, F#, Kotlin, Scala, and Ruby; the key form is also the common one, and gets the short name. "Using" names a technique, as Objective-C's `sortUsingComparator:` and Swift Foundation's `sorted(using:)` do. Every exported name whose `With` names a function parameter (`Option.defaultWith`, `Result.defaultWith`, `Seq.zipWith`, `Regex.replaceWith`, `Regex.replaceFirstWith`) takes a producer there; `String.startsWith`, `String.endsWith` and their `Ci` forms are English verbs and take a string.
+**Rationale.** In English, and in SQL's `ORDER BY` and C#'s `OrderBy`, "by" is followed by the thing ordered on, as it is in lodash's `sortBy` and `maxBy`, Elm, F#, Kotlin, Scala, and Ruby; the key form is also the common one, and gets the short name. "Using" names a technique, as Objective-C's `sortUsingComparator:` and Swift Foundation's `sorted(using:)` do. Every exported name whose `With` names a function parameter (`Option.defaultWith`, `Result.defaultWith`, `Seq.zipWith`, `Regex.replaceWith`, `Regex.replaceFirstWith`) takes a producer there; `String.startsWith`, `String.endsWith` and their `Ci` forms use the English verb's "with" and take a string.
 
 ### 3.5 Rejected alternatives for §3.4 (do not re-litigate)
 
 - **`By` for the comparator, with the key on another word** (Haskell's `sortBy`/`maximumBy` with `sortOn`; Rust's `sort_by`/`max_by` with `sort_by_key`): reads against the English and SQL "by", and in Rust gives the key form the longer name (`sort_by_key`). `On` (Haskell's `sortOn`) reads badly beside `By`.
 - **`With` for the comparator** (Elm's and F#'s `sortWith`, Kotlin's `sortedWith`): `With` is generic enough to mean anything; here it names the producer, and a comparator produces no part of the answer.
-- **Renaming the existing `With` functions to `Using` or `By`:** each already plays the producer role. Two are colleague names (F#'s `defaultWith`, Haskell's `zipWith`); `replaceWith` reads as the English "replace … with …".
+- **Renaming the existing `With` functions to `Using` or `By`:** each already plays the producer role. Two are colleague names (F#'s `defaultWith`, Haskell's `zipWith`); `replaceWith` and `replaceFirstWith` read as the English "replace … with …".
 
 ---
 
