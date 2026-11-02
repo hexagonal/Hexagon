@@ -205,11 +205,11 @@ function failureAt(posted: readonly unknown[], version: number): string | undefi
 }
 
 /**
- * An uncaught exception reaches the pane as `Show<Exn>` would show it: its name,
+ * An uncaught throw reaches the pane as `Show<Exn>` would show it: its name,
  * then its message when it has one. The message alone used to stand here, which
  * dropped the name and left an exception without a `message` slot as nothing.
  */
-describe("an uncaught exception is reported by name", () => {
+describe("an uncaught throw is reported by name", () => {
   test("with its message, and after the lines printed before it", async () => {
     harness.posted.length = 0;
 
@@ -223,7 +223,7 @@ describe("an uncaught exception is reported by name", () => {
     expect(failureAt(harness.posted, 7)).toBe("BadPattern: missing )");
   });
 
-  test("as a fault's name and message, for a fault thrown as the program loads", async () => {
+  test("as a fault's name and message, for a fault", async () => {
     harness.posted.length = 0;
 
     await harness.send(execute(10,

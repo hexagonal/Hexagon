@@ -19,8 +19,9 @@ import Regex
 //
 // A pattern written into the program is unwrapped once, where it is compiled.
 // A malformed one would be a bug in the program, not a failure a caller can
-// plan for, so it is a fault: thrown with a plain throw (faults are not
-// tracked, so no ^), it stops the program as it loads with the Err's message.
+// plan for, so it is a fault, thrown with a plain throw: faults are not
+// tracked, so the throw wears no ^ mark. Uncaught as the module loads, it
+// stops the program before anything below runs, showing the Err's message.
 // Every use below has the Regex itself. A pattern that arrives while the
 // program runs, typed by a user, say, is unwrapped once where it arrives, with
 // its Err shown rather than thrown.
@@ -53,5 +54,5 @@ check("2026-13-45")
 // When only yes or no matters, isMatch answers a Bool.
 Debug.log("is 1999-12-31 a date? \${isoDate.isMatch("1999-12-31")}")
 `,
-  specificationReferences: ["spec/regex.md"],
+  specificationReferences: ["spec/regex.md", "spec/exceptions.md"],
 };
