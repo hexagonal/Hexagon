@@ -375,14 +375,17 @@ export interface JavaScriptEmissionOptions {
    */
   readonly runtimeGlobalsSpecifier?: string;
   /**
-   * The program's Algorithm S candidate rows for the **pre-registered**
-   * constraints (#679); see `FundamentalInstances`.
+   * The Algorithm S candidate rows for the **pre-registered** constraints that
+   * this module's own editions are planned from (#679); see
+   * `FundamentalInstances`. For a user module that is the program's whole
+   * table, and for a prelude module its seat view, the rows seated at or before
+   * it (`fundamentalSeatsOf`).
    *
    * Only `compileProject` can supply them, and for the reason the two options
-   * above name plus one of its own: the rows are a fact about the prelude, and a
-   * prelude module sees only the members before its own seat. Emitting one
-   * module alone answers from that module's own channels instead, which is the
-   * complete answer for any module that sees the whole prelude.
+   * above name plus one of its own: the rows are a fact about the prelude, which
+   * no single module's channels hold. Emitting one module alone answers from
+   * that module's own channels instead, which is the complete answer for any
+   * module that sees the whole prelude.
    */
   readonly fundamentalInstances?: FundamentalInstances;
   /**
@@ -888,10 +891,11 @@ export interface DeclarationEmissionOptions {
   /** This module's own path, for relativizing `nominalHomes`. */
   readonly modulePath?: string;
   /**
-   * The program's Algorithm S candidate rows (#679); see the identically-named
-   * option on `JavaScriptEmissionOptions` for why only `compileProject` has
-   * them. The two faces must plan the same editions or a declared entry point
-   * names a function the JavaScript never emitted.
+   * The Algorithm S candidate rows this module's editions are planned from
+   * (#679); see the identically-named option on `JavaScriptEmissionOptions` for
+   * which rows those are and why only `compileProject` has them. The two faces
+   * must be handed the same rows, or a declared entry point names a function
+   * the JavaScript never emitted.
    */
   readonly fundamentalInstances?: FundamentalInstances;
 }

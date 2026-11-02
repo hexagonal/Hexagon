@@ -1165,29 +1165,23 @@ export function compileProject(
   /**
    * Every module through elaboration, before any of them is emitted.
    *
-   * The compile is two passes over `ordered` rather than one, and the boundary
-   * is what the specialization planner's candidate judgment needs (#679): the
-   * fundamental instances a pre-registered constraint holds are a fact about the
-   * **prelude**, not about what the module being planned happens to see, and a
-   * prelude module sees only the members before its own seat (Modules §5.5). In
-   * one interleaved pass `Nat.hex` would be emitted knowing `Int.hex`'s rows and
-   * nothing later, and would plan a different edition set for its own exports
-   * than every consumer recomputes for them (`planImportedSpecializations`) —
-   * an importer emitting a call to a name the exporter never published.
+   * The compile is two passes over `ordered` rather than one, so that every
+   * candidate table the specialization planner reads is complete before any
+   * emission plans from it (#679). The fundamental instances a pre-registered
+   * constraint holds are a fact about the **prelude**, not about what the module
+   * being planned happens to see. A user module plans from the whole prelude's
+   * rows. A prelude module plans from its seat view, the rows seated at or
+   * before it (Modules §5.5, `fundamentalSeatsOf`), and an importer recomputes
+   * its plan (`planImportedSpecializations`) from that same view, looked up by
+   * the exporter's name. Answering from what either module imports instead
+   * would let an importer emit a call to a name the exporter never published.
    *
-   * Splitting here answers it with the real machinery and no second copy of the
-   * truth: the rows are read off the prelude's own checked `honor` items, once
-   * every one of them exists, and handed to every emission as one
-   * program-invariant table.
-   *
-   * What that does **not** buy is freedom from the seat order. The table settles
-   * what a module *plans*; the module still has to **resolve** what it plans,
-   * and an edition at a primitive carries `Primitive` evidence that
-   * `#emitEvidence` resolves from the emitting module's own channels. A prelude
-   * module planning an edition at a fundamental whose companion sits after its
-   * own seat reports a compiler defect — measured on `stdlib/Ord.hex`, where one
-   * added constrained export mints five editions and produces five of them. The
-   * seat order is load-bearing for that, loudly rather than silently, and
+   * The seat view is also what lets a prelude module **resolve** what it plans.
+   * An edition at a primitive carries `Primitive` evidence that `#emitEvidence`
+   * resolves from the emitting module's own channels, so a prelude module that
+   * planned an edition at a fundamental whose companion sits after its own seat
+   * would report a compiler defect. Planning from the seat rules that out:
+   * `Hex.Vector`, seated before `Hex.String`, plans no `String` edition.
    * `conformance/derived-fundamental-candidates.test.ts` asserts the obligation
    * over every module a project emits.
    *
@@ -1745,9 +1739,10 @@ export function compileProject(
   }
 
   // Algorithm S's candidate rows for the pre-registered constraints, read off
-  // the prelude now that every prelude module has been checked (#679). One table
-  // for the whole program, so an exporter's plan and every importer's
-  // recomputation of it are the same function of the same input.
+  // the prelude now that every prelude module has been checked (#679): the whole
+  // table for user modules, and each prelude module's seat view of it. An
+  // importer recomputes an exporter's plan from the exporter's table, so the two
+  // are the same function of the same input.
   //
   // The `Bool` pin comes from a prelude module that *sees* `Bool.hex` rather
   // than from `Bool.hex` itself, which cannot see its own declaration (Modules

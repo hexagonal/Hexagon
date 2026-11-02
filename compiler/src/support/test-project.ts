@@ -16,12 +16,17 @@
  * text into each importer's URL, re-encoded at every level, so a module's URL
  * grew with the number of paths to it through the graph rather than with the
  * graph, and the Regex modules' passed what a string can hold.
+ *
+ * Node's own loader links the directory, not Vite's module runner:
+ * `vitest.config.ts` externalizes it by its `hex-run-` prefix. The runner
+ * turns imports into property reads, so a module importing a name its
+ * dependency never exported would load and fail only when the name was
+ * called; Node refuses it at link time, as a host does.
+ *
+ * Node is reached through non-literal specifiers, as in `typescript-check.ts`:
+ * the package carries no Node type definitions, and the compiler core names no
+ * host module.
  */
-
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
-import { pathToFileURL } from "node:url";
 
 import * as Source from "./source.js";
 import { compileProject, type CompiledProject, type ProjectOptions } from "../project.js";
@@ -79,30 +84,25 @@ export async function runProject(
       }`,
     );
   }
-  // One directory per run, never reused: a module's URL is its identity to the
-  // host's module cache, so two runs must not share a path.
-  const root = mkdtempSync(join(tmpdir(), "hex-run-"));
-  const write = (address: string, text: string): void => {
-    const target = join(root, address.replace(/^\//u, ""));
-    mkdirSync(dirname(target), { recursive: true });
-    writeFileSync(target, text);
+  const fsName = "node:fs";
+  const osName = "node:os";
+  const pathName = "node:path";
+  const urlName = "node:url";
+  const fs = await import(/* @vite-ignore */ fsName) as {
+    mkdtempSync: (prefix: string) => string;
+    mkdirSync: (path: string, options: { recursive: boolean }) => void;
+    writeFileSync: (path: string, data: string) => void;
+    rmSync: (path: string, options: { recursive: boolean; force: boolean }) => void;
   };
-  write("package.json", '{ "type": "module" }\n');
-  // The program's runtime module on the same footing as a prelude one: it is
-  // executable, and a contested program's very first import is of it (FFI
-  // Part 7 §1.2).
-  const runtimeGlobals = project.runtimeGlobals;
-  if (runtimeGlobals !== undefined) write(runtimeGlobals.path, runtimeGlobals.text);
-  for (const module of project.modules) {
-    // Written at the module's **address** — its full name laid out as a path
-    // (Packages §6) — because that is what the emitted specifiers name since
-    // #829; a source file's own name and place appear nowhere in the emitted
-    // graph.
-    const text = options.transform === undefined
-      ? module.javascript.text
-      : options.transform(module.source.path, module.javascript.text);
-    write(module.path.replace(/\.hex$/u, ".js"), text);
-  }
+  const os = await import(/* @vite-ignore */ osName) as { tmpdir: () => string };
+  const paths = await import(/* @vite-ignore */ pathName) as {
+    join: (...parts: string[]) => string;
+    dirname: (of: string) => string;
+  };
+  const url = await import(/* @vite-ignore */ urlName) as {
+    pathToFileURL: (of: string) => { readonly href: string };
+  };
+
   // By module, never `modules[0]`: the prelude members share the project. The
   // entry is named the way a compiler host names a root — by module name
   // (Modules §8.3) — with a source path still accepted, since a harness that
@@ -114,8 +114,40 @@ export async function runProject(
   if (entryModule === undefined) {
     throw new Error(`no module \`${entry}\` in the compiled project`);
   }
-  const url = pathToFileURL(join(root, entryModule.path.replace(/^\//u, "").replace(/\.hex$/u, ".js")));
-  return (await import(/* @vite-ignore */ url.href)) as Record<string, unknown>;
+
+  // One directory per run, never reused: a module's URL is its identity to the
+  // host's module cache, so two runs must not share a path.
+  const root = fs.mkdtempSync(paths.join(os.tmpdir(), "hex-run-"));
+  const fileOf = (address: string): string =>
+    paths.join(root, address.replace(/^\//u, "").replace(/\.hex$/u, ".js"));
+  const write = (file: string, text: string): void => {
+    fs.mkdirSync(paths.dirname(file), { recursive: true });
+    fs.writeFileSync(file, text);
+  };
+  try {
+    write(paths.join(root, "package.json"), '{ "type": "module" }\n');
+    // The program's runtime module on the same footing as a prelude one: it is
+    // executable, and a contested program's very first import is of it (FFI
+    // Part 7 §1.2).
+    const runtimeGlobals = project.runtimeGlobals;
+    if (runtimeGlobals !== undefined) write(fileOf(runtimeGlobals.path), runtimeGlobals.text);
+    for (const module of project.modules) {
+      // Written at the module's **address** — its full name laid out as a path
+      // (Packages §6) — because that is what the emitted specifiers name since
+      // #829; a source file's own name and place appear nowhere in the emitted
+      // graph.
+      const text = options.transform === undefined
+        ? module.javascript.text
+        : options.transform(module.source.path, module.javascript.text);
+      write(fileOf(module.path), text);
+    }
+    // The whole graph is linked and evaluated once the entry's import settles,
+    // and the emitted modules import nothing later, so the directory can go.
+    const entryUrl = url.pathToFileURL(fileOf(entryModule.path)).href;
+    return (await import(/* @vite-ignore */ entryUrl)) as Record<string, unknown>;
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 }
 
 /** The same, for the common single-module case. */

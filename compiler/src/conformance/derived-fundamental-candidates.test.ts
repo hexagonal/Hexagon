@@ -279,12 +279,16 @@ describe("a user module plans from the program's table, a prelude module from it
     const compiled = project([["/main.hex", program]]);
     const vector = compiled.modules.find(({ source }) => source.path === "/Hex/Vector.hex")!;
 
+    // Neither face publishes one: the declaration file is planned from the same
+    // seat as the JavaScript, or it would declare names the module never exports.
     for (const edition of ["containsString", "indexOfString", "sortString", "sortByString"]) {
       expect(vector.javascript.text).not.toContain(`function ${edition}(`);
+      expect(vector.declarations.text).not.toMatch(new RegExp(`\\b${edition}\\b`, "u"));
     }
     // The editions at the fundamentals `Vector` can see are still published, and
     // a caller at one of them still calls its edition.
     expect(vector.javascript.text).toContain("function sortInt(");
+    expect(vector.declarations.text).toMatch(/\bsortInt\b/u);
     const consumer = compiled.modules.find(({ source }) => source.path === "/main.hex")!.javascript.text;
     expect(consumer).toContain("sortInt(");
     expect(consumer).toContain("__Eq_String");

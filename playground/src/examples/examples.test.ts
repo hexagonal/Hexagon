@@ -1,8 +1,3 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
-import { pathToFileURL } from "node:url";
-
 import { describe, expect, test } from "vitest";
 
 import { compileSource } from "../compile";
@@ -51,30 +46,57 @@ describe("curated playground examples", () => {
    * each importer's URL, so its length grows with the number of paths through
    * the graph, and it passed what a string can hold once `Vector.js` imported
    * the `Ord` dictionaries its sorts take.
+   *
+   * `vite.config.ts` hands the `hex-example-` directories to Node's own loader,
+   * which refuses a graph whose modules disagree on a name when it links, as
+   * the browser does; Vite's module runner would load it. Node is reached
+   * through non-literal specifiers because the playground carries no Node type
+   * definitions.
    */
   test("run to completion through the worker's module linking", async () => {
+    const fsName = "node:fs";
+    const osName = "node:os";
+    const pathName = "node:path";
+    const urlName = "node:url";
+    const fs = await import(/* @vite-ignore */ fsName) as {
+      mkdtempSync: (prefix: string) => string;
+      mkdirSync: (path: string, options: { recursive: boolean }) => void;
+      writeFileSync: (path: string, data: string) => void;
+      rmSync: (path: string, options: { recursive: boolean; force: boolean }) => void;
+    };
+    const os = await import(/* @vite-ignore */ osName) as { tmpdir: () => string };
+    const paths = await import(/* @vite-ignore */ pathName) as {
+      join: (...parts: string[]) => string;
+      dirname: (of: string) => string;
+    };
+    const url = await import(/* @vite-ignore */ urlName) as {
+      pathToFileURL: (of: string) => { readonly href: string };
+    };
+
     const log = console.log;
+    const roots: string[] = [];
     try {
       for (const [version, example] of playgroundExamples.entries()) {
         const compiled = compileSource(version, example.source);
         expect(compiled.kind).toBe("compile-success");
         if (compiled.kind !== "compile-success") continue;
 
-        const root = mkdtempSync(join(tmpdir(), `hex-example-${example.id}-`));
-        writeFileSync(join(root, "package.json"), '{ "type": "module" }\n');
+        const root = fs.mkdtempSync(paths.join(os.tmpdir(), `hex-example-${example.id}-`));
+        roots.push(root);
+        fs.writeFileSync(paths.join(root, "package.json"), '{ "type": "module" }\n');
         const fileOf = (path: string): string =>
-          join(root, path.replace(/^\//u, "").replace(/\.hex$/u, ".js"));
+          paths.join(root, path.replace(/^\//u, "").replace(/\.hex$/u, ".js"));
         for (const module of compiled.executionModules) {
           const target = fileOf(module.path);
-          mkdirSync(dirname(target), { recursive: true });
-          writeFileSync(target, module.javascript);
+          fs.mkdirSync(paths.dirname(target), { recursive: true });
+          fs.writeFileSync(target, module.javascript);
         }
 
         const printed: string[] = [];
         console.log = (...values: readonly unknown[]) => {
           printed.push(values.map((value) => String(value)).join(" "));
         };
-        await import(/* @vite-ignore */ pathToFileURL(fileOf(compiled.entryPath)).href);
+        await import(/* @vite-ignore */ url.pathToFileURL(fileOf(compiled.entryPath)).href);
         console.log = log;
         // Every curated example prints something; silence means it died early.
         expect({ id: example.id, printed: printed.length > 0 })
@@ -82,6 +104,7 @@ describe("curated playground examples", () => {
       }
     } finally {
       console.log = log;
+      for (const root of roots) fs.rmSync(root, { recursive: true, force: true });
     }
   }, PIPELINE_TIMEOUT);
 });

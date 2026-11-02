@@ -160,11 +160,13 @@ describe("sort, sortBy and sortUsing order the elements, stably (§12.2)", () =>
   });
 
   test("Float's total order: NaN last, and 0.0 and -0.0 equal, so they keep their order", () => {
-    const sorted = [...main.fSort(main.floats([0, NaN, -0, 1, -1, -0, 0]))];
+    // The zeros are not a palindrome, so an order that reversed equal elements
+    // would show.
+    const sorted = [...main.fSort(main.floats([-0, NaN, 0, 1, -1, 0]))];
     expect(sorted.slice(0, 1)).toEqual([-1]);
-    expect(sorted.slice(1, 5).map((zero) => Object.is(zero, -0))).toEqual([false, true, true, false]);
-    expect(sorted[5]).toBe(1);
-    expect(sorted[6]).toBeNaN();
+    expect(sorted.slice(1, 4).map((zero) => Object.is(zero, -0))).toEqual([true, false, false]);
+    expect(sorted[4]).toBe(1);
+    expect(sorted[5]).toBeNaN();
   });
 
   test("String orders by code point, so an astral character follows every basic-plane one", () => {

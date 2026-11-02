@@ -364,9 +364,11 @@ function instanceSubjectHead(
  * "A function of the scheme alone" grew a second input at #679, and the whole
  * design of that input is what keeps this sentence true: the candidate judgment
  * has to answer here exactly as it answered at the exporter. For a
- * pre-registered constraint that is the program's table, shared by both; for a
- * declared one it is the orphan rule, which puts the instances in a module both
- * sides have imported. Neither side consults what it happens to see.
+ * pre-registered constraint that is the exporter's table, which the caller looks
+ * up by the exporter's name: the program's table for a user module, and for a
+ * prelude module its seat view (`fundamentalSeatsOf`). For a declared one it is
+ * the orphan rule, which puts the instances in a module both sides have
+ * imported. Neither side consults what it happens to see.
  */
 export function planImportedSpecializations(
   symbol: Core.Symbol,
@@ -748,8 +750,9 @@ function instanceRow(constraintIdentity: string, type: FundamentalType): string 
  *   module. No *ordinary* user file can add a row or take one away: a project
  *   supplies a prelude module only by carrying its basename (`injectEmbedded`),
  *   which is how this repository compiles its own `stdlib/`. The rows are a
- *   property of the prelude the program compiles, and are the same table for
- *   every module in it.
+ *   property of the prelude the program compiles, and are the table every user
+ *   module plans from. `fundamentalSeatsOf` reads the same rows a seat at a
+ *   time, for the prelude modules themselves.
  * - The planner hands in the **module being planned**, for the constraints it
  *   declared or imported. Determinism holds there for the same reason from the
  *   other end: a declared constraint's fundamental instances live in its
@@ -784,23 +787,36 @@ export function fundamentalInstancesOf(
   modules: readonly Core.Module[],
   bool: Resolved.UnionId | undefined,
 ): FundamentalInstances {
+  const rows = structuralRows();
+  for (const module of modules) addInstanceRows(rows, module, bool);
+  return rows;
+}
+
+/** `Unit`'s and `Bool`'s pinned rows, the seed of every table (see above). */
+function structuralRows(): Set<string> {
   const rows = new Set<string>();
   for (const name of STRUCTURAL_CONSTRAINTS) {
     rows.add(instanceRow(preRegisteredConstraintIdentity(name), "Unit"));
     rows.add(instanceRow(preRegisteredConstraintIdentity(name), "Bool"));
   }
-  for (const module of modules) {
-    for (const { constraintIdentity, subject } of instanceHeads(module)) {
-      const head = instanceSubjectHead(subject, bool);
-      if (head === undefined || head === "Exn") continue;
-      // The pin above is the whole of the pre-registered answer at `Bool`; a row
-      // read off `stdlib/Bool.hex`'s own `derives` would be the same four today
-      // and would stop being paired with the evidence the moment it was not.
-      if (head === "Bool" && isPreRegisteredIdentity(constraintIdentity)) continue;
-      rows.add(instanceRow(constraintIdentity, head));
-    }
-  }
   return rows;
+}
+
+/** Adds the rows one module's instance channels offer at a fundamental. */
+function addInstanceRows(
+  rows: Set<string>,
+  module: Core.Module,
+  bool: Resolved.UnionId | undefined,
+): void {
+  for (const { constraintIdentity, subject } of instanceHeads(module)) {
+    const head = instanceSubjectHead(subject, bool);
+    if (head === undefined || head === "Exn") continue;
+    // The pin above is the whole of the pre-registered answer at `Bool`; a row
+    // read off `stdlib/Bool.hex`'s own `derives` would be the same four today
+    // and would stop being paired with the evidence the moment it was not.
+    if (head === "Bool" && isPreRegisteredIdentity(constraintIdentity)) continue;
+    rows.add(instanceRow(constraintIdentity, head));
+  }
 }
 
 /**
@@ -812,8 +828,8 @@ export function fundamentalInstancesOf(
  * is the instances seated at or before it (Modules §5.5): what a declaration
  * brings, its instances included, is visible from its declarer's seat on. So a
  * prelude export's editions are planned from this view, and an importer that
- * recomputes them reads the same view for the same exporter — which is what
- * keeps the two in agreement, as the one program table did before.
+ * recomputes them reads the same view for the same exporter, which is what
+ * keeps the two in agreement.
  *
  * The view and the table differ only where a prelude module exports a
  * constrained function from a seat before a fundamental's companion: `Hex.Vector`
@@ -828,11 +844,12 @@ export function fundamentalSeatsOf(
   modules: readonly { readonly name: string; readonly core: Core.Module }[],
   bool: Resolved.UnionId | undefined,
 ): ReadonlyMap<string, FundamentalInstances> {
-  const cores = modules.map(({ core }) => core);
+  const rows = structuralRows();
   const seats = new Map<string, FundamentalInstances>();
-  modules.forEach(({ name }, index) => {
-    seats.set(name, fundamentalInstancesOf(cores.slice(0, index + 1), bool));
-  });
+  for (const { name, core } of modules) {
+    addInstanceRows(rows, core, bool);
+    seats.set(name, new Set(rows));
+  }
   return seats;
 }
 
@@ -918,12 +935,14 @@ type CandidateJudgment = (constraintIdentity: string, type: FundamentalType) => 
 /**
  * §3.2's judgment, over the two grounds the two kinds of constraint have.
  *
- * A **pre-registered** constraint is answered by the program's table, because
- * its rows are a fact about the prelude and a prelude module cannot see the
- * whole prelude: `Nat.hex` sees `Int.hex` and nothing after it (Modules §5.5),
- * so answering from its own channels would have it plan a different edition set
- * for its own exports than every consumer recomputes for them — an importer
- * calling a name the exporter never published.
+ * A **pre-registered** constraint is answered by the table the caller hands in,
+ * which is the exporter's: the program's table for a user module, and a prelude
+ * module's seat view, the rows seated at or before it (Modules §5.5), for a
+ * prelude one. Both are facts about the prelude, which exporter and importer
+ * read alike. The module's own channels are not: an importer cannot see what
+ * its exporter imported, so answering from them would have the exporter plan a
+ * different edition set for its exports than its consumers recompute for them,
+ * an importer calling a name the exporter never published.
  *
  * A **declared** constraint is answered from this module's own channels, which
  * is not a weaker answer but the same one: the orphan rule puts its fundamental

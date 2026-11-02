@@ -17,7 +17,6 @@
     "src/execution-worker.ts",
     "src/execution-worker.test.ts",
     "src/examples/examples.test.ts",
-    "src/examples/node-host.d.ts",
     "src/language-services.test.ts",
     "src/persistence.test.ts",
     "src/protocol.ts",
