@@ -277,17 +277,16 @@ carry `Hash` on the new element or key type, which they place.
 ## 8. Implementation requirements
 
 - The combinators are loops over the collections, never round trips through
-  `Seq`, whose every pull allocates a cell. A walk that must stop early or read
-  two collections in step, and every walk over a `Map` or `Set`, is a loop over
-  the trie's own nodes: ordinary Hexagon in `Hex.Runtime.VectorTrie` or
-  `Hex.Runtime.HashTrie`, reached through companion door rows linked onto its
-  compiled operations (Intrinsics §3.4), whose keys Intrinsics §3.2's
-  paragraphs for the three companions record. That covers
-  `Vector`'s search (beneath `find`, `any`, `all`, `contains`, `indexOf`) and
-  `zip`, and `Map`'s and `Set`'s `fold`, `find`, `filter` and the rebuild
-  beneath `Map.map`; `filter` and the rebuild read each entry's stored hash.
-  The rest are ordinary Hexagon in the companions, `Vector`'s over its `for`
-  loop.
+  `Seq`, whose every pull allocates a cell. A walk that must stop early or
+  read two collections in step, and every walk over a `Map` or `Set`, is a
+  loop over the trie's own nodes: ordinary Hexagon in `Hex.Runtime.VectorTrie`
+  or `Hex.Runtime.HashTrie`, reached through companion door rows linked onto
+  its compiled operations (Intrinsics §3.4), whose keys Intrinsics §3.2's
+  combinators paragraph records. That covers `Vector`'s search (beneath
+  `find`, `any`, `all`, `contains`, `indexOf`) and `zip`, and `Map`'s and
+  `Set`'s `fold`, `find`, `filter` and the rebuild beneath `Map.map`; `filter`
+  and the rebuild read each entry's stored hash. The rest are ordinary Hexagon
+  in the companions, `Vector`'s over its `for` loop.
 - `filter`'s and `Map.map`'s rebuilds keep the trie's invariants, as its own
   removal does: a branch is never empty, a collision node holds at least two
   entries, and a branch left with one entry or collision node below it is
