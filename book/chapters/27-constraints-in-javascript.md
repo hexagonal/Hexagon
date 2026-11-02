@@ -104,7 +104,8 @@ language's rules.
 A function with two or more constrained type variables receives no direct functions.
 Their number would multiply: two variables that each admit all seven fundamental types
 would need 49 of them. JavaScript calls such a function through its generic function,
-described in the next section, passing one dictionary for each constrained type:
+described in the next section, passing the dictionaries its constraints require (see
+"Dictionary parameters come last"):
 
 ```hexagon
 export let combine<a: Show, b: Eq>(x: a, y: b): String = ...
@@ -151,8 +152,10 @@ A public `Rat` type with a public `Num<Rat>` dictionary can call it like this:
 plus(half, third, Rat.num);
 ```
 
-The generic function appears only when JavaScript can obtain every dictionary it needs
-and at least one of them is for a non-fundamental type. If the necessary dictionaries
+The generic function appears only when JavaScript could call it with obtainable
+dictionaries, at least one of them for a non-fundamental type such as `Vector(Int)` or
+`Rat`. Once it appears, it accepts fundamental dictionaries too, as
+`combine(3, "x", Show.int, Eq.string)` does. If the necessary dictionaries
 are private, exporting the function would give JavaScript callers an unusable entry
 point, so the generic function is omitted.
 
@@ -310,9 +313,10 @@ compiler reports an error naming both declarations. It never silently adds numbe
 mangles the name, or chooses one export by source order.
 
 Renaming the source function renames every generated function. Constraining a second
-type variable removes every direct function, leaving the generic function. Changing constraints,
-fundamental instances, public dictionaries, dictionary members, factory parameters, or
-dictionary-parameter order can also change the JavaScript and TypeScript API. Packages
+type variable removes every direct function, leaving only the generic function, if it
+appears. Changing constraints, fundamental instances, public dictionaries, dictionary
+members, factory parameters, or dictionary-parameter order can also change the
+JavaScript and TypeScript API. Packages
 that exchange dictionaries must use compatible Hexagon runtime dictionary formats.
 
 ## Summary
