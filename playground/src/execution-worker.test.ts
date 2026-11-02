@@ -193,3 +193,73 @@ describe("the results pane receives a run's output", () => {
     expect(outputAt(harness.posted, 6)).toEqual(["run six"]);
   });
 });
+
+/** The failure this run posted to the UI, if it failed. */
+function failureAt(posted: readonly unknown[], version: number): string | undefined {
+  const failure = posted.find((message): message is { kind: string; version: number; message: string } =>
+    typeof message === "object" && message !== null &&
+    (message as { kind?: unknown }).kind === "execute-failure" &&
+    (message as { version?: unknown }).version === version
+  );
+  return failure?.message;
+}
+
+/**
+ * An uncaught exception reaches the pane as `Show<Exn>` would show it: its name,
+ * then its message when it has one. The message alone used to stand here, which
+ * dropped the name and left an exception without a `message` slot as nothing.
+ */
+describe("an uncaught exception is reported by name", () => {
+  test("with its message, and after the lines printed before it", async () => {
+    harness.posted.length = 0;
+
+    await harness.send(execute(7,
+      "exception BadPattern(message: String)\n" +
+      'Debug.log("before the throw")\n' +
+      'let boom: Int = throw^(BadPattern("missing )"))\n',
+    ));
+
+    expect(outputAt(harness.posted, 7)).toEqual(["before the throw"]);
+    expect(failureAt(harness.posted, 7)).toBe("BadPattern: missing )");
+  });
+
+  test("as its name alone when it has no message", async () => {
+    harness.posted.length = 0;
+
+    await harness.send(execute(8, "exception Oops\nlet boom: Int = throw^(Oops)\n"));
+
+    expect(failureAt(harness.posted, 8)).toBe("Oops");
+  });
+
+  /**
+   * The pane's line is the line `Show<Exn>` gives for the same value: each
+   * program catches the throw once and logs it, then throws it uncaught. The
+   * `toString` slot is the case JavaScript's own `error.toString()` would get
+   * wrong, by calling a string; the thrown values are foreign throws that are
+   * not `Error`s at all; and only the standard library's own `JsError`, built
+   * before it is thrown, is seen through, and only once.
+   */
+  test.each([
+    ["an exception with a message slot", "exception BadPattern(message: String)\n", 'BadPattern("missing )")', "BadPattern: missing )"],
+    ["an exception with a toString slot", "exception Weird(toString: String, message: String)\n", 'Weird("x", "slot shadows")', "Weird: slot shadows"],
+    ["a thrown string", "", 'JsError(JsValue.from("oops"))', "oops"],
+    ["a thrown object", "", 'JsError(JsValue.from({ name = "X", message = "y" }))', "X: y"],
+    ["a thrown object whose name is not a string", "", 'JsError(JsValue.from({ name = 42, message = "y" }))', "y"],
+    ["a JsError built before it is thrown", 'let built = JsError(JsValue.from("late"))\n', "built", "late"],
+    ["a JsError built around a JsError", 'let built = JsError(JsValue.from(JsError(JsValue.from("x"))))\n', "built", "JsError"],
+    ["an exception of the program's own named JsError", "exception JsError(error: String)\n", 'JsError("payload")', "JsError"],
+    ["a thrown function", "let thrown = (n: Int) => n + 1\n", "JsError(JsValue.from(thrown))", "thrown"],
+  ])("as Show<Exn> shows it, for %s", async (_case, declarations, failure, expected) => {
+    harness.posted.length = 0;
+
+    await harness.send(execute(9,
+      declarations +
+      `let caught = try\n    throw^(${failure})\ncatch\n    error => "\${error}"\n` +
+      "Debug.log(caught)\n" +
+      `let boom: Int = throw^(${failure})\n`,
+    ));
+
+    expect(outputAt(harness.posted, 9)).toEqual([expected]);
+    expect(failureAt(harness.posted, 9)).toBe(expected);
+  });
+});

@@ -1,4 +1,4 @@
-import { formatConsoleArguments } from "./execution";
+import { describeFailure, formatConsoleArguments } from "./execution";
 import { linkModule } from "./module-execution";
 import type {
   ExecuteOutput,
@@ -60,10 +60,12 @@ self.addEventListener("message", async (event: MessageEvent<ExecutionRequest>) =
     };
     self.postMessage(response);
   } catch (error: unknown) {
+    // Shown as `Show<Exn>` shows it, so the pane reads `BadPattern: missing )`
+    // where a program printing the same failure would.
     const response: ExecutionResponse = {
       kind: "execute-failure",
       version: request.version,
-      message: error instanceof Error ? error.message : String(error),
+      message: describeFailure(error),
     };
     self.postMessage(response);
   } finally {
