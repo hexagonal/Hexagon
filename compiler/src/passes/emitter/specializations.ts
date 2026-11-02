@@ -48,9 +48,10 @@ export interface SpecializationPlan {
    * list and the editions are the same
    * traversal's two halves and cannot disagree about what was published. §3.4's
    * own condition conjoins an empty specialization set with §4's trigger being unmet;
-   * Algorithm G is unimplemented, so the two coincide today, and the predicate
-   * stated here — an eligible export with no edition — stays truthful whichever
-   * way #423 resolves the generic edition's `.d.ts` face.
+   * Algorithm G is unimplemented (#1442), so the two differ today wherever the
+   * trigger is met by an export with no specialization (`Map.max`, `Map.min`), and
+   * the predicate stated here — an eligible export with no edition — is what was
+   * published, which is what the list reports.
    *
    * Four exclusions, at three different gates — worth keeping straight, because
    * a reader looking for all of them at one of them will conclude one is missing.

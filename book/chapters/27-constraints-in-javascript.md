@@ -157,12 +157,21 @@ can obtain, one for each constraint. For a function with one constrained type, a
 least one of them must be for a non-fundamental type such as `Vector(Int)` or `Rat`,
 because the direct functions already cover the fundamental types. A function with
 several constrained types has no direct functions, so fundamental dictionaries alone
-are enough: `shift<a: Bitwise, n: Integral>` gets a generic function even though only
-`Nat`, `Int`, and `BigInt` honor its constraints, and JavaScript calls it as
-`shift(1, 2, Bitwise.int, Integral.int)`. Once the generic function appears, it accepts
-fundamental dictionaries too, as `combine(3, "x", Show.int, Eq.string)` does. If the
-necessary dictionaries are private, exporting the function would give JavaScript callers
-an unusable entry point, so the generic function is omitted.
+are enough. This function gets a generic function even though no non-fundamental type
+honors `Bitwise` or `Integral`:
+
+```hexagon
+export let shift<a: Bitwise, n: Integral>(x: a, by: n): a = ...
+```
+
+```ts
+shift(1, 2, Bitwise.int, Integral.int);
+```
+
+A one-type function's generic function, once it appears, accepts fundamental
+dictionaries too: `plus(1, 2, Num.int)` works, though `plusInt(1, 2)` is the direct
+route. If the necessary dictionaries are private, exporting the function would give
+JavaScript callers an unusable entry point, so the generic function is omitted.
 
 The original source name remains reserved for this generic form even while it is
 absent. Direct functions always carry type suffixes such as `plusNat` and `plusInt`.

@@ -237,8 +237,9 @@ describe("a copy demanded inside generated code", () => {
 describe("acceptance test (l): constraints only fundamental types honor", () => {
   // §16(l): fundamental evidence alone triggers `shift`'s generic edition
   // (§4.1, §13.4), which is its typed entry point once Algorithm G is emitted.
-  // It is not yet (see #992), so what is pinned here is today's emission: no
-  // specialization, no `.d.ts` face, the §3.4 listing, and the copy.
+  // It is not yet (see #1442), so what is pinned here is today's emission: no
+  // specialization, no `.d.ts` face, its entry in the zero-entry-point list (an
+  // emission fact; see build-report-obligations.test.ts), and the copy.
   test("publish no specialization, and a Hexagon call still reaches a copy", async () => {
     const files = [[
       "/main.hex",
