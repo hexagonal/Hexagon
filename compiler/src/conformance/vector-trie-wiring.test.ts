@@ -148,7 +148,7 @@ describe("the runtime module's two-sided contract", () => {
     expect(project.diagnostics.map(({ message }) => message)).toContain(
       "this module is `Runtime.VectorTrie` but declares " +
         "no `empty`, `size`, `get`, `set`, `append`, `prepend`, `slice`, " +
-        "`window`, `concat`, `nodeRun`",
+        "`window`, `concat`, `nodeRun`, `findPosition`, `zip`",
     );
   });
 });

@@ -487,3 +487,48 @@ fun concat(left: TrieVector(a), right: TrieVector(a)): TrieVector(a) =
             result := append(result, Node.get(leafValues, offset + step))
         index := index + run
     result
+
+// **The two walks `stdlib/Vector.hex`'s combinators need from here**
+// (`collection-combinators.md` section 8). Both read sequentially through
+// `nodeRun`, a descent per 32-element leaf, so a whole walk is O(n); the
+// companion's other combinators are ordinary `for` loops, which reach the same
+// walk through the vector's iterator. These two are here because a `for` loop
+// cannot stop early and cannot read two vectors in step.
+
+// The 1-based position of the first element of `trie` that `matches` accepts, or
+// 0 when none does. It stops there: no later element is handed to `matches`.
+fun findPosition(trie: TrieVector(a), matches: a ->! Bool): Int =
+    let count = size(trie)
+    var found = 0
+    var index = 0
+    while index < count
+        let (leafValues, offset, run) = nodeRun(trie, index)
+        var step = 0
+        while step < run
+            if matches!(Node.get(leafValues, offset + step)) then
+                found := index + step + 1
+                step := run
+            else
+                step := step + 1
+        index := if found == 0 then index + run else count
+    found
+
+// The elements of `left` and `right` paired by position, as many pairs as the
+// shorter holds. Each pass of the outer loop takes the run both current leaves
+// still hold, so the two vectors are read in step even where their leaves are
+// not aligned; `nodeRun` never runs past a vector's end, so the shorter run
+// stops at the shorter vector's.
+fun zip(left: TrieVector(a), right: TrieVector(b)): TrieVector((a, b)) =
+    let count = if size(left) < size(right) then size(left) else size(right)
+    var result: TrieVector((a, b)) = empty
+    var index = 0
+    while index < count
+        let (leftValues, leftOffset, leftRun) = nodeRun(left, index)
+        let (rightValues, rightOffset, rightRun) = nodeRun(right, index)
+        let run = if leftRun < rightRun then leftRun else rightRun
+        var step = 0
+        while step < run
+            result := append(result, (Node.get(leftValues, leftOffset + step), Node.get(rightValues, rightOffset + step)))
+            step := step + 1
+        index := index + run
+    result

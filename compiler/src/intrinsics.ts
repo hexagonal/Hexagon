@@ -201,6 +201,27 @@ export function isIntrinsicScheme(specifier: string): boolean {
  * reusing the element in hand. `contains` stays the surface's only membership
  * read (§4.4).
  *
+ * The collection combinators (§3.2's #1417 paragraph; `collection-combinators.md`
+ * §8) add ten keys, each an alias of an ordinary Hexagon walk in a runtime
+ * module, for the loops a `for` cannot write: one that stops early, one that
+ * reads two vectors in step, and the trie rebuilds that reuse its own nodes.
+ *
+ * - **`vectorFindPosition`, `vectorZip`.** The search beneath `Vector`'s `find`,
+ *   `any`, `all`, `contains` and `indexOf` (unexported as `findPosition`), and
+ *   `zip`. The other seven Vector combinators are `for` loops in `Vector.hex`.
+ * - **`mapFold`, `mapFind`, `mapFilter`, `mapRemap`; `setFold`, `setFind`,
+ *   `setFilter`.** The walks over the trie, in `entries`' order. `mapRemap`
+ *   (unexported as `remap`) declares `<j: Hash>` and answers `None` on a
+ *   repeated key, which `Map.map` turns into `DuplicateKeyFault`: the runtime is
+ *   seated before the fault's home. `filter` reads each entry's stored hash and
+ *   takes no constraint.
+ * - **`hashTrieNodeMap`.** A length-preserving map over a packed `Node`, which
+ *   the fixed-32 family has no member for; it lowers to the array's own `map`.
+ *
+ * Every row that runs a callback takes it at `->!` and writes `>->` (FFI Part 4
+ * §4.5), so a call has its callback's colour. The walks are parametric (§4.2):
+ * keys are compared only through the `Eq` and `Hash` evidence passed in.
+ *
  * `debugLog` is `stdlib/Debug.hex`'s one row (§3.2, #407), and the door's first
  * **species (a)** customer (`spec/effects.md` §6.2): a write to a channel no
  * Hexagon expression can read back, declared pure and honestly so. The lowering
@@ -534,6 +555,8 @@ const INTRINSIC_OPERATIONS: readonly (readonly [string, number])[] = [
   ["vectorToSeq", 1],
   ["vectorFromSeq", 1],
   ["vectorToArray", 1],
+  ["vectorFindPosition", 2],
+  ["vectorZip", 2],
   ["bigIntAdd", 2],
   ["bigIntMultiply", 2],
   ["bigIntFromNat", 1],
@@ -622,6 +645,7 @@ const INTRINSIC_OPERATIONS: readonly (readonly [string, number])[] = [
   ["hashTrieNodeSingleton", 1],
   ["hashTrieNodeInsertAt", 3],
   ["hashTrieNodeRemoveAt", 2],
+  ["hashTrieNodeMap", 2],
   ["mapEmpty", 0],
   ["mapSingleton", 2],
   ["mapSize", 1],
@@ -629,6 +653,10 @@ const INTRINSIC_OPERATIONS: readonly (readonly [string, number])[] = [
   ["mapSet", 3],
   ["mapRemove", 2],
   ["mapEntries", 1],
+  ["mapFold", 3],
+  ["mapFind", 2],
+  ["mapFilter", 2],
+  ["mapRemap", 2],
   ["setEmpty", 0],
   ["setSingleton", 1],
   ["setSize", 1],
@@ -637,6 +665,9 @@ const INTRINSIC_OPERATIONS: readonly (readonly [string, number])[] = [
   ["setRemove", 2],
   ["setElements", 1],
   ["setLookup", 2],
+  ["setFold", 3],
+  ["setFind", 2],
+  ["setFilter", 2],
   ["nullableUndefined", 0],
   ["nullableNull", 0],
   ["nullableIsNull", 1],

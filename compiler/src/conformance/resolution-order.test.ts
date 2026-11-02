@@ -67,7 +67,9 @@ const RUNTIME_OPERATIONS = "let empty: Int = 0\n" +
   "fun slice(x: Int): Int = 0\n" +
   "fun window(x: Int): Int = 0\n" +
   "fun concat(x: Int): Int = 0\n" +
-  "fun nodeRun(x: Int): Int = 0\n";
+  "fun nodeRun(x: Int): Int = 0\n" +
+  "fun findPosition(x: Int): Int = 0\n" +
+  "fun zip(x: Int): Int = 0\n";
 
 /**
  * The same for the *other* runtime member (`HASH_TRIE_RUNTIME_OPERATIONS`), so
@@ -80,6 +82,10 @@ const HASH_TRIE_OPERATIONS = "let empty: Int = 0\n" +
   "fun set(x: Int): Int = 0\n" +
   "fun remove(x: Int): Int = 0\n" +
   "fun entries(x: Int): Int = 0\n" +
+  "fun foldEntries(x: Int): Int = 0\n" +
+  "fun findEntry(x: Int): Int = 0\n" +
+  "fun filterEntries(x: Int): Int = 0\n" +
+  "fun remapEntries(x: Int): Int = 0\n" +
   "let emptySet: Int = 0\n" +
   "fun soleMember(x: Int): Int = 0\n" +
   "fun memberCount(x: Int): Int = 0\n" +
@@ -87,7 +93,10 @@ const HASH_TRIE_OPERATIONS = "let empty: Int = 0\n" +
   "fun memberIn(x: Int): Int = 0\n" +
   "fun addMember(x: Int): Int = 0\n" +
   "fun removeMember(x: Int): Int = 0\n" +
-  "fun members(x: Int): Int = 0\n";
+  "fun members(x: Int): Int = 0\n" +
+  "fun foldMembers(x: Int): Int = 0\n" +
+  "fun findMember(x: Int): Int = 0\n" +
+  "fun filterMembers(x: Int): Int = 0\n";
 
 function memberDiagnostics(
   source: string,

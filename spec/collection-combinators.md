@@ -2,8 +2,9 @@
 
 **Status:** Decided 2026-11-02, and revised on review before landing: §1.3
 states what traversal order never chooses, and §7's shortcut keys on the
-stored hash, so no comparison door is needed. Not yet implemented; the
-implementation is tracked by #1417. This document is the stdlib listing's
+stored hash, so no comparison door is needed. Implemented by #1417;
+conformance: `compiler/src/conformance/collection-combinators.test.ts`, and the
+rebuilds' shapes in `hash-trie.test.ts`. This document is the stdlib listing's
 part for the combinator families over `Vector(a)`, `Set(a)` and `Map(k, v)`: their shared
 doctrine, the v1 ship-list, and the deliberate absence of combinators on the
 foreign collections. It discharges the "Combinator families" row of
@@ -66,10 +67,9 @@ which keys or elements are present, up to `equals`, and each key's value, for
 callbacks whose answers do not depend on the order of the calls (§1.1's laws
 assume as much). It is why `Map.map` refuses a repeated key (§5.1) instead of
 keeping the last. Besides the result's own traversal order (Collections Part 4
-§7.1), the one thing the order can choose is a representative: of
-two equal images that are distinguishable, which one `Set.map` keeps (§4),
-exactly as `Set.fromSeq` chooses over a set's traversal (Collections Part 4
-§3.3).
+§7.1), the one thing the order can choose is a representative: of two equal
+images that are distinguishable, which one `Set.map` keeps (§4), exactly as
+`Set.fromSeq` chooses over a set's traversal (Collections Part 4 §3.3).
 
 **1.4 The foreign collections get no combinators** (§6).
 
@@ -185,8 +185,8 @@ returned, not on the order, so the fault is as deterministic as the result. A
 callback that fails ends the call first, so its failure, not the fault, is
 what propagates. A caller who wants last-wins writes
 `Map.fromSeq(Seq.map(m, transform))`, or, for a callback that is impure or may
-fail, `Map.fromSeq(Vector.fromSeq(m).map^(transform))` with the mark its colour
-calls for (`~`, `^` or `!`), where the dependence on order is visible.
+fail, `Map.fromSeq(Vector.fromSeq(m).map^(transform))` with the mark its colours
+call for (`~`, `^` or `!`), where the dependence on order is visible.
 
 ```hexagon
 (** Raised when two entries passed through `Map.map` come back with equal
@@ -249,7 +249,7 @@ For a collection of `n` items, not counting the callbacks' own costs:
 | `fold`, `find`, `any`, `all`, `contains`, `indexOf` (all three types where offered) | O(n) traversal; `find`, `any`, `all`, `contains` and `indexOf` stop early |
 | `Set.filter`, `Map.filter` | O(n): the trie is rebuilt from its own nodes, with no key hashed again |
 | `Set.map` | expected O(n log₃₂ n): each image is hashed and placed |
-| `Map.map` | expected O(n), each returned key hashed once under `j`'s `Hash`, plus expected O(log₃₂ n) for each entry whose returned key does not keep its original's slot; the kept keys of a collision node of `c` keys are compared pairwise, O(c²) (Part 4 §2.2's "expected") |
+| `Map.map` | expected O(n): each returned key is hashed under `j`'s `Hash` once, or, for a key a collision node held, at most three times; plus expected O(log₃₂ n) for each entry whose returned key does not keep its original's slot; the kept keys of a collision node of `c` keys are compared pairwise, O(c²) (Part 4 §2.2's "expected") |
 
 A returned key **keeps its original's slot** when its mixed hash under `j`'s
 `Hash` (Collections Part 2 §2.4) is the one stored for the original. The trie
@@ -261,8 +261,8 @@ Part 2 §2.3), so a key turned from one into the other keeps its slot too.
 Every other returned key is placed afresh. Kept keys that share a collision
 node, which holds the keys of one mixed hash, are compared with each other
 under `j`'s `Eq`, and a key placed afresh is compared as it is placed, so every
-repeat is found (§5.1). Kept keys in different slots have different hashes, so they
-cannot be equal.
+repeat is found (§5.1). Kept keys in different slots have different hashes, so
+they cannot be equal.
 
 The shortcut changes nothing this listing or Collections Part 4 promises: the
 result holds exactly the entries placing every returned entry afresh would
@@ -277,17 +277,16 @@ carry `Hash` on the new element or key type, which they place.
 ## 8. Implementation requirements
 
 - The combinators are loops over the collections, never round trips through
-  `Seq`, whose every pull allocates a cell. A walk that must stop early or read
-  two collections in step, and every walk over a `Map` or `Set`, is a loop over
-  the trie's own nodes: ordinary Hexagon in `Hex.Runtime.VectorTrie` or
-  `Hex.Runtime.HashTrie`, reached through companion door rows linked onto its
-  compiled operations (Intrinsics §3.4), whose keys Intrinsics §3.2's
-  paragraphs for the three companions record when they ship. That covers
-  `Vector`'s search (beneath `find`, `any`, `all`, `contains`, `indexOf`) and
-  `zip`, and `Map`'s and `Set`'s `fold`, `find`, `filter` and the rebuild
-  beneath `Map.map`; `filter` and the rebuild read each entry's stored hash.
-  The rest are ordinary Hexagon in the companions, `Vector`'s over its `for`
-  loop.
+  `Seq`, whose every pull allocates a cell. A walk that must stop early or
+  read two collections in step, and every walk over a `Map` or `Set`, is a
+  loop over the trie's own nodes: ordinary Hexagon in `Hex.Runtime.VectorTrie`
+  or `Hex.Runtime.HashTrie`, reached through companion door rows linked onto
+  its compiled operations (Intrinsics §3.4), whose keys Intrinsics §3.2's
+  combinators paragraph records. That covers `Vector`'s search (beneath
+  `find`, `any`, `all`, `contains`, `indexOf`) and `zip`, and `Map`'s and
+  `Set`'s `fold`, `find`, `filter` and the rebuild beneath `Map.map`; `filter`
+  and the rebuild read each entry's stored hash. The rest are ordinary Hexagon
+  in the companions, `Vector`'s over its `for` loop.
 - `filter`'s and `Map.map`'s rebuilds keep the trie's invariants, as its own
   removal does: a branch is never empty, a collision node holds at least two
   entries, and a branch left with one entry or collision node below it is
@@ -295,10 +294,10 @@ carry `Hash` on the new element or key type, which they place.
 - The walks are parametric (Intrinsics §4.2): they move the values at their
   type parameters and compare keys only through `Eq` and `Hash` evidence. No
   new comparison door is needed.
-- `DuplicateKeyFault` joins Exceptions §8.5's inventory of the prelude's
-  faults when it ships, bare by category like `KeyFault` (Exceptions §2.1).
-  The counts of the bare set in Modules §5.5 and `stdlib-roadmap.md`, and the
-  bare-set conformance test, grow by one with it.
+- `DuplicateKeyFault` is in Exceptions §8.5's inventory of the prelude's
+  faults, bare by category like `KeyFault` (Exceptions §2.1), and the counts
+  of the bare set in Modules §5.5 and `stdlib-roadmap.md`, and the bare-set
+  conformance test, include it.
 - Every export carries a one- or two-sentence `(** *)` doc comment, purpose
   first.
 - Conformance tests check each function against its §1.1 law (or §3's meaning)

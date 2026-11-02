@@ -6,10 +6,19 @@ module Map
     the total sibling that answers `None` instead. *)
 export fault KeyFault
 
+(** Raised when two entries passed through `Map.map` come back with equal
+    keys. *)
+export fault DuplicateKeyFault
+
 // The whole boundary Collections Part 4 section 6.1 pins: construction, the
-// maintained size, the keyed trio, and the one traversal. Everything below is
-// ordinary Hexagon over these seven, which is what makes the keys/values/entries
-// correspondence (section 7.3) free rather than arranged.
+// maintained size, the keyed trio, and the one traversal. After those seven come
+// the four eager walks `collection-combinators.md` section 8 sends through the
+// door, because each is a loop over the trie's own nodes: `fold`, `find`,
+// `filter`, which keeps each entry's stored hash rather than hashing its key
+// again, and the unexported `remap` beneath `map`, which keeps the slot of every
+// key handed back unchanged. Everything below is ordinary Hexagon over these
+// eleven, which is what makes the keys/values/entries correspondence
+// (section 7.3) free rather than arranged.
 //
 // The type row declares `Map` itself (`spec/intrinsics.md` section 3.3): the
 // type is this module's own, its values are the runtime's `HashTrie` records,
@@ -49,6 +58,25 @@ extern from "hex:intrinsic"
         traversals of one map within one execution, and is promised for nothing
         else — not insertion, not sorted, not stable across runs. *)
     export fun mapEntries as entries(map: Map(k, v)) -> Seq((k, v))
+
+    (** `initial` combined with every entry of `m`, in the order `entries` yields
+        them: `Seq.fold` over the entries, run at once, whose `combine` may be
+        impure or fail. *)
+    export fun mapFold as fold(m: Map(k, v), initial: b, combine: (b, (k, v)) ->! b) >-> b
+
+    (** The first entry of `m`, in the order `entries` yields them, that `matches`
+        accepts, or `None`. It stops there: no later entry is handed to
+        `matches`. *)
+    export fun mapFind as find(m: Map(k, v), matches: ((k, v)) ->! Bool) >-> Option((k, v))
+
+    (** The entries of `m` that `keep` accepts, each key the representative `m`
+        holds. No key is hashed again. *)
+    export fun mapFilter as filter(m: Map(k, v), keep: ((k, v)) ->! Bool) >-> Map(k, v)
+
+    // Unexported, beneath `map` below: the entries `transform` returns, as a map,
+    // or `None` when two of their keys are equal. The fault is thrown in this
+    // file because the runtime module is seated before it.
+    fun mapRemap as remap<j: Hash>(m: Map(k, v), transform: ((k, v)) ->! (j, w)) >-> Option(Map(j, w))
 
 (** The empty map. *)
 export let empty: Map(k, v) = emptyMap()
@@ -108,6 +136,28 @@ export let fromSeq<k: Hash>(pairs: Seq((k, v))): Map(k, v) = fromEntries(pairs)
 (** The pairs of `pairs` collected into a map, left to right. *)
 export let fromVector<k: Hash>(pairs: Vector((k, v))): Map(k, v) =
     fromEntries(pairs.toSeq())
+
+(** The entries `transform` returns for the entries of `m`, as a map: entries in,
+    entries out. Throws `DuplicateKeyFault`, once every callback has run, when two
+    returned keys are equal. *)
+export let map<j: Hash>(m: Map(k, v), transform: ((k, v)) ->! (j, w)): Map(j, w) =
+    match remap!(m, transform)
+        None => throw(DuplicateKeyFault)
+        Some(remapped) => remapped
+
+(** Whether some entry of `m` satisfies `matches`. It stops at the first that
+    does. *)
+export let any(m: Map(k, v), matches: ((k, v)) ->! Bool): Bool =
+    match find!(m, matches)
+        None => False
+        Some(_) => True
+
+(** Whether every entry of `m` satisfies `matches`, which the empty map does. It
+    stops at the first that does not. *)
+export let all(m: Map(k, v), matches: ((k, v)) ->! Bool): Bool =
+    match find!(m, (entry) => not matches!(entry))
+        None => True
+        Some(_) => False
 
 honor Iterable<Map(k, v)> =
     type Item = (k, v)

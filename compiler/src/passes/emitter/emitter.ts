@@ -122,6 +122,10 @@ export const VECTOR_RUNTIME_OPERATIONS = [
   "concat",
   /** `nodeRun(trie, index)` — the leaf-run locator the O(n) iterator walks. */
   "nodeRun",
+  /** `findPosition(trie, matches)` — the 1-based first match, or 0; stops there. */
+  "findPosition",
+  /** `zip(left, right)` — the positional pairs, read leaf by leaf in step. */
+  "zip",
 ] as const;
 
 export type VectorRuntimeOperation = (typeof VECTOR_RUNTIME_OPERATIONS)[number];
@@ -172,6 +176,14 @@ export const HASH_TRIE_RUNTIME_OPERATIONS = [
   "remove",
   /** `entries(trie)` — the lazy depth-first walk, as a `Seq((k, v))`. */
   "entries",
+  /** `foldEntries(trie, initial, combine)` — the eager walk, in `entries`' order. */
+  "foldEntries",
+  /** `findEntry(trie, matches)` — the first match in `entries`' order; stops there. */
+  "findEntry",
+  /** `filterEntries(trie, keep)` — the survivors, with no key hashed again. */
+  "filterEntries",
+  /** `remapEntries(trie, transform)` — `<j: Hash>`; `None` on a repeated key. */
+  "remapEntries",
   /** The one shared empty set, wrapping `empty` (a value, not a function). */
   "emptySet",
   /** `soleMember(element)` — the unplaced one-element set (Part 4 §12.4). */
@@ -188,6 +200,12 @@ export const HASH_TRIE_RUNTIME_OPERATIONS = [
   "removeMember",
   /** `members(s)` — the trie walk projected to keys, as a `Seq(a)`. */
   "members",
+  /** `foldMembers(s, initial, combine)` — the eager walk, in `members`' order. */
+  "foldMembers",
+  /** `findMember(s, matches)` — the first match in `members`' order; stops there. */
+  "findMember",
+  /** `filterMembers(s, keep)` — the survivors as stored, none hashed again. */
+  "filterMembers",
 ] as const;
 
 export type HashTrieRuntimeOperation = (typeof HASH_TRIE_RUNTIME_OPERATIONS)[number];
@@ -11451,6 +11469,15 @@ class JavaScriptEmitter {
       // JavaScript's.
       case "vectorToArray":
         return `__values => ${this.#spell("Array")}.from(__values)`;
+      // `collection-combinators.md`'s two walks over the trie's leaves, each a
+      // plain alias of the runtime module's compiled operation, as `length`,
+      // `append` and `prepend` are. `findPosition`'s callback needs nothing here:
+      // the row's following arrow is the checker's business, and the compiled
+      // body simply calls what it is handed.
+      case "vectorFindPosition":
+        return this.#useVectorRuntime("findPosition");
+      case "vectorZip":
+        return this.#useVectorRuntime("zip");
       // `stdlib/BigInt.hex`'s natives (#344), in the primop shape: every one is
       // a JavaScript operator or one-call conversion, so each lowers to a bare
       // arrow with no helper behind it. Nothing here guards, converts a sign, or
@@ -11715,6 +11742,11 @@ class JavaScriptEmitter {
         return "(__a, __b, __c) => [...__a.slice(0, __b), __c, ...__a.slice(__b)]";
       case "hashTrieNodeRemoveAt":
         return "(__a, __b) => [...__a.slice(0, __b), ...__a.slice(__b + 1)]";
+      // `Array.prototype.map` over a packed node, its callback handed the slot
+      // alone: a compiled Hexagon function ignores the index and array `map`
+      // would pass, but the wrapper keeps the row's arity the one its type says.
+      case "hashTrieNodeMap":
+        return "(__a, __b) => __a.map((__c) => __b(__c))";
       // `stdlib/Map.hex`'s seven (#370), and the first family whose lowerings
       // are **another Hexagon module's compiled operations**: each aliases the
       // matching export of `Hex.Runtime.HashTrie`'s emitted module, which is the
@@ -11738,6 +11770,17 @@ class JavaScriptEmitter {
         return this.#useHashTrieRuntime("remove");
       case "mapEntries":
         return this.#useHashTrieRuntime("entries");
+      // `collection-combinators.md`'s four walks, aliases like the seven above.
+      // `mapRemap` is `<j: Hash>`, so its call sites append the evidence suffix
+      // the compiled `remapEntries` takes, exactly as for the keyed trio.
+      case "mapFold":
+        return this.#useHashTrieRuntime("foldEntries");
+      case "mapFind":
+        return this.#useHashTrieRuntime("findEntry");
+      case "mapFilter":
+        return this.#useHashTrieRuntime("filterEntries");
+      case "mapRemap":
+        return this.#useHashTrieRuntime("remapEntries");
       // The one that is not an alias, because the trie's `empty` is a *value*
       // and the door admits `fun` only. The thunk is what bridges the two, and
       // it is called exactly once per program: `Map.hex` binds `export let empty
@@ -11776,6 +11819,14 @@ class JavaScriptEmitter {
         return this.#useHashTrieRuntime("removeMember");
       case "setElements":
         return this.#useHashTrieRuntime("members");
+      // `collection-combinators.md`'s three walks, over the wrapper like the
+      // rest of this block.
+      case "setFold":
+        return this.#useHashTrieRuntime("foldMembers");
+      case "setFind":
+        return this.#useHashTrieRuntime("findMember");
+      case "setFilter":
+        return this.#useHashTrieRuntime("filterMembers");
       // The thunk, for `mapEmpty`'s reason exactly: the wrapper's `emptySet` is
       // a *value* and the door admits `fun` only. `Set.hex` binds `export let
       // empty: Set(a) = emptySet()`, so the emitted `Set.empty` is a

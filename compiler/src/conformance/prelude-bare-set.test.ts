@@ -15,9 +15,9 @@ import {
  *
  * The prelude used to seed every export into every module's bare term scope.
  * §5.5 now seeds **nothing** there by default, and four channel rules put
- * twenty-three names back: the fifteen throwable constructors, the six
+ * twenty-four names back: the sixteen throwable constructors, the six
  * constructors of the open unions `Bool`/`Option`/`Result`, `ignore`, and `show`.
- * The set's twenty-fourth name, `throw`, is a language form no module declares,
+ * The set's twenty-fifth name, `throw`, is a language form no module declares,
  * so nothing seeds it. Everything else is reached by the dot or the qualified spelling,
  * and a bare reference to it draws §10's refusal with its routes named.
  *
@@ -25,7 +25,7 @@ import {
  *
  * The companion suites (`vector-prelude-companion`, `float-companion`,
  * `js-kind-qualification`, …) each pin their own module's surface. This one pins
- * the **rule**: the set is exactly twenty-four names and is closed, each channel
+ * the **rule**: the set is exactly twenty-five names and is closed, each channel
  * admits what it says it admits and nothing beside, and the refusal has one
  * shape across all three channels. The set pin is written against the *compiled
  * prelude* rather than a transcription, so drift in either direction — a name
@@ -62,12 +62,13 @@ function moduleNames(source: string): readonly string[] {
  * design ruling argued against §5.5, never an edit.
  */
 const BARE_SET = [
-  // The fifteen throwable constructors — thirteen faults and the exceptions
+  // The sixteen throwable constructors — fourteen faults and the exceptions
   // `JsError` and `NumberFormatError` — a category, not a list (§5.5).
   "AssumptionFault",
   "DecRangeFault",
   "DecimalPlacesOverflowFault",
   "DivideByZeroFault",
+  "DuplicateKeyFault",
   "FloatRangeFault",
   "IndexFault",
   "IntRangeFault",
@@ -91,13 +92,13 @@ const BARE_SET = [
   "show",
 ].sort();
 
-describe("the bare set is exactly twenty-four names, and closed", () => {
+describe("the bare set is exactly twenty-five names, and closed", () => {
   test("the prelude layer binds the set and nothing else", () => {
     expect(bareNames()).toEqual(BARE_SET);
   });
 
-  test("twenty-three of the section's twenty-four are in the layer; `throw` is the other", () => {
-    expect(BARE_SET.length).toBe(23);
+  test("twenty-four of the section's twenty-five are in the layer; `throw` is the other", () => {
+    expect(BARE_SET.length).toBe(24);
   });
 
   /**
@@ -191,7 +192,8 @@ describe("the function channel: none, and `ignore`", () => {
     expect(projectDiagnostics("module Main\n\n" + "export let f(things: Seq(Int), g: Int -> Int): Seq(Int) = map(things, g)\n",
     )).toEqual([
       "no bare `map`; write `things.map(g)`, `Seq.map(things, g)`, " +
-      "`Option.map(things, g)`, `Result.map(things, g)`, or `Stream.map(things, g)`",
+      "`Option.map(things, g)`, `Result.map(things, g)`, `Vector.map(things, g)`, " +
+      "`Map.map(things, g)`, `Set.map(things, g)`, or `Stream.map(things, g)`",
     ]);
   });
 
@@ -499,12 +501,14 @@ describe("the function channel: none, and `ignore`", () => {
   test.each([
     ["a stage with an argument",
       "export let s(xs: Seq(Int), f: Int -> Int): Seq(Int) = xs |> map(f)\n",
-      ["no bare `map`; write `Seq.map`, `Option.map`, `Result.map`, or `Stream.map`"]],
+      ["no bare `map`; write `Seq.map`, `Option.map`, `Result.map`, `Vector.map`, " +
+        "`Map.map`, `Set.map`, or `Stream.map`"]],
     ["a stage at a literal", "export let n: Int = 2 |> pow(10)\n",
       ["no bare `pow`; write `Pow.pow`"]],
     ["two stages",
       "export let n(xs: Seq(Int), f: Int -> Int): Int = xs |> map(f) |> length()\n",
-      ["no bare `map`; write `Seq.map`, `Option.map`, `Result.map`, or `Stream.map`",
+      ["no bare `map`; write `Seq.map`, `Option.map`, `Result.map`, `Vector.map`, " +
+        "`Map.map`, `Set.map`, or `Stream.map`",
         "no bare `length`; write `Seq.length`, `Vector.length`, `String.length`, or `Array.length`"]],
     ["a bare stage", "export let n(xs: Seq(Int)): Int = xs |> length\n",
       ["no bare `length`; write `Seq.length`, `Vector.length`, `String.length`, or `Array.length`"]],
@@ -565,7 +569,8 @@ describe("§5.5 and §10's exemplars, character for character", () => {
     ["§5.5, §10: a multi-homed dot-callable function",
       "export let f(things: Seq(Int), f: Int -> Int): Seq(Int) = map(things, f)\n",
       "no bare `map`; write `things.map(f)`, `Seq.map(things, f)`, " +
-      "`Option.map(things, f)`, `Result.map(things, f)`, or `Stream.map(things, f)`"],
+      "`Option.map(things, f)`, `Result.map(things, f)`, `Vector.map(things, f)`, " +
+      "`Map.map(things, f)`, `Set.map(things, f)`, or `Stream.map(things, f)`"],
     ["§10: single-homed and dot-callable",
       "export let b(reading: Float): Bool = isNan(reading)\n",
       "no bare `isNan`; write `reading.isNan()` or `Float.isNan(reading)`"],

@@ -224,10 +224,9 @@ describe("the program table is what makes a prelude module's plan the consumer's
     // pre-registered binder mints nothing; hand it the program's and it mints.
     //
     // What this row does *not* show is that `compileProject` threading the
-    // table changes any output, because today it does not — deleting
-    // `fundamentalInstances` from both emission calls leaves the whole suite
-    // green, the two answers coinciding on this prelude. The next row is the
-    // tripwire for when that stops being true.
+    // table changes any output. Until #1417 it did not: the two answers
+    // coincided on this prelude. The next row is the tripwire that reddened
+    // when that stopped being true, and the row after it is the pin.
     expect(emitJavaScript(core, { fundamentalInstances: new Set() }).text)
       .not.toContain("renderInt");
     expect(emitJavaScript(core, { fundamentalInstances: compiled.fundamentalInstances }).text)
@@ -244,18 +243,51 @@ describe("the program table is what makes a prelude module's plan the consumer's
     });
 
     // The program table and a prelude module's own view answer differently only
-    // where the module *plans* from a row it cannot see, and no prelude module
-    // does today: every eligible prelude export sits at or after `String.hex`'s
-    // seat. That is why the shortfall row above is a shortfall count and not an
-    // edition-count difference, and it is why threading the table is currently
-    // unobservable.
+    // where the module *plans* from a row it cannot see. Until #1417 no prelude
+    // module did: every eligible prelude export sat at or after `String.hex`'s
+    // seat. `Vector.contains` and `Vector.indexOf` (`collection-combinators.md`
+    // §3) are the first `Eq`-bound exports before it, and `Vector.hex` cannot
+    // see `String`'s `Eq` row, so the table plans the two `String` editions its
+    // own view would not.
     //
-    // So this row is a tripwire, not a guarantee. When it reddens — a
-    // constrained export added at an early prelude seat, or a module re-seated
-    // — the seam has started to matter and needs a pin of its own that fails
-    // when the table is not threaded. Read it beside the obligation below,
-    // which is the half that is load-bearing today.
-    expect(differing.map(({ source }) => source.path)).toEqual([]);
+    // So the tripwire has fired, once, here, and the pin it asked for is the
+    // next row. Any other module joining this list is the seam reaching
+    // somewhere new and needs the same pin. Read it beside the obligation
+    // below.
+    expect(differing.map(({ source }) => source.path)).toEqual(["/Hex/Vector.hex"]);
+  });
+
+  test("`Vector` publishes its `String` editions because the table is threaded", async () => {
+    const program = "module Main\n\n" + [
+      "export let hit: Bool = Vector.contains([\"a\", \"b\"], \"b\")",
+      "export let miss: Bool = Vector.contains([\"a\", \"b\"], \"c\")",
+      "export let at: Option(Int) = Vector.indexOf([\"a\", \"b\"], \"b\")",
+      "",
+    ].join("\n");
+    const compiled = project([["/main.hex", program]]);
+    const vector = compiled.modules.find(({ source }) => source.path === "/Hex/Vector.hex")!;
+
+    // A consumer at `String` calls the edition, not the dictionary-passing
+    // binder, so the edition has to exist in what `compileProject` emitted.
+    const consumer = main(compiled);
+    expect(emitJavaScript(consumer, { fundamentalInstances: compiled.fundamentalInstances }).text)
+      .toContain("containsString(");
+    for (const edition of ["containsString", "indexOfString"]) {
+      expect(vector.javascript.text).toContain(`function ${edition}(`);
+    }
+    // It exists only because the table was handed to emission: `Vector.hex`'s
+    // own view plans neither. This is the half that fails when
+    // `compileProject` stops threading the table.
+    const visible = fundamentalInstancesOf([vector.core], preludeBoolUnion(vector.core));
+    const own = emitJavaScript(vector.core, { fundamentalInstances: visible }).text;
+    expect(own).not.toContain("function containsString(");
+    expect(own).not.toContain("function indexOfString(");
+
+    // And the program links and answers.
+    const exports = await runProject([["/main.hex", program]]);
+    expect(exports.hit).toBe(true);
+    expect(exports.miss).toBe(false);
+    expect(exports.at).toEqual({ tag: "Some", value: 2 });
   });
 
   test("every edition a module plans, it can resolve the dictionaries for", () => {
@@ -301,7 +333,29 @@ describe("the program table is what makes a prelude module's plan the consumer's
       }
     }
 
-    expect(unresolvable).toEqual([]);
+    // Two editions are planned with their dictionary out of sight: the `String`
+    // editions of `Vector.contains` and `Vector.indexOf`, seated before
+    // `String.hex` (the tripwire above). They are safe only because their
+    // bodies never ask for it: `==` at a primitive lowers to `===` and reads no
+    // evidence. The compiler-defect assertion below is what holds that loud;
+    // the body check here pins the reason. Any other `Eq`-bound export seated
+    // before `String.hex` adds its `String` edition to this list and fails it
+    // (measured with a probe export in `Vector.hex`). The remedy then lies in
+    // the seat order or in the planner, which could skip an edition whose
+    // evidence it cannot reach; not in a longer list.
+    expect(unresolvable).toEqual([
+      "/Hex/Vector.hex containsString hex:Eq",
+      "/Hex/Vector.hex indexOfString hex:Eq",
+    ]);
+    const vectorJs = compiled.modules
+      .find(({ source }) => source.path === "/Hex/Vector.hex")!.javascript.text;
+    for (const edition of ["containsString", "indexOfString"]) {
+      const start = vectorJs.indexOf(`function ${edition}(`);
+      expect(start).toBeGreaterThan(-1);
+      const body = vectorJs.slice(start, vectorJs.indexOf("\n}\n", start));
+      expect(body).toContain("value === element");
+      expect(body).not.toMatch(/__Eq_/u);
+    }
     expect(
       compiled.diagnostics
         .map(({ message }) => message)
@@ -532,9 +586,10 @@ describe("the collections API gains its JavaScript entry points", () => {
     // two companions were §3.4's zero-entry-point case at library scale: the
     // build report's list of exports with no JavaScript surface held all of
     // them, and a JS consumer could reach none. The seven `Hash` candidates are
-    // what changes that.
-    expect(editionsOf("Set")).toBe(42);
-    expect(editionsOf("Map")).toBe(28);
+    // what changes that. `Set.map<b: Hash>` and `Map.map<j: Hash>` (#1417) add
+    // seven each.
+    expect(editionsOf("Set")).toBe(49);
+    expect(editionsOf("Map")).toBe(35);
   });
 
   test("a `Hash`-bound export is callable from JavaScript at every fundamental", async () => {
