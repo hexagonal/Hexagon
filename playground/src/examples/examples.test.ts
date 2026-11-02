@@ -6,13 +6,12 @@ import { exampleById, playgroundExamples } from "./index";
 import { regexes } from "./regexes";
 
 /**
- * Both tests below compile every curated example through the whole pipeline,
- * prelude included, so their cost tracks the prelude's size — and the prelude
- * gained a twenty-third member at the Set step (#373). Under a parallel suite
- * run that took the first one past vitest's 5s default, while it passes
- * comfortably in isolation, which is the signature of a budget rather than a
- * regression. Stated once here and applied to both, since the second does
- * strictly more work than the first.
+ * The tests below compile through the whole pipeline, prelude included, so
+ * their cost tracks the prelude's size — and the prelude gained a
+ * twenty-third member at the Set step (#373). Under a parallel suite run that
+ * took the first one past vitest's 5s default, while it passes comfortably in
+ * isolation, which is the signature of a budget rather than a regression.
+ * Stated once here and applied to each.
  */
 const PIPELINE_TIMEOUT = 30_000;
 
@@ -39,8 +38,8 @@ describe("curated playground examples", () => {
    */
   test("run to completion through the worker's module linking", async () => {
     for (const [version, example] of playgroundExamples.entries()) {
-      const { printed, failure } = await execute(example.id, version, example.source);
-      if (failure !== undefined) throw failure;
+      const { printed, threw, failure } = await execute(example.id, version, example.source);
+      if (threw) throw failure;
       // Every curated example prints something; silence means it died early.
       expect({ id: example.id, printed: printed.length > 0 })
         .toEqual({ id: example.id, printed: true });
@@ -58,9 +57,10 @@ describe("curated playground examples", () => {
     const broken = regexes.source.replace('{2})$")', '{2}$")');
     expect(broken).not.toBe(regexes.source);
 
-    const { printed, failure } = await execute("regexes-broken", 0, broken);
+    const { printed, threw, failure } = await execute("regexes-broken", 0, broken);
 
     expect(printed).toEqual([]);
+    expect(threw).toBe(true);
     expect(failure).toBeInstanceOf(Error);
     expect((failure as Error).name).toBe("BadPatternFault");
     expect(describeFailure(failure))
@@ -70,7 +70,8 @@ describe("curated playground examples", () => {
 
 /**
  * Compiles `source` and runs it as the worker would, answering what it printed
- * and what it threw, if anything.
+ * and whether it threw, and what. A program may throw `undefined`, so `threw`
+ * says whether it did.
  *
  * The modules are written to a fresh directory at their own addresses and the
  * entry is imported from there, so the compiler's relative specifiers resolve
@@ -94,10 +95,10 @@ async function execute(
   id: string,
   version: number,
   source: string,
-): Promise<{ readonly printed: readonly string[]; readonly failure: unknown }> {
+): Promise<{ readonly printed: readonly string[]; readonly threw: boolean; readonly failure: unknown }> {
   const compiled = compileSource(version, source);
   expect(compiled.kind).toBe("compile-success");
-  if (compiled.kind !== "compile-success") return { printed: [], failure: undefined };
+  if (compiled.kind !== "compile-success") return { printed: [], threw: false, failure: undefined };
 
   const fsName = "node:fs";
   const osName = "node:os";
@@ -136,9 +137,9 @@ async function execute(
     try {
       await import(/* @vite-ignore */ url.pathToFileURL(fileOf(compiled.entryPath)).href);
     } catch (failure: unknown) {
-      return { printed, failure };
+      return { printed, threw: true, failure };
     }
-    return { printed, failure: undefined };
+    return { printed, threw: false, failure: undefined };
   } finally {
     console.log = log;
     fs.rmSync(root, { recursive: true, force: true });
