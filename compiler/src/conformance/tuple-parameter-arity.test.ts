@@ -96,10 +96,18 @@ describe("a lambda that spreads the pair is told to destructure it", () => {
   });
 
   test("a pattern written over several lines is joined onto one", () => {
-    expect(reports("export let any: Bool = Seq.any([((1, 2), 3, 4)], ((a,\n    b), c, d) => a > c)\n")
-      .map(([message]) => message)).toEqual([
+    expect(reports("export let any: Bool = Seq.any([((1, 2), 3, 4)], ((a,\n    b), c, d) => a > c)\n")).toEqual([[
       "the function expected here takes one parameter, a triple, but the lambda spreads it over " +
         "three parameters; destructure the triple in one parameter: `(((a, b), c, d)) => …`",
+      "((a,\n    b), c, d) => a > c",
+    ]]);
+  });
+
+  test("a pattern over several lines holding a comment is not joined, so the function is wrapped", () => {
+    expect(reports("export let any: Bool = Seq.any([((1, 2), 3, 4)], ((a, // first\n    b), c, d) => a > c)\n")
+      .map(([message]) => message)).toEqual([
+      "the function expected here takes one parameter, a triple, but this function takes three " +
+        "parameters; wrap it in a lambda that destructures the triple: `((a, b, c)) => f(a, b, c)`",
     ]);
   });
 
