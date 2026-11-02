@@ -375,16 +375,26 @@ export interface JavaScriptEmissionOptions {
    */
   readonly runtimeGlobalsSpecifier?: string;
   /**
-   * The program's Algorithm S candidate rows for the **pre-registered**
-   * constraints (#679); see `FundamentalInstances`.
+   * The Algorithm S candidate rows for the **pre-registered** constraints that
+   * this module's own editions are planned from (#679); see
+   * `FundamentalInstances`. For a module outside the prelude that is the
+   * program's whole table, and for a prelude module its seat view, the rows
+   * seated at or before it (`fundamentalSeatsOf`).
    *
    * Only `compileProject` can supply them, and for the reason the two options
-   * above name plus one of its own: the rows are a fact about the prelude, and a
-   * prelude module sees only the members before its own seat. Emitting one
-   * module alone answers from that module's own channels instead, which is the
-   * complete answer for any module that sees the whole prelude.
+   * above name plus one of its own: the rows are a fact about the prelude, which
+   * no single module's channels hold. Emitting one module alone answers from
+   * that module's own channels instead, which is the complete answer for any
+   * module that sees the whole prelude.
    */
   readonly fundamentalInstances?: FundamentalInstances;
+  /**
+   * Each prelude module's seat view of those rows, keyed by its full name
+   * (`fundamentalSeatsOf`). An import of a prelude export plans that export's
+   * editions from its exporter's view, never from the whole table, so it calls
+   * exactly the editions the exporter built.
+   */
+  readonly fundamentalSeats?: ReadonlyMap<string, FundamentalInstances>;
 }
 
 /**
@@ -881,10 +891,11 @@ export interface DeclarationEmissionOptions {
   /** This module's own path, for relativizing `nominalHomes`. */
   readonly modulePath?: string;
   /**
-   * The program's Algorithm S candidate rows (#679); see the identically-named
-   * option on `JavaScriptEmissionOptions` for why only `compileProject` has
-   * them. The two faces must plan the same editions or a declared entry point
-   * names a function the JavaScript never emitted.
+   * The Algorithm S candidate rows this module's editions are planned from
+   * (#679); see the identically-named option on `JavaScriptEmissionOptions` for
+   * which rows those are and why only `compileProject` has them. The two faces
+   * must be handed the same rows, or a declared entry point names a function
+   * the JavaScript never emitted.
    */
   readonly fundamentalInstances?: FundamentalInstances;
 }
@@ -3272,6 +3283,7 @@ class JavaScriptEmitter {
    * is being emitted outside a project; see `JavaScriptEmissionOptions`.
    */
   readonly #fundamentalInstances: FundamentalInstances | undefined;
+  readonly #fundamentalSeats: ReadonlyMap<string, FundamentalInstances> | undefined;
   /**
    * How each quantified type variable is spelled in the signature it comes from
    * (#425), which is what an evidence parameter is named after: `<a: Show>` is
@@ -3800,6 +3812,7 @@ class JavaScriptEmitter {
       }
     }
     this.#fundamentalInstances = options.fundamentalInstances;
+    this.#fundamentalSeats = options.fundamentalSeats;
     const plan = planFundamentalSpecializations(
       module,
       options.fundamentalInstances,
@@ -7303,7 +7316,11 @@ class JavaScriptEmitter {
         : planImportedSpecializations(
             declaration,
             this.#module,
-            this.#fundamentalInstances,
+            // The exporter's table. An exporter with no seat is outside the
+            // prelude, so its table is the whole one, and so is this module's:
+            // a prelude module imports only members seated before it (Modules
+            // §5.5), never a module outside the prelude.
+            this.#fundamentalSeats?.get(item.moduleName) ?? this.#fundamentalInstances,
             this.#prelude.bool,
           );
     this.#importedSpecializations.set(symbol, planned);
@@ -11478,6 +11495,10 @@ class JavaScriptEmitter {
         return this.#useVectorRuntime("findPosition");
       case "vectorZip":
         return this.#useVectorRuntime("zip");
+      // `collection-combinators.md` §12.5's one door: the platform's stable sort,
+      // run over positions rather than elements (the helper says why).
+      case "vectorSortUsing":
+        return this.#useHelper("vectorSortUsing");
       // `stdlib/BigInt.hex`'s natives (#344), in the primop shape: every one is
       // a JavaScript operator or one-call conversion, so each lowers to a bare
       // arrow with no helper behind it. Nothing here guards, converts a sign, or
@@ -13933,6 +13954,7 @@ type Helper =
   | "numberFormatMessage"
   | "nodeSet"
   | "vectorAt"
+  | "vectorSortUsing"
   | "vectorIndex"
   | "arrayIndex"
   | "vectorIterate"
@@ -14011,6 +14033,7 @@ const HELPER_DEPENDENCIES: Readonly<Record<Helper, readonly Helper[]>> = {
   numberFormatMessage: [],
   nodeSet: [],
   vectorAt: [],
+  vectorSortUsing: [],
   vectorIndex: [],
   arrayIndex: [],
   vectorIterate: [],
@@ -15088,6 +15111,35 @@ function renderHelper(
         `  if (__position < 1 || __position > __size) { const __error = new ${spell("RangeError")}` +
         "(`index ${__index} out of bounds for size ${__size}`); __error.name = \"IndexFault\"; __error.$hex = " + JSON.stringify(HEX_VECTOR) + "; __error.index = __index; __error.size = __size; throw __error; }",
         `  return ${runtimeName("get")}(__values, __position - 1);`,
+        "}",
+      ];
+    case "vectorSortUsing":
+      // `Vector.sortUsing` (`collection-combinators.md` §12.5). The elements are
+      // copied out once and the platform's stable sort orders their
+      // *positions*, never the elements themselves: that sort moves `undefined`
+      // to the end without calling its comparator, and `Unit`, `Nullable`,
+      // `JsValue` and opaque extern values can be `undefined`, so sorting the
+      // elements would read them by representation (Intrinsics §4.2). A
+      // position is a number and never `undefined`, so every pair is decided by
+      // `compare`. The `Ordering` it answers becomes the sort's number here and
+      // nowhere a program can see (Operators §5.1). Both arrays are this call's
+      // own and are never handed out, so a comparator that sorts again gets its
+      // own; a failure in `compare` leaves the sort and is the call's.
+      return [
+        `function ${name}(__values, __compare) {`,
+        `  const __items = ${spell("Array")}.from(__values);`,
+        "  const __count = __items.length;",
+        `  const __order = new ${spell("Array")}(__count);`,
+        "  for (let __index = 0; __index < __count; __index++) __order[__index] = __index;",
+        "  __order.sort((__left, __right) => {",
+        "    const __answer = __compare(__items[__left], __items[__right]).tag;",
+        "    return __answer === \"Less\" ? -1 : __answer === \"Greater\" ? 1 : 0;",
+        "  });",
+        `  let __result = ${runtimeName("empty")};`,
+        "  for (let __index = 0; __index < __count; __index++) {",
+        `    __result = ${runtimeName("append")}(__result, __items[__order[__index]]);`,
+        "  }",
+        "  return __result;",
         "}",
       ];
     case "vectorOf":

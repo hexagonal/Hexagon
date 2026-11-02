@@ -5,7 +5,8 @@ states what traversal order never chooses, and §7's shortcut keys on the
 stored hash, so no comparison door is needed. Implemented by #1417;
 conformance: `compiler/src/conformance/collection-combinators.test.ts`, and the
 rebuilds' shapes in `hash-trie.test.ts`. §12, sorting on `Vector`, added
-2026-11-02, ruled by James, and not yet implemented. This document is the stdlib listing's
+2026-11-02, ruled by James, and implemented by #1425; conformance:
+`compiler/src/conformance/vector-sort.test.ts`. This document is the stdlib listing's
 part for the combinator families over `Vector(a)`, `Set(a)` and `Map(k, v)`: their shared
 doctrine, the v1 ship-list, and the deliberate absence of combinators on the
 foreign collections. It discharges the "Combinator families" row of

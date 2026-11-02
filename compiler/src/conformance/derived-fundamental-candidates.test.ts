@@ -173,7 +173,7 @@ describe("the judgment over the pre-registered constraints", () => {
   });
 });
 
-describe("the program table is what makes a prelude module's plan the consumer's", () => {
+describe("a user module plans from the program's table, a prelude module from its seat", () => {
   test("pre-String injected modules see strictly fewer rows than the program does", () => {
     const compiled = project([["/main.hex", "module Main\n\n" + COLLECTIONS]]);
     const shortfalls = compiled.modules
@@ -186,14 +186,18 @@ describe("the program table is what makes a prelude module's plan the consumer's
       .filter(({ missing }) => missing > 0);
 
     // Modules §5.5's visibility, measured. `Int.hex` cannot see `Nat`'s rows,
-    // `Nat.hex` cannot see `Float`'s, and the four constraint declarations
-    // before them see no companion at all. Every one of these would plan a
-    // smaller edition set for its own exports than a consumer recomputes.
-    // (`Iterable.hex` is absent because this program no longer reaches it: a
-    // `toSeq` at a collection imports the companion's member since #1141.)
+    // `Nat.hex` cannot see `Float`'s, and the constraint declarations before
+    // them see no companion at all. Each plans its own exports' editions from
+    // its seat, and a consumer recomputes them from the same seat, never from
+    // the table (the rows below). `Ordering.hex` and `Ord.hex` are emitted
+    // because `Vector.hex`'s sorts import them. (`Iterable.hex` is absent
+    // because this program no longer reaches it: a `toSeq` at a collection
+    // imports the companion's member since #1141.)
     expect(shortfalls.map(({ path }) => path)).toEqual([
       "/Hex/Pow.hex",
       "/Hex/Hash.hex",
+      "/Hex/Ordering.hex",
+      "/Hex/Ord.hex",
       "/Hex/Sign.hex",
       "/Hex/Integral.hex",
       "/Hex/Int.hex",
@@ -223,71 +227,81 @@ describe("the program table is what makes a prelude module's plan the consumer's
     // stated narrowly on purpose: hand emission an empty table and the
     // pre-registered binder mints nothing; hand it the program's and it mints.
     //
-    // What this row does *not* show is that `compileProject` threading the
-    // table changes any output. Until #1417 it did not: the two answers
-    // coincided on this prelude. The next row is the tripwire that reddened
-    // when that stopped being true, and the row after it is the pin.
+    // A user module sees the whole prelude, so for it the table and its own
+    // view coincide; the rows after this one are about the prelude modules,
+    // which plan from their seats instead.
     expect(emitJavaScript(core, { fundamentalInstances: new Set() }).text)
       .not.toContain("renderInt");
     expect(emitJavaScript(core, { fundamentalInstances: compiled.fundamentalInstances }).text)
       .toContain("function renderInt(");
   });
 
-  test("no prelude module's plan differs from its own view — the tripwire", () => {
+  test("a prelude module plans from its seat, which is its own view", () => {
     const compiled = project([["/main.hex", "module Main\n\n" + COLLECTIONS]]);
-    const differing = compiled.modules.filter(({ core }) => {
+    const differing = compiled.modules.filter(({ name, core }) => {
+      const seat = compiled.fundamentalSeats.get(name);
+      if (seat === undefined) return false;
       const visible = fundamentalInstancesOf([core], preludeBoolUnion(core));
-      return planFundamentalSpecializations(core, compiled.fundamentalInstances)
-          .specializations.length !==
-        planFundamentalSpecializations(core, visible).specializations.length;
+      const plannedNames = (rows: typeof seat): string[] =>
+        planFundamentalSpecializations(core, rows).specializations.map(({ name: edition }) => edition);
+      return plannedNames(seat).join() !== plannedNames(visible).join();
     });
 
-    // The program table and a prelude module's own view answer differently only
-    // where the module *plans* from a row it cannot see. Until #1417 no prelude
-    // module did: every eligible prelude export sat at or after `String.hex`'s
-    // seat. `Vector.contains` and `Vector.indexOf` (`collection-combinators.md`
-    // §3) are the first `Eq`-bound exports before it, and `Vector.hex` cannot
-    // see `String`'s `Eq` row, so the table plans the two `String` editions its
-    // own view would not.
-    //
-    // So the tripwire has fired, once, here, and the pin it asked for is the
-    // next row. Any other module joining this list is the seam reaching
-    // somewhere new and needs the same pin. Read it beside the obligation
-    // below.
-    expect(differing.map(({ source }) => source.path)).toEqual(["/Hex/Vector.hex"]);
+    // Zero-Cost Fundamental Exports §3.2 reads a prelude export's candidates off
+    // its own module's judgment: the instances seated at or before it (Modules
+    // §5.5). The seat view is computed from the prelude in seat order, and the
+    // module's own channels answer the same, so a re-emission of one module
+    // alone plans what the program planned.
+    expect(differing.map(({ source }) => source.path)).toEqual([]);
+
+    // The whole program's table answers differently in exactly one place:
+    // `Vector.hex` sits before `String.hex`, because `String` uses vectors, so
+    // its constrained exports have no `String` edition. Any other module joining
+    // this list is a prelude export seated before a fundamental's companion.
+    const beyondSeat = compiled.modules.filter(({ name, core }) => {
+      const seat = compiled.fundamentalSeats.get(name);
+      return seat !== undefined &&
+        planFundamentalSpecializations(core, seat).specializations.length !==
+          planFundamentalSpecializations(core, compiled.fundamentalInstances).specializations.length;
+    });
+    expect(beyondSeat.map(({ source }) => source.path)).toEqual(["/Hex/Vector.hex"]);
   });
 
-  test("`Vector` publishes its `String` editions because the table is threaded", async () => {
+  test("`Vector` publishes no `String` edition, and a caller at `String` passes the dictionary", async () => {
     const program = "module Main\n\n" + [
       "export let hit: Bool = Vector.contains([\"a\", \"b\"], \"b\")",
       "export let miss: Bool = Vector.contains([\"a\", \"b\"], \"c\")",
       "export let at: Option(Int) = Vector.indexOf([\"a\", \"b\"], \"b\")",
+      "export let sorted: Vector(String) = Vector.sort([\"b\", \"\u{1F600}\", \"\u{FFFF}\", \"a\"])",
+      "export let ints: Vector(Int) = Vector.sort([3, 1, 2])",
       "",
     ].join("\n");
     const compiled = project([["/main.hex", program]]);
     const vector = compiled.modules.find(({ source }) => source.path === "/Hex/Vector.hex")!;
 
-    // A consumer at `String` calls the edition, not the dictionary-passing
-    // binder, so the edition has to exist in what `compileProject` emitted.
-    const consumer = main(compiled);
-    expect(emitJavaScript(consumer, { fundamentalInstances: compiled.fundamentalInstances }).text)
-      .toContain("containsString(");
-    for (const edition of ["containsString", "indexOfString"]) {
-      expect(vector.javascript.text).toContain(`function ${edition}(`);
+    // Neither face publishes one: the declaration file is planned from the same
+    // seat as the JavaScript, or it would declare names the module never exports.
+    for (const edition of ["containsString", "indexOfString", "sortString", "sortByString"]) {
+      expect(vector.javascript.text).not.toContain(`function ${edition}(`);
+      expect(vector.declarations.text).not.toMatch(new RegExp(`\\b${edition}\\b`, "u"));
     }
-    // It exists only because the table was handed to emission: `Vector.hex`'s
-    // own view plans neither. This is the half that fails when
-    // `compileProject` stops threading the table.
-    const visible = fundamentalInstancesOf([vector.core], preludeBoolUnion(vector.core));
-    const own = emitJavaScript(vector.core, { fundamentalInstances: visible }).text;
-    expect(own).not.toContain("function containsString(");
-    expect(own).not.toContain("function indexOfString(");
+    // The editions at the fundamentals `Vector` can see are still published, and
+    // a caller at one of them still calls its edition.
+    expect(vector.javascript.text).toContain("function sortInt(");
+    expect(vector.declarations.text).toMatch(/\bsortInt\b/u);
+    const consumer = compiled.modules.find(({ source }) => source.path === "/main.hex")!.javascript.text;
+    expect(consumer).toContain("sortInt(");
+    expect(consumer).toContain("__Eq_String");
+    expect(consumer).toContain("__Ord_String");
+    expect(consumer).not.toMatch(/\b(containsString|indexOfString|sortString)\(/u);
 
-    // And the program links and answers.
+    // And the program links and answers, `String` by code point.
     const exports = await runProject([["/main.hex", program]]);
     expect(exports.hit).toBe(true);
     expect(exports.miss).toBe(false);
     expect(exports.at).toEqual({ tag: "Some", value: 2 });
+    expect([...(exports.sorted as Iterable<string>)]).toEqual(["a", "b", "\u{FFFF}", "\u{1F600}"]);
+    expect([...(exports.ints as Iterable<number>)]).toEqual([1, 2, 3]);
   });
 
   test("every edition a module plans, it can resolve the dictionaries for", () => {
@@ -316,9 +330,12 @@ describe("the program table is what makes a prelude module's plan the consumer's
     // should be able to go quiet while the other holds.
     const compiled = compileFiles([["/main.hex", "module Main\n\n" + REACHES_EARLY_SEATS]]);
     const unresolvable: string[] = [];
-    for (const { source, core } of compiled.modules) {
+    for (const { source, name, core } of compiled.modules) {
       const bool = preludeBoolUnion(core);
-      const plan = planFundamentalSpecializations(core, compiled.fundamentalInstances);
+      const plan = planFundamentalSpecializations(
+        core,
+        compiled.fundamentalSeats.get(name) ?? compiled.fundamentalInstances,
+      );
       for (const specialization of plan.specializations) {
         const declaration = core.symbols.find(({ id }) => id === specialization.sourceSymbol);
         for (const { variable, type } of specialization.assignment) {
@@ -333,29 +350,12 @@ describe("the program table is what makes a prelude module's plan the consumer's
       }
     }
 
-    // Two editions are planned with their dictionary out of sight: the `String`
-    // editions of `Vector.contains` and `Vector.indexOf`, seated before
-    // `String.hex` (the tripwire above). They are safe only because their
-    // bodies never ask for it: `==` at a primitive lowers to `===` and reads no
-    // evidence. The compiler-defect assertion below is what holds that loud;
-    // the body check here pins the reason. Any other `Eq`-bound export seated
-    // before `String.hex` adds its `String` edition to this list and fails it
-    // (measured with a probe export in `Vector.hex`). The remedy then lies in
-    // the seat order or in the planner, which could skip an edition whose
-    // evidence it cannot reach; not in a longer list.
-    expect(unresolvable).toEqual([
-      "/Hex/Vector.hex containsString hex:Eq",
-      "/Hex/Vector.hex indexOfString hex:Eq",
-    ]);
-    const vectorJs = compiled.modules
-      .find(({ source }) => source.path === "/Hex/Vector.hex")!.javascript.text;
-    for (const edition of ["containsString", "indexOfString"]) {
-      const start = vectorJs.indexOf(`function ${edition}(`);
-      expect(start).toBeGreaterThan(-1);
-      const body = vectorJs.slice(start, vectorJs.indexOf("\n}\n", start));
-      expect(body).toContain("value === element");
-      expect(body).not.toMatch(/__Eq_/u);
-    }
+    // None, because each prelude module plans from its own seat: an edition at
+    // a fundamental whose companion sits after the module is not planned, so
+    // there is no dictionary out of sight to resolve. Before the seat views,
+    // `Vector.hex`'s `String` editions were planned from the whole program's
+    // table, and `sort`'s could not be built.
+    expect(unresolvable).toEqual([]);
     expect(
       compiled.diagnostics
         .map(({ message }) => message)

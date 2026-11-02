@@ -3,20 +3,6 @@ import { describe, expect, test } from "vitest";
 import { compileSource } from "../compile";
 import { exampleById, playgroundExamples } from "./index";
 
-/** Rewrites compiler-owned relative imports to data-URL modules, as the worker does. */
-function resolveModulePath(importer: string, specifier: string): string | undefined {
-  if (!specifier.startsWith("./") && !specifier.startsWith("../")) return undefined;
-  const directory = importer.slice(0, Math.max(0, importer.lastIndexOf("/")));
-  const parts: string[] = [];
-  for (const part of `${directory}/${specifier}`.split("/")) {
-    if (part === "" || part === ".") continue;
-    if (part === "..") parts.pop();
-    else parts.push(part);
-  }
-  const path = `/${parts.join("/")}`;
-  return path.endsWith(".js") ? `${path.slice(0, -3)}.hex` : path;
-}
-
 /**
  * Both tests below compile every curated example through the whole pipeline,
  * prelude included, so their cost tracks the prelude's size — and the prelude
@@ -48,45 +34,69 @@ describe("curated playground examples", () => {
    * defect log keeps recording (entries 8 and 10). The examples are the
    * product's front page, so they are executed here, not just typechecked.
    *
-   * Every module is prefixed with the example's id before it becomes a `data:`
-   * URL, because the registry caches those by their full text and the emitted
-   * prelude is identical for every example. Sharing one instance of `Debug.js`
-   * across the loop would share the sink it captured at initialization, and
-   * every example after the first would print into the previous example's
-   * collector. The worker gets this for free — a fresh `Blob` URL per run is a
-   * fresh module graph — and the prefix is how the harness earns it.
+   * Each example's modules are written to a fresh directory at their own
+   * addresses and the entry is imported from there, so the compiler's relative
+   * specifiers resolve as written. A fresh directory is a fresh module graph:
+   * the emitted prelude is identical for every example, and sharing one
+   * instance of `Debug.js` across the loop would share the sink it captured at
+   * initialization, so every example after the first would print into the
+   * previous example's collector. The worker gets the same from a fresh `Blob`
+   * URL per module per run, which Node cannot import. A `data:` URL per module,
+   * the stand-in this harness used before, copies every dependency's text into
+   * each importer's URL, so its length grows with the number of paths through
+   * the graph, and it passed what a string can hold once `Vector.js` imported
+   * the `Ord` dictionaries its sorts take.
+   *
+   * `vite.config.ts` hands the `hex-example-` directories to Node's own loader,
+   * which refuses a graph whose modules disagree on a name when it links, as
+   * the browser does; Vite's module runner would load it. Node is reached
+   * through non-literal specifiers because the playground carries no Node type
+   * definitions.
    */
   test("run to completion through the worker's module linking", async () => {
+    const fsName = "node:fs";
+    const osName = "node:os";
+    const pathName = "node:path";
+    const urlName = "node:url";
+    const fs = await import(/* @vite-ignore */ fsName) as {
+      mkdtempSync: (prefix: string) => string;
+      mkdirSync: (path: string, options: { recursive: boolean }) => void;
+      writeFileSync: (path: string, data: string) => void;
+      rmSync: (path: string, options: { recursive: boolean; force: boolean }) => void;
+    };
+    const os = await import(/* @vite-ignore */ osName) as { tmpdir: () => string };
+    const paths = await import(/* @vite-ignore */ pathName) as {
+      join: (...parts: string[]) => string;
+      dirname: (of: string) => string;
+    };
+    const url = await import(/* @vite-ignore */ urlName) as {
+      pathToFileURL: (of: string) => { readonly href: string };
+    };
+
     const log = console.log;
+    const roots: string[] = [];
     try {
       for (const [version, example] of playgroundExamples.entries()) {
         const compiled = compileSource(version, example.source);
         expect(compiled.kind).toBe("compile-success");
         if (compiled.kind !== "compile-success") continue;
 
-        const moduleUrls = new Map<string, string>();
+        const root = fs.mkdtempSync(paths.join(os.tmpdir(), `hex-example-${example.id}-`));
+        roots.push(root);
+        fs.writeFileSync(paths.join(root, "package.json"), '{ "type": "module" }\n');
+        const fileOf = (path: string): string =>
+          paths.join(root, path.replace(/^\//u, "").replace(/\.hex$/u, ".js"));
         for (const module of compiled.executionModules) {
-          const linked = module.javascript.replace(
-            /^(\s*import(?:[^;\n]*?\sfrom)?\s+)(["'])([^"']+)\2;/gmu,
-            (statement, prefix: string, _quote: string, specifier: string) => {
-              const target = resolveModulePath(module.path, specifier);
-              const url = target === undefined ? undefined : moduleUrls.get(target);
-              return url === undefined ? statement : `${prefix}${JSON.stringify(url)};`;
-            },
-          );
-          moduleUrls.set(
-            module.path,
-            `data:text/javascript;charset=utf-8,${
-              encodeURIComponent(`// ${example.id}\n${linked}`)
-            }`,
-          );
+          const target = fileOf(module.path);
+          fs.mkdirSync(paths.dirname(target), { recursive: true });
+          fs.writeFileSync(target, module.javascript);
         }
 
         const printed: string[] = [];
         console.log = (...values: readonly unknown[]) => {
           printed.push(values.map((value) => String(value)).join(" "));
         };
-        await import(/* @vite-ignore */ moduleUrls.get(compiled.entryPath)!);
+        await import(/* @vite-ignore */ url.pathToFileURL(fileOf(compiled.entryPath)).href);
         console.log = log;
         // Every curated example prints something; silence means it died early.
         expect({ id: example.id, printed: printed.length > 0 })
@@ -94,6 +104,7 @@ describe("curated playground examples", () => {
       }
     } finally {
       console.log = log;
+      for (const root of roots) fs.rmSync(root, { recursive: true, force: true });
     }
   }, PIPELINE_TIMEOUT);
 });

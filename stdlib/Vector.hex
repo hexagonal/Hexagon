@@ -81,6 +81,12 @@ extern from "hex:intrinsic"
         the shorter holds: `Seq.zip`, run at once. *)
     export fun vectorZip as zip(left: Vector(a), right: Vector(b)) -> Vector((a, b))
 
+    (** `values` in the order `compare` decides, as a new vector; elements it
+        answers `Equal` for keep their order. How often `compare` is called, and
+        on which pairs, is not fixed, and one that does not answer consistently
+        still gets every element back. *)
+    export fun vectorSortUsing as sortUsing(values: Vector(a), compare: (a, a) ->! Ordering) >-> Vector(a)
+
 (** The empty vector. *)
 export let empty: Vector(a) = []
 
@@ -199,6 +205,22 @@ export let indexed(values: Vector(a)): Vector((Int, a)) =
     for value in values
         position := position + 1
         result := append(result, (position, value))
+    result
+
+(** `values` from least to greatest under their `Ord`, as a new vector; equal
+    elements keep their order. *)
+export let sort<a: Ord>(values: Vector(a)): Vector(a) = sortUsing(values, Ord.compare)
+
+(** `values` ordered by what `key` gives for each, under that result's `Ord`, as
+    a new vector; elements with equal keys keep their order. `key` runs once per
+    element, in order, before any comparison. *)
+export let sortBy<b: Ord>(values: Vector(a), key: a ->! b): Vector(a) =
+    var keyed: Vector((b, a)) = []
+    for value in values
+        keyed := append(keyed, (key!(value), value))
+    var result: Vector(a) = []
+    for (_, value) in sortUsing(keyed, ((left, _), (right, _)) => Ord.compare(left, right))
+        result := append(result, value)
     result
 
 honor Iterable<Vector(a)> =
