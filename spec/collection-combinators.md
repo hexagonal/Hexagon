@@ -8,7 +8,9 @@ rebuilds' shapes in `hash-trie.test.ts`. §12, sorting on `Vector`, added
 2026-11-02, ruled by James, and implemented by #1425; conformance:
 `compiler/src/conformance/vector-sort.test.ts`. §13, extremes and totals
 (`max`, `min`, `sum` and `product`, with `Ord.max` and `Ord.min` and `Seq`'s
-consumers), added 2026-11-02 and ruled by James; SPEC-ONLY until #1431 lands.
+consumers), added 2026-11-02 and ruled by James, with `Ord.max` and `Ord.min`
+made defaulted members of `Ord` the same day, also ruled by James; SPEC-ONLY
+until #1431 lands.
 This document is the stdlib listing's
 part for the combinator families over `Vector(a)`, `Set(a)` and `Map(k, v)`: their shared
 doctrine, the v1 ship-list, and the deliberate absence of combinators on the
@@ -399,7 +401,7 @@ those two expose is already public through `toSeq`, `entries` and `for`.
 | 10 | All three stable; `sortBy` calls its key once per element, in index order | §12.2, §12.3, §12.6 |
 | 11 | The comparator's calls are deterministic but unspecified; a comparator that is not consistent gets some permutation back, never a fault | §12.3, §12.6 |
 | 12 | One door, `vectorSortUsing`, onto the platform's stable sort | §12.5 |
-| 13 | `Ord.max` and `Ord.min` are plain functions in `Ord.hex`, not members of `Ord` | §13.1, §13.6 |
+| 13 | `Ord.max` and `Ord.min` are defaulted members of `Ord`, which an instance may override under Constraints §7's laws | §13.1, §13.6 |
 | 14 | `max`, `min`, `maxBy`, `minBy`, `maxUsing`, `minUsing`, `sum` and `product` on `Vector`, `Set` and `Seq`; the first six on `Map`, over its entries; none on the foreign collections | §13.1 |
 | 15 | On a tie, `min` keeps the first of equal items and `max` the last, agreeing with the stable sort | §13.2, §13.6 |
 | 16 | An empty collection's order forms answer `None`, and `sum` and `product` the identity; no faulting sibling and no `sumBy` | §13.2, §13.6 |
@@ -558,11 +560,19 @@ For a vector of `n` elements, not counting the callbacks' own costs:
 
 ### 13.1 The surface
 
-`Ord.hex` gains two plain functions:
+`Ord` gains two defaulted members:
 
 ```hexagon
-max<a: Ord>(left: a, right: a): a
-min<a: Ord>(left: a, right: a): a
+export constraint Ord<a: Eq> =
+    compare(left: a, right: a) -> Ordering
+    max(left: a, right: a) -> a =
+        match compare(left, right)
+            Greater => left
+            _ => right
+    min(left: a, right: a) -> a =
+        match compare(left, right)
+            Greater => right
+            _ => left
 ```
 
 `Vector`, `Set` and `Seq` each gain eight functions, shown here at `Vector`.
@@ -595,11 +605,21 @@ minUsing(m: Map(k, v), compare: ((k, v), (k, v)) ->! Ordering): Option((k, v))
   in different modules, so they do not clash, and `values.max()` dot-calls the
   collection form. The key and comparator forms follow Collections Part 1
   §3.4: `By` takes the thing ordered on, `Using` the procedure that decides.
-- **`Ord.max` and `Ord.min` are plain functions, not members of `Ord`.** They
-  are reached qualified, as `Ord.max(a, b)`. A dot call finds only the
-  exports of its receiver's companion and the members of the constraints its
-  type honors (Method Syntax §4.2), so `a.max(b)` is refused. In return, the
-  two claim no spelling in a module that honors `Ord` (Constraints §4.6).
+- **`Ord.max` and `Ord.min` are defaulted members of `Ord`,** as `notEquals`
+  is of `Eq` (Constraints §2). Every instance has them without writing them,
+  derived and structural instances included, and an instance may write its
+  own under the laws of Constraints §7.
+  - Being members, they dot-call wherever `compare` does (Method Syntax
+    §4.2). Where the receiver's type has a declared or derived instance, as
+    `Int`, `String` or a record with `derives Ord` has, `a.max(b)` is
+    `Ord.max(a, b)`.
+  - A tuple's or a `Vector`'s instance is structural and gives no dot call,
+    so there the spelling is `Ord.max(a, b)`. On a `Vector`, `values.max()`
+    is the collection form.
+  - Honoring `Ord` claims the spellings `max` and `min` in the honoring
+    module (Constraints §4.6), so such a module binds no `max` or `min` of
+    its own.
+
   §13.6 records the alternative.
 - **Where they go.** A reduction speaks about no position, so §1.2 does not
   confine it to `Vector`, and it goes wherever `fold` and `find` are: on
@@ -618,7 +638,8 @@ let nearest = points.minBy((point) => point.distance)
 let busiest = visits.maxBy(((_, count)) => count)
 let latest = events.maxUsing((a, b) => Ord.compare(a.time, b.time))
 let triangle = Seq.sum(1..100)
-let higher = Ord.max(a, b)
+let higher = a.max(b)
+let lower = Ord.min((1, "b"), (1, "a"))
 ```
 
 ### 13.2 Meaning
@@ -631,6 +652,8 @@ let higher = Ord.max(a, b)
   - On a tie, `min` answers its first argument and `max` its second, so
     `(Ord.min(a, b), Ord.max(a, b))` is always `(a, b)` or `(b, a)`: a stable
     sort of the two.
+  - These are the defaults, and an instance that writes its own `max` or
+    `min` must answer the same (Constraints §7).
 - **Empty.** On an empty collection, `max`, `min` and their `By` and `Using`
   forms answer `None` (Collections Part 1 §3.1). `sum` answers zero and
   `product` one, `Num.fromNat(0)` and `Num.fromNat(1)`.
@@ -737,15 +760,14 @@ Every one of them holds constant extra space and, on a `Seq`, constant stack
 ### 13.5 Implementation requirements
 
 - **No door.** All of them are ordinary Hexagon over the collection's `fold`
-  (Stdlib Roadmap §5.1). `Ord.max` and `Ord.min` are ordinary Hexagon in
-  `Ord.hex`.
-- **No numeric editions for the two-value pair.** `Ord.hex` is seated before
-  the numeric types (Modules §5.5), so `Ord.max` and `Ord.min` publish editions
-  only at `Bool` and `Unit` (`ffi-zero-cost-fundamental-exports.md` §3.2).
-  That section fixes the JavaScript export surface, not how a Hexagon call is
-  emitted (its §8.2), so a call at `Int` may pass the `Ord` dictionary, and
-  doing so costs nothing measurable: a loop of 1,000,000 such calls over `Int`
-  takes about as long as the loop with the comparison written inline.
+  (Stdlib Roadmap §5.1). The default bodies of `Ord.max` and `Ord.min` are
+  ordinary Hexagon in `Ord.hex`.
+- **The two-value pair goes through the instance.** Every `Ord` instance
+  carries `max` and `min` as it carries `compare` (Constraints §6.1). A call at
+  a type with a declared or derived instance, such as `Int`, calls that
+  instance's member directly; a call at a tuple reads it from the structural
+  dictionary; a call under an `Ord` bound reads it from the dictionary passed
+  in. A member's forwarder has no editions (Constraints §6.1).
 - **Editions for the collection forms.** Each function bound by `Ord` or
   `Num` gets an edition at every fundamental type seated before its module
   that honors the bound: `Int`, `Nat`, `Float` and `BigInt` for all of them,
@@ -756,10 +778,11 @@ Every one of them holds constant extra space and, on a `Seq`, constant stack
 
 ### 13.6 Rejected alternatives (do not re-litigate)
 
-- **`max` and `min` as defaulted members of `Ord`** (Rust's provided `Ord`
-  methods, Haskell's class methods). `a.max(b)` would dot-call, but the members
-  would claim the spellings `max` and `min` in every module that honors `Ord`,
-  which could then bind no `max` or `min` of its own (Constraints §4.6).
+- **`Ord.max` and `Ord.min` as plain functions in `Ord.hex`** (OCaml's
+  `Stdlib.max`, Swift's free `max`). They would claim no spelling in a module
+  that honors `Ord`, but `a.max(b)` would be refused, because a dot call finds
+  only the exports of its receiver's companion and the members of the
+  constraints its type honors (Method Syntax §4.2).
 - **The first of equal items for both `min` and `max`** (Python, Kotlin,
   lodash, F#, and Swift's `Sequence.max()`). `Ord.min(a, b)` and
   `Ord.max(a, b)` would answer the same argument on a tie, and `max` would no
