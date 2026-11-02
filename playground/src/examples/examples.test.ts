@@ -101,6 +101,8 @@ describe("curated playground examples", () => {
         // Every curated example prints something; silence means it died early.
         expect({ id: example.id, printed: printed.length > 0 })
           .toEqual({ id: example.id, printed: true });
+        const expected = EXPECTED_OUTPUT.get(example.id);
+        if (expected !== undefined) expect({ id: example.id, printed }).toEqual({ id: example.id, printed: expected });
       }
     } finally {
       console.log = log;
@@ -108,3 +110,19 @@ describe("curated playground examples", () => {
     }
   }, PIPELINE_TIMEOUT);
 });
+
+/**
+ * The whole output of the examples whose lines a test pins. The Regex
+ * tutorial's is pinned because its pattern is unwrapped where it is compiled,
+ * and a malformed one would print nothing at all.
+ */
+const EXPECTED_OUTPUT: ReadonlyMap<string, readonly string[]> = new Map([
+  ["regexes", [
+    "2026-10-31: year 2026, month 10, day 31",
+    "31/10/2026: not an ISO date",
+    "2026-1-5: not an ISO date",
+    "x2026-10-31: not an ISO date",
+    "2026-13-45: year 2026, month 13, day 45",
+    "is 1999-12-31 a date? True",
+  ]],
+]);

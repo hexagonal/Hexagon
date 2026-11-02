@@ -1,4 +1,4 @@
-import { formatConsoleArguments } from "./execution";
+import { describeFailure, formatConsoleArguments } from "./execution";
 import { linkModule } from "./module-execution";
 import type {
   ExecuteOutput,
@@ -60,15 +60,12 @@ self.addEventListener("message", async (event: MessageEvent<ExecutionRequest>) =
     };
     self.postMessage(response);
   } catch (error: unknown) {
-    // The one line `Show<Exn>` gives: the exception's name and its message with
-    // `": "` between, or whichever is not empty — `BadPattern: missing )` for an
-    // exception with a `message` slot, `Oops` for one without. That is
-    // JavaScript's own joining, taken from `Error.prototype` so that an error
-    // overriding `toString` still reads as its name and message.
+    // Shown as `Show<Exn>` shows it, so the pane reads `BadPattern: missing )`
+    // where a program printing the same failure would.
     const response: ExecutionResponse = {
       kind: "execute-failure",
       version: request.version,
-      message: error instanceof Error ? Error.prototype.toString.call(error) : String(error),
+      message: describeFailure(error),
     };
     self.postMessage(response);
   } finally {
