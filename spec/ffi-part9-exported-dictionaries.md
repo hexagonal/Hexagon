@@ -261,6 +261,8 @@ export interface Dictionary<a> {
   readonly [ordDictionaryBrand]: a;
   readonly Eq: Eq.Dictionary<a>;
   readonly compare: (x: a, y: a) => Ordering;
+  readonly max: (x: a, y: a) => a;
+  readonly min: (x: a, y: a) => a;
 }
 ```
 
