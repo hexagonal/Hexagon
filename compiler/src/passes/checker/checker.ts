@@ -4668,6 +4668,12 @@ class Checker {
   readonly #deepOpenings = new WeakSet<Variable>();
   /** Whether `#unify` stands inside an odd number of parameter positions, where demand and supply turn over. */
   #parameterParity = false;
+  /**
+   * How many function parameters deep the current unification is: zero at the
+   * two function types being met, one inside a parameter's own type, and so
+   * on. `#parameterParity` alone cannot tell depth two from depth zero.
+   */
+  #parameterDepth = 0;
   /** The two function types whose colours `#unify` is meeting, for §4.3's report: the demand as written. */
   #meetingArrows: MeetingArrows | undefined;
   #meetings = 0;
@@ -30873,8 +30879,13 @@ class Checker {
    *
    * It speaks only where the reading is the one possibility: exactly one of the
    * expected parameters is a tuple whose parts make up the difference. A lambda
-   * is caret and rewritten in its own parameters as written; any other function
-   * is wrapped in one.
+   * that is the whole value handed here is caret and rewritten in its own
+   * parameters as written; any other function is wrapped in one.
+   *
+   * Only at the two function types being met (`#parameterDepth` zero). Inside a
+   * parameter's own type the function at fault is one the callee hands over or
+   * is handed, not the value written at the seat, so neither rewrite applies
+   * and the plain report stands.
    */
   #spreadTupleArity(
     left: Mono,
@@ -30882,6 +30893,7 @@ class Checker {
     span: Source.Span,
   ): { readonly message: string; readonly at?: Source.Span } | undefined {
     if (left.kind !== "Function" || right.kind !== "Function") return undefined;
+    if (this.#parameterDepth !== 0) return undefined;
     const extra = right.parameters.length - left.parameters.length;
     if (extra < 1) return undefined;
     const tuples = left.parameters.flatMap((parameter, index) => {
@@ -30905,10 +30917,13 @@ class Checker {
     // report's own span (a call's argument, or the branch the seat landed on),
     // or inside the value a written annotation is the seat of
     // (`#atAnnotationSeat`). A named function's lambda is its declaration,
-    // which this report does not rewrite. Two branches' lambdas both written
-    // here have no one set of names to spell the rewrite in.
+    // which this report does not rewrite. A value merged from several lambdas
+    // (`pick(c, f, (k, v) => …)`) has no one set of names to spell the rewrite
+    // in, and rewriting one of them would leave the others failing, so the
+    // lambda is used only when it is the value's one lambda.
     const pin = this.#pinSides;
-    const here = lambdaFrames(this.#lambdasOf.get(right)).flatMap((frame) => {
+    const frames = lambdaFrames(this.#lambdasOf.get(right));
+    const here = frames.flatMap((frame) => {
       const found = this.#lambdaOfFrame.get(frame);
       return found !== undefined &&
           (spanWithin(found.span, span) ||
@@ -30916,15 +30931,19 @@ class Checker {
         ? [found]
         : [];
     });
-    const lambda = here.length === 1 ? here[0] : undefined;
+    const lambda = frames.length === 1 && here.length === 1 ? here[0] : undefined;
     // Each parameter as written, without its annotation: a plain name is its
     // name; `_` and a destructuring pattern carry a synthesized name, so they
-    // are spelled from the source their span covers.
+    // are spelled from the source their span covers, a pattern over several
+    // lines joined onto one. Where that text holds a comment or a literal,
+    // joining could change it, so the function is wrapped instead.
     const plain = /^[a-z_][A-Za-z0-9_]*$/u;
     const spellings = lambda?.parameters.map(({ name, span: written }) => {
       if (plain.test(name) && !name.startsWith("__")) return name;
       const text = this.#sourceText?.slice(written.start.offset, written.end.offset);
-      return text !== undefined && text.length > 0 && !/[\r\n]/u.test(text) ? text : undefined;
+      if (text === undefined || text.length === 0) return undefined;
+      if (!/[\r\n]/u.test(text)) return text;
+      return /\/\/|\(\*|\/\*|["'`]/u.test(text) ? undefined : text.replace(/\s*[\r\n]\s*/gu, " ");
     });
     if (
       lambda !== undefined && spellings !== undefined &&
@@ -32085,6 +32104,7 @@ class Checker {
       // its parameter is its demand on what it is handed, and the position's
       // is what it will supply (Effects §4.3, #1119) — for the report's words.
       this.#parameterParity = !this.#parameterParity;
+      this.#parameterDepth += 1;
       try {
         for (const [index, parameter] of actualLeft.parameters.entries()) {
           const other = actualRight.parameters[index];
@@ -32093,6 +32113,7 @@ class Checker {
         }
       } finally {
         this.#parameterParity = !this.#parameterParity;
+        this.#parameterDepth -= 1;
       }
       if (unifyChild(actualLeft.result, actualRight.result)) return;
       // A merge makes one value of two lambdas: either may be what runs.
