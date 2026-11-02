@@ -6,7 +6,10 @@ stored hash, so no comparison door is needed. Implemented by #1417;
 conformance: `compiler/src/conformance/collection-combinators.test.ts`, and the
 rebuilds' shapes in `hash-trie.test.ts`. §12, sorting on `Vector`, added
 2026-11-02, ruled by James, and implemented by #1425; conformance:
-`compiler/src/conformance/vector-sort.test.ts`. This document is the stdlib listing's
+`compiler/src/conformance/vector-sort.test.ts`. §13, extremes and totals
+(`max`, `min`, `sum` and `product`, with `Ord.max` and `Ord.min` and `Seq`'s
+consumers), added 2026-11-02 and ruled by James; SPEC-ONLY until #1431 lands.
+This document is the stdlib listing's
 part for the combinator families over `Vector(a)`, `Set(a)` and `Map(k, v)`: their shared
 doctrine, the v1 ship-list, and the deliberate absence of combinators on the
 foreign collections. It discharges the "Combinator families" row of
@@ -15,15 +18,16 @@ that Collections Part 4 §13.1 routed here with `Map.map` (§5.1).
 
 **Homes:** `stdlib/Vector.hex`, `stdlib/Set.hex` and `stdlib/Map.hex`, the
 prelude companions, with the trie operations they need in
-`stdlib/Runtime/HashTrie.hex` and `stdlib/Runtime/VectorTrie.hex`.
+`stdlib/Runtime/HashTrie.hex` and `stdlib/Runtime/VectorTrie.hex`; for §13,
+also `stdlib/Ord.hex` and `stdlib/Seq.hex`.
 
-**Not in scope:** `min`/`max`/`sum` (a later listing decision); `isSorted`,
+**Not in scope:** `isSorted`,
 `binarySearch` and `sortUniq`/`dedup` (later, on demand); `sortDescending`,
 `sortByDescending`, `Ordering` helpers and `comparing` (not proposed);
 Collections Part 3 §7's other `Vector` candidates (`insertAt` and
 `removeAt`), positional `take` and `drop`, and `Map.update`, the `merge`
 family, `getOr` and `containsValue` (all still ledgered in
-`stdlib-roadmap.md`); `Seq`'s own surface, which is unchanged; `String`'s
+`stdlib-roadmap.md`); `Seq`'s own surface beyond §13's eight consumers; `String`'s
 text-processing surface (`string-text-processing.md`); the foreign collections
 `Array(a)`, `JsMap(k, v)` and `JsSet(a)`, beyond §6's statement that they get
 none of these.
@@ -36,7 +40,10 @@ payloads); FFI Part 2 §1 and Part 10 §1 (the foreign collections are doors);
 Intrinsics §3.4 and §4.2 (door rows onto a runtime module, parametricity);
 `option-result-convenience.md` (the callback form these functions share);
 for §12, Constraints §5.1–§5.2 (coherence), Decisions Batch §1 (`Ord<Float>`),
-Intrinsics §3.3 (rows that run a callback) and Stdlib Roadmap §5.1.
+Intrinsics §3.3 (rows that run a callback) and Stdlib Roadmap §5.1; for §13,
+Method Syntax §4.2 (what a dot call finds), Constraints §4.6 and §7
+(member spellings, `Ord`'s laws), Loops §6 (`Seq` consumers) and Primitive
+Types §2.1.
 
 ---
 
@@ -93,11 +100,13 @@ does not promise that one occurs.
 
 - **Eager.** Each function runs to completion before it returns, and stores no
   callback for later.
-- **Order of calls.** Except `sortUsing`'s comparator (§12.3), the callback
-  is called at most once per item: on a `Vector` in index order, from 1; on a
+- **Order of calls.** The comparators of `sortUsing` (§12.3) and of §13's
+  `Using` forms (§13.3) follow their own sections. Every other callback is
+  called at most once per item: on a `Vector` in index order, from 1; on a
   `Set` or `Map` in the collection's traversal order (Collections Part 4
-  §7.1). `find`, `any` and `all` stop at the first item that decides the
-  answer. Every other function calls the callback on every item.
+  §7.1); on a `Seq` in its own order. `find`, `any` and `all` stop at the
+  first item that decides the answer. Every other function calls the callback
+  on every item.
 - **Failures.** A failure in a callback propagates unchanged and ends the
   call; nothing is caught or converted. It becomes data at the call with the
   reading `?`, and over a block with `attempt` (Effects §3.1, Exceptions §8.2).
@@ -238,7 +247,8 @@ already present:
 
 - **Consumers.** Each honors `Iterable`, so `Seq.fold`, `Seq.find`, `Seq.any`,
   `Seq.all`, `Seq.forEach` and `Seq.length` take one directly, through
-  Collections Part 5 §3.4's `Seq` seats.
+  Collections Part 5 §3.4's `Seq` seats, and so do §13's eight, from
+  `Seq.max` to `Seq.product`.
 - **Transformations.** Convert once to the workhorse: `Array.toVector(arr)` or
   `Vector.fromSeq(arr)`, `Map.fromSeq(jsMap)`, `Set.fromSeq(jsSet)`. The first
   two are one linear copy, like the crossing's own (FFI Part 2 §6.2); the last
@@ -380,7 +390,7 @@ those two expose is already public through `toSeq`, `entries` and `for`.
 | 1 | One combinator family across `Vector`, `Set` and `Map`, each name meaning `Seq`'s over the items, eager, with callbacks of any colour; no generic family over `Iterable` | §1.1, §2, §9.5 |
 | 2 | Positional names on `Vector` only | §1.2 |
 | 3 | Traversal order never chooses which items a resulting `Map` or `Set` holds, or a key's value, for callbacks whose answers do not depend on call order | §1.3 |
-| 4 | v1 ship-lists: `Vector` twelve (fifteen with #9's sorts), `Set` six, `Map` six, with `fold` and `find` on all three | §3–§5, §9.7 |
+| 4 | v1 ship-lists: `Vector` twelve (fifteen with #9's sorts), `Set` six, `Map` six, with `fold` and `find` on all three; §13 adds eight to `Vector` and `Set` and six to `Map` | §3–§5, §9.7, §13.1 |
 | 5 | `Map` callbacks take the entry, destructured with a tuple pattern; `(k, v) => …` is never adapted | §5.2, §9.4 |
 | 6 | `Map.map` is entries in, entries out; a repeated key throws `DuplicateKeyFault`; no `mapValues` | §5.1, §9.1–§9.3 |
 | 7 | `Map.map` keeps the slot of each returned key whose hash is the one stored, so a key handed back unchanged costs no placement; the shortcut changes nothing promised | §7, §8 |
@@ -389,6 +399,11 @@ those two expose is already public through `toSeq`, `entries` and `for`.
 | 10 | All three stable; `sortBy` calls its key once per element, in index order | §12.2, §12.3, §12.6 |
 | 11 | The comparator's calls are deterministic but unspecified; a comparator that is not consistent gets some permutation back, never a fault | §12.3, §12.6 |
 | 12 | One door, `vectorSortUsing`, onto the platform's stable sort | §12.5 |
+| 13 | `Ord.max` and `Ord.min` are plain functions in `Ord.hex`, not members of `Ord` | §13.1, §13.6 |
+| 14 | `max`, `min`, `maxBy`, `minBy`, `maxUsing`, `minUsing`, `sum` and `product` on `Vector`, `Set` and `Seq`; the first six on `Map`, over its entries; none on the foreign collections | §13.1 |
+| 15 | On a tie, `min` keeps the first of equal items and `max` the last, agreeing with the stable sort | §13.2, §13.6 |
+| 16 | An empty collection's order forms answer `None`, and `sum` and `product` the identity; no faulting sibling and no `sumBy` | §13.2, §13.6 |
+| 17 | `sum` and `product` are left folds from the identity, the same for every element type; every key and comparator call is fixed | §13.2, §13.3, §13.6 |
 
 ## 12. Sorting
 
@@ -538,3 +553,249 @@ For a vector of `n` elements, not counting the callbacks' own costs:
 | Swift | `sorted()` | none | `sorted(by:)`, a Bool predicate | yes |
 | JavaScript | `toSorted()` (compares as strings) | none | `toSorted(compareFn)` | yes (`sort` since ES2019; `toSorted`, ES2023, always) |
 | Scala (the anti-pattern: another order is a local instance) | `sorted` (implicit `Ordering`) | `sortBy` (implicit `Ordering`) | `sortWith` (Bool) | yes |
+
+## 13. Extremes and totals
+
+### 13.1 The surface
+
+`Ord.hex` gains two plain functions:
+
+```hexagon
+max<a: Ord>(left: a, right: a): a
+min<a: Ord>(left: a, right: a): a
+```
+
+`Vector`, `Set` and `Seq` each gain eight functions, shown here at `Vector`.
+`Set`'s take `s: Set(a)` and `Seq`'s take `source: Seq(a)` as the first
+parameter:
+
+```hexagon
+max<a: Ord>(values: Vector(a)): Option(a)
+min<a: Ord>(values: Vector(a)): Option(a)
+maxBy<b: Ord>(values: Vector(a), key: a ->! b): Option(a)
+minBy<b: Ord>(values: Vector(a), key: a ->! b): Option(a)
+maxUsing(values: Vector(a), compare: (a, a) ->! Ordering): Option(a)
+minUsing(values: Vector(a), compare: (a, a) ->! Ordering): Option(a)
+sum<a: Num>(values: Vector(a)): a
+product<a: Num>(values: Vector(a)): a
+```
+
+`Map` gains the first six, over its entries:
+
+```hexagon
+max<k: Ord, v: Ord>(m: Map(k, v)): Option((k, v))
+min<k: Ord, v: Ord>(m: Map(k, v)): Option((k, v))
+maxBy<c: Ord>(m: Map(k, v), key: ((k, v)) ->! c): Option((k, v))
+minBy<c: Ord>(m: Map(k, v), key: ((k, v)) ->! c): Option((k, v))
+maxUsing(m: Map(k, v), compare: ((k, v), (k, v)) ->! Ordering): Option((k, v))
+minUsing(m: Map(k, v), compare: ((k, v), (k, v)) ->! Ordering): Option((k, v))
+```
+
+- **One name for both forms.** `Ord.max(a, b)` and `Vector.max(values)` live
+  in different modules, so they do not clash, and `values.max()` dot-calls the
+  collection form. The key and comparator forms follow Collections Part 1
+  §3.4: `By` takes the thing ordered on, `Using` the procedure that decides.
+- **`Ord.max` and `Ord.min` are plain functions, not members of `Ord`.** They
+  are reached qualified, as `Ord.max(a, b)`. A dot call finds only the
+  exports of its receiver's companion and the members of the constraints its
+  type honors (Method Syntax §4.2), so `a.max(b)` is refused. In return, the
+  two claim no spelling in a module that honors `Ord` (Constraints §4.6).
+  §13.6 records the alternative.
+- **Where they go.** A reduction speaks about no position, so §1.2 does not
+  confine it to `Vector`, and it goes wherever `fold` and `find` are: on
+  `Vector`, `Set` and `Map`. A `Map`'s items are its entries, so its callbacks
+  take the entry (§5.2). It has no `sum` or `product`, because an entry is a
+  tuple, no tuple honors `Num`, and so no call could type-check. A map's
+  values are totalled through the sequence `Map.values` answers:
+  `m.values().sum()`. `Seq`'s eight are the generic consumers, which every
+  iterable reaches through Collections Part 5 §3.4's seats, as in
+  `Seq.sum(1..100)`. The foreign collections get none (§6).
+
+```hexagon
+let total = lines.map(score).sum()
+let most = elves.map((calories) => calories.sum()).max()
+let nearest = points.minBy((point) => point.distance)
+let busiest = visits.maxBy(((_, count)) => count)
+let latest = events.maxUsing((a, b) => Ord.compare(a.time, b.time))
+let triangle = Seq.sum(1..100)
+let higher = Ord.max(a, b)
+```
+
+### 13.2 Meaning
+
+- **Two values.**
+  - `Ord.max(a, b)` is `a` when `Ord.compare(a, b)` is `Greater`, and `b`
+    otherwise.
+  - `Ord.min(a, b)` is `b` when `Ord.compare(a, b)` is `Greater`, and `a`
+    otherwise.
+  - On a tie, `min` answers its first argument and `max` its second, so
+    `(Ord.min(a, b), Ord.max(a, b))` is always `(a, b)` or `(b, a)`: a stable
+    sort of the two.
+- **Empty.** On an empty collection, `max`, `min` and their `By` and `Using`
+  forms answer `None` (Collections Part 1 §3.1). `sum` answers zero and
+  `product` one, `Num.fromNat(0)` and `Num.fromNat(1)`.
+- **`maxUsing(c, compare)`** reads the items in traversal order and keeps a
+  best item:
+  - the best starts as the first item;
+  - each later item `x` replaces it unless `compare(best, x)` is `Greater`.
+- **`minUsing(c, compare)`** reads them the same way, and `x` replaces the
+  best only when `compare(best, x)` is `Greater`.
+- **Traversal order** is index order for a `Vector`, Collections Part 4 §7.1's
+  order for a `Set` or a `Map`, and the sequence's own order for a `Seq`.
+- **Ties.** Among items that compare equal, `min` keeps the first and `max` the
+  last.
+- **`max(c)` and `min(c)`** are `maxUsing(c, Ord.compare)` and
+  `minUsing(c, Ord.compare)`.
+- **`maxBy(c, key)`** calls `key` once per item, in traversal order. Each
+  item's key is compared with the best key so far before the next item's key
+  is computed, so the walk holds the best key and the current one, never all
+  of them. It answers the last of the
+  items whose key is greatest:
+  `maxUsing` over the pairs `(key(x), x)`, comparing first components and
+  keeping the second. `minBy` answers the first of the items whose key is
+  least.
+- **Agreement with the sort.** For a `Vector` and a comparator that is
+  consistent (§12.2):
+  - `minUsing(v, compare)` is `sortUsing(v, compare).first()`, and
+    `maxUsing(v, compare)` is `sortUsing(v, compare).last()`, empty vectors
+    included;
+  - the same holds for `min` and `max` against `sort`, and for `minBy` and
+    `maxBy` against `sortBy`.
+- **`sum(c)`** is `fold(c, Num.fromNat(0), Num.add)`, and **`product(c)`** is
+  `fold(c, Num.fromNat(1), Num.multiply)`. Both run left to right in traversal
+  order, starting from the identity. Nothing in them depends on the element
+  type:
+  - A `Float` sum rounds at each step, as a loop written by hand does. At
+    `Float`, `add` is commutative exactly but associative only up to rounding,
+    and not at all where a step overflows or meets `NaN` (Constraints §7), so
+    a different order of the same items can give a different sum.
+  - A `NaN` among the items makes the sum `NaN`.
+  - `Vector.sum([-0.0])` is `0.0`, since `0.0 + -0.0` is `0.0`.
+  - Once a running `Int` or `Nat` total or product leaves the safe range, it
+    is no longer promised exact, as `+` and `*` are not there (Primitive
+    Types §1 for `Nat`, §2.1 for `Int`).
+- **`NaN` and the signed zeros** follow `Ord<Float>` (Decisions Batch §1), as
+  the sort does:
+  - `NaN` is greatest, so `Vector.max([1.0, Float.nan])` is `Some(NaN)`.
+  - `Ord.min(1.0, Float.nan)` is `1.0`.
+  - `Ord.max(0.0, -0.0)` is `-0.0`, its second argument, because the two are
+    equal.
+- **A `Set` or a `Map`.** Their traversal order is fixed for one value within
+  one execution and promised for nothing else: two equal sets can be traversed
+  in different orders, and so can one set in two executions (Collections
+  Part 4 §7.1). So, just as `fold` and `find` on these collections can
+  (§9.7), the answer can differ between equal collections, or between runs,
+  wherever it depends on the order:
+  - which item a `By` or `Using` form returns among items that tie;
+  - how a `Float` sum or product rounds;
+  - an `Int` or `Nat` total or product that leaves the safe range;
+  - a `product` under a `Num` whose `multiply` does not commute, such as a
+    matrix type's (Constraints §7);
+  - the answer under a comparator that is not consistent (§13.3), or under a
+    callback whose answers depend on the order of its calls.
+
+  `Set.max` and `Set.min` never tie, because `Ord` agrees with `equals`
+  (Constraints §7) and a set's elements are distinct. `Map.max` and `Map.min`
+  never tie either: the keys are distinct, so the key alone decides. `v: Ord`
+  is still required, so a map whose values have no order, such as a
+  `Map(String, Set(Int))`, takes `m.maxBy(((key, _)) => key)` instead.
+
+### 13.3 Calls and effects
+
+§2's calling and failure rules hold. All of these functions are eager, a
+callback may take any colour, and a failure in a callback propagates unchanged
+and ends the call. Unlike the sort's comparator (§12.3), every call is fixed:
+
+- **A key** runs exactly once per item, in traversal order, and each item's
+  key is compared with the best key so far before the next item's key is
+  computed. A failure in a key or in a comparison of keys therefore ends the
+  call with the later items' keys not computed.
+- **A comparator** runs exactly `n - 1` times for `n` items, as
+  `compare(best, x)` for each item `x` after the first, in traversal order,
+  and not at all for an empty collection.
+- **A comparator that is not consistent** still leaves the call answering one
+  of the items of a non-empty collection. Which one is the item the steps of
+  §13.2 give, so it is decided by the input and the comparator's answers. The call never faults because of what the
+  comparator answers.
+- **`sum` and `product`** call `Num.add` or `Num.multiply` once per item, in
+  traversal order.
+
+### 13.4 Costs
+
+For `n` items, not counting the callbacks' own costs:
+
+| Operation | Bound |
+|---|---|
+| `Ord.max`, `Ord.min` | one `compare` call |
+| `max`, `min`, `maxUsing`, `minUsing` | `n - 1` comparator calls, none when empty; one traversal |
+| `maxBy`, `minBy` | `n` key calls and `n - 1` comparisons of keys, none when empty; one traversal |
+| `sum`, `product` | `n` additions or multiplications; one traversal |
+
+Every one of them holds constant extra space and, on a `Seq`, constant stack
+(Loops §6).
+
+### 13.5 Implementation requirements
+
+- **No door.** All of them are ordinary Hexagon over the collection's `fold`
+  (Stdlib Roadmap §5.1). `Ord.max` and `Ord.min` are ordinary Hexagon in
+  `Ord.hex`.
+- **No numeric editions for the two-value pair.** `Ord.hex` is seated before
+  the numeric types (Modules §5.5), so `Ord.max` and `Ord.min` publish editions
+  only at `Bool` and `Unit` (`ffi-zero-cost-fundamental-exports.md` §3.2).
+  That section fixes the JavaScript export surface, not how a Hexagon call is
+  emitted (its §8.2), so a call at `Int` may pass the `Ord` dictionary, and
+  doing so costs nothing measurable: a loop of 1,000,000 such calls over `Int`
+  takes about as long as the loop with the comparison written inline.
+- **Editions for the collection forms.** Each function bound by `Ord` or
+  `Num` gets an edition at every fundamental type seated before its module
+  that honors the bound: `Int`, `Nat`, `Float` and `BigInt` for all of them,
+  `Bool` and `Unit` for the `Ord`-bound ones, and `String` as well on `Set`
+  and `Map`, which are seated after `String.hex`. `Map.max` and `Map.min` bind
+  two variables, so each gets the full product of that spec's candidates, 49
+  editions, whose size its §10 requires to be measurable.
+
+### 13.6 Rejected alternatives (do not re-litigate)
+
+- **`max` and `min` as defaulted members of `Ord`** (Rust's provided `Ord`
+  methods, Haskell's class methods). `a.max(b)` would dot-call, but the members
+  would claim the spellings `max` and `min` in every module that honors `Ord`,
+  which could then bind no `max` or `min` of its own (Constraints §4.6).
+- **The first of equal items for both `min` and `max`** (Python, Kotlin,
+  lodash, F#, and Swift's `Sequence.max()`). `Ord.min(a, b)` and
+  `Ord.max(a, b)` would answer the same argument on a tie, and `max` would no
+  longer be the last element of the stable sort.
+- **An unspecified tie.** The answer would depend on the implementation, and
+  the text would not decide it.
+- **A `max` that faults on an empty collection, or a faulting sibling**
+  (Haskell's `maximum`, F#'s `List.max`). Absence is `Option` (Collections
+  Part 1 §3.1), and there is one function per operation (its §3.3).
+- **`sumBy`** (F#, lodash, Kotlin's `sumOf`). `By` takes the thing an operation
+  orders on (Collections Part 1 §3.4), and a sum orders nothing. On a
+  `Vector`, write `values.map(cost).sum()`. On a `Set` or a `Map`, `map`
+  answers a set or a map, and `Set.map` merges equal images (§4), which would
+  drop repeated costs. Write `Seq.sum(Seq.map(s, cost))` for a `cost` that is
+  pure and cannot fail, and otherwise fold, marked as `cost` requires; for a
+  `cost` of any colour, `s.fold!(0, (total, item) => total + cost!(item))`.
+- **A compensated sum inside `sum` for `Float`** (Python's `sum` since 3.12).
+  `Num` has no subtraction or comparison, so the generic `sum` could compensate
+  only by inspecting its element type and choosing another algorithm, which
+  is one interpretation chosen by an inferred type. A separate compensated sum
+  may still come later, under a name of its own.
+- **`maximum` and `minimum` for the collection forms** (Haskell, Elm). Those
+  languages need a second name because their `max` is bare. Here the two forms
+  live in different modules.
+
+### 13.7 Precedents consulted
+
+| Language | Two values | Collection | Empty | Key and comparator forms | Tie (collection max) | Sum |
+|---|---|---|---|---|---|---|
+| OCaml | `Stdlib.max`, `min` (plain) | none | — | none | — | none (`fold_left (+) 0`) |
+| SML | `Int.max`, `Real.max` (per type) | none | — | none | — | none |
+| Haskell | `max`, `min` (`Ord` members) | `maximum`, `minimum` | throws | `maximumBy (comparing f)` | last | `sum`, `product` |
+| Elm | `max`, `min` (plain) | `List.maximum`, `minimum` | `Nothing` | none in core | — | `List.sum`, `product` |
+| F# | `max`, `min` (plain) | `List.max`, `min` | throws | `maxBy`, `minBy` | first | `sum`, `sumBy` |
+| Rust | `a.max(b)`, `cmp::max` | `Iterator::max`, `min` | `None` | `max_by_key`, `max_by` | last | `sum`, `product` |
+| Swift | free `max`, `min` | `Sequence.max()`, `min()` | `nil` | `max(by:)` | first | none (`reduce(0, +)`) |
+| Python | `max(a, b)` | `max(xs)` | throws, or `default=` | `key=` | first | `sum` (compensated for floats since 3.12) |
+| Kotlin | `maxOf(a, b)` | `maxOrNull()` | `null` | `maxByOrNull`, `maxWithOrNull` | first | `sum`, `sumOf` |
+| lodash | — | `max`, `min` | `undefined` | `maxBy`, `minBy` | first | `sum`, `sumBy` |
