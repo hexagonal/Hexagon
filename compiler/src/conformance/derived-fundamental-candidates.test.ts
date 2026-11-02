@@ -338,7 +338,11 @@ describe("the program table is what makes a prelude module's plan the consumer's
     // `String.hex` (the tripwire above). They are safe only because their
     // bodies never ask for it: `==` at a primitive lowers to `===` and reads no
     // evidence. The compiler-defect assertion below is what holds that loud;
-    // the body check here pins the reason.
+    // the body check here pins the reason. Any other `Eq`-bound export seated
+    // before `String.hex` adds its `String` edition to this list and fails it
+    // (measured with a probe export in `Vector.hex`). The remedy then lies in
+    // the seat order or in the planner, which could skip an edition whose
+    // evidence it cannot reach; not in a longer list.
     expect(unresolvable).toEqual([
       "/Hex/Vector.hex containsString hex:Eq",
       "/Hex/Vector.hex indexOfString hex:Eq",

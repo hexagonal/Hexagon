@@ -249,7 +249,7 @@ For a collection of `n` items, not counting the callbacks' own costs:
 | `fold`, `find`, `any`, `all`, `contains`, `indexOf` (all three types where offered) | O(n) traversal; `find`, `any`, `all`, `contains` and `indexOf` stop early |
 | `Set.filter`, `Map.filter` | O(n): the trie is rebuilt from its own nodes, with no key hashed again |
 | `Set.map` | expected O(n log₃₂ n): each image is hashed and placed |
-| `Map.map` | expected O(n), each returned key hashed once under `j`'s `Hash`, plus expected O(log₃₂ n) for each entry whose returned key does not keep its original's slot; the kept keys of a collision node of `c` keys are compared pairwise, O(c²) (Part 4 §2.2's "expected") |
+| `Map.map` | expected O(n): each returned key is hashed under `j`'s `Hash` once, or, for a key a collision node held, at most three times; plus expected O(log₃₂ n) for each entry whose returned key does not keep its original's slot; the kept keys of a collision node of `c` keys are compared pairwise, O(c²) (Part 4 §2.2's "expected") |
 
 A returned key **keeps its original's slot** when its mixed hash under `j`'s
 `Hash` (Collections Part 2 §2.4) is the one stored for the original. The trie
@@ -282,7 +282,7 @@ carry `Hash` on the new element or key type, which they place.
   the trie's own nodes: ordinary Hexagon in `Hex.Runtime.VectorTrie` or
   `Hex.Runtime.HashTrie`, reached through companion door rows linked onto its
   compiled operations (Intrinsics §3.4), whose keys Intrinsics §3.2's
-  paragraphs for the three companions record when they ship. That covers
+  paragraphs for the three companions record. That covers
   `Vector`'s search (beneath `find`, `any`, `all`, `contains`, `indexOf`) and
   `zip`, and `Map`'s and `Set`'s `fold`, `find`, `filter` and the rebuild
   beneath `Map.map`; `filter` and the rebuild read each entry's stored hash.
@@ -295,10 +295,10 @@ carry `Hash` on the new element or key type, which they place.
 - The walks are parametric (Intrinsics §4.2): they move the values at their
   type parameters and compare keys only through `Eq` and `Hash` evidence. No
   new comparison door is needed.
-- `DuplicateKeyFault` joins Exceptions §8.5's inventory of the prelude's
-  faults when it ships, bare by category like `KeyFault` (Exceptions §2.1).
-  The counts of the bare set in Modules §5.5 and `stdlib-roadmap.md`, and the
-  bare-set conformance test, grow by one with it.
+- `DuplicateKeyFault` is in Exceptions §8.5's inventory of the prelude's
+  faults, bare by category like `KeyFault` (Exceptions §2.1), and the counts
+  of the bare set in Modules §5.5 and `stdlib-roadmap.md`, and the bare-set
+  conformance test, include it.
 - Every export carries a one- or two-sentence `(** *)` doc comment, purpose
   first.
 - Conformance tests check each function against its §1.1 law (or §3's meaning)

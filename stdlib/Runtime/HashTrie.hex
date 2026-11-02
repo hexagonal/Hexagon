@@ -700,7 +700,10 @@ fun filterTree(tree: Tree(k, v), keep: (k, v) ->! Bool): Pruned(k, v) =
 // placement happens here and nothing is decided; `keepsEverySlot` and `split`
 // read the result against `tree` afterwards, so every callback has run before
 // any repeat is known. `nodeMap` builds each node at its own length in one
-// pass.
+// pass. A collision's returned keys keep no hash of their own here, so each
+// reader that needs one hashes them again: at most three times, on the route
+// that splits. Collision nodes are rare, and their kept keys are compared
+// pairwise anyway.
 fun reshape(tree: Tree(k, v), transform: ((k, v)) ->! (j, w), hashOf: j -> Int): Tree(j, w) =
     match tree
         Entry(_, key, value) =>
