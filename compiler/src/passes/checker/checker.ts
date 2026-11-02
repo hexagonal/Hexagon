@@ -1093,6 +1093,19 @@ function precedes(left: Source.Span, right: Source.Span): boolean {
   return left.start.offset < right.start.offset;
 }
 
+const COUNT_WORDS = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"];
+const ORDINAL_WORDS = ["zeroth", "first", "second", "third", "fourth", "fifth", "sixth", "seventh", "eighth", "ninth", "tenth"];
+
+/** `2` as "two", for a count in prose; past ten, the digits. */
+function countWord(count: number): string {
+  return COUNT_WORDS[count] ?? String(count);
+}
+
+/** `2` as "second", for a position in prose; past ten, `11th`-style digits. */
+function ordinalWord(position: number): string {
+  return ORDINAL_WORDS[position] ?? `${position}th`;
+}
+
 /**
  * The article for a name a message quotes *(#867)*. §9's narrower-acceptance
  * row is written over `action` — "accepts an `action`" — and a parameter named
@@ -4655,6 +4668,12 @@ class Checker {
   readonly #deepOpenings = new WeakSet<Variable>();
   /** Whether `#unify` stands inside an odd number of parameter positions, where demand and supply turn over. */
   #parameterParity = false;
+  /**
+   * How many function parameters deep the current unification is: zero at the
+   * two function types being met, one inside a parameter's own type, and so
+   * on. `#parameterParity` alone cannot tell depth two from depth zero.
+   */
+  #parameterDepth = 0;
   /** The two function types whose colours `#unify` is meeting, for §4.3's report: the demand as written. */
   #meetingArrows: MeetingArrows | undefined;
   #meetings = 0;
@@ -4982,6 +5001,13 @@ class Checker {
    * runs a colour a written `>->` is not handed.
    */
   readonly #lambdasOf = new WeakMap<Mono, LambdaSet>();
+  /**
+   * The lambda each effect frame was opened for: `#frameByLambda` read the
+   * other way. A function type reaches its lambda through `#lambdasOf`, which
+   * every copy of the type carries, so an arity report can stand at the lambda
+   * and spell its rewrite in the lambda's own parameter names (#1418).
+   */
+  readonly #lambdaOfFrame = new WeakMap<EffectFrame, Resolved.LambdaExpr>();
   /**
    * A member header's arrow is refused once, at the declaration (§4.4). The
    * honor and default seats re-elaborate the same annotations to build the
@@ -12832,6 +12858,7 @@ class Checker {
         }
         this.#frameOfType.set(type, effectFrame);
         this.#lambdasOf.set(type, { frame: effectFrame });
+        this.#lambdaOfFrame.set(effectFrame, expression);
         const binderSpans = new Map(
           (expression.typeParameters ?? []).map(({ name, span }) => [name, span] as const),
         );
@@ -30844,6 +30871,110 @@ class Checker {
   }
 
   /**
+   * A function that spreads one tuple parameter over several (Functions §5,
+   * #1418): `(k, v) => …` where a `Map`'s entry callback takes one pair. The
+   * refusal stands (no tuple application, §5), and the report names the
+   * destructuring rewrite. `left` is the expected type and `right` the actual,
+   * as for `#nullaryArityMessage`.
+   *
+   * It speaks only where the reading is the one possibility: exactly one of the
+   * expected parameters is a tuple whose parts make up the difference. A lambda
+   * that is the whole value handed here is caret and rewritten in its own
+   * parameters as written; any other function is wrapped in one.
+   *
+   * Only at the two function types being met (`#parameterDepth` zero). Inside a
+   * parameter's own type the function at fault is one the callee hands over or
+   * is handed, not the value written at the seat, so neither rewrite applies
+   * and the plain report stands.
+   */
+  #spreadTupleArity(
+    left: Mono,
+    right: Mono,
+    span: Source.Span,
+  ): { readonly message: string; readonly at?: Source.Span } | undefined {
+    if (left.kind !== "Function" || right.kind !== "Function") return undefined;
+    if (this.#parameterDepth !== 0) return undefined;
+    const extra = right.parameters.length - left.parameters.length;
+    if (extra < 1) return undefined;
+    const tuples = left.parameters.flatMap((parameter, index) => {
+      const solved = this.#prune(parameter);
+      return solved.kind === "Tuple" && solved.elements.length === extra + 1 ? [index] : [];
+    });
+    if (tuples.length !== 1) return undefined;
+    const at = tuples[0]!;
+    const parts = extra + 1;
+    // The parts' types where they are known; a part still unsolved would show
+    // as a variable the program never wrote.
+    const tupleType = left.parameters[at]!;
+    const known = this.#shapeVariables(tupleType).every((variable) => variable.rigidName !== undefined);
+    const tuple = known ? ` \`${this.#display(tupleType)}\`` : "";
+    const shape = parts === 2 ? "a pair" : parts === 3 ? "a triple" : `a tuple of ${countWord(parts)}`;
+    const name = parts === 2 ? "pair" : parts === 3 ? "triple" : "tuple";
+    const seat = left.parameters.length === 1
+      ? `the function expected here takes one parameter, ${shape}${tuple}`
+      : `the function expected here takes ${shape}${tuple} as its ${ordinalWord(at + 1)} parameter`;
+    // The lambda written here, as the value the seat is handed: inside the
+    // report's own span (a call's argument, or the branch the seat landed on),
+    // or inside the value a written annotation is the seat of
+    // (`#atAnnotationSeat`). A named function's lambda is its declaration,
+    // which this report does not rewrite. A value merged from several lambdas
+    // (`pick(c, f, (k, v) => …)`) has no one set of names to spell the rewrite
+    // in, and rewriting one of them would leave the others failing, so the
+    // lambda is used only when it is the value's one lambda.
+    const pin = this.#pinSides;
+    const frames = lambdaFrames(this.#lambdasOf.get(right));
+    const here = frames.flatMap((frame) => {
+      const found = this.#lambdaOfFrame.get(frame);
+      return found !== undefined &&
+          (spanWithin(found.span, span) ||
+            pin !== undefined && pin.annotation === span && spanWithin(found.span, pin.value))
+        ? [found]
+        : [];
+    });
+    const lambda = frames.length === 1 && here.length === 1 ? here[0] : undefined;
+    // Each parameter as written, without its annotation: a plain name is its
+    // name; `_` and a destructuring pattern carry a synthesized name, so they
+    // are spelled from the source their span covers, a pattern over several
+    // lines joined onto one. Where that text holds a comment or a literal,
+    // joining could change it, so the function is wrapped instead.
+    const plain = /^[a-z_][A-Za-z0-9_]*$/u;
+    const spellings = lambda?.parameters.map(({ name, span: written }) => {
+      if (plain.test(name) && !name.startsWith("__")) return name;
+      const text = this.#sourceText?.slice(written.start.offset, written.end.offset);
+      if (text === undefined || text.length === 0) return undefined;
+      if (!/[\r\n]/u.test(text)) return text;
+      return /\/\/|\(\*|\/\*|["'`]/u.test(text) ? undefined : text.replace(/\s*[\r\n]\s*/gu, " ");
+    });
+    if (
+      lambda !== undefined && spellings !== undefined &&
+      spellings.every((spelling): spelling is string => spelling !== undefined)
+    ) {
+      const rewritten = [
+        ...spellings.slice(0, at),
+        `(${spellings.slice(at, at + parts).join(", ")})`,
+        ...spellings.slice(at + parts),
+      ];
+      return {
+        message: `${seat}, but the lambda spreads it over ${countWord(parts)} parameters; ` +
+          `destructure the ${name} in one parameter: \`(${rewritten.join(", ")}) => …\``,
+        at: lambda.span,
+      };
+    }
+    const letters = "abcdefghijklmnopqrstuvwxyz";
+    const placeholders = right.parameters.map((_, index) => letters[index] ?? `p${index}`);
+    const wrapped = [
+      ...placeholders.slice(0, at),
+      `(${placeholders.slice(at, at + parts).join(", ")})`,
+      ...placeholders.slice(at + parts),
+    ];
+    return {
+      message: `${seat}, but this function takes ${countWord(right.parameters.length)} parameters; ` +
+        `wrap it in a lambda that destructures the ${name}: ` +
+        `\`(${wrapped.join(", ")}) => f(${placeholders.join(", ")})\``,
+    };
+  }
+
+  /**
    * The inferred type published under the **written** signature's namespace
    * qualifiers (FFI Part 7 §2.4 rung 3, §14.3).
    *
@@ -31958,12 +32089,14 @@ class Checker {
       if (actualLeft.name === actualRight.name) return;
     } else if (actualLeft.kind === "Function" && actualRight.kind === "Function") {
       if (actualLeft.parameters.length !== actualRight.parameters.length) {
+        const spread = message === undefined ? this.#spreadTupleArity(actualLeft, actualRight, span) : undefined;
         this.#diagnostics.add({
           severity: "error",
           message: message?.() ?? this.#nullaryArityMessage(actualLeft, actualRight) ??
+            spread?.message ??
             `function arity mismatch: ${actualLeft.parameters.length} and ` +
               `${actualRight.parameters.length}`,
-          primary: span,
+          primary: spread?.at ?? span,
         });
         return;
       }
@@ -31971,6 +32104,7 @@ class Checker {
       // its parameter is its demand on what it is handed, and the position's
       // is what it will supply (Effects §4.3, #1119) — for the report's words.
       this.#parameterParity = !this.#parameterParity;
+      this.#parameterDepth += 1;
       try {
         for (const [index, parameter] of actualLeft.parameters.entries()) {
           const other = actualRight.parameters[index];
@@ -31979,6 +32113,7 @@ class Checker {
         }
       } finally {
         this.#parameterParity = !this.#parameterParity;
+        this.#parameterDepth -= 1;
       }
       if (unifyChild(actualLeft.result, actualRight.result)) return;
       // A merge makes one value of two lambdas: either may be what runs.
