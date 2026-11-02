@@ -11,7 +11,9 @@ rebuilds' shapes in `hash-trie.test.ts`. §12, sorting on `Vector`, added
 consumers), added 2026-11-02 and ruled by James, with `Ord.max` and `Ord.min`
 made defaulted members of `Ord` the same day, also ruled by James, and
 implemented by #1431; conformance:
-`compiler/src/conformance/collection-extremes.test.ts`. This document is the
+`compiler/src/conformance/collection-extremes.test.ts`; §13.5's rule for
+`Map.max` and `Map.min`, which bind two variables, waits on #1438. This
+document is the
 stdlib listing's
 part for the combinator families over `Vector(a)`, `Set(a)` and `Map(k, v)`: their shared
 doctrine, the v1 ship-list, and the deliberate absence of combinators on the
@@ -775,13 +777,15 @@ Every one of them holds constant extra space and, on a `Seq`, constant stack
   member off the hoisted dictionary; under an `Ord` bound it reads it from the
   dictionary passed in. A member's forwarder has no editions (Constraints
   §6.1).
-- **Editions for the collection forms.** Each function bound by `Ord` or
-  `Num` gets an edition at every fundamental type seated before its module
-  that honors the bound: `Int`, `Nat`, `Float` and `BigInt` for all of them,
-  `Bool` and `Unit` for the `Ord`-bound ones, and `String` as well on `Set`
-  and `Map`, which are seated after `String.hex`. `Map.max` and `Map.min` bind
-  two variables, so each gets the full product of that spec's candidates, 49
-  editions, whose size its §10 requires to be measurable.
+- **Editions for the collection forms.** Each function with one variable
+  bound by `Ord` or `Num` gets an edition at every fundamental type seated
+  before its module that honors the bound (`ffi-zero-cost-fundamental-exports.md`
+  §3.2): `Int`, `Nat`, `Float` and `BigInt` for all of them, `Bool` and `Unit`
+  for the `Ord`-bound ones, and `String` as well on `Set` and `Map`, which are
+  seated after `String.hex`. `Map.max` and `Map.min` bind two variables, so
+  they get no editions: JavaScript calls their generic editions, and a Hexagon
+  call at two fundamental types reaches the copy for that pair (the same
+  spec's §8.3).
 
 ### 13.6 Rejected alternatives (do not re-litigate)
 
