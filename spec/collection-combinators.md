@@ -1,8 +1,10 @@
 # Stdlib listing: collection combinators
 
-**Status:** Decided 2026-11-02. Not yet implemented; the implementation is
-tracked by #1417. This document is the stdlib listing's part for the
-combinator families over `Vector(a)`, `Set(a)` and `Map(k, v)`: their shared
+**Status:** Decided 2026-11-02, and revised on review before landing: §1.3
+states what traversal order never chooses, and §7's shortcut keys on the
+stored hash, so no comparison door is needed. Not yet implemented; the
+implementation is tracked by #1417. This document is the stdlib listing's
+part for the combinator families over `Vector(a)`, `Set(a)` and `Map(k, v)`: their shared
 doctrine, the v1 ship-list, and the deliberate absence of combinators on the
 foreign collections. It discharges the "Combinator families" row of
 `stdlib-roadmap.md` for these three types, and replaces the `Map.mapValues`
@@ -13,8 +15,10 @@ prelude companions, with the trie operations they need in
 `stdlib/Runtime/HashTrie.hex` and `stdlib/Runtime/VectorTrie.hex`.
 
 **Not in scope:** sorting, and `min`/`max`/`sum` (later listing decisions);
-`Map.update`, the `merge` family, `getOr` and `containsValue` (still ledgered
-in `stdlib-roadmap.md`); `Seq`'s own surface, which is unchanged; `String`'s
+Collections Part 3 §7's other ledgered `Vector` candidates (`insertAt`,
+`removeAt`, and positional `take` and `drop`) and `Map.update`, the `merge`
+family, `getOr` and `containsValue` (all still ledgered in
+`stdlib-roadmap.md`); `Seq`'s own surface, which is unchanged; `String`'s
 text-processing surface (`string-text-processing.md`); the foreign collections
 `Array(a)`, `JsMap(k, v)` and `JsSet(a)`, beyond §6's statement that they get
 none of these.
@@ -24,8 +28,8 @@ none of these.
 `Seq` seats, §10 the collections/listing boundary); Effects §2.4 (callback
 colours) and §7 (no failing step in a lazy pipeline); Exceptions §2 (fault
 payloads); FFI Part 2 §1 and Part 10 §1 (the foreign collections are doors);
-Intrinsics §3.3 (doors); `option-result-convenience.md` (the callback form
-these functions share).
+Intrinsics §3.4 and §4.2 (door rows onto a runtime module, parametricity);
+`option-result-convenience.md` (the callback form these functions share).
 
 ---
 
@@ -44,23 +48,25 @@ C.fold(c, z, f)  ≡  Seq.fold(c, z, f)
 ```
 
 The eager forms also accept callbacks that are impure or may fail, which the
-lazy right-hand sides refuse (Effects §7). A `Map`'s items are its entries
-`(k, v)` (Collections Part 4 §7.2), so every `Map` callback takes the entry.
-Names that `Seq` does not have (`contains`, `indexOf`, `reverse`, `indexed`)
-take their meaning from Collections Part 3 and §3.
+lazy `Seq.filter` and `Seq.map` refuse (Effects §7). A `Map`'s items are its
+entries `(k, v)` (Collections Part 4 §7.2), so every `Map` callback takes the
+entry. Names that `Seq` does not have (`contains`, `indexOf`, `reverse`,
+`indexed`) take their meaning from §3.
 
 **1.2 A name goes only where its meaning holds.** `Map` and `Set` have no
 positions (Collections Part 4 §4.4), so the names that speak about positions
-(`indexOf`, `reverse`, `zip`, `indexed`, and later `sort`, `take`, `drop`,
-`first`, `last`) belong to `Vector` alone. The traversals a `Map` or `Set`
-already exposes through `toSeq`, `entries` and `for` (`fold`, `find`, `any`,
-`all`) are offered on both, and visit items in the order Part 4 §7.1 gives
-them.
+(`first` and `last`, which Collections Part 3 already gives `Vector`, and
+`indexOf`, `reverse`, `zip`, `indexed`, and later `sort`, `take`, `drop`)
+belong to `Vector` alone. The traversals a `Map` or `Set` already exposes
+through `toSeq`, `entries` and `for` (`fold`, `find`, `any`, `all`) are offered
+on both, and visit items in the order Part 4 §7.1 gives them.
 
-**1.3 Traversal order never chooses a resulting `Map` or `Set`'s contents.**
-This extends Collections Part 4 §5.4's stance for set algebra to the
-combinators. It is why `Map.map` refuses a repeated key (§5.1) instead of
-keeping the last.
+**1.3 Traversal order never chooses what a resulting `Map` or `Set` holds:**
+which keys or elements are present, up to `equals`, and each key's value. It is
+why `Map.map` refuses a repeated key (§5.1) instead of keeping the last. The
+one thing the order can choose is a representative: of two equal images that
+are distinguishable, which one `Set.map` keeps (§4), exactly as `Set.fromSeq`
+chooses over a set's traversal today (Collections Part 4 §3.3).
 
 **1.4 The foreign collections get no combinators** (§6).
 
@@ -132,10 +138,11 @@ all(s: Set(a), matches: a ->! Bool): Bool
 
 - All six are §1.1's law at `Set`, in traversal order.
 - `Set.map` merges elements whose images are equal, as `Set.fromSeq` does.
-  Nothing is lost by the merge, since equal images are one element. Where two
-  images are equal but distinguishable (in v1 only `0.0` and `-0.0`, Part 4
-  §5.4), the representative kept is the first produced in traversal order,
-  exactly as for `Set.fromSeq(Seq.map(s, transform))`.
+  Where two images are equal but distinguishable (in v1 only through `0.0` and
+  `-0.0`, bare or inside a structure, Part 4 §5.4), the representative kept is
+  the first produced in traversal order, exactly as for
+  `Set.fromSeq(Seq.map(s, transform))`. Which one that is can differ from run
+  to run (§1.3).
 - `Set.filter` keeps the stored representatives of the elements it keeps.
 - `find` answers the first matching element in traversal order. Where several
   match, which one that is follows Part 4 §7.1, as for `Seq.find(s, matches)`.
@@ -172,11 +179,15 @@ Where the returned keys are distinct, the result is
 choice (§1.3). `Map.map` instead throws `DuplicateKeyFault`, after every
 callback has run. Whether a repeat occurs depends only on the entries
 returned, not on the order, so the fault is as deterministic as the result. A
-caller who wants last-wins writes `Map.fromSeq(Seq.map(m, transform))`, where
-the dependence on order is visible.
+callback that fails ends the call first, so its failure, not the fault, is
+what propagates. A caller who wants last-wins writes
+`Map.fromSeq(Seq.map(m, transform))`, or, for a callback that is impure or may
+fail, `Map.fromSeq(Vector.fromSeq(m).map!(transform))`, where the dependence on
+order is visible.
 
 ```hexagon
-(** Two entries passed through `Map.map` came back with equal keys. *)
+(** Raised when two entries passed through `Map.map` come back with equal
+    keys. *)
 fault DuplicateKeyFault
 ```
 
@@ -206,7 +217,8 @@ m.fold(0, (total, (_, score)) => total + score)
 
 A lambda of two parameters, `(k, v) => …`, is a different function type, and
 is refused at an entry callback as it is at any one-parameter seat. It is never
-adapted into a function of the entry.
+adapted into a function of the entry. The refusal names the rewrite
+`((k, v)) => …` (Declarations Preamble §1.1's Rewrite Rule; #1418).
 
 ## 6. The foreign collections
 
@@ -219,8 +231,9 @@ already present:
   `Seq.all`, `Seq.forEach` and `Seq.length` take one directly, through
   Collections Part 5 §3.4's `Seq` seats.
 - **Transformations.** Convert once to the workhorse: `Array.toVector(arr)` or
-  `Vector.fromSeq(arr)`, `Map.fromSeq(jsMap)`, `Set.fromSeq(jsSet)`. Each is
-  one linear copy, like the crossing's own (FFI Part 2 §6.2).
+  `Vector.fromSeq(arr)`, `Map.fromSeq(jsMap)`, `Set.fromSeq(jsSet)`. The first
+  two are one linear copy, like the crossing's own (FFI Part 2 §6.2); the last
+  two place each item, at Collections Part 4 §2.2's expected cost.
 
 ## 7. Costs
 
@@ -228,20 +241,30 @@ For a collection of `n` items, not counting the callbacks' own costs:
 
 | Operation | Bound |
 |---|---|
-| `Vector.map`, `filter`, `flatMap`, `reverse`, `zip`, `indexed` | O(n) in the elements produced, plus the result's construction |
+| `Vector.map`, `filter`, `flatMap`, `reverse`, `indexed` | O(n + r), `r` the result's length |
+| `Vector.zip` | O(r), `r` the shorter vector's length |
 | `fold`, `find`, `any`, `all`, `contains`, `indexOf` (all three types where offered) | O(n) traversal; `find`, `any`, `all`, `contains` and `indexOf` stop early |
 | `Set.filter`, `Map.filter` | O(n): the trie is rebuilt from its own nodes, with no key hashed again |
 | `Set.map` | expected O(n log₃₂ n): each image is hashed and placed |
-| `Map.map` | O(n), plus expected O(log₃₂ n) for each entry whose returned key does not land where the key handed in was |
+| `Map.map` | O(n), each returned key hashed once under `j`'s `Hash`, plus expected O(log₃₂ n) for each entry whose returned key does not keep its original's slot |
 
-A returned key **lands where the key handed in was** when it is the same value
-by SameValueZero (the relation `Eq<Float>` uses, Constraints §7) and its hash,
-under `j`'s `Hash`, is the one stored for the original. Such an entry keeps its
-slot, which takes the returned key and the new value. A key that is rebuilt
-rather than returned (a fresh tuple equal to the old one, say) is placed
-again: the same result, at the placement's cost. The shortcut is unobservable:
-the result is always the one the full placement gives, so it is transparent on
-the terms Effects §6.2 sets for an owned memo.
+A returned key **keeps its original's slot** when its mixed hash under `j`'s
+`Hash` (Collections Part 2 §2.4) is the one stored for the original. The trie
+places a key by that hash alone, so the slot is where placing the returned key
+afresh would put it, and it takes the returned key and the new value. A key
+handed back unchanged keeps its slot whenever `j`'s `Hash` agrees with `k`'s
+on it, as it does when `j` is `k`; `0.0` and `-0.0` hash alike (Constraints §7),
+so a key turned from one into the other keeps its slot too. Every other
+returned key is placed afresh. Kept keys that share a collision node, which
+holds the keys of one mixed hash, are compared with each other under `j`'s
+`Eq`, and a key placed afresh is compared as it is placed, so every repeat is
+found (§5.1). Kept keys in different slots have different hashes, so they
+cannot be equal.
+
+The shortcut is unobservable: the result holds exactly the entries placing
+every returned entry afresh would give. Only the trie's shape, and with it the
+traversal order, can differ, and Collections Part 4 §7.1 promises nothing about
+the order of two maps.
 
 `filter` and the `Map` functions other than `map` carry no `Hash` constraint,
 since they consult no key (Collections Part 4 §1). `Set.map` and `Map.map`
@@ -249,16 +272,24 @@ carry `Hash` on the new element or key type, which they place.
 
 ## 8. Implementation requirements
 
-- The combinators are ordinary Hexagon source in their companions, written as
-  loops over the collections, not as round trips through `Seq` (whose per-pull
-  allocation costs about forty times a loop).
-- `Set.filter`, `Map.filter` and `Map.map` need trie operations that read each
-  entry's stored hash. `Map.map`'s shortcut also needs a comparison of two
-  values by SameValueZero whatever their types, which ordinary Hexagon cannot
-  write. Both are runtime doors under Intrinsics §3.3, and Intrinsics §3.2's
-  `Map` and `Set` paragraphs record the keys when they ship.
+- The combinators are loops over the collections, never round trips through
+  `Seq`, whose every pull allocates a cell. A walk that must stop early or read
+  two collections in step, and every walk over a `Map` or `Set`, is a loop over
+  the trie's own nodes: ordinary Hexagon in `Hex.Runtime.VectorTrie` or
+  `Hex.Runtime.HashTrie`, reached through companion door rows linked onto its
+  compiled operations (Intrinsics §3.4), whose keys Intrinsics §3.2's
+  paragraphs for the three companions record when they ship. That covers
+  `Vector`'s search (beneath `find`, `any`, `all`, `contains`, `indexOf`) and
+  `zip`, and `Map`'s and `Set`'s `fold`, `find`, `filter` and the rebuild
+  beneath `Map.map`, which read each entry's stored hash. The rest are
+  ordinary Hexagon in the companions, `Vector`'s over its `for` loop.
+- The walks are parametric (Intrinsics §4.2): they move the values at their
+  type parameters and compare keys only through `Eq` and `Hash` evidence. No
+  new comparison door is needed.
 - `DuplicateKeyFault` joins Exceptions §8.5's inventory of the prelude's
   faults when it ships, bare by category like `KeyFault` (Exceptions §2.1).
+  The counts of the bare set in Modules §5.5 and `stdlib-roadmap.md`, and the
+  bare-set conformance test, grow by one with it.
 - Every export carries a one- or two-sentence `(** *)` doc comment, purpose
   first.
 - Conformance tests check each function against its §1.1 law (or §3's meaning)
@@ -271,7 +302,8 @@ carry `Hash` on the new element or key type, which they place.
 ### 9.1 `Map.map` that keeps the keys and returns only a value
 
 F#'s `Map.map` and Elm's `Dict.map` take the key and value as two arguments and
-return the new value; their `Seq.map` over a map takes the entry, so the two
+return the new value, while a function of the entry (F#'s `Seq.map` over a
+map, or a `List.map` over Elm's `Dict.toList`) takes one pair, so the two
 meanings show in two callback shapes. In Hexagon both take the entry, so one
 lambda, `((k, v)) => v * 10`, would mean a sequence of numbers to `Seq.map`
 and a map with the old keys to `Map.map`. That breaks §1.1.
@@ -280,7 +312,8 @@ and a map with the old keys to `Map.map`. That breaks §1.1.
 
 A second function for the values-only case. §7's shortcut makes `Map.map`
 returning the key it was handed a single pass, so the second name buys no
-speed.
+asymptotic speed. It would save one hash of each key, which `Map.map` computes
+because it cannot know that `j` is `k`.
 
 ### 9.3 Last-wins on a repeated key in `Map.map`
 
@@ -330,11 +363,11 @@ those two expose is already public through `toSeq`, `entries` and `for`.
 
 | # | Decision | Section |
 |---|---|---|
-| 1 | One combinator family across `Vector`, `Set` and `Map`, each name meaning `Seq`'s over the items, eager, with callbacks of any colour | §1.1, §2 |
+| 1 | One combinator family across `Vector`, `Set` and `Map`, each name meaning `Seq`'s over the items, eager, with callbacks of any colour; no generic family over `Iterable` | §1.1, §2, §9.5 |
 | 2 | Positional names on `Vector` only | §1.2 |
-| 3 | Traversal order never chooses a resulting collection's contents | §1.3 |
-| 4 | v1 ship-lists: `Vector` twelve, `Set` six, `Map` six | §3–§5 |
+| 3 | Traversal order never chooses which items a resulting `Map` or `Set` holds, or a key's value | §1.3 |
+| 4 | v1 ship-lists: `Vector` twelve, `Set` six, `Map` six, with `fold` and `find` on all three | §3–§5, §9.7 |
 | 5 | `Map` callbacks take the entry, destructured with a tuple pattern; `(k, v) => …` is never adapted | §5.2, §9.4 |
 | 6 | `Map.map` is entries in, entries out; a repeated key throws `DuplicateKeyFault`; no `mapValues` | §5.1, §9.1–§9.3 |
-| 7 | `Map.map` keeps a slot whose key comes back unchanged, through a runtime door; the shortcut is unobservable | §7, §8 |
+| 7 | `Map.map` keeps the slot of each returned key whose hash is the one stored, so a key handed back unchanged costs no placement; the shortcut is unobservable | §7, §8 |
 | 8 | No combinators on `Array`, `JsMap`, `JsSet` | §6, §9.6 |
