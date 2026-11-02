@@ -27,8 +27,10 @@ instances rather than asking JavaScript callers to invent competing ones.
 Most JavaScript callers should not have to pass a dictionary for ordinary primitive
 types. Hexagon therefore gives constrained exports two complementary forms:
 
-- direct named functions for fundamental types; and
-- one dictionary-taking generic function for public user types.
+- direct named functions for fundamental types, when the function has one constrained
+  type; and
+- one dictionary-taking generic function, for public user types and for functions with
+  several constrained types.
 
 ## Fundamental types receive direct functions
 
@@ -59,7 +61,8 @@ representation happens to be simple.
 
 Each constraint selects the fundamental types that actually honor it. `Num` applies to
 `Nat`, `Int`, `Float`, and `BigInt`, so `plus` receives exactly those four functions. Another
-constraint may produce a different subset.
+constraint may produce a different subset. A function receives at most seven direct
+functions, one for each fundamental type.
 
 The generated name preserves a distinction that TypeScript cannot express in its type
 alone. `plusInt` and `plusFloat` both accept `number`, but they promise different
@@ -96,24 +99,29 @@ Direct code must still preserve Hexagon's semantics. For example, `Eq<Float>` tr
 though `===` would be shorter. Removing dictionary plumbing must not change the
 language's rules.
 
-## Several constrained types produce combinations
+## Several constrained types use the generic function
 
-When a function has several constrained type variables, every permitted fundamental
-combination receives a direct function. For a function whose first variable admits
-`Int`, `Float`, and `BigInt`, and whose second admits `String`, `Bool`, and `Unit`, the
-names include:
+A function with two or more constrained type variables receives no direct functions.
+Their number would multiply: two variables that each admit all seven fundamental types
+would need 49 of them. JavaScript calls such a function through its generic function,
+described in the next section, passing one dictionary for each constrained type:
 
-```text
-combineIntString
-combineFloatBool
-combineBigIntUnit
+```hexagon
+export let combine<a: Show, b: Eq>(x: a, y: b): String = ...
 ```
 
-Only combinations that satisfy every stated constraint are generated. An unconstrained
-type variable stays generic and contributes no name suffix.
+```ts
+combine(3, "x", Show.int, Eq.string);
+```
 
-Renaming a type variable from `a` to `value` cannot change the JavaScript API. The
-declared variable positions determine the suffix order; the variable spellings do not.
+Hexagon code still calls `combine` without dictionaries. When a Hexagon call uses
+fundamental types, as `combine(3, "x")` does, the compiler makes a private
+dictionary-free copy for exactly those types, and only for the combinations the program
+actually calls. These copies are not part of the JavaScript API.
+
+An unconstrained type variable stays generic and does not count. `tag<a: Show>(x: a,
+y: b)` has one constrained type, so it receives `tagInt`, `tagString`, and the rest, and
+`b` adds no name suffix.
 
 ## User types use the generic function
 
@@ -271,31 +279,38 @@ The generated JavaScript surface depends on:
 
 It does not depend on private types, private dictionaries, or which calls happen inside
 Hexagon. Removing the last internal use of `plus(Int, Int)` does not remove `plusNat` and `plusInt`.
-Adding a private `Num<Secret>` instance does not add the generic `plus` function.
+Adding a private `Num<Secret>` instance does not add the generic `plus` function. The
+private copies of a function with several constrained types do follow Hexagon's calls,
+and for that reason they are never part of the JavaScript API.
 
 JavaScript callers are invisible to Hexagon's analysis of internal calls. Keeping the
 foreign surface tied to public declarations makes it stable under private refactoring.
 
-A constrained export may have no JavaScript entry point. This happens when no
-fundamental type honors its constraint and JavaScript cannot obtain dictionaries for a
-public user type. The export remains usable by other Hexagon modules. Generated
+A constrained export may have no JavaScript entry point. This happens when it has no
+direct functions, because no fundamental type honors its constraint or because it has
+several constrained types, and JavaScript cannot obtain dictionaries for a public user
+type. The export remains usable by other Hexagon modules. Generated
 documentation and build reports identify the missing JavaScript surface.
 
 ## Generated names are public API
 
 A direct-function name is the source export name followed by its fundamental type
-names:
+name:
 
 ```text
 plus + Int = plusInt
-combine + Int + String = combineIntString
+plus + BigInt = plusBigInt
 ```
+
+Renaming a type variable from `a` to `value` cannot change the JavaScript API, because
+the suffix is a type name, never a variable spelling.
 
 If a generated name collides with an explicit export or another generated name, the
 compiler reports an error naming both declarations. It never silently adds numbers,
 mangles the name, or chooses one export by source order.
 
-Renaming the source function renames every generated function. Changing constraints,
+Renaming the source function renames every generated function. Constraining a second
+type variable removes every direct function, leaving the generic function. Changing constraints,
 fundamental instances, public dictionaries, dictionary members, factory parameters, or
 dictionary-parameter order can also change the JavaScript and TypeScript API. Packages
 that exchange dictionaries must use compatible Hexagon runtime dictionary formats.
@@ -304,10 +319,12 @@ that exchange dictionaries must use compatible Hexagon runtime dictionary format
 
 - a constraint dictionary is a JavaScript object containing the operations required by
   one Hexagon constraint;
-- exported constrained functions receive direct dictionary-free functions for every
-  permitted fundamental-type combination;
+- an exported function with one constrained type receives a direct dictionary-free
+  function for each permitted fundamental type;
+- a function with several constrained types receives none: JavaScript calls its generic
+  function, and Hexagon's own calls at fundamental types use private copies;
 - the fundamental set is `Nat`, `Int`, `Float`, `BigInt`, `Bool`, `String`, and `Unit`;
-- generated names append fundamental type names in declared variable order;
+- generated names append the fundamental type name;
 - unconstrained type variables remain generic and add no suffix;
 - public user types share a generic function under the original source name;
 - generic dictionary parameters come after all ordinary source parameters;

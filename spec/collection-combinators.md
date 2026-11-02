@@ -13,9 +13,7 @@ made defaulted members of `Ord` the same day, also ruled by James, and
 implemented by #1431; conformance:
 `compiler/src/conformance/collection-extremes.test.ts`; §13.5's rule for
 `Map.max` and `Map.min`, which bind two variables, waits on #1438. This
-document is the
-stdlib listing's
-part for the combinator families over `Vector(a)`, `Set(a)` and `Map(k, v)`: their shared
+document is the stdlib listing's part for the combinator families over `Vector(a)`, `Set(a)` and `Map(k, v)`: their shared
 doctrine, the v1 ship-list, and the deliberate absence of combinators on the
 foreign collections. It discharges the "Combinator families" row of
 `stdlib-roadmap.md` for these three types, and replaces the `Map.mapValues`
@@ -783,9 +781,9 @@ Every one of them holds constant extra space and, on a `Seq`, constant stack
   §3.2): `Int`, `Nat`, `Float` and `BigInt` for all of them, `Bool` and `Unit`
   for the `Ord`-bound ones, and `String` as well on `Set` and `Map`, which are
   seated after `String.hex`. `Map.max` and `Map.min` bind two variables, so
-  they get no editions: JavaScript calls their generic editions, and a Hexagon
-  call at two fundamental types reaches the copy for that pair (the same
-  spec's §8.3).
+  they get no fundamental editions: JavaScript calls their generic editions
+  when that spec's §4.1 triggers them, and a Hexagon call at two fundamental
+  types reaches the copy for that pair (its §8.3).
 
 ### 13.6 Rejected alternatives (do not re-litigate)
 
