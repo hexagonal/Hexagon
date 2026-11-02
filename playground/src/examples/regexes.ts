@@ -21,15 +21,15 @@ import Regex
 // A malformed one would be a bug in the program, not a failure a caller can
 // plan for, so it is a fault, thrown with a plain throw: faults are not
 // tracked, so the throw wears no ^ mark. Uncaught as the module loads, it
-// stops the program before anything below runs, showing the Err's message.
-// Every use below has the Regex itself. A pattern that arrives while the
-// program runs, typed by a user, say, is unwrapped once where it arrives, with
-// its Err shown rather than thrown.
+// stops the program before anything below runs, showing the Err's message
+// and its position in the pattern. Every use below has the Regex itself. A
+// pattern that arrives while the program runs, typed by a user, say, is
+// unwrapped once where it arrives, with its Err shown rather than thrown.
 fault BadPatternFault(message: String)
 
 let isoDate: Regex = match Regex.compile("^(?<year>[0-9]{4})-(?<month>[0-9]{2})-(?<day>[0-9]{2})$")
     Ok(regex) => regex
-    Err(error) => throw(BadPatternFault(error.message))
+    Err(error) => throw(BadPatternFault(String.join([error.message, "(position: \${error.position})"], " ")))
 
 // find answers the leftmost match, or None. named reads one named group from
 // it, which is an Option too: a name the pattern does not define has none, and
