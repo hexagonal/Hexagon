@@ -608,17 +608,21 @@ minUsing(m: Map(k, v), compare: ((k, v), (k, v)) ->! Ordering): Option((k, v))
 - **`Ord.max` and `Ord.min` are defaulted members of `Ord`,** as `notEquals`
   is of `Eq` (Constraints §2). Every instance has them without writing them,
   derived and structural instances included, and an instance may write its
-  own under the laws of Constraints §7.
+  own under the laws of Constraints §7. This is the shape of Haskell's `Ord`
+  class, whose `max` and `min` are members with defaults, and of Rust's `Ord`
+  trait, whose `max` and `min` are provided methods; both break a tie as
+  §13.2 does.
   - Being members, they dot-call wherever `compare` does (Method Syntax
     §4.2). Where the receiver's type has a declared or derived instance, as
     `Int`, `String` or a record with `derives Ord` has, `a.max(b)` is
     `Ord.max(a, b)`.
-  - A tuple's or a `Vector`'s instance is structural and gives no dot call,
-    so there the spelling is `Ord.max(a, b)`. On a `Vector`, `values.max()`
-    is the collection form.
+  - The instance of a tuple, a structural record or a `Vector` is structural
+    and gives no dot call, so there the spelling is `Ord.max(a, b)`. On a
+    `Vector`, `values.max()` is the collection form.
   - Honoring `Ord` claims the spellings `max` and `min` in the honoring
-    module (Constraints §4.6), so such a module binds no `max` or `min` of
-    its own.
+    module (Constraints §4.6), so such a module binds no module-level `max`
+    or `min` of its own. `Set` and `Map` therefore could not honor `Ord` in
+    their companions while those bind the collection forms.
 
   §13.6 records the alternative.
 - **Where they go.** A reduction speaks about no position, so §1.2 does not
@@ -749,7 +753,7 @@ For `n` items, not counting the callbacks' own costs:
 
 | Operation | Bound |
 |---|---|
-| `Ord.max`, `Ord.min` | one `compare` call |
+| `Ord.max`, `Ord.min` (the defaults) | one `compare` call |
 | `max`, `min`, `maxUsing`, `minUsing` | `n - 1` comparator calls, none when empty; one traversal |
 | `maxBy`, `minBy` | `n` key calls and `n - 1` comparisons of keys, none when empty; one traversal |
 | `sum`, `product` | `n` additions or multiplications; one traversal |
@@ -763,11 +767,13 @@ Every one of them holds constant extra space and, on a `Seq`, constant stack
   (Stdlib Roadmap §5.1). The default bodies of `Ord.max` and `Ord.min` are
   ordinary Hexagon in `Ord.hex`.
 - **The two-value pair goes through the instance.** Every `Ord` instance
-  carries `max` and `min` as it carries `compare` (Constraints §6.1). A call at
-  a type with a declared or derived instance, such as `Int`, calls that
-  instance's member directly; a call at a tuple reads it from the structural
-  dictionary; a call under an `Ord` bound reads it from the dictionary passed
-  in. A member's forwarder has no editions (Constraints §6.1).
+  carries `max` and `min` as it carries `compare` (Constraints §6.1). At a
+  ground declared instance, such as `Int`'s, a call is a direct call to the
+  instance's member seat; elsewhere at a known type, including a tuple,
+  `Bool` and a parameterized instance such as a `Box(Int)`'s, it reads the
+  member off the hoisted dictionary; under an `Ord` bound it reads it from the
+  dictionary passed in. A member's forwarder has no editions (Constraints
+  §6.1).
 - **Editions for the collection forms.** Each function bound by `Ord` or
   `Num` gets an edition at every fundamental type seated before its module
   that honors the bound: `Int`, `Nat`, `Float` and `BigInt` for all of them,
@@ -780,9 +786,10 @@ Every one of them holds constant extra space and, on a `Seq`, constant stack
 
 - **`Ord.max` and `Ord.min` as plain functions in `Ord.hex`** (OCaml's
   `Stdlib.max`, Swift's free `max`). They would claim no spelling in a module
-  that honors `Ord`, but `a.max(b)` would be refused, because a dot call finds
-  only the exports of its receiver's companion and the members of the
-  constraints its type honors (Method Syntax §4.2).
+  that honors `Ord`, but no instance could supply its own, and `a.max(b)`
+  would be refused, because a dot call finds only the exports of its
+  receiver's companion and the members of the constraints its type honors
+  (Method Syntax §4.2).
 - **The first of equal items for both `min` and `max`** (Python, Kotlin,
   lodash, F#, and Swift's `Sequence.max()`). `Ord.min(a, b)` and
   `Ord.max(a, b)` would answer the same argument on a tie, and `max` would no
