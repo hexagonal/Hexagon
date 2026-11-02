@@ -44,9 +44,11 @@ function formatConsoleValue(
  * reads `Oops`, and a foreign error reads `TypeError: x is not a function`.
  *
  * It reads the value as `Show<Exn>` reads it, so that the pane says what a
- * program printing the same failure would say. Each property is read once, and
- * guarded: a getter that throws, an absent property, and a value that is not a
- * string all read as `""`. A value that bears no properties (a thrown string,
+ * program printing the same failure would say. Each read is guarded: a getter
+ * that throws, an absent property, and a value that is not a string all read
+ * as `""`. (`Show<Exn>` also keeps each read for the life of the program, and
+ * this reads afresh, so only a foreign getter that answers differently each
+ * time could make the two disagree.) A value that bears no properties (a thrown string,
  * `null`, a symbol) is `String(value)`. No `toString` of the value's own is
  * ever reached, so an exception with a `toString` slot still reads as its name
  * and message, and describing a failure never throws a second one.

@@ -112,9 +112,8 @@ describe("curated playground examples", () => {
 });
 
 /**
- * The whole output of the examples whose lines a test pins. The Regex
- * tutorial's is pinned because its pattern is unwrapped where it is compiled,
- * and a malformed one would print nothing at all.
+ * The whole output of the examples whose lines a test pins, so that a change
+ * to one of these tutorials shows as a change to what it prints.
  */
 const EXPECTED_OUTPUT: ReadonlyMap<string, readonly string[]> = new Map([
   ["regexes", [

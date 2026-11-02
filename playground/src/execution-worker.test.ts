@@ -235,8 +235,9 @@ describe("an uncaught exception is reported by name", () => {
    * The pane's line is the line `Show<Exn>` gives for the same value: each
    * program catches the throw once and logs it, then throws it uncaught. The
    * `toString` slot is the case JavaScript's own `error.toString()` would get
-   * wrong, by calling a string; the two `JsError`s are foreign throws that are
-   * not `Error`s at all.
+   * wrong, by calling a string; the thrown values are foreign throws that are
+   * not `Error`s at all; and only the standard library's own `JsError`, built
+   * before it is thrown, is seen through, and only once.
    */
   test.each([
     ["an exception with a message slot", "exception BadPattern(message: String)\n", 'BadPattern("missing )")', "BadPattern: missing )"],
@@ -245,6 +246,9 @@ describe("an uncaught exception is reported by name", () => {
     ["a thrown object", "", 'JsError(JsValue.from({ name = "X", message = "y" }))', "X: y"],
     ["a thrown object whose name is not a string", "", 'JsError(JsValue.from({ name = 42, message = "y" }))', "y"],
     ["a JsError built before it is thrown", 'let built = JsError(JsValue.from("late"))\n', "built", "late"],
+    ["a JsError built around a JsError", 'let built = JsError(JsValue.from(JsError(JsValue.from("x"))))\n', "built", "JsError"],
+    ["an exception of the program's own named JsError", "exception JsError(error: String)\n", 'JsError("payload")', "JsError"],
+    ["a thrown function", "let thrown = (n: Int) => n + 1\n", "JsError(JsValue.from(thrown))", "thrown"],
   ])("as Show<Exn> shows it, for %s", async (_case, declarations, failure, expected) => {
     harness.posted.length = 0;
 
