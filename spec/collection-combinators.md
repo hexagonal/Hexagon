@@ -41,7 +41,7 @@ Intrinsics §3.4 and §4.2 (door rows onto a runtime module, parametricity);
 `option-result-convenience.md` (the callback form these functions share);
 for §12, Constraints §5.1–§5.2 (coherence), Decisions Batch §1 (`Ord<Float>`),
 Intrinsics §3.3 (rows that run a callback) and Stdlib Roadmap §5.1; for §13,
-Method Syntax §4.2 and §6 (what a dot call finds), Constraints §4.6 and §7
+Method Syntax §4.2 (what a dot call finds), Constraints §4.6 and §7
 (member spellings, `Ord`'s laws), Loops §6 (`Seq` consumers) and Primitive
 Types §2.1.
 
@@ -248,7 +248,7 @@ already present:
 - **Consumers.** Each honors `Iterable`, so `Seq.fold`, `Seq.find`, `Seq.any`,
   `Seq.all`, `Seq.forEach` and `Seq.length` take one directly, through
   Collections Part 5 §3.4's `Seq` seats, and so do §13's eight, from
-  `Seq.max` to `Seq.sum`.
+  `Seq.max` to `Seq.product`.
 - **Transformations.** Convert once to the workhorse: `Array.toVector(arr)` or
   `Vector.fromSeq(arr)`, `Map.fromSeq(jsMap)`, `Set.fromSeq(jsSet)`. The first
   two are one linear copy, like the crossing's own (FFI Part 2 §6.2); the last
@@ -603,11 +603,11 @@ minUsing(m: Map(k, v), compare: ((k, v), (k, v)) ->! Ordering): Option((k, v))
   §13.6 records the alternative.
 - **Where they go.** A reduction speaks about no position, so §1.2 does not
   confine it to `Vector`, and it goes wherever `fold` and `find` are: on
-  `Vector`, `Set` and `Map`. A `Map`'s items
-  are its entries, so its callbacks take the entry (§5.2). It has no `sum` or
-  `product`, because an entry is a tuple, no tuple honors `Num`, and so no call
-  could type-check. A map's values are totalled through the sequence
-  `Map.values` answers: `m.values().sum()`. `Seq`'s eight are the generic consumers, which every
+  `Vector`, `Set` and `Map`. A `Map`'s items are its entries, so its callbacks
+  take the entry (§5.2). It has no `sum` or `product`, because an entry is a
+  tuple, no tuple honors `Num`, and so no call could type-check. A map's
+  values are totalled through the sequence `Map.values` answers:
+  `m.values().sum()`. `Seq`'s eight are the generic consumers, which every
   iterable reaches through Collections Part 5 §3.4's seats, as in
   `Seq.sum(1..100)`. The foreign collections get none (§6).
 
@@ -648,7 +648,8 @@ let higher = Ord.max(a, b)
   `minUsing(c, Ord.compare)`.
 - **`maxBy(c, key)`** calls `key` once per item, in traversal order. Each
   item's key is compared with the best key so far before the next item's key
-  is computed, so the walk holds one key at a time. It answers the last of the
+  is computed, so the walk holds the best key and the current one, never all
+  of them. It answers the last of the
   items whose key is greatest:
   `maxUsing` over the pairs `(key(x), x)`, comparing first components and
   keeping the second. `minBy` answers the first of the items whose key is
@@ -670,9 +671,9 @@ let higher = Ord.max(a, b)
     a different order of the same items can give a different sum.
   - A `NaN` among the items makes the sum `NaN`.
   - `Vector.sum([-0.0])` is `0.0`, since `0.0 + -0.0` is `0.0`.
-  - Once a running `Int` or `Nat` total or product leaves the safe range,
-    ±(2^53 − 1), it is inexact from that step on, as `+` and `*` are
-    (Primitive Types §2.1).
+  - Once a running `Int` or `Nat` total or product leaves the safe range, it
+    is no longer promised exact, as `+` and `*` are not there (Primitive
+    Types §1 for `Nat`, §2.1 for `Int`).
 - **`NaN` and the signed zeros** follow `Ord<Float>` (Decisions Batch §1), as
   the sort does:
   - `NaN` is greatest, so `Vector.max([1.0, Float.nan])` is `Some(NaN)`.
@@ -689,14 +690,15 @@ let higher = Ord.max(a, b)
   - how a `Float` sum or product rounds;
   - an `Int` or `Nat` total or product that leaves the safe range;
   - a `product` under a `Num` whose `multiply` does not commute, such as a
-    matrix type's (Constraints §7).
+    matrix type's (Constraints §7);
+  - the answer under a comparator that is not consistent (§13.3), or under a
+    callback whose answers depend on the order of its calls.
 
   `Set.max` and `Set.min` never tie, because `Ord` agrees with `equals`
   (Constraints §7) and a set's elements are distinct. `Map.max` and `Map.min`
   never tie either: the keys are distinct, so the key alone decides. `v: Ord`
-  is still required, so a map whose values
-  have no order, such as a `Map(String, Set(Int))`, takes
-  `m.maxBy(((key, _)) => key)` instead.
+  is still required, so a map whose values have no order, such as a
+  `Map(String, Set(Int))`, takes `m.maxBy(((key, _)) => key)` instead.
 
 ### 13.3 Calls and effects
 
@@ -711,10 +713,9 @@ and ends the call. Unlike the sort's comparator (§12.3), every call is fixed:
 - **A comparator** runs exactly `n - 1` times for `n` items, as
   `compare(best, x)` for each item `x` after the first, in traversal order,
   and not at all for an empty collection.
-- **A comparator that is not consistent** still gets back one of the items of
-  a non-empty collection.
-  Which one is the item the steps of §13.2 give, so it is decided by the input
-  and the comparator's answers. The call never faults because of what the
+- **A comparator that is not consistent** still leaves the call answering one
+  of the items of a non-empty collection. Which one is the item the steps of
+  §13.2 give, so it is decided by the input and the comparator's answers. The call never faults because of what the
   comparator answers.
 - **`sum` and `product`** call `Num.add` or `Num.multiply` once per item, in
   traversal order.
@@ -742,9 +743,9 @@ Every one of them holds constant extra space and, on a `Seq`, constant stack
   the numeric types (Modules §5.5), so `Ord.max` and `Ord.min` publish editions
   only at `Bool` and `Unit` (`ffi-zero-cost-fundamental-exports.md` §3.2).
   That section fixes the JavaScript export surface, not how a Hexagon call is
-  emitted (its §8.2); a call at `Int` passes the `Ord` dictionary today. A loop
-  of 1,000,000 such calls over `Int` takes about 11 ms, the same as the loop
-  with the comparison written inline.
+  emitted (its §8.2), so a call at `Int` may pass the `Ord` dictionary, and
+  doing so costs nothing measurable: a loop of 1,000,000 such calls over `Int`
+  takes about as long as the loop with the comparison written inline.
 - **Editions for the collection forms.** Each function bound by `Ord` or
   `Num` gets an edition at every fundamental type seated before its module
   that honors the bound: `Int`, `Nat`, `Float` and `BigInt` for all of them,
@@ -767,14 +768,14 @@ Every one of them holds constant extra space and, on a `Seq`, constant stack
   the text would not decide it.
 - **A `max` that faults on an empty collection, or a faulting sibling**
   (Haskell's `maximum`, F#'s `List.max`). Absence is `Option` (Collections
-  Part 1 §3.1), and there is one function per operation (§3.3).
+  Part 1 §3.1), and there is one function per operation (its §3.3).
 - **`sumBy`** (F#, lodash, Kotlin's `sumOf`). `By` takes the thing an operation
   orders on (Collections Part 1 §3.4), and a sum orders nothing. On a
   `Vector`, write `values.map(cost).sum()`. On a `Set` or a `Map`, `map`
   answers a set or a map, and `Set.map` merges equal images (§4), which would
-  drop repeated costs; write `Seq.sum(Seq.map(s, cost))` for a pure `cost`, or
-  fold, which takes a `cost` of any colour:
-  `s.fold(0, (total, item) => total + cost(item))`.
+  drop repeated costs. Write `Seq.sum(Seq.map(s, cost))` for a `cost` that is
+  pure and cannot fail, and otherwise fold, marked as `cost` requires; for a
+  `cost` of any colour, `s.fold!(0, (total, item) => total + cost!(item))`.
 - **A compensated sum inside `sum` for `Float`** (Python's `sum` since 3.12).
   `Num` has no subtraction or comparison, so the generic `sum` could compensate
   only by inspecting its element type and choosing another algorithm, which
