@@ -1,7 +1,7 @@
 # Stdlib listing: collection combinators
 
 **Status:** Decided 2026-11-02. Not yet implemented; the implementation is
-tracked separately. This document is the stdlib listing's part for the
+tracked by #1417. This document is the stdlib listing's part for the
 combinator families over `Vector(a)`, `Set(a)` and `Map(k, v)`: their shared
 doctrine, the v1 ship-list, and the deliberate absence of combinators on the
 foreign collections. It discharges the "Combinator families" row of
