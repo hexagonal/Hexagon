@@ -134,6 +134,34 @@ describe("compileSource", () => {
     expect(map?.javascript).toContain("export { __max_StringInt };");
   });
 
+  test("re-emits a prelude module with the copies its private previews call", () => {
+    // The pane previews private editions, which `compileProject` never emits:
+    // each of `biggest`'s is a body that calls `Map.max` at its own tuple, and
+    // so demands a copy the project's emission of `Map` was never told about.
+    // Every copy the re-emitted program imports has to be one the re-emitted
+    // `Map.js` writes and exports, or the program fails at load.
+    const response = compileSource(
+      6,
+      MAIN +
+        "let biggest<k: Ord>(m: Map(k, Int)): Option((k, Int)) = Map.max(m)\n" +
+        'export let result: Option((String, Int)) = biggest(Map.fromEntries([("a", 1), ("b", 2)]))\n',
+    );
+
+    expect(response.kind).toBe("compile-success");
+    if (response.kind !== "compile-success") return;
+    const imported = [
+      ...response.javascript.matchAll(/import \{([^}]*)\} from "\.\/Hex\/Map\.js";/gu),
+    ].flatMap(([, names]) => names!.split(",").map((name) => name.trim()))
+      .filter((name) => name.startsWith("__max_"));
+    expect(imported).toContain("__max_StringInt");
+    expect(imported).toContain("__max_IntInt");
+    const map = response.executionModules.find(({ path }) => path === "/Hex/Map.hex")!.javascript;
+    for (const name of imported) {
+      expect(map).toContain(`function ${name}(`);
+      expect(map).toContain(`export { ${name} };`);
+    }
+  });
+
   test("compiles the canonical Vector module surface", () => {
     const response = compileSource(5, vectors.source);
 

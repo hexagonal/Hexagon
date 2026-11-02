@@ -130,7 +130,9 @@ export interface CompiledModule {
    * (Zero-Cost Fundamental Exports), as `emitJavaScript`'s `copyDemand` takes
    * them; empty where none does. Carried for `runtimes`' reason: a host that
    * re-emits this module without them writes none of those copies, and every
-   * importer that calls one then fails at load.
+   * importer that calls one then fails at load. It is what this compile's own
+   * emissions demanded, so a host that re-emits the importers with other
+   * options also adds the `JavaScript.copyDemands` its re-emissions report.
    */
   readonly copyDemand: ReadonlyMap<string, readonly (readonly FundamentalType[])[]>;
 }

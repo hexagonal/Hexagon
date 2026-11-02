@@ -10,7 +10,7 @@ import type { CompiledModule } from "../project.js";
  * Conformance for the two build-report obligations of Zero-Cost Fundamental
  * Exports (issue #687, compiler leg).
  *
- * §10 makes the Cartesian product's code growth acceptable **on the condition
+ * §10 makes the specializations' code growth acceptable **on the condition
  * that it is measurable**: the compiler must make available, per emitted module,
  * the emitted JS size and `.d.ts` size attributable to generated
  * specializations, and the same report must list every zero-entry-point export
@@ -25,7 +25,7 @@ import type { CompiledModule } from "../project.js";
  *
  * ## What "zero entry point" is asserted to mean here
  *
- * §3.4's own condition conjoins an empty lawful-tuple product with §4's trigger
+ * §3.4's own condition conjoins an empty specialization set with §4's trigger
  * being unmet. What is implemented, and what these rows pin, is the **emission
  * fact**: a §3.1-eligible export that published no typed face. Algorithm G is
  * unimplemented, so the two coincide today; the emission-fact phrasing is what
@@ -105,7 +105,7 @@ describe("the zero-entry-point list (§3.4)", () => {
   test("lists §16(h)'s worked example by name, and reports nothing else", () => {
     // §16(h) verbatim in shape: a user constraint with no fundamental instance,
     // and an export bound by it. `Weighty` is honored nowhere, so
-    // `candidates(a)` is empty, the product is empty, and no entry point is
+    // `candidates(a)` is empty, so no specialization is, and no entry point is
     // published — legal, and the whole of what the list exists to make visible.
     const module = main(`${WEIGHTY}export fun heaviest<a: Weighty>(x: a, y: a): Float =\n` +
       "    if x.weight() > y.weight() then x.weight() else y.weight()\n");
@@ -120,12 +120,13 @@ describe("the zero-entry-point list (§3.4)", () => {
     expect(module.javascript.text).toContain("heaviest");
   });
 
-  test("empties the product from one variable of several — §16(k)", () => {
-    // Both variables are constrained and only one is stocked: `Show` admits
-    // every fundamental, `Weighty` admits none, and §3.2 clause 3's product over
-    // the two is empty regardless. The interesting failure this excludes is a
-    // planner that took the non-empty variable's candidates as the answer and
-    // published a partial tuple.
+  test("lists §16(k)'s two-variable export, which §3.2 gives no specialization", () => {
+    // Two constrained variables, so §3.2's one-variable rule publishes nothing
+    // before either variable's candidates are read: that `Show` admits every
+    // fundamental and `Weighty` none decides nothing here. The failure this
+    // excludes is a planner that read the stocked variable's candidates and
+    // published editions over it, or a partial tuple. With no generic edition
+    // either (§16(k): no complete §4.1 assignment), §3.4 lists the export.
     const module = main(`${WEIGHTY}export fun describe<a: Show, b: Weighty>(x: a, y: b): String =\n` +
       "    \"${x} at ${y.weight()}\"\n");
 
@@ -353,7 +354,7 @@ describe("`.d.ts` byte accounting (§10)", () => {
     // the `.d.ts`'s bytes and its eleven doc blocks are the rest. A constrained
     // export has no single `.d.ts` declaration, so its documentation is
     // re-emitted per edition — carrying that specialization's own Hexagon face —
-    // and it grows with the Cartesian product exactly as the faces do. §10 asks
+    // and it grows with the edition count exactly as the faces do. §10 asks
     // for the bytes attributable to generated specializations, and per-edition
     // JSDoc is attributable; an undocumented module shows no gap at all, which
     // is why face-only accounting looked right until a documented one was

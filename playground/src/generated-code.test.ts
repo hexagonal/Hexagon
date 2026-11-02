@@ -146,6 +146,26 @@ describe("generatedSectionsPanel", () => {
     );
   });
 
+  test("names a copy as one, in its row and in its declaration's total", () => {
+    const copy = (generatedName: string, types: readonly string[], bytes: number) => ({
+      ...edition("max", generatedName, types[0]!, bytes),
+      kind: "Copy" as const,
+      typeArguments: types,
+    });
+    const panel = generatedSectionsPanel(
+      [copy("__max_StringInt", ["String", "Int"], 120), copy("__max_IntBool", ["Int", "Bool"], 118)],
+      [],
+      ["max"],
+    );
+
+    expect(formatExportLabel(panel.exports[0]!)).toBe("max (2 copies, 238 B JS · no .d.ts faces)");
+    expect(formatEditionLabel(panel.exports[0]!.editions[0]!)).toBe(
+      "__max_StringInt · String, Int · copy · 120 B JS · no .d.ts face",
+    );
+    const one = generatedSectionsPanel([copy("__max_StringInt", ["String", "Int"], 120)], [], []);
+    expect(formatExportLabel(one.exports[0]!)).toBe("max (1 copy, 120 B JS · no .d.ts face)");
+  });
+
   /**
    * The common case in this pane rather than an exotic one: the JavaScript is
    * re-emitted with `previewPrivateSpecializations`, and a private declaration

@@ -133,6 +133,11 @@ export interface JavaScript extends Output {
 export interface CopyDemand {
   /** The import's specifier, in source form — the spelling an `Import` item carries. */
   readonly specifier: string;
+  /**
+   * The exporter's full module name, for a host that matches demands to the
+   * modules it re-emits by name rather than resolving `specifier` itself.
+   */
+  readonly module: string;
   /** The export's source name. */
   readonly term: string;
   /** One fundamental type per constrained variable, in scheme order. */

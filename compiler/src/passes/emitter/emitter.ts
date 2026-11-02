@@ -403,10 +403,12 @@ export interface JavaScriptEmissionOptions {
   /**
    * Zero-Cost Fundamental Exports §8.3: the copies other modules' calls demand
    * of this module's exports, by source name, each a tuple of fundamental types
-   * in scheme order. Only `compileProject` sees every caller, so only it can
-   * supply them; it emits a module after every module that imports it, and
-   * gathers this from their `JavaScript.copyDemands`. A tuple the export's
-   * candidates do not admit is ignored, as a call at it would keep its evidence.
+   * in scheme order. Only a host that emits every caller can supply them:
+   * `compileProject` emits a module after every module that imports it, and
+   * gathers this from their `JavaScript.copyDemands`, and a host that re-emits
+   * has to do the same with its own emissions. An importer demands only a tuple
+   * the export's candidates admit, because it plans from the same seat, so a
+   * tuple they do not admit is reported as a compiler defect and made no copy.
    */
   readonly copyDemand?: ReadonlyMap<string, readonly (readonly FundamentalType[])[]>;
 }
@@ -3934,11 +3936,25 @@ class JavaScriptEmitter {
     // no-op. Emitted export order is therefore unchanged by the split.
     const renderedByItem = new Map<Core.Item, ReturnType<typeof renderItem>>();
     // §8.3: the copies other modules demand are claimed before any body is
-    // rendered, so a call here at the same tuple finds the same local.
-    for (const { source } of this.#ownCopySources.values()) {
-      for (const types of this.#copyDemand?.get(source.name) ?? []) {
-        if (copyAdmits(source, types)) this.#ownCopy(source, types);
+    // rendered, so a call here at the same tuple finds the same local. They are
+    // claimed in `#copyOrder`, as they are rendered, and not in the order the
+    // importers happened to be emitted in.
+    const demanded = [...this.#ownCopySources.values()].flatMap(({ source }) =>
+      (this.#copyDemand?.get(source.name) ?? []).map((types) => ({ source, types }))
+    );
+    for (const { source, types } of demanded.sort((left, right) => this.#copyOrder(left, right))) {
+      if (!copyAdmits(source, types)) {
+        // The importer plans from this module's own seat (`#copySourceFor`), so
+        // the two sides cannot disagree unless that planning has drifted.
+        this.#diagnostics.add({
+          severity: "error",
+          message: `compiler defect: another module demands a copy of \`${source.name}\` at ` +
+            `\`(${types.join(", ")})\`, which its candidate types do not admit`,
+          primary: this.#ownCopySources.get(source.symbol)!.item.span,
+        });
+        continue;
       }
+      this.#ownCopy(source, types);
     }
     for (const item of this.#module.items) {
       if (item.kind === "Import" && this.#exportInstanceEvidence) {
@@ -5543,7 +5559,10 @@ class JavaScriptEmitter {
   /**
    * Every demanded copy's function, by the item it instantiates, in the order
    * of that export's candidate tuples — the text is a function of which copies
-   * are demanded, never of the order the demands arrived in.
+   * are demanded, never of the order the demands arrived in. Each round of the
+   * drain renders in `#copyOrder` too, not just the final listing, because
+   * rendering a body has effects later bodies see: the first use of a
+   * dictionary hoists it, and a copy demanded from a body claims its local.
    *
    * A copy's body is an edition's (§8.3 item 3): `specializeItem` over the
    * export at the copy's tuple, emitted as a plain function declaration. It can
@@ -5559,7 +5578,9 @@ class JavaScriptEmitter {
   #renderCopies(): ReadonlyMap<Core.Item, readonly string[]> {
     const rendered = new Map<string, string[]>();
     for (;;) {
-      const pending = [...this.#ownCopies].filter(([key]) => !rendered.has(key));
+      const pending = [...this.#ownCopies]
+        .filter(([key]) => !rendered.has(key))
+        .sort(([, left], [, right]) => this.#copyOrder(left, right));
       if (pending.length === 0) break;
       for (const [key, copy] of pending) {
         const owner = this.#ownCopySources.get(copy.source.symbol)!;
@@ -5575,14 +5596,8 @@ class JavaScriptEmitter {
       }
     }
     const byItem = new Map<Core.Item, string[]>();
-    const ordered = [...this.#ownCopies]
-      .map(([key, copy]) => ({ key, copy, rank: copyRank(copy.source, copy.types) }))
-      .sort((left, right) =>
-        this.#module.items.indexOf(this.#ownCopySources.get(left.copy.source.symbol)!.item) -
-          this.#module.items.indexOf(this.#ownCopySources.get(right.copy.source.symbol)!.item) ||
-        left.rank - right.rank
-      );
-    for (const { key, copy } of ordered) {
+    const ordered = [...this.#ownCopies].sort(([, left], [, right]) => this.#copyOrder(left, right));
+    for (const [key, copy] of ordered) {
       const lines = rendered.get(key)!;
       if (lines.length === 0) continue;
       const item = this.#ownCopySources.get(copy.source.symbol)!.item;
@@ -5596,6 +5611,20 @@ class JavaScriptEmitter {
       );
     }
     return byItem;
+  }
+
+  /**
+   * The one order copies of this module's exports are claimed, rendered and
+   * listed in: by the item each instantiates, then by `copyRank`.
+   */
+  #copyOrder(
+    left: { readonly source: CopySource; readonly types: readonly FundamentalType[] },
+    right: { readonly source: CopySource; readonly types: readonly FundamentalType[] },
+  ): number {
+    const index = ({ source }: { readonly source: CopySource }) =>
+      this.#module.items.indexOf(this.#ownCopySources.get(source.symbol)!.item);
+    return index(left) - index(right) ||
+      copyRank(left.source, left.types) - copyRank(right.source, right.types);
   }
 
   /** The copy spellings one exporter publishes — this module's own under `undefined`. */
@@ -5650,6 +5679,7 @@ class JavaScriptEmitter {
     const name = this.#copyNamer(imported)(source.name, types);
     this.#copyDemands.set(`${imported.specifier}|${copyKey(source.name, types)}`, {
       specifier: imported.specifier,
+      module: imported.moduleName,
       term: source.name,
       types,
     });

@@ -20,6 +20,7 @@
 import { describe, expect, test } from "vitest";
 
 import { compileFiles, runProject } from "../support/test-project.js";
+import { emitJavaScript } from "../passes/emitter/emitter.js";
 import type { CompiledModule } from "../project.js";
 import { STDLIB_SOURCES } from "../stdlib-sources.js";
 
@@ -99,7 +100,7 @@ describe("a call from another module at fundamental types", () => {
     expect(main.text).toContain('const answer = __pair_IntString(1, "x");');
     expect(main.text).toMatch(/import \{[^}]*\b__pair_IntString\b[^}]*\} from "\.\/Pair\.js";/u);
     expect(main.copyDemands).toEqual([
-      { specifier: "./Pair", term: "pair", types: ["Int", "String"] },
+      { specifier: "./Pair", module: "Pair", term: "pair", types: ["Int", "String"] },
     ]);
 
     expect(copiesIn(pair.text, "pair")).toEqual(["__pair_IntString"]);
@@ -306,9 +307,26 @@ describe("a tuple outside the exporter's candidates", () => {
     expect(main.text).toContain('const outside = both("a", 1, __Ord_String, __Ord_Int);');
     expect(main.text).toContain("const inside = __both_IntInt(2, 1);");
     expect(main.copyDemands).toEqual([
-      { specifier: "./Hex/Vector", term: "both", types: ["Int", "Int"] },
+      { specifier: "./Hex/Vector", module: "Hex.Vector", term: "both", types: ["Int", "Int"] },
     ]);
     expect(copiesIn(vector.text, "both")).toEqual(["__both_IntInt"]);
+
+    // An importer plans from the exporter's own seat, so it never demands such a
+    // tuple; a host that hands one over anyway gets a compiler defect, and no copy.
+    const seat = project.modules.find(({ source }) => source.path === "/Vector.hex")!;
+    const handed = emitJavaScript(seat.core, {
+      exportInstanceEvidence: true,
+      runtimes: seat.runtimes,
+      dataOnlyHomes: seat.dataOnlyHomes,
+      fundamentalInstances: project.fundamentalSeats.get(seat.name) ?? project.fundamentalInstances,
+      fundamentalSeats: project.fundamentalSeats,
+      copyDemand: new Map([["both", [["String", "Int"], ["Int", "Int"]]]]),
+    });
+    expect(handed.diagnostics.map(({ message }) => message)).toEqual([
+      "compiler defect: another module demands a copy of `both` at `(String, Int)`, " +
+        "which its candidate types do not admit",
+    ]);
+    expect(copiesIn(handed.text, "both")).toEqual(["__both_IntInt"]);
   });
 });
 
@@ -338,6 +356,119 @@ describe("a copy's spelling", () => {
     const exports = await runProject(files, { transform: distinct("copies: probed spelling") });
     expect(exports["answer"]).toBe("1|x");
     expect(exports["other"]).toBe("True!");
+  });
+});
+
+describe("an exporter's text", () => {
+  // Two importers demand different copies of `eqs`, and each copy's body
+  // hoists a dictionary on first use, so the order bodies render in shows in
+  // the text. Swapping the importers swaps the order the demands arrive in.
+  const pair = [
+    "/pair.hex",
+    "module Pair\n\n" +
+      "export let eqs<a: Eq, b: Eq>(x: a, y: b): Bool = [x] == [x] and Some(y) == Some(y)\n",
+  ] as const;
+  const a = ["/a.hex", 'module A\n\nimport Pair\n\nexport let a: Bool = Pair.eqs(1.5, "x")\n'] as const;
+  const b = ["/b.hex", "module B\n\nimport Pair\n\nexport let b: Bool = Pair.eqs(1, 2)\n"] as const;
+  const main = [
+    "/main.hex",
+    "module Main\n\nimport A\nimport B\n\nexport let r: Bool = A.a and B.b\n",
+  ] as const;
+
+  test("is the same whichever importer's demand arrives first", async () => {
+    const one = compiled([pair, a, b, main])("/pair.hex").javascript.text;
+    const two = compiled([pair, b, a, main])("/pair.hex").javascript.text;
+
+    expect(copiesIn(one, "eqs")).toEqual(["__eqs_IntInt", "__eqs_FloatString"]);
+    expect(two).toBe(one);
+
+    const exports = await runProject([pair, b, a, main], { transform: distinct("copies: arrival order") });
+    expect(exports["r"]).toBe(true);
+  });
+});
+
+describe("§10's report of a module with copies", () => {
+  test("lists a copy where it sits, beside its export and ahead of a later export's editions", () => {
+    // The copy is rendered after every edition but placed beside `pair`, which
+    // is declared first; the report lists rows in text order, so the copy leads.
+    const module = compiled([
+      ["/pair.hex", PAIR + 'export let one<a: Show>(x: a): String = "${x}"\n'],
+      ["/main.hex", 'module Main\n\nimport Pair\n\nexport let answer: String = Pair.pair(1, "x")\n'],
+    ])("/pair.hex").javascript;
+    const sections = module.generatedSections;
+
+    expect(sections.map(({ kind, generatedName }) => `${kind} ${generatedName}`)).toEqual([
+      "Copy __pair_IntString",
+      ...["Nat", "Int", "Float", "BigInt", "Bool", "String", "Unit"]
+        .map((type) => `FundamentalSpecialization one${type}`),
+    ]);
+    for (const [index, section] of sections.entries()) {
+      expect(module.text.slice(section.startOffset, section.endOffset))
+        .toMatch(new RegExp(`^function ${section.generatedName}\\(`, "u"));
+      if (index > 0) expect(section.startOffset).toBeGreaterThanOrEqual(sections[index - 1]!.endOffset);
+    }
+    expect(sections[0]).toMatchObject({ sourceName: "pair", typeArguments: ["Int", "String"] });
+  });
+});
+
+describe("a copy whose spelling its own module also imports", () => {
+  // `Mid` imports `Pair`'s copy `__pair_IntString` and also declares its own
+  // `pair`, whose copy at the same tuple has the same spelling. Whichever is
+  // claimed first keeps the local; the other is probed, and its import or
+  // export line aliases it, so every importer still finds the spelling it
+  // computes.
+  const tagged = (tag: string) =>
+    `export let pair<a: Show, b: Show>(x: a, y: b): String = "${tag}\${x}|\${y}"\n`;
+  const pair = ["/pair.hex", "module Pair\n\n" + tagged("P:")] as const;
+  const mid = [
+    "/mid.hex",
+    "module Mid\n\nimport Pair\n\n" + tagged("M:") +
+      'export let fromPair: String = Pair.pair(1, "x")\n' +
+      'export let own: String = pair(1, "y")\n',
+  ] as const;
+
+  test("is bound under a probed local and exported under its spelling", async () => {
+    // Only `Mid`'s own call demands its copy, after the import took the local.
+    const files = [
+      pair,
+      mid,
+      ["/main.hex", 'module Main\n\nimport Mid\n\nexport let r: String = Mid.fromPair ++ " " ++ Mid.own\n'],
+    ] as const;
+    const text = compiled(files)("/mid.hex").javascript.text;
+
+    expect(text).toContain('import { __pair, __pair_IntString } from "./Pair.js";');
+    expect(copiesIn(text, "pair")).toEqual(["__pair_IntString_1"]);
+    expect(text).toContain('const own = __pair_IntString_1(1, "y");');
+    expect(text).toContain("export { __pair_IntString_1 as __pair_IntString };");
+
+    const exports = await runProject(files, { transform: distinct("copies: aliased export") });
+    expect(exports["r"]).toBe("P:1|x M:1|y");
+  });
+
+  test("keeps its spelling where another module demands it, and the import is aliased", async () => {
+    // `Main`'s demand is claimed before any of `Mid`'s bodies render.
+    const files = [
+      pair,
+      mid,
+      [
+        "/main.hex",
+        "module Main\n\nimport Mid\n\n" +
+          'export let r: String = Mid.fromPair ++ " " ++ Mid.own ++ " " ++ Mid.pair(1, "z")\n',
+      ],
+    ] as const;
+    const module = compiled(files);
+    const text = module("/mid.hex").javascript.text;
+
+    expect(text).toContain(
+      'import { __pair, __pair_IntString as __pair_IntString_1 } from "./Pair.js";',
+    );
+    expect(copiesIn(text, "pair")).toEqual(["__pair_IntString"]);
+    expect(text).toContain('const fromPair = __pair_IntString_1(1, "x");');
+    expect(text).toContain("export { __pair_IntString };");
+    expect(module("/main.hex").javascript.text).toContain('__pair_IntString(1, "z")');
+
+    const exports = await runProject(files, { transform: distinct("copies: aliased import") });
+    expect(exports["r"]).toBe("P:1|x M:1|y M:1|z");
   });
 });
 
