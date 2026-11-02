@@ -221,7 +221,7 @@ Grounded entirely in Part 2 §2.4; this section instantiates it for `Map`/`Set` 
 
 The last clause is independent of seeding: HAMT internals (collision-node ordering, deletion-path compaction) may differ between `Eq`-equal values with different construction histories, and the spec imposes no canonicalization obligation on the runtime. The cross-run instability is *intentional* (the Go rationale, per Part 2 §2.4): snapshot tests and accidental order-dependence are kept honest before an ecosystem can calcify around an order nobody promised.
 
-User-facing docs carry the practical consequence in one line: **need an order? sort a `Vector`** — `Vector.sort(Map.toSeq(m) |> Vector.fromSeq)`-shaped (`sort` owed to the stdlib listing), or wait for `SortedMap`/`SortedSet` (pre-registered v2).
+User-facing docs carry the practical consequence in one line: **need an order? sort a `Vector`** — `Vector.sort(Map.toSeq(m) |> Vector.fromSeq)`-shaped (`sort`: `collection-combinators.md` §12), or wait for `SortedMap`/`SortedSet` (pre-registered v2).
 
 ### 7.2 `Iterable` instances and loop heads
 
