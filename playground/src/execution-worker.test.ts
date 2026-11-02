@@ -193,3 +193,41 @@ describe("the results pane receives a run's output", () => {
     expect(outputAt(harness.posted, 6)).toEqual(["run six"]);
   });
 });
+
+/** The failure this run posted to the UI, if it failed. */
+function failureAt(posted: readonly unknown[], version: number): string | undefined {
+  const failure = posted.find((message): message is { kind: string; version: number; message: string } =>
+    typeof message === "object" && message !== null &&
+    (message as { kind?: unknown }).kind === "execute-failure" &&
+    (message as { version?: unknown }).version === version
+  );
+  return failure?.message;
+}
+
+/**
+ * An uncaught exception reaches the pane as `Show<Exn>` would show it: its name,
+ * then its message when it has one. The message alone used to stand here, which
+ * dropped the name and left an exception without a `message` slot as nothing.
+ */
+describe("an uncaught exception is reported by name", () => {
+  test("with its message, and after the lines printed before it", async () => {
+    harness.posted.length = 0;
+
+    await harness.send(execute(7,
+      "exception BadPattern(message: String)\n" +
+      'Debug.log("before the throw")\n' +
+      'let boom: Int = throw^(BadPattern("missing )"))\n',
+    ));
+
+    expect(outputAt(harness.posted, 7)).toEqual(["before the throw"]);
+    expect(failureAt(harness.posted, 7)).toBe("BadPattern: missing )");
+  });
+
+  test("as its name alone when it has no message", async () => {
+    harness.posted.length = 0;
+
+    await harness.send(execute(8, "exception Oops\nlet boom: Int = throw^(Oops)\n"));
+
+    expect(failureAt(harness.posted, 8)).toBe("Oops");
+  });
+});
