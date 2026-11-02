@@ -190,10 +190,12 @@ describe("a user module plans from the program's table, a prelude module from it
     // them see no companion at all. Each plans its own exports' editions from
     // its seat, and a consumer recomputes them from the same seat, never from
     // the table (the rows below). `Ordering.hex` and `Ord.hex` are emitted
-    // because `Vector.hex`'s sorts import them. (`Iterable.hex` is absent
+    // because `Vector.hex`'s sorts import them, and `Num.hex` because the
+    // collections' `sum` and `product` do. (`Iterable.hex` is absent
     // because this program no longer reaches it: a `toSeq` at a collection
     // imports the companion's member since #1141.)
     expect(shortfalls.map(({ path }) => path)).toEqual([
+      "/Hex/Num.hex",
       "/Hex/Pow.hex",
       "/Hex/Hash.hex",
       "/Hex/Ordering.hex",
@@ -254,17 +256,19 @@ describe("a user module plans from the program's table, a prelude module from it
     // alone plans what the program planned.
     expect(differing.map(({ source }) => source.path)).toEqual([]);
 
-    // The whole program's table answers differently in exactly one place:
-    // `Vector.hex` sits before `String.hex`, because `String` uses vectors, so
-    // its constrained exports have no `String` edition. Any other module joining
-    // this list is a prelude export seated before a fundamental's companion.
+    // The whole program's table answers differently in exactly two places:
+    // `Seq.hex` and `Vector.hex` sit before `String.hex`, because `String`
+    // uses both, so their constrained exports have no `String` edition. Any
+    // other module joining this list is a prelude export seated before a
+    // fundamental's companion. (`Ord.max` and `Ord.min` are members, and a
+    // member's forwarder has no editions, so `Ord.hex` plans none.)
     const beyondSeat = compiled.modules.filter(({ name, core }) => {
       const seat = compiled.fundamentalSeats.get(name);
       return seat !== undefined &&
         planFundamentalSpecializations(core, seat).specializations.length !==
           planFundamentalSpecializations(core, compiled.fundamentalInstances).specializations.length;
     });
-    expect(beyondSeat.map(({ source }) => source.path)).toEqual(["/Hex/Vector.hex"]);
+    expect(beyondSeat.map(({ source }) => source.path)).toEqual(["/Hex/Seq.hex", "/Hex/Vector.hex"]);
   });
 
   test("`Vector` publishes no `String` edition, and a caller at `String` passes the dictionary", async () => {
@@ -587,9 +591,13 @@ describe("the collections API gains its JavaScript entry points", () => {
     // build report's list of exports with no JavaScript surface held all of
     // them, and a JS consumer could reach none. The seven `Hash` candidates are
     // what changes that. `Set.map<b: Hash>` and `Map.map<j: Hash>` (#1417) add
-    // seven each.
-    expect(editionsOf("Set")).toBe(49);
-    expect(editionsOf("Map")).toBe(35);
+    // seven each. The extremes and totals (`collection-combinators.md` §13) add
+    // seven for each `Ord`-bound function and four for each `Num`-bound one:
+    // `Set`'s four order forms and two totals add 36. `Map.maxBy` and
+    // `Map.minBy` add seven each, and `Map.max` and `Map.min`, with two
+    // `Ord`-bound variables, the full product, 49 each.
+    expect(editionsOf("Set")).toBe(85);
+    expect(editionsOf("Map")).toBe(147);
   });
 
   test("a `Hash`-bound export is callable from JavaScript at every fundamental", async () => {

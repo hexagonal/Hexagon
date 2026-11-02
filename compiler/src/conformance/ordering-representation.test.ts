@@ -382,7 +382,7 @@ describe("one representation, observable from JS (FFI Part 9)", () => {
     // reads that object as a block and returns `undefined`. A hoisted name
     // (#771 B1) opens no block, so no parentheses are needed here any more.
     expect(text).toContain(
-      "const __Ord_Unit = ({ compare: (__left, __right) => __Equal });",
+      "const __Ord_Unit = ({ compare: (__left, __right) => __Equal, max: (__left, __right) => __right, min: (__left, __right) => __left });",
     );
     expect(text).toContain(
       'const unitOrder = __Ord_Unit.compare(undefined, undefined).tag !== "Greater";',

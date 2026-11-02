@@ -360,12 +360,13 @@ describe("membership drags nothing in", () => {
     // exports' faces name `Vector`, its declaring companion's type — and what
     // must stay out is the load: the JavaScript imports nothing from it. What
     // `Vector.hex` imports is written with it: `Ordering.hex` and `Ord.hex` for
-    // its sorts, and `Nat.hex`, `Float.hex` and `BigInt.hex`, whose `Ord`
-    // dictionaries the sorts' editions take (`collection-combinators.md` §12).
+    // its sorts and extremes, `Num.hex` for its totals, and `Nat.hex`,
+    // `Float.hex` and `BigInt.hex`, whose `Ord` and `Num` dictionaries those
+    // functions' editions take (`collection-combinators.md` §12, §13).
     expect(emittedPaths(files)).toEqual([
-      "/Hex/Pow.hex", "/Hex/Ordering.hex", "/Hex/Ord.hex", "/Hex/Sign.hex", "/Hex/Integral.hex", "/Hex/Int.hex",
-      "/Hex/Nat.hex", "/Hex/Float.hex", "/Hex/BigInt.hex", "/Hex/Seq.hex", "/Hex/Option.hex",
-      "/Hex/Runtime/VectorTrie.hex", "/Hex/Vector.hex", "/main.hex",
+      "/Hex/Num.hex", "/Hex/Pow.hex", "/Hex/Ordering.hex", "/Hex/Ord.hex", "/Hex/Sign.hex",
+      "/Hex/Integral.hex", "/Hex/Int.hex", "/Hex/Nat.hex", "/Hex/Float.hex", "/Hex/BigInt.hex",
+      "/Hex/Seq.hex", "/Hex/Option.hex", "/Hex/Runtime/VectorTrie.hex", "/Hex/Vector.hex", "/main.hex",
     ]);
   });
 

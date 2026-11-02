@@ -1,10 +1,11 @@
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, test } from "vitest";
 
 import { helloWorld } from "./examples/hello-world";
 import { internationalIdentifiers } from "./examples/international-identifiers";
 import { payloadUnions } from "./examples/payload-unions";
 import { specializations } from "./examples/specializations";
 import { rat } from "./examples/rat";
+import { runModules } from "./examples/run-modules";
 import { vectors } from "./examples/vectors";
 import { compileSource } from "./compile";
 import { PlaygroundAnalysis } from "./analysis";
@@ -728,28 +729,18 @@ describe("compileSource", () => {
 
     expect(response.kind).toBe("compile-success");
     if (response.kind !== "compile-success") return;
-    const moduleUrls = new Map<string, string>();
-    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
-    try {
-      for (const module of response.executionModules) {
-        const linked = linkModule(module.javascript, module.path, moduleUrls);
-        moduleUrls.set(
-          module.path,
-          `data:text/javascript;charset=utf-8,${encodeURIComponent(linked)}`,
-        );
-      }
-      await import(/* @vite-ignore */ moduleUrls.get(response.entryPath)!);
-      expect(log).toHaveBeenCalledWith("1/2 + 1/3 = 5/6");
-      expect(log).toHaveBeenCalledWith("1/2 / 1/3 = 3/2");
-      // `True`, not `true` (#147): interpolating a `Bool` shows its constructor
-      // name, the ruling's one silent behaviour change. Pinned here on purpose.
-      expect(log).toHaveBeenCalledWith("Does 10/12 = 5/6? True");
-      expect(log).toHaveBeenCalledWith("top = 3");
-      expect(log).toHaveBeenCalledWith("bottom = 5");
-      expect(log).toHaveBeenCalledWith("fraction: 3/5");
-    } finally {
-      log.mockRestore();
-    }
+    // Run from a directory (`runModules`): `Rat`'s graph is deep enough that
+    // `data:` URLs nesting each dependency's text took seconds to link.
+    const { printed, threw, failure } = await runModules("rat", response.executionModules, response.entryPath);
+    if (threw) throw failure;
+    expect(printed).toContain("1/2 + 1/3 = 5/6");
+    expect(printed).toContain("1/2 / 1/3 = 3/2");
+    // `True`, not `true` (#147): interpolating a `Bool` shows its constructor
+    // name, the ruling's one silent behaviour change. Pinned here on purpose.
+    expect(printed).toContain("Does 10/12 = 5/6? True");
+    expect(printed).toContain("top = 3");
+    expect(printed).toContain("bottom = 5");
+    expect(printed).toContain("fraction: 3/5");
   });
 
   test("brands exact Rat division by zero through imported Frac evidence", async () => {
@@ -768,20 +759,13 @@ describe("compileSource", () => {
     expect(response.javascript).toContain(
       "__Frac_Rat.divide(half, zero)",
     );
-    const moduleUrls = new Map<string, string>();
-    for (const module of response.executionModules) {
-      const linked = linkModule(module.javascript, module.path, moduleUrls);
-      moduleUrls.set(
-        module.path,
-        `data:text/javascript;charset=utf-8,${encodeURIComponent(linked)}`,
-      );
-    }
-    let thrown: unknown;
-    try {
-      await import(/* @vite-ignore */ moduleUrls.get(response.entryPath)!);
-    } catch (error) {
-      thrown = error;
-    }
+    // From a directory, for the reason the case above gives.
+    const { threw, failure: thrown } = await runModules(
+      "rat-divide",
+      response.executionModules,
+      response.entryPath,
+    );
+    expect(threw).toBe(true);
     expect(thrown).toBeInstanceOf(Error);
     expect(thrown).toMatchObject({
       name: "DivideByZeroFault",

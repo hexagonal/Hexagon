@@ -712,12 +712,22 @@ describe("the companion's surface", () => {
       "isEmpty",
       "isSubsetOf",
       "map",
+      "max",
+      "maxBy",
+      "maxUsing",
+      "min",
+      "minBy",
+      "minUsing",
+      "product",
       "remove",
       "singleton",
       "size",
+      "sum",
       "union",
     ]);
-    for (const hidden of ["storedMember", "replaceMember", "keptRepresentative", "emptySet"]) {
+    for (const hidden of [
+      "storedMember", "replaceMember", "keptRepresentative", "emptySet", "laterBy", "earlierBy", "unranked",
+    ]) {
       expect(exported).not.toContain(hidden);
     }
     const javascript = set!.javascript.text;

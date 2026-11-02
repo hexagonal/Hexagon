@@ -263,3 +263,84 @@ export let any(source: Seq(a), matches: a ->! Bool): Bool =
     not. *)
 export let all(source: Seq(a), matches: a ->! Bool): Bool =
     not any!(source, value => not matches!(value))
+
+// Extremes and totals (`collection-combinators.md` section 13), each one pass
+// of `fold`, so each pulls the whole sequence and does not return on an
+// infinite one. Of items that tie, `min` keeps the first and `max` the last.
+//
+// The `Using` forms write their steps' parameter types: a match on the
+// comparator's answer is not decided without them (#1433). Each arm names
+// its constructor bare, `Greater`, which a pattern reads against the matched
+// value's own `Ordering` (Pattern Matching section 2.2).
+
+// One step of `maxBy`: the ranked item replaces the best unless the best's key
+// is greater.
+let laterBy<b: Ord>(best: Option((b, a)), ranked: (b, a)): Option((b, a)) =
+    match (best, ranked)
+        (Some((keptKey, _)), (rankedKey, _)) =>
+            match Ord.compare(keptKey, rankedKey)
+                Greater => best
+                _ => Some(ranked)
+        _ => Some(ranked)
+
+// One step of `minBy`: the ranked item replaces the best only when the best's
+// key is greater.
+let earlierBy<b: Ord>(best: Option((b, a)), ranked: (b, a)): Option((b, a)) =
+    match (best, ranked)
+        (Some((keptKey, _)), (rankedKey, _)) =>
+            match Ord.compare(keptKey, rankedKey)
+                Greater => Some(ranked)
+                _ => best
+        _ => Some(ranked)
+
+let unranked(best: Option((b, a))): Option(a) = match best
+    Some((_, value)) => Some(value)
+    None => None
+
+(** The element of `source` that `compare` ranks greatest, or `None` when
+    `source` is empty, and of elements it ranks equal, the last. `compare` runs
+    once for each element after the first, as `compare(best, element)`. *)
+export let maxUsing(source: Seq(a), compare: (a, a) ->! Ordering): Option(a) =
+    fold!(source, None, (best: Option(a), value: a) => match best
+        Some(kept) => match compare!(kept, value)
+            Greater => best
+            _ => Some(value)
+        None => Some(value))
+
+(** The element of `source` that `compare` ranks least, or `None` when `source`
+    is empty, and of elements it ranks equal, the first. `compare` runs once for
+    each element after the first, as `compare(best, element)`. *)
+export let minUsing(source: Seq(a), compare: (a, a) ->! Ordering): Option(a) =
+    fold!(source, None, (best: Option(a), value: a) => match best
+        Some(kept) => match compare!(kept, value)
+            Greater => Some(value)
+            _ => best
+        None => Some(value))
+
+(** The greatest element of `source` under its `Ord`, or `None` when `source` is
+    empty, and of equal greatest elements, the last. *)
+export let max<a: Ord>(source: Seq(a)): Option(a) = maxUsing(source, Ord.compare)
+
+(** The least element of `source` under its `Ord`, or `None` when `source` is
+    empty, and of equal least elements, the first. *)
+export let min<a: Ord>(source: Seq(a)): Option(a) = minUsing(source, Ord.compare)
+
+(** The element of `source` whose key is greatest, or `None` when `source` is
+    empty, and of elements whose keys are equal, the last. `key` runs once per
+    element, in order. *)
+export let maxBy<b: Ord>(source: Seq(a), key: a ->! b): Option(a) =
+    unranked(fold!(source, None, (best, value) => laterBy(best, (key!(value), value))))
+
+(** The element of `source` whose key is least, or `None` when `source` is
+    empty, and of elements whose keys are equal, the first. `key` runs once per
+    element, in order. *)
+export let minBy<b: Ord>(source: Seq(a), key: a ->! b): Option(a) =
+    unranked(fold!(source, None, (best, value) => earlierBy(best, (key!(value), value))))
+
+(** The elements of `source` added in order, starting from zero, so the empty
+    sequence's sum is zero. *)
+export let sum<a: Num>(source: Seq(a)): a = fold(source, 0, Num.add)
+
+(** The elements of `source` multiplied in order, starting from one, so the
+    empty sequence's product is one. *)
+export let product<a: Num>(source: Seq(a)): a = fold(source, 1, Num.multiply)

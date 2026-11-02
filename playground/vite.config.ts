@@ -9,9 +9,10 @@ export default defineConfig({
     },
   },
   test: {
-    // `examples.test.ts` runs each example from a `hex-example-` directory;
-    // Node's own loader links it, refusing a graph whose modules disagree on a
-    // name as the browser does, where Vite's module runner would load it.
+    // `src/examples/run-modules.ts` runs a program from a `hex-example-`
+    // directory; Node's own loader links it, refusing a graph whose modules
+    // disagree on a name as the browser does, where Vite's module runner would
+    // load it.
     server: { deps: { external: [/[\\/]hex-example-/u] } },
   },
 });

@@ -159,6 +159,84 @@ export let all(m: Map(k, v), matches: ((k, v)) ->! Bool): Bool =
         None => True
         Some(_) => False
 
+// Extremes (`collection-combinators.md` section 13) over the entries, each one
+// walk of `fold`, so in the order `entries` yields them. `max` and `min` order
+// whole entries, key first, and never meet a tie because the keys are
+// distinct; the `By` and `Using` forms can, and of entries that tie they keep
+// the last for `max` and the first for `min`. A map has no `sum` or `product`:
+// `m.values().sum()` says which half is meant.
+//
+// The `Using` forms write their steps' parameter types: a match on the
+// comparator's answer is not decided without them (#1433). Each arm names
+// its constructor bare, `Greater`, which a pattern reads against the matched
+// value's own `Ordering` (Pattern Matching section 2.2).
+
+// One step of `maxBy`: the ranked entry replaces the best unless the best's
+// key is greater.
+let laterBy<c: Ord>(best: Option((c, (k, v))), ranked: (c, (k, v))): Option((c, (k, v))) =
+    match (best, ranked)
+        (Some((keptKey, _)), (rankedKey, _)) =>
+            match Ord.compare(keptKey, rankedKey)
+                Greater => best
+                _ => Some(ranked)
+        _ => Some(ranked)
+
+// One step of `minBy`: the ranked entry replaces the best only when the best's
+// key is greater.
+let earlierBy<c: Ord>(best: Option((c, (k, v))), ranked: (c, (k, v))): Option((c, (k, v))) =
+    match (best, ranked)
+        (Some((keptKey, _)), (rankedKey, _)) =>
+            match Ord.compare(keptKey, rankedKey)
+                Greater => Some(ranked)
+                _ => best
+        _ => Some(ranked)
+
+let unranked(best: Option((c, (k, v)))): Option((k, v)) = match best
+    Some((_, entry)) => Some(entry)
+    None => None
+
+(** The entry of `m` that `compare` ranks greatest, or `None` when `m` is empty,
+    and of entries it ranks equal, the last in traversal order. `compare` runs
+    once for each entry after the first, as `compare(best, entry)`. *)
+export let maxUsing(m: Map(k, v), compare: ((k, v), (k, v)) ->! Ordering): Option((k, v)) =
+    fold!(m, None, (best: Option((k, v)), entry: (k, v)) => match best
+        Some(kept) => match compare!(kept, entry)
+            Greater => best
+            _ => Some(entry)
+        None => Some(entry))
+
+(** The entry of `m` that `compare` ranks least, or `None` when `m` is empty,
+    and of entries it ranks equal, the first in traversal order. `compare` runs
+    once for each entry after the first, as `compare(best, entry)`. *)
+export let minUsing(m: Map(k, v), compare: ((k, v), (k, v)) ->! Ordering): Option((k, v)) =
+    fold!(m, None, (best: Option((k, v)), entry: (k, v)) => match best
+        Some(kept) => match compare!(kept, entry)
+            Greater => Some(entry)
+            _ => best
+        None => Some(entry))
+
+(** The greatest entry of `m`, ordering entries by key and then by value, which
+    is the entry with the greatest key, or `None` when `m` is empty. *)
+export let max<k: Ord, v: Ord>(m: Map(k, v)): Option((k, v)) = maxUsing(m, Ord.compare)
+
+(** The least entry of `m`, ordering entries by key and then by value, which is
+    the entry with the least key, or `None` when `m` is empty. *)
+export let min<k: Ord, v: Ord>(m: Map(k, v)): Option((k, v)) = minUsing(m, Ord.compare)
+
+(** The entry of `m` whose key, as `key` computes it from the entry, is
+    greatest, or `None` when `m` is empty, and of entries whose computed keys
+    are equal, the last in traversal order. `key` runs once per entry, in
+    traversal order. *)
+export let maxBy<c: Ord>(m: Map(k, v), key: ((k, v)) ->! c): Option((k, v)) =
+    unranked(fold!(m, None, (best, entry) => laterBy(best, (key!(entry), entry))))
+
+(** The entry of `m` whose key, as `key` computes it from the entry, is least,
+    or `None` when `m` is empty, and of entries whose computed keys are equal,
+    the first in traversal order. `key` runs once per entry, in traversal
+    order. *)
+export let minBy<c: Ord>(m: Map(k, v), key: ((k, v)) ->! c): Option((k, v)) =
+    unranked(fold!(m, None, (best, entry) => earlierBy(best, (key!(entry), entry))))
+
 honor Iterable<Map(k, v)> =
     type Item = (k, v)
     toSeq(map) = entries(map)

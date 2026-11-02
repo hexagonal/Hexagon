@@ -263,11 +263,24 @@ class Collector {
   }
 
   #collectValueDefinitions(): void {
+    // An accounting line (`pow = widened`, Constraints §4.7) writes no
+    // parameters: the resolver synthesizes the derived member's at the line's
+    // span, so a definition published for one would claim text the author
+    // wrote for something else.
+    const synthesized = new Set<Resolved.SymbolId>();
+    for (const item of this.#resolved.items) {
+      if (item.kind !== "Honor") continue;
+      for (const member of item.members) {
+        if (member.derived !== true) continue;
+        for (const parameter of member.value.parameters) synthesized.add(parameter.symbol);
+      }
+    }
     // `symbols` carries every symbol the module can see, imported ones included;
     // `#publish` keeps only those bound in this file. Taking definitions from
     // this one list rather than from the traversal is what makes parameters and
     // pattern binders definitions without a special case at every binding site.
     for (const symbol of this.#resolved.symbols) {
+      if (synthesized.has(symbol.id)) continue;
       // A **generated** binding declares nothing at the span it carries: its
       // `bindingSpan` is the declaration it was derived from — a literal
       // `extern enum`'s type name (Foreign Enums §5.2) — and that text already
@@ -405,7 +418,12 @@ class Collector {
       case "Honor":
         this.#visitAnnotation(item.subject);
         for (const implied of item.impliedTypes) this.#visitAnnotation(implied.annotation);
-        for (const member of item.members) this.#visitExpr(member.value);
+        for (const member of item.members) {
+          // A derived member's body is synthesized at its accounting line's
+          // span; the `widens` declaration publishes its own occurrences, as
+          // the parsed traversal below says.
+          if (member.derived !== true) this.#visitExpr(member.value);
+        }
         return;
       case "ExprItem":
         this.#visitExpr(item.expression);

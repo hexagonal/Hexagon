@@ -108,7 +108,7 @@ export const PRE_REGISTERED_CONSTRAINT_MEMBERS: Readonly<
   Pow: ["pow"],
   Concat: ["concat"],
   Eq: ["equals", "notEquals"],
-  Ord: ["compare"],
+  Ord: ["compare", "max", "min"],
   Show: ["show"],
   Hash: ["hash"],
   Iterable: ["toSeq"],
