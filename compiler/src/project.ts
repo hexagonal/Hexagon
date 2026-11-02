@@ -54,6 +54,7 @@ import {
 } from "./passes/emitter/emitter.js";
 import {
   fundamentalInstancesOf,
+  fundamentalSeatsOf,
   preludeBoolUnion,
   type FundamentalInstances,
 } from "./passes/emitter/specializations.js";
@@ -236,6 +237,12 @@ export interface CompiledProject {
    * that ran the prelude can say which those are.
    */
   readonly fundamentalInstances: FundamentalInstances;
+  /**
+   * Each prelude module's seat view of those rows (`fundamentalSeatsOf`), which
+   * a prelude module's own editions and every import of them are planned from.
+   * Carried out for the same re-emitting host.
+   */
+  readonly fundamentalSeats: ReadonlyMap<string, FundamentalInstances>;
   readonly diagnostics: readonly Diagnostics.Diagnostic[];
 }
 
@@ -1745,14 +1752,16 @@ export function compileProject(
   // The `Bool` pin comes from a prelude module that *sees* `Bool.hex` rather
   // than from `Bool.hex` itself, which cannot see its own declaration (Modules
   // §5.5). Any of them answers, and they answer the same identity.
-  const preludeCores = preludePaths.flatMap((path) => {
+  const preludeSeats = preludePaths.flatMap((path) => {
     const module = checked.get(path);
-    return module === undefined ? [] : [module.core];
+    return module === undefined ? [] : [{ name: module.name, core: module.core }];
   });
-  const fundamentalInstances = fundamentalInstancesOf(
-    preludeCores,
-    preludeCores.map(preludeBoolUnion).find((id) => id !== undefined),
-  );
+  const preludeCores = preludeSeats.map(({ core }) => core);
+  const preludeBool = preludeCores.map(preludeBoolUnion).find((id) => id !== undefined);
+  const fundamentalInstances = fundamentalInstancesOf(preludeCores, preludeBool);
+  // A prelude module plans its editions from its own seat, and an importer of
+  // one of its exports from the same seat (`fundamentalSeatsOf`).
+  const fundamentalSeats = fundamentalSeatsOf(preludeSeats, preludeBool);
 
   for (const path of ordered) {
     const module = checked.get(path);
@@ -1775,7 +1784,8 @@ export function compileProject(
       dataOnlyHomes,
       runtimes,
       runtimeGlobalsSpecifier,
-      fundamentalInstances,
+      fundamentalInstances: fundamentalSeats.get(module.name) ?? fundamentalInstances,
+      fundamentalSeats,
     });
     const declarations = reusedEmission?.declarations ?? emitDeclarations(core, {
       runtimeSpecifier: emittedModuleSpecifier(
@@ -1783,7 +1793,7 @@ export function compileProject(
       ),
       nominalHomes,
       modulePath: path,
-      fundamentalInstances,
+      fundamentalInstances: fundamentalSeats.get(module.name) ?? fundamentalInstances,
     });
     compiled.set(path, {
       source,
@@ -2013,6 +2023,7 @@ export function compileProject(
         }
       : undefined,
     fundamentalInstances,
+    fundamentalSeats,
     diagnostics: finalDiagnostics,
   };
 }

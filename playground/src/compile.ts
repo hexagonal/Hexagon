@@ -99,11 +99,13 @@ function compileWorkspace(
       // re-emission writes no import a prelude data seat never makes.
       dataOnlyHomes: module.dataOnlyHomes,
       // Third of the same kind (#679): Algorithm S's candidate rows for the
-      // pre-registered constraints are a fact about the *prelude*, and a prelude
-      // module sees only the members before its own seat — so a re-emission
-      // that recomputed them would give the earlier prelude modules a smaller
-      // edition set than the shipped emission gave them.
-      fundamentalInstances: project.fundamentalInstances,
+      // pre-registered constraints are read off the whole prelude, and a
+      // re-emission of one module alone cannot recompute them. A prelude module
+      // plans from its own seat's view of them, and an import of its exports
+      // from the same view, so the re-emission takes both.
+      fundamentalInstances: project.fundamentalSeats.get(module.name) ??
+        project.fundamentalInstances,
+      fundamentalSeats: project.fundamentalSeats,
     }),
   }));
   // Diagnostics are anchored rather than mapped: every one of them has to be

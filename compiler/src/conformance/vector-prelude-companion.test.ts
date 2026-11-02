@@ -358,9 +358,14 @@ describe("membership drags nothing in", () => {
     // implementation imports, though nothing here loads either (Modules
     // §11.1). `Vector.hex` is written on those terms too since #1071 — the
     // exports' faces name `Vector`, its declaring companion's type — and what
-    // must stay out is the load: the JavaScript imports nothing from it.
+    // must stay out is the load: the JavaScript imports nothing from it. What
+    // `Vector.hex` imports is written with it: `Ordering.hex` and `Ord.hex` for
+    // its sorts, and `Nat.hex`, `Float.hex` and `BigInt.hex`, whose `Ord`
+    // dictionaries the sorts' editions take (`collection-combinators.md` §12).
     expect(emittedPaths(files)).toEqual([
-      "/Hex/Pow.hex", "/Hex/Sign.hex", "/Hex/Integral.hex", "/Hex/Int.hex", "/Hex/Seq.hex", "/Hex/Option.hex", "/Hex/Runtime/VectorTrie.hex", "/Hex/Vector.hex", "/main.hex",
+      "/Hex/Pow.hex", "/Hex/Ordering.hex", "/Hex/Ord.hex", "/Hex/Sign.hex", "/Hex/Integral.hex", "/Hex/Int.hex",
+      "/Hex/Nat.hex", "/Hex/Float.hex", "/Hex/BigInt.hex", "/Hex/Seq.hex", "/Hex/Option.hex",
+      "/Hex/Runtime/VectorTrie.hex", "/Hex/Vector.hex", "/main.hex",
     ]);
   });
 

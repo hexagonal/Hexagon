@@ -804,6 +804,39 @@ export function fundamentalInstancesOf(
 }
 
 /**
+ * Each prelude module's own seat view of the program's rows, keyed by the
+ * module's full name (`Hex.Vector`).
+ *
+ * Zero-Cost Fundamental Exports §3.2 reads a variable's candidates off "the
+ * ordinary Constraints §4/§5 judgment", and for a prelude module that judgment
+ * is the instances seated at or before it (Modules §5.5): what a declaration
+ * brings, its instances included, is visible from its declarer's seat on. So a
+ * prelude export's editions are planned from this view, and an importer that
+ * recomputes them reads the same view for the same exporter — which is what
+ * keeps the two in agreement, as the one program table did before.
+ *
+ * The view and the table differ only where a prelude module exports a
+ * constrained function from a seat before a fundamental's companion: `Hex.Vector`
+ * sits before `Hex.String`, because `String` uses vectors, and plans no `String`
+ * edition. It could not build one: an edition at a primitive resolves that
+ * primitive's dictionary from the emitting module's own channels, and
+ * `String`'s is not among `Vector`'s.
+ *
+ * `modules` is the prelude in seat order, each with its full name.
+ */
+export function fundamentalSeatsOf(
+  modules: readonly { readonly name: string; readonly core: Core.Module }[],
+  bool: Resolved.UnionId | undefined,
+): ReadonlyMap<string, FundamentalInstances> {
+  const cores = modules.map(({ core }) => core);
+  const seats = new Map<string, FundamentalInstances>();
+  modules.forEach(({ name }, index) => {
+    seats.set(name, fundamentalInstancesOf(cores.slice(0, index + 1), bool));
+  });
+  return seats;
+}
+
+/**
  * Every (constraint declaration, dictionary, subject) an instance channel offers
  * here — the same three channels, read for whichever of the three fields the
  * caller needs.

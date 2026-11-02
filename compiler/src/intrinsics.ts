@@ -222,6 +222,12 @@ export function isIntrinsicScheme(specifier: string): boolean {
  * §4.5), so a call has its callback's colour. The walks are parametric (§4.2):
  * keys are compared only through the `Eq` and `Hash` evidence passed in.
  *
+ * `vectorSortUsing` (`collection-combinators.md` §12.5) is `Vector.sortUsing`,
+ * beneath `sort` and `sortBy` too. It lowers onto the platform's stable sort
+ * over the elements' *positions*, never the elements: that sort moves
+ * `undefined` to the end without asking the comparator, and `Unit`,
+ * `Nullable`, `JsValue` and opaque extern values can be `undefined`.
+ *
  * `debugLog` is `stdlib/Debug.hex`'s one row (§3.2, #407), and the door's first
  * **species (a)** customer (`spec/effects.md` §6.2): a write to a channel no
  * Hexagon expression can read back, declared pure and honestly so. The lowering
@@ -557,6 +563,7 @@ const INTRINSIC_OPERATIONS: readonly (readonly [string, number])[] = [
   ["vectorToArray", 1],
   ["vectorFindPosition", 2],
   ["vectorZip", 2],
+  ["vectorSortUsing", 2],
   ["bigIntAdd", 2],
   ["bigIntMultiply", 2],
   ["bigIntFromNat", 1],

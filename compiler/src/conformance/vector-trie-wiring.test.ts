@@ -177,9 +177,14 @@ describe("the import surface", () => {
     // loads either (Modules §11.1). `Vector.hex` is written on the same terms
     // since #1071 — the export's face names `Vector`, which its companion
     // declares, a `.d.ts` edge — and the JavaScript still loads nothing from
-    // it, which is what this case is about.
+    // it, which is what this case is about. What `Vector.hex` imports is
+    // written with it: `Ordering.hex` and `Ord.hex` for its sorts, and
+    // `Nat.hex`, `Float.hex` and `BigInt.hex`, whose `Ord` dictionaries the
+    // sorts' editions take (`collection-combinators.md` §12).
     expect(emittedPaths(files)).toEqual([
-      "/Hex/Pow.hex", "/Hex/Sign.hex", "/Hex/Integral.hex", "/Hex/Int.hex", "/Hex/Seq.hex", "/Hex/Option.hex", "/Hex/Runtime/VectorTrie.hex", "/Hex/Vector.hex", "/main.hex",
+      "/Hex/Pow.hex", "/Hex/Ordering.hex", "/Hex/Ord.hex", "/Hex/Sign.hex", "/Hex/Integral.hex", "/Hex/Int.hex",
+      "/Hex/Nat.hex", "/Hex/Float.hex", "/Hex/BigInt.hex", "/Hex/Seq.hex", "/Hex/Option.hex",
+      "/Hex/Runtime/VectorTrie.hex", "/Hex/Vector.hex", "/main.hex",
     ]);
     const javascript = emitted(files, "/main.hex");
     expect(javascript).toContain(
