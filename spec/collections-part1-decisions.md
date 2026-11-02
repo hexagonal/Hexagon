@@ -1,6 +1,6 @@
 # Hexagon Spec: Collections Part 1 — Foundational Decisions
 
-**Status:** Decided (July 2026); §3.1 amended 2026-08-02 — the `length`/`size` split, and enforcement of the `cons` ban against `stdlib/Seq.hex` — see correction record §10.1. The foundational decisions of the collections suite: names, representation, key model, naming doctrine, and the v1 iteration story. Authoritative for the doctrine it fixes; the full formal specifications are Collections Parts 2–5 and the FFI parts (see Companions), which are written against this ground and do not re-litigate it.
+**Status:** Decided (July 2026); §3.1 amended 2026-08-02 — the `length`/`size` split, and enforcement of the `cons` ban against `stdlib/Seq.hex` — see correction record §10.1. §3.4 and §3.5 added 2026-11-02 — the `By`/`Using`/`With` suffixes for a function parameter, ruled by the user. The foundational decisions of the collections suite: names, representation, key model, naming doctrine, and the v1 iteration story. Authoritative for the doctrine it fixes; the full formal specifications are Collections Parts 2–5 and the FFI parts (see Companions), which are written against this ground and do not re-litigate it.
 **Scope:** The `Vector(a)` name and the reservation of `List`; the representation and complexity contract; the collections naming doctrine; the uniform keyed-access partiality doctrine (`[]` throws, `get` is total); the Map/Set key model (`Hash`, hash-tried, not `Ord`-tree); `Hash` as a v1 derivable-only constraint; restricted user-implementable `Iterable` in v1; `Seq` as the universal conversion currency; operator boundaries (`++`).
 **Not in scope:** The `Hash` formal spec and the constraint `type`-member grammar (Collections Part 2); `Vector` literals, patterns, indexing, slicing, and instances (Collections Part 3); the `Map`/`Set` formal spec, `KeyFault`, and the iteration-order contract (Collections Part 4); the operational `Iterable` spec, the collections/stdlib boundary, and transients (Collections Part 5); the combinator surface (ledgered in `stdlib-roadmap.md`, decided in the stdlib listing); captured `Array(a)` (FFI Part 2); `Seq` interoperation (FFI Part 3); `JsMap`/`JsSet` (FFI Part 10); anything async.
 **Companions:** Collections Parts 2–5 (the formal specs); Loops/Ranges/Iteration (`Seq`, base iteration semantics); Pattern Matching (vector patterns, with Part 3); Exceptions (`IndexFault`; `KeyFault` is declared in Part 4 §4.3); Operators (§7 `++`/`Concat` doctrine; the instance lives in Part 3 §8); Constraints (`honor`, orphan rule, coherence, derivation whitelist); Modules §7 (instance globality; §7.6 discoverability); FFI Parts 2, 3, and 10; `stdlib-roadmap.md`.
@@ -102,6 +102,24 @@ The doctrine is fixed here; the normative surfaces live with their owners: `Vect
 - **`Map.tryGet` as the throwing accessor**: `try` universally signals non-throwing across the reference languages; maximally confusing name.
 - **A named `Map.getOrThrow` instead of `map[k]`**: honest but forfeits the unifying rule; two types, two conventions. (A `getOr(m, k, default)` convenience remains a stdlib-listing decision, ledgered in `stdlib-roadmap.md`.)
 - **`map[k]` returning `Option(v)`**: makes `[]` mean "total" on Map and "throws" on Vector — the exact inconsistency the pair exists to prevent.
+
+### 3.4 A function parameter's suffix: `By`, `Using`, `With`
+
+**The decision (binding stdlib-wide).** Where an exported function's name carries a suffix for one of its function parameters, the suffix names the role that parameter plays, and there are three:
+
+- **`By` takes a key.** The parameter maps each element to the thing the operation orders, compares, or groups on, and the operation reads that thing through its type's own instance (`Ord`, `Eq`, `Hash`). A sort's key form is `sortBy(values, key)`, ordering by `key(x)` under `Ord`.
+- **`Using` takes a method.** The parameter is the procedure that decides, standing in for the instance the unsuffixed form reads. A sort's comparator form is `sortUsing(values, compare)`, with `compare: (a, a) -> Ordering` in place of `Ord.compare`.
+- **`With` takes a producer.** The parameter makes part of the answer: the fallback of `Option.defaultWith` and `Result.defaultWith`, each element of `Seq.zipWith`, each replacement of `Regex.replaceWith` and `Regex.replaceFirstWith`.
+
+The unsuffixed name is the form without that parameter: `sort` orders by the elements' own `Ord`, `Seq.zip` pairs rather than combines, `Option.defaultValue` and `Regex.replace` take a value. A suffix never borrows another's role: no `By` function takes a comparator or a producer, no `Using` function takes a key, and no `With` function takes a key or a comparator. A function whose function parameter is its whole point (`map`, `filter`, `fold`, `find`) carries no suffix.
+
+**Rationale.** In English, and in SQL's `ORDER BY` and C#'s `OrderBy`, "by" is followed by the thing ordered on, as it is in lodash's `sortBy` and `maxBy`, Elm, F#, Kotlin, Scala, and Ruby; the key form is also the common one, and gets the short name. "Using" names a technique, as Objective-C's `sortUsingComparator:` and Swift Foundation's `sorted(using:)` do. "With" was already the producer suffix in this library before the other two had a member.
+
+### 3.5 Rejected alternatives for §3.4 (do not re-litigate)
+
+- **`By` for the comparator, with the key on another word** (Haskell's `sortBy`/`maximumBy` with `sortOn`; Rust's `sort_by`/`max_by` with `sort_by_key`): reads against the English and SQL "by", and gives the common key form the longer name. `On` is Haskell's alone and reads badly beside `By` (`orderOn`).
+- **`With` for the comparator** (Elm's and F#'s `sortWith`, Kotlin's `sortedWith`): `With` is already the producer suffix, and a comparator produces no part of the answer.
+- **Renaming the existing `With` functions to `Using` or `By`:** each already plays the producer role, and each is its colleague name: F#'s `defaultWith`, Haskell's `zipWith`, the English "replace … with …".
 
 ---
 
