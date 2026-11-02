@@ -1,6 +1,6 @@
 # Hexagon Spec: Zero-Cost Fundamental Exports
 
-**Status:** Decided (July 2026), revised in place after external review (Sol) before landing — see **correction records §17**. §3.2's candidates judgment for a prelude module's exports stated 2026-11-02, confirmed by James: it is that module's own seat's (Modules §5.5). *(#876: a specialization or base-name generic edition whose signature names a captured foreign collection is published under its §6/§4.2 name as FFI Part 7 §7 occasion 4's stable export wrapper; the names and the ABI of §8.1 are unchanged, and what the name binds is Part 7's.)* Revised 2026-11-02, ruled by James (#1438): specializations only for an export with exactly one constrained type variable (§3.2); an export with two or more reaches JavaScript through its generic edition when §4.1 triggers it, and Hexagon's own calls to it at fundamental types through copies made on demand (§8.3); see correction record §17.3. Implemented by #1438; conformance: `compiler/src/conformance/copies-on-demand.test.ts`. The generic edition (§4) is not yet emitted (see #992), so until it is, an export with two or more constrained variables has no typed JavaScript entry point. Normative promotion of `spec/notes/ffi-zero-cost-primitive-exports.md`. This is a **component FFI spec**: it fixes the JavaScript/TypeScript export surface of constrained-polymorphic Hexagon functions — and only that. It is **not** the general FFI spec and does not begin it; extern syntax, boundary type mapping, and the rest of the FFI agenda remain owed to the FFI consolidation session.
+**Status:** Decided (July 2026), revised in place after external review (Sol) before landing — see **correction records §17**. §3.2's candidates judgment for a prelude module's exports stated 2026-11-02, confirmed by James: it is that module's own seat's (Modules §5.5). *(#876: a specialization or base-name generic edition whose signature names a captured foreign collection is published under its §6/§4.2 name as FFI Part 7 §7 occasion 4's stable export wrapper; the names and the ABI of §8.1 are unchanged, and what the name binds is Part 7's.)* Revised 2026-11-02, ruled by James (#1438): specializations only for an export with exactly one constrained type variable (§3.2); an export with two or more reaches JavaScript through its generic edition when §4.1 triggers it, and Hexagon's own calls to it at fundamental types through copies made on demand (§8.3); see correction record §17.3. Revised 2026-11-02, ruled by James (§13.4): §4.1's non-fundamental clause binds only an export with one constrained variable, so fundamental evidence alone triggers the generic edition of an export with two or more; see correction record §17.4. Implemented by #1438; conformance: `compiler/src/conformance/copies-on-demand.test.ts`. The generic edition (§4) is not yet emitted (see #992), so until it is, an export with two or more constrained variables has no typed JavaScript entry point. Normative promotion of `spec/notes/ffi-zero-cost-primitive-exports.md`. This is a **component FFI spec**: it fixes the JavaScript/TypeScript export surface of constrained-polymorphic Hexagon functions — and only that. It is **not** the general FFI spec and does not begin it; extern syntax, boundary type mapping, and the rest of the FFI agenda remain owed to the FFI consolidation session.
 **Scope:** The closed fundamental type set and its pre-v1 review obligation; the normative specialization-set algorithm (which named dictionary-free entry points exist), including the one-variable rule, and the copies Hexagon's own calls receive where that rule generates none; the generic base-name edition and its public-evidence trigger; the deterministic naming algorithm, base-name reservation, and hard collision errors; the required-emission contract separated from optimizer freedom; `.d.ts` faces for specializations (lowercase Hexagon-originated binders); ABI events; diagnostics; acceptance tests including the code-size acceptance obligation.
 **Not in scope:** **Everything about dictionaries themselves** — evidence shapes, `Constraint.Dictionary<a>` declarations, handle ownership and names (`Signed.int`, `Rat.signed`), parameterized factories (`Vector.show(...)`), trailing-evidence ordering, base constraint nesting, branding, validation, and cross-package dictionary ABI — is owned normatively by FFI Part 9 (`ffi-part9-exported-dictionaries.md`); this document consumes those rules by reference and redesigns nothing. Also not in scope: extern declaration syntax; `Array(a)`/`Map`/`Set` boundary packages; `JsValue`; the internal (Hexagon-side) dictionary-passing scheme (Constraints §6, refined in direction by Part 9).
 **Companions:** FFI Part 9 (`ffi-part9-exported-dictionaries.md`; dictionary ABI consumed); `spec/notes/ffi-exported-dictionaries.md` (historical decision source); `spec/notes/ffi-proto-spec-questions.md` §8; Constraints §4–§6 (lawfulness, coherence, dictionary compilation); Functions §4/§8 (typed forms, generalization); Primitive Types §1 (fundamental JS representations); Numeric Literals §5 (`fromInt` erasure); Decisions Batch 2026-07 §1.5 (`Eq<Float>` emission); Modules §4/§11 (the head's visibility slot, ESM emission).
@@ -9,11 +9,11 @@ Written for a future implementation session against the existing `hexc` architec
 
 ---
 
-## 1. Doctrine *(revised — see §17.3)*
+## 1. Doctrine *(revised — see §17.3, §17.4)*
 
 Hexagon's zero-cost concrete-type rule extends through the JavaScript boundary:
 
-> **An exported function with exactly one constrained type variable generates a direct monomorphic entry point for every lawful fundamental type at that variable. These entry points take no dictionaries and contain concrete emitted operations. An exported function with two or more constrained type variables generates none: JavaScript reaches it through the generic edition when §4.1 triggers it, and Hexagon's own calls reach it through copies made on demand (§8.3). A generic trailing-dictionary edition is added only when the compiled public instance graph contains a complete publicly obtainable evidence assignment with at least one non-fundamental component (§4.1).**
+> **An exported function with exactly one constrained type variable generates a direct monomorphic entry point for every lawful fundamental type at that variable. These entry points take no dictionaries and contain concrete emitted operations. An exported function with two or more constrained type variables generates none: JavaScript reaches it through the generic edition when §4.1 triggers it, and Hexagon's own calls reach it through copies made on demand (§8.3). A generic trailing-dictionary edition is added only when the compiled public instance graph contains a complete publicly obtainable evidence assignment, which for an export with one constrained variable must be at a non-fundamental type (§4.1).**
 
 The resulting hybrid surface:
 
@@ -120,16 +120,17 @@ If the specialization set is empty (the export has two or more constrained varia
 
 ## 4. The generic base-name edition: Algorithm G (normative)
 
-### 4.1 The trigger *(corrected — see §17.1)*
+### 4.1 The trigger *(corrected — see §17.1, §17.4)*
 
-The base-name generic edition is emitted **iff** there exists at least one **complete, publicly obtainable evidence assignment** for the function's constrained variables, **at least one component of which is non-fundamental**. Precisely: an assignment of a **publicly nameable type** `Ti` to each specializing variable `vi` (a *type*, not a bare constructor — `Vector(String)` qualifies where `Vector` alone is not well-kinded) such that
+The base-name generic edition is emitted **iff** there exists at least one **complete, publicly obtainable evidence assignment** for the function's constrained variables, **whose component is non-fundamental where the function has exactly one constrained variable**. Precisely: an assignment of a **publicly nameable type** `Ti` to each specializing variable `vi` (a *type*, not a bare constructor — `Vector(String)` qualifies where `Vector` alone is not well-kinded) such that
 
 1. for every `vi` and every `K ∈ C(vi)`, evidence for `K` at `Ti` is **publicly obtainable**, and
-2. at least one `Ti` is non-fundamental.
+2. where the function has exactly one constrained variable, its `T1` is non-fundamental.
 
 *Publicly obtainable* means there is a public **evidence expression** for it: a public handle per the exported-dictionaries public-exposure rule (constraint publicly nameable; `Ti`'s constructors publicly nameable; every signature component of the handle/factory public; the lawful instance present in the compiled graph), or a public factory applied to inputs that are themselves recursively publicly obtainable — e.g. `Vector.show(Show.string)` is the obtainable evidence for `Show` at `Vector(String)`.
 
 - **Completeness is load-bearing.** The generic function requires evidence for *every* constrained variable; if any variable's constraints have no publicly obtainable evidence at *any* public type — fundamental or not — no JavaScript caller could lawfully call the edition, and it is not emitted. For ordinary prelude-constraint functions (`plus<a: Num>`) this rule coincides exactly with "some public non-fundamental instance exists", because fundamental evidence for prelude constraints is constraint-owned and public; the completeness condition matters only for multi-variable and user-constraint cases (§17.1).
+- **Clause 2 is about the specializations, so it binds only where they exist.** For an export with one constrained variable, the named specializations (§3.2) are the fundamental types' entry points, and the generic edition adds the non-fundamental ones. An export with two or more constrained variables has no specializations, so a complete assignment of fundamental types is a lawful call nothing else serves, and it triggers the edition: `shift<a: Bitwise, n: Integral>` has one at `(Int, Int)` (§13.4, test (l)). Where each of such an export's variables has a fundamental type honoring all of that variable's constraints, and those constraints are prelude constraints, the constraint-owned handles complete an assignment, so the edition is emitted.
 - **Private types and internal call sites never cause the edition to appear** (§5). Conversely, a qualifying public assignment causes it to appear **even if no Hexagon source instantiates `f` at those types** — JavaScript callers sit outside Hexagon call-site analysis.
 - Adding the public instance that first completes a qualifying assignment adds the base-name export: an **additive ABI change** (§9). Removing the evidence that last sustains one removes it: breaking.
 
@@ -362,9 +363,9 @@ Three gaps in the proto-note required rules to make the algorithms total; each i
 
 Exported constrained-polymorphic **non-function values**, should generalization ever produce one, are unhandled here (§3.1) and belong to the FFI consolidation.
 
-### 13.4 Open edge: an export with two or more constrained variables and no publicly obtainable non-fundamental evidence
+### 13.4 Fundamental evidence alone triggers the generic edition of an export with two or more constrained variables
 
-§4.1's clause 2 asks for a non-fundamental component. An export with two or more constrained variables whose constraints have no publicly obtainable non-fundamental evidence therefore has no JavaScript entry point: no specializations (§3.2) and no generic edition. In the prelude, `Integral` is honored only at `Nat`, `Int` and `BigInt`, and `Bitwise` only at `Int` and `BigInt`, so in a program that adds no public instance of either, `export let shift<a: Bitwise, n: Integral>(x: a, by: n): a` is such an export. §3.4 makes the case legal and visible. Whether fundamental evidence alone should trigger the generic edition for such exports is a separate decision, not taken here; acceptance test (l) pins the behaviour until it is.
+§4.1's clause 2 asks for a non-fundamental component only of an export with one constrained variable, whose specializations already serve the fundamental types. An export with two or more constrained variables has no specializations (§3.2), so for it a complete assignment of fundamental types is enough. In the prelude, `Integral` is honored only at `Nat`, `Int` and `BigInt`, and `Bitwise` only at `Int` and `BigInt`, so a program that adds no public instance of either has no non-fundamental evidence for `export let shift<a: Bitwise, n: Integral>(x: a, by: n): a`. Its generic edition is triggered by `(Int, Int)`, with `Bitwise.int` and `Integral.int`, and is its JavaScript entry point. Without it, `shift` would have no JavaScript entry point although every dictionary a call needs is public. §11.8's standard, that the edition exists exactly where a lawful complete call does, still holds: completeness (§17.1) binds every export, and only the non-fundamental condition is lifted. Acceptance test (l) pins the case.
 
 ---
 
@@ -391,7 +392,7 @@ Exported constrained-polymorphic **non-function values**, should generalization 
 | 4 | Algorithm S: per-variable fundamental candidates by ordinary lawfulness; specializations **only for an export with exactly one constrained variable** (decision 21), unconditional for those exports | §3.2 |
 | 5 | Unconstrained type variables stay generic binders; no suffix element *(clarification, flagged §13.1)* | §3.3 |
 | 6 | Zero-entry-point case legal — a **stated doctrine exception to export correspondence** (`export` promises Hexagon visibility; the foreign typed surface is this spec's); documentation + build-report visibility obligations; hard-error alternative rejected; opt-in must-be-JS-callable annotation pre-registered v2 — corrected, §17.2 | §1, §3.4, §11.7 |
-| 7 | Algorithm G: generic edition iff a **complete, publicly obtainable evidence assignment** exists for all constrained variables with **at least one non-fundamental component** (nameability-based, recursively obtainable); coincides with the simpler per-variable reading for prelude constraints; additive when first completed — corrected, §17.1 | §4 |
+| 7 | Algorithm G: generic edition iff a **complete, publicly obtainable evidence assignment** exists for all constrained variables with **at least one non-fundamental component** (nameability-based, recursively obtainable); coincides with the simpler per-variable reading for prelude constraints; additive when first completed — corrected, §17.1; the component condition binds only an export with one constrained variable (decision 22) | §4 |
 | 8 | Algorithm N: base name ++ the specializing variable's fundamental type name; alpha-renaming can never change a name; **base name reserved** for the generic edition even while absent | §6.1 |
 | 9 | **All generated-name collisions are hard errors**; no mangling/suffixing/source-order winners for ABI names | §6.2, §11.3 |
 | 10 | Required emission: direct dictionary-free bodies (never wrappers over the generic edition), deterministic surface, semantic equivalence, source-map/doc attribution, no tree-shaking dependence | §8.1 |
@@ -405,7 +406,8 @@ Exported constrained-polymorphic **non-function values**, should generalization 
 | 18 | **§8.2's known-concrete freedom is taken as the implementation's standing choice** (#440): an internal call to an exported constrained declaration whose constrained variables all instantiate at fundamental types emits the Algorithm N specialization by name, or for an export with two or more constrained variables §8.3's copy (decision 21), where one exists (§3.2 step 2; §8.3 item 2) — no evidence, no generic edition; every other internal site (any type variable in play, any non-fundamental concrete instantiation, any unexported callee) keeps trailing evidence. The direction is the permitted converse of §5's bar and §11.6's rejection: call sites here *consume* an unconditional specialization, or create a §8.3 copy, which is linkage and not surface; the export surface still never depends on call sites | §5, §8.2, §11.6 |
 | 19 | **The candidates judgment at `Unit` and `Bool`:** `Unit`'s lawful instances are exactly the automatic structural ones (today `Eq`/`Ord`/`Show`/`Hash`) and no `honor` can name it — never a candidate for a user constraint; `Bool` derives its own four in its declaring module and is otherwise an ordinary instance head — like every non-`Unit` fundamental, a user constraint reaches it from the constraint's own module | §3.2 |
 | 20 | *(#876)* Specializations and the base-name generic edition whose signatures name a captured foreign collection are published as FFI Part 7 §7 occasion 4's stable export wrappers; names and §8.1's ABI unchanged | §4.2, §8.1; Part 7 §7 |
-| 21 | *(#1438, ruled by James 2026-11-02)* **The one-variable rule replaces the full product:** an export with two or more constrained variables has no specializations and reaches JavaScript through its generic edition when §4.1 triggers it; Hexagon's own calls to it at fundamental tuples reach dictionary-free `__` linkage copies, at most one per tuple used (§8.3). The product (§11.9) and a generic-only surface for every export (§11.10) are rejected | §3.2, §8.3, §11.9, §11.10, §13.4, §17.3 |
+| 21 | *(#1438, ruled by James 2026-11-02)* **The one-variable rule replaces the full product:** an export with two or more constrained variables has no specializations and reaches JavaScript through its generic edition when §4.1 triggers it, which fundamental evidence alone can (decision 22); Hexagon's own calls to it at fundamental tuples reach dictionary-free `__` linkage copies, at most one per tuple used (§8.3). The product (§11.9) and a generic-only surface for every export (§11.10) are rejected | §3.2, §8.3, §11.9, §11.10, §13.4, §17.3 |
+| 22 | *(§13.4, ruled by James 2026-11-02)* **Fundamental evidence alone triggers the generic edition of an export with two or more constrained variables:** §4.1's non-fundamental clause binds only an export with one constrained variable, whose specializations serve the fundamental types; completeness binds every export | §4.1, §13.4, §17.4 |
 
 ---
 
@@ -442,8 +444,9 @@ let internal = plus(20, 22)        -- emits: const internal = 20 + 22;
 -- (e) Two constrained variables: no specializations; generic edition; copies on demand
 export let combine<a: Show, b: Eq>(x: a, y: b): String = ...
 -- No combineIntInt, combineIntString, ... is exported or declared.
--- Public non-fundamental Show and Eq evidence exists (e.g. Vector.show, Option.eq),
--- so the generic edition is the foreign entry point:
+-- Publicly obtainable Show and Eq evidence exists (fundamental handles such as
+-- Show.int and Eq.string complete an assignment, §4.1), so the generic edition
+-- is the foreign entry point:
 --   export declare function combine<a, b>(x: a, y: b, showA: Show.Dictionary<a>,
 --                                         eqB: Eq.Dictionary<b>): string;
 -- An internal call combine(1, "x") calls a dictionary-free `__` copy at
@@ -493,11 +496,14 @@ honor Weighty<Grams> = ...                          -- public type, lawful insta
 -- Now (a=Vector(...), b=Grams)-style complete assignments exist with a
 -- non-fundamental component → the `describe` generic edition appears. Additive.
 
--- (l) Two constrained variables with no public non-fundamental evidence (§13.4)
+-- (l) Two constrained variables, fundamental evidence only (§13.4)
 export let shift<a: Bitwise, n: Integral>(x: a, by: n): a = ...
--- No specializations (§3.2). With no public non-fundamental Bitwise or Integral
--- instance in the graph, §4.1 does not trigger, so no generic edition either:
--- no foreign typed entry point; the §10 build report lists `shift` (§3.4).
+-- No specializations (§3.2). No public non-fundamental Bitwise or Integral
+-- instance is in the graph, but (a=Int, n=Int) is a complete assignment of public
+-- evidence (Bitwise.int, Integral.int), so §4.1 triggers the generic edition:
+--   export declare function shift<a, n>(x: a, by: n, bitwiseA: Bitwise.Dictionary<a>,
+--                                       integralN: Integral.Dictionary<n>): a;
+-- `shift` is not a zero-entry-point export (§3.4).
 -- An internal call shift(1, 2) still reaches a dictionary-free copy (§8.3).
 ```
 
@@ -529,3 +535,10 @@ Applied **in place** above; the corrected section is marked. §17.1 and §17.2 c
 - **Origin:** the product was accepted provisionally, with instrumentation as the condition (§10 as it then read), before any real export had two constrained variables.
 - **Correction:** ruled by James on 2026-11-02. One-variable exports keep every lawful fundamental specialization. Exports with two or more get none, and reach JavaScript through the generic edition when §4.1 triggers it. Hexagon's own calls to them at fundamental tuples get copies on demand (§8.3). The ruling's "Hexagon's own calls get copies on demand" is read as covering exactly the calls that lost their specializations: a one-variable export's calls reach its specializations (decision 18), and calls at other types keep evidence.
 - **Rejected alternatives (do not relitigate):** the full product (§11.9): esbuild's tree shaking was measured to drop every unused specialization, so its cost fell on unbundled output, which tree shaking cannot reach. A generic-only surface for every export (§11.10): a JavaScript call through a generic edition measured about six times slower on arithmetic once the edition had run at several types.
+
+### 17.4 Fundamental evidence counts for an export with two or more constrained variables (2026-11-02; §1, §4.1 revised; §13.4 restated)
+
+- **Finding:** under the one-variable rule (§17.3), an export with two or more constrained variables has no specializations. Read for every export, §4.1's clause 2 then left `shift<a: Bitwise, n: Integral>`, in a program adding no public `Bitwise` or `Integral` instance, with no JavaScript entry point at all, although `Bitwise.int` and `Integral.int` are public and complete a lawful call.
+- **Origin:** clause 2 was written when every fundamental assignment had a specialization, to make the generic edition add only what the specializations did not cover. §17.3 removed the specializations of such exports and left the clause reading as before.
+- **Correction:** ruled by James on 2026-11-02. Clause 2 binds only an export with one constrained variable. For an export with two or more, any complete publicly obtainable assignment triggers the edition. Completeness (§17.1) binds every export.
+- **Rejected alternative (do not relitigate):** keeping clause 2 for every export, which leaves such an export with no foreign entry point while every dictionary a call needs is public; §3.4's visibility obligations would report the gap without closing it.

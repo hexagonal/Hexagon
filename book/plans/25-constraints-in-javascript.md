@@ -20,7 +20,9 @@ the foreign API.
 3. Lawful direct specializations are named from the source export and type tuple.
 4. Specializations contain direct concrete operations and take no dictionaries.
 5. A base-name generic function appears only when all required public dictionaries are
-   obtainable and at least one belongs to a non-fundamental type.
+   obtainable and, for a function with one constrained type, at least one belongs to a
+   non-fundamental type; for several constrained types, fundamental dictionaries alone
+   are enough.
 6. Constraint-qualified dictionary types expose the completed member set.
 7. Fundamental dictionary handles are constraint-owned; user/runtime handles are
    type-owned; parameterized instances become dictionary factories.
