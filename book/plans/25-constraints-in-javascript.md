@@ -34,8 +34,10 @@ the foreign API.
 - Preserve subject-first source arguments and trailing dictionary parameters.
 - Keep concrete specializations direct; never describe them as wrappers over the
   generic edition.
-- Include all and only lawful fundamental combinations; unconstrained variables stay
-  generic.
+- Generate direct functions only for an export with one constrained type variable, at
+  all and only its lawful fundamental types; an export with two or more gets none, and
+  its Hexagon calls use private copies; unconstrained variables stay generic and do not
+  count.
 - Reserve the source base name for the conditional generic edition.
 - Do not generate named specializations for unbounded user types.
 - Keep dictionary objects compiler/runtime-produced, branded, and ordinarily trusted.

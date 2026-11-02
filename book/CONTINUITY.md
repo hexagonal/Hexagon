@@ -500,8 +500,10 @@ late pedagogy pass, not a commitment to the current order.
 
 - Assumes constrained polymorphism, dictionaries, coherence, derivation, modules,
   readable JavaScript output, `.d.ts`, and the trusted FFI boundary.
-- Establishes direct named specializations for every lawful combination of the closed
-  fundamental set and retains unconstrained variables as generic binders.
+- Establishes direct named specializations at each lawful type of the closed fundamental
+  set for an export with one constrained type variable, none for an export with two or
+  more (whose Hexagon calls use private on-demand copies), and retains unconstrained
+  variables as generic binders.
 - Establishes the source base name as the conditional generic function with stable
   trailing dictionary parameters.
 - Establishes constraint-qualified branded dictionary types, constraint-owned
