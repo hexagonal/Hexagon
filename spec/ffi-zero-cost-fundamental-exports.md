@@ -362,7 +362,7 @@ Three gaps in the proto-note required rules to make the algorithms total; each i
 
 Exported constrained-polymorphic **non-function values**, should generalization ever produce one, are unhandled here (§3.1) and belong to the FFI consolidation.
 
-### 13.4 Open edge: a two-variable export whose constraints only fundamental types honor
+### 13.4 Open edge: an export with two or more constrained variables and no publicly obtainable non-fundamental evidence
 
 §4.1's clause 2 asks for a non-fundamental component. An export with two or more constrained variables whose constraints have no publicly obtainable non-fundamental evidence therefore has no JavaScript entry point: no specializations (§3.2) and no generic edition. In the prelude, `Integral` is honored only at `Nat`, `Int` and `BigInt`, and `Bitwise` only at `Int` and `BigInt`, so in a program that adds no public instance of either, `export let shift<a: Bitwise, n: Integral>(x: a, by: n): a` is such an export. §3.4 makes the case legal and visible. Whether fundamental evidence alone should trigger the generic edition for such exports is a separate decision, not taken here; acceptance test (l) pins the behaviour until it is.
 
@@ -402,7 +402,7 @@ Exported constrained-polymorphic **non-function values**, should generalization 
 | 15 | Per-user-type export explosion rejected permanently; user types share the one generic edition | §11.4 |
 | 16 | Constraints §6.4 / Modules §11.5 wording contradictions recorded for the FFI consolidation, unresolved here | §13.2 |
 | 17 | `Bool` remains fundamental **by enumeration** after #147's prelude-union reclassification — membership is a language category, not type classification; Algorithms S/G/N unaffected; face `boolean` unchanged (now grounded in the Unions §6.2 pin) | §2.1, §2.3 |
-| 18 | **§8.2's known-concrete freedom is taken as the implementation's standing choice** (#440): an internal call to an exported constrained declaration whose constrained variables all instantiate at fundamental types emits the Algorithm N specialization by name, or for an export with two or more constrained variables §8.3's copy (decision 21) — no evidence, no generic edition; every other internal site (any type variable in play, any non-fundamental concrete instantiation, any unexported callee) keeps trailing evidence. The direction is the permitted converse of §5's bar and §11.6's rejection: call sites here *consume* an unconditional specialization, or create a §8.3 copy, which is linkage and not surface; the export surface still never depends on call sites | §5, §8.2, §11.6 |
+| 18 | **§8.2's known-concrete freedom is taken as the implementation's standing choice** (#440): an internal call to an exported constrained declaration whose constrained variables all instantiate at fundamental types emits the Algorithm N specialization by name, or for an export with two or more constrained variables §8.3's copy (decision 21), where one exists (§3.2 step 2; §8.3 item 2) — no evidence, no generic edition; every other internal site (any type variable in play, any non-fundamental concrete instantiation, any unexported callee) keeps trailing evidence. The direction is the permitted converse of §5's bar and §11.6's rejection: call sites here *consume* an unconditional specialization, or create a §8.3 copy, which is linkage and not surface; the export surface still never depends on call sites | §5, §8.2, §11.6 |
 | 19 | **The candidates judgment at `Unit` and `Bool`:** `Unit`'s lawful instances are exactly the automatic structural ones (today `Eq`/`Ord`/`Show`/`Hash`) and no `honor` can name it — never a candidate for a user constraint; `Bool` derives its own four in its declaring module and is otherwise an ordinary instance head — like every non-`Unit` fundamental, a user constraint reaches it from the constraint's own module | §3.2 |
 | 20 | *(#876)* Specializations and the base-name generic edition whose signatures name a captured foreign collection are published as FFI Part 7 §7 occasion 4's stable export wrappers; names and §8.1's ABI unchanged | §4.2, §8.1; Part 7 §7 |
 | 21 | *(#1438, ruled by James 2026-11-02)* **The one-variable rule replaces the full product:** an export with two or more constrained variables has no specializations and reaches JavaScript through its generic edition when §4.1 triggers it; Hexagon's own calls to it at fundamental tuples reach dictionary-free `__` linkage copies, at most one per tuple used (§8.3). The product (§11.9) and a generic-only surface for every export (§11.10) are rejected | §3.2, §8.3, §11.9, §11.10, §13.4, §17.3 |
@@ -493,7 +493,7 @@ honor Weighty<Grams> = ...                          -- public type, lawful insta
 -- Now (a=Vector(...), b=Grams)-style complete assignments exist with a
 -- non-fundamental component → the `describe` generic edition appears. Additive.
 
--- (l) Two constrained variables whose constraints only fundamental types honor (§13.4)
+-- (l) Two constrained variables with no public non-fundamental evidence (§13.4)
 export let shift<a: Bitwise, n: Integral>(x: a, by: n): a = ...
 -- No specializations (§3.2). With no public non-fundamental Bitwise or Integral
 -- instance in the graph, §4.1 does not trigger, so no generic edition either:
