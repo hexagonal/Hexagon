@@ -30873,8 +30873,8 @@ class Checker {
    *
    * It speaks only where the reading is the one possibility: exactly one of the
    * expected parameters is a tuple whose parts make up the difference. A lambda
-   * is caret and rewritten in its own parameter names; any other function is
-   * wrapped in one.
+   * is caret and rewritten in its own parameters as written; any other function
+   * is wrapped in one.
    */
   #spreadTupleArity(
     left: Mono,
@@ -30917,13 +30917,23 @@ class Checker {
         : [];
     });
     const lambda = here.length === 1 ? here[0] : undefined;
+    // Each parameter as written, without its annotation: a plain name is its
+    // name; `_` and a destructuring pattern carry a synthesized name, so they
+    // are spelled from the source their span covers.
     const plain = /^[a-z_][A-Za-z0-9_]*$/u;
-    const names = lambda?.parameters.map(({ name }) => name);
-    if (lambda !== undefined && names !== undefined && names.every((name) => plain.test(name) && !name.startsWith("__"))) {
+    const spellings = lambda?.parameters.map(({ name, span: written }) => {
+      if (plain.test(name) && !name.startsWith("__")) return name;
+      const text = this.#sourceText?.slice(written.start.offset, written.end.offset);
+      return text !== undefined && text.length > 0 && !/[\r\n]/u.test(text) ? text : undefined;
+    });
+    if (
+      lambda !== undefined && spellings !== undefined &&
+      spellings.every((spelling): spelling is string => spelling !== undefined)
+    ) {
       const rewritten = [
-        ...names.slice(0, at),
-        `(${names.slice(at, at + parts).join(", ")})`,
-        ...names.slice(at + parts),
+        ...spellings.slice(0, at),
+        `(${spellings.slice(at, at + parts).join(", ")})`,
+        ...spellings.slice(at + parts),
       ];
       return {
         message: `${seat}, but the lambda spreads it over ${countWord(parts)} parameters; ` +

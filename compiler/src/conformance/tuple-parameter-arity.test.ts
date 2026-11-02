@@ -79,6 +79,16 @@ describe("a lambda that spreads the pair is told to destructure it", () => {
       .toMatch(/destructure the pair in one parameter: `\(\(k, v\)\) => …`$/u);
   });
 
+  test("`_` and a destructuring pattern are kept as written", () => {
+    expect(reports(MAP + "export let big: Bool = m.any((_, v) => v > 2)\n")[0]?.[0])
+      .toMatch(/destructure the pair in one parameter: `\(\(_, v\)\) => …`$/u);
+    expect(reports("export let any: Bool = Seq.any([((1, 2), 3, 4)], ((a, b), c, d) => a > c)\n")).toEqual([[
+      "the function expected here takes one parameter, a triple, but the lambda spreads it over " +
+        "three parameters; destructure the triple in one parameter: `(((a, b), c, d)) => …`",
+      "((a, b), c, d) => a > c",
+    ]]);
+  });
+
   test("a triple is named as one, and parts not yet solved are not shown", () => {
     expect(reports("export let any: Bool = Seq.any([(1, 2, 3)], (a, b, c) => a > c)\n")).toEqual([[
       "the function expected here takes one parameter, a triple, but the lambda spreads it over " +
@@ -91,10 +101,12 @@ describe("a lambda that spreads the pair is told to destructure it", () => {
     const main = await runMain("module Main\n\n" + MAP +
       "export let big: Bool = Seq.any(m, ((k, v)) => v > 2)\n" +
       "export let total: Int = Seq.fold(m, 0, (acc, (k, v)) => acc + v)\n" +
-      "export let kept: Int = m.filter(((k, v)) => v > 2).size()\n");
+      "export let kept: Int = m.filter(((k, v)) => v > 2).size()\n" +
+      "export let some: Bool = m.any(((_, v)) => v > 2)\n");
     expect(main.big).toBe(true);
     expect(main.total).toBe(4);
     expect(main.kept).toBe(1);
+    expect(main.some).toBe(true);
   });
 });
 
@@ -124,6 +136,11 @@ describe("where the reading is not the one possibility, the plain report stands"
   test("parts that do not make up the difference", () => {
     expect(reports("export let any: Bool = Seq.any([(1, 2)], (a, b, c) => a > c)\n").map(([message]) => message))
       .toEqual(["function arity mismatch: 1 and 3"]);
+  });
+
+  test("a tuple of more parts than the difference", () => {
+    expect(reports("export let any: Bool = Seq.any([(1, 2, 3)], (a, b) => a > b)\n").map(([message]) => message))
+      .toEqual(["function arity mismatch: 1 and 2"]);
   });
 
   test("fewer parameters than the seat takes", () => {
