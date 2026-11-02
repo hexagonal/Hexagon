@@ -31,6 +31,9 @@
 import * as Source from "./source.js";
 import { compileProject, type CompiledProject, type ProjectOptions } from "../project.js";
 
+/** How many programs `runProject` has run in this process; see its directory. */
+let runs = 0;
+
 /** Compiles the given files as one project, prelude included. */
 export function compileFiles(
   files: readonly (readonly [string, string])[],
@@ -116,8 +119,11 @@ export async function runProject(
   }
 
   // One directory per run, never reused: a module's URL is its identity to the
-  // host's module cache, so two runs must not share a path.
-  const root = fs.mkdtempSync(paths.join(os.tmpdir(), "hex-run-"));
+  // host's module cache, so two runs must not share a path. The directory is
+  // removed after the run and `mkdtemp` could hand its name out again, so the
+  // process's own count of runs is part of the name.
+  runs += 1;
+  const root = fs.mkdtempSync(paths.join(os.tmpdir(), `hex-run-${runs}-`));
   const fileOf = (address: string): string =>
     paths.join(root, address.replace(/^\//u, "").replace(/\.hex$/u, ".js"));
   const write = (file: string, text: string): void => {

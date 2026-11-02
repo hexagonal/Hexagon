@@ -377,9 +377,9 @@ export interface JavaScriptEmissionOptions {
   /**
    * The Algorithm S candidate rows for the **pre-registered** constraints that
    * this module's own editions are planned from (#679); see
-   * `FundamentalInstances`. For a user module that is the program's whole
-   * table, and for a prelude module its seat view, the rows seated at or before
-   * it (`fundamentalSeatsOf`).
+   * `FundamentalInstances`. For a module outside the prelude that is the
+   * program's whole table, and for a prelude module its seat view, the rows
+   * seated at or before it (`fundamentalSeatsOf`).
    *
    * Only `compileProject` can supply them, and for the reason the two options
    * above name plus one of its own: the rows are a fact about the prelude, which
@@ -7316,6 +7316,10 @@ class JavaScriptEmitter {
         : planImportedSpecializations(
             declaration,
             this.#module,
+            // The exporter's table. An exporter with no seat is outside the
+            // prelude, so its table is the whole one, and so is this module's:
+            // a prelude module imports only members seated before it (Modules
+            // §5.5), never a module outside the prelude.
             this.#fundamentalSeats?.get(item.moduleName) ?? this.#fundamentalInstances,
             this.#prelude.bool,
           );
