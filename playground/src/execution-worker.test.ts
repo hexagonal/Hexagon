@@ -223,6 +223,17 @@ describe("an uncaught exception is reported by name", () => {
     expect(failureAt(harness.posted, 7)).toBe("BadPattern: missing )");
   });
 
+  test("as a fault's name and message, for a fault thrown as the program loads", async () => {
+    harness.posted.length = 0;
+
+    await harness.send(execute(10,
+      "fault BadPatternFault(message: String)\n" +
+      'let boom: Int = throw(BadPatternFault("missing )"))\n',
+    ));
+
+    expect(failureAt(harness.posted, 10)).toBe("BadPatternFault: missing )");
+  });
+
   test("as its name alone when it has no message", async () => {
     harness.posted.length = 0;
 
