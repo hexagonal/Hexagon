@@ -106,6 +106,10 @@ function compileWorkspace(
       fundamentalInstances: project.fundamentalSeats.get(module.name) ??
         project.fundamentalInstances,
       fundamentalSeats: project.fundamentalSeats,
+      // A fifth (Zero-Cost Fundamental Exports §8.3): the copies other modules
+      // call. A re-emission without them writes none, and the importer that
+      // calls one fails at load.
+      copyDemand: module.copyDemand,
     }),
   }));
   // Diagnostics are anchored rather than mapped: every one of them has to be

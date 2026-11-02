@@ -12,7 +12,7 @@ consumers), added 2026-11-02 and ruled by James, with `Ord.max` and `Ord.min`
 made defaulted members of `Ord` the same day, also ruled by James, and
 implemented by #1431; conformance:
 `compiler/src/conformance/collection-extremes.test.ts`; §13.5's rule for
-`Map.max` and `Map.min`, which bind two variables, waits on #1438. This
+`Map.max` and `Map.min`, which bind two variables, implemented by #1438. This
 document is the stdlib listing's part for the combinator families over `Vector(a)`, `Set(a)` and `Map(k, v)`: their shared
 doctrine, the v1 ship-list, and the deliberate absence of combinators on the
 foreign collections. It discharges the "Combinator families" row of

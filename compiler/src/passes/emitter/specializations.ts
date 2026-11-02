@@ -43,10 +43,11 @@ export interface SpecializationPlan {
    * in declaration order.
    *
    * A fact about *this* plan and not a second derivation of §3.4's trigger: the
-   * row is written where `planScheme` finds an empty `candidates(vi)` and
-   * returns the empty product, so the list and the editions are the same
+   * row is written where `planScheme` finds an empty `candidates(vi)`, or two or
+   * more constrained variables (§3.2 step 1), and returns no edition, so the
+   * list and the editions are the same
    * traversal's two halves and cannot disagree about what was published. §3.4's
-   * own condition conjoins the empty product with §4's trigger being unmet;
+   * own condition conjoins an empty specialization set with §4's trigger being unmet;
    * Algorithm G is unimplemented, so the two coincide today, and the predicate
    * stated here — an eligible export with no edition — stays truthful whichever
    * way #423 resolves the generic edition's `.d.ts` face.
@@ -428,7 +429,37 @@ function planScheme(
   judgment: CandidateJudgment,
   bool: Resolved.UnionId | undefined,
 ): SchemePlan {
-  if (scheme.constraints.length === 0) return INELIGIBLE;
+  const candidacy = schemeCandidates(scheme, judgment);
+  if (candidacy === undefined) return INELIGIBLE;
+  const { specializing, candidates } = candidacy;
+  // §3.2 step 1, the one-variable rule (#1438): two or more constrained
+  // variables publish no specialization at all. Eligible, so an export with
+  // nothing to publish is still §3.4's visible case; Hexagon's own calls to it
+  // at fundamental types reach §8.3's copies instead (`planOwnCopySources`).
+  if (specializing.length > 1) return { eligible: true, specializations: [] };
+  // §3.2 clause 3: an empty candidate set publishes nothing (§16(k)). Eligible,
+  // and with nothing to publish — §3.4's case, which the caller reports rather
+  // than treats as an error.
+  const variable = specializing[0]!;
+  const specializations = candidates[0]!.map((type) =>
+    specializationAt(symbol, name, exported, scheme, [{ variable, type }], `${name}${type}`, bool)
+  );
+  return { eligible: true, specializations };
+}
+
+/**
+ * A scheme's constrained ("specializing") variables in scheme order, each with
+ * its §3.2 step 2 `candidates(vi)`; `undefined` for a scheme with none, which
+ * is outside Part 8 altogether (§3.1).
+ */
+function schemeCandidates(
+  scheme: Typed.Scheme,
+  judgment: CandidateJudgment,
+): {
+  readonly specializing: readonly Typed.TypeVariableId[];
+  readonly candidates: readonly (readonly FundamentalType[])[];
+} | undefined {
+  if (scheme.constraints.length === 0) return undefined;
 
   // Keyed on each constraint's **identity** rather than its name (§5.1.1): the
   // judgment below asks about a declaration, and a scheme can carry two
@@ -441,37 +472,136 @@ function planScheme(
     constraints.set(requirement.type.id, demanded);
   }
   const specializing = scheme.variables.filter((variable) => constraints.has(variable));
-  if (specializing.length === 0) return INELIGIBLE;
+  if (specializing.length === 0) return undefined;
 
   const candidates = specializing.map((variable) =>
     fundamentalTypes.filter((type) =>
       [...(constraints.get(variable) ?? [])].every((identity) => judgment(identity, type))
     )
   );
-  // §3.2 clause 3: one empty candidate set empties the product, however many
-  // variables are stocked (§16(k)). Eligible, and with nothing to publish —
-  // §3.4's case, which the caller reports rather than treats as an error.
-  if (candidates.some((types) => types.length === 0)) {
-    return { eligible: true, specializations: [] };
-  }
+  return { specializing, candidates };
+}
 
-  const specializations = cartesian(candidates).map((types) => {
-    const assignment = specializing.map((variable, index) => ({
-      variable,
-      type: types[index]!,
-    }));
-    return {
-      sourceSymbol: symbol,
-      sourceName: name,
-      sourceExported: exported,
-      name: `${name}${types.join("")}`,
-      assignment,
-      scheme: specializeScheme(scheme, new Map(
-        assignment.map(({ variable, type }) => [variable, type] as const),
-      ), bool),
-    };
+function specializationAt(
+  symbol: Resolved.SymbolId,
+  sourceName: string,
+  exported: boolean,
+  scheme: Typed.Scheme,
+  assignment: readonly FundamentalAssignment[],
+  name: string,
+  bool: Resolved.UnionId | undefined,
+): FundamentalSpecialization {
+  return {
+    sourceSymbol: symbol,
+    sourceName,
+    sourceExported: exported,
+    name,
+    assignment,
+    scheme: specializeScheme(scheme, new Map(
+      assignment.map(({ variable, type }) => [variable, type] as const),
+    ), bool),
+  };
+}
+
+/**
+ * Zero-Cost Fundamental Exports §8.3: an export with two or more constrained
+ * variables, which publishes no specialization (§3.2 step 1), and the
+ * candidates a *copy* of it may be made at.
+ *
+ * A copy is the export instantiated at one tuple of fundamental types, made
+ * only for a tuple some Hexagon call uses (item 2). Its body is an edition's
+ * (`specializeItem` over `copyAt`'s plan), and only its name and its linkage
+ * differ: a reserved `__` spelling the emitter mints, exported for Hexagon
+ * importers and declared in no `.d.ts` (item 4).
+ *
+ * The candidates are §3.2 step 2's judgment, asked exactly as a one-variable
+ * export's are, so a call at a tuple outside them keeps trailing evidence
+ * (item 2) for the same reason a one-variable call outside its candidates does.
+ */
+export interface CopySource {
+  readonly symbol: Resolved.SymbolId;
+  readonly name: string;
+  readonly scheme: Typed.Scheme;
+  readonly variables: readonly Typed.TypeVariableId[];
+  readonly candidates: readonly (readonly FundamentalType[])[];
+}
+
+/**
+ * This module's exported §8.3 sources, in declaration order. A private item
+ * never has one: decision 18 keeps every call to an unexported callee on its
+ * evidence.
+ */
+export function planOwnCopySources(
+  module: Core.Module,
+  instances: FundamentalInstances | undefined,
+): readonly CopySource[] {
+  const judgment = candidateJudgment(module, instances, preludeBoolUnion(module));
+  return module.items.flatMap((item) => {
+    if (!isSpecializable(item) || !item.exported) return [];
+    const source = copySourceOf(item.binding.symbol, item.binding.name, item.binding.scheme, judgment);
+    return source === undefined ? [] : [source];
   });
-  return { eligible: true, specializations };
+}
+
+/**
+ * An imported callee's §8.3 source, recomputed from the scheme its interface
+ * carries and the exporter's table — `planImportedSpecializations`' rule, for
+ * the same reason: both sides ask one function of the same input.
+ */
+export function planImportedCopySource(
+  symbol: Core.Symbol,
+  module: Core.Module,
+  instances: FundamentalInstances | undefined,
+  bool: Resolved.UnionId | undefined,
+): CopySource | undefined {
+  return copySourceOf(symbol.id, symbol.name, symbol.scheme, candidateJudgment(module, instances, bool));
+}
+
+function copySourceOf(
+  symbol: Resolved.SymbolId,
+  name: string,
+  scheme: Typed.Scheme,
+  judgment: CandidateJudgment,
+): CopySource | undefined {
+  const candidacy = schemeCandidates(scheme, judgment);
+  if (candidacy === undefined || candidacy.specializing.length < 2) return undefined;
+  return {
+    symbol,
+    name,
+    scheme,
+    variables: candidacy.specializing,
+    candidates: candidacy.candidates,
+  };
+}
+
+/**
+ * Whether a copy of `source` may be made at `types` (§8.3 item 2): one type
+ * per constrained variable, each among that variable's candidates.
+ */
+export function copyAdmits(source: CopySource, types: readonly FundamentalType[]): boolean {
+  return types.length === source.variables.length &&
+    types.every((type, index) => source.candidates[index]!.includes(type));
+}
+
+/**
+ * The plan `specializeItem` instantiates a copy's body from: an edition in
+ * every respect but its `name`, which is the copy's reserved spelling.
+ */
+export function copyAt(
+  source: CopySource,
+  types: readonly FundamentalType[],
+  name: string,
+  bool: Resolved.UnionId | undefined,
+): FundamentalSpecialization {
+  return specializationAt(
+    source.symbol,
+    source.name,
+    true,
+    source.scheme,
+    source.variables.map((variable, index) => ({ variable, type: types[index]! })),
+    name,
+    bool,
+  );
 }
 
 function specializeScheme(
@@ -1044,11 +1174,4 @@ function patternBindingNames(pattern: Core.Pattern): readonly string[] {
 function isSpecializable(item: Core.Item): item is SpecializableItem {
   return item.kind === "Fun" ||
     (item.kind === "Let" && item.value.kind === "Lambda");
-}
-
-function cartesian<T>(groups: readonly (readonly T[])[]): readonly T[][] {
-  return groups.reduce<readonly T[][]>(
-    (rows, group) => rows.flatMap((row) => group.map((entry) => [...row, entry])),
-    [[]],
-  );
 }

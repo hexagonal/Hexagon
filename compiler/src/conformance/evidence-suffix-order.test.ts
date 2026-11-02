@@ -586,24 +586,25 @@ describe("across a module boundary, at a type no edition covers", () => {
 
 /**
  * A **third** producer reads the same scheme under a third convention, and it is
- * not the evidence order: Part 8's specialization planner walks
- * `scheme.variables` in array order to name its editions, so `<b: Show, a:
- * Show>(x: a, y: b)` names them by *(a, b)* — `mixIntBool` — while
- * `dictionaryEntries` orders evidence by *(b, a)*. Two different orders over one
- * list, both correct, and `#specializedCallee` sits between them: it zips the
- * call's evidence against `dictionaryEntries` to learn which variable is ground
- * at which fundamental, then matches a candidate by *(variable, type)* pairs.
+ * not the evidence order: Part 8's planner walks `scheme.variables` in array
+ * order to name a two-variable export's copies (§8.3, which replaced its
+ * editions at #1438), so `<b: Show, a: Show>(x: a, y: b)` names them by *(a,
+ * b)* — `__mix_IntBool` — while `dictionaryEntries` orders evidence by *(b, a)*.
+ * Two different orders over one list, both correct, and `#specializedCallee`
+ * sits between them: it zips the call's evidence against `dictionaryEntries` to
+ * learn which variable is ground at which fundamental, then reads the tuple off
+ * the copy's variables in their own order.
  *
  * These shapes ran correctly on the unfixed build, by cancellation — the
  * misordered evidence list was zipped against the ABI-ordered entries and came
  * back out right. They are kept as an interaction guard, and they are not idle:
  * an intermediate build of this fix that renumbered the imported scheme's
  * *array* as well as its ids routed `mix(2, True)` to `mixBoolInt` — the
- * transposed edition, a clean compile and a wrong answer. Read the edition
+ * transposed edition, a clean compile and a wrong answer. Read the copy's
  * *name* as well as the answer; the name is where that build first diverged.
  */
 describe("Part 8 routing reads the same scheme by a different key", () => {
-  test("a routed call reaches the edition the definer emitted", () => {
+  test("a routed call reaches the copy the definer emitted", () => {
     const javascript = emitted([
       ["/mix.hex", "module Mix\n\n" + `export ${MIX}`],
       [
@@ -612,7 +613,7 @@ describe("Part 8 routing reads the same scheme by a different key", () => {
       ],
     ]);
 
-    expect(javascript).toContain("const out = mixIntBool(2, true);");
+    expect(javascript).toContain("const out = __mix_IntBool(2, true);");
   });
 
   test("the routed call computes the right answer", async () => {
@@ -631,7 +632,7 @@ describe("Part 8 routing reads the same scheme by a different key", () => {
   });
 
   /** Three binders, so a transposition cannot be a coincidence of two. */
-  test("three misordered binders route to the edition named in array order", async () => {
+  test("three misordered binders route to the copy named in array order", async () => {
     const files = [
       [
         "/trio.hex",
@@ -645,7 +646,7 @@ describe("Part 8 routing reads the same scheme by a different key", () => {
       ],
     ] as const;
 
-    expect(emitted(files)).toContain('const out = tIntBoolString(1, true, "s");');
+    expect(emitted(files)).toContain('const out = __t_IntBoolString(1, true, "s");');
     const exports = await runProject(files, {
       transform: distinct("evidence suffix order: routed trio"),
     });
@@ -673,7 +674,7 @@ describe("Part 8 routing reads the same scheme by a different key", () => {
       ],
     ] as const;
 
-    expect(emitted(files)).toContain("const out = tellIntBool({ v: 1 }, 2, true);");
+    expect(emitted(files)).toContain("const out = __tell_IntBool({ v: 1 }, 2, true);");
     const exports = await runProject(files, {
       transform: distinct("evidence suffix order: routed dot call"),
     });

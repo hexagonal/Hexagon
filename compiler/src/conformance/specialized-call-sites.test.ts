@@ -269,9 +269,11 @@ describe("a concrete call across a source-written import", () => {
 
     expect(javascript).toContain('import * as Pair from "./Pair.js";');
     expect(javascript).toContain(
-      'import { __pair, pairIntString } from "./Pair.js";',
+      'import { __pair, __pair_IntString } from "./Pair.js";',
     );
-    expect(javascript).toContain('const answer = pairIntString(1, "x");');
+    // A copy rather than an edition since #1438: `pair` binds two variables
+    // (Zero-Cost Fundamental Exports §8.3).
+    expect(javascript).toContain('const answer = __pair_IntString(1, "x");');
   });
 
   test("computes what the generic edition would have", async () => {
@@ -284,7 +286,7 @@ describe("a concrete call across a source-written import", () => {
             'export let answer: String = Pair.pair(1, "x")\n',
         ],
       ],
-      { transform: distinct("specialized call sites: cartesian edition") },
+      { transform: distinct("specialized call sites: two-variable copy") },
     );
 
     expect(exports["answer"]).toBe("1x");
@@ -456,9 +458,9 @@ describe("the two fundamentals that name no primitive", () => {
 
     expect(javascript).toContain('import * as Pair from "./Pair.js";');
     expect(javascript).toContain(
-      'import { __pair, pairIntBool } from "./Pair.js";',
+      'import { __pair, __pair_IntBool } from "./Pair.js";',
     );
-    expect(javascript).toContain("const answer = pairIntBool(1, true);");
+    expect(javascript).toContain("const answer = __pair_IntBool(1, true);");
   });
 
   test("a variable still in play keeps the dictionary the `Bool` one rode with", () => {
@@ -479,17 +481,18 @@ describe("the two fundamentals that name no primitive", () => {
     // obstacle to hoisting it — only a free *component* is (§3.4's second
     // paragraph), and this body's free variable rides the slot beside it.
     // `half`'s own editions are the other side of the same claim: inside
-    // `halfInt` both variables are ground, so that body does route.
+    // `halfInt` both variables are ground, so that body does route, to the copy
+    // of `pair` at `(Bool, Int)`.
     expect(javascript).toContain(
       'const __Show_Bool = ({ show: __value => (__value ? "True" : "False") });',
     );
     expect(javascript).toContain(
       "const half = (y, __Show_a) => __pair(true, y, __Show_Bool, __Show_a);",
     );
-    expect(javascript).toContain("return pairBoolInt(true, y);");
+    expect(javascript).toContain("return __pair_BoolInt(true, y);");
   });
 
-  test("the editions compute what the generic edition would have", async () => {
+  test("the copies compute what the generic edition would have", async () => {
     const files = [
       ["/pair.hex", "module Pair\n\n" + SHOW_PAIR],
       [
@@ -500,7 +503,7 @@ describe("the two fundamentals that name no primitive", () => {
     ] as const;
 
     expect(emitted(files)).toContain(
-      "const answer = pairBoolUnit(true, undefined);",
+      "const answer = __pair_BoolUnit(true, undefined);",
     );
     const exports = await runProject(files, {
       transform: distinct("specialized call sites: Bool and Unit editions"),

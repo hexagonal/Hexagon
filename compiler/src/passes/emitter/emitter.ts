@@ -47,13 +47,18 @@ import {
 } from "./unicode-text-17.js";
 import { regexPropertyTable, regexSimpleFolds } from "./unicode-regex-17.js";
 import {
+  copyAdmits,
+  copyAt,
   faceOnlyEditionInstances,
   fundamentalInstanceDictionaries,
   planFundamentalSpecializations,
+  planImportedCopySource,
   planImportedSpecializations,
+  planOwnCopySources,
   preludeBoolUnion,
   sourceInstanceDictionary,
   specializeItem,
+  type CopySource,
   type FundamentalInstances,
   type FundamentalSpecialization,
   type FundamentalType,
@@ -395,6 +400,15 @@ export interface JavaScriptEmissionOptions {
    * exactly the editions the exporter built.
    */
   readonly fundamentalSeats?: ReadonlyMap<string, FundamentalInstances>;
+  /**
+   * Zero-Cost Fundamental Exports §8.3: the copies other modules' calls demand
+   * of this module's exports, by source name, each a tuple of fundamental types
+   * in scheme order. Only `compileProject` sees every caller, so only it can
+   * supply them; it emits a module after every module that imports it, and
+   * gathers this from their `JavaScript.copyDemands`. A tuple the export's
+   * candidates do not admit is ignored, as a call at it would keep its evidence.
+   */
+  readonly copyDemand?: ReadonlyMap<string, readonly (readonly FundamentalType[])[]>;
 }
 
 /**
@@ -3382,6 +3396,7 @@ class JavaScriptEmitter {
    */
   readonly #runtimeUses = new Map<string, Map<string, string>>();
   readonly #specializations: readonly FundamentalSpecialization[];
+  readonly #copyDemand: JavaScriptEmissionOptions["copyDemand"];
   /**
    * Algorithm N recomputed for an imported callee, cached per symbol because
    * every call site of one asks (#440).
@@ -3398,6 +3413,36 @@ class JavaScriptEmitter {
    * source actually named, and so two aliases over one module bind once.
    */
   readonly #usedSpecializations = new Map<Core.ImportItem, Map<string, string>>();
+  /**
+   * Zero-Cost Fundamental Exports §8.3's sources in this module: each exported
+   * function with two or more constrained variables, which has no
+   * specialization, with the item a copy's body is instantiated from.
+   */
+  readonly #ownCopySources = new Map<
+    Resolved.SymbolId,
+    { readonly source: CopySource; readonly item: SpecializableItem }
+  >();
+  /**
+   * Every copy of this module's own exports demanded so far — by a call here,
+   * by a copy's body, or by another module (`copyDemand`) — keyed by
+   * `copyKey`, with the local its function is bound under. Rendering drains it
+   * to a fixed point (`#renderCopies`).
+   */
+  readonly #ownCopies = new Map<string, {
+    readonly source: CopySource;
+    readonly types: readonly FundamentalType[];
+    readonly name: string;
+    readonly local: string;
+  }>();
+  /** An imported callee's §8.3 source, cached per symbol like its editions. */
+  readonly #importedCopySources = new Map<Resolved.SymbolId, CopySource | undefined>();
+  /** Each exporter's copy spellings (`copyNamer`), this module's own under `undefined`. */
+  readonly #copyNamers = new Map<Core.ImportItem | undefined, CopyNamer>();
+  /**
+   * The copies this module's calls demand of the modules it imports, keyed by
+   * specifier, export and tuple — `JavaScript.copyDemands`.
+   */
+  readonly #copyDemands = new Map<string, Emitted.CopyDemand>();
   /**
    * Where a concrete member call reaches each ground instance's seats
    * (Constraints §6.1, #444), keyed by the **local** dictionary name — which is
@@ -3468,6 +3513,8 @@ class JavaScriptEmitter {
   readonly #generatedBodies: {
     readonly specialization: FundamentalSpecialization;
     readonly text: string;
+    /** A §8.3 copy rather than a specialization. */
+    readonly copy?: boolean;
   }[] = [];
   /**
    * Dictionary Sharing §3.1 and §3.4: one module-level `const` per distinct
@@ -3820,6 +3867,14 @@ class JavaScriptEmitter {
     );
     this.#specializations = plan.specializations;
     addSpecializationCollisionDiagnostics(this.#diagnostics, module, plan.collisions);
+    for (const source of planOwnCopySources(module, options.fundamentalInstances)) {
+      const item = module.items.find((candidate) =>
+        (candidate.kind === "Let" || candidate.kind === "Fun") &&
+        candidate.binding.symbol === source.symbol
+      ) as SpecializableItem;
+      this.#ownCopySources.set(source.symbol, { source, item });
+    }
+    this.#copyDemand = options.copyDemand;
   }
 
   emit(): Emitted.JavaScript {
@@ -3878,6 +3933,13 @@ class JavaScriptEmitter {
     // item's source position, and the second pass's identical request is then a
     // no-op. Emitted export order is therefore unchanged by the split.
     const renderedByItem = new Map<Core.Item, ReturnType<typeof renderItem>>();
+    // §8.3: the copies other modules demand are claimed before any body is
+    // rendered, so a call here at the same tuple finds the same local.
+    for (const { source } of this.#ownCopySources.values()) {
+      for (const types of this.#copyDemand?.get(source.name) ?? []) {
+        if (copyAdmits(source, types)) this.#ownCopy(source, types);
+      }
+    }
     for (const item of this.#module.items) {
       if (item.kind === "Import" && this.#exportInstanceEvidence) {
         for (const { localDictionary } of item.instances) {
@@ -3885,6 +3947,14 @@ class JavaScriptEmitter {
         }
       }
       if (item.kind !== "Import") renderedByItem.set(item, renderItem(item));
+    }
+    // §8.3's copies, each beside its export's own declaration and editions. They
+    // render before the `Import` items for the reason those render last: a
+    // copy's body is a body, and may call an edition or a copy in a module this
+    // one imports, which the import lines have to name.
+    for (const [item, lines] of this.#renderCopies()) {
+      const entry = renderedByItem.get(item);
+      if (entry !== undefined) renderedByItem.set(item, { ...entry, lines: [...entry.lines, ...lines] });
     }
     for (const item of this.#module.items) {
       if (item.kind === "Import") renderedByItem.set(item, renderItem(item));
@@ -4124,6 +4194,9 @@ class JavaScriptEmitter {
       ],
       runtimeImports: runtimeImports.map(({ specifier }) => specifier),
       importsRuntimeGlobals: captures.length > 0,
+      copyDemands: [...this.#copyDemands]
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([, demand]) => demand),
       diagnostics: this.#diagnostics.toArray(),
     };
   }
@@ -5448,6 +5521,139 @@ class JavaScriptEmitter {
     symbol: Resolved.SymbolId,
   ): readonly FundamentalSpecialization[] {
     return this.#specializations.filter(({ sourceSymbol }) => sourceSymbol === symbol);
+  }
+
+  /**
+   * The local one copy of this module's own export is bound under (Zero-Cost
+   * Fundamental Exports §8.3), claimed on first demand and queued for
+   * `#renderCopies`. Its exported spelling is `copyNamer`'s, which an importer
+   * computes from the same inputs; the local is that spelling unless something
+   * in this module already holds it, and the export line then aliases.
+   */
+  #ownCopy(source: CopySource, types: readonly FundamentalType[]): string {
+    const key = copyKey(source.name, types);
+    const existing = this.#ownCopies.get(key);
+    if (existing !== undefined) return existing.local;
+    const name = this.#copyNamer(undefined)(source.name, types);
+    const local = this.#generatedNames.claimGenerated(name);
+    this.#ownCopies.set(key, { source, types, name, local });
+    return local;
+  }
+
+  /**
+   * Every demanded copy's function, by the item it instantiates, in the order
+   * of that export's candidate tuples — the text is a function of which copies
+   * are demanded, never of the order the demands arrived in.
+   *
+   * A copy's body is an edition's (§8.3 item 3): `specializeItem` over the
+   * export at the copy's tuple, emitted as a plain function declaration. It can
+   * demand further copies of this module's exports, which join the queue, so
+   * the queue is drained to a fixed point; that terminates because a copy is
+   * made at most once per tuple, and an export has finitely many.
+   *
+   * The export lines go out here too, one per copy and in the same order. A
+   * copy is compiler linkage for Hexagon importers (§8.3 item 4): no boundary
+   * wrapper, as the trailing-evidence edition takes none, and no `.d.ts` row,
+   * which is the declaration emitter's by never planning one.
+   */
+  #renderCopies(): ReadonlyMap<Core.Item, readonly string[]> {
+    const rendered = new Map<string, string[]>();
+    for (;;) {
+      const pending = [...this.#ownCopies].filter(([key]) => !rendered.has(key));
+      if (pending.length === 0) break;
+      for (const [key, copy] of pending) {
+        const owner = this.#ownCopySources.get(copy.source.symbol)!;
+        const specialization = copyAt(copy.source, copy.types, copy.local, this.#prelude.bool);
+        const specialized = specializeItem(
+          owner.item,
+          specialization,
+          this.#prelude.bool,
+          (constraintIdentity, type) =>
+            this.#editionInstanceDictionary(constraintIdentity, type, specialization, owner.item.span),
+        );
+        rendered.set(key, this.#emitFunctionDeclaration(specialized, copy.local, 0, new Map()));
+      }
+    }
+    const byItem = new Map<Core.Item, string[]>();
+    const ordered = [...this.#ownCopies]
+      .map(([key, copy]) => ({ key, copy, rank: copyRank(copy.source, copy.types) }))
+      .sort((left, right) =>
+        this.#module.items.indexOf(this.#ownCopySources.get(left.copy.source.symbol)!.item) -
+          this.#module.items.indexOf(this.#ownCopySources.get(right.copy.source.symbol)!.item) ||
+        left.rank - right.rank
+      );
+    for (const { key, copy } of ordered) {
+      const lines = rendered.get(key)!;
+      if (lines.length === 0) continue;
+      const item = this.#ownCopySources.get(copy.source.symbol)!.item;
+      const specialization = copyAt(copy.source, copy.types, copy.name, this.#prelude.bool);
+      this.#generatedBodies.push({ specialization, text: lines.join("\n"), copy: true });
+      byItem.set(item, [...(byItem.get(item) ?? []), ...lines]);
+      this.#exports.push(
+        copy.local === copy.name
+          ? `export { ${copy.local} };`
+          : `export { ${copy.local} as ${copy.name} };`,
+      );
+    }
+    return byItem;
+  }
+
+  /** The copy spellings one exporter publishes — this module's own under `undefined`. */
+  #copyNamer(item: Core.ImportItem | undefined): CopyNamer {
+    let namer = this.#copyNamers.get(item);
+    if (namer === undefined) {
+      namer = copyNamer(item === undefined ? ownInternalNameInputs(this.#module) : item.internalNames);
+      this.#copyNamers.set(item, namer);
+    }
+    return namer;
+  }
+
+  /**
+   * The §8.3 source a call's callee is, if it is one: an export of this module
+   * or of an imported one with two or more constrained variables. The imported
+   * half is planned from the exporter's table, as its editions are
+   * (`#importedSpecializationsFor`), so both sides agree on the candidates.
+   */
+  #copySourceFor(
+    symbol: Resolved.SymbolId,
+    imported: Core.ImportItem | undefined,
+  ): CopySource | undefined {
+    if (imported === undefined) return this.#ownCopySources.get(symbol)?.source;
+    if (this.#importedCopySources.has(symbol)) return this.#importedCopySources.get(symbol);
+    const declaration = this.#symbols.get(symbol);
+    const source =
+      declaration === undefined || !imported.specializableTerms.includes(declaration.name)
+        ? undefined
+        : planImportedCopySource(
+          declaration,
+          this.#module,
+          this.#fundamentalSeats?.get(imported.moduleName) ?? this.#fundamentalInstances,
+          this.#prelude.bool,
+        );
+    this.#importedCopySources.set(symbol, source);
+    return source;
+  }
+
+  /**
+   * The name a call at fundamental `types` reaches a copy by (§8.3 item 1), or
+   * `undefined` where the candidates do not admit the tuple and the call keeps
+   * its evidence (item 2). A copy in this module is queued; one in an imported
+   * module is recorded as that module's demand, and imported like an edition.
+   */
+  #copyCallee(
+    source: CopySource,
+    imported: Core.ImportItem | undefined,
+    types: readonly FundamentalType[],
+  ): string | undefined {
+    if (!copyAdmits(source, types)) return undefined;
+    if (imported === undefined) return this.#ownCopy(source, types);
+    const name = this.#copyNamer(imported)(source.name, types);
+    this.#copyDemands.set(`${imported.specifier}|${copyKey(source.name, types)}`, {
+      specifier: imported.specifier,
+      term: source.name,
+      types,
+    });
+    return this.#specializationLocal(imported, name, true);
   }
 
   #emitBindingValue(
@@ -7232,7 +7438,12 @@ class JavaScriptEmitter {
     const candidates = imported === undefined
       ? this.#specializationsFor(expression.callee.symbol)
       : this.#importedSpecializationsFor(expression.callee.symbol, imported);
-    if (candidates.length === 0) return undefined;
+    // §8.3: an export with two or more constrained variables has no editions,
+    // and a call at fundamental types reaches a copy of it instead.
+    const copy = candidates.length === 0
+      ? this.#copySourceFor(expression.callee.symbol, imported)
+      : undefined;
+    if (candidates.length === 0 && copy === undefined) return undefined;
 
     const symbol = this.#symbols.get(expression.callee.symbol);
     if (symbol === undefined) return undefined;
@@ -7249,6 +7460,12 @@ class JavaScriptEmitter {
       assignments.set(entry.variable, instance);
     }
 
+    if (copy !== undefined) {
+      const types = copy.variables.map((variable) => assignments.get(variable));
+      return types.every((type) => type !== undefined)
+        ? this.#copyCallee(copy, imported, types)
+        : undefined;
+    }
     const chosen = candidates.find((candidate) =>
       candidate.assignment.every(({ variable, type }) =>
         assignments.get(variable) === type
@@ -7360,7 +7577,7 @@ class JavaScriptEmitter {
    * reserved probe when something does, which is #425's alias-only-on-collision
    * rule applied to a name arriving from outside.
    */
-  #specializationLocal(item: Core.ImportItem, name: string): string {
+  #specializationLocal(item: Core.ImportItem, name: string, generated = false): string {
     let names = this.#usedSpecializations.get(item);
     if (names === undefined) {
       names = new Map();
@@ -7368,7 +7585,10 @@ class JavaScriptEmitter {
     }
     const existing = names.get(name);
     if (existing !== undefined) return existing;
-    const local = this.#generatedNames.claimPublic(name);
+    // A §8.3 copy's spelling is already a reserved one, so it probes as one.
+    const local = generated
+      ? this.#generatedNames.claimGenerated(name)
+      : this.#generatedNames.claimPublic(name);
     names.set(name, local);
     return local;
   }
@@ -12870,7 +13090,7 @@ class DeclarationEmitter {
           // once per edition, carrying the specialization's own Hexagon face, so
           // it is text that exists only because the editions exist — "bytes
           // attributable to generated specializations" in §10's own words, and
-          // the half that grows with the Cartesian product §12.2 has to see. On
+          // the half that grows with the editions §12.2 has to see. On
           // a two-export documented module of 1828 `.d.ts` bytes, the faces
           // alone report 725; 1092 of the rest are these blocks, and the last
           // eleven are the newlines separating them.
@@ -13597,24 +13817,26 @@ function generatedSections(
   editions: readonly {
     readonly specialization: FundamentalSpecialization;
     readonly text: string;
+    readonly copy?: boolean;
   }[],
 ): readonly Emitted.GeneratedSection[] {
-  let cursor = 0;
-  return editions.flatMap(({ specialization, text: rendered }) => {
-    const startOffset = text.indexOf(rendered, cursor);
+  // Each body is found from the top rather than after the last one, and the
+  // rows are then put in text order: a §8.3 copy is rendered after every
+  // edition but sits beside its own export's. Two bodies cannot share text,
+  // since each opens by declaring its own function name.
+  return editions.flatMap(({ specialization, text: rendered, copy }) => {
+    const startOffset = text.indexOf(rendered);
     if (startOffset < 0) return [];
-    const endOffset = startOffset + rendered.length;
-    cursor = endOffset;
     return [{
-      kind: "FundamentalSpecialization" as const,
+      kind: copy === true ? "Copy" as const : "FundamentalSpecialization" as const,
       sourceName: specialization.sourceName,
       generatedName: specialization.name,
       typeArguments: specialization.assignment.map(({ type }) => type),
       startOffset,
-      endOffset,
+      endOffset: startOffset + rendered.length,
       bytes: utf8ByteLength(rendered),
     }];
-  });
+  }).sort((left, right) => left.startOffset - right.startOffset);
 }
 
 function utf8ByteLength(text: string): number {
@@ -16922,6 +17144,59 @@ function internalNamePlan(
     plan.set(name, probeInternalName(name, aboveTerms, termSiblings));
   }
   return plan;
+}
+
+/** One exporter's §8.3 copy spellings: an export's source name and a tuple to a name. */
+type CopyNamer = (term: string, types: readonly FundamentalType[]) => string;
+
+/**
+ * Zero-Cost Fundamental Exports §8.3 item 4's reserved spelling for each copy
+ * one module publishes, over the inputs `internalNamePlan` reads, so an
+ * importer computes exactly the exporter's names from what its import carries.
+ *
+ * The preferred spelling is `__<export>_<Types>`, the tuple's fundamental names
+ * run together in scheme order: `__max_IntString`. It probes past every
+ * internal spelling the module publishes, and past nothing else, which keeps
+ * every copy's name independent of which other copies a program demands:
+ *
+ * - Two preferred spellings never collide. The part after the last underscore
+ *   is the tuple, which holds no underscore, and the run of names splits back
+ *   one way only — each name starts with its only capital except `BigInt`, and
+ *   `Big` is no name of its own — so the spelling gives back its export and
+ *   tuple.
+ * - A preferred spelling ends in a type name and a probed one in `_<digits>`,
+ *   so neither sits on the other, and two probed spellings share a base only if
+ *   they share a preferred one.
+ * - Every other internal export name is avoided outright: the helpers, the
+ *   resolved forwarders and terms, and the pattern exports. Dictionaries
+ *   (`__Eq_Rat`) start with a capital after the prefix and a copy with a
+ *   lowercase export name, so they cannot meet.
+ */
+function copyNamer(inputs: Resolved.InternalNameInputs): CopyNamer {
+  const taken = new Set([
+    ...inputs.fixed,
+    ...inputs.members.filter(({ defaulted }) => defaulted).map(({ name }) => defaultHelperName(name)),
+    ...internalNamePlan(inputs).values(),
+  ]);
+  return (term, types) => probeInternalName(`${term}_${types.join("")}`, taken, new Set());
+}
+
+/** One copy's identity within its module: the export and the tuple. */
+function copyKey(term: string, types: readonly FundamentalType[]): string {
+  return `${term}|${types.join(",")}`;
+}
+
+/**
+ * Where a tuple falls in its export's candidate order: the order the
+ * one-variable rule lists editions in, read as digits, the first variable
+ * most significant.
+ */
+function copyRank(source: CopySource, types: readonly FundamentalType[]): number {
+  return types.reduce(
+    (rank, type, index) =>
+      rank * source.candidates[index]!.length + source.candidates[index]!.indexOf(type),
+    0,
+  );
 }
 
 /**

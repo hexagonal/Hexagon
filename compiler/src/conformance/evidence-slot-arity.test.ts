@@ -190,9 +190,11 @@ describe("routing, once the arity is right", () => {
    * `#specializedCallee` refuses a call whose evidence count disagrees with the
    * scheme's, so before the fix these sites fell through to the generic path —
    * the broken one. With two slots supplied the guard is satisfied and the site
-   * reaches the edition, which takes no evidence at all.
+   * reaches a dictionary-free copy, which takes no evidence at all — a copy and
+   * not an edition since #1438, the export binding two variables (Zero-Cost
+   * Fundamental Exports §8.3).
    */
-  test("both variables at one fundamental reach the edition", () => {
+  test("both variables at one fundamental reach the copy", () => {
     const javascript = emitted([
       ["/pair.hex", "module Pair\n\n" + SHOW_PAIR],
       [
@@ -202,7 +204,7 @@ describe("routing, once the arity is right", () => {
       ],
     ]);
 
-    expect(javascript).toContain("const answer = pairIntInt(2, 3);");
+    expect(javascript).toContain("const answer = __pair_IntInt(2, 3);");
     expect(javascript).not.toContain("__Show_Int");
   });
 

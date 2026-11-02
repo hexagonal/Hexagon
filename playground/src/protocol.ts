@@ -41,7 +41,7 @@ export interface TypeOccurrence {
  * only ever read from `bytes` and never computed as `endOffset - startOffset`.
  */
 export interface GeneratedSection {
-  readonly kind: "FundamentalSpecialization";
+  readonly kind: "FundamentalSpecialization" | "Copy";
   readonly sourceName: string;
   readonly generatedName: string;
   readonly typeArguments: readonly string[];
