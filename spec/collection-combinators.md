@@ -5,7 +5,7 @@ states what traversal order never chooses, and §7's shortcut keys on the
 stored hash, so no comparison door is needed. Implemented by #1417;
 conformance: `compiler/src/conformance/collection-combinators.test.ts`, and the
 rebuilds' shapes in `hash-trie.test.ts`. §12, sorting on `Vector`, added
-2026-11-02, ruled by James. This document is the stdlib listing's
+2026-11-02, ruled by James, and not yet implemented. This document is the stdlib listing's
 part for the combinator families over `Vector(a)`, `Set(a)` and `Map(k, v)`: their shared
 doctrine, the v1 ship-list, and the deliberate absence of combinators on the
 foreign collections. It discharges the "Combinator families" row of
@@ -17,7 +17,8 @@ prelude companions, with the trie operations they need in
 `stdlib/Runtime/HashTrie.hex` and `stdlib/Runtime/VectorTrie.hex`.
 
 **Not in scope:** `min`/`max`/`sum` (a later listing decision); `isSorted`,
-`binarySearch`, `sortDescending` and `Ordering` helpers (later, on demand);
+`binarySearch` and `sortUniq`/`dedup` (later, on demand); `sortDescending`,
+`sortByDescending`, `Ordering` helpers and `comparing` (not proposed);
 Collections Part 3 §7's other `Vector` candidates (`insertAt` and
 `removeAt`), positional `take` and `drop`, and `Map.update`, the `merge`
 family, `getOr` and `containsValue` (all still ledgered in
@@ -33,7 +34,7 @@ colours) and §7 (no failing step in a lazy pipeline); Exceptions §2 (fault
 payloads); FFI Part 2 §1 and Part 10 §1 (the foreign collections are doors);
 Intrinsics §3.4 and §4.2 (door rows onto a runtime module, parametricity);
 `option-result-convenience.md` (the callback form these functions share);
-for §12, Constraints §5.2 (coherence), Decisions Batch §1 (`Ord<Float>`),
+for §12, Constraints §5.1–§5.2 (coherence), Decisions Batch §1 (`Ord<Float>`),
 Intrinsics §3.3 (rows that run a callback) and Stdlib Roadmap §5.1.
 
 ---
@@ -56,7 +57,7 @@ The eager forms also accept callbacks that are impure or may fail, which the
 lazy `Seq.filter` and `Seq.map` refuse (Effects §7). A `Map`'s items are its
 entries `(k, v)` (Collections Part 4 §7.2), so every `Map` callback takes the
 entry. Names that `Seq` does not have (`contains`, `indexOf`, `reverse`,
-`indexed`) take their meaning from §3.
+`indexed`) take their meaning from §3, and the sorts theirs from §12.
 
 **1.2 A name goes only where its meaning holds.** `Map` and `Set` have no
 positions (Collections Part 4 §4.4), so the names that speak about positions
@@ -95,7 +96,8 @@ does not promise that one occurs.
   `Vector` in index order, from 1; on a `Set` or `Map` in the collection's
   traversal order (Collections Part 4 §7.1). `find`, `any` and `all` stop at
   the first item that decides the answer. Every other function calls the
-  callback on every item.
+  callback on every item, except `sortUsing`, whose comparator is called as
+  §12.3 says.
 - **Failures.** A failure in a callback propagates unchanged and ends the
   call; nothing is caught or converted. It becomes data at the call with the
   reading `?`, and over a block with `attempt` (Effects §3.1, Exceptions §8.2).
@@ -378,15 +380,15 @@ those two expose is already public through `toSeq`, `entries` and `for`.
 | 1 | One combinator family across `Vector`, `Set` and `Map`, each name meaning `Seq`'s over the items, eager, with callbacks of any colour; no generic family over `Iterable` | §1.1, §2, §9.5 |
 | 2 | Positional names on `Vector` only | §1.2 |
 | 3 | Traversal order never chooses which items a resulting `Map` or `Set` holds, or a key's value, for callbacks whose answers do not depend on call order | §1.3 |
-| 4 | v1 ship-lists: `Vector` twelve, `Set` six, `Map` six, with `fold` and `find` on all three | §3–§5, §9.7 |
+| 4 | v1 ship-lists: `Vector` twelve (fifteen with #9's sorts), `Set` six, `Map` six, with `fold` and `find` on all three | §3–§5, §9.7 |
 | 5 | `Map` callbacks take the entry, destructured with a tuple pattern; `(k, v) => …` is never adapted | §5.2, §9.4 |
 | 6 | `Map.map` is entries in, entries out; a repeated key throws `DuplicateKeyFault`; no `mapValues` | §5.1, §9.1–§9.3 |
 | 7 | `Map.map` keeps the slot of each returned key whose hash is the one stored, so a key handed back unchanged costs no placement; the shortcut changes nothing promised | §7, §8 |
 | 8 | No combinators on `Array`, `JsMap`, `JsSet` | §6, §9.6 |
 | 9 | `Vector.sort`, `sortBy` and `sortUsing`, on `Vector` only, each returning a new vector | §12.1, §12.6 |
 | 10 | All three stable; `sortBy` calls its key once per element, in index order | §12.2, §12.3, §12.6 |
-| 11 | The comparator's calls are unspecified; a comparator that is not a total order gets some permutation back, never a fault | §12.3, §12.6 |
-| 12 | One door, `vectorSortUsing`, which sorts positions rather than elements | §12.5 |
+| 11 | The comparator's calls are deterministic but unspecified; a comparator that is not consistent gets some permutation back, never a fault | §12.3, §12.6 |
+| 12 | One door, `vectorSortUsing`, onto the platform's stable sort | §12.5 |
 
 ## 12. Sorting
 
@@ -408,7 +410,8 @@ sortUsing(values: Vector(a), compare: (a, a) ->! Ordering): Vector(a)
   (Collections Part 4 §4.4, §8.2), the foreign collections get no combinators
   (§6), and `Seq` keeps its lazy family: a sort reads every element before it
   answers, so a sequence is collected into a vector first.
-- **Why three.** Coherence allows one `Ord` per type (Constraints §5.2), so
+- **Why three.** Coherence allows one `Ord` per type and no local instance
+  (Constraints §5.1, §5.2), so
   any other order is a function the caller passes. `sortUsing` is the
   fundamental, and `sort` and `sortBy` are sugar over it.
 
@@ -422,9 +425,14 @@ let board = players.sortUsing((a, b) => Ord.compare((b.score, a.name), (a.score,
 ### 12.2 Meaning
 
 - **`sortUsing(values, compare)`** answers a new vector holding exactly the
-  elements of `values`. Where `compare` is a total order (Constraints §7's
-  laws for `Ord`), they are ordered so that `compare(earlier, later)` is
-  never `Greater`; §12.3 covers a comparator that is not.
+  elements of `values`. Where `compare` is **consistent** on them, they are
+  ordered so that `compare(earlier, later)` is never `Greater`. A comparator
+  is consistent when it answers each pair the same way every time,
+  `compare(x, y)` is `Less` exactly when `compare(y, x)` is `Greater`, and
+  `Less` and `Equal` are each transitive. It need not agree with `equals`:
+  `Ord.compare` under Constraints §7's laws is consistent, and so is a
+  comparison of keys under such an `Ord`. §12.3 covers a comparator that is
+  not consistent.
 - **Stable.** Elements for which `compare` answers `Equal` keep the order they
   had in `values`. Elements that compare equal can still be told apart: `0.0`
   and `-0.0` under `Ord<Float>` (Decisions Batch §1), or two records with one
@@ -441,9 +449,10 @@ let board = players.sortUsing((a, b) => Ord.compare((b.score, a.name), (a.score,
 
 ### 12.3 Calls and effects
 
-§2 holds: the three are eager, a callback may take any colour, and a failure
-in a callback propagates unchanged and ends the call, with no partly sorted
-vector observable. Beyond that:
+§2's calling and failure rules hold: the three are eager, a callback may take
+any colour, and a failure in a callback propagates unchanged and ends the
+call, with no partly sorted vector observable. §2's order of calls holds for
+`sortBy`'s key; the comparator is the exception it names:
 
 - **`sortBy`'s key** runs exactly once per element, in index order. A key
   that has effects therefore has them in an order the text decides.
@@ -451,11 +460,14 @@ vector observable. Beyond that:
   `values`. How many calls there are, and on which pairs in which order, is
   not specified; the calls depend only on the input and on the comparator's
   answers.
-- **A comparator that is not a total order** still gets back a permutation of
-  `values`. Which permutation is unspecified. The sort always finishes and
-  never faults on the comparator's account.
+- **A comparator that is not consistent** (§12.2) still gets back a
+  permutation of `values`. Which permutation is unspecified. The sort makes
+  finitely many calls whatever the comparator answers, and never faults
+  because of what it answers.
 
 ### 12.4 Costs
+
+For a vector of `n` elements, not counting the callbacks' own costs:
 
 | Operation | Bound |
 |---|---|
@@ -476,19 +488,20 @@ vector observable. Beyond that:
   `Nullable(a)`, `JsValue` and opaque extern types can be `undefined` (FFI
   Part 1 §4.1, Part 10 §4.2). Sorting the elements would therefore inspect
   them by representation, which Intrinsics §4.2's parametricity forbids.
-- **The row seals nothing.** The lowering writes only to arrays it allocates
-  and never hands out, which no Hexagon code can name, the comparator
-  included. A comparator that sorts again gets arrays of its own. So a call
-  whose comparator is pure has no observable effect (Effects §2.1), as
-  Intrinsics §4.2 requires of the lowering at `>->`. This is not Effects
+- **The row seals nothing.** The lowering writes only to arrays it allocates,
+  which no Hexagon code can reach while it writes them, the comparator
+  included, and which nothing writes after it returns. A comparator that sorts
+  again gets arrays of its own. So a call whose comparator is pure has no
+  observable effect (Effects §2.1) and throws nothing the comparator does not,
+  as Intrinsics §4.2 requires of the lowering at `>->`. This is not Effects
   §6.2's species (d), which seals impure Hexagon code beneath a `->` face and
   takes no callback.
 - **Why a door** (Stdlib Roadmap §5.1). At 100,000 `Int` elements, a merge
-  sort written in Hexagon over `Vector` took about 0.8 s, and this lowering
+  sort written in Hexagon over `Vector` takes about 0.8 s, and this lowering
   about 52 ms. A faster sort written in Hexagon would need a mutable buffer,
   and a row over one may not run a callback (Effects §6.2 species (d)).
 - **Adapting `Ordering`.** The lowering turns each `Ordering` into the
-  platform comparator's number inside the call, which Operators §5.1's
+  platform comparator's number by its tag, inside the call, which Operators §5.1's
   implementer note allows; no number is observable.
 
 ### 12.6 Rejected alternatives (do not re-litigate)
@@ -496,8 +509,8 @@ vector observable. Beyond that:
 - **No comparator form, only `sort` and `sortBy`.** Orders such as "names
   descending, scores ascending" would need a wrapper type with a flipped
   `Ord` (Haskell's `Down`, Rust's `Reverse`) before they could be written.
-  Keeping the sugar while dropping the fundamental is what "restrict sugar,
-  never a fundamental" forbids. A `Down`-style type may still come later
+  Keeping the sugar while dropping the fundamental is what restricting sugar,
+  never a fundamental, forbids. A `Down`-style type may still come later
   beside the comparator form.
 - **No key form, only `sort` and `sortUsing`** (OCaml). The most common sort,
   by a field, would write its key twice and compute it on every comparison,
@@ -508,11 +521,10 @@ vector observable. Beyond that:
 - **An unstable sort, or an unstable sibling** (Rust's `sort_unstable`). The
   algorithm would choose among distinguishable equal elements, and here it
   would not be faster.
-- **Faulting on a comparator that is not a total order** (Rust 1.81's sorts
+- **Faulting on a comparator that is not consistent** (Rust 1.81's sorts
   may panic). Whether it faulted would depend on the algorithm and the data,
   so two inputs of the same shape could differ, which the text does not
   decide.
-- **Sorting the elements themselves in the lowering** (§12.5).
 
 ### 12.7 Precedents consulted
 
@@ -520,9 +532,9 @@ vector observable. Beyond that:
 |---|---|---|---|---|
 | OCaml | none (`List.sort compare`) | none | `List.sort`, `List.stable_sort` | `stable_sort` |
 | F# | `List.sort` | `List.sortBy` | `List.sortWith` | `List` yes; `Array` no |
-| Elm | `List.sort` | `List.sortBy` (key per comparison) | `List.sortWith` | yes |
+| Elm | `List.sort` | `List.sortBy` (key per comparison) | `List.sortWith` | not documented (inherits the host's sort) |
 | Haskell | `sort` | `sortOn` (key once per element) | `sortBy` | yes |
 | Rust | `sort` | `sort_by_key`, `sort_by_cached_key` | `sort_by` | `sort` yes; `sort_unstable*` no |
 | Swift | `sorted()` | none | `sorted(by:)`, a Bool predicate | yes |
-| JavaScript | `toSorted()` (compares as strings) | none | `toSorted(compareFn)` | yes, since ES2019 |
-| Scala (the anti-pattern) | `sorted` (implicit `Ordering`) | `sortBy` (implicit `Ordering`) | `sortWith` (Bool) | yes; another order is a local instance |
+| JavaScript | `toSorted()` (compares as strings) | none | `toSorted(compareFn)` | yes (`sort` since ES2019; `toSorted`, ES2023, always) |
+| Scala (the anti-pattern: another order is a local instance) | `sorted` (implicit `Ordering`) | `sortBy` (implicit `Ordering`) | `sortWith` (Bool) | yes |
