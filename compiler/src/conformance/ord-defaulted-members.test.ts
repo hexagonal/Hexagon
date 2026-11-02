@@ -268,6 +268,46 @@ describe("what the completion emits (Constraints §6.1)", () => {
     expect(await runMain(source)).toMatchObject({ high: "second", low: "first" });
   });
 
+  /**
+   * On that route a parameterized instance's factory gets its members from
+   * the home's helpers, so the completion must see them there too, or it adds
+   * a second `max` and `min` to the record. A ground instance can't show the
+   * duplicate: its seats take the first member of each name.
+   */
+  test("and a parameterized instance there carries each member once, written or defaulted", async () => {
+    const source = "module Main\n\nimport Ord\n\n" + [
+      "export record Box(a) = {value: a}",
+      "export record Pair(a) = {value: a}",
+      "",
+      "honor<a: Eq> Eq<Box(a)> = derive",
+      "honor<a: Eq> Eq<Pair(a)> = derive",
+      "",
+      "honor<a: Ord> Ord<Box(a)> =",
+      "    compare(left, right) = Ord.compare(left.value, right.value)",
+      "",
+      "honor<a: Ord> Ord<Pair(a)> =",
+      "    compare(left, right) = Ord.compare(left.value, right.value)",
+      "    max(left, right) = left",
+      "",
+      "export let boxMax: Float = Ord.max(Box({value = 0.0}), Box({value = -0.0})).value",
+      "export let boxMin: Float = Ord.min(Box({value = 0.0}), Box({value = -0.0})).value",
+      "export let pairMax: Int = Ord.max(Pair({value = 1}), Pair({value = 2})).value",
+      "export let pairMin: Int = Ord.min(Pair({value = 2}), Pair({value = 1})).value",
+      "",
+    ].join("\n");
+    const main = compileMain(source).modules.find(({ source: file }) => file.path === "/main.hex")!.javascript.text;
+    const factories = main.match(/\{ Eq: [^\n]*compare: [^\n]*\}/gu) ?? [];
+    expect(factories.length).toBeGreaterThanOrEqual(2);
+    for (const literal of factories) {
+      expect(literal.match(/\bmax:/gu) ?? []).toHaveLength(1);
+      expect(literal.match(/\bmin:/gu) ?? []).toHaveLength(1);
+    }
+    const exports = await runMain(source);
+    expect(Object.is(exports.boxMax, -0)).toBe(true);
+    expect(Object.is(exports.boxMin, 0)).toBe(true);
+    expect(exports).toMatchObject({ pairMax: 1, pairMin: 1 });
+  });
+
   test("a hoisted structural dictionary reads its own compare through its name", () => {
     const main = compileMain("module Main\n\n" + 'export let t: (Int, String) = Ord.max((1, "a"), (1, "b"))\n')
       .modules.find(({ source }) => source.path === "/main.hex")!.javascript.text;
@@ -303,9 +343,9 @@ describe("what the completion emits (Constraints §6.1)", () => {
   });
 
   test("Unit's structural dictionary answers its tie arguments directly", () => {
-    expect(text("/main.hex")).toContain(
-      "const __Ord_Unit = ({ compare: (__left, __right) => __Equal, max: (__left, __right) => __right, " +
-      "min: (__left, __right) => __left });",
-    );
+    // Every `Unit` value is `undefined`, so only the emitted text can show which argument comes back.
+    const binding = text("/main.hex").split("\n").find((line) => line.startsWith("const __Ord_Unit = "))!;
+    expect(binding).toContain("max: (__left, __right) => __right");
+    expect(binding).toContain("min: (__left, __right) => __left");
   });
 });
