@@ -186,11 +186,12 @@ open specification work does not make the book outline provisional.
     `Nullable(a)` and `Array(a)`, foreign-backed enums, conversions, JavaScript calls,
     and imported values define how Hexagon enters an existing JS/TS application.
 
-27. **Constraints in JavaScript** — Constrained polymorphic exports provide
-    named, dictionary-free functions for lawful fundamental types and, when all needed
-    public dictionaries exist, a generic dictionary-taking JavaScript function. This
-    preserves
-    zero-cost ordinary calls while keeping the TypeScript surface honest.
+27. **Constraints in JavaScript** — A constrained polymorphic export with one
+    constrained type provides named, dictionary-free functions for its lawful
+    fundamental types; when all needed public dictionaries exist, an export also gets
+    a generic dictionary-taking JavaScript function, which is how JavaScript calls one
+    with several constrained types. This preserves zero-cost ordinary calls while
+    keeping the TypeScript surface honest.
 
 28. **Packages** — A package is a directory with a `hexagon.json` naming it; its
     name is the namespace supplying every module's full name (`Acme.Geometry`), the

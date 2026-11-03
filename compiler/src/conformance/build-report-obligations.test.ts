@@ -28,9 +28,10 @@ import type { CompiledModule } from "../project.js";
  * §3.4's own condition conjoins an empty specialization set with §4's trigger
  * being unmet. What is implemented, and what these rows pin, is the **emission
  * fact**: a §3.1-eligible export that published no typed face. Algorithm G is
- * unimplemented, so the two coincide today; the emission-fact phrasing is what
- * keeps the list truthful without this file adjudicating #423, which records
- * that FFI Part 7 §7 gives the generic edition no `.d.ts` face anyway.
+ * unimplemented (#1442), so the two differ today exactly where §4.1's trigger is
+ * met by an export with no specialization: `Map.max`, `Map.min` and §16(l)'s
+ * `shift` are listed, though each will have a generic edition. The emission-fact
+ * phrasing is what keeps the list truthful until that edition is emitted.
  *
  * ## What the rows here can and cannot catch
  *

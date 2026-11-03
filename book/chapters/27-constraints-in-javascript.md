@@ -152,12 +152,26 @@ A public `Rat` type with a public `Num<Rat>` dictionary can call it like this:
 plus(half, third, Rat.num);
 ```
 
-The generic function appears only when JavaScript could call it with obtainable
-dictionaries, at least one of them for a non-fundamental type such as `Vector(Int)` or
-`Rat`. Once it appears, it accepts fundamental dictionaries too, as
-`combine(3, "x", Show.int, Eq.string)` does. If the necessary dictionaries
-are private, exporting the function would give JavaScript callers an unusable entry
-point, so the generic function is omitted.
+The generic function appears only when JavaScript could call it with dictionaries it
+can obtain, one for each constraint. For a function with one constrained type, at
+least one of them must be for a non-fundamental type such as `Vector(Int)` or `Rat`,
+because the direct functions already cover the fundamental types. A function with
+several constrained types has no direct functions, so fundamental dictionaries alone
+are enough. The following function gets a generic function even when no non-fundamental
+type honors `Bitwise` or `Integral`:
+
+```hexagon
+export let shift<a: Bitwise, n: Integral>(x: a, by: n): a = ...
+```
+
+```ts
+shift(1, 2, Bitwise.int, Integral.int);
+```
+
+A one-type function's generic function, once it appears, accepts fundamental
+dictionaries too: `plus(1, 2, Num.int)` works, though `plusInt(1, 2)` is the direct
+route. If the necessary dictionaries are private, exporting the function would give
+JavaScript callers an unusable entry point, so the generic function is omitted.
 
 The original source name remains reserved for this generic form even while it is
 absent. Direct functions always carry type suffixes such as `plusNat` and `plusInt`.
@@ -290,9 +304,11 @@ JavaScript callers are invisible to Hexagon's analysis of internal calls. Keepin
 foreign surface tied to public declarations makes it stable under private refactoring.
 
 A constrained export may have no JavaScript entry point. This happens when it has no
-direct functions, because no fundamental type honors its constraint or because it has
-several constrained types, and JavaScript cannot obtain dictionaries for a public user
-type. The export remains usable by other Hexagon modules. Generated
+direct functions and no generic function: a function with one constrained type whose
+constraint no fundamental type honors, when JavaScript cannot obtain a dictionary for
+a public user type either; or a function with several constrained types when
+JavaScript cannot obtain a complete set of dictionaries for any combination of types.
+The export remains usable by other Hexagon modules. Generated
 documentation and build reports identify the missing JavaScript surface.
 
 ## Generated names are public API

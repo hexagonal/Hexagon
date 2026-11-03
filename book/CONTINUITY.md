@@ -1158,13 +1158,15 @@ late pedagogy pass, not a commitment to the current order.
 ### Constraints in JavaScript
 
 - The seven fundamental types form the closed named-specialization set. Each exported
-  constrained function receives every lawful direct, dictionary-free fundamental
-  edition.
+  function with one constrained type receives every lawful direct, dictionary-free
+  fundamental edition; one with several constrained types receives none, and Hexagon's
+  own calls at fundamental types use private copies.
 - Specialization names append fundamental type names in declared constrained-variable
   order; unconstrained variables remain generic and add no suffix.
 - The source base name is reserved for the generic function, which appears only when
-  every required public dictionary is obtainable and at least one belongs to a
-  non-fundamental type.
+  every required public dictionary is obtainable and, for a function with one
+  constrained type, at least one belongs to a non-fundamental type; for several
+  constrained types, fundamental dictionaries alone are enough.
 - `Constraint.Dictionary<a>` types expose completed member sets with TypeScript brands.
 - Fundamental dictionaries are constraint-owned (Num.nat, `Signed.int`); user/runtime dictionaries
   are type-owned (`Rat.signed`); dependent dictionaries come from factories such as
