@@ -10,7 +10,7 @@
   - `Int.parse^(text)` passes the failure up, so the enclosing function may fail.
   - `Int.parse?(text)` reads it as data: `Some(n)`, or `None` (Effects §3.1).
   - `assume Int.parse^("8080")` says the text is known to be good: a failure there is the fault `AssumptionFault` (Exceptions §8.3).
-  - `attempt Int.parse^(text)` keeps the exception as data, a `Result(Int, Exn)` (Exceptions §8.2).
+  - `attempt Int.parse^(text)` keeps the exception as data, a `Result(Int)` (Exceptions §8.2).
 - **`parse` reads a number the way Hexagon writes one.** The grammar is the type's literal (Lexer §5), with an optional sign in front, so the language has one grammar for numbers, decided once. What `show` writes that no literal can (`NaN` and the infinities, a `Rat`'s `/`) is added, so every value's text reads back.
 - **Locale-free, by definition.** Locale-aware parsing belongs to the i18n library.
 

@@ -225,7 +225,7 @@ Mirroring Products §2.5/§3.4 — the structural semantics, applied to the decl
 
 ```
 union Option(a) derives (Eq, Show) = Some(value: a) | None
-union Result(a, e) = Ok(value: a) | Err(error: e)
+union Result(a) = Ok(value: a) | Err(error: Exn)
 union Bool derives (Eq, Ord, Show, Hash) = False | True
 ```
 
@@ -238,7 +238,7 @@ union Bool derives (Eq, Ord, Show, Hash) = False | True
 - **`Bool` is the sole exception to §1's match-only eliminator doctrine** *(added 2026-07-29, PR #148 review)*: `and`/`or`/`not`/`implies`/`iff` (Operators §4) and `if`/`while` conditions (Operators §11) eliminate a `Bool` without `match`, with mandated native emission (`&&`, `||`, `!`, `!a || b`, `===`, direct branch). That emission is **legal only because of the §6.2 pin** — against the tagged-object representation, `&&` on `{tag: "False"}` would be truthy nonsense — so the operators are silent dependents of the pin, recorded here and in the ruling's ledger so a pin revisit knows what breaks. The eliminators are representation-blind at the source level; nothing about them exposes fields, predicates, or casts, and the §5 dot-access ban applies to `Bool` like any union.
 - **The declaration is real prelude source, not spec prose** *(James's ruling, 2026-07-29 — decisions doc §3.5)*: a compiler-verified `.hex` companion module on the `Seq.hex` model. Consequently the `derives` clause is the ordinary derivation door (Collections Part 2 §4.3), and `Bool`'s four instances are **derived, not compiler-provided** — Part 2 §2.5's provenance correction (#147, §18 there) records the move.
 
-- **Success type first** in `Result`, matching the subject-first convention (Functions §5.3).
+- **`Result` holds a caught exception** *(#1427)*: its one parameter is the success type, and its error is always an `Exn`, so it is the value `attempt` gives (Exceptions §1, §8.2). A dev's own failure data is a union of its own (Option/Result Convenience §1).
 - Payload slots are **named** even though these are the "obvious" constructors, because their emitted shape (`{tag: "Some", value: x}`, `{tag: "Err", error: e}`) is the most-trafficked union surface at the FFI, and `value`/`error` is what that boundary's JS consumers read and write — a boundary-representation fact, the kind of JavaScript-specific ground that still decides under the #147 doctrine (`decisions-ml-dialect-bool-2026-07.md` §1.1). This deliberately overrides the §2.1 style rule's escape hatch for the prelude's own exports.
 - **Pre-registered rejection — `Option(a)` is not `a | undefined`.** Compiling `Option` to nullable erasure is the tempting interop move and is wrong: `Some(None)` and `None` collapse (generic code over `Option(a)` breaks whenever `a` instantiates to another Option); it special-cases the one place the language promises uniformity; and the emitted type lies structurally. JS-side nullability lives at the boundary as `Nullable(a)`, with the final **`Nullable`-owned** conversions — `Nullable.toOption`, `Nullable.fromOption` (`None` → `undefined`), and `Nullable.fromOptionOrNull` (`None` → `null`) — per FFI Part 2 §4–§5. `Option` owns no nullable-conversion aliases. Do not re-litigate without new information.
 - The standard partiality story elsewhere in the stdlib (`Int.checkedAdd : ... -> Option(Int)`, `BigInt.toInt` partial, etc.) is this `Option`. Nothing changes there; the type it referred to now exists.

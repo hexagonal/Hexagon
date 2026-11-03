@@ -1,6 +1,6 @@
 # Hexagon Spec: Exceptions
 
-**Status:** Decided. Three kinds of throw: exceptions, tracked by Effects' fail colour; faults, untracked; foreign throws, tracked as the row they come through claims. With a **hanging-questions** section (§10; §10.1 since resolved); nothing there blocks implementation of §1–§9. Amended 2026-11-02 — §8.5 lists `DuplicateKeyFault` (`collection-combinators.md` §5.1, #1417).
+**Status:** Decided. Three kinds of throw: exceptions, tracked by Effects' fail colour; faults, untracked; foreign throws, tracked as the row they come through claims. With a **hanging-questions** section (§10; §10.1 since resolved); nothing there blocks implementation of §1–§9. Amended 2026-11-02 — §8.5 lists `DuplicateKeyFault` (`collection-combinators.md` §5.1, #1417). Amended 2026-11-03 (#1427) — `Result` holds a caught exception, `Result(a)` (§1, §8.2, §8.4).
 **Scope:** The `exception` and `fault` declarations (constructors of one open sum), the `Exn` type, `throw` and how its kind is read, the `try`/`catch` expression, the match catch expression (`match … catch`, §5.4), the `fault` pattern, the body forms `attempt` and `assume`, foreign (JS-originated) throwables and the `JsError` door, the tagged-`Error`-plus-brand runtime representation, prelude additions (`JsError`, `AssumptionFault`), emission and `.d.ts` shapes.
 **Not in scope:** The fail colour itself: what a call may throw is tracked, marked and handled by Effects' rules (§1, §3.1, §3.6), which this doc's forms read. `finally` (resolved: never — §10.1), the full pattern grammar (Pattern Matching §6.2), the `JsValue` type and its decoding surface (FFI Part 11; this doc consumes its two conservative `JsError` accessors), module-level qualification of constructor names (Modules), async/promise-rejection interactions (FFI/async spec, if any).
 **Companions:** Effects (§1 the two colours and the three kinds; §3.1 the reading `?`; §3.6 where a failure starts and where it ends; §6.1 rows' claims). Option/Result Convenience (`Result.orThrow`, `Option.orThrow`, the reading's `Option`). Unions spec (constructor grammar reused wholesale; the closed/open contrast is this doc's reason to exist), Functions spec (arity, constructors-as-terms, value restriction), Lexer & Layout spec (`try`/`catch`, `attempt` and `assume` bodies are layout blocks), Pattern Matching (§6.1, §6.2), Constraints spec (§5.3: `Exn`'s home is its companion `Exn.hex`, where its one instance, `Show<Exn>`, lives; §8.6). Method Syntax (§4.1, §5: `Exn`'s companion).
@@ -12,7 +12,7 @@ Written for a future implementation session against the existing `hexc` architec
 ## 1. Doctrine
 
 - **Three kinds of throw.**
-  - **An exception** is an expected failure, one a caller should plan for: a parse error, a missing file, a timeout. It is declared with `exception` (§2) and **tracked**: Effects' fail colour records whether a function may throw one, a call that may wears `^` or `!`, and the failure passes up through callbacks by itself (Effects §1, §3.6). A caller that wants the failure as data reads the call with `?` (Effects §3.1) or guards it with `attempt` (§8.2). `Result` stays for storing an outcome: a value kept in a collection, handed on later, or returned across a module's public face.
+  - **An exception** is an expected failure, one a caller should plan for: a parse error, a missing file, a timeout. It is declared with `exception` (§2) and **tracked**: Effects' fail colour records whether a function may throw one, a call that may wears `^` or `!`, and the failure passes up through callbacks by itself (Effects §1, §3.6). A caller that wants the failure as data reads the call with `?` (Effects §3.1) or guards it with `attempt` (§8.2). `Result` stays for an outcome the program keeps as a value: one stored in a collection, handed on later, or examined in full at every call. An operation whose failure its caller should plan for throws, and a caller who wants the `Result` writes `attempt`. `Result(a)`'s error is always an `Exn`; a dev whose failures are data of their own, such as a validator's list of problems, declares a union for them (Option/Result Convenience §1).
   - **A fault** is a broken assumption: an index out of range, a division by zero, a number that does not fit. It is declared with `fault`, and its name ends in `Fault` (§2). It is **not tracked**: no colour records it and no call is marked for it, so the prelude, which throws only faults, stays silent, and `Int.div` stays pure and unable to fail. It is catchable, deliberately: an arm names it, or the `fault e` pattern catches every fault (§5). A catch-all `_` lets it through.
   - **A foreign throw** is whatever JavaScript throws through a boundary. It is tracked as the row it comes through claims (Effects §6.1), and it is caught as `JsError` (§6).
 
@@ -253,7 +253,7 @@ type ParseError = Error & { readonly $hex: "Parser"; readonly name: "ParseError"
 
 - **The brand is included, deliberately**: JS-side code constructing Hexagon exceptions to throw into Hexagon does it correctly or not at all.
 - Exported exceptions and faults ship constructor functions for JavaScript callers (FFI Part 7 §6). Payload constructors follow declared slot order. Nullary ones are also function-shaped for JavaScript and construct a fresh branded `Error` on every call, preserving call-site stack capture; they are never exported as shared constants.
-- `Exn` itself, where it appears in exported signatures (e.g. the error side of a `Result(a, Exn)` that `attempt` made), is `Error` in the `.d.ts` — honest about the foreign door: any caught value is presented as an `Error`-typed thing at the boundary. (Foreign non-`Error` throwables make this a white lie of the same size every TS `catch` clause tells; recorded, accepted.)
+- `Exn` itself, where it appears in exported signatures (e.g. the error side of a `Result(a)` that `attempt` made), is `Error` in the `.d.ts` — honest about the foreign door: any caught value is presented as an `Error`-typed thing at the boundary. (Foreign non-`Error` throwables make this a white lie of the same size every TS `catch` clause tells; recorded, accepted.)
 - **The throws manifest** *(#479)*: an exported declaration documents each declared exception or fault it may throw with the recognized sentence ``Throws `X` when <condition>.`` (Doc Comments §6.1 — `Throws`, the language's own verb), and emission surfaces each as a generated `@throws` tag in the JSDoc block (Doc Comments §7.4; FFI Part 7 §6). Documentation, not typing; nothing is checked (§10.4's linting posture).
 
 ### 7.6 Boundary guards: `.is` and `isHexError` *(#478)*
@@ -278,7 +278,7 @@ Per §6.1. Declared in the prelude; FFI Part 11 finalizes its `JsValue` payload 
 ### 8.2 `attempt`: a failure as data
 
 ```
-let loaded = attempt loadConfig^(path)        -- Result(Config, Exn)
+let loaded = attempt loadConfig^(path)        -- Result(Config)
 let parsed = attempt
     let raw = readFile!(path)
     parse^(raw)
@@ -286,7 +286,7 @@ let parsed = attempt
 
 - **A body form, like `try`.** The word `attempt` is followed by a body, on the same line or in an indented layout block (Lexer & Layout §2.1), whose final expression is its value. It is a keyword (Lexer §4.1), not a function: it takes no mark, has no face, and is never named as a value or handed on. The calls in its body keep their own marks.
 - **It eats to the right** (Operators §3.2), as `if` and `match` do: `Some(attempt parse^(s))` delimits it, and `attempt parse^(s) |> Result.map(f)` is `attempt (parse^(s) |> Result.map(f))`, which pipes the parsed value, not the `Result`. To map the `Result`, write `(attempt parse^(s)) |> Result.map(f)`.
-- **Typing.** Where the body has type `a`, `attempt` has type `Result(a, Exn)`.
+- **Typing.** Where the body has type `a`, `attempt` has type `Result(a)`, whose `Err` holds an `Exn`.
 - **Semantics.** The body runs once. `attempt` gives `Ok(value)` where the body returns, and `Err(x)` where it throws an exception or a foreign throw, the latter as `JsError`'s value (`Err(JsError(e))` observationally, §6.2). A fault passes through untouched, as it passes `_` (§5.3).
 - **Colours.** `attempt` handles its body's failure (Effects §3.6): the body's world colour joins the enclosing body's, and its fail colour does not. So `attempt decodeUser^(v)` is pure and cannot fail, and `attempt fetchUser!(id)` is impure and cannot fail. The body's own fail colour is left as it stands: a callback run there keeps accepting what its arrow accepts.
 - **Over a body that cannot fail, it is refused**, as a reading on a call that cannot fail is (Effects §3.1): "nothing here may fail, so `attempt` has nothing to catch". A body cannot fail where its fail colour is silent once it settles (Effects §3.6). A callback's colour is not silent, so `attempt f!()` over a callback `f` stands at every instantiation. A body in error owes nothing. It is a catch-all over its body (§5.3), so where an untyped parameter's bare call is why, the report names that call and offers to mark it, as §5.3's does.
@@ -313,7 +313,7 @@ Its `cause` is JavaScript's own `Error.cause` (ES2022): the emitted object is `n
 
 ### 8.4 Data back to a failure
 
-The inverse bridge is a function, not a form: `Result.orThrow : Result(a, Exn) ->^ a` throws an `Err`'s exception and returns an `Ok`'s value, and `Option.orThrow : (Option(a), () -> Exn) ->^ a` throws the exception its thunk constructs for `None` (Option/Result Convenience owns both). A `Result` whose error side is not `Exn` maps it first (`Result.mapError`).
+The inverse bridge is a function, not a form: `Result.orThrow : Result(a) ->^ a` throws an `Err`'s exception and returns an `Ok`'s value, and `Option.orThrow : (Option(a), () -> Exn) ->^ a` throws the exception its thunk constructs for `None` (Option/Result Convenience owns both). Between the two kinds of data, `Result.toOption` drops a caught exception and `Option.toResult(o, () -> Exn)` builds one for `None`.
 
 ### 8.5 The prelude's faults
 
@@ -392,7 +392,7 @@ A catch-all exists to report what failed (§1), so an `Exn` describes itself. Bo
 
 | Decision | Where |
 |---|---|
-| Three kinds of throw: exceptions (expected failures, tracked by Effects' fail colour), faults (broken assumptions, untracked, named `…Fault`), foreign throws (tracked as the row they come through claims); `Exn` is the one open sum holding all three; `Result` stores an outcome | §1 |
+| Three kinds of throw: exceptions (expected failures, tracked by Effects' fail colour), faults (broken assumptions, untracked, named `…Fault`), foreign throws (tracked as the row they come through claims); `Exn` is the one open sum holding all three; `Result(a)` stores a caught exception, and a dev's own failure data is a union of its own *(#1427)* | §1 |
 | SML semantics; `throw`/`try`/`catch` spelling | §1 |
 | `Exn` values first-class; construction ≠ throwing | §1, §2.1 |
 | `exception` and `fault` = freestanding union-constructor grammar; all-or-none slots; module-level only; no local/generative declarations | §2 |
@@ -414,7 +414,7 @@ A catch-all exists to report what failed (§1), so an `Exn` describes itself. Bo
 | `.d.ts`: `Error & {$hex: true; name: "..."; ...}`; brand included; exported constructor functions (nullary included, fresh per call); `Exn` at the boundary is `Error` | §7.5; FFI Part 7 §6 |
 | Prelude: `JsError`; `AssumptionFault(cause: Exn)` in `Prelude.hex`, its `cause` JavaScript's `Error.cause`; the faults the prelude's operations throw | §8 |
 | Exceptions are tracked by Effects' fail colour, and faults are not; a catch-all, `attempt`, `assume` and the reading handle a failure; catching stays legal anywhere, and catch-in-pure bounds the Effects §7 reordering licence; throw-pure/catch-impure rejected | §1, §3, §5.3 |
-| `attempt` and `assume` are body forms (keywords, no face, eating to the right): `attempt` gives `Result(a, Exn)`, `assume` throws `AssumptionFault(cause)` for a failure; both let faults through and are refused over a body that cannot fail; data back to a failure is `Result.orThrow`/`Option.orThrow` | §8.2–§8.4 |
+| `attempt` and `assume` are body forms (keywords, no face, eating to the right): `attempt` gives `Result(a)`, `assume` throws `AssumptionFault(cause)` for a failure; both let faults through and are refused over a body that cannot fail; data back to a failure is `Result.orThrow`/`Option.orThrow` | §8.2–§8.4 |
 | `_` catches exceptions and foreign throws and lets faults through; `fault e`, a whole arm's pattern only, catches every fault; the three kinds partition `Exn`, and reachability reads by kind; over a part that cannot fail, exception arms and catch-alls are refused | §5.2, §5.3 |
 | `finally`: resolved to never (supersedes the deferral row above) — keyword reserved permanently, purely for the diagnostic; resources are the v2 `use` story | §5.1, §9, §10.1 |
 | *(#876)* No captured foreign collection in an exception payload — hard error at the declaration, rewrite `Vector`; the rule is what keeps abstract `Exn` identity-crossing at every boundary position | §2 |

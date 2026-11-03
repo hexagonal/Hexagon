@@ -1,6 +1,6 @@
 # Hexagon Spec: `Regex`
 
-**Status:** Decided (#927 — the eight rulings this document records; the foundations it stands on landed at #928). Shipped: `stdlib/Regex/Syntax.hex` (the parser and tree, §2, §5), `stdlib/Runtime/Regex.hex` (the engine, §6), and `stdlib/Regex.hex` (the surface, §4), with literal patterns compiled once per load (§8). This document is the contract of all three (`stdlib-roadmap.md` §5 records the row). Amended 2026-11-01 (#1414): §6.2's subject memo and cursor, and §6.4's `findFrom` bound: a `findFrom` start far from any cursor is located through Collections Part 3 §9.
+**Status:** Decided (#927 — the eight rulings this document records; the foundations it stands on landed at #928). Shipped: `stdlib/Regex/Syntax.hex` (the parser and tree, §2, §5), `stdlib/Runtime/Regex.hex` (the engine, §6), and `stdlib/Regex.hex` (the surface, §4), with literal patterns compiled once per load (§8). This document is the contract of all three (`stdlib-roadmap.md` §5 records the row). Amended 2026-11-01 (#1414): §6.2's subject memo and cursor, and §6.4's `findFrom` bound: a `findFrom` start far from any cursor is located through Collections Part 3 §9. Amended 2026-11-03 (#1427): a pattern is compiled two ways — `compile`, for a pattern the dev wrote, throws the fault `RegexCompileFault`, and `parse`, for text from outside the program, throws the tracked exception `RegexError` (§2.9, §4.2, §5, §8).
 **Scope:** The pattern language (the dialect), matching semantics, the public surface of `Regex`, the public syntax tree of `Regex.Syntax`, the obligations on the engine `Hex.Runtime.Regex`, the door inventory the three modules declare, and literal-pattern emission.
 **Not in scope:** The intrinsic `type` form and the Hex-wide door (Intrinsics §3.3, §5.2 — assumed); species (d) itself (Effects §6.2 — assumed); the String companion's own text-processing surface (`string-text-processing.md`, whose currency this document adopts and whose one divergence it names); compile-time diagnostics for literal patterns and typed captures (§10, later rulings).
 **Companions:** `string-text-processing.md` (positions, the codepoint unit, Unicode version, full folding), `intrinsics.md` (§3.3 the `type` form, §4.2 sealed rows, §5.2 the gate), `effects.md` (§6.2 species (d), §7 the sequence posture), Loops §6 (`Seq`), Modules §4.2 (`opaque`), Method Syntax §4 (the dot), `stdlib-roadmap.md`.
@@ -18,7 +18,7 @@ Four commitments, each a ruling of #927, shape everything below:
 - **The engine is one construction** (§6): one Thompson NFA, a lazy DFA for the scan and a Pike VM for captures and as the always-linear fallback. Derivative-based matching was rejected because captures would then be a second semantic definition of the pattern beside the one the DFA implements.
 - **The surface is pure and the engine is not** (§7): the engine is written `->~` wherever it touches a buffer's contents, and purity is claimed once, at two sealed `->` rows whose lowerings are its compiled bodies — Effects §6.2's species (d), owned scratch, with the lazy-DFA cache and the resolved classes (§6.2) the two owned memos a compiled `Regex` carries. A `Regex` is a value: comparing, sharing, hoisting, and dropping a search are the compiler's to do as with any pure call.
 
-The surface is small by design (§4): one `compile`, flags inline in the pattern, `Result` where a pattern can be wrong, a lazy `Seq(Match)` where there are many matches, and a `Match ->! String` function where a replacement needs the match — no replacement-token language.
+The surface is small by design (§4): `compile` for a pattern the dev wrote and `parse` for one that arrives as data, flags inline in the pattern, a lazy `Seq(Match)` where there are many matches, and a `Match ->! String` function where a replacement needs the match — no replacement-token language.
 
 ## 2. The pattern language
 
@@ -159,21 +159,31 @@ The line terminator is `\n` alone: `\r\n` ends a line at its `\n`, and a bare `\
 - **Possessive quantifiers, atomic groups, conditionals, recursion**: backtracking-engine devices; the engine has no backtracking to cut.
 - **POSIX classes** (`[[:alpha:]]`): ASCII-only by definition in RE2, which this dialect's Unicode posture cannot carry; `\p{…}` says the same thing in Unicode. Refused rather than misread (§2.4).
 - **Loose property-name matching**: refused (§2.4) — one spelling per property, so a misspelling is an error, not a near-miss that matches something.
-- **A flags argument, a global-match flag, a leftmost-longest (POSIX) mode**: the surface has one `compile` and one matching semantics (§3.2); `findAll` is the global form.
+- **A flags argument, a global-match flag, a leftmost-longest (POSIX) mode**: the surface has one pair, `compile` and `parse`, and one matching semantics (§3.2); `findAll` is the global form.
 - **Readings RE2 gives that this dialect refuses rather than misreads**, collected: a bare `{` and `a{,3}` (literal text in RE2); `[` inside a class; a range ending in a class escape or a range (`[\d-z]`, `[a-z-0]`); `\p{^Greek}`; `\x41` and `\x{…}` (write `\u{…}`); `\Q…\E`; `\C`; `\a`, `\f`, `\v`; the `U` flag; a quantifier on an assertion. Each is refused where it is met (§2.3–§2.6) with the spelling the dialect has.
 
 ### 2.9 `RegexError`
 
-A pattern the parser refuses answers `Err(RegexError)` from `compile` (§4.2) and from `Syntax.parse` (§5):
+A pattern the parser refuses is reported by one exception, thrown by `Regex.parse` (§4.2) and by `Syntax.parse` (§5):
 
 ```
-export record RegexError derives (Eq, Show) = {
+export exception RegexError(
     message: String,    -- one sentence, naming the fault and the spelling the dialect has instead
     position: Int,      -- 1-based codepoint position in the pattern; length + 1 when the pattern ended early
-}
+)
 ```
 
-The record is ordinary data — a bad pattern is an answer, not a fault — and its home is `Regex.Syntax` (§5), where the parser lives; its fields travel with the type (Modules §4.2), so `Err(e) => e.message` needs no import of `Regex.Syntax`, and only a signature that *names* the type does. The message family, position rule per row:
+A bad pattern that arrives as data is an expected failure, one the caller should plan for, so `RegexError` is an exception and is tracked (Exceptions §1): every call of `parse` wears `^`, and the dev reads it as `Int.parse` is read — passed on with `^`, as an `Option` with `?`, kept with `attempt`, or caught by name for the message and position:
+
+```
+let checked(text: String): String = try
+    Regex.parse^(text).source()
+catch
+    Syntax.RegexError(message, position) => "bad at ${position}: ${message}"
+    e => "${e}"
+```
+
+Its home is `Regex.Syntax` (§5), where the parser lives, so an arm that names it writes `import Regex.Syntax` and `Syntax.RegexError(…)`; a catch-all needs no import, and shows it as ``RegexError: missing `)` for the group opened here`` (Exceptions §8.6), the message without the position. A pattern the dev wrote is not data, and `compile` reports one that is wrong with a fault carrying the same two slots (§4.2). The message family, position rule per row:
 
 | Fault | Position | Message |
 |---|---|---|
@@ -255,19 +265,26 @@ export record Group derives (Eq, Show) = { start: Int, length: Int, text: String
 
 - **`Regex`** is a compiled pattern: a value, immutable, sharable, with no `Eq`, `Ord`, or `Hash` instance — two regexes are compared by `source`. It carries a **`Program`**, the confined type its door row declares (§7), and inside that the two memos the program owns, the lazy-DFA cache and the resolved classes (§6.2); the record is `opaque` because a confined type may travel only inside an opaque carrier (Intrinsics §3.3), and it derives nothing for the same reason. `Show<Regex>` is honored by hand and shows the source.
 - **`Match`** is one match against one subject: group 0 as `whole`, every capturing group as a `Group` — its span and its text — or `None` where it did not participate, and the name table. The texts are cut by the engine, which holds the subject's code-unit offsets while it has them (§6.2, §7), so no accessor ever walks the subject, and the surface builds the record once from the row's answer (§7). The cost, accepted: every group's text is cut and retained for every match, read or not — `g` strings per `Match` for a pattern with `g` groups — and a `replace` with a literal replacement pays it too; §10 names the growth path if it bites. The record is opaque so that its face is the accessors of §4.5 and its layout is the library's to change. No instances in v1.
-- **`Group`** is a captured span with its text, transparent, the value every accessor answers with. `RegexError` is §2.9's, home `Regex.Syntax`: a program that only matches on it needs no second import, and one that *names* it in a signature writes `import Regex.Syntax` and `Syntax.RegexError` — the cost of one parser owning its error and Hexagon having no re-exports (Modules §12, question 2), taken with eyes open (§4.6).
+- **`Group`** is a captured span with its text, transparent, the value every accessor answers with. `RegexError` is §2.9's exception, home `Regex.Syntax`: a program that catches it with `_` or `e` needs no second import, and one that *names* it in a catch arm writes `import Regex.Syntax` and `Syntax.RegexError` — the cost of one parser owning its error and Hexagon having no re-exports (Modules §12, question 2), taken with eyes open (§4.6).
 
 ### 4.2 Compilation
 
 ```
-Regex.compile(pattern: String): Result(Regex, Syntax.RegexError)
+Regex.compile(pattern: String): Regex        -- String -> Regex; a bad pattern throws the fault RegexCompileFault
+Regex.parse(pattern: String): Regex          -- String ->^ Regex; a bad pattern throws the exception Syntax.RegexError
 Regex.escape(text: String): String
 Regex.source(regex: Regex): String
 Regex.groupCount(regex: Regex): Int
 Regex.groupIndex(regex: Regex, name: String): Option(Int)
 ```
 
-- `compile` parses (§5) and constructs the program (§6.1). The one door: a literal pattern takes the same parser and the same constructor (§8). There is no second entry point with flags, options, or a size budget.
+- **Two functions, one parse and one construction.** Each parses (§5) and constructs the program (§6.1); they differ only in what a bad pattern is. The one door: a literal pattern takes the same parser and the same constructor (§8). There is no further entry point with flags, options, or a size budget.
+- **`compile` is for a pattern the dev wrote**, and takes no mark. A pattern that does not parse is the dev's mistake, as an index out of range is, so `compile` throws the fault `RegexCompileFault(message: String, position: Int)`, declared in `Regex.hex` beside it, with §2.9's message and position; nothing tracks it, and an uncaught one prints ``RegexCompileFault: missing `)` for the group opened here``. A dev who hands `compile` text from outside the program is vouching for it.
+  ```
+  let isoDate: Regex = Regex.compile("^([0-9]{4})-([0-9]{2})$")
+  ```
+  The two are Collections Part 1 §3.3's pair, as `[]` and `get` are: a form whose failure is a fault and takes no mark, and a sibling that gives the caller the choice. Once a literal's pattern is checked at build time (§10), a bad literal is refused when the program is compiled, and the dev's code does not change.
+- **`parse` is for a pattern that arrives as data** — typed by a user, read from a file — and is read like `Int.parse` (`numeric-parsing.md`): one tracked function, `->^`, whose caller chooses at the call how to read its `RegexError` (§2.9). `Regex.parse?(text)` is the "is it a pattern?" question, an `Option(Regex)`.
 - `escape` answers `text` with a backslash before every codepoint that is a metacharacter in any position — `\ . + * ? ( ) | [ ] { } ^ $ # -` — and before every `White_Space` codepoint, so that the result is a literal under every flag including `x`. `compile(escape(t))` matches exactly the occurrences of `t` — `escape("")` is the empty pattern, matching at every boundary (§3.5) — and `Regex.escape` is the sanctioned way to embed untrusted text in a pattern.
 - `groupCount` is the number of capturing groups, group 0 excluded. `groupIndex` answers the number of a named group, `None` for a name the pattern does not define.
 
@@ -316,10 +333,11 @@ Regex.groups(match: Match): Vector(Option(Group))
 ### 4.6 What the surface refuses
 
 - **No token language in replacements** — `replaceWith` (§4.4). Recorded against re-litigation: `$1` syntaxes differ across every host, escape badly, and say less than a function.
-- **No flags argument, no `compileWith`** — flags are inline (§2.6). One `compile`.
+- **No flags argument, no `compileWith`** — flags are inline (§2.6). One `compile`, one `parse`.
 - **No host `RegExp` in or out** — nothing converts a `Regex` to a JavaScript `RegExp` or back; the dialects differ and the Unicode versions would too.
 - **No `Eq`/`Hash` on `Regex`** — `source` is the identity that matters, and two compilations of one source are one regex for every purpose but reference identity.
-- **No re-export of `RegexError`** — the type's home is the parser's module (§2.9, §4.1); a signature naming it imports `Regex.Syntax`. A copy in `Regex.hex` would be a second type, and re-exports are deferred corpus-wide (Modules §12, question 2).
+- **No re-export of `RegexError`** — the exception's home is the parser's module (§2.9, §4.1); an arm naming it imports `Regex.Syntax`. A copy in `Regex.hex` would be a second exception, and re-exports are deferred corpus-wide (Modules §12, question 2).
+- **No `Result`-returning compile, and no `try`-prefixed one** — the readings give the `Option` (`parse?`) and the `Result` (`attempt`), and the `try` prefix is not a stdlib spelling (Collections Part 1 §3.3).
 - **No `matchAll`-into-`Vector`, no `count`** — `findAll` with `Vector.fromSeq` and `Seq.length` are one call away; a minimal surface is easier to grow than to shrink (`stdlib-roadmap.md` owns additions).
 
 ## 5. `Regex.Syntax` — the public syntax tree
@@ -348,11 +366,11 @@ export union PropertyKind = GeneralCategory | Script | ScriptExtensions | Binary
 export union AnchorKind = TextStart | TextEnd | LineStart | LineEnd | WordBoundary | NotWordBoundary
 
 export record Pattern = { root: Expr, groupCount: Int, names: Map(String, Int) }
-export record RegexError derives (Eq, Show) = { message: String, position: Int }
+export exception RegexError(message: String, position: Int)
 ```
 
 ```
-Syntax.parse(pattern: String): Result(Pattern, RegexError)
+Syntax.parse(pattern: String): Pattern       -- String ->^ Pattern
 ```
 
 The six declarations and `parse` — a qualified-API signature in §4's sense, not declaration syntax — are the module's whole exported surface. The tree is `Expr`, not `Node`: `Node` is the spelling of the compiler-owned boundary type that answers bare in a runtime-privileged module (Modules §5.5, Intrinsics §3.3), and `Hex.Runtime.Regex` is one and imports this module (§6.1) — the one module that would see both. `Dot` rather than `Any`, since `PropertyKind` has an `Any` and two unions of one module may not share a constructor (Unions §2). `Property.value` is the canonical value spelling for `GeneralCategory`, `Script`, `ScriptExtensions`, and `Binary`, and `""` for `Any`, `Ascii`, `Assigned`, and `Word`, which the engine's table answers by kind alone (§7). `Word` is §2.4's `\w` and has no `\p{…}` spelling: `\p{Word}` names no supported property.
@@ -363,7 +381,7 @@ The six declarations and `parse` — a qualified-API signature in §4's sense, n
 - **Captures carry their index** in §2.6's numbering (the constructor is `Capture`, not `Group`, so that `Regex.Group` — §4.1's record — is the only `Group` in the library); `Pattern.names` maps each name to its index. `Concat` and `Alternate` hold two or more parts; a one-part sequence is the part; an empty sequence is `Empty`.
 - **Every limit of §2.5 is the parser's**: a `Pattern` the parser answers is one the engine constructs without refusal.
 
-The tree carries no source spans in v1. The literal-diagnostics arc (§10) needs only `RegexError.position`, and adding spans to nodes then is an additive change to a public union.
+The tree carries no source spans in v1. The literal-diagnostics arc (§10) needs only the error's `position`, and adding spans to nodes then is an additive change to a public union.
 
 ## 6. The engine — `Hex.Runtime.Regex`
 
@@ -447,19 +465,19 @@ extern from "hex:intrinsic"
 
 ## 8. Literal patterns
 
-A call `Regex.compile(p)` whose argument is a **string literal with no interpolation** is compiled **once per load**: the compiler lifts the call into a module-level constant built at its first evaluation, and every later evaluation of that call reads the same `Result`. The parse and the construction are the dynamic `compile`'s own — the same parser and the same constructor, one door — and the value the program observes is the same `Result(Regex, RegexError)` the call would produce each time. No semantics ride on the sharing: `compile` is a value function of its argument (Effects §6.2, Intrinsics §4.2), and a `Regex` is a value whose memos are transparent (§6.2). A call whose argument is not a literal is compiled where it is evaluated, as any call is.
+A call `Regex.compile(p)` or `Regex.parse^(p)` whose argument is a **string literal with no interpolation** is compiled **once per load**: the compiler lifts the call into a module-level constant built at its first successful evaluation, and every later evaluation of that call reads the same `Regex`. The parse and the construction are the dynamic call's own — the same parser and the same constructor, one door — and the value the program observes is the `Regex` the call would produce each time. A literal that does not parse is never kept: each evaluation of the call throws again, as the dynamic call would, and a call that is never evaluated throws nothing, so a bad literal in a function that is never called does not stop the load. No semantics ride on the sharing: both functions are value functions of their argument (Effects §6.2, Intrinsics §4.2), and a `Regex` is a value whose memos are transparent (§6.2). A call whose argument is not a literal is compiled where it is evaluated, as any call is.
 
-Compiling a literal at **build** time instead — running the parser and constructor in the compiler and emitting the program as a constant, so that a module's patterns cost their parse once at build rather than once per load — needs an evaluator the compiler does not have, and is a later phase with the literal diagnostics that need the same evaluator (§10). Reporting a literal pattern's `RegexError` as a compile-time diagnostic — turning the `Err` into a refusal at the call, with the message and position §2.9 fixes — is that same arc. Until it lands, a literal that does not compile is an `Err` at runtime like any other.
+Compiling a literal at **build** time instead — running the parser and constructor in the compiler and emitting the program as a constant, so that a module's patterns cost their parse once at build rather than once per load — needs an evaluator the compiler does not have, and is a later phase with the literal diagnostics that need the same evaluator (§10). Reporting a literal pattern's error as a compile-time diagnostic — refusing the call, with the message and position §2.9 fixes — is that same arc. Until it lands, a literal that does not parse throws at runtime like any other pattern: `compile`'s fault, or `parse`'s exception.
 
 ## 9. Emission and the boundary
 
-`Regex` and `Match` are opaque records and take FFI Part 7 §5's brand-only `.d.ts` face; `Group`, `RegexError`, and `Syntax`'s tree are transparent records and unions with the ordinary representation. A `Program` has no `.d.ts` face — it is inside an opaque record, and a confined type never has one (Intrinsics §3.3). A `Seq(Match)` crossing the boundary is FFI Part 3's. Marks and colours erase with the rest of the effects discipline (Effects §8); the runtime module's emitted JavaScript carries its operations out under an export list the emitter writes, as `HashTrie.js` does, and a Hexagon module that imports it reaches nothing (Packages §2.4).
+`Regex` and `Match` are opaque records and take FFI Part 7 §5's brand-only `.d.ts` face; `Group` and `Syntax`'s tree are transparent records and unions with the ordinary representation, and `RegexError` and `RegexCompileFault` are throwables with Exceptions §7.5's face. A `Program` has no `.d.ts` face — it is inside an opaque record, and a confined type never has one (Intrinsics §3.3). A `Seq(Match)` crossing the boundary is FFI Part 3's. Marks and colours erase with the rest of the effects discipline (Effects §8); the runtime module's emitted JavaScript carries its operations out under an export list the emitter writes, as `HashTrie.js` does, and a Hexagon module that imports it reaches nothing (Packages §2.4).
 
 ## 10. Later phases — not scheduled
 
 Each below needs its own ruling; none is implied by this document.
 
-- **Build-time literal patterns and their diagnostics**: running the parser and constructor in the compiler so that a literal's program is emitted as a constant (§8), and its `Err` reported at the call. Both need an evaluator for standard-library code inside the compiler and a serializer for a compiled program. An open possibility, raised and not ruled: build-time construction in the installed compiler, and §8's once-per-load in the playground, where compile time matters most.
+- **Build-time literal patterns and their diagnostics**: running the parser and constructor in the compiler so that a literal's program is emitted as a constant (§8), and a bad literal refused at the call. Both need an evaluator for standard-library code inside the compiler and a serializer for a compiled program. An open possibility, raised and not ruled: build-time construction in the installed compiler, and §8's once-per-load in the playground, where compile time matters most.
 - **Typed captures**: a pattern whose groups are a record type in the program (the Swift `Regex` shape). Needs a literal syntax slot — a regex-literal form or a `pattern`-declaration door — which is a lexer and parser ruling, not a library one.
 - **A regex-literal form** (no doubled backslashes): the same slot.
 - **A texts-free spans mode** for `replace` with a literal and for `split`, which read no group text: the growth path if §4.1's eager cut bites. It widens `regexSearch`'s mode parameter from `Bool` to three values — a change to an existing key's declared scheme (Intrinsics §4.2), not a new key.
@@ -504,12 +522,13 @@ Each below needs its own ruling; none is implied by this document.
 | Repetition bound 1000 per operator and per nested product; nesting depth 1000 | §2.5 |
 | Groups numbered by `(`; both named spellings; ASCII names; flags inline only, `i m s x`, with `-` clearing | §2.6 |
 | `\n` is the only line terminator; `$` never before a final newline; `\b` over `\w` | §2.7 |
-| `RegexError` = `{message, position}`, home `Regex.Syntax`, one report per pattern; the message table | §2.9 |
+| `RegexError(message, position)`, an exception, home `Regex.Syntax`, thrown by `Regex.parse` and `Syntax.parse`; one report per pattern; the message table *(#1427)* | §2.9 |
 | Leftmost-first only, priority order stated; captures = last entry, never reset | §3.2, §3.3 |
 | `i` = simple folding; the one recorded divergence from `containsCi` | §3.4 |
 | Empty-match iteration = RE2/Go's rule; `split` agrees with `String.split` on `""` | §3.5 |
 | `Regex` opaque over `Program`, no `Eq`/`Hash`, `Show` = source; `Match` opaque — `whole`, `groups`, `names` — holding its `Group`s with texts cut by the engine, eager cut accepted, accessors are reads — a field read, one vector read, one name-table lookup; `Group` transparent | §4.1, §4.5 |
-| Surface: `compile`, `escape`, `source`, `groupCount`, `groupIndex`, `isMatch`, `find`, `findFrom`, `findAll`, `replace`/`replaceFirst`/`replaceWith`/`replaceFirstWith`, `split` | §4.2–§4.4 |
+| *(#1427)* `compile` is for a pattern the dev wrote and throws the fault `RegexCompileFault(message, position)`; `parse` is for a pattern that arrives as data and is one tracked function, `->^`, read at the call like `Int.parse`; no `Result`-returning or `try`-prefixed form | §4.2 |
+| Surface: `compile`, `parse`, `escape`, `source`, `groupCount`, `groupIndex`, `isMatch`, `find`, `findFrom`, `findAll`, `replace`/`replaceFirst`/`replaceWith`/`replaceFirstWith`, `split` | §4.2–§4.4 |
 | Decision 7 amended: replacement callbacks are `Match ->! String` callbacks where it wrote `Match -> String`; an effectful replacer is ordinary under its mark rather than a type error | §4.4 |
 | Refusals: no token language, no flags argument, no `RegExp` conversion, no `Eq`/`Hash`, no re-export of `RegexError`, no `Vector`/`count` conveniences | §4.6 |
 | `Regex.Syntax` pure, with one door row, the codepoint read a lone surrogate needs; flags resolved in the tree; property values canonical; explicit ranges normalized; one tree per construct; no source spans in v1 | §5 |
@@ -520,5 +539,5 @@ Each below needs its own ruling; none is implied by this document.
 | Door: `buffer` + four rows, the two table keys and the three subject reads by code unit in the runtime, every property's ranges excluding surrogates; two sealed rows in `Regex.hex`, the search row taking a cursor and a spans mode and cutting the texts; no third sealed row | §7 |
 | `regexProgram`, a second confined type key beyond the foundations' `buffer`, declarer `Hex.Regex`, under Intrinsics §3.3's confinement bar (#930): the engine's unexported `Compiled` record is the door's linkage, as `HashTrie` is `Map`'s, not a representation of the row's type | §7, Intrinsics §3.3 |
 | Species (d) gains a third shape, frozen storage — filled before the row returns, never written again, its memos excepted — beside scratch and memo; `compileProgram` is its first member, its fresh identity unobservable through any row; Effects §6.2 and Intrinsics §4.2 carry the shape | §7, Effects §6.2, Intrinsics §4.2 |
-| Opaque brands for `Regex`/`Match`; transparent faces for `Group`, `RegexError`, the tree; no face for `Program` | §9 |
+| Opaque brands for `Regex`/`Match`; transparent faces for `Group` and the tree; throwable faces for `RegexError` and `RegexCompileFault`; no face for `Program` | §9 |
 | Literal patterns compiled once per load, through the same parser and constructor; build-time construction and literal diagnostics a later arc | §8, §10 |
