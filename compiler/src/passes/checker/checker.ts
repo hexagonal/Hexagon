@@ -29965,22 +29965,35 @@ class Checker {
    */
   #assumeFix(argument: Resolved.Expr, axes: readonly Axis[]): Diagnostics.Fix | undefined {
     if (axes.length !== 1 || axes[0] !== "fail") return undefined;
-    const named = ungrouped(argument);
-    const source = this.#sourceFile();
-    if (named.kind !== "Name" || source === undefined || Number(named.span.fileId) !== this.#fileId) return undefined;
-    // As written, so a qualified name keeps its qualifier.
-    const written = source.text.slice(named.span.start.offset, named.span.end.offset);
     const type = this.#expressionTypes.get(argument);
     const handed = type === undefined ? undefined : this.#prune(type);
     if (handed?.kind !== "Function") return undefined;
     const world = this.#prune(colourAt(handed, "world") ?? PURE);
     const fail = this.#prune(colourAt(handed, "fail") ?? PURE);
     if (world.kind !== "Effect" || fail.kind !== "Effect" || Colour.isBottom(fail)) return undefined;
-    const pool = ["x", "y", "z", "w", "v", "u"].filter((each) => each !== named.text);
-    if (handed.parameters.length > pool.length) return undefined;
-    const names = pool.slice(0, handed.parameters.length).join(", ");
-    const wrapped = `(${names}) => assume ${written}${Colour.isBottom(world) ? "^" : "!"}(${names})`;
+    const calling = this.#callingByName(argument, handed.parameters.length);
+    if (calling === undefined) return undefined;
+    const wrapped = `(${calling.names}) => assume ${calling.written}${Colour.isBottom(world) ? "^" : "!"}(${calling.names})`;
     return { message: `assume it cannot fail here: \`${wrapped}\``, edits: [{ span: argument.span, replacement: wrapped }] };
+  }
+
+  /**
+   * A function handed by name, as a lambda's body would call it: its name as
+   * written, so a qualified name keeps its qualifier, and `arity` parameter
+   * names that are not that name. `undefined` for any other argument, or one
+   * outside this module's text.
+   */
+  #callingByName(
+    argument: Resolved.Expr,
+    arity: number,
+  ): { readonly written: string; readonly names: string } | undefined {
+    const named = ungrouped(argument);
+    const source = this.#sourceFile();
+    if (named.kind !== "Name" || source === undefined || Number(named.span.fileId) !== this.#fileId) return undefined;
+    const written = source.text.slice(named.span.start.offset, named.span.end.offset);
+    const pool = ["x", "y", "z", "w", "v", "u"].filter((each) => each !== named.text);
+    if (arity > pool.length) return undefined;
+    return { written, names: pool.slice(0, arity).join(", ") };
   }
 
   /**
@@ -31907,6 +31920,12 @@ class Checker {
   /** How deep inside a type the current unification is, 0 at a seat's whole type (#1357). */
   #unifyNesting = 0;
 
+  /**
+   * The two function types a seat's whole type meets, while their results
+   * meet (Collections Part 5 §3.6): the facts `#unconvertedResult` reads.
+   */
+  #handedResult: { readonly left: FunctionMono; readonly right: FunctionMono } | undefined = undefined;
+
   #unify(
     left: Mono,
     right: Mono,
@@ -32118,7 +32137,15 @@ class Checker {
         this.#parameterParity = !this.#parameterParity;
         this.#parameterDepth -= 1;
       }
-      if (unifyChild(actualLeft.result, actualRight.result)) return;
+      // At a seat's whole type, the results meet as the result of a function
+      // value handed there, which a lambda calling it would adapt (§3.6).
+      const enclosingResult = this.#handedResult;
+      this.#handedResult = this.#unifyNesting === 0 ? { left: actualLeft, right: actualRight } : undefined;
+      try {
+        if (unifyChild(actualLeft.result, actualRight.result)) return;
+      } finally {
+        this.#handedResult = enclosingResult;
+      }
       // A merge makes one value of two lambdas: either may be what runs.
       const leftLambdas = this.#lambdasOf.get(actualLeft);
       const rightLambdas = this.#lambdasOf.get(actualRight);
@@ -32268,15 +32295,18 @@ class Checker {
       return;
     }
 
+    const replaced = message?.() ??
+      this.#postFinalisationRedirect(actualLeft, actualRight) ??
+      this.#unadaptedSequence(actualLeft, actualRight);
+    const unconverted = replaced === undefined ? this.#unconvertedResult(actualLeft, actualRight) : undefined;
     this.#diagnostics.add({
       severity: "error",
-      message: message?.() ??
-        this.#postFinalisationRedirect(actualLeft, actualRight) ??
-        this.#unadaptedSequence(actualLeft, actualRight) ??
+      message: replaced ?? unconverted?.message ??
         `type mismatch: expected ${this.#display(actualLeft)}, found ` +
           this.#display(actualRight),
       primary: span,
       ...this.#numberDefaultLabels(actualLeft, actualRight),
+      ...(unconverted === undefined ? {} : { fixes: [unconverted.fix] }),
     });
   }
 
@@ -33715,6 +33745,84 @@ class Checker {
     return this.#constraintsByIdentity.get(preRegisteredConstraintIdentity("Iterable"));
   }
 
+  /** The item a prelude iterable's `toSeq` gives, and its companion. */
+  #standardItem(type: Mono): { readonly element: Mono; readonly companion?: string } | undefined {
+    switch (type.kind) {
+      case "Vector":
+      case "Set":
+      case "JsSet":
+        return { element: type.element, companion: type.kind };
+      case "Array":
+        return { element: type.element };
+      case "Map":
+      case "JsMap":
+        return { element: { kind: "Tuple", elements: [type.key, type.value] }, companion: type.kind };
+      case "Range":
+        return { element: primitive("Int") };
+      default:
+        return undefined;
+    }
+  }
+
+  /** Whether an item and a sequence's element are the same type, or one is still open. */
+  #itemsAgree(left: Mono, right: Mono): boolean {
+    const a = this.#prune(left);
+    const b = this.#prune(right);
+    return a.kind === "Variable" && a.rigidName === undefined || b.kind === "Variable" && b.rigidName === undefined ||
+      this.#display(a) === this.#display(b);
+  }
+
+  /**
+   * The report where an existing function value, handed to a parameter whose
+   * function type returns a sequence, returns a prelude iterable that supplies
+   * that sequence's element (Collections Part 5 §3.6, §12). A function's
+   * result is not converted, but a lambda's body is a seat that adapts, so the
+   * report names the lambda that calls the value, and offers it as the fix.
+   * Read from the meeting this mismatch is part of — the argument and the two
+   * function types — so nothing is checked again. `undefined` for any other
+   * mismatch.
+   */
+  #unconvertedResult(
+    expected: Mono,
+    found: Mono,
+  ): { readonly message: string; readonly fix: Diagnostics.Fix } | undefined {
+    const meeting = this.#handedResult;
+    const handed = this.#handedArgument;
+    // The results of two function types met whole while an argument meets
+    // its parameter, which is that parameter's type and the value's, met
+    // directly: the argument's own parts are checked before it is handed.
+    if (
+      meeting === undefined || handed === undefined ||
+      this.#prune(meeting.left.result) !== expected || this.#prune(meeting.right.result) !== found
+    ) return undefined;
+    // Called bare in the lambda: a value that has effects or may fail would
+    // want a mark there, and its colour is for the seat to compare. A colour
+    // still open is the seat's to decide, as it is for the value itself.
+    const bare = (colour: Mono | undefined): boolean => {
+      if (colour === undefined) return true;
+      const point = this.#prune(colour);
+      return point.kind === "Variable" || point.kind === "Effect" && Colour.isBottom(point);
+    };
+    if (!bare(meeting.right.effect) || !bare(meeting.right.fail)) return undefined;
+    const element = this.#asSequence(expected);
+    const supplied = this.#standardItem(found);
+    if (element === undefined || supplied === undefined || !this.#itemsAgree(element, supplied.element)) {
+      return undefined;
+    }
+    // An existing function, by its name: a lambda around any other expression
+    // would evaluate it again at every call.
+    const calling = this.#callingByName(handed.argument, meeting.left.parameters.length);
+    if (calling === undefined) return undefined;
+    const lambda = `(${calling.names}) => ${calling.written}(${calling.names})`;
+    const shown = this.#display(found);
+    return {
+      message: `type mismatch: expected ${this.#display(expected)}, found ${shown}; \`${calling.written}\` returns ` +
+        `${article(shown)} \`${shown}\` here, and an existing function's result is not converted to a sequence, ` +
+        `but a lambda's body is (Collections Part 5 §3.6) — write \`${lambda}\``,
+      fix: { message: `write \`${lambda}\``, edits: [{ span: handed.argument.span, replacement: lambda }] },
+    };
+  }
+
   /**
    * The report where a sequence meets a prelude iterable at a seat whose
    * written type is not headed by `Seq` (Collections Part 5 §3.4, #1357):
@@ -33726,44 +33834,21 @@ class Checker {
     // Only at a seat's whole type, outside patterns: advice about a part of a
     // larger type, or about a pattern, names a conversion nobody can write.
     if (this.#unifyNesting > 0 || this.#patternChecks > 0) return undefined;
-    // The item a prelude iterable's `toSeq` gives, and its companion.
-    const item = (type: Mono): { readonly element: Mono; readonly companion?: string } | undefined => {
-      switch (type.kind) {
-        case "Vector":
-        case "Set":
-        case "JsSet":
-          return { element: type.element, companion: type.kind };
-        case "Array":
-          return { element: type.element };
-        case "Map":
-        case "JsMap":
-          return { element: { kind: "Tuple", elements: [type.key, type.value] }, companion: type.kind };
-        case "Range":
-          return { element: primitive("Int") };
-        default:
-          return undefined;
-      }
-    };
-    const agree = (left: Mono, right: Mono): boolean => {
-      const a = this.#prune(left);
-      const b = this.#prune(right);
-      return a.kind === "Variable" && a.rigidName === undefined || b.kind === "Variable" && b.rigidName === undefined ||
-        this.#display(a) === this.#display(b);
-    };
     const mismatch = `type mismatch: expected ${this.#display(expected)}, found ${this.#display(found)}`;
     const seqElement = this.#asSequence(expected);
-    const foundItem = item(found);
+    const foundItem = this.#standardItem(found);
     // The value checked is the one to convert: an iterable where a sequence is
     // expected takes `toSeq`; a sequence where an iterable is expected takes
     // that iterable's `fromSeq`.
-    if (seqElement !== undefined && foundItem !== undefined && agree(seqElement, foundItem.element)) {
+    if (seqElement !== undefined && foundItem !== undefined && this.#itemsAgree(seqElement, foundItem.element)) {
       return `${mismatch}; ${article(this.#display(found))} \`${this.#display(found)}\` becomes a sequence only at ` +
         "a seat that adapts it (Collections Part 5 §3.4), and this is not one — convert it with `Iterable.toSeq(…)`";
     }
     const foundElement = this.#asSequence(found);
-    const expectedItem = item(expected);
+    const expectedItem = this.#standardItem(expected);
     if (
-      foundElement !== undefined && expectedItem?.companion !== undefined && agree(foundElement, expectedItem.element)
+      foundElement !== undefined && expectedItem?.companion !== undefined &&
+      this.#itemsAgree(foundElement, expectedItem.element)
     ) {
       return `${mismatch}; a sequence becomes ${article(this.#display(expected))} \`${this.#display(expected)}\` only ` +
         `by conversion — convert it with \`${expectedItem.companion}.fromSeq(…)\``;

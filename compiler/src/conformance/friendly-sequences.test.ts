@@ -13,7 +13,7 @@
  */
 
 import { describe, expect, test } from "vitest";
-import { compileMain, runProject } from "../support/test-project.js";
+import { compileFiles, compileMain, runProject } from "../support/test-project.js";
 import * as Typed from "../syntax/typed/index.js";
 
 const fixtures = "module Main\n\n" +
@@ -531,6 +531,140 @@ describe("the rest of what never adapts, and what it costs", () => {
   test("the source is evaluated once, inside the one call", () => {
     expect(emitted("let mk(): Vector(String) = [\"a\"]\nlet joined = String.fromSeq(mk())\n"))
       .toContain("const joined = fromSeq(toSeq(mk()));");
+  });
+});
+
+describe("a function handed by name, refused for its result, names the lambda (Part 5 §3.6, §12)", () => {
+  const rows = "let rows: Seq(Vector(String)) = Vector.toSeq([words])\nlet identity(value: a): a = value\n";
+  const named = (name: string, found: string, lambda: string, expected = "Seq(a)"): string =>
+    `type mismatch: expected ${expected}, found ${found}; \`${name}\` returns a \`${found}\` here, and an ` +
+    "existing function's result is not converted to a sequence, but a lambda's body is (Collections Part 5 §3.6) " +
+    `— write \`${lambda}\``;
+  /** Each report, with the replacements its fixes write. */
+  const reports = (body: string) =>
+    compile(body).diagnostics.map(({ message, fixes }) => ({
+      message,
+      fixes: (fixes ?? []).map(({ edits }) => edits.map(({ replacement }) => replacement).join()),
+    }));
+
+  test("the report names the lambda, and offers it in the argument's place", () => {
+    expect(reports(rows + "let flat = Seq.flatMap(rows, identity)\n")).toEqual([{
+      message: named("identity", "Vector(String)", "(x) => identity(x)"),
+      fixes: ["(x) => identity(x)"],
+    }]);
+    const grouped = compile(rows + "let flat = Seq.flatMap(rows, (identity))\n").diagnostics;
+    expect(grouped.map(({ message }) => message)).toEqual([named("identity", "Vector(String)", "(x) => identity(x)")]);
+    const edit = grouped[0]!.fixes![0]!.edits[0]!;
+    expect(fixtures.length + rows.length + "let flat = Seq.flatMap(rows, ".length).toBe(edit.span.start.offset);
+    expect(edit.span.end.offset - edit.span.start.offset).toBe("(identity)".length);
+    // A constructor's argument, and a pipe's, are arguments too: the lambda takes the name's place.
+    const some = compile(
+      "let useOpt(o: Option((Vector(Int)) -> Seq(Int))): Int = 1\n" +
+        "let keep(v: Vector(Int)): Vector(Int) = v\nlet n = useOpt(Some(keep))\n",
+    ).diagnostics;
+    expect(some.map(({ message }) => message)).toEqual([named("keep", "Vector(Int)", "(x) => keep(x)", "Seq(Int)")]);
+    const place = some[0]!.fixes![0]!.edits[0]!.span;
+    expect(place.end.offset - place.start.offset).toBe("keep".length);
+    expect(refusals(rows + "let flat = rows |> Seq.flatMap(identity)\n"))
+      .toEqual([named("identity", "Vector(String)", "(x) => identity(x)")]);
+    // A lambda already bound is an existing function too (§3.6).
+    expect(refusals(rows + "let keep = (row: Vector(String)) => row\nlet flat = Seq.flatMap(rows, keep)\n"))
+      .toEqual([named("keep", "Vector(String)", "(x) => keep(x)")]);
+    expect(refusals(
+      "let all(f: (Int) -> Seq((String, Int))): Seq((String, Int)) = f(1)\n" +
+        "let pairs(n: Int): Map(String, Int) = Map.empty\nlet s = all(pairs)\n",
+    )).toEqual([named("pairs", "Map(String, Int)", "(x) => pairs(x)", "Seq((String, Int))")]);
+    expect(refusals("let all(f: (Int) -> Seq(Int)): Seq(Int) = f(1)\nlet upTo(n: Int): Range = 1..n\nlet s = all(upTo)\n"))
+      .toEqual([
+        "type mismatch: expected Seq(Int), found Range; `upTo` returns a `Range` here, and an existing function's " +
+        "result is not converted to a sequence, but a lambda's body is (Collections Part 5 §3.6) — write " +
+        "`(x) => upTo(x)`",
+      ]);
+  });
+
+  test("its parameters: one for each of the seat's, never the function's own name", () => {
+    const both = "let both(f: (Int, Int) -> Seq(Int)): Seq(Int) = f(1, 2)\n";
+    expect(refusals(both + "let pair(a: Int, b: Int): Vector(Int) = [a, b]\nlet s = both(pair)\n"))
+      .toEqual([named("pair", "Vector(Int)", "(x, y) => pair(x, y)", "Seq(Int)")]);
+    expect(refusals(both + "let y(a: Int, b: Int): Vector(Int) = [a, b]\nlet s = both(y)\n"))
+      .toEqual([named("y", "Vector(Int)", "(x, z) => y(x, z)", "Seq(Int)")]);
+    expect(refusals("let thunk(f: () -> Seq(Int)): Seq(Int) = f()\nlet mk(): Vector(Int) = [1]\nlet s = thunk(mk)\n"))
+      .toEqual([named("mk", "Vector(Int)", "() => mk()", "Seq(Int)")]);
+    const params = (count: number, prefix: string) => [...Array(count).keys()].map((at) => `${prefix}${at}`);
+    const wide = (count: number) =>
+      `let wide(f: (${params(count, "").map(() => "Int").join(", ")}) -> Seq(Int)): Seq(Int) = ` +
+      `f(${params(count, "").map(() => "1").join(", ")})\n` +
+      `let many(${params(count, "p").map((p) => `${p}: Int`).join(", ")}): Vector(Int) = [p0]\nlet s = wide(many)\n`;
+    expect(refusals(wide(6)))
+      .toEqual([named("many", "Vector(Int)", "(x, y, z, w, v, u) => many(x, y, z, w, v, u)", "Seq(Int)")]);
+    expect(refusals(wide(7))).toEqual(["type mismatch: expected Seq(Int), found Vector(Int)"]);
+  });
+
+  test("a qualified name keeps its qualifier", () => {
+    const compiled = compileFiles([
+      ["/main.hex", "module Main\n\nimport Other\n\n" +
+        "let rows: Seq(Vector(Int)) = Vector.toSeq([[1, 2], [3]])\nlet flat = Seq.flatMap(rows, Other.keep)\n"],
+      ["/other.hex", "module Other\n\nexport let keep(value: a): a = value\n"],
+    ]);
+    expect(compiled.diagnostics.map(({ message }) => message))
+      .toEqual([named("Other.keep", "Vector(Int)", "(x) => Other.keep(x)")]);
+  });
+
+  test("the lambda it names compiles, and flattens", async () => {
+    const run = await runProject([["/main.hex", fixtures + rows +
+      "export let flat: String = String.join(Vector.fromSeq(Seq.flatMap(rows, (x) => identity(x))), \",\")\n" +
+      "let both(f: (Int, Int) -> Seq(Int)): Seq(Int) = f(1, 2)\nlet y(a: Int, b: Int): Vector(Int) = [a, b]\n" +
+      "export let pair: Int = Seq.length(both((x, z) => y(x, z)))\n"]]);
+    expect(run["flat"]).toBe("a,b");
+    expect(run["pair"]).toBe(2);
+  });
+
+  test("only a function handed by name, refused for its result alone", () => {
+    const plain = (expected: string, found: string) => `type mismatch: expected ${expected}, found ${found}`;
+    // A call is not handed by name: a lambda around it would call it again.
+    expect(refusals(rows + "let pick(f) = f\nlet flat = Seq.flatMap(rows, pick(identity))\n"))
+      .toEqual([plain("Seq(a)", "Vector(String)")]);
+    // A part of an argument, not the argument: its seat is the part's.
+    expect(refusals(
+      "let usePair(p: ((Vector(Int)) -> Seq(Int), Int)): Int = p.item2\n" +
+        "let keep(v: Vector(Int)): Vector(Int) = v\nlet n = usePair((keep, 1))\n",
+    )).toEqual([plain("Seq(Int)", "Vector(Int)")]);
+    // Its items are not the sequence's element.
+    expect(refusals(
+      "let all(f: (Int) -> Seq(Int)): Seq(Int) = f(1)\nlet names(n: Int): Vector(String) = [\"a\"]\nlet s = all(names)\n",
+    )).toEqual([plain("Seq(Int)", "Vector(String)")]);
+    // Inside its result, nothing adapts, and no lambda's body would adapt it either.
+    expect(refusals(
+      "let all(f: (Int) -> (Int) -> Seq(Int)): Int = 1\n" +
+        "let curried(n: Int): (Int) -> Vector(Int) = (m) => [m]\nlet s = all(curried)\n",
+    )).toEqual([plain("Seq(Int)", "Vector(Int)")]);
+    expect(refusals(
+      "let all(f: (Int) -> Option(Seq(Int))): Option(Seq(Int)) = f(1)\n" +
+        "let some(n: Int): Option(Vector(Int)) = None\nlet s = all(some)\n",
+    )).toEqual([plain("Seq(Int)", "Vector(Int)")]);
+    // Not an argument: an annotation, and a record's field.
+    expect(refusals("let mk(): Vector(String) = [\"a\"]\nlet g: () -> Seq(String) = mk\n"))
+      .toEqual([plain("Seq(String)", "Vector(String)")]);
+    expect(refusals(
+      "record Box = {f: (Int) -> Seq(Int)}\nlet one(n: Int): Vector(Int) = [n]\nlet b = Box({f = one})\n",
+    )).toEqual([plain("Seq(Int)", "Vector(Int)")]);
+    // A `String` is a sequence of codepoint strings, not of its own kind.
+    expect(refusals(
+      "let all(f: (Int) -> Seq(String)): Seq(String) = f(1)\nlet text(n: Int): String = \"ab\"\nlet s = all(text)\n",
+    )).toEqual([plain("Seq(String)", "String")]);
+  });
+
+  test("not where the call would want a mark, and not in the dot spelling", () => {
+    const risky = reports(
+      rows + "exception Oops\n" +
+        "let risky(row: Vector(String)): Vector(String) = if Vector.length(row) > 5 then throw^(Oops) else row\n" +
+        "let flat = Seq.flatMap(rows, risky)\n",
+    );
+    expect(risky[0]).toEqual({ message: "type mismatch: expected Seq(a), found Vector(String)", fixes: [] });
+    expect(risky.length).toBe(2);
+    // The function's result decides the element before the receiver meets its seat.
+    expect(refusals(rows + "let flat = rows.flatMap(identity)\n"))
+      .toEqual(["type mismatch: expected Seq(a), found Vector(String)"]);
   });
 });
 
