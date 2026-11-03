@@ -65,7 +65,8 @@ Drafting order is not final reading order.
   through `Dec.fromFloat`/`fromFloatEven`, which round the binary value to
   required places. Ordinary inspection uses `show`; `unscaled` returns the stored BigInt.
   `same` compares both stored parts, including retained places, without changing
-  numerical equality, ordering, or hashing; it is not object identity.
+  numerical equality, ordering, or hashing; it is not object identity. It is
+  `Hash<Dec>`'s `same` member (chapter 13).
   Places parameters and the `places` accessor use `Int`; negative places are rejected.
   Rounded products use exact multiplication followed by `withPlaces` or `withPlacesEven`.
 - The specification is normative; the book is explanatory.
@@ -181,7 +182,9 @@ late pedagogy pass, not a commitment to the current order.
   generalization.
 - Establishes lambdas, n-ary arity, calls, annotations, declared type variables
   as rigid definition contracts, subject-first order, the `let`/`fun`
-  distinction, and recursion.
+  distinction, recursion, and memoised recursion through open recursion
+  (`Function.memoizeRecursive`, `Function.memoize`), forward-referencing
+  chapters 7, 13, 16 and 19 for tuples, `Hash`, `var` capture and `->`.
 - Prepares type inference, operators and pipes, patterns, constraints, and modules.
 
 ### Operators
@@ -852,6 +855,10 @@ late pedagogy pass, not a commitment to the current order.
   `Eq`; user-derived `Hash` requires a derived `Eq` and cannot be hand-written.
 - Deriving `Eq` generates required `equals`; `notEquals` is inherited from the
   constraint default. Automatic structural instances complete defaults the same way.
+- `Hash` has two required members, `hash` and `same`. Derived `same` compares part by
+  part with each part's `same`; it is finer than `==` exactly where something can tell
+  equal values apart (`0.0` and `-0.0`). It claims the name `same` in the honoring
+  module, and it is what memoisation uses for hits.
 - Structural tuples and records receive conditional structural capabilities
   automatically; nominal types opt in.
 - Prepares hashed collections while keeping detailed collection mechanics deferred.

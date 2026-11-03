@@ -379,7 +379,7 @@ The important organizing ideas are more useful than a catalogue of member functi
 | `Num`, `Signed`, `Frac`, `Integral` | numeric operations at different levels |
 | `FromBigInt` | exact construction from arbitrary integers, with `Signed` |
 | `Concat`, `Pow` | concatenation and exponentiation |
-| `Hash` | hashing consistent with equality for hashed collections |
+| `Hash` | hashing consistent with equality for hashed collections, and `same` |
 | `Iterable` | producing values for iteration |
 
 An operator or library function may introduce one of these obligations through

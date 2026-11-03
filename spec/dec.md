@@ -1,6 +1,6 @@
 # Hexagon Spec: `Dec`
 
-**Status:** Decided and implemented.
+**Status:** Decided and implemented. §8's `same` becomes `Hash<Dec>`'s member with `memoization.md` (decided 2026-11-03, implementation #1445).
 **Scope:** A fundamental prelude decimal type, exact arithmetic, explicit rounding,
 numerical comparison and hashing, retained decimal places, and display.
 **Companions:** `numeric-literals.md`, `constraints.md`,
@@ -444,9 +444,10 @@ example, rounding a `0.675` discount to two places before subtracting it from
 `Eq<Dec>` compares numerical values: `1.50 == 1.500` and `0.00 == 0` are true.
 `notEquals` is its negation. A difference in decimal places does not throw.
 
-`Dec.same(left: Dec, right: Dec): Bool` is a separate ordinary companion
-operation. It returns true exactly when both stored `unscaled` integers and both
-stored `places` counts are equal. It compares representation, not JavaScript
+`Dec.same(left: Dec, right: Dec): Bool` is `Hash<Dec>`'s `same` member
+(Collections Part 2 §2.2), reached qualified and by the dot as `hash` is. It
+returns true exactly when both stored `unscaled` integers and both stored
+`places` counts are equal. It compares representation, not JavaScript
 object identity: separately constructed values with the same two parts are the
 same. It does not normalize, round, or change either value.
 
@@ -457,9 +458,12 @@ same. It does not normalize, round, or change either value.
 0d.same(0.00d)                 // False
 ```
 
-This operation does not supply a constraint instance or operator. `equals`,
-`compare`, and `hash` remain numerical; map/set key equivalence and pattern
-matching are unchanged. Documentation comments must name the two compared parts.
+It is no operator, and `equals`, `compare` and `hash` remain numerical: map and
+set key equivalence and pattern matching are unchanged. Because `show` and
+`Dec.places` tell `1.0d` from `1.00d`, `same` is the test Collections Part 2
+§2.3's second law asks for, and a memoised function files `1.0d` and `1.00d`
+separately (`memoization.md` §3.2). Documentation comments must name the two
+compared parts.
 
 `Ord<Dec>` gives a total numerical order agreeing with `Eq`, comparing exactly
 across decimal places. It returns `Ordering.Equal` exactly for numerically equal

@@ -264,7 +264,7 @@ All compiler/runtime-provided (Part 2 §4.4 wording — specified normatively he
 | `Eq<Vector(a)>` | `Eq a` | size check, then elementwise `equals`, left to right. |
 | `Ord<Vector(a)>` | `Ord a` | **lexicographic**: first unequal element decides; a proper prefix is less (`[1,2] < [1,2,0] < [1,3]`). Rust/Haskell/OCaml-unanimous semantics; total given total `Ord a` (which Hexagon's always is — `Ord<Float>` is a total order, Constraints §7). Makes vectors sortable and future-`SortedMap`-keyable. |
 | `Show<Vector(a)>` | `Show a` | renders as the literal: `[1, 2, 3]`; `[]` for empty. **Literal-shaped display, not serialization**: the output is not guaranteed parseable — `Show<String>` is unquoted (Primitive Types §7), so element renderings can be ambiguous (`show(["a, b"])`). A debugging/diagnostics surface, like every `Show`. |
-| `Hash<Vector(a)>` | `Hash a` | order-dependent combine over element hashes; law-consistent with the elementwise `Eq` by construction; algorithm runtime-owned per Part 2 §3.2. |
+| `Hash<Vector(a)>` | `Hash a` | order-dependent combine over element hashes; law-consistent with the elementwise `Eq` by construction; algorithm runtime-owned per Part 2 §3.2. `same`: size check, then elementwise `same`, left to right (Part 2 §2.3). |
 
 Constraint propagation is the standard parameterized-instance shape (Constraints §4.3): `Eq<Vector(Vector(Int)))>` resolves through `Eq<Vector(a)> given Eq a` twice; unsatisfied element constraints surface as ordinary unsatisfied-constraint errors at the use site.
 

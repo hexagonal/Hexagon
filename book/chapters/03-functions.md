@@ -358,6 +358,49 @@ fun
     export itemCount(order: String): Int = walk(order, 0)
 ```
 
+### Remembering answers
+
+Some recursive functions ask for the same answer again and again. This `fib` computes
+`fib(n - 2)` once directly and again inside `fib(n - 1)`, all the way down, so its running
+time roughly doubles with each step of `n`:
+
+```hexagon
+fun fib(n: Int): Int =
+    if n <= 1 then n else fib(n - 1) + fib(n - 2)
+```
+
+The cure is to remember each answer the first time it is computed. You can't build that
+table yourself: a function that remembers needs a variable that outlives its calls, and a
+lambda cannot capture a `var` (chapter 16). So the prelude provides it. Write the function
+to take "itself" as its first parameter, and hand it to `Function.memoizeRecursive`:
+
+```hexagon
+let fibOpen(self: (Int) -> Int, n: Int): Int =
+    if n <= 1 then n else self(n - 1) + self(n - 2)
+
+let fib = Function.memoizeRecursive(fibOpen)
+```
+
+`fibOpen` calls `self` where the plain version called `fib`, and it is an ordinary `let`,
+since it never names itself. The `self` it is handed looks each argument up before
+computing, so `fib(90)` works out each answer once. A function that doesn't call itself
+needs no `self`: `Function.memoize(f)` remembers the answers of `f`.
+
+Three rules come with it:
+
+- The function you hand over must be pure and unable to fail: the plain `->` arrow of
+  chapter 19. A computation that may find no answer returns an `Option`, which is
+  remembered like any other answer.
+- The argument's type must honor `Hash` (chapter 13), as numbers and strings do. A
+  function of several arguments takes them as one tuple (chapter 7).
+- Remember once, with `let`. The table lives as long as the function that
+  `memoizeRecursive` returns, so `let fib = ...` keeps one table for the whole program. A
+  call to `Function.memoize` inside another function's body builds a new, empty table
+  every time that function runs.
+
+The one-liner `let fib = Function.memoize((n: Int) => ... fib(n - 1) ...)` is an error,
+because `let` is non-recursive, and its message hands you the `memoizeRecursive` rewrite.
+
 ## The JavaScript remains direct
 
 The distinction between ordinary and recursive bindings has a visible, unsurprising
@@ -406,6 +449,8 @@ where the block stood.
 - Declarations are read top-down: every binding is used after its declaration.
 - `fun` supports direct and mutual recursion; the `fun` block is the one scope where
   names are visible before their declarations, and each member exports individually.
+- `Function.memoizeRecursive` remembers a recursive function's answers: write the
+  function taking itself as a parameter, and memoise once, with `let`.
 
 We can now write useful transformations, callbacks, and recursive definitions. A later
 chapter will explain more fully what Hexagon has already been doing in these examples:
