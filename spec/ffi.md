@@ -49,7 +49,7 @@
 | **fresh per-value adapter** | per adapted value, created at each crossing; never identity-cached | Part 3 §2.1 |
 | **shallow conversion** | named conversions change only the collection they name; elements keep value and identity | Part 1 §5.1 |
 | **Hexagon-owned value vs. foreign collection** | `Hex.*` persistent values cross by identity; `Array`/`JsMap`/`JsSet` are captured copies of foreign storage | Part 1 §4.1 |
-| **`JsError` (foreign control) vs. `JsConversionError` (checked wrongness)** | foreign throws travel the one exception door; checked wrongness throws the tracked `JsConversionError` *(#1427)*; never mixed, told apart by constructor | Part 11 §1 (channel doctrine), Exceptions §6 (`JsError` itself) |
+| **`JsError` (foreign control) vs. `JsConversionError` (checked wrongness)** | foreign throws travel the one foreign door, `JsError`; checked wrongness throws the tracked `JsConversionError` *(#1427)*; never mixed, told apart by constructor | Part 11 §1 (channel doctrine), Exceptions §6 (`JsError` itself) |
 | **`.d.ts` face vs. runtime representation** | what TypeScript is told vs. what the value is; faces may be weaker (`Seq` → `Iterable`), never false | Part 1 §4.1; Part 7 §2 |
 
 ## 4. Surface ownership map
@@ -121,7 +121,7 @@ Assembled by phase and ownership; wordings and Rewrite-Rule remedies live with t
 
 **Foreign collections and brackets (compile + runtime):** `.length` habit → Part 2 §6.3; write-position brackets → Collections Part 1 §3.3 (Parts 2/10 inherit); `jsSet[x]` → Part 10 §5; absent key → `KeyFault`/`None` per Part 10 §4; out-of-bounds/`IndexFault`, slice behavior → Part 2 §6.3 (Collections Part 3 doctrine).
 
-**Checked decoding (runtime, defined results — not errors):** `Shape`/`Range`/`Cycle` reasons with paths → Part 11 §5–§6; enum `fromJsT` miss → `None`, Foreign Enums §5.2 (`Option` boundary recorded at §11.2 here); revoked-proxy asymmetry (`kind` total vs `toArray` → `JsError`) → Part 11 §3/§4.2.
+**Checked decoding (runtime; a defined checked failure, thrown as `JsConversionError` — not a contract violation):** `Shape`/`Range`/`Cycle` reasons with paths → Part 11 §5–§6; enum `fromJsT` miss → `None`, Foreign Enums §5.2 (`Option` boundary recorded at §11.2 here); revoked-proxy asymmetry (`kind` total vs `toArray` → `JsError`) → Part 11 §3/§4.2.
 
 **Deliberately not diagnosed (contract violations; unspecified observations):** numeric contract violations; foreign mutation racing a capture copy (unspecified for that acquisition alone, Part 1 §5.4); wrong-arity/ill-typed JS calls into exports; `extern let` reassignment; fabricated dictionaries/brands; resource-owning iterators fed to `Seq` — Part 1 §3.1 owns the doctrine; Parts 2/3/4/6/9/10 record the instances.
 
