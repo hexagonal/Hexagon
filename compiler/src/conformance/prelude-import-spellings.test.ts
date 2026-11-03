@@ -132,7 +132,7 @@ describe("a real holder of the name keeps the alias", () => {
 
   test("`Option.map` beside `Result.map` stays split, one plain and one aliased", async () => {
     const source = "let o: Option(Int) = Some(1)\n" +
-      "let r: Result(Int, String) = Ok(2)\n" +
+      "let r: Result(Int) = Ok(2)\n" +
       "export let p: Int = Option.defaultValue(Option.map(o, (x: Int) => x + 1), 0)\n" +
       "export let q: Int = Result.defaultValue(Result.map(r, (x: Int) => x * 10), 0)\n";
     const javascript = emittedMain(source);
@@ -150,7 +150,7 @@ describe("a real holder of the name keeps the alias", () => {
     // emitted modules one text. Each module names `map` or `length` from two
     // prelude modules, so one of each pair is a real contestant and takes the
     // probe — the later one by first use, as the hand-written module has it.
-    const options = "let o: Option(Int) = Some(1)\nlet r: Result(Int, String) = Ok(2)\n";
+    const options = "let o: Option(Int) = Some(1)\nlet r: Result(Int) = Ok(2)\n";
     const lengths = "let v: Vector(Int) = [1, 2]\nlet t: String = \"abc\"\n";
     const pairs: readonly {
       readonly name: string;

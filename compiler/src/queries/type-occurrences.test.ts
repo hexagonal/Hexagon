@@ -51,10 +51,11 @@ describe("collectTypeOccurrences", () => {
     expect(at("age", text.lastIndexOf("age"))?.displayedType).toBe("Int");
     // Dot-call syntax supplies the first argument during elaboration, but the
     // operation identifier still denotes the declaration and therefore keeps
-    // the declaration's complete scheme in hover.
-    expect(at("map", text.indexOf("map"))?.displayedType).toBe(
-      "(Seq(a), a -> b) -> Seq(b)",
-    );
+    // the declaration's complete scheme in hover. Found by its span: a dot
+    // call to a prelude function that is not its name's first exporter (`Seq`
+    // comes after `Result` since #1427) is named by its import alias (#1453).
+    const dotted = occurrences.find(({ span }) => span.start.offset === HEADER.length + text.indexOf("map"));
+    expect(dotted?.displayedType).toBe("(Seq(a), a -> b) -> Seq(b)");
     const qualifiedRound = at("roundAway", text.indexOf("roundAway"));
     const dottedRound = at("roundAway", text.lastIndexOf("roundAway"));
     expect(qualifiedRound?.displayedType).toBe("Float -> Int");

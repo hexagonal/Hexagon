@@ -35,11 +35,13 @@ import { compileFiles, projectDiagnostics, runMain } from "../support/test-proje
  * a test that walked it would pin one.
  */
 const PROGRAM = "export let kindOf(v: JsValue): JsKind = JsValue.kind(v)\n" +
-  "export let asInt(v: JsValue): Result(Int, JsConversionError) = JsValue.toInt(v)\n" +
-  "export let asFloat(v: JsValue): Result(Float, JsConversionError) = JsValue.toFloat(v)\n" +
-  "export let asBigInt(v: JsValue): Result(BigInt, JsConversionError) = JsValue.toBigInt(v)\n" +
-  "export let asBool(v: JsValue): Result(Bool, JsConversionError) = JsValue.toBool(v)\n" +
-  "export let asString(v: JsValue): Result(String, JsConversionError) = JsValue.toString(v)\n" +
+  "// Each decoder throws a `JsConversionError` (#1427); `attempt` keeps its\n" +
+  "// outcome as a `Result`, which is what the JavaScript side reads.\n" +
+  "export let asInt(v: JsValue): Result(Int) = attempt JsValue.toInt^(v)\n" +
+  "export let asFloat(v: JsValue): Result(Float) = attempt JsValue.toFloat^(v)\n" +
+  "export let asBigInt(v: JsValue): Result(BigInt) = attempt JsValue.toBigInt^(v)\n" +
+  "export let asBool(v: JsValue): Result(Bool) = attempt JsValue.toBool^(v)\n" +
+  "export let asString(v: JsValue): Result(String) = attempt JsValue.toString^(v)\n" +
   "\n" +
   "// The two projections of a failure a caller can make without naming a\n" +
   "// representation: which reason, and how long the path is.\n" +
@@ -50,13 +52,21 @@ const PROGRAM = "export let kindOf(v: JsValue): JsKind = JsValue.kind(v)\n" +
   "    JsConversionReason.Range => \"Range\"\n" +
   "    JsConversionReason.Cycle(_) => \"Cycle\"\n" +
   "\n" +
-  "export let failure(result: Result(a, JsConversionError)): String = match result\n" +
-  "    Ok(_) => \"Ok\"\n" +
-  "    Err(e) => reasonOf(e.reason)\n" +
+  "export let failure(result: Result(a)): String =\n" +
+  "    try\n" +
+  "        ignore(result.orThrow^())\n" +
+  "        \"Ok\"\n" +
+  "    catch\n" +
+  "        JsConversionError(reason, _, _) => reasonOf(reason)\n" +
+  "        e => \"other \" ++ show(e)\n" +
   "\n" +
-  "export let pathLength(result: Result(a, JsConversionError)): Int = match result\n" +
-  "    Ok(_) => -1\n" +
-  "    Err(e) => Vector.length(e.path)\n";
+  "export let pathLength(result: Result(a)): Int =\n" +
+  "    try\n" +
+  "        ignore(result.orThrow^())\n" +
+  "        -1\n" +
+  "    catch\n" +
+  "        JsConversionError(_, path, _) => Vector.length(path)\n" +
+  "        _ => -2\n";
 
 type Decoder = "asInt" | "asFloat" | "asBigInt" | "asBool" | "asString";
 
@@ -380,11 +390,11 @@ describe("the scalar decoders are strict and non-coercing (§4.1)", () => {
   });
 
   /** The decoders reach through the dot as well, at the same companion. */
-  test("`v.toInt()` is `JsValue.toInt(v)`", async () => {
-    const main = await runMain("module Main\n\n" + "export let dotted(v: JsValue): Result(Int, JsConversionError) = v.toInt()\n" +
-        "export let ok(r: Result(Int, JsConversionError)): Bool = match r\n" +
-        "    Ok(_) => True\n" +
-        "    Err(_) => False\n",
+  test("`v.toInt?()` reads `JsValue.toInt` through the dot", async () => {
+    const main = await runMain("module Main\n\n" + "export let dotted(v: JsValue): Option(Int) = v.toInt?()\n" +
+        "export let ok(r: Option(Int)): Bool = match r\n" +
+        "    Some(_) => True\n" +
+        "    None => False\n",
     );
     const dotted = main["dotted"] as (v: unknown) => unknown;
     const ok = main["ok"] as (r: unknown) => boolean;
@@ -393,33 +403,38 @@ describe("the scalar decoders are strict and non-coercing (§4.1)", () => {
   });
 });
 
-describe("the failure type is ordinary data (§5.1)", () => {
+describe("the failure is a tracked exception (§5.1)", () => {
   /**
-   * §5.1: "**It is ordinary data** — a record over unions, carried in `Err`
-   * like any other value. The checked-failure path allocates no `Error`,
-   * captures no stack, and carries no brand." So it is *not* throwable, which is
-   * the observable half of the rule: a caller who wants to abort matches and
-   * throws an exception of its own choosing, at its own site.
+   * §5.1 (#1427): `JsConversionError` is a tracked exception, so every decoder
+   * call wears `^` or is read, and a bare call is refused like any call that
+   * may fail.
    */
-  test("a `JsConversionError` is not an exception and cannot be thrown", () => {
-    expect(projectDiagnostics("module Main\n\n" + "export let abort(v: JsValue): Int = match JsValue.toInt(v)\n" +
-        "    Ok(n) => n\n" +
-        "    Err(e) => throw^(e)\n",
-    )[0]).toContain("Exn");
+  test("a decoder call wears `^`, or is read with `?`", () => {
+    expect(projectDiagnostics("module Main\n\n" + "export let bare(v: JsValue): Int = JsValue.toInt(v)\n")[0])
+      .toContain("wants `^`");
+    expect(projectDiagnostics("module Main\n\n" +
+      "export let marked(v: JsValue): Int = JsValue.toInt^(v)\n" +
+      "export let read(v: JsValue): Option(Int) = JsValue.toInt?(v)\n" +
+      "export let kept(v: JsValue): Result(Int) = attempt JsValue.toInt^(v)\n" +
+      "export let assumed(v: JsValue): Int = assume JsValue.toInt^(v)\n",
+    )).toEqual([]);
   });
 
-  /** And the value itself carries no `Error` machinery at run time. */
-  test("the failure value has no stack, no name, and no brand", async () => {
-    const main = await runMain("module Main\n\n" + "export let fail(v: JsValue): Result(Int, JsConversionError) = JsValue.toInt(v)\n",
+  /** At run time it is a branded `Error`, its slots its payload, its message one line. */
+  test("the failure is an `Error` with its three slots", async () => {
+    const main = await runMain("module Main\n\n" + "export let fail(v: JsValue): Result(Int) = attempt JsValue.toInt^(v)\n" +
+      "export let shown(v: JsValue): String = match attempt JsValue.toInt^(v)\n" +
+      "    Ok(_) => \"ok\"\n" +
+      "    Err(e) => show(e)\n",
     );
     const failure = (main["fail"] as (v: unknown) => { tag: string; error: unknown })("x");
     expect(failure.tag).toBe("Err");
-    expect(failure.error).not.toBeInstanceOf(Error);
-    const error = failure.error as Record<string, unknown>;
-    expect(error["stack"]).toBeUndefined();
-    expect(error["name"]).toBeUndefined();
-    expect(error["$hex"]).toBeUndefined();
-    expect(Object.keys(error).sort()).toEqual(["path", "reason"]);
+    expect(failure.error).toBeInstanceOf(Error);
+    const error = failure.error as Error & Record<string, unknown>;
+    expect(error.name).toBe("JsConversionError");
+    expect(error["$hex"]).toBe("Hex.JsValue");
+    expect(error.message).toBe("not an Int");
+    expect((main["shown"] as (v: unknown) => string)(1.5)).toBe("JsConversionError: not a whole number in Int's range");
   });
 
   /**
@@ -445,8 +460,8 @@ describe("the failure type is ordinary data (§5.1)", () => {
         "    JsConversionReason.Range,\n" +
         "    JsConversionReason.Cycle([JsPathSegment.Index(1)]),\n" +
         "]\n" +
-        "export let error: JsConversionError =\n" +
-        "    JsValue.JsConversionError({ reason = JsConversionReason.Shape, path = [] })\n",
+        "export let error: Exn =\n" +
+        "    JsConversionError(JsConversionReason.Shape, [], \"not an Int\")\n",
     )).toEqual([]);
   });
 });
@@ -459,11 +474,11 @@ describe("the companion is `stdlib/JsValue.hex` (Method Syntax §4.1)", () => {
    */
   test("the qualified surface is the section's, and nothing else", () => {
     expect(projectDiagnostics("module Main\n\n" + "export let a(v: JsValue): JsKind = JsValue.kind(v)\n" +
-        "export let b(v: JsValue): Result(Int, JsConversionError) = JsValue.toInt(v)\n" +
-        "export let c(v: JsValue): Result(Float, JsConversionError) = JsValue.toFloat(v)\n" +
-        "export let d(v: JsValue): Result(BigInt, JsConversionError) = JsValue.toBigInt(v)\n" +
-        "export let e(v: JsValue): Result(Bool, JsConversionError) = JsValue.toBool(v)\n" +
-        "export let f(v: JsValue): Result(String, JsConversionError) = JsValue.toString(v)\n",
+        "export let b(v: JsValue): Int = JsValue.toInt^(v)\n" +
+        "export let c(v: JsValue): Float = JsValue.toFloat^(v)\n" +
+        "export let d(v: JsValue): BigInt = JsValue.toBigInt^(v)\n" +
+        "export let e(v: JsValue): Bool = JsValue.toBool^(v)\n" +
+        "export let f(v: JsValue): String = JsValue.toString^(v)\n",
     )).toEqual([]);
   });
 
@@ -474,8 +489,8 @@ describe("the companion is `stdlib/JsValue.hex` (Method Syntax §4.1)", () => {
    * decoder that quietly left would be caught in the file that owns the list.
    */
   test("`toArray` completes the surface", () => {
-    expect(projectDiagnostics("module Main\n\n" + "export let a(v: JsValue): Result(Array(JsValue), JsConversionError) =\n" +
-        "    JsValue.toArray(v)\n",
+    expect(projectDiagnostics("module Main\n\n" + "export let a(v: JsValue): Array(JsValue) =\n" +
+        "    JsValue.toArray^(v)\n",
     )).toEqual([]);
   });
 
@@ -569,8 +584,8 @@ describe("the bare namespace this slice narrows (Modules §5.5)", () => {
         "export let b_(b: BigInt): Option(Int) = b.toInt()\n" +
         "export let c(b: BigInt): Float = BigInt.toFloat(b)\n" +
         "export let d(b: BigInt): Float = b.toFloat()\n" +
-        "export let e(v: JsValue): Result(Int, JsConversionError) = JsValue.toInt(v)\n" +
-        "export let f(v: JsValue): Result(Float, JsConversionError) = v.toFloat()\n",
+        "export let e(v: JsValue): Int = JsValue.toInt^(v)\n" +
+        "export let f(v: JsValue): Float = v.toFloat^()\n",
     )).toEqual([]);
   });
 
@@ -580,7 +595,7 @@ describe("the bare namespace this slice narrows (Modules §5.5)", () => {
         "export let dotted: Option(Int) = 5n.toInt()\n" +
         "export let widened: Float = BigInt.toFloat(5n)\n" +
         "export let dottedFloat: Float = 5n.toFloat()\n" +
-        "export let foreign(v: JsValue): Result(Int, JsConversionError) = JsValue.toInt(v)\n",
+        "export let foreign(v: JsValue): Result(Int) = attempt JsValue.toInt^(v)\n",
     );
     expect(main["qualified"]).toEqual({ tag: "Some", value: 5 });
     expect(main["dotted"]).toEqual({ tag: "Some", value: 5 });

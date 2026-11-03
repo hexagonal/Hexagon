@@ -185,7 +185,8 @@ describe("the import surface", () => {
     expect(emittedPaths(files)).toEqual([
       "/Hex/Num.hex", "/Hex/Pow.hex", "/Hex/Ordering.hex", "/Hex/Ord.hex", "/Hex/Sign.hex",
       "/Hex/Integral.hex", "/Hex/Int.hex", "/Hex/Nat.hex", "/Hex/Float.hex", "/Hex/BigInt.hex",
-      "/Hex/Seq.hex", "/Hex/Option.hex", "/Hex/Runtime/VectorTrie.hex", "/Hex/Vector.hex", "/main.hex",
+      "/Hex/Result.hex", "/Hex/Seq.hex", "/Hex/Option.hex", "/Hex/Runtime/VectorTrie.hex", "/Hex/Vector.hex",
+      "/main.hex",
     ]);
     const javascript = emitted(files, "/main.hex");
     expect(javascript).toContain(

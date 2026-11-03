@@ -25,7 +25,7 @@ import {
  *
  * The companion suites (`vector-prelude-companion`, `float-companion`,
  * `js-kind-qualification`, …) each pin their own module's surface. This one pins
- * the **rule**: the set is exactly twenty-five names and is closed, each channel
+ * the **rule**: the set is exactly twenty-six names and is closed, each channel
  * admits what it says it admits and nothing beside, and the refusal has one
  * shape across all three channels. The set pin is written against the *compiled
  * prelude* rather than a transcription, so drift in either direction — a name
@@ -62,8 +62,9 @@ function moduleNames(source: string): readonly string[] {
  * design ruling argued against §5.5, never an edit.
  */
 const BARE_SET = [
-  // The sixteen throwable constructors — fourteen faults and the exceptions
-  // `JsError` and `NumberFormatError` — a category, not a list (§5.5).
+  // The seventeen throwable constructors — fourteen faults and the exceptions
+  // `JsError`, `NumberFormatError` and `JsConversionError` — a category, not a
+  // list (§5.5).
   "AssumptionFault",
   "DecRangeFault",
   "DecimalPlacesOverflowFault",
@@ -72,6 +73,7 @@ const BARE_SET = [
   "FloatRangeFault",
   "IndexFault",
   "IntRangeFault",
+  "JsConversionError",
   "JsError",
   "KeyFault",
   "NegativeExponentFault",
@@ -92,13 +94,13 @@ const BARE_SET = [
   "show",
 ].sort();
 
-describe("the bare set is exactly twenty-five names, and closed", () => {
+describe("the bare set is exactly twenty-six names, and closed", () => {
   test("the prelude layer binds the set and nothing else", () => {
     expect(bareNames()).toEqual(BARE_SET);
   });
 
-  test("twenty-four of the section's twenty-five are in the layer; `throw` is the other", () => {
-    expect(BARE_SET.length).toBe(24);
+  test("twenty-five of the section's twenty-six are in the layer; `throw` is the other", () => {
+    expect(BARE_SET.length).toBe(25);
   });
 
   /**
@@ -191,8 +193,8 @@ describe("the function channel: none, and `ignore`", () => {
   test("a call's refusal names the dot form and every exporter, in the program's words", () => {
     expect(projectDiagnostics("module Main\n\n" + "export let f(things: Seq(Int), g: Int -> Int): Seq(Int) = map(things, g)\n",
     )).toEqual([
-      "no bare `map`; write `things.map(g)`, `Seq.map(things, g)`, " +
-      "`Option.map(things, g)`, `Result.map(things, g)`, `Vector.map(things, g)`, " +
+      "no bare `map`; write `things.map(g)`, `Result.map(things, g)`, " +
+      "`Seq.map(things, g)`, `Option.map(things, g)`, `Vector.map(things, g)`, " +
       "`Map.map(things, g)`, `Set.map(things, g)`, or `Stream.map(things, g)`",
     ]);
   });
@@ -501,13 +503,13 @@ describe("the function channel: none, and `ignore`", () => {
   test.each([
     ["a stage with an argument",
       "export let s(xs: Seq(Int), f: Int -> Int): Seq(Int) = xs |> map(f)\n",
-      ["no bare `map`; write `Seq.map`, `Option.map`, `Result.map`, `Vector.map`, " +
+      ["no bare `map`; write `Result.map`, `Seq.map`, `Option.map`, `Vector.map`, " +
         "`Map.map`, `Set.map`, or `Stream.map`"]],
     ["a stage at a literal", "export let n: Int = 2 |> pow(10)\n",
       ["no bare `pow`; write `Pow.pow`"]],
     ["two stages",
       "export let n(xs: Seq(Int), f: Int -> Int): Int = xs |> map(f) |> length()\n",
-      ["no bare `map`; write `Seq.map`, `Option.map`, `Result.map`, `Vector.map`, " +
+      ["no bare `map`; write `Result.map`, `Seq.map`, `Option.map`, `Vector.map`, " +
         "`Map.map`, `Set.map`, or `Stream.map`",
         "no bare `length`; write `Seq.length`, `Vector.length`, `String.length`, or `Array.length`"]],
     ["a bare stage", "export let n(xs: Seq(Int)): Int = xs |> length\n",
@@ -568,8 +570,8 @@ describe("§5.5 and §10's exemplars, character for character", () => {
   test.each([
     ["§5.5, §10: a multi-homed dot-callable function",
       "export let f(things: Seq(Int), f: Int -> Int): Seq(Int) = map(things, f)\n",
-      "no bare `map`; write `things.map(f)`, `Seq.map(things, f)`, " +
-      "`Option.map(things, f)`, `Result.map(things, f)`, `Vector.map(things, f)`, " +
+      "no bare `map`; write `things.map(f)`, `Result.map(things, f)`, " +
+      "`Seq.map(things, f)`, `Option.map(things, f)`, `Vector.map(things, f)`, " +
       "`Map.map(things, f)`, `Set.map(things, f)`, or `Stream.map(things, f)`"],
     ["§10: single-homed and dot-callable",
       "export let b(reading: Float): Bool = isNan(reading)\n",
@@ -604,17 +606,17 @@ describe("§5.5 and §10's exemplars, character for character", () => {
 
 describe("the constructor channel: the open unions only", () => {
   test("the six open constructors are bare in an expression and a pattern", async () => {
-    expect(projectDiagnostics("module Main\n\n" + "export let a: Option(Int) = Some(1)\n" +
+    expect(projectDiagnostics("module Main\n\n" + "exception Oops\n" + "export let a: Option(Int) = Some(1)\n" +
       "export let b: Option(Int) = None\n" +
-      "export let c: Result(Int, String) = Ok(1)\n" +
-      "export let d: Result(Int, String) = Err(\"e\")\n" +
+      "export let c: Result(Int) = Ok(1)\n" +
+      "export let d: Result(Int) = Err(Oops)\n" +
       "export let e: Bool = True\n" +
       "export let f: Bool = False\n" +
       "export fun g(o: Option(Int)): Int =\n" +
       "    match o\n" +
       "        Some(v) => v\n" +
       "        None => 0\n" +
-      "export fun h(r: Result(Int, String), flag: Bool): Int =\n" +
+      "export fun h(r: Result(Int), flag: Bool): Int =\n" +
       "    match (r, flag)\n" +
       "        (Ok(v), True) => v\n" +
       "        (Ok(_), False) => 0\n" +

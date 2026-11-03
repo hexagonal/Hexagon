@@ -158,13 +158,13 @@ describe("Exceptions §8.2: `attempt` gives a failure as data", () => {
     const source = "let a() = attempt parse^(\"1\")\nlet b(f: () ->! Int) = attempt f!()\n" +
       "let c() =\n    attempt\n        let n = parse^(\"1\")\n        n + 1\n";
     expect(messages(source)).toEqual([]);
-    expect(face(source, "a")).toBe("() -> Result(Int, Exn)");
-    expect(face(source, "b")).toBe("(() ->! Int) >~> Result(Int, Exn)");
-    expect(face(source, "c")).toBe("() -> Result(Int, Exn)");
+    expect(face(source, "a")).toBe("() -> Result(Int)");
+    expect(face(source, "b")).toBe("(() ->! Int) >~> Result(Int)");
+    expect(face(source, "c")).toBe("() -> Result(Int)");
   });
 
   test("it eats to the right, and stands after a `match` head", () => {
-    const source = "let a(): Result(Int, Exn) = attempt parse^(\"1\") |> ((n) => n + 1)\n" +
+    const source = "let a(): Result(Int) = attempt parse^(\"1\") |> ((n) => n + 1)\n" +
       "let b(): Int =\n    match attempt parse^(\"2\")\n        Ok(n) => n\n        Err(_) => 0\n";
     expect(messages(source)).toEqual([]);
   });
@@ -196,7 +196,7 @@ describe("Exceptions §8.2: `attempt` gives a failure as data", () => {
     const exports = await runMain(
       "module Main\n\nexception Oops\n" +
         "let risky(n: Int): Int = if n == 0 then throw^(Oops) else if n < 0 then throw(IndexFault(n, 0)) else n\n" +
-        "export let attempted(n: Int): Result(Int, Exn) = attempt risky^(n)\n",
+        "export let attempted(n: Int): Result(Int) = attempt risky^(n)\n",
     );
     const attempted = exports["attempted"] as (n: number) => { tag: string };
     expect(attempted(3)).toEqual({ tag: "Ok", value: 3 });
@@ -244,8 +244,8 @@ describe("Exceptions §8.3: `assume` says a failure cannot happen here", () => {
 describe("review r1 of 8c-ii: the form's added words, its reports, and the misspellings", () => {
   test("nothing the compiler wrote for a body form is a name the language server shows", () => {
     const whole = text(
-      "let a(): Result(Int, Exn) = attempt parse^(\"1\")\nlet b(): Int = assume parse^(\"2\")\n" +
-        "let c(): Result(Int, Exn) = Ok(1)\nlet fire = throw\n",
+      "let a(): Result(Int) = attempt parse^(\"1\")\nlet b(): Int = assume parse^(\"2\")\n" +
+        "let c(): Result(Int) = Ok(1)\nlet fire = throw\n",
     );
     const session = new AnalysisSession();
     session.setFile("/world.js", "");
@@ -269,10 +269,10 @@ describe("review r1 of 8c-ii: the form's added words, its reports, and the missp
   });
 
   test("a value the form's type does not fit is reported at the form", () => {
-    expect(reports("let g(): Int = attempt parse^(\"1\")\nlet h(): Result(Int, String) = attempt parse^(\"2\")\n"))
+    expect(reports("let g(): Int = attempt parse^(\"1\")\nlet h(): Result(String) = attempt parse^(\"2\")\n"))
       .toEqual([
-        ["attempt parse^(\"1\")", "type mismatch: expected Int, found Result(Int, a)"],
-        ["attempt parse^(\"2\")", "type mismatch: expected String, found Exn"],
+        ["attempt parse^(\"1\")", "type mismatch: expected Int, found Result(Int)"],
+        ["attempt parse^(\"2\")", "type mismatch: expected String, found Int"],
       ]);
   });
 

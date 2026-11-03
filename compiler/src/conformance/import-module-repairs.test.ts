@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import { compileFiles } from "../support/test-project.js";
+import { STDLIB_SOURCES } from "../stdlib-sources.js";
 import { type ProjectOptions, resolveSpecifier, specifierFor } from "../project.js";
 import { displayModuleName, type ImportRepair, moduleImportLine } from "../packages.js";
 import { check } from "../passes/checker/checker.js";
@@ -754,8 +755,9 @@ describe("a type of the spelling at a constraint seat (§5.1 rule 1's type branc
    */
   function ruleOne(
     files: readonly (readonly [string, string])[],
+    options: ProjectOptions = {},
   ): Diagnostics.Diagnostic {
-    const found = compileFiles(files).diagnostics.filter(({ message }) =>
+    const found = compileFiles(files, options).diagnostics.filter(({ message }) =>
       message.includes("is a type, not a module") ||
       message.includes("no module alias") ||
       message.includes("does not qualify through itself")
@@ -926,26 +928,29 @@ describe("a type of the spelling at a constraint seat (§5.1 rule 1's type branc
   });
 
   test("the third arm has an ordinary buffer: a prelude type with no companion", () => {
-    // The arm through `compileProject`, not at the pass. A bare `module Main`
-    // holds ten prelude type spellings, and `JsConversionError` is the one that
-    // binds **no module alias of its own spelling** — §5.5 seeds a companion
-    // for the other nine, `JsConversionReason` included, and not for it. So
-    // `JsConversionError.` passes rule 1's first test, finds a type, and
-    // reaches the arm with no qualifier to have read a home off: the arm's own
-    // condition, met by the prelude the language ships.
+    // The arm through `compileProject`, not at the pass: a prelude type that
+    // binds **no module alias of its own spelling**. Since #1427 the shipped
+    // prelude has none — `JsConversionError`, the last, became an exception,
+    // and every other prelude type is named by a member — so the specimen is
+    // `Probe`, a record appended to a trusted `Debug.hex`. `Probe.` passes rule
+    // 1's first test, finds a type, and reaches the arm with no qualifier to
+    // have read a home off: the arm's own condition.
     const text = "module Main\n\n" + "export record Box = {n: Int}\n" +
-      'honor JsConversionError.Describe<Box> =\n    describe(value) = "b"\n';
-    const report = ruleOne([["/main.hex", text]]);
+      'honor Probe.Describe<Box> =\n    describe(value) = "b"\n';
+    const report = ruleOne([
+      ["/main.hex", text],
+      ["/Debug.hex", `${STDLIB_SOURCES["Debug"]!}\nexport record Probe = { n: Int }\n`],
+    ], { trustedStandardLibraryModules: new Set(["Debug"]) });
     expect(report.message).toBe(
-      "`JsConversionError` is a type, not a module; import its home module to qualify through it",
+      "`Probe` is a type, not a module; import its home module to qualify through it",
     );
     // No line, and so no edit — only an inventory can say which module exports
     // the spelling, and that offer is the workspace tier's, which is what the
     // marker is for.
     expect(report.fixes).toBeUndefined();
-    expect(report.importModuleRepair).toEqual({ name: "JsConversionError", namespace: "type" });
+    expect(report.importModuleRepair).toEqual({ name: "Probe", namespace: "type" });
     expect(text.slice(report.primary.start.offset, report.primary.end.offset))
-      .toBe("JsConversionError");
+      .toBe("Probe");
   });
 
   test("a type in scope with no home reached names no import and carries no edit", () => {

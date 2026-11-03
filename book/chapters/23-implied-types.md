@@ -95,7 +95,7 @@ record ParsePort = {fallback: Int}
 
 honor Conversion<ParsePort> =
     type Input = String
-    type Output = Result(Int, String)
+    type Output = Option(Int)
 
     convert(parser, text) =
         parsePort(text, parser.fallback)
@@ -104,7 +104,7 @@ honor Conversion<ParsePort> =
 For this instance, `convert` has the effective type:
 
 ```text
-(ParsePort, String) -> Result(Int, String)
+(ParsePort, String) -> Option(Int)
 ```
 
 The type bindings are part of the instance's answer. Every implied type declared by

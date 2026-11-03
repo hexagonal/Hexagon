@@ -33,13 +33,15 @@ name does not express equality.
 Constructor, tuple, and record patterns may contain other patterns:
 
 ```hexagon
-match result
-    Ok((name, seats)) => "${name}: ${seats}"
-    Err({message}) => message
+union Booking = Booked(party: (String, Int)) | Refused(reason: {message: String})
+
+match booking
+    Booked((name, seats)) => "${name}: ${seats}"
+    Refused({message}) => message
 ```
 
-The `Ok` pattern opens a union constructor and then a tuple. The `Err` pattern opens a
-constructor and then a record. Nesting follows the data's shape from the outside in.
+The `Booked` pattern opens a union constructor and then a tuple. The `Refused` pattern
+opens a constructor and then a record. Nesting follows the data's shape from the outside in.
 
 Tuple patterns must match the tuple's arity. Record patterns are different: they are
 always open and mention only the fields they need.
@@ -201,12 +203,15 @@ An **or-pattern** tries its alternatives from left to right. If the alternatives
 names, every alternative must bind the same names at compatible types:
 
 ```hexagon
-match result
-    Ok(message) | Err(message) => message
+union Notice = Warning(message: String) | Failure(message: String) | Quiet
+
+match notice
+    Warning(message) | Failure(message) => message
+    Quiet => ""
 ```
 
-This is legal when both payloads are `String`. `Ok(value) | Err(problem)` is an error:
-the arm body would not have one dependable set of names.
+This is legal because both payloads are `String`. `Warning(value) | Failure(problem)` is
+an error: the arm body would not have one dependable set of names.
 
 The `|` echoes the union declaration: a union declares “one of these shapes,” while an
 or-pattern says “any of these shapes follows this arm.” It is pattern syntax, not the

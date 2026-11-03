@@ -43,3 +43,25 @@ export let orThrow(source: Option(a), failure: () -> Exn): a =
     match source
         Some(value) => value
         None => throw^(failure())
+
+(** `Ok` of the present value, or, for `None`, `Err` of the exception `failure`
+    builds. It throws nothing, so its calls are bare:
+    `name.toResult(() => MissingNameError)`. The exception is built only for
+    `None`, so its stack is captured where it is kept. *)
+export let toResult(source: Option(a), failure: () -> Exn): Result(a) =
+    match source
+        Some(value) => Ok(value)
+        None => Err(failure())
+
+(** Whether a value is present. It reads the constructor only, so it asks for no
+    `Eq` on the value, where `source == None` would. *)
+export let isSome(source: Option(a)): Bool =
+    match source
+        Some(_) => True
+        None => False
+
+(** Whether no value is present. *)
+export let isNone(source: Option(a)): Bool =
+    match source
+        Some(_) => False
+        None => True

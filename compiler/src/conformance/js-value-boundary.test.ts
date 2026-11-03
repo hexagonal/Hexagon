@@ -179,16 +179,20 @@ describe("the `.d.ts` face is `unknown`, never `any` (§2)", () => {
    * these three assertions are for, one per file, and why they read the same
    * tagged POJOs they always did.
    */
-  test("the conversion-error data face as ordinary record and union", async () => {
+  test("the conversion error's face: an exception over ordinary unions", async () => {
     const compiled = compileFiles([["/main.hex",
-      "module Main\n\n" + "export let e(x: JsConversionError): JsConversionError = x\n"]]);
+      "module Main\n\n" + "export let e(x: JsValue): Int = JsValue.toInt^(x)\n" +
+      "export let r(x: JsConversionReason): JsConversionReason = x\n"]]);
     expect(compiled.diagnostics).toEqual([]);
     const faceOf = (path: string): string =>
       compiled.modules.find(({ source }) => source.path === path)!.declarations.text;
 
+    // #1427: a tracked exception, so Exceptions §7.5's throwable face, its two
+    // data slots keeping the unions' ordinary faces.
     const value = faceOf("/Hex/JsValue.hex");
     expect(value).toContain(
-      "export type JsConversionError = { reason: JsConversionReason; path: Vector<JsPathSegment> };",
+      'export type JsConversionError = Error & { readonly $hex: "Hex.JsValue"; readonly name: "JsConversionError"; ' +
+        "readonly reason: JsConversionReason; readonly path: Vector<JsPathSegment>; readonly message: string };",
     );
 
     const reason = faceOf("/Hex/JsConversionReason.hex");
@@ -200,7 +204,7 @@ describe("the `.d.ts` face is `unknown`, never `any` (§2)", () => {
     expect(segment).toContain('{ tag: "Field"; name: string }');
     expect(segment).toContain('{ tag: "Index"; index: number }');
 
-    for (const text of [value, reason, segment]) {
+    for (const text of [reason, segment]) {
       expect(text).not.toContain("Error &");
       expect(text).not.toContain("$hex");
     }

@@ -97,6 +97,9 @@ describe("the module", () => {
       // it uses. Nothing before it names a `BigInt`, so the move costs the
       // three companions above it nothing.
       "BigInt",
+      // #1427: `Option.toResult` names `Result`, and `Result.hex` needs only
+      // `Option`'s data seat, so it sits just before `Seq.hex`.
+      "Result",
       "Seq",
       "Option",
       // #353 seats `Iterable`, now the thirteenth constraint declaration, and the
@@ -105,7 +108,6 @@ describe("the module", () => {
       // is why Collections Part 5 §4's rows have no source form.
       "Iterable",
       "Range",
-      "Result",
       "Vector",
       // #924's text surface consumes `Iterable.toSeq` and builds eager vectors,
       // so its source companion follows both declaring modules.
@@ -150,14 +152,14 @@ describe("the module", () => {
       // needs the module addressable under the union's name. Only one edge
       // among them is forced — `JsConversionReason.hex` names
       // `Vector(JsPathSegment)` — and `JsValue.hex` then sits after all three
-      // plus `Result.hex` and `Vector.hex`, which its decoders' answers name.
+      // plus `Vector.hex`, which the `JsConversionError` its decoders throw names.
       "JsKind",
       "JsPathSegment",
       "JsConversionReason",
       "JsValue",
       // #509: the `JsError` door closes the boundary block. Its seat is forced
       // twice — the payload slot and both accessors name `JsValue`, and the
-      // verdicts over the guarded reads name `Result` and `Option` — and it is a
+      // verdicts over the guarded reads name `Option` — and it is a
       // module of its own for `JsKind.hex`'s reason: FFI Part 11 §7 spells the
       // accessors `JsError.message` and `JsError.stack`, so the home has to be
       // addressable under that name. From here the two bare words it exports,
@@ -354,9 +356,9 @@ describe("membership drags nothing in", () => {
     // `Integral<Int>`'s members at `stdlib/Int.hex`, which in turn names
     // `Pow.hex`'s and `Integral.hex`'s exceptions, `Sign.hex` for Int's `Real`
     // instance, and `Option.hex`'s type for the checked family — a `.d.ts`
-    // edge, so `Option.hex` is written with `Seq.hex`, which its full
-    // implementation imports, though nothing here loads either (Modules
-    // §11.1). `Vector.hex` is written on those terms too since #1071 — the
+    // edge, so `Option.hex` is written with `Seq.hex` and `Result.hex`, which
+    // its full implementation imports (`toSeq`, `toResult`), though nothing here
+    // loads any of them (Modules §11.1). `Vector.hex` is written on those terms too since #1071 — the
     // exports' faces name `Vector`, its declaring companion's type — and what
     // must stay out is the load: the JavaScript imports nothing from it. What
     // `Vector.hex` imports is written with it: `Ordering.hex` and `Ord.hex` for
@@ -366,7 +368,8 @@ describe("membership drags nothing in", () => {
     expect(emittedPaths(files)).toEqual([
       "/Hex/Num.hex", "/Hex/Pow.hex", "/Hex/Ordering.hex", "/Hex/Ord.hex", "/Hex/Sign.hex",
       "/Hex/Integral.hex", "/Hex/Int.hex", "/Hex/Nat.hex", "/Hex/Float.hex", "/Hex/BigInt.hex",
-      "/Hex/Seq.hex", "/Hex/Option.hex", "/Hex/Runtime/VectorTrie.hex", "/Hex/Vector.hex", "/main.hex",
+      "/Hex/Result.hex", "/Hex/Seq.hex", "/Hex/Option.hex", "/Hex/Runtime/VectorTrie.hex", "/Hex/Vector.hex",
+      "/main.hex",
     ]);
   });
 
@@ -456,9 +459,9 @@ describe("two prelude members exporting one bare name", () => {
       "no bare `isEmpty`; write `b.isEmpty()`, `Vector.isEmpty(b)`, " +
       "`Map.isEmpty(b)`, or `Set.isEmpty(b)`",
       "no bare `map`; write `Seq.empty.map((x: Int): Int => x)`, " +
+      "`Result.map(Seq.empty, (x: Int): Int => x)`, " +
       "`Seq.map(Seq.empty, (x: Int): Int => x)`, " +
       "`Option.map(Seq.empty, (x: Int): Int => x)`, " +
-      "`Result.map(Seq.empty, (x: Int): Int => x)`, " +
       "`Vector.map(Seq.empty, (x: Int): Int => x)`, " +
       "`Map.map(Seq.empty, (x: Int): Int => x)`, " +
       "`Set.map(Seq.empty, (x: Int): Int => x)`, " +
@@ -514,11 +517,11 @@ describe("two prelude members exporting one bare name", () => {
    * one: what a stdlib module may write, a user module may write.
    *
    * The route the message names is computed from the members *visible here*, so
-   * the same source draws a one-home rewrite inside `Result.hex` (`Seq.hex`
+   * the same source draws a one-home rewrite inside `Range.hex` (`Seq.hex`
    * alone precedes it) and a four-home one in the consumer. One project, one
    * name, two sentences.
    *
-   * `Result.hex` is supplied and explicitly trusted as the registered member;
+   * `Range.hex` is supplied and explicitly trusted as the registered member;
    * its real source is extended rather than replaced, so this pins the rule and
    * not a transcription.
    */
@@ -526,11 +529,11 @@ describe("two prelude members exporting one bare name", () => {
     const compiled = compileFiles([
       ["/main.hex", "module Main\n\n" + "export let consumer: Vector(Int) = empty\n"],
       [
-        "/Result.hex",
-        `${STDLIB_SOURCES["Result"]!}\n` +
+        "/Range.hex",
+        `${STDLIB_SOURCES["Range"]!}\n` +
         "export let member: Seq(Int) = empty\n",
       ],
-    ], { trustedStandardLibraryModules: new Set(["Result"]) });
+    ], { trustedStandardLibraryModules: new Set(["Range"]) });
 
     expect(compiled.diagnostics.map(({ message }) => message)).toEqual([
       "no bare `empty`; write `Seq.empty`, `Vector.empty`, `Map.empty`, " +
@@ -544,11 +547,11 @@ describe("two prelude members exporting one bare name", () => {
     const compiled = compileFiles([
       ["/main.hex", "module Main\n\n" + "export let consumer: Vector(Int) = Vector.empty\n"],
       [
-        "/Result.hex",
-        `${STDLIB_SOURCES["Result"]!}\n` +
+        "/Range.hex",
+        `${STDLIB_SOURCES["Range"]!}\n` +
         "export let member: Seq(Int) = Seq.empty\n",
       ],
-    ], { trustedStandardLibraryModules: new Set(["Result"]) });
+    ], { trustedStandardLibraryModules: new Set(["Range"]) });
 
     expect(compiled.diagnostics.map(({ message }) => message)).toEqual([]);
   });
@@ -566,14 +569,14 @@ describe("two prelude members exporting one bare name", () => {
     const compiled = compileFiles([
       ["/main.hex", "module Main\n\n" + "export let e: Vector(Int) = empty\n"],
       [
-        "/Result.hex",
-        `${STDLIB_SOURCES["Result"]!}\n` +
+        "/Range.hex",
+        `${STDLIB_SOURCES["Range"]!}\n` +
         "export let empty: Int = 0\n",
       ],
-    ], { trustedStandardLibraryModules: new Set(["Result"]) });
+    ], { trustedStandardLibraryModules: new Set(["Range"]) });
 
     expect(compiled.diagnostics.map(({ message }) => message)).toEqual([
-      "no bare `empty`; write `Seq.empty`, `Result.empty`, `Vector.empty`, " +
+      "no bare `empty`; write `Seq.empty`, `Range.empty`, `Vector.empty`, " +
       "`Map.empty`, or `Set.empty`",
     ]);
   });

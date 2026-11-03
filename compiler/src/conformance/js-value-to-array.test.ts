@@ -35,8 +35,13 @@ import { typeScriptErrors } from "../support/typescript-check.js";
  * `js-value-decoding.test.ts`'s and are not restated.
  */
 
-const PROGRAM = "export let asArray(v: JsValue): Result(Array(JsValue), JsConversionError) =\n" +
-  "    JsValue.toArray(v)\n" +
+const PROGRAM = "// A `Shape` refusal kept as data, and a foreign throw left to travel: the\n" +
+  "// arm names `JsConversionError` alone, so a `JsError` passes it (#1427).\n" +
+  "export let asArray(v: JsValue): Result(Array(JsValue)) =\n" +
+  "    try\n" +
+  "        Ok(JsValue.toArray^(v))\n" +
+  "    catch\n" +
+  "        JsConversionError(_, _, _) as refusal => Err(refusal)\n" +
   "\n" +
   "export let kindOf(v: JsValue): JsKind = JsValue.kind(v)\n" +
   "\n" +
@@ -45,18 +50,18 @@ const PROGRAM = "export let asArray(v: JsValue): Result(Array(JsValue), JsConver
   "// what was thrown.\n" +
   "export let arrayOrThrown(v: JsValue): JsValue =\n" +
   "    try\n" +
-  "        match JsValue.toArray(v)\n" +
-  "            Ok(_) => JsValue.from(\"decoded\")\n" +
-  "            Err(_) => JsValue.from(\"refused\")\n" +
+  "        ignore(JsValue.toArray^(v))\n" +
+  "        JsValue.from(\"decoded\")\n" +
   "    catch\n" +
+  "        JsConversionError(_, _, _) => JsValue.from(\"refused\")\n" +
   "        JsError(e) => e\n" +
   "\n" +
   "// The captured array, held as a value: these take it itself, so a test can\n" +
   "// keep one and ask it again (FFI Part 2 section 6.2).\n" +
   "export let capturedLength(xs: Array(JsValue)): Int = Array.length(xs)\n" +
   "\n" +
-  "export let elementAsInt(xs: Array(JsValue), index: Int): Result(Int, JsConversionError) =\n" +
-  "    JsValue.toInt(xs[index])\n" +
+  "export let elementAsInt(xs: Array(JsValue), index: Int): Result(Int) =\n" +
+  "    attempt JsValue.toInt^(xs[index])\n" +
   "\n" +
   "// The two projections of a failure that name no representation, as in\n" +
   "// `js-value-decoding.test.ts`: which reason, and how long the path is.\n" +
@@ -65,13 +70,21 @@ const PROGRAM = "export let asArray(v: JsValue): Result(Array(JsValue), JsConver
   "    JsConversionReason.Range => \"Range\"\n" +
   "    JsConversionReason.Cycle(_) => \"Cycle\"\n" +
   "\n" +
-  "export let failure(result: Result(a, JsConversionError)): String = match result\n" +
-  "    Ok(_) => \"Ok\"\n" +
-  "    Err(e) => reasonOf(e.reason)\n" +
+  "export let failure(result: Result(a)): String =\n" +
+  "    try\n" +
+  "        ignore(result.orThrow^())\n" +
+  "        \"Ok\"\n" +
+  "    catch\n" +
+  "        JsConversionError(reason, _, _) => reasonOf(reason)\n" +
+  "        e => \"other \" ++ show(e)\n" +
   "\n" +
-  "export let pathLength(result: Result(a, JsConversionError)): Int = match result\n" +
-  "    Ok(_) => -1\n" +
-  "    Err(e) => Vector.length(e.path)\n";
+  "export let pathLength(result: Result(a)): Int =\n" +
+  "    try\n" +
+  "        ignore(result.orThrow^())\n" +
+  "        -1\n" +
+  "    catch\n" +
+  "        JsConversionError(_, path, _) => Vector.length(path)\n" +
+  "        _ => -2\n";
 
 let exports_: Record<string, unknown>;
 
@@ -286,7 +299,7 @@ describe("the probe is unguarded, and `kind`'s is not (§4.2 against §3)", () =
 
   /**
    * The observation, stated precisely: the value that leaves is the foreign one.
-   * It is not converted into `Err(Shape)`, and it carries none of a Hexagon
+   * It is not converted into a `JsConversionError`, and it carries none of a Hexagon
    * exception's identity — no `$hex` brand, no Hexagon `name`.
    */
   test("what leaves is the raw foreign value, not an `Err` and not a branded throw", () => {
@@ -357,7 +370,7 @@ describe("what the operation spends, and what stays behind the door", () => {
    * `vector-to-array.test.ts`, rather than twice.
    */
   test("the qualified spelling is the surface, and it resolves", () => {
-    expect(projectDiagnostics("module Main\n\n" + "export let a(v: JsValue): Result(Array(JsValue), JsConversionError) = JsValue.toArray(v)\n",
+    expect(projectDiagnostics("module Main\n\n" + "export let a(v: JsValue): Array(JsValue) = JsValue.toArray^(v)\n",
     )).toEqual([]);
   });
 
@@ -381,8 +394,8 @@ describe("what the operation spends, and what stays behind the door", () => {
 describe("the boundary face composes (`Array(JsValue)`)", () => {
   /**
    * FFI Part 1 §4.1's two rows, met: `Array(a)` faces `ReadonlyArray<a>` and
-   * `JsValue` faces `unknown`, so the result of `toArray` faces
-   * `Result<ReadonlyArray<unknown>, JsConversionError>`. Neither row is new; the
+   * `JsValue` faces `unknown`, so `asArray`'s kept result faces
+   * `Result<ReadonlyArray<unknown>>`, whose `Err` holds an `Error`. Neither row is new; the
    * composition is, and it is the shape every JavaScript consumer of this
    * operation reads.
    */
@@ -392,7 +405,7 @@ describe("the boundary face composes (`Array(JsValue)`)", () => {
     const main = compiled.modules.find(({ source }) => source.path === "/main.hex");
     expect(main!.declarations.text).toContain(
       "export declare const asArray: (v: unknown) => " +
-        "Result<ReadonlyArray<unknown>, JsConversionError>;",
+        "Result<ReadonlyArray<unknown>>;",
     );
     expect(main!.declarations.text).toContain(
       "export declare const capturedLength: (xs: ReadonlyArray<unknown>) => number;",

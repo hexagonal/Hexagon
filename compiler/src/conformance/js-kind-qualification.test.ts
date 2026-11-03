@@ -38,9 +38,8 @@ import { compileFiles, projectDiagnostics, runMain } from "../support/test-proje
  *   same-spelled constructor) and a user's data-armed `union Shape` (which does
  *   not) now behave identically, because there is no bare prelude constructor
  *   for either to occlude;
- * - **nothing else is qualified** — `JsConversionError` is a record whose
- *   constructor is its own type's spelling, not common user vocabulary, and it
- *   stays an ordinary bare prelude term.
+ * - **nothing else is qualified** — `JsConversionError` is a prelude exception
+ *   (#1427), and like every prelude throwable it is bare by category.
  *
  * And the whole thing is a **source-namespace** rule: §12 says in as many words
  * that runtime representations are unchanged, so the emitted values are pinned
@@ -428,23 +427,18 @@ describe("the extension gives the eight words back (§12's extension, #511)", ()
   });
 
   /**
-   * `JsConversionError` is a **record**, not one of the three unions, and its
-   * constructor is its own type's spelling rather than a common word. Until #742
-   * that difference bought it a bare binding; the inverted default reads a
-   * record's constructor as a constructor like any other, so it is spelled
-   * through its home too — and the *type* name stays bare, which is the half a
-   * user's annotation needs.
+   * `JsConversionError` is not one of the three unions: since #1427 it is a
+   * prelude **exception**, so it is bare by category (Modules §5.5, Exceptions
+   * §2.1), like `JsError`, and stays reachable through its home. Its slots name
+   * the qualified-only reason, which is the half that stays qualified.
    */
-  test("`JsConversionError` is spelled through `JsValue`, its type name bare", () => {
-    expect(projectDiagnostics("module Main\n\n" + "export let e: JsConversionError =\n" +
-        "    JsValue.JsConversionError({ reason = JsConversionReason.Shape, path = [] })\n",
+  test("`JsConversionError` is bare as a prelude throwable, and reachable through `JsValue`", () => {
+    expect(projectDiagnostics("module Main\n\n" + "export let e: Exn =\n" +
+        "    JsConversionError(JsConversionReason.Shape, [], \"not an Int\")\n",
     )).toEqual([]);
-    expect(projectDiagnostics("module Main\n\n" + "export let e: JsConversionError =\n" +
-        "    JsConversionError({ reason = JsConversionReason.Shape, path = [] })\n",
-    )).toEqual([
-      "no bare `JsConversionError`; write " +
-        "`JsValue.JsConversionError({ reason = JsConversionReason.Shape, path = [] })`",
-    ]);
+    expect(projectDiagnostics("module Main\n\n" + "export let e: Exn =\n" +
+        "    JsValue.JsConversionError(JsConversionReason.Shape, [], \"not an Int\")\n",
+    )).toEqual([]);
   });
 });
 

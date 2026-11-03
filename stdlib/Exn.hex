@@ -29,9 +29,9 @@ extern from "hex:intrinsic"
     // per value, the first time it is asked for.
     fun jsErrorReadName as readName(error: JsValue) -> JsValue
 
-let readString(value: JsValue): String = match value.toString()
-    Ok(text) => text
-    Err(_) => ""
+let readString(value: JsValue): String = match value.toString?()
+    Some(text) => text
+    None => ""
 
 // JavaScript's own joining: the name and the message with `": "` between, or
 // whichever is not empty.
