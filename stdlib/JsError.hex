@@ -76,13 +76,11 @@ extern from "hex:intrinsic"
 // fallback. `JsValue.toString` is the strict decoder, so nothing here coerces:
 // a `.message` holding `42` is not `"42"`.
 
-let readString(value: JsValue): String = match value.toString()
-    Ok(text) => text
-    Err(_) => ""
+let readString(value: JsValue): String = match value.toString?()
+    Some(text) => text
+    None => ""
 
-let readOption(value: JsValue): Option(String) = match value.toString()
-    Ok(text) => Some(text)
-    Err(_) => None
+let readOption(value: JsValue): Option(String) = value.toString?()
 
 (** What `error` says about itself, always. A thrown object, array or function
     gets one guarded read of its `.message`, and a read that throws, is absent,

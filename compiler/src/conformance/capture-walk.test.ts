@@ -856,15 +856,15 @@ describe("`JsValue.toArray` is the acquisition a decoder performs (Part 11 §4.2
         "    fun poke() ->! Unit\n" +
         "\n" +
         "export fun probe(): (Int, Bool) =\n" +
-        "    match JsValue.toArray(source!())\n" +
-        "        Err(_) => (0 - 1, False)\n" +
-        "        Ok(xs) =>\n" +
+        "    match JsValue.toArray?(source!())\n" +
+        "        None => (0 - 1, False)\n" +
+        "        Some(xs) =>\n" +
         "            poke!()\n" +
         "            (Array.length(xs), True)\n" +
         "export fun elements(): Array(JsValue) =\n" +
-        "    match JsValue.toArray(source!())\n" +
-        "        Err(_) => Vector.toArray([])\n" +
-        "        Ok(xs) => xs\n",
+        "    match JsValue.toArray?(source!())\n" +
+        "        None => Vector.toArray([])\n" +
+        "        Some(xs) => xs\n",
       {
         values: "export const cell = { id: 1 };\n" +
           "export const array = [cell, cell];\n" +
@@ -888,9 +888,9 @@ describe("`JsValue.toArray` is the acquisition a decoder performs (Part 11 §4.2
         "    fun source() ->! JsValue\n" +
         "\n" +
         "export fun probe(): Array(JsValue) =\n" +
-        "    match JsValue.toArray(source!())\n" +
-        "        Err(_) => Vector.toArray([])\n" +
-        "        Ok(xs) => xs\n",
+        "    match JsValue.toArray?(source!())\n" +
+        "        None => Vector.toArray([])\n" +
+        "        Some(xs) => xs\n",
       {
         values: "const sparse = [];\n" +
           "sparse[2] = 1;\n" +
@@ -905,11 +905,11 @@ describe("`JsValue.toArray` is the acquisition a decoder performs (Part 11 §4.2
 
   /**
    * §4.2's two failure clauses, which the copy does not blur. A throwing
-   * element getter "follows the `JsError` channel like the probe", never `Err`;
-   * and the `Array.isArray` probe itself stays **unguarded**, so a non-array is
-   * still an honest `Err(Shape)`.
+   * element getter "follows the `JsError` channel like the probe", never a
+   * `JsConversionError`; and the `Array.isArray` probe itself stays
+   * **unguarded**, so a non-array is still an honest `Shape` refusal.
    */
-  test("a throwing element throws, and a non-array is still `Err`", async () => {
+  test("a throwing element throws, and a non-array is still refused", async () => {
     const { main } = await run(
       'extern from "values"\n' +
         "    fun hostile() ->! JsValue\n" +
@@ -917,15 +917,15 @@ describe("`JsValue.toArray` is the acquisition a decoder performs (Part 11 §4.2
         "\n" +
         "export fun thrown(): String =\n" +
         "    try\n" +
-        "        match JsValue.toArray(hostile!())\n" +
-        '            Err(_) => "Err"\n' +
-        '            Ok(_) => "Ok"\n' +
+        "        ignore(JsValue.toArray^(hostile!()))\n" +
+        '        "Ok"\n' +
         "    catch\n" +
+        '        JsConversionError(_, _, _) => "Refused"\n' +
         '        JsError(e) => "JsError: " ++ JsError.message(e)\n' +
         "export fun shaped(): String =\n" +
-        "    match JsValue.toArray(scalar!())\n" +
-        '        Err(_) => "Err"\n' +
-        '        Ok(_) => "Ok"\n',
+        "    match JsValue.toArray?(scalar!())\n" +
+        '        None => "Refused"\n' +
+        '        Some(_) => "Ok"\n',
       {
         values: "export function hostile() {\n" +
           "  const values = [1];\n" +
@@ -939,7 +939,7 @@ describe("`JsValue.toArray` is the acquisition a decoder performs (Part 11 §4.2
       },
     );
     expect((main["thrown"] as () => string)()).toBe("JsError: hostile element");
-    expect((main["shaped"] as () => string)()).toBe("Err");
+    expect((main["shaped"] as () => string)()).toBe("Refused");
   });
 
   /** The probe's own lowering is untouched: `Array.isArray`, bare. */
@@ -947,9 +947,9 @@ describe("`JsValue.toArray` is the acquisition a decoder performs (Part 11 §4.2
     const project = compileFiles([[
       "/main.hex",
       "module Main\n\nexport fun probe(v: JsValue): Bool =\n" +
-        "    match JsValue.toArray(v)\n" +
-        "        Err(_) => False\n" +
-        "        Ok(_) => True\n",
+        "    match JsValue.toArray?(v)\n" +
+        "        None => False\n" +
+        "        Some(_) => True\n",
     ]]);
     expect(project.diagnostics.map(({ message }) => message)).toEqual([]);
     const companion = project.modules.find(({ source }) => source.path.endsWith("/JsValue.hex"));

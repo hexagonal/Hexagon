@@ -2,14 +2,17 @@
 
 Hexagon uses two different tools for two different kinds of failure.
 
-When callers can reasonably anticipate every outcome, return data:
+When a result is a program's own description of what it found, return a union of the
+program's own:
 
 ```hexagon
-let parsePort(text: String): Result(Int, ParseProblem) = ...
+union PortCheck = Valid(port: Int) | Invalid(problem: String)
+
+let checkPort(text: String): PortCheck = ...
 ```
 
-`Result` is a closed union. A caller can match every possible error and the compiler
-can verify that nothing was forgotten.
+A union is closed. A caller can match every case and the compiler can verify that
+nothing was forgotten.
 
 Exceptions serve failures that cannot be enumerated so neatly: broken assumptions,
 failed foreign calls, unavailable resources, or errors that must propagate through
@@ -40,7 +43,7 @@ let missing: Exn = NotFound
 ```
 
 Exception payload types must be concrete. There is no parameterized exception
-declaration corresponding to `Option(a)` or `Result(a, e)`; every independently
+declaration corresponding to `Option(a)` or `Result(a)`; every independently
 declared constructor joins the same open `Exn` type.
 
 Payload slots may be named or unnamed, following the all-or-none constructor rule. The
