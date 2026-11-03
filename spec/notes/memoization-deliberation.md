@@ -557,9 +557,6 @@ With question 4 ruled, the decision is complete. Next come:
 
 ---
 
-
----
-
 ## Memoization: what does a call answer after a caught cycle?
 
 **Status:** Raised by the independent review of PR #1446 on 2026-11-03. Ruled (B) by James the same day, who asked that the doctrine be worded so that it stays true: Effects §6.2 now says a species-(d) row, and any function it returns, is a value function of its arguments, so that no program can observe it answer one argument two ways, and the memo's fourth term is what keeps that true.

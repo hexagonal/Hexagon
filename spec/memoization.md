@@ -115,7 +115,8 @@ Entered at `0`, the request for `0` made inside key `1`'s computation is refused
 So **a computation during which a `ReentrancyFault` was raised, by any memoised function or by any memoizing `Seq` spine, files nothing and ends in `ReentrancyFault`** (§3.2).
 - The rule counts raises, not catches. A refusal caught deep inside one `body` still ends every enclosing computation in the refusal, out to the outermost. Catching works, but it cannot turn a cycle into an answer. A search in which a cycle means "no answer" carries what it has visited in its key and returns an `Option` (§4).
 - It spans tables. A `body` of one memoised function may call another, and a refusal in the inner one ends the outer one's computations too.
-- A `Seq` spine's refusal counts the same way. Where foreign code caught that refusal and plain recursion would have answered, `g` refuses instead: a refusal, never a different answer.
+- A refusal from a memoizing `Seq` spine counts the same way. So does every later read of a spine position that was being forced when a refusal was raised. The spine keeps what that forcing produced and replays it without raising again (FFI Part 3 §7.3), so a computation that reads it depends on the refusal as surely as one that met it (FFI Part 3 §7.4 marks such positions).
+- Where foreign code caught a spine's refusal and plain recursion would have answered, `g` refuses instead: a refusal, never a different answer.
 
 The implementation keeps one runtime-wide count of `ReentrancyFault` raises. A computation compares the count when it starts with the count when it finishes.
 
@@ -123,18 +124,19 @@ Any other fault needs no such rule. A pure `body` reaches the same fault for a k
 
 ### 3.4 What the memoised function equals
 
-Compare `g` with plain recursion, `fun go(key) = body(go, key)`. Every call `g(key)` that is not inside a computation already ending in the refusal does what plain recursion does, in any table state:
+Compare `g` with **plain recursion**: the same `body`, with `g` replaced by `fun go(key) = body(go, key)`, and every other memoised function the computation reaches replaced by its own plain recursion likewise. Every call `g(key)`, in any table state and in any context, inside other calls of `g` or not, does one of three things:
 
 - **Where plain recursion returns an answer, `g` returns the same answer.**
-  - Plain recursion returning means no key repeats on any path from this key.
+  - Plain recursion returning means no key repeats on any path from this key, and no key it reaches is one whose plain recursion never returns.
   - So `g`'s computation meets no cycle among its own calls.
-  - Nor does it reach a key that an enclosing call has in progress. No refusal has been raised in the enclosing computations, so each has followed plain recursion's path, and a key in progress there is one from which this key was reached. Reaching it again would make a key repeat on plain recursion's path from this key.
-  - Every hit it takes is an answer filed by a computation that met no refusal, which by induction is plain recursion's answer.
-- **Where plain recursion throws a fault, `g` throws the same fault.** The path is the same, its hits are plain recursion's answers, and the fault is reached at the same step.
-- **Where plain recursion never returns because a key repeats,** `g` follows the same path to the first repeat. The repeated key is in progress there, so the request is refused, and from there the computation ends in `ReentrancyFault` (§3.3), whatever the `body`s catch on the way. The one exception is a `body` that catches the refusal and then never finishes, which never finishes here either, as plain recursion never does.
-- **Where plain recursion never returns for any other reason,** such as infinitely many distinct keys, `g` doesn't either.
+  - Nor does it reach a key that an enclosing call has in progress. If that key's plain recursion returns, its computation has so far followed plain recursion's path (by this same argument, from the outermost call in), and reaching it again would be a repeat on that path. If that key's plain recursion never returns, then neither would this key's, which reaches it.
+  - So no refusal is raised in `g`'s computation, and every hit it takes is an answer filed by a computation that met no refusal, which by induction is plain recursion's answer.
+- **Where plain recursion throws a fault, `g` throws the same fault,** by the same argument: the path is the same, its hits are plain recursion's answers, and the fault is reached at the same step.
+- **Where plain recursion never returns, `g` throws `ReentrancyFault` or never returns.** A computation of `g` that raises no refusal follows plain recursion's path, so it cannot return. One that does raise a refusal ends in `ReentrancyFault` (§3.3), unless a `body` that caught the refusal then never finishes. Which of the two a call does can depend on where it is made, and neither is an answer.
 
-Calls made inside a computation already ending in the refusal can depend on where the cycle was entered, as §3.3's example shows. Nothing they compute leaves that computation, beyond answers filed for keys whose own computations met no refusal, which are plain recursion's answers. So no program can observe `g` answer one key two ways, and a hit and a miss are indistinguishable to every caller. That is species (d)'s obligation (Effects §6.2), discharged in closed form.
+So each key has one answer, or one fault, or none, whatever the table holds and wherever the call is made. What a `body` computes after catching the refusal can depend on where the cycle was entered (§3.3's example), but §3.3 ends that computation in the refusal, so none of it becomes an answer of `g`. No program can observe `g` answer one key two ways, and a hit and a miss are indistinguishable to every caller. That is species (d)'s obligation (Effects §6.2), discharged in closed form.
+
+**An answer that holds a memoized `Seq` is compared with plain recursion up to its spine.** Where forcing the sequence later comes back through `g` for that same sequence, plain recursion builds a new sequence at each step and never finishes. The shared spine refuses the re-entry instead (FFI Part 3 §7.3), and what a derivation that catches that refusal produces is the position's outcome, the same on every read. A computation of `g` that reads it ends in the refusal (§3.3).
 
 **Stack exhaustion is outside this argument, as it is outside plain recursion's.** A `body` that catches the platform's stack-overflow error depends on how deep it was called, memoised or not. Hexagon's purity does not model stack depth.
 
@@ -154,7 +156,7 @@ The table is placed by `Hash.hash` and decides hits by `Hash.same`, both read fr
 
 - **A call** costs one `hash` of the key, a search of its bucket comparing with `same`, and on a miss one insertion after the answer is computed.
   - `same` replaces `==` in the bucket search and does the same amount of work.
-  - The in-progress check and the raise count are one set membership and two integer reads.
+  - The in-progress check and the raise count are one set membership and two integer reads. A memoizing `Seq` spine keeps one mark per position (FFI Part 3 §7.4).
 - **Memory** is one entry per distinct key ever asked for, kept for the function's lifetime (§3.1).
 - **A refusal ends every computation around it,** in this table and in others (§3.3). A search that meets cycles gains nothing from catching the refusal, and writes what it has visited into its key.
 - **Measured** on Advent of Code 2024 day 11 (75 blinks), with a JavaScript table standing in for the lowering around the compiled body:
@@ -185,7 +187,7 @@ No new refusal is introduced. The third row changes only the wording of an exist
   - It is held to §3 as a conformance obligation (Intrinsics §4.2), and its species is Effects §6.2's (d).
 - **`memoize` is ordinary Hexagon** in the same module.
 - **`ReentrancyFault` is raised as FFI Part 3 §7.4 constructs it:** the branded representation built at the raise site, with this raiser's own message: "a memoised function's answer for this key depends on itself".
-  - The runtime-wide raise count of §3.3 is incremented by every raise, including the `Seq` spine's. Helpers are emitted per module (FFI Part 3 §7.4), so the count lives in one place that every module's copy of both helpers reaches.
+  - The runtime-wide raise count of §3.3 is incremented by every raise, including the `Seq` spine's, and by every replay of a spine position FFI Part 3 §7.4 marks. Helpers are emitted per module (FFI Part 3 §7.4), so the count lives in one place that every module's copy of both helpers reaches.
 - **The table, the in-progress marks and the count are the helper's own state,** as the `Seq` spine's memo is. No program can name them, so Statements §6.4 (no ref cell a program can spell) is untouched, and so is the rule against module-level `var` (§6.4's last bullet), which is about state a program can observe: §3.4 shows the count changes nothing a caller can see.
 - **The seat.** `Function.hex` is seated in the prelude after `Hash.hex`, the only prelude declaration it names.
 - **Emission.** Zero-Cost Fundamental Exports (FFI Part 8) applies to `memoizeRecursive` and `memoize` as to any exported function with one constrained variable, as it does to `Map.get`'s constrained row.
