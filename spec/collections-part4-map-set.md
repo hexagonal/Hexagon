@@ -287,8 +287,10 @@ Entries appear in the value's §7.1 iteration order — deterministic for that v
 
 | Instance | Given | Semantics |
 |---|---|---|
-| `Hash<Set(a)>` | `Hash a` | fold over element hashes, **invariant under every permutation of the elements** |
-| `Hash<Map(k, v)>` | `Hash k`, `Hash v` | per-entry hash combines key and value **order-sensitively within the pair** (an entry must distinguish `(k, v)` from `(v, k)`-shaped confusions), then a fold over entry hashes **invariant under every permutation of the entries** |
+| `Hash<Set(a)>` | `Hash a` | fold over element hashes, **invariant under every permutation of the elements**. `same`: equal sizes, and element by element in §7.1 iteration order, each `same` |
+| `Hash<Map(k, v)>` | `Hash k`, `Hash v` | per-entry hash combines key and value **order-sensitively within the pair** (an entry must distinguish `(k, v)` from `(v, k)`-shaped confusions), then a fold over entry hashes **invariant under every permutation of the entries**. `same`: equal sizes, and entry by entry in §7.1 iteration order, keys `same` and values `same` |
+
+**`same` follows iteration order, not `Eq`** (Part 2 §2.3's second law). `==` is extensional (§8.1), but two `==` collections built in different orders may iterate differently (§7.1), and every traversal shows that order. Comparing in iteration order is exact only if nothing else about a collection shows, so this row makes one obligation on the runtime normative: **what any operation answers depends on a map or set only through its entries and their iteration order**, never on internal shape left over from its construction history. Deletion-path compaction is the case in point. The `HashTrie` meets the obligation: placement and traversal follow hash digits and collision-node slot order, whatever the branches above them. This is weaker than the canonicalization §7.1 declines: it constrains what shows, not what is stored.
 
 Permutation-invariance is stated as the normative contract (not "commutative fold" — a weak combine like bare XOR is technically commutative and still invites cancellation pathologies; the invariance statement constrains the *result*, and the combine algorithm stays runtime-owned per Part 2 §3.2).
 

@@ -1,7 +1,7 @@
 # Hexagon Spec: Collections Part 2 — The `Hash` Constraint & Constraint Type Members
 
-**Status:** Decided (July 2026). Two halves, one document: the formal spec of the `Hash` constraint (§2–§4), and the grammar and rules for implied `type` members in `constraint`/`honor` bodies (§5–§8), including the `Iterable` prelude declaration (§8). Written against Collections Part 1 and the Constraints spec (`honor` keyword); neither is re-litigated here.
-**Scope:** The `Hash` declaration, member, codomain, law, and determinism contract; the provided (compiler/runtime) instance set for `Hash`; the derivable-only rule and its enforcement, including the Eq-agreement rule; the wrapper-key pattern; the `type`-member grammar on both declaration and instance sides; identity and scoping of implied type names; the **projection-bearing constraint** definition and the v1 binder ban, written and inferred; the `Iterable` prelude declaration.
+**Status:** Decided (July 2026); the `same` member decided 2026-11-03 with `memoization.md`, implementation #1445. Two halves, one document: the formal spec of the `Hash` constraint (§2–§4), and the grammar and rules for implied `type` members in `constraint`/`honor` bodies (§5–§8), including the `Iterable` prelude declaration (§8). Written against Collections Part 1 and the Constraints spec (`honor` keyword); neither is re-litigated here.
+**Scope:** The `Hash` declaration, its two members, codomain, laws, and determinism contract; the provided (compiler/runtime) instance set for `Hash`; the derivable-only rule and its enforcement, including the Eq-agreement rule; the wrapper-key pattern; the `type`-member grammar on both declaration and instance sides; identity and scoping of implied type names; the **projection-bearing constraint** definition and the v1 binder ban, written and inferred; the `Iterable` prelude declaration.
 **Not in scope:** `Hash` instances for `Vector`/`Map`/`Set` (Part 3 §8, Part 4 §8.4, under §4.4's wording here); table-opening semantics, resolution, diagnostics, and the standard-instance table for `Iterable` (Part 5 — the *declaration* lives here, everything operational there); the v2 implied-types remainder (§11); the `CiString` wrapper's name and folding semantics (`stdlib-roadmap.md`).
 **Companions:** Collections Part 1 (§4 key model, §6 restricted `Iterable` — both made formal here); Constraints (§2 member grammar, §4 instance mechanics, §4.5 derivation, §7 prelude registration, §8 diagnostics); Collections Parts 3–5; Loops/Ranges/Iteration (§5 iterable table = §8's instance table; §7 the `Seq(a)` idiom); Declarations Preamble (module-level `type`); Modules (§6.4 qualified homes; §7 instance globality); Products/Unions (structural-instance pattern extended to `Hash`); `stdlib-roadmap.md` (routed items, §12).
 
@@ -26,19 +26,25 @@
 ```
 constraint Hash<a: Eq> =
     hash(x: a) -> Int
+    same(x: a, y: a) -> Bool
 ```
 
+- Both members are required; neither has a default (§10.8).
 - `Eq` is the base constraint: `Hash` extends `Eq`, per the standard left-to-right reading (Constraints §1/§2.1). Every type honoring `Hash` has an `Eq` instance, and a function constrained `<a: Hash>` may use `equals` on `a`.
 - `Hash` lives in the prelude; its qualified home exists per Modules §6.4. Its name occupies the constraint namespace like any other (Constraints §2.2).
 - This is a real declaration with a real member, not a marker (rejected alternative §10.1).
 
-### 2.2 The member
+### 2.2 The members
 
 `hash` is an ordinary constraint member: a module-scope term name (Constraints §2.2), reached wherever the constraint is discharged — `42.hash()`, `"key".hash()`, `Hash.hash(value)` — and polymorphically inside `<a: Hash>` functions (`value.hash()` through the binder's evidence); it is not seeded bare (Modules §5.5). Legitimate uses beyond the collections internals: memoization keys, sharding, debugging.
 
 **Codomain: `Int`.** The normative promise about the *value* is §2.3's law and §2.4's determinism — nothing else. *Informative, non-normative:* all provided and derived hashes in the v1 runtime land in signed 32-bit range (the Immutable.js smi lineage; the runtime folds with `| 0`-family operations). Code must not rely on the range; it may become normative later only under demonstrated interop pressure (§12.2).
 
-Dictionary shape, per Constraints §6.2: `Hash_T = { Eq: Eq_T, hash: x => ... }` — the base slot carries the base declaration’s name verbatim, so it can never collide with a member name (start classes partition them; §6.2, #718).
+**`same` is the second member,** reached the same ways: `x.same(y)`, `Hash.same(x, y)`, each honoring module's qualified face (`Dec.same(x, y)`), and polymorphically through a binder's evidence. Where `==` answers whether two values are equal under the type's `Eq`, `same` answers whether any Hexagon function can tell them apart (§2.3). Its first customer is memoization, whose hits it decides (`memoization.md` §3.2).
+- Like every member, it claims its spelling in each module that honors `Hash`, derived instances included (Constraints §4.6). Such a module binds no ordinary top-level `same`; a binding by that name is the ordinary rebinding error, and the module's own `same` is the member.
+- `Dec`'s `same` (Dec §8) is that member, so `Dec.same(x, y)` and `x.same(y)` keep their meaning.
+
+Dictionary shape, per Constraints §6.2: `Hash_T = { Eq: Eq_T, hash: x => ..., same: (x, y) => ... }` — the base slot carries the base declaration’s name verbatim, so it can never collide with a member name (start classes partition them; §6.2, #718).
 
 ### 2.3 The law
 
@@ -47,6 +53,18 @@ Dictionary shape, per Constraints §6.2: `Hash_T = { Eq: Eq_T, hash: x => ... }`
 Stated normatively even though §4.3 makes it hold by construction in v1 — this is the sentence any future instance-producing mechanism (v2 `derive via`, §11) must discharge. The converse is explicitly **not** a law: unequal values may collide, and collision handling is entirely the collections' business.
 
 Consequence of the base constraint: **`Hash<Float>` normalises consistently with `Eq<Float>`'s SameValueZero** (Constraints §7) — `-0` hashes as `+0`, and all `NaN` bit patterns hash to a single value.
+
+`same` has a law of its own:
+
+> For all `x`, `y` of a type honoring `Hash`: **`Hash.same(x, y)` is true exactly when no Hexagon function can tell `x` from `y`**, so that any function handed one in place of the other answers alike. Reference identity, which only foreign code can observe (FFI Part 1 §3.1), is not part of the comparison: separately built values with the same parts are the same.
+
+So `same` implies `==`, and by the first law, equal hashes. The converse is not a law: `==` may equate values that a function can tell apart. The provided instances meet four such pairs:
+- `Float`'s `0.0` and `-0.0` are `==` (SameValueZero), and `1.0 / x` tells them apart.
+- `Dec`'s `1.0` and `1.00` are `==` (Dec §8), and `show` and `Dec.places` tell them apart.
+- `Int`'s `0` and the `-0` that `0 * -1` leaves (#1277) are `==`, and `1.0 / Float.fromInt(x)` tells them apart.
+- Two `Map`s or two `Set`s holding the same entries are `==`, yet where two keys have equal hashes (`"Aa"` and `"BB"`), the order those keys iterate in depends on construction history (Part 4 §7.1). Built in different orders, the two collections can iterate differently, and iteration tells them apart.
+
+`same` is the test a cache needs before it answers one call with a value computed for another: Python's `lru_cache` carries a `typed` flag for the same reason.
 
 ### 2.4 Determinism — public function vs table placement
 
@@ -78,6 +96,11 @@ This table is the exhaustive **status map** of core-type `Hash`; each row record
 | `Hash<BigInt>` | folds the arbitrary-precision value into `Int`; collisions inevitable and lawful *(provenance corrected, #344: hand-written source in `stdlib/BigInt.hex` under the §4.4 carve-out — row retained as the status map)* |
 | `Hash<Unit>` | constant; the automatic structural arity-0 derivation — `Unit` is the empty tuple (Products §2.7), so this is the structural-types rule below at the vacuous arity, never in §4.4's provided category — row retained as the status map |
 
+**`same` in these instances.** Each row's instance has `same` beside `hash`. Where the instance is hand-written, its trusted author writes `same` and verifies §2.3's second law (§4.4):
+- `Float`, `Int` and `Nat` write SameValue (JavaScript's `Object.is`). `-0` and `+0` are not the same, and every `NaN` is the same as every other, since no Hexagon function reads a `NaN`'s bits. `Int` and `Nat` arithmetic can leave a `-0` (#1277), and `Float.fromInt` keeps its sign, so SameValue is what stays exact for them too.
+- `String` and `BigInt` write `==`, which is exact for both.
+- `Bool` derives it with its `Hash` (§3.2), and `Unit`'s is the constant `True`.
+
 **Structural types** follow the `Eq` pattern exactly (Products §2.5/§3.4 family): tuples and structural records receive **automatic compiler-derived `Hash`**, conditional on every component/field type having `Hash`. Users cannot honor structural types (Constraints §9.3 presumption, unchanged); their `Hash`, like their `Eq`, is exclusively compiler-derived — and therefore mutually consistent by construction.
 
 **No other core instance is fixed by this section:** no `Hash<Exn>` (`Exn`'s one instance is `Show<Exn>`, Exceptions §8.6 and §10.3; `Hash<Exn>` is enforced absent by §4.2 here); function types have no `Eq`, so `Hash` cannot arise; `Seq` has no `Eq` and therefore no `Hash`. `Range` and prelude-union instances remain stdlib-listing decisions (§12.3) — except `Bool`'s, decided by #147: derived in the prelude declaration itself, per the corrected row above. Collection instances live in their owning specs: `Hash<Vector(a)>` in Part 3 §8, and `Hash<Map(k, v)>`/`Hash<Set(a)>` in Part 4 §8.4.
@@ -91,7 +114,7 @@ This table is the exhaustive **status map** of core-type `Hash`; each row record
 The derivable constraints in v1 are **`Eq`, `Ord`, `Show`, `Hash`** (Constraints §4.5). All derivation machinery applies unchanged:
 
 ```
-record Point = {x: Float, y: Float} derives (Eq, Hash)
+record Point derives (Eq, Hash) = {x: Float, y: Float}
 -- elaborates to:
 --   honor Eq<Point> = derive
 --   honor Hash<Point> = derive
@@ -105,6 +128,13 @@ record Point = {x: Float, y: Float} derives (Eq, Hash)
 ### 3.2 Derivation semantics (contract, not algorithm)
 
 Derived `Hash` for a nominal `record` is a hash over its fields' hashes; for a `union`, over the constructor tag and the payload's hashes — in both cases **defined only up to the §2.3 law and §2.4 determinism**. The combining algorithm is runtime-owned and unspecified, exactly as the structural instances' (§2.5). This is deliberately weaker than the `Eq`/`Ord`/`Show` derivations, whose observable behaviour is fully pinned (Products/Unions): a hash's only observable obligations *are* the law and determinism, and pinning an algorithm would freeze an implementation detail for no user benefit.
+
+**Derived `same` is fully pinned**, as derived `Eq` is: it is the derived `equals` with each component's `equals` replaced by its `same`.
+- Two values of a nominal `record`, or of a structural record, are the same when every field is `same`.
+- Two values of a `union` are the same when they have the same constructor and every payload component is `same`.
+- Two tuples are the same when every component is `same`.
+
+Each component's `same` is its type's instance, read from the instance context in a parameterized instance (Constraints §4.3), exactly as derived `hash` reads component hashes. The law of §2.3 then holds by construction: a function sees a record, union value or tuple only through its parts.
 
 ---
 
@@ -145,7 +175,7 @@ The rule composes cleanly with the rest of the system: `derives (Eq, Hash)` in o
 
 **Ownership is compiler-established provenance** (intrinsics §5.2, #843): the source is embedded as a registered standard-library member, or the compiler host explicitly supplies it as that member's trusted replacement. A module name, filename, directory, manifest, package name, or import of a trusted module confers no trust. A user module occluding a standard-library name is still user source and receives the ordinary §4.1 refusal. Trust for this instance rule is separate from intrinsic access, runtime-only capabilities, and prelude visibility; admitting a source-written hash opens none of those capabilities.
 
-The standard-library author and reviewer must verify §2.3's equality agreement and §2.4's determinism. A member-block hash may accompany a member-block equality when both satisfy those laws. **Derived hashes retain §4.3's requirement of derived equality, even in trusted source**: trust permits a deliberately implemented pair, not an incompatible structural derivation. For example, a future decimal type retaining display scale but comparing numerically would need equality and hashing to agree on a normalized numerical representation; hashing the retained fields structurally would not suffice.
+The standard-library author and reviewer must verify §2.3's equality agreement and §2.4's determinism. A member-block hash may accompany a member-block equality when both satisfy those laws. A member-block instance also writes `same`, and its author and reviewer verify §2.3's second law: where the type's `Eq` ignores part of the representation that the type's operations reveal, `same` compares that part too. `Dec`'s compares the unscaled integer and the places (Dec §8). **Derived hashes retain §4.3's requirement of derived equality, even in trusted source**: trust permits a deliberately implemented pair, not an incompatible structural derivation. For example, a future decimal type retaining display scale but comparing numerically would need equality and hashing to agree on a normalized numerical representation; hashing the retained fields structurally would not suffice.
 
 Compiler/runtime-provided collection instances remain specified in their owning collection parts. This permission does not migrate them, change primitive hashes, or introduce user-defined hashing or `derive via`.
 
@@ -370,6 +400,10 @@ Pinning the signed-32-bit range as a promise rather than an informative note. Re
 - **Waiting, at the binding that holds a demand's subject back, for the variable's first use.** Rejected: the value restriction lets a first use supply a type, but the relaxed rule (Functions §8 item 7) reads constraints only through their arguments, so the implied type's variable would generalize on its own; waiting would need an exception carved into that rule. The owner's close settles the demand before the rule runs. (A variable an *earlier* binding held back is the enclosing region's, and waits for that region's close, as §7.2.1 says; no binding closing in between generalizes its implied types, since they are pinned to it.)
 - **Refusing, at the close of the binding that makes the demand, a variable an earlier binding held back.** Rejected: a per-binding deadline makes the meaning of independent sibling statements depend on their order — a binding closing between them would decide what a later sibling settles.
 
+### 10.8 A defaulted `same`
+
+Defaulting `same` to `equals`, so that a type whose `==` already misses nothing writes nothing. Rejected: derivation inherits every defaulted member (Constraints §4.5), so a derived `Hash` over a record holding a `Float` would take the default and call `0.0` and `-0.0` the same, and the law would be false for every such type. The existing defaults hold by their laws for every instance (`notEquals`, `Ord`'s `max` and `min`); this one would not. Required, the member is derived structurally for every user type (§3.2), and written once, and reviewed, by each trusted instance (§4.4).
+
 ---
 
 ## 11. Pre-registered v2 direction: `derive via`
@@ -412,7 +446,7 @@ The v2 implied-types remainder is also routed here: deferred `Item(α)` goals, t
 
 ```
 -- (1) Derives Hash; usable as a key-shaped value
-record Point = {x: Float, y: Float} derives (Eq, Hash)
+record Point derives (Eq, Hash) = {x: Float, y: Float}
 let h = Point({x = 1.0, y = 2.0}).hash()           -- OK : Int
 
 -- (2) Law-relevant Float normalisation
@@ -438,7 +472,7 @@ honor Hash<Weird> = derive                       -- ERROR: `Weird` has a hand-wr
                                                  --   consistent with a derived equality
 
 -- (6) Missing base constraint, hinted
-record P = {n: Int} derives Hash                 -- ERROR: missing Eq
+record P derives Hash = {n: Int}                 -- ERROR: missing Eq
                                                  --   hint: add `Eq` to the `derives` list
 
 -- (7) Whitelist message names all four
@@ -484,6 +518,28 @@ type Item = Int                                  -- a module-level alias, coexis
 constraint Queue<c> =
     type Item                                      -- OK: no conflict with the alias
     peek(xs: c) -> Option(Item)                     -- Item = Queue.Item here (occludes the alias)
+```
+
+```
+-- (15) `same`: derived, and finer than `==` where a function can see the difference
+record Reading derives (Eq, Hash) = {at: Float, label: String}
+Reading({at = 0.0, label = "a"}) == Reading({at = -0.0, label = "a"})          -- true
+Reading({at = 0.0, label = "a"}).same(Reading({at = -0.0, label = "a"}))       -- false
+Hash.same((1, "a"), (1, "a"))                                                  -- true
+(0.0 / 0.0).same(Float.nan)                                                    -- true
+1.0d == 1.00d                                                                  -- true
+1.0d.same(1.00d)                                                               -- false
+Map.fromVector([("Aa", 1), ("BB", 2)]) == Map.fromVector([("BB", 2), ("Aa", 1)])         -- true
+Hash.same(Map.fromVector([("Aa", 1), ("BB", 2)]), Map.fromVector([("BB", 2), ("Aa", 1)])) -- false
+
+-- (16) The member claims its spelling
+record Tag derives (Eq, Hash) = {name: String}
+let same(a: Tag, b: Tag): Bool = a == b          -- ERROR: `same` is already bound: the
+                                                 --   `Hash<Tag>` instance binds it as a member
+
+-- (17) Through evidence
+let both<a: Hash>(x: a, y: a): Bool = x.same(y)
+both(0.0, -0.0)                                  -- false
 ```
 
 *(Bare `Item` outside any owner's body still means the module-level alias where one is in scope — as after test (14)'s alias; inside `Queue`'s body it means `Queue.Item`. Standard local-wins scoping — §6, §7.3.)*

@@ -163,6 +163,21 @@ detail, but equal values are guaranteed equal hashes and repeated calls within o
 execution are deterministic. Collections may separately randomize their internal table
 placement.
 
+`Hash` has a second member, `same`, derived along with `hash`. Where `==` asks whether
+two values are equal, `same` asks whether anything could tell them apart. The two
+usually agree, but not always. `0.0 == -0.0` is true, yet `1.0 / x` gives `Infinity`
+for one and `-Infinity` for the other, so `Float.same(0.0, -0.0)` is false. A derived `same`
+compares field by field, or constructor and payload, using each part's own `same`:
+
+```hexagon
+let a = ProductCode({department = 3, item = 7})
+a.same(ProductCode({department = 3, item = 7}))   // True
+```
+
+`same` is what `Function.memoize` uses to decide whether a remembered answer fits a new
+call (chapter 3). Since a type that honors `Hash` has `same` as a member, its module
+can't also declare a top-level function called `same`.
+
 ## Sometimes structure is the wrong meaning
 
 Derivation is appropriate when the representation faithfully expresses the intended
