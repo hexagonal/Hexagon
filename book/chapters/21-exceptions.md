@@ -374,8 +374,8 @@ type ParseError = Error & {
 
 Catch emission first checks the brand, then the exception name, and automatically rethrows
 anything unmatched. It reads the brand and the name at most once per thrown value, guarded,
-and keeps what it read, so a hostile foreign value, such as one with a throwing getter,
-can neither escape a `catch` nor make two `catch`es of it take different arms.
+and keeps what it read, so a throwing getter on a thrown value can't throw its own error
+out of a `catch`, and two `catch`es of one value always take the same arm.
 
 A JavaScript consumer gets that discrimination ready-made rather than hand-written. Every
 exported exception constructor carries a guard, and a module exporting one also exports a
