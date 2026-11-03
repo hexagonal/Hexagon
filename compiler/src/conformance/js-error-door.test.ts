@@ -688,22 +688,22 @@ describe("`attempt` bridges back to data (§8.2)", () => {
     // Over a body that may fail and is pure, `attempt` is pure and cannot fail.
     expect(projectDiagnostics(
       attemptSource +
-        "export let bare(ignored: Int): Result(Int, Exn) = attempt domestic^(1)\n",
+        "export let bare(ignored: Int): Result(Int) = attempt domestic^(1)\n",
     )).toEqual([]);
     // Over a foreign call that is impure, the world passes through; the call
     // inside keeps its `!`, and the bare spelling is refused.
     expect(projectDiagnostics(
       attemptSource +
-        "export let marked(ignored: Int): Result(Int, Exn) = attempt reading!()\n",
+        "export let marked(ignored: Int): Result(Int) = attempt reading!()\n",
     )).toEqual([]);
     expect(projectDiagnostics(
       attemptSource +
-        "export let unmarked(ignored: Int): Result(Int, Exn) = attempt reading()\n",
+        "export let unmarked(ignored: Int): Result(Int) = attempt reading()\n",
     )).not.toEqual([]);
     // Over a body that cannot fail, there is nothing to catch.
     expect(projectDiagnostics(
       attemptSource +
-        "export let overmarked(ignored: Int): Result(Int, Exn) = attempt pure()\n",
+        "export let overmarked(ignored: Int): Result(Int) = attempt pure()\n",
     )).toEqual(["nothing here may fail, so `attempt` has nothing to catch"]);
   });
 
@@ -719,10 +719,12 @@ describe("`attempt` bridges back to data (§8.2)", () => {
   test("`Exn` at the boundary is `Error`, flat (§7.5)", () => {
     const text = declarationsOf(
       "exception Boom\nlet boom(): Int = throw^(Boom)\n" +
-        "export let attempted(ignored: Int): Result(Int, Exn) = attempt boom^()\n",
+        "export let attempted(ignored: Int): Result(Int) = attempt boom^()\n",
       "/main.hex",
     );
-    expect(text).toContain("Result<number, Error>");
+    // `Result(a)`'s `Err` holds an `Exn` (#1427), which `Result.hex`'s own face
+    // spells `Error`; the program's face names the one-parameter type.
+    expect(text).toContain("Result<number>");
     expect(text).not.toContain("readonly $hex: string");
   });
 });

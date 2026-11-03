@@ -28,7 +28,7 @@ export interface PreludeModule {
  * module, and in the prelude modules *after* it — each member sees the members
  * before it, and only those, which is what makes cycles impossible by
  * construction. Adding a member means placing it after everything it uses —
- * `JsValue.hex` sits after `Result.hex` because every decoder answers with one.
+ * `Option.hex`'s full seat sits after `Result.hex` because `Option.toResult` answers with one.
  * The one refinement is `PRELUDE_DATA_SEATS` below: a member's data may be
  * seated earlier than its full implementation.
  *
@@ -100,7 +100,10 @@ export interface PreludeModule {
  * `Option`'s data seat comes first (`PRELUDE_DATA_SEATS`), and the rest follow
  * in the order their uses demand. `Option.hex`'s full seat is after `Seq.hex`,
  * because `Option.toSeq` builds a `Seq`, while `Seq.hex` itself needs only the
- * data — a pull step returns an `Option`.
+ * data — a pull step returns an `Option`. `Result.hex` sits just before
+ * `Seq.hex` (#1427): `Option.toResult` names `Result`, and `Result.hex` needs
+ * only `Option`'s data, for `toOption`'s `Some` and `None`, and nothing of
+ * `Seq`'s.
  *
  * `Int.hex` (#344) is the first **primitive companion** — a primitive's home
  * module, where its instances are ordinary `honor` blocks rather than compiler
@@ -195,7 +198,7 @@ export interface PreludeModule {
  * module that spells either word. (Since #742 that arithmetic decides only how
  * many routes a refusal enumerates — nothing is seeded bare either way — so the
  * seat is now a courtesy to the reader rather than a load-bearing fact.)
- * `JsValue.toArray`'s `Result(Array(JsValue), …)` needs only the row, which
+ * `JsValue.toArray`'s `Array(JsValue)` needs only the row, which
  * the data seat gives everything after `Vector.hex`, so nothing forces this
  * file before `JsValue.hex` either. It sits here because a reader meeting the
  * boundary companions meets them together.
@@ -232,18 +235,16 @@ export interface PreludeModule {
  * module that uses it.
  *
  * `JsValue.hex` then sits after everything its headers name: all three unions
- * above, `Result.hex`, because every decoder answers with one, and `Vector.hex`,
- * because the `JsConversionError` inside that `Err` carries a `Vector` of path
- * segments. Nothing before them names a `JsValue` — the type has no Hexagon
+ * above, and `Vector.hex`, because the `JsConversionError` every decoder throws
+ * carries a `Vector` of path segments. Nothing before them names a `JsValue` — the type has no Hexagon
  * declaration site, so only these files and a user's own annotation can spell
  * it.
  *
  * `JsError.hex` closes the FFI block (#509), and its seat is forced twice over.
  * It sits after `JsValue.hex` because the exception's payload slot names
- * `JsValue` and both accessors take one, and after `Result.hex` and
- * `Option.hex` because `JsValue.toString` — which is what turns a guarded read
- * into a verdict — answers with a `Result` and `stack` answers with an
- * `Option`. It is a module of its own for the reason `JsKind.hex` is: FFI
+ * `JsValue` and both accessors take one, and after `Option.hex` because
+ * `JsValue.toString`, read with `?`, is what turns a guarded read into a
+ * verdict, and `stack` answers with an `Option`. It is a module of its own for the reason `JsKind.hex` is: FFI
  * Part 11 §7 spells the accessors `JsError.message` and `JsError.stack`, and a
  * qualified spelling needs a module addressable under the name (Modules §3.3).
  * The seat is also what makes the two names it exports — `message` and
@@ -287,11 +288,11 @@ export const PRELUDE_MODULES: readonly PreludeModule[] = [
   "Float",
   "Math",
   "BigInt",
+  "Result",
   "Seq",
   "Option",
   "Iterable",
   "Range",
-  "Result",
   "Vector",
   "String",
   "Dec",

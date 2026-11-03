@@ -84,7 +84,7 @@ describe("a tuple pattern beneath a constructor covers its case", () => {
 
   test("not Option-specific: Result carrying a tuple", () => {
     expect(diagnostics(
-      "let outcome: Result((Int, Int), String) = Ok((1, 2))\n" +
+      "let outcome: Result((Int, Int)) = Ok((1, 2))\n" +
       "export let total: Int = match outcome\n" +
       "    Err(reason) => 0\n" +
       "    Ok((left, right)) => left + right\n",

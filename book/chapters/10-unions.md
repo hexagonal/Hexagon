@@ -142,36 +142,38 @@ when `a` is itself an `Option`, so `Some(None)` and `None` cannot collapse into 
 runtime value. JavaScript nullability is a boundary concern with explicit conversions,
 not the representation of ordinary Hexagon absence.
 
-## `Result` represents success or recoverable failure
+## `Result` holds a caught failure
 
 The second standard union is:
 
 ```hexagon
-union Result(a, e) = Ok(value: a) | Err(error: e)
+union Result(a) = Ok(value: a) | Err(error: Exn)
 ```
 
-The first type parameter is the success value and the second is the error value:
+Its type parameter is the success value. Its error is always an exception, one that was
+thrown and caught: a `Result` is how a program keeps the outcome of a computation that
+may fail, to store it or hand it on. The Exceptions chapter introduces `attempt`, which
+makes one.
+
+A failure that is a program's own data, such as a check that explains what it found, is
+a union of its own, and ordinary matching takes it apart:
 
 ```hexagon
-let validatePort(port: Int): Result(Int, String) =
+union PortCheck = Valid(port: Int) | Invalid(problem: String)
+
+let validatePort(port: Int): PortCheck =
     if 1 <= port <= 65535 then
-        Ok(port)
+        Valid(port)
     else
-        Err("port must be between 1 and 65535")
-```
+        Invalid("port must be between 1 and 65535")
 
-A result makes failure part of the function's ordinary return type. The caller chooses
-how to recover:
-
-```hexagon
 let message =
     match validatePort(8080)
-        Ok(port) => "Listening on ${port}"
-        Err(problem) => "Invalid port: ${problem}"
+        Valid(port) => "Listening on ${port}"
+        Invalid(problem) => "Invalid port: ${problem}"
 ```
 
-Exceptions remain available for exceptional control flow, but `Result` is the common
-fit when failure is expected and the caller should decide what it means.
+The union names exactly the cases the check has, so each arm reads as what it means.
 
 ## `Bool` represents truth or falsity
 
@@ -270,7 +272,7 @@ that concept. No declaration you write can ask for such a pin.
 - missing and unreachable arms are compile errors;
 - unions may have type parameters and recursive payloads;
 - `Option(a)` represents a value that may be absent;
-- `Result(a, e)` represents success or recoverable failure;
+- `Result(a)` holds a caught failure, and a program's own failure data is a union of its own;
 - `Bool` is the prelude union `False | True`, ordinary in every respect except that its
   representation is pinned to the JavaScript `boolean`; and
 - unions emit as readable tagged objects, whatever their constructors carry.

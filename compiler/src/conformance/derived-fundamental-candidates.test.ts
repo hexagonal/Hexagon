@@ -206,6 +206,7 @@ describe("a user module plans from the program's table, a prelude module from it
       "/Hex/Nat.hex",
       "/Hex/Float.hex",
       "/Hex/BigInt.hex",
+      "/Hex/Result.hex",
       "/Hex/Seq.hex",
       "/Hex/Option.hex",
       "/Hex/Runtime/VectorTrie.hex",

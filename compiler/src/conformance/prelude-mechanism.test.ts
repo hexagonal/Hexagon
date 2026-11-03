@@ -88,6 +88,14 @@ const ORDERING = ["/Ordering.hex", "module Ordering\n\n" + "export union Orderin
 const OPTION = ["/Option.hex", "module Option\n\n" + "export union Option(a) = Some(value: a) | None\n"] as const;
 const RESULT = ["/Result.hex", "module Result\n\n" + "export union Result(a, e) = Ok(value: a) | Err(error: e)\n"] as const;
 const ENTRY = ["/main.hex", "module Main\n\n" + "export let ok: Int = 1\n"] as const;
+/** What `Result.hex` meets naming `Seq.hex`, which is seated after it (#1427). */
+const SEQ_UNSEEN: readonly string[] = [
+  "unknown generic type `Seq`",
+  "no module alias `Seq`; `import Seq`",
+  "no module alias `Seq`; `import Seq`",
+];
+/** What `Result.hex` meets calling a function of `Option`'s full seat, after it. */
+const OPTION_FUNCTION_UNSEEN: readonly string[] = ["module `Option` does not export `fallback`"];
 
 /** `Result` gaining a backward reference to `Option` — no import line, per §5.5. */
 const RESULT_USING_OPTION = [
@@ -171,25 +179,19 @@ describe("ordered intra-prelude visibility", () => {
 
   test("an earlier member does NOT see a later one", () => {
     // The discriminator. Before Phase 3 this passed because members saw
-    // *nothing*; it must now fail specifically because `Result` comes later.
+    // *nothing*; it must now fail specifically because `Seq` comes later:
+    // `Result.hex` is seated just before `Seq.hex` (#1427).
     expect(diagnostics([
       ORDERING,
-      // The error payload is a `String`, not an `Int`: this stand-in sits at
-      // `Option.hex`'s seat, which is *before* `stdlib/Int.hex`'s (#344), so an
-      // integer literal here would raise its own — true, and beside the point.
-      ["/Option.hex",
-        "module Option\n\n" + "export union Option(a) = Some(value: a) | None\n" +
-        "export fun toResult(option: Option(a)): Result(a, String) =\n" +
-        "    match option\n" +
-        "        Some(value) => Ok(value)\n" +
-        "        None => Err(\"none\")\n"],
-      RESULT,
+      OPTION,
+      ["/Result.hex",
+        "module Result\n\n" + "export union Result(a, e) = Ok(value: a) | Err(error: e)\n" +
+        "export fun toSeq(result: Result(a, e)): Seq(a) =\n" +
+        "    match result\n" +
+        "        Ok(value) => Seq.singleton(value)\n" +
+        "        Err(_) => Seq.empty\n"],
       ENTRY,
-    ], ["Ordering", "Option", "Result"])).toEqual([
-      "unknown generic type `Result`",
-      "unknown name `Ok`",
-      "unknown name `Err`",
-    ]);
+    ], ["Ordering", "Option", "Result"])).toEqual(SEQ_UNSEEN);
   });
 
   test("the first member sees nothing", () => {
@@ -236,17 +238,20 @@ describe("ordered intra-prelude visibility", () => {
   test("visibility is strictly backward, so a cycle cannot be written", () => {
     // Both directions at once: whichever member is later wins, and the earlier
     // one's reference is an error. This is §5.5's "cycles are impossible by
-    // construction" as an executable statement.
+    // construction" as an executable statement. `Option`'s full seat is after
+    // `Result.hex`'s (#1427), so `Option` may name `Result` and not the other
+    // way round, beyond the data `Option`'s early seat gives everyone.
     expect(diagnostics([
       ORDERING,
-      // No integer literal, for the reason the case above gives: this seat is
-      // before `stdlib/Int.hex`'s.
       ["/Option.hex",
         "module Option\n\n" + "export union Option(a) = Some(value: a) | None\n" +
-        "export fun peek(result: Result(Int, Int), fallback: Int): Int = fallback\n"],
-      RESULT_USING_OPTION,
+        "export fun peek(result: Result(a, e), fallback: a): a = fallback\n" +
+        "export fun fallback(option: Option(a), value: a): a = value\n"],
+      ["/Result.hex",
+        "module Result\n\n" + "export union Result(a, e) = Ok(value: a) | Err(error: e)\n" +
+        "export fun first(result: Result(a, e), value: a): a = Option.fallback(None, value)\n"],
       ENTRY,
-    ], ["Ordering", "Option", "Result"])).toEqual(["unknown generic type `Result`"]);
+    ], ["Ordering", "Option", "Result"])).toEqual(OPTION_FUNCTION_UNSEEN);
   });
 
   test("consumers still see every member, in any order", () => {
@@ -279,14 +284,19 @@ describe("emission follows the new dependency edge", () => {
    * channel above becomes the only one. The invariant both channels serve does
    * not depend on the answer.
    */
-  const RESULT_IMPORTING_OPTION = [
-    "/Result.hex",
-    "module Result\n\n" + "import Option as O\n" +
-    "export union Result(a, e) = Ok(value: a) | Err(error: e)\n" +
-    "export fun toOption(result: Result(a, e)): O.Option(a) =\n" +
-    "    match result\n" +
-    "        Ok(value) => O.Some(value)\n" +
-    "        Err(_) => O.None\n",
+  const OPTION_IMPORTING_RESULT = [
+    "/Option.hex",
+    "module Option\n\n" + "import Result as R\n" +
+    "export union Option(a) = Some(value: a) | None\n" +
+    "export fun toResult(option: Option(a), error: e): R.Result(a, e) =\n" +
+    "    match option\n" +
+    "        Some(value) => R.Ok(value)\n" +
+    "        None => R.Err(error)\n",
+  ] as const;
+  const USES_OPTION = [
+    "/main.hex",
+    "module Main\n\n" + "import Option as O\n" +
+    "export fun use(o: Option(Int)): Result(Int, Int) = O.toResult(o, 0)\n",
   ] as const;
 
   test("a member imported only by another member is still emitted", () => {
@@ -327,17 +337,19 @@ describe("emission follows the new dependency edge", () => {
     // On `main` this compiled clean, emitted ["/Result.hex", "/main.hex"], and
     // wrote `import ... from "./Hex/Option.js"` into Result.js — unloadable output
     // reported as success, with no Phase 3 machinery involved.
+    // Since #1427 `Result.hex` is the earlier of the two, so the explicit
+    // import runs from `Option.hex` to it.
     const compiled = project(
-      [ORDERING, OPTION, RESULT_IMPORTING_OPTION, USES_RESULT],
+      [ORDERING, OPTION_IMPORTING_RESULT, RESULT, USES_OPTION],
       ["Ordering", "Option", "Result"],
     );
-    expect(compiled.diagnostics).toEqual([]);
-    expect(compiled.modules.map(({ source }) => source.path)).toContain("/Option.hex");
+    expect(compiled.diagnostics.filter(({ primary }) => Number(primary.fileId) < 4)).toEqual([]);
+    expect(compiled.modules.map(({ source }) => source.path)).toContain("/Result.hex");
   });
 
   test("the invariant holds on the explicit channel too", () => {
     const compiled = project(
-      [ORDERING, OPTION, RESULT_IMPORTING_OPTION, USES_RESULT],
+      [ORDERING, OPTION_IMPORTING_RESULT, RESULT, USES_OPTION],
       ["Ordering", "Option", "Result"],
     );
     expect(danglingImports(compiled)).toEqual([]);

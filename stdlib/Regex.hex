@@ -71,8 +71,9 @@ export let compile(pattern: String): Regex =
         Syntax.RegexError(message, position) =>
             throw(RegexCompileFault("${message} (position: ${position})", position))
         // `Syntax.parse` throws nothing else, so this arm is the writer's word
-        // that nothing else arrives: anything that did would be an
-        // `AssumptionFault`. Without it, `compile` would be marked `^`.
+        // that nothing else arrives: an exception or a foreign throw that did
+        // would become an `AssumptionFault`, and a fault passes the arm as it
+        // passes every catch-all. Without it, `compile` would be marked `^`.
         other => assume throw^(other)
 
 (** `pattern` compiled, for a pattern that arrives as data: typed by a user, or

@@ -41,7 +41,7 @@ import { projectDiagnostics, runMain } from "../support/test-project.js";
 /** `Result.hex` supplied by the project and explicitly granted its registered seat. */
 const RESULT_WITH_VALUE = [
   "/Result.hex",
-  "module Result\n\n" + "export union Result(a, e) = Ok(value: a) | Err(error: e)\n" +
+  "module Result\n\n" + "export union Result(a) = Ok(value: a) | Err(error: Exn)\n" +
   "export let combine(left: Int, right: Int): Int = left + right\n" +
   "export let tally: Int = 0\n",
 ] as const;

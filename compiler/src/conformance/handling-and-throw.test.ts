@@ -150,7 +150,7 @@ describe("Effects §3.6: a catch-all handles what it guards", () => {
   test("`attempt` and `assume` are catch-alls over their bodies, so the world colour passes through", () => {
     const source = "let a(f: () ->! Int) = attempt f!()\nlet b(f: () ->! Int) = assume f!()\n";
     expect(messages(source)).toEqual([]);
-    expect(face(source, "a")).toBe("(() ->! Int) >~> Result(Int, Exn)");
+    expect(face(source, "a")).toBe("(() ->! Int) >~> Result(Int)");
     expect(face(source, "b")).toBe("(() ->! Int) >~> Int");
   });
 });

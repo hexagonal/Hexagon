@@ -83,10 +83,10 @@ whether an ID was supplied, and the inner layer whether it found a guest. `flatM
 combines those two steps into one `Option(String)`.
 
 `Result` supports the same pattern on success: `map` transforms an `Ok` payload and
-`flatMap` chains a step that can return another `Result` with the same error type.
-An `Err` passes through either operation without invoking the callback. When a
-boundary needs a different description of failure, `mapError` transforms the error
-while preserving any success.
+`flatMap` chains a step that can return another `Result`. An `Err` passes through
+either operation without invoking the callback. `toOption` and `Option.toResult`
+convert between the two unions, and `isSome`, `isNone`, `isOk` and `isErr` ask which
+constructor is present.
 
 ## Choosing when to compute a fallback
 
@@ -102,7 +102,7 @@ let conditional = guest |> Option.defaultWith(() => makeGuestName())
 
 The first line computing a fallback calls `makeGuestName` regardless of `guest`.
 The second calls it only for `None`. For `Result.defaultWith`, the callback receives
-the error, so recovery can depend on what went wrong. Both forms finish their work
+the caught exception, so recovery can depend on what went wrong. Both forms finish their work
 during the call; the fallback is not postponed until some later use of the answer.
 The Effects chapter explains the call marks needed when a callback performs effects.
 

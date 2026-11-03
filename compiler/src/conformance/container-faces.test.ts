@@ -133,7 +133,7 @@ describe("a constructor application's own expected type (#1066)", () => {
   test("reaches its arguments, through a forwarding form too", async () => {
     const exports = await run(
       "let a: Option(Dec) = Some(n)\n" +
-        "let b: Result(Dec, String) = Ok(n)\n" +
+        "let b: Result(Dec) = Ok(n)\n" +
         "let d: Option(Dec) = Some(n * 1.5)\n" +
         "let e: Option(Dec) = if c then Some(n) else None\n" +
         "let w: Wrapper(Dec) = Wrapper({value = n})\n" +
@@ -238,8 +238,8 @@ describe("a constructor application's own expected type (#1066)", () => {
   });
 
   test("another head declines, with no propagation artifact", () => {
-    expect(refusals("let a: Result(Dec, String) = Some(n)\n"))
-      .toEqual(["type mismatch: expected Result(Dec, String), found Option(Int)"]);
+    expect(refusals("let a: Result(Dec) = Some(n)\n"))
+      .toEqual(["type mismatch: expected Result(Dec), found Option(Int)"]);
   });
 });
 

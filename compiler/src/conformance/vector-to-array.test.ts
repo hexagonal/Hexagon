@@ -451,7 +451,7 @@ describe("both spellings reach the same door row (Modules §5.5)", () => {
 
   /** `JsValue`'s row is untouched: its own qualified spelling still resolves. */
   test("`JsValue.toArray` still means `JsValue`'s", () => {
-    expect(projectDiagnostics("module Main\n\n" + "export let d(v: JsValue): Result(Array(JsValue), JsConversionError) = JsValue.toArray(v)\n",
+    expect(projectDiagnostics("module Main\n\n" + "export let d(v: JsValue): Array(JsValue) = JsValue.toArray^(v)\n",
     )).toEqual([]);
   });
 });

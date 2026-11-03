@@ -27,7 +27,7 @@ export const countOption = value => { calls += 1; return { tag: "Some", value: v
 export const countResult = value => { calls += 1; return { tag: "Ok", value: value + 1 }; };
 export const eager = () => { calls += 10; return 90; };
 export const lazy = () => { calls += 100; return 91; };
-export const recover = error => { calls += 100; seen = error; return 91; };
+export const recover = error => { calls += 100; seen = error.message; return 91; };
 export const callCount = () => calls;
 export const received = () => seen;
 `;
@@ -37,10 +37,10 @@ const probeExtern = `extern from "./probe.js"
     fun count(value: Int) ->! Int
     fun countString(value: String) ->! Int
     fun countOption(value: Int) ->! Option(Int)
-    fun countResult(value: Int) ->! Result(Int, String)
+    fun countResult(value: Int) ->! Result(Int)
     fun eager() ->! Int
     fun lazy() ->! Int
-    fun recover(error: String) ->! Int
+    fun recover(error: Exn) ->! Int
     fun callCount() ->! Int
     fun received() ->! String
 `;
@@ -65,7 +65,7 @@ function hoveredType(source: string, needle: string): string | undefined {
 function companionDeclarations(name: "Option" | "Result"): string {
   const project = compileFiles([["/main.hex", "module Main\n\n" +
     "export let optionMap(source: Option(Int)): Option(Int) = Option.map(source, x => x)\n" +
-    "export let resultMap(source: Result(Int, String)): Result(Int, String) = " +
+    "export let resultMap(source: Result(Int)): Result(Int) = " +
     "Result.map(source, x => x)\n"]]);
   expect(project.diagnostics).toEqual([]);
   return project.modules.find(({ source }) => source.path.endsWith(`/${name}.hex`))!
@@ -206,11 +206,12 @@ export let doubledValue: Int = Seq.fold(doubled, 0, (sum, value) => sum + value)
 });
 
 describe("Result convenience operations", () => {
-  test("map, flatMap, and mapError transform only their selected payload", async () => {
+  test("map and flatMap transform only their selected payload", async () => {
     const main = await runMain(`module Main
 
-let ok: Result(Int, String) = Ok(3)
-let err: Result(Int, String) = Err("bad")
+exception Bad(message: String)
+let ok: Result(Int) = Ok(3)
+let err: Result(Int) = Err(Bad("bad"))
 export let mappedOk: String =
     match Result.map(ok, _ => "changed")
         Ok(value) => value
@@ -218,7 +219,7 @@ export let mappedOk: String =
 export let mappedErr: String =
     match Result.map(err, value => value + 1)
         Ok(_) => "wrong"
-        Err(error) => error
+        Err(error) => "\${error}"
 export let nested: Int =
     match Result.map(ok, value => Ok(value + 1))
         Ok(Ok(value)) => value
@@ -230,31 +231,22 @@ export let flatOk: Int =
 export let flatErr: String =
     match Result.flatMap(err, value => Ok(value + 2))
         Ok(_) => "wrong"
-        Err(error) => error
-export let changedError: Int =
-    match Result.mapError(err, String.length)
-        Ok(_) => 0
-        Err(size) => size
-export let untouchedOk: Int =
-    match Result.mapError(ok, String.length)
-        Ok(value) => value
-        Err(_) => 0
+        Err(error) => "\${error}"
 `);
 
     expect(main).toMatchObject({
       mappedOk: "changed",
-      mappedErr: "bad",
+      mappedErr: "Bad: bad",
       nested: 4,
       flatOk: 5,
-      flatErr: "bad",
-      changedError: 3,
-      untouchedOk: 3,
+      flatErr: "Bad: bad",
     });
   });
 
   test("callbacks receive the selected value once and defaults are eager or lazy", async () => {
-    const main = await runWithProbe(`let ok: Result(Int, String) = Ok(1)
-let err: Result(Int, String) = Err("actual")
+    const main = await runWithProbe(`exception Actual(message: String)
+let ok: Result(Int) = Ok(1)
+let err: Result(Int) = Err(Actual("actual"))
 export let mapped: Int = Result.defaultValue(Result.map!(ok, count), 0)
 let skipped = Result.map!(err, count)
 export let afterMap: Int = callCount!()
@@ -270,14 +262,6 @@ export let flatSelected: Int = Result.defaultValue(Result.flatMap!(ok, countResu
 export let afterFlatSelected: Int = callCount!()
 let flatSkipped = Result.flatMap!(err, countResult)
 export let afterFlatSkipped: Int = callCount!()
-let error: Result(Int, String) = Err("error")
-export let errorSelected: Int =
-    match Result.mapError!(error, countString)
-        Err(value) => value
-        Ok(_) => 0
-export let afterErrorSelected: Int = callCount!()
-let errorSkipped = Result.mapError!(ok, countString)
-export let afterErrorSkipped: Int = callCount!()
 `);
 
     expect(main).toMatchObject({
@@ -294,9 +278,6 @@ export let afterErrorSkipped: Int = callCount!()
       flatSelected: 2,
       afterFlatSelected: 112,
       afterFlatSkipped: 112,
-      errorSelected: 5,
-      afterErrorSelected: 113,
-      afterErrorSkipped: 113,
     });
   });
 });
@@ -308,13 +289,18 @@ describe("public Option and Result faces", () => {
     ["Option.defaultValue", "(Option(a), a) -> a"],
     ["Option.defaultWith", "(Option(a), () ->! a) >-> a"],
     ["Option.toSeq", "Option(a) -> Seq(a)"],
-    ["Result.map", "(Result(a, b), a ->! c) >-> Result(c, b)"],
-    ["Result.flatMap", "(Result(a, b), a ->! Result(c, b)) >-> Result(c, b)"],
-    ["Result.mapError", "(Result(a, b), b ->! c) >-> Result(a, c)"],
-    ["Result.defaultValue", "(Result(a, b), a) -> a"],
-    ["Result.defaultWith", "(Result(a, b), b ->! a) >-> a"],
+    ["Option.toResult", "(Option(a), () -> Exn) -> Result(a)"],
+    ["Option.isSome", "Option(a) -> Bool"],
+    ["Option.isNone", "Option(a) -> Bool"],
+    ["Result.map", "(Result(a), a ->! b) >-> Result(b)"],
+    ["Result.flatMap", "(Result(a), a ->! Result(b)) >-> Result(b)"],
+    ["Result.defaultValue", "(Result(a), a) -> a"],
+    ["Result.defaultWith", "(Result(a), Exn ->! a) >-> a"],
+    ["Result.toOption", "Result(a) -> Option(a)"],
+    ["Result.isOk", "Result(a) -> Bool"],
+    ["Result.isErr", "Result(a) -> Bool"],
     ["Option.orThrow", "(Option(a), () -> Exn) ->^ a"],
-    ["Result.orThrow", "Result(a, Exn) ->^ a"],
+    ["Result.orThrow", "Result(a) ->^ a"],
   ])("%s has its exact qualified hover type", (qualified, expected) => {
     const member = qualified.slice(qualified.indexOf(".") + 1);
     const source = `module Main\n\nlet held = ${qualified}\n`;
@@ -334,14 +320,18 @@ describe("public Option and Result faces", () => {
       "export declare const orThrow: <a>(source: Option<a>, failure: () => Error) => a;",
     );
 
+    expect(option).toContain(
+      "export declare const toResult: <a>(source: Option<a>, failure: () => Error) => Result<a>;",
+    );
+
     const result = companionDeclarations("Result");
+    expect(result).toContain('export type Result<a> = { tag: "Ok"; value: a } | { tag: "Err"; error: Error };');
     expect(result).toContain(
-      "export declare const mapError: <a, b, c>(source: Result<a, b>, transform: (arg0: b) => c) => Result<a, c>;",
+      "export declare const defaultWith: <a>(source: Result<a>, fallback: (arg0: Error) => a) => a;",
     );
-    expect(result).toContain(
-      "export declare const defaultWith: <a, b>(source: Result<a, b>, fallback: (arg0: b) => a) => a;",
-    );
-    expect(result).toContain("export declare const orThrow: <a>(source: Result<a, Error>) => a;");
+    expect(result).toContain("export declare const orThrow: <a>(source: Result<a>) => a;");
+    expect(result).toContain("export declare const toOption: <a>(source: Result<a>) => Option<a>;");
+    expect(result).not.toContain("mapError");
   });
 });
 
@@ -377,8 +367,7 @@ describe("callback effects and exceptions", () => {
       ["/effects.js", "export const touch = value => value + 1;"],
       ["/main.hex", "module Main\n\n" + effectful +
         "let optionFlat: Option(Int) = Option.flatMap!(Some(1), value => Some(touch!(value)))\n" +
-        "let resultFlat: Result(Int, String) = Result.flatMap!(Ok(1), value => Ok(touch!(value)))\n" +
-        "let resultError: Result(Int, Int) = Result.mapError!(Err(1), touch)\n"],
+        "let resultFlat: Result(Int) = Result.flatMap!(Ok(1), value => Ok(touch!(value)))\n"],
     ]).diagnostics.map(({ message }) => message)).toEqual([]);
   });
 
@@ -397,8 +386,9 @@ export let optionSkipped: Bool = match attempt Option.map^(None, explode)
 export let resultSelected: Bool = match attempt Result.map^(Ok(1), explode)
     Err(_) => True
     _ => False
-export let resultSkipped: Bool = match attempt Result.map^(Err("bad"), explode)
-    Ok(Err("bad")) => True
+let bad: Result(Int) = Err(Boom)
+export let resultSkipped: Bool = match attempt Result.map^(bad, explode)
+    Ok(Err(_)) => True
     _ => False
 `);
 
@@ -431,7 +421,7 @@ let fromOption(o: Option(String)): String =
         Boom(m) => "thrown: " ++ m
         _ => "something else"
 
-let fromResult(r: Result(String, Exn)): String =
+let fromResult(r: Result(String)): String =
     try
         r.orThrow^()
     catch
@@ -461,7 +451,7 @@ export let err: String = fromResult(Err(Boom("bad")))
 
 exception Boom(message: String)
 export let make(): Exn = Boom("built here")
-export let roundTrip(r: Result(Int, Exn)): Result(Int, Exn) = attempt r.orThrow^()
+export let roundTrip(r: Result(Int)): Result(Int) = attempt r.orThrow^()
 `);
     const made = (main["make"] as () => Error)();
     const back = (main["roundTrip"] as (r: unknown) => { tag: string; error: Error })(
@@ -491,7 +481,7 @@ export let lazyFailure(o: Option(Int)): Int = o.orThrow^(() => throw(IndexFault(
     const main = await runMain(`module Main
 
 export let makeFault(): Exn = IndexFault(1, 2)
-export let guarded(r: Result(Int, Exn)): Int =
+export let guarded(r: Result(Int)): Int =
     try
         r.orThrow^()
     catch
@@ -508,7 +498,7 @@ export let guarded(r: Result(Int, Exn)): Int =
       "exception Boom\n" +
         "let a(o: Option(Int)): Int = Option.orThrow(o, () => Boom)\n" +
         "let b(o: Option(Int)): Int = Option.orThrow!(o, () => Boom)\n" +
-        "let c(r: Result(Int, Exn)): Int = r.orThrow()\n",
+        "let c(r: Result(Int)): Int = r.orThrow()\n",
     )).toEqual([
       "this call may fail, so `orThrow` wants `^`, not no mark",
       perhaps("this call is pure, so `orThrow` wants `^`, not `!`", "is impure", "pure"),
@@ -528,12 +518,80 @@ export let guarded(r: Result(Int, Exn)): Int =
 
   test.each([
     ["let held(o: Option(Int)) = o.orThrow^(() => Boom)", "Option(Int) ->^ Int"],
-    ["let held(r: Result(Int, Exn)) = r |> Result.orThrow^", "Result(Int, Exn) ->^ Int"],
+    ["let held(r: Result(Int)) = r |> Result.orThrow^", "Result(Int) ->^ Int"],
     ["let held(o: Option(Int)) = Option.orThrow?(o, () => Boom)", "Option(Int) -> Option(Int)"],
-    ["let held(r: Result(Int, Exn)) = attempt r.orThrow^()", "Result(Int, Exn) -> Result(Int, Exn)"],
+    ["let held(r: Result(Int)) = attempt r.orThrow^()", "Result(Int) -> Result(Int)"],
   ])("%s is %s", (line, expected) => {
     const source = "module Main\n\nexception Boom\n" + line + "\n";
     expect(messages("exception Boom\n" + line + "\n")).toEqual([]);
     expect(hoveredType(source, "held")).toBe(expected);
+  });
+});
+
+/**
+ * **The conversions and the predicates** (§2, §3, #1427). `toOption` and
+ * `toResult` throw nothing, so their calls are bare and reach the dot; the
+ * thunk of `toResult` runs only for `None`, as `orThrow`'s does. The four
+ * predicates read the constructor only, so they ask for no `Eq`.
+ */
+describe("the conversions between Option and Result, and the predicates", () => {
+  test("toOption and toResult are bare calls by the dot, and round-trip", async () => {
+    const main = await runMain(`module Main
+
+exception Missing
+let ok: Result(Int) = Ok(3)
+let err: Result(Int) = Err(Missing)
+export let okOption: Int = match ok.toOption()
+    Some(value) => value
+    None => 0
+export let errOption: Bool = err.toOption().isNone()
+export let someResult: Int = match Some(4).toResult(() => Missing)
+    Ok(value) => value
+    Err(_) => 0
+export let noneResult: String = match (None: Option(Int)).toResult(() => Missing)
+    Ok(_) => "ok"
+    Err(error) => "\${error}"
+export let roundTrip: Int = match Some(5).toResult(() => Missing).toOption()
+    Some(value) => value
+    None => 0
+`);
+    expect(main).toMatchObject({
+      okOption: 3,
+      errOption: true,
+      someResult: 4,
+      noneResult: "Missing",
+      roundTrip: 5,
+    });
+  });
+
+  /** The thunk is pure; a fault from it shows exactly when it ran. */
+  test("toResult builds its exception only for None", async () => {
+    const main = await runMain(`module Main
+
+export let lazyFailure(o: Option(Int)): Result(Int) = o.toResult(() => throw(IndexFault(0, 0)))
+`);
+    const lazyFailure = main["lazyFailure"] as (o: unknown) => { tag: string };
+    expect(lazyFailure({ tag: "Some", value: 3 })).toEqual({ tag: "Ok", value: 3 });
+    expect(() => lazyFailure({ tag: "None" })).toThrow(expect.objectContaining({ name: "IndexFault" }));
+  });
+
+  test("the four predicates answer on both constructors, with no Eq", async () => {
+    const main = await runMain(`module Main
+
+exception Missing
+// A function has no Eq, so only the predicates can ask about it.
+let present: Option(Int -> Int) = Some((n) => n)
+let absent: Option(Int -> Int) = None
+let ok: Result(Int -> Int) = Ok((n) => n)
+let err: Result(Int -> Int) = Err(Missing)
+export let answers: String = "\${present.isSome()} \${present.isNone()} \${absent.isSome()} \${absent.isNone()} " ++
+    "\${ok.isOk()} \${ok.isErr()} \${err.isOk()} \${err.isErr()}"
+`);
+    expect(main["answers"]).toBe("True False False True True False False True");
+  });
+
+  test("Result takes one type argument", () => {
+    expect(messages("export let r: Result(Int, String) = Ok(1)\n"))
+      .toEqual(["type `Result` expects 1 argument, but 2 were provided"]);
   });
 });
