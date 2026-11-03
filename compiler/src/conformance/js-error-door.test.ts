@@ -919,7 +919,8 @@ describe("where the environment refuses the runtime record its place, each modul
     "        ignore(fails^(v))\n" +
     "        \"returned\"\n" +
     "    catch\n" +
-    "        _ => \"caught\"\n";
+    "        _ => \"caught\"\n" +
+    "export let size(v: JsValue): Int = Array.length(JsValue.toArray^(v))\n";
 
   async function refused(
     key: string,
@@ -951,6 +952,8 @@ describe("where the environment refuses the runtime record its place, each modul
     expect((exports["caught"] as (v: unknown) => string)(hostile)).toBe("foreign");
     expect((exports["anything"] as (v: unknown) => string)(hostile)).toBe("caught");
     expect(reads).toBe(1);
+    // `toArray`'s look uses the record's `arrays` and `looks`.
+    expect((exports["size"] as (v: unknown) => number)([1, 2, 3])).toBe(3);
   }
 
   test("a key already holding `null`", async () => {
@@ -1000,22 +1003,30 @@ describe("where the environment refuses the runtime record its place, each modul
     }
   });
 
-  // The catch's kept read uses `reads`, so a wrong `reads` is the field a
-  // catch would trip on: a number, an object that only inherits from
-  // `WeakMap.prototype`, and a proxy over a real `WeakMap`.
+  // A catch trips on a wrong `reads`, and `toArray` on a wrong `arrays` or
+  // `looks`: a number, an object that only inherits from `WeakMap.prototype`,
+  // a proxy over a real `WeakMap`, and a plain object.
   test.each([
-    ["a number", (): unknown => 5],
-    ["a lookalike", (): unknown => Object.create(WeakMap.prototype) as unknown],
-    ["a proxy over a `WeakMap`", (): unknown => new Proxy(new WeakMap(), {})],
-  ])("a key holding a record whose `reads` is %s", async (label, make) => {
-    const key = `hexagon.runtime.test-wrong-reads-${label}`;
+    ["reads", "a number", (): unknown => 5],
+    ["reads", "a lookalike", (): unknown => Object.create(WeakMap.prototype) as unknown],
+    ["reads", "a proxy over a `WeakMap`", (): unknown => new Proxy(new WeakMap(), {})],
+    ["arrays", "a lookalike", (): unknown => Object.create(WeakMap.prototype) as unknown],
+    ["looks", "a plain object", (): unknown => ({})],
+  ])("a key holding a record whose `%s` is %s", async (field, label, make) => {
+    const key = `hexagon.runtime.test-wrong-${field}-${label}`;
     const seat = globalThis as Record<symbol, unknown>;
-    const reads = make();
-    const wrong = { reads, reading: {}, arrays: new WeakMap(), looks: new WeakMap() };
+    const value = make();
+    const wrong: Record<string, unknown> = {
+      reads: new WeakMap(),
+      reading: {},
+      arrays: new WeakMap(),
+      looks: new WeakMap(),
+      [field]: value,
+    };
     seat[Symbol.for(key)] = wrong;
     try {
       await refused(key);
-      expect(wrong.reads).toBe(reads);
+      expect(wrong[field]).toBe(value);
     } finally {
       delete seat[Symbol.for(key)];
     }
