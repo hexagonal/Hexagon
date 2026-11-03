@@ -112,7 +112,7 @@ export declare const float: Dictionary<number>;
 export declare const bigInt: Dictionary<bigint>;
 ```
 
-giving `Num.nat`, `Num.int`, `Signed.int`, `Signed.float`, `Signed.bigInt`, `Eq.string`, `Show.bool`, and so on. These remain useful even though fundamental *function* entry points are specialized (Part 8): factories and generic editions need composable evidence — `Vector.show(Show.string)` has nowhere else to get its element dictionary — and an export with two or more constrained variables, which has no specializations, is reached at fundamental types only through its generic edition and these handles.
+giving `Num.nat`, `Num.int`, `Signed.int`, `Signed.float`, `Signed.bigInt`, `Eq.string`, `Show.bool`, and so on. These remain useful even though fundamental *function* entry points are specialized (Part 8): factories and generic editions need composable evidence — `Vector.show(Show.string)` has nowhere else to get its element dictionary — and an export with two or more constrained variables, which has no specializations, is reached from JavaScript at fundamental types only through its generic edition and these handles.
 
 ### 3.3 Type-owned handles
 

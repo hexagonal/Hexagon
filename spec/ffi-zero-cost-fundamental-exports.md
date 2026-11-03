@@ -465,7 +465,7 @@ export let plus<a: Num>(x: a, y: a): a = x + y
 --        rename one of the exports
 
 -- (h) Zero-entry-point case: legal, visible, and still a working Hexagon export
-constraint Weighty<a> = weight(x: a) -> Float       -- no fundamental instances
+export constraint Weighty<a> = weight(x: a) -> Float -- no fundamental instances
 export let heaviest<a: Weighty>(xs: Vector(a)): Option(a) = ...
 -- with no public non-fundamental Weighty instance: no foreign typed entry
 -- points. Not an error: another Hexagon module may import this one, honor
@@ -484,7 +484,7 @@ export let heaviest<a: Weighty>(xs: Vector(a)): Option(a) = ...
 -- .d.ts bytes attributable to specializations and §8.3's copies (§10).
 
 -- (k) Trigger completeness: one uncallable variable blocks the edition (§17.1)
-constraint Weighty<a> = weight(x: a) -> Float       -- no fundamental instances
+export constraint Weighty<a> = weight(x: a) -> Float -- no fundamental instances
 export let describe<a: Show, b: Weighty>(x: a, y: b): String = ...
 -- Publicly obtainable Show evidence exists (e.g. Show.int); but with no
 -- publicly obtainable Weighty evidence for ANY public type, no complete
@@ -493,8 +493,9 @@ export let describe<a: Show, b: Weighty>(x: a, y: b): String = ...
 -- foreign entry points, per §3.4.)
 export record Grams = {n: Float}
 honor Weighty<Grams> = ...                          -- public type, lawful instance
--- Now complete assignments exist (e.g. a=Int via Show.int, b=Grams via
--- Grams.weighty) → the `describe` generic edition appears. Additive.
+-- Now complete assignments exist (e.g. a=Int via Show.int, b=Grams via its
+-- public Weighty handle, FFI Part 9 §3) → the `describe` generic edition
+-- appears. Additive.
 
 -- (l) Two constrained variables, fundamental evidence only (§13.4)
 export let shift<a: Bitwise, n: Integral>(x: a, by: n): a = ...
@@ -536,7 +537,7 @@ Applied **in place** above; the corrected section is marked. §17.1 and §17.2 c
 - **Correction:** ruled by James on 2026-11-02. One-variable exports keep every lawful fundamental specialization. Exports with two or more get none, and reach JavaScript through the generic edition when §4.1 triggers it. Hexagon's own calls to them at fundamental tuples get copies on demand (§8.3). The ruling's "Hexagon's own calls get copies on demand" is read as covering exactly the calls that lost their specializations: a one-variable export's calls reach its specializations (decision 18), and calls at other types keep evidence.
 - **Rejected alternatives (do not relitigate):** the full product (§11.9): esbuild's tree shaking was measured to drop every unused specialization, so its cost fell on unbundled output, which tree shaking cannot reach. A generic-only surface for every export (§11.10): a JavaScript call through a generic edition measured about six times slower on arithmetic once the edition had run at several types.
 
-### 17.4 Fundamental evidence counts for an export with two or more constrained variables (2026-11-02; §1, §4.1 revised; §13.4 restated)
+### 17.4 Fundamental evidence counts for an export with two or more constrained variables (2026-11-02; §1, §4.1 revised; §13.4 restated; §9, §11.8, §16 (e), (k), (l) amended)
 
 - **Finding:** under the one-variable rule (§17.3), an export with two or more constrained variables has no specializations. Read for every export, §4.1's clause 2 then left `shift<a: Bitwise, n: Integral>`, in a program adding no public `Bitwise` or `Integral` instance, with no JavaScript entry point at all, although `Bitwise.int` and `Integral.int` are public and complete a lawful call.
 - **Origin:** clause 2 was written when every fundamental assignment had a specialization, to make the generic edition add only what the specializations did not cover. §17.3 removed the specializations of such exports and left the clause reading as before.

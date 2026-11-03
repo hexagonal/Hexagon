@@ -157,8 +157,8 @@ can obtain, one for each constraint. For a function with one constrained type, a
 least one of them must be for a non-fundamental type such as `Vector(Int)` or `Rat`,
 because the direct functions already cover the fundamental types. A function with
 several constrained types has no direct functions, so fundamental dictionaries alone
-are enough. This function gets a generic function even though no non-fundamental type
-honors `Bitwise` or `Integral`:
+are enough. The following function gets a generic function even when no non-fundamental
+type honors `Bitwise` or `Integral`:
 
 ```hexagon
 export let shift<a: Bitwise, n: Integral>(x: a, by: n): a = ...
