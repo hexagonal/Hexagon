@@ -1,9 +1,10 @@
 # Hexagon FFI Part 11: `JsValue`, Checked Decoding, and Conversion Failure
 
-**Status:** Decided and promoted after Sol review (July 2026). Drafted per `spec/notes/ffi-roadmap.md` Part 11 from the approved decision package (James/Sol, 2026-07-17); the draft's completions and open questions were resolved at review and are recorded in §§12–13 (retitled review-resolution sections; numbering stable per house rule). Resolutions applied in place: `JsKind` approved as drafted; **`JsConversionError` is ordinary data, not an exception** (§5); `JsValue.from` approved; the conservative `JsError.message`/`stack` algorithms approved with objects *and functions* eligible for the guarded read (§7); `toArray`'s revoked-proxy probe follows `JsError`, unlike total `kind` (§4.2); `toJsMap`/`toJsSet` deferred from the v1 core with a recorded revisit bar (§9, §13.1); the composable decoder library is the stdlib listing's (§13.2, ledger discharge §10); and nullish absorption is normalized as one idempotency principle (§8, §13.3). Discharges `spec/notes/ffi-proto-spec-questions.md` §10's must-decide list and the accessor debt Exceptions §6.1 recorded. The approved decisions are normative here: `JsValue` is the final name, facing `unknown`; decoding is strict and non-coercing with no unsafe casts in v1; `JsValue.kind` is total and property-free; checked decoding returns `Result(_, JsConversionError)`; structured paths use fields, 1-based indices, map keys/values, and set elements, with cycles reporting current and first-seen paths; shape/range/cycle failures return `Err` while hostile foreign throws use `JsError`; `JsError.message`/`JsError.stack` are total, conservative, and suppress secondary throwing-property failures; `JsValue` itself includes `null` and `undefined` and is not modeled as `Nullable(JsValue)`. **Amended (#876):** `JsValue.from` is a **release seat** — its argument is walked by Part 1 §5.4 at its concrete type, and an argument type containing an unresolved type variable is refused (§2); `toArray`'s success value is a **captured** `Array(JsValue)`, a copy, no longer a zero-copy view (§4.2). **Carries Part 10's correction:** Part 10's shallow conversions originate failure paths through map keys and set elements only — never map values; *map value* remains general path vocabulary for conversions that actually traverse values (§6.3).
+**Status:** Decided and promoted after Sol review (July 2026). Drafted per `spec/notes/ffi-roadmap.md` Part 11 from the approved decision package (James/Sol, 2026-07-17); the draft's completions and open questions were resolved at review and are recorded in §§12–13 (retitled review-resolution sections; numbering stable per house rule). Resolutions applied in place: `JsKind` approved as drafted; **`JsConversionError` is a tracked exception** (§5; #1427 superseded the review's resolution as data, §12.2); `JsValue.from` approved; the conservative `JsError.message`/`stack` algorithms approved with objects *and functions* eligible for the guarded read (§7); `toArray`'s revoked-proxy probe follows `JsError`, unlike total `kind` (§4.2); `toJsMap`/`toJsSet` deferred from the v1 core with a recorded revisit bar (§9, §13.1); the composable decoder library is the stdlib listing's (§13.2, ledger discharge §10); and nullish absorption is normalized as one idempotency principle (§8, §13.3). Discharges `spec/notes/ffi-proto-spec-questions.md` §10's must-decide list and the accessor debt Exceptions §6.1 recorded. The approved decisions are normative here: `JsValue` is the final name, facing `unknown`; decoding is strict and non-coercing with no unsafe casts in v1; `JsValue.kind` is total and property-free; checked decoding throws the tracked exception `JsConversionError`; structured paths use fields, 1-based indices, map keys/values, and set elements, with cycles reporting current and first-seen paths; shape/range/cycle failures throw `JsConversionError` while hostile foreign throws stay `JsError`; `JsError.message`/`JsError.stack` are total, conservative, and suppress secondary throwing-property failures; `JsValue` itself includes `null` and `undefined` and is not modeled as `Nullable(JsValue)`. **Amended (#876):** `JsValue.from` is a **release seat** — its argument is walked by Part 1 §5.4 at its concrete type, and an argument type containing an unresolved type variable is refused (§2); `toArray`'s success value is a **captured** `Array(JsValue)`, a copy, no longer a zero-copy view (§4.2). **Carries Part 10's correction:** Part 10's shallow conversions originate failure paths through map keys and set elements only — never map values; *map value* remains general path vocabulary for conversions that actually traverse values (§6.3).
 **Revised 2026-11-03 (memoization's cycle ruling, `memoization.md`):** §7 gains what a read on a cycle keeps, by FFI Part 3 §7.5's rule for every keeper.
+**Revised 2026-11-03 (#1427):** checked decoding throws a tracked `JsConversionError(reason, path, message)` instead of answering `Result(_, JsConversionError)`: §1's two failure kinds, §4's faces, §4.3, §5.1 and the §11 and §14 rows.
 **Revised 2026-11-03 (#1447):** Hexagon looks inside a foreign object at most once and keeps what it saw (§1): the finding that an object is an array is kept for `kind` (§3), `toArray` keeps its look (§4.2), and a `catch` reads a thrown value's brand and name through §7's kept read (§7). §4.3's statement of what the core surface reads, and §11's rows for revoked proxies, are corrected to match.
-**Scope:** The `JsValue` type: representation, face, nullish absorption, the total injection; `JsValue.kind`; the strict scalar decoders and `toArray`; the `JsConversionError` data declaration, reason classes, and all-or-nothing rule; the structured path model; `JsError.message`/`JsError.stack` over arbitrary throwables; the trusted-declaration-versus-defensive-decoding boundary; diagnostics.
+**Scope:** The `JsValue` type: representation, face, nullish absorption, the total injection; `JsValue.kind`; the strict scalar decoders and `toArray`; the `JsConversionError` exception, reason classes, and all-or-nothing rule; the structured path model; `JsError.message`/`JsError.stack` over arbitrary throwables; the trusted-declaration-versus-defensive-decoding boundary; diagnostics.
 **Not in scope:** the composable decoder/combinator library (stdlib listing — §13.2; the path vocabulary is fixed here so it composes); `JsMap`/`JsSet` classification decoders (§13.1); the `JsError` exception itself and catch semantics (Exceptions §6 — consumed); Part 10's conversions (consumed; they cite this part's error type); unsafe casts (none exist in v1, §1).
 **Companions:** Part 1 §3/§4.1 (failure doctrine; the `JsValue` row this part finalizes); Part 2 (the captured `Array`, `Nullable` idempotence); Part 10 §2 (the captured `JsMap`/`JsSet`); Part 10 §7.3 (the first consumers of `JsConversionError`); Exceptions §6–§7 (`JsError`, virtual wrapping, branded representation); Collections Part 1 §3.3 / Decisions Batch §5 (1-based indexing); Unions §6 (representations used by this part's declarations).
 
@@ -19,8 +20,8 @@ Fixed here, from the approved package:
 
 - **Strict, non-coercing decoding.** A decoder succeeds iff the value already *is* the target representation. Nothing is parsed, truncated, rounded, `String()`-ed, or `Number()`-ed. `JsValue.toBool` on `1` fails; `JsValue.toString` on `42` fails. Coercion is a foreign-side decision made in foreign code, never a Hexagon default.
 - **No unsafe casts in v1.** There is no `JsValue.unsafeCast`, no `as`-style reinterpretation, no blessed backdoor. The only exits from `JsValue` are checked decoders — and the only bypass of decoding is an extern declaration, which is a visible, trusted assertion at a declaration site rather than an expression-level cast. This keeps every unchecked claim about foreign data findable by reading `extern` blocks.
-- **Two failure channels, never mixed** (the Part 10 §4.4 split, generalized): a value that is inspectable but wrong — wrong shape, out of range, cyclic — produces a **defined checked failure**, `Err(JsConversionError)`. A **hostile foreign operation that throws** during inspection (a proxy trap, a poisoned getter) propagates through the ordinary **`JsError`** door. `Err` is about the data; `JsError` is about the code.
-- **Hexagon looks inside a foreign object at most once.** What a look found is kept beside the object, never on it, for as long as the object lives, and every later look answers from what was kept: `toArray`'s look (§4.2), each property §7 reads, and the finding that an object is an array, the one answer of `kind` that foreign code can change (§3). That keeping is Effects §6.2's species (b): foreign code can change the object, but not what Hexagon saw, so a function that looks is a value function of its argument. A foreign write after the first look is not seen. A dev who needs a fresh look declares the type they want at the boundary instead of `JsValue`: an `Array(JsValue)` result of an impure extern row, or an `Array(a)` parameter, is captured afresh at each crossing (FFI Part 1 §5.4). What is kept is held in one record per program, which every module's copy of the runtime reaches, so no two modules disagree about one object. A primitive, `null` and `undefined` have no inside to look at.
+- **Two failure kinds, never mixed** (the Part 10 §4.4 split, generalized): a value that is inspectable but wrong — wrong shape, out of range, cyclic — throws a **defined checked failure**, the tracked exception **`JsConversionError`** (§5). A **hostile foreign operation that throws** during inspection (a proxy trap, a poisoned getter) propagates as the foreign throw it is, through the ordinary **`JsError`** door. Neither is made from the other: `JsConversionError` is about the data; `JsError` is about the code. A catch arm that names `JsConversionError` lets a `JsError` through; a catch-all, `attempt` and the reading `?` take both (Exceptions §5.3, §8.2; Effects §3.1).
+- **Hexagon looks inside a foreign object at most once.** What a look found is kept beside the object, never on it, for as long as the object lives, and every later look answers from what was kept: `toArray`'s look (§4.2), each property §7 reads, and the finding that an object is an array, the one answer of `kind` that foreign code can change (§3). That keeping is Effects §6.2's species (b): foreign code can change the object, but not what Hexagon saw, so a function that looks is a value function of its argument. A foreign write after the first look is not seen. A programmer who needs a fresh look declares the type they want at the boundary instead of `JsValue`: an `Array(JsValue)` result of an impure extern row, or an `Array(a)` parameter, is captured afresh at each crossing (FFI Part 1 §5.4). What is kept is held in one record per program, which every module's copy of the runtime reaches, so no two modules disagree about one object. A primitive, `null` and `undefined` have no inside to look at.
 
 ---
 
@@ -64,11 +65,22 @@ Classification rules, normative:
 ### 4.1 Scalar decoders
 
 ```hexagon
-JsValue.toInt    : JsValue -> Result(Int, JsConversionError)
-JsValue.toFloat  : JsValue -> Result(Float, JsConversionError)
-JsValue.toBigInt : JsValue -> Result(BigInt, JsConversionError)
-JsValue.toBool   : JsValue -> Result(Bool, JsConversionError)
-JsValue.toString : JsValue -> Result(String, JsConversionError)
+JsValue.toInt    : JsValue ->^ Int
+JsValue.toFloat  : JsValue ->^ Float
+JsValue.toBigInt : JsValue ->^ BigInt
+JsValue.toBool   : JsValue ->^ Bool
+JsValue.toString : JsValue ->^ String
+```
+
+Each is pure and may fail on its own account: a value that is not the target throws `JsConversionError` with the reason below and an empty path (§5). The caller reads the call as any tracked call is read (Effects §3.1, Exceptions §8): `value.toInt^()` passes the failure on, `value.toInt?()` is an `Option(Int)`, `attempt value.toInt^()` keeps it, `assume value.toInt^()` says it cannot happen, and a catch arm takes it apart, where a catch-all shows the rest as its one line (`JsConversionError: not an Int`):
+
+```hexagon
+let count(value: JsValue): String =
+    try
+        "count ${value.toInt^()}"
+    catch
+        JsConversionError(JsConversionReason.Range, _, _) => "not a whole number"
+        e => "${e}"
 ```
 
 Strictness, per type:
@@ -89,22 +101,22 @@ Processing §1).
 ### 4.2 `toArray`: the captured structural door
 
 ```hexagon
-JsValue.toArray : JsValue -> Result(Array(JsValue), JsConversionError)
+JsValue.toArray : JsValue ->^ Array(JsValue)
 ```
 
-Succeeds iff `Array.isArray`; the success value is a **captured `Array(JsValue)`** *(amended #876)* — Hexagon's own copy of the array, made by Part 1 §5.4's walk at `Array(JsValue)`: each index read once in order, each element carried by identity as the uncertain `JsValue` it is, to be decoded individually by the caller; the copy is dense (Part 1 §5.4), and a hole in the source decodes as an `undefined` `JsValue` — a value of the type (§2), not a representation violation. The copy is the acquisition Part 2 §6.2 describes, performed by a named operation instead of a declared position; the result is stable from the moment of success, and the foreign array is not looked at again. Failure is `Shape`. This is deliberately the *only* structural decoder in the core: it is realm-safe and O(n) — the copy reads each element, so it is no longer property-free the way `kind` is, and a hostile element getter or proxy trap that throws during the copy follows the `JsError` channel like the probe below; everything richer belongs to the stdlib decoder library (§13.2) or fell to the classification deferral (§13.1).
+Succeeds iff `Array.isArray`; the success value is a **captured `Array(JsValue)`** *(amended #876)* — Hexagon's own copy of the array, made by Part 1 §5.4's walk at `Array(JsValue)`: each index read once in order, each element carried by identity as the uncertain `JsValue` it is, to be decoded individually by the caller; the copy is dense (Part 1 §5.4), and a hole in the source decodes as an `undefined` `JsValue` — a value of the type (§2), not a representation violation. The copy is the acquisition Part 2 §6.2 describes, performed by a named operation instead of a declared position; the result is stable from the moment of success, and the foreign array is not looked at again. A value that is not an array throws `JsConversionError` with reason `Shape` and an empty path. This is deliberately the *only* structural decoder in the core: it is realm-safe and O(n) — the copy reads each element, so it is no longer property-free the way `kind` is, and a hostile element getter or proxy trap that throws during the copy follows the `JsError` channel like the probe below; everything richer belongs to the stdlib decoder library (§13.2) or fell to the classification deferral (§13.1).
 
-**The look is made once per object, and kept** (§1). `toArray`'s look at an object or function is its `Array.isArray` probe and, when the probe answers true, the copy. The probe is not made for an object already found to be an array (§3), and a probe that answers true is that finding. The first call that asks makes the look, and the runtime keeps its outcome beside the value: the copy, the verdict that the value is not an array, or the foreign throw that the probe or the copy raised. Every later call with that value answers from what was kept: the same copy, the same `Shape` failure, or the same thrown value again, as a sequence position replays a foreign throw (FFI Part 3 §7.1). So a foreign write to the array after the first look is not seen, and a proxy revoked after a successful look still decodes to the copy made before. A primitive, `null` or `undefined` is not an array, and its `Shape` failure needs no keeping. The kept copy is not the identity cache FFI Part 3 §2.1 rejects. That cache would pin a sequence's whole forced history for as long as the iterable lives, which Part 3 §5 forbids, and would promise a sharing it cannot give across iterables over one cursor. The kept copy is the size its source had when copied, goes when the source goes, and promises nothing beyond its one object. Its one record per program is deliberate (§1): every module sees one look, as with §7's reads.
+**The look is made once per object, and kept** (§1). `toArray`'s look at an object or function is its `Array.isArray` probe and, when the probe answers true, the copy. The probe is not made for an object already found to be an array (§3), and a probe that answers true is that finding. The first call that asks makes the look, and the runtime keeps its outcome beside the value: the copy, the verdict that the value is not an array, or the foreign throw that the probe or the copy raised. Every later call with that value answers from what was kept: the same copy, the same `Shape` failure thrown again, or the same thrown value again, as a sequence position replays a foreign throw (FFI Part 3 §7.1). So a foreign write to the array after the first look is not seen, and a proxy revoked after a successful look still decodes to the copy made before. A primitive, `null` or `undefined` is not an array, and its `Shape` failure needs no keeping. The kept copy is not the identity cache FFI Part 3 §2.1 rejects. That cache would pin a sequence's whole forced history for as long as the iterable lives, which Part 3 §5 forbids, and would promise a sharing it cannot give across iterables over one cursor. The kept copy is the size its source had when copied, goes when the source goes, and promises nothing beyond its one object. Its one record per program is deliberate (§1): every module sees one look, as with §7's reads.
 
 **A look on a cycle keeps the refusal.** The copy can run foreign code (an index getter, or a proxy's `get` trap on `length` or an index), and that code can reach, through Hexagon, the look itself, by asking for `toArray` of the same value, or any entry in progress around the look: a memoised key, a sequence position, a guarded read or another look whose computation is around it. Either closes a cycle (FFI Part 3 §7.5), and the look is on it; so is a look ended by a replay (FFI Part 3 §7.5). A request for the look itself is refused with `ReentrancyFault` (FFI Part 3 §7.4). A look on a cycle ends in the refusal whatever the copy produced and keeps it, and every later call with that value throws it again. A call with that value while an entry of its cycle is in progress also ends the outermost entry of that cycle in progress, and every computation in progress inside it, in the refusal, and they join the cycle. A look whose copy encloses a cycle without being on it, one closed among entries begun after the look, keeps what it found, as any other entry does.
 
-**The revoked-proxy edge, clarified at review:** unlike total `kind` (§3), `toArray` does **not** suppress a throwing `Array.isArray` probe. A revoked proxy's `TypeError` follows the ordinary `JsError` channel and is not converted into `Err(Shape)`. The asymmetry is the §1 doctrine applied honestly: `kind` promises a classification of *any* value and must absorb the probe to keep that promise; `toArray` promises a verdict about the data, and a throwing probe is foreign control flow, not a data verdict.
+**The revoked-proxy edge, clarified at review:** unlike total `kind` (§3), `toArray` does **not** suppress a throwing `Array.isArray` probe. A revoked proxy's `TypeError` follows the ordinary `JsError` channel and is not converted into a `JsConversionError`. The asymmetry is the §1 doctrine applied honestly: `kind` promises a classification of *any* value and must absorb the probe to keep that promise; `toArray` promises a verdict about the data, and a throwing probe is foreign control flow, not a data verdict.
 
-### 4.3 The `Err`/`JsError` split, restated operationally
+### 4.3 The `JsConversionError`/`JsError` split, restated operationally
 
-Decoders inspect: the §4.1 scalar decoders trigger no getter, and `toArray`'s copy reads `length` and each index once, on its first look at an object (§4.2). `toArray` and the conversions that traverse further (Part 10's key ingestion; future library decoders) follow the rule uniformly: inspecting a value and finding it wrong → `Err`; a foreign operation throwing mid-inspection → `JsError` propagates, and no `Err` is synthesized from it. **Honest wrongness is data; a throw is control.**
+Decoders inspect: the §4.1 scalar decoders trigger no getter, and `toArray`'s copy reads `length` and each index once, on its first look at an object (§4.2). `toArray` and the conversions that traverse further (Part 10's key ingestion; future library decoders) follow the rule uniformly: inspecting a value and finding it wrong → `JsConversionError`; a foreign operation throwing mid-inspection → `JsError` propagates, and no `JsConversionError` is synthesized from it. **Honest wrongness is a `JsConversionError`; a foreign throw stays a foreign throw.**
 
-This part's composable decoder surface returns `Result(_, JsConversionError)` so reasons and paths compose. A generated foreign-enum `fromJsT` is instead a closed-set membership projection returning `Option(T)`; other partial projections state their failure type in their owning specification (Part 12 §11.2).
+This part's composable decoder surface throws `JsConversionError`, and reasons and paths compose: a conversion that descends either hands its path down or catches what an inner decode threw and throws it again with its own segment in front (§6.2), and passes every other failure through untouched. A generated foreign-enum `fromJsT` is instead a closed-set membership projection returning `Option(T)`; other partial projections state their failure type in their owning specification (Part 12 §11.2).
 
 ---
 
@@ -112,7 +124,7 @@ This part's composable decoder surface returns `Result(_, JsConversionError)` so
 
 ### 5.1 The declaration
 
-*(Resolved at review, §12.2: ordinary data, not an exception.)*
+*(A tracked exception since #1427; §12.2 records the review's earlier resolution as data.)*
 
 ```hexagon
 union JsPathSegment =
@@ -127,20 +139,23 @@ union JsConversionReason =
     | Range
     | Cycle(firstSeen: Vector(JsPathSegment))
 
-record JsConversionError = {
+exception JsConversionError(
     reason: JsConversionReason,
     path: Vector(JsPathSegment),
-}
+    message: String
+)
 ```
 
 All constructors of both unions are qualified-only in the prelude inventory *(#511; Part 12 §12's rule, extended there — and the prelude's default for every union but the three open ones, Modules §5.5)* — `JsConversionReason.Shape`, `JsConversionReason.Range`, `JsConversionReason.Cycle(firstSeen)`, `JsPathSegment.Field(name)`, `JsPathSegment.Index(index)`, and kin, in expressions and patterns alike. They are not auto-imported as bare prelude terms: `Shape`, `Range`, `Field`, and `Index` are ordinary user vocabulary, and the prelude does not spend them. This is ordinary companion qualification and leaves the runtime representations unchanged (Part 12 §12).
 
-- **It is ordinary data** — a record over unions, carried in `Err` like any other value. The checked-failure path allocates no `Error`, captures no stack, and carries no brand; it is a described outcome, not an escape. This is the §1 doctrine made structural: **checked wrongness is ordinary data in `Err`; foreign thrown control flow travels through `JsError`** — the one exception-shaped thing in this part. A caller who wants to abort on `Err` matches and throws an exception of its own choosing, at its own site.
-- Its boundary faces follow Part 7's ordinary record and union rules (§3–§4 there): structural record face, tagged-POJO reason union — nothing error-flavored in the `.d.ts`.
+- **It is a tracked exception** (Exceptions §1): a failure the caller should plan for, declared in the prelude's `JsValue.hex` and, like every prelude throwable, bare by category (Exceptions §2.1; Modules §5.5). Every decoder that may throw it is `->^`, and its caller reads the call at its site (§4.1). It is the §1 doctrine made structural: **checked wrongness throws `JsConversionError`; foreign thrown control flow travels through `JsError`**, and the two are told apart by constructor.
+- **A failed decode builds an `Error`** and captures its stack, as every Hexagon exception does (Exceptions §4, §7.1). A decoder library that tries alternatives in turn pays that once for each one that fails, and chooses among alternatives by `kind` (§3) where it can, which costs none.
+- **`message` is one line naming the reason and the path** — `not an Int`, `not a whole number in Int's range at [2]`, `a cycle at [MapKey 3], first seen at []` — so that an uncaught failure, and `"${e}"` (Exceptions §8.6), say what went wrong and where. Its wording is not normative: programs read `reason` and `path`, never the text (the Part 4 §4.3 reporting-layer stance).
+- Its boundary face is Exceptions §7.5's throwable face; its `reason` and `path` slots keep Part 7's ordinary union and vector faces.
 - **`path` locates the failure**: empty vector = the decoded value itself (every §4.1–4.2 failure has an empty path); segments compose root-outward for nested traversals.
 - **Cycles report both paths**: `path` is where the cycle was detected (current), `Cycle`'s payload is where the structure was first seen. The two together name the back-edge, which is the only actionable description of a cycle.
-- **All-or-nothing** everywhere the type appears: an `Err` returns no partial result and leaves no observable state (Part 10 §7.3's rule, stated generally).
-- Non-normative: reporting layers may render a best-effort human diagnostic (path spelled `key[3].name`-style, expected/actual kinds); programs must not parse such renderings (the Part 4 §4.3 reporting-layer stance).
+- **All-or-nothing** everywhere it is thrown: a conversion that throws it returns no partial result and leaves no observable state (Part 10 §7.3's rule, stated generally).
+- Non-normative: reporting layers may render a richer diagnostic than `message` (path spelled `key[3].name`-style, expected/actual kinds); programs must not parse such renderings either.
 
 ### 5.2 Reasons
 
@@ -168,7 +183,7 @@ Segments read root-outward: decoding fails at "the `name` field of the 3rd eleme
 [MapKey(2), Index(3), Field("name")]
 ```
 
-Producers append as they descend; consumers get one flat vector. The vocabulary is closed in v1 — a future decoder needing a new segment form amends this part rather than minting local conventions.
+However a producer builds it — appending as it descends, or putting its segment in front as the failure passes back up — consumers get one flat vector. The vocabulary is closed in v1 — a future decoder needing a new segment form amends this part rather than minting local conventions.
 
 ### 6.3 Which conversions originate which segments (Part 10 correction, normative)
 
@@ -251,14 +266,14 @@ The triangle, settled:
 
 | Situation | Behavior | Owner |
 |---|---|---|
-| decoder finds wrong kind | `Err` with `reason = Shape` | §4.1, §5.2 |
-| `toInt` on a non-safe-integer number | `Err` with `reason = Range` | §4.1 |
-| cycle during a traversing conversion | `Err` with `reason = Cycle(firstSeen)` — current path + first-seen path | §5.1, §6 |
-| hostile trap/getter throws during inspection or traversal | `JsError` propagates; never converted to `Err` | §1, §4.3 |
-| `toArray`'s first look at a revoked proxy | the `TypeError` propagates as `JsError`, and is kept and thrown again by every later call; **not** `Err(Shape)` | §4.2 |
+| decoder finds wrong kind | `JsConversionError` with `reason = Shape` | §4.1, §5.2 |
+| `toInt` on a non-safe-integer number | `JsConversionError` with `reason = Range` | §4.1 |
+| cycle during a traversing conversion | `JsConversionError` with `reason = Cycle(firstSeen)` — current path + first-seen path | §5.1, §6 |
+| hostile trap/getter throws during inspection or traversal | `JsError` propagates; never converted to `JsConversionError` | §1, §4.3 |
+| `toArray`'s first look at a revoked proxy | the `TypeError` propagates as `JsError`, and is kept and thrown again by every later call; **not** a `JsConversionError` | §4.2 |
 | `toArray` after a proxy is revoked, the first look having succeeded | the kept copy | §4.2 |
 | a getter asks for `toArray` of the value whose copy is running it | `ReentrancyFault`, kept and thrown again by every later call | §4.2; FFI Part 3 §7.5 |
-| `toArray` copy meets a throwing element getter or trap | `JsError` propagates; **not** `Err` | §4.2 |
+| `toArray` copy meets a throwing element getter or trap | `JsError` propagates; **not** a `JsConversionError` | §4.2 |
 | `JsValue.from` at an argument type containing an unresolved type variable | hard error naming the variable; rewrites: inject at the concrete type, or pass an explicit conversion function into the generic helper | §2 *(#876)* |
 | `kind` on any input, including revoked proxies | total; never throws; revoked proxy classifies `Object`, unless found to be an array before it was revoked | §3 |
 | `JsError.message`/`stack` on hostile/degenerate throwables | total; secondary throws suppressed; conservative fallbacks (`""` / `None`) | §7 |
@@ -272,7 +287,7 @@ The triangle, settled:
 The package fixed semantics; the draft supplied concrete spellings; review resolved each. *(Retitled at finalization; §-numbers stable.)*
 
 1. **The `JsKind` inventory** (§3) — **approved as drafted**: ten kinds including `Array`, `typeof`-aligned plus `Null`; `kind` total and property-free, guarding the `Array.isArray` probe; revoked proxy classifies `Object`.
-2. **The error declarations** (§5.1) — **resolved against the draft's exception design**: `JsConversionError` is an ordinary `record` over the `JsConversionReason` union (`Shape | Range | Cycle(firstSeen)`), with the cycle's first-seen path as the `Cycle` payload and entry-position payloads on the collection segments. The exception spelling — `Result.attempt` precedent, throwable-later, branded-`Error` representation, exception `.d.ts` face — is replaced throughout: checked wrongness is ordinary data in `Err`; only foreign thrown control flow travels through `JsError`.
+2. **The error declarations** (§5.1) — **resolved against the draft's exception design**: `JsConversionError` is an ordinary `record` over the `JsConversionReason` union (`Shape | Range | Cycle(firstSeen)`), with the cycle's first-seen path as the `Cycle` payload and entry-position payloads on the collection segments. The exception spelling — `Result.attempt` precedent, throwable-later, branded-`Error` representation, exception `.d.ts` face — is replaced throughout: checked wrongness is ordinary data in `Err`; only foreign thrown control flow travels through `JsError`. *Superseded by #1427:* once expected failures were tracked (Exceptions §1), the declaration became the exception of §5.1, and `Result` came to hold only a caught exception (Option/Result Convenience §1).
 3. **The conservative `JsError.message`/`stack` algorithms** (§7) — **approved**, with the explicit extension that objects *and functions* are property-bearing values eligible for the single guarded read; secondary getter/proxy throws remain swallowed into `""`/`None`.
 4. **`JsValue.from`** (§2) — **approved**: the total identity injection, erased in emission.
 
@@ -284,7 +299,7 @@ The package fixed semantics; the draft supplied concrete spellings; review resol
 
 ### 13.1 `JsMap`/`JsSet` classification decoders — deferred from the v1 core
 
-`toJsMap : JsValue -> Result(JsMap(JsValue, JsValue), ...)` needs a way to recognize a native `Map`, and no portable `Array.isArray`-equivalent exists: `instanceof Map` is **realm-bound** — a `Map` from an iframe/worker/vm context fails it while being a perfectly good map — and the workable intrinsic brand checks are awkward throw-based probes, sitting badly under this part's probe discipline. **Resolved: deferred**, recorded at §9.2 with that absence as the revisit bar; the decoders ride with the stdlib decoder family (§10's ledger note). Should they land, their success values are **captured** `JsMap`/`JsSet` values (Part 10 §2, #875), copies made by the decoder exactly as `toArray`'s success value is (§4.2).
+`toJsMap : JsValue ->^ JsMap(JsValue, JsValue)` needs a way to recognize a native `Map`, and no portable `Array.isArray`-equivalent exists: `instanceof Map` is **realm-bound** — a `Map` from an iframe/worker/vm context fails it while being a perfectly good map — and the workable intrinsic brand checks are awkward throw-based probes, sitting badly under this part's probe discipline. **Resolved: deferred**, recorded at §9.2 with that absence as the revisit bar; the decoders ride with the stdlib decoder family (§10's ledger note). Should they land, their success values are **captured** `JsMap`/`JsSet` values (Part 10 §2, #875), copies made by the decoder exactly as `toArray`'s success value is (§4.2).
 
 ### 13.2 The decoder library's home — the stdlib listing, confirmed
 
@@ -301,13 +316,13 @@ The package fixed semantics; the draft supplied concrete spellings; review resol
 | Decision | Where |
 |---|---|
 | Two-door doctrine: trust → `extern` declaration; doubt → `JsValue` + strict checked decode; **no unsafe casts in v1** (no expression-level bypass; every unchecked claim lives in a findable `extern` block) | §1 |
-| `Err` = data wrongness (shape/range/cycle); `JsError` = foreign code throwing; never mixed, never synthesized across | §1, §4.3 |
+| `JsConversionError` = data wrongness (shape/range/cycle); `JsError` = foreign code throwing; never mixed, never synthesized across *(#1427: both are throwables, told apart by constructor)* | §1, §4.3 |
 | `JsValue`: final name; any JS value by identity; faces `unknown` (never `any`); **includes `null`/`undefined`** — not `Nullable(JsValue)`; no instances; total injection `JsValue.from` — *(#876)* a **release seat** that walks its argument at the concrete type (identity, erased, when nothing is captured), **refused at an unresolved type variable**, never an identity fallback | §2 |
 | `JsValue.kind`: total, property-free, ten-kind inventory; `typeof` + `null` + `Array.isArray`; hostile-input totality incl. revoked proxies → `Object` | §3 |
 | All constructors of `JsKind`, `JsConversionReason`, and `JsPathSegment` are qualified-only through their companions *(the latter two: #511; the prelude's default under Modules §5.5)*; no bare prelude auto-import; representations unchanged; `JsKind` derives `Eq` and `Show` *(#511)* | §3, §5.1; Part 12 §12 |
-| Strict non-coercing scalar decoders returning `Result`; `toInt` splits `Shape`/`Range` via `isSafeInteger`; `toArray` = realm-safe **captured** `Array(JsValue)` — a copy, O(n) *(#876; formerly a zero-copy view)*; **`toArray` does not guard the `Array.isArray` probe — a revoked-proxy throw is `JsError`, never `Err(Shape)`**, and a throw during the copy is `JsError` too | §4 |
-| Failure-type ownership: this composable decoder surface uses `Result(_, JsConversionError)`; foreign-enum membership projection uses `Option`; other projections state their own type | §4.3; Part 12 §11.2 |
-| **`JsConversionError` is ordinary data**: `record {reason, path}` over `JsConversionReason = Shape \| Range \| Cycle(firstSeen)`; no `Error`, no stack capture, no brand, not throwable as-is; ordinary record/union boundary faces (Part 7); `path` vector, empty = the value itself; all-or-nothing; diagnostic rendering non-normative | §5, §12.2 |
+| Strict non-coercing scalar decoders, `->^`, throwing `JsConversionError` *(#1427)*; `toInt` splits `Shape`/`Range` via `isSafeInteger`; `toArray` = realm-safe **captured** `Array(JsValue)` — a copy, O(n) *(#876; formerly a zero-copy view)*; **`toArray` does not guard the `Array.isArray` probe — a revoked-proxy throw is `JsError`, never a `JsConversionError`**, and a throw during the copy is `JsError` too | §4 |
+| Failure-type ownership: this composable decoder surface throws `JsConversionError` *(#1427)*; foreign-enum membership projection uses `Option`; other projections state their own type | §4.3; Part 12 §11.2 |
+| **`JsConversionError` is a tracked exception** *(#1427; the review's resolution as data, §12.2, superseded)*: `exception JsConversionError(reason, path, message)` over `JsConversionReason = Shape \| Range \| Cycle(firstSeen)`; a prelude exception, bare by category; throwable face (Exceptions §7.5); `path` vector, empty = the value itself; all-or-nothing; `message` one line, its wording non-normative | §5, §12.2 |
 | Path vocabulary closed at five segments: `Field`, `Index` (1-based), `MapKey`/`MapValue`/`SetElement` (1-based source-iteration position); root-outward composition; corpus-wide | §6.1–6.2 |
 | **Part 10 correction:** its shallow conversions originate `MapKey`/`SetElement` only; `MapValue` reserved for value-traversing conversions; `Field`/`Index` originate from none of the v1 core surface | §6.3 |
 | `JsError.message`/`stack` are `->`: each property of a thrown value is read once, guarded, on first use, and the answer kept (Effects §6.2 species (b)), so the read is a value; the guard's suppression is why neither can fail | §7 |

@@ -49,7 +49,7 @@
 | **fresh per-value adapter** | per adapted value, created at each crossing; never identity-cached | Part 3 §2.1 |
 | **shallow conversion** | named conversions change only the collection they name; elements keep value and identity | Part 1 §5.1 |
 | **Hexagon-owned value vs. foreign collection** | `Hex.*` persistent values cross by identity; `Array`/`JsMap`/`JsSet` are captured copies of foreign storage | Part 1 §4.1 |
-| **`JsError` (thrown control) vs. `JsConversionError` (data in `Err`)** | foreign throws travel the one exception door; checked wrongness is an ordinary record in `Err`; never mixed | Part 11 §1 (channel doctrine), Exceptions §6 (`JsError` itself) |
+| **`JsError` (foreign control) vs. `JsConversionError` (checked wrongness)** | foreign throws travel the one exception door; checked wrongness throws the tracked `JsConversionError` *(#1427)*; never mixed, told apart by constructor | Part 11 §1 (channel doctrine), Exceptions §6 (`JsError` itself) |
 | **`.d.ts` face vs. runtime representation** | what TypeScript is told vs. what the value is; faces may be weaker (`Seq` → `Iterable`), never false | Part 1 §4.1; Part 7 §2 |
 
 ## 4. Surface ownership map
@@ -80,7 +80,7 @@
 7. **`Seq` positions are persistent; adapters memoize one outcome per node; every crossing gets a fresh adapter and repeated crossings of single-shot sources observe current position** (rewrite: cross once, share the `Seq`). — Part 3 §2.1/§4.
 8. **ESM only; named exports only, in one direction**: bindings import ESM, and an inbound extern declaration **may bind a JavaScript default export** (`default fun`/`default let`, and `default class` per Part 5) — but Hexagon **emits named exports only and never emits its own default export**; `export` is the sole foreign-export permission (one stated exception: Part 8 §3.4). — Part 4 §1–§2/§6; Part 7 §1.
 9. **All nominal opaque `.d.ts` faces use the one non-exported-`unique symbol` brand mechanism** — opaque records, opaque unions, extern types, extern class types; dictionary brands are the same mechanism with an inference-bearing slot — save the Part 7 §2.3-pinned types, which take no brand: a pinned type's declaration seat is the pin's transparent alias (#622; Part 7 §14.5). — Part 7 §5; Part 9 §2.2.
-10. **Checked wrongness is ordinary data; foreign throws travel `JsError`; the channels never mix and neither is synthesized from the other.** The composable decoding surface reports wrongness as `Err(JsConversionError)` so reasons and paths compose; **explicitly owned partial projections may instead return `Option` where their specification says so** (the generated foreign-enum `fromJsT` is the blessed instance — §11.2). No claim is made that every checked operation returns `Result`. — Part 11 §1/§5; Foreign Enums §5.2.
+10. **Checked wrongness throws `JsConversionError`; foreign throws travel `JsError`; the two never mix and neither is synthesized from the other.** The composable decoding surface throws the tracked `JsConversionError` so reasons and paths compose *(#1427)*; **explicitly owned partial projections may instead return `Option` where their specification says so** (the generated foreign-enum `fromJsT` is the blessed instance — §11.2). — Part 11 §1/§5; Foreign Enums §5.2.
 11. **Nullish absorption is one idempotency principle over a closed designated set:** `Nullable(Nullable(a)) ≡ Nullable(a)`, `Nullable(JsValue) ≡ JsValue`; no structural nullish analysis. — Part 11 §8 (Part 2 carries the propagated rule).
 12. **Part 10's shallow conversions originate `MapKey`/`SetElement` path segments only — never `MapValue`**, which is reserved for genuinely value-traversing conversions. — Part 11 §6.3; Part 10 §7.3.
 13. **Every callable extern row writes its effect arrow** — one of the four constants, or a following arrow such as `>->`, before its result, on `fun`, `method`, `get`, `set`, `new as`, the `static` forms, and intrinsic rows alike; the keyword says how JavaScript is invoked and the arrow what a caller accommodates, independently; setters are `->!` only; a user row's arrow is trusted, an intrinsic row's verified. — Part 4 §4.5; Part 5 §2.1, §4.1; Intrinsics §4.2; Effects §6.1.
@@ -181,7 +181,7 @@ Each row: the observable claim an implementation must satisfy, and the owner who
 4. **`ffi-part1-boundary.md` §10 and `ffi-part7-exports.md` §2.1** — the `Hex`-alias scheme is **fixed** at §11.1 here (first-free numeric suffix probing over all top-level `.d.ts` identifiers a module's items can contribute; generated alias only, user exports never renamed): close Part 1 §10.1 with a pointer, and add the one-line algorithm reference to Part 7 §2.1. The row-finalization markers for `JsMap`/`JsSet`/`JsValue` are already cleared.
 5. **Verify applied** (issued earlier, listed for closure): Part 11 §10's four notes (Part 1 row; Exceptions §6.1; Part 2 nullability propagation; stdlib ledger entry); Part 7 §10's three (Modules §11.4; Unions §6.5; Exceptions §7.5); Part 5 §9's Method Syntax coverage extension; Part 10 §10's three (Part 1 row; Collections Part 4 §10.4; Collections Part 5 §4 rows).
 6. **`spec-roadmap.md`** — the FFI milestone is complete; the planned v1 corpus consolidation precedes the stdlib listing.
-7. **`ffi-foreign-enums.md` §5.2 and `ffi-part11-js-value-errors.md` §4** — record §11.2's resolved boundary, one sentence each: generated closed-set membership projections (`fromJsT`) return `Option`; the composable decoder family uses `Result(_, JsConversionError)`; other explicitly owned partial projections may use `Option` where their specification says so.
+7. **`ffi-foreign-enums.md` §5.2 and `ffi-part11-js-value-errors.md` §4** — record §11.2's resolved boundary, one sentence each: generated closed-set membership projections (`fromJsT`) return `Option`; the composable decoder family throws `JsConversionError` *(#1427; it answered `Result(_, JsConversionError)` when this was applied)*; other explicitly owned partial projections may use `Option` where their specification says so.
 8. **`ffi-part2-nullable-array.md` §3 and `ffi-part11-js-value-errors.md` §3/§5.1** — one line each recording §12's resolution (as extended for #511): `NullableCase`, `JsKind`, `JsConversionReason`, and `JsPathSegment` constructors are qualified-only in the prelude inventory (no bare auto-import); representations unchanged.
 9. **Stdlib-listing ledger** — add §9.1's obligation 2 (qualified companion homes for all four unions' constructors) alongside the decoder-family entry Part 11 already issued; §9.1's candidates 3–5 enter as ship-versus-defer rows with their revisit bars, not obligations.
 
@@ -199,13 +199,13 @@ The scheme is deterministic (a pure function of that identifier set, which Part 
 
 ### 11.2 Foreign-enum `fromJsT` versus Part 11's decoding doctrine — resolved
 
-**Sources:** Foreign Enums §5.2 (`fromJsT : JsValue -> Option(T)`); Part 11 (`Result(_, JsConversionError)` for its decoding surface). **Resolution: `fromJsT` keeps `Option`**, and the precise boundary is:
+**Sources:** Foreign Enums §5.2 (`fromJsT : JsValue -> Option(T)`); Part 11 (its decoding surface, then `Result(_, JsConversionError)`, since #1427 a thrown `JsConversionError`). **Resolution: `fromJsT` keeps `Option`**, and the precise boundary is:
 
 - **generated closed-set membership projections** (the foreign-enum `fromJsT` family) return `Option` — a miss has one meaning and no structure worth a reason or path;
-- **the composable `JsValue` decoder family** uses `Result(_, JsConversionError)`, so reasons and paths compose through nested traversals;
+- **the composable `JsValue` decoder family** throws the tracked `JsConversionError` *(#1427)*, so reasons and paths compose through nested traversals;
 - **other explicitly owned partial projections may use `Option` when their own specification says so.**
 
-Deliberately **not** claimed: that every single-reason check uses `Option`, or that every checked conversion uses `Result`. The boundary is ownership-explicit, not shape-inferred; a new conversion states its failure type in its owning spec. The one-sentence recordings in Foreign Enums §5.2 and Part 11 §4 were applied under §10.7.
+Deliberately **not** claimed: that every single-reason check uses `Option`, or that every checked conversion throws. The boundary is ownership-explicit, not shape-inferred; a new conversion states its failure type in its owning spec. The one-sentence recordings in Foreign Enums §5.2 and Part 11 §4 were applied under §10.7.
 
 ## 12. Global naming audit (finding resolved at promotion)
 

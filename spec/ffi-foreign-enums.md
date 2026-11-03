@@ -368,7 +368,7 @@ For any local enum name `T`, the names are exactly `fromJsT` and `toJsT`.
 producer cannot state the enum contract. `toJsDirection` is an identity widening to
 opaque `JsValue`; it does not allocate or encode.
 
-This generated closed-set membership projection intentionally returns `Option`: a miss has one meaning and needs no composable reason or path. Part 11's composable `JsValue` decoder surface instead returns `Result(_, JsConversionError)`; any other partial projection states its failure type in its owning specification (Part 12 §11.2).
+This generated closed-set membership projection intentionally returns `Option`: a miss has one meaning and needs no composable reason or path. Part 11's composable `JsValue` decoder surface instead throws the tracked `JsConversionError` *(#1427)*; any other partial projection states its failure type in its owning specification (Part 12 §11.2).
 
 These are bindings, not members on a type-valued namespace: Hexagon types are not
 runtime objects, and the language does not invent a `Direction.fromJs` lookup rule.
@@ -590,7 +590,7 @@ An implementation is not conforming until tests cover at least:
 | Match comparison | `Object.is`, subject to proven-equivalent optimization |
 | Member discovery | Never automatic; explicit declaration list only |
 | Uncertain input | Generated `fromJsT : JsValue -> Option(T)` binding |
-| Checked-failure boundary | Generated membership projections keep `Option`; composable `JsValue` decoders use `Result(_, JsConversionError)` |
+| Checked-failure boundary | Generated membership projections keep `Option`; composable `JsValue` decoders throw `JsConversionError` *(#1427)* |
 | Outbound `JsValue` | Generated identity `toJsT` binding |
 | JavaScript classes | Opaque under `extern class`; singleton enum view is explicit opt-in |
 | Literal form (#773) | Module-scope `extern enum T = lit as C \| …`, the FFI's one module-free `extern` head; nothing read; string, integer, boolean, `null`, `undefined` literals mixed freely, pairwise distinct; floats and expressions refused; `as` mandatory |
