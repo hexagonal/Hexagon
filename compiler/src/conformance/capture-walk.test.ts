@@ -942,8 +942,11 @@ describe("`JsValue.toArray` is the acquisition a decoder performs (Part 11 §4.2
     expect((main["shaped"] as () => string)()).toBe("Refused");
   });
 
-  /** The probe's own lowering is untouched: `Array.isArray`, bare. */
-  test("the `isArray` probe is still the unguarded lowering", () => {
+  /**
+   * The probe stays unguarded: `Array.isArray`, whose throw is kept with the
+   * look and thrown again, never turned into an answer (§4.2).
+   */
+  test("the `isArray` probe is still unguarded", () => {
     const project = compileFiles([[
       "/main.hex",
       "module Main\n\nexport fun probe(v: JsValue): Bool =\n" +
@@ -953,7 +956,18 @@ describe("`JsValue.toArray` is the acquisition a decoder performs (Part 11 §4.2
     ]]);
     expect(project.diagnostics.map(({ message }) => message)).toEqual([]);
     const companion = project.modules.find(({ source }) => source.path.endsWith("/JsValue.hex"));
-    expect(companion?.javascript.text).toContain("Array.isArray(__a)");
+    const text = companion?.javascript.text ?? "";
+    expect(text).toContain("const isArray = __jsValueIsArray;");
+    expect(text).toContain(
+      [
+        "  try {",
+        "    __array = Array.isArray(__value);",
+        "  } catch (__error) {",
+        '    __shared.looks.set(__value, { state: "threw", error: __error });',
+        "    throw __error;",
+        "  }",
+      ].join("\n"),
+    );
   });
 });
 

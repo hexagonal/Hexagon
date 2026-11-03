@@ -817,9 +817,16 @@ const ALL_CONTESTED = [
   "",
   "export let console: Int = 1",
   "export let undefined: Int = 2",
+  "export let globalThis: Int = 3",
   "",
   "exception Boom(value: Int)",
   "export let raise(): Int = throw^(Boom(3))",
+  "export let rescued(): Int =",
+  "    try",
+  "        raise^()",
+  "    catch",
+  "        Boom(n) => n",
+  "        _ => 0",
   "export let loop(n: Int): Int =",
   "    var sum = 0",
   "    for i in 1..n",
@@ -862,8 +869,9 @@ describe("completeness — the worst-contested module writes no bare global", ()
     // that merely binds the word, where it is collateral (the describe below).
     expect(text).toContain(
       "import { __global_Array, __global_BigInt, __global_Boolean, __global_console, " +
-        "__global_Error, __global_Math, __global_Number, __global_Object, __global_RangeError, " +
-        '__global_String, __global_Symbol, __global_TypeError, __global_WeakMap } from "./hex.js";',
+        "__global_Error, __global_globalThis, __global_Math, __global_Number, __global_Object, " +
+        "__global_RangeError, __global_String, __global_Symbol, __global_TypeError, " +
+        '__global_WeakMap } from "./hex.js";',
     );
     // And the claim that matters, swept rather than spot-checked: **no
     // compiler-written line of this module spells any vocabulary member bare.**
@@ -885,9 +893,13 @@ describe("completeness — the worst-contested module writes no bare global", ()
         /^export \{ ([A-Za-z_$][\w$]*) \};$/u.exec(line)?.[1];
       return declared === undefined || !own.has(declared);
     }).join("\n");
+    // `Map` and `Set`, which the module leaves unbound (above), are bare by
+    // right: the kept read's `new Map()` is the one seat here that writes either.
     for (const member of RUNTIME_VOCABULARY) {
+      if (member === "Map" || member === "Set") continue;
       expect(emitterWritten).not.toMatch(new RegExp(`(?<![\\w$.])${member}(?![\\w$])`, "u"));
     }
+    expect(text).toContain("new Map()");
     expect(text).toContain("const unit = () => void 0;");
     // The seats the sweep above is silent about because they are *inside*
     // qualified references, spot-checked so the families are on the record.
@@ -901,12 +913,14 @@ describe("completeness — the worst-contested module writes no bare global", ()
     expect(text).toContain("__global_Number.isNaN(__value)");
     expect(text).toContain("__global_Math.imul(");
     expect(text).toContain("new __global_TypeError(");
+    expect(text).toContain("let __shared = __global_globalThis[__key];");
   });
 
   test("executed: the whole of it runs", async () => {
     const exports = await runProject([["/main.hex", "module Main\n\n" + ALL_CONTESTED]]);
 
     expect(thrown(exports["raise"] as () => number)).toMatchObject({ name: "Boom" });
+    expect((exports["rescued"] as () => number)()).toBe(3);
     expect((exports["loop"] as (n: number) => number)(4)).toBe(10);
     expect((exports["counted"] as (xs: readonly number[]) => number)([1, 2, 3])).toBe(3);
     expect((exports["unit"] as () => unknown)()).toBeUndefined();
@@ -1054,6 +1068,7 @@ describe("the runtime module takes Part 1 §8.3's reserved seat", () => {
         "  __global_Boolean = globalThis.Boolean,\n" +
         "  __global_console = globalThis.console,\n" +
         "  __global_Error = globalThis.Error,\n" +
+        "  __global_globalThis = globalThis.globalThis,\n" +
         "  __global_Map = globalThis.Map,\n" +
         "  __global_Math = globalThis.Math,\n" +
         "  __global_Number = globalThis.Number,\n" +
@@ -1066,9 +1081,9 @@ describe("the runtime module takes Part 1 §8.3's reserved seat", () => {
         "  __global_TypeError = globalThis.TypeError,\n" +
         "  __global_WeakMap = globalThis.WeakMap;\n" +
         "export { __global_Array, __global_BigInt, __global_Boolean, __global_console, " +
-        "__global_Error, __global_Map, __global_Math, __global_Number, __global_Object, " +
-        "__global_RangeError, __global_RegExp, __global_Set, __global_String, __global_Symbol, " +
-        "__global_TypeError, __global_WeakMap };\n",
+        "__global_Error, __global_globalThis, __global_Map, __global_Math, __global_Number, " +
+        "__global_Object, __global_RangeError, __global_RegExp, __global_Set, __global_String, " +
+        "__global_Symbol, __global_TypeError, __global_WeakMap };\n",
     );
   });
 

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import { compileProject, Source } from "../index";
-import { compileFiles, compileMain, projectDiagnostics } from "../support/test-project.js";
+import { compileFiles, compileMain, projectDiagnostics, runProject } from "../support/test-project.js";
 
 /**
  * A mark that claims more than its call does, where the report names no
@@ -648,6 +648,179 @@ describe("the accessors are total and conservative (FFI Part 11 §7)", () => {
   });
 });
 
+describe("a catch reads the brand through the kept read (Exceptions §7.1, §7.4; #1447)", () => {
+  /**
+   * Every seat that tells a thrown value's branch — a `catch` with a domestic
+   * arm, a `JsError` arm or `_`, `attempt`, and `show` — reads `$hex` and
+   * `name` through FFI Part 11 §7's kept read. A hostile value is handed to
+   * each from this side, and thrown by `throw^(JsError(v))`, which throws `v`
+   * itself (§6.2).
+   */
+  async function seats(): Promise<{
+    caught: (value: unknown) => string;
+    anything: (value: unknown) => string;
+    attempted: (value: unknown) => string;
+    described: (value: unknown) => string;
+  }> {
+    const exports = await run(
+      "exception Boom(message: String)\n" +
+        "let fails(v: JsValue): Int = throw^(JsError(v))\n" +
+        "export let caught(v: JsValue): String =\n" +
+        "    try\n" +
+        "        ignore(fails^(v))\n" +
+        "        \"returned\"\n" +
+        "    catch\n" +
+        "        Boom(m) => \"domestic \" ++ m\n" +
+        "        JsError(_) => \"foreign\"\n" +
+        "export let anything(v: JsValue): String =\n" +
+        "    try\n" +
+        "        ignore(fails^(v))\n" +
+        "        \"returned\"\n" +
+        "    catch\n" +
+        "        _ => \"caught\"\n" +
+        "export let attempted(v: JsValue): String =\n" +
+        "    match attempt fails^(v)\n" +
+        "        Ok(_) => \"ok\"\n" +
+        "        Err(_) => \"err\"\n" +
+        "export let described(v: JsValue): String =\n" +
+        "    try\n" +
+        "        ignore(fails^(v))\n" +
+        "        \"returned\"\n" +
+        "    catch\n" +
+        "        e => show(e)\n",
+    );
+    return {
+      caught: exports["caught"] as (value: unknown) => string,
+      anything: exports["anything"] as (value: unknown) => string,
+      attempted: exports["attempted"] as (value: unknown) => string,
+      described: exports["described"] as (value: unknown) => string,
+    };
+  }
+
+  /**
+   * A `$hex` getter that throws is read once, and the read is kept as
+   * `undefined`, so the value is foreign at every seat. Before the kept read,
+   * the getter's throw escaped from inside the `catch` itself.
+   */
+  test("a brand getter that throws is read once, and every seat calls the value foreign", async () => {
+    const { caught, anything, attempted, described } = await seats();
+    let reads = 0;
+    const hostile = {
+      get $hex(): string {
+        reads += 1;
+        if (reads === 1) throw new Error("hostile");
+        return "Main";
+      },
+      name: "Boom",
+      message: "spoofed",
+    };
+    expect(caught(hostile)).toBe("foreign");
+    expect(anything(hostile)).toBe("caught");
+    expect(attempted(hostile)).toBe("err");
+    expect(caught(hostile)).toBe("foreign");
+    expect(reads).toBe(1);
+    // `show` reads the same kept brand, so it renders the foreign value's
+    // own `name` and `message`, as a foreign value.
+    expect(described(hostile)).toBe("Boom: spoofed");
+    expect(reads).toBe(1);
+  });
+
+  /**
+   * A brand that would change between reads cannot move a value between the
+   * branches: the first read decides, for every seat and every later throw.
+   */
+  test("a brand that changes on a later read is held to its first answer", async () => {
+    const { caught, attempted } = await seats();
+    let reads = 0;
+    const shifting = {
+      get $hex(): string | undefined {
+        reads += 1;
+        return reads === 1 ? undefined : "Main";
+      },
+      name: "Boom",
+      message: "shifting",
+    };
+    expect(caught(shifting)).toBe("foreign");
+    expect(caught(shifting)).toBe("foreign");
+    expect(attempted(shifting)).toBe("err");
+    expect(reads).toBe(1);
+  });
+
+  /**
+   * `show` asked first, then a catch: one read between them, and they agree.
+   */
+  test("`show` and a catch agree, whichever reads the brand first", async () => {
+    const { caught, described } = await seats();
+    let brands = 0;
+    let names = 0;
+    const counted = {
+      get $hex(): undefined {
+        brands += 1;
+        return undefined;
+      },
+      get name(): string {
+        names += 1;
+        return "Counted";
+      },
+      message: "once",
+    };
+    expect(described(counted)).toBe("Counted: once");
+    expect(caught(counted)).toBe("foreign");
+    expect(described(counted)).toBe("Counted: once");
+    expect([brands, names]).toEqual([1, 1]);
+  });
+
+  /**
+   * A revoked proxy throws on every property read. Its brand read is kept as
+   * `undefined`, so a `_` arm and a `JsError` arm catch it, and nothing
+   * escapes from the catch.
+   */
+  test("a thrown revoked proxy is caught by `_` and by a `JsError` arm", async () => {
+    const { caught, anything, attempted } = await seats();
+    const { proxy, revoke } = Proxy.revocable({}, {});
+    revoke();
+    expect(anything(proxy)).toBe("caught");
+    expect(caught(proxy)).toBe("foreign");
+    expect(attempted(proxy)).toBe("err");
+  });
+
+  /**
+   * **One record per program** (FFI Part 11 §7). Helpers are emitted per
+   * module, and every module's copy keeps its reads in the one record, so a
+   * catch in another module reads nothing again.
+   */
+  test("a catch in another module shares the first read", async () => {
+    const exports = await runProject([
+      ["/main.hex", "module Main\n\nimport Other\n\n" +
+        "export let here(v: JsValue): String =\n" +
+        "    try\n" +
+        "        throw^(JsError(v))\n" +
+        "    catch\n" +
+        "        _ => \"here\"\n" +
+        "export let there(v: JsValue): String = Other.caughtThere(v)\n"],
+      ["/other.hex", "module Other\n\n" +
+        "export let caughtThere(v: JsValue): String =\n" +
+        "    try\n" +
+        "        throw^(JsError(v))\n" +
+        "    catch\n" +
+        "        JsError(_) => \"there\"\n" +
+        "        _ => \"other\"\n"],
+    ]);
+    let reads = 0;
+    const hostile = {
+      get $hex(): string | undefined {
+        reads += 1;
+        if (reads === 1) throw new Error("hostile");
+        return "Other";
+      },
+      name: "Boom",
+    };
+    expect((exports["here"] as (v: unknown) => string)(hostile)).toBe("here");
+    expect((exports["there"] as (v: unknown) => string)(hostile)).toBe("there");
+    expect(reads).toBe(1);
+  });
+});
+
 describe("`attempt` bridges back to data (§8.2)", () => {
   const attemptSource = "module Main\n\n" + externThrower +
     "exception Boom(message: String)\n" +
@@ -806,12 +979,10 @@ describe("emission and the guard the door does not ship (§7.4, §7.6)", () => {
         "        Boom(m) => m\n" +
         "        JsError(e) => JsError.message(e)\n",
     );
+    expect(withDoor).toContain('const __brand = __jsErrorRead(__error, "$hex");');
+    expect(withDoor).toContain('const __foreign = typeof __brand !== "string";');
     expect(withDoor).toContain(
-      'const __foreign = __error == null || typeof __error.$hex !== "string";',
-    );
-    expect(withDoor).toContain(
-      'if (__foreign || (__error != null && __error.$hex === "Hex.JsError" ' +
-        '&& __error.name === "JsError")) {',
+      'if (__foreign || (__brand === "Hex.JsError" && __name === "JsError")) {',
     );
     expect(withDoor).toContain("const e = __foreign ? __error : __error.error;");
 
@@ -824,9 +995,7 @@ describe("emission and the guard the door does not ship (§7.4, §7.6)", () => {
         "        Boom(m) => m\n",
     );
     expect(withoutDoor).not.toContain("__foreign");
-    expect(withoutDoor).toContain(
-      'if (__error != null && __error.$hex === "Main" && __error.name === "Boom") {',
-    );
+    expect(withoutDoor).toContain('if (__brand === "Main" && __name === "Boom") {');
   });
 
   test("the match catch clause gets the same stage-1 binding, inside its own `catch`", () => {
@@ -839,11 +1008,12 @@ describe("emission and the guard the door does not ship (§7.4, §7.6)", () => {
         "    catch\n" +
         "        JsError(e) => JsError.message(e)\n",
     );
-    const tryBlock = text.slice(text.indexOf("try {"), text.indexOf("} catch ("));
+    // From the function on: the kept-read helper above it has a `try` of its own.
+    const body = text.slice(text.indexOf("const run"));
+    const tryBlock = body.slice(body.indexOf("try {"), body.indexOf("} catch ("));
     expect(tryBlock).not.toContain("__foreign");
-    expect(text).toContain(
-      'const __foreign = __error == null || typeof __error.$hex !== "string";',
-    );
+    expect(tryBlock).not.toContain("__brand");
+    expect(body).toContain('const __foreign = typeof __brand !== "string";');
   });
 
   test("`JsError` ships no `is` guard, in JavaScript or in the `.d.ts`", () => {
@@ -873,9 +1043,12 @@ describe("emission and the guard the door does not ship (§7.4, §7.6)", () => {
     expect(door.javascript.text).toContain(
       [
         "const __jsErrorRead = (() => {",
-        "  const __kept = new WeakMap();",
-        "  const __pending = {};",
+        "  const __kept = __hexRuntime.reads;",
+        "  const __pending = __hexRuntime.reading;",
         "  return (__value, __property) => {",
+        '    if (__value === null || (typeof __value !== "object" && typeof __value !== "function")) {',
+        "      return undefined;",
+        "    }",
         "    let __answers = __kept.get(__value);",
         "    if (__answers === undefined) {",
         "      __answers = new Map();",
@@ -898,6 +1071,10 @@ describe("emission and the guard the door does not ship (§7.4, §7.6)", () => {
         "})();",
       ].join("\n"),
     );
+    // The table is the program's one (§7): every module's copy of the helper
+    // reaches it under one registered symbol, so no module reads again what
+    // another has read.
+    expect(door.javascript.text).toContain('const __key = Symbol.for("hexagon.runtime");');
     expect(door.javascript.text).toContain(
       'const readMessage = __a => __jsErrorRead(__a, "message");',
     );
