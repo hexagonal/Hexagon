@@ -321,7 +321,7 @@ No new *static* diagnostics: the constraint system and the existing bracket mach
 
 ## 10. The JS boundary: semantic ground rules
 
-The conversion functions — `Map.toJsMap` / `Map.fromJsMap` / `Set.toJsSet` / `Set.fromJsSet` — are **specified in FFI Part 10**, together with the captured `JsMap(k, v)`/`JsSet(a)` (`ReadonlyMap`/`ReadonlySet` faces; FFI Part 10 §2), eager **shallow-snapshot** conversion semantics, checked inward conversion (`Err(JsConversionError)` on cyclic structural-key ingestion, with structured paths per FFI Part 11), and the rule that **values are never traversed**. This section states the semantic ground rules those conversions honor; FFI Part 10 is the operational owner and is not restated here.
+The conversion functions — `Map.toJsMap` / `Map.fromJsMap` / `Set.toJsSet` / `Set.fromJsSet` — are **specified in FFI Part 10**, together with the captured `JsMap(k, v)`/`JsSet(a)` (`ReadonlyMap`/`ReadonlySet` faces; FFI Part 10 §2), eager **shallow-snapshot** conversion semantics, checked inward conversion (a thrown `JsConversionError` on cyclic structural-key ingestion *(#1427)*, with structured paths per FFI Part 11), and the rule that **values are never traversed**. This section states the semantic ground rules those conversions honor; FFI Part 10 is the operational owner and is not restated here.
 
 ### 10.1 Primitive keys: faithful
 
