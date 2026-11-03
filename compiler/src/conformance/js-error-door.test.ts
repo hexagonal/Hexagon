@@ -661,6 +661,8 @@ describe("a catch reads the brand through the kept read (Exceptions §7.1, §7.4
     anything: (value: unknown) => string;
     attempted: (value: unknown) => string;
     described: (value: unknown) => string;
+    read: (value: unknown) => unknown;
+    assumed: (value: unknown) => unknown;
   }> {
     const exports = await run(
       "exception Boom(message: String)\n" +
@@ -687,13 +689,23 @@ describe("a catch reads the brand through the kept read (Exceptions §7.1, §7.4
         "        ignore(fails^(v))\n" +
         "        \"returned\"\n" +
         "    catch\n" +
-        "        e => show(e)\n",
+        "        e => show(e)\n" +
+        "export let read(v: JsValue): Option(Int) = fails?(v)\n" +
+        "export let assumed(v: JsValue): Int = assume fails^(v)\n",
     );
     return {
       caught: exports["caught"] as (value: unknown) => string,
       anything: exports["anything"] as (value: unknown) => string,
       attempted: exports["attempted"] as (value: unknown) => string,
       described: exports["described"] as (value: unknown) => string,
+      read: exports["read"] as (value: unknown) => unknown,
+      assumed: (value: unknown): unknown => {
+        try {
+          return (exports["assumed"] as (value: unknown) => unknown)(value);
+        } catch (error) {
+          return error;
+        }
+      },
     };
   }
 
@@ -866,7 +878,7 @@ describe("a catch reads the brand through the kept read (Exceptions §7.1, §7.4
    * (Exceptions §7.4).
    */
   test("a foreign value's `name` getter is not run by any seat that sorts it", async () => {
-    const { caught, anything, attempted } = await seats();
+    const { caught, anything, attempted, read, assumed } = await seats();
     let names = 0;
     const foreign = {
       get name(): string {
@@ -877,6 +889,8 @@ describe("a catch reads the brand through the kept read (Exceptions §7.1, §7.4
     expect(caught(foreign)).toBe("foreign");
     expect(anything(foreign)).toBe("caught");
     expect(attempted(foreign)).toBe("err");
+    expect(read(foreign)).toEqual({ tag: "None" });
+    expect(assumed(foreign)).toMatchObject({ name: "AssumptionFault" });
     expect(names).toBe(0);
   });
 });
@@ -911,10 +925,20 @@ describe("where the environment refuses the runtime record its place, each modul
     key: string,
     transform: (javascript: string) => string = (javascript) => javascript,
   ): Promise<void> {
+    // The rows test nothing unless the record really moved: count the
+    // modules whose record now lives under the row's own key.
+    let moved = 0;
     const exports = await runProject([["/main.hex", PROGRAM]], {
-      transform: (_path, javascript) =>
-        transform(javascript.replaceAll('.for("hexagon.runtime")', `.for(${JSON.stringify(key)})`)),
+      transform: (_path, javascript) => {
+        const rewritten = transform(
+          javascript.replaceAll('.for("hexagon.runtime")', `.for(${JSON.stringify(key)})`),
+        );
+        expect(rewritten).not.toContain('.for("hexagon.runtime")');
+        if (rewritten.includes(`.for(${JSON.stringify(key)})`)) moved += 1;
+        return rewritten;
+      },
     });
+    expect(moved).toBeGreaterThan(0);
     let reads = 0;
     const hostile = {
       get $hex(): string | undefined {
@@ -959,14 +983,34 @@ describe("where the environment refuses the runtime record its place, each modul
     const seat = globalThis as Record<string, unknown>;
     const locked = Object.preventExtensions({});
     seat["__hexagonLockedGlobal"] = locked;
+    let standIns = 0;
     try {
-      await refused(key, (javascript) =>
-        javascript
+      await refused(key, (javascript) => {
+        const rewritten = javascript
           .replaceAll("globalThis[__key]", "globalThis.__hexagonLockedGlobal[__key]")
-          .replaceAll("defineProperty(globalThis, __key", "defineProperty(globalThis.__hexagonLockedGlobal, __key"));
+          .replaceAll("defineProperty(globalThis, __key", "defineProperty(globalThis.__hexagonLockedGlobal, __key");
+        if (rewritten.includes("defineProperty(globalThis.__hexagonLockedGlobal, __key")) standIns += 1;
+        return rewritten;
+      });
+      expect(standIns).toBeGreaterThan(0);
       expect(Reflect.ownKeys(locked)).toEqual([]);
+      expect(Symbol.for(key) in globalThis).toBe(false);
     } finally {
       delete seat["__hexagonLockedGlobal"];
+    }
+  });
+
+  test("a key holding a record whose fields are of the wrong kind", async () => {
+    const key = "hexagon.runtime.test-wrong-fields";
+    const seat = globalThis as Record<symbol, unknown>;
+    const wrong = { reads: 5, reading: {}, arrays: new WeakMap(), looks: {} };
+    seat[Symbol.for(key)] = wrong;
+    try {
+      await refused(key);
+      expect(wrong.reads).toBe(5);
+      expect(wrong.looks).toEqual({});
+    } finally {
+      delete seat[Symbol.for(key)];
     }
   });
 });

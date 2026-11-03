@@ -14789,11 +14789,13 @@ function renderHelper(
     //
     // Where the environment refuses the record its place — a global object
     // that is frozen or not extensible, or a symbol already naming something
-    // that cannot take the fields (`null`, a frozen object) — the module keeps
-    // a record of its own (FFI Part 11 §1): its helpers still share one record,
-    // and only modules in that environment may disagree with each other. A
-    // module never fails to load over it. Writes throw there, since an
-    // emitted module is strict, so one `try` covers every refusal.
+    // that cannot hold the record (`null`, a frozen object, fields of the wrong
+    // kind) — the module keeps a record of its own (FFI Part 11 §1): its
+    // helpers still share one record, and only modules in that environment may
+    // disagree with each other. A module never fails to load over it. Writes
+    // throw there, since an emitted module is strict, so one `try` covers every
+    // refusal, and a record kept with fields of the wrong kind is checked after
+    // the fields are filled.
     case "hexRuntime":
       return [
         `const ${name} = (() => {`,
@@ -14808,10 +14810,14 @@ function renderHelper(
         `    if (__shared.reading === ${spell("undefined")}) __shared.reading = {};`,
         `    if (__shared.arrays === ${spell("undefined")}) __shared.arrays = new ${spell("WeakMap")}();`,
         `    if (__shared.looks === ${spell("undefined")}) __shared.looks = new ${spell("WeakMap")}();`,
-        "    return __shared;",
+        `    const __reading = __shared.reading;`,
+        `    if (__shared.reads instanceof ${spell("WeakMap")} && __shared.arrays instanceof ${spell("WeakMap")} &&`,
+        `      __shared.looks instanceof ${spell("WeakMap")} && typeof __reading === "object" && __reading !== null) {`,
+        "      return __shared;",
+        "    }",
         "  } catch {",
-        `    return { reads: new ${spell("WeakMap")}(), reading: {}, arrays: new ${spell("WeakMap")}(), looks: new ${spell("WeakMap")}() };`,
         "  }",
+        `  return { reads: new ${spell("WeakMap")}(), reading: {}, arrays: new ${spell("WeakMap")}(), looks: new ${spell("WeakMap")}() };`,
         "})();",
       ];
     // `toArray`'s look, in two halves because `JsValue.hex` asks it in two
