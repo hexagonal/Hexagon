@@ -76,15 +76,18 @@ fun render(expr: Syntax.Expr): String = match expr
             None => ""
         "cap" ++ show(index) ++ label ++ "(" ++ render(body) ++ ")"
 
-export let describe(pattern: String): String = match Syntax.parse(pattern)
-    Ok(parsed) => render(parsed.root) ++ " #" ++ show(parsed.groupCount)
-    Err(error) => "error " ++ show(error.position) ++ ": " ++ error.message
+export let describe(pattern: String): String =
+    match Syntax.parse^(pattern)
+        parsed => render(parsed.root) ++ " #" ++ show(parsed.groupCount)
+    catch
+        Syntax.RegexError(message, position) => "error " ++ show(position) ++ ": " ++ message
+        other => "other " ++ show(other)
 
-export let groupIndex(pattern: String, name: String): Int = match Syntax.parse(pattern)
-    Ok(parsed) => match Map.get(parsed.names, name)
+export let groupIndex(pattern: String, name: String): Int = match Syntax.parse?(pattern)
+    Some(parsed) => match Map.get(parsed.names, name)
         Some(index) => index
         None => 0
-    Err(_) => -1
+    None => -1
 `;
 
 let parse: (pattern: string) => string;

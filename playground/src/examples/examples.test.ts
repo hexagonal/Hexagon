@@ -63,9 +63,9 @@ describe("curated playground examples", () => {
     expect(printed).toEqual([]);
     expect(threw).toBe(true);
     expect(failure).toBeInstanceOf(Error);
-    expect((failure as Error).name).toBe("BadPatternFault");
+    expect((failure as Error).name).toBe("RegexCompileFault");
     expect(describeFailure(failure))
-      .toBe("BadPatternFault: missing `)` for the group opened here (position: 39)");
+      .toBe("RegexCompileFault: missing `)` for the group opened here (position: 39)");
   }, PIPELINE_TIMEOUT);
 });
 
@@ -95,5 +95,9 @@ const EXPECTED_OUTPUT: ReadonlyMap<string, readonly string[]> = new Map([
     "x2026-10-31: not an ISO date",
     "2026-13-45: year 2026, month 13, day 45",
     "is 1999-12-31 a date? True",
+    "a.c is a pattern; on abc it says True",
+    "(a is not a pattern",
+    "(a)(b) has 2 groups",
+    "[z-a]: range `z-a` is reversed, at position 4",
   ]],
 ]);

@@ -4,32 +4,25 @@ export const regexes: PlaygroundExample = {
   id: "regexes",
   title: "Regular Expressions",
   description:
-    "Compile a pattern, test strings against it, and read named captures from a match.",
+    "Compile a pattern, test strings against it, read named captures from a match, and check a pattern that arrives as data.",
   source: `module Regexes
 
 import Regex
+import Regex.Syntax
 
-// A pattern is compiled by Regex.compile, which answers a Result: a pattern
-// can be malformed, and the Err says why and where. The dialect is RE2's, so
-// matching takes time linear in the text. A pattern written as a literal is
-// compiled once per load, even inside a function called many times.
+// A pattern written into the program is compiled with Regex.compile. The
+// dialect is RE2's, so matching takes time linear in the text, and a pattern
+// written as a literal is compiled once per load, even inside a function
+// called many times.
+//
+// A malformed pattern here would be a bug in the program, not a failure a
+// caller can plan for, so compile throws a fault, RegexCompileFault, and its
+// call wears no mark. Uncaught as the module loads, it stops the program
+// before anything below runs, saying what is wrong with the pattern.
 //
 // (?<year>...) captures under a name as well as a number. ^ and $ anchor the
 // match to the whole string.
-//
-// A pattern written into the program is unwrapped once, where it is compiled.
-// A malformed one would be a bug in the program, not a failure a caller can
-// plan for, so it is a fault, thrown with a plain throw: faults are not
-// tracked, so the throw wears no ^ mark. Uncaught as the module loads, it
-// stops the program before anything below runs, showing the Err's message
-// and its position in the pattern. Every use below has the Regex itself. A
-// pattern that arrives while the program runs, typed by a user, say, is
-// unwrapped once where it arrives, with its Err shown rather than thrown.
-fault BadPatternFault(message: String)
-
-let isoDate: Regex = match Regex.compile("^(?<year>[0-9]{4})-(?<month>[0-9]{2})-(?<day>[0-9]{2})$")
-    Ok(regex) => regex
-    Err(error) => throw(BadPatternFault(String.join([error.message, "(position: \${error.position})"], " ")))
+let isoDate: Regex = Regex.compile("^(?<year>[0-9]{4})-(?<month>[0-9]{2})-(?<day>[0-9]{2})$")
 
 // find answers the leftmost match, or None. named reads one named group from
 // it, which is an Option too: a name the pattern does not define has none, and
@@ -53,6 +46,29 @@ check("2026-13-45")
 
 // When only yes or no matters, isMatch answers a Bool.
 Debug.log("is 1999-12-31 a date? \${isoDate.isMatch("1999-12-31")}")
+
+// A pattern that arrives while the program runs, typed by a user, say, goes
+// through Regex.parse. A bad one is a failure the program should plan for, so
+// parse throws the exception RegexError, and its call is marked. Read with ?,
+// the call answers an Option: None for text that is not a pattern.
+let tryPattern(pattern: String) = match Regex.parse?(pattern)
+    Some(regex) => Debug.log("\${pattern} is a pattern; on abc it says \${regex.isMatch("abc")}")
+    None => Debug.log("\${pattern} is not a pattern")
+
+tryPattern("a.c")
+tryPattern("(a")
+
+// To say why, catch RegexError by name: its message, and the position in the
+// pattern of the defect it names. The other arm takes anything else.
+let explain(pattern: String) =
+    try
+        Debug.log("\${pattern} has \${Regex.parse^(pattern).groupCount()} groups")
+    catch
+        Syntax.RegexError(message, position) => Debug.log("\${pattern}: \${message}, at position \${position}")
+        other => Debug.log("\${pattern}: \${other}")
+
+explain("(a)(b)")
+explain("[z-a]")
 `,
   specificationReferences: ["spec/regex.md", "spec/exceptions.md"],
 };

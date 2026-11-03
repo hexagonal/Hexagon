@@ -10,7 +10,7 @@
 
 **Document:** `collections-part1-decisions.md` (Decided, July 2026).
 
-Fixed: the `Vector(a)` name and the `List` reservation; trie-deque representation and the complexity contract (RRB rejected for v1); the naming doctrine (modern functional, subject-first; LISP/Haskell/JS-mutation names banned); the uniform accessor pair (`[]` throws `IndexFault`/`KeyFault`, `get` is total and `Option`-returning; `try` prefix reserved to mean non-throwing); the hash-based key model with `Hash` as a v1 derivable-only constraint implying `Eq` (`Ord`-tree default rejected; `SortedMap`/`SortedSet` pre-registered v2); uniform `toSeq`/`fromSeq`; restricted user-implementable `Iterable` in v1 (amending Decisions Batch §6 / Loops §11.1); `++` boundaries.
+Fixed: the `Vector(a)` name and the `List` reservation; trie-deque representation and the complexity contract (RRB rejected for v1); the naming doctrine (modern functional, subject-first; LISP/Haskell/JS-mutation names banned); the uniform accessor pair (`[]` throws `IndexFault`/`KeyFault`, `get` is total and `Option`-returning; no stdlib name takes the `try` prefix); the hash-based key model with `Hash` as a v1 derivable-only constraint implying `Eq` (`Ord`-tree default rejected; `SortedMap`/`SortedSet` pre-registered v2); uniform `toSeq`/`fromSeq`; restricted user-implementable `Iterable` in v1 (amending Decisions Batch §6 / Loops §11.1); `++` boundaries.
 
 Everything below is written against these decisions; none is open for re-litigation.
 

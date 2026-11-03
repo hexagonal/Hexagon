@@ -3560,21 +3560,24 @@ class JavaScriptEmitter {
 
   /**
    * *(#927, `regex.md` §8.)* The symbols this module binds `Hex.Regex`'s
-   * `compile` under, and the lazy module-level constants its literal-pattern
-   * calls became: a call `Regex.compile("…")` whose argument is a string
-   * literal is compiled once per load, at its first evaluation, and every later
-   * evaluation reads the same `Result`. `compile` is a value function of its
-   * argument (Effects §6.2, species (d)), so no semantics ride on the sharing.
+   * `compile` and `parse` under, and the lazy module-level constants its
+   * literal-pattern calls became: a call `Regex.compile("…")` or
+   * `Regex.parse^("…")` whose argument is a string literal is compiled once per
+   * load, at its first successful evaluation, and every later evaluation reads
+   * the same `Regex`. A literal that does not parse throws before `??=` assigns,
+   * so it is never kept and throws again at its next evaluation. Both are value
+   * functions of their argument (Effects §6.2, species (d)), so no semantics
+   * ride on the sharing.
    */
-  readonly #regexCompileSymbols: ReadonlySet<Resolved.SymbolId>;
+  readonly #regexLiteralSymbols: ReadonlySet<Resolved.SymbolId>;
   readonly #regexLiterals: string[] = [];
 
   constructor(module: Core.Module, options: JavaScriptEmissionOptions) {
     this.#module = module;
-    this.#regexCompileSymbols = new Set(module.items.flatMap((item) =>
+    this.#regexLiteralSymbols = new Set(module.items.flatMap((item) =>
       item.kind === "Import" && item.moduleName === "Hex.Regex"
         ? item.form.names.flatMap(({ imported, symbol }) =>
-          imported === "compile" && symbol !== undefined ? [symbol] : []
+          (imported === "compile" || imported === "parse") && symbol !== undefined ? [symbol] : []
         )
         : []
     ));
@@ -6065,7 +6068,7 @@ class JavaScriptEmitter {
         }
         if (
           expression.callee.kind === "Name" &&
-          this.#regexCompileSymbols.has(expression.callee.symbol) &&
+          this.#regexLiteralSymbols.has(expression.callee.symbol) &&
           expression.arguments.length === 1 &&
           isLiteralText(expression.arguments[0]!)
         ) {

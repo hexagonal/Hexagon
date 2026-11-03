@@ -24,9 +24,7 @@ const SOURCE = `module Main
 
 import Regex
 
-fun regexOf(source: String): Regex.Regex = match Regex.compile(source)
-    Ok(regex) => regex
-    Err(_) => regexOf("x")
+let regexOf(source: String): Regex.Regex = Regex.compile(source)
 
 let bs: Regex.Regex = regexOf("b+")
 let xs: Regex.Regex = regexOf("x*")
