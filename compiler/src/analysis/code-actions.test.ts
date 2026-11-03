@@ -1395,8 +1395,9 @@ describe("code actions: the module-import repair family (#577)", () => {
    * last such type, and since #1427 it is an exception, so the shipped prelude
    * has none and the workspace tier is never asked at a prelude type. The rule's
    * arm stays pinned at the pass with a stand-in (`import-module-repairs.test.ts`,
-   * "the third arm has an ordinary buffer"). The case below is the filter's
-   * other half: a user's own file is a candidate whatever its basename.
+   * "the third arm has an ordinary buffer"), and the filter itself waits on a
+   * test seam (#1455). The case below is the filter's other half: a user's own
+   * file is a candidate whatever its basename.
    */
 
   test("a user's own module at a prelude basename is still a candidate", () => {

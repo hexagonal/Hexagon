@@ -2165,7 +2165,7 @@ export const STDLIB_SOURCES: Readonly<Record<string, string>> = {
     + "    if isArray(value) then\n"
     + "        asArrayUnchecked(value)\n"
     + "    else\n"
-    + "        throw^(shapeFailure(\"an array\"))\n",
+    + "        throw^(shapeFailure(\"an Array\"))\n",
   "Map":
     "module Map\n"
     + "\n"

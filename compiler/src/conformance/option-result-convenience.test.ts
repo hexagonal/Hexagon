@@ -595,3 +595,19 @@ export let answers: String = "\${present.isSome()} \${present.isNone()} \${absen
       .toEqual(["type `Result` expects 1 argument, but 2 were provided"]);
   });
 });
+
+describe("the new functions take no mark, and a mark is refused", () => {
+  // Each in its own module: a hedged mark report is given once per module
+  // (the Rewrite Rule's fallback), so one program would show only the first.
+  test.each([
+    ["let a: Option(Int) = r.toOption^()\n", ".toOption", "^", "may fail", "unable to fail"],
+    ["let b: Result(Int) = Some(1).toResult^(() => Missing)\n", ".toResult", "^", "may fail", "unable to fail"],
+    ["let c: Bool = Some(1).isSome!()\n", ".isSome", "!", "is impure and may fail", "pure and unable to fail"],
+    ["let d: Bool = r.isErr~()\n", ".isErr", "~", "is impure", "pure"],
+  ])("%s", (line, callee, mark, claims, silent) => {
+    const reports = messages("exception Missing\nlet r: Result(Int) = Ok(1)\n" + line);
+    expect(reports).toHaveLength(1);
+    expect(reports[0]).toContain(`so \`${callee}\` wants no mark, not \`${mark}\``);
+    expect(reports[0]).toContain(`if this call ${claims}, something makes it ${silent}`);
+  });
+});

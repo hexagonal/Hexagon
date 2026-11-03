@@ -390,7 +390,7 @@ describe("the scalar decoders are strict and non-coercing (§4.1)", () => {
   });
 
   /** The decoders reach through the dot as well, at the same companion. */
-  test("`v.toInt^()` is `JsValue.toInt^(v)`", async () => {
+  test("`v.toInt?()` reads `JsValue.toInt` through the dot", async () => {
     const main = await runMain("module Main\n\n" + "export let dotted(v: JsValue): Option(Int) = v.toInt?()\n" +
         "export let ok(r: Option(Int)): Bool = match r\n" +
         "    Some(_) => True\n" +

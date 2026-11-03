@@ -164,4 +164,4 @@ export let toArray(value: JsValue): Array(JsValue) =
     if isArray(value) then
         asArrayUnchecked(value)
     else
-        throw^(shapeFailure("an array"))
+        throw^(shapeFailure("an Array"))

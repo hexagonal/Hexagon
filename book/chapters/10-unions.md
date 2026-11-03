@@ -150,9 +150,9 @@ The second standard union is:
 union Result(a) = Ok(value: a) | Err(error: Exn)
 ```
 
-Its type parameter is the success value. Its error is always an exception, one that was
-thrown and caught: a `Result` is how a program keeps the outcome of a computation that
-may fail, to store it or hand it on. The Exceptions chapter introduces `attempt`, which
+Its type parameter is the success value. Its error is always an exception, usually one
+that was thrown and caught: a `Result` is how a program keeps the outcome of a
+computation that may fail, to store it or hand it on. The Exceptions chapter introduces `attempt`, which
 makes one.
 
 A failure that is a program's own data, such as a check that explains what it found, is

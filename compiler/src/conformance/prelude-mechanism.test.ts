@@ -343,7 +343,7 @@ describe("emission follows the new dependency edge", () => {
       [ORDERING, OPTION_IMPORTING_RESULT, RESULT, USES_OPTION],
       ["Ordering", "Option", "Result"],
     );
-    expect(compiled.diagnostics.filter(({ primary }) => Number(primary.fileId) < 4)).toEqual([]);
+    expect(compiled.diagnostics).toEqual([]);
     expect(compiled.modules.map(({ source }) => source.path)).toContain("/Result.hex");
   });
 

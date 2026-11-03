@@ -578,7 +578,7 @@ describe("type variables are nominal-coloured in type positions", () => {
 
   it("recognizes nested type-variable uses throughout an annotation", async () => {
     const pairs = await scopePairs(
-      "fun choose(value: Result(a, Vector(b))): Option((a, b)) = None",
+      "fun choose(value: Map(a, Vector(b))): Option((a, b)) = None",
     );
     expect(pairs.filter(([text]) => text === "a" || text === "b")).toEqual([
       ["a", "entity.name.type.parameter.hexagon"],

@@ -141,7 +141,7 @@ is not intrinsically a type variable — `a` remains an ordinary term in `let x 
 But inside a declaration parameter list, a disambiguated `<...>` list, a type
 alias, or an annotation after `:`, the language says a non-uppercase-start name
 can only be a type variable. Those names get `entity.name.type.parameter`, including
-nested uses such as `Result(a, Vector(b))`.
+nested uses such as `Map(a, Vector(b))`.
 
 **Contextual keywords are matched by position, not spelling.** §4.2's whole point
 is that `let when = True` is legal and `{with = 3}` is a field. Each contextual
