@@ -58,9 +58,10 @@ Consequence of the base constraint: **`Hash<Float>` normalises consistently with
 
 > For all `x`, `y` of a type honoring `Hash`: **`Hash.same(x, y)` is true exactly when no Hexagon function can tell `x` from `y`**, so that any function handed one in place of the other answers alike. Reference identity, which only foreign code can observe (FFI Part 1 §3.1), is not part of the comparison: separately built values with the same parts are the same.
 
-So `same` implies `==`, and by the first law, equal hashes. The converse is not a law: `==` may equate values that a function can tell apart. The provided instances meet three such pairs:
+So `same` implies `==`, and by the first law, equal hashes. The converse is not a law: `==` may equate values that a function can tell apart. The provided instances meet four such pairs:
 - `Float`'s `0.0` and `-0.0` are `==` (SameValueZero), and `1.0 / x` tells them apart.
 - `Dec`'s `1.0` and `1.00` are `==` (Dec §8), and `show` and `Dec.places` tell them apart.
+- `Int`'s `0` and the `-0` that `0 * -1` leaves (#1277) are `==`, and `1.0 / Float.fromInt(x)` tells them apart.
 - Two `Map`s or two `Set`s holding the same entries are `==`, yet where two keys have equal hashes (`"Aa"` and `"BB"`), the order those keys iterate in depends on construction history (Part 4 §7.1). Built in different orders, the two collections can iterate differently, and iteration tells them apart.
 
 `same` is the test a cache needs before it answers one call with a value computed for another: Python's `lru_cache` carries a `typed` flag for the same reason.
@@ -95,8 +96,8 @@ This table is the exhaustive **status map** of core-type `Hash`; each row record
 | `Hash<BigInt>` | folds the arbitrary-precision value into `Int`; collisions inevitable and lawful *(provenance corrected, #344: hand-written source in `stdlib/BigInt.hex` under the §4.4 carve-out — row retained as the status map)* |
 | `Hash<Unit>` | constant; the automatic structural arity-0 derivation — `Unit` is the empty tuple (Products §2.7), so this is the structural-types rule below at the vacuous arity, never in §4.4's provided category — row retained as the status map |
 
-**`same` in these instances.** Each row's instance writes `same` beside `hash`, and the trusted author verifies §2.3's second law (§4.4):
-- `Float`, `Int` and `Nat` write SameValue (JavaScript's `Object.is`). `-0` and `+0` are not the same, and every `NaN` is the same as every other, since no Hexagon function reads a `NaN`'s bits. For `Int` and `Nat`, whose arithmetic produces no `-0`, SameValue agrees with `==`, and it stays exact on any representation the runtime holds.
+**`same` in these instances.** Each row's instance has `same` beside `hash`. Where the instance is hand-written, its trusted author writes `same` and verifies §2.3's second law (§4.4):
+- `Float`, `Int` and `Nat` write SameValue (JavaScript's `Object.is`). `-0` and `+0` are not the same, and every `NaN` is the same as every other, since no Hexagon function reads a `NaN`'s bits. `Int` and `Nat` arithmetic can leave a `-0` (#1277), and `Float.fromInt` keeps its sign, so SameValue is what stays exact for them too.
 - `String` and `BigInt` write `==`, which is exact for both.
 - `Bool` derives it with its `Hash` (§3.2), and `Unit`'s is the constant `True`.
 
@@ -113,7 +114,7 @@ This table is the exhaustive **status map** of core-type `Hash`; each row record
 The derivable constraints in v1 are **`Eq`, `Ord`, `Show`, `Hash`** (Constraints §4.5). All derivation machinery applies unchanged:
 
 ```
-record Point = {x: Float, y: Float} derives (Eq, Hash)
+record Point derives (Eq, Hash) = {x: Float, y: Float}
 -- elaborates to:
 --   honor Eq<Point> = derive
 --   honor Hash<Point> = derive
@@ -445,7 +446,7 @@ The v2 implied-types remainder is also routed here: deferred `Item(α)` goals, t
 
 ```
 -- (1) Derives Hash; usable as a key-shaped value
-record Point = {x: Float, y: Float} derives (Eq, Hash)
+record Point derives (Eq, Hash) = {x: Float, y: Float}
 let h = Point({x = 1.0, y = 2.0}).hash()           -- OK : Int
 
 -- (2) Law-relevant Float normalisation
@@ -471,7 +472,7 @@ honor Hash<Weird> = derive                       -- ERROR: `Weird` has a hand-wr
                                                  --   consistent with a derived equality
 
 -- (6) Missing base constraint, hinted
-record P = {n: Int} derives Hash                 -- ERROR: missing Eq
+record P derives Hash = {n: Int}                 -- ERROR: missing Eq
                                                  --   hint: add `Eq` to the `derives` list
 
 -- (7) Whitelist message names all four
@@ -521,7 +522,7 @@ constraint Queue<c> =
 
 ```
 -- (15) `same`: derived, and finer than `==` where a function can see the difference
-record Reading = {at: Float, label: String} derives (Eq, Hash)
+record Reading derives (Eq, Hash) = {at: Float, label: String}
 Reading({at = 0.0, label = "a"}) == Reading({at = -0.0, label = "a"})          -- true
 Reading({at = 0.0, label = "a"}).same(Reading({at = -0.0, label = "a"}))       -- false
 Hash.same((1, "a"), (1, "a"))                                                  -- true
@@ -529,10 +530,10 @@ Hash.same((1, "a"), (1, "a"))                                                  -
 1.0d == 1.00d                                                                  -- true
 1.0d.same(1.00d)                                                               -- false
 Map.fromVector([("Aa", 1), ("BB", 2)]) == Map.fromVector([("BB", 2), ("Aa", 1)])         -- true
-Map.fromVector([("Aa", 1), ("BB", 2)]).same(Map.fromVector([("BB", 2), ("Aa", 1)]))      -- false
+Hash.same(Map.fromVector([("Aa", 1), ("BB", 2)]), Map.fromVector([("BB", 2), ("Aa", 1)])) -- false
 
 -- (16) The member claims its spelling
-record Tag = {name: String} derives (Eq, Hash)
+record Tag derives (Eq, Hash) = {name: String}
 let same(a: Tag, b: Tag): Bool = a == b          -- ERROR: `same` is already bound: the
                                                  --   `Hash<Tag>` instance binds it as a member
 

@@ -465,11 +465,11 @@ Inside the RHS of `let x = ...`, any reference to `x` — at any nesting depth, 
 
 > `x` is not in scope in its own `let` definition; `let` is non-recursive — use `fun`.
 
-**One right-hand side takes other advice.** Where the RHS is a call that resolves to `Function.memoize` or `Function.memoizeRecursive` (a pipe stage included), "use `fun`" would lead to a memo table rebuilt on every call, so the advice is the open-recursion rewrite instead (`memoization.md` §6):
+**One right-hand side takes other advice.** Where the RHS is a call that resolves to `Function.memoize` or `Function.memoizeRecursive` (a pipe stage included), "use `fun`" would lead to a memo table rebuilt on every call, so the advice is the open-recursion rewrite instead (`memoization.md` §6). At `memoize`, it repeats the lambda's own parameters, as written, after a new first parameter:
 
-> `fib` is not in scope in its own `let` definition; to memoise a function that calls itself, take it as a parameter: `let fib = Function.memoizeRecursive((self, n) => …)`, calling `self` where the lambda calls `fib`.
+> `fib` is not in scope in its own `let` definition; to memoise a function that calls itself, take it as a parameter: `let fib = Function.memoizeRecursive((self, n: Int) => …)`, calling `self` where the lambda calls `fib`.
 
-At a call to `Function.memoizeRecursive`, the advice names the lambda's own first parameter instead. The choice reads the RHS's text and the name resolution of its head, never a type.
+At `memoizeRecursive`, the advice names the lambda's own first parameter, or, where that parameter is `_` or a pattern, says to name it. The choice reads the RHS's text and the name resolution of its head, never a type.
 
 Implementation: a **pending-binder stack** in the name resolver. The binder name is pushed while its RHS is resolved and added to the environment only afterward; a lookup that hits the pending stack produces the targeted diagnostic above rather than a generic "unbound name." (`var` reuses the same mechanism and diagnostic family — Statements §6.1.)
 
@@ -554,7 +554,7 @@ Two corollaries are normative, because each surfaces in ordinary programs *(#368
 
 ### 7.5 Memoized recursion (the one restricted pattern)
 
-Memoization is `Function.memoize` and `Function.memoizeRecursive` (`memoization.md`), and `let cheap = Function.memoize(expensive)` is unremarkable. Neither is writable in Hexagon: the table is mutable state a closure would have to capture, which Statements §6.2 and §6.4 rule out, so the compiler provides it (`memoization.md` §1). The only restricted pattern is the self-referential one-liner `fun fib = Function.memoize((n) => ... fib ...)` — rejected by §7.1 (there is no `fun name =` production), for the same reason OCaml's `let rec` rejects non-lambda RHSes: creating a recursive binding must evaluate nothing. Spelled with `let`, it is the pending-name refusal (Statements §5.1), whose rewrite names the idiom (`memoization.md` §6). The blessed idiom is **open recursion**: write the function taking "itself" as a parameter, and tie the knot with `Function.memoizeRecursive`:
+Memoization is `Function.memoize` and `Function.memoizeRecursive` (`memoization.md`), and `let cheap = Function.memoize(expensive)` is unremarkable. Neither is writable in Hexagon: the table is mutable state a closure would have to capture, which Statements §6.2 and §6.4 rule out, so the compiler provides it (`memoization.md` §1). The only restricted pattern is the self-referential one-liner `fun fib = Function.memoize((n) => ... fib ...)` — rejected by §7.1 (there is no `fun name =` production), for the same reason OCaml's `let rec` rejects non-lambda RHSes: creating a recursive binding must evaluate nothing. Spelled with `let`, it is §6's self-reference refusal, whose advice there names the idiom (`memoization.md` §6). The blessed idiom is **open recursion**: write the function taking "itself" as a parameter, and tie the knot with `Function.memoizeRecursive`:
 
 ```
 let fibOpen(self: (Int) -> Int, n: Int): Int =

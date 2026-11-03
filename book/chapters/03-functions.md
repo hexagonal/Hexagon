@@ -383,7 +383,7 @@ let fib = Function.memoizeRecursive(fibOpen)
 
 `fibOpen` calls `self` where the plain version called `fib`, and it is an ordinary `let`,
 since it never names itself. The `self` it is handed looks each argument up before
-computing, so `fib(90)` works out each answer once. A function that doesn't call itself
+computing, so `fib(70)` works out each answer once. A function that doesn't call itself
 needs no `self`: `Function.memoize(f)` remembers the answers of `f`.
 
 Three rules come with it:
