@@ -48,16 +48,35 @@ honor Show<Regex> =
 // ---------------------------------------------------------------------------
 // Compilation (§4.2)
 
-(** Compiles `pattern`, or answers why it is not one: the message and the
-    1-based position of the first fault (§2.9). *)
-export let compile(pattern: String): Result(Regex, Syntax.RegexError) = match Syntax.parse(pattern)
-    Ok(parsed) => Ok(Regex({
-        source = pattern,
-        groupCount = parsed.groupCount,
-        names = parsed.names,
-        program = compileProgram(parsed),
-    }))
-    Err(error) => Err(error)
+(** Thrown by `compile` for a pattern that does not parse: the 1-based position
+    of the first defect, and §2.9's message with that position after it, so that
+    an uncaught one says where. A fault, because a pattern handed to `compile` is
+    the programmer's own, and a bad one is the programmer's mistake. *)
+export fault RegexCompileFault(message: String, position: Int)
+
+let compiled(pattern: String, parsed: Syntax.Pattern): Regex = Regex({
+    source = pattern,
+    groupCount = parsed.groupCount,
+    names = parsed.names,
+    program = compileProgram(parsed),
+})
+
+(** `pattern` compiled, for a pattern the programmer wrote. It takes no mark:
+    a pattern that does not parse throws the fault `RegexCompileFault`. A
+    pattern that arrives as data goes through `parse` instead. *)
+export let compile(pattern: String): Regex =
+    try
+        compiled(pattern, Syntax.parse^(pattern))
+    catch
+        Syntax.RegexError(message, position) =>
+            throw(RegexCompileFault(message ++ " (position: " ++ show(position) ++ ")", position))
+        // `Syntax.parse` throws nothing else.
+        other => assume throw^(other)
+
+(** `pattern` compiled, for a pattern that arrives as data: typed by a user, or
+    read from a file. A pattern that does not parse throws `Syntax.RegexError`,
+    so every call wears `^`; read it with `?` for an `Option(Regex)`. *)
+export let parse(pattern: String): Regex = compiled(pattern, Syntax.parse^(pattern))
 
 // Whether a codepoint is one `escape` writes behind a backslash: a
 // metacharacter in any position, or White_Space.
