@@ -1000,15 +1000,22 @@ describe("where the environment refuses the runtime record its place, each modul
     }
   });
 
-  test("a key holding a record whose fields are of the wrong kind", async () => {
-    const key = "hexagon.runtime.test-wrong-fields";
+  // The catch's kept read uses `reads`, so a wrong `reads` is the field a
+  // catch would trip on: a number, an object that only inherits from
+  // `WeakMap.prototype`, and a proxy over a real `WeakMap`.
+  test.each([
+    ["a number", (): unknown => 5],
+    ["a lookalike", (): unknown => Object.create(WeakMap.prototype) as unknown],
+    ["a proxy over a `WeakMap`", (): unknown => new Proxy(new WeakMap(), {})],
+  ])("a key holding a record whose `reads` is %s", async (label, make) => {
+    const key = `hexagon.runtime.test-wrong-reads-${label}`;
     const seat = globalThis as Record<symbol, unknown>;
-    const wrong = { reads: 5, reading: {}, arrays: new WeakMap(), looks: {} };
+    const reads = make();
+    const wrong = { reads, reading: {}, arrays: new WeakMap(), looks: new WeakMap() };
     seat[Symbol.for(key)] = wrong;
     try {
       await refused(key);
-      expect(wrong.reads).toBe(5);
-      expect(wrong.looks).toEqual({});
+      expect(wrong.reads).toBe(reads);
     } finally {
       delete seat[Symbol.for(key)];
     }

@@ -14794,8 +14794,9 @@ function renderHelper(
     // helpers still share one record, and only modules in that environment may
     // disagree with each other. A module never fails to load over it. Writes
     // throw there, since an emitted module is strict, so one `try` covers every
-    // refusal, and a record kept with fields of the wrong kind is checked after
-    // the fields are filled.
+    // refusal. A record kept with fields of the wrong kind is checked after the
+    // fields are filled: `WeakMap.prototype.has` throws for anything but a real
+    // `WeakMap`, a lookalike or a proxy over one included.
     case "hexRuntime":
       return [
         `const ${name} = (() => {`,
@@ -14810,13 +14811,13 @@ function renderHelper(
         `    if (__shared.reading === ${spell("undefined")}) __shared.reading = {};`,
         `    if (__shared.arrays === ${spell("undefined")}) __shared.arrays = new ${spell("WeakMap")}();`,
         `    if (__shared.looks === ${spell("undefined")}) __shared.looks = new ${spell("WeakMap")}();`,
-        `    const __reading = __shared.reading;`,
-        `    if (__shared.reads instanceof ${spell("WeakMap")} && __shared.arrays instanceof ${spell("WeakMap")} &&`,
-        `      __shared.looks instanceof ${spell("WeakMap")} && typeof __reading === "object" && __reading !== null) {`,
-        "      return __shared;",
-        "    }",
-        "  } catch {",
-        "  }",
+        `    const __has = ${spell("WeakMap")}.prototype.has;`,
+        "    __has.call(__shared.reads, __has);",
+        "    __has.call(__shared.arrays, __has);",
+        "    __has.call(__shared.looks, __has);",
+        "    const __reading = __shared.reading;",
+        '    if (typeof __reading === "object" && __reading !== null) return __shared;',
+        "  } catch {}",
         `  return { reads: new ${spell("WeakMap")}(), reading: {}, arrays: new ${spell("WeakMap")}(), looks: new ${spell("WeakMap")}() };`,
         "})();",
       ];
