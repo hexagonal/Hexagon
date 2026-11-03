@@ -6,7 +6,7 @@ seat (Modules §5.5): Option's implementation is seated after Seq. Amended
 2026-11-03 (#1427): `Result` holds a caught exception (`Result(a)`, the type
 `attempt` gives), `mapError` is withdrawn, and both modules gain a conversion
 to the other and presence predicates; `Result`'s seat precedes `Seq`'s,
-and so `Option`'s full seat, which names it.
+and so precedes `Option`'s full seat, where `Option.toResult` names it.
 
 **Homes:** `stdlib/Option.hex` and `stdlib/Result.hex`, ordinary prelude modules.
 Option's derived Eq/Show instances keep their existing meanings. No new

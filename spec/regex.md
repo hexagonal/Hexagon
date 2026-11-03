@@ -184,7 +184,7 @@ let checked(text: String): String =
         e => "${e}"
 ```
 
-Its home is `Regex.Syntax` (§5), where the parser lives, so an arm that names it writes `import Regex.Syntax` and `Syntax.RegexError(…)`; a catch-all needs no import, and shows it as ``RegexError: missing `)` for the group opened here`` (Exceptions §8.6), the message without the position. A pattern the programmer wrote is not data, and `compile` reports one that is wrong with a fault carrying the same two slots (§4.2). The message family, position rule per row:
+Its home is `Regex.Syntax` (§5), where the parser lives, so an arm that names it writes `import Regex.Syntax` and `Syntax.RegexError(…)`; a catch-all needs no import, and shows it as ``RegexError: missing `)` for the group opened here`` (Exceptions §8.6), the message without the position. A pattern the programmer wrote is not data, and `compile` reports one that is wrong with a fault carrying the same two slots, its message also naming the position (§4.2). The message family, position rule per row:
 
 | Defect | Position | Message |
 |---|---|---|
@@ -282,7 +282,7 @@ Regex.groupIndex(regex: Regex, name: String): Option(Int)
 ```
 
 - **Two functions, one parse and one construction.** Each parses (§5) and constructs the program (§6.1); they differ only in what a bad pattern is. The one door: a literal pattern takes the same parser and the same constructor (§8). There is no further entry point with flags, options, or a size budget.
-- **`compile` is for a pattern the programmer wrote**, and takes no mark. A pattern that does not parse is the programmer's mistake, as an index out of range is, so `compile` throws the fault `RegexCompileFault`, exported by `Regex.hex` beside it. Its `position` is §2.9's, and its `message` is §2.9's with the position after it, so that an uncaught one says where: ``RegexCompileFault: missing `)` for the group opened here (position: 2)``. Nothing tracks it; a program catches it by name or with `fault e` (Exceptions §5.2). A programmer who hands `compile` text from outside the program is vouching for it.
+- **`compile` is for a pattern the programmer wrote**, and takes no mark. A pattern that does not parse is the programmer's mistake, as an index out of range is, so `compile` throws the fault `RegexCompileFault`, exported by `Regex.hex` beside it. Its `position` is §2.9's, and its `message` is §2.9's followed by ` (position: <n>)`, so that an uncaught one says where: ``RegexCompileFault: missing `)` for the group opened here (position: 2)``. Nothing tracks it; a program catches it by name or with `fault e` (Exceptions §5.2). A programmer who hands `compile` text from outside the program is vouching for it.
   ```
   let yearMonth: Regex = Regex.compile("^([0-9]{4})-([0-9]{2})$")
   ```
