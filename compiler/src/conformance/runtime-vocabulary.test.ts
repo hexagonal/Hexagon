@@ -726,8 +726,9 @@ const UNCONTESTED_CORPUS: readonly string[] = [
     "export let memo(): Seq(Int) = Seq.memoize(Vector.toSeq([1, 2]))\n" +
     "export let counted(): Seq(Int) = Seq.take(Seq.iterate(0, (x) => x + 1), 3)\n",
   "export let probe(): Unit = Debug.log(\"hi\")\n",
-  // The two borrowed views' eager constructors (#792), which are the only seats
-  // that write `new Map(…)` and `new Set(…)`. They are *prelude* seats, and a
+  // The two borrowed views' eager constructors (#792), the only seats that
+  // write `new Set(…)` and, with the kept read a catch carries (FFI Part 11
+  // §7), the only ones that write `new Map(…)`. They are *prelude* seats, and a
   // prelude module is emitted only when something imports it — so without this
   // entry the two spellings would be in the vocabulary and in no scanned text,
   // and the completeness half of the tripwire below would be the thing that said
@@ -861,12 +862,14 @@ describe("completeness — the worst-contested module writes no bare global", ()
     // the whole vocabulary but `Map` and `Set`. Those two are deliberately
     // unbound here: binding either would put a constructor in the way of the
     // `Map.fromVector` and `Set` spellings this module needs to reach the map
-    // bracket at all, and the seats that write `new Map(…)`/`new Set(…)` are
-    // prelude ones (`stdlib/JsMap.hex`, `stdlib/JsSet.hex`) rather than seats a
-    // user module can host. Their capture is measured in two other places
-    // instead: on a project-supplied copy of one of those files, where the
-    // capture is load-bearing (`js-map-set.test.ts`), and on an ordinary module
-    // that merely binds the word, where it is collateral (the describe below).
+    // bracket at all. The seats that write `new Set(…)` are prelude ones
+    // (`stdlib/JsSet.hex`); `new Map(…)` has those (`stdlib/JsMap.hex`) and one
+    // a user module hosts, the kept read a module with a catch carries (FFI
+    // Part 11 §7). Their capture is measured in other places instead: on a
+    // project-supplied copy of one of those files, where the capture is
+    // load-bearing (`js-map-set.test.ts`); on an ordinary module that merely
+    // binds the word, where it is collateral; and on a module that binds `Map`
+    // and catches, where the kept read's `Map` is captured (the describe below).
     expect(text).toContain(
       "import { __global_Array, __global_BigInt, __global_Boolean, __global_console, " +
         "__global_Error, __global_globalThis, __global_Math, __global_Number, __global_Object, " +
@@ -893,10 +896,10 @@ describe("completeness — the worst-contested module writes no bare global", ()
         /^export \{ ([A-Za-z_$][\w$]*) \};$/u.exec(line)?.[1];
       return declared === undefined || !own.has(declared);
     }).join("\n");
-    // `Map` and `Set`, which the module leaves unbound (above), are bare by
-    // right: the kept read's `new Map()` is the one seat here that writes either.
+    // `Map`, which the module leaves unbound (above), is bare by right: the
+    // kept read's `new Map()` is the one seat here that writes it.
     for (const member of RUNTIME_VOCABULARY) {
-      if (member === "Map" || member === "Set") continue;
+      if (member === "Map") continue;
       expect(emitterWritten).not.toMatch(new RegExp(`(?<![\\w$.])${member}(?![\\w$])`, "u"));
     }
     expect(text).toContain("new Map()");
@@ -972,7 +975,9 @@ describe("what joining the vocabulary costs a module that merely binds the word"
    * The other half of #792's two entries, measured rather than asserted, and it
    * is collateral rather than a repair. `Map` and `Set` joined the vocabulary
    * for the two seats that *write* them — `jsMapFromSeq` and `jsSetFromSeq`,
-   * both of them prelude seats — but the trigger reads what a module **binds**,
+   * both of them prelude seats; the kept read a catch carries into a user
+   * module writes `Map` too (the last row here) — but the trigger reads what a
+   * module **binds**,
    * deliberately and for the reason the `RuntimeVocabulary` doc gives: the
    * reference set is the quantity that re-draws silently, so a trigger reading
    * it would fail exactly when the hazard moved. The consequence is that any
@@ -1023,6 +1028,31 @@ describe("what joining the vocabulary costs a module that merely binds the word"
     expect(module.javascript.text).toContain('import { __global_Map } from "./hex.js";');
     expect(module.javascript.text).toContain("const Map = __record => __record;");
     expect(module.javascript.text.split("__global_Map").length - 1).toBe(1);
+  });
+
+  // The seat where the capture is load-bearing in a user module: a catch
+  // carries FFI Part 11 §7's kept read, which writes `new Map()`, so beside a
+  // record named `Map` it must reach the global through the capture.
+  test("a catch beside a binding of `Map` reaches the global `Map`", async () => {
+    const PROGRAM = "export record Map = { items: Vector(Int) }\n" +
+      "export let n(m: Map): Int = Vector.length(m.items)\n" +
+      "exception Boom(value: Int)\n" +
+      "export let raise(): Int = throw^(Boom(3))\n" +
+      "export let rescued(): Int =\n" +
+      "    try\n" +
+      "        raise^()\n" +
+      "    catch\n" +
+      "        Boom(n) => n\n" +
+      "        _ => 0\n";
+    const project = compileFiles([["/main.hex", "module Main\n\n" + PROGRAM]]);
+    expect(project.diagnostics.map(({ message }) => message)).toEqual([]);
+    const text = project.modules.find(({ source }) => source.path === "/main.hex")!.javascript.text;
+
+    expect(text).toContain('import { __global_Map } from "./hex.js";');
+    expect(text).toContain("__answers = new __global_Map();");
+    expect(text).not.toMatch(/new Map\(/u);
+    const exports = await runProject([["/main.hex", "module Main\n\n" + PROGRAM]]);
+    expect((exports["rescued"] as () => number)()).toBe(3);
   });
 
   // The one family that can still spell a capture: an exported term named

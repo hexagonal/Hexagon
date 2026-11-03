@@ -7694,7 +7694,7 @@ class JavaScriptEmitter {
           `${inner}try {`,
           `${body}return { tag: "Some", value: ${value} };`,
           `${inner}} catch (${error}) {`,
-          `${body}if (!(${fault})) return { tag: "None" };`,
+          `${body}if (!${fault}) return { tag: "None" };`,
           `${body}throw ${error};`,
           `${inner}}`,
           `${indent(depth)}})(${values.join(", ")})`,
@@ -8372,8 +8372,9 @@ class JavaScriptEmitter {
         const metadata = this.#constructors.get(pattern.symbol);
         const literal = this.#constructorLiteral(pattern.symbol);
         // Exceptions §7.4's two-stage discrimination, written as one chain per
-        // arm: `!= null` so a `throw null` reaches the discriminator without
-        // crashing it, then the **(module, name) pair** (#488). Comparing the
+        // arm: the **(module, name) pair** (#488), read through the kept read
+        // below, which answers `undefined` for `null` and every primitive, so a
+        // `throw null` reaches the discriminator without crashing it. Comparing the
         // brand against a string subsumes stage 1's class test — a value whose
         // `$hex` equals this module's identity has a string `$hex` — and §7.4
         // fixes the pair per arm as the observable rule, leaving the shape of
@@ -8396,7 +8397,6 @@ class JavaScriptEmitter {
         // stage 1, not the caught one's: the payload holds whatever was thrown,
         // the raw foreign value included, and nothing above computed its test.
         const jsError = exception !== undefined && pattern.symbol === this.#prelude.jsError;
-        //
         // Every brand and name is read through FFI Part 11 §7's kept read
         // (#1447): guarded, at most once per value, kept in the one runtime
         // record, and `undefined` for a value that bears no properties. The
@@ -13813,8 +13813,10 @@ interface PatternViewContext {
 const GUARD_PARAMETER = "__error";
 
 /**
- * One exception's guard body: §7.4's (module, name) pair read from the outside,
- * which is exactly the test a catch arm for the same constructor emits (#488).
+ * One exception's guard body: §7.4's (module, name) pair read from the outside
+ * (#488). A catch arm for the same constructor tests the same pair through FFI
+ * Part 11 §7's kept read; a guard is JavaScript's own code and reads raw
+ * (Exceptions §7.6, #1447).
  */
 function guardTest(value: string, owner: string, name: string): string {
   return `${value} != null && ${value}.$hex === ${JSON.stringify(owner)}` +
@@ -14731,16 +14733,20 @@ function renderHelper(
     // there, which states why a constant minted in this module rather than
     // `JsKind.Null` imported from its own is the same value to every consumer.
     //
-    // Two properties are load-bearing and both are visible here. It is
+    // Three properties are load-bearing and all are visible here. It is
     // **property-free**: `typeof` and `Array.isArray` consult no user-observable
     // trap, and nothing below reads a property, so a proxy with throwing `get`
-    // and `has` traps is classified without being touched. And it is **total**:
+    // and `has` traps is classified without being touched. It is **total**:
     // `Array.isArray` on a *revoked* proxy throws a `TypeError`, which is the one
     // probe that can fail, so it is guarded and a revoked proxy classifies as
     // `Object`. `toArray` deliberately does not guard (§4.2) — `kind` promises a
     // classification of any value and must absorb the probe to keep that
     // promise. The `try` covers the probe alone; nothing else in the body can
-    // throw.
+    // throw. And it **keeps the one answer foreign code can change** (§1, §3):
+    // an object found to be an array, by this probe or by `toArray`'s, is filed
+    // in the runtime record's `arrays` and answered from there ever after, so a
+    // proxy revoked later is still an `Array`. A finding of `Object` is not
+    // kept: no object that is not an array becomes one.
     //
     // Order matters at one place: a revoked proxy whose target was a function
     // has `typeof` `"function"`, so it is answered by the ladder and never
@@ -14780,20 +14786,32 @@ function renderHelper(
     // so a later compiler's helpers, sharing the record with this one's, can add
     // fields of their own without a version check. A field whose shape changes
     // takes a new name instead.
+    //
+    // Where the environment refuses the record its place — a global object
+    // that is frozen or not extensible, or a symbol already naming something
+    // that cannot take the fields (`null`, a frozen object) — the module keeps
+    // a record of its own (FFI Part 11 §1): its helpers still share one record,
+    // and only modules in that environment may disagree with each other. A
+    // module never fails to load over it. Writes throw there, since an
+    // emitted module is strict, so one `try` covers every refusal.
     case "hexRuntime":
       return [
         `const ${name} = (() => {`,
-        `  const __key = ${spell("Symbol")}.for("hexagon.runtime");`,
-        `  let __shared = ${spell("globalThis")}[__key];`,
-        `  if (__shared === ${spell("undefined")}) {`,
-        "    __shared = {};",
-        `    ${spell("Object")}.defineProperty(${spell("globalThis")}, __key, { value: __shared });`,
+        "  try {",
+        `    const __key = ${spell("Symbol")}.for("hexagon.runtime");`,
+        `    let __shared = ${spell("globalThis")}[__key];`,
+        `    if (__shared === ${spell("undefined")}) {`,
+        "      __shared = {};",
+        `      ${spell("Object")}.defineProperty(${spell("globalThis")}, __key, { value: __shared });`,
+        "    }",
+        `    if (__shared.reads === ${spell("undefined")}) __shared.reads = new ${spell("WeakMap")}();`,
+        `    if (__shared.reading === ${spell("undefined")}) __shared.reading = {};`,
+        `    if (__shared.arrays === ${spell("undefined")}) __shared.arrays = new ${spell("WeakMap")}();`,
+        `    if (__shared.looks === ${spell("undefined")}) __shared.looks = new ${spell("WeakMap")}();`,
+        "    return __shared;",
+        "  } catch {",
+        `    return { reads: new ${spell("WeakMap")}(), reading: {}, arrays: new ${spell("WeakMap")}(), looks: new ${spell("WeakMap")}() };`,
         "  }",
-        `  if (__shared.reads === ${spell("undefined")}) __shared.reads = new ${spell("WeakMap")}();`,
-        `  if (__shared.reading === ${spell("undefined")}) __shared.reading = {};`,
-        `  if (__shared.arrays === ${spell("undefined")}) __shared.arrays = new ${spell("WeakMap")}();`,
-        `  if (__shared.looks === ${spell("undefined")}) __shared.looks = new ${spell("WeakMap")}();`,
-        "  return __shared;",
         "})();",
       ];
     // `toArray`'s look, in two halves because `JsValue.hex` asks it in two
@@ -14884,31 +14902,6 @@ function renderHelper(
         '  return typeof __name === "string" && __name.endsWith("Fault");',
         "}",
       ];
-    // FFI Part 11 §7's one guarded read, shared by both accessors (#509), and
-    // kept: each property of a thrown value is read at most once, the first
-    // time it is asked for, and every later ask answers from what was kept.
-    // That is `spec/effects.md` §6.2's species (b), the owned at-most-once read
-    // that lets both rows be `->`: a getter or proxy trap may do anything, but
-    // it runs once, and the world can no longer vary the answer. The table
-    // lives beside the value, never on it, so the thrown object is never
-    // written, and a `WeakMap` lets the answers go when the value does.
-    //
-    // The `try` is the whole reason it cannot be Hexagon: a getter or proxy
-    // trap that throws is swallowed here, never propagated, because an
-    // accessor whose purpose is describing one failure must not manufacture a
-    // second. A read that threw is kept as `undefined`, like an absent one, so
-    // the string verdict above it is ordinary Hexagon. It is asked only of an
-    // object, an array or a function — the Hexagon above has already
-    // classified the value — and a `WeakMap` keys any of them.
-    //
-    // **A getter that comes back in** — one that asks for the same property of
-    // the same value while its own read is running — would run the read a
-    // second time. Instead the slot is marked pending before the read starts,
-    // and an ask that finds it pending answers as a swallowed read and keeps
-    // that answer for the value: the getter runs exactly once, and every ask,
-    // the outer one included, agrees. Refusing it with a fault, as a re-entered
-    // `Seq` is (FFI Part 3 §7.3), would break the accessors' promise that
-    // describing one failure never manufactures a second.
     // The numeric text scanners beneath every `parse` (#1049, #1253 step 9c;
     // `spec/numeric-parsing.md`). Each is Lexer §5's literal for its type,
     // without the `n`/`d` suffix, after an optional sign, checked by one
@@ -14986,6 +14979,33 @@ function renderHelper(
         "  return __quoted + '\" ' + __phrase;",
         "}",
       ];
+    // FFI Part 11 §7's one guarded read, shared by both accessors (#509), and
+    // kept: each property of a thrown value is read at most once, the first
+    // time it is asked for, and every later ask answers from what was kept.
+    // That is `spec/effects.md` §6.2's species (b), the owned at-most-once read
+    // that lets both rows be `->`: a getter or proxy trap may do anything, but
+    // it runs once, and the world can no longer vary the answer. The table
+    // lives in the runtime record (`hexRuntime`), beside the value, never on
+    // it, so the thrown object is never written, every module answers alike,
+    // and a `WeakMap` lets the answers go when the value does.
+    //
+    // The `try` is the whole reason it cannot be Hexagon: a getter or proxy
+    // trap that throws is swallowed here, never propagated, because an
+    // accessor whose purpose is describing one failure must not manufacture a
+    // second. A read that threw is kept as `undefined`, like an absent one, so
+    // the string verdict above it is ordinary Hexagon. A primitive, `null` and
+    // `undefined` bear nothing to keep and answer `undefined` unread, so a
+    // catch may ask of whatever was thrown; every other value is an object or
+    // a function, and a `WeakMap` keys any of them.
+    //
+    // **A getter that comes back in** — one that asks for the same property of
+    // the same value while its own read is running — would run the read a
+    // second time. Instead the slot is marked pending before the read starts,
+    // and an ask that finds it pending answers as a swallowed read and keeps
+    // that answer for the value: the getter runs exactly once, and every ask,
+    // the outer one included, agrees. Refusing it with a fault, as a re-entered
+    // `Seq` is (FFI Part 3 §7.3), would break the accessors' promise that
+    // describing one failure never manufactures a second.
     case "jsErrorRead":
       return [
         `const ${name} = (() => {`,

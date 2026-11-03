@@ -488,6 +488,19 @@ describe("the look is made once per object, and kept (§4.2)", () => {
   });
 
   /**
+   * The verdict is the look's outcome like any other: a proxy over an object
+   * that is not an array fails `Shape`, and once revoked, when its probe
+   * would now throw, it still fails `Shape` rather than throwing.
+   */
+  test("a proxy found not to be an array still fails `Shape` after it is revoked", () => {
+    const { proxy, revoke } = Proxy.revocable({}, {});
+    expect(outcome(proxy)).toBe("Shape");
+    revoke();
+    expect(() => Array.isArray(proxy)).toThrow(TypeError);
+    expect(outcome(proxy)).toBe("Shape");
+  });
+
+  /**
    * **A look on a cycle keeps the refusal** (§4.2, FFI Part 3 §7.4, §7.5). An
    * index getter that asks for the same value's copy while it is being made is
    * refused with `ReentrancyFault`. The getter swallows the refusal here and
@@ -519,6 +532,31 @@ describe("the look is made once per object, and kept (§4.2)", () => {
     expect(reads).toBe(1);
     // The probe answered before the copy began, so the finding stands (§3).
     expect(kindOf(looping)).toBe("Array");
+  });
+
+  /**
+   * The refusal ends the look however the copy ends: a getter that catches
+   * it and throws something else of its own still leaves the look refused,
+   * and its own throw is not what the call, or any later one, sees.
+   */
+  test("a copy that asks for itself is refused even when the getter then throws", () => {
+    const inner: unknown[] = [];
+    let reads = 0;
+    const looping: unknown[] = [1, 2];
+    Object.defineProperty(looping, 1, {
+      enumerable: true,
+      get: () => {
+        reads += 1;
+        inner.push(thrownBy(looping));
+        throw new RangeError("the getter's own");
+      },
+    });
+    const first = thrownBy(looping);
+    expect(first).toMatchObject({ name: "ReentrancyFault" });
+    expect(inner).toEqual([first]);
+    expect(inner[0]).toBe(first);
+    expect(thrownBy(looping)).toBe(first);
+    expect(reads).toBe(1);
   });
 });
 
