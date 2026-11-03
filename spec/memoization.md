@@ -1,6 +1,6 @@
 # Stdlib listing: memoization
 
-**Status:** Decided 2026-11-03, ruled by James in four questions, a fifth on what a call answers after a caught cycle, and a sixth on which computations a cycle ends (`notes/memoization-deliberation.md` is the deliberation record). Spec-only; implementation #1445. Amended 2026-11-03 (#1447): `JsValue.toArray`'s look joins the keepers a cycle can run through (§3.3, §3.4). This document discharges the "`memoFix` / open-recursion support surface" row of `stdlib-roadmap.md` §2. Its companion edits are:
+**Status:** Decided 2026-11-03, ruled by James in four questions, a fifth on what a call answers after a caught cycle, and a sixth on which computations a cycle ends (`notes/memoization-deliberation.md` is the deliberation record). Spec-only; implementation #1445. Amended 2026-11-03 (#1447): `JsValue.toArray`'s look joins the keepers a cycle can run through (§3.3, §3.4). Amended 2026-11-03, ruled by James: `Function.identity` joins the module (§2.1). This document discharges the "`memoFix` / open-recursion support surface" row of `stdlib-roadmap.md` §2. Its companion edits are:
 - Effects §6.2, where species (d) states its obligation in closed form and every keeper gains one rule for cycles, and §7's coupling paragraph;
 - Collections Part 2 §2, §3.2 and §4.4, where `Hash` gains `same`, with its rows in Parts 3 and 4 (Part 4 also gains a runtime obligation) and Dec §8;
 - FFI Part 3 §4 and §7.1 to §7.5, where `ReentrancyFault` gains a second raiser and every keeper gains one rule for cycles (§7.5), with §9.4, and FFI Part 11 §7's guarded reads;
@@ -9,14 +9,13 @@
 - `stdlib-roadmap.md` §2's row and §5's migration table;
 - Intrinsics §4.1's inventory.
 
-**Home:** `stdlib/Function.hex`, a prelude module holding combinators over function values. Like `Math`, it introduces no type and no bare term name. Prelude injection supplies the module alias, and calls stay qualified: `Function.memoize(f)`.
+**Home:** `stdlib/Function.hex`, a prelude module holding combinators over function values, and the identity function (§2.1). Like `Math`, it introduces no type and no bare term name. Prelude injection supplies the module alias, and calls stay qualified: `Function.memoize(f)`.
 
 **Not in scope:**
 - `Hash.same` itself, which Collections Part 2 owns.
 - Species (d) beyond the memo shape (Effects §6.2).
 - `Seq.memoize`, which remains the foreign-iterator launder of FFI Part 3 and Loops §6.4.
 - A size-bounded memo.
-- `Function.identity`, a later decision of its own.
 
 **Companions:**
 - Functions §7.1 and §7.5 (the restricted pattern and its blessed idiom).
@@ -78,6 +77,18 @@ let cheap = Function.memoize(expensive)
 
 - **No dot call.** A function value has no companion (Method Syntax §5), so these are always written qualified, never `f.memoize()`.
 - **`Seq.memoize` shares the word in the same sense,** keeping what has been computed, and lives in another module.
+
+### 2.1 `identity`
+
+```hexagon
+(** Returns `value` unchanged. *)
+export let identity(value: a): a = value
+```
+
+- **The function that changes nothing,** for a seat that wants a function where nothing should change: `Vector.flatMap(rows, Function.identity)` flattens a vector of vectors. Gleam's `function.identity` is the model, and OCaml's `Fun.id` is the precedent in this module's lineage (§11).
+- **Ordinary Hexagon, with no intrinsic key.** Its body is the plain binding `value`, so the strictly-simpler law (Constraints §6.1) sends it to source, as it sends `ignore` in `Prelude.hex`. Its type is plain HM, `(a) -> a`.
+- **Qualified only, like the module's other names:** `Function.identity`. It adds nothing to Modules §5.5's bare set, so a program's own `let identity(x) = x` does not collide with it.
+- **Its written face binds, as a named function's does.** A `Vector` supplies a `Seq` where a newly written lambda's body returns it, never through an existing function's result (Collections Part 5 §3, "What never adapts"). So over a `Seq` of `Vector`s, `Seq.flatMap(rows, Function.identity)` is a type mismatch, and `Seq.flatMap(rows, row => row)` flattens. Over a `Seq` of `Seq`s, a `Vector` of `Vector`s or an `Option` of `Option`s, both spellings work.
 
 ## 3. Meaning
 
@@ -200,7 +211,7 @@ No new refusal is introduced. The third row changes only the wording of an exist
   - Its lowering is a compiler helper (Intrinsics §4.1's helper family) holding the table in a closure, which no program and no foreign code can reach.
   - It receives the `Hash` evidence by the compiler's own convention (Intrinsics §3.4).
   - It is held to §3 as a conformance obligation (Intrinsics §4.2), and its species is Effects §6.2's (d).
-- **`memoize` is ordinary Hexagon** in the same module.
+- **`memoize` and `identity` are ordinary Hexagon** in the same module, with no keys.
 - **`ReentrancyFault` is raised as FFI Part 3 §7.4 constructs it:** the branded representation built at the raise site, with this raiser's own message: "a memoised function's answer for this key depends on itself".
   - The helper takes part in FFI Part 3 §7.5's record of entries in progress. Helpers are emitted per module (FFI Part 3 §7.4), so the record lives in one place that every module's copy of the memo and spine helpers reaches, and Part 11's guarded-read lowering too.
   - A key on a cycle has its cycle recorded in the table, found by `same`, so a later computation of it that reads a refusal its cycle kept ends in the refusal (FFI Part 3 §7.5).
@@ -239,6 +250,11 @@ No new refusal is introduced. The third row changes only the wording of an exist
 - **(k) One outcome in every order.**
   - Take a body whose answer for each key is a `Seq.memoize`d sequence whose first element, when read, is the first element of `self(1 - key)`, or `-1 - key` where that read throws `ReentrancyFault`. In each of two tables built from it, reading the first element of either key's sequence throws `ReentrancyFault`, whichever is read first, and the two tables agree.
   - Take a body in which key `1`'s answer is such a sequence whose first element calls `self(0)`, and key `0` reads that first element and answers `0` where the read throws `ReentrancyFault`. `g(0)` throws `ReentrancyFault` on its first call and on every later one, and reading the first element of key `1`'s sequence throws `ReentrancyFault`.
+- **(l) `identity` (§2.1).**
+  - `Function.identity(3)` is `3`, and `Function.identity("a")` is `"a"`.
+  - `Vector.flatMap([[1, 2], [3]], Function.identity)` is `[1, 2, 3]`, and `Option.flatMap(Some(Some(4)), Function.identity)` is `Some(4)`.
+  - Over a `Seq` of `Vector`s, `Seq.flatMap` with `Function.identity` is refused as a type mismatch, and with `row => row` it flattens.
+  - A bare `identity` with no local binding is an unknown name, and a module's own `let identity(x) = x` compiles beside the prelude.
 
 ## 10. Rejected alternatives (do not re-litigate)
 
@@ -295,4 +311,4 @@ Ending in the refusal every computation during which a refusal was raised, on th
 | Python | `functools.cache` and `lru_cache`, through the decorated name | none documented |
 | Elm, Rust, F#, TypeScript | none in the standard library | |
 
-`functools`, OCaml's `Fun` and Haskell's `Data.Function` are the precedents for a module of function tools. GHC's thunks are the precedent for §3.3: when the runtime finds a thunk demanding itself it raises `NonTermination` (`<<loop>>`), every thunk under evaluation that the exception passes through is suspended where it stood, so demanding it again meets the loop again, and pure code cannot catch the exception, so nothing that depends on where the loop was entered reaches a value. OCaml's `Lazy` is the precedent for letting the code around a cycle catch its refusal and carry on: forcing a suspension that is already being forced raises `Lazy.Undefined`, and a suspension whose forcing raised raises the same exception again. OCaml keeps whatever a suspension's own forcing produced, caught or not, which FFI Part 3 §7.5 rejects for an entry on the cycle.
+`functools`, OCaml's `Fun` and Haskell's `Data.Function` are the precedents for a module of function tools. For §2.1, Gleam's `gleam/function` keeps `identity` as its one function, and OCaml's `Fun.id`, Haskell's and F#'s `id`, Elm's `identity`, Rust's `std::convert::identity` and Java's `Function.identity()` ship one too; Swift, Kotlin and TypeScript ship none and write a closure. GHC's thunks are the precedent for §3.3: when the runtime finds a thunk demanding itself it raises `NonTermination` (`<<loop>>`), every thunk under evaluation that the exception passes through is suspended where it stood, so demanding it again meets the loop again, and pure code cannot catch the exception, so nothing that depends on where the loop was entered reaches a value. OCaml's `Lazy` is the precedent for letting the code around a cycle catch its refusal and carry on: forcing a suspension that is already being forced raises `Lazy.Undefined`, and a suspension whose forcing raised raises the same exception again. OCaml keeps whatever a suspension's own forcing produced, caught or not, which FFI Part 3 §7.5 rejects for an entry on the cycle.
