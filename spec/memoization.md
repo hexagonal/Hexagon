@@ -116,7 +116,7 @@ Entered at `0`, the request for `0` made inside key `1`'s computation is refused
 So **every key on the cycle a refusal closes files nothing and ends in `ReentrancyFault`, and so does every later call for it** (§3.2). This is FFI Part 3 §7.5's rule for every keeper, which the table follows:
 - The cycle is the key asked for and every computation in progress inside it: of this memoised function, of another, of a memoizing `Seq` spine, or of a guarded read (FFI Part 11 §7).
 - Cycles that share an entry are one cycle.
-- A computation that reads a refusal kept by an entry of a cycle, while an entry of that cycle is in progress, ends the outermost entry of that cycle in progress, and every computation in progress inside it, in the refusal, and they join the cycle.
+- A computation that reads a refusal or swallowed answer kept by an entry of a cycle, while an entry of that cycle is in progress, ends the outermost entry of that cycle in progress, and every computation in progress inside it, in the refusal, and they join the cycle.
 
 In `open`, both keys are on the cycle whichever is entered first, so `g(0)` and `g(1)` both throw `ReentrancyFault`, in either order. Catching works on a cycle, but it cannot turn the cycle into an answer. A search in which a cycle means "no answer" carries what it has visited in its key and returns an `Option` (§4).
 
