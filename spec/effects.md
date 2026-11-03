@@ -771,10 +771,12 @@ A `->` or `->^` on a boundary row, user-written or intrinsic, whose implementati
   - each write files one finished entry, so a call that comes back in finds no entry or a finished one, never one half made;
   - a hit is for a key no Hexagon function can tell apart from the one filed (`Hash.same`, Collections Part 2 §2.3), decided through the evidence the row is passed (Intrinsics §4.2);
   - a key asked for while its entry is being computed is refused with a fault (`ReentrancyFault`, FFI Part 3 §7.4), where plain recursion would never return;
-  - a computation during which such a refusal was raised, or which read what a memoized sequence kept from a forcing that met one (FFI Part 3 §7.4), files nothing and ends in the refusal, whatever it would have answered. A callback may catch the refusal (Exceptions §1), and what it computes after catching depends on which key the cycle was entered from, so none of it may leave the computation.
+  - a key on the cycle such a refusal closes files nothing and ends in the refusal, whatever its computation would have answered, as the next paragraph requires of every keeper.
 
   `Function.memoizeRecursive` is the member, and `memoization.md` §3.4 discharges the obligation in closed form.
 - **A row that would need any other callback is not this species.**
+
+**Nothing the runtime keeps depends on where a cycle was entered.** Three kinds of keeper run code while computing an entry they will keep: an owned memo (species (d)), and a memoizing `Seq` spine and a guarded read of a thrown value (species (b)). That code can ask the keeper for the entry it is still computing. Such a request closes a **cycle**: the entry asked for, and every entry of any keeper being computed inside it. The keeper answers it with `ReentrancyFault` (FFI Part 3 §7.4), or, where it cannot fail, with its swallowed answer (FFI Part 11 §7). Cycles that share an entry count as one, and every entry on a cycle ends in the refusal: a memo files nothing, a spine keeps the refusal as the position's outcome, and a guarded read keeps its swallowed answer. Every later request for such an entry meets the refusal again (FFI Part 3 §7.5). Code on a cycle may catch the refusal (Exceptions §1), but what it computes after catching depends on which entry the cycle was entered from, so none of it is kept. An entry that encloses a cycle is not on it, and may catch the refusal and answer like any other, because every entry on the cycle ends the same way whichever entry the cycle was entered from.
 
 **The caveat:** opacity is a TypeScript fact (FFI Part 7 §5). Foreign code holding an exported value reaches its representation, and mutating it is an FFI Part 1 §3.1 contract violation like any other.
 

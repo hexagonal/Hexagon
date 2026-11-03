@@ -594,7 +594,9 @@ So `g(1)` answers `-2` inside one computation and `-1` outside. A body that retu
   - The spec as written fails that inside a caught cycle. (B) below meets it. (A) keeps the current behaviour by writing an exception into the obligation.
 - **Colleague languages considered?**
   - **GHC** is the close precedent. Forcing a thunk that is already being forced raises `NonTermination` (the `<<loop>>` error), and the thunk is left unevaluated, like our unfiled key. Pure code can't catch it, because `catch` lives in `IO`. So nothing that depends on where the loop was entered can leak into a value. Hexagon lets pure code catch faults, so it has to get the same guarantee another way, which is (B).
+    *(Corrected 2026-11-03: "the thunk is left unevaluated" is loose. GHC raises `NonTermination` when its runtime finds a thread blocked on a thunk it is itself evaluating, and every thunk under evaluation that the exception passes through is suspended where it stood, so demanding it again meets the loop again. The precedent stands: pure code cannot catch the exception.)*
   - **Rust's `OnceCell::get_or_init`** panics on a re-entrant initialisation and leaves the cell empty. Catching a panic (`catch_unwind`) is outside ordinary code.
+    *(Corrected 2026-11-03: this is wrong. Re-entrant `get_or_init` lets the inner initialisation finish and fill the cell, and the outer one then panics; it does not leave the cell empty. The point that catching a panic is outside ordinary code stands.)*
   - **Core's `Memo` and Python's `functools.cache`** don't detect cycles at all.
 - **HM?** No change under either option.
 
@@ -650,3 +652,219 @@ What would bring it back: a real program that needs to recover from a cycle insi
 - FFI Part 3 §7.4's recognition bullet.
 
 I've written (B) into the PR so you can read it in place. The PR won't merge until you rule.
+
+---
+
+## Memoization: what the runtime may keep after a cycle
+
+**Status:** Ruled (C) by James on 2026-11-03: a refusal ends exactly the cycle it closes, in every keeper. That settles #232 as the (C) section describes, narrows (B)'s wording and question 2's "every in-progress key" to keys on the cycle, and changes #123's second consequence. Written for his two questions on `MEMOFIX-CYCLE-SPINE.md`. Two independent reviews found no counterexample, and their refinements are folded in below. #1447 follows.
+
+### The short answer
+
+- **The mark only moved the problem.** You were right to be nervous.
+- **The design was wrong in one place.** The runtime has three places where it works something out once and keeps the answer. Each was given its own rule, at a different time, for a request that arrives while that answer is still being worked out. Patching one place at a time finds the next place.
+- **The spine has to keep the refusal.** Today a foreign iterator can swallow the refusal and carry on (#123). No closed rule can keep that behaviour, and I measured it on the shipped compiler: it already depends on the order things are traversed in.
+- **There are two ways to write the one rule, and I recommend the precise one.**
+  - The broad way ends everything that was in progress when the refusal was raised. (B) as you ruled it is the memo half of the broad way.
+  - The precise way ends exactly the cycle the refusal closes.
+  - The broad way has a cost I didn't show you when you ruled (B): `Function.memoize(f)` can disagree with `f`. The precise way removes that cost.
+- **The independent reviewer also found a separate bug,** which has nothing to do with memoization. I filed it as #1447.
+
+### Path 1: does the mark solve it, or only move it?
+
+It only moves it. There are two pieces of evidence.
+
+**Round 3 needs no memoised computation at all.**
+- The mark changed what a memoised computation does when it reads a marked position. It left the position itself holding the value computed after the catch.
+- Round 3 reads that position from ordinary code, after every memoised call has finished, and sees where the cycle was entered.
+- Two memoised functions built from the same body, in one program, give one key's first element as `-2` and `-1`.
+
+**A third place has the same hole, and none of the rounds looked at it.** When a program asks for a thrown JavaScript value's message, stack or name, the runtime reads the property once, guarded, and keeps the answer (FFI Part 11 §7). The guard swallows any throw into `""`, a cycle refusal included.
+- A memoised call reads a thrown value's message. The value's getter calls an exported Hexagon function, which asks the same memoised function for the same key. That request is refused.
+- The guard swallows the refusal and keeps `""`. The memoised call met a refusal, so by (B) it ends in `ReentrancyFault`.
+- The next call of the same key reads the kept `""`, meets no refusal, and files an answer.
+
+So one key answers `ReentrancyFault` and then a value, in one program. No catch in the dev's code is needed, because the guard is the catch. Part 11 lets a getter do anything, so no foreign code broke a contract.
+
+**Measured.** I extended the reviewer's JavaScript model of the spec to cover all three keepers. Each run is 3,000 random programs and about 390,000 memoised calls. Bodies, sequence steps and getters may all catch the refusal. The numbers are programs, on three seeds.
+
+| Rules | One key answered two ways in one program | Answers that depend on call order |
+|---|---|---|
+| The PR as it stands: (B) plus the mark | 750, 691, 683 | 801, 762, 749 |
+| The precise rule, (C) below | 0, 0, 0 | 0, 0, 0 |
+| The broad rule, (U) below | 0, 0, 0 | 0, 0, 0 |
+
+This is a model of the spec, not compiled Hexagon, because `Function.memoizeRecursive` isn't implemented yet.
+
+### What was actually wrong
+
+I'll call these three places keepers. Here is what each does today when asked for an entry that is still being worked out:
+
+| Keeper | Can Hexagon code run inside it? | What it does when asked again mid-computation |
+|---|---|---|
+| A memoised function's table | yes, the `body` | refuses, and keeps nothing (question 2 and (B)) |
+| A memoizing `Seq` spine: the inbound adapter, `Seq.memoize`, and the view JavaScript traverses | yes, sequence steps and anything a foreign iterator calls | refuses, but keeps whatever the code that caught the refusal produced (#123) |
+| A guarded read of a thrown value | yes, anything a getter calls | swallows the refusal into `""`, and keeps it |
+
+The list is closed. Effects §6.2's species are the register of everything the runtime keeps under a pure face, and the reviewer checked the rest of the spec as well. The other members run no Hexagon code inside, so nothing can come back into them: the placement seed, a compiled `Regex`'s caches, frozen storage, scratch buffers, and the string position cache.
+
+Three keepers gave three different answers. Any of them that keeps a value worked out after the refusal shows where the cycle was entered.
+
+### Path 2: changing what the spine keeps
+
+A spine position whose forcing met a refusal could keep one of four things.
+
+**What the catching code produced (today, #123).** This is round 3. It is also order-dependent without any memoisation. I ran #123's own headline program on the shipped compiler, changing only the order:
+- **Hexagon traverses first:** the sequence is `[10, 20, 30, 40]`, and its JavaScript face fails for good. That is the order the conformance test pins.
+- **JavaScript traverses first:** the sequence is `[10, 20, 30, 40]`, and so is the JavaScript face, every time.
+
+JavaScript reaches a `Seq` through its face, and the face is a second spine. So every foreign re-entry is a cycle through two spines, and which one refuses depends on which was entered first.
+
+**What was produced, plus a mark (round 2).** This moves the problem, as Path 1 shows.
+
+**Nothing, so the position is forced again later.**
+- For a foreign iterator this is impossible. Each forcing consumes one element, so a second forcing loses or reorders one. That is #123's own impossibility argument.
+- For a spine over a Hexagon sequence, #232's hand-written cursor would make it possible. But every later forcing meets the same cycle, so it answers what keeping the refusal answers, and it pays for the recomputation.
+
+**The refusal.** Every later pull raises it again. This is the one that works.
+
+I also tried exemptions, such as keeping what was produced when the only refusal was the spine's own. Each one brings back order dependence, because of the two-spine shape above.
+
+### Which computations end in the refusal?
+
+That leaves one question for every keeper: when a refusal is raised, which computations end in it?
+
+**(U), the broad way: every computation in progress.** This is simple to build, with one counter. But it also reaches computations that only *enclose* a cycle, without being on it. The reviewer's example:
+- `loop` is a memoised function whose body asks for its own key, so it always refuses.
+- `f(x) = try loop(x) catch ReentrancyFault => 0`.
+- **Plain `f(1)`** is `0`, every time.
+- **`Function.memoize(f)(1)`** is `ReentrancyFault`. That is already true under (B) as you ruled it.
+- **`Seq.memoize` over a sequence that applies `f`** is also `ReentrancyFault` under (U).
+
+So memoising changes the answer, against Loops §6.4 ("recomputation is unobservable") and Effects §7. `f` isn't on any cycle. It only catches a refusal from `loop`'s cycle, which ends the same way whoever asks. I should have shown you this cost when you ruled (B).
+
+**(C), the precise way: exactly the cycle the refusal closes.**
+- When a request reaches an entry that is still being worked out, that entry and every entry being worked out inside it each asked, directly or through others, for the next. They form a cycle, and they all end in the refusal.
+- Computations that enclose the cycle aren't on it. They see the refusal like any other fault, and may catch it and answer.
+- That is safe, because every entry on the cycle ends the same way whichever entry the cycle was entered from, so an enclosing computation sees the same thing in every history.
+- Cycles that share an entry count as one cycle. The model needs this: without it, 1 to 15 programs per seed depended on call order, because a cycle grew after part of it had already been kept.
+
+In the example above, (C) gives `0` for all three.
+
+### The options
+
+#### (C) A refusal ends exactly the cycle it closes (recommended)
+
+**The rule.** Every entry on the cycle a refusal closes ends in the refusal, and so does every later request for it. Cycles that share an entry are one cycle. Each keeper says this in its own terms:
+- **A memo entry** files nothing and throws `ReentrancyFault`. Asking again meets the same cycle, or the refusal a spine or guarded read on that cycle kept.
+- **A spine position** keeps `ReentrancyFault` as its outcome, in place of any value or foreign throw. Every later pull raises it again.
+- **A guarded read** can't fail (Part 11), so it keeps its swallowed answer, `""` or `None`. Being asked for itself mid-read already makes it give that answer.
+
+A memo entry on a cycle keeps nothing, so it is worked out again when next asked. If it then reads a refusal kept by another entry on its cycle, it is on that cycle again. So it ends in the refusal too, along with every entry being worked out inside it, and they join the cycle. The review measured that both halves are needed:
+- this must start from the outermost such entry;
+- and the entries it ends must join the cycle.
+
+An entry that encloses a cycle, without being on it, answers as it would anywhere else.
+
+**What it buys.** A key of a memoised function either is on a cycle or isn't:
+- **On a cycle** means its computation asks for itself, through any chain of memoised functions, sequences and guarded reads. Such a key throws `ReentrancyFault` on every call.
+- **Not on a cycle**, it does what its body does, with every call the body makes answered by this same rule. Where plain recursion (this function's table removed, every other keeper as it is) returns or faults, that is the same outcome. Where plain recursion never returns, a key that only encloses a cycle can still answer, if its body catches that cycle's refusal: a key 0 that asks for a self-looping key 1 inside `try … catch ReentrancyFault => 7` answers 7, in either order. *(Corrected 2026-11-03: this bullet first said such a key always answers what plain recursion answers, which is wrong for that case. The rule is unchanged.)*
+
+The same holds for every spine position and guarded read: a keeper changes nothing except that it refuses on its own cycles, where working the answer out again would never finish.
+
+Within one program, no keeper's entry is ever seen two ways. Two tables built from the same body agree too, unless foreign code calls one specific table or sequence. A getter that calls `g` puts `g`'s key on a cycle and not `h`'s, and Hexagon code can then see the difference. Effects §6.2's sentence stays as written, and Loops §6.4's "recomputation is unobservable" stays true, with the one carve-out §7.3 already makes for cycles.
+
+**Measured.**
+- In my model, (C) shows 0 on every count above, with and without guarded reads.
+- The reviewer extended the model with sequences of up to four positions, catches that rethrow after asking for more, refusals the dev throws by hand, and up to seven keys. Over about 75,000 programs on ten seeds, there were 0 differences within a program and 0 that depend on call order.
+- The reviewer also checked transparency directly, over more than 200,000 checks with 0 failures. Every filed memo answer equals its body re-run at top level, and every sequence position off a cycle equals a fresh re-derivation of its step. The same checker finds 3,603 failures for (U) on one seed, so it can fail.
+- Keys on no cycle matched plain recursion on every call where plain recursion finished.
+- Round 3's two-table example gives `ReentrancyFault` for both tables, in both orders.
+- #123's headline program gives `ReentrancyFault` for both faces, in both orders.
+
+**What it costs.**
+- **(B)'s wording narrows.** "A computation during which a refusal was raised" becomes "a computation on the cycle the refusal closes". Your example in `MEMOFIX-CYCLE.md` comes out the same, because both keys there are on the cycle.
+- **Question 2's confirmed point narrows.** "A cycle leaves every in-progress key unfiled" becomes "every key on the cycle". An enclosing key that catches the refusal files its answer.
+- **#123's second consequence changes.** A foreign iterator that re-enters its own sequence and swallows the refusal no longer carries on. That position fails with `ReentrancyFault` on every traversal, from Hexagon and from JavaScript alike. Four conformance tests change what they expect: the headline test, the generator test, the `[Symbol.iterator]()` test, and the JavaScript face test.
+- **It settles #232,** which is recorded but not ruled. #232 asks whether a refusal should end a value's JavaScript face while the Hexagon side carries on. Under (C), the value itself has a failed position, so both faces agree. That's a ruling on #232, so it's yours.
+- **Other spine text changes for positions on a cycle.** FFI Part 3 §7.1, §7.2 step 6 and §9.4 property 4 say a foreign throw is kept and replayed. For a position on a cycle, the refusal is kept instead.
+- **Part 11 §7 changes in one case.** A getter on a cycle keeps `""`, not what it returned.
+- **Runtime cost.**
+  - A stack of the entries being worked out, shared by all three keepers and by every module's copy of the helpers. Each memoised computation, forcing and guarded read costs one push, one pop and one flag.
+  - On refusal paths only: merging cycles, and remembering which cycle each kept refusal belongs to. When a kept refusal is read again, the runtime looks down the stack for a member of its cycle.
+  - The cycle is recorded beside the kept refusal, never on it, because `ReentrancyFault` carries no payload.
+  - A memo key's cycle is recorded in its own table, so it is found by `same` and goes when the table goes. Nothing keeps a key, a table or a thrown value alive.
+  - It's more machinery than (U)'s counter, and it all folds into #1445.
+
+What would bring it back: a real program where the merging costs more than it saves, or a foreign iterator that needs to recover from re-entering its own sequence.
+
+#### (U) Everything in progress ends in the refusal
+
+This is (B)'s rule, extended to spines and guarded reads, with one counter.
+
+What it costs:
+- Everything (C) costs, except the two narrowings.
+- `Function.memoize` and `Seq.memoize` stop being transparent wherever a computation catches a refusal from a cycle it isn't on, as the example shows. Loops §6.4 and Effects §7 would each need an exception for that.
+
+#### (G) GHC's route: pure code cannot catch `ReentrancyFault`
+
+What it costs:
+- **Exceptions §1 changes.** It says "catching is legal anywhere, pure code included". This would add a fault that some catches skip, so a catch-all would no longer catch everything.
+- **It doesn't close foreign catches.** A getter or foreign iterator that catches the refusal still keeps a value. So either (U) or (C) is needed anyway, or foreign code that catches the refusal becomes a contract violation. The second overturns #123's "not a contract violation", so #123 changes on this route too.
+
+#### (R) Name the limitation
+
+Effects §6.2 would list where its sentence fails. You asked for doctrine that stays true, and this is the exception-list shape.
+
+#### Keep patching
+
+This means the mark, plus another mark for guarded reads. Path 1's numbers show it keeps finding the next place.
+
+### The three checks
+
+**Fits doctrine?**
+- (C) keeps Effects §6.2's sentence literally true with one rule for every keeper.
+- Catching stays legal anywhere (Exceptions §1).
+- Memoising stays unobservable, except that it refuses on a cycle where working the answer out again would never finish.
+- The doctrine change is one paragraph in Effects §6.2, which the memo's fourth term then cites. Proposed wording:
+
+> **Nothing kept depends on where a cycle was entered.** A memo's table, a memoizing `Seq` spine and a guarded read can each be asked, through code they run, for an entry they are still working out. That request closes a cycle: the entry asked for, and every entry being worked out inside it. They answer it with `ReentrancyFault`, or, where they cannot fail, with their swallowed answer. Every entry on a cycle, or on a cycle that shares an entry with it, ends in the refusal: a memo files nothing, a spine keeps the refusal as the position's outcome, and a guarded read keeps its swallowed answer. Every later request for such an entry meets the refusal again. An entry that encloses a cycle is not on it, and may catch the refusal and answer, because every entry on the cycle ends the same way whichever entry the cycle was entered from.
+
+**Colleague languages considered?**
+- **OCaml's `Lazy`, an ML.** It is the closest match to a spine.
+  - Forcing a suspension from inside its own forcing raises `Lazy.Undefined`.
+  - A suspension whose forcing raised keeps the exception and raises it again on every later force.
+  - An enclosing computation may catch `Undefined` and carry on, as under (C).
+  - But a suspension *on* the cycle that catches it keeps what it then computes, which is #123's behaviour. OCaml makes no purity claim, so it can.
+- **GHC.** Its thunks are the purity precedent. A thunk re-entered during its own evaluation raises `NonTermination` (`<<loop>>`). Every thunk the exception passes through is left so that forcing it again meets the loop again. Pure code can't catch the exception, so nothing computed after catching it is kept.
+- **(C) is OCaml's treatment of enclosing computations with GHC's guarantee on the cycle,** reached without forbidding the catch.
+- **A correction.** `MEMOFIX-CYCLE.md` said Rust's `OnceCell` leaves the cell empty after a re-entrant initialisation. It doesn't: it lets the inner initialisation finish and panics in the outer one. I'll correct the deliberation notes. It wasn't a reason for (B).
+
+**HM?** No change.
+
+### What changes in PR #1446 if you choose (C)
+
+- **Effects §6.2:** the paragraph above, and the memo's fourth term shortened to cite it.
+- **FFI Part 3:**
+  - §7.3's second consequence is rewritten.
+  - The #232 paragraph becomes the ruling.
+  - §7.1, §7.2 and §9.4 get the on-a-cycle case.
+  - §7.4's count paragraph is replaced, and the mark goes.
+- **FFI Part 11 §7:** the cycle case, two sentences.
+- **FFI Part 3, further text the review found:**
+  - §4's "exactly one outcome" gains the refusal.
+  - §7.3's "Replay is untouched" and "touches nothing" are qualified.
+  - §7.4's count paragraph becomes the shared stack.
+  - §7.4's recognition bullet stops saying that every memoised computation across a refusal ends in it.
+- **`memoization.md`:**
+  - §3.1: distinct tables can't be told apart, except by foreign code that calls one of them.
+  - §3.2 and §3.3 state the rule. This drops "out to the outermost" and "it spans tables", which belong to the broad way.
+  - §3.4 states the claim above, and drops the "up to its spine" paragraph.
+  - §10.7 narrows to entries on the cycle.
+  - §5, §7 and §9 change to match, and (U) goes into the rejected alternatives.
+- **Notes:** the deliberation notes, with the `OnceCell` correction.
+- **#1445** gains the spine, guarded-read and conformance-test changes, since the spec PR changes only text.
+
+### Separately: #1447
+
+The reviewer found two places where a pure function reads foreign data afresh on every call: a `catch`'s own check of a thrown value's brand, and `JsValue.toArray`. On today's compiler, a pure `(JsValue) -> Int` answers one argument in different ways on different calls. That's a soundness bug in the FFI, with or without memoization, so it's filed on its own as #1447. A memoised function can't be more of a value function than its body, so (C)'s claim assumes the program's pure faces are true, as every purity claim in Hexagon does.
