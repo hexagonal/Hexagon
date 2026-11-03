@@ -1,6 +1,6 @@
 # Stdlib listing: memoization
 
-**Status:** Decided 2026-11-03, ruled by James in four questions, a fifth on what a call answers after a caught cycle, and a sixth on which computations a cycle ends (`notes/memoization-deliberation.md` is the deliberation record). Spec-only; implementation #1445. This document discharges the "`memoFix` / open-recursion support surface" row of `stdlib-roadmap.md` §2. Its companion edits are:
+**Status:** Decided 2026-11-03, ruled by James in four questions, a fifth on what a call answers after a caught cycle, and a sixth on which computations a cycle ends (`notes/memoization-deliberation.md` is the deliberation record). Spec-only; implementation #1445. Amended 2026-11-03 (#1447): `JsValue.toArray`'s look joins the keepers a cycle can run through (§3.3, §3.4). This document discharges the "`memoFix` / open-recursion support surface" row of `stdlib-roadmap.md` §2. Its companion edits are:
 - Effects §6.2, where species (d) states its obligation in closed form and every keeper gains one rule for cycles, and §7's coupling paragraph;
 - Collections Part 2 §2, §3.2 and §4.4, where `Hash` gains `same`, with its rows in Parts 3 and 4 (Part 4 also gains a runtime obligation) and Dec §8;
 - FFI Part 3 §4 and §7.1 to §7.5, where `ReentrancyFault` gains a second raiser and every keeper gains one rule for cycles (§7.5), with §9.4, and FFI Part 11 §7's guarded reads;
@@ -114,7 +114,7 @@ let open(self: (Int) -> Int, key: Int): Int =
 Entered at `0`, the request for `0` made inside key `1`'s computation is refused, and that computation answers `-2`. Entered at `1`, the same computation is the outer one, and the inner request for `1` is refused instead. An answer computed on a cycle after catching its refusal is a fact about the call history, not about its key: filed, it would show that history through every later hit, and returned, it would show it to the caller.
 
 So **every key on the cycle a refusal closes files nothing and ends in `ReentrancyFault`, and so does every later call for it** (§3.2). This is FFI Part 3 §7.5's rule for every keeper, which the table follows:
-- The cycle is the key asked for and every computation in progress inside it: of this memoised function, of another, of a memoizing `Seq` spine, or of a guarded read (FFI Part 11 §7).
+- The cycle is the key asked for and every computation in progress inside it: of this memoised function, of another, of a memoizing `Seq` spine, of a guarded read (FFI Part 11 §7), or of `JsValue.toArray`'s look (FFI Part 11 §4.2).
 - Cycles that share an entry are one cycle.
 - A computation that reads a refusal or swallowed answer kept by an entry of a cycle, while an entry of that cycle is in progress, ends the outermost entry of that cycle in progress, and every computation in progress inside it, in the refusal, and they join the cycle.
 
@@ -138,7 +138,7 @@ Any other fault needs no such rule. A pure `body` reaches the same fault for a k
 
 ### 3.4 What the memoised function equals
 
-A computation **requests** an entry when it calls a memoised function for a key, pulls a position of a memoizing sequence, or makes a guarded read: the keepers of FFI Part 3 §7.5. A key is **on a cycle** when some chain of requests from its computation comes back to that key, each request being answered by the rule below before the computation makes its next one. These are the keys the runtime finds on a cycle (§3.2, §3.3), whichever key is asked for first. Then every call `g(key)`, in any table state and in any context, inside other calls of `g` or not, does one of two things:
+A computation **requests** an entry when it calls a memoised function for a key, pulls a position of a memoizing sequence, makes a guarded read, or asks `JsValue.toArray` for an object's look: the keepers of FFI Part 3 §7.5. A key is **on a cycle** when some chain of requests from its computation comes back to that key, each request being answered by the rule below before the computation makes its next one. These are the keys the runtime finds on a cycle (§3.2, §3.3), whichever key is asked for first. Then every call `g(key)`, in any table state and in any context, inside other calls of `g` or not, does one of two things:
 
 - **If `key` is on a cycle, the call throws `ReentrancyFault`,** or never returns, where a computation on the cycle catches the refusal and then never finishes.
 - **Otherwise it does what `body(g, key)` does,** with every request `body` makes answered by this same rule.
