@@ -5,8 +5,8 @@ implementations came from the user. Option.toSeq relies on Option's prelude data
 seat (Modules §5.5): Option's implementation is seated after Seq. Amended
 2026-11-03 (#1427): `Result` holds a caught exception (`Result(a)`, the type
 `attempt` gives), `mapError` is withdrawn, and both modules gain a conversion
-to the other and presence predicates; `Result`'s full seat precedes
-`Option`'s, which names it.
+to the other and presence predicates; `Result`'s seat precedes `Seq`'s,
+and so `Option`'s full seat, which names it.
 
 **Homes:** `stdlib/Option.hex` and `stdlib/Result.hex`, ordinary prelude modules.
 Option's derived Eq/Show instances keep their existing meanings. No new
@@ -25,7 +25,8 @@ possibleName |> Option.defaultValue("Guest")
 possibleName.defaultValue("Guest")
 ```
 
-Callback-taking functions take `->!` callbacks and follow what they are handed (Effects §2.4).
+Callback-taking functions take `->!` callbacks and follow what they are handed (Effects §2.4),
+except the exception builders of `orThrow` and `toResult`, which are pure `() -> Exn` thunks.
 Passing a callback that is pure and cannot fail yields a bare call; passing one
 that is impure or may fail requires the matching mark on the outer
 call (`^`, `~` or `!`). Conditional execution does not remove that static
@@ -52,7 +53,7 @@ failure again with `orThrow` (§2, §3).
 an exception, a broken assumption is a fault, and an answer that may be absent
 is an `Option`. `Result` is none of these: it is the value that holds a caught
 exception, so that an outcome can be kept, stored or handed on. Its error is
-always an `Exn`. A dev whose failures are data of their own, such as a
+always an `Exn`. A program whose failures are data of its own, such as a
 validator's list of problems, declares a union for them.
 
 ## 2. Option
@@ -214,10 +215,11 @@ regenerate the embedded source snapshot. They need no new runtime intrinsic.
 Existing module/prelude qualification rules expose them; Option's early data
 seat exposes none of them.
 
-**Seats** (Modules §5.5). `Result.hex` takes its full seat just after `Seq.hex`
-and before `Option.hex`'s full seat, so that `Option.toResult` can name
-`Result`. `Result.hex` needs only `Option`'s data seat, which is earlier: its
-`toOption` applies `Some` and `None`, and calls none of `Option`'s functions.
+**Seats** (Modules §5.5). `Result.hex` takes its seat just before `Seq.hex`,
+and so before `Option.hex`'s full seat, which follows `Seq.hex`: that lets
+`Option.toResult` name `Result`. `Result.hex` needs only `Option`'s data seat,
+which is earlier still: its `toOption` applies `Some` and `None`, and calls
+none of `Option`'s functions, and it names nothing of `Seq`'s.
 
 The older getOrElse spelling appears in illustrative specification and book
 examples but is not an implemented Option export. Update active examples to

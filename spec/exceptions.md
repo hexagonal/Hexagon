@@ -12,7 +12,7 @@ Written for a future implementation session against the existing `hexc` architec
 ## 1. Doctrine
 
 - **Three kinds of throw.**
-  - **An exception** is an expected failure, one a caller should plan for: a parse error, a missing file, a timeout. It is declared with `exception` (§2) and **tracked**: Effects' fail colour records whether a function may throw one, a call that may wears `^` or `!`, and the failure passes up through callbacks by itself (Effects §1, §3.6). A caller that wants the failure as data reads the call with `?` (Effects §3.1) or guards it with `attempt` (§8.2). `Result` stays for an outcome the program keeps as a value: one stored in a collection, handed on later, or examined in full at every call. An operation whose failure its caller should plan for throws, and a caller who wants the `Result` writes `attempt`. `Result(a)`'s error is always an `Exn`; a dev whose failures are data of their own, such as a validator's list of problems, declares a union for them (Option/Result Convenience §1).
+  - **An exception** is an expected failure, one a caller should plan for: a parse error, a missing file, a timeout. It is declared with `exception` (§2) and **tracked**: Effects' fail colour records whether a function may throw one, a call that may wears `^` or `!`, and the failure passes up through callbacks by itself (Effects §1, §3.6). A caller that wants the failure as data reads the call with `?` (Effects §3.1) or guards it with `attempt` (§8.2). `Result` stays for an outcome the program keeps as a value: one stored in a collection, handed on later, or examined in full at every call. An operation whose failure its caller should plan for throws, and a caller who wants the `Result` writes `attempt`. `Result(a)`'s error is always an `Exn`; a program whose failures are data of its own, such as a validator's list of problems, declares a union for them (Option/Result Convenience §1).
   - **A fault** is a broken assumption: an index out of range, a division by zero, a number that does not fit. It is declared with `fault`, and its name ends in `Fault` (§2). It is **not tracked**: no colour records it and no call is marked for it, so the prelude, which throws only faults, stays silent, and `Int.div` stays pure and unable to fail. It is catchable, deliberately: an arm names it, or the `fault e` pattern catches every fault (§5). A catch-all `_` lets it through.
   - **A foreign throw** is whatever JavaScript throws through a boundary. It is tracked as the row it comes through claims (Effects §6.1), and it is caught as `JsError` (§6).
 
@@ -313,7 +313,7 @@ Its `cause` is JavaScript's own `Error.cause` (ES2022): the emitted object is `n
 
 ### 8.4 Data back to a failure
 
-The inverse bridge is a function, not a form: `Result.orThrow : Result(a) ->^ a` throws an `Err`'s exception and returns an `Ok`'s value, and `Option.orThrow : (Option(a), () -> Exn) ->^ a` throws the exception its thunk constructs for `None` (Option/Result Convenience owns both). Between the two kinds of data, `Result.toOption` drops a caught exception and `Option.toResult(o, () -> Exn)` builds one for `None`.
+The inverse bridge is a function, not a form: `Result.orThrow : Result(a) ->^ a` throws an `Err`'s exception and returns an `Ok`'s value, and `Option.orThrow : (Option(a), () -> Exn) ->^ a` throws the exception its thunk constructs for `None` (Option/Result Convenience owns both). Between the two kinds of data, `Result.toOption : Result(a) -> Option(a)` drops a caught exception, and `Option.toResult : (Option(a), () -> Exn) -> Result(a)` builds one for `None`.
 
 ### 8.5 The prelude's faults
 
@@ -392,7 +392,7 @@ A catch-all exists to report what failed (§1), so an `Exn` describes itself. Bo
 
 | Decision | Where |
 |---|---|
-| Three kinds of throw: exceptions (expected failures, tracked by Effects' fail colour), faults (broken assumptions, untracked, named `…Fault`), foreign throws (tracked as the row they come through claims); `Exn` is the one open sum holding all three; `Result(a)` stores a caught exception, and a dev's own failure data is a union of its own *(#1427)* | §1 |
+| Three kinds of throw: exceptions (expected failures, tracked by Effects' fail colour), faults (broken assumptions, untracked, named `…Fault`), foreign throws (tracked as the row they come through claims); `Exn` is the one open sum holding all three; `Result(a)` stores a caught exception, and a program's own failure data is a union of its own *(#1427)* | §1 |
 | SML semantics; `throw`/`try`/`catch` spelling | §1 |
 | `Exn` values first-class; construction ≠ throwing | §1, §2.1 |
 | `exception` and `fault` = freestanding union-constructor grammar; all-or-none slots; module-level only; no local/generative declarations | §2 |
