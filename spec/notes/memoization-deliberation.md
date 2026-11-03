@@ -1,6 +1,6 @@
 # Memoization: the deliberation record
 
-**Status:** Notes, not normative. The four write-ups James ruled on, 2026-11-03, kept verbatim as they stood at each ruling. `spec/memoization.md` is the decided text. The parts were separate files during the deliberation, `MEMOFIX.md` (question 1) and `MEMOFIX-Q2.md` to `MEMOFIX-Q4.md`, and refer to each other by those names. The probes they cite were run on the deliberation's branch and are not kept in the repository.
+**Status:** Notes, not normative. The five write-ups James ruled on, 2026-11-03, kept verbatim as they stood at each ruling. `spec/memoization.md` is the decided text. The parts were separate files during the deliberation, `MEMOFIX.md` (question 1), `MEMOFIX-Q2.md` to `MEMOFIX-Q4.md`, and `MEMOFIX-CYCLE.md` (raised by the spec's review), and refer to each other by those names. The probes they cite were run on the deliberation's branch and are not kept in the repository.
 
 ---
 
@@ -557,3 +557,99 @@ With question 4 ruled, the decision is complete. Next come:
 
 ---
 
+
+---
+
+## Memoization: what does a call answer after a caught cycle?
+
+**Status:** Raised by the independent review of PR #1446 on 2026-11-03. Ruled (B) by James the same day, who asked that the doctrine be worded so that it stays true: Effects §6.2 now says a species-(d) row, and any function it returns, is a value function of its arguments, so that no program can observe it answer one argument two ways, and the memo's fourth term is what keeps that true.
+
+### The question
+
+Question 2's rulings cover two things when a key is asked for while its own answer is being computed:
+- the request raises `ReentrancyFault`;
+- an answer computed while a refusal was raised is not filed.
+
+They don't say what such a call **returns**. The spec as I wrote it returns the answer. The review found that this breaks the claim the design rests on: that the memoised function is a value function of its argument.
+
+The cause is that faults can be caught in pure code (Exceptions §1). When a body catches the refusal, what the inner call answers depends on which key the cycle was entered from. Here are two keys, each asking for the other and falling back if it catches the refusal:
+
+```hexagon
+let open(self: (Int) -> Int, key: Int): Int =
+    try
+        self(1 - key)
+    catch
+        ReentrancyFault => -1 - key
+
+let g = Function.memoizeRecursive(open)
+```
+
+- **`g(0)`.** Key 0 asks for key 1, which asks for key 0. That last request is refused. Key 1 catches it and answers `-2`, and key 0 passes that on. So `g(0)` is `-2`, and inside it, `self(1)` answered `-2`.
+- **A fresh `g(1)`.** The same happens the other way round, and `g(1)` is `-1`.
+
+So `g(1)` answers `-2` inside one computation and `-1` outside. A body that returned what `self(1)` said, as part of its answer, would let a caller see both. (The example compiles today with a stand-in for `Function.memoizeRecursive`.)
+
+### The three checks, up front
+
+- **Fits doctrine?**
+  - Effects §6.2 says of species (d): "The row over it is a value function of its arguments, or the claim is false."
+  - Question 1 was ruled on the sharpened sentence: a row is a value function of its arguments under every call its callbacks make back into it.
+  - The spec as written fails that inside a caught cycle. (B) below meets it. (A) keeps the current behaviour by writing an exception into the obligation.
+- **Colleague languages considered?**
+  - **GHC** is the close precedent. Forcing a thunk that is already being forced raises `NonTermination` (the `<<loop>>` error), and the thunk is left unevaluated, like our unfiled key. Pure code can't catch it, because `catch` lives in `IO`. So nothing that depends on where the loop was entered can leak into a value. Hexagon lets pure code catch faults, so it has to get the same guarantee another way, which is (B).
+  - **Rust's `OnceCell::get_or_init`** panics on a re-entrant initialisation and leaves the cell empty. Catching a panic (`catch_unwind`) is outside ordinary code.
+  - **Core's `Memo` and Python's `functools.cache`** don't detect cycles at all.
+- **HM?** No change under either option.
+
+### The options
+
+#### (A) Keep returning the answer, and name the limitation
+
+This is a text change only.
+- **What the spec would claim:** the memoised function is a value function of its key at every call made while none of its table's keys is in progress, and every hit is such an answer.
+- **The limitation:** inside a cycle, a body that catches the refusal sees where the cycle was entered. That puts it on the same footing as a body that catches stack exhaustion, which is how plain recursion answers a cycle.
+
+What it costs:
+- Species (d)'s obligation gets an exception, so the `->` face is no longer quite a fact.
+- A dev can write a memoised function whose inner answers disagree with its outer ones, as in the example.
+
+#### (B) A call whose computation spans a refusal ends in the refusal
+
+**What changes.** As ruled, nothing is filed. In addition, the call throws `ReentrancyFault` in place of whatever it computed, whether it would have returned or thrown something else. Catching still works inside the body, but it can't rescue the answer: every computation around the refusal, out to the outermost, ends in it.
+
+**What that buys, in closed form.** Every call of the memoised function, in any table state and any context, gives one of three results:
+- what plain recursion answers, where plain recursion returns;
+- the same fault, where plain recursion faults;
+- `ReentrancyFault`, where plain recursion repeats a key.
+
+Only calls inside a computation that is already ending in the refusal can depend on context, and nothing they see escapes.
+
+What it costs:
+- **Catching the refusal can't turn a cycle into an answer.** A search where a cycle means "no path" carries the path or visited set in its key, or is written as a loop. That's the rewrite question 3 asked for a failing body: "no answer" is data, an `Option`, rather than a caught failure. Plain recursion never answers there either, since it never returns.
+- **A refusal from a `Seq` spine counts too.** Suppose a memoizing `Seq`'s spine refuses re-entry while a memoised body is running, and foreign code catches that refusal. The body's computation still ends in `ReentrancyFault`, where plain recursion might have answered. The result is a refusal, never a different answer. Reaching that case needs a foreign iterator re-entering its own sequence inside a memoised body.
+
+### What I measured
+
+The reviewer wrote a JavaScript simulation of the spec's algorithm, with random bodies that catch the refusal: 4,000 programs, and 48,000 outermost calls after random call histories. This is a simulation, not compiled Hexagon.
+
+- **The spec as written.** In 524 programs, an inner call of a cycle key answered differently from the same key's outermost call. No outermost answer differed from a fresh table's, and no key whose plain recursion returns ever answered differently.
+- **The same check with (B).** It found no problems of any kind. It also confirmed two further things:
+  - every outermost call of a key whose plain recursion repeats throws `ReentrancyFault`;
+  - every inner call made before any refusal answers what a fresh table answers.
+
+### Recommendation: (B)
+
+- **Doctrine decides it.** Species (d)'s obligation is a value function, and question 1 was ruled on that sentence. (A) keeps the obligation only by listing an exception.
+- **It is GHC's guarantee,** reached the way Hexagon has to reach it, since pure code here can catch.
+- **It takes away nothing plain recursion gives.** Catching a cycle inside a memo was never a way to reach an answer plain recursion reaches, because plain recursion never returns there.
+- **Question 2's three confirmed points are unchanged:** the cycle raises `ReentrancyFault`, keys in progress stay unfiled, and the check uses `same`.
+
+What would bring it back: a real program that needs to recover from a cycle inside a memoised function and can't carry the path in its key.
+
+### What changes in PR #1446 if you confirm (B)
+
+- `memoization.md`: §3.2's third step, §3.3, §3.4, test (f), and a new §10 entry recording (A).
+- Effects §6.2's fourth term.
+- FFI Part 3 §7.4's recognition bullet.
+
+I've written (B) into the PR so you can read it in place. The PR won't merge until you rule.

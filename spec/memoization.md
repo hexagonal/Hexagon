@@ -1,6 +1,6 @@
 # Stdlib listing: memoization
 
-**Status:** Decided 2026-11-03, ruled by James in four questions (`notes/memoization-deliberation.md` is the deliberation record). Spec-only; implementation #1445. This document discharges the "`memoFix` / open-recursion support surface" row of `stdlib-roadmap.md` §2. Its companion edits are:
+**Status:** Decided 2026-11-03, ruled by James in four questions and a fifth on what a call answers after a caught cycle (`notes/memoization-deliberation.md` is the deliberation record). Spec-only; implementation #1445. This document discharges the "`memoFix` / open-recursion support surface" row of `stdlib-roadmap.md` §2. Its companion edits are:
 - Effects §6.2, where species (d) states its obligation in closed form, and §7's coupling paragraph;
 - Collections Part 2 §2, §3.2 and §4.4, where `Hash` gains `same`, with its rows in Parts 3 and 4 (Part 4 also gains a runtime obligation) and Dec §8;
 - FFI Part 3 §7.3 and §7.4, where `ReentrancyFault` gains a second raiser;
@@ -131,10 +131,10 @@ Compare `g` with plain recursion, `fun go(key) = body(go, key)`. Every call `g(k
   - Nor does it reach a key that an enclosing call has in progress. No refusal has been raised in the enclosing computations, so each has followed plain recursion's path, and a key in progress there is one from which this key was reached. Reaching it again would make a key repeat on plain recursion's path from this key.
   - Every hit it takes is an answer filed by a computation that met no refusal, which by induction is plain recursion's answer.
 - **Where plain recursion throws a fault, `g` throws the same fault.** The path is the same, its hits are plain recursion's answers, and the fault is reached at the same step.
-- **Where plain recursion never returns because a key repeats,** `g` follows the same path to the first repeat. The repeated key is in progress there, so the request is refused, and the computation ends in `ReentrancyFault` (§3.3), whatever the `body`s catch on the way.
+- **Where plain recursion never returns because a key repeats,** `g` follows the same path to the first repeat. The repeated key is in progress there, so the request is refused, and from there the computation ends in `ReentrancyFault` (§3.3), whatever the `body`s catch on the way. The one exception is a `body` that catches the refusal and then never finishes, which never finishes here either, as plain recursion never does.
 - **Where plain recursion never returns for any other reason,** such as infinitely many distinct keys, `g` doesn't either.
 
-Calls made inside a computation already ending in the refusal can depend on where the cycle was entered, as §3.3's example shows, but nothing they compute escapes it. So `g` answers each key one way wherever its answer can be seen, and a hit and a miss are indistinguishable to every caller. That is species (d)'s obligation (Effects §6.2), discharged in closed form.
+Calls made inside a computation already ending in the refusal can depend on where the cycle was entered, as §3.3's example shows. Nothing they compute leaves that computation, beyond answers filed for keys whose own computations met no refusal, which are plain recursion's answers. So no program can observe `g` answer one key two ways, and a hit and a miss are indistinguishable to every caller. That is species (d)'s obligation (Effects §6.2), discharged in closed form.
 
 **Stack exhaustion is outside this argument, as it is outside plain recursion's.** A `body` that catches the platform's stack-overflow error depends on how deep it was called, memoised or not. Hexagon's purity does not model stack depth.
 

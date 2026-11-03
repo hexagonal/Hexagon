@@ -765,15 +765,15 @@ A `->` or `->^` on a boundary row, user-written or intrinsic, whose implementati
   - Confinement is the second half of that argument, not the first. It rules out interference from outside the named declarers, since the storage a value carries is addressable only from the modules the type's inventory entry names (Intrinsics §3.3), or lives in a helper's closure that nothing else reaches. Transparency is what rules out the declaring module's own interference across calls.
   - A memo that cannot claim transparency is not this species, and its row writes an arrow that is impure.
 
-**A species-(d) row is a value function of its arguments, and so is a function it returns, under every call its callbacks can make.**
+**A species-(d) row is a value function of its arguments, and so is any function it returns, under every call its callbacks can make: no program can observe it answer one argument two ways.**
 - **Scratch, frozen storage, and a memo that takes no callback (a compiled `Regex`'s caches) meet that by taking no function-typed parameter** of any colour, pure callbacks included, since a pure Hexagon function may call the row again. So nothing can re-enter them and observe storage mid-write, which is what makes "at most once" structural there rather than enforced, as it is at FFI Part 3 §7.3.
 - **An owned memo may take a callback that is pure and cannot fail (`->`),** on four terms:
   - each write files one finished entry, so a call that comes back in finds no entry or a finished one, never one half made;
   - a hit is for a key no Hexagon function can tell apart from the one filed (`Hash.same`, Collections Part 2 §2.3), decided through the evidence the row is passed (Intrinsics §4.2);
   - a key asked for while its entry is being computed is refused with a fault (`ReentrancyFault`, FFI Part 3 §7.4), where plain recursion would never return;
-  - a computation during which such a refusal was raised files nothing and ends in the refusal, whatever it would have answered, since a callback may catch the refusal (Exceptions §1), and where a refusal is raised depends on which key a cycle was entered from.
+  - a computation during which such a refusal was raised files nothing and ends in the refusal, whatever it would have answered. A callback may catch the refusal (Exceptions §1), and what it computes after catching depends on which key the cycle was entered from, so none of it may leave the computation.
 
-  Calls made inside a computation that is ending in the refusal may answer differently, but nothing they compute escapes it. `Function.memoizeRecursive` is the member, and `memoization.md` §3.4 discharges the obligation in closed form.
+  `Function.memoizeRecursive` is the member, and `memoization.md` §3.4 discharges the obligation in closed form.
 - **A row that would need any other callback is not this species.**
 
 **The caveat:** opacity is a TypeScript fact (FFI Part 7 §5). Foreign code holding an exported value reaches its representation, and mutating it is an FFI Part 1 §3.1 contract violation like any other.
