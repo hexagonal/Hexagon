@@ -22,13 +22,24 @@ let groupShown(group: Option(Regex.Group)): String = match group
     None => "-"
 
 // Every pattern below compiles; a refused one would show as its fallback.
-let using(pattern: String, fallback: b, answer: Regex.Regex -> b): b = match Regex.compile(pattern)
-    Ok(regex) => answer(regex)
-    Err(_) => fallback
+let using(pattern: String, fallback: b, answer: Regex.Regex -> b): b = match Regex.parse?(pattern)
+    Some(regex) => answer(regex)
+    None => fallback
 
-export let compileError(pattern: String): String = match Regex.compile(pattern)
-    Ok(regex) => "ok " ++ show(regex)
-    Err(error) => show(error.position) ++ ": " ++ error.message
+// A pattern that arrives as data: parse's exception, caught by name.
+export let parseError(pattern: String): String =
+    try
+        "ok " ++ show(Regex.parse^(pattern))
+    catch
+        Syntax.RegexError(message, position) => show(position) ++ ": " ++ message
+        other => "other " ++ show(other)
+
+// A pattern the programmer wrote: compile's fault, caught by name.
+export let compileFault(pattern: String): String =
+    try
+        "ok " ++ show(Regex.compile(pattern))
+    catch
+        Regex.RegexCompileFault(message, position) => show(position) ++ ": " ++ message
 
 export let find(pattern: String, text: String): String = using(pattern, "refused", (regex) => shown(regex.find(text)))
 
@@ -91,28 +102,44 @@ export let source(pattern: String): String = using(pattern, "refused", (regex) =
 
 export let escape(text: String): String = Regex.escape(text)
 
-export let escapedFinds(text: String, subject: String): String = match Regex.compile(Regex.escape(text))
-    Ok(regex) =>
-        var starts: Vector(String) = []
-        for m in regex.findAll(subject)
-            starts := starts.append(show(m.start()))
-        String.join(Iterable.toSeq(starts), ",")
-    Err(error) => "error " ++ error.message
+// An escaped text is always a pattern, so compile vouches for it.
+export let escapedFinds(text: String, subject: String): String =
+    let regex = Regex.compile(Regex.escape(text))
+    var starts: Vector(String) = []
+    for m in regex.findAll(subject)
+        starts := starts.append(show(m.start()))
+    String.join(Iterable.toSeq(starts), ",")
 
 export let reconstructs(pattern: String, text: String, separator: String): Bool =
     using(pattern, False, (regex) => String.join(Iterable.toSeq(regex.split(text)), separator) == text)
 
 // A literal pattern, and the same pattern built at run time (§8).
-export let literal(): Result(Regex.Regex, Syntax.RegexError) = Regex.compile("a+b")
-export let built(pattern: String): Result(Regex.Regex, Syntax.RegexError) = Regex.compile(pattern)
-export let refusedLiteral(): Result(Regex.Regex, Syntax.RegexError) = Regex.compile("(")
+export let literal(): Regex.Regex = Regex.compile("a+b")
+export let parsedLiteral(): Regex.Regex = assume Regex.parse^("a+b")
+export let readLiteral(): Option(Regex.Regex) = Regex.parse?("c+d")
+export let caughtLiteral(): String =
+    try
+        Regex.parse^("e+f").source()
+    catch
+        other => show(other)
+export let built(pattern: String): Regex.Regex = Regex.compile(pattern)
+export let refusedLiteral(): String =
+    try
+        Regex.compile("(").source()
+    catch
+        Regex.RegexCompileFault(message, _) => message
+export let refusedParsedLiteral(): String =
+    try
+        Regex.parse^("(").source()
+    catch
+        Syntax.RegexError(message, _) => message
+        other => show(other)
 
 exception Boom(text: String)
 
 // A callback that fails on the letter b: the call propagates its failure.
-export let failing(text: String): String = match Regex.compile("[a-z]")
-    Ok(regex) => regex.replaceWith^(text, (m) => if m.text() == "b" then throw^(Boom(m.text())) else m.text())
-    Err(_) => "refused"
+export let failing(text: String): String =
+    Regex.compile("[a-z]").replaceWith^(text, (m) => if m.text() == "b" then throw^(Boom(m.text())) else m.text())
 
 // The callback sees each replaced match, in order: each replacement names its match.
 export let calls(pattern: String, text: String): String =
@@ -153,22 +180,37 @@ describe("the program compiles against the surface", () => {
 describe("literal patterns (§8)", () => {
   test("a literal pattern is compiled once per load, and a built one at every call", () => {
     expect(call("literal")).toBe(call("literal"));
+    expect(call("parsedLiteral")).toBe(call("parsedLiteral"));
     expect(call("built", "a+b")).not.toBe(call("built", "a+b"));
     const main = compileMain(PROGRAM).modules.find(({ name }) => name === "Main")!.javascript.text;
     expect(main).toContain('??= Regex.compile("a+b")');
+    expect(main).toContain('??= Regex.parse("a+b")');
+    expect(main).toContain('??= Regex.parse("c+d")');
+    expect(main).toContain('??= Regex.parse("e+f")');
     expect(main).not.toContain("??= Regex.compile(pattern)");
   });
 
-  test("a refused literal is the same Err at every evaluation", () => {
-    const first = call<{ tag: string }>("refusedLiteral");
-    expect(first.tag).toBe("Err");
-    expect(call("refusedLiteral")).toBe(first);
+  test("a refused literal is never kept: it throws again at every evaluation", () => {
+    const message = "missing `)` for the group opened here";
+    expect(call("refusedLiteral")).toBe(message + " (position: 1)");
+    expect(call("refusedLiteral")).toBe(message + " (position: 1)");
+    expect(call("refusedParsedLiteral")).toBe(message);
+    expect(call("refusedParsedLiteral")).toBe(message);
+  });
+
+  test("a refused literal in a function that is never called does not stop the load", async () => {
+    const program = await runMain(
+      "module Main\nimport Hex.Regex as Regex\n\n" +
+      "let never(text: String): Bool = Regex.compile(\"(\").isMatch(text)\n" +
+      "let neverParsed(text: String): Option(Bool) = Regex.parse?(\"(\").map((r) => r.isMatch(text))\n" +
+      "export let loaded: Int = 1\n",
+    );
+    expect(program.loaded).toBe(1);
   });
 
   test("an interpolated pattern is no literal: each evaluation compiles its own", async () => {
     const source = "module Main\nimport Hex.Regex as Regex\n\n" +
-      "export let sourceOf(x: String): String = match Regex.compile(\"a$" + "{x}\")\n" +
-      "    Ok(regex) => regex.source()\n    Err(_) => \"refused\"\n";
+      "export let sourceOf(x: String): String = Regex.compile(\"a$" + "{x}\").source()\n";
     const program = await runMain(source);
     const sourceOf = program.sourceOf as (x: string) => string;
     expect(sourceOf("x")).toBe("ax");
@@ -177,10 +219,25 @@ describe("literal patterns (§8)", () => {
 });
 
 describe("compilation (§4.2)", () => {
-  test("a bad pattern answers its RegexError; a good one shows its source", () => {
-    expect(call("compileError", "a(b")).toBe("2: missing `)` for the group opened here");
-    expect(call("compileError", "\\q")).toBe("1: `\\q` is not an escape; write `q`, or see the escape table");
-    expect(call("compileError", "a|b")).toBe("ok a|b");
+  test("parse throws RegexError for a bad pattern; a good one shows its source", () => {
+    expect(call("parseError", "a(b")).toBe("2: missing `)` for the group opened here");
+    expect(call("parseError", "\\q")).toBe("1: `\\q` is not an escape; write `q`, or see the escape table");
+    expect(call("parseError", "a|b")).toBe("ok a|b");
+  });
+
+  test("compile throws the fault RegexCompileFault, its message naming the position", () => {
+    expect(call("compileFault", "a(b")).toBe("2: missing `)` for the group opened here (position: 2)");
+    expect(call("compileFault", "a|b")).toBe("ok a|b");
+  });
+
+  test("parse wears `^` and compile wears no mark", () => {
+    const diagnostics = (body: string) => compileMain(
+      "module Main\nimport Hex.Regex as Regex\n\n" + body,
+    ).diagnostics.map(({ message }) => message);
+    expect(diagnostics("export let r: Regex.Regex = Regex.parse(\"a\")\n").join("\n")).toContain("wants `^`");
+    expect(diagnostics("export let r: Regex.Regex = Regex.compile^(\"a\")\n").join("\n")).toContain("cannot fail");
+    expect(diagnostics("export let r: Option(Regex.Regex) = Regex.parse?(\"a\")\n")).toEqual([]);
+    expect(diagnostics("export let r: Regex.Regex = Regex.compile(\"a\")\n")).toEqual([]);
   });
 
   test("source, groupCount and groupIndex", () => {

@@ -110,7 +110,7 @@ describe("the gate (§5)", () => {
   test("a library member of `Hex` holds the door, and a project module of its name does not", () => {
     const importer = compileFiles([["/main.hex",
       "module Main\n\nimport Hex.Regex.Syntax as Syntax\n\n" +
-      "export let ok: Bool = match Syntax.parse(\"a\")\n    Ok(_) => True\n    Err(_) => False\n"]]);
+      "export let ok: Bool = match Syntax.parse?(\"a\")\n    Some(_) => True\n    None => False\n"]]);
     expect(importer.diagnostics.map(({ message }) => message)).toEqual([]);
     const impostor = compileFiles([["/Syntax.hex",
       "module Regex.Syntax\n\nextern from \"hex:intrinsic\"\n" +
