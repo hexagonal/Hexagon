@@ -69,7 +69,7 @@ export let compile(pattern: String): Regex =
         compiled(pattern, Syntax.parse^(pattern))
     catch
         Syntax.RegexError(message, position) =>
-            throw(RegexCompileFault(message ++ " (position: " ++ show(position) ++ ")", position))
+            throw(RegexCompileFault("${message} (position: ${position})", position))
         // `Syntax.parse` throws nothing else, so this arm is the writer's word
         // that nothing else arrives: anything that did would be an
         // `AssumptionFault`. Without it, `compile` would be marked `^`.

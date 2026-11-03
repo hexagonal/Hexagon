@@ -4453,7 +4453,7 @@ export const STDLIB_SOURCES: Readonly<Record<string, string>> = {
     + "        compiled(pattern, Syntax.parse^(pattern))\n"
     + "    catch\n"
     + "        Syntax.RegexError(message, position) =>\n"
-    + "            throw(RegexCompileFault(message ++ \" (position: \" ++ show(position) ++ \")\", position))\n"
+    + "            throw(RegexCompileFault(\"${message} (position: ${position})\", position))\n"
     + "        // `Syntax.parse` throws nothing else, so this arm is the writer's word\n"
     + "        // that nothing else arrives: anything that did would be an\n"
     + "        // `AssumptionFault`. Without it, `compile` would be marked `^`.\n"
