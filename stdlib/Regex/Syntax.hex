@@ -1144,7 +1144,7 @@ let parseText(pattern: String, text: Vector(String)): Outcome(Pattern, Refusal) 
                 Read(Pattern({ root = root, groupCount = count, names = names }))
 
 (** Parses `pattern` as the dialect of `spec/regex.md` §2: the tree. A pattern
-    the dialect refuses throws `Refusal` for the first fault in reading
+    the dialect refuses throws `RegexError` for the first defect in reading
     order. *)
 export let parse(pattern: String): Pattern = match parseText(pattern, points(pattern))
     Read(parsed) => parsed

@@ -3569,12 +3569,12 @@ class JavaScriptEmitter {
    * functions of their argument (Effects §6.2, species (d)), so no semantics
    * ride on the sharing.
    */
-  readonly #regexCompileSymbols: ReadonlySet<Resolved.SymbolId>;
+  readonly #regexLiteralSymbols: ReadonlySet<Resolved.SymbolId>;
   readonly #regexLiterals: string[] = [];
 
   constructor(module: Core.Module, options: JavaScriptEmissionOptions) {
     this.#module = module;
-    this.#regexCompileSymbols = new Set(module.items.flatMap((item) =>
+    this.#regexLiteralSymbols = new Set(module.items.flatMap((item) =>
       item.kind === "Import" && item.moduleName === "Hex.Regex"
         ? item.form.names.flatMap(({ imported, symbol }) =>
           (imported === "compile" || imported === "parse") && symbol !== undefined ? [symbol] : []
@@ -6068,7 +6068,7 @@ class JavaScriptEmitter {
         }
         if (
           expression.callee.kind === "Name" &&
-          this.#regexCompileSymbols.has(expression.callee.symbol) &&
+          this.#regexLiteralSymbols.has(expression.callee.symbol) &&
           expression.arguments.length === 1 &&
           isLiteralText(expression.arguments[0]!)
         ) {

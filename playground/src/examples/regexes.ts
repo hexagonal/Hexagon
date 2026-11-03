@@ -59,7 +59,7 @@ tryPattern("a.c")
 tryPattern("(a")
 
 // To say why, catch RegexError by name: its message, and the position in the
-// pattern where reading stopped. The other arm takes anything else.
+// pattern of the defect it names. The other arm takes anything else.
 let explain(pattern: String) =
     try
         Debug.log("\${pattern} has \${Regex.parse^(pattern).groupCount()} groups")

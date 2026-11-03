@@ -27,7 +27,7 @@ let using(pattern: String, fallback: b, answer: Regex.Regex -> b): b = match Reg
     None => fallback
 
 // A pattern that arrives as data: parse's exception, caught by name.
-export let compileError(pattern: String): String =
+export let parseError(pattern: String): String =
     try
         "ok " ++ show(Regex.parse^(pattern))
     catch
@@ -116,6 +116,12 @@ export let reconstructs(pattern: String, text: String, separator: String): Bool 
 // A literal pattern, and the same pattern built at run time (§8).
 export let literal(): Regex.Regex = Regex.compile("a+b")
 export let parsedLiteral(): Regex.Regex = assume Regex.parse^("a+b")
+export let readLiteral(): Option(Regex.Regex) = Regex.parse?("c+d")
+export let caughtLiteral(): String =
+    try
+        Regex.parse^("e+f").source()
+    catch
+        other => show(other)
 export let built(pattern: String): Regex.Regex = Regex.compile(pattern)
 export let refusedLiteral(): String =
     try
@@ -179,6 +185,8 @@ describe("literal patterns (§8)", () => {
     const main = compileMain(PROGRAM).modules.find(({ name }) => name === "Main")!.javascript.text;
     expect(main).toContain('??= Regex.compile("a+b")');
     expect(main).toContain('??= Regex.parse("a+b")');
+    expect(main).toContain('??= Regex.parse("c+d")');
+    expect(main).toContain('??= Regex.parse("e+f")');
     expect(main).not.toContain("??= Regex.compile(pattern)");
   });
 
@@ -194,6 +202,7 @@ describe("literal patterns (§8)", () => {
     const program = await runMain(
       "module Main\nimport Hex.Regex as Regex\n\n" +
       "let never(text: String): Bool = Regex.compile(\"(\").isMatch(text)\n" +
+      "let neverParsed(text: String): Option(Bool) = Regex.parse?(\"(\").map((r) => r.isMatch(text))\n" +
       "export let loaded: Int = 1\n",
     );
     expect(program.loaded).toBe(1);
@@ -211,9 +220,9 @@ describe("literal patterns (§8)", () => {
 
 describe("compilation (§4.2)", () => {
   test("parse throws RegexError for a bad pattern; a good one shows its source", () => {
-    expect(call("compileError", "a(b")).toBe("2: missing `)` for the group opened here");
-    expect(call("compileError", "\\q")).toBe("1: `\\q` is not an escape; write `q`, or see the escape table");
-    expect(call("compileError", "a|b")).toBe("ok a|b");
+    expect(call("parseError", "a(b")).toBe("2: missing `)` for the group opened here");
+    expect(call("parseError", "\\q")).toBe("1: `\\q` is not an escape; write `q`, or see the escape table");
+    expect(call("parseError", "a|b")).toBe("ok a|b");
   });
 
   test("compile throws the fault RegexCompileFault, its message naming the position", () => {
