@@ -1967,6 +1967,7 @@ export const RUNTIME_VOCABULARY = [
   "Boolean",
   "console",
   "Error",
+  "globalThis",
   "Map",
   "Math",
   "Number",
@@ -7686,8 +7687,8 @@ class JavaScriptEmitter {
       const body = indent(depth + 2);
       try {
         const value = this.#emitExpr(call, depth + 2, evidenceNames);
-        const fault = `${error} != null && typeof ${error}.$hex === "string" && ` +
-          `typeof ${error}.name === "string" && ${error}.name.endsWith("Fault")`;
+        // Exceptions §7.4's kind test, through the kept read (#1447).
+        const fault = `${this.#useHelper("thrownFault")}(${error})`;
         return [
           `((${parameters.join(", ")}) => {`,
           `${inner}try {`,
@@ -7745,14 +7746,13 @@ class JavaScriptEmitter {
    * both of `catch`'s seats — `try`'s clause and the match catch clause
    * (Exceptions §5.1, §5.4) — emit one block of arms from one place.
    *
-   * **Stage 1 becomes visible exactly when a `JsError` arm is present** (§6.2,
-   * #509). Every other arm's brand comparison subsumes the class test, so no
-   * catch has needed the test written out until now; a `JsError` arm needs it
-   * twice over — once as the foreign branch's own condition, and once to decide
-   * whether the binder takes the raw throwable or the branded wrapper's payload
-   * slot. Binding it once at the top of the block keeps that one question
-   * asked once, and keeps every catch without such an arm emitting exactly the
-   * text it emitted before.
+   * **The brand and the name are bound once, at the top of the block** (§7.4,
+   * #1447), each from FFI Part 11 §7's kept read, and every arm compares those
+   * locals. **Stage 1 is written out exactly when a `JsError` arm is present**
+   * (§6.2, #509). Every other arm's brand comparison subsumes the class test;
+   * a `JsError` arm needs it twice over — once as the foreign branch's own
+   * condition, and once to decide whether the binder takes the raw throwable
+   * or the branded wrapper's payload slot — so it is bound once too.
    */
   #emitCatchArms(
     arms: readonly Core.MatchArm[],
@@ -7765,24 +7765,31 @@ class JavaScriptEmitter {
     const armLines: string[] = [];
     const views: PatternViewContext = { byPosition: new Map(), uses: [] };
     const alternatives = arms.map((arm) => expandOrPatterns(arm.pattern));
+    // §7.4's brand and name, through FFI Part 11 §7's kept read (#1447):
+    // guarded, made at most once per thrown value, and kept in the one runtime
+    // record, so every catch of one value sorts it the same way and no getter
+    // throws out of the sorting. `throw null` and `throw "oops"` are legal
+    // JavaScript, and the read answers `undefined` for them without reading,
+    // so they reach the foreign branch; so does a value whose brand read
+    // throws. The name is read on the domestic side only.
+    const read = this.#useHelper("jsErrorRead");
+    const brand = this.#generatedNames.fresh("brand");
+    const name = this.#generatedNames.fresh("name");
+    lines.push(
+      `${armIndent}const ${brand} = ${read}(${error}, "$hex");`,
+      `${armIndent}const ${name} = typeof ${brand} === "string" ? ${read}(${error}, "name") : ${this.#unit};`,
+    );
     const foreign = alternatives.some((expanded) => expanded.some((p) => this.#catchesForeign(p)))
       ? this.#generatedNames.fresh("foreign")
       : undefined;
     if (foreign !== undefined) {
-      // §7.4's stage 1, negated: the `!= null` guard is load-bearing, because
-      // `throw null` and `throw "oops"` are legal JavaScript and must reach the
-      // foreign branch rather than crash the discriminator.
-      lines.push(
-        `${armIndent}const ${foreign} = ${error} == null || typeof ${error}.$hex !== "string";`,
-      );
+      // §7.4's stage 1, negated.
+      lines.push(`${armIndent}const ${foreign} = typeof ${brand} !== "string";`);
     }
-    // Exceptions §7.1, §7.4: the kind is the name's ending, read on the domestic
-    // side only — a foreign throwable is never a fault, whatever it is called.
-    // `name`'s type is asked first: §7.1's spoofing residue routes a foreign
-    // object with a coincidental string `$hex` here, and the discriminator
-    // must not throw a second failure in place of the one it is sorting.
-    const faultName = `typeof ${error}.name === "string" && ${error}.name.endsWith("Fault")`;
-    const fault = `${error} != null && typeof ${error}.$hex === "string" && ${faultName}`;
+    // Exceptions §7.1, §7.4: the kind is the name's ending, and a foreign
+    // throwable, whose name is not read, is never a fault, whatever it is called.
+    const fault = `typeof ${name} === "string" && ${name}.endsWith("Fault")`;
+    const caught: CaughtReads = foreign === undefined ? { brand, name } : { brand, name, foreign };
     for (const [index, arm] of arms.entries()) {
       for (const alternative of alternatives[index]!) {
         const plan = this.#emitPatternPlan(
@@ -7790,7 +7797,7 @@ class JavaScriptEmitter {
           error,
           evidenceNames,
           true,
-          foreign,
+          caught,
           views,
         );
         // §5.3: `fault e` catches every fault, and a catch-all every exception
@@ -7799,7 +7806,7 @@ class JavaScriptEmitter {
         const kind = arm.fault === true
           ? [fault]
           : catchesEverything(alternative)
-          ? [foreign === undefined ? `!(${fault})` : `${foreign} || !(${faultName})`]
+          ? [`!(${fault})`]
           : [];
         const tests = [...kind, ...plan.tests];
         const condition = tests.length === 0
@@ -8161,7 +8168,7 @@ class JavaScriptEmitter {
     value: string,
     evidenceNames: EvidenceNames,
     exceptionPatterns = false,
-    foreign?: string,
+    caught?: CaughtReads,
     viewContext: PatternViewContext = { byPosition: new Map(), uses: [] },
     positionKey = "root",
   ): PatternPlan {
@@ -8176,7 +8183,7 @@ class JavaScriptEmitter {
           value,
           evidenceNames,
           exceptionPatterns,
-          foreign,
+          caught,
           viewContext,
           positionKey,
         );
@@ -8188,7 +8195,7 @@ class JavaScriptEmitter {
       }
       case "Or": {
         const alternatives = pattern.alternatives.map((alternative) =>
-          this.#emitPatternPlan(alternative, value, evidenceNames, exceptionPatterns, foreign, viewContext, positionKey)
+          this.#emitPatternPlan(alternative, value, evidenceNames, exceptionPatterns, caught, viewContext, positionKey)
         );
         if (alternatives.some(({ bindings }) => bindings.length > 0)) {
           return { tests: ["false"], bindings: [] };
@@ -8389,11 +8396,22 @@ class JavaScriptEmitter {
         // stage 1, not the caught one's: the payload holds whatever was thrown,
         // the raw foreign value included, and nothing above computed its test.
         const jsError = exception !== undefined && pattern.symbol === this.#prelude.jsError;
-        const foreignHere = foreign ?? (jsError
-          ? `(${value} == null || typeof ${value}.$hex !== "string")`
-          : undefined);
+        //
+        // Every brand and name is read through FFI Part 11 §7's kept read
+        // (#1447): guarded, at most once per value, kept in the one runtime
+        // record, and `undefined` for a value that bears no properties. The
+        // caught value's are already bound, at the top of its `catch` block;
+        // a payload's are read here.
+        const read = exception === undefined || caught !== undefined
+          ? undefined
+          : this.#useHelper("jsErrorRead");
+        const brand = caught?.brand ?? `${read}(${value}, "$hex")`;
+        const name = caught?.name ?? `${read}(${value}, "name")`;
+        const foreignHere = caught?.foreign ?? (jsError ? `typeof ${brand} !== "string"` : undefined);
         const virtual = jsError && foreignHere !== undefined;
-        const domestic = exception === undefined ? undefined : `${value} != null && ${value}.$hex === ${JSON.stringify(exception.owner)} && ${value}.name === ${JSON.stringify(pattern.tag)}`;
+        const domestic = exception === undefined
+          ? undefined
+          : `${brand} === ${JSON.stringify(exception.owner)} && ${name} === ${JSON.stringify(pattern.tag)}`;
         // Foreign Enums §4's identity test, for the object-reading form alone:
         // the member is a captured binding, and `Object.is` is what tells it
         // apart from every other value with one rule — strings, numbers, `NaN`,
@@ -12244,20 +12262,26 @@ class JavaScriptEmitter {
       // helper and the same plan table every crossing does rather than a copy of
       // its own. `Array.isArray`, the probe below, is untouched and still
       // unguarded.
+      //
+      // The copy is made once per object and kept (§4.2, #1447): the helper
+      // files it, or the throw it raised, in the runtime record and answers
+      // every later call from there.
       case "jsValueAsArrayUnchecked":
-        return `__a => ${
+        return `__a => ${this.#useHelper("jsValueKeepCopy")}(__a, __b => ${
           this.#captured(
             { kind: "Array", element: { kind: "JsValue" } },
-            "__a",
+            "__b",
           )
-        }`;
+        })`;
       // `Array.isArray`, **unguarded** — §4.2 against §3. `jsValueKind`'s helper
       // wraps its own probe in a `try` so the classification is total; this one
       // must not, because `toArray` promises a verdict about the data and a
       // throwing probe is foreign control flow. A revoked proxy therefore leaves
-      // `JsValue.toArray` as a throw and leaves `JsValue.kind` as `Object`.
+      // `JsValue.toArray` as a throw and leaves `JsValue.kind` as `Object`,
+      // unless either found the proxy to be an array before it was revoked. The
+      // verdict, and a throw, are kept per object (§4.2, #1447).
       case "jsValueIsArray":
-        return `__a => ${this.#spell("Array")}.isArray(__a)`;
+        return this.#useHelper("jsValueIsArray");
       // `stdlib/Array.hex`'s one row (FFI Part 2 §6.3's emission bullet):
       // `Array.length(xs)` is `xs.length`, the native read and nothing else.
       // The file's §9 conversion, `Array.toVector`, has no case here and wants
@@ -12324,10 +12348,9 @@ class JavaScriptEmitter {
       case "jsErrorRender":
         return `__a => ${this.#spell("String")}(__a)`;
       // `Exn.hex`'s two rows (#1159). The `.name` read is the same kept read as
-      // `JsError`'s two, through the same helper; it is keyed in `Exn.hex`
-      // alone, as `.message` and `.stack` are in `JsError.hex` alone, because
-      // each module's copy of the helper keeps its own table, and a property
-      // kept by two tables could be read twice.
+      // `JsError`'s two, through the same helper, and every module's copy of
+      // the helper keeps its answers in the one runtime record (#1447), so a
+      // property a `catch` has read is never read again here, nor the reverse.
       case "jsErrorReadName":
         return `__a => ${this.#useHelper("jsErrorRead")}(__a, "name")`;
       // Each numeric type's `parse` (#1049, #1253 step 9c) over its scanner.
@@ -13756,6 +13779,17 @@ interface PatternPlan {
   readonly bindings: readonly string[];
 }
 
+/**
+ * The caught value's kept reads (Exceptions §7.4), bound once at the top of a
+ * JS `catch` block: the locals holding its brand and its name, and stage 1's
+ * negation where an arm catches foreign throws.
+ */
+interface CaughtReads {
+  readonly brand: string;
+  readonly name: string;
+  readonly foreign?: string;
+}
+
 interface PatternViewUse {
   readonly result: string;
   readonly getter?: string;
@@ -14255,8 +14289,12 @@ type Helper =
   | "streamInbound"
   | "capture"
   | "debugLog"
+  | "hexRuntime"
   | "jsValueKind"
+  | "jsValueIsArray"
+  | "jsValueKeepCopy"
   | "jsErrorRead"
+  | "thrownFault"
   | "numberInteger"
   | "numberFloat"
   | "numberDec"
@@ -14334,8 +14372,12 @@ const HELPER_DEPENDENCIES: Readonly<Record<Helper, readonly Helper[]>> = {
   // helper at each invocation, which is a self-call and not a dependency.
   capture: [],
   debugLog: [],
-  jsValueKind: [],
-  jsErrorRead: [],
+  hexRuntime: [],
+  jsValueKind: ["hexRuntime"],
+  jsValueIsArray: ["hexRuntime"],
+  jsValueKeepCopy: ["hexRuntime"],
+  jsErrorRead: ["hexRuntime"],
+  thrownFault: ["jsErrorRead"],
   numberInteger: [],
   numberFloat: [],
   numberDec: [],
@@ -14715,13 +14757,131 @@ function renderHelper(
         `  if (__type === "string") return ${taggedValue("String")};`,
         `  if (__type === "symbol") return ${taggedValue("Symbol")};`,
         `  if (__type === "function") return ${taggedValue("Function")};`,
+        `  const __arrays = ${dependencyName("hexRuntime")}.arrays;`,
+        `  if (__arrays.has(__value)) return ${taggedValue("Array")};`,
         "  try {",
-        `    return ${spell("Array")}.isArray(__value) ? ${taggedValue("Array")} : ${
-          taggedValue("Object")
-        };`,
+        `    if (!${spell("Array")}.isArray(__value)) return ${taggedValue("Object")};`,
         "  } catch {",
         `    return ${taggedValue("Object")};`,
         "  }",
+        "  __arrays.set(__value, true);",
+        `  return ${taggedValue("Array")};`,
+        "}",
+      ];
+    // The runtime-wide record every kept look and kept read is filed in (FFI
+    // Part 11 §1, §7; Exceptions §7.4). It is one per program, and more than
+    // that: every module's copy of every helper below reaches the same object,
+    // through a registered symbol on the global object, so two modules — or two
+    // bundled copies of one — never disagree about what was seen inside one
+    // foreign value. The property is defined once, unwritable and not
+    // enumerable, and nothing is ever written on a foreign value itself.
+    //
+    // Each field is created where it is missing rather than with the object,
+    // so a later compiler's helpers, sharing the record with this one's, can add
+    // fields of their own without a version check. A field whose shape changes
+    // takes a new name instead.
+    case "hexRuntime":
+      return [
+        `const ${name} = (() => {`,
+        `  const __key = ${spell("Symbol")}.for("hexagon.runtime");`,
+        `  let __shared = ${spell("globalThis")}[__key];`,
+        `  if (__shared === ${spell("undefined")}) {`,
+        "    __shared = {};",
+        `    ${spell("Object")}.defineProperty(${spell("globalThis")}, __key, { value: __shared });`,
+        "  }",
+        `  if (__shared.reads === ${spell("undefined")}) __shared.reads = new ${spell("WeakMap")}();`,
+        `  if (__shared.reading === ${spell("undefined")}) __shared.reading = {};`,
+        `  if (__shared.arrays === ${spell("undefined")}) __shared.arrays = new ${spell("WeakMap")}();`,
+        `  if (__shared.looks === ${spell("undefined")}) __shared.looks = new ${spell("WeakMap")}();`,
+        "  return __shared;",
+        "})();",
+      ];
+    // `toArray`'s look, in two halves because `JsValue.hex` asks it in two
+    // (FFI Part 11 §4.2): the `Array.isArray` probe here, the copy in
+    // `jsValueKeepCopy`. The look's outcome is kept per object in the runtime
+    // record — the copy, the verdict that the value is not an array, or the
+    // foreign throw, replayed as the same thrown value — and a probe that
+    // answers true is the finding `kind` keeps too (§3), so an object either
+    // has found to be an array is not probed again. Unguarded, as §4.2 rules:
+    // a throwing probe is foreign control flow, kept and thrown again.
+    //
+    // A request that arrives while the object's copy is running is the look
+    // asking for itself: the copy's foreign code came back in. It is refused
+    // with `ReentrancyFault` (FFI Part 3 §7.4), and the look keeps the refusal
+    // whatever the copy goes on to produce (§7.5).
+    case "jsValueIsArray":
+      return [
+        `function ${name}(__value) {`,
+        '  if (__value === null || (typeof __value !== "object" && typeof __value !== "function")) return false;',
+        `  const __shared = ${dependencyName("hexRuntime")};`,
+        "  const __look = __shared.looks.get(__value);",
+        `  if (__look !== ${spell("undefined")}) {`,
+        '    if (__look.state === "copied") return true;',
+        '    if (__look.state === "not") return false;',
+        '    if (__look.state === "copying") {',
+        `      const __refusal = ${spell("Object")}.assign(new ${
+          spell("Error")
+        }("a JavaScript array's copy depends on itself"), { $hex: ${JSON.stringify(HEX_SEQ)}, name: "ReentrancyFault" });`,
+        '      __shared.looks.set(__value, { state: "refused", error: __refusal });',
+        "      throw __refusal;",
+        "    }",
+        "    throw __look.error;",
+        "  }",
+        "  if (__shared.arrays.has(__value)) return true;",
+        "  let __array;",
+        "  try {",
+        `    __array = ${spell("Array")}.isArray(__value);`,
+        "  } catch (__error) {",
+        '    __shared.looks.set(__value, { state: "threw", error: __error });',
+        "    throw __error;",
+        "  }",
+        "  if (__array) __shared.arrays.set(__value, true);",
+        '  else __shared.looks.set(__value, { state: "not" });',
+        "  return __array;",
+        "}",
+      ];
+    // The look's second half: the copy, made once per object and kept, or the
+    // foreign throw the copy raised, kept and thrown again. `copy` is the
+    // capture walk at `Array(JsValue)` (FFI Part 1 §5.4), handed in because
+    // the plan table it reads is the emitting module's. Asked only after the
+    // probe above answered true, so the object is not on a kept failure here
+    // unless the copy itself came back in.
+    case "jsValueKeepCopy":
+      return [
+        `function ${name}(__value, __copy) {`,
+        `  const __looks = ${dependencyName("hexRuntime")}.looks;`,
+        "  const __look = __looks.get(__value);",
+        `  if (__look !== ${spell("undefined")}) {`,
+        '    if (__look.state === "copied") return __look.copy;',
+        '    if (__look.state === "threw" || __look.state === "refused") throw __look.error;',
+        "  }",
+        '  __looks.set(__value, { state: "copying" });',
+        "  let __result;",
+        "  try {",
+        "    __result = __copy(__value);",
+        "  } catch (__error) {",
+        "    const __now = __looks.get(__value);",
+        '    if (__now.state === "refused") throw __now.error;',
+        '    __looks.set(__value, { state: "threw", error: __error });',
+        "    throw __error;",
+        "  }",
+        "  const __now = __looks.get(__value);",
+        '  if (__now.state === "refused") throw __now.error;',
+        '  __looks.set(__value, { state: "copied", copy: __result });',
+        "  return __result;",
+        "}",
+      ];
+    // Exceptions §7.4's kind test, read through the kept read: a Hexagon error
+    // is a fault exactly when its brand is a string and its name ends in
+    // `Fault` (§7.1). A foreign value is never a fault, whatever it is called,
+    // and a read that throws is kept as `undefined`, so neither half can throw
+    // a second failure in place of the one being sorted.
+    case "thrownFault":
+      return [
+        `function ${name}(__value) {`,
+        `  if (typeof ${dependencyName("jsErrorRead")}(__value, "$hex") !== "string") return false;`,
+        `  const __name = ${dependencyName("jsErrorRead")}(__value, "name");`,
+        '  return typeof __name === "string" && __name.endsWith("Fault");',
         "}",
       ];
     // FFI Part 11 §7's one guarded read, shared by both accessors (#509), and
@@ -14829,11 +14989,14 @@ function renderHelper(
     case "jsErrorRead":
       return [
         `const ${name} = (() => {`,
-        `  const __kept = new ${spell("WeakMap")}();`,
-        "  const __pending = {};",
+        `  const __kept = ${dependencyName("hexRuntime")}.reads;`,
+        `  const __pending = ${dependencyName("hexRuntime")}.reading;`,
         "  return (__value, __property) => {",
+        '    if (__value === null || (typeof __value !== "object" && typeof __value !== "function")) {',
+        `      return ${spell("undefined")};`,
+        "    }",
         "    let __answers = __kept.get(__value);",
-        "    if (__answers === undefined) {",
+        `    if (__answers === ${spell("undefined")}) {`,
         `      __answers = new ${spell("Map")}();`,
         "      __kept.set(__value, __answers);",
         "    }",
@@ -14843,11 +15006,11 @@ function renderHelper(
         "      try {",
         "        __read = __value[__property];",
         "      } catch {",
-        "        __read = undefined;",
+        `        __read = ${spell("undefined")};`,
         "      }",
         "      if (__answers.get(__property) === __pending) __answers.set(__property, __read);",
         "    } else if (__answers.get(__property) === __pending) {",
-        "      __answers.set(__property, undefined);",
+        `      __answers.set(__property, ${spell("undefined")});`,
         "    }",
         "    return __answers.get(__property);",
         "  };",

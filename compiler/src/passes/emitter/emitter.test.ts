@@ -877,7 +877,7 @@ describe("emitJavaScript", () => {
       ),
     );
 
-    expect(output.text).toContain('$hex === "Main"');
+    expect(output.text).toContain('__brand === "Main" && __name === "Wrapped"');
     expect(output.text).toContain('.reason.tag === "Code"');
     expect(output.text).toMatch(/if \(code > 0\)/u);
     const execute = Function(

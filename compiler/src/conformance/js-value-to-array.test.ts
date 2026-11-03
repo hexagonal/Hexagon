@@ -348,9 +348,177 @@ describe("the probe is unguarded, and `kind`'s is not (§4.2 against §3)", () =
     const companion = compiled.modules.find(({ source }) => source.path.endsWith("/JsValue.hex"));
     expect(companion).toBeDefined();
     const javascript = companion!.javascript.text;
-    expect(javascript).toContain("const isArray = __a => Array.isArray(__a);");
-    // `kind`'s guard, in the helper the same module reaches.
-    expect(javascript).toContain("try {");
+    // `toArray`'s probe rethrows what it caught, and keeps it with the look.
+    expect(javascript).toContain("const isArray = __jsValueIsArray;");
+    expect(javascript).toContain(
+      "  } catch (__error) {\n" +
+        '    __shared.looks.set(__value, { state: "threw", error: __error });\n' +
+        "    throw __error;\n",
+    );
+    // `kind`'s guard answers instead.
+    expect(javascript).toContain("  } catch {\n    return __Object;\n  }");
+  });
+});
+
+describe("the look is made once per object, and kept (§4.2)", () => {
+  /** What one call threw, or `undefined` where it threw nothing. */
+  function thrownBy(value: unknown): unknown {
+    try {
+      outcome(value);
+    } catch (error) {
+      return error;
+    }
+    return undefined;
+  }
+
+  /**
+   * The copy is kept beside the value, so a later call answers the copy the
+   * first one made, and a foreign write in between is not seen. (Each answer
+   * leaves through the export's own outbound capture, Part 1 §5.4, so the
+   * test compares contents, not identity.)
+   */
+  test("a later call answers the kept copy, so a later write is not seen", () => {
+    const source = [1, 2, 3];
+    expect(captured(source)).toEqual([1, 2, 3]);
+    source.push(4);
+    source[0] = 999;
+    expect(captured(source)).toEqual([1, 2, 3]);
+  });
+
+  /**
+   * A proxy whose `length` answers differently on every read is the input a
+   * look made again would see differently. It is read on the first call
+   * only.
+   */
+  test("a proxy whose length grows is copied once, at the length it first gave", () => {
+    let lengthReads = 0;
+    const growing = new Proxy([7, 7, 7, 7], {
+      get(target, key, receiver) {
+        if (key === "length") {
+          lengthReads += 1;
+          return lengthReads;
+        }
+        return Reflect.get(target, key, receiver) as unknown;
+      },
+    });
+    expect(captured(growing)).toEqual([7]);
+    const readsAfterFirst = lengthReads;
+    expect(captured(growing)).toEqual([7]);
+    expect(captured(growing)).toEqual([7]);
+    expect(lengthReads).toBe(readsAfterFirst);
+  });
+
+  /**
+   * §4.2's own example: a proxy revoked after a successful look still decodes
+   * to the copy made before, and §3's shared finding keeps it an array to
+   * `kind`, whose own probe would now throw.
+   */
+  test("a proxy revoked after its copy still decodes to that copy, and `kind` says Array", () => {
+    const { proxy, revoke } = Proxy.revocable([5, 6, 7] as unknown[], {});
+    expect(captured(proxy)).toEqual([5, 6, 7]);
+    revoke();
+    expect(() => Array.isArray(proxy)).toThrow(TypeError);
+    expect(captured(proxy)).toEqual([5, 6, 7]);
+    expect(kindOf(proxy)).toBe("Array");
+  });
+
+  /**
+   * The finding is one fact, whichever operation found it (§3): `kind`
+   * answering `Array` before revocation keeps answering it after. `toArray`
+   * makes no probe for an object already found to be an array, so its look is
+   * the copy, whose first read of the revoked proxy throws — and that throw is
+   * kept like any other.
+   */
+  test("an array found by `kind` stays one after revocation, and `toArray`'s throw is kept", () => {
+    const { proxy, revoke } = Proxy.revocable([1, 2] as unknown[], {});
+    expect(kindOf(proxy)).toBe("Array");
+    revoke();
+    expect(kindOf(proxy)).toBe("Array");
+    const first = thrownBy(proxy);
+    expect(first).toBeInstanceOf(TypeError);
+    expect(thrownBy(proxy)).toBe(first);
+    expect(kindOf(proxy)).toBe("Array");
+  });
+
+  /** A probe that throws is kept too: the same foreign value leaves every call. */
+  test("a throwing probe is kept, and the same thrown value leaves every call", () => {
+    const { proxy, revoke } = Proxy.revocable({}, {});
+    revoke();
+    const first = thrownBy(proxy);
+    expect(first).toBeInstanceOf(TypeError);
+    expect(thrownBy(proxy)).toBe(first);
+    expect(kindOf(proxy)).toBe("Object");
+  });
+
+  /**
+   * A throw during the copy is the look's outcome, so a getter that would
+   * answer now is not asked again: the call replays the throw, as a sequence
+   * position replays a foreign throw (FFI Part 3 §7.1).
+   */
+  test("a throw during the copy is kept, even once the getter would answer", () => {
+    let reads = 0;
+    const flaky: unknown[] = [1, 2];
+    Object.defineProperty(flaky, 1, {
+      enumerable: true,
+      get: () => {
+        reads += 1;
+        if (reads === 1) throw new RangeError("first read");
+        return 2;
+      },
+    });
+    const first = thrownBy(flaky);
+    expect(first).toBeInstanceOf(RangeError);
+    expect(thrownBy(flaky)).toBe(first);
+    expect(reads).toBe(1);
+  });
+
+  /**
+   * The verdict that a value is not an array is kept, and each call that
+   * throws its `Shape` failure builds a new `JsConversionError` (§4.2).
+   */
+  test("a value that is not an array fails `Shape` on every call, with a new failure each time", () => {
+    const arrayLike = { length: 2, 0: "a", 1: "b" };
+    expect(outcome(arrayLike)).toBe("Shape");
+    expect(outcome(arrayLike)).toBe("Shape");
+    const asArray = exports_["asArray"] as (v: unknown) => { tag: string; error?: unknown };
+    const first = asArray(arrayLike);
+    const second = asArray(arrayLike);
+    expect(first.tag).toBe("Err");
+    expect(second.error).not.toBe(first.error);
+  });
+
+  /**
+   * **A look on a cycle keeps the refusal** (§4.2, FFI Part 3 §7.4, §7.5). An
+   * index getter that asks for the same value's copy while it is being made is
+   * refused with `ReentrancyFault`. The getter swallows the refusal here and
+   * answers, and the look still ends in that refusal, whatever the copy
+   * produced; every later call throws it again, and the getter is not run
+   * again.
+   */
+  test("a copy that asks for itself is refused, and keeps the refusal", () => {
+    const inner: unknown[] = [];
+    let reads = 0;
+    const looping: unknown[] = [1, 2];
+    Object.defineProperty(looping, 1, {
+      enumerable: true,
+      get: () => {
+        reads += 1;
+        inner.push(thrownBy(looping));
+        return 2;
+      },
+    });
+    const first = thrownBy(looping);
+    expect(first).toMatchObject({
+      name: "ReentrancyFault",
+      message: "a JavaScript array's copy depends on itself",
+    });
+    expect(first).toBeInstanceOf(Error);
+    expect(inner).toEqual([first]);
+    expect(inner[0]).toBe(first);
+    expect(thrownBy(looping)).toBe(first);
+    expect(reads).toBe(1);
+    // The probe answered before the copy began, so the finding stands (§3).
+    expect(kindOf(looping)).toBe("Array");
   });
 });
 

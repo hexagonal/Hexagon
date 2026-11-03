@@ -203,7 +203,8 @@ describe("each doc block sits at the declaration it describes", () => {
     ] as const) {
       expect(docAbove(emitted, exception)).toBe(
         "Raised when a sequence position is forced while it is already being\n" +
-        "forced (FFI Part 3 section 7.3-7.4).",
+        "forced, or when `JsValue.toArray` is asked for a value whose copy it is\n" +
+        "making (FFI Part 3 section 7.3-7.4).",
       );
     }
   });
