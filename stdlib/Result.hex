@@ -46,6 +46,13 @@ export let toOption(source: Result(a)): Option(a) =
         Ok(value) => Some(value)
         Err(_) => None
 
+(** The inner result of an `Ok`, or `source`'s own `Err`: one `Result` layer
+    removed. *)
+export let flatten(source: Result(Result(a))): Result(a) =
+    match source
+        Ok(inner) => inner
+        Err(error) => Err(error)
+
 (** Whether `source` is `Ok`. *)
 export let isOk(source: Result(a)): Bool =
     match source

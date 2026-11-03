@@ -7,6 +7,7 @@ seat (Modules §5.5): Option's implementation is seated after Seq. Amended
 `attempt` gives), `mapError` is withdrawn, and both modules gain a conversion
 to the other and presence predicates; `Result`'s seat precedes `Seq`'s,
 and so precedes `Option`'s full seat, where `Option.toResult` names it.
+Amended 2026-11-03, ruled by James: both modules gain `flatten`.
 
 **Homes:** `stdlib/Option.hex` and `stdlib/Result.hex`, ordinary prelude modules.
 Option's derived Eq/Show instances keep their existing meanings. No new
@@ -96,6 +97,11 @@ export let toResult(source: Option(a), failure: () -> Exn): Result(a) =
         Some(value) => Ok(value)
         None => Err(failure())
 
+export let flatten(source: Option(Option(a))): Option(a) =
+    match source
+        Some(inner) => inner
+        None => None
+
 export let isSome(source: Option(a)): Bool =
     match source
         Some(_) => True
@@ -126,6 +132,9 @@ export let isNone(source: Option(a)): Bool =
   None an `Err` of the exception its thunk constructs. It throws nothing, so its
   calls are bare. The thunk is called only for None, so an exception, and the
   stack it captures, is built only when it is kept.
+- flatten removes one layer: `Some(inner)` gives `inner`, and `None` gives
+  `None`. It is `flatMap(source, inner => inner)` without a callback, so its
+  calls are bare.
 - isSome and isNone answer whether a payload is present. They read the
   constructor only, so they ask for no `Eq` on the payload, where `o == None`
   would.
@@ -175,6 +184,11 @@ export let toOption(source: Result(a)): Option(a) =
         Ok(value) => Some(value)
         Err(_) => None
 
+export let flatten(source: Result(Result(a))): Result(a) =
+    match source
+        Ok(inner) => inner
+        Err(error) => Err(error)
+
 export let isOk(source: Result(a)): Bool =
     match source
         Ok(_) => True
@@ -198,6 +212,9 @@ export let isErr(source: Result(a)): Bool =
   nothing. Conversions between data are named for their target (`toSeq`,
   `toOption`, `toResult`), as Collections Part 1 §3.1's conversion suite is;
   they are not readings, which belong to calls that may fail (Effects §3.1).
+- flatten gives an `Ok`'s inner result, and keeps an outer `Err`'s exception
+  as it is. It is `flatMap(source, inner => inner)` without a callback, so its
+  calls are bare.
 - isOk and isErr answer which constructor is present.
 - There is no mapError. The error is always an `Exn`; a program that wants a
   different exception catches and throws again, and one whose failures are data
@@ -258,6 +275,10 @@ Implementation and review must cover:
    `Option.toResult` compiling at `Option.hex`'s seat.
 10. `Result` with one type argument everywhere: a second argument is refused
     with the ordinary arity report.
+11. flatten on every pair of layers: `Some(Some(x))`, `Some(None)` and `None`;
+    `Ok(Ok(x))`, `Ok(Err(e))` and `Err(e)`, each `Err` keeping its exception.
+    Bare calls, qualified and by the dot, and a value with one layer refused
+    with the ordinary mismatch.
 
 Focused checks do not substitute for the repository's required broader checks
 before publication. This list describes required validation, not tests already

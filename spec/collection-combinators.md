@@ -12,7 +12,8 @@ consumers), added 2026-11-02 and ruled by James, with `Ord.max` and `Ord.min`
 made defaulted members of `Ord` the same day, also ruled by James, and
 implemented by #1431; conformance:
 `compiler/src/conformance/collection-extremes.test.ts`; §13.5's rule for
-`Map.max` and `Map.min`, which bind two variables, implemented by #1438. This
+`Map.max` and `Map.min`, which bind two variables, implemented by #1438.
+`Vector.flatten` (§3) added 2026-11-03, ruled by James. This
 document is the stdlib listing's part for the combinator families over `Vector(a)`, `Set(a)` and `Map(k, v)`: their shared
 doctrine, the v1 ship-list, and the deliberate absence of combinators on the
 foreign collections. It discharges the "Combinator families" row of
@@ -30,7 +31,9 @@ also `stdlib/Ord.hex` and `stdlib/Seq.hex`.
 Collections Part 3 §7's other `Vector` candidates (`insertAt` and
 `removeAt`), positional `take` and `drop`, and `Map.update`, the `merge`
 family, `getOr` and `containsValue` (all still ledgered in
-`stdlib-roadmap.md`); `Seq`'s own surface beyond §13's eight consumers; `String`'s
+`stdlib-roadmap.md`); `Seq`'s own surface beyond §13's eight consumers, and so
+`Seq.flatten`, which waits for an `Iterable` that can constrain a type variable
+(Collections Part 5 §3.2); `String`'s
 text-processing surface (`string-text-processing.md`); the foreign collections
 `Array(a)`, `JsMap(k, v)` and `JsSet(a)`, beyond §6's statement that they get
 none of these.
@@ -68,7 +71,7 @@ The eager forms also accept callbacks that are impure or may fail, which the
 lazy `Seq.filter` and `Seq.map` refuse (Effects §7). A `Map`'s items are its
 entries `(k, v)` (Collections Part 4 §7.2), so every `Map` callback takes the
 entry. Names that `Seq` does not have (`contains`, `indexOf`, `reverse`,
-`indexed`) take their meaning from §3, and the sorts theirs from §12.
+`indexed`, `flatten`) take their meaning from §3, and the sorts theirs from §12.
 
 **1.2 A name goes only where its meaning holds.** `Map` and `Set` have no
 positions (Collections Part 4 §4.4), so the names that speak about positions
@@ -120,6 +123,7 @@ does not promise that one occurs.
 map(values: Vector(a), transform: a ->! b): Vector(b)
 filter(values: Vector(a), keep: a ->! Bool): Vector(a)
 flatMap(values: Vector(a), transform: a ->! Vector(b)): Vector(b)
+flatten(rows: Vector(Vector(a))): Vector(a)
 fold(values: Vector(a), initial: b, combine: (b, a) ->! b): b
 find(values: Vector(a), matches: a ->! Bool): Option(a)
 any(values: Vector(a), matches: a ->! Bool): Bool
@@ -136,6 +140,11 @@ indexed(values: Vector(a)): Vector((Int, a))
 - `flatMap` concatenates, in order, the vectors `transform` returns. Its
   callback returns a `Vector`, the collection's own type, as OCaml's
   `List.concat_map` and Elm's `List.concatMap` do.
+- `flatten` concatenates, in order, the vectors `rows` holds:
+  `flatten(rows)` is `flatMap(rows, row => row)`. It takes no callback, so its
+  calls are bare. `Seq` has none: `Seq.flatMap(rows, row => row)` flattens a
+  sequence of vectors or of sequences, since the lambda's body is a `Seq` seat
+  (Collections Part 5 §3.4), and `Seq.flatMap`'s doc comment says so.
 - `contains` answers whether some element `equals` `element`. `indexOf`
   answers the 1-based position of the first such element, or `None`
   (Collections Part 1 §3: absence is `Option`).
@@ -263,7 +272,7 @@ For a collection of `n` items, not counting the callbacks' own costs:
 
 | Operation | Bound |
 |---|---|
-| `Vector.map`, `filter`, `flatMap`, `reverse`, `indexed` | O(n + r), `r` the result's length |
+| `Vector.map`, `filter`, `flatMap`, `flatten`, `reverse`, `indexed` | O(n + r), `r` the result's length |
 | `Vector.zip` | O(r), `r` the shorter vector's length |
 | `fold`, `find`, `any`, `all`, `contains`, `indexOf` (all three types where offered) | O(n) traversal; `find`, `any`, `all`, `contains` and `indexOf` stop early |
 | `Set.filter`, `Map.filter` | O(n): the trie is rebuilt from its own nodes, with no key hashed again |
@@ -386,6 +395,13 @@ those two expose is already public through `toSeq`, `entries` and `for`.
 | Rust | no `map` or `filter` on collections; iterator adaptors and `collect` | — |
 | JavaScript | none on `Map`/`Set`; spread into an array and rebuild | — |
 
+For `Vector.flatten`, a list's or array's flatten ships almost everywhere:
+Gleam's `list.flatten`, OCaml's `List.flatten`, Haskell's `concat`, Elm's and
+F#'s `List.concat`, Kotlin's `flatten()`, Rust's `concat()`, Swift's
+`joined()` and JavaScript's `flat()`. Rust's `Iterator::flatten` and Kotlin's
+`Sequence.flatten` take items of any iterable type, which a `Seq.flatten` in
+v1 could not (Collections Part 5 §3.2).
+
 ## 11. Decisions log
 
 | # | Decision | Section |
@@ -393,7 +409,7 @@ those two expose is already public through `toSeq`, `entries` and `for`.
 | 1 | One combinator family across `Vector`, `Set` and `Map`, each name meaning `Seq`'s over the items, eager, with callbacks of any colour; no generic family over `Iterable` | §1.1, §2, §9.5 |
 | 2 | Positional names on `Vector` only | §1.2 |
 | 3 | Traversal order never chooses which items a resulting `Map` or `Set` holds, or a key's value, for callbacks whose answers do not depend on call order | §1.3 |
-| 4 | v1 ship-lists: `Vector` twelve (fifteen with #9's sorts), `Set` six, `Map` six, with `fold` and `find` on all three; §13 adds eight to `Vector` and `Set` and six to `Map` | §3–§5, §9.7, §13.1 |
+| 4 | v1 ship-lists: `Vector` thirteen with #18's `flatten` (sixteen with #9's sorts), `Set` six, `Map` six, with `fold` and `find` on all three; §13 adds eight to `Vector` and `Set` and six to `Map` | §3–§5, §9.7, §13.1 |
 | 5 | `Map` callbacks take the entry, destructured with a tuple pattern; `(k, v) => …` is never adapted | §5.2, §9.4 |
 | 6 | `Map.map` is entries in, entries out; a repeated key throws `DuplicateKeyFault`; no `mapValues` | §5.1, §9.1–§9.3 |
 | 7 | `Map.map` keeps the slot of each returned key whose hash is the one stored, so a key handed back unchanged costs no placement; the shortcut changes nothing promised | §7, §8 |
@@ -407,6 +423,7 @@ those two expose is already public through `toSeq`, `entries` and `for`.
 | 15 | On a tie, `min` keeps the first of equal items and `max` the last, agreeing with the stable sort | §13.2, §13.6 |
 | 16 | An empty collection's order forms answer `None`, and `sum` and `product` the identity; no faulting sibling and no `sumBy` | §13.2, §13.6 |
 | 17 | `sum` and `product` are left folds from the identity, the same for every element type; every key and comparator call is fixed | §13.2, §13.3, §13.6 |
+| 18 | `Vector.flatten`, concatenating in order; no `Seq.flatten` in v1 | §3 |
 
 ## 12. Sorting
 

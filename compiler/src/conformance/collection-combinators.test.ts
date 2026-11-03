@@ -46,6 +46,9 @@ export let vIndexOf(values: Vector(Int), element: Int): Option(Int) = values.ind
 export let vReverse(values: Vector(Int)): Vector(Int) = values.reverse()
 export let vZip(left: Vector(Int), right: Vector(Int)): Vector((Int, Int)) = left.zip(right)
 export let vIndexed(values: Vector(Int)): Vector((Int, Int)) = values.indexed()
+export let vRows(rows: Array(Array(Int))): Vector(Vector(Int)) = Array.toVector(rows).map(Array.toVector)
+export let vFlatten(rows: Vector(Vector(Int))): Vector(Int) = rows.flatten()
+export let vFlattenQualified(rows: Vector(Vector(Int))): Vector(Int) = Vector.flatten(rows)
 
 export let floatSet(values: Array(Float)): Set(Float) = Set.fromSeq(values)
 export let sOrder(s: Set(Float)): Vector(Float) = Vector.fromSeq(s)
@@ -108,6 +111,9 @@ type Exports = {
   readonly vReverse: (values: unknown) => Iterable<number>;
   readonly vZip: (left: unknown, right: unknown) => Iterable<[number, number]>;
   readonly vIndexed: (values: unknown) => Iterable<[number, number]>;
+  readonly vRows: (rows: readonly (readonly number[])[]) => unknown;
+  readonly vFlatten: (rows: unknown) => Iterable<number>;
+  readonly vFlattenQualified: (rows: unknown) => Iterable<number>;
   readonly floatSet: (values: readonly number[]) => unknown;
   readonly sOrder: (s: unknown) => Iterable<number>;
   readonly sMap: (s: unknown, f: Callback<[number], number>) => unknown;
@@ -199,6 +205,14 @@ describe("Vector: each combinator means Seq's, run at once, in index order (§3)
         expect(flat).toEqual(values);
       }
     }), { numRuns: 200 });
+  });
+
+  test("flatten joins the rows in order, bare, by the dot and qualified", () => {
+    fc.assert(fc.property(fc.array(ints, { maxLength: 12 }), (rows) => {
+      const vector = main.vRows(rows);
+      expect([...main.vFlatten(vector)]).toEqual(rows.flat());
+      expect([...main.vFlattenQualified(vector)]).toEqual(rows.flat());
+    }), { numRuns: 150 });
   });
 
   test("fold combines left to right from `initial`", () => {

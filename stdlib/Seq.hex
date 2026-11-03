@@ -190,7 +190,8 @@ fun flatMapWith(source: Seq(a), transform: a -> Seq(b), pending: Seq(b)): Seq(b)
     })
 
 (** The sequences `transform` produces, concatenated in order. Each is pulled to
-    exhaustion before the next source element is read. *)
+    exhaustion before the next source element is read. To flatten a sequence of
+    vectors or of sequences, write `Seq.flatMap(rows, row => row)`. *)
 export let flatMap(source: Seq(a), transform: a -> Seq(b)): Seq(b) =
     flatMapWith(source, transform, empty)
 
