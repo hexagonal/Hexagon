@@ -80,6 +80,11 @@ async function run(
   for (const [specifier, source] of Object.entries(foreign)) {
     moduleUrls.set(specifier, `data:text/javascript;charset=utf-8,${encodeURIComponent(source)}`);
   }
+  // The program's runtime module, keyed by the `.hex` path `resolveModulePath`
+  // derives from its importers' `./hex.js`: a catch's kept read and
+  // `toArray`'s look are filed in the record it makes (FFI Part 11 §1).
+  const runtime = project.runtimeGlobals;
+  if (runtime !== undefined) moduleUrls.set(runtime.path.replace(/\.js$/u, ".hex"), `data:text/javascript;charset=utf-8,${encodeURIComponent(runtime.text)}`);
   for (const module of project.modules) {
     const linked = link(module.javascript.text, module.source.path, moduleUrls)
       .replace(

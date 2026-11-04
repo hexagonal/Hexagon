@@ -833,6 +833,39 @@ describe("a catch reads the brand through the kept read (Exceptions §7.1, §7.4
   });
 
   /**
+   * The runtime module looks for the record on the global object before it
+   * makes one of its own (FFI Part 11 §1), so two programs compiled apart, each
+   * with its own `hex.js`, still read a thrown value once between them.
+   */
+  test("two programs compiled apart share the first read, through the global object", async () => {
+    const first = await runProject([["/main.hex", "module Main\n\n" +
+      "export let here(v: JsValue): String =\n" +
+      "    try\n" +
+      "        throw^(JsError(v))\n" +
+      "    catch\n" +
+      "        _ => \"here\"\n"]]);
+    const second = await runProject([["/main.hex", "module Main\n\n" +
+      "export let there(v: JsValue): String =\n" +
+      "    try\n" +
+      "        throw^(JsError(v))\n" +
+      "    catch\n" +
+      "        JsError(_) => \"there\"\n" +
+      "        _ => \"other\"\n"]]);
+    let reads = 0;
+    const hostile = {
+      get $hex(): string | undefined {
+        reads += 1;
+        if (reads === 1) throw new Error("hostile");
+        return "Main";
+      },
+      name: "Boom",
+    };
+    expect((first["here"] as (v: unknown) => string)(hostile)).toBe("here");
+    expect((second["there"] as (v: unknown) => string)(hostile)).toBe("there");
+    expect(reads).toBe(1);
+  });
+
+  /**
    * The reading `?` and `assume` sort what was thrown through the same kept
    * read. The hostile brand's first read throws, so the value is foreign: `?`
    * answers `None`, and `assume` refuses it with `AssumptionFault`. A second
@@ -895,17 +928,19 @@ describe("a catch reads the brand through the kept read (Exceptions §7.1, §7.4
   });
 });
 
-describe("where the environment refuses the runtime record its place, each module keeps its own (FFI Part 11 §1)", () => {
+describe("where the environment refuses the runtime record its place, the program keeps its own (FFI Part 11 §1)", () => {
   /**
-   * Modules find the record through `Symbol.for("hexagon.runtime")` on the
-   * global object. Each row here moves the record to a key of its own, so the
-   * record the rest of the suite shares is untouched, and sets up the refusal
-   * there first. A locked global object is played by a stand-in that takes no
-   * new property, since the test runner's own global cannot be locked. In
-   * every case the module loads, writes nothing where it was refused, and its
-   * catches still share one kept read.
+   * The program's runtime module finds the record through
+   * `Symbol.for("hexagon.runtime")` on the global object (FFI Part 7 §1.2).
+   * Each row here moves the record to a key of its own, so the record the rest
+   * of the suite shares is untouched, and sets up the refusal there first. A
+   * locked global object is played by a stand-in that takes no new property,
+   * since the test runner's own global cannot be locked. In every case the
+   * program loads, writes nothing where it was refused, and its catches still
+   * share one kept read, in two modules as in one: the runtime module is
+   * evaluated once, so the record it keeps instead is the whole program's.
    */
-  const PROGRAM = "module Main\n\n" +
+  const PROGRAM = "module Main\n\nimport Other\n\n" +
     "let fails(v: JsValue): Int = throw^(JsError(v))\n" +
     "export let caught(v: JsValue): String =\n" +
     "    try\n" +
@@ -920,26 +955,34 @@ describe("where the environment refuses the runtime record its place, each modul
     "        \"returned\"\n" +
     "    catch\n" +
     "        _ => \"caught\"\n" +
+    "export let there(v: JsValue): String = Other.caughtThere(v)\n" +
     "export let size(v: JsValue): Int = Array.length(JsValue.toArray^(v))\n";
+  const OTHER = "module Other\n\n" +
+    "export let caughtThere(v: JsValue): String =\n" +
+    "    try\n" +
+    "        throw^(JsError(v))\n" +
+    "    catch\n" +
+    "        JsError(_) => \"there\"\n" +
+    "        _ => \"other\"\n";
 
   async function refused(
     key: string,
     transform: (javascript: string) => string = (javascript) => javascript,
   ): Promise<void> {
-    // The rows test nothing unless the record really moved: count the
-    // modules whose record now lives under the row's own key.
-    let moved = 0;
-    const exports = await runProject([["/main.hex", PROGRAM]], {
-      transform: (_path, javascript) => {
+    // The rows test nothing unless the record really moved: the runtime
+    // module, and only it, makes the record, now under the row's own key.
+    const moved: string[] = [];
+    const exports = await runProject([["/main.hex", PROGRAM], ["/other.hex", OTHER]], {
+      transform: (path, javascript) => {
         const rewritten = transform(
           javascript.replaceAll('.for("hexagon.runtime")', `.for(${JSON.stringify(key)})`),
         );
         expect(rewritten).not.toContain('.for("hexagon.runtime")');
-        if (rewritten.includes(`.for(${JSON.stringify(key)})`)) moved += 1;
+        if (rewritten.includes(`.for(${JSON.stringify(key)})`)) moved.push(path);
         return rewritten;
       },
     });
-    expect(moved).toBeGreaterThan(0);
+    expect(moved).toEqual(["/hex.js"]);
     let reads = 0;
     const hostile = {
       get $hex(): string | undefined {
@@ -951,6 +994,8 @@ describe("where the environment refuses the runtime record its place, each modul
     };
     expect((exports["caught"] as (v: unknown) => string)(hostile)).toBe("foreign");
     expect((exports["anything"] as (v: unknown) => string)(hostile)).toBe("caught");
+    // A catch in another module reads what this one kept.
+    expect((exports["there"] as (v: unknown) => string)(hostile)).toBe("there");
     expect(reads).toBe(1);
     // `toArray`'s look uses the record's `arrays` and `looks`.
     expect((exports["size"] as (v: unknown) => number)([1, 2, 3])).toBe(3);
@@ -1284,9 +1329,11 @@ describe("emission and the guard the door does not ship (§7.4, §7.6)", () => {
       ].join("\n"),
     );
     // The table is the program's one (§7): every module's copy of the helper
-    // reaches it under one registered symbol, so no module reads again what
-    // another has read.
-    expect(door.javascript.text).toContain('const __key = Symbol.for("hexagon.runtime");');
+    // imports the record the program's runtime module makes, so no module
+    // reads again what another has read.
+    expect(door.javascript.text).toMatch(/^import \{ [^}]*__hexRuntime \} from "\.\.\/hex\.js";$/mu);
+    expect(door.javascript.text).not.toContain("hexagon.runtime");
+    expect(project.runtimeGlobals?.text).toContain('const __key = Symbol.for("hexagon.runtime");');
     expect(door.javascript.text).toContain(
       'const readMessage = __a => __jsErrorRead(__a, "message");',
     );

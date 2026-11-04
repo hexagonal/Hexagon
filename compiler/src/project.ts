@@ -233,13 +233,15 @@ export interface CompiledProject {
   readonly runtimeDeclarations: Emitted.RuntimeDeclarations | undefined;
   /**
    * The program's runtime module (FFI Part 7 §1.2), or `undefined` when no
-   * module of it binds a runtime-vocabulary spelling.
+   * module of it binds a runtime-vocabulary spelling or reads the runtime
+   * record (FFI Part 11 §1).
    *
    * The seat beside `runtimeDeclarations`, sharing its stem and its program
    * scope, and independent of it: a program can owe either, both, or neither.
    * Unlike its type-only sibling this artefact is **executable** — a host that
-   * materializes only source-derived modules loses every contested program at
-   * its first import, so an execution set must carry it like a prelude module.
+   * materializes only source-derived modules loses every program importing it
+   * at its first import, so an execution set must carry it like a prelude
+   * module.
    */
   readonly runtimeGlobals: Emitted.RuntimeGlobals | undefined;
   /**
@@ -2072,13 +2074,14 @@ export function compileProject(
           text: runtimeDeclarationsText(),
         }
       : undefined,
-    // Present exactly when some emitted module imports its reserved captures
-    // (FFI Part 7 §1.2). Independent of the declaration module above and decided
-    // the same way — over the *emitted* list, because an unemitted module writes
-    // no file and so imports nothing — and, unlike it, load-bearing at run time:
-    // a host's execution set must carry this one.
+    // Present exactly when some emitted module imports from it: its reserved
+    // captures (FFI Part 7 §1.2), or the runtime record (FFI Part 11 §1).
+    // Independent of the declaration module above and decided the same way —
+    // over the *emitted* list, because an unemitted module writes no file and so
+    // imports nothing — and, unlike it, load-bearing at run time: a host's
+    // execution set must carry this one.
     runtimeGlobals: modules
-      .some(({ javascript }) => javascript.importsRuntimeGlobals)
+      .some(({ javascript }) => javascript.importsRuntimeModule)
       ? {
           kind: "RuntimeGlobals",
           path: `/${runtimeBasename}.js`,

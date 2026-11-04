@@ -1286,7 +1286,9 @@ describe("compileSource", () => {
 
     expect(response).toMatchObject({ kind: "compile-success", diagnostics: [] });
     if (response.kind !== "compile-success") return;
-    expect(response.javascript).toContain('import { __global_Error } from "./hex.js";');
+    // The catch's kept read is filed in the runtime record, which the runtime
+    // module makes too (FFI Part 11 §1), so the line names it beside the capture.
+    expect(response.javascript).toContain('import { __global_Error, __hexRuntime } from "./hex.js";');
     expect(response.executionModules.map(({ path }) => path)).toContain("/hex.hex");
 
     const moduleUrls = new Map<string, string>();

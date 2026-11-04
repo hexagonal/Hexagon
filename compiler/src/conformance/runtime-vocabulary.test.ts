@@ -818,6 +818,9 @@ const ALL_CONTESTED = [
   "",
   "export let console: Int = 1",
   "export let undefined: Int = 2",
+  // Not a vocabulary spelling: no module writes `globalThis`, since the runtime
+  // record is made in the runtime module (FFI Part 11 §1). Bound here so the
+  // catch below is seen to run beside it.
   "export let globalThis: Int = 3",
   "",
   "exception Boom(value: Int)",
@@ -872,9 +875,9 @@ describe("completeness — the worst-contested module writes no bare global", ()
     // and catches, where the kept read's `Map` is captured (the describe below).
     expect(text).toContain(
       "import { __global_Array, __global_BigInt, __global_Boolean, __global_console, " +
-        "__global_Error, __global_globalThis, __global_Math, __global_Number, __global_Object, " +
+        "__global_Error, __global_Math, __global_Number, __global_Object, " +
         "__global_RangeError, __global_String, __global_Symbol, __global_TypeError, " +
-        '__global_WeakMap } from "./hex.js";',
+        '__global_WeakMap, __hexRuntime } from "./hex.js";',
     );
     // And the claim that matters, swept rather than spot-checked: **no
     // compiler-written line of this module spells any vocabulary member bare.**
@@ -916,7 +919,10 @@ describe("completeness — the worst-contested module writes no bare global", ()
     expect(text).toContain("__global_Number.isNaN(__value)");
     expect(text).toContain("__global_Math.imul(");
     expect(text).toContain("new __global_TypeError(");
-    expect(text).toContain("let __shared = __global_globalThis[__key];");
+    // The catch's kept read is filed in the runtime record, which the runtime
+    // module makes (FFI Part 11 §1), so this module writes none of it.
+    expect(text).toContain("const __kept = __hexRuntime.reads;");
+    expect(text).not.toContain("hexagon.runtime");
   });
 
   test("executed: the whole of it runs", async () => {
@@ -937,23 +943,33 @@ describe("completeness — the worst-contested module writes no bare global", ()
 });
 
 describe("the negatives — an uncontested module emits the text it always did", () => {
-  test("nothing in the corpus imports a capture, takes `void 0`, or owes a runtime module", () => {
+  test("nothing in the corpus imports a capture or takes `void 0`", () => {
     // The byte-identity claim in the form a single run can check: the two
-    // spellings this rule can introduce appear nowhere, and no program of the
-    // corpus asks for `hex.js`. The whole-file pins the rest of this suite
-    // carries — and every `toBe` in the sibling conformance files, which this
-    // change left untouched — are the byte-for-byte half.
+    // spellings this rule can introduce appear nowhere. The whole-file pins the
+    // rest of this suite carries — and every `toBe` in the sibling conformance
+    // files, which this change left untouched — are the byte-for-byte half.
+    //
+    // The corpus does owe `hex.js`, for another reason: it has a catch, whose
+    // kept read is filed in the runtime record the runtime module makes (FFI
+    // Part 11 §1). So the one import of it a module may write is the record's,
+    // alone, exactly where the module reads the record.
     const project = corpus();
     expect(project.diagnostics.map(({ message }) => message)).toEqual([]);
-    expect(project.runtimeGlobals).toBeUndefined();
+    expect(project.runtimeGlobals).toBeDefined();
+    let readers = 0;
     for (const module of project.modules) {
-      expect(module.javascript.text).not.toContain("hex.js");
-      expect(module.javascript.text).not.toContain("void 0");
-      expect(module.javascript.importsRuntimeGlobals).toBe(false);
+      const text = module.javascript.text;
+      const reads = text.includes("__hexRuntime.");
+      if (reads) readers += 1;
+      expect(text.includes("hex.js")).toBe(reads);
+      if (reads) expect(text).toMatch(/^import \{ __hexRuntime \} from "(?:\.\/|(?:\.\.\/)+)hex\.js";\n/u);
+      expect(text).not.toContain("void 0");
+      expect(module.javascript.importsRuntimeModule).toBe(reads);
       for (const member of RUNTIME_VOCABULARY) {
-        expect(module.javascript.text).not.toContain(`__${member}`);
+        expect(text).not.toContain(`__${member}`);
       }
     }
+    expect(readers).toBeGreaterThan(0);
   });
 
   test("a representative uncontested module, pinned whole", () => {
@@ -1001,7 +1017,7 @@ describe("what joining the vocabulary costs a module that merely binds the word"
     const module = project.modules.find(({ source }) => source.path === "/main.hex")!;
 
     expect(project.runtimeGlobals).toBeDefined();
-    expect(module.javascript.importsRuntimeGlobals).toBe(true);
+    expect(module.javascript.importsRuntimeModule).toBe(true);
     expect(module.javascript.text).toBe(
       'import { __global_Set } from "./hex.js";\n' +
         "\n" +
@@ -1048,7 +1064,7 @@ describe("what joining the vocabulary costs a module that merely binds the word"
     expect(project.diagnostics.map(({ message }) => message)).toEqual([]);
     const text = project.modules.find(({ source }) => source.path === "/main.hex")!.javascript.text;
 
-    expect(text).toContain('import { __global_Map } from "./hex.js";');
+    expect(text).toContain('import { __global_Map, __hexRuntime } from "./hex.js";');
     expect(text).toContain("__answers = new __global_Map();");
     expect(text).not.toMatch(/new Map\(/u);
     const exports = await runProject([["/main.hex", "module Main\n\n" + PROGRAM]]);
@@ -1075,10 +1091,39 @@ describe("what joining the vocabulary costs a module that merely binds the word"
     expect(text).toContain('import { __global_Error as __global_Error_1 } from "./Lib.js";');
     expect(text).toContain("return __global_Error_1(xs);");
   });
+
+  // The runtime record's import local is a generated name too (FFI Part 7
+  // §1.2), so an edition spelled like it is one more name in the same space:
+  // whichever claims the spelling first keeps it, and the record's import
+  // aliases the export where the probe moved its local.
+  test("an internal edition spelled like the runtime record takes the probe beside it", async () => {
+    const files = [
+      ["/Lib.hex", "module Lib\n\nexport fun hexRuntime(xs: Array(Int)): Int = xs[1]\n"],
+      ["/main.hex", "module Main\n\nimport Lib\n\n" +
+        "exception Boom(value: Int)\n" +
+        "export fun f(xs: Array(Int)): Int = Lib.hexRuntime(xs)\n" +
+        "export let rescued(): Int =\n" +
+        "    try\n" +
+        "        throw^(Boom(3))\n" +
+        "    catch\n" +
+        "        Boom(n) => n\n" +
+        "        _ => 0\n"],
+    ] as const;
+    const project = compileFiles(files);
+    expect(project.diagnostics.map(({ message }) => message)).toEqual([]);
+    const text = project.modules.find(({ source }) => source.path === "/main.hex")!.javascript.text;
+
+    expect(text).toContain('import { __hexRuntime as __hexRuntime_1 } from "./hex.js";');
+    expect(text).toContain('import { __hexRuntime } from "./Lib.js";');
+    expect(text).toContain("const __kept = __hexRuntime_1.reads;");
+    const exports = await runProject(files);
+    expect((exports["f"] as (xs: readonly number[]) => number)([4, 5])).toBe(4);
+    expect((exports["rescued"] as () => number)()).toBe(3);
+  });
 });
 
 describe("the runtime module takes Part 1 §8.3's reserved seat", () => {
-  test("its bytes depend on the vocabulary alone, not on the program that asked", () => {
+  test("its bytes depend on the vocabulary and the record alone, not on the program that asked", () => {
     const first = compileFiles([["/main.hex", "module Main\n\n" + "export record Error = {code: Int}\n" +
       "exception Boom(value: Int)\n" +
       "export let raise(): Int = throw^(Boom(3))\n"]]).runtimeGlobals;
@@ -1089,16 +1134,26 @@ describe("the runtime module takes Part 1 §8.3's reserved seat", () => {
       "        sum := sum + i\n" +
       "    sum\n"]]).runtimeGlobals;
 
-    // Two programs contesting *different* spellings, one text: the full
-    // vocabulary always, so nothing about the file is a function of the caller.
+    // A third that contests nothing and only reads the record, through a catch.
+    const third = compileFiles([["/main.hex", "module Main\n\n" + "exception Boom(value: Int)\n" +
+      "export let rescued(): Int =\n" +
+      "    try\n" +
+      "        throw^(Boom(3))\n" +
+      "    catch\n" +
+      "        Boom(n) => n\n" +
+      "        _ => 0\n"]]).runtimeGlobals;
+
+    // Programs contesting *different* spellings, or none, one text: the full
+    // vocabulary and the record always, so nothing about the file is a
+    // function of the caller.
     expect(second?.text).toBe(first?.text);
+    expect(third?.text).toBe(first?.text);
     expect(first?.text).toBe(
       "const __global_Array = globalThis.Array,\n" +
         "  __global_BigInt = globalThis.BigInt,\n" +
         "  __global_Boolean = globalThis.Boolean,\n" +
         "  __global_console = globalThis.console,\n" +
         "  __global_Error = globalThis.Error,\n" +
-        "  __global_globalThis = globalThis.globalThis,\n" +
         "  __global_Map = globalThis.Map,\n" +
         "  __global_Math = globalThis.Math,\n" +
         "  __global_Number = globalThis.Number,\n" +
@@ -1110,10 +1165,31 @@ describe("the runtime module takes Part 1 §8.3's reserved seat", () => {
         "  __global_Symbol = globalThis.Symbol,\n" +
         "  __global_TypeError = globalThis.TypeError,\n" +
         "  __global_WeakMap = globalThis.WeakMap;\n" +
+        "const __hexRuntime = (() => {\n" +
+        "  try {\n" +
+        '    const __key = Symbol.for("hexagon.runtime");\n' +
+        "    let __shared = globalThis[__key];\n" +
+        "    if (__shared === undefined) {\n" +
+        "      __shared = {};\n" +
+        "      Object.defineProperty(globalThis, __key, { value: __shared });\n" +
+        "    }\n" +
+        "    if (__shared.reads === undefined) __shared.reads = new WeakMap();\n" +
+        "    if (__shared.reading === undefined) __shared.reading = {};\n" +
+        "    if (__shared.arrays === undefined) __shared.arrays = new WeakMap();\n" +
+        "    if (__shared.looks === undefined) __shared.looks = new WeakMap();\n" +
+        "    const __has = WeakMap.prototype.has;\n" +
+        "    __has.call(__shared.reads, __has);\n" +
+        "    __has.call(__shared.arrays, __has);\n" +
+        "    __has.call(__shared.looks, __has);\n" +
+        "    const __reading = __shared.reading;\n" +
+        '    if (typeof __reading === "object" && __reading !== null) return __shared;\n' +
+        "  } catch {}\n" +
+        "  return { reads: new WeakMap(), reading: {}, arrays: new WeakMap(), looks: new WeakMap() };\n" +
+        "})();\n" +
         "export { __global_Array, __global_BigInt, __global_Boolean, __global_console, " +
-        "__global_Error, __global_globalThis, __global_Map, __global_Math, __global_Number, " +
+        "__global_Error, __global_Map, __global_Math, __global_Number, " +
         "__global_Object, __global_RangeError, __global_RegExp, __global_Set, __global_String, " +
-        "__global_Symbol, __global_TypeError, __global_WeakMap };\n",
+        "__global_Symbol, __global_TypeError, __global_WeakMap, __hexRuntime };\n",
     );
   });
 

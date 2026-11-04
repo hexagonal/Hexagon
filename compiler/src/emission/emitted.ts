@@ -102,19 +102,20 @@ export interface JavaScript extends Output {
    */
   readonly runtimeImports: readonly string[];
   /**
-   * Whether this file imports reserved captures from the program's **runtime
-   * module** — true exactly when the module binds a runtime-vocabulary spelling
-   * (FFI Part 7 §1.2 rule 2, #666).
+   * Whether this file imports from the program's **runtime module** — true
+   * exactly when the module binds a runtime-vocabulary spelling, and so imports
+   * its reserved capture (FFI Part 7 §1.2 rule 2, #666), or when one of its
+   * helpers reads the runtime record (FFI Part 11 §1).
    *
    * A flag rather than a specifier, because the target is program-scoped: there
    * is one runtime module per program and `compileProject` already knows where
    * it sits. Carried for `Declarations.importsRuntimeTypes`' reason — the
    * program emits `hex.js` iff some emitted file says `true` here — and with the
    * same consequence if it were missing, one file worse: `hex.js` is
-   * *executable*, so a contested program without it emits an `import` of a file
-   * that was never written and dies at its first import.
+   * *executable*, so a program importing it without it emits an `import` of a
+   * file that was never written and dies at its first import.
    */
-  readonly importsRuntimeGlobals: boolean;
+  readonly importsRuntimeModule: boolean;
   /**
    * The copies this file's calls reach in the modules it imports (Zero-Cost
    * Fundamental Exports §8.3), one row per export and tuple, sorted.
@@ -291,17 +292,19 @@ export interface RuntimeDeclarations {
 /**
  * The program-scoped runtime **module** (FFI Part 7 §1.2, #666): one `hex.js`
  * per compiled program, holding the globals capture a contested module cannot
- * perform for itself.
+ * perform for itself, and the runtime record every module's helpers share (FFI
+ * Part 11 §1).
  *
  * `RuntimeDeclarations`' sibling at the seat FFI Part 1 §8.3 reserved, under the
  * same probed stem — one module identity, not a second — and emitted on its own
  * independent condition: some emitted module of the program binds a
- * runtime-vocabulary spelling. Its text depends on the vocabulary alone, so it
- * is byte-identical across every program that owes it.
+ * runtime-vocabulary spelling or reads the runtime record. Its text depends on
+ * the vocabulary and the record alone, so it is byte-identical across every
+ * program that owes it.
  *
  * The one obligation the type-only artefact never carried: **this one is
  * executable**. Every host's execution set has to load it on the same footing as
- * a prelude module, or every contested program dies at its first import.
+ * a prelude module, or every program importing it dies at its first import.
  */
 export interface RuntimeGlobals {
   readonly kind: "RuntimeGlobals";

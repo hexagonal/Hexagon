@@ -881,7 +881,7 @@ describe("emitJavaScript", () => {
     expect(output.text).toContain('.reason.tag === "Code"');
     expect(output.text).toMatch(/if \(code > 0\)/u);
     const execute = Function(
-      `${output.text}\nreturn [positive, zero, negative];`,
+      `${standalone(output.text)}\nreturn [positive, zero, negative];`,
     ) as () => readonly [number, number, number];
     expect(execute()).toEqual([3, 0, -1]);
     expect(output.diagnostics).toEqual([]);
@@ -902,7 +902,7 @@ describe("emitJavaScript", () => {
 
     let thrown: unknown;
     try {
-      Function(output.text)();
+      Function(standalone(output.text))();
     } catch (error) {
       thrown = error;
     }
@@ -2531,6 +2531,18 @@ describe("emitTypeScriptPreview", () => {
 // Through the whole project, prelude included. Since #147 `Bool` is a prelude
 // declaration, so a module assembled by calling the passes directly cannot type
 // a condition, a guard, a comparison, or a logic operator.
+/**
+ * A module's text runnable by `Function`, which takes no `import`: a catch's
+ * one import, of the runtime record from the program's runtime module (FFI
+ * Part 11 §1), replaced by a fresh record of the same shape.
+ */
+function standalone(text: string): string {
+  const line = 'import { __hexRuntime } from "./hex.js";\n';
+  expect(text.startsWith(line)).toBe(true);
+  return "const __hexRuntime = { reads: new WeakMap(), reading: {}, arrays: new WeakMap(), " +
+    `looks: new WeakMap() };\n${text.slice(line.length)}`;
+}
+
 function coreSource(text: string): Core.Module {
   const project = compileProject([new Source.File(Source.fileId(0), "/main.hex", "module Main\n\n" + text)]);
   return project.modules.find((module) => module.source.path === "/main.hex")!.core;

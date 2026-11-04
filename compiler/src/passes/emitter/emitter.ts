@@ -1967,7 +1967,6 @@ export const RUNTIME_VOCABULARY = [
   "Boolean",
   "console",
   "Error",
-  "globalThis",
   "Map",
   "Math",
   "Number",
@@ -2067,15 +2066,77 @@ class RuntimeVocabulary {
 /** The inert vocabulary a module with no bindings to consult holds: always bare. */
 const BARE_RUNTIME_VOCABULARY = new RuntimeVocabulary(new Set(), false);
 
+/** The runtime module's export the runtime record is reached by (FFI Part 11 §1). */
+const RUNTIME_RECORD_STEM = "hexRuntime";
+const RUNTIME_RECORD = `__${RUNTIME_RECORD_STEM}`;
+
+/**
+ * The runtime record every kept look and kept read is filed in (FFI Part 11 §1,
+ * §7; Exceptions §7.4), as the runtime module makes it.
+ *
+ * One per program, and more than that where the environment allows: the runtime
+ * module looks for the record under a registered symbol on the global object,
+ * and makes it there if it is missing, so two programs on one page, or two
+ * bundled copies of one, never disagree about what was seen inside one foreign
+ * value. The property is defined once, unwritable and not enumerable, and
+ * nothing is ever written on a foreign value itself.
+ *
+ * Each field is created where it is missing rather than with the object, so a
+ * later compiler's runtime, sharing the record with this one's, can add fields
+ * of its own without a version check. A field whose shape changes takes a new
+ * name instead.
+ *
+ * Where the environment refuses the record its place — a global object that is
+ * frozen or not extensible, or a symbol already naming something that cannot
+ * hold the record (`null`, a frozen object, fields of the wrong kind) — the
+ * runtime module keeps a record of its own (FFI Part 11 §1). It is evaluated
+ * once per program, so every module of the program still shares that one
+ * record, and only separately compiled programs in such an environment may
+ * disagree with each other. A program never fails to load over it. Writes throw
+ * there, since a module is strict, so one `try` covers every refusal. A record
+ * kept with fields of the wrong kind is checked after the fields are filled:
+ * `WeakMap.prototype.has` throws for anything but a real `WeakMap`, a lookalike
+ * or a proxy over one included.
+ *
+ * The globals are written bare, as the captures above them are: the runtime
+ * module binds only reserved names, so nothing in it can shadow one.
+ */
+function runtimeRecordLines(): readonly string[] {
+  return [
+    `const ${RUNTIME_RECORD} = (() => {`,
+    "  try {",
+    '    const __key = Symbol.for("hexagon.runtime");',
+    "    let __shared = globalThis[__key];",
+    "    if (__shared === undefined) {",
+    "      __shared = {};",
+    "      Object.defineProperty(globalThis, __key, { value: __shared });",
+    "    }",
+    "    if (__shared.reads === undefined) __shared.reads = new WeakMap();",
+    "    if (__shared.reading === undefined) __shared.reading = {};",
+    "    if (__shared.arrays === undefined) __shared.arrays = new WeakMap();",
+    "    if (__shared.looks === undefined) __shared.looks = new WeakMap();",
+    "    const __has = WeakMap.prototype.has;",
+    "    __has.call(__shared.reads, __has);",
+    "    __has.call(__shared.arrays, __has);",
+    "    __has.call(__shared.looks, __has);",
+    "    const __reading = __shared.reading;",
+    '    if (typeof __reading === "object" && __reading !== null) return __shared;',
+    "  } catch {}",
+    "  return { reads: new WeakMap(), reading: {}, arrays: new WeakMap(), looks: new WeakMap() };",
+    "})();",
+  ];
+}
+
 /**
  * The text of a program's runtime module (FFI Part 7 §1.2), which holds the
- * globals capture no contested module can perform for itself.
+ * globals capture no contested module can perform for itself, and the runtime
+ * record every module's helpers share (FFI Part 11 §1).
  *
- * One binding per capturable vocabulary member, the full vocabulary always: the
- * bytes depend on the vocabulary alone, never on which program or module asked.
- * Nothing shadows inside it — the module binds only reserved names — which is
- * the whole reason the capture lives here rather than at the head of the
- * contested file.
+ * One binding per capturable vocabulary member, the full vocabulary always, then
+ * the record: the bytes depend on the vocabulary and the record alone, never on
+ * which program or module asked. Nothing shadows inside it — the module binds
+ * only reserved names — which is the whole reason the capture lives here rather
+ * than at the head of the contested file.
  */
 export function runtimeGlobalsText(): string {
   const captures = RESERVED_CAPTURES.map(reservedCapture);
@@ -2085,7 +2146,8 @@ export function runtimeGlobalsText(): string {
         ",\n  ",
       )
     };`,
-    `export { ${captures.join(", ")} };`,
+    ...runtimeRecordLines(),
+    `export { ${[...captures, RUNTIME_RECORD].join(", ")} };`,
     "",
   ].join("\n");
 }
@@ -3236,6 +3298,11 @@ class JavaScriptEmitter {
   readonly #helpers = new Set<Helper>();
   readonly #helperNames = new Map<Helper, string>();
   /**
+   * The local this module imports the runtime record under, once a helper has
+   * asked for it (`#useRuntimeRecord`), or `undefined` while none has.
+   */
+  #runtimeRecordLocal: string | undefined;
+  /**
    * The nullary-constructor values this module's emitted code manufactures for
    * itself, tag by tag, each under the name it is hoisted to — `"Less"` to
    * `__Less` (#771, B1).
@@ -3982,8 +4049,9 @@ class JavaScriptEmitter {
     const rendered = this.#module.items.map((item) => renderedByItem.get(item)!);
 
     // Before the import lines, because a helper body may itself call the trie
-    // runtime — `vectorIndex` is a bounds check around `get` — and the import
-    // line has to know that.
+    // runtime — `vectorIndex` is a bounds check around `get` — or read the
+    // runtime record — `jsErrorRead` keeps its answers there — and the import
+    // lines have to know that.
     //
     // Two facts make the move safe, and both are invariants rather than
     // conveniences. Rendering a helper adds no *helper*: `#useHelper` closed
@@ -4004,6 +4072,7 @@ class JavaScriptEmitter {
           this.#identity,
           (global) => this.#runtimeVocabulary.spell(global),
           (tag) => this.#taggedValue(tag),
+          () => this.#useRuntimeRecord(),
         )
       );
     // After the helpers, because rendering `ordering` or `jsValueKind` is what
@@ -4172,11 +4241,18 @@ class JavaScriptEmitter {
     body.push(...this.#runtimeExports());
 
     // FFI Part 7 §1.2 rule 2's line, first in the file and a manifest of exactly
-    // the spellings this module contests. Empty for every module that binds none
-    // of them, which is what keeps an uncontested file byte-identical.
+    // the spellings this module contests, with the runtime record after them
+    // where a helper reads it (FFI Part 11 §1). Empty for every module that
+    // binds none of the spellings and reads no record, which is what keeps such
+    // a file byte-identical.
     const captures = this.#runtimeVocabulary.captures;
-    const runtimeGlobalsImport = captures.length === 0 ? [] : [
-      `import { ${captures.join(", ")} } from ${
+    const record = this.#runtimeRecordLocal;
+    const runtimeModuleNames = record === undefined ? captures : [
+      ...captures,
+      record === RUNTIME_RECORD ? record : `${RUNTIME_RECORD} as ${record}`,
+    ];
+    const runtimeGlobalsImport = runtimeModuleNames.length === 0 ? [] : [
+      `import { ${runtimeModuleNames.join(", ")} } from ${
         JSON.stringify(emittedModuleSpecifier(this.#runtimeGlobalsSpecifier))
       };`,
       "",
@@ -4213,7 +4289,7 @@ class JavaScriptEmitter {
         ...new Set(enumMemberImports.map(({ specifier }) => specifier)),
       ],
       runtimeImports: runtimeImports.map(({ specifier }) => specifier),
-      importsRuntimeGlobals: captures.length > 0,
+      importsRuntimeModule: runtimeModuleNames.length > 0,
       copyDemands: [...this.#copyDemands]
         .sort(([left], [right]) => left.localeCompare(right))
         .map(([, demand]) => demand),
@@ -12642,6 +12718,21 @@ class JavaScriptEmitter {
     );
   }
 
+  /**
+   * The name this module reads the runtime record by (FFI Part 11 §1),
+   * requesting its import from the program's runtime module on first use.
+   *
+   * The record is made in the runtime module, not here, so that every module of
+   * the program reaches one record even where the global object refuses it a
+   * place: the runtime module is evaluated once per program, and its fallback
+   * record is then the program's. The local is a generated name like any
+   * helper's, and the import line aliases the export to it where the two differ.
+   */
+  #useRuntimeRecord(): string {
+    this.#runtimeRecordLocal ??= this.#generatedNames.fixed(RUNTIME_RECORD_STEM);
+    return this.#runtimeRecordLocal;
+  }
+
   #helperName(helper: Helper): string {
     const existing = this.#helperNames.get(helper);
     if (existing !== undefined) return existing;
@@ -14291,7 +14382,6 @@ type Helper =
   | "streamInbound"
   | "capture"
   | "debugLog"
-  | "hexRuntime"
   | "jsValueKind"
   | "jsValueIsArray"
   | "jsValueKeepCopy"
@@ -14374,11 +14464,10 @@ const HELPER_DEPENDENCIES: Readonly<Record<Helper, readonly Helper[]>> = {
   // helper at each invocation, which is a self-call and not a dependency.
   capture: [],
   debugLog: [],
-  hexRuntime: [],
-  jsValueKind: ["hexRuntime"],
-  jsValueIsArray: ["hexRuntime"],
-  jsValueKeepCopy: ["hexRuntime"],
-  jsErrorRead: ["hexRuntime"],
+  jsValueKind: [],
+  jsValueIsArray: [],
+  jsValueKeepCopy: [],
+  jsErrorRead: [],
   thrownFault: ["jsErrorRead"],
   numberInteger: [],
   numberFloat: [],
@@ -14451,6 +14540,7 @@ export function renderEveryHelper(): readonly string[] {
       "probe",
       (global) => BARE_RUNTIME_VOCABULARY.spell(global),
       (tag) => `__${tag}`,
+      () => RUNTIME_RECORD,
     ).join("\n")
   );
 }
@@ -14679,6 +14769,14 @@ function renderHelper(
    * module knows what it is called there.
    */
   taggedValue: (tag: string) => string,
+  /**
+   * How the emitting module names the runtime record (FFI Part 11 §1), which
+   * every kept look and kept read is filed in. The record is made once per
+   * program, in the program's runtime module (FFI Part 7 §1.2), and each module
+   * that reads it imports it from there, so asking for its name is what
+   * requests the import.
+   */
+  runtimeRecord: () => string,
 ): string[] {
   switch (helper) {
     // The HAMT's placement mix (#365). The seed is read **once**, when the
@@ -14763,7 +14861,7 @@ function renderHelper(
         `  if (__type === "string") return ${taggedValue("String")};`,
         `  if (__type === "symbol") return ${taggedValue("Symbol")};`,
         `  if (__type === "function") return ${taggedValue("Function")};`,
-        `  const __arrays = ${dependencyName("hexRuntime")}.arrays;`,
+        `  const __arrays = ${runtimeRecord()}.arrays;`,
         `  if (__arrays.has(__value)) return ${taggedValue("Array")};`,
         "  try {",
         `    if (!${spell("Array")}.isArray(__value)) return ${taggedValue("Object")};`,
@@ -14773,53 +14871,6 @@ function renderHelper(
         "  __arrays.set(__value, true);",
         `  return ${taggedValue("Array")};`,
         "}",
-      ];
-    // The runtime-wide record every kept look and kept read is filed in (FFI
-    // Part 11 §1, §7; Exceptions §7.4). It is one per program, and more than
-    // that: every module's copy of every helper below reaches the same object,
-    // through a registered symbol on the global object, so two modules — or two
-    // bundled copies of one — never disagree about what was seen inside one
-    // foreign value. The property is defined once, unwritable and not
-    // enumerable, and nothing is ever written on a foreign value itself.
-    //
-    // Each field is created where it is missing rather than with the object,
-    // so a later compiler's helpers, sharing the record with this one's, can add
-    // fields of their own without a version check. A field whose shape changes
-    // takes a new name instead.
-    //
-    // Where the environment refuses the record its place — a global object
-    // that is frozen or not extensible, or a symbol already naming something
-    // that cannot hold the record (`null`, a frozen object, fields of the wrong
-    // kind) — the module keeps a record of its own (FFI Part 11 §1): its
-    // helpers still share one record, and only modules in that environment may
-    // disagree with each other. A module never fails to load over it. Writes
-    // throw there, since an emitted module is strict, so one `try` covers every
-    // refusal. A record kept with fields of the wrong kind is checked after the
-    // fields are filled: `WeakMap.prototype.has` throws for anything but a real
-    // `WeakMap`, a lookalike or a proxy over one included.
-    case "hexRuntime":
-      return [
-        `const ${name} = (() => {`,
-        "  try {",
-        `    const __key = ${spell("Symbol")}.for("hexagon.runtime");`,
-        `    let __shared = ${spell("globalThis")}[__key];`,
-        `    if (__shared === ${spell("undefined")}) {`,
-        "      __shared = {};",
-        `      ${spell("Object")}.defineProperty(${spell("globalThis")}, __key, { value: __shared });`,
-        "    }",
-        `    if (__shared.reads === ${spell("undefined")}) __shared.reads = new ${spell("WeakMap")}();`,
-        `    if (__shared.reading === ${spell("undefined")}) __shared.reading = {};`,
-        `    if (__shared.arrays === ${spell("undefined")}) __shared.arrays = new ${spell("WeakMap")}();`,
-        `    if (__shared.looks === ${spell("undefined")}) __shared.looks = new ${spell("WeakMap")}();`,
-        `    const __has = ${spell("WeakMap")}.prototype.has;`,
-        "    __has.call(__shared.reads, __has);",
-        "    __has.call(__shared.arrays, __has);",
-        "    __has.call(__shared.looks, __has);",
-        "    const __reading = __shared.reading;",
-        '    if (typeof __reading === "object" && __reading !== null) return __shared;',
-        "  } catch {}",
-        `  return { reads: new ${spell("WeakMap")}(), reading: {}, arrays: new ${spell("WeakMap")}(), looks: new ${spell("WeakMap")}() };`,
-        "})();",
       ];
     // `toArray`'s look, in two halves because `JsValue.hex` asks it in two
     // (FFI Part 11 §4.2): the `Array.isArray` probe here, the copy in
@@ -14838,7 +14889,7 @@ function renderHelper(
       return [
         `function ${name}(__value) {`,
         '  if (__value === null || (typeof __value !== "object" && typeof __value !== "function")) return false;',
-        `  const __shared = ${dependencyName("hexRuntime")};`,
+        `  const __shared = ${runtimeRecord()};`,
         "  const __look = __shared.looks.get(__value);",
         `  if (__look !== ${spell("undefined")}) {`,
         '    if (__look.state === "copied") return true;',
@@ -14874,7 +14925,7 @@ function renderHelper(
     case "jsValueKeepCopy":
       return [
         `function ${name}(__value, __copy) {`,
-        `  const __looks = ${dependencyName("hexRuntime")}.looks;`,
+        `  const __looks = ${runtimeRecord()}.looks;`,
         "  const __look = __looks.get(__value);",
         `  if (__look !== ${spell("undefined")}) {`,
         '    if (__look.state === "copied") return __look.copy;',
@@ -14992,7 +15043,7 @@ function renderHelper(
     // That is `spec/effects.md` §6.2's species (b), the owned at-most-once read
     // that lets both rows be `->`: a getter or proxy trap may do anything, but
     // it runs once, and the world can no longer vary the answer. The table
-    // lives in the runtime record (`hexRuntime`), beside the value, never on
+    // lives in the runtime record (`runtimeRecordLines`), beside the value, never on
     // it, so the thrown object is never written, every module answers alike,
     // and a `WeakMap` lets the answers go when the value does.
     //
@@ -15016,8 +15067,8 @@ function renderHelper(
     case "jsErrorRead":
       return [
         `const ${name} = (() => {`,
-        `  const __kept = ${dependencyName("hexRuntime")}.reads;`,
-        `  const __pending = ${dependencyName("hexRuntime")}.reading;`,
+        `  const __kept = ${runtimeRecord()}.reads;`,
+        `  const __pending = ${runtimeRecord()}.reading;`,
         "  return (__value, __property) => {",
         '    if (__value === null || (typeof __value !== "object" && typeof __value !== "function")) {',
         `      return ${spell("undefined")};`,
