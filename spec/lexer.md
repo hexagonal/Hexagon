@@ -1,6 +1,7 @@
 # Hexagon Spec: Physical Lexer
 
 **Status:** Decided (July 2026)
+**Revised 2026-11-04 (#844):** §2.1 says the permitted byte-order mark occupies no column.
 **Scope:** Source text, line endings and horizontal whitespace; identifiers and
 start-class classification; the complete hard and contextual keyword inventory; numeric
 and string literal lexing; the complete punctuation and operator inventory;
@@ -48,7 +49,10 @@ anywhere else is an invalid source character. Hexagon has no shebang form.
 
 Offsets and columns are zero-based UTF-16 code-unit counts. Lines are zero-based.
 This is the coordinate system already required by layout and by the language-server
-boundary; an astral codepoint advances the column by two.
+boundary; an astral codepoint advances the column by two. The permitted byte-order
+mark has an offset and no column: the first character after it is at column zero, so
+a file's column-zero items are at column zero with or without the mark, and an edit
+that puts a line at the top of a file puts it after the mark.
 
 The lexer accepts LF, CRLF, and lone CR as physical line endings. Each is one line
 boundary; CRLF is one boundary with a two-code-unit span. Outside a string, all three

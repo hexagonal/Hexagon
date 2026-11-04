@@ -868,6 +868,9 @@ class Parser {
     if (shared || header.rewritten || spread) return undefined;
     const to = pastBlankLines(text, lineEnd);
     const file = new Source.File(fileId, path, text);
+    // The top of the file is past its byte-order mark (Lexer §2.1), which has
+    // to stay at offset zero.
+    const top = Source.textStart(text);
     return {
       message: `move \`module ${header.name.text}\` above this item`,
       edits: [
@@ -875,7 +878,10 @@ class Parser {
         // ended by anything, and a header lifted from one would otherwise be
         // welded to whatever stands where it lands — which is the file an
         // author has while they are still typing the header.
-        { span: file.span(0, 0), replacement: insertedLine(text, 0, text.slice(from, to)) },
+        {
+          span: file.span(top, top),
+          replacement: insertedLine(text, top, text.slice(from, to)),
+        },
         { span: file.span(from, to), replacement: "" },
       ],
     };

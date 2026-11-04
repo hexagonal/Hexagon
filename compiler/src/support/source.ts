@@ -3,6 +3,10 @@
  * phase. Offsets and columns count UTF-16 code units so spans can move between
  * the compiler, JavaScript strings, and the Language Server Protocol without
  * lossy conversions. Lines and columns are zero-based internally.
+ *
+ * The one byte-order mark a file may begin with (Lexer §2.1) has an offset but
+ * no column: the first line starts after it, so a file's column-zero items are
+ * at column zero whether or not it has one.
  */
 
 declare const fileIdBrand: unique symbol;
@@ -80,6 +84,18 @@ export function fileId(value: number): FileId {
   return value as FileId;
 }
 
+/** U+FEFF, which Lexer §2.1 permits, and ignores, at offset zero alone. */
+const BYTE_ORDER_MARK = 0xfeff;
+
+/**
+ * Where a file's text begins: past its byte-order mark, where it has one. An
+ * edit that puts a line at the top of a file puts it here, so the mark stays at
+ * offset zero, the one place it is allowed.
+ */
+export function textStart(text: string): number {
+  return text.charCodeAt(0) === BYTE_ORDER_MARK ? 1 : 0;
+}
+
 export class File {
   readonly #lineStarts: readonly number[];
 
@@ -121,7 +137,9 @@ export class File {
       throw new Error("internal error: every source file must have a first line");
     }
 
-    return { offset, line: low, column: offset - lineStart };
+    // Only the byte-order mark itself sits before its line's start, and it
+    // occupies no column.
+    return { offset, line: low, column: Math.max(0, offset - lineStart) };
   }
 
   /** Creates a half-open span and rejects coordinates outside this file. */
@@ -143,8 +161,9 @@ export class File {
 
 // Recognize the three line endings accepted by JavaScript text producers.
 // CRLF is one boundary so the following line starts after both code units.
+// The first line starts after a leading byte-order mark (Lexer §2.1).
 function findLineStarts(text: string): readonly number[] {
-  const starts = [0];
+  const starts = [textStart(text)];
 
   for (let offset = 0; offset < text.length; offset += 1) {
     const codeUnit = text.charCodeAt(offset);
