@@ -75,6 +75,8 @@ export async function runProject(
      * harness that has to instrument the compiler's own output — counting a
      * runtime module's descents, say. The rewrite happens *before* linking, so
      * the instrumented text keeps whatever imports the module was emitted with.
+     * The program's runtime module is handed in too, under its own path
+     * (`/hex.js`), since the runtime record is made there (FFI Part 11 §1).
      */
     readonly transform?: (path: string, javascript: string) => string;
   } = {},
@@ -136,7 +138,14 @@ export async function runProject(
     // executable, and a contested program's very first import is of it (FFI
     // Part 7 §1.2).
     const runtimeGlobals = project.runtimeGlobals;
-    if (runtimeGlobals !== undefined) write(fileOf(runtimeGlobals.path), runtimeGlobals.text);
+    if (runtimeGlobals !== undefined) {
+      write(
+        fileOf(runtimeGlobals.path),
+        options.transform === undefined
+          ? runtimeGlobals.text
+          : options.transform(runtimeGlobals.path, runtimeGlobals.text),
+      );
+    }
     for (const module of project.modules) {
       // Written at the module's **address** — its full name laid out as a path
       // (Packages §6) — because that is what the emitted specifiers name since

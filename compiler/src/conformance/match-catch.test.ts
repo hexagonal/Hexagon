@@ -795,6 +795,11 @@ describe("the foreign branch, where `JsError` sits (§6, §7.4)", () => {
       `data:text/javascript;charset=utf-8,${encodeURIComponent(text)}#foreign${runTag}`;
     const moduleUrls = new Map<string, string>();
     for (const [specifier, text] of Object.entries(foreign)) moduleUrls.set(specifier, url(text));
+    // The program's runtime module, keyed by the `.hex` path `resolveModulePath`
+    // derives from its importers' `./hex.js`: a catch's kept read and
+    // `toArray`'s look are filed in the record it makes (FFI Part 11 §1).
+    const runtime = project.runtimeGlobals;
+    if (runtime !== undefined) moduleUrls.set(runtime.path.replace(/\.js$/u, ".hex"), url(runtime.text));
     for (const module of project.modules) {
       moduleUrls.set(
         module.source.path,
