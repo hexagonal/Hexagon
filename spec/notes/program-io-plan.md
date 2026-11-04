@@ -6,8 +6,8 @@ The global work entry is in [the stdlib roadmap](../stdlib-roadmap.md).
 Stages 1 to 4 were decided on 2026-11-04 and graduate to `Hex.File`, `Hex.Stdio`
 and `Hex.Process`, under Node only: [Program I/O](../program-io.md) is their
 contract, and `program-io-deliberation.md` the record. The sections below for
-those stages keep their plan, with only the links to their old contracts
-updated. Stages 5 to 7 are unchanged.
+those stages keep their plan; only their pointers to the old contracts
+changed. Stages 5 to 7 are unchanged.
 
 ## Purpose
 
@@ -111,11 +111,12 @@ a broad path library before these choices are settled.
 
 ## Delivery approach
 
-Use #1006 as the starting architectural pattern: explicitly imported experimental
-modules, ordinary Hexagon wrappers over narrow host adapters, and tests of actual
-emitted programs. Since 2026-11-04 Node is the one host, the adapters go when
-#1461 graduates the modules, and the playground stands in for a terminal
-(`program-io.md` §6, §8). Keep unused host dependencies out of
+Use the graduated modules as the architectural pattern: explicitly imported
+modules outside the prelude, ordinary Hexagon over private `node:` bindings with
+no adapter layer, and tests of actual emitted programs. Since 2026-11-04 Node is
+the one host, and the playground stands in for a terminal (`program-io.md` §6,
+§8). Before that, #1006's pattern used experimental modules over narrow host
+adapters, which go when #1461 graduates the modules. Keep unused host dependencies out of
 programs that do not import the facilities.
 
 For each increment, check existing issues and prerequisites first. If a more

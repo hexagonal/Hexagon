@@ -127,7 +127,7 @@ Every failure of a `File` operation throws `FileError(reason, path, message)`. N
   | `ERR_ENCODING_INVALID_ENCODED_DATA`, from `readText`'s strict decoding: the bytes aren't well-formed UTF-8 | `NotUtf8` |
   | anything else, such as `ENAMETOOLONG`, `ENOSPC`, `EROFS` or `ERR_INVALID_ARG_VALUE` | `Other(code)`, with Node's code |
 
-  Decision 5c may give the writers a reason of their own (§7).
+  Decision 5c may have the writers refuse text too, with `NotUtf8` or with a fault (§7).
 
 - **The path** is the one the caller passed, so it is there even where Node's error leaves it out, as when a directory is read.
 - **The message** is one line for a reader. It names the path, and for `NotUtf8` the first bad byte. Its wording is not normative, as `JsConversionError`'s isn't (FFI Part 11 §5.1): a program reads `reason` and `path`, never the text. The implementation words it this way:
@@ -180,7 +180,7 @@ When a write fails, the writer ends the program. No `catch` sees the ending, jus
   cannot write to standard output: no space left on device
   ```
 
-  The line names the stream, `standard output` or `standard error`, and then the system's description of the error, as Node gives it without its code. When stderr is the stream that failed, the line still goes to stderr, and the status is 1 even if that write fails too.
+  The line names the stream, `standard output` or `standard error`, and then the system's description of the error, as Node gives it without its code. Its wording is not normative, as `FileError`'s message isn't (§3.4). When stderr is the stream that failed, the line still goes to stderr, and the status is 1 even if that write fails too.
 - **What this costs:**
   - A program that has to keep running when its output fails, such as a long-running service, can't do that with these writers. A `->!` writer beside them could come later without breaking anything.
   - Under `set -o pipefail`, `program | head -1` fails the pipeline, as `yes | head -1` does.
@@ -214,9 +214,9 @@ The playground runs programs in the browser, where Node isn't there. It runs a p
 
 - **`Stdio.write` and `writeLine`** go to the output pane, in order with `Debug.log`'s lines. **`writeError` and `writeErrorLine`** go to the same pane, marked as errors.
 - **`Process.arguments~()`** answers an empty `Vector`.
-- **`Process.setExitStatus~(n)`** shows at the end of the run as `exit status n`, when `n` isn't 0. An uncaught exception or fault shows as the playground shows one today.
-- **`File.readText!` and `File.readTextLossy!`** throw `FileError(NotFound, path, …)`. **`File.writeText!` and `File.writeTextBom!`** throw `FileError(Other("EROFS"), path, …)`, Node's code for a read-only file system, with Node's message for it. They answer so for every path. Node would answer differently for a path naming the directory itself (`IsDirectory`), or a write through a directory that isn't there (`NotFound`).
-- **How:** the playground links its own small `node:fs` and `node:process` beneath the three modules. The modules themselves are the same in the browser as under Node, and a test runs the same programs in both and compares what they print.
+- **`Process.setExitStatus~(n)`** shows at the end of the run as `exit status n`, when `n` isn't 0. An uncaught exception or fault shows as the playground shows any uncaught throw.
+- **`File.readText!` and `File.readTextLossy!`** throw `FileError(NotFound, path, …)`. **`File.writeText!` and `File.writeTextBom!`** throw `FileError(Other("EROFS"), path, …)`, Node's code for a read-only file system, with Node's message for it. They answer so for every path, where Node would answer some paths differently, such as one naming the directory itself (`IsDirectory`), or a write through a directory that isn't there (`NotFound`).
+- **How:** the playground links its own small `node:fs` and `node:process` beneath the three modules. The modules themselves are the same in the browser as under Node. A test runs the same programs in both and compares what they print (§10, test 11).
 - **Nothing else changes for the browser.** A web page outside the playground that imports these modules fails to load, since nothing there stands in for Node.
 
 ## 7. Text holding a lone surrogate (decision 5c)
@@ -253,7 +253,7 @@ Open. A `String` holds a lone surrogate only when foreign code supplies one (`st
 8. **`Stdio` endings.** `| head -1` ends with status 141 and an empty stderr. `> /dev/full` ends with one line on stderr and status 1. A program that calls `Debug.log`, then writes 2 MB into a reader that sleeps for a second, writes every byte and finishes with 0. A terminal check through a pseudo-terminal, with the terminal's own output processing turned off.
 9. **`arguments`.** Under a script, under `node -e`, `-p`, `--eval=…` and `-pe`, with options to Node before the script, and with an argument whose bytes aren't UTF-8.
 10. **`setExitStatus`.** 0, 3 and 255 end with that status; 256 and -1 throw `ExitStatusFault`; the last of two settings wins; an uncaught throw after a setting ends with 1.
-11. **The playground.** Programs that write with `Stdio`, read the arguments and set a status print the same text in the playground as under Node with no arguments, in the same order, with stderr marked and the exit status shown. `File`'s answers in the playground are §6's.
+11. **The playground.** Programs that write with `Stdio`, read the arguments and set a status print the same text in the playground as under Node with no arguments, in the same order, with stderr marked and the exit status shown. `File`'s answers in the playground are §6's, and the `EROFS` message matches the one Node gives for a write on a read-only file system.
 
 ## 11. Rejected alternatives (do not re-litigate)
 
