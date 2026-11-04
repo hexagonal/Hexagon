@@ -528,10 +528,21 @@ describe("the companion is `stdlib/JsValue.hex` (Method Syntax §4.1)", () => {
     expect(text).toContain("if (__value === undefined) return __Undefined;");
     expect(text).toContain("if (__value === null) return __Null;");
     expect(text).toContain('if (__type === "function") return __Function;');
-    // The guard is the totality promise, and it is one `try` around one probe.
-    expect(text).toContain("  try {");
-    expect(text).toContain(".isArray(__value) ? __Array : __Object;");
-    expect(text).toContain("  } catch {");
+    // The guard is the totality promise, and it is one `try` around one probe,
+    // made only for an object not already found to be an array (§3).
+    expect(text).toContain(
+      [
+        "  const __arrays = __hexRuntime.arrays;",
+        "  if (__arrays.has(__value)) return __Array;",
+        "  try {",
+        "    if (!Array.isArray(__value)) return __Object;",
+        "  } catch {",
+        "    return __Object;",
+        "  }",
+        "  __arrays.set(__value, true);",
+        "  return __Array;",
+      ].join("\n"),
+    );
     // The five crossings are the identity, and the predicate is the host's.
     expect(text).toContain("__a => __a");
     expect(text).toContain(".isSafeInteger(__a)");

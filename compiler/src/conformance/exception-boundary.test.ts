@@ -101,7 +101,7 @@ describe("the brand is the declaring module's path identity (#488, §7.1)", () =
         "        Vector.IndexFault(index, size) => index + size\n"],
     ] as const;
 
-    expect(javascriptOf(files, "/src/main.hex")).toContain('$hex === "Hex.Vector"');
+    expect(javascriptOf(files, "/src/main.hex")).toContain('__brand === "Hex.Vector"');
   });
 
   test("a helper that raises a prelude exception brands the declaring module", async () => {

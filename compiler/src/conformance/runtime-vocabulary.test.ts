@@ -726,8 +726,9 @@ const UNCONTESTED_CORPUS: readonly string[] = [
     "export let memo(): Seq(Int) = Seq.memoize(Vector.toSeq([1, 2]))\n" +
     "export let counted(): Seq(Int) = Seq.take(Seq.iterate(0, (x) => x + 1), 3)\n",
   "export let probe(): Unit = Debug.log(\"hi\")\n",
-  // The two borrowed views' eager constructors (#792), which are the only seats
-  // that write `new Map(…)` and `new Set(…)`. They are *prelude* seats, and a
+  // The two borrowed views' eager constructors (#792), the only seats that
+  // write `new Set(…)` and, with the kept read a catch carries (FFI Part 11
+  // §7), the only ones that write `new Map(…)`. They are *prelude* seats, and a
   // prelude module is emitted only when something imports it — so without this
   // entry the two spellings would be in the vocabulary and in no scanned text,
   // and the completeness half of the tripwire below would be the thing that said
@@ -817,9 +818,16 @@ const ALL_CONTESTED = [
   "",
   "export let console: Int = 1",
   "export let undefined: Int = 2",
+  "export let globalThis: Int = 3",
   "",
   "exception Boom(value: Int)",
   "export let raise(): Int = throw^(Boom(3))",
+  "export let rescued(): Int =",
+  "    try",
+  "        raise^()",
+  "    catch",
+  "        Boom(n) => n",
+  "        _ => 0",
   "export let loop(n: Int): Int =",
   "    var sum = 0",
   "    for i in 1..n",
@@ -854,16 +862,19 @@ describe("completeness — the worst-contested module writes no bare global", ()
     // the whole vocabulary but `Map` and `Set`. Those two are deliberately
     // unbound here: binding either would put a constructor in the way of the
     // `Map.fromVector` and `Set` spellings this module needs to reach the map
-    // bracket at all, and the seats that write `new Map(…)`/`new Set(…)` are
-    // prelude ones (`stdlib/JsMap.hex`, `stdlib/JsSet.hex`) rather than seats a
-    // user module can host. Their capture is measured in two other places
-    // instead: on a project-supplied copy of one of those files, where the
-    // capture is load-bearing (`js-map-set.test.ts`), and on an ordinary module
-    // that merely binds the word, where it is collateral (the describe below).
+    // bracket at all. The seats that write `new Set(…)` are prelude ones
+    // (`stdlib/JsSet.hex`); `new Map(…)` has those (`stdlib/JsMap.hex`) and one
+    // a user module hosts, the kept read a module with a catch carries (FFI
+    // Part 11 §7). Their capture is measured in other places instead: on a
+    // project-supplied copy of one of those files, where the capture is
+    // load-bearing (`js-map-set.test.ts`); on an ordinary module that merely
+    // binds the word, where it is collateral; and on a module that binds `Map`
+    // and catches, where the kept read's `Map` is captured (the describe below).
     expect(text).toContain(
       "import { __global_Array, __global_BigInt, __global_Boolean, __global_console, " +
-        "__global_Error, __global_Math, __global_Number, __global_Object, __global_RangeError, " +
-        '__global_String, __global_Symbol, __global_TypeError, __global_WeakMap } from "./hex.js";',
+        "__global_Error, __global_globalThis, __global_Math, __global_Number, __global_Object, " +
+        "__global_RangeError, __global_String, __global_Symbol, __global_TypeError, " +
+        '__global_WeakMap } from "./hex.js";',
     );
     // And the claim that matters, swept rather than spot-checked: **no
     // compiler-written line of this module spells any vocabulary member bare.**
@@ -885,9 +896,13 @@ describe("completeness — the worst-contested module writes no bare global", ()
         /^export \{ ([A-Za-z_$][\w$]*) \};$/u.exec(line)?.[1];
       return declared === undefined || !own.has(declared);
     }).join("\n");
+    // `Map`, which the module leaves unbound (above), is bare by right: the
+    // kept read's `new Map()` is the one seat here that writes it.
     for (const member of RUNTIME_VOCABULARY) {
+      if (member === "Map") continue;
       expect(emitterWritten).not.toMatch(new RegExp(`(?<![\\w$.])${member}(?![\\w$])`, "u"));
     }
+    expect(text).toContain("new Map()");
     expect(text).toContain("const unit = () => void 0;");
     // The seats the sweep above is silent about because they are *inside*
     // qualified references, spot-checked so the families are on the record.
@@ -901,12 +916,14 @@ describe("completeness — the worst-contested module writes no bare global", ()
     expect(text).toContain("__global_Number.isNaN(__value)");
     expect(text).toContain("__global_Math.imul(");
     expect(text).toContain("new __global_TypeError(");
+    expect(text).toContain("let __shared = __global_globalThis[__key];");
   });
 
   test("executed: the whole of it runs", async () => {
     const exports = await runProject([["/main.hex", "module Main\n\n" + ALL_CONTESTED]]);
 
     expect(thrown(exports["raise"] as () => number)).toMatchObject({ name: "Boom" });
+    expect((exports["rescued"] as () => number)()).toBe(3);
     expect((exports["loop"] as (n: number) => number)(4)).toBe(10);
     expect((exports["counted"] as (xs: readonly number[]) => number)([1, 2, 3])).toBe(3);
     expect((exports["unit"] as () => unknown)()).toBeUndefined();
@@ -958,7 +975,9 @@ describe("what joining the vocabulary costs a module that merely binds the word"
    * The other half of #792's two entries, measured rather than asserted, and it
    * is collateral rather than a repair. `Map` and `Set` joined the vocabulary
    * for the two seats that *write* them — `jsMapFromSeq` and `jsSetFromSeq`,
-   * both of them prelude seats — but the trigger reads what a module **binds**,
+   * both of them prelude seats; the kept read a catch carries into a user
+   * module writes `Map` too (the last row here) — but the trigger reads what a
+   * module **binds**,
    * deliberately and for the reason the `RuntimeVocabulary` doc gives: the
    * reference set is the quantity that re-draws silently, so a trigger reading
    * it would fail exactly when the hazard moved. The consequence is that any
@@ -1011,6 +1030,31 @@ describe("what joining the vocabulary costs a module that merely binds the word"
     expect(module.javascript.text.split("__global_Map").length - 1).toBe(1);
   });
 
+  // The seat where the capture is load-bearing in a user module: a catch
+  // carries FFI Part 11 §7's kept read, which writes `new Map()`, so beside a
+  // record named `Map` it must reach the global through the capture.
+  test("a catch beside a binding of `Map` reaches the global `Map`", async () => {
+    const PROGRAM = "export record Map = { items: Vector(Int) }\n" +
+      "export let n(m: Map): Int = Vector.length(m.items)\n" +
+      "exception Boom(value: Int)\n" +
+      "export let raise(): Int = throw^(Boom(3))\n" +
+      "export let rescued(): Int =\n" +
+      "    try\n" +
+      "        raise^()\n" +
+      "    catch\n" +
+      "        Boom(n) => n\n" +
+      "        _ => 0\n";
+    const project = compileFiles([["/main.hex", "module Main\n\n" + PROGRAM]]);
+    expect(project.diagnostics.map(({ message }) => message)).toEqual([]);
+    const text = project.modules.find(({ source }) => source.path === "/main.hex")!.javascript.text;
+
+    expect(text).toContain('import { __global_Map } from "./hex.js";');
+    expect(text).toContain("__answers = new __global_Map();");
+    expect(text).not.toMatch(/new Map\(/u);
+    const exports = await runProject([["/main.hex", "module Main\n\n" + PROGRAM]]);
+    expect((exports["rescued"] as () => number)()).toBe(3);
+  });
+
   // The one family that can still spell a capture: an exported term named
   // `global_Error` with an internal edition — here its `Array` parameter's
   // capture boundary; a constrained term has one too — publishes that edition
@@ -1054,6 +1098,7 @@ describe("the runtime module takes Part 1 §8.3's reserved seat", () => {
         "  __global_Boolean = globalThis.Boolean,\n" +
         "  __global_console = globalThis.console,\n" +
         "  __global_Error = globalThis.Error,\n" +
+        "  __global_globalThis = globalThis.globalThis,\n" +
         "  __global_Map = globalThis.Map,\n" +
         "  __global_Math = globalThis.Math,\n" +
         "  __global_Number = globalThis.Number,\n" +
@@ -1066,9 +1111,9 @@ describe("the runtime module takes Part 1 §8.3's reserved seat", () => {
         "  __global_TypeError = globalThis.TypeError,\n" +
         "  __global_WeakMap = globalThis.WeakMap;\n" +
         "export { __global_Array, __global_BigInt, __global_Boolean, __global_console, " +
-        "__global_Error, __global_Map, __global_Math, __global_Number, __global_Object, " +
-        "__global_RangeError, __global_RegExp, __global_Set, __global_String, __global_Symbol, " +
-        "__global_TypeError, __global_WeakMap };\n",
+        "__global_Error, __global_globalThis, __global_Map, __global_Math, __global_Number, " +
+        "__global_Object, __global_RangeError, __global_RegExp, __global_Set, __global_String, " +
+        "__global_Symbol, __global_TypeError, __global_WeakMap };\n",
     );
   });
 

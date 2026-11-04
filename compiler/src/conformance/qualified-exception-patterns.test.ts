@@ -198,8 +198,7 @@ describe("a module alias qualifies an imported exception", () => {
         "        Lib.Boom(c) => c\n"],
     ]).modules.find(({ source }) => source.path === "/main.hex")!.javascript.text;
 
-    expect(javascript).toContain('.name === "Boom"');
-    expect(javascript).toContain('$hex === "Lib"');
+    expect(javascript).toContain('__brand === "Lib" && __name === "Boom"');
     expect(javascript).not.toContain("Lib.Boom");
   });
 });

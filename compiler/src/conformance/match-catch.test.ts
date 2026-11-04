@@ -684,7 +684,9 @@ describe("emission (§7.4's narrowed `try`)", () => {
         "  try {",
         "    __scrutinee = source(fail);",
         "  } catch (__error) {",
-        "    if (__error != null && __error.$hex === \"Main\" && __error.name === \"Boom\") {",
+        "    const __brand = __jsErrorRead(__error, \"$hex\");",
+        "    const __name = typeof __brand === \"string\" ? __jsErrorRead(__error, \"name\") : undefined;",
+        "    if (__brand === \"Main\" && __name === \"Boom\") {",
         "      const line = __error.line;",
         "      return line;",
         "    }",
@@ -738,7 +740,8 @@ describe("emission (§7.4's narrowed `try`)", () => {
 
     expect(project.diagnostics.map(({ message }) => message)).toEqual([]);
     const main = project.modules.find(({ source }) => source.path === "/main.hex")!;
-    const text = main.javascript.text;
+    // From the function on: the kept-read helper above it has a `try` of its own.
+    const text = main.javascript.text.slice(main.javascript.text.indexOf("const run"));
     const tryBlock = text.slice(text.indexOf("try {"), text.indexOf("} catch ("));
     expect(tryBlock).toBe("try {\n    __scrutinee = source(fail);\n  ");
     expect(text).toContain("if (line > 1) {");
@@ -896,11 +899,11 @@ describe("the foreign branch, where `JsError` sits (§6, §7.4)", () => {
     );
 
     expect(project.diagnostics.map(({ message }) => message)).toEqual([]);
-    const text = project.modules.find(({ source }) => source.path === "/main.hex")!.javascript.text;
+    const whole = project.modules.find(({ source }) => source.path === "/main.hex")!.javascript.text;
+    // From the function on: the kept-read helper above it has a `try` of its own.
+    const text = whole.slice(whole.indexOf("const run"));
     const tryBlock = text.slice(text.indexOf("try {"), text.indexOf("} catch ("));
     expect(tryBlock).toBe("try {\n    __scrutinee = source(fail);\n  ");
-    expect(text).toContain(
-      'const __foreign = __error == null || typeof __error.$hex !== "string";',
-    );
+    expect(text).toContain('const __foreign = typeof __brand !== "string";');
   });
 });

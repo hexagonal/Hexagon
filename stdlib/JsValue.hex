@@ -53,12 +53,10 @@ let rangeFailure(target: String): Exn =
 // is unexported and unchecked precisely so that the check above it is ordinary
 // Hexagon in this file (`spec/intrinsics.md` section 3.2).
 extern from "hex:intrinsic"
-    (** What JavaScript says `value` is (section 3). Total and **property-free**:
-        it never reads a property, never invokes a getter, and never triggers a
-        proxy `get` or `has` trap. `typeof` and `Array.isArray` are the whole
-        implementation, and the one probe that can throw — `Array.isArray` on a
-        revoked proxy — is guarded, so a revoked proxy classifies as
-        `JsKind.Object` and no input whatsoever makes this throw. *)
+    (** What JavaScript says `value` is (section 3). It reads no property and
+        never throws, and an object once found to be an array, here or by
+        `toArray`, stays `JsKind.Array`: a proxy revoked after that is still
+        one, and any other revoked proxy is `JsKind.Object`. *)
     export fun jsValueKind as kind(value: JsValue) -> JsKind
 
     // The total injection (section 2). Every Hexagon value already *is* a
@@ -94,7 +92,11 @@ extern from "hex:intrinsic"
     // classification throw; `toArray` must not, because section 4.2 rules that a
     // throwing probe is foreign control flow rather than a verdict about the
     // data. Two callers, two promises, so two rows: this one is asked only by
-    // `toArray` below.
+    // `toArray` below. It is the first half of `toArray`'s look, which is
+    // kept beside the value (section 4.2): a later call answers from what was
+    // kept, rethrowing a kept throw, and an object already found to be an
+    // array is not probed again. Asked while that value's copy is being made,
+    // it refuses with `Seq.ReentrancyFault`.
     fun jsValueIsArray as isArray(value: JsValue) -> Bool
 
     // The sixth crossing, and the one that is not an identity: a JavaScript
@@ -102,7 +104,9 @@ extern from "hex:intrinsic"
     // 5.4's walk at `Array(JsValue)`, each index read once in order, each
     // element carried as the uncertain `JsValue` it is — so the result is
     // Hexagon's own dense copy, and the foreign array is not looked at again
-    // (section 4.2).
+    // (section 4.2). The copy, or the foreign throw that ended it, is kept
+    // beside the value, so a later call answers the same copy or throws the
+    // same value again, and the copy is made once.
     fun jsValueAsArrayUnchecked as asArrayUnchecked(value: JsValue) -> Array(JsValue)
 
 (** `value` as a `Float`. A value that is not a JavaScript number throws
@@ -146,20 +150,18 @@ export let toString(value: JsValue): String = match kind(value)
     JsKind.String => asStringUnchecked(value)
     _ => throw^(shapeFailure("a String"))
 
-(** `value` as a captured `Array` of the values it holds. A value that is not a
-    JavaScript array throws `JsConversionError` with reason `Shape`. The one structural decoder: it
-    copies the array once — each index read in order, no element inspected —
-    so the result is **Hexagon's own value**, stable from the moment of
-    success, and the foreign array is not looked at again (FFI Part 2
-    section 6.2). A hole in the source is an `undefined` element. The elements
-    stay honestly uncertain — each is a `JsValue`, decoded one at a time by
-    whoever wants one.
+(** `value` as a captured `Array` of the values it holds, each still a
+    `JsValue` (a hole is `undefined`); a value that is not a JavaScript array
+    throws `JsConversionError` with reason `Shape`. The array is copied once,
+    at the first call with it, and every later call answers from that first
+    look: the same copy, a `Shape` failure again, or the same foreign throw
+    (FFI Part 11 section 4.2).
 
-    An array-like is not an array: `arguments`, a `NodeList` and a
-    `{ length: 2 }` object all fail. A hostile value whose `Array.isArray` probe
-    *throws* — a revoked proxy is the one that does — is not converted into a
-    failure here; the throw is foreign control flow and travels as such, and so
-    does a getter or trap that throws while the copy reads. *)
+    An array-like (`arguments`, a `NodeList`, `{ length: 2 }`) is not an
+    array. A throw from the `Array.isArray` probe (a revoked proxy) or from a
+    getter during the copy travels as the foreign throw it is, and a getter
+    that asks for this value's copy while it is being made gets
+    `Seq.ReentrancyFault`, as does every later call with that value. *)
 export let toArray(value: JsValue): Array(JsValue) =
     if isArray(value) then
         asArrayUnchecked(value)

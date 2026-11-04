@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import { compileProject, Source } from "../index";
-import { compileFiles, compileMain, projectDiagnostics } from "../support/test-project.js";
+import { compileFiles, compileMain, projectDiagnostics, runProject } from "../support/test-project.js";
 
 /**
  * A mark that claims more than its call does, where the report names no
@@ -648,6 +648,391 @@ describe("the accessors are total and conservative (FFI Part 11 §7)", () => {
   });
 });
 
+describe("a catch reads the brand through the kept read (Exceptions §7.1, §7.4; #1447)", () => {
+  /**
+   * Every seat that tells a thrown value's branch — a `catch` with a domestic
+   * arm, a `JsError` arm or `_`, `attempt`, and `show` — reads `$hex` and
+   * `name` through FFI Part 11 §7's kept read. A hostile value is handed to
+   * each from this side, and thrown by `throw^(JsError(v))`, which throws `v`
+   * itself (§6.2).
+   */
+  async function seats(): Promise<{
+    caught: (value: unknown) => string;
+    anything: (value: unknown) => string;
+    attempted: (value: unknown) => string;
+    described: (value: unknown) => string;
+    read: (value: unknown) => unknown;
+    assumed: (value: unknown) => unknown;
+  }> {
+    const exports = await run(
+      "exception Boom(message: String)\n" +
+        "let fails(v: JsValue): Int = throw^(JsError(v))\n" +
+        "export let caught(v: JsValue): String =\n" +
+        "    try\n" +
+        "        ignore(fails^(v))\n" +
+        "        \"returned\"\n" +
+        "    catch\n" +
+        "        Boom(m) => \"domestic \" ++ m\n" +
+        "        JsError(_) => \"foreign\"\n" +
+        "export let anything(v: JsValue): String =\n" +
+        "    try\n" +
+        "        ignore(fails^(v))\n" +
+        "        \"returned\"\n" +
+        "    catch\n" +
+        "        _ => \"caught\"\n" +
+        "export let attempted(v: JsValue): String =\n" +
+        "    match attempt fails^(v)\n" +
+        "        Ok(_) => \"ok\"\n" +
+        "        Err(_) => \"err\"\n" +
+        "export let described(v: JsValue): String =\n" +
+        "    try\n" +
+        "        ignore(fails^(v))\n" +
+        "        \"returned\"\n" +
+        "    catch\n" +
+        "        e => show(e)\n" +
+        "export let read(v: JsValue): Option(Int) = fails?(v)\n" +
+        "export let assumed(v: JsValue): Int = assume fails^(v)\n",
+    );
+    return {
+      caught: exports["caught"] as (value: unknown) => string,
+      anything: exports["anything"] as (value: unknown) => string,
+      attempted: exports["attempted"] as (value: unknown) => string,
+      described: exports["described"] as (value: unknown) => string,
+      read: exports["read"] as (value: unknown) => unknown,
+      assumed: (value: unknown): unknown => {
+        try {
+          return (exports["assumed"] as (value: unknown) => unknown)(value);
+        } catch (error) {
+          return error;
+        }
+      },
+    };
+  }
+
+  /**
+   * A `$hex` getter that throws is read once, and the read is kept as
+   * `undefined`, so the value is foreign at every seat. Before the kept read,
+   * the getter's throw escaped from inside the `catch` itself.
+   */
+  test("a brand getter that throws is read once, and every seat calls the value foreign", async () => {
+    const { caught, anything, attempted, described } = await seats();
+    let reads = 0;
+    const hostile = {
+      get $hex(): string {
+        reads += 1;
+        if (reads === 1) throw new Error("hostile");
+        return "Main";
+      },
+      name: "Boom",
+      message: "spoofed",
+    };
+    expect(caught(hostile)).toBe("foreign");
+    expect(anything(hostile)).toBe("caught");
+    expect(attempted(hostile)).toBe("err");
+    expect(caught(hostile)).toBe("foreign");
+    expect(reads).toBe(1);
+    // `show` reads the same kept brand, so it renders the foreign value's
+    // own `name` and `message`, as a foreign value.
+    expect(described(hostile)).toBe("Boom: spoofed");
+    expect(reads).toBe(1);
+  });
+
+  /**
+   * A brand that would change between reads cannot move a value between the
+   * branches: the first read decides, for every seat and every later throw.
+   */
+  test("a brand that changes on a later read is held to its first answer", async () => {
+    const { caught, attempted } = await seats();
+    let reads = 0;
+    const shifting = {
+      get $hex(): string | undefined {
+        reads += 1;
+        return reads === 1 ? undefined : "Main";
+      },
+      name: "Boom",
+      message: "shifting",
+    };
+    expect(caught(shifting)).toBe("foreign");
+    expect(caught(shifting)).toBe("foreign");
+    expect(attempted(shifting)).toBe("err");
+    expect(reads).toBe(1);
+  });
+
+  /**
+   * `show` asked first, then a catch: one read between them, and they agree.
+   */
+  test("`show` and a catch agree, whichever reads the brand first", async () => {
+    const { caught, described } = await seats();
+    let brands = 0;
+    let names = 0;
+    const counted = {
+      get $hex(): undefined {
+        brands += 1;
+        return undefined;
+      },
+      get name(): string {
+        names += 1;
+        return "Counted";
+      },
+      message: "once",
+    };
+    expect(described(counted)).toBe("Counted: once");
+    expect(caught(counted)).toBe("foreign");
+    expect(described(counted)).toBe("Counted: once");
+    expect([brands, names]).toEqual([1, 1]);
+  });
+
+  /**
+   * A revoked proxy throws on every property read. Its brand read is kept as
+   * `undefined`, so a `_` arm and a `JsError` arm catch it, and nothing
+   * escapes from the catch.
+   */
+  test("a thrown revoked proxy is caught by `_` and by a `JsError` arm", async () => {
+    const { caught, anything, attempted } = await seats();
+    const { proxy, revoke } = Proxy.revocable({}, {});
+    revoke();
+    expect(anything(proxy)).toBe("caught");
+    expect(caught(proxy)).toBe("foreign");
+    expect(attempted(proxy)).toBe("err");
+  });
+
+  /**
+   * **One record per program** (FFI Part 11 §7). Helpers are emitted per
+   * module, and every module's copy keeps its reads in the one record, so a
+   * catch in another module reads nothing again.
+   */
+  test("a catch in another module shares the first read", async () => {
+    const exports = await runProject([
+      ["/main.hex", "module Main\n\nimport Other\n\n" +
+        "export let here(v: JsValue): String =\n" +
+        "    try\n" +
+        "        throw^(JsError(v))\n" +
+        "    catch\n" +
+        "        _ => \"here\"\n" +
+        "export let there(v: JsValue): String = Other.caughtThere(v)\n"],
+      ["/other.hex", "module Other\n\n" +
+        "export let caughtThere(v: JsValue): String =\n" +
+        "    try\n" +
+        "        throw^(JsError(v))\n" +
+        "    catch\n" +
+        "        JsError(_) => \"there\"\n" +
+        "        _ => \"other\"\n"],
+    ]);
+    let reads = 0;
+    const hostile = {
+      get $hex(): string | undefined {
+        reads += 1;
+        if (reads === 1) throw new Error("hostile");
+        return "Other";
+      },
+      name: "Boom",
+    };
+    expect((exports["here"] as (v: unknown) => string)(hostile)).toBe("here");
+    expect((exports["there"] as (v: unknown) => string)(hostile)).toBe("there");
+    expect(reads).toBe(1);
+  });
+
+  /**
+   * The reading `?` and `assume` sort what was thrown through the same kept
+   * read. The hostile brand's first read throws, so the value is foreign: `?`
+   * answers `None`, and `assume` refuses it with `AssumptionFault`. A second
+   * read would answer this module's brand beside a fault's name, and `?`
+   * would let the value through as a fault.
+   */
+  test("the reading `?` and `assume` read the brand once, through the kept read", async () => {
+    const exports = await run(
+      "let fails(v: JsValue): Int = throw^(JsError(v))\n" +
+        "export let read(v: JsValue): Option(Int) = fails?(v)\n" +
+        "export let assumed(v: JsValue): Int = assume fails^(v)\n",
+    );
+    const read = exports["read"] as (value: unknown) => unknown;
+    const assumed = (value: unknown): unknown => {
+      try {
+        return (exports["assumed"] as (value: unknown) => unknown)(value);
+      } catch (error) {
+        return error;
+      }
+    };
+    let reads = 0;
+    const hostile = {
+      get $hex(): string {
+        reads += 1;
+        if (reads === 1) throw new Error("hostile");
+        return "Main";
+      },
+      name: "SpoofFault",
+    };
+    expect(read(hostile)).toEqual({ tag: "None" });
+    expect(read(hostile)).toEqual({ tag: "None" });
+    expect(assumed(hostile)).toMatchObject({ name: "AssumptionFault" });
+    expect(reads).toBe(1);
+    const { proxy, revoke } = Proxy.revocable({}, {});
+    revoke();
+    expect(read(proxy)).toEqual({ tag: "None" });
+    expect(assumed(proxy)).toMatchObject({ name: "AssumptionFault" });
+  });
+
+  /**
+   * A foreign value's `name` is never read to sort it: the brand alone says
+   * it is foreign, and `name` is asked only of a value with a string brand
+   * (Exceptions §7.4).
+   */
+  test("a foreign value's `name` getter is not run by any seat that sorts it", async () => {
+    const { caught, anything, attempted, read, assumed } = await seats();
+    let names = 0;
+    const foreign = {
+      get name(): string {
+        names += 1;
+        return "BoomFault";
+      },
+    };
+    expect(caught(foreign)).toBe("foreign");
+    expect(anything(foreign)).toBe("caught");
+    expect(attempted(foreign)).toBe("err");
+    expect(read(foreign)).toEqual({ tag: "None" });
+    expect(assumed(foreign)).toMatchObject({ name: "AssumptionFault" });
+    expect(names).toBe(0);
+  });
+});
+
+describe("where the environment refuses the runtime record its place, each module keeps its own (FFI Part 11 §1)", () => {
+  /**
+   * Modules find the record through `Symbol.for("hexagon.runtime")` on the
+   * global object. Each row here moves the record to a key of its own, so the
+   * record the rest of the suite shares is untouched, and sets up the refusal
+   * there first. A locked global object is played by a stand-in that takes no
+   * new property, since the test runner's own global cannot be locked. In
+   * every case the module loads, writes nothing where it was refused, and its
+   * catches still share one kept read.
+   */
+  const PROGRAM = "module Main\n\n" +
+    "let fails(v: JsValue): Int = throw^(JsError(v))\n" +
+    "export let caught(v: JsValue): String =\n" +
+    "    try\n" +
+    "        ignore(fails^(v))\n" +
+    "        \"returned\"\n" +
+    "    catch\n" +
+    "        JsError(_) => \"foreign\"\n" +
+    "        _ => \"other\"\n" +
+    "export let anything(v: JsValue): String =\n" +
+    "    try\n" +
+    "        ignore(fails^(v))\n" +
+    "        \"returned\"\n" +
+    "    catch\n" +
+    "        _ => \"caught\"\n" +
+    "export let size(v: JsValue): Int = Array.length(JsValue.toArray^(v))\n";
+
+  async function refused(
+    key: string,
+    transform: (javascript: string) => string = (javascript) => javascript,
+  ): Promise<void> {
+    // The rows test nothing unless the record really moved: count the
+    // modules whose record now lives under the row's own key.
+    let moved = 0;
+    const exports = await runProject([["/main.hex", PROGRAM]], {
+      transform: (_path, javascript) => {
+        const rewritten = transform(
+          javascript.replaceAll('.for("hexagon.runtime")', `.for(${JSON.stringify(key)})`),
+        );
+        expect(rewritten).not.toContain('.for("hexagon.runtime")');
+        if (rewritten.includes(`.for(${JSON.stringify(key)})`)) moved += 1;
+        return rewritten;
+      },
+    });
+    expect(moved).toBeGreaterThan(0);
+    let reads = 0;
+    const hostile = {
+      get $hex(): string | undefined {
+        reads += 1;
+        if (reads === 1) throw new Error("hostile");
+        return "Main";
+      },
+      name: "Boom",
+    };
+    expect((exports["caught"] as (v: unknown) => string)(hostile)).toBe("foreign");
+    expect((exports["anything"] as (v: unknown) => string)(hostile)).toBe("caught");
+    expect(reads).toBe(1);
+    // `toArray`'s look uses the record's `arrays` and `looks`.
+    expect((exports["size"] as (v: unknown) => number)([1, 2, 3])).toBe(3);
+  }
+
+  test("a key already holding `null`", async () => {
+    const key = "hexagon.runtime.test-null";
+    const seat = globalThis as Record<symbol, unknown>;
+    seat[Symbol.for(key)] = null;
+    try {
+      await refused(key);
+      expect(seat[Symbol.for(key)]).toBeNull();
+    } finally {
+      delete seat[Symbol.for(key)];
+    }
+  });
+
+  test("a key holding a frozen object", async () => {
+    const key = "hexagon.runtime.test-frozen";
+    const seat = globalThis as Record<symbol, unknown>;
+    const frozen = Object.freeze({});
+    seat[Symbol.for(key)] = frozen;
+    try {
+      await refused(key);
+      expect(Reflect.ownKeys(frozen)).toEqual([]);
+    } finally {
+      delete seat[Symbol.for(key)];
+    }
+  });
+
+  test("a global object that takes no new property", async () => {
+    const key = "hexagon.runtime.test-locked";
+    const seat = globalThis as Record<string, unknown>;
+    const locked = Object.preventExtensions({});
+    seat["__hexagonLockedGlobal"] = locked;
+    let standIns = 0;
+    try {
+      await refused(key, (javascript) => {
+        const rewritten = javascript
+          .replaceAll("globalThis[__key]", "globalThis.__hexagonLockedGlobal[__key]")
+          .replaceAll("defineProperty(globalThis, __key", "defineProperty(globalThis.__hexagonLockedGlobal, __key");
+        if (rewritten.includes("defineProperty(globalThis.__hexagonLockedGlobal, __key")) standIns += 1;
+        return rewritten;
+      });
+      expect(standIns).toBeGreaterThan(0);
+      expect(Reflect.ownKeys(locked)).toEqual([]);
+      expect(Symbol.for(key) in globalThis).toBe(false);
+    } finally {
+      delete seat["__hexagonLockedGlobal"];
+    }
+  });
+
+  // A catch trips on a wrong `reads`, and `toArray` on a wrong `arrays` or
+  // `looks`: a number, an object that only inherits from `WeakMap.prototype`,
+  // a proxy over a real `WeakMap`, and a plain object.
+  test.each([
+    ["reads", "a number", (): unknown => 5],
+    ["reads", "a lookalike", (): unknown => Object.create(WeakMap.prototype) as unknown],
+    ["reads", "a proxy over a `WeakMap`", (): unknown => new Proxy(new WeakMap(), {})],
+    ["arrays", "a lookalike", (): unknown => Object.create(WeakMap.prototype) as unknown],
+    ["looks", "a plain object", (): unknown => ({})],
+  ])("a key holding a record whose `%s` is %s", async (field, label, make) => {
+    const key = `hexagon.runtime.test-wrong-${field}-${label}`;
+    const seat = globalThis as Record<symbol, unknown>;
+    const value = make();
+    const wrong: Record<string, unknown> = {
+      reads: new WeakMap(),
+      reading: {},
+      arrays: new WeakMap(),
+      looks: new WeakMap(),
+      [field]: value,
+    };
+    seat[Symbol.for(key)] = wrong;
+    try {
+      await refused(key);
+      expect(wrong[field]).toBe(value);
+    } finally {
+      delete seat[Symbol.for(key)];
+    }
+  });
+});
+
 describe("`attempt` bridges back to data (§8.2)", () => {
   const attemptSource = "module Main\n\n" + externThrower +
     "exception Boom(message: String)\n" +
@@ -806,12 +1191,10 @@ describe("emission and the guard the door does not ship (§7.4, §7.6)", () => {
         "        Boom(m) => m\n" +
         "        JsError(e) => JsError.message(e)\n",
     );
+    expect(withDoor).toContain('const __brand = __jsErrorRead(__error, "$hex");');
+    expect(withDoor).toContain('const __foreign = typeof __brand !== "string";');
     expect(withDoor).toContain(
-      'const __foreign = __error == null || typeof __error.$hex !== "string";',
-    );
-    expect(withDoor).toContain(
-      'if (__foreign || (__error != null && __error.$hex === "Hex.JsError" ' +
-        '&& __error.name === "JsError")) {',
+      'if (__foreign || (__brand === "Hex.JsError" && __name === "JsError")) {',
     );
     expect(withDoor).toContain("const e = __foreign ? __error : __error.error;");
 
@@ -824,9 +1207,7 @@ describe("emission and the guard the door does not ship (§7.4, §7.6)", () => {
         "        Boom(m) => m\n",
     );
     expect(withoutDoor).not.toContain("__foreign");
-    expect(withoutDoor).toContain(
-      'if (__error != null && __error.$hex === "Main" && __error.name === "Boom") {',
-    );
+    expect(withoutDoor).toContain('if (__brand === "Main" && __name === "Boom") {');
   });
 
   test("the match catch clause gets the same stage-1 binding, inside its own `catch`", () => {
@@ -839,11 +1220,12 @@ describe("emission and the guard the door does not ship (§7.4, §7.6)", () => {
         "    catch\n" +
         "        JsError(e) => JsError.message(e)\n",
     );
-    const tryBlock = text.slice(text.indexOf("try {"), text.indexOf("} catch ("));
+    // From the function on: the kept-read helper above it has a `try` of its own.
+    const body = text.slice(text.indexOf("const run"));
+    const tryBlock = body.slice(body.indexOf("try {"), body.indexOf("} catch ("));
     expect(tryBlock).not.toContain("__foreign");
-    expect(text).toContain(
-      'const __foreign = __error == null || typeof __error.$hex !== "string";',
-    );
+    expect(tryBlock).not.toContain("__brand");
+    expect(body).toContain('const __foreign = typeof __brand !== "string";');
   });
 
   test("`JsError` ships no `is` guard, in JavaScript or in the `.d.ts`", () => {
@@ -873,9 +1255,12 @@ describe("emission and the guard the door does not ship (§7.4, §7.6)", () => {
     expect(door.javascript.text).toContain(
       [
         "const __jsErrorRead = (() => {",
-        "  const __kept = new WeakMap();",
-        "  const __pending = {};",
+        "  const __kept = __hexRuntime.reads;",
+        "  const __pending = __hexRuntime.reading;",
         "  return (__value, __property) => {",
+        '    if (__value === null || (typeof __value !== "object" && typeof __value !== "function")) {',
+        "      return undefined;",
+        "    }",
         "    let __answers = __kept.get(__value);",
         "    if (__answers === undefined) {",
         "      __answers = new Map();",
@@ -898,6 +1283,10 @@ describe("emission and the guard the door does not ship (§7.4, §7.6)", () => {
         "})();",
       ].join("\n"),
     );
+    // The table is the program's one (§7): every module's copy of the helper
+    // reaches it under one registered symbol, so no module reads again what
+    // another has read.
+    expect(door.javascript.text).toContain('const __key = Symbol.for("hexagon.runtime");');
     expect(door.javascript.text).toContain(
       'const readMessage = __a => __jsErrorRead(__a, "message");',
     );
