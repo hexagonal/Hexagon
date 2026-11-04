@@ -4,7 +4,8 @@
 on 2026-09-16 after the runtime String-domain and Unicode-version questions were
 settled; amended 2026-11-01 — §1 and §11 state `length`'s cost, that scans
 read through Collections Part 3 §9's positions, and that a search reads its
-target once (#1413). This document owns the
+target once (#1413); amended 2026-11-04 — §10 names the program I/O modules
+that replace the experimental file reader (`program-io.md`). This document owns the
 text-processing operations exported by `stdlib/String.hex`.
 
 **Home:** Public companion functions in `stdlib/String.hex`. Related Vector
@@ -304,8 +305,8 @@ No dedicated `String.stripBom` function was adopted.
 
 The file readers `File.readText` and `File.readTextLossy` consume exactly one
 initial U+FEFF after UTF-8 decoding, and `File.writeTextBom` writes one before
-its text; `File.writeText` and the `Stdio` writers add none. None detects UTF-16
-or UTF-32. The full contract lives in [Program I/O](program-io.md) §3 and §4.
+its text; `File.writeText` and the `Stdio` writers add none. Neither reader
+detects UTF-16 or UTF-32. The full contract lives in [Program I/O](program-io.md) §3 and §4.
 BOM policy belongs to file input and output; ordinary String processing
 continues to preserve U+FEFF.
 

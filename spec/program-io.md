@@ -4,7 +4,7 @@
 - `string-text-processing.md` §10, where BOM handling at text input names `File.readText` and `File.readTextLossy`;
 - `stdlib-roadmap.md` §2's program I/O row;
 - `notes/program-io-plan.md`, whose stages 1 to 4 this document settles;
-- `compiler/architecture/environment.md` §7 and `javascript-target.md` §5 and §11, where Node is the one supported host.
+- `compiler/architecture/environment.md` §7 and `javascript-target.md` §5, §6 and §11, where Node is the one supported host.
 
 **Home:** three modules outside the prelude, `stdlib/File.hex`, `stdlib/Stdio.hex` and `stdlib/Process.hex`, declared `module File`, `module Stdio` and `module Process`. A program reaches them as it reaches `Regex` and `Rat`, by `import File`, `import Stdio` and `import Process` (Packages §2.4).
 
@@ -26,10 +26,10 @@
 
 ## 1. Doctrine
 
-- **The programmer thinks only in UTF-8.** Text Hexagon reads is well-formed UTF-8, or the read is refused. Text Hexagon writes is UTF-8 with no byte-order mark, unless the function's name says it writes one.
+- **The programmer thinks only in UTF-8.** Text read from a file is well-formed UTF-8, or the read is refused, unless the function's name says it repairs. Text Hexagon writes is UTF-8 with no byte-order mark, unless the function's name says it writes one. The arguments arrive as Node has already decoded them (§5.1).
 - **Name it, don't repair it.** A file that isn't UTF-8 is refused, with the reason named, rather than read with made-up characters. A repairing read exists, and its name says what it does (`readTextLossy`).
 - **The fail colour means "plan for this"** (Exceptions §1). A missing file is a failure a caller plans for, so the file operations are `->!` and throw the tracked `FileError`. Nobody plans for their own output failing: when the reader has gone the output is no longer wanted, and when the disk is full the only place left to say so is stderr. So the `Stdio` writers end the program instead, and are `->~`.
-- **Node is the one host.** The three modules call `node:fs` and `node:process` themselves, with no adapter layer. A program that imports none of them stays a portable ES module, as before.
+- **Node is the one host.** The three modules call `node:fs` and `node:process` themselves, with no adapter layer. A program that imports none of them stays a portable ES module.
 - **They are outside the prelude.** The prelude is what every program sees on every host, and these modules work only under Node and in the playground (§6). An import line states, in the program's text, that the program needs files or a command line.
 
 ## 2. The surface
@@ -124,11 +124,13 @@ Every failure of a `File` operation throws `FileError(reason, path, message)`. N
   | `EACCES`, `EPERM` | `PermissionDenied` |
   | `EISDIR` | `IsDirectory` |
   | `ENOTDIR` | `NotDirectory` |
-  | none: the bytes aren't well-formed UTF-8 (`readText` only) | `NotUtf8` |
+  | `ERR_ENCODING_INVALID_ENCODED_DATA`, from `readText`'s strict decoding: the bytes aren't well-formed UTF-8 | `NotUtf8` |
   | anything else, such as `ENAMETOOLONG`, `ENOSPC`, `EROFS` or `ERR_INVALID_ARG_VALUE` | `Other(code)`, with Node's code |
 
+  Decision 5c may give the writers a reason of their own (§7).
+
 - **The path** is the one the caller passed, so it is there even where Node's error leaves it out, as when a directory is read.
-- **The message** is one line:
+- **The message** is one line for a reader. It names the path, and for `NotUtf8` the first bad byte. Its wording is not normative, as `JsConversionError`'s isn't (FFI Part 11 §5.1): a program reads `reason` and `path`, never the text. The implementation words it this way:
 
   | `reason` | `message` |
   |---|---|
@@ -136,10 +138,10 @@ Every failure of a `File` operation throws `FileError(reason, path, message)`. N
   | `PermissionDenied` | `permission denied: input.txt` |
   | `IsDirectory` | `is a directory: input.txt` |
   | `NotDirectory` | `not a directory: input.txt` |
-  | `NotUtf8` | `not UTF-8 at byte 1235: input.txt` |
+  | `NotUtf8` | `not UTF-8 at byte 1234: input.txt` |
   | `Other(code)` | Node's own message, such as `ENAMETOOLONG: name too long, open '…'` |
 
-  The byte in a `NotUtf8` message is the first one that is not part of the file's longest well-formed prefix, counted from 1 at the file's first byte, BOM included. Finding it takes a second scan of the bytes, made only after a read has failed.
+  The bad byte is the first one that is not part of the file's longest well-formed prefix. It is counted from 1 at the file's first byte, BOM included, as Hexagon counts positions in a `String`. Finding it takes a second scan of the bytes, made only after a read has failed.
 - **A program that plans for a missing file** names the reason in a catch arm:
 
   ```hexagon
@@ -147,7 +149,7 @@ Every failure of a `File` operation throws `FileError(reason, path, message)`. N
       File.FileError(File.NotFound, _, _) => ""
   ```
 
-- **Uncaught,** a `FileError` ends the program as any uncaught exception does (Exceptions §7.1). Node prints it as `Error [FileError]: not found: input.txt`, and the status is 1.
+- **Uncaught,** a `FileError` ends the program as any uncaught exception does. Node prints it as `Error [FileError]: not found: input.txt`, and the status is 1.
 - **The set of reasons is closed.** A `match` that lists all six is exhaustive. Adding a reason, or moving a code out of `Other`, is a breaking change and needs a ruling.
 
 ## 4. `Stdio`
@@ -168,7 +170,7 @@ Every failure of a `File` operation throws `FileError(reason, path, message)`. N
 
 ### 4.3 When a write can't finish
 
-A writer either writes all of its text, or ends the program. No `catch` sees the ending, just as none sees Ctrl-C, and so the writers are `->~` (Effects §6.1).
+When a write fails, the writer ends the program. No `catch` sees the ending, just as none sees Ctrl-C, and so the writers are `->~` (Effects §6.1). (What a writer does with text it can't encode is decision 5c's, §7.)
 
 - **The descriptor would block (`EAGAIN`).** This is not a failure. Node switches a piped stdout to non-blocking once anything has gone through `console.log`, which `Debug.log` does. A write to a slow reader then finds the pipe full. The writer waits about a millisecond and writes the rest, and keeps on until all of it is written.
 - **The reader has gone (`EPIPE`).** The program ends at once, quietly, with status 141, which is 128 plus SIGPIPE's number, 13. Nothing is printed. This is the status a shell reports for `yes | head -1`, and for a C or Go program in the same place. Node ignores SIGPIPE, so the program exits with the number rather than by the signal: a shell sees the same `$?`, and a parent that reads the raw wait status sees an exit.
@@ -178,7 +180,7 @@ A writer either writes all of its text, or ends the program. No `catch` sees the
   cannot write to standard output: no space left on device
   ```
 
-  The line names the stream, `standard output` or `standard error`, and then the system's description of the error, as Node gives it without its code. When stderr itself is the stream that failed, the line is tried on stderr anyway, and the status is 1 whether or not it gets there.
+  The line names the stream, `standard output` or `standard error`, and then the system's description of the error, as Node gives it without its code. When stderr is the stream that failed, the line still goes to stderr, and the status is 1 even if that write fails too.
 - **What this costs:**
   - A program that has to keep running when its output fails, such as a long-running service, can't do that with these writers. A `->!` writer beside them could come later without breaking anything.
   - Under `set -o pipefail`, `program | head -1` fails the pipeline, as `yes | head -1` does.
@@ -193,10 +195,10 @@ A writer either writes all of its text, or ends the program. No `catch` sees the
 ### 5.1 `arguments`
 
 - **`arguments~()` answers the arguments the user passed to the program,** and nothing before them: not Node's executable, its options, or the script's path.
-  - These are the arguments Node's `util.parseArgs` takes by default: `process.argv` from its third element, or from its second when Node ran code with `-e`, `--eval`, `-p` or `--print` and there is no script.
+  - These are the arguments Node's `util.parseArgs` takes by default: `process.argv` from its third element, or from its second when Node ran code given on its command line (`-e`, `-p`, and every other spelling of those options, such as `--eval=…` and `-pe`) and there is no script.
   - So `node main.js input.txt` answers `["input.txt"]`, and `Process.arguments~()[1]` is `"input.txt"`.
 - **It is `->~`.** Reading the arguments is reading input, which is impure (Effects §1), and it cannot fail. It reads `process.argv` each time it is called.
-- **The text is what Node gives.** Node decodes the arguments as UTF-8 before a program sees them, so an argument whose bytes aren't UTF-8 arrives with U+FFFD in place of each bad sequence. No Hexagon program can see the original bytes.
+- **The text is what Node gives.** Node decodes the arguments as UTF-8 before a program sees them, so an argument whose bytes aren't UTF-8 arrives with U+FFFD in place of each bad sequence. No Hexagon program can see the original bytes. Nothing strips a BOM.
 
 ### 5.2 `setExitStatus`
 
@@ -208,12 +210,12 @@ A writer either writes all of its text, or ends the program. No `catch` sees the
 
 ## 6. The playground
 
-The playground runs programs in the browser, where Node isn't there. It runs a program that imports these modules as a terminal would run it with no arguments, in an empty directory that can't be written to. Every answer it gives is one Node gives in that situation.
+The playground runs programs in the browser, where Node isn't there. It runs a program that imports these modules as a terminal would run it with no arguments, in an empty directory on a read-only file system. Its answers are the ones Node gives there for a path naming a file in that directory.
 
 - **`Stdio.write` and `writeLine`** go to the output pane, in order with `Debug.log`'s lines. **`writeError` and `writeErrorLine`** go to the same pane, marked as errors.
 - **`Process.arguments~()`** answers an empty `Vector`.
-- **`Process.setExitStatus~(n)`** shows at the end of the run as `exit status n`, when `n` isn't 0.
-- **`File.readText!` and `File.readTextLossy!`** throw `FileError(NotFound, path, …)`. **`File.writeText!` and `File.writeTextBom!`** throw `FileError(Other("EROFS"), path, …)`, Node's code for a read-only file system, with Node's message for it.
+- **`Process.setExitStatus~(n)`** shows at the end of the run as `exit status n`, when `n` isn't 0. An uncaught exception or fault shows as the playground shows one today.
+- **`File.readText!` and `File.readTextLossy!`** throw `FileError(NotFound, path, …)`. **`File.writeText!` and `File.writeTextBom!`** throw `FileError(Other("EROFS"), path, …)`, Node's code for a read-only file system, with Node's message for it. They answer so for every path. Node would answer differently for a path naming the directory itself (`IsDirectory`), or a write through a directory that isn't there (`NotFound`).
 - **How:** the playground links its own small `node:fs` and `node:process` beneath the three modules. The modules themselves are the same in the browser as under Node, and a test runs the same programs in both and compares what they print.
 - **Nothing else changes for the browser.** A web page outside the playground that imports these modules fails to load, since nothing there stands in for Node.
 
@@ -225,7 +227,7 @@ Open. A `String` holds a lone surrogate only when foreign code supplies one (`st
 
 - **Node is the one supported host,** at the versions the CLI supports. Bun and Deno are not claimed.
 - **The modules call `node:fs` and `node:process` themselves.** There is no adapter module and no host-neutral layer beneath them.
-- **A program that imports none of the three emits no import of `node:fs` or `node:process`,** and loads in any host that runs ES modules, as before.
+- **A program that imports none of the three emits no import of `node:fs` or `node:process`,** and stays a plain ES module.
 - **A browser** is not a host for these modules, apart from the playground (§6).
 
 ## 9. Implementation requirements
@@ -234,7 +236,7 @@ Open. A `String` holds a lone surrogate only when foreign code supplies one (`st
 - **`FileError`'s reason** comes from the thrown error's `code`, through one guarded read beside the one `JsError.message` makes.
 - **The strict read** decodes with `TextDecoder("utf-8", { fatal: true })`, which drops exactly one leading BOM. The lossy read decodes without `fatal`.
 - **The `Stdio` writer** writes with `writeSync`, carries on after a partial write, waits and retries on `EAGAIN`, and ends the program on any other error as §4.3 says. It catches every throw, which keeps `->~` true.
-- **`arguments`** chooses where to start from `process.execArgv`, as `util.parseArgs` does.
+- **`arguments`** finds where the user's arguments start as `util.parseArgs` does, from whether Node ran code given on its command line. Checking `process.execArgv` for the four long and short spellings is not enough: Node 24.18.0 records `--eval=…` and `-pe` as written.
 - **`setExitStatus`** checks the range, then sets `process.exitCode`.
 - **The playground's stand-ins** for `node:fs` and `node:process` answer only what the three modules call, as §6 says.
 - **The experimental modules go,** with their Node adapters and their specs, and nothing redirects to them.
@@ -243,63 +245,73 @@ Open. A `String` holds a lone surrogate only when foreign code supplies one (`st
 
 1. **Imports.** `import File`, `import Stdio` and `import Process` resolve; a program that uses one without importing it is refused as any unimported module is. A program that imports none emits no `node:fs` or `node:process` import.
 2. **Colours.** An unmarked call of each export is refused. `File`'s take `!`, and `Stdio`'s and `Process`'s take `~`.
-3. **Reasons.** Each reason in §3.4's table, with its message: a missing file, a missing parent directory, an unreadable file (as a user without the permission), a directory, a path through a file, a name too long.
-4. **Strict and lossy reads.** `61 FF 62` is refused by `readText` with `not UTF-8 at byte 2: …`, and `readTextLossy` reads `a�b`. A truncated sequence at the end is refused at its first byte. `EF BB BF 61` reads as `"a"` both ways, and `EF BB BF EF BB BF 61` as `"\u{FEFF}a"`.
+3. **Reasons.** Each reason in §3.4's table, with a message naming the path: a missing file, a missing parent directory, an unreadable file (as a user without the permission), a directory, a path through a file, a name too long.
+4. **Strict and lossy reads.** `61 FF 62` is refused by `readText` with a message naming byte 2, and `readTextLossy` reads `a�b`. A truncated sequence at the end is refused at its first byte. `EF BB BF 61` reads as `"a"` both ways, and `EF BB BF EF BB BF 61` as `"\u{FEFF}a"`.
 5. **Writes.** The exact bytes of `writeText` and `writeTextBom`, with Unicode, CRLF, NUL and a supplied U+FEFF; truncation of a longer file; and `writeTextBom` followed by `readText` giving back the text.
 6. **Catching.** `File.FileError(File.NotFound, path, _)` catches a missing file, and an uncaught `FileError` prints `Error [FileError]: …` with status 1.
 7. **`Stdio` bytes.** Exact bytes on stdout and stderr for all four writers: the empty string, Unicode, a supplied BOM, NUL, existing line endings, the added LF, consecutive calls, and output larger than a pipe's buffer, to a file and to a pipe read to its end.
 8. **`Stdio` endings.** `| head -1` ends with status 141 and an empty stderr. `> /dev/full` ends with one line on stderr and status 1. A program that calls `Debug.log`, then writes 2 MB into a reader that sleeps for a second, writes every byte and finishes with 0. A terminal check through a pseudo-terminal, with the terminal's own output processing turned off.
-9. **`arguments`.** Under a script, under `node -e` and under `node -p`, with options to Node before the script, and with an argument whose bytes aren't UTF-8.
+9. **`arguments`.** Under a script, under `node -e`, `-p`, `--eval=…` and `-pe`, with options to Node before the script, and with an argument whose bytes aren't UTF-8.
 10. **`setExitStatus`.** 0, 3 and 255 end with that status; 256 and -1 throw `ExitStatusFault`; the last of two settings wins; an uncaught throw after a setting ends with 1.
-11. **The playground.** The same programs in the playground and under Node with no arguments in an empty read-only directory print the same text, in the same order, with stderr marked and the exit status shown.
+11. **The playground.** Programs that write with `Stdio`, read the arguments and set a status print the same text in the playground as under Node with no arguments, in the same order, with stderr marked and the exit status shown. `File`'s answers in the playground are §6's.
 
 ## 11. Rejected alternatives (do not re-litigate)
 
-### 11.1 Letting Node's errors through as `JsError` (decision 2)
+### 11.1 Graduating less (decision 1)
 
-A program would have to look for `"ENOENT"` inside Node's message text to plan for a missing file. Every colleague language lets a program tell "not found" from "permission denied" without reading text.
+- **Graduating files and output, with the arguments experimental.** An Advent of Code program would either hard-code its path or import one experimental module beside two stable ones.
+- **Shipping v1 with all I/O under `Experimental`.** The first program anyone writes would import `Experimental`, and v1's promise wouldn't cover it. When I/O graduated, every program's imports would change.
 
-### 11.2 One exception per kind of failure (decision 2)
+### 11.2 Letting Node's errors through as `JsError` (decision 2)
 
-`FileNotFound(path)`, `FilePermissionDenied(path)` and so on, the style of Java, .NET and Python. Hexagon exceptions have no common base, so "any file failure" would be one catch arm per kind, or `_`, which catches every other failure too.
+- The contract would be Node's text. A program that plans for a missing file would look for `"ENOENT"` inside `JsError.message`, or write its own `extern` to read `code`.
+- It goes against `JsError`'s own description, "a value JavaScript threw that Hexagon did not". A stable `File.readText` is Hexagon's operation.
+- It is the case #1427's ruling was made for: decoders got `JsConversionError` rather than letting JavaScript's errors through.
 
-### 11.3 Replacing bad bytes by default (decision 2b)
+### 11.3 One exception per kind of failure (decision 2)
+
+`FileNotFound(path)`, `FilePermissionDenied(path)` and so on, the style of Java, .NET and Python. Hexagon exceptions have no common base, so "any file failure" would be one catch arm per kind, or `_`, which catches every other failure too. The module would also have more names.
+
+### 11.4 Replacing bad bytes by default (decision 2b)
 
 Node's `readFileSync(path, "utf8")` makes up U+FFFD for each bad sequence and says nothing. A file in another encoding, such as a CSV saved by older Excel in Windows-1252, reads `café` as `caf�`, and the program goes on with wrong data and no report. Source files and data files would follow opposite rules. The repair is kept, under a name that says so, `readTextLossy`.
 
-### 11.4 Throwing when a write to stdout fails (decision 2c)
+### 11.5 Throwing when a write to stdout fails (decision 2c)
 
-As Python does, and as the experimental module did. `program | head -1` would print an error and exit 1, unless the program catches it at the top, and every function that prints would be marked as one that may fail. The fail colour would no longer pick out the failures a caller plans for. Go's split, ending quietly on `EPIPE` and throwing on everything else, keeps the second cost.
+- **Every failure a tracked exception, the writers `->!`,** as Python does. `program | head -1` would print an error and exit 1, unless the program catches it at the top. Every function that prints would be marked as one that may fail, so the fail colour would no longer pick out the failures a caller plans for.
+- **Ending quietly when the reader leaves, as Go does, with every other failure a tracked exception.** The second cost stays, for failures such as a full disk that no caller plans for either.
 
-### 11.5 Carrying on when a write fails (decision 2c)
+### 11.6 Carrying on when a write fails (decision 2c)
 
 As Java, .NET and Node's `console.log` do. The program would report success when its output was lost.
 
-### 11.6 The arguments as a value (decision 3)
+### 11.7 The arguments as a value, or with the program first (decision 3)
 
 - **A value, `Process.arguments`, read once when the program starts.** Effects §6.2's species (b) would have to stretch to admit it. Its members keep still something the program already holds, or never asked for, and the arguments are new information from outside, which Effects §1 calls input. A pure function could then depend on how the program was started, and its colour wouldn't show it.
 - **The program's path first,** the OCaml, Swift, Rust, Go and Python convention. Under Node, "the program" is two paths, Node's and the script's, so every program would skip what comes before the user's first argument. Rust's documentation warns that its element "might not even exist".
 
-### 11.7 Ending the program now with a status (decision 4)
+### 11.8 Ending the program now with a status (decision 4)
 
-`exit: Int ->~ a`, the shape of OCaml's, Rust's and Kotlin's, alone or beside `setExitStatus` as Node and .NET have both.
+`exit: Int ->~ a`, the shape of OCaml's, Rust's and Kotlin's.
 - It would be a third way out of a function, beside returning and throwing, and the program's own choice: any call could end the program, and no `catch` would see it. A library function that called it would end any JavaScript application that imported it.
 - It loses output still on its way: of 100,000 lines logged with `console.log`, which `Debug.log` uses, into a reader that waited a second, `process.exit(0)` delivered 6,656, where setting `process.exitCode` and finishing delivered all of them.
 - It would need a new intrinsic with `throw`'s typing.
+- Offering it beside `setExitStatus`, as Node and .NET do, adds these costs and two ways to do one thing.
 
 It can be added later without breaking anything.
 
-### 11.8 Wrapping an exit status outside 0 to 255 (decision 4)
+### 11.9 Wrapping an exit status outside 0 to 255 (decision 4)
 
 Node turns 256 into 0, a success. That is a silent repair of a number that does not fit, which Exceptions §1 makes a fault.
 
-### 11.9 The modules in the prelude, or one module for all of it (decision 5a)
+### 11.10 The modules in the prelude, or one module for all of it (decision 5a)
 
 In the prelude, a browser program could call `File.readText!` with nothing in its text saying it needs a host with files, and `FileError` would need a ruling to join Modules §5.5's closed bare set. One module, such as `Io`, would have to carry in each name what the module name no longer says, and arguments, the exit status and files are three subjects that Rust, Haskell and Koka keep apart.
 
-### 11.10 Stopping or refusing a program in the playground (decision 5b)
+### 11.11 Stopping or refusing a program in the playground (decision 5b)
 
-The TypeScript Playground's way, stopping the run at the first Node API with the browser's own error, would mean a program that prints with `Stdio` can't be shown there, and its author would switch to `Debug.log`, which is a probe and not real output. Refusing the program before running it costs the same, and loses the lines before the first call.
+- **The TypeScript Playground's way,** stopping the run at the first Node API with the browser's own error. A program that prints with `Stdio` couldn't be shown there, and its author would switch to `Debug.log`, which is a probe and not real output. The pane would also need its own way to tell a stopped run from a program that failed.
+- **Refusing the program before running it.** The same costs, and even the `Debug.log` lines would never run.
 
 ## 12. Precedents consulted
 

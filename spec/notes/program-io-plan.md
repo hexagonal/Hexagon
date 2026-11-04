@@ -6,7 +6,8 @@ The global work entry is in [the stdlib roadmap](../stdlib-roadmap.md).
 Stages 1 to 4 were decided on 2026-11-04 and graduate to `Hex.File`, `Hex.Stdio`
 and `Hex.Process`, under Node only: [Program I/O](../program-io.md) is their
 contract, and `program-io-deliberation.md` the record. The sections below for
-those stages are kept as they were planned. Stages 5 to 7 are unchanged.
+those stages keep their plan, with only the links to their old contracts
+updated. Stages 5 to 7 are unchanged.
 
 ## Purpose
 
@@ -61,9 +62,9 @@ other values into strings.
 
 Its contract was `experimental-stdio.md`, now superseded by
 [Program I/O](../program-io.md), which makes the writers `->~`.
-Local implementation, Sol Medium review, and Node/Bun/Deno runtime checks are
-complete. The specification records the
-tested versions and platform limits.
+Local implementation, Sol Medium review, and Node/Bun/Deno runtime checks were
+complete, and the experimental specification recorded the tested versions and
+platform limits.
 
 ## 3. Command-line arguments
 
@@ -112,8 +113,9 @@ a broad path library before these choices are settled.
 
 Use #1006 as the starting architectural pattern: explicitly imported experimental
 modules, ordinary Hexagon wrappers over narrow host adapters, and tests of actual
-emitted programs. Since 2026-11-04 Node is the one host, the adapters are gone,
-and the playground stands in for a terminal (`program-io.md` §6, §8). Keep unused host dependencies out of
+emitted programs. Since 2026-11-04 Node is the one host, the adapters go when
+#1461 graduates the modules, and the playground stands in for a terminal
+(`program-io.md` §6, §8). Keep unused host dependencies out of
 programs that do not import the facilities.
 
 For each increment, check existing issues and prerequisites first. If a more

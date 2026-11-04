@@ -95,7 +95,7 @@ The browser build need not include Node project discovery, filesystem traversal,
 Hexagon emits portable, readable **ECMAScript modules**. Its goal is to produce JavaScript suitable for the environments in which modern JavaScript runs, including:
 
 - browsers;
-- Node.js servers and command-line programs, Node being the one server host Hexagon supports;
+- Node.js servers and command-line programs, Node being the one non-browser host Hexagon supports and tests;
 - Web Workers and serverless/edge workers; and
 - application shells and embedded environments that accept compatible ESM.
 
