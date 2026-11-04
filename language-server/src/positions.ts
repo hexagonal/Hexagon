@@ -29,7 +29,15 @@ import type { Position, Range } from "vscode-languageserver";
 import type { TextDocument } from "vscode-languageserver-textdocument";
 import type { Source } from "../../compiler/src/index.js";
 
-/** A compiler span rendered as the protocol's range. Total, and allocation only. */
+/**
+ * A compiler span rendered as the protocol's range. Total, and allocation only.
+ *
+ * One line can disagree: the first line of a file that begins with a
+ * byte-order mark. The compiler gives the mark no column (Lexer §2.1), as an
+ * editor that hides it does, and VS Code sends no mark. A client that kept the
+ * mark in the text it sends would see that line's ranges one character left of
+ * where `offsetOfPosition` counts from.
+ */
 export function rangeOfSpan(span: Source.Span): Range {
   return {
     start: { line: span.start.line, character: span.start.column },
