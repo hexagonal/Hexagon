@@ -156,6 +156,10 @@ export let flatMap(values: Vector(a), transform: a ->! Vector(b)): Vector(b) =
             result := append(result, produced)
     result
 
+(** The vectors in `rows`, joined in order into one vector. *)
+export let flatten(rows: Vector(Vector(a))): Vector(a) =
+    flatMap(rows, row => row)
+
 (** `initial` combined with every element of `values`, left to right:
     `Seq.fold`, whose `combine` may be impure or fail. *)
 export let fold(values: Vector(a), initial: b, combine: (b, a) ->! b): b =

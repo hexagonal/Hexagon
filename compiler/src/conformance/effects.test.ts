@@ -3113,6 +3113,12 @@ describe("Effects §3.4 — a knot's facts decide together, and one fact is one 
     const qualified = "let applyF(g: (String) -> Float): Float = g(\"1\")\nexport let q(): Float = applyF(Float.parse)\n";
     expect(reports(qualified).map(({ fixes }) => fixes)).toEqual([["assume it cannot fail here: `(x) => assume Float.parse^(x)`"]]);
     expect(fixed(qualified, 0, 0)).toEqual([]);
+    // Six names remain whichever one the function takes.
+    const ints = "Int, Int, Int, Int, Int, Int";
+    const six = written + `let applySix(g: (${ints}) -> Unit): Unit = ()\n` +
+      "let x(a: Int, b: Int, c: Int, d: Int, e: Int, g: Int): Unit = oops0^()\nexport let s(): Unit = applySix(x)\n";
+    expect(reports(six).map(({ fixes }) => fixes))
+      .toEqual([["assume it cannot fail here: `(y, z, w, v, u, t) => assume x^(y, z, w, v, u, t)`"]]);
     // The world part keeps `save0` and `log0` out: nothing turns them pure, so no fixit.
     for (const impure of ["save0", "log0"]) {
       const world = written + `export let r(): Unit = pureOnly(${impure})\n`;

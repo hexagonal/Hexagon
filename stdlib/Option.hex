@@ -53,6 +53,12 @@ export let toResult(source: Option(a), failure: () -> Exn): Result(a) =
         Some(value) => Ok(value)
         None => Err(failure())
 
+(** The inner option of a `Some`, or `None`: one `Option` layer removed. *)
+export let flatten(source: Option(Option(a))): Option(a) =
+    match source
+        Some(inner) => inner
+        None => None
+
 (** Whether a value is present. It reads the constructor only, so it asks for no
     `Eq` on the value, where `source == None` would. *)
 export let isSome(source: Option(a)): Bool =

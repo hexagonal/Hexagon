@@ -1,6 +1,6 @@
 # Stdlib listing: memoization
 
-**Status:** Decided 2026-11-03, ruled by James in four questions, a fifth on what a call answers after a caught cycle, and a sixth on which computations a cycle ends (`notes/memoization-deliberation.md` is the deliberation record). Spec-only; implementation #1445. Amended 2026-11-03 (#1447): `JsValue.toArray`'s look joins the keepers a cycle can run through (§3.3, §3.4). Amended 2026-11-03, ruled by James (#1456): `Function.identity` joins the module (§2.1). This document discharges the "`memoFix` / open-recursion support surface" row of `stdlib-roadmap.md` §2. Its companion edits are:
+**Status:** Decided 2026-11-03, ruled by James in four questions, a fifth on what a call answers after a caught cycle, and a sixth on which computations a cycle ends (`notes/memoization-deliberation.md` is the deliberation record). Spec-only; implementation #1445. Amended 2026-11-03 (#1447): `JsValue.toArray`'s look joins the keepers a cycle can run through (§3.3, §3.4). Amended 2026-11-03, ruled by James (#1456): `Function.identity` joins the module (§2.1), and its refusal over a `Seq` of `Vector`s names the lambda that calls it (Collections Part 5 §12). This document discharges the "`memoFix` / open-recursion support surface" row of `stdlib-roadmap.md` §2. Its companion edits are:
 - Effects §6.2, where species (d) states its obligation in closed form and every keeper gains one rule for cycles, and §7's coupling paragraph;
 - Collections Part 2 §2, §3.2 and §4.4, where `Hash` gains `same`, with its rows in Parts 3 and 4 (Part 4 also gains a runtime obligation) and Dec §8;
 - FFI Part 3 §4 and §7.1 to §7.5, where `ReentrancyFault` gains a second raiser and every keeper gains one rule for cycles (§7.5), with §9.4, and FFI Part 11 §7's guarded reads;
@@ -88,7 +88,7 @@ export let identity(value: a): a = value
 - **The function that changes nothing,** for a seat that wants a function where nothing should change: `Vector.flatMap(rows, Function.identity)` flattens a vector of vectors. Gleam's `function.identity` is the model, and OCaml's `Fun.id` is the precedent in this module's lineage (§11).
 - **Ordinary Hexagon, with no intrinsic key.** Its body is the plain binding `value`, so the strictly-simpler law (Constraints §6.1, as Statements §3.3 extends it to a plain prelude function) sends it to source, as it sends `ignore` in `Prelude.hex`. Its type is plain HM, `(a) -> a`.
 - **Qualified only, like the module's other names:** `Function.identity`. It adds nothing to Modules §5.5's bare set, so a bare `identity` is refused with `Function.identity` named, and a program's own `let identity(x) = x` occludes it (Modules §5.4).
-- **Its written face binds: its signature is fixed, as any named function's is.** A `Vector` supplies a `Seq` where a newly written lambda's body returns it, never through an existing function's result (Collections Part 5 §3.4, and §3.6's "What never adapts"). So over a `Seq` of `Vector`s, `Seq.flatMap(rows, Function.identity)` is a type mismatch, and `Seq.flatMap(rows, row => row)` flattens. Over a `Seq` of `Seq`s, a `Vector` of `Vector`s or an `Option` of `Option`s, both spellings work.
+- **Its written face binds: its signature is fixed, as any named function's is.** A `Vector` supplies a `Seq` where a newly written lambda's body returns it, never through an existing function's result (Collections Part 5 §3.4, and §3.6's "What never adapts"). So over a `Seq` of `Vector`s, `Seq.flatMap(rows, Function.identity)` is a type mismatch whose report names `(x) => Function.identity(x)` (Collections Part 5 §12), and `Seq.flatMap(rows, row => row)` flattens. Over a `Seq` of `Seq`s, a `Vector` of `Vector`s or an `Option` of `Option`s, both spellings work.
 
 ## 3. Meaning
 
@@ -253,7 +253,7 @@ No new refusal is introduced. The third row changes only the wording of an exist
 - **(l) `identity` (§2.1).**
   - `Function.identity(3)` is `3`, and `Function.identity("a")` is `"a"`.
   - `Vector.flatMap([[1, 2], [3]], Function.identity)` is `[1, 2, 3]`, and `Option.flatMap(Some(Some(4)), Function.identity)` is `Some(4)`.
-  - Over a `Seq` of `Vector`s, `Seq.flatMap` with `Function.identity` is refused as a type mismatch, and with `row => row` it flattens.
+  - Over a `Seq` of `Vector`s, `Seq.flatMap` with `Function.identity` is refused as a type mismatch naming `(x) => Function.identity(x)`, and with `row => row` it flattens.
   - A bare `identity` with no local binding is refused with `Function.identity` named (Modules §5.5), and a module's own `let identity(x) = x` occludes it and compiles beside the prelude (Modules §5.4).
 
 ## 10. Rejected alternatives (do not re-litigate)

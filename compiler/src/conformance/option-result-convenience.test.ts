@@ -596,6 +596,45 @@ export let answers: String = "\${present.isSome()} \${present.isNone()} \${absen
   });
 });
 
+describe("flatten removes one layer (§2, §3)", () => {
+  test("every pair of layers, qualified and by the dot, as bare calls", async () => {
+    const main = await runMain(`module Main
+
+exception Missing
+let shown(o: Option(Int)): String = match o
+    Some(value) => "Some(\${value})"
+    None => "None"
+let told(r: Result(Int)): String = match r
+    Ok(value) => "Ok(\${value})"
+    Err(error) => "Err(\${error})"
+let lone: Option(Int) = None
+let failed: Result(Int) = Err(Missing)
+export let options: String = "\${shown(Option.flatten(Some(Some(1))))} \${shown(Some(lone).flatten())} " ++
+    "\${shown((None: Option(Option(Int))).flatten())}"
+export let results: String = "\${told(Result.flatten(Ok(Ok(2))))} \${told(Ok(failed).flatten())} " ++
+    "\${told((Err(Missing): Result(Result(Int))).flatten())}"
+export let outer(): Result(Result(Int)) = Err(Missing)
+export let innerErr(): Result(Result(Int)) = Ok(failed)
+export let flat(r: Result(Result(Int))): Result(Int) = r.flatten()
+`);
+    expect(main["options"]).toBe("Some(1) None None");
+    expect(main["results"]).toBe("Ok(2) Err(Missing) Err(Missing)");
+    // Each `Err` keeps its exception: the same value, not a copy.
+    const flat = main["flat"] as (r: unknown) => { tag: string; error?: unknown };
+    for (const make of [main["outer"], main["innerErr"]] as (() => { tag: string; error?: unknown; value?: { error?: unknown } })[]) {
+      const source = make();
+      const error = source.tag === "Err" ? source.error : source.value!.error;
+      expect(error).toBeDefined();
+      expect(flat(source).error).toBe(error);
+    }
+  });
+
+  test("a value with one layer is refused with the ordinary mismatch", () => {
+    expect(messages("let one: Option(Int) = Some(1)\nlet o = Option.flatten(one)\n"))
+      .toEqual(["type mismatch: expected Option(a), found Int"]);
+  });
+});
+
 describe("the new functions take no mark, and a mark is refused", () => {
   // Each in its own module: a hedged mark report is given once per module
   // (the Rewrite Rule's fallback), so one program would show only the first.
@@ -604,6 +643,7 @@ describe("the new functions take no mark, and a mark is refused", () => {
     ["let b: Result(Int) = Some(1).toResult^(() => Missing)\n", ".toResult", "^", "may fail", "unable to fail"],
     ["let c: Bool = Some(1).isSome!()\n", ".isSome", "!", "is impure and may fail", "pure and unable to fail"],
     ["let d: Bool = r.isErr~()\n", ".isErr", "~", "is impure", "pure"],
+    ["let e: Option(Int) = Some(Some(1)).flatten^()\n", ".flatten", "^", "may fail", "unable to fail"],
   ])("%s", (line, callee, mark, claims, silent) => {
     const reports = messages("exception Missing\nlet r: Result(Int) = Ok(1)\n" + line);
     expect(reports).toHaveLength(1);
