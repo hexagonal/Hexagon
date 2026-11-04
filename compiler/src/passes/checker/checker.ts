@@ -29991,7 +29991,9 @@ class Checker {
     const source = this.#sourceFile();
     if (named.kind !== "Name" || source === undefined || Number(named.span.fileId) !== this.#fileId) return undefined;
     const written = source.text.slice(named.span.start.offset, named.span.end.offset);
-    const pool = ["x", "y", "z", "w", "v", "u"].filter((each) => each !== named.text);
+    // Six names whatever the function is called, so the limit is six
+    // parameters for every function.
+    const pool = ["x", "y", "z", "w", "v", "u", "t"].filter((each) => each !== named.text).slice(0, 6);
     if (arity > pool.length) return undefined;
     return { written, names: pool.slice(0, arity).join(", ") };
   }
@@ -32127,6 +32129,7 @@ class Checker {
       // is what it will supply (Effects §4.3, #1119) — for the report's words.
       this.#parameterParity = !this.#parameterParity;
       this.#parameterDepth += 1;
+      const reportsBeforeParameters = this.#reportCount;
       try {
         for (const [index, parameter] of actualLeft.parameters.entries()) {
           const other = actualRight.parameters[index];
@@ -32138,9 +32141,13 @@ class Checker {
         this.#parameterDepth -= 1;
       }
       // At a seat's whole type, the results meet as the result of a function
-      // value handed there, which a lambda calling it would adapt (§3.6).
+      // value handed there, which a lambda calling it would adapt (§3.6) — but
+      // only where its parameters fit: one refused for them as well is not
+      // refused for its result alone, and no lambda calling it would compile.
       const enclosingResult = this.#handedResult;
-      this.#handedResult = this.#unifyNesting === 0 ? { left: actualLeft, right: actualRight } : undefined;
+      this.#handedResult = this.#unifyNesting === 0 && this.#reportCount === reportsBeforeParameters
+        ? { left: actualLeft, right: actualRight }
+        : undefined;
       try {
         if (unifyChild(actualLeft.result, actualRight.result)) return;
       } finally {

@@ -598,6 +598,9 @@ describe("a function handed by name, refused for its result, names the lambda (P
     expect(refusals(wide(6)))
       .toEqual([named("many", "Vector(Int)", "(x, y, z, w, v, u) => many(x, y, z, w, v, u)", "Seq(Int)")]);
     expect(refusals(wide(7))).toEqual(["type mismatch: expected Seq(Int), found Vector(Int)"]);
+    // Six names remain whichever one the function takes.
+    expect(refusals(wide(6).replace("many(", "x(").replace("wide(many)", "wide(x)")))
+      .toEqual([named("x", "Vector(Int)", "(y, z, w, v, u, t) => x(y, z, w, v, u, t)", "Seq(Int)")]);
   });
 
   test("a qualified name keeps its qualifier", () => {
@@ -652,9 +655,18 @@ describe("a function handed by name, refused for its result, names the lambda (P
     expect(refusals(
       "let all(f: (Int) -> Seq(String)): Seq(String) = f(1)\nlet text(n: Int): String = \"ab\"\nlet s = all(text)\n",
     )).toEqual([plain("Seq(String)", "String")]);
+    // Refused for its parameters too: no lambda calling it would compile.
+    expect(refusals(
+      "let all(f: (String) -> Seq(Int)): Seq(Int) = f(\"a\")\nlet v1(n: Int): Vector(Int) = [n]\nlet s = all(v1)\n",
+    )).toEqual([plain("String", "Int"), plain("Seq(Int)", "Vector(Int)")]);
+    // A seat that is not a sequence: nothing a lambda's body would adapt.
+    expect(refusals(
+      "let all(f: (Int) -> Vector(Int)): Vector(Int) = f(1)\n" +
+        "let s1(n: Int): Set(Int) = Set.fromVector([n])\nlet s = all(s1)\n",
+    )).toEqual([plain("Vector(Int)", "Set(Int)")]);
   });
 
-  test("not where the call would want a mark, and not in the dot spelling", () => {
+  test("not where the call would want a mark, nor for a polymorphic name bare in the dot spelling", () => {
     const risky = reports(
       rows + "exception Oops\n" +
         "let risky(row: Vector(String)): Vector(String) = if Vector.length(row) > 5 then throw^(Oops) else row\n" +
@@ -662,9 +674,25 @@ describe("a function handed by name, refused for its result, names the lambda (P
     );
     expect(risky[0]).toEqual({ message: "type mismatch: expected Seq(a), found Vector(String)", fixes: [] });
     expect(risky.length).toBe(2);
-    // The function's result decides the element before the receiver meets its seat.
+    // Impure, though unable to fail: the lambda would want `~` on its call.
+    const world = 'extern from "./world.js"\n    export fun logIt(s: String) ->~ Unit\n' +
+      "let noisy(n: Int): Vector(Int) =\n    logIt~(\"x\")\n    [n]\n";
+    const noisy = reports(world + "let all(f: (Int) -> Seq(Int)): Seq(Int) = f(1)\nlet s = all(noisy)\n");
+    expect(noisy[0]).toEqual({ message: "type mismatch: expected Seq(Int), found Vector(Int)", fixes: [] });
+    expect(noisy.length).toBe(2);
+    expect(reports(world + "let all(f: (Int) ->~ Seq(Int)): Seq(Int) = f~(1)\nlet s = all~(noisy)\n"))
+      .toEqual([{ message: "type mismatch: expected Seq(Int), found Vector(Int)", fixes: [] }]);
+    // A polymorphic name, bare: its result decides the element before the
+    // receiver meets its seat, so the mismatch reported is the receiver's.
     expect(refusals(rows + "let flat = rows.flatMap(identity)\n"))
       .toEqual(["type mismatch: expected Seq(a), found Vector(String)"]);
+    // Grouped, or with its result written, the name meets its seat first.
+    expect(refusals(rows + "let flat = rows.flatMap((identity))\n"))
+      .toEqual([named("identity", "Vector(String)", "(x) => identity(x)")]);
+    expect(refusals(rows + "let keep(row: Vector(String)): Vector(String) = row\nlet flat = rows.flatMap(keep)\n"))
+      .toEqual([named("keep", "Vector(String)", "(x) => keep(x)")]);
+    expect(refusals(rows + "let keepAll(row: Vector(a)): Vector(a) = row\nlet flat = rows.flatMap(keepAll)\n"))
+      .toEqual([named("keepAll", "Vector(a)", "(x) => keepAll(x)")]);
   });
 });
 
