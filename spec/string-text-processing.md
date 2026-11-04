@@ -302,12 +302,12 @@ matches or removes it. It participates in length, positions, equality, and
 ordering. `words` and trimming follow Unicode whitespace, which excludes it.
 No dedicated `String.stripBom` function was adopted.
 
-The experimental text-file reader `Hex.Experimental.File.readText` consumes
-exactly one initial U+FEFF after UTF-8 decoding. Its underlying
-`Hex.Experimental.Node.File.readText` adapter preserves that character.
-Neither detects UTF-16 or UTF-32. The module split and full contract live in
-[Experimental synchronous text files](experimental-file.md). BOM policy belongs
-to file input; ordinary String processing continues to preserve U+FEFF.
+The file readers `File.readText` and `File.readTextLossy` consume exactly one
+initial U+FEFF after UTF-8 decoding, and `File.writeTextBom` writes one before
+its text; `File.writeText` and the `Stdio` writers add none. None detects UTF-16
+or UTF-32. The full contract lives in [Program I/O](program-io.md) §3 and §4.
+BOM policy belongs to file input and output; ordinary String processing
+continues to preserve U+FEFF.
 
 ## 11. Integration and implementation requirements
 

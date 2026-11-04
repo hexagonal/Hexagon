@@ -3,6 +3,10 @@
 **Status:** Planning note, 2026-09-22. Proposed sequence, not an approved API
 contract or a requirement to ship every capability before the library is useful.
 The global work entry is in [the stdlib roadmap](../stdlib-roadmap.md).
+Stages 1 to 4 were decided on 2026-11-04 and graduate to `Hex.File`, `Hex.Stdio`
+and `Hex.Process`, under Node only: [Program I/O](../program-io.md) is their
+contract, and `program-io-deliberation.md` the record. The sections below for
+those stages are kept as they were planned. Stages 5 to 7 are unchanged.
 
 ## Purpose
 
@@ -15,10 +19,10 @@ not a minimum standard that the first version must satisfy.
 
 | Stage | Capability | Purpose | Current position |
 |---|---|---|---|
-| 1 | Read/write whole text files | Load puzzle input; save results | Implemented in PR #1006 |
-| 2 | Write stdout and stderr, with and without a newline | Print answers and keep diagnostics separate from results | Implemented, reviewed, and validated locally |
-| 3 | Read command-line arguments | Accept an input filename rather than hardcoding it | Proposed next increment |
-| 4 | Set an unsuccessful exit status | Let shells and scripts detect failure | Proposed next increment |
+| 1 | Read/write whole text files | Load puzzle input; save results | Decided 2026-11-04 (`program-io.md` §3) |
+| 2 | Write stdout and stderr, with and without a newline | Print answers and keep diagnostics separate from results | Decided 2026-11-04 (`program-io.md` §4) |
+| 3 | Read command-line arguments | Accept an input filename rather than hardcoding it | Decided 2026-11-04 (`program-io.md` §5.1) |
+| 4 | Set an unsuccessful exit status | Let shells and scripts detect failure | Decided 2026-11-04 (`program-io.md` §5.2) |
 | 5 | Read all stdin until EOF | Accept redirected files and another command's output | Useful later |
 | 6 | Read one line from stdin | Support interactive questions | Defer until needed |
 | 7 | Basic path operations | Construct and inspect paths portably | Defer until concrete uses establish the surface |
@@ -31,8 +35,8 @@ subprocess management are outside this plan's initial scope.
 
 [PR #1006](https://github.com/hexagonal/Hexagon/pull/1006) supplies
 `Hex.Experimental.File.readText` and `writeText`, backed by
-`Hex.Experimental.Node.File`. The [experimental file contract](../experimental-file.md)
-owns the exact semantics and runtime support.
+`Hex.Experimental.Node.File`. Its contract was `experimental-file.md`, now
+superseded by [Program I/O](../program-io.md).
 
 This already meets the immediate input need for Advent of Code. It does not
 need stdin support to be useful.
@@ -55,8 +59,8 @@ effectful; `Debug.log` keeps its name and pure-facing debugging role. No blank-l
 convenience is needed: pass `""` to a line operation. Callers explicitly format
 other values into strings.
 
-The [Stdio specification](../experimental-stdio.md) records the synchronous
-UTF-8 contract, completion and failure semantics, and required validation.
+Its contract was `experimental-stdio.md`, now superseded by
+[Program I/O](../program-io.md), which makes the writers `->~`.
 Local implementation, Sol Medium review, and Node/Bun/Deno runtime checks are
 complete. The specification records the
 tested versions and platform limits.
@@ -108,8 +112,8 @@ a broad path library before these choices are settled.
 
 Use #1006 as the starting architectural pattern: explicitly imported experimental
 modules, ordinary Hexagon wrappers over narrow host adapters, and tests of actual
-emitted programs. Browser support and Node/Bun/Deno compatibility must be stated
-per facility and established by evidence. Keep unused host dependencies out of
+emitted programs. Since 2026-11-04 Node is the one host, the adapters are gone,
+and the playground stands in for a terminal (`program-io.md` §6, §8). Keep unused host dependencies out of
 programs that do not import the facilities.
 
 For each increment, check existing issues and prerequisites first. If a more

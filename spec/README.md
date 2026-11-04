@@ -52,6 +52,7 @@ Every normative owner appears exactly once. The explicitly marked router and gui
 | Control | `division-remainder.md` | division/remainder/modulo semantics |
 | Effects | `effects.md` | the effect discipline: two colours (impurity, failing), each of two points; the nine arrows; a colour per callback; the four call marks and the reading; handling; enforcement; trusted claims; the `Seq`/`Stream` posture; effect contracts |
 | Effects | `stream.md` | `Stream(a)`, the impure sequence: type, protocol, v1 module surface |
+| Effects | `program-io.md` | program I/O under Node: the `File`, `Stdio` and `Process` modules, `FileError`, strict UTF-8 reads, the writers' endings, the arguments, the exit status, the playground's stand-in terminal |
 | Collections | `collections-part1-decisions.md` | foundational decisions: `Vector` choice, naming doctrine, accessor pair |
 | Collections | `collections-part2-hash-and-type-members.md` | `Hash`, constraint `type` members |
 | Collections | `collections-part3-vector.md` | `Vector(a)` full spec |
