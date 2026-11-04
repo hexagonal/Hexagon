@@ -60,6 +60,62 @@ function projectPaths(
 
 const POINT = "export record Point = {x: Float, y: Float}\n";
 
+describe("a file may begin with a byte-order mark (Lexer §2.1, #844)", () => {
+  // The mark is ignored: it has an offset and no column, so the items after it
+  // are the file's column-zero items, and layout reads the file as it would
+  // without the mark.
+  test.each([
+    ["LF", "\n"],
+    ["CRLF", "\r\n"],
+    ["CR", "\r"],
+  ])("a file with indented blocks compiles, with %s line endings", (_label, newline) => {
+    const lines = [
+      "\uFEFFmodule Main",
+      "",
+      "export let f(n: Int): Int =",
+      "    let y = n + 1",
+      "    y",
+      "",
+    ];
+    expect(messages([["/main.hex", lines.join(newline)]])).toEqual([]);
+  });
+
+  test("it runs as the same file without the mark does", async () => {
+    const text = "module Main\n\nexport let f(n: Int): Int =\n    let y = n + 1\n    y * 2\n";
+    const exports = await runProject([["/main.hex", `\uFEFF${text}`]]);
+    expect((exports["f"] as (n: number) => number)(3)).toBe(8);
+  });
+
+  test("a report on the first line counts columns from after the mark", () => {
+    const [diagnostic, ...rest] = reports([["/main.hex", "\uFEFFmodule Main\nlet x: Int = \"a\"\n"]]);
+    expect(rest).toEqual([]);
+    expect(diagnostic?.message).toBe("type mismatch: expected Int, found String");
+    const [stray] = reports([["/main.hex", "\uFEFFlet stray: Int = 1\nmodule Main\n"]]);
+    expect(stray?.primary.start).toEqual({ offset: 1, line: 0, column: 0 });
+  });
+
+  test("a mark anywhere else is still refused", () => {
+    expect(messages([["/main.hex", "module Main\n\nexport let n: Int = 1\uFEFF\n"]])).toEqual([
+      "a byte-order mark is only allowed at the start of a file",
+    ]);
+    expect(messages([["/main.hex", "\uFEFF\uFEFFmodule Main\n"]])).toContain(
+      "a byte-order mark is only allowed at the start of a file",
+    );
+  });
+
+  test("the first line's items are at column zero, and a top comment there is kept", () => {
+    // An item indented by one is refused, as it is without the mark.
+    expect(messages([["/main.hex", "\uFEFFmodule Main\n export let n: Int = 1\n"]])).toEqual(
+      messages([["/main.hex", "module Main\n export let n: Int = 1\n"]]),
+    );
+    expect(messages([["/main.hex", "\uFEFFmodule Main\n export let n: Int = 1\n"]])).not.toEqual([]);
+    // A comment at the top of the file is a top-level comment, emitted as one.
+    const main = compileFiles([["/main.hex", "\uFEFF(* top comment *)\nmodule Main\n\nexport let n: Int = 1\n"]])
+      .modules.find(({ name }) => name === "Main");
+    expect(main?.javascript.text.startsWith("/* top comment */\n")).toBe(true);
+  });
+});
+
 describe("§13 (o) — every file declares its module", () => {
   test("a headerless file is refused, and the fixit inserts the derived header", () => {
     const text = "export fun parse(s: String): Int = 1\n";
@@ -72,6 +128,21 @@ describe("§13 (o) — every file declares its module", () => {
     // delimited segment and joins them, and the compiler reads no name off a
     // path (§2.1, §9.2).
     expect(applied(text, diagnostic)).toBe(`module SearchParams\n\n${text}`);
+    expect(messages([["/search-params.hex", applied(text, diagnostic)]])).toEqual([]);
+  });
+
+  test("a headerless file with a byte-order mark takes the header after the mark", () => {
+    // Lexer §2.1 permits the mark at offset zero alone, so a header put above
+    // it would leave a file the lexer refuses.
+    const text = "\uFEFFexport fun parse(s: String): Int = 1\n";
+    const [diagnostic, ...rest] = reports([["/search-params.hex", text]]);
+    expect(diagnostic?.message).toBe(
+      "every file declares its module; write `module SearchParams`",
+    );
+    expect(rest).toEqual([]);
+    expect(applied(text, diagnostic)).toBe(
+      "\uFEFFmodule SearchParams\n\nexport fun parse(s: String): Int = 1\n",
+    );
     expect(messages([["/search-params.hex", applied(text, diagnostic)]])).toEqual([]);
   });
 
@@ -109,6 +180,22 @@ describe("§13 (o) — every file declares its module", () => {
     expect(rest).toEqual([]);
     expect(applied(text, diagnostic)).toBe(
       "module Geometry\n\nlet stray: Int = 1\n\n" + POINT,
+    );
+    expect(messages([["/f.hex", applied(text, diagnostic)]])).toEqual([]);
+  });
+
+  test("in a file with a byte-order mark, the header moves to just after the mark", () => {
+    // #844: the top of the file is past the mark, which has to stay at offset
+    // zero (Lexer §2.1).
+    const text = "\uFEFFlet stray: Int = 1\n\nmodule Geometry\n\n" + POINT;
+    const [diagnostic, ...rest] = reports([["/f.hex", text]]);
+    expect(diagnostic?.message).toBe(
+      "code outside a module: a module begins with its header; " +
+        "move `module Geometry` above this item",
+    );
+    expect(rest).toEqual([]);
+    expect(applied(text, diagnostic)).toBe(
+      "\uFEFFmodule Geometry\n\nlet stray: Int = 1\n\n" + POINT,
     );
     expect(messages([["/f.hex", applied(text, diagnostic)]])).toEqual([]);
   });

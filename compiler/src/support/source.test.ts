@@ -1,7 +1,7 @@
 import fc from "fast-check";
 import { describe, expect, test } from "vitest";
 
-import { File, fileId } from "./source.js";
+import { File, fileId, textStart } from "./source.js";
 
 describe("Source.File", () => {
   test("tracks LF, CRLF, and CR as one line boundary each", () => {
@@ -17,6 +17,34 @@ describe("Source.File", () => {
     const source = new File(fileId(0), "unicode.hex", "a𝕏b");
 
     expect(source.positionAt(3)).toEqual({ offset: 3, line: 0, column: 3 });
+  });
+
+  test("a leading byte-order mark has an offset and no column (Lexer §2.1)", () => {
+    const source = new File(fileId(0), "bom.hex", "\uFEFFab\r\ncd");
+
+    expect(source.lineCount).toBe(2);
+    expect(source.positionAt(0)).toEqual({ offset: 0, line: 0, column: 0 });
+    expect(source.positionAt(1)).toEqual({ offset: 1, line: 0, column: 0 });
+    expect(source.positionAt(2)).toEqual({ offset: 2, line: 0, column: 1 });
+    expect(source.positionAt(5)).toEqual({ offset: 5, line: 1, column: 0 });
+    expect(source.positionAt(6)).toEqual({ offset: 6, line: 1, column: 1 });
+    expect(textStart(source.text)).toBe(1);
+  });
+
+  test("a byte-order mark anywhere else is a column like any character", () => {
+    const source = new File(fileId(0), "late.hex", "a\uFEFFb\n\uFEFFc");
+
+    expect(source.positionAt(2)).toEqual({ offset: 2, line: 0, column: 2 });
+    expect(source.positionAt(5)).toEqual({ offset: 5, line: 1, column: 1 });
+    expect(textStart(source.text)).toBe(0);
+  });
+
+  test("a file that is only a byte-order mark is one empty line", () => {
+    const source = new File(fileId(0), "only.hex", "\uFEFF");
+
+    expect(source.lineCount).toBe(1);
+    expect(source.positionAt(0)).toEqual({ offset: 0, line: 0, column: 0 });
+    expect(source.positionAt(1)).toEqual({ offset: 1, line: 0, column: 0 });
   });
 
   test("creates half-open spans", () => {
