@@ -102,6 +102,18 @@ describe("a file may begin with a byte-order mark (Lexer §2.1, #844)", () => {
       "a byte-order mark is only allowed at the start of a file",
     );
   });
+
+  test("the first line's items are at column zero, and a top comment there is kept", () => {
+    // An item indented by one is refused, as it is without the mark.
+    expect(messages([["/main.hex", "\uFEFFmodule Main\n export let n: Int = 1\n"]])).toEqual(
+      messages([["/main.hex", "module Main\n export let n: Int = 1\n"]]),
+    );
+    expect(messages([["/main.hex", "\uFEFFmodule Main\n export let n: Int = 1\n"]])).not.toEqual([]);
+    // A comment at the top of the file is a top-level comment, emitted as one.
+    const main = compileFiles([["/main.hex", "\uFEFF(* top comment *)\nmodule Main\n\nexport let n: Int = 1\n"]])
+      .modules.find(({ name }) => name === "Main");
+    expect(main?.javascript.text.startsWith("/* top comment */\n")).toBe(true);
+  });
 });
 
 describe("§13 (o) — every file declares its module", () => {
