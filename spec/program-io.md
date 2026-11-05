@@ -263,15 +263,16 @@ So the six writers write only well-formed UTF-8, and text they can't encode writ
 | `fileDecodeStrict` | `(bytes: JsValue) ->~ JsValue` | `File` | the text, decoded with `TextDecoder("utf-8", { fatal: true })`, or `undefined` for bytes that aren't UTF-8 |
 | `fileDecodeLossy` | `(bytes: JsValue) ->~ String` | `File` | the text, decoded with `TextDecoder("utf-8")` |
 | `fileFirstBadByte` | `(bytes: JsValue) ->~ Int` | `File` | the offset §3.4 defines |
-| `stdioEncode` | `(text: String) ->~ JsValue` | `Stdio` | the UTF-8 bytes of well-formed text, through `TextEncoder` |
-| `stdioByteLength` | `(bytes: JsValue) -> Int` | `Stdio` | the number of bytes `stdioEncode` gave |
+| `stdioEncode` | `(text: String) ->~ Int` | `Stdio` | encodes well-formed text as UTF-8, through `TextEncoder`, and answers the number of bytes |
+| `stdioBuffer` | `() ->~ JsValue` | `Stdio` | the byte array the last `stdioEncode` filled |
 | `stdioPause` | `() ->~ Unit` | `Stdio` | waits about a millisecond, through `Atomics.wait` |
 
-- **The arrows.** The string pair are value functions of a `String`, and a byte array's length is fixed when it is made, so those three are `->`. The rest are `->~`: the decoders read bytes in a mutable array, as intrinsics §3.3's `Buffer` read is `->~`; the encoder hands out a fresh one on each call; and the `.code` read is not among FFI Part 11 §7's kept reads. Every caller is impure already, so `->~` costs nothing.
+- **The arrows.** The string pair are value functions of a `String`, so they are `->`. The rest are `->~`: the decoders read bytes in a mutable array, as intrinsics §3.3's `Buffer` read is `->~`; the encoder fills an array the next call overwrites; and the `.code` read is not among FFI Part 11 §7's kept reads. Every caller is impure already, so `->~` costs nothing.
+- **The encoder keeps one array for short text,** made at the first write, and gives larger text an array of its own. Measured on Node 24.18.0, a fresh array for each of 200,000 short lines doubled the time today's writer takes, and the kept array brings the new writer within about a fifth of it.
 - **`toWellFormed` is the door row itself,** exported from `String` with its `(** *)` doc, since a wrapper whose body is exactly the door call collapses to its declaration (intrinsics §3.2).
 - **`stringIsWellFormed` is declared twice,** in `File` and in `Stdio`, and the two rows bind one lowering (intrinsics §3.3), as `Regex.Syntax` and `String` both declare `stringCodepointUnchecked`.
 - **`stdioPause` makes its waiting cell at its first call,** not when the module loads, so the module loads in a browser that has no `SharedArrayBuffer`, as the playground's may not. The playground's stand-in never meets `EAGAIN`.
-- **The lowerings write `TextDecoder`, `TextEncoder`, `Atomics`, `Int32Array` and `SharedArrayBuffer`,** which join the runtime vocabulary (FFI Part 7 §1.2).
+- **The lowerings write `TextDecoder`, `TextEncoder`, `Atomics`, `Int32Array`, `SharedArrayBuffer` and `Uint8Array`,** which join the runtime vocabulary (FFI Part 7 §1.2).
 - **The decoding, encoding, error-code and pause keys are host capabilities.** Hexagon has no byte type, no way to catch a getter, and no way to wait (`stdlib-roadmap.md` §5.1). What each answer means, and every throw, is ordinary Hexagon over it.
 - **The two string keys are there for their cost.** Both operations can be written in ordinary Hexagon over `toCodepoint`, which answers `None` for a lone surrogate (`string-text-processing.md` §1). But measured on Node 24.18.0, a check written that way took 384 ms on a million ASCII characters, where encoding them took 1.8 ms and `isWellFormed` under 0.01 ms. On 200,000 lines of 22 characters it took 1,626 ms, against 3.2 ms. That is two hundred times the encoding the check guards or more, on every write. This is `stdlib-roadmap.md` §5.1's last ground, measured performance evidence, and `string-text-processing.md` §11 names the exception.
 
