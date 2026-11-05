@@ -284,6 +284,43 @@ describe("an uncaught throw is reported by name", () => {
 });
 
 /**
+ * Node's own modules, for comparing the playground with Node. The playground
+ * is typed for the browser, so each is named by what these tests call.
+ */
+interface NodeFs {
+  readonly mkdtempSync: (prefix: string) => string;
+  readonly mkdirSync: (path: string, options?: { readonly recursive: boolean }) => unknown;
+  readonly writeFileSync: (path: string, data: string) => void;
+  readonly rmSync: (path: string, options: { readonly recursive: boolean; readonly force: boolean }) => void;
+}
+interface NodeOs {
+  readonly tmpdir: () => string;
+  readonly constants: { readonly errno: { readonly EROFS: number } };
+}
+interface NodePath {
+  readonly join: (...parts: string[]) => string;
+  readonly dirname: (path: string) => string;
+}
+interface NodeChildProcess {
+  readonly spawnSync: (
+    command: string,
+    args: readonly string[],
+    options: { readonly cwd: string; readonly encoding: "utf8" },
+  ) => { readonly stdout: string; readonly stderr: string; readonly status: number | null };
+}
+interface NodeUtil {
+  readonly getSystemErrorMessage: (errno: number) => string;
+}
+
+async function nodeModule<T>(specifier: string): Promise<T> {
+  return await import(/* @vite-ignore */ specifier) as T;
+}
+
+function nodeProcess(): { readonly execPath: string } {
+  return (globalThis as unknown as { readonly process: { readonly execPath: string } }).process;
+}
+
+/**
  * The playground as a terminal (`spec/program-io.md` §6, test 11). A program
  * that imports `File`, `Stdio` and `Process` runs on the playground's own
  * `node:fs` and `node:process`, and prints what it prints under Node run with
@@ -311,10 +348,10 @@ Process.setExitStatus~(3)
 
   /** The program's two streams and status under Node, in an empty directory. */
   async function underNode(): Promise<{ stdout: string; stderr: string; status: number | null }> {
-    const { mkdtempSync, mkdirSync, writeFileSync, rmSync } = await import("node:fs");
-    const { tmpdir } = await import("node:os");
-    const { join, dirname } = await import("node:path");
-    const { spawnSync } = await import("node:child_process");
+    const { mkdtempSync, mkdirSync, writeFileSync, rmSync } = await nodeModule<NodeFs>("node:fs");
+    const { tmpdir } = await nodeModule<NodeOs>("node:os");
+    const { join, dirname } = await nodeModule<NodePath>("node:path");
+    const { spawnSync } = await nodeModule<NodeChildProcess>("node:child_process");
     const request = execute(100, PROGRAM);
     const root = mkdtempSync(join(tmpdir(), "playground-io-"));
     try {
@@ -327,7 +364,7 @@ Process.setExitStatus~(3)
       writeFileSync(join(program, "package.json"), '{"type":"module"}');
       const empty = join(root, "empty");
       mkdirSync(empty);
-      const result = spawnSync(process.execPath, [join(program, request.entryPath.replace(/\.hex$/u, ".js"))], {
+      const result = spawnSync(nodeProcess().execPath, [join(program, request.entryPath.replace(/\.hex$/u, ".js"))], {
         cwd: empty, encoding: "utf8",
       });
       return { stdout: result.stdout, stderr: result.stderr, status: result.status };
@@ -363,8 +400,8 @@ Process.setExitStatus~(3)
    * path. The description is read from Node itself rather than written here.
    */
   test("a write is refused as a read-only file system refuses it", async () => {
-    const { getSystemErrorMessage } = await import("node:util");
-    const { constants } = await import("node:os");
+    const { getSystemErrorMessage } = await nodeModule<NodeUtil>("node:util");
+    const { constants } = await nodeModule<NodeOs>("node:os");
     harness.posted.length = 0;
     await harness.send(execute(104, `import File
 import Stdio

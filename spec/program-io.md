@@ -1,6 +1,6 @@
 # Stdlib listing: program I/O (`File`, `Stdio`, `Process`)
 
-**Status:** Decided 2026-11-04, ruled by James in five decisions (`notes/program-io-deliberation.md` is the deliberation record). Spec-only; implementation #1461. This document replaces the experimental contracts for `Hex.Experimental.File` and `Hex.Experimental.Stdio`, and discharges the program I/O row of `stdlib-roadmap.md` §2 for v1. Its companion edits are:
+**Status:** Decided 2026-11-04, ruled by James in five decisions (`notes/program-io-deliberation.md` is the deliberation record). Implemented 2026-11-05 (#1461) in `stdlib/File.hex`, `stdlib/Stdio.hex` and `stdlib/Process.hex`, with the playground's stand-ins in `playground/src/host-modules.ts`; conformance: `compiler/src/conformance/program-io.test.ts` and, on real descriptors, `compiler/scripts/test-program-io.mjs` (§9). This document replaces the experimental contracts for `Hex.Experimental.File` and `Hex.Experimental.Stdio`, and discharges the program I/O row of `stdlib-roadmap.md` §2 for v1. Its companion edits are:
 - `string-text-processing.md` §1 and the new §13, where `String.toWellFormed` and `LoneSurrogateFault` are declared (§7), and §10, where BOM handling at text input names `File.readText` and `File.readTextLossy`;
 - Modules §5.5 and Exceptions §8.5, where `LoneSurrogateFault` joins the prelude's faults;
 - `stdlib-roadmap.md` §2's program I/O row;

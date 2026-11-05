@@ -1,6 +1,3 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
 import { compileMain, projectDiagnostics, runMain } from "../support/test-project.js";
@@ -17,6 +14,32 @@ import { STDLIB_SOURCES } from "../stdlib-sources.js";
  * build. Everything here runs inside the test process: compiling, and `File`
  * against a directory of its own.
  */
+
+/**
+ * The Node calls the `File` tests make on their own account, reached as
+ * `test-project.ts` reaches them: the compiler's types describe no host.
+ */
+interface NodeFs {
+  readonly mkdtempSync: (prefix: string) => string;
+  readonly mkdirSync: (path: string) => void;
+  readonly writeFileSync: (path: string, data: string | Uint8Array) => void;
+  readonly readFileSync: (path: string) => Uint8Array;
+  readonly rmSync: (path: string, options: { recursive: boolean; force: boolean }) => void;
+  readonly existsSync: (path: string) => boolean;
+  readonly chmodSync: (path: string, mode: number) => void;
+}
+
+interface NodeProcess {
+  readonly getuid?: () => number;
+  exitCode: number | string | undefined;
+}
+
+const host = globalThis as unknown as {
+  readonly process: NodeProcess;
+  readonly TextEncoder: new () => { encode(text: string): Uint8Array };
+  readonly TextDecoder: new () => { decode(bytes: Uint8Array): string };
+};
+const utf8 = (text: string): Uint8Array => new host.TextEncoder().encode(text);
 
 describe("the three modules are imported, and carry their colours", () => {
   test("each resolves by import, and keeps its Node bindings private", () => {
@@ -145,20 +168,27 @@ export let repaired(text: String): String = text.toWellFormed()
 
 describe("File", () => {
   let program: Record<string, (...values: string[]) => string>;
+  let fs: NodeFs;
   let root: string;
-  const at = (name: string): string => join(root, name);
+  const at = (name: string): string => `${root}/${name}`;
   const bytes = (name: string, ...values: number[]): string => {
-    writeFileSync(at(name), Buffer.from(values));
+    fs.writeFileSync(at(name), new Uint8Array(values));
     return at(name);
   };
+  const read = (name: string): Uint8Array => new Uint8Array(fs.readFileSync(at(name)));
+  const readText = (name: string): string => new host.TextDecoder().decode(read(name));
 
   beforeAll(async () => {
+    const fsName = "node:fs";
+    const osName = "node:os";
+    fs = await import(/* @vite-ignore */ fsName) as NodeFs;
+    const os = await import(/* @vite-ignore */ osName) as { tmpdir: () => string };
     program = await runMain(FILE_PROGRAM) as typeof program;
-    root = mkdtempSync(join(tmpdir(), "hex-file-"));
-    mkdirSync(at("dir"));
-    writeFileSync(at("plain.txt"), "plain");
+    root = fs.mkdtempSync(`${os.tmpdir()}/hex-file-`);
+    fs.mkdirSync(at("dir"));
+    fs.writeFileSync(at("plain.txt"), "plain");
   }, 120_000);
-  afterAll(() => rmSync(root, { recursive: true, force: true }));
+  afterAll(() => fs.rmSync(root, { recursive: true, force: true }));
 
   test("each reason, with a message naming the path", () => {
     expect(program.read!(at("missing.txt"))).toBe(`NotFound | ${at("missing.txt")} | not found: ${at("missing.txt")}`);
@@ -174,10 +204,9 @@ describe("File", () => {
   });
 
   // Root reads through a missing permission, so this holds only for an ordinary user.
-  test.skipIf(process.getuid?.() === 0)("a file the user may not read is PermissionDenied", async () => {
-    const { chmodSync } = await import("node:fs");
-    writeFileSync(at("private.txt"), "secret");
-    chmodSync(at("private.txt"), 0o000);
+  test.skipIf(host.process.getuid?.() === 0)("a file the user may not read is PermissionDenied", () => {
+    fs.writeFileSync(at("private.txt"), "secret");
+    fs.chmodSync(at("private.txt"), 0o000);
     expect(program.read!(at("private.txt"))).toBe(
       `PermissionDenied | ${at("private.txt")} | permission denied: ${at("private.txt")}`,
     );
@@ -211,17 +240,17 @@ describe("File", () => {
     expect(program.readLossy!(two)).toBe("read: ﻿a");
     const only = bytes("bomonly.txt", 0xef, 0xbb, 0xbf);
     expect(program.read!(only)).toBe("read: ");
-    writeFileSync(at("endings.txt"), "a\r\nb\rc\n\0d");
+    fs.writeFileSync(at("endings.txt"), "a\r\nb\rc\n\0d");
     expect(program.read!(at("endings.txt"))).toBe("read: a\r\nb\rc\n\0d");
   });
 
   test("writes are the text's exact bytes, replacing a longer file, with no BOM unless asked", () => {
     const text = "é😀﻿\0\r\nA";
-    writeFileSync(at("out.txt"), "a much longer file than the text written over it");
+    fs.writeFileSync(at("out.txt"), "a much longer file than the text written over it");
     expect(program.write!(at("out.txt"), text)).toBe("written");
-    expect(readFileSync(at("out.txt"))).toEqual(Buffer.from(text, "utf8"));
+    expect(read("out.txt")).toEqual(utf8(text));
     expect(program.writeBom!(at("bom-out.txt"), text)).toBe("written");
-    expect(readFileSync(at("bom-out.txt"))).toEqual(Buffer.from(`﻿${text}`, "utf8"));
+    expect(read("bom-out.txt")).toEqual(utf8(`\uFEFF${text}`));
     expect(program.read!(at("bom-out.txt"))).toBe(`read: ${text}`);
   });
 
@@ -230,16 +259,16 @@ describe("File", () => {
   });
 
   test("a lone surrogate is refused before anything is written", () => {
-    writeFileSync(at("kept.txt"), "kept");
+    fs.writeFileSync(at("kept.txt"), "kept");
     expect(program.surrogateAt!(at("kept.txt"), "a😀b\uD800")).toBe(
       "4 | the text holds a lone surrogate at codepoint 4, which UTF-8 cannot write; " +
       "repair it with String.toWellFormed first",
     );
-    expect(readFileSync(at("kept.txt"), "utf8")).toBe("kept");
+    expect(readText("kept.txt")).toBe("kept");
     expect(program.surrogateBomAt!(at("kept.txt"), "\uDC00")).toBe("1");
-    expect(readFileSync(at("kept.txt"), "utf8")).toBe("kept");
+    expect(readText("kept.txt")).toBe("kept");
     expect(program.surrogateAt!(at("created.txt"), "\uD800")).toMatch(/^1 \| /u);
-    expect(existsSync(at("created.txt"))).toBe(false);
+    expect(fs.existsSync(at("created.txt"))).toBe(false);
   });
 
   test("toWellFormed replaces each lone surrogate, and keeps pairs and well-formed text", () => {
@@ -250,7 +279,7 @@ describe("File", () => {
 
 describe("Process.setExitStatus refuses a status Node would wrap", () => {
   test.each([256, -1])("%d throws ExitStatusFault before anything is set", async (status) => {
-    const before = process.exitCode;
+    const before = host.process.exitCode;
     const program = await runMain(`module Main
 import Process
 export let set(status: Int): String =
@@ -261,6 +290,6 @@ export let set(status: Int): String =
         Process.ExitStatusFault(refused) => "refused \${refused}"
 `) as { set: (status: number) => string };
     expect(program.set(status)).toBe(`refused ${status}`);
-    expect(process.exitCode).toBe(before);
+    expect(host.process.exitCode).toBe(before);
   }, 120_000);
 });

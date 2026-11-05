@@ -14919,10 +14919,10 @@ function renderHelper(
       ];
     // The writer's bytes (#1461, `program-io.md` §9). The text is well-formed
     // by then, so the encoding is exact. Text that fits is encoded into one
-    // kept array, made at the first write, since a fresh array for each line
-    // doubled the cost of writing short lines; larger text gets an array of
-    // its own, so the kept one never grows. A UTF-16 code unit is at most
-    // three bytes, which is the bound that decides.
+    // kept array, made at the first short write, since a fresh array for each
+    // line more than doubled the cost of writing short lines; larger text gets
+    // an array of its own, so the kept one never grows. A UTF-16 code unit is
+    // at most three bytes, which is the bound that decides.
     case "stdioEncoder":
       return [
         `const ${name} = (() => {`,

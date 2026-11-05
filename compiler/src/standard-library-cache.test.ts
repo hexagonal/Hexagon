@@ -44,15 +44,20 @@ function supplied(
 }
 
 /**
- * The member in the last seat: the library member a runtime member with no
- * seat of its own is ordered before (`RuntimeModule.consumers`), or that runtime
- * member, which follows the library members it imports, or else the last
- * library member.
+ * The member in the last seat. The library members, and a runtime member with
+ * no seat of its own, are seated in import order with ties in the registered
+ * order, and the runtime member moves only ahead of the library members its
+ * door rows lower to (`RuntimeModule.consumers`). So the last seat is the last
+ * library member that none of them imports.
  */
 function lastSeat(): { readonly name: string; readonly source: string } {
-  const unseated = RUNTIME_MODULES.filter(({ precedes }) => precedes === undefined).at(-1);
-  const consumer = unseated?.consumers?.at(-1);
-  return LIBRARY_MODULES.find(({ name }) => name === consumer) ?? unseated ?? LIBRARY_MODULES.at(-1)!;
+  const floating = [
+    ...RUNTIME_MODULES.filter(({ precedes }) => precedes === undefined),
+    ...LIBRARY_MODULES,
+  ];
+  const imported = (name: string): boolean => floating.some(({ source }) =>
+    new RegExp(`^import (?:Hex\\.)?${name.replaceAll(".", "\\.")}(?:\\s|$)`, "mu").test(source));
+  return [...LIBRARY_MODULES].reverse().find(({ name }) => !imported(name))!;
 }
 
 function replacing(

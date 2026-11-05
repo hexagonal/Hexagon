@@ -81,7 +81,10 @@ let firstLoneSurrogate(text: String): Int =
     var found = 0
     for point in text
         position := position + 1
-        if found == 0 and point.toCodepoint() == None then found := position
+        if found == 0 then
+            match point.toCodepoint()
+                Some(_) => ()
+                None => found := position
     found
 
 // Section 7: the check comes before anything is written, so a refused write
