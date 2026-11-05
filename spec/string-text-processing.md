@@ -4,7 +4,11 @@
 on 2026-09-16 after the runtime String-domain and Unicode-version questions were
 settled; amended 2026-11-01 — §1 and §11 state `length`'s cost, that scans
 read through Collections Part 3 §9's positions, and that a search reads its
-target once (#1413). This document owns the
+target once (#1413); amended 2026-11-04 — §10 names the program I/O modules
+that replace the experimental file reader, and §13 adds `toWellFormed` and
+`LoneSurrogateFault`, which the writers of `program-io.md` §7 throw, with §1's
+sentence on the one operation that replaces a lone surrogate, and §11 names
+§13's two keys as its exception. This document owns the
 text-processing operations exported by `stdlib/String.hex`.
 
 **Home:** Public companion functions in `stdlib/String.hex`. Related Vector
@@ -35,6 +39,8 @@ surrogate supplied through JavaScript is preserved as one surrogate codepoint:
 iteration, indexing, exact matching, splitting, replacement, and reconstruction
 must neither reject it nor replace it with U+FFFD. It has none of the Unicode
 properties used here and maps to itself under case conversion and folding.
+The one operation that replaces it is `toWellFormed` (§13), which the program
+calls for exactly that.
 `toCodepoint` is deliberately narrower: it accepts exactly one Unicode scalar
 value, so a one-element String containing a lone surrogate answers `None`.
 `fromCodepoint` never constructs a surrogate.
@@ -302,12 +308,12 @@ matches or removes it. It participates in length, positions, equality, and
 ordering. `words` and trimming follow Unicode whitespace, which excludes it.
 No dedicated `String.stripBom` function was adopted.
 
-The experimental text-file reader `Hex.Experimental.File.readText` consumes
-exactly one initial U+FEFF after UTF-8 decoding. Its underlying
-`Hex.Experimental.Node.File.readText` adapter preserves that character.
-Neither detects UTF-16 or UTF-32. The module split and full contract live in
-[Experimental synchronous text files](experimental-file.md). BOM policy belongs
-to file input; ordinary String processing continues to preserve U+FEFF.
+The file readers `File.readText` and `File.readTextLossy` consume exactly one
+initial U+FEFF after UTF-8 decoding, and `File.writeTextBom` writes one before
+its text; `File.writeText` and the `Stdio` writers add none. Neither reader
+detects UTF-16 or UTF-32. The full contract lives in [Program I/O](program-io.md) §3 and §4.
+BOM policy belongs to file input and output; ordinary String processing
+continues to preserve U+FEFF.
 
 ## 11. Integration and implementation requirements
 
@@ -317,7 +323,11 @@ intrinsic doors and compiler-generated Unicode tables may provide only the
 primitive capabilities that ordinary Hexagon cannot express; scanning,
 matching policy, original-span selection, empty-pattern rules, result
 construction, and the public operation bodies remain in `String.hex` wherever
-the intrinsic doctrine permits.
+the intrinsic doctrine permits. §13's `toWellFormed`, and the check the program
+I/O writers make before writing, are the exception: they go through JavaScript's
+own `toWellFormed` and `isWellFormed`, by the keys `stringToWellFormed` and
+`stringIsWellFormed`, because ordinary source would cost two hundred times the
+encoding the check guards or more (`program-io.md` §9 measures it).
 
 The companion is ordered after the prelude modules whose public operations its
 ordinary source uses, including `Iterable` and `Vector`. This is a dependency
@@ -366,3 +376,28 @@ processing preserves U+FEFF as section 10 requires.
   initialisms treated as ordinary words.
 - [F#/.NET text reading](https://learn.microsoft.com/en-us/dotnet/api/system.io.file.readalltext):
   consuming an initial BOM at the decoding boundary.
+
+## 13. Well-formed text
+
+```text
+String.toWellFormed(text: String): String
+fault LoneSurrogateFault(message: String, position: Int)
+```
+
+`toWellFormed` answers `text` with each lone surrogate replaced by U+FFFD. A
+well-formed surrogate pair is kept, every other codepoint is kept, and text
+that holds no lone surrogate is answered unchanged. It is JavaScript's own name
+for the same operation (ES2024), and it is pure.
+
+`LoneSurrogateFault` is what the writers of [Program I/O](program-io.md) §7
+throw when the text they are given holds a lone surrogate, which UTF-8 cannot
+encode. `position` is the 1-based codepoint position of the first one, and
+`message` names it and the repair, `toWellFormed`; its wording is not
+normative. It is declared here, beside the repair, and as a prelude fault it is
+bare by category (Modules §5.5).
+
+```hexagon
+let text = foreignText()                       // holds a lone surrogate
+File.writeText!("out.txt", text)               // LoneSurrogateFault
+File.writeText!("out.txt", text.toWellFormed()) // writes U+FFFD in its place
+```

@@ -65,7 +65,7 @@ Reproducibility is mandatory: the same compiler version, inputs, and options pro
 
 ## 5. More than browsers
 
-Hexagon also intends its portable modules to run in maintained non-browser JavaScript environments, including Node.js, Deno, Bun, workers, and compatible application shells.
+Node.js is the one non-browser host Hexagon supports. The standard library's `File`, `Stdio` and `Process` modules run only there and in the playground's stand-in (`spec/program-io.md` §6, §8). A program that imports none of them stays a plain ES module, and its modules are also intended to run in workers and compatible application shells. Deno and Bun are not claimed.
 
 Baseline itself covers browsers, not these hosts. The actual portable feature set is therefore the safe intersection of:
 
@@ -86,7 +86,7 @@ Examples:
 ```text
 numeric calculation             portable language/runtime behaviour
 DOM access                      browser-specific program dependency
-Node filesystem import          Node-specific program dependency
+Node filesystem import          Node-specific program dependency (Hex.File, Hex.Stdio, Hex.Process)
 edge request/response API       worker-platform-specific dependency
 ```
 
@@ -151,7 +151,7 @@ Before JavaScript emission is implemented beyond experimental vertical slices, p
 1. choose the snapshot date;
 2. extract the relevant JavaScript syntax and built-in inventory;
 3. select and record the minimum Node version;
-4. verify Deno, Bun, workers, and supported browser families at the claimed level;
+4. verify workers and supported browser families at the claimed level;
 5. compare every proposed runtime helper and emitted construct against the inventory;
 6. decide any helper fallbacks; and
 7. turn the resulting inventory into automated compatibility tests or lint rules where practical.

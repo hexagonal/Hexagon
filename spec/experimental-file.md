@@ -1,7 +1,8 @@
 # Experimental synchronous text files
 
-**Status:** Experimental implementation for review. These modules are outside
-the prelude and book; this contract does not promise a stable library API.
+**Status:** Superseded by [Program I/O](program-io.md), decided 2026-11-04. This
+contract describes the experimental modules only until #1461 removes them, with
+this file.
 
 ## 1. Modules and interface
 

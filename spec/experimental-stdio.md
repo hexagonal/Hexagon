@@ -1,11 +1,8 @@
 # Experimental synchronous standard output
 
-**Status:** Experimental contract drafted 2026-09-22 after API and LF decisions;
-Sol Medium specification review found no actionable issues on the same date.
-Implemented and validated locally; Sol Medium code review completed after the
-runtime harness's pipe timeout was added.
-Outside the prelude and book.
-This contract does not promise a stable library API.
+**Status:** Superseded by [Program I/O](program-io.md), decided 2026-11-04. This
+contract describes the experimental module only until #1461 removes it, with
+this file.
 
 ## 1. Modules and interface
 

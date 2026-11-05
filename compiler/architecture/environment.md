@@ -95,12 +95,11 @@ The browser build need not include Node project discovery, filesystem traversal,
 Hexagon emits portable, readable **ECMAScript modules**. Its goal is to produce JavaScript suitable for the environments in which modern JavaScript runs, including:
 
 - browsers;
-- Node.js servers and command-line programs;
-- alternative server runtimes such as Deno and Bun;
+- Node.js servers and command-line programs, Node being the one non-browser host Hexagon supports and tests;
 - Web Workers and serverless/edge workers; and
 - application shells and embedded environments that accept compatible ESM.
 
-This is a portability doctrine, not a claim that every generated program runs unchanged everywhere. JavaScript environments share the language but not all host APIs. A program using the DOM belongs in a browser; a program importing Node filesystem APIs belongs in Node or a compatible host.
+This is a portability doctrine, not a claim that every generated program runs unchanged everywhere. JavaScript environments share the language but not all host APIs. A program using the DOM belongs in a browser; a program importing Node filesystem APIs, directly or through `File`, `Stdio` or `Process`, belongs in Node.
 
 `hexc` must not insert Node-specific dependencies into otherwise portable output. Environment-specific capability enters through the program's explicit imports and FFI declarations.
 
