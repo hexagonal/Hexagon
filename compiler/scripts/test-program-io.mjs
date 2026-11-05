@@ -336,7 +336,10 @@ Main.writeLine("after");`);
   // never with a raw error. Linux enforces a limit on a process's address
   // space (`ulimit -v`). This one is what a fresh Node reaches plus 300 MB, so
   // the program starts but the reader's array can't double its way to the
-  // input's 512 MB.
+  // input's 512 MB. Measured on Node 24.18.0, headroom from 25 MB to 800 MB
+  // gave the line, except near 200 MB, where V8 ran out of its own heap
+  // first (`FATAL ERROR: … JavaScript heap out of memory`, status 134), as it
+  // does with no headroom. A failure of that shape here means the band moved.
   const linux = process.platform === "linux";
   if (linux) {
     const fresh = spawnSync(node, [
