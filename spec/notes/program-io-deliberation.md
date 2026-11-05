@@ -1,6 +1,6 @@
 # Program I/O: the deliberation record
 
-**Status:** Notes, not normative. The write-ups James ruled on, 2026-11-04, kept verbatim as they stood at each ruling, with a status line and, where an example indexed the arguments from `[0]`, a correction added after it. `spec/program-io.md` is the decided text. The parts were separate files during the deliberation, `IO-V1.md` (decision 1) and `IO-V1-D2.md` to `IO-V1-D5C.md`, and refer to each other by those names. Decision 5c is open, and its write-up is kept here as it was sent. The probes and measurements they cite were run on the deliberation's branch and machine, and are not kept in the repository.
+**Status:** Notes, not normative. The write-ups James ruled on, 2026-11-04, kept verbatim as they stood at each ruling, with a status line and, where an example indexed the arguments from `[0]`, a correction added after it. `spec/program-io.md` is the decided text. The parts were separate files during the deliberation, `IO-V1.md` (decision 1) and `IO-V1-D2.md` to `IO-V1-D5C.md`, and refer to each other by those names. The probes and measurements they cite were run on the deliberation's branch and machine, and are not kept in the repository.
 
 ---
 
@@ -919,7 +919,7 @@ When a program that imports `File`, `Stdio` or `Process` runs in the playground,
 
 ## Writing a string that holds a lone surrogate (v1 I/O, decision 5c)
 
-**Status:** write-up for James, the last part of decision 5, and the last I/O decision before the graduation PR. Decision 2b ruled that `readText` refuses a file that isn't UTF-8. This is the same question for writing: what `File.writeText`, `File.writeTextBom` and the four `Stdio` writers do with text that UTF-8 cannot represent.
+**Status:** ruled (b) by James on 2026-11-04: the six writers refuse text that holds a lone surrogate with `LoneSurrogateFault(position)`, before writing anything, and `String.toWellFormed` is the repair. This was the write-up for that ruling, the last part of decision 5, and the last I/O decision before the graduation PR. Decision 2b ruled that `readText` refuses a file that isn't UTF-8. This is the same question for writing: what `File.writeText`, `File.writeTextBom` and the four `Stdio` writers do with text that UTF-8 cannot represent.
 
 **Up front:**
 - **What can't be written.** A Hexagon `String` can hold a lone surrogate only when foreign code supplies it: the lexer refuses one in source, and `String.fromCodepoint` never makes one. The String spec keeps such a surrogate intact through every string operation. UTF-8 has no encoding for it.

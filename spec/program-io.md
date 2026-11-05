@@ -1,7 +1,8 @@
 # Stdlib listing: program I/O (`File`, `Stdio`, `Process`)
 
-**Status:** Decided 2026-11-04, ruled by James in five decisions (`notes/program-io-deliberation.md` is the deliberation record). Spec-only; implementation #1461. Decision 5c, what the writers do with text that holds a lone surrogate, is open; §7 is kept for it. This document replaces the experimental contracts for `Hex.Experimental.File` and `Hex.Experimental.Stdio`, and discharges the program I/O row of `stdlib-roadmap.md` §2 for v1. Its companion edits are:
-- `string-text-processing.md` §10, where BOM handling at text input names `File.readText` and `File.readTextLossy`;
+**Status:** Decided 2026-11-04, ruled by James in five decisions (`notes/program-io-deliberation.md` is the deliberation record). Spec-only; implementation #1461. This document replaces the experimental contracts for `Hex.Experimental.File` and `Hex.Experimental.Stdio`, and discharges the program I/O row of `stdlib-roadmap.md` §2 for v1. Its companion edits are:
+- `string-text-processing.md` §1 and the new §13, where `String.toWellFormed` and `LoneSurrogateFault` are declared (§7), and §10, where BOM handling at text input names `File.readText` and `File.readTextLossy`;
+- Modules §5.5 and Exceptions §8.5, where `LoneSurrogateFault` joins the prelude's faults;
 - `stdlib-roadmap.md` §2's program I/O row;
 - `notes/program-io-plan.md`, whose stages 1 to 4 this document settles;
 - `compiler/architecture/environment.md` §7 and `javascript-target.md` §5, §6 and §11, where Node is the one supported host.
@@ -106,7 +107,7 @@ Stdio.writeLine~("${solve(input)}")
 - **`writeTextBom(path, text)`** writes one U+FEFF, then `text` exactly as `writeText` would. So `writeTextBom` followed by `readText` gives back `text`. It is for readers that want a BOM, such as a CSV file meant for Excel.
 - **Neither creates a missing parent directory.** That is `FileError(NotFound, …)`.
 - **Neither is atomic or durable.** A failed write may already have changed the file, and success does not promise the bytes have reached the disk.
-- **Decision 5c** decides what both do with text holding a lone surrogate (§7).
+- **Text holding a lone surrogate is refused** before anything is written, so the file is left as it was (§7).
 
 ### 3.3 Paths
 
@@ -114,7 +115,7 @@ A path is handed to Node unchanged. A relative path is resolved against the work
 
 ### 3.4 `FileError`
 
-Every failure of a `File` operation throws `FileError(reason, path, message)`. No other exception, and no `JsError`, leaves the module.
+Every failure a `File` operation meets in the file system, or in a file's bytes, throws `FileError(reason, path, message)`. No other exception, and no `JsError`, leaves the module. The one fault a `File` operation throws is §7's.
 
 - **The reason** comes from Node's error code:
 
@@ -126,8 +127,6 @@ Every failure of a `File` operation throws `FileError(reason, path, message)`. N
   | `ENOTDIR` | `NotDirectory` |
   | `ERR_ENCODING_INVALID_ENCODED_DATA`, from `readText`'s strict decoding: the bytes aren't well-formed UTF-8 | `NotUtf8` |
   | anything else, such as `ENAMETOOLONG`, `ENOSPC`, `EROFS` or `ERR_INVALID_ARG_VALUE` | `Other(code)`, with Node's code |
-
-  Decision 5c may have the writers refuse text too, with `NotUtf8` or with a fault (§7).
 
 - **The path** is the one the caller passed, so it is there even where Node's error leaves it out, as when a directory is read.
 - **The message** is one line for a reader. It names the path, and for `NotUtf8` the first bad byte. Its wording is not normative, as `JsConversionError`'s isn't (FFI Part 11 §5.1): a program reads `reason` and `path`, never the text. The implementation words it this way:
@@ -170,7 +169,7 @@ Every failure of a `File` operation throws `FileError(reason, path, message)`. N
 
 ### 4.3 When a write can't finish
 
-When a write fails, the writer ends the program. No `catch` sees the ending, just as none sees Ctrl-C, and so the writers are `->~` (Effects §6.1). (What a writer does with text it can't encode is decision 5c's, §7.)
+When a write fails, the writer ends the program. No `catch` sees the ending, just as none sees Ctrl-C, and so the writers are `->~` (Effects §6.1). (Text a writer can't encode is a fault, raised before anything is written, §7.)
 
 - **The descriptor would block (`EAGAIN`).** This is not a failure. Node switches a piped stdout to non-blocking once anything has gone through `console.log`, which `Debug.log` does. A write to a slow reader then finds the pipe full. The writer waits about a millisecond and writes the rest, and keeps on until all of it is written.
 - **The reader has gone (`EPIPE`).** The program ends at once, quietly, with status 141, which is 128 plus SIGPIPE's number, 13. Nothing is printed. This is the status a shell reports for `yes | head -1`, and for a C or Go program in the same place. Node ignores SIGPIPE, so the program exits with the number rather than by the signal: a shell sees the same `$?`, and a parent that reads the raw wait status sees an exit.
@@ -219,9 +218,19 @@ The playground runs programs in the browser, where Node isn't there. It runs a p
 - **How:** the playground links its own small `node:fs` and `node:process` beneath the three modules. The modules themselves are the same in the browser as under Node. A test runs the same programs in both and compares what they print (§10, test 11).
 - **Nothing else changes for the browser.** A web page outside the playground that imports these modules fails to load, since nothing there stands in for Node.
 
-## 7. Text holding a lone surrogate (decision 5c)
+## 7. Text holding a lone surrogate
 
-Open. A `String` holds a lone surrogate only when foreign code supplies one (`string-text-processing.md` §1), and UTF-8 has no encoding for it. Decision 5c decides what `writeText`, `writeTextBom` and the four `Stdio` writers do with such text.
+A `String` holds a lone surrogate only when foreign code supplies one: the lexer refuses one in source, and `String.fromCodepoint` never makes one (`string-text-processing.md` §1, §9). Every string operation keeps it intact. UTF-8 has no encoding for it.
+
+- **The six writers refuse such text,** `writeText`, `writeTextBom` and the four `Stdio` writers alike. They throw `LoneSurrogateFault(message, position)`, where `position` is the 1-based codepoint position of the first lone surrogate in the text the call was given.
+- **The check comes before anything is written.** A refused `writeText` leaves the file exactly as it was, neither created nor truncated. A refused `Stdio` write writes no byte of its text, and no LF.
+- **It is a fault, not an exception** (Exceptions §1). The program's own text is wrong, not the world. So the colours don't change: the `File` writers stay `->!` for their file failures only, and the `Stdio` writers stay `->~`.
+- **The message names the position and the repair,** such as `the text holds a lone surrogate at codepoint 12, which UTF-8 cannot write; repair it with String.toWellFormed first`. Its wording is not normative, as `FileError`'s isn't (§3.4).
+- **The repair is the program's own call,** `String.toWellFormed(text)` (`string-text-processing.md` §13). It answers the text with each lone surrogate replaced by U+FFFD. A program that wants the replacement Node would have made writes `File.writeText!(path, text.toWellFormed())`.
+- **The fault is declared in `String`,** beside `toWellFormed`. As a prelude fault, it is bare by category (Modules §5.5): a program catches `LoneSurrogateFault(_, position)` with no import.
+- **The playground refuses the same text,** since the modules are the same there.
+
+So every byte Hexagon writes is well-formed UTF-8 that is exactly the text it was given, or nothing is written.
 
 ## 8. Hosts and emission
 
@@ -239,6 +248,8 @@ Open. A `String` holds a lone surrogate only when foreign code supplies one (`st
 - **`arguments`** finds where the user's arguments start as `util.parseArgs` does, from whether Node ran code given on its command line. Checking `process.execArgv` for the four long and short spellings is not enough: Node 24.18.0 records `--eval=…` and `-pe` as written.
 - **`setExitStatus`** checks the range, then sets `process.exitCode`.
 - **The playground's stand-ins** for `node:fs` and `node:process` answer only what the three modules call, as §6 says.
+- **The lone surrogate check** runs over the whole text before the first byte is written. Text whose characters are all at or below U+00FF can't hold a surrogate, and a host that stores such text one byte per character answers at once (measured: JavaScript's `isWellFormed` took 0.0 ms on 64 million such characters). For other text the check costs about as much as the write.
+- **`String.toWellFormed`** answers its text unchanged when it holds no lone surrogate.
 - **The experimental modules go,** with their Node adapters and their specs, and nothing redirects to them.
 
 ## 10. Acceptance tests
@@ -254,6 +265,7 @@ Open. A `String` holds a lone surrogate only when foreign code supplies one (`st
 9. **`arguments`.** Under a script, under `node -e`, `-p`, `--eval=…` and `-pe`, with options to Node before the script, and with an argument whose bytes aren't UTF-8.
 10. **`setExitStatus`.** 0, 3 and 255 end with that status; 256 and -1 throw `ExitStatusFault`; the last of two settings wins; an uncaught throw after a setting ends with 1.
 11. **The playground.** Programs that write with `Stdio`, read the arguments and set a status print the same text in the playground as under Node with no arguments, in the same order, with stderr marked and the exit status shown. `File`'s answers in the playground are §6's, and the `EROFS` message matches the one Node gives for a write on a read-only file system.
+12. **Lone surrogates.** Each of the six writers, given text holding a lone surrogate (from a foreign function), throws `LoneSurrogateFault` with the first one's position, where a well-formed pair before it counts as one codepoint. `writeText` leaves an existing file unchanged and creates no missing one. A `Stdio` writer writes nothing, and the program goes on if the fault is caught. `toWellFormed` replaces each lone surrogate with U+FFFD, keeps a well-formed pair, and answers well-formed text unchanged. `LoneSurrogateFault` is bare in a catch arm.
 
 ## 11. Rejected alternatives (do not re-litigate)
 
@@ -312,6 +324,13 @@ In the prelude, a browser program could call `File.readText!` with nothing in it
 
 - **The TypeScript Playground's way,** stopping the run at the first Node API with the browser's own error. A program that prints with `Stdio` couldn't be shown there, and its author would switch to `Debug.log`, which is a probe and not real output. The pane would also need its own way to tell a stopped run from a program that failed.
 - **Refusing the program before running it.** The same costs, and even the `Debug.log` lines would never run.
+### 11.12 Writing U+FFFD in place of a lone surrogate (decision 5c)
+
+What Node does, silently. It makes up a character that isn't in the text, the repair 2b turned down when reading, and the writing side would then disagree with the reading side: read strictly and write with repair, and a round trip can change the text without anything saying so. Where a language replaces silently, the replacement isn't what the program wrote either: Java's printing writes `?`.
+
+### 11.13 Refusing in `File` with `FileError(NotUtf8, …)`, and with a fault in `Stdio` (decision 5c)
+
+It would give one cause two channels. And `FileError`'s reasons are about the file, where this is about the text.
 
 ## 12. Precedents consulted
 
@@ -319,4 +338,5 @@ In the prelude, a browser program could call `File.readText!` with nothing in it
 - **Output:** C, Go (`os/signal`: "A write to a broken pipe on file descriptors 1 or 2 … will cause the program to exit with a SIGPIPE signal"), Rust's `println!` and `-Zon-broken-pipe`, Python's note on `BrokenPipeError`, .NET's console stream on Unix, Swift's `print`, and Koka's `println`.
 - **Arguments:** Node's `process.argv` and `util.parseArgs`, Koka's `get-args`, Haskell's `getArgs`, F#'s and Kotlin's `main` parameter, Gleam's `argv`, OCaml's `Sys.argv`, Swift's `CommandLine.arguments`, and Rust's `env::args`.
 - **Exit status:** Node's `process.exitCode` and `process.exit`, .NET's `Environment.ExitCode` and `Exit`, Rust's `ExitCode` and `exit`, OCaml's `exit`, Kotlin's `exitProcess`, Go's `os.Exit`, and Python's `sys.exit`.
+- **Lone surrogates on write:** Python, which refuses writing a file and printing (`UnicodeEncodeError`, with `errors="replace"` as the repair); Java's `Files.writeString`, which refuses, and `System.out.println`, which writes `?`; Node, which writes U+FFFD, and JavaScript's `isWellFormed` and `toWellFormed` (ES2024); Rust, whose `String` can't hold one (`String::from_utf16` refuses, `from_utf16_lossy` replaces).
 - **The playground:** the TypeScript Playground, and the Rust, Go and Kotlin playgrounds, which run programs on a server.
