@@ -87,7 +87,7 @@ runtime behaviour before specifying an API.
 
 Decided 2026-11-05 as `Stdio.readText` and `Stdio.readTextLossy`, with
 `File`'s names and text policy, ending the program when the input can't be
-read (`program-io.md` §4.5); the playground reads an input box (§6). The plan
+read (`program-io.md` §4.5); the playground reads an input box (`program-io.md` §6). The plan
 as it stood follows.
 
 The proposed operation is `readAllText`, making the whole-input behaviour
