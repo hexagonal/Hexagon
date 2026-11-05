@@ -7,7 +7,8 @@ read through Collections Part 3 §9's positions, and that a search reads its
 target once (#1413); amended 2026-11-04 — §10 names the program I/O modules
 that replace the experimental file reader, and §13 adds `toWellFormed` and
 `LoneSurrogateFault`, which the writers of `program-io.md` §7 throw, with §1's
-sentence on the one operation that replaces a lone surrogate. This document owns the
+sentence on the one operation that replaces a lone surrogate, and §11 names
+§13's two keys as its exception. This document owns the
 text-processing operations exported by `stdlib/String.hex`.
 
 **Home:** Public companion functions in `stdlib/String.hex`. Related Vector
@@ -322,7 +323,11 @@ intrinsic doors and compiler-generated Unicode tables may provide only the
 primitive capabilities that ordinary Hexagon cannot express; scanning,
 matching policy, original-span selection, empty-pattern rules, result
 construction, and the public operation bodies remain in `String.hex` wherever
-the intrinsic doctrine permits.
+the intrinsic doctrine permits. §13's `toWellFormed`, and the check the program
+I/O writers make before writing, are the exception: they go through JavaScript's
+own `toWellFormed` and `isWellFormed`, by the keys `stringToWellFormed` and
+`stringIsWellFormed`, because ordinary source would cost about two hundred times
+the encoding the check guards (`program-io.md` §9 measures it).
 
 The companion is ordered after the prelude modules whose public operations its
 ordinary source uses, including `Iterable` and `Vector`. This is a dependency

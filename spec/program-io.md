@@ -230,7 +230,7 @@ A `String` holds a lone surrogate only when foreign code supplies one: the lexer
 - **The fault is declared in `String`,** beside `toWellFormed`. As a prelude fault, it is bare by category (Modules §5.5): a program catches `LoneSurrogateFault(_, position)` with no import.
 - **The playground refuses the same text,** since the modules are the same there.
 
-So Hexagon writes only well-formed UTF-8, and text it can't encode writes nothing.
+So the six writers write only well-formed UTF-8, and text they can't encode writes nothing.
 
 ## 8. Hosts and emission
 
@@ -248,10 +248,28 @@ So Hexagon writes only well-formed UTF-8, and text it can't encode writes nothin
 - **`arguments`** finds where the user's arguments start as `util.parseArgs` does, from whether Node ran code given on its command line. Checking `process.execArgv` for the four long and short spellings is not enough: Node 24.18.0 records `--eval=…` and `-pe` as written.
 - **`setExitStatus`** checks the range, then sets `process.exitCode`.
 - **The playground's stand-ins** for `node:fs` and `node:process` answer only what the three modules call, as §6 says.
-- **The lone surrogate check** runs over the whole text before the first byte is written. It and `String.toWellFormed` go through JavaScript's own `isWellFormed` and `toWellFormed`, by new door keys listed in intrinsics §3.2 and the `String.hex` row of the stdlib roadmap. Text whose characters are all at or below U+00FF can't hold a surrogate, and a host that stores such text one byte per character answers at once (measured: JavaScript's `isWellFormed` took 0.0 ms on 64 million such characters). For other text the check costs about as much as the write.
+- **The lone surrogate check** runs over the whole text before the first byte is written, through the `stringIsWellFormed` key below. Text whose characters are all at or below U+00FF can't hold a surrogate, and a host that stores such text one byte per character answers at once (measured: JavaScript's `isWellFormed` took 0.0 ms on 64 million such characters). For other text the check costs about as much as encoding it. The position the fault names is found by ordinary Hexagon, after the check has failed.
 - **`String.toWellFormed`** answers its text unchanged when it holds no lone surrogate.
 - **The bare-set conformance test** (`compiler/src/conformance/prelude-bare-set.test.ts`) counts what Modules §5.5 counts: twenty-seven names, eighteen throwables, fifteen faults. `stdlib/README.md`'s count follows.
 - **The experimental modules go,** with their Node adapters and their specs, and nothing redirects to them.
+
+**The door keys.** The three modules call `node:fs` and `node:process` through ordinary `extern` blocks, so the playground can stand in beneath them. What JavaScript itself must do goes through these private keys of the intrinsic door (intrinsics §4.1 points here). `Process` needs none.
+
+| Key | Row | Declared in | What it does |
+| :--- | :--- | :--- | :--- |
+| `stringIsWellFormed` | `(text: String) -> Bool` | `String`, `File`, `Stdio` | `text.isWellFormed()` |
+| `stringToWellFormed` | `(text: String) -> String` | `String` | `text.toWellFormed()` |
+| `jsErrorReadCode` | `(error: JsValue) -> JsValue` | `File`, `Stdio` | one guarded read of `.code`, kept as `JsError.message`'s read of `.message` is |
+| `fileDecodeStrict` | `(bytes: JsValue) -> JsValue` | `File` | the text, decoded with `TextDecoder("utf-8", { fatal: true })`, or `undefined` for bytes that aren't UTF-8 |
+| `fileDecodeLossy` | `(bytes: JsValue) -> String` | `File` | the text, decoded with `TextDecoder("utf-8")` |
+| `fileFirstBadByte` | `(bytes: JsValue) -> Int` | `File` | the 1-based offset of the first byte that doesn't begin or continue a well-formed sequence |
+| `stdioEncode` | `(text: String) -> JsValue` | `Stdio` | the UTF-8 bytes of well-formed text, through `TextEncoder` |
+| `stdioByteLength` | `(bytes: JsValue) -> Int` | `Stdio` | the number of bytes `stdioEncode` gave |
+| `stdioPause` | `() ->~ Unit` | `Stdio` | waits about a millisecond, through `Atomics.wait` |
+
+- **Where a key is declared twice,** the rows bind one lowering (intrinsics §3.3). `File` and `Stdio` can't reach `String`'s private row, so each declares its own.
+- **The decoding, encoding, error-code and pause keys are host capabilities.** Hexagon has no byte type, no way to catch a getter, and no way to wait (`stdlib-roadmap.md` §5.1). What each answer means, and every throw, is ordinary Hexagon over it.
+- **The two string keys are there for their cost.** Both operations can be written in ordinary Hexagon over `toCodepoint`, which answers `None` for a lone surrogate (`string-text-processing.md` §1). But measured on Node 24.18.0, a check written that way took 384 ms on a million ASCII characters, where encoding them took 1.8 ms and `isWellFormed` under 0.01 ms. On 200,000 lines of 22 characters it took 1,626 ms, against 3.2 ms. That is two hundred times the encoding the check guards, on every write. This is `stdlib-roadmap.md` §5.1's last ground, measured performance evidence, and `string-text-processing.md` §11 names the exception.
 
 ## 10. Acceptance tests
 
