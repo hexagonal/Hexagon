@@ -7,7 +7,8 @@ Stages 1 to 4 were decided on 2026-11-04 and graduate to `Hex.File`, `Hex.Stdio`
 and `Hex.Process`, under Node only: [Program I/O](../program-io.md) is their
 contract, and `program-io-deliberation.md` the record. The sections below for
 those stages keep their plan; only their pointers to the old contracts
-changed. Stages 5 to 7 are unchanged.
+changed. Stage 5 was decided on 2026-11-05, as `Stdio.readText` and
+`Stdio.readTextLossy` (`program-io.md` §4.5). Stages 6 and 7 are unchanged.
 
 ## Purpose
 
@@ -24,7 +25,7 @@ not a minimum standard that the first version must satisfy.
 | 2 | Write stdout and stderr, with and without a newline | Print answers and keep diagnostics separate from results | Decided 2026-11-04 (`program-io.md` §4) |
 | 3 | Read command-line arguments | Accept an input filename rather than hardcoding it | Decided 2026-11-04 (`program-io.md` §5.1) |
 | 4 | Set an unsuccessful exit status | Let shells and scripts detect failure | Decided 2026-11-04 (`program-io.md` §5.2) |
-| 5 | Read all stdin until EOF | Accept redirected files and another command's output | Useful later |
+| 5 | Read all stdin until EOF | Accept redirected files and another command's output | Decided 2026-11-05 (`program-io.md` §4.5) |
 | 6 | Read one line from stdin | Support interactive questions | Defer until needed |
 | 7 | Basic path operations | Construct and inspect paths portably | Defer until concrete uses establish the surface |
 
@@ -83,6 +84,11 @@ explore setting the eventual status first. Decide the accepted values and
 runtime behaviour before specifying an API.
 
 ## 5. Whole-input stdin
+
+Decided 2026-11-05 as `Stdio.readText` and `Stdio.readTextLossy`, with
+`File`'s names and text policy, ending the program when the input can't be
+read (`program-io.md` §4.5); the playground reads an input box (§6). The plan
+as it stood follows.
 
 The proposed operation is `readAllText`, making the whole-input behaviour
 explicit. It consumes the remaining input until EOF and holds the result in

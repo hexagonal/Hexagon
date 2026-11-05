@@ -1,6 +1,6 @@
 # Stdlib listing: program I/O (`File`, `Stdio`, `Process`)
 
-**Status:** Decided 2026-11-04, ruled by James in five decisions (`notes/program-io-deliberation.md` is the deliberation record). Implemented 2026-11-05 (#1461) in `stdlib/File.hex`, `stdlib/Stdio.hex` and `stdlib/Process.hex`, with the playground's stand-ins in `playground/src/host-modules.ts`; conformance: `compiler/src/conformance/program-io.test.ts`, on real descriptors `compiler/scripts/test-program-io.mjs`, and in the playground `playground/src/execution-worker-io.test.ts` (§10). At landing, §9's two decoder rows became `->!`, so a text too long for a host string is refused as §3.4 says. This document replaces the experimental contracts for `Hex.Experimental.File` and `Hex.Experimental.Stdio`, and discharges the program I/O row of `stdlib-roadmap.md` §2 for v1. Its companion edits are:
+**Status:** Decided 2026-11-04, ruled by James in five decisions (`notes/program-io-deliberation.md` is the deliberation record). Implemented 2026-11-05 (#1461) in `stdlib/File.hex`, `stdlib/Stdio.hex` and `stdlib/Process.hex`, with the playground's stand-ins in `playground/src/host-modules.ts`; conformance: `compiler/src/conformance/program-io.test.ts`, on real descriptors `compiler/scripts/test-program-io.mjs`, and in the playground `playground/src/execution-worker-io.test.ts` (§10). At landing, §9's two decoder rows became `->!`, so a text too long for a host string is refused as §3.4 says. This document replaces the experimental contracts for `Hex.Experimental.File` and `Hex.Experimental.Stdio`, and discharges the program I/O row of `stdlib-roadmap.md` §2 for v1. Amended 2026-11-05 (#1465): reading standard input, the Program IO Plan's stage 5, ruled by James in four more decisions, recorded in the same notes. It is in §2, §4.5, §6, §9, §10 (tests 13 and 14), §11.14 to §11.17 and §12, and `string-text-processing.md` §10 names the two reads. Its companion edits are:
 - `string-text-processing.md` §1 and the new §13, where `String.toWellFormed` and `LoneSurrogateFault` are declared (§7), and §10, where BOM handling at text input names `File.readText` and `File.readTextLossy`;
 - Modules §5.5 and Exceptions §8.5, where `LoneSurrogateFault` joins the prelude's faults;
 - `stdlib-roadmap.md` §2's program I/O row;
@@ -10,7 +10,7 @@
 **Home:** three modules outside the prelude, `stdlib/File.hex`, `stdlib/Stdio.hex` and `stdlib/Process.hex`, declared `module File`, `module Stdio` and `module Process`. A program reaches them as it reaches `Regex` and `Rat`, by `import File`, `import Stdio` and `import Process` (Packages §2.4).
 
 **Not in scope:**
-- Reading standard input, whole or by line (Program IO Plan stages 5 and 6).
+- Reading standard input one line at a time (Program IO Plan stage 6).
 - Paths and their operations (stage 7), directories, and file metadata.
 - Bytes, and encodings other than UTF-8. v1 has no byte type.
 - Asynchronous I/O, streams and subprocesses.
@@ -27,9 +27,9 @@
 
 ## 1. Doctrine
 
-- **The programmer thinks only in UTF-8.** Text read from a file is well-formed UTF-8, or the read is refused, unless the function's name says it repairs. Text Hexagon writes is UTF-8 with no byte-order mark, unless the function's name says it writes one. The arguments arrive as Node has already decoded them (§5.1).
+- **The programmer thinks only in UTF-8.** Text read from a file or from standard input is well-formed UTF-8, or the read is refused, unless the function's name says it repairs. Text Hexagon writes is UTF-8 with no byte-order mark, unless the function's name says it writes one. The arguments arrive as Node has already decoded them (§5.1).
 - **Name it, don't repair it.** A file that isn't UTF-8 is refused, with the reason named, rather than read with made-up characters. A repairing read exists, and its name says what it does (`readTextLossy`).
-- **The fail colour means "plan for this"** (Exceptions §1). A missing file is a failure a caller plans for, so the file operations are `->!` and throw the tracked `FileError`. Nobody plans for their own output failing: when the reader has gone the output is no longer wanted, and when the disk is full the only place left to say so is stderr. So the `Stdio` writers end the program instead, and are `->~`.
+- **The fail colour means "plan for this"** (Exceptions §1). A missing file is a failure a caller plans for, so the file operations are `->!` and throw the tracked `FileError`. Nobody plans for their own output failing: when the reader has gone the output is no longer wanted, and when the disk is full the only place left to say so is stderr. So the `Stdio` writers end the program instead, and are `->~`. Standard input is read once: after a read has refused, the input is gone, so a caller has no plan to carry out. The `Stdio` reads end the program too, and are `->~`.
 - **Node is the one host.** The three modules call `node:fs` and `node:process` themselves, with no adapter layer. A program that imports none of them stays a portable ES module.
 - **They are outside the prelude.** The prelude is what every program sees on every host, and these modules work only under Node and in the playground (§6). An import line states, in the program's text, that the program needs files or a command line.
 
@@ -61,6 +61,9 @@ export let write(text: String): Unit           // ->~
 export let writeLine(text: String): Unit       // ->~
 export let writeError(text: String): Unit      // ->~
 export let writeErrorLine(text: String): Unit  // ->~
+
+export let readText(): String                  // ->~
+export let readTextLossy(): String             // ->~
 ```
 
 ```hexagon
@@ -84,6 +87,8 @@ import Process
 let input = File.readText!(Process.arguments~()[1])
 Stdio.writeLine~("${solve(input)}")
 ```
+
+The same program reads its input from standard input, run as `node Main.js < input.txt`, with `let input = Stdio.readText~()`.
 
 - **Constructors are spelled through the module,** as `File.NotFound`, since `File` is outside the prelude. The union's own name is written only in a type annotation.
 - **The exception is `FileError`, not `File.Error`.** An exception named `Error` prints like a JavaScript error when uncaught, and `show` would print `Error: …` too. `RegexError` and `JsConversionError` carry their subject in the same way.
@@ -189,6 +194,28 @@ When a write fails, the writer ends the program. No `catch` sees the ending, jus
 
 `Debug.log` keeps its name, its `Show` input and its pure face. It is a probe, Effects §6.2's species (a), and its lines' number and order follow evaluation (§6.2). `Stdio` is a program's real output, with no unmarked form.
 
+### 4.5 Reading standard input
+
+- **`readText~()` reads all of standard input, descriptor 0, until the input ends,** and decodes it as `File.readText` decodes a file (§3.1): strictly, with exactly one leading U+FEFF dropped and everything else kept as it is. **`readTextLossy~()`** reads as `readText` does, except that each ill-formed sequence becomes U+FFFD, as `File.readTextLossy` replaces it.
+- **The input ends** when a redirected file is exhausted, when every writer to a pipe has closed it, and at a terminal when the user types the end of input, Ctrl-D at the start of a line on Linux and macOS. Enter sends a line but doesn't end the input, so at a terminal the read waits. The reads are for redirection and pipelines, `node Main.js < input.txt` and `cat input.txt | node Main.js`; asking the user a question is stage 6.
+- **Empty input answers `""`,** and so does stdin that is `/dev/null` or closed: Node reopens a closed descriptor 0 on `/dev/null`.
+- **The input is consumed.** A later read answers what arrived after the earlier one ended: `""` for a file or a pipe, and at a terminal whatever is typed before the next end of input.
+- **A read is synchronous,** and holds the whole input in memory.
+- **The descriptor would block (`EAGAIN`).** This is not a failure, and on a pipe it is the usual case: a program that imports `Stdio` or `Process` imports `node:process`, and Node then makes a piped stdin non-blocking. The read waits and reads again until the input ends (§9).
+- **`EOF`,** which Node may report at the end of input on Windows (not measured), ends the input. It isn't a failure either.
+- **When a read can't answer, the program ends,** with status 1 after one line on stderr, as a failed write ends it (§4.3). No `catch` sees the ending, and so the reads are `->~` (Effects §6.1). A read can't answer for:
+  - **input that isn't well-formed UTF-8,** for `readText` only. The line names the first bad byte, found and counted from 1 as §3.4 counts it, the BOM included;
+  - **input longer than the host's longest string,** about 512 MB on Node, for either read;
+  - **anything else the system reports,** such as `EISDIR` for a directory given as stdin (`< /`), or `EIO`.
+
+  ```text
+  cannot read standard input: not UTF-8 at byte 2
+  cannot read standard input: illegal operation on a directory
+  ```
+
+  The line gives the system's description as Node gives it without its code, as §4.3's line does, and its wording is not normative. The status is 1 even if the line's own write fails.
+- **A program that wants to keep stray bytes** asks for that before reading, with `readTextLossy`. After a refusal there is nothing to recover, because the input is gone.
+
 ## 5. `Process`
 
 ### 5.1 `arguments`
@@ -209,10 +236,16 @@ When a write fails, the writer ends the program. No `catch` sees the ending, jus
 
 ## 6. The playground
 
-The playground runs programs in the browser, where Node isn't there. It runs a program that imports these modules as a terminal would run it with no arguments, in an empty directory on a read-only file system. Its answers are the ones Node gives there for a path naming a file in that directory.
+The playground runs programs in the browser, where Node isn't there. It runs a program that imports these modules as a terminal would run it with no arguments and with the playground's input box as its standard input, in an empty directory on a read-only file system. Its answers are the ones Node gives there for a path naming a file in that directory.
 
 - **`Stdio.write` and `writeLine`** go to the output pane, in order with `Debug.log`'s lines. **`writeError` and `writeErrorLine`** go to the same pane, marked as errors.
-- **`Process.arguments~()`** answers an empty `Vector`.
+- **`Stdio.readText~()` and `readTextLossy~()`** read the text of the playground's input box, as a program run with `< input.txt` reads that file. The box is small on the page.
+  - Every run reads the box's whole text from its start, as a new process reads a file. A later read in the same run answers `""`.
+  - An empty box answers `""`, as `/dev/null` does.
+  - The box's line breaks reach the program as LF, because a browser turns CRLF and a lone CR in a text box into LF.
+  - The text reaches the program as UTF-8, so `readText` never refuses there.
+  - The box's text is kept in the browser beside the source, and a shared link carries it when it isn't empty.
+- **`Process.arguments~()`** answers an empty `Vector`, and there is no box for arguments.
 - **`Process.setExitStatus~(n)`** shows at the end of the run as `exit status n`, when `n` isn't 0. An uncaught exception or fault shows as the playground shows any uncaught throw.
 - **`File.readText!` and `File.readTextLossy!`** throw `FileError(NotFound, path, …)`. **`File.writeText!` and `File.writeTextBom!`** throw `FileError(Other("EROFS"), path, …)`, Node's code for a read-only file system, with Node's message for it. They answer so for every path, where Node would answer some paths differently, such as one naming the directory itself (`IsDirectory`), or a write through a directory that isn't there (`NotFound`).
 - **How:** the playground links its own small `node:fs` and `node:process` beneath the three modules. The modules themselves are the same in the browser as under Node. A test runs the same programs in both and compares what they print (§10, test 11).
@@ -245,9 +278,15 @@ So the six writers write only well-formed UTF-8, and text they can't encode writ
 - **`FileError`'s reason** comes from the thrown error's `code`, through one guarded read beside the one `JsError.message` makes.
 - **The strict read** decodes with `TextDecoder("utf-8", { fatal: true })`, which drops exactly one leading BOM. The lossy read decodes without `fatal`.
 - **The `Stdio` writer** writes with `writeSync`, carries on after a partial write, waits and retries on `EAGAIN`, and ends the program on any other error as §4.3 says. It catches every throw, which keeps `->~` true.
+- **The `Stdio` reads** read descriptor 0 with `readSync`, into one array that doubles when it is full, until a read answers 0 bytes. Then they decode the bytes with `File`'s two decoders. They catch every throw, which keeps `->~` true:
+  - on `EAGAIN` they wait and read again, starting at 10 microseconds, doubling up to 16 milliseconds, and starting again from 10 after a read that answered bytes;
+  - on `EOF` the input has ended;
+  - any other error, and a decoder's throw, ends the program as §4.5 says.
+- **Why the reads back off.** Measured on Node 24.18.0, `import process from "node:process"`, like reading `process.stdin`, makes a piped stdin non-blocking, where importing `node:fs` doesn't. Then, with a loop over `readSync`, 100 MB from `cat` through a pipe met `EAGAIN` about 1,500 times. With the writers' fixed wait of a millisecond the loop took 1.9 s. Backing off, it took 0.26 s, where `readFileSync(0)` on a blocking pipe takes 0.27 s. At a terminal, two seconds of waiting for the user woke the program about 1,800 times with the fixed wait, and about 150 times with the back-off. `Stdio.readText` itself read the 100 MB in 0.38 s from a pipe and 0.21 s from a redirected file, where `File.readText` took 0.15 s.
+- **The reads don't use `readFileSync(0)`.** It throws `EAGAIN` on a non-blocking pipe and keeps nothing it had read before the throw, so a program couldn't carry on from where it stopped. Measured: with `node:process` imported, `cat` piping into `readFileSync(0)` throws `EAGAIN`.
 - **`arguments`** finds where the user's arguments start as `util.parseArgs` does, from whether Node ran code given on its command line. Checking `process.execArgv` for the four long and short spellings is not enough: Node 24.18.0 records `--eval=…` and `-pe` as written.
 - **`setExitStatus`** checks the range, then sets `process.exitCode`.
-- **The playground's stand-ins** for `node:fs` and `node:process` answer only what the three modules call, as §6 says. The stand-in `writeSync` decodes the bytes it is given during the call and keeps nothing, since the writer reuses its array.
+- **The playground's stand-ins** for `node:fs` and `node:process` answer only what the three modules call, as §6 says. The stand-in `writeSync` decodes the bytes it is given during the call and keeps nothing, since the writer reuses its array. The stand-in `readSync` copies the input box's text, encoded as UTF-8 when the run starts, into the array it is given, and answers 0 once all of it has been copied.
 - **The lone surrogate check** runs over the whole text before the first byte is written, through the `stringIsWellFormed` key below. Text whose characters are all at or below U+00FF can't hold a surrogate, and a host that stores such text one byte per character answers at once (measured: JavaScript's `isWellFormed` took 0.0 ms on 64 million such characters). For other text the check costs about as much as encoding it. The position the fault names is found by ordinary Hexagon, after the check has failed.
 - **`String.toWellFormed`** answers its text unchanged when it holds no lone surrogate.
 - **The bare-set conformance test** (`compiler/src/conformance/prelude-bare-set.test.ts`) counts what Modules §5.5 counts: twenty-seven names, eighteen throwables, fifteen faults. `stdlib/README.md`'s count follows.
@@ -260,18 +299,20 @@ So the six writers write only well-formed UTF-8, and text they can't encode writ
 | `stringIsWellFormed` | `(text: String) -> Bool` | `File`, `Stdio` | `text.isWellFormed()` |
 | `stringToWellFormed` | `(text: String) -> String` | `String`, as the exported `toWellFormed` | `text.toWellFormed()` |
 | `jsErrorReadCode` | `(error: JsValue) ->~ JsValue` | `File`, `Stdio` | one guarded read of `.code`, through the helper `JsError.message`'s read of `.message` uses |
-| `fileDecodeStrict` | `(bytes: JsValue) ->! JsValue` | `File` | the text, decoded with `TextDecoder("utf-8", { fatal: true })`, or `undefined` for bytes that aren't UTF-8 |
-| `fileDecodeLossy` | `(bytes: JsValue) ->! String` | `File` | the text, decoded with `TextDecoder("utf-8")` |
-| `fileFirstBadByte` | `(bytes: JsValue) ->~ Int` | `File` | the offset §3.4 defines |
+| `fileDecodeStrict` | `(bytes: JsValue) ->! JsValue` | `File`, `Stdio` | the text, decoded with `TextDecoder("utf-8", { fatal: true })`, or `undefined` for bytes that aren't UTF-8 |
+| `fileDecodeLossy` | `(bytes: JsValue) ->! String` | `File`, `Stdio` | the text, decoded with `TextDecoder("utf-8")` |
+| `fileFirstBadByte` | `(bytes: JsValue) ->~ Int` | `File`, `Stdio` | the offset §3.4 defines |
 | `stdioEncode` | `(text: String) ->~ Int` | `Stdio` | encodes well-formed text as UTF-8, through `TextEncoder`, and answers the number of bytes |
 | `stdioBuffer` | `() ->~ JsValue` | `Stdio` | the byte array the last `stdioEncode` filled |
-| `stdioPause` | `() ->~ Unit` | `Stdio` | waits about a millisecond, through `Atomics.wait` |
+| `stdioPause` | `(microseconds: Int) ->~ Unit` | `Stdio` | waits `microseconds`, through `Atomics.wait`: 1,000 for a writer, and the reader's back-off |
+| `stdioReserve` | `(used: Int) ->~ Int` | `Stdio` | makes sure the reader's array has room after its first `used` bytes, keeping them, and answers the array's length; `0` starts a fresh array |
+| `stdioInput` | `(length: Int) ->~ JsValue` | `Stdio` | a view of the reader's array's first `length` bytes |
 
-- **The arrows.** The string pair are value functions of a `String`, so they are `->`. The decoders are `->!`: a text longer than the host's longest string throws `ERR_STRING_TOO_LONG` from either, which `File` refuses as `Other(code)`, as it does a read's failure (§3.4). The rest are `->~`: the encoder fills an array the next call may overwrite, and `stdioBuffer` answers whichever array the last call filled; the pause waits; and the `.code` read is not among FFI Part 11 §7's kept reads. Every caller is impure already, so `->~` costs nothing.
+- **The arrows.** The string pair are value functions of a `String`, so they are `->`. The decoders are `->!`: a text longer than the host's longest string throws `ERR_STRING_TOO_LONG` from either, which `File` refuses as `Other(code)`, as it does a read's failure (§3.4). The rest are `->~`: the encoder fills an array the next call may overwrite, and `stdioBuffer` answers whichever array the last call filled; `stdioReserve` may replace the reader's array, and `stdioInput` answers a view of whichever array is current; the pause waits; and the `.code` read is not among FFI Part 11 §7's kept reads. Every caller is impure already, so `->~` costs nothing.
 - **The encoder keeps one array for short text,** made at the first short write, and gives larger text an array of its own. Measured on Node 24.18.0 over 200,000 short lines, encoding each line into a fresh array took more than twice as long as handing Node the string to encode (`writeFileSync(descriptor, text, "utf8")`), and the kept array takes about a fifth longer than that.
 - **`toWellFormed` is the door row itself,** exported from `String` with its `(** *)` doc, since a wrapper whose body is exactly the door call collapses to its declaration (intrinsics §3.2).
-- **`stringIsWellFormed` is declared twice,** in `File` and in `Stdio`, and the two rows bind one lowering (intrinsics §3.3), as `Regex.Syntax` and `String` both declare `stringCodepointUnchecked`.
-- **`stdioPause` makes its waiting cell at its first call,** not when the module loads, so the module loads in a browser that has no `SharedArrayBuffer`, as the playground's may not. The playground's stand-in never meets `EAGAIN`.
+- **`stringIsWellFormed` and the three decoding keys are declared twice,** in `File` and in `Stdio`, and each key's two rows bind one lowering (intrinsics §3.3), as `Regex.Syntax` and `String` both declare `stringCodepointUnchecked`.
+- **`stdioPause` makes its waiting cell at its first call,** not when the module loads, so the module loads in a browser that has no `SharedArrayBuffer`, as the playground's may not. The playground's stand-ins never meet `EAGAIN`.
 - **The lowerings write `TextDecoder`, `TextEncoder`, `Atomics`, `Int32Array`, `SharedArrayBuffer` and `Uint8Array`,** which join the runtime vocabulary (FFI Part 7 §1.2).
 - **The decoding, encoding, error-code and pause keys are host capabilities.** Hexagon has no byte type, no way to catch a getter, and no way to wait (`stdlib-roadmap.md` §5.1). What each answer means, and every throw, is ordinary Hexagon over it.
 - **The two string keys are there for their cost.** Both operations can be written in ordinary Hexagon over `toCodepoint`, which answers `None` for a lone surrogate (`string-text-processing.md` §1). But measured on Node 24.18.0, a check written that way took 384 ms on a million ASCII characters, where encoding them took 1.8 ms and `isWellFormed` under 0.01 ms. On 200,000 lines of 22 characters it took 1,626 ms, against 3.2 ms. That is two hundred times the encoding the check guards or more, on every write. This is `stdlib-roadmap.md` §5.1's last ground, measured performance evidence, and `string-text-processing.md` §11 names the exception.
@@ -290,6 +331,14 @@ So the six writers write only well-formed UTF-8, and text they can't encode writ
 10. **`setExitStatus`.** 0, 3 and 255 end with that status; 256 and -1 throw `ExitStatusFault`; the last of two settings wins; an uncaught throw after a setting ends with 1.
 11. **The playground.** Programs that write with `Stdio`, read the arguments and set a status print the same text in the playground as under Node with no arguments, in the same order, with stderr marked and the exit status shown. `File`'s answers in the playground are §6's, and the `EROFS` message matches the one Node gives for a write on a read-only file system.
 12. **Lone surrogates.** Each of the six writers, given text holding a lone surrogate (from a foreign function), throws `LoneSurrogateFault` with the first one's position, where a well-formed pair before it counts as one codepoint. `writeText` and `writeTextBom` leave an existing file unchanged and create no missing one. A `Stdio` writer writes nothing, and the program goes on if the fault is caught. `toWellFormed` replaces each lone surrogate with U+FFFD, keeps a well-formed pair, and answers well-formed text unchanged. `LoneSurrogateFault` is bare in a catch arm.
+13. **Reading stdin.**
+    - **Where the input comes from.** The exact text arrives from a redirected file, from a pipe, from a writer that pauses between writes, and from more than a pipe holds.
+    - **Decoding,** as test 4's cases: `61 FF 62` ends `readText` with `cannot read standard input: not UTF-8 at byte 2` on stderr and status 1, while `readTextLossy` reads `a�b`, and of two leading BOMs one is dropped.
+    - **Empty and consumed input.** `< /dev/null` and a closed stdin answer `""`, and a second read answers `""`.
+    - **Endings.** A directory as stdin ends the program with one line and status 1, as does input longer than the host's longest string, for both reads.
+    - **Waiting.** A pipe its parent made non-blocking, whose writer pauses, gives every byte.
+    - **A terminal,** through a pseudo-terminal: a read ends at Ctrl-D, and a second read answers what was typed after it.
+14. **Stdin in the playground.** A program that reads stdin prints the same text in the playground, with the box holding some text, as under Node with that text in a file given as `< input.txt`. CRLF in the box arrives as LF, an empty box answers `""`, and a second read answers `""`. A shared link carries the box's text, and opening it restores the box.
 
 ## 11. Rejected alternatives (do not re-litigate)
 
@@ -357,6 +406,27 @@ What Node does, silently. It makes up a character that isn't in the text, the re
 
 It would give one cause two channels. And `FileError`'s reasons are about the file, where this is about the text.
 
+### 11.14 Reading one line at a time in v1, or no stdin (stdin decision 1)
+
+- **Line input now** brings stage 6's questions before a program needs their answers: a blank line against the end of input, CRLF against LF, and what a line read leaves for a later whole read. Node has no synchronous line read, so `Stdio` would keep the rest of a chunk between calls, and the playground would have to model that too.
+- **No stdin in v1.** `node Main.js < input.txt` wouldn't work, and a pipeline couldn't feed a Hexagon program.
+
+### 11.15 The Plan's `readAllText`, or one read (stdin decision 2)
+
+- **`readAllText` and `readAllTextLossy`.** `File.readText` beside `Stdio.readAllText` would spell one meaning, the whole text, two ways, which is .NET's split.
+- **Lossy only.** The same input would be refused when read by path and silently repaired when piped in, which contradicts decision 2b's strict default (§11.4).
+- **Strict only.** A program couldn't cope with stray bytes in its input, where `File` gives both reads.
+
+### 11.16 Throwing when stdin can't be read (stdin decision 3)
+
+- **A tracked exception, with `->!` reads,** throwing `FileError` with a stand-in path or a new `StdinError`. Every call would carry a mark promising a recovery that isn't there: the input is consumed, so a `catch` can neither read it again nor read it lossily. `FileError` would put something that isn't a path in its `path` field. And uncaught, the user would see a stack trace instead of one line.
+- **Throwing for input that isn't UTF-8, and ending for the rest.** `Stdio` would have both channels, and its two reads different arrows. The catch still couldn't recover the input unless the exception carried the lossy text, which would be a third read hidden in an exception.
+
+### 11.17 Empty stdin, or typing during the run, in the playground (stdin decision 4)
+
+- **Stdin empty, as `/dev/null` is.** A program that reads its input couldn't be run in the playground as written, only rewritten with its input in a string literal, escaped.
+- **Typing while the program runs,** as the Rust Playground does. The worker can wait for the page only through `SharedArrayBuffer`, which a browser gives only to a page served with cross-origin isolation headers, and GitHub Pages, where the playground is published, doesn't let a site set them. A whole read would also answer only once a button ended the input, so the field would mostly serve line input, which is stage 6.
+
 ## 12. Precedents consulted
 
 - **Files:** Rust's `fs::read_to_string` and `String::from_utf8_lossy`; Swift's `String(contentsOfFile:encoding:)`; Python's `open`; Haskell's `readFile`; Java's `Files.readString`; Gleam's `simplifile`, whose `read` answers `Error(NotUtf8)`; Kotlin's `File.readText`; .NET's `File.ReadAllText`; Node's `readFileSync` and `TextDecoder`. OCaml and Go read bytes and don't decode them.
@@ -365,3 +435,4 @@ It would give one cause two channels. And `FileError`'s reasons are about the fi
 - **Exit status:** Node's `process.exitCode` and `process.exit`, .NET's `Environment.ExitCode` and `Exit`, Rust's `ExitCode` and `exit`, OCaml's `exit`, Kotlin's `exitProcess`, Go's `os.Exit`, and Python's `sys.exit`.
 - **Lone surrogates on write:** Python, which refuses writing a file and printing (`UnicodeEncodeError`, with `errors="replace"` as the repair); Java's `Files.writeString`, which refuses, and `System.out.println`, which writes `?`; Node, which writes U+FFFD, and JavaScript's `isWellFormed` and `toWellFormed` (ES2024); Rust, whose `String` can't hold one (`String::from_utf16` refuses, `from_utf16_lossy` replaces).
 - **The playground:** the TypeScript Playground, and the Rust, Go and Kotlin playgrounds, which run programs on a server.
+- **Standard input:** Rust's `io::read_to_string(stdin())`, Kotlin's `readText` and `readLine`, F#'s `stdin.ReadToEnd()`, Haskell's `getContents`, Python's `sys.stdin.read()`, OCaml's `In_channel.input_all stdin`, Go's `io.ReadAll(os.Stdin)`, and Swift's `readLine()`. In playgrounds: Try It Online's input box and permalink, Compiler Explorer's `stdin` execution parameter, the Rust Playground's field while a program runs (its PR #995), and the Go, Kotlin, OCaml and Swift playgrounds, which give a program no input.

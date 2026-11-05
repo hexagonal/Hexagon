@@ -1,6 +1,6 @@
 # Program I/O: the deliberation record
 
-**Status:** Notes, not normative. The write-ups James ruled on, 2026-11-04, kept verbatim as they stood at each ruling, with a status line and, where an example indexed the arguments from `[0]`, a correction added after it. `spec/program-io.md` is the decided text. The parts were separate files during the deliberation, `IO-V1.md` (decision 1) and `IO-V1-D2.md` to `IO-V1-D5C.md`, and refer to each other by those names. The probes and measurements they cite were run on the deliberation's branch and machine, and are not kept in the repository.
+**Status:** Notes, not normative. The write-ups James ruled on, 2026-11-04 for the v1 surface and 2026-11-05 for standard input, kept verbatim as they stood at each ruling, with a status line and, where an example indexed the arguments from `[0]`, a correction added after it. `spec/program-io.md` is the decided text. The parts were separate files during the deliberation, `IO-V1.md` (decision 1) and `IO-V1-D2.md` to `IO-V1-D5C.md`, then `STDIN-V1.md` and `STDIN-V1-D2.md` to `STDIN-V1-D4.md`, and refer to each other by those names. The probes and measurements they cite were run on the deliberation's branch and machine, and are not kept in the repository.
 
 ---
 
@@ -1006,3 +1006,354 @@ What the table shows:
 ### Recommendation
 
 **(b).** The six writers refuse text that holds a lone surrogate, with `LoneSurrogateFault(position)`, before writing anything. `String.toWellFormed` is added as the explicit repair.
+
+---
+
+## Reading standard input in v1 (stdlib gaps, after item 7)
+
+**Status:** ruled (a) by James on 2026-11-05: v1 reads all of stdin, in `Stdio`, and nothing else; line input stays stage 6. This was the write-up for that ruling, decision 1 of 4. It is the first of the stdin decisions the Program IO Plan leaves open (stage 5, "Read all stdin until EOF"), and `program-io.md` puts out of scope for now. The decisions that follow from it are listed at the end, each to get its own write-up.
+
+**Up front:**
+- **Doctrine:** reading input is impure (Effects §1), so every option here is at least `->~`. Effects §6.1 says `->~` never fails. So a `->~` reader has to end the program when the read fails, as the writers do (decision 2c). A reader whose failures a caller can plan for is `->!`. That choice is decision 3, under the failure-channel ruling (exception, fault or `Option`).
+- **Colleague languages:** every general-purpose colleague with a console reads all of stdin in its standard library, except Swift, which reads lines. Gleam and Elm have no stdin at all, as they have no files.
+- **HM:** nothing here touches inference. These are ordinary functions with written types.
+
+### What exists today (measured on main, Node 24.18.0)
+
+- **Hexagon has no stdin.** `program-io.md` lists "Reading standard input, whole or by line (Program IO Plan stages 5 and 6)" under Not in scope.
+- **An Advent of Code program takes a path.** `File.readText!(Process.arguments~()[1])` compiles, and `node Day05.js input.txt` runs it. What doesn't work is `node Day05.js < input.txt`, or `cat input.txt | node Day05.js`.
+- **Node reads all of descriptor 0 with `readFileSync(0)`.** Measured with a probe script:
+
+  | stdin | What `readFileSync(0)` does |
+  |---|---|
+  | a file, `< input.txt` | the file's bytes; 100 MB in 0.08 s |
+  | a pipe, `printf xyz \|` | the bytes; 100 MB in 0.54 s |
+  | a slow writer, `(printf a; sleep 1; printf b) \|` | waits, and gets both |
+  | a pipe from a Node parent, written half a second apart | waits, and gets both |
+  | `< /dev/null`, or stdin closed with `<&-` | nothing, `""`: Node reopens a closed descriptor 0 on `/dev/null` |
+  | a terminal | waits for Ctrl-D, and gets every line typed before it |
+  | a directory, `< /` | throws `EISDIR` |
+  | a non-blocking pipe whose writer is slow | throws `EAGAIN`, having read nothing |
+
+- **The last row has a fix.** A loop of `readSync` that waits about a millisecond on `EAGAIN` gets every byte. That is the writers' wait (decision 2c), and in my measurement it waited 410 times over half a second. The loop also reads a 100 MB pipe in 0.19 s.
+- **Where non-blocking stdin comes from.** It only happens when a parent sets `O_NONBLOCK` on a descriptor it shares. I set it with `fcntl` before starting Node to measure it. I haven't found a common shell setup that does it.
+- **A second whole read gets `""`.** The input has been consumed, for a file and for a pipe alike.
+- **Not measured:** Windows. CI installs the CLI there, but nothing reads stdin there yet.
+
+### The question
+
+What does v1 read from standard input?
+
+### Colleague languages
+
+| | All of stdin | One line | Bytes that aren't UTF-8 |
+|---|---|---|---|
+| OCaml | `In_channel.input_all stdin` (4.14) | `In_channel.input_line`, `None` at the end | not decoded: a `string` is bytes |
+| Rust | `io::read_to_string(io::stdin())` | `stdin().read_line`, or `lines()` | an error with `ErrorKind::InvalidData` |
+| Swift | none: `readLine()` in a loop | `readLine()`, `nil` at the end | replaced with U+FFFD |
+| F# | `stdin.ReadToEnd()` | `stdin.ReadLine()`, `null` at the end | replaced with U+FFFD |
+| Haskell | `getContents` (lazy) | `getLine`, which throws at the end | an exception |
+| Kotlin | `System.in.bufferedReader().readText()` | `readln()`, or `readlnOrNull()` | replaced with U+FFFD |
+| Python | `sys.stdin.read()` | `input()` | `UnicodeDecodeError` by default |
+| Go | `io.ReadAll(os.Stdin)` | `bufio.Scanner` | not decoded: bytes |
+| Gleam, Elm | none | none | |
+
+What they agree on:
+- **Whole input is the common case.** It is standard library everywhere except Swift, Gleam and Elm.
+- **One line is as common,** but it belongs to interactive programs. Each colleague has to say how a blank line differs from the end of input (`Option`, `nil`, `null`, or an exception), and that is the Plan's stage 6.
+- **Bad bytes split exactly as files do.** Rust, Haskell and Python refuse them, while Swift, F# and Kotlin replace them. Decision 2b put `File` on both sides: `readText` refuses them, and `readTextLossy` replaces them.
+
+### The options
+
+**(a) All of stdin, in `Stdio`, and nothing else.** One read that consumes the input to its end and answers it as text, with what decisions 2 to 4 settle.
+- **What it gives:** `node Day05.js < input.txt`, and any pipeline into a program. With `Process.arguments`, a program can take its input either way.
+- **Why `Stdio`:** it is standard input and output, as C's `stdio.h` and Haskell's `System.IO` are. A separate `Stdin` module would be one more import for one function.
+- **Cost:** at a terminal, the read waits for Ctrl-D, because Enter submits a line but doesn't end the input. A user who runs the program and starts typing sees nothing until then. The Plan says as much ("primarily a file-redirection and pipeline facility"), and a program that asks questions waits for stage 6.
+- **Implementation:** a `readSync` binding in the existing `extern from "node:fs"` block, the decoders `File` already has, and the writers' wait. The loop can be ordinary Hexagon over `readSync`, as the writers' loop is over `writeSync`. It needs a byte array to read into and a way to join the chunks, and whether those come from `node:buffer` or from a door key is for the spec to settle. I haven't built it.
+
+**(b) All of stdin, and one line at a time.** As (a), plus a line read such as `readLine: () -> Option(String)`.
+- **Cost:** stage 6's questions arrive now:
+  - a blank line against the end of input;
+  - `\r\n` against `\n`;
+  - what a line read leaves for a later whole read.
+- **Node has no synchronous line read,** so the module would read a chunk and keep the rest between calls. That is state the writers don't need, and the playground would have to model it too.
+- **Advent of Code doesn't need it.** Every puzzle's input is a file, read whole and split with `lines()`.
+
+**(c) No stdin in v1.** Programs take a path with `Process.arguments`, as they can today.
+- **Cost:** `node Day05.js < input.txt` doesn't work. A pipeline can't feed a Hexagon program, and a user who knows the idiom from Python or Rust templates hits the gap first.
+- **Saves:** decisions 2 to 4, and their implementation.
+
+### Recommendation
+
+**(a).** It is the one read every colleague with a console ships, and it is the gap's own row ("`node Day05.js < input.txt` works"). It reuses the decoders, the wait, and the `Stdio` module that v1 already has. Line input stays stage 6, so a blank line against the end of input is decided when an interactive program needs it, not before.
+
+**What would revisit it:** a program that has to ask the user something, which brings in stage 6; Windows becoming a host that CI runs programs on, where descriptor 0 at a console behaves differently and isn't measured here.
+
+### Decisions that follow (a), one write-up each
+
+1. This one: scope.
+2. **The text and the names.** Should stdin follow `File`'s text policy (strict UTF-8 with a lossy sibling, one leading BOM dropped), or be lossy only? And what are the names: `readText` and `readTextLossy` as in `File`, or the Plan's `readAllText`, which says it reads to the end?
+3. **Failures and the arrow.** Should the read be `->~` and end the program on a failure, as the writers do, or `->!` with an exception a caller can catch? And where does text that isn't UTF-8 go? `EAGAIN` waits either way.
+4. **The playground.** Is stdin empty there, as `< /dev/null` is, or does the playground get an input box beside the editor?
+
+**Readings to confirm with the spec, not decisions:**
+- a second read answers `""`, as Node does;
+- stdin closed or `/dev/null` answers `""`;
+- a directory on stdin is a failure under decision 3.
+
+---
+
+## Stdin's text and names (stdin decision 2 of 4)
+
+**Status:** ruled (a) by James on 2026-11-05: `Stdio.readText()` is strict and `Stdio.readTextLossy()` replaces bad bytes, each dropping one leading BOM, as `File`'s pair does. This was the write-up for that ruling. Decision 1 is ruled (a): v1 reads all of stdin, in `Stdio`, and nothing else (`STDIN-V1.md`). This decision settles what that read does with the bytes and what it is called. How a refused read fails is decision 3.
+
+**Up front:**
+- **Doctrine:** your text view decides most of this: "the Hexagon user should only think about UTF-8, no BOM, no other encodings". Decision 2b applied it to files: a strict `readText`, and a `readTextLossy` a program asks for by name. One policy for all text input keeps the library to one rule.
+- **Colleague languages:** every colleague below reads stdin with the same decoder it uses for files, and most give the two reads the same verb.
+- **HM:** nothing here touches inference.
+
+### What exists today (measured on main, Node 24.18.0)
+
+- **`File`'s text policy** (decision 2b, `program-io.md` §3):
+  - `readText` refuses bytes that aren't UTF-8 with `FileError(NotUtf8, …)`, whose message names the first bad byte;
+  - `readTextLossy` replaces each bad sequence with U+FFFD;
+  - both drop one leading BOM.
+
+  The two decoders are door keys `File` declares. `Stdio` can declare the same keys, and the two rows bind one lowering, as `File` and `Stdio` already share `stringIsWellFormed`.
+- **On Linux, `File.readText!("/dev/stdin")` reads stdin today, with that policy.** I built a program with `hexc` and ran it:
+  - from a pipe, `one\ntwo` gave two lines;
+  - a leading BOM was dropped;
+  - `a\xffb` ended the program with `Error [FileError]: not UTF-8 at byte 2: /dev/stdin` and status 1;
+  - a non-blocking pipe with a slow writer worked, because opening the path makes a fresh descriptor.
+
+  It isn't an idiom to teach. Windows has no `/dev/stdin`, and nothing documents it.
+- **The Plan's name** is `readAllText`, chosen "making the whole-input behaviour explicit".
+
+### The question
+
+Which text policy does stdin's read follow, and what is each function called?
+
+### Colleague languages
+
+| | All of stdin | A whole file | Bytes that aren't UTF-8 |
+|---|---|---|---|
+| Rust | `io::read_to_string(stdin())` | `fs::read_to_string(path)` | refused, both |
+| Kotlin | `System.in.bufferedReader().readText()` | `File(path).readText()` | replaced, both |
+| F# | `stdin.ReadToEnd()` | `File.ReadAllText(path)` | replaced, both |
+| Haskell | `getContents` | `readFile path` | an exception, both |
+| Python | `sys.stdin.read()` | `open(path).read()` | `UnicodeDecodeError` by default, both |
+| OCaml | `In_channel.input_all stdin` | `In_channel.input_all` on the file's channel | bytes, both |
+| Go | `io.ReadAll(os.Stdin)` | `os.ReadFile(path)` | bytes, both |
+
+What they agree on:
+- **One policy:** none of them decodes stdin differently from a file.
+- **One verb, mostly:** Rust, Kotlin, OCaml and Go give the two reads the same name, or the same function. .NET is the exception, with `ReadToEnd` beside `ReadAllText`.
+- **Kotlin's pair is the nearest fit:** `readText()` reads to the end, `readLine()` reads one line, and the same names serve files and streams. Stage 6 would add the second.
+
+### The options
+
+**(a) `File`'s policy and `File`'s names.** `Stdio.readText()` refuses bytes that aren't UTF-8, and `Stdio.readTextLossy()` replaces them. Each drops one leading BOM.
+- **What it gives:** one rule across all of Hexagon's text input, and one name for "the whole text" in both modules. A program moving from `File.readText!(path)` to stdin changes the module and drops the argument.
+- **Cost:** two functions, as `File` has. `readText` doesn't say it reads to the end, so at a terminal it waits for Ctrl-D. Its doc says so, as Plan §5 asks.
+
+**(b) `File`'s policy, with the Plan's names.** `readAllText()` and `readAllTextLossy()`.
+- **What it gives:** the name says it reads until the input ends, which matters at a terminal.
+- **Cost:** two spellings of "the whole text", `File.readText` beside `Stdio.readAllText`, for one meaning. That is .NET's split, and the longer name is paid at every call site.
+
+**(c) Lossy only.** One function, `Stdio.readText()`, that replaces bad bytes. This is Swift's, F#'s and Kotlin's choice for stdin.
+- **What it gives:** one function, and a read that never refuses on bytes.
+- **Cost:** the same input refuses when read by path and is silently repaired when piped in. That contradicts decision 2b, where you made strict the default and lossy something a program asks for by name. A stray byte in a puzzle's input would show as U+FFFD with no word about it.
+
+**(d) Strict only.** One function, `Stdio.readText()`, that refuses.
+- **Cost:** a program that wants to cope with stray bytes can't, except by reading `/dev/stdin` as a path on Linux. `File` gives both reads, and stdin would give half.
+
+### Recommendation
+
+**(a).** Decision 2b already chose the policy for text input. Stdin applying it differently would be a second rule for one kind of thing, which no colleague does. The names follow from the same reasoning: one meaning, one name, as Rust, Kotlin, OCaml and Go have it. With stage 6's `readLine` later, `Stdio` would read the way Kotlin's streams do.
+
+**What would revisit it:**
+- a byte API, which v1 doesn't have;
+- encodings other than UTF-8, which your text view leaves out;
+- a Windows console. I haven't measured what Node hands a program reading one.
+
+**Readings to confirm with the spec:**
+- only a BOM at the very start of the input is dropped, as with `File`;
+- `readTextLossy`'s output is always well-formed, as `File.readTextLossy`'s is.
+
+---
+
+## When reading stdin fails (stdin decision 3 of 4)
+
+**Status:** ruled (a) by James on 2026-11-05: both reads are `->~`, and a failure ends the program with one line on stderr and status 1, as the writers' failures do. This was the write-up for that ruling. Decisions 1 and 2 are ruled (a): v1 reads all of stdin in `Stdio`, as `Stdio.readText()`, which refuses bytes that aren't UTF-8, and `Stdio.readTextLossy()`, which replaces them (`STDIN-V1.md`, `STDIN-V1-D2.md`). This decision settles what each read does when it can't answer, and so its arrow.
+
+**Up front:**
+- **Doctrine:** the failure-channel ruling gives an exception to failures a caller plans for, a fault to a programmer's mistake, and `Option` to something that isn't there. Decision 2c added a fourth for output: some failures end the program, quietly or with one line, and no `catch` sees them. Effects §6.1 says `->~` never fails, so a `->~` read must end the program when it can't answer.
+- **Colleague languages:** all of them let the caller see a failed read, as a `Result` or an exception. None ends the program itself. An Advent of Code program usually ends anyway, with Rust's `.unwrap()` or an uncaught exception.
+- **HM:** nothing here touches inference.
+
+### What can go wrong (measured on Node 24.18.0, unless marked)
+
+- **Bytes that aren't UTF-8,** for `readText` only. The input is a file or a pipe the user chose.
+- **A directory on stdin,** `< /`. Node's read throws `EISDIR: illegal operation on a directory, read`.
+- **Input too long for a string,** past about 512 MB. Both decoders throw `ERR_STRING_TOO_LONG`, as they do for `File`.
+- **Anything else the system reports,** such as `EIO` from a terminal that has gone away. I haven't produced one.
+- **Not failures:**
+  - `EAGAIN`, which waits (decision 1's measurement);
+  - an empty or closed stdin, which answers `""`;
+  - on Windows, possibly an `EOF` error from a console. It isn't measured, and would be the end of the input.
+- **The input is gone once read.** Whatever the read decides, a second read answers `""`. So after `readText` has refused, a program can't read the same input lossily, as it can with a file.
+- **An uncaught exception today** prints a stack trace. Measured with `File.readText!("/dev/stdin")` on `a\xffb`: 20 lines on stderr, including `Error [FileError]: not UTF-8 at byte 2: /dev/stdin`, then status 1.
+
+### The question
+
+When `readText` or `readTextLossy` can't answer, does the program end, or does the caller get an exception it can catch?
+
+### Colleague languages
+
+| | A failed read of stdin | Bytes that aren't UTF-8 |
+|---|---|---|
+| Rust | `Err(io::Error)` | `Err` with `ErrorKind::InvalidData` |
+| Haskell | throws an `IOException` | throws |
+| Python | raises `OSError` | raises `UnicodeDecodeError` |
+| Go | returns an `error` | bytes, no decoding |
+| OCaml | raises `Sys_error` | bytes, no decoding |
+| F#, Kotlin | throw an `IOException` | replaced |
+| Swift | `readLine()` answers `nil` | replaced |
+
+What they agree on:
+- **The caller sees the failure.** Every colleague hands it back. Decision 2c chose to differ for output: ending is what Unix programs do, and a write's failure isn't the program's to fix.
+- **What callers do with it** is mostly stop: `.unwrap()`, `expect`, or no handler at all.
+
+### The options
+
+**(a) Both reads are `->~`. A failure ends the program, as the writers' failures do.** One line on stderr and status 1:
+- `cannot read standard input: not UTF-8 at byte 2`, counted from 1 as `File`'s is;
+- `cannot read standard input: illegal operation on a directory`, which is Node's description without its code, as the writers word theirs.
+
+A call is `Stdio.readText~()`.
+- **What it gives:**
+  - `Stdio` is `->~` throughout, with one kind of failure: one line and status 1.
+  - A program that wants to cope with stray bytes asks for that before reading, by calling `readTextLossy`. Afterwards there is nothing to recover, because the input is gone.
+  - A puzzle program's first line stays `let input = Stdio.readText~()`.
+- **Cost:**
+  - A program can't put its own message or status on a failed read. A tool that wants "expected UTF-8 puzzle input" and status 2 can't have them.
+  - It differs from every colleague, as 2c did for output.
+
+**(b) Both reads are `->!`, and a failure throws a tracked exception.** That could be `File.FileError` with a stand-in path such as `"standard input"`, or a new `StdinError(reason, message)` in `Stdio`.
+- **What it gives:**
+  - The colleagues' answer.
+  - A program can catch the failure, say what it likes, and set its own status.
+  - Uncaught, it ends the program with status 1, as today's measurement shows.
+- **Cost:**
+  - Every call carries a mark promising a recovery that mostly isn't there: the input is consumed, so a `catch` can't retry, and can't read lossily.
+  - `FileError` would put a path that isn't one in a field a program reads. A new exception is one more type and one more set of reasons to keep.
+  - Uncaught, the user sees a stack trace instead of one line.
+
+**(c) Mixed: bytes that aren't UTF-8 throw a tracked exception, and every other failure ends the program.** `readText` is `->!`, and `readTextLossy`, which can't meet bad bytes, is `->~`.
+- **What it gives:** a catch for the one failure that comes from the data rather than the system.
+- **Cost:**
+  - `Stdio` has both channels, and its two reads have different arrows.
+  - The catch still can't recover the input. To make it worth catching, the exception would have to carry the text. Rust's `FromUtf8Error` hands back its bytes, which is the precedent, but v1 has no byte type, so it would have to carry the lossy text. That makes it a third read hidden in an exception.
+
+### Recommendation
+
+**(a).** For stdin, an exception would mark every call with a plan the program can't carry out. The input is read once, so the only response left after a refusal is to stop. That is what (a) does, with a line the user can read, not a stack trace. The one useful choice, keeping stray bytes, comes before the read, and `readTextLossy` already offers it.
+
+(a) also keeps `Stdio` to the single rule 2c gave it: a standard stream that can't be used ends the program. And it matches what an Advent of Code program usually does in every colleague anyway.
+
+**What would revisit it:**
+- Stage 6's line input. An interactive program could ask again after a bad line, so a line read might want a catchable failure.
+- A program that needs its own status for a bad input. It can read lossily and check for U+FFFD itself, and if that proves common, the status of the ending is what to revisit.
+
+**Readings to confirm with the spec:**
+- the failure line's wording isn't normative, as the writers' isn't (`program-io.md` §4.3);
+- the line's write to stderr may itself fail, and the status is 1 all the same;
+- a failure after some bytes were read leaves nothing for a later read to answer, which is `""`.
+
+---
+
+## Stdin in the playground (stdin decision 4 of 4)
+
+**Status:** ruled (b) by James on 2026-11-05, "keep the input box small, though (in visual size)": an input box whose text is the program's stdin, as with `< input.txt`, kept small on the page. This was the write-up for that ruling. Decisions 1 to 3 are ruled (a): v1 reads all of stdin in `Stdio`, as `Stdio.readText()` and `Stdio.readTextLossy()`, and both are `->~`, so a failed read ends the program with one line and status 1 (`STDIN-V1.md`, `STDIN-V1-D2.md`, `STDIN-V1-D3.md`). This decision settles what the two reads answer in the playground, which runs programs in the browser.
+
+**Up front:**
+- **Doctrine:** decision 5b gave the playground one rule: every answer it gives is one Node gives in some real situation, so a program never behaves there in a way it couldn't under Node. All three options below keep that rule, because each matches a real way of running a program: `< /dev/null`, `< input.txt`, or a terminal. 5b's rejected alternatives are binding, so stopping or refusing a program that reads stdin isn't an option (`program-io.md` §11.11).
+- **Colleague playgrounds:** most give a program no input. Try It Online and Compiler Explorer take input before the run. The Rust Playground has taken it while the program runs since 2023. All three run programs on a server, where Hexagon's playground runs them in the browser.
+- **HM:** nothing here touches inference, or the language.
+
+### What exists today (measured on main, Chromium 153)
+
+- **The playground stands in for `node:fs` and `node:process`** (`playground/src/host-modules.ts`). Its `node:fs` has `readFileSync`, `writeFileSync` and `writeSync`. The stdin read will call `readSync`, so under every option the stand-in gains one. Without it, any program importing `Stdio` would fail to link, writers included.
+- **§6 says the playground runs a program "as a terminal would run it with no arguments".** At a real terminal, reading all of stdin waits for Ctrl-D. So §6 needs a sentence on stdin whichever option is chosen.
+- **The playground has no way to take data in.** `File.readText!` always answers `NotFound`. Today the only way to get a puzzle's input into a playground program is to paste it into a string literal. Hexagon's strings can span lines, but `"`, `\` and `${` in the input need escaping, and the program is then a different one from the program that runs under Node.
+- **Sharing and storage:** a shared link carries the source in its fragment (`#code=…`), and the browser keeps the source between visits.
+- **A text box in the browser** (a `<textarea>`, measured):
+  - it turns `\r\n` and a lone `\r` into `\n`;
+  - text typed into it arrives with U+FFFD already in place of a lone surrogate, though a script can set one;
+  - a 29 KB puzzle-shaped input in a shared link made a 37 KB link, which Chromium opened and read back whole. A 1.5 MB link also worked, and a 3 MB link failed to open, as Chromium's 2 MB limit on a URL predicts.
+- **Waiting for input during a run.** The program runs in a worker, and a read must answer before the call returns. For the worker to wait while the page collects typing, it needs `SharedArrayBuffer` and `Atomics.wait`. In Chromium these are missing from both the page and its worker unless the page is served with the cross-origin isolation headers (COOP and COEP); with the headers, both have them. The playground deploys to GitHub Pages (`actions/deploy-pages`), which doesn't let a site set its own headers.
+
+### The question
+
+What does a program that reads stdin get in the playground?
+
+### Colleague playgrounds
+
+| | Runs on | Standard input |
+|---|---|---|
+| Go Playground | a server | none: "The only communication a playground program has to the outside world is by writing to standard output and standard error." |
+| Kotlin Playground | a server | none: `readLine()` answers `null`, per a 2020 forum thread. Program arguments can be set in its settings |
+| TypeScript Playground | the browser | none: there is no `process` (5b's measurement) |
+| OCaml Playground, SwiftFiddle | | no input field on the page |
+| Try It Online | a server | Input and Arguments boxes, filled before the run; "a client-side permalink that encodes code and input directly in the URL" |
+| Compiler Explorer | a server | `stdin` and `args` sent with the run (its API's `executeParameters`) |
+| Rust Playground | a server, over a WebSocket | while the program runs, since PR #995 (2023): a field whose Enter sends one line, and a "Close stdin" button that ends the input. Its issue #22, asking for input given before the run, has been open since 2016 |
+
+What they agree on:
+- **No input is the common answer,** and it is the answer of the one colleague that runs in the browser.
+- **Where there is input, it comes either before the run or during it.** Before the run is the simpler choice, and it is what a puzzle program needs. During the run is what an interactive program needs, which is stage 6.
+
+### The options
+
+**(a) Stdin is empty, as it is with `< /dev/null`.** Both reads answer `""`.
+- **What it gives:**
+  - the smallest change, a stand-in `readSync` that answers 0;
+  - nothing for the page to show or keep.
+- **Cost:**
+  - A program that reads its input runs on nothing, and nothing says why, unless the output pane adds a note.
+  - A puzzle program can't be run in the playground as written, only rewritten with its input in a literal.
+- **Later:** adding (b) breaks nothing, because an empty box is (a).
+
+**(b) An input box: its text is the program's stdin, as with `< input.txt`.** Each run reads the box's text from the start, and an empty box gives `""`, as (a) does.
+- **What it gives:**
+  - `let input = Stdio.readText~()` runs unchanged in the playground and under Node. Paste a puzzle's input into the box, then press Run.
+  - It is Try It Online's model, and Compiler Explorer's.
+  - The read still answers at once. The run carries the box's text, and the stand-in answers from it, so no headers or waiting are involved.
+- **Cost:**
+  - the box and its place on the page;
+  - keeping its text in browser storage beside the source, and carrying it in a shared link when it isn't empty, as Try It Online's permalink does;
+  - tests for each of those.
+  - The page grows a control that only programs reading stdin use.
+
+**(c) Interactive: the run waits at the read while the user types, as the Rust Playground does.** A button ends the input, as Ctrl-D does at a terminal.
+- **What it gives:** the closest match to a terminal, and the start of what stage 6 needs.
+- **Cost:**
+  - **The worker can't wait without cross-origin isolation.** That means a different host, or a service worker that adds the headers to every response, which is a known workaround.
+  - **Stage 6 arrives early.** A whole read only answers once the end-of-input button is pressed, so the field mostly serves line input, which decision 1 left for stage 6.
+  - **A run can now hang,** waiting for a button, and the pane needs a way to show that and to stop it.
+
+### Recommendation
+
+**(b).** The point of v1's stdin is that `node Day05.js < input.txt` works. The playground is where someone tries Hexagon before installing anything, and (b) lets the same program take the same input there, with no edits. The box is the one way the playground can take data in, because files always answer `NotFound`. It needs no new browser machinery, since the text is known before the run starts.
+
+(a) is the answer if the playground should stay as small as it is. It loses nothing for good, because (b) can be added later without changing any answer (a) gives. (c) solves stage 6's problem before stage 6, at the cost of a hosting change.
+
+**What would revisit it:**
+- Stage 6's line input, which would want (c) and so cross-origin isolation.
+- A way to give the playground files, which 5b noted as a later feature. An arguments box would come with it, since an argument in the playground can only name a file that isn't there.
+
+**Readings to confirm with the spec (under (b)):**
+- every run starts from the box's whole text, as a new process reads a fresh file, and a second read in the run answers `""`;
+- the box's line breaks reach the program as `\n`, because the browser turns `\r\n` into `\n`;
+- the stand-in encodes the box's text as UTF-8, so `readText` never refuses in the playground;
+- `Process.arguments~()` stays empty, and there is no arguments box.
