@@ -1,6 +1,6 @@
 # Stdlib listing: program I/O (`File`, `Stdio`, `Process`)
 
-**Status:** Decided 2026-11-04, ruled by James in five decisions (`notes/program-io-deliberation.md` is the deliberation record). Spec-only; implementation #1461. This document replaces the experimental contracts for `Hex.Experimental.File` and `Hex.Experimental.Stdio`, and discharges the program I/O row of `stdlib-roadmap.md` §2 for v1. Its companion edits are:
+**Status:** Decided 2026-11-04, ruled by James in five decisions (`notes/program-io-deliberation.md` is the deliberation record). Implemented 2026-11-05 (#1461) in `stdlib/File.hex`, `stdlib/Stdio.hex` and `stdlib/Process.hex`, with the playground's stand-ins in `playground/src/host-modules.ts`; conformance: `compiler/src/conformance/program-io.test.ts`, on real descriptors `compiler/scripts/test-program-io.mjs`, and in the playground `playground/src/execution-worker-io.test.ts` (§10). At landing, §9's two decoder rows became `->!`, so a text too long for a host string is refused as §3.4 says. This document replaces the experimental contracts for `Hex.Experimental.File` and `Hex.Experimental.Stdio`, and discharges the program I/O row of `stdlib-roadmap.md` §2 for v1. Its companion edits are:
 - `string-text-processing.md` §1 and the new §13, where `String.toWellFormed` and `LoneSurrogateFault` are declared (§7), and §10, where BOM handling at text input names `File.readText` and `File.readTextLossy`;
 - Modules §5.5 and Exceptions §8.5, where `LoneSurrogateFault` joins the prelude's faults;
 - `stdlib-roadmap.md` §2's program I/O row;
@@ -138,7 +138,7 @@ Every failure a `File` operation meets in the file system, or in a file's bytes,
   | `IsDirectory` | `is a directory: input.txt` |
   | `NotDirectory` | `not a directory: input.txt` |
   | `NotUtf8` | `not UTF-8 at byte 1234: input.txt` |
-  | `Other(code)` | Node's own message, such as `ENAMETOOLONG: name too long, open '…'` |
+  | `Other(code)` | Node's own message, such as `ENAMETOOLONG: name too long, open '…'`, with `: input.txt` after it where Node's message leaves the path out |
 
   The bad byte is the first one that is not part of the file's longest well-formed prefix. It is counted from 1 at the file's first byte, BOM included, as Hexagon counts positions in a `String`. Finding it takes a second scan of the bytes, made only after a read has failed.
 - **A program that plans for a missing file** names the reason in a catch arm:
@@ -260,14 +260,14 @@ So the six writers write only well-formed UTF-8, and text they can't encode writ
 | `stringIsWellFormed` | `(text: String) -> Bool` | `File`, `Stdio` | `text.isWellFormed()` |
 | `stringToWellFormed` | `(text: String) -> String` | `String`, as the exported `toWellFormed` | `text.toWellFormed()` |
 | `jsErrorReadCode` | `(error: JsValue) ->~ JsValue` | `File`, `Stdio` | one guarded read of `.code`, through the helper `JsError.message`'s read of `.message` uses |
-| `fileDecodeStrict` | `(bytes: JsValue) ->~ JsValue` | `File` | the text, decoded with `TextDecoder("utf-8", { fatal: true })`, or `undefined` for bytes that aren't UTF-8 |
-| `fileDecodeLossy` | `(bytes: JsValue) ->~ String` | `File` | the text, decoded with `TextDecoder("utf-8")` |
+| `fileDecodeStrict` | `(bytes: JsValue) ->! JsValue` | `File` | the text, decoded with `TextDecoder("utf-8", { fatal: true })`, or `undefined` for bytes that aren't UTF-8 |
+| `fileDecodeLossy` | `(bytes: JsValue) ->! String` | `File` | the text, decoded with `TextDecoder("utf-8")` |
 | `fileFirstBadByte` | `(bytes: JsValue) ->~ Int` | `File` | the offset §3.4 defines |
 | `stdioEncode` | `(text: String) ->~ Int` | `Stdio` | encodes well-formed text as UTF-8, through `TextEncoder`, and answers the number of bytes |
 | `stdioBuffer` | `() ->~ JsValue` | `Stdio` | the byte array the last `stdioEncode` filled |
 | `stdioPause` | `() ->~ Unit` | `Stdio` | waits about a millisecond, through `Atomics.wait` |
 
-- **The arrows.** The string pair are value functions of a `String`, so they are `->`. The rest are `->~`: the decoders read bytes in a mutable array, as intrinsics §3.3's `Buffer` read is `->~`; the encoder fills an array the next call may overwrite, and `stdioBuffer` answers whichever array the last call filled; the pause waits; and the `.code` read is not among FFI Part 11 §7's kept reads. Every caller is impure already, so `->~` costs nothing.
+- **The arrows.** The string pair are value functions of a `String`, so they are `->`. The decoders are `->!`: a text longer than the host's longest string throws `ERR_STRING_TOO_LONG` from either, which `File` refuses as `Other(code)`, as it does a read's failure (§3.4). The rest are `->~`: the encoder fills an array the next call may overwrite, and `stdioBuffer` answers whichever array the last call filled; the pause waits; and the `.code` read is not among FFI Part 11 §7's kept reads. Every caller is impure already, so `->~` costs nothing.
 - **The encoder keeps one array for short text,** made at the first short write, and gives larger text an array of its own. Measured on Node 24.18.0 over 200,000 short lines, encoding each line into a fresh array took more than twice as long as handing Node the string to encode (`writeFileSync(descriptor, text, "utf8")`), and the kept array takes about a fifth longer than that.
 - **`toWellFormed` is the door row itself,** exported from `String` with its `(** *)` doc, since a wrapper whose body is exactly the door call collapses to its declaration (intrinsics §3.2).
 - **`stringIsWellFormed` is declared twice,** in `File` and in `Stdio`, and the two rows bind one lowering (intrinsics §3.3), as `Regex.Syntax` and `String` both declare `stringCodepointUnchecked`.

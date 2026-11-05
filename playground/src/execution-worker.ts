@@ -1,4 +1,5 @@
 import { describeFailure, formatConsoleArguments } from "./execution";
+import { installHost, NODE_STAND_INS, type OutputStream, type PlaygroundHost } from "./host-modules";
 import { linkModule } from "./module-execution";
 import type {
   ExecuteOutput,
@@ -27,18 +28,28 @@ self.addEventListener("message", async (event: MessageEvent<ExecutionRequest>) =
   // makes it pure — captures whatever is standing when its module first
   // evaluates, which is this wrapper. The ordering is the contract that puts
   // a program's output in the results pane.
-  console.log = (...values: unknown[]) => {
-    browserLog(...values);
-    const output: ExecuteOutput = {
-      kind: "execute-output",
-      version: request.version,
-      line: formatConsoleArguments(values),
-    };
+  const post = (stream: OutputStream, text: string): void => {
+    const output: ExecuteOutput = { kind: "execute-output", version: request.version, stream, text };
     self.postMessage(output);
   };
+  console.log = (...values: unknown[]) => {
+    browserLog(...values);
+    post("stdout", `${formatConsoleArguments(values)}\n`);
+  };
+  // The run's terminal, which the `node:fs` and `node:process` stand-ins reach
+  // (`spec/program-io.md` §6). `Stdio`'s text arrives through the same `post`
+  // as `Debug.log`'s lines, so the pane shows the two in the order written.
+  const host: PlaygroundHost = { write: post, exitCode: undefined, exited: undefined };
+  installHost(host);
 
   const moduleUrls = new Map<string, string>();
   try {
+    for (const [specifier, source] of NODE_STAND_INS) {
+      moduleUrls.set(
+        specifier,
+        URL.createObjectURL(new Blob([source], { type: "text/javascript" })),
+      );
+    }
     for (const module of request.modules) {
       const linked = linkModule(module.javascript, module.path, moduleUrls);
       moduleUrls.set(
@@ -57,9 +68,21 @@ self.addEventListener("message", async (event: MessageEvent<ExecutionRequest>) =
     const response: ExecutionResponse = {
       kind: "execute-success",
       version: request.version,
+      exitStatus: host.exitCode ?? 0,
     };
     self.postMessage(response);
   } catch (error: unknown) {
+    // A program the stand-in `process.exit` ended has finished, with the
+    // status it was given, however the throw that stopped it was wrapped.
+    if (host.exited !== undefined) {
+      const ended: ExecutionResponse = {
+        kind: "execute-success",
+        version: request.version,
+        exitStatus: host.exited,
+      };
+      self.postMessage(ended);
+      return;
+    }
     // Shown as `Show<Exn>` shows it, so the pane reads `BadPattern: missing )`
     // where a program printing the same failure would.
     const response: ExecutionResponse = {

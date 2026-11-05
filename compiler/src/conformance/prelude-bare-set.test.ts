@@ -25,7 +25,7 @@ import {
  *
  * The companion suites (`vector-prelude-companion`, `float-companion`,
  * `js-kind-qualification`, …) each pin their own module's surface. This one pins
- * the **rule**: the set is exactly twenty-six names and is closed, each channel
+ * the **rule**: the set is exactly twenty-seven names and is closed, each channel
  * admits what it says it admits and nothing beside, and the refusal has one
  * shape across all three channels. The set pin is written against the *compiled
  * prelude* rather than a transcription, so drift in either direction — a name
@@ -62,7 +62,7 @@ function moduleNames(source: string): readonly string[] {
  * design ruling argued against §5.5, never an edit.
  */
 const BARE_SET = [
-  // The seventeen throwable constructors — fourteen faults and the exceptions
+  // The eighteen throwable constructors — fifteen faults and the exceptions
   // `JsError`, `NumberFormatError` and `JsConversionError` — a category, not a
   // list (§5.5).
   "AssumptionFault",
@@ -76,6 +76,7 @@ const BARE_SET = [
   "JsConversionError",
   "JsError",
   "KeyFault",
+  "LoneSurrogateFault",
   "NegativeExponentFault",
   "NegativeDecimalPlacesFault",
   "NumberFormatError",
@@ -94,13 +95,13 @@ const BARE_SET = [
   "show",
 ].sort();
 
-describe("the bare set is exactly twenty-six names, and closed", () => {
+describe("the bare set is exactly twenty-seven names, and closed", () => {
   test("the prelude layer binds the set and nothing else", () => {
     expect(bareNames()).toEqual(BARE_SET);
   });
 
-  test("twenty-five of the section's twenty-six are in the layer; `throw` is the other", () => {
-    expect(BARE_SET.length).toBe(25);
+  test("twenty-six of the section's twenty-seven are in the layer; `throw` is the other", () => {
+    expect(BARE_SET.length).toBe(26);
   });
 
   /**

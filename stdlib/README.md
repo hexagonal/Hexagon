@@ -6,15 +6,18 @@ not compiler intrinsics.
 
 Together they are the package **`Hex`** (Packages §2.4): every file here declares
 its module (`module Vector`, full name `Hex.Vector`), and the prelude modules are
-in scope everywhere without an import, Modules §5.5's closed set of seventeen being
-what they seed in the term namespace. `Rat` is the one module outside the
-prelude — the spec's "rest of `Hex`" — and the compiler embeds the whole
-directory, so a program in any host reaches it by `import Rat` or
-`import Hex.Rat` (Packages §2.4). `Runtime/VectorTrie.hex` and
-`Runtime/HashTrie.hex` are the runtime modules, `Hex.Runtime.VectorTrie` and
-`Hex.Runtime.HashTrie`: importable like any member of `Hex`, exporting nothing
-at the Hexagon level, their privileges keyed by the compiler's runtime list and
-never by the folder (`spec/intrinsics.md` §5.2).
+in scope everywhere without an import, Modules §5.5's closed set of twenty-seven
+being what they seed in the term namespace. `Rat`, `Regex` with `Regex.Syntax`,
+`File`, `Stdio` and `Process` are the modules outside the prelude — the spec's
+"rest of `Hex`" — and the compiler embeds the whole directory, so a program
+reaches one by `import Rat` or `import Hex.Rat` (Packages §2.4). `File`, `Stdio`
+and `Process` call Node's `node:fs` and `node:process`, so a program that imports
+them runs under Node, or in the playground, which stands in for both
+(`spec/program-io.md`). `Runtime/VectorTrie.hex` and `Runtime/HashTrie.hex` are
+the runtime modules, `Hex.Runtime.VectorTrie` and `Hex.Runtime.HashTrie`:
+importable like any member of `Hex`, exporting nothing at the Hexagon level, their
+privileges keyed by the compiler's runtime list and never by the folder
+(`spec/intrinsics.md` §5.2).
 
 The directory is called `stdlib` and the package `Hex` on purpose: the compiler
 reads neither a directory nor a file name to learn a module's name (Modules §1),

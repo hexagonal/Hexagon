@@ -431,6 +431,38 @@ export function isIntrinsicScheme(specifier: string): boolean {
  * that is a conformance obligation on the engine rather than a check (`regex.md`
  * §7). The engine itself, and the `regexProgram` type key with its two sealed
  * rows, land in later arcs of #927; nothing here anticipates them.
+ *
+ * *(#1461, program I/O.)* Nine keys sit beneath `Hex.File`, `Hex.Stdio` and
+ * `String.toWellFormed`, inventoried with their declarers at `program-io.md` §9.
+ * The three modules reach `node:fs` and `node:process` through ordinary
+ * `extern` blocks, so the playground can link its own stand-ins beneath them;
+ * what is keyed is what JavaScript itself has to do.
+ *
+ * - **`fileDecodeStrict`, `fileDecodeLossy` and `fileFirstBadByte`** are the
+ *   host's UTF-8 decoders over the bytes `readFileSync` answers, the strict one
+ *   answering `undefined` where the bytes are not UTF-8, and the third the
+ *   offset `FileError`'s message names, asked only once the strict read has
+ *   failed. Hexagon has no byte type, so none of the three can be written in
+ *   source; what each answer means is `File.hex`'s.
+ * - **`stdioEncode` and `stdioBuffer`** give the writer bytes to hand
+ *   `writeSync`: the first encodes the text and answers how many bytes, and the
+ *   second is the array it encoded into, which for short text is one array the
+ *   writer keeps. A partial write carries on from the byte it stopped at.
+ *   **`stdioPause`** is the wait before a write that met `EAGAIN` tries again.
+ * - **`jsErrorReadCode`** is a fourth guarded read beside `JsError`'s and
+ *   `Exn`'s three, through the same helper. FFI Part 11 §7 does not list
+ *   `.code` among its kept reads, so the row is `->~`.
+ * - **The arrows.** The decoders are `->!`: past the host's longest string
+ *   either throws `ERR_STRING_TOO_LONG`, which `File` refuses as `Other(code)`.
+ *   The encoder fills an array that the next call may overwrite, so its rows
+ *   are `->~`; every caller is impure already.
+ * - **`stringIsWellFormed` and `stringToWellFormed`** are the one pair here
+ *   that ordinary Hexagon could write, over `toCodepoint`. They are keyed for
+ *   their cost (`stdlib-roadmap.md` §5.1's measured-performance ground): a
+ *   source check took two hundred times the encoding it guards or more, on
+ *   every write. `toWellFormed` is `String`'s exported door row. `File` and
+ *   `Stdio` each declare `stringIsWellFormed`, since neither reaches the
+ *   other's private row, and the two rows bind one lowering.
  */
 
 /** Which of §4.2's two grades a key is verified at. */
@@ -739,6 +771,15 @@ const INTRINSIC_OPERATIONS: readonly (readonly [string, number])[] = [
   ["regexCut", 3],
   ["regexCompile", 1],
   ["regexSearch", 5],
+  ["stringIsWellFormed", 1],
+  ["stringToWellFormed", 1],
+  ["jsErrorReadCode", 1],
+  ["fileDecodeStrict", 1],
+  ["fileDecodeLossy", 1],
+  ["fileFirstBadByte", 1],
+  ["stdioEncode", 1],
+  ["stdioBuffer", 0],
+  ["stdioPause", 0],
 ];
 
 /**

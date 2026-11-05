@@ -31,6 +31,7 @@ import type {
   TypeOccurrence,
   ExecutableModule,
 } from "./protocol";
+import { exitStatusNote, outputSegments, type OutputChunk } from "./output-pane";
 import { readSharedSource, shareUrl } from "./sharing";
 import {
   parseThemePreference,
@@ -51,7 +52,7 @@ interface PlaygroundState {
   sourceVersion: number;
   lastSuccessfulVersion: number | undefined;
   activeTab: ResultTab;
-  output: readonly string[];
+  output: readonly OutputChunk[];
   diagnostics: readonly LocatedDiagnostic[];
   javascript: string;
   executionModules: readonly ExecutableModule[];
@@ -368,13 +369,20 @@ function runCurrentProgram(): void {
     if (event.data.version !== version || version !== state.sourceVersion) return;
     const response = event.data;
     if (response.kind === "execute-output") {
-      state.output = [...state.output, response.line];
+      state.output = [...state.output, { stream: response.stream, text: response.text }];
       renderResult();
       return;
     }
-    state.output = response.kind === "execute-success"
-      ? state.output.length === 0 ? ["Program completed."] : state.output
-      : [...state.output, `Runtime error: ${response.message}`];
+    if (response.kind === "execute-success") {
+      const status = exitStatusNote(response.exitStatus);
+      state.output = status !== undefined
+        ? [...state.output, status]
+        : state.output.length === 0
+          ? [{ stream: "note", text: "Program completed." }]
+          : state.output;
+    } else {
+      state.output = [...state.output, { stream: "note", text: `Runtime error: ${response.message}` }];
+    }
     compileStatus.textContent = response.kind === "execute-success"
       ? `Ran version ${version}`
       : `Version ${version} failed at runtime`;
@@ -383,7 +391,7 @@ function runCurrentProgram(): void {
   });
   executionWorker.addEventListener("error", (event) => {
     if (version !== state.sourceVersion) return;
-    state.output = [...state.output, `Execution worker failed: ${event.message}`];
+    state.output = [...state.output, { stream: "note", text: `Execution worker failed: ${event.message}` }];
     compileStatus.textContent = `Version ${version} failed at runtime`;
     finishExecution();
     renderResult();
@@ -396,7 +404,7 @@ function runCurrentProgram(): void {
   });
   executionTimer = setTimeout(() => {
     if (version !== state.sourceVersion) return;
-    state.output = [...state.output, "Execution stopped after 2 seconds."];
+    state.output = [...state.output, { stream: "note", text: "Execution stopped after 2 seconds." }];
     compileStatus.textContent = `Version ${version} timed out`;
     finishExecution();
     renderResult();
@@ -455,11 +463,13 @@ function renderResult(): void {
     renderDiagnostics();
     return;
   }
+  if (state.activeTab === "output" && state.output.length > 0) {
+    renderOutput();
+    return;
+  }
 
   const content: Record<ResultTab, string> = {
-    output: state.output.length > 0
-      ? state.output.join("\n")
-      : executionWorker === undefined
+    output: executionWorker === undefined
         ? "Run the program to execute its latest successful compilation."
         : "Program is running…",
     errors: "",
@@ -565,6 +575,20 @@ function createOption(value: string, label: string): HTMLOptionElement {
   return element;
 }
 
+
+/**
+ * The run's text, stdout and stderr in the order written, with stderr's marked
+ * as errors are (`spec/program-io.md` §6), and the playground's notes muted.
+ */
+function renderOutput(): void {
+  resultText.replaceChildren(...outputSegments(state.output).map(({ stream, text }) => {
+    if (stream === "stdout") return document.createTextNode(text);
+    const span = document.createElement("span");
+    span.className = stream === "stderr" ? "output-stderr" : "output-note";
+    span.textContent = text;
+    return span;
+  }));
+}
 
 function renderDiagnostics(): void {
   resultText.replaceChildren();

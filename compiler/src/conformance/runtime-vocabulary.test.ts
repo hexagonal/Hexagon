@@ -1150,10 +1150,12 @@ describe("the runtime module takes Part 1 §8.3's reserved seat", () => {
     expect(third?.text).toBe(first?.text);
     expect(first?.text).toBe(
       "const __global_Array = globalThis.Array,\n" +
+        "  __global_Atomics = globalThis.Atomics,\n" +
         "  __global_BigInt = globalThis.BigInt,\n" +
         "  __global_Boolean = globalThis.Boolean,\n" +
         "  __global_console = globalThis.console,\n" +
         "  __global_Error = globalThis.Error,\n" +
+        "  __global_Int32Array = globalThis.Int32Array,\n" +
         "  __global_Map = globalThis.Map,\n" +
         "  __global_Math = globalThis.Math,\n" +
         "  __global_Number = globalThis.Number,\n" +
@@ -1161,9 +1163,13 @@ describe("the runtime module takes Part 1 §8.3's reserved seat", () => {
         "  __global_RangeError = globalThis.RangeError,\n" +
         "  __global_RegExp = globalThis.RegExp,\n" +
         "  __global_Set = globalThis.Set,\n" +
+        "  __global_SharedArrayBuffer = globalThis.SharedArrayBuffer,\n" +
         "  __global_String = globalThis.String,\n" +
         "  __global_Symbol = globalThis.Symbol,\n" +
+        "  __global_TextDecoder = globalThis.TextDecoder,\n" +
+        "  __global_TextEncoder = globalThis.TextEncoder,\n" +
         "  __global_TypeError = globalThis.TypeError,\n" +
+        "  __global_Uint8Array = globalThis.Uint8Array,\n" +
         "  __global_WeakMap = globalThis.WeakMap;\n" +
         "const __hexRuntime = (() => {\n" +
         "  try {\n" +
@@ -1186,10 +1192,12 @@ describe("the runtime module takes Part 1 §8.3's reserved seat", () => {
         "  } catch {}\n" +
         "  return { reads: new WeakMap(), reading: {}, arrays: new WeakMap(), looks: new WeakMap() };\n" +
         "})();\n" +
-        "export { __global_Array, __global_BigInt, __global_Boolean, __global_console, " +
-        "__global_Error, __global_Map, __global_Math, __global_Number, " +
-        "__global_Object, __global_RangeError, __global_RegExp, __global_Set, __global_String, " +
-        "__global_Symbol, __global_TypeError, __global_WeakMap, __hexRuntime };\n",
+        "export { __global_Array, __global_Atomics, __global_BigInt, __global_Boolean, " +
+        "__global_console, __global_Error, __global_Int32Array, __global_Map, __global_Math, " +
+        "__global_Number, __global_Object, __global_RangeError, __global_RegExp, __global_Set, " +
+        "__global_SharedArrayBuffer, __global_String, __global_Symbol, __global_TextDecoder, " +
+        "__global_TextEncoder, __global_TypeError, __global_Uint8Array, __global_WeakMap, " +
+        "__hexRuntime };\n",
     );
   });
 

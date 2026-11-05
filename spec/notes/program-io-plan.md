@@ -36,8 +36,8 @@ subprocess management are outside this plan's initial scope.
 
 [PR #1006](https://github.com/hexagonal/Hexagon/pull/1006) supplies
 `Hex.Experimental.File.readText` and `writeText`, backed by
-`Hex.Experimental.Node.File`. Its contract was `experimental-file.md`, now
-superseded by [Program I/O](../program-io.md).
+`Hex.Experimental.Node.File`. Its contract was `experimental-file.md`, removed with
+the modules when [Program I/O](../program-io.md) superseded it.
 
 This already meets the immediate input need for Advent of Code. It does not
 need stdin support to be useful.
@@ -60,8 +60,8 @@ effectful; `Debug.log` keeps its name and pure-facing debugging role. No blank-l
 convenience is needed: pass `""` to a line operation. Callers explicitly format
 other values into strings.
 
-Its contract was `experimental-stdio.md`, now superseded by
-[Program I/O](../program-io.md), which makes the writers `->~`.
+Its contract was `experimental-stdio.md`, removed with the modules when
+[Program I/O](../program-io.md) superseded it and made the writers `->~`.
 Local implementation, Sol Medium review, and Node/Bun/Deno runtime checks were
 complete, and the experimental specification recorded the tested versions and
 platform limits.

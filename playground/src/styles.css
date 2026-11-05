@@ -337,6 +337,15 @@ button:disabled {
   white-space: normal;
 }
 
+/* The run's stderr, marked as a diagnostic is, and the playground's own notes. */
+.output-stderr {
+  color: var(--badge-text);
+}
+
+.output-note {
+  color: var(--muted-text);
+}
+
 .diagnostic-list {
   display: grid;
   gap: 0.7rem;

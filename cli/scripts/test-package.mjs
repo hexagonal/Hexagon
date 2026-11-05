@@ -81,13 +81,13 @@ try {
   write(project, "hexagon.json", '{"dependencies":["Demo"]}\n');
   const main = `module Main
 import Demo.Lib
-import Hex.Experimental.Stdio as Stdio
+import Stdio
 import Types
 extern from "alpha-helper"
     fun suffix() -> String
 export let answer: Int = Lib.answer
 export let token: Types.Token = Types.One
-Stdio.writeLine!("Hello" ++ suffix())
+Stdio.writeLine~("Hello" ++ suffix())
 `;
   write(project, "Main.hex", main);
   write(project, "Types.hex", `module Types
@@ -137,10 +137,10 @@ void checkedToken;
   // while removing the now-obsolete generated Demo/Lib.js from the old root.
   write(project, "dist/helper.js", 'export function greet() { return "Local helper"; }\n');
   write(project, "Main.hex", `module Main
-import Hex.Experimental.Stdio as Stdio
+import Stdio
 extern from "./helper.js"
     fun greet() -> String
-Stdio.writeLine!(greet())
+Stdio.writeLine~(greet())
 `);
   hexc(["build", "Main.hex"]);
   assert.ok(!existsSync(join(project, "dist", "Demo", "Lib.js")));
@@ -179,13 +179,13 @@ Stdio.writeLine!(greet())
   const missing = command(process.execPath, [bin, "check", "Missing.hex"], acceptance, 1);
   assert.match(missing.stderr, /cannot read root/u);
 
-  // Experimental.File's Node adapter is exercised through the installed CLI
-  // and its unmodified emitted graph, including one write and subsequent read.
+  // File's Node binding is exercised through the installed CLI and its
+  // unmodified emitted graph, including one write and subsequent read.
   write(acceptance, "FileMain.hex", `module FileMain
-import Hex.Experimental.File as File
-import Hex.Experimental.Stdio as Stdio
+import File
+import Stdio
 File.writeText!("file-output.txt", "text-file runtime checks passed")
-Stdio.writeLine!(File.readText!("file-output.txt"))
+Stdio.writeLine~(File.readText!("file-output.txt"))
 `);
   command(process.execPath, [bin, "build", "FileMain.hex"], acceptance);
   assert.equal(command(process.execPath, ["dist/FileMain.js"], acceptance).stdout,
@@ -198,8 +198,8 @@ Stdio.writeLine!(File.readText!("file-output.txt"))
   const renamed = join(scratch, "case-renamed module");
   write(renamed, "hexagon.json", "{}\n");
   write(renamed, "Main.hex", `module Foo.Bar.Main
-import Hex.Experimental.Stdio as Stdio
-Stdio.writeLine!("old module")
+import Stdio
+Stdio.writeLine~("old module")
 `);
   command(process.execPath, [bin, "build", "Main.hex"], renamed);
   assert.equal(command(process.execPath, ["dist/Foo/Bar/Main.js"], renamed).stdout,
@@ -207,8 +207,8 @@ Stdio.writeLine!("old module")
   assert.ok(readdirSync(join(renamed, "dist")).includes("Foo"));
 
   write(renamed, "Main.hex", `module FOO.Bar.Main
-import Hex.Experimental.Stdio as Stdio
-Stdio.writeLine!("renamed module")
+import Stdio
+Stdio.writeLine~("renamed module")
 `);
   command(process.execPath, [bin, "build", "Main.hex"], renamed);
   assert.equal(command(process.execPath, ["dist/FOO/Bar/Main.js"], renamed).stdout,

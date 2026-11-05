@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, test } from "vitest";
 
-import { compileSource } from "./compile";
-import type { ExecutionRequest, ExecutionResponse } from "./protocol";
+import { execute, failureAt, harness, installWorkerHarness, outputAt } from "./execution-worker-harness";
+import type { ExecutionResponse } from "./protocol";
 
 /**
  * The execution worker's console contract, which #407 turned from an
@@ -16,114 +16,10 @@ import type { ExecutionRequest, ExecutionResponse } from "./protocol";
  * run has to give the graph a second initialization, or its probe would still
  * be holding the first run's wrapper.
  *
- * The worker registers its listener on `self` at import time and builds module
- * URLs with `URL.createObjectURL`, neither of which the test environment
- * provides — and Node cannot `import()` a `blob:` URL at all. Both are stubbed
- * below. The object-URL stub answers a `data:` URL carrying a per-call counter,
- * which models the one property of blob URLs this file depends on: **every call
- * yields a distinct module identity**. That is the browser's guarantee, not the
- * worker's, and substituting bare `data:` URLs would model the opposite, since
- * the registry keys those by their text.
+ * The worker runs under the stubs `execution-worker-harness.ts` describes.
  */
 
-interface WorkerHarness {
-  readonly send: (request: ExecutionRequest) => Promise<void>;
-  readonly posted: unknown[];
-  readonly native: string[];
-}
-
-const harness: WorkerHarness = {
-  send: () => Promise.reject(new Error("worker not loaded")),
-  posted: [],
-  native: [],
-};
-
-beforeAll(async () => {
-  const host = globalThis as unknown as {
-    self?: unknown;
-    Blob: typeof Blob;
-    URL: { createObjectURL(blob: Blob): string; revokeObjectURL(url: string): void };
-    console: { log: (...values: unknown[]) => void };
-  };
-
-  const blobText = new WeakMap<object, string>();
-  const OriginalBlob = host.Blob;
-  host.Blob = class StubBlob {
-    constructor(parts: readonly string[]) {
-      blobText.set(this, parts.join(""));
-    }
-  } as unknown as typeof Blob;
-  expect(OriginalBlob).toBeTypeOf("function");
-
-  let objectUrls = 0;
-  host.URL.createObjectURL = (blob: Blob): string => {
-    objectUrls += 1;
-    const text = blobText.get(blob as unknown as object) ?? "";
-    return `data:text/javascript;charset=utf-8,${
-      encodeURIComponent(`// object url ${objectUrls}\n${text}`)
-    }`;
-  };
-  host.URL.revokeObjectURL = () => undefined;
-
-  // Captured before the worker module is imported, because the worker binds its
-  // own native sink at exactly that moment. Everything it writes through comes
-  // here, run after run.
-  const native: string[] = [];
-  host.console.log = (...values: unknown[]) => {
-    native.push(values.map((value) => String(value)).join(" "));
-  };
-
-  let handler: ((event: { data: ExecutionRequest }) => unknown) | undefined;
-  const posted: unknown[] = [];
-  host.self = {
-    addEventListener: (_type: string, listener: (event: { data: ExecutionRequest }) => unknown) => {
-      handler = listener;
-    },
-    postMessage: (message: unknown) => {
-      posted.push(message);
-    },
-  };
-
-  await import("./execution-worker");
-
-  Object.assign(harness, {
-    posted,
-    native,
-    send: async (request: ExecutionRequest): Promise<void> => {
-      await handler!({ data: request });
-    },
-  });
-});
-
-/**
- * One compiled program, in the shape the worker is asked to run it.
- *
- * The header is written here rather than in each body below: since #829 every
- * buffer declares its module (Modules §2.1), and none of these tests is about
- * that — they are about what the worker does with the modules it is handed.
- */
-function execute(version: number, source: string): ExecutionRequest {
-  const compiled = compileSource(version, `module Main\n\n${source}`);
-  expect(compiled.kind).toBe("compile-success");
-  if (compiled.kind !== "compile-success") throw new Error("did not compile");
-  return {
-    kind: "execute",
-    version,
-    modules: compiled.executionModules,
-    entryPath: compiled.entryPath,
-  };
-}
-
-/** The lines this run posted to the UI, in order. */
-function outputAt(posted: readonly unknown[], version: number): readonly string[] {
-  return posted
-    .filter((message): message is { kind: string; version: number; line: string } =>
-      typeof message === "object" && message !== null &&
-      (message as { kind?: unknown }).kind === "execute-output"
-    )
-    .filter((message) => message.version === version)
-    .map(({ line }) => line);
-}
+beforeAll(installWorkerHarness);
 
 describe("the results pane receives a run's output", () => {
   test("a `log` call arrives as one line, and the run succeeds", async () => {
@@ -134,7 +30,7 @@ describe("the results pane receives a run's output", () => {
 
     expect(outputAt(harness.posted, 1)).toEqual(["routed to the pane"]);
     expect(harness.posted.at(-1)).toEqual(
-      { kind: "execute-success", version: 1 } satisfies ExecutionResponse,
+      { kind: "execute-success", version: 1, exitStatus: 0 } satisfies ExecutionResponse,
     );
     // The worker keeps writing to the browser console as well, once per call.
     expect(harness.native).toEqual(["routed to the pane"]);
@@ -193,16 +89,6 @@ describe("the results pane receives a run's output", () => {
     expect(outputAt(harness.posted, 6)).toEqual(["run six"]);
   });
 });
-
-/** The failure this run posted to the UI, if it failed. */
-function failureAt(posted: readonly unknown[], version: number): string | undefined {
-  const failure = posted.find((message): message is { kind: string; version: number; message: string } =>
-    typeof message === "object" && message !== null &&
-    (message as { kind?: unknown }).kind === "execute-failure" &&
-    (message as { version?: unknown }).version === version
-  );
-  return failure?.message;
-}
 
 /**
  * An uncaught throw reaches the pane as `Show<Exn>` would show it: its name,
