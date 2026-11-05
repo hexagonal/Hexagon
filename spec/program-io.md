@@ -338,7 +338,7 @@ So the six writers write only well-formed UTF-8, and text they can't encode writ
     - **Endings.** A directory as stdin ends the program with one line and status 1, as does input longer than the host's longest string, for both reads.
     - **Waiting.** A pipe its parent made non-blocking, whose writer pauses, gives every byte.
     - **A terminal,** through a pseudo-terminal: a read ends at Ctrl-D, and a second read answers what was typed after it.
-14. **Stdin in the playground.** A program that reads stdin prints the same text in the playground, with the box holding some text, as under Node with that text in a file given as `< input.txt`. CRLF in the box arrives as LF, an empty box answers `""`, and a second read answers `""`. A shared link carries the box's text, and opening it restores the box.
+14. **Stdin in the playground.** A program that reads stdin prints the same text in the playground, with the box holding some text, as under Node with that text in a file given as `< input.txt`. CRLF in the box arrives as LF, an empty box answers `""`, and a second read answers `""`. A shared link carries the box's text, and opening it restores the box. The page's own part, that the box's text reaches the run and the link and that a text box turns CRLF into LF, is checked in a browser, since the playground's tests run without one.
 
 ## 11. Rejected alternatives (do not re-litigate)
 

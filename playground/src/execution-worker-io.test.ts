@@ -200,6 +200,9 @@ Stdio.writeLine~("[\${first}] then [\${second}]")
     ["some lines", "one\ntwo\n"],
     ["Unicode and a leading byte-order mark", "\uFEFFé😀\tx"],
     ["an empty box", ""],
+    // More than the reader's first array holds, so the stand-in's
+    // second read lands at an offset.
+    ["96 KB of lines", "line é😀\n".repeat(8000)],
   ])("%s print as they do under Node", async (_name, input) => {
     harness.posted.length = 0;
     await harness.send(execute(201, PROGRAM, input));

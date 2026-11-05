@@ -14960,8 +14960,10 @@ function renderHelper(
       ];
     // The reader's bytes (`program-io.md` §4.5). One array holds what has
     // been read. `reserve(used)` keeps its first `used` bytes and makes sure
-    // there is room after them, doubling the array when there isn't, and a
-    // `reserve(0)` starts a fresh one, so an earlier read's array is not kept.
+    // there is room after them, doubling the array when there isn't. A
+    // `reserve(0)` starts again from 64 KiB, so an array an earlier read grew
+    // is not kept, while a 64 KiB one is reused, as it is on each `EAGAIN`
+    // before the first byte arrives.
     // `input(length)` is a view of the first `length` bytes, which the reads
     // fill and the decoders read.
     case "stdioInput":
@@ -14970,8 +14972,9 @@ function renderHelper(
         "  let __bytes;",
         "  return {",
         "    reserve: __used => {",
-        `      if (__used === 0) __bytes = new ${spell("Uint8Array")}(65536);`,
-        "      else if (__used === __bytes.length) {",
+        "      if (__used === 0) {",
+        `        if (__bytes?.length !== 65536) __bytes = new ${spell("Uint8Array")}(65536);`,
+        "      } else if (__used === __bytes.length) {",
         `        const __larger = new ${spell("Uint8Array")}(__bytes.length * 2);`,
         "        __larger.set(__bytes);",
         "        __bytes = __larger;",
@@ -14982,11 +14985,12 @@ function renderHelper(
         "  };",
         "})();",
       ];
-    // About a millisecond, before a write that met `EAGAIN` tries again
-    // (`program-io.md` §4.3). `Atomics.wait` on a cell no one else holds is the
-    // one synchronous wait JavaScript has that spends no processor time. The
-    // cell is made at the first wait, not when the module loads, so the module
-    // loads in a browser without `SharedArrayBuffer` (§9).
+    // A pause of the given microseconds, after a read or write met `EAGAIN`:
+    // about a millisecond before a write tries again (`program-io.md` §4.3),
+    // and the reader's back-off (§4.5). `Atomics.wait` on a cell no one else
+    // holds is the one synchronous wait JavaScript has that spends no
+    // processor time. The cell is made at the first wait, not when the module
+    // loads, so the module loads in a browser without `SharedArrayBuffer` (§9).
     case "stdioPause":
       return [
         `const ${name} = (() => {`,

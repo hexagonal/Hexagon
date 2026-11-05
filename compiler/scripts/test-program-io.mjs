@@ -332,12 +332,32 @@ Main.writeLine("after");`);
     assert.equal(ended.stdout, "status 1\n", `${script}: input too long for a string ends the program with 1`);
     assert.equal(ended.stderr, `cannot read standard input: Cannot create a string longer than ${longest} characters\n`);
   }
+  // Room the reader can't get ends the program as §4.5's other failures do,
+  // never with a raw error. Linux enforces a limit on a process's address
+  // space (`ulimit -v`). This one is what a fresh Node reaches plus 300 MB, so
+  // the program starts but the reader's array can't double its way to the
+  // input's 512 MB.
+  const linux = process.platform === "linux";
+  if (linux) {
+    const fresh = spawnSync(node, [
+      "-e", 'import("node:process").then(() => console.log(/VmPeak:\\s+(\\d+)/u.exec(require("node:fs").readFileSync("/proc/self/status", "utf8"))[1]))',
+    ], { encoding: "utf8" });
+    assert.equal(fresh.status, 0, fresh.stderr);
+    const limit = Number(fresh.stdout) + 300_000;
+    const roomless = shell(`ulimit -v ${limit}; "${node}" read.mjs < "${huge}"; echo "status $?"`);
+    assert.equal(roomless.stdout, "status 1\n", `no room for the input ends the program with 1: ${roomless.stderr}`);
+    assert.match(roomless.stderr, /^cannot read standard input: [^\n]+\n$/u, "no room for the input: one line");
+  }
   rmSync(huge);
   assert.equal(tooLong.status, 0, tooLong.stderr);
   const tooLongLine = `Other(ERR_STRING_TOO_LONG) | Cannot create a string longer than ${longest} characters: ${huge}\n`;
   assert.equal(tooLong.stdout, tooLongLine.repeat(2), "a text too long for a string is Other, naming the path");
 
-  const skipped = hasFull ? "" : " (the /dev/full checks skipped: no /dev/full)";
+  const skips = [
+    ...(hasFull ? [] : ["the /dev/full checks skipped: no /dev/full"]),
+    ...(linux ? [] : ["the memory-limit check skipped: not Linux"]),
+  ];
+  const skipped = skips.length === 0 ? "" : ` (${skips.join("; ")})`;
   console.log(`${process.version}: program I/O checks passed (bytes on files, pipes and terminals; endings; standard input; arguments; status; a text too long)${skipped}`);
 } finally {
   rmSync(root, { recursive: true, force: true });

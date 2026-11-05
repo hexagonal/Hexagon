@@ -165,8 +165,8 @@ let inputBytes(): JsValue =
     var reading = True
     var wait = 10
     while reading
-        let length = reserve~(used)
         try
+            let length = reserve~(used)
             let count = readBytes!(0, input~(length), used, length - used)
             if count == 0 then reading := False else used := used + count
             wait := 10
@@ -204,9 +204,8 @@ let lossyText(bytes: JsValue): String =
         JsError(error) => unreadable~(described~(error))
         other => assume throw^(other)
 
-(** All of standard input, read until it ends, as UTF-8 text. One leading
-    byte-order mark is dropped and everything else is kept as it is. At a
-    terminal it waits for the end of input, Ctrl-D. Input that isn't
+(** All of standard input, read until it ends (Ctrl-D at a terminal), as
+    UTF-8 text with one leading byte-order mark dropped. Input that isn't
     well-formed UTF-8, or that can't be read, ends the program with one line
     on standard error and status 1. *)
 export let readText(): String =
