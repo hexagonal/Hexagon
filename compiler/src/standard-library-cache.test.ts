@@ -89,16 +89,16 @@ describe("one standard library per process", () => {
   test("library imports determine the shared checking and emission order", () => {
     resetStandardLibraryCache();
     const body = main(
-      "import Hex.Experimental.File as File\n" +
-      "import Hex.Experimental.Node.File as NodeFile\n\n" +
-      "export let read(path: String): String = File.readText!(path)\n" +
-      "export let raw(path: String): String = NodeFile.readText!(path)\n",
+      "import Hex.Regex as Regex\n" +
+      "import Hex.Regex.Syntax as Syntax\n\n" +
+      "export let digits: Regex = Regex.compile(\"[0-9]+\")\n" +
+      "export let tree(pattern: String): Syntax.Pattern = Syntax.parse^(pattern)\n",
     );
     const cold = compileFiles([body]);
     expect(messagesOf(cold)).toEqual([]);
     const names = cold.modules.map(({ name }) => name);
-    expect(names.indexOf("Hex.Experimental.Node.File"))
-      .toBeLessThan(names.indexOf("Hex.Experimental.File"));
+    expect(names.indexOf("Hex.Regex.Syntax"))
+      .toBeLessThan(names.indexOf("Hex.Regex"));
     const snapshot = (project: CompiledProject) => project.modules.map((module) => ({
       name: module.name,
       javascript: module.javascript.text,
@@ -122,9 +122,9 @@ describe("one standard library per process", () => {
       `import Hex.${second} as Second\n\n` +
       "export let n: Int = 1\n",
     );
-    expect(messagesOf(compileFiles([body("Rat", "Experimental.File")]))).toEqual([]);
+    expect(messagesOf(compileFiles([body("Rat", "File")]))).toEqual([]);
     const before = standardLibraryCacheStatistics();
-    expect(messagesOf(compileFiles([body("Experimental.File", "Rat")]))).toEqual([]);
+    expect(messagesOf(compileFiles([body("File", "Rat")]))).toEqual([]);
     const after = standardLibraryCacheStatistics();
     expect(after.seatsChecked - before.seatsChecked).toBe(0);
     expect(after.seatsParsed - before.seatsParsed).toBe(0);
@@ -279,15 +279,15 @@ describe("a trusted replacement invalidates from its own seat", () => {
   test("an edited library import reorders seats and rebuilds the changed suffix", () => {
     resetStandardLibraryCache();
     const body = main(
-      "import Hex.Experimental.File as File\n" +
-      "import Hex.Experimental.Node.File as NodeFile\n\n" +
+      "import Hex.File as File\n" +
+      "import Hex.Stdio as Stdio\n\n" +
       "export let n: Int = File.answer\n" +
-      "export let raw(path: String): String = NodeFile.readText!(path)\n",
+      "export let say(text: String): Unit = Stdio.write~(text)\n",
     );
-    const original = LIBRARY_MODULES.find(({ name }) => name === "Experimental.File")!;
+    const original = LIBRARY_MODULES.find(({ name }) => name === "File")!;
     const replacement = supplied(original)[0];
-    const withImport = `${original.source}\nexport let answer: Int = 1\n`;
-    const withoutImport = "module Experimental.File\n\nexport let answer: Int = 2\n";
+    const withImport = "module File\nimport Stdio as Out\n\nexport let answer: Int = 1\n";
+    const withoutImport = "module File\n\nexport let answer: Int = 2\n";
     const compile = (source: string) => compileFiles([
       [replacement, source], body,
     ], { trustedStandardLibraryModules: new Set([original.name]) });
@@ -304,8 +304,8 @@ describe("a trusted replacement invalidates from its own seat", () => {
     const changed = compile(withoutImport);
     expect(messagesOf(changed)).toEqual([]);
     const names = changed.modules.map(({ name }) => name);
-    expect(names.indexOf("Hex.Experimental.File"))
-      .toBeLessThan(names.indexOf("Hex.Experimental.Node.File"));
+    expect(names.indexOf("Hex.File"))
+      .toBeLessThan(names.indexOf("Hex.Stdio"));
     const after = standardLibraryCacheStatistics();
     expect(after.seatsChecked - before.seatsChecked).toBeGreaterThan(1);
     expect(after.seatsReused - before.seatsReused).toBeLessThan(SEATS);
@@ -324,17 +324,17 @@ describe("a trusted replacement invalidates from its own seat", () => {
 
   test("a cyclic trusted library replacement cannot leave reusable seats", () => {
     resetStandardLibraryCache();
-    const original = LIBRARY_MODULES.find(({ name }) => name === "Experimental.File")!;
+    const original = LIBRARY_MODULES.find(({ name }) => name === "File")!;
     const cyclic = compileFiles([
       [supplied(original)[0],
-        "module Experimental.File\nimport Experimental.File as Self\nexport let answer: Int = 1\n"],
+        "module File\nimport File as Self\nexport let answer: Int = 1\n"],
       main("export let n: Int = 1\n"),
     ], { trustedStandardLibraryModules: new Set([original.name]) });
     expect(messagesOf(cyclic).some((message) => message.includes("import cycle"))).toBe(true);
     expect(standardLibraryCacheStatistics().seats).toBe(0);
     const repeated = compileFiles([
       [supplied(original)[0],
-        "module Experimental.File\nimport Experimental.File as Self\nexport let answer: Int = 1\n"],
+        "module File\nimport File as Self\nexport let answer: Int = 1\n"],
       main("export let n: Int = 1\n"),
     ], { trustedStandardLibraryModules: new Set([original.name]) });
     expect(messagesOf(repeated)).toEqual(messagesOf(cyclic));

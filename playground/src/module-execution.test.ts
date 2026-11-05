@@ -28,4 +28,21 @@ describe("playground module execution", () => {
       'console.log("./Mगणित.js");\n',
     );
   });
+
+  test("links a node: import to the stand-in filed under its specifier, and leaves others", () => {
+    const source =
+      'import { writeSync as writeBytes } from "node:fs";\n' +
+      'import process from "node:process";\n' +
+      'import { join } from "node:path";\n';
+    const linked = linkModule(source, "/Hex/Stdio.hex", new Map([
+      ["node:fs", "blob:fs"],
+      ["node:process", "blob:process"],
+    ]));
+
+    expect(linked).toBe(
+      'import { writeSync as writeBytes } from "blob:fs";\n' +
+      'import process from "blob:process";\n' +
+      'import { join } from "node:path";\n',
+    );
+  });
 });

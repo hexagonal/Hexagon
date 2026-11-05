@@ -64,12 +64,11 @@ jobs:
         run: npm run check
         working-directory: compiler
 
-      - name: Test emitted root selection, file and standard I/O on Node
+      - name: Test emitted root selection and program I/O on Node
         run: |
           npm run build
           node scripts/test-root-selection.mjs
-          node scripts/test-experimental-file.mjs node
-          node scripts/test-experimental-stdio.mjs node
+          node scripts/test-program-io.mjs
         working-directory: compiler
 
       # The host adapter is the language server's and a future CLI's shared

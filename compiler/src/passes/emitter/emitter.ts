@@ -1963,10 +1963,12 @@ const UNIT_IMMUNE_SPELLING = "void 0";
 export const RUNTIME_VOCABULARY = [
   UNIT_SPELLING,
   "Array",
+  "Atomics",
   "BigInt",
   "Boolean",
   "console",
   "Error",
+  "Int32Array",
   "Map",
   "Math",
   "Number",
@@ -1974,9 +1976,13 @@ export const RUNTIME_VOCABULARY = [
   "RangeError",
   "RegExp",
   "Set",
+  "SharedArrayBuffer",
   "String",
   "Symbol",
+  "TextDecoder",
+  "TextEncoder",
   "TypeError",
+  "Uint8Array",
   "WeakMap",
 ] as const;
 
@@ -12514,6 +12520,31 @@ class JavaScriptEmitter {
         return this.#useRuntime(REGEX_WIRING, "compile");
       case "regexSearch":
         return this.#useRuntime(REGEX_WIRING, "search");
+      // Program I/O's nine (#1461, `program-io.md` §9). JavaScript's own
+      // well-formedness pair (ES2024) is the whole of the first two; the check
+      // is keyed for its cost, since a host that stores text one byte per
+      // character answers it at once.
+      case "stringIsWellFormed":
+        return "__a => __a.isWellFormed()";
+      case "stringToWellFormed":
+        return "__a => __a.toWellFormed()";
+      // The fourth kept read, through the helper `JsError`'s and `Exn`'s share.
+      case "jsErrorReadCode":
+        return `__a => ${this.#useHelper("jsErrorRead")}(__a, "code")`;
+      case "fileDecodeStrict":
+        return this.#useHelper("fileDecodeStrict");
+      case "fileDecodeLossy":
+        return this.#useHelper("fileDecodeLossy");
+      case "fileFirstBadByte":
+        return this.#useHelper("fileFirstBadByte");
+      // The encoder's two halves: `encode` fills the writer's bytes and answers
+      // how many, and `buffer` is the array it filled.
+      case "stdioEncode":
+        return `${this.#useHelper("stdioEncoder")}.encode`;
+      case "stdioBuffer":
+        return `${this.#useHelper("stdioEncoder")}.buffer`;
+      case "stdioPause":
+        return this.#useHelper("stdioPause");
       default:
         // The **operation** grade only (#927): a `fun` row keyed by a *type*
         // key is the author's mistake, already reported by the resolver as a
@@ -14387,6 +14418,11 @@ type Helper =
   | "jsValueKeepCopy"
   | "jsErrorRead"
   | "thrownFault"
+  | "fileDecodeStrict"
+  | "fileDecodeLossy"
+  | "fileFirstBadByte"
+  | "stdioEncoder"
+  | "stdioPause"
   | "numberInteger"
   | "numberFloat"
   | "numberDec"
@@ -14469,6 +14505,11 @@ const HELPER_DEPENDENCIES: Readonly<Record<Helper, readonly Helper[]>> = {
   jsValueKeepCopy: [],
   jsErrorRead: [],
   thrownFault: ["jsErrorRead"],
+  fileDecodeStrict: [],
+  fileDecodeLossy: [],
+  fileFirstBadByte: [],
+  stdioEncoder: [],
+  stdioPause: [],
   numberInteger: [],
   numberFloat: [],
   numberDec: [],
@@ -14820,6 +14861,100 @@ function renderHelper(
         `const ${name} = (() => {`,
         `  const __sink = ${spell("console")}.log.bind(${spell("console")});`,
         "  return __message => { __sink(__message); };",
+        "})();",
+      ];
+    // Program I/O's decoders (#1461, `program-io.md` §3.1). Each decoder is
+    // made once and kept: a `decode` call that is not streaming starts afresh,
+    // so one decoder serves every read. Both drop exactly one leading BOM,
+    // which is the decoder's default (`ignoreBOM` false). The strict one throws
+    // a `TypeError` for bytes that are not UTF-8, and that is the only throw it
+    // has, so the catch answers `undefined` for exactly that case.
+    case "fileDecodeStrict":
+      return [
+        `const ${name} = (() => {`,
+        `  const __decoder = new ${spell("TextDecoder")}("utf-8", { fatal: true });`,
+        "  return __bytes => { try { return __decoder.decode(__bytes); } catch { return undefined; } };",
+        "})();",
+      ];
+    case "fileDecodeLossy":
+      return [
+        `const ${name} = (() => {`,
+        `  const __decoder = new ${spell("TextDecoder")}("utf-8");`,
+        "  return __bytes => __decoder.decode(__bytes);",
+        "})();",
+      ];
+    // The 1-based offset of the first byte past the bytes' longest well-formed
+    // prefix (`program-io.md` §3.4), by Unicode's table 3-7, asked only once the
+    // strict read has failed. A sequence that breaks off, at a wrong
+    // continuation or at the end, is reported at its first byte. Bytes are
+    // counted from the start of the file, a BOM included.
+    case "fileFirstBadByte":
+      return [
+        `const ${name} = __bytes => {`,
+        "  const __length = __bytes.length;",
+        "  let __at = 0;",
+        "  while (__at < __length) {",
+        "    const __lead = __bytes[__at];",
+        "    let __count, __low = 0x80, __high = 0xbf;",
+        "    if (__lead < 0x80) { __at += 1; continue; }",
+        "    else if (__lead >= 0xc2 && __lead <= 0xdf) __count = 1;",
+        "    else if (__lead >= 0xe0 && __lead <= 0xef) {",
+        "      __count = 2;",
+        "      if (__lead === 0xe0) __low = 0xa0;",
+        "      else if (__lead === 0xed) __high = 0x9f;",
+        "    } else if (__lead >= 0xf0 && __lead <= 0xf4) {",
+        "      __count = 3;",
+        "      if (__lead === 0xf0) __low = 0x90;",
+        "      else if (__lead === 0xf4) __high = 0x8f;",
+        "    } else return __at + 1;",
+        "    for (let __next = 1; __next <= __count; __next += 1) {",
+        "      const __byte = __bytes[__at + __next];",
+        "      if (__byte === undefined || __byte < __low || __byte > __high) return __at + 1;",
+        "      __low = 0x80; __high = 0xbf;",
+        "    }",
+        "    __at += __count + 1;",
+        "  }",
+        "  return 0;",
+        "};",
+      ];
+    // The writer's bytes (#1461, `program-io.md` §9). The text is well-formed
+    // by then, so the encoding is exact. Text that fits is encoded into one
+    // kept array, made at the first write, since a fresh array for each line
+    // doubled the cost of writing short lines; larger text gets an array of
+    // its own, so the kept one never grows. A UTF-16 code unit is at most
+    // three bytes, which is the bound that decides.
+    case "stdioEncoder":
+      return [
+        `const ${name} = (() => {`,
+        `  const __encoder = new ${spell("TextEncoder")}();`,
+        "  let __kept;",
+        "  let __current;",
+        "  return {",
+        "    encode: __text => {",
+        "      if (__text.length * 3 <= 65536) {",
+        `        __current = __kept ??= new ${spell("Uint8Array")}(65536);`,
+        "        return __encoder.encodeInto(__text, __current).written;",
+        "      }",
+        "      __current = __encoder.encode(__text);",
+        "      return __current.length;",
+        "    },",
+        "    buffer: () => __current,",
+        "  };",
+        "})();",
+      ];
+    // About a millisecond, before a write that met `EAGAIN` tries again
+    // (`program-io.md` §4.3). `Atomics.wait` on a cell no one else holds is the
+    // one synchronous wait JavaScript has that spends no processor time. The
+    // cell is made at the first wait, not when the module loads, so the module
+    // loads in a browser without `SharedArrayBuffer` (§9).
+    case "stdioPause":
+      return [
+        `const ${name} = (() => {`,
+        "  let __cell;",
+        "  return () => {",
+        `    __cell ??= new ${spell("Int32Array")}(new ${spell("SharedArrayBuffer")}(4));`,
+        `    ${spell("Atomics")}.wait(__cell, 0, 0, 1);`,
+        "  };",
         "})();",
       ];
     // `JsValue.kind` (FFI Part 11 §3), and the whole of what the classification

@@ -1,0 +1,114 @@
+module Stdio
+
+// Writing text to standard output and standard error under Node
+// (`spec/program-io.md` section 4). The module is outside the prelude,
+// reached by `import Stdio`.
+//
+// **The writers are `->~`.** A write either hands every byte of its text to
+// the descriptor, or ends the program (section 4.3): a reader that has gone
+// (`EPIPE`) ends it quietly with status 141, and any other failure with one
+// line on stderr and status 1. A descriptor that would block (`EAGAIN`) is not
+// a failure: Node makes a piped stdout non-blocking once `console.log` has
+// written to it, which `Debug.log` does, so the writer waits a little and
+// writes the rest. No `catch` sees an ending, as none sees Ctrl-C.
+//
+// **The writes are `writeSync`'s,** never `console.log`'s or
+// `process.stdout.write`'s, which Node makes asynchronous on pipes (section
+// 4.2). Node is reached through ordinary `extern` blocks, so the playground can
+// link its own `node:fs` and `node:process` beneath this module (section 6);
+// the intrinsic door does only the encoding, the check, and the wait (section
+// 9).
+
+extern from "node:fs"
+    fun writeSync as writeBytes(descriptor: Int, bytes: JsValue, offset: Int, length: Int) ->! Int
+
+extern from "node:process"
+    type NodeProcess
+    default let process: NodeProcess
+    method exit(process: NodeProcess, status: Int) ->! Unit
+
+extern from "hex:intrinsic"
+    fun stringIsWellFormed as isWellFormed(text: String) -> Bool
+    fun jsErrorReadCode as readCode(error: JsValue) ->~ JsValue
+    fun stdioEncode as encode(text: String) ->~ Int
+    fun stdioBuffer as buffer() ->~ JsValue
+    fun stdioPause as pause() ->~ Unit
+
+// The codepoint position of the first lone surrogate, counted from 1, asked
+// only once `isWellFormed` has said there is one (section 7).
+let firstLoneSurrogate(text: String): Int =
+    var position = 0
+    var found = 0
+    for point in text
+        position := position + 1
+        if found == 0 and point.toCodepoint() == None then found := position
+    found
+
+let refuseLoneSurrogate(text: String): Unit =
+    if not isWellFormed(text) then
+        let position = firstLoneSurrogate(text)
+        let message = "the text holds a lone surrogate at codepoint ${position}, which UTF-8 cannot write; repair it with String.toWellFormed first"
+        throw(LoneSurrogateFault(message, position))
+
+// Ends the program with `status`. Node's `exit` doesn't return, and it throws
+// nothing for a status in range.
+let end(status: Int): Unit =
+    assume exit!(process, status)
+
+// The system's description of a failure, as Node gives it without its code:
+// `ENOSPC: no space left on device, write` becomes `no space left on device`.
+let described(code: String, message: String): String =
+    let withoutCode = if message.startsWith("${code}: ") then message.dropFirstN(code.length() + 2) else message
+    if withoutCode.endsWith(", write") then withoutCode.dropLastN(7) else withoutCode
+
+// Section 4.3's other failure: one line on stderr, then status 1. The line's
+// own write may fail too, and the status is 1 all the same.
+let failed(descriptor: Int, error: JsValue, code: String): Unit =
+    let stream = if descriptor == 1 then "standard output" else "standard error"
+    let count = encode~("cannot write to ${stream}: ${described(code, JsError.message(error))}\n")
+    let _ = try writeBytes!(2, buffer~(), 0, count) catch
+        _ => 0
+    end~(1)
+
+// Every byte of `text` to `descriptor`, or the program ends (section 4.3).
+// A write may take fewer bytes than it was offered, so the loop carries on
+// from the byte the last one stopped at.
+let writeAll(descriptor: Int, text: String): Unit =
+    refuseLoneSurrogate(text)
+    let count = encode~(text)
+    let bytes = buffer~()
+    var offset = 0
+    while offset < count
+        try
+            offset := offset + writeBytes!(descriptor, bytes, offset, count - offset)
+        catch
+            JsError(error) =>
+                let code = match readCode~(error).toString?()
+                    Some(text) => text
+                    None => ""
+                match code
+                    "EAGAIN" => pause~()
+                    "EPIPE" => end~(141)
+                    _ => failed~(descriptor, error, code)
+            other =>
+                assume throw^(other)
+
+(** Writes `text` to standard output as UTF-8, adding nothing. If the output
+    can't take it, the program ends: quietly with status 141 when the reader
+    has gone, otherwise with one line on standard error and status 1. *)
+export let write(text: String): Unit =
+    writeAll~(1, text)
+
+(** Writes `text` and one line feed to standard output, as `write` does. The
+    line feed is added even when `text` already ends with a newline. *)
+export let writeLine(text: String): Unit =
+    writeAll~(1, "${text}\n")
+
+(** Writes `text` to standard error as UTF-8, adding nothing. If standard error
+    can't take it, the program ends, as `write` says. *)
+export let writeError(text: String): Unit =
+    writeAll~(2, text)
+
+(** Writes `text` and one line feed to standard error, as `writeError` does. *)
+export let writeErrorLine(text: String): Unit =
+    writeAll~(2, "${text}\n")

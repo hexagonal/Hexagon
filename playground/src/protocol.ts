@@ -293,12 +293,20 @@ export interface ExecuteRequest {
 export interface ExecuteSuccess {
   readonly kind: "execute-success";
   readonly version: number;
+  /** The status the program reports, as Node would: 0 unless it set one. */
+  readonly exitStatus: number;
 }
 
+/**
+ * Text a run wrote, in the order it wrote it: a `Debug.log` line with its line
+ * feed, or what one `Stdio` write handed its descriptor (`spec/program-io.md`
+ * §6). Text need not end a line.
+ */
 export interface ExecuteOutput {
   readonly kind: "execute-output";
   readonly version: number;
-  readonly line: string;
+  readonly stream: "stdout" | "stderr";
+  readonly text: string;
 }
 
 export interface ExecuteFailure {

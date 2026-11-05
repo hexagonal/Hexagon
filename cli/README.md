@@ -39,9 +39,9 @@ Create `Main.hex`:
 
 ```hexagon
 module Main
-import Hex.Experimental.Stdio as Stdio
+import Stdio
 
-Stdio.writeLine!("Hello from Hexagon")
+Stdio.writeLine~("Hello from Hexagon")
 ```
 
 Then run:
@@ -56,7 +56,8 @@ node dist/Main.js
 its JavaScript, declarations and support files into the project's `dist` directory.
 It prints the emitted entry paths. Neither command runs your program; Node runs
 the generated module's top-level code. There is no automatically invoked `main`
-function. Stdio remains an experimental API.
+function. `Stdio`, `File` and `Process` call Node, so a program that imports them
+runs under Node (or in the playground, which stands in for Node).
 
 Output paths follow declared module names: a source declaring `module App.Main`
 produces `dist/App/Main.js`, regardless of its source filename.
@@ -108,11 +109,11 @@ Use this `Main.hex`:
 
 ```hexagon
 module Main
-import Hex.Experimental.Stdio as Stdio
+import Stdio
 extern from "./helper.js"
     fun greeting() -> String
 
-Stdio.writeLine!(greeting())
+Stdio.writeLine~(greeting())
 ```
 
 Build and run as before. Relative foreign imports resolve from the generated

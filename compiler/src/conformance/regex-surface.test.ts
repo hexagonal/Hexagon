@@ -338,12 +338,12 @@ describe("replacement and splitting (§4.4)", () => {
 
   test("an impure callback makes the call wear its mark, and a pure one leaves it bare", () => {
     const program = (call: string) => compileMain(
-      "module Main\nimport Hex.Regex as Regex\nimport Hex.Experimental.Stdio as Stdio\n\n" +
+      "module Main\nimport Hex.Regex as Regex\nimport Hex.Stdio as Stdio\n\n" +
       "export let run(regex: Regex.Regex, text: String): String =\n" +
-      `    ${call}(text, (m) =>\n        Stdio.write!(m.text())\n        m.text())\n`,
+      `    ${call}(text, (m) =>\n        Stdio.write~(m.text())\n        m.text())\n`,
     ).diagnostics.map(({ message }) => message);
-    expect(program("regex.replaceWith!")).toEqual([]);
-    expect(program("regex.replaceWith").join("\n")).toContain("wants `!`");
+    expect(program("regex.replaceWith~")).toEqual([]);
+    expect(program("regex.replaceWith").join("\n")).toContain("wants `~`");
   });
 
   test("the callback is given each replaced match, in order", () => {

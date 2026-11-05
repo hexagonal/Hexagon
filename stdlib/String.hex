@@ -36,6 +36,18 @@ module String
 // Searching tries each original-codepoint start and compares the target there:
 // its worst-case bound is O(n * m) for source length n and target length m.
 // Split and replacement reuse that search and additionally count their output.
+//
+// `toWellFormed` is the one public row here that ordinary Hexagon could write,
+// over `toCodepoint`. It crosses the door for its cost, as the program I/O
+// writers' check does (`spec/string-text-processing.md` sections 11 and 13,
+// `spec/program-io.md` section 9): JavaScript answers at once for text stored
+// one byte per character, where a walk in source pays for every codepoint.
+(** Thrown by `File.writeText`, `File.writeTextBom` and the `Stdio` writers
+    when the text holds a lone surrogate, which UTF-8 can't encode, before
+    anything is written. `position` is the first one's codepoint position,
+    counted from 1, and `toWellFormed` is the repair. *)
+export fault LoneSurrogateFault(message: String, position: Int)
+
 extern from "hex:intrinsic"
     fun stringConcat as nativeConcat(left: String, right: String) -> String
     fun stringEquals as nativeEquals(left: String, right: String) -> Bool
@@ -58,6 +70,12 @@ extern from "hex:intrinsic"
     fun stringCaseFoldMapping as nativeCaseFoldMapping(point: String) -> String
     fun stringCodepointUnchecked as codepointUnchecked(point: String) -> Int
     fun stringFromCodepointUnchecked as fromCodepointUnchecked(value: Int) -> String
+
+    (** `text` with each lone surrogate replaced by U+FFFD, and every other
+        codepoint kept, a well-formed surrogate pair among them. A lone
+        surrogate reaches a `String` only from foreign code, and UTF-8 can't
+        write one, so this is the repair a program makes before writing. *)
+    export fun stringToWellFormed as toWellFormed(text: String) -> String
 
 honor Iterable<String> =
     type Item = String

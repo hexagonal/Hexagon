@@ -1,4 +1,8 @@
-/** Rewrites compiler-owned relative ESM imports to already-created Blob URLs. */
+/**
+ * Rewrites compiler-owned relative ESM imports to already-created Blob URLs.
+ * A `node:` import is looked up under its own specifier, which is where the
+ * worker files the playground's stand-ins (`host-modules.ts`).
+ */
 export function linkModule(
   javascript: string,
   importerPath: string,
@@ -7,7 +11,9 @@ export function linkModule(
   return javascript.replace(
     /^(\s*import(?:[^;\n]*?\sfrom)?\s+)(["'])([^"']+)\2;/gmu,
     (statement, prefix: string, _quote: string, specifier: string) => {
-      const target = resolveModulePath(importerPath, specifier);
+      const target = specifier.startsWith("node:")
+        ? specifier
+        : resolveModulePath(importerPath, specifier);
       const url = target === undefined ? undefined : moduleUrls.get(target);
       return url === undefined ? statement : `${prefix}${JSON.stringify(url)};`;
     },
