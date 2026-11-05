@@ -257,19 +257,23 @@ So the six writers write only well-formed UTF-8, and text they can't encode writ
 
 | Key | Row | Declared in | What it does |
 | :--- | :--- | :--- | :--- |
-| `stringIsWellFormed` | `(text: String) -> Bool` | `String`, `File`, `Stdio` | `text.isWellFormed()` |
-| `stringToWellFormed` | `(text: String) -> String` | `String` | `text.toWellFormed()` |
-| `jsErrorReadCode` | `(error: JsValue) -> JsValue` | `File`, `Stdio` | one guarded read of `.code`, kept as `JsError.message`'s read of `.message` is |
-| `fileDecodeStrict` | `(bytes: JsValue) -> JsValue` | `File` | the text, decoded with `TextDecoder("utf-8", { fatal: true })`, or `undefined` for bytes that aren't UTF-8 |
-| `fileDecodeLossy` | `(bytes: JsValue) -> String` | `File` | the text, decoded with `TextDecoder("utf-8")` |
-| `fileFirstBadByte` | `(bytes: JsValue) -> Int` | `File` | the 1-based offset of the first byte that doesn't begin or continue a well-formed sequence |
-| `stdioEncode` | `(text: String) -> JsValue` | `Stdio` | the UTF-8 bytes of well-formed text, through `TextEncoder` |
+| `stringIsWellFormed` | `(text: String) -> Bool` | `File`, `Stdio` | `text.isWellFormed()` |
+| `stringToWellFormed` | `(text: String) -> String` | `String`, as the exported `toWellFormed` | `text.toWellFormed()` |
+| `jsErrorReadCode` | `(error: JsValue) ->~ JsValue` | `File`, `Stdio` | one guarded read of `.code`, through the helper `JsError.message`'s read of `.message` uses |
+| `fileDecodeStrict` | `(bytes: JsValue) ->~ JsValue` | `File` | the text, decoded with `TextDecoder("utf-8", { fatal: true })`, or `undefined` for bytes that aren't UTF-8 |
+| `fileDecodeLossy` | `(bytes: JsValue) ->~ String` | `File` | the text, decoded with `TextDecoder("utf-8")` |
+| `fileFirstBadByte` | `(bytes: JsValue) ->~ Int` | `File` | the offset §3.4 defines |
+| `stdioEncode` | `(text: String) ->~ JsValue` | `Stdio` | the UTF-8 bytes of well-formed text, through `TextEncoder` |
 | `stdioByteLength` | `(bytes: JsValue) -> Int` | `Stdio` | the number of bytes `stdioEncode` gave |
 | `stdioPause` | `() ->~ Unit` | `Stdio` | waits about a millisecond, through `Atomics.wait` |
 
-- **Where a key is declared twice,** the rows bind one lowering (intrinsics §3.3). `File` and `Stdio` can't reach `String`'s private row, so each declares its own.
+- **The arrows.** The string pair are value functions of a `String`, and a byte array's length is fixed when it is made, so those three are `->`. The rest are `->~`: the decoders read bytes in a mutable array, as intrinsics §3.3's `Buffer` read is `->~`; the encoder hands out a fresh one on each call; and the `.code` read is not among FFI Part 11 §7's kept reads. Every caller is impure already, so `->~` costs nothing.
+- **`toWellFormed` is the door row itself,** exported from `String` with its `(** *)` doc, since a wrapper whose body is exactly the door call collapses to its declaration (intrinsics §3.2).
+- **`stringIsWellFormed` is declared twice,** in `File` and in `Stdio`, and the two rows bind one lowering (intrinsics §3.3), as `Regex.Syntax` and `String` both declare `stringCodepointUnchecked`.
+- **`stdioPause` makes its waiting cell at its first call,** not when the module loads, so the module loads in a browser that has no `SharedArrayBuffer`, as the playground's may not. The playground's stand-in never meets `EAGAIN`.
+- **The lowerings write `TextDecoder`, `TextEncoder`, `Atomics`, `Int32Array` and `SharedArrayBuffer`,** which join the runtime vocabulary (FFI Part 7 §1.2).
 - **The decoding, encoding, error-code and pause keys are host capabilities.** Hexagon has no byte type, no way to catch a getter, and no way to wait (`stdlib-roadmap.md` §5.1). What each answer means, and every throw, is ordinary Hexagon over it.
-- **The two string keys are there for their cost.** Both operations can be written in ordinary Hexagon over `toCodepoint`, which answers `None` for a lone surrogate (`string-text-processing.md` §1). But measured on Node 24.18.0, a check written that way took 384 ms on a million ASCII characters, where encoding them took 1.8 ms and `isWellFormed` under 0.01 ms. On 200,000 lines of 22 characters it took 1,626 ms, against 3.2 ms. That is two hundred times the encoding the check guards, on every write. This is `stdlib-roadmap.md` §5.1's last ground, measured performance evidence, and `string-text-processing.md` §11 names the exception.
+- **The two string keys are there for their cost.** Both operations can be written in ordinary Hexagon over `toCodepoint`, which answers `None` for a lone surrogate (`string-text-processing.md` §1). But measured on Node 24.18.0, a check written that way took 384 ms on a million ASCII characters, where encoding them took 1.8 ms and `isWellFormed` under 0.01 ms. On 200,000 lines of 22 characters it took 1,626 ms, against 3.2 ms. That is two hundred times the encoding the check guards or more, on every write. This is `stdlib-roadmap.md` §5.1's last ground, measured performance evidence, and `string-text-processing.md` §11 names the exception.
 
 ## 10. Acceptance tests
 

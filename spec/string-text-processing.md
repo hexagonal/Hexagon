@@ -326,8 +326,8 @@ construction, and the public operation bodies remain in `String.hex` wherever
 the intrinsic doctrine permits. §13's `toWellFormed`, and the check the program
 I/O writers make before writing, are the exception: they go through JavaScript's
 own `toWellFormed` and `isWellFormed`, by the keys `stringToWellFormed` and
-`stringIsWellFormed`, because ordinary source would cost about two hundred times
-the encoding the check guards (`program-io.md` §9 measures it).
+`stringIsWellFormed`, because ordinary source would cost two hundred times the
+encoding the check guards or more (`program-io.md` §9 measures it).
 
 The companion is ordered after the prelude modules whose public operations its
 ordinary source uses, including `Iterable` and `Vector`. This is a dependency
