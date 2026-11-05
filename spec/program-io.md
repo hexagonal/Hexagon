@@ -18,9 +18,9 @@
 
 **Companions:**
 - Effects §1 (reading input is impure), §6.1 (`->~` never fails) and §6.2 (`Debug.log`, species (a)).
-- Exceptions §1 (exception or fault) and §7 (branded representation).
+- Exceptions §1 (exception or fault), §7 (branded representation) and §8.5 (the prelude's throwables).
 - Modules §5.5 (the prelude) and Packages §2.4 (the rest of `Hex`).
-- `string-text-processing.md` §1 (a lone surrogate is one codepoint) and §10 (BOM handling).
+- `string-text-processing.md` §1 (a lone surrogate is one codepoint), §10 (BOM handling) and §13 (`toWellFormed`, `LoneSurrogateFault`).
 - FFI Part 11 §5 (`JsConversionError`, whose shape `FileError` shares).
 
 ---
@@ -224,13 +224,13 @@ A `String` holds a lone surrogate only when foreign code supplies one: the lexer
 
 - **The six writers refuse such text,** `writeText`, `writeTextBom` and the four `Stdio` writers alike. They throw `LoneSurrogateFault(message, position)`, where `position` is the 1-based codepoint position of the first lone surrogate in the text the call was given.
 - **The check comes before anything is written.** A refused `writeText` leaves the file exactly as it was, neither created nor truncated. A refused `Stdio` write writes no byte of its text, and no LF.
-- **It is a fault, not an exception** (Exceptions §1). The program's own text is wrong, not the world. So the colours don't change: the `File` writers stay `->!` for their file failures only, and the `Stdio` writers stay `->~`.
+- **It is a fault, not an exception** (Exceptions §1). The program's own data is wrong, not the world. So the colours don't change: the `File` writers stay `->!` for their file failures only, and the `Stdio` writers stay `->~`.
 - **The message names the position and the repair,** such as `the text holds a lone surrogate at codepoint 12, which UTF-8 cannot write; repair it with String.toWellFormed first`. Its wording is not normative, as `FileError`'s isn't (§3.4).
 - **The repair is the program's own call,** `String.toWellFormed(text)` (`string-text-processing.md` §13). It answers the text with each lone surrogate replaced by U+FFFD. A program that wants the replacement Node would have made writes `File.writeText!(path, text.toWellFormed())`.
 - **The fault is declared in `String`,** beside `toWellFormed`. As a prelude fault, it is bare by category (Modules §5.5): a program catches `LoneSurrogateFault(_, position)` with no import.
 - **The playground refuses the same text,** since the modules are the same there.
 
-So every byte Hexagon writes is well-formed UTF-8 that is exactly the text it was given, or nothing is written.
+So Hexagon writes only well-formed UTF-8, and text it can't encode writes nothing.
 
 ## 8. Hosts and emission
 
@@ -248,8 +248,9 @@ So every byte Hexagon writes is well-formed UTF-8 that is exactly the text it wa
 - **`arguments`** finds where the user's arguments start as `util.parseArgs` does, from whether Node ran code given on its command line. Checking `process.execArgv` for the four long and short spellings is not enough: Node 24.18.0 records `--eval=…` and `-pe` as written.
 - **`setExitStatus`** checks the range, then sets `process.exitCode`.
 - **The playground's stand-ins** for `node:fs` and `node:process` answer only what the three modules call, as §6 says.
-- **The lone surrogate check** runs over the whole text before the first byte is written. Text whose characters are all at or below U+00FF can't hold a surrogate, and a host that stores such text one byte per character answers at once (measured: JavaScript's `isWellFormed` took 0.0 ms on 64 million such characters). For other text the check costs about as much as the write.
+- **The lone surrogate check** runs over the whole text before the first byte is written. It and `String.toWellFormed` go through JavaScript's own `isWellFormed` and `toWellFormed`, by new door keys listed in intrinsics §3.2 and the `String.hex` row of the stdlib roadmap. Text whose characters are all at or below U+00FF can't hold a surrogate, and a host that stores such text one byte per character answers at once (measured: JavaScript's `isWellFormed` took 0.0 ms on 64 million such characters). For other text the check costs about as much as the write.
 - **`String.toWellFormed`** answers its text unchanged when it holds no lone surrogate.
+- **The bare-set conformance test** (`compiler/src/conformance/prelude-bare-set.test.ts`) counts what Modules §5.5 counts: twenty-seven names, eighteen throwables, fifteen faults. `stdlib/README.md`'s count follows.
 - **The experimental modules go,** with their Node adapters and their specs, and nothing redirects to them.
 
 ## 10. Acceptance tests
@@ -265,7 +266,7 @@ So every byte Hexagon writes is well-formed UTF-8 that is exactly the text it wa
 9. **`arguments`.** Under a script, under `node -e`, `-p`, `--eval=…` and `-pe`, with options to Node before the script, and with an argument whose bytes aren't UTF-8.
 10. **`setExitStatus`.** 0, 3 and 255 end with that status; 256 and -1 throw `ExitStatusFault`; the last of two settings wins; an uncaught throw after a setting ends with 1.
 11. **The playground.** Programs that write with `Stdio`, read the arguments and set a status print the same text in the playground as under Node with no arguments, in the same order, with stderr marked and the exit status shown. `File`'s answers in the playground are §6's, and the `EROFS` message matches the one Node gives for a write on a read-only file system.
-12. **Lone surrogates.** Each of the six writers, given text holding a lone surrogate (from a foreign function), throws `LoneSurrogateFault` with the first one's position, where a well-formed pair before it counts as one codepoint. `writeText` leaves an existing file unchanged and creates no missing one. A `Stdio` writer writes nothing, and the program goes on if the fault is caught. `toWellFormed` replaces each lone surrogate with U+FFFD, keeps a well-formed pair, and answers well-formed text unchanged. `LoneSurrogateFault` is bare in a catch arm.
+12. **Lone surrogates.** Each of the six writers, given text holding a lone surrogate (from a foreign function), throws `LoneSurrogateFault` with the first one's position, where a well-formed pair before it counts as one codepoint. `writeText` and `writeTextBom` leave an existing file unchanged and create no missing one. A `Stdio` writer writes nothing, and the program goes on if the fault is caught. `toWellFormed` replaces each lone surrogate with U+FFFD, keeps a well-formed pair, and answers well-formed text unchanged. `LoneSurrogateFault` is bare in a catch arm.
 
 ## 11. Rejected alternatives (do not re-litigate)
 
@@ -324,6 +325,7 @@ In the prelude, a browser program could call `File.readText!` with nothing in it
 
 - **The TypeScript Playground's way,** stopping the run at the first Node API with the browser's own error. A program that prints with `Stdio` couldn't be shown there, and its author would switch to `Debug.log`, which is a probe and not real output. The pane would also need its own way to tell a stopped run from a program that failed.
 - **Refusing the program before running it.** The same costs, and even the `Debug.log` lines would never run.
+
 ### 11.12 Writing U+FFFD in place of a lone surrogate (decision 5c)
 
 What Node does, silently. It makes up a character that isn't in the text, the repair 2b turned down when reading, and the writing side would then disagree with the reading side: read strictly and write with repair, and a round trip can change the text without anything saying so. Where a language replaces silently, the replacement isn't what the program wrote either: Java's printing writes `?`.
