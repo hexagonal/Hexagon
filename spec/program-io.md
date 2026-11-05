@@ -138,7 +138,7 @@ Every failure a `File` operation meets in the file system, or in a file's bytes,
   | `IsDirectory` | `is a directory: input.txt` |
   | `NotDirectory` | `not a directory: input.txt` |
   | `NotUtf8` | `not UTF-8 at byte 1234: input.txt` |
-  | `Other(code)` | Node's own message, such as `ENAMETOOLONG: name too long, open '…'` |
+  | `Other(code)` | Node's own message, such as `ENAMETOOLONG: name too long, open '…'`, with `: input.txt` after it where Node's message leaves the path out |
 
   The bad byte is the first one that is not part of the file's longest well-formed prefix. It is counted from 1 at the file's first byte, BOM included, as Hexagon counts positions in a `String`. Finding it takes a second scan of the bytes, made only after a read has failed.
 - **A program that plans for a missing file** names the reason in a catch arm:

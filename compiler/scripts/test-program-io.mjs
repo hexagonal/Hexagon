@@ -5,6 +5,7 @@
 // endings, the arguments under each way of running Node, and the status a
 // program finishes with.
 import assert from "node:assert/strict";
+import { constants as bufferConstants } from "node:buffer";
 import { spawn, spawnSync } from "node:child_process";
 import { closeSync, existsSync, ftruncateSync, mkdtempSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -244,7 +245,7 @@ Main.writeLine("after");`);
   const huge = join(root, "huge.txt");
   const hugeFd = openSync(huge, "w");
   try {
-    ftruncateSync(hugeFd, 0x1fffffe8 + 1);
+    ftruncateSync(hugeFd, bufferConstants.MAX_STRING_LENGTH + 1);
   } finally {
     closeSync(hugeFd);
   }
@@ -252,7 +253,8 @@ Main.writeLine("after");`);
   const tooLong = run(["huge.mjs", huge], { encoding: "utf8" });
   rmSync(huge);
   assert.equal(tooLong.status, 0, tooLong.stderr);
-  const tooLongLine = `Other(ERR_STRING_TOO_LONG) | Cannot create a string longer than 0x1fffffe8 characters: ${huge}\n`;
+  const longest = `0x${bufferConstants.MAX_STRING_LENGTH.toString(16)}`;
+  const tooLongLine = `Other(ERR_STRING_TOO_LONG) | Cannot create a string longer than ${longest} characters: ${huge}\n`;
   assert.equal(tooLong.stdout, tooLongLine.repeat(2), "a text too long for a string is Other, naming the path");
 
   const skipped = hasFull ? "" : " (the /dev/full checks skipped: no /dev/full)";
