@@ -154,3 +154,74 @@ for path in ["out.txt", "/somewhere/else.txt"]
     expect(failureAt(harness.posted, 102)).toBe("FileError: not found: missing.txt");
   }, 120_000);
 });
+
+/**
+ * Standard input in the playground (`spec/program-io.md` §6, test 14): the
+ * input box's text, read as a program run with `< input.txt` reads that file.
+ * The box's own CRLF-to-LF conversion is the browser's, and is not modelled
+ * here.
+ */
+describe("the playground reads the input box as standard input", () => {
+  const PROGRAM = `import Stdio
+
+let first = Stdio.readText~()
+let second = Stdio.readText~()
+Stdio.writeLine~("[\${first}] then [\${second}]")
+`;
+
+  /** The program's stdout under Node, with `input` in a file given as stdin. */
+  async function underNode(input: string): Promise<string> {
+    const { mkdtempSync, mkdirSync, writeFileSync, rmSync } = await nodeModule<NodeFs>("node:fs");
+    const { tmpdir } = await nodeModule<NodeOs>("node:os");
+    const { join, dirname } = await nodeModule<NodePath>("node:path");
+    const { spawnSync } = await nodeModule<NodeChildProcess>("node:child_process");
+    const request = execute(200, PROGRAM);
+    const root = mkdtempSync(join(tmpdir(), "playground-stdin-"));
+    try {
+      for (const module of request.modules) {
+        const path = join(root, module.path.replace(/\.hex$/u, ".js"));
+        mkdirSync(dirname(path), { recursive: true });
+        writeFileSync(path, module.javascript);
+      }
+      writeFileSync(join(root, "package.json"), '{"type":"module"}');
+      writeFileSync(join(root, "input.txt"), input);
+      const entry = join(root, request.entryPath.replace(/\.hex$/u, ".js"));
+      const result = spawnSync("bash", ["-c", `"$0" "$1" < input.txt`, nodeProcess().execPath, entry], {
+        cwd: root, encoding: "utf8",
+      });
+      expect(result.stderr).toBe("");
+      return result.stdout;
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+
+  test.each([
+    ["some lines", "one\ntwo\n"],
+    ["Unicode and a leading byte-order mark", "\uFEFFé😀\tx"],
+    ["an empty box", ""],
+  ])("%s print as they do under Node", async (_name, input) => {
+    harness.posted.length = 0;
+    await harness.send(execute(201, PROGRAM, input));
+    const printed = chunksAt(harness.posted, 201).map(({ text }) => text).join("");
+    expect(printed).toBe(`[${input.replace(/^\uFEFF/u, "")}] then []\n`);
+    expect(harness.posted.at(-1)).toEqual({ kind: "execute-success", version: 201, exitStatus: 0 });
+    expect(await underNode(input)).toBe(printed);
+  }, 120_000);
+
+  test("every run reads the box from its start", async () => {
+    harness.posted.length = 0;
+    const request = execute(202, PROGRAM, "again");
+    await harness.send(request);
+    await harness.send({ ...request, version: 203 });
+    for (const version of [202, 203]) {
+      expect(chunksAt(harness.posted, version).map(({ text }) => text).join("")).toBe("[again] then []\n");
+    }
+  }, 120_000);
+
+  test("the lossy read answers the same text", async () => {
+    harness.posted.length = 0;
+    await harness.send(execute(204, "import Stdio\nStdio.write~(Stdio.readTextLossy~())\n", "a\r\nb"));
+    expect(chunksAt(harness.posted, 204).map(({ text }) => text).join("")).toBe("a\r\nb");
+  }, 120_000);
+});

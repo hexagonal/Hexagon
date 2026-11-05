@@ -432,8 +432,9 @@ export function isIntrinsicScheme(specifier: string): boolean {
  * §7). The engine itself, and the `regexProgram` type key with its two sealed
  * rows, land in later arcs of #927; nothing here anticipates them.
  *
- * *(#1461, program I/O.)* Nine keys sit beneath `Hex.File`, `Hex.Stdio` and
- * `String.toWellFormed`, inventoried with their declarers at `program-io.md` §9.
+ * *(#1461, program I/O; #1465, standard input.)* Eleven keys sit beneath
+ * `Hex.File`, `Hex.Stdio` and `String.toWellFormed`, inventoried with their
+ * declarers at `program-io.md` §9.
  * The three modules reach `node:fs` and `node:process` through ordinary
  * `extern` blocks, so the playground can link its own stand-ins beneath them;
  * what is keyed is what JavaScript itself has to do.
@@ -443,18 +444,25 @@ export function isIntrinsicScheme(specifier: string): boolean {
  *   answering `undefined` where the bytes are not UTF-8, and the third the
  *   offset `FileError`'s message names, asked only once the strict read has
  *   failed. Hexagon has no byte type, so none of the three can be written in
- *   source; what each answer means is `File.hex`'s.
+ *   source; what each answer means is `File.hex`'s. `Stdio` declares the same
+ *   three for standard input, and each key's two rows bind one lowering.
  * - **`stdioEncode` and `stdioBuffer`** give the writer bytes to hand
  *   `writeSync`: the first encodes the text and answers how many bytes, and the
  *   second is the array it encoded into, which for short text is one array the
  *   writer keeps. A partial write carries on from the byte it stopped at.
- *   **`stdioPause`** is the wait before a write that met `EAGAIN` tries again.
+ *   **`stdioPause`** is the wait, in microseconds, before a write or a read
+ *   that met `EAGAIN` tries again.
+ * - **`stdioReserve` and `stdioInput`** are the reader's array: the first makes
+ *   room after the bytes read so far, doubling the array when it is full, and
+ *   answers its length, and the second is a view of its first bytes, which
+ *   `readSync` fills and the decoders read.
  * - **`jsErrorReadCode`** is a fourth guarded read beside `JsError`'s and
  *   `Exn`'s three, through the same helper. FFI Part 11 §7 does not list
  *   `.code` among its kept reads, so the row is `->~`.
  * - **The arrows.** The decoders are `->!`: past the host's longest string
  *   either throws `ERR_STRING_TOO_LONG`, which `File` refuses as `Other(code)`.
- *   The encoder fills an array that the next call may overwrite, so its rows
+ *   The encoder fills an array that the next call may overwrite, and the
+ *   reader's array may be replaced by the next `stdioReserve`, so their rows
  *   are `->~`; every caller is impure already.
  * - **`stringIsWellFormed` and `stringToWellFormed`** are the one pair here
  *   that ordinary Hexagon could write, over `toCodepoint`. They are keyed for
@@ -779,7 +787,9 @@ const INTRINSIC_OPERATIONS: readonly (readonly [string, number])[] = [
   ["fileFirstBadByte", 1],
   ["stdioEncode", 1],
   ["stdioBuffer", 0],
-  ["stdioPause", 0],
+  ["stdioPause", 1],
+  ["stdioReserve", 1],
+  ["stdioInput", 1],
 ];
 
 /**

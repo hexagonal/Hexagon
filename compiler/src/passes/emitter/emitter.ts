@@ -12545,6 +12545,13 @@ class JavaScriptEmitter {
         return `${this.#useHelper("stdioEncoder")}.buffer`;
       case "stdioPause":
         return this.#useHelper("stdioPause");
+      // The reader's two halves (`program-io.md` §4.5): `reserve` makes room
+      // after the bytes read so far and answers the array's length, and
+      // `input` is a view of the array's first bytes.
+      case "stdioReserve":
+        return `${this.#useHelper("stdioInput")}.reserve`;
+      case "stdioInput":
+        return `${this.#useHelper("stdioInput")}.input`;
       default:
         // The **operation** grade only (#927): a `fun` row keyed by a *type*
         // key is the author's mistake, already reported by the resolver as a
@@ -14423,6 +14430,7 @@ type Helper =
   | "fileFirstBadByte"
   | "stdioEncoder"
   | "stdioPause"
+  | "stdioInput"
   | "numberInteger"
   | "numberFloat"
   | "numberDec"
@@ -14510,6 +14518,7 @@ const HELPER_DEPENDENCIES: Readonly<Record<Helper, readonly Helper[]>> = {
   fileFirstBadByte: [],
   stdioEncoder: [],
   stdioPause: [],
+  stdioInput: [],
   numberInteger: [],
   numberFloat: [],
   numberDec: [],
@@ -14949,6 +14958,30 @@ function renderHelper(
         "  };",
         "})();",
       ];
+    // The reader's bytes (`program-io.md` §4.5). One array holds what has
+    // been read. `reserve(used)` keeps its first `used` bytes and makes sure
+    // there is room after them, doubling the array when there isn't, and a
+    // `reserve(0)` starts a fresh one, so an earlier read's array is not kept.
+    // `input(length)` is a view of the first `length` bytes, which the reads
+    // fill and the decoders read.
+    case "stdioInput":
+      return [
+        `const ${name} = (() => {`,
+        "  let __bytes;",
+        "  return {",
+        "    reserve: __used => {",
+        `      if (__used === 0) __bytes = new ${spell("Uint8Array")}(65536);`,
+        "      else if (__used === __bytes.length) {",
+        `        const __larger = new ${spell("Uint8Array")}(__bytes.length * 2);`,
+        "        __larger.set(__bytes);",
+        "        __bytes = __larger;",
+        "      }",
+        "      return __bytes.length;",
+        "    },",
+        "    input: __length => __bytes.subarray(0, __length),",
+        "  };",
+        "})();",
+      ];
     // About a millisecond, before a write that met `EAGAIN` tries again
     // (`program-io.md` §4.3). `Atomics.wait` on a cell no one else holds is the
     // one synchronous wait JavaScript has that spends no processor time. The
@@ -14958,9 +14991,9 @@ function renderHelper(
       return [
         `const ${name} = (() => {`,
         "  let __cell;",
-        "  return () => {",
+        "  return __microseconds => {",
         `    __cell ??= new ${spell("Int32Array")}(new ${spell("SharedArrayBuffer")}(4));`,
-        `    ${spell("Atomics")}.wait(__cell, 0, 0, 1);`,
+        `    ${spell("Atomics")}.wait(__cell, 0, 0, __microseconds / 1000);`,
         "  };",
         "})();",
       ];

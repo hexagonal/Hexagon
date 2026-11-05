@@ -288,6 +288,8 @@ export interface ExecuteRequest {
   readonly version: number;
   readonly modules: readonly ExecutableModule[];
   readonly entryPath: string;
+  /** The input box's text, which the run reads as its standard input. */
+  readonly input: string;
 }
 
 export interface ExecuteSuccess {

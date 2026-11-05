@@ -96,8 +96,9 @@ export async function installWorkerHarness(): Promise<void> {
  * The header is written here rather than in each body below: since #829 every
  * buffer declares its module (Modules §2.1), and none of these tests is about
  * that — they are about what the worker does with the modules it is handed.
+ * `input` is the input box's text, the run's standard input.
  */
-export function execute(version: number, source: string): ExecutionRequest {
+export function execute(version: number, source: string, input = ""): ExecutionRequest {
   const compiled = compileSource(version, `module Main\n\n${source}`);
   expect(compiled.kind).toBe("compile-success");
   if (compiled.kind !== "compile-success") throw new Error("did not compile");
@@ -106,6 +107,7 @@ export function execute(version: number, source: string): ExecutionRequest {
     version,
     modules: compiled.executionModules,
     entryPath: compiled.entryPath,
+    input,
   };
 }
 

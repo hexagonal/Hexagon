@@ -2,8 +2,8 @@
 // Compiles a program that imports `File`, `Stdio` and `Process`
 // (`spec/program-io.md`) and runs its emitted ESM under Node, for what a test
 // inside one process can't see: exact bytes on real descriptors, the writers'
-// endings, the arguments under each way of running Node, and the status a
-// program finishes with.
+// endings, standard input from files, pipes and a terminal, the arguments under
+// each way of running Node, and the status a program finishes with.
 import assert from "node:assert/strict";
 import { constants as bufferConstants } from "node:buffer";
 import { spawn, spawnSync } from "node:child_process";
@@ -68,6 +68,14 @@ export let guardedWrite(writer: Int, text: String): String =
         "written"
     catch
         LoneSurrogateFault(_, position) => "refused at \${position}"
+
+// Standard input, written back as it was read (section 4.5).
+export let readAll(): Unit = Stdio.write~(Stdio.readText~())
+export let readAllLossy(): Unit = Stdio.write~(Stdio.readTextLossy~())
+export let readTwice(): Unit =
+    let first = Stdio.readText~()
+    let second = Stdio.readText~()
+    Stdio.write~("[\${first}][\${second}]")
 
 export let describeRead(path: String, lossy: Bool): String =
     try
@@ -239,9 +247,76 @@ Main.writeLine("after");`);
   assert.equal(missing.status, 1);
   assert.match(missing.stderr, /Error \[FileError\]: not found: missing\.txt/u);
 
+  // --- Reading standard input (§4.5) ---
+  driver("read.mjs", "Main.readAll();");
+  driver("read-lossy.mjs", "Main.readAllLossy();");
+  driver("read-twice.mjs", "Main.readTwice();");
+  // More than a pipe holds, with every kind of line ending and a NUL.
+  const input = Buffer.from("é😀\0\r\nA\rB\n" + "x".repeat(2 ** 20) + "€\n");
+  writeFileSync(join(root, "input.bin"), input);
+  const inputFd = openSync(join(root, "input.bin"), "r");
+  try {
+    const redirected = run(["read.mjs"], { stdio: [inputFd, "pipe", "pipe"], maxBuffer: 2 * input.length });
+    assert.equal(redirected.status, 0, `stdin from a file: ${redirected.error ?? redirected.stderr}`);
+    sameBytes(redirected.stdout, input, "stdin from a file");
+  } finally {
+    closeSync(inputFd);
+  }
+  const fromParent = run(["read.mjs"], { input, maxBuffer: 2 * input.length });
+  assert.equal(fromParent.status, 0, `stdin from a parent's pipe: ${fromParent.error ?? fromParent.stderr}`);
+  sameBytes(fromParent.stdout, input, "stdin from a parent's pipe");
+  const fromCat = shell(`cat input.bin | "${node}" read.mjs > from-cat.bin; echo "\${PIPESTATUS[1]}"`);
+  assert.equal(fromCat.stdout, "0\n", `stdin from cat: ${fromCat.stderr}`);
+  sameBytes(readFileSync(join(root, "from-cat.bin")), input, "stdin from cat through a pipe");
+
+  // A writer that pauses, into a blocking pipe and into one its parent made
+  // non-blocking: the reader waits on `EAGAIN` and gets every byte.
+  const pausing = "(printf a; sleep 0.3; printf b; sleep 0.3; printf c)";
+  assert.equal(shell(`${pausing} | "${node}" read.mjs`).stdout, "abc", "a writer that pauses");
+  const nonBlocking = "import fcntl, os, sys; "
+    + "fcntl.fcntl(0, fcntl.F_SETFL, fcntl.fcntl(0, fcntl.F_GETFL) | os.O_NONBLOCK); "
+    + "os.execvp(sys.argv[1], sys.argv[1:])";
+  const unblocked = shell(`${pausing} | python3 -I -c '${nonBlocking}' "${node}" read.mjs`);
+  assert.equal(unblocked.stdout, "abc", `a non-blocking pipe: ${unblocked.stderr}`);
+
+  // Decoding, as `File.readText` decodes (§3.1).
+  const notUtf8 = shell(`printf 'a\\xffb' | "${node}" read.mjs; echo "status $?"`);
+  assert.equal(notUtf8.stdout, "status 1\n", "input that isn't UTF-8 ends the program with 1");
+  assert.equal(notUtf8.stderr, "cannot read standard input: not UTF-8 at byte 2\n");
+  const cutShort = shell(`printf 'ab\\xe2\\x82' | "${node}" read.mjs`);
+  assert.equal(cutShort.stderr, "cannot read standard input: not UTF-8 at byte 3\n", "a sequence cut short at the end");
+  assert.equal(shell(`printf 'a\\xffb' | "${node}" read-lossy.mjs`).stdout, "a\uFFFDb", "the lossy read replaces");
+  for (const script of ["read.mjs", "read-lossy.mjs"]) {
+    assert.equal(shell(`printf '\\xef\\xbb\\xbfa' | "${node}" ${script}`).stdout, "a", `${script} drops a BOM`);
+    assert.equal(shell(`printf '\\xef\\xbb\\xbf\\xef\\xbb\\xbfa' | "${node}" ${script}`).stdout, "\uFEFFa", `${script} drops one BOM of two`);
+  }
+
+  // Empty input, and input already consumed.
+  writeFileSync(join(root, "xyz.txt"), "xyz");
+  assert.equal(shell(`"${node}" read-twice.mjs < /dev/null`).stdout, "[][]", "/dev/null");
+  assert.equal(shell(`"${node}" read-twice.mjs <&-`).stdout, "[][]", "a closed stdin");
+  assert.equal(shell(`"${node}" read-twice.mjs < xyz.txt`).stdout, "[xyz][]", "a second read of a file");
+  assert.equal(shell(`printf xyz | "${node}" read-twice.mjs`).stdout, "[xyz][]", "a second read of a pipe");
+
+  // A terminal: the read ends at Ctrl-D, and a second read answers what is
+  // typed after it.
+  const typed = spawnSync("python3", [
+    "-I", new URL("./stdin-pty.py", import.meta.url).pathname, node, "read-twice.mjs",
+  ], { cwd: root, encoding: "utf8", timeout: 35000 });
+  assert.equal(typed.status, 0, `terminal input: ${typed.error ?? typed.signal ?? typed.stderr}`);
+  assert.equal(typed.stdout, "[first line\nsecond\n][after\n]", "terminal input");
+
+  // The other endings: a directory, and a line that can't be written.
+  const directory = shell(`"${node}" read.mjs < /; echo "status $?"`);
+  assert.equal(directory.stdout, "status 1\n", "a directory as stdin ends the program with 1");
+  assert.equal(directory.stderr, "cannot read standard input: illegal operation on a directory\n");
+  const unsaid = shell(`printf 'a\\xffb' | "${node}" read.mjs 2>&-; echo "status $?"`);
+  assert.equal(unsaid.stdout, "status 1\n", "the status is 1 when the line itself can't be written");
+
   // --- A file too long for a string (§3.4) ---
   // Zero bytes are UTF-8, and one more of them than the longest string Node
-  // makes is refused by either read as `Other`, never as a raw error.
+  // makes is refused by either read as `Other`, never as a raw error. Given as
+  // stdin, it ends the program instead (§4.5).
   const huge = join(root, "huge.txt");
   const hugeFd = openSync(huge, "w");
   try {
@@ -251,14 +326,19 @@ Main.writeLine("after");`);
   }
   driver("huge.mjs", 'for (const lossy of [false, true]) Main.writeLine(Main.describeRead(process.argv[2], lossy));');
   const tooLong = run(["huge.mjs", huge], { encoding: "utf8" });
+  const longest = `0x${bufferConstants.MAX_STRING_LENGTH.toString(16)}`;
+  for (const script of ["read.mjs", "read-lossy.mjs"]) {
+    const ended = shell(`"${node}" ${script} < "${huge}"; echo "status $?"`);
+    assert.equal(ended.stdout, "status 1\n", `${script}: input too long for a string ends the program with 1`);
+    assert.equal(ended.stderr, `cannot read standard input: Cannot create a string longer than ${longest} characters\n`);
+  }
   rmSync(huge);
   assert.equal(tooLong.status, 0, tooLong.stderr);
-  const longest = `0x${bufferConstants.MAX_STRING_LENGTH.toString(16)}`;
   const tooLongLine = `Other(ERR_STRING_TOO_LONG) | Cannot create a string longer than ${longest} characters: ${huge}\n`;
   assert.equal(tooLong.stdout, tooLongLine.repeat(2), "a text too long for a string is Other, naming the path");
 
   const skipped = hasFull ? "" : " (the /dev/full checks skipped: no /dev/full)";
-  console.log(`${process.version}: program I/O checks passed (bytes on files, pipes and terminals; endings; arguments; status; a text too long)${skipped}`);
+  console.log(`${process.version}: program I/O checks passed (bytes on files, pipes and terminals; endings; standard input; arguments; status; a text too long)${skipped}`);
 } finally {
   rmSync(root, { recursive: true, force: true });
 }
