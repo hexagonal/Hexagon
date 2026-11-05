@@ -38,12 +38,13 @@ extern from "node:fs"
 extern from "hex:intrinsic"
     fun stringIsWellFormed as isWellFormed(text: String) -> Bool
     fun jsErrorReadCode as readCode(error: JsValue) ->~ JsValue
-    fun fileDecodeStrict as decodeStrict(bytes: JsValue) ->~ JsValue
-    fun fileDecodeLossy as decodeLossy(bytes: JsValue) ->~ String
+    fun fileDecodeStrict as decodeStrict(bytes: JsValue) ->! JsValue
+    fun fileDecodeLossy as decodeLossy(bytes: JsValue) ->! String
     fun fileFirstBadByte as firstBadByte(bytes: JsValue) ->~ Int
 
-// Section 3.4's two tables. A message names the path; for `Other`, Node's own
-// message already does, and says more than a code would.
+// Section 3.4's two tables. A message names the path. For `Other`, Node's own
+// message says more than a code would, and the path follows it where it
+// doesn't name the path itself.
 let reasonOf(code: String): FileErrorReason = match code
     "ENOENT" => NotFound
     "EACCES" => PermissionDenied
@@ -63,13 +64,30 @@ let refusal(path: String, error: JsValue): Exn =
         IsDirectory => "is a directory: ${path}"
         NotDirectory => "not a directory: ${path}"
         NotUtf8 => "not UTF-8: ${path}"
-        Other(_) => JsError.message(error)
+        Other(_) =>
+            let described = JsError.message(error)
+            if described.contains(path) then described else "${described}: ${path}"
     FileError(reason, path, message)
 
 // The whole file's bytes, as the `Buffer` Node read them into.
 let bytesOf(path: String): JsValue =
     try
         readBytes!(path)
+    catch
+        JsError(error) => throw^(refusal~(path, error))
+
+// The file's text, or `undefined` where its bytes aren't UTF-8. A decoding has
+// one other throw, a text longer than the host's longest string
+// (`ERR_STRING_TOO_LONG`), and it is refused as a read's failure is.
+let strictText(path: String, bytes: JsValue): JsValue =
+    try
+        decodeStrict!(bytes)
+    catch
+        JsError(error) => throw^(refusal~(path, error))
+
+let lossyText(path: String, bytes: JsValue): String =
+    try
+        decodeLossy!(bytes)
     catch
         JsError(error) => throw^(refusal~(path, error))
 
@@ -101,7 +119,7 @@ let refuseLoneSurrogate(text: String): Unit =
     `FileError(NotUtf8, path, _)`, whose message names the first bad byte. *)
 export let readText(path: String): String =
     let bytes = bytesOf!(path)
-    match decodeStrict~(bytes).toString?()
+    match strictText!(path, bytes).toString?()
         Some(text) => text
         None => throw^(FileError(NotUtf8, path, "not UTF-8 at byte ${firstBadByte~(bytes)}: ${path}"))
 
@@ -109,7 +127,7 @@ export let readText(path: String): String =
     ill-formed sequence becomes U+FFFD instead of refusing the file. For a file
     that may hold stray bytes a program would rather see than stop at. *)
 export let readTextLossy(path: String): String =
-    decodeLossy~(bytesOf!(path))
+    lossyText!(path, bytesOf!(path))
 
 (** Writes `text` to the file at `path` as UTF-8, creating the file or
     replacing what it held. It adds no byte-order mark and no newline, and it

@@ -14867,13 +14867,20 @@ function renderHelper(
     // made once and kept: a `decode` call that is not streaming starts afresh,
     // so one decoder serves every read. Both drop exactly one leading BOM,
     // which is the decoder's default (`ignoreBOM` false). The strict one throws
-    // a `TypeError` for bytes that are not UTF-8, and that is the only throw it
-    // has, so the catch answers `undefined` for exactly that case.
+    // a `TypeError` coded `ERR_ENCODING_INVALID_ENCODED_DATA` for bytes that are
+    // not UTF-8, and answers `undefined` for exactly that throw. Any other, such
+    // as `ERR_STRING_TOO_LONG` from either decoder, goes to `File`, which refuses
+    // it as a read's failure is.
     case "fileDecodeStrict":
       return [
         `const ${name} = (() => {`,
         `  const __decoder = new ${spell("TextDecoder")}("utf-8", { fatal: true });`,
-        "  return __bytes => { try { return __decoder.decode(__bytes); } catch { return undefined; } };",
+        "  return __bytes => {",
+        "    try { return __decoder.decode(__bytes); } catch (__error) {",
+        '      if (__error?.code === "ERR_ENCODING_INVALID_ENCODED_DATA") return undefined;',
+        "      throw __error;",
+        "    }",
+        "  };",
         "})();",
       ];
     case "fileDecodeLossy":

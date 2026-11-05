@@ -6,12 +6,21 @@
 // program finishes with.
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
-import { closeSync, existsSync, mkdtempSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, ftruncateSync, mkdtempSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { compileProject, Source } from "../dist/index.js";
 
 const node = process.execPath;
+
+// Byte arrays compared by where they first differ: a diff of two arrays this
+// long would take more memory than the run has.
+function sameBytes(actual, expected, label) {
+  if (actual.equals(expected)) return;
+  let at = 0;
+  while (at < actual.length && at < expected.length && actual[at] === expected[at]) at += 1;
+  assert.fail(`${label}: ${actual.length} bytes where ${expected.length} were expected, first differing at byte ${at}`);
+}
 const root = mkdtempSync(join(tmpdir(), "hexagon-program-io-"));
 try {
   const project = compileProject([new Source.File(Source.fileId(0), "/Main.hex", `module Main
@@ -47,12 +56,25 @@ export let setStatus(status: Int): Unit = Process.setExitStatus~(status)
 
 export let read(path: String): String = File.readText!(path)
 
-export let guardedWrite(text: String): String =
+// One of the four writers, by number, refusing text with a lone surrogate.
+export let guardedWrite(writer: Int, text: String): String =
     try
-        Stdio.writeLine~(text)
+        match writer
+            1 => Stdio.write~(text)
+            2 => Stdio.writeLine~(text)
+            3 => Stdio.writeError~(text)
+            _ => Stdio.writeErrorLine~(text)
         "written"
     catch
         LoneSurrogateFault(_, position) => "refused at \${position}"
+
+export let describeRead(path: String, lossy: Bool): String =
+    try
+        let _ = if lossy then File.readTextLossy!(path) else File.readText!(path)
+        "read"
+    catch
+        File.FileError(File.Other(code), _, message) => "Other(\${code}) | \${message}"
+        File.FileError(_, _, message) => "another reason | \${message}"
 `)]);
   assert.deepEqual(project.diagnostics.map(({ message }) => message), []);
   const save = (path, content) => {
@@ -80,12 +102,21 @@ Main.write("é😀\\uFEFF\\0\\r\\nA\\rB\\n");
 Main.writeLine("");
 Main.writeLine("tail\\n");
 Main.write("x".repeat(262144));
+Main.write("€".repeat(21845));
+Main.write("€".repeat(21846));
+Main.write("€".repeat(30000));
 Main.writeError("");
 Main.writeError("𝕏\\uFEFF\\0\\r\\nC\\rD\\n");
 Main.writeErrorLine("");
 Main.writeErrorLine("error\\r\\n");
 Main.writeError("y".repeat(262144));`);
-  const expectedOut = Buffer.from("é😀﻿\0\r\nA\rB\n\ntail\n\n" + "x".repeat(262144));
+  // The three runs of "€", three bytes each, sit at the writer's kept array's
+  // edge: 65,535 bytes fit it, one more character does not, and 90,000 bytes
+  // take an array of their own.
+  const expectedOut = Buffer.from(
+    "é😀﻿\0\r\nA\rB\n\ntail\n\n" + "x".repeat(262144) +
+    "€".repeat(21845) + "€".repeat(21846) + "€".repeat(30000),
+  );
   const expectedErr = Buffer.from("𝕏﻿\0\r\nC\rD\n\nerror\r\n\n" + "y".repeat(262144));
 
   const stdoutPath = join(root, "stdout.bin");
@@ -99,8 +130,8 @@ Main.writeError("y".repeat(262144));`);
     closeSync(outFd);
     closeSync(errFd);
   }
-  assert.deepEqual(readFileSync(stdoutPath), expectedOut, "redirected stdout bytes");
-  assert.deepEqual(readFileSync(stderrPath), expectedErr, "redirected stderr bytes");
+  sameBytes(readFileSync(stdoutPath), expectedOut, "redirected stdout bytes");
+  sameBytes(readFileSync(stderrPath), expectedErr, "redirected stderr bytes");
 
   // Readers attach before the writer starts and drain both pipes while it
   // runs: waiting for the exit first would deadlock at the pipe's capacity.
@@ -124,8 +155,8 @@ Main.writeError("y".repeat(262144));`);
     });
   });
   assert.equal(piped.code, 0, `pipe exit: ${piped.signal ?? ""}\n${piped.stderr}`);
-  assert.deepEqual(piped.stdout, expectedOut, "piped stdout bytes");
-  assert.deepEqual(piped.stderr, expectedErr, "piped stderr bytes");
+  sameBytes(piped.stdout, expectedOut, "piped stdout bytes");
+  sameBytes(piped.stderr, expectedErr, "piped stderr bytes");
 
   // A real pseudo-terminal. The helper turns off OPOST, which would otherwise
   // turn the LF the module writes into CRLF after it is written.
@@ -136,8 +167,8 @@ Main.writeError("y".repeat(262144));`);
     terminalOut, terminalErr, node, "case.mjs",
   ], { cwd: root, encoding: "utf8", timeout: 35000 });
   assert.equal(terminal.status, 0, `terminal output: ${terminal.error ?? terminal.signal ?? terminal.stderr}`);
-  assert.deepEqual(readFileSync(terminalOut), expectedOut, "terminal stdout bytes");
-  assert.deepEqual(readFileSync(terminalErr), expectedErr, "terminal stderr bytes");
+  sameBytes(readFileSync(terminalOut), expectedOut, "terminal stdout bytes");
+  sameBytes(readFileSync(terminalErr), expectedErr, "terminal stderr bytes");
 
   // --- The endings (§4.3) ---
   driver("lines.mjs", "Main.lines(Number(process.argv[2]));");
@@ -145,7 +176,11 @@ Main.writeError("y".repeat(262144));`);
   assert.equal(headed.stdout, "line 1\n141\n", "a reader that leaves ends the program with 141");
   assert.equal(readFileSync(join(root, "head-stderr.txt"), "utf8"), "", "and nothing on stderr");
 
-  if (existsSync("/dev/full")) {
+  // `/dev/full` is Linux's, where CI runs these checks; elsewhere they are
+  // skipped, and the closing line says so.
+  const hasFull = existsSync("/dev/full");
+  assert.ok(hasFull || process.platform !== "linux", "/dev/full is missing on Linux");
+  if (hasFull) {
     const full = shell(`"${node}" lines.mjs 10 > /dev/full; echo "status $?"`);
     assert.equal(full.stdout, "status 1\n", "a full disk ends the program with 1");
     assert.equal(full.stderr, "cannot write to standard output: no space left on device\n");
@@ -163,11 +198,12 @@ Main.writeError("y".repeat(262144));`);
 
   // --- Lone surrogates (§7) ---
   driver("lone.mjs", `
-Main.writeLine(Main.guardedWrite("ab\\uD83D\\uDE00c\\uD800d"));
+for (const writer of [1, 2, 3, 4]) Main.writeLine(Main.guardedWrite(writer, "ab\\uD83D\\uDE00c\\uD800d"));
 Main.writeLine("after");`);
   const lone = run(["lone.mjs"], { encoding: "utf8" });
   assert.equal(lone.status, 0);
-  assert.equal(lone.stdout, "refused at 5\nafter\n", "a refused write writes nothing, and the program goes on");
+  assert.equal(lone.stdout, "refused at 5\n".repeat(4) + "after\n", "each writer refuses, and the program goes on");
+  assert.equal(lone.stderr, "", "and nothing reaches stderr from the two that write there");
 
   // --- arguments (§5.1) ---
   driver("args.mjs", "Main.showArguments();");
@@ -202,7 +238,25 @@ Main.writeLine("after");`);
   assert.equal(missing.status, 1);
   assert.match(missing.stderr, /Error \[FileError\]: not found: missing\.txt/u);
 
-  console.log(`${process.version}: program I/O checks passed (bytes on files, pipes and terminals; endings; arguments; status)`);
+  // --- A file too long for a string (§3.4) ---
+  // Zero bytes are UTF-8, and one more of them than the longest string Node
+  // makes is refused by either read as `Other`, never as a raw error.
+  const huge = join(root, "huge.txt");
+  const hugeFd = openSync(huge, "w");
+  try {
+    ftruncateSync(hugeFd, 0x1fffffe8 + 1);
+  } finally {
+    closeSync(hugeFd);
+  }
+  driver("huge.mjs", 'for (const lossy of [false, true]) Main.writeLine(Main.describeRead(process.argv[2], lossy));');
+  const tooLong = run(["huge.mjs", huge], { encoding: "utf8" });
+  rmSync(huge);
+  assert.equal(tooLong.status, 0, tooLong.stderr);
+  const tooLongLine = `Other(ERR_STRING_TOO_LONG) | Cannot create a string longer than 0x1fffffe8 characters: ${huge}\n`;
+  assert.equal(tooLong.stdout, tooLongLine.repeat(2), "a text too long for a string is Other, naming the path");
+
+  const skipped = hasFull ? "" : " (the /dev/full checks skipped: no /dev/full)";
+  console.log(`${process.version}: program I/O checks passed (bytes on files, pipes and terminals; endings; arguments; status; a text too long)${skipped}`);
 } finally {
   rmSync(root, { recursive: true, force: true });
 }

@@ -113,17 +113,22 @@ colours, and `File` against a directory of its own. What needs a process of its
 own is `scripts/test-program-io.mjs`: after `npm run build` in `compiler/`, run
 `node scripts/test-program-io.mjs`. Node is the one host (`environment.md` §7).
 The harness also needs Python 3 and POSIX pseudo-terminal support, `bash`, and
-`/dev/full` for the full-disk check; it does not establish Windows terminal
-compatibility.
+`/dev/full` for the full-disk check, which it requires on Linux and skips, saying
+so, elsewhere; it does not establish Windows terminal compatibility. It also
+reads a file one byte longer than Node's longest string, which takes about
+half a gigabyte of memory for a moment.
 
 `Stdio` checks must distinguish stdout from stderr, verify exact UTF-8 bytes and
 LF insertion, and exercise repeated writes, redirected files, actively drained
 pipes, a terminal, and each ending of `spec/program-io.md` §4.3: a reader that
-leaves, a full disk, and a slow reader after `Debug.log`. Terminal checks must
+leaves, a full disk, and a slow reader after `Debug.log`. Multibyte text either
+side of the writer's kept array's edge checks that no write is cut short, and
+each of the four writers refuses a lone surrogate. Terminal checks must
 distinguish the module's output from terminal-driver newline transformations.
 The playground runs the same modules on its own stand-ins for Node, and its
 tests compare what a program prints there with what it prints under Node
-(`playground/src/execution-worker.test.ts`).
+(`playground/src/execution-worker-io.test.ts`, a file of its own, since each
+run keeps its modules in the test process).
 
 ## 4. Test host
 

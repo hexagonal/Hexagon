@@ -43,8 +43,9 @@ export const HOST_KEY = "hexagon.playground.host";
  * import them under.
  *
  * The bytes a `writeSync` call is handed are decoded during the call and
- * nothing of them is kept: the writer reuses its array for the next write. A
- * write is always whole, since the pane never pushes back.
+ * nothing of them is kept: the writer reuses its array for the next write.
+ * Each write is decoded on its own and keeps a leading U+FEFF, as Node writes
+ * it. A write is always whole, since the pane never pushes back.
  */
 export const NODE_STAND_INS: ReadonlyMap<string, string> = new Map([
   ["node:fs", `const host = globalThis[Symbol.for(${JSON.stringify(HOST_KEY)})];
@@ -57,7 +58,7 @@ export function writeFileSync(path) {
   throw failure("EROFS", -30, "EROFS: read-only file system, open '" + path + "'", path);
 }
 export function writeSync(descriptor, bytes, offset, length) {
-  const text = new TextDecoder().decode(bytes.subarray(offset, offset + length));
+  const text = new TextDecoder("utf-8", { ignoreBOM: true }).decode(bytes.subarray(offset, offset + length));
   host.write(descriptor === 2 ? "stderr" : "stdout", text);
   return length;
 }

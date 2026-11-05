@@ -20,15 +20,15 @@ extern from "node:process"
     get execArgv(process: NodeProcess) ->~ Array(String)
     set exitCode(process: NodeProcess, status: Int) ->! Unit
 
+// Short options run together, such as `-pe`.
+let isShortOptions(option: String): Bool =
+    option.startsWith("-") and not option.startsWith("--")
+
 // Whether Node ran code given on its command line, so that `argv`'s second
 // element is the user's first argument rather than a script's path. Node keeps
 // each option as it was typed: `-e`, `--eval`, `-p` and `--print` alone, or
 // joined to their value (`--eval=…`), or among short options run together
 // (`-pe`).
-// Short options run together, such as `-pe`.
-let isShortOptions(option: String): Bool =
-    option.startsWith("-") and not option.startsWith("--")
-
 let ranCommandLineCode(options: Array(String)): Bool =
     var found = False
     for option in options

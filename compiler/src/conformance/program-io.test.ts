@@ -68,8 +68,8 @@ export let count(): Int = Process.arguments~().length()
   });
 
   test("a module used without its import is refused as any unimported module is", () => {
-    expect(projectDiagnostics('module Main\nexport let read(path: String): String = File.readText!(path)\n')
-      .length).toBeGreaterThan(0);
+    expect(projectDiagnostics('module Main\nexport let read(path: String): String = File.readText!(path)\n'))
+      .toEqual(["no module alias `File`; `import File`"]);
   });
 
   test.each([
@@ -269,6 +269,8 @@ describe("File", () => {
     expect(readText("kept.txt")).toBe("kept");
     expect(program.surrogateAt!(at("created.txt"), "\uD800")).toMatch(/^1 \| /u);
     expect(fs.existsSync(at("created.txt"))).toBe(false);
+    expect(program.surrogateBomAt!(at("created-bom.txt"), "\uD800")).toBe("1");
+    expect(fs.existsSync(at("created-bom.txt"))).toBe(false);
   });
 
   test("toWellFormed replaces each lone surrogate, and keeps pairs and well-formed text", () => {

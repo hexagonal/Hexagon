@@ -452,9 +452,10 @@ export function isIntrinsicScheme(specifier: string): boolean {
  * - **`jsErrorReadCode`** is a fourth guarded read beside `JsError`'s and
  *   `Exn`'s three, through the same helper. FFI Part 11 §7 does not list
  *   `.code` among its kept reads, so the row is `->~`.
- * - **The arrows.** The decoders read bytes in a mutable array, as `bufferRead`
- *   reads one, and the encoder fills an array that the next call overwrites, so
- *   those rows are `->~`; every caller is impure already.
+ * - **The arrows.** The decoders are `->!`: past the host's longest string
+ *   either throws `ERR_STRING_TOO_LONG`, which `File` refuses as `Other(code)`.
+ *   The encoder fills an array that the next call may overwrite, so its rows
+ *   are `->~`; every caller is impure already.
  * - **`stringIsWellFormed` and `stringToWellFormed`** are the one pair here
  *   that ordinary Hexagon could write, over `toCodepoint`. They are keyed for
  *   their cost (`stdlib-roadmap.md` §5.1's measured-performance ground): a
