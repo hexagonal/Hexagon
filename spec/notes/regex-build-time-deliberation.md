@@ -315,7 +315,7 @@ The parser's messages fall into four groups.
      - backreferences (`\1`, `(?P=name)`, `\k<name>`, `\g1`), which no linear-time engine matches in general;
      - the four lookaround forms, which a linear engine has only in restricted forms, each a second matching semantics beside leftmost-first;
      - possessive repetition, atomic groups and conditionals, §2.8's backtracking-engine devices;
-     - recursion, which matches what no automaton can, such as balanced nesting.
+     - recursion, which matches what no finite automaton can, such as balanced nesting.
 
      The rewrite other engines offer is an engine §1 rejects.
    - **Atoms whose unit is not the codepoint:** the grapheme and byte atoms, `\X` and `\C`. The dialect matches codepoints (§3.1), and a grapheme or a byte is not one, so there is nothing inside the dialect to write instead.
