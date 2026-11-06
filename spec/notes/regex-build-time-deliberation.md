@@ -254,7 +254,7 @@ In the playground, is a `compile` literal checked and built while compiling, as 
 
 ## What a refused Regex literal tells the programmer to write (decision 4)
 
-**Status:** for the user's ruling. *Revised 2026-11-06 at about 15:45Z, after an independent review of the spec PR (#1469) found my inventory incomplete. The question, the options and the recommendation are unchanged. "What the review changed" lists every difference from the version sent at 15:05Z.*
+**Status:** for the user's ruling. *Revised 2026-11-06 at about 15:25Z and again at about 15:50Z, after two independent reviews of the spec PR (#1469) found my inventory incomplete. The question, the options and the recommendation are unchanged. "What the reviews changed" lists every difference from the version sent at 15:05Z.*
 
 Decision 1 (`REGEX-BUILD-D1.md`) makes a bad literal handed to `Regex.compile` a compile error, and its write-up said: "**The messages already meet the Rewrite Rule.** §2.9's messages name the spelling to write instead." While drafting the spec I checked every message the parser gives. That sentence is true of most rows and false of the rest, so I am bringing the question back rather than deciding it inside the spec.
 
@@ -267,21 +267,25 @@ Decision 1 (`REGEX-BUILD-D1.md`) makes a bad literal handed to `Regex.compile` a
 - **Colleague languages:** none of the compile-time regex checks names a rewrite as a rule. Clippy's `invalid_regex`, .NET's SYSLIB1042 and Swift's regex literals all show their parser's message as it stands. The Rewrite Rule is Hexagon's own, and stricter.
 - **HM:** nothing here touches inference.
 
-### What the review changed
+### What the reviews changed
 
-1. **A rewrite in a compile-time report has to be spelled as source.** `Regex.compile("a\\")` is refused at its closing quote with "write `\\` for a literal backslash", which is what the programmer already wrote: the pattern's `\\` is the source's `\\\\`. So a report made while compiling quotes every spelling as the literal's source writes it, each backslash doubled (Lexer §6.2). This holds under every option below.
-2. **Four of §2.8's refusals have no message of their own, and the general one points somewhere wrong.** Each of these suggestions changes the meaning:
+1. **A rewrite in a compile-time report has to be spelled as source.** `Regex.compile("a\\")` is refused at its closing quote with "write `\\` for a literal backslash", which is what the programmer already wrote: the pattern's `\\` is the source's `\\\\`. So a report made while compiling quotes every spelling as a string literal spells it, each backslash doubled (Lexer §6.2). This holds under every option below.
+2. **Several of §2.8's refusals have no message of their own, and the general one points somewhere wrong.** Each of these suggestions changes the meaning:
    - possessive `a*+` gets "`*+` repeats a repetition; write `(a*)+`";
    - atomic `(?>a)` and the conditional `(?(1)a|b)` get "`(?` must be followed by `:`, `P<`, `<`, or flags", which steers toward `(?:`;
-   - recursion `(?R)` gets "`R` is not a flag".
+   - recursion `(?R)` gets "`R` is not a flag";
+   - other engines' backreferences, `\k<name>` and `\g1`, get "`\k` is not an escape; write `k`, or see the escape table".
 
    They join the rows with no rewrite, and are refused by name. Possessive repetition keeps the other reading's rewrite: "to repeat a repetition, write `(a*)+`".
+   Three more spellings from other engines have a fix and join group 2: `(?#…)`, a comment (drop it, or use the `x` flag's `#`); `\K` (capture the part to keep in a group); and `\G` (search with `findFrom` and check where the match starts). `\c`, a control codepoint, joins the rows that already name `\u{…}`.
 3. **The `U` flag** gets "`U` is not a flag; the flags are `i`, `m`, `s`, `x`". It has a fix, a lazy repetition such as `*?`, so it joins group 2.
 4. **`[\b]` means backspace in JavaScript, PCRE and Python,** so "write it outside the class" is wrong for the common case. The row names both readings: `\u{8}` for a backspace, or outside the class for a word boundary.
 5. **An unknown property is an unknown name, not a limitation.** `\p{Cyrilic}` is a typo of `\p{Cyrillic}`. It leaves the rows with no rewrite and takes the near-miss form above: "did you mean `\p{Cyrillic}`?" when a supported name is close, and the sentence alone when none is (`\p{Emoji}`, which §10 may add by ruling).
 6. **Two of the three bounds have a rewrite.** `a{1000}a{500}` is legal and builds the program `a{1500}` would, because §2.5 bounds the program at a thousand times the pattern's length, and the longer spelling pays for itself. Nested counts the same way: repeat the outer repetition in sequence. Both join group 2. Nesting deeper than 1000 has no such rewrite and stays with the rows that have none.
 
-So group 2 grows from thirteen rows to sixteen, the unknown property becomes a group of its own, and the rows with no rewrite (now group 4) go from twelve to thirteen: they lose the property row and two bounds, and gain four constructs.
+7. **Lookaround's ground was misstated.** I wrote that no linear-time engine has these constructs. That is true of backreferences, but §2.8 itself says lookaround is "expressible on a linear engine only in restricted forms, and each form is a second matching semantics beside leftmost-first". So the ground for the group is §2.8's: the dialect refuses them to keep matching linear-time and leftmost-first.
+
+So group 2 grows from thirteen rows to nineteen, the unknown property becomes a group of its own, and the rows with no rewrite (now group 4) go from twelve to fifteen: they lose the property row and two bounds, and gain four constructs and two spellings of a backreference.
 
 ### What exists today (read from `stdlib/Regex/Syntax.hex` on main)
 
@@ -292,7 +296,7 @@ The parser's messages fall into four groups.
    - "`\x` is not an escape; write `\u{…}`";
    - "`\Z` is not an escape; write `\z`, …";
    - "group name must match `[A-Za-z_][A-Za-z0-9_]*`".
-2. **Rows whose fix is obvious but unnamed.** There are sixteen:
+2. **Rows whose fix is obvious but unnamed.** There are nineteen:
    - "missing `)` for the group opened here", and the same for `]`;
    - "range `z-a` is reversed";
    - "`{3,1}` has a minimum above its maximum";
@@ -303,10 +307,16 @@ The parser's messages fall into four groups.
    - "group `year` is already defined";
    - "`\R` is not an escape; the dialect has no linebreak atom" and the same for `\h`. A class or an alternation can spell what the writer meant;
    - "`U` is not a flag", where a lazy repetition says what `U` would;
-   - "repetition count exceeds 1000" and "nested repetition counts multiply past 1000", where a sequence spells the longer run.
-3. **An unknown name:** "`\p{Cyrilic}` names no supported property". It takes the near-miss form every unknown name in Hexagon takes.
-4. **Rows with no rewrite inside the dialect.** Each refuses a construct by ruling, or meets a bound. There are thirteen:
-   - **Constructs only a backtracking engine has:** backreferences (`\1`, `(?P=name)`), the four lookaround forms, and possessive repetition, atomic groups, conditionals and recursion (§2.8). No linear-time engine has them, and the rewrite other engines offer is a backtracking engine, which §1 rejects.
+   - "repetition count exceeds 1000" and "nested repetition counts multiply past 1000", where a sequence spells the longer run;
+   - `(?#…)`, `\K` and `\G`, which other engines read as a comment, a reset of the match's start, and an anchor at the previous match's end.
+3. **An unknown name:** "`\p{Cyrilic}` names no supported property". It takes the near-miss form every unknown name in Hexagon takes. A real property outside the closed set, such as `\p{Emoji}`, gets the sentence alone; whether it joins is already §10's open question.
+4. **Rows with no rewrite inside the dialect.** Each refuses a construct by ruling, or meets a bound. There are fifteen:
+   - **Constructs §2.8 refuses to keep matching linear-time and leftmost-first:**
+     - backreferences (`\1`, `(?P=name)`, `\k<name>`, `\g1`), which no linear-time engine matches in general;
+     - the four lookaround forms, which a linear engine has only in restricted forms, each a second matching semantics beside leftmost-first;
+     - possessive repetition, atomic groups, conditionals and recursion, devices for steering a backtracking engine.
+
+     The rewrite other engines offer is an engine §1 rejects.
    - **Atoms whose unit is not the codepoint:** the grapheme and byte atoms, `\X` and `\C`. The dialect matches codepoints (§3.1), and a grapheme or a byte is not one, so there is nothing inside the dialect to write instead.
    - **Nesting deeper than 1000** (§2.5). The bound keeps every pass over the tree bounded. A pattern that deep is generated, not written, and no local rewrite removes the depth without changing what the groups capture.
 
@@ -327,13 +337,13 @@ How does a refused literal meet the Rewrite Rule?
 
   The same words serve `parse`'s `RegexError` at the run, where the spellings are the pattern's own.
 - **Group 3:** the unknown property takes the near-miss form.
-- **Group 4:** keeps its messages, which name the limitation and its reason, and the four constructs above gain theirs. The Preamble's named-limitation paragraph gains the dialect's rewrite-less refusals beside polymorphic recursion, each with its reason. The ground is the same: the rewrite other languages offer is one Hexagon rejects.
+- **Group 4:** keeps its messages, which name the limitation and its reason, and the constructs that fell to a general message gain their own. The Preamble's named-limitation paragraph gains the dialect's rewrite-less refusals beside polymorphic recursion, each with its reason. The ground is the same: the rewrite other languages offer is one Hexagon rejects.
 - **What it gives:**
   - every report says what to write, or why nothing can be written;
   - better run-time messages for `parse` as well;
   - the doctrine says in one place where a rule has no rewrite.
 - **Cost:**
-  - sixteen messages change and four are added, in the spec table, the parser and its tests;
+  - every group 2 message changes, the unknown property gains its near miss, and the spellings that fell to a general message gain their own, in the spec table, the parser and its tests;
   - the Preamble's exception grows from one restriction to a family. It is named, ruled and reasoned, but it is still wider.
 
 **(b) One rewrite at the call for every report.** Every report ends with the same clause: "or hand the text to `Regex.parse`, which reports this when the call runs."
@@ -342,7 +352,7 @@ How does a refused literal meet the Rewrite Rule?
   - a rewrite that is always local and always legal.
 - **Cost:**
   - **The clause defers the failure without fixing it.** It is the one piece of advice a programmer with a bad pattern never needs, so it fails the rule's "obvious" in spirit while passing its letter.
-  - group 2 still names no fix, and the four constructs keep messages that point the wrong way.
+  - group 2 still names no fix, and the spellings that fell to a general message keep messages that point the wrong way.
 
 **(c) Rewrites for group 2, and group 4 as an open question.** Groups 2 and 3 are the same as (a). Group 4 is recorded under the Rewrite Rule's own escape, "recorded as an open question", with no Preamble change.
 - **What it gives:** no doctrine edit now.
