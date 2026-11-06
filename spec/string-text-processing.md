@@ -8,7 +8,8 @@ target once (#1413); amended 2026-11-04 — §10 names the program I/O modules
 that replace the experimental file reader, and §13 adds `toWellFormed` and
 `LoneSurrogateFault`, which the writers of `program-io.md` §7 throw, with §1's
 sentence on the one operation that replaces a lone surrogate, and §11 names
-§13's two keys as its exception. This document owns the
+§13's two keys as its exception; amended 2026-11-05 — §10 names `Stdio`'s
+standard input readers beside `File`'s (#1465). This document owns the
 text-processing operations exported by `stdlib/String.hex`.
 
 **Home:** Public companion functions in `stdlib/String.hex`. Related Vector
@@ -308,10 +309,11 @@ matches or removes it. It participates in length, positions, equality, and
 ordering. `words` and trimming follow Unicode whitespace, which excludes it.
 No dedicated `String.stripBom` function was adopted.
 
-The file readers `File.readText` and `File.readTextLossy` consume exactly one
+The file readers `File.readText` and `File.readTextLossy`, and the standard
+input readers `Stdio.readText` and `Stdio.readTextLossy`, consume exactly one
 initial U+FEFF after UTF-8 decoding, and `File.writeTextBom` writes one before
-its text; `File.writeText` and the `Stdio` writers add none. Neither reader
-detects UTF-16 or UTF-32. The full contract lives in [Program I/O](program-io.md) §3 and §4.
+its text; `File.writeText` and the `Stdio` writers add none. No reader detects
+UTF-16 or UTF-32. The full contract lives in [Program I/O](program-io.md) §3 and §4.
 BOM policy belongs to file input and output; ordinary String processing
 continues to preserve U+FEFF.
 
