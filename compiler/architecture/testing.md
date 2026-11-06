@@ -116,7 +116,8 @@ The harness also needs Python 3 and POSIX pseudo-terminal support, `bash`, and
 `/dev/full` for the full-disk check, which it requires on Linux and skips, saying
 so, elsewhere; it does not establish Windows terminal compatibility. It also
 reads a file one byte longer than Node's longest string, which takes about
-half a gigabyte of memory for a moment.
+half a gigabyte of memory for a moment, and gives the same file as standard
+input, which takes about a gigabyte and a half.
 
 `Stdio` checks must distinguish stdout from stderr, verify exact UTF-8 bytes and
 LF insertion, and exercise repeated writes, redirected files, actively drained
@@ -125,6 +126,13 @@ leaves, a full disk, and a slow reader after `Debug.log`. Multibyte text either
 side of the writer's kept array's edge checks that no write is cut short, and
 each of the four writers refuses a lone surrogate. Terminal checks must
 distinguish the module's output from terminal-driver newline transformations.
+
+The reads of standard input (§4.5) are checked from a redirected file, a
+parent's pipe, `cat` through a pipe, a writer that pauses into a blocking pipe
+and into one its parent made non-blocking, `/dev/null`, a closed stdin, a
+directory, input too long for a string, and a terminal typed into through a
+pseudo-terminal (`scripts/stdin-pty.py`): the exact text, the decoding as
+`File`'s, a second read, and each ending's line and status.
 The playground runs the same modules on its own stand-ins for Node, and its
 tests compare what a program prints there with what it prints under Node
 (`playground/src/execution-worker-io.test.ts`, a file of its own, since each

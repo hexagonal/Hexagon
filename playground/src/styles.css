@@ -268,7 +268,43 @@ button:disabled {
 }
 
 .source-panel {
+  grid-template-rows: auto 1fr auto;
   border-right: 1px solid var(--border);
+}
+
+/* The run's standard input: a small box under the editor, two lines high, that
+   the reader can drag taller when a puzzle's input wants more room. */
+.input-box {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 0.6rem;
+  padding: 0.4rem 0.9rem;
+  border-top: 1px solid var(--border);
+  background: var(--chrome-background);
+}
+
+.input-box span {
+  padding-top: 0.25rem;
+  color: var(--panel-note);
+  font-size: 0.72rem;
+  font-weight: 650;
+}
+
+#input-editor {
+  width: 100%;
+  min-height: 2.6rem;
+  max-height: 40vh;
+  padding: 0.25rem 0.45rem;
+  border: 1px solid var(--control-border);
+  border-radius: 0.35rem;
+  background: var(--editor-background);
+  color: var(--text);
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 0.78rem;
+  line-height: 1.4;
+  resize: vertical;
+  white-space: pre;
 }
 
 .panel-heading {

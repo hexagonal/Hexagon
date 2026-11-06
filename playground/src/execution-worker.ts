@@ -38,8 +38,15 @@ self.addEventListener("message", async (event: MessageEvent<ExecutionRequest>) =
   };
   // The run's terminal, which the `node:fs` and `node:process` stand-ins reach
   // (`spec/program-io.md` §6). `Stdio`'s text arrives through the same `post`
-  // as `Debug.log`'s lines, so the pane shows the two in the order written.
-  const host: PlaygroundHost = { write: post, exitCode: undefined, exited: undefined };
+  // as `Debug.log`'s lines, so the pane shows the two in the order written, and
+  // its reads answer the input box's text, read from its start on every run.
+  const host: PlaygroundHost = {
+    write: post,
+    exitCode: undefined,
+    exited: undefined,
+    input: new TextEncoder().encode(request.input),
+    inputRead: 0,
+  };
   installHost(host);
 
   const moduleUrls = new Map<string, string>();

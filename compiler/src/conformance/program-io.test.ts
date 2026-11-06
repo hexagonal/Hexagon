@@ -50,6 +50,7 @@ import Process
 export let read(path: String): String = File.readText!(path)
 export let say(text: String): Unit = Stdio.writeLine~(text)
 export let count(): Int = Process.arguments~().length()
+export let input(): String = Stdio.readText~()
 `);
     expect(project.diagnostics.map(({ message }) => message)).toEqual([]);
     for (const [name, specifier] of [
@@ -57,7 +58,7 @@ export let count(): Int = Process.arguments~().length()
     ] as const) {
       const module = project.modules.find((candidate) => candidate.name === name)!;
       expect(module.javascript.text).toContain(`from "${specifier}"`);
-      expect(module.declarations.text).not.toMatch(/readFileSync|writeFileSync|writeSync|execArgv/u);
+      expect(module.declarations.text).not.toMatch(/readFileSync|writeFileSync|writeSync|readSync|execArgv/u);
     }
   });
 
@@ -81,6 +82,8 @@ export let count(): Int = Process.arguments~().length()
     ["Stdio.writeLine(path)", "~"],
     ["Stdio.writeError(path)", "~"],
     ["Stdio.writeErrorLine(path)", "~"],
+    ["Stdio.readText()", "~"],
+    ["Stdio.readTextLossy()", "~"],
     ["Process.arguments()", "~"],
     ["Process.setExitStatus(1)", "~"],
   ])("an unmarked `%s` is refused, wanting `%s`", (call, mark) => {

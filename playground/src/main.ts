@@ -22,7 +22,7 @@ import {
   renderGeneratedCodeView,
 } from "./generated-code";
 import { helloWorld } from "./examples/hello-world";
-import { readStoredSource, writeStoredSource } from "./persistence";
+import { readStoredInput, readStoredSource, writeStoredInput, writeStoredSource } from "./persistence";
 import { createLanguageServices } from "./language-services";
 import type {
   CompilerMessage,
@@ -32,7 +32,7 @@ import type {
   ExecutableModule,
 } from "./protocol";
 import { exitStatusNote, outputSegments, type OutputChunk } from "./output-pane";
-import { readSharedSource, shareUrl } from "./sharing";
+import { readSharedInput, readSharedSource, shareUrl } from "./sharing";
 import {
   parseThemePreference,
   resolveTheme,
@@ -134,6 +134,18 @@ app.innerHTML = `
         spellcheck="false"
       ></textarea>
       <div id="monaco-source-editor" class="monaco-editor-host" hidden></div>
+      <label class="input-box">
+        <span>Input</span>
+        <textarea
+          id="input-editor"
+          rows="2"
+          aria-label="Standard input"
+          placeholder="Text the program reads with Stdio.readText"
+          autocomplete="off"
+          autocapitalize="off"
+          spellcheck="false"
+        ></textarea>
+      </label>
     </section>
 
     <section class="panel result-panel" aria-label="Compiler results">
@@ -165,6 +177,7 @@ app.innerHTML = `
 `;
 
 const sourceTextarea = requireElement<HTMLTextAreaElement>("#source-editor");
+const inputTextarea = requireElement<HTMLTextAreaElement>("#input-editor");
 const sourceEditorContainer = requireElement<HTMLElement>("#monaco-source-editor");
 const resultView = requireElement<HTMLElement>("#result-view");
 const resultText = requireElement<HTMLElement>("#result-text");
@@ -185,6 +198,10 @@ let sourceEditor: SourceEditor = createTextareaSourceEditor(sourceTextarea);
 let generatedCodeEditor: GeneratedCodeEditor | undefined;
 let sourceSubscription: EditorSubscription = sourceEditor.onDidChange(handleSourceChange);
 sourceEditor.setSource(readInitialSource());
+inputTextarea.value = readInitialInput();
+// The box is the run's standard input (`spec/program-io.md` §6). Editing it
+// needs no compile: the next run reads whatever it holds then.
+inputTextarea.addEventListener("input", () => writeCurrentInput(inputTextarea.value));
 themeSelect.value = themePreference;
 for (const example of playgroundExamples) {
   const option = document.createElement("option");
@@ -338,7 +355,7 @@ function compileCurrentSource(): void {
 }
 
 async function shareCurrentSource(): Promise<void> {
-  const shared = shareUrl(new URL(window.location.href), sourceEditor.getSource());
+  const shared = shareUrl(new URL(window.location.href), sourceEditor.getSource(), inputTextarea.value);
   window.history.replaceState(null, "", shared);
 
   try {
@@ -401,6 +418,7 @@ function runCurrentProgram(): void {
     version,
     modules: state.executionModules,
     entryPath: state.entryPath,
+    input: inputTextarea.value,
   });
   executionTimer = setTimeout(() => {
     if (version !== state.sourceVersion) return;
@@ -666,6 +684,25 @@ function readInitialSource(): string {
 function writeCurrentSource(source: string): void {
   try {
     writeStoredSource(localStorage, source);
+  } catch {
+    // Accessing the storage object itself can fail in restricted contexts.
+  }
+}
+
+/** A shared link's input, else what this browser kept, else an empty box. */
+function readInitialInput(): string {
+  const shared = readSharedInput(new URL(window.location.href));
+  if (shared !== undefined) return shared;
+  try {
+    return readStoredInput(localStorage) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+function writeCurrentInput(input: string): void {
+  try {
+    writeStoredInput(localStorage, input);
   } catch {
     // Accessing the storage object itself can fail in restricted contexts.
   }

@@ -12545,6 +12545,13 @@ class JavaScriptEmitter {
         return `${this.#useHelper("stdioEncoder")}.buffer`;
       case "stdioPause":
         return this.#useHelper("stdioPause");
+      // The reader's two halves (`program-io.md` §4.5): `reserve` makes room
+      // after the bytes read so far and answers the array's length, and
+      // `input` is a view of the array's first bytes.
+      case "stdioReserve":
+        return `${this.#useHelper("stdioInput")}.reserve`;
+      case "stdioInput":
+        return `${this.#useHelper("stdioInput")}.input`;
       default:
         // The **operation** grade only (#927): a `fun` row keyed by a *type*
         // key is the author's mistake, already reported by the resolver as a
@@ -14423,6 +14430,7 @@ type Helper =
   | "fileFirstBadByte"
   | "stdioEncoder"
   | "stdioPause"
+  | "stdioInput"
   | "numberInteger"
   | "numberFloat"
   | "numberDec"
@@ -14510,6 +14518,7 @@ const HELPER_DEPENDENCIES: Readonly<Record<Helper, readonly Helper[]>> = {
   fileFirstBadByte: [],
   stdioEncoder: [],
   stdioPause: [],
+  stdioInput: [],
   numberInteger: [],
   numberFloat: [],
   numberDec: [],
@@ -14949,18 +14958,46 @@ function renderHelper(
         "  };",
         "})();",
       ];
-    // About a millisecond, before a write that met `EAGAIN` tries again
-    // (`program-io.md` §4.3). `Atomics.wait` on a cell no one else holds is the
-    // one synchronous wait JavaScript has that spends no processor time. The
-    // cell is made at the first wait, not when the module loads, so the module
-    // loads in a browser without `SharedArrayBuffer` (§9).
+    // The reader's bytes (`program-io.md` §4.5). One array holds what has
+    // been read. `reserve(used)` keeps its first `used` bytes and makes sure
+    // there is room after them, doubling the array when there isn't. A
+    // `reserve(0)` starts again from 64 KiB, so an array an earlier read grew
+    // is not kept, while a 64 KiB one is reused, as it is on each `EAGAIN`
+    // before the first byte arrives.
+    // `input(length)` is a view of the first `length` bytes, which the reads
+    // fill and the decoders read.
+    case "stdioInput":
+      return [
+        `const ${name} = (() => {`,
+        "  let __bytes;",
+        "  return {",
+        "    reserve: __used => {",
+        "      if (__used === 0) {",
+        `        if (__bytes?.length !== 65536) __bytes = new ${spell("Uint8Array")}(65536);`,
+        "      } else if (__used === __bytes.length) {",
+        `        const __larger = new ${spell("Uint8Array")}(__bytes.length * 2);`,
+        "        __larger.set(__bytes);",
+        "        __bytes = __larger;",
+        "      }",
+        "      return __bytes.length;",
+        "    },",
+        "    input: __length => __bytes.subarray(0, __length),",
+        "  };",
+        "})();",
+      ];
+    // A pause of the given microseconds, after a read or write met `EAGAIN`:
+    // about a millisecond before a write tries again (`program-io.md` §4.3),
+    // and the reader's back-off (§4.5). `Atomics.wait` on a cell no one else
+    // holds is the one synchronous wait JavaScript has that spends no
+    // processor time. The cell is made at the first wait, not when the module
+    // loads, so the module loads in a browser without `SharedArrayBuffer` (§9).
     case "stdioPause":
       return [
         `const ${name} = (() => {`,
         "  let __cell;",
-        "  return () => {",
+        "  return __microseconds => {",
         `    __cell ??= new ${spell("Int32Array")}(new ${spell("SharedArrayBuffer")}(4));`,
-        `    ${spell("Atomics")}.wait(__cell, 0, 0, 1);`,
+        `    ${spell("Atomics")}.wait(__cell, 0, 0, __microseconds / 1000);`,
         "  };",
         "})();",
       ];
