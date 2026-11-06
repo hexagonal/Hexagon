@@ -911,9 +911,10 @@ let readFlags(text: Vector(String), position: Int, opening: Int, flags: Flags): 
                     if clearing then afterHyphen := afterHyphen + 1
                     at := at + 1
             else if point == "U" and clearing then
-                // Name the text whose removal leaves a setting the parser takes.
+                // Name what to drop: the letter alone where other letters share the
+                // clearing side, else the `-U`, the `-U` of a group, or the whole setting.
                 let next = if at + 1 <= size then text[at + 1] else ""
-                let others = afterHyphen > 0 or next == "i" or next == "m" or next == "s" or next == "x"
+                let others = afterHyphen > 0 or (next != "" and next != ")" and next != ":")
                 let drop = if others then
                     "drop the `U`"
                 else if Vector.length(seen) > 0 then
