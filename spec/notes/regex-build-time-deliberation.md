@@ -308,13 +308,14 @@ The parser's messages fall into four groups.
    - "`\R` is not an escape; the dialect has no linebreak atom" and the same for `\h`. A class or an alternation can spell what the writer meant;
    - "`U` is not a flag", where a lazy repetition says what `U` would;
    - "repetition count exceeds 1000" and "nested repetition counts multiply past 1000", where a sequence spells the longer run;
-   - `(?#…)`, `\K` and `\G`, which other engines read as a comment, a reset of the match's start, and an anchor at the previous match's end.
+   - `(?#…)`, `\K` and `\G`, which other engines read as a comment, a reset of the match's start, and an anchor at the previous match's end. Today these get general messages that name a wrong fix ("write `K`", or the `(?` prefix list).
 3. **An unknown name:** "`\p{Cyrilic}` names no supported property". It takes the near-miss form every unknown name in Hexagon takes. A real property outside the closed set, such as `\p{Emoji}`, gets the sentence alone; whether it joins is already §10's open question.
 4. **Rows with no rewrite inside the dialect.** Each refuses a construct by ruling, or meets a bound. There are fifteen:
    - **Constructs §2.8 refuses to keep matching linear-time and leftmost-first:**
      - backreferences (`\1`, `(?P=name)`, `\k<name>`, `\g1`), which no linear-time engine matches in general;
      - the four lookaround forms, which a linear engine has only in restricted forms, each a second matching semantics beside leftmost-first;
-     - possessive repetition, atomic groups, conditionals and recursion, devices for steering a backtracking engine.
+     - possessive repetition, atomic groups and conditionals, §2.8's backtracking-engine devices;
+     - recursion, which matches what no automaton can, such as balanced nesting.
 
      The rewrite other engines offer is an engine §1 rejects.
    - **Atoms whose unit is not the codepoint:** the grapheme and byte atoms, `\X` and `\C`. The dialect matches codepoints (§3.1), and a grapheme or a byte is not one, so there is nothing inside the dialect to write instead.
