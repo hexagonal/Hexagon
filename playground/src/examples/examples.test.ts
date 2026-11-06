@@ -1,7 +1,6 @@
 import { describe, expect, test } from "vitest";
 
 import { compileSource } from "../compile";
-import { describeFailure } from "../execution";
 import { exampleById, playgroundExamples } from "./index";
 import { regexes } from "./regexes";
 import { runModules } from "./run-modules";
@@ -50,22 +49,24 @@ describe("curated playground examples", () => {
   }, PIPELINE_TIMEOUT);
 
   /**
-   * The Regex tutorial's other path: its written pattern, broken, stops the
-   * program as it loads, before anything prints, with a fault that says what
-   * is wrong and where. The pane shows the line `describeFailure` gives.
+   * The Regex tutorial's other path: its written pattern, broken, is refused
+   * when the program compiles (`spec/regex.md` §8), underlined at the codepoint
+   * that goes wrong, with what to write instead. Nothing runs.
    */
-  test("stop the Regex tutorial at load with its pattern's fault and position", async () => {
+  test("refuse the Regex tutorial's broken pattern when it compiles, at the bad codepoint", () => {
     const broken = regexes.source.replace('{2})$")', '{2}$")');
     expect(broken).not.toBe(regexes.source);
 
-    const { printed, threw, failure } = await execute("regexes-broken", 0, broken);
+    const compiled = compileSource(0, broken);
 
-    expect(printed).toEqual([]);
-    expect(threw).toBe(true);
-    expect(failure).toBeInstanceOf(Error);
-    expect((failure as Error).name).toBe("RegexCompileFault");
-    expect(describeFailure(failure))
-      .toBe("RegexCompileFault: missing `)` for the group opened here (position: 39)");
+    expect(compiled.kind).toBe("compile-failure");
+    if (compiled.kind !== "compile-failure") return;
+    expect(compiled.diagnostics.map(({ message }) => message)).toEqual([
+      "missing `)` for the group opened here; close it, or write `\\\\(` for a literal",
+    ]);
+    const [{ startOffset, endOffset }] = compiled.diagnostics as [typeof compiled.diagnostics[number]];
+    expect(broken.slice(startOffset, endOffset)).toBe("(");
+    expect(broken.slice(startOffset, startOffset + 7)).toBe("(?<day>");
   }, PIPELINE_TIMEOUT);
 });
 
@@ -98,6 +99,6 @@ const EXPECTED_OUTPUT: ReadonlyMap<string, readonly string[]> = new Map([
     "a.c is a pattern; on abc it says True",
     "(a is not a pattern",
     "(a)(b) has 2 groups",
-    "[z-a]: range `z-a` is reversed, at position 4",
+    "[z-a]: range `z-a` is reversed; write `a-z`, at position 4",
   ]],
 ]);

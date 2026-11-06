@@ -30,12 +30,12 @@ extern from "hex:intrinsic"
 
 (** A compiled pattern: a value, immutable and sharable. Two regexes are compared
     by their `source`. *)
-opaque record Regex = { source: String, groupCount: Int, names: Map(String, Int), program: Program }
+opaque record Regex = { source: String, groupCount: Int, names: Vector((String, Int)), program: Program }
 
 (** One match against one subject: the whole match, every capturing group, and
     the group names. Read it with `start`, `length`, `text`, `group`, `named`
     and `groups`. *)
-opaque record Match = { whole: Group, groups: Vector(Option(Group)), names: Map(String, Int) }
+opaque record Match = { whole: Group, groups: Vector(Option(Group)), names: Vector((String, Int)) }
 
 (** A captured span: its 1-based codepoint start, its length in codepoints, and
     its text. *)
@@ -54,16 +54,29 @@ honor Show<Regex> =
     the programmer's own, and a bad one is the programmer's mistake. *)
 export fault RegexCompileFault(message: String, position: Int)
 
+// The group number in one entry of a regex's table of names.
+let numberIn(entry: (String, Int)): Int = match entry
+    (_, number) => number
+
+// The number `name` names in a regex's table of names, which is in group order.
+let numberOf(names: Vector((String, Int)), name: String): Option(Int) =
+    let named(entry: (String, Int)): Bool = match entry
+        (candidate, _) => candidate == name
+    match Vector.find(names, named)
+        Some(entry) => Some(numberIn(entry))
+        None => None
+
 let compiled(pattern: String, parsed: Syntax.Pattern): Regex = Regex({
     source = pattern,
     groupCount = parsed.groupCount,
-    names = parsed.names,
+    names = Vector.sortBy(Vector.fromSeq(Map.entries(parsed.names)), numberIn),
     program = compileProgram(parsed),
 })
 
 (** `pattern` compiled, for a pattern the programmer wrote. It takes no mark:
-    a pattern that does not parse throws the fault `RegexCompileFault`. A
-    pattern that arrives as data goes through `parse` instead. *)
+    a pattern that does not parse throws the fault `RegexCompileFault`, and one
+    written as a literal is refused when the program is compiled. A pattern
+    that arrives as data goes through `parse` instead. *)
 export let compile(pattern: String): Regex =
     try
         compiled(pattern, Syntax.parse^(pattern))
@@ -104,7 +117,7 @@ export let source(regex: Regex): String = regex.source
 export let groupCount(regex: Regex): Int = regex.groupCount
 
 (** The number of the group `name` names, or `None` if the pattern names none. *)
-export let groupIndex(regex: Regex, name: String): Option(Int) = Map.get(regex.names, name)
+export let groupIndex(regex: Regex, name: String): Option(Int) = numberOf(regex.names, name)
 
 // ---------------------------------------------------------------------------
 // Searching (§4.3)
@@ -275,7 +288,7 @@ export let group(found: Match, index: Int): Option(Group) =
 
 (** The group `name` names, as `group` answers it; `None` for a name the
     pattern does not define. *)
-export let named(found: Match, name: String): Option(Group) = match Map.get(found.names, name)
+export let named(found: Match, name: String): Option(Group) = match numberOf(found.names, name)
     Some(index) => group(found, index)
     None => None
 

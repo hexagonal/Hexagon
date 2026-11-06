@@ -68,6 +68,7 @@ import {
   PRIMITIVE_COMPANION_MODULES,
 } from "./prelude.js";
 import { RUNTIME_MODULES } from "./runtime-modules.js";
+import { linkRegexBuilder, refusedLiteral, type RegexBuilder } from "./regex-literals.js";
 import { deepFreeze } from "./support/deep-freeze.js";
 
 /**
@@ -1792,6 +1793,9 @@ export function compileProject(
   const copyDemand = new Map<string, Map<string, Map<string, readonly FundamentalType[]>>>();
   const emittedPaths = new Set<string>();
   const emittedModules = new Map<string, CompiledModule>();
+  // Each module's emission options, kept for the second emission of a module
+  // whose literal patterns were built (`regex.md` §8).
+  const emissionOptions = new Map<string, Parameters<typeof emitJavaScript>[1]>();
   for (const path of [...ordered].reverse()) {
     const module = checked.get(path);
     if (module === undefined) continue;
@@ -1815,7 +1819,7 @@ export function compileProject(
       if (reusedEmission === undefined) statistics.seatsEmitted += 1;
       else statistics.emissionsReused += 1;
     }
-    const javascript = reusedEmission?.javascript ?? emitJavaScript(core, {
+    const options = {
       exportInstanceEvidence: true,
       dataOnlyHomes,
       runtimes,
@@ -1823,7 +1827,9 @@ export function compileProject(
       fundamentalInstances: fundamentalSeats.get(module.name) ?? fundamentalInstances,
       fundamentalSeats,
       ...(demand === undefined ? {} : { copyDemand: demand }),
-    });
+    };
+    if (reusedEmission === undefined) emissionOptions.set(path, options);
+    const javascript = reusedEmission?.javascript ?? emitJavaScript(core, options);
     emittedPaths.add(path);
     for (const { specifier, term, types } of javascript.copyDemands) {
       const target = resolveSpecifier(path, specifier);
@@ -1863,6 +1869,7 @@ export function compileProject(
       copyDemand: demand ?? new Map(),
     });
   }
+  buildRegexLiterals(emittedModules, emissionOptions, injectedUnits, runtimeBasename, diagnostics);
   // And every demand reached a module this compile emitted: one that did not
   // would leave its importer calling a copy nobody wrote.
   for (const [target, byTerm] of copyDemand) {
@@ -2092,6 +2099,87 @@ export function compileProject(
     fundamentalSeats,
     diagnostics: finalDiagnostics,
   };
+}
+
+/**
+ * The program's own `Hex.Regex`, linked to run literal patterns, kept for the
+ * `Hex` sources it was emitted from: a later compile with the same sources has
+ * the same `compile`, whatever copies its own calls demanded of those modules.
+ */
+let regexBuilderCache: { readonly key: readonly string[]; readonly builder: RegexBuilder } | undefined;
+
+/**
+ * *(#1468, `regex.md` §8.)* Runs every literal handed to `compile` through the
+ * program's own emitted `Hex.Regex`. A literal it refuses is reported at the
+ * codepoint its position names; where it refuses none, each module holding a
+ * literal is emitted again with the `Regex` it built written in as a constant.
+ * A program with a refused literal keeps the once-per-load form, and never runs.
+ */
+function buildRegexLiterals(
+  emittedModules: Map<string, CompiledModule>,
+  emissionOptions: ReadonlyMap<string, Parameters<typeof emitJavaScript>[1]>,
+  injectedUnits: readonly { readonly source: Source.File }[],
+  runtimeBasename: string,
+  diagnostics: Diagnostics.Bag,
+): void {
+  const holders = [...emittedModules.values()].filter(({ javascript }) => javascript.regexLiterals.length > 0);
+  if (holders.length === 0) return;
+  const key = injectedUnits.map(({ source }) => source.text);
+  let builder = regexBuilderCache !== undefined && regexBuilderCache.key.length === key.length &&
+      regexBuilderCache.key.every((text, index) => text === key[index])
+    ? regexBuilderCache.builder
+    : undefined;
+  if (builder === undefined) {
+    const pathOf = (name: string): string => {
+      const module = [...emittedModules.values()].find((candidate) => candidate.name === name);
+      if (module === undefined) {
+        throw new Error(`compiler defect: a literal pattern was found, but ${name} was not emitted`);
+      }
+      return module.path.replace(/\.hex$/u, ".js");
+    };
+    builder = linkRegexBuilder(
+      [
+        ...[...emittedModules.values()].map(({ path, javascript }) => ({
+          path: path.replace(/\.hex$/u, ".js"),
+          text: javascript.text,
+        })),
+        { path: `/${runtimeBasename}.js`, text: runtimeGlobalsText() },
+      ],
+      pathOf("Hex.Regex"),
+      pathOf("Hex.Runtime.VectorTrie"),
+    );
+    regexBuilderCache = { key, builder };
+  }
+  const run = builder.run.bind(builder);
+  let refused = false;
+  for (const module of holders) {
+    for (const site of module.javascript.regexLiterals) {
+      const outcome = run(site.pattern);
+      if (outcome.kind !== "refused") continue;
+      refused = true;
+      diagnostics.add(refusedLiteral(module.source, site, outcome.message, outcome.position));
+    }
+  }
+  if (refused) return;
+  for (const module of holders) {
+    const options = emissionOptions.get(module.path);
+    if (options === undefined) {
+      throw new Error(`compiler defect: ${module.path} holds a literal pattern but was not emitted afresh`);
+    }
+    const javascript = emitJavaScript(module.core, {
+      ...options,
+      regexConstant: (pattern, vectorOf) => {
+        const outcome = run(pattern);
+        return outcome.kind === "built" ? outcome.write(vectorOf) : undefined;
+      },
+    });
+    // The constants call nothing, so the second emission demands exactly the
+    // copies the first did, and the modules that were handed them still match.
+    if (JSON.stringify(javascript.copyDemands) !== JSON.stringify(module.javascript.copyDemands)) {
+      throw new Error(`compiler defect: building ${module.path}'s literal patterns changed the copies it demands`);
+    }
+    emittedModules.set(module.path, { ...module, javascript });
+  }
 }
 
 /** Guards the recursive compile used to prove a pattern collision repair. */

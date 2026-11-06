@@ -411,6 +411,18 @@ export interface JavaScriptEmissionOptions {
    * tuple they do not admit is reported as a compiler defect and made no copy.
    */
   readonly copyDemand?: ReadonlyMap<string, readonly (readonly FundamentalType[])[]>;
+  /**
+   * *(#1468, `regex.md` §8.)* The `Regex` a literal handed to `compile` builds,
+   * as a JavaScript expression, or `undefined` where there is none to write.
+   * `compileProject` supplies it on a second emission, once it has run each
+   * literal through the program's own `Hex.Regex`; `vectorOf` is this module's
+   * name for the vector construction the expression writes its vectors with.
+   *
+   * Absent, a literal handed to `compile` is lifted as one handed to `parse` is,
+   * built once per load at its first evaluation — the form a module takes before
+   * its literals have been run, and the one a refused literal keeps.
+   */
+  readonly regexConstant?: (pattern: string, vectorOf: string) => string | undefined;
 }
 
 /**
@@ -3645,6 +3657,15 @@ class JavaScriptEmitter {
    */
   readonly #regexLiteralSymbols: ReadonlySet<Resolved.SymbolId>;
   readonly #regexLiterals: string[] = [];
+  /**
+   * *(#1468, `regex.md` §8.)* The symbols of the two that `compile` binds, whose
+   * literals are run while the program is compiled; the sites this module's
+   * literals handed to `compile` sit at; and the constants written for them.
+   */
+  readonly #regexCompileSymbols: ReadonlySet<Resolved.SymbolId>;
+  readonly #regexCompileSites: Emitted.RegexLiteralSite[] = [];
+  readonly #regexConstants: { readonly name: string; readonly initializer: string }[] = [];
+  readonly #regexConstant: ((pattern: string, vectorOf: string) => string | undefined) | undefined;
 
   constructor(module: Core.Module, options: JavaScriptEmissionOptions) {
     this.#module = module;
@@ -3652,6 +3673,13 @@ class JavaScriptEmitter {
       item.kind === "Import" && item.moduleName === "Hex.Regex"
         ? item.form.names.flatMap(({ imported, symbol }) =>
           (imported === "compile" || imported === "parse") && symbol !== undefined ? [symbol] : []
+        )
+        : []
+    ));
+    this.#regexCompileSymbols = new Set(module.items.flatMap((item) =>
+      item.kind === "Import" && item.moduleName === "Hex.Regex"
+        ? item.form.names.flatMap(({ imported, symbol }) =>
+          imported === "compile" && symbol !== undefined ? [symbol] : []
         )
         : []
     ));
@@ -3671,6 +3699,7 @@ class JavaScriptEmitter {
       this.#constructorSymbols.add(record.constructor.symbol);
     }
     this.#exportInstanceEvidence = options.exportInstanceEvidence ?? false;
+    this.#regexConstant = options.regexConstant;
     const dataOnlyHomes = options.dataOnlyHomes ?? new Set<string>();
     if (module.modulePath !== undefined) {
       for (const home of dataOnlyHomes) {
@@ -4144,8 +4173,16 @@ class JavaScriptEmitter {
         "",
       );
     }
-    // The literal patterns' lazy constants (`regex.md` §8), after every import
-    // and before any term binding that evaluates one at load.
+    // The literal patterns' constants (`regex.md` §8), after every import and
+    // before any term binding that evaluates one at load: each `compile`
+    // literal's `Regex` as it was built while compiling, then the lazy
+    // once-per-load bindings of the rest.
+    if (this.#regexConstants.length > 0) {
+      body.push(
+        ...this.#regexConstants.map(({ name, initializer }) => `const ${name} = ${initializer};`),
+        "",
+      );
+    }
     if (this.#regexLiterals.length > 0) {
       body.push(`let ${this.#regexLiterals.join(", ")};`, "");
     }
@@ -4299,6 +4336,7 @@ class JavaScriptEmitter {
       copyDemands: [...this.#copyDemands]
         .sort(([left], [right]) => left.localeCompare(right))
         .map(([, demand]) => demand),
+      regexLiterals: [...this.#regexCompileSites],
       diagnostics: this.#diagnostics.toArray(),
     };
   }
@@ -6155,7 +6193,21 @@ class JavaScriptEmitter {
           expression.arguments.length === 1 &&
           isLiteralText(expression.arguments[0]!)
         ) {
+          const argument = expression.arguments[0]!;
           const constant = this.#generatedNames.hoisted("regexLiteral");
+          if (this.#regexCompileSymbols.has(expression.callee.symbol)) {
+            // `regex.md` §8: a literal handed to `compile` is run while the
+            // program is compiled. The site is reported so that the compile can
+            // run it, and where it supplies the `Regex` built, the call reads
+            // that constant.
+            const pattern = literalText(argument);
+            this.#regexCompileSites.push({ pattern, span: argument.span });
+            const built = this.#regexConstant?.(pattern, this.#useHelper("vectorOf"));
+            if (built !== undefined) {
+              this.#regexConstants.push({ name: constant, initializer: built });
+              return constant;
+            }
+          }
           this.#regexLiterals.push(constant);
           return `(${constant} ??= ${this.#emitCall(expression, depth, evidenceNames)})`;
         }
@@ -14729,6 +14781,13 @@ function unicodePropertyHelper(
 /** Whether `expression` is a string literal with no interpolated part. */
 function isLiteralText(expression: Core.Expr): boolean {
   return expression.kind === "String" && expression.parts.every((part) => part.kind === "Text");
+}
+
+/** The text a string literal with no interpolated part denotes (`isLiteralText`). */
+function literalText(expression: Core.Expr): string {
+  return expression.kind === "String"
+    ? expression.parts.map((part) => (part.kind === "Text" ? part.value : "")).join("")
+    : "";
 }
 
 function unicodeMappingHelper(

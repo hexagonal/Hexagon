@@ -11,14 +11,15 @@ import Regex
 import Regex.Syntax
 
 // A pattern written into the program is compiled with Regex.compile. The
-// dialect is RE2's, so matching takes time linear in the text, and a pattern
-// written as a literal is compiled once per load, even inside a function
-// called many times.
+// dialect is RE2's, so matching takes time linear in the text. A pattern
+// written as a literal is compiled when the program is, and the program
+// carries it already built, even inside a function called many times.
 //
 // A malformed pattern here would be a bug in the program, not a failure a
-// caller can plan for, so compile throws a fault, RegexCompileFault, and its
-// call wears no mark. Uncaught as the module loads, it stops the program
-// before anything below runs, saying what is wrong with the pattern.
+// caller can plan for. Written as a literal, it is refused when the program
+// compiles, underlined where it goes wrong, with what to write instead. A
+// pattern compile only meets when the program runs throws a fault,
+// RegexCompileFault, so the call wears no mark.
 //
 // (?<year>...) captures under a name as well as a number. ^ and $ anchor the
 // match to the whole string.

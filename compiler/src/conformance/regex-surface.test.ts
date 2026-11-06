@@ -123,11 +123,6 @@ export let caughtLiteral(): String =
     catch
         other => show(other)
 export let built(pattern: String): Regex.Regex = Regex.compile(pattern)
-export let refusedLiteral(): String =
-    try
-        Regex.compile("(").source()
-    catch
-        Regex.RegexCompileFault(message, _) => message
 export let refusedParsedLiteral(): String =
     try
         Regex.parse^("(").source()
@@ -178,30 +173,29 @@ describe("the program compiles against the surface", () => {
 });
 
 describe("literal patterns (§8)", () => {
-  test("a literal pattern is compiled once per load, and a built one at every call", () => {
+  test("a literal pattern is built once, and a pattern built at run time at every call", () => {
     expect(call("literal")).toBe(call("literal"));
     expect(call("parsedLiteral")).toBe(call("parsedLiteral"));
     expect(call("built", "a+b")).not.toBe(call("built", "a+b"));
     const main = compileMain(PROGRAM).modules.find(({ name }) => name === "Main")!.javascript.text;
-    expect(main).toContain('??= Regex.compile("a+b")');
+    // `compile`'s literal is emitted already built; `parse`'s is lifted.
+    expect(main).not.toContain('Regex.compile("a+b")');
+    expect(main).toContain('source: "a+b"');
     expect(main).toContain('??= Regex.parse("a+b")');
     expect(main).toContain('??= Regex.parse("c+d")');
     expect(main).toContain('??= Regex.parse("e+f")');
     expect(main).not.toContain("??= Regex.compile(pattern)");
   });
 
-  test("a refused literal is never kept: it throws again at every evaluation", () => {
-    const message = "missing `)` for the group opened here";
-    expect(call("refusedLiteral")).toBe(message + " (position: 1)");
-    expect(call("refusedLiteral")).toBe(message + " (position: 1)");
+  test("a refused literal handed to parse is never kept: it throws again at every evaluation", () => {
+    const message = "missing `)` for the group opened here; close it, or write `\\(` for a literal";
     expect(call("refusedParsedLiteral")).toBe(message);
     expect(call("refusedParsedLiteral")).toBe(message);
   });
 
-  test("a refused literal in a function that is never called does not stop the load", async () => {
+  test("a refused literal handed to parse in a function that is never called does not stop the load", async () => {
     const program = await runMain(
       "module Main\nimport Hex.Regex as Regex\n\n" +
-      "let never(text: String): Bool = Regex.compile(\"(\").isMatch(text)\n" +
       "let neverParsed(text: String): Option(Bool) = Regex.parse?(\"(\").map((r) => r.isMatch(text))\n" +
       "export let loaded: Int = 1\n",
     );
@@ -220,13 +214,15 @@ describe("literal patterns (§8)", () => {
 
 describe("compilation (§4.2)", () => {
   test("parse throws RegexError for a bad pattern; a good one shows its source", () => {
-    expect(call("parseError", "a(b")).toBe("2: missing `)` for the group opened here");
+    expect(call("parseError", "a(b")).toBe("2: missing `)` for the group opened here; close it, or write `\\(` for a literal");
     expect(call("parseError", "\\q")).toBe("1: `\\q` is not an escape; write `q`, or see the escape table");
     expect(call("parseError", "a|b")).toBe("ok a|b");
   });
 
   test("compile throws the fault RegexCompileFault, its message naming the position", () => {
-    expect(call("compileFault", "a(b")).toBe("2: missing `)` for the group opened here (position: 2)");
+    expect(call("compileFault", "a(b")).toBe(
+      "2: missing `)` for the group opened here; close it, or write `\\(` for a literal (position: 2)",
+    );
     expect(call("compileFault", "a|b")).toBe("ok a|b");
   });
 
