@@ -254,7 +254,7 @@ In the playground, is a `compile` literal checked and built while compiling, as 
 
 ## What a refused Regex literal tells the programmer to write (decision 4)
 
-**Status:** for the user's ruling. *Revised 2026-11-06 at about 15:25Z and again at about 15:50Z, after two independent reviews of the spec PR (#1469) found my inventory incomplete. The question, the options and the recommendation are unchanged. "What the reviews changed" lists every difference from the version sent at 15:05Z.*
+**Status:** ruled (a) by James on 2026-11-06: a refused literal names the rewrite where one exists, and the limitation where none does. The rows that named no fix gain one, an unknown property takes the near-miss form every unknown name takes, and the dialect's rewrite-less refusals join polymorphic recursion as named limitations in Declarations Preamble §1.1, each with its reason. *Revised before the ruling, 2026-11-06 at about 15:25Z and again at about 15:50Z, after two independent reviews of the spec PR (#1469) found my inventory incomplete. The question, the options and the recommendation are unchanged. "What the reviews changed" lists every difference from the version sent at 15:05Z.*
 
 Decision 1 (`REGEX-BUILD-D1.md`) makes a bad literal handed to `Regex.compile` a compile error, and its write-up said: "**The messages already meet the Rewrite Rule.** §2.9's messages name the spelling to write instead." While drafting the spec I checked every message the parser gives. That sentence is true of most rows and false of the rest, so I am bringing the question back rather than deciding it inside the spec.
 
