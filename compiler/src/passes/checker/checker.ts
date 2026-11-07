@@ -29380,7 +29380,9 @@ class Checker {
             replacement: `: ${readings[parameters.indexOf(each)]!}`,
           })),
         },
-        ...(correction === undefined ? [] : [correction]),
+        // One side of the limitation, the writer's to choose (doctrine 8), so
+        // of no family a "fix all" applies, whichever mark reported first.
+        ...(correction === undefined ? [] : [{ message: correction.message, edits: correction.edits }]),
       ],
     };
   }

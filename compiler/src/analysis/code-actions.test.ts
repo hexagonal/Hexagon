@@ -1625,6 +1625,16 @@ describe("code actions: the repair an editor applies on its own, and every repai
     expect(fixAll(session, source, "save0()\n")).toBeUndefined();
   });
 
+  test("a limitation's repair of the marks is a side the writer chooses, so of no family, in either line order", () => {
+    // §3.4's limitation where untyped parameters share a colour: write their
+    // types, or remove the marks (#1263, #1324).
+    for (const order of ["    f!()\n    (if c then g else f)!()\n", "    (if c then g else f)!()\n    f!()\n"]) {
+      const source = world + "let pureOnly(g: () -> Unit): Unit = ()\nlet j3(g, f, c: Bool) =\n    pureOnly(g)\n" + order;
+      expect([order, open(source).diagnostics("/main.hex").flatMap(({ fixes }) => (fixes ?? []).map(({ message, family }) => [message, family]))])
+        .toEqual([order, [["write the types of `g` and `f`", undefined], ["remove the marks", undefined]]]);
+    }
+  });
+
   test("a report whose one repair marks another call is not one of them", () => {
     // `tw!`'s mark is refused for `f`'s bare call: the repair marks that call,
     // which is not the refused call's own mark.
@@ -1667,6 +1677,12 @@ describe("code actions: the repair an editor applies on its own, and every repai
     expect(applied(source, all)).toBe(
       world + "let get(k: String): Int = 1\nexport let p(): Option(Int) = Some(get(load!(\"x\")))\n",
     );
+  });
+
+  test("a reading that keeps its world part keeps it in the value", () => {
+    const source = world + "export let p(): Option(Unit) = log~?(\"x\")\nexport let q(): Unit = save0()\n";
+    expect(applied(source, fixAll(open(source), source, "save0()\n")!))
+      .toBe(world + "export let p(): Option(Unit) = Some(log~(\"x\"))\nexport let q(): Unit = save0!()\n");
   });
 
   test("only this file's reports", () => {

@@ -984,11 +984,14 @@ export class AnalysisSession {
     );
 
     // Every repair of one family in the file at once, offered beside each of
-    // them once there are two. Each is its report's one repair, so none picks
-    // a side of a contradiction (doctrine 8), and each fixes only its own call,
-    // so they compose: what the file then reports is what the program with
-    // them applied one by one reports (Effects §4.4). A further report the
-    // repaired program draws is its own, answered as any is.
+    // them once there are two. Each is the one repair its report offers: a
+    // report with a repair for each side of a contradiction is the writer's
+    // to choose (doctrine 8), and where only one side can be repaired from the
+    // call, as where a written type binds (#1314), that side is the report's
+    // own. Each rewrites only its own calls' marks, so they compose: what the
+    // file then reports is what the program with them applied one by one
+    // reports (Effects §4.4). A further report the repaired program draws is
+    // its own, answered as any is.
     const asker = asked.find((diagnostic) => familyRepair(diagnostic) !== undefined);
     if (asker !== undefined) {
       const { family: kind } = familyRepair(asker)!;
@@ -2242,9 +2245,9 @@ const FIX_ALL_TITLES: Readonly<Record<FixFamily, string>> = {
 
 /**
  * A report's one repair, where it is of a family an editor may apply across a
- * file. A report with more than one is a contradiction with a repair for each
- * side, which only the writer can choose between (doctrine 8); a suggestion is
- * no repair to apply unasked (Declarations Preamble §1.1).
+ * file. A report with more than one offers a repair for each side of a
+ * contradiction, which only the writer can choose between (doctrine 8); a
+ * suggestion is no repair to apply unasked (Declarations Preamble §1.1).
  */
 function familyRepair(
   diagnostic: Diagnostics.Diagnostic,
