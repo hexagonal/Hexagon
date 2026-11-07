@@ -35,6 +35,7 @@ export type EditorAnalysis = Pick<
   | "definitions"
   | "references"
   | "codeActions"
+  | "completions"
   | "prepareRename"
   | "rename"
 >;
@@ -128,6 +129,13 @@ function serve(
           id,
           version,
           actions: analysis.codeActions(request.source, request),
+        };
+      case "completion":
+        return {
+          kind: "completion",
+          id,
+          version,
+          completions: analysis.completions(request.source, request.offset),
         };
       case "definition":
         return {

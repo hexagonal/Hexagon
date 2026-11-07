@@ -651,6 +651,50 @@ describe("rename", () => {
   });
 });
 
+describe("completion", () => {
+  test("lists a module's members after its dot, replacing the partial name", () => {
+    const source = MAIN + "let v = Vector.le";
+    const completions = new PlaygroundAnalysis().completions(source, source.length);
+
+    // Every member, not only the ones starting `le`: the editor filters
+    // against the range as the user types, so narrowing here would only make
+    // a backspace lose answers.
+    expect(completions.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "length", kind: "function" }),
+        expect.objectContaining({ name: "append", detail: "(Vector(a), a) -> Vector(a)" }),
+      ]),
+    );
+    expect(text(source, completions.range)).toBe("le");
+    expect(completions.range.endOffset).toBe(source.length);
+  });
+
+  test("carries a declaration's type and documentation, in buffer coordinates", () => {
+    const source = MAIN +
+      "(** Doubles a number. *)\n" +
+      "fun twice(n: Int): Int = n * 2\n" +
+      "let v = twi";
+    const completions = new PlaygroundAnalysis().completions(source, source.length);
+
+    expect(completions.items.find(({ name }) => name === "twice")).toEqual({
+      name: "twice",
+      kind: "function",
+      detail: "Int -> Int",
+      documentation: "Doubles a number.",
+    });
+    expect(text(source, completions.range)).toBe("twi");
+  });
+
+  test("answers an offset outside the buffer with nothing, at the caret", () => {
+    const completions = new PlaygroundAnalysis().completions(MAIN, MAIN.length + 5);
+
+    expect(completions).toEqual({
+      items: [],
+      range: { startOffset: MAIN.length + 5, endOffset: MAIN.length + 5 },
+    });
+  });
+});
+
 describe("the session across requests", () => {
   test("answers about the newest source it was asked about, not the first", () => {
     const analysis = new PlaygroundAnalysis();

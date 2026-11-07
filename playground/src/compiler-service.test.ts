@@ -32,6 +32,18 @@ describe("createCompilerService", () => {
     expect(
       service.handle({ kind: "code-actions", ...asked, startOffset: 0, endOffset: 0 }),
     ).toMatchObject({ kind: "code-actions", id: 9, version: 4, actions: [] });
+    // Completion after `Debug.`, the module-member list: answered with the
+    // session's own items and the (empty) partial name the caret has typed.
+    const afterDot = source.indexOf("Debug.") + "Debug.".length;
+    expect(service.handle({ kind: "completion", ...asked, offset: afterDot })).toMatchObject({
+      kind: "completion",
+      id: 9,
+      version: 4,
+      completions: {
+        items: expect.arrayContaining([expect.objectContaining({ name: "log" })]),
+        range: { startOffset: afterDot, endOffset: afterDot },
+      },
+    });
     expect(service.handle({ kind: "definition", ...asked, offset: caret })).toMatchObject({
       kind: "definition",
       id: 9,

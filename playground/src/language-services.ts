@@ -25,6 +25,7 @@ import type {
   CompilerRequest,
   CompilerMessage,
   PlaygroundCodeAction,
+  PlaygroundCompletions,
   PlaygroundHover,
   PlaygroundRenamePlan,
   PlaygroundRenameRefusal,
@@ -56,6 +57,14 @@ export interface LanguageServices {
     source: string,
     range: BufferRange,
   ): Promise<readonly PlaygroundCodeAction[]>;
+  /**
+   * What could be written at `offset`; `undefined` for a dropped reply.
+   *
+   * Not an empty list, because an empty list still needs a range to describe and
+   * a dropped reply has none worth inventing. Monaco reads `undefined` from a
+   * provider as "nothing from me" and asks again on the next keystroke.
+   */
+  completions(source: string, offset: number): Promise<PlaygroundCompletions | undefined>;
   definitions(source: string, offset: number): Promise<readonly BufferRange[]>;
   references(source: string, offset: number): Promise<readonly BufferRange[]>;
   prepareRename(
@@ -156,6 +165,16 @@ export function createLanguageServices(
         ...range,
       }));
       return reply?.kind === "code-actions" ? reply.actions : [];
+    },
+    async completions(source, offset) {
+      const reply = await ask((id, version) => ({
+        kind: "completion",
+        id,
+        version,
+        source,
+        offset,
+      }));
+      return reply?.kind === "completion" ? reply.completions : undefined;
     },
     async definitions(source, offset) {
       const reply = await ask((id, version) => ({

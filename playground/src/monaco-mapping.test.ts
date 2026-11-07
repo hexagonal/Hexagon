@@ -3,6 +3,8 @@ import { describe, expect, test } from "vitest";
 import {
   boundedOffsets,
   codeActionKinds,
+  completionKindOf,
+  toCompletionItem,
   toCodeAction,
   toRenameEdits,
   toRenameLocation,
@@ -222,5 +224,52 @@ describe("codeActionKinds", () => {
     // `refactor` is load-bearing: the variance offer is the only action of that
     // kind, and dropping it here makes Monaco stop asking under `Refactor…`.
     expect([...codeActionKinds].sort()).toEqual(["quickfix", "refactor"]);
+  });
+});
+
+describe("toCompletionItem", () => {
+  const range: Recorded = [27, 29];
+
+  test("shows the type as detail and the documentation as untrusted Markdown", () => {
+    expect(
+      toCompletionItem(
+        { name: "twice", kind: "function", detail: "Int -> Int", documentation: "Doubles `n`." },
+        range,
+      ),
+    ).toEqual({
+      label: "twice",
+      kind: "Function",
+      insertText: "twice",
+      range: [27, 29],
+      detail: "Int -> Int",
+      // Untrusted: a doc comment is the completed code's author's text, and a
+      // trusted string would let its `command:` links run.
+      documentation: { value: "Doubles `n`.", isTrusted: false },
+    });
+  });
+
+  test("leaves out the fields the session did not send", () => {
+    // Present-but-undefined is not the same as absent to Monaco's renderer,
+    // which draws an empty detail line for the former.
+    const item = toCompletionItem({ name: "Vector", kind: "module" }, range);
+
+    expect(item).toEqual({ label: "Vector", kind: "Module", insertText: "Vector", range });
+    expect("detail" in item).toBe(false);
+    expect("documentation" in item).toBe(false);
+  });
+});
+
+describe("completionKindOf", () => {
+  test("draws each kind the session sends as the language server does", () => {
+    expect(
+      ["value", "function", "parameter", "constructor", "type", "module"].map(completionKindOf),
+    ).toEqual(["Variable", "Function", "Variable", "Constructor", "Class", "Module"]);
+  });
+
+  test("draws a kind it has never heard of as a plain value rather than failing", () => {
+    // The session gains kinds (record fields after a value's dot, for one);
+    // an icon this file has no entry for must not cost the item.
+    expect(completionKindOf("field")).toBe("Variable");
+    expect(completionKindOf("member")).toBe("Variable");
   });
 });
