@@ -270,6 +270,12 @@ describe("Regex.Syntax: bounds (§2.5)", () => {
     expect(parse(pattern)).toBe(tree);
   });
 
+  test("the rewrite a reversed range names parses as the range", () => {
+    // `[\^-z]` is the range from `^` to `z`; `[^-z]` would be a negated class.
+    expect(parse("[\\^-z]")).toBe("[^-z] #0");
+    expect(parse("[^-z]")).toBe("[^#45 z] #0");
+  });
+
   test("a long pattern parses", () => {
     expect(parse("ab".repeat(5000))).toMatch(/^cat\(a b a b /u);
   });
@@ -295,6 +301,8 @@ describe("Regex.Syntax: RegexError (§2.9)", () => {
     ["(?<year)", "error 3: group name is not closed; write `(?<year>…)`"],
     ["[z-a]", "error 4: range `z-a` is reversed; write `a-z`"],
     ["[\\u{7A}-a]", "error 9: range `\\u{7A}-a` is reversed; write `a-\\u{7A}`"],
+    // A `^` brought to the front is escaped, so the class cannot open negated.
+    ["[z-^]", "error 4: range `z-^` is reversed; write `\\^-z`"],
     ["[\\d-z]", "error 4: a range's ends are single codepoints; write `\\-` for a literal hyphen"],
     ["[a-z-0]", "error 5: a range's ends are single codepoints; write `\\-` for a literal hyphen"],
     ["[a-\\d]", "error 3: a range's ends are single codepoints; write `\\-` for a literal hyphen"],
@@ -412,9 +420,14 @@ describe("Regex.Syntax: RegexError (§2.9)", () => {
     // within a third of its length, ties to the one that sorts first, and
     // nothing for a one-codepoint name or a name nothing is near.
     ["\\p{Cyrilic}", "error 1: `\\p{Cyrilic}` names no supported property; did you mean `\\p{Cyrillic}`?"],
-    ["\\P{Gerek}", "error 1: `\\P{Gerek}` names no supported property; did you mean `\\P{Grek}`?"],
+    // An adjacent transposition is one edit, as the checker counts it: `Greek`
+    // and `Grek` are both one edit away, and `Greek` sorts first.
+    ["\\P{Gerek}", "error 1: `\\P{Gerek}` names no supported property; did you mean `\\P{Greek}`?"],
     ["\\p{Script=Cyrilic}", "error 1: `\\p{Script=Cyrilic}` names no supported property; did you mean `\\p{Script=Cyrillic}`?"],
     ["\\p{Scirpt=Greek}", "error 1: `\\p{Scirpt=Greek}` names no supported property; did you mean `\\p{Script=Greek}`?"],
+    // A near property name is offered only with a value it has.
+    ["\\p{Scirpt=Greeek}", "error 1: `\\p{Scirpt=Greeek}` names no supported property; did you mean `\\p{Script=Greek}`?"],
+    ["\\p{Scirpt=Lu}", "error 1: `\\p{Scirpt=Lu}` names no supported property"],
     ["\\p{Lx}", "error 1: `\\p{Lx}` names no supported property; did you mean `\\p{L}`?"],
     ["\\pX", "error 1: `\\pX` names no supported property"],
     ["\\p{Emoji}", "error 1: `\\p{Emoji}` names no supported property"],
@@ -431,7 +444,9 @@ describe("Regex.Syntax: RegexError (§2.9)", () => {
     expect(parse("\uD83D\uDE00")).toBe("#128512 #0");
     // A message quotes a lone surrogate by its code (§2.9).
     expect(parse("\\p{\uD800}")).toBe("error 1: `\\p{U+D800}` names no supported property");
-    expect(parse("[\uDBFF-\uD800]")).toBe("error 4: range `U+DBFF-U+D800` is reversed; write `U+D800-U+DBFF`");
+    // A lone surrogate has no spelling to write, so the advice names the swap.
+    expect(parse("[\uDBFF-\uD800]")).toBe("error 4: range `U+DBFF-U+D800` is reversed; swap its ends");
+    expect(parse("[\uD800-z]")).toBe("error 4: range `U+D800-z` is reversed; swap its ends");
     expect(parse("(?<a\uD800>x)")).toBe("error 4: group name must match `[A-Za-z_][A-Za-z0-9_]*`");
   });
 

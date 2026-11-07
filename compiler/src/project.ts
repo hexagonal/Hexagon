@@ -681,8 +681,9 @@ function rememberStandardLibrary(
     // An emission carrying §8.3 copies is this program's, not the seat's: the
     // copies are the ones its calls demanded. The seat keeps whatever
     // copy-free emission it already had, and is re-emitted for any program
-    // that demands copies of it.
-    if (!copied.has(unit.path)) {
+    // that demands copies of it. An emission holding a `compile` literal is
+    // never kept either: each compile builds it afresh (`regex.md` §8).
+    if (!copied.has(unit.path) && module.javascript.regexLiterals.length === 0) {
       seat.emission.set(
         runtimeBasename,
         keep({ javascript: module.javascript, declarations: module.declarations }),
@@ -2168,9 +2169,9 @@ function buildRegexLiterals(
     }
     const javascript = emitJavaScript(module.core, {
       ...options,
-      regexConstant: (pattern, vectorOf) => {
+      regexConstant: (pattern, vectorOf, array) => {
         const outcome = run(pattern);
-        return outcome.kind === "built" ? outcome.write(vectorOf) : undefined;
+        return outcome.kind === "built" ? outcome.write(vectorOf, array) : undefined;
       },
     });
     // The constants call nothing, so the second emission demands exactly the

@@ -422,7 +422,7 @@ export interface JavaScriptEmissionOptions {
    * built once per load at its first evaluation — the form a module takes before
    * its literals have been run, and the one a refused literal keeps.
    */
-  readonly regexConstant?: (pattern: string, vectorOf: string) => string | undefined;
+  readonly regexConstant?: (pattern: string, vectorOf: string, array: string) => string | undefined;
 }
 
 /**
@@ -3664,8 +3664,13 @@ class JavaScriptEmitter {
    */
   readonly #regexCompileSymbols: ReadonlySet<Resolved.SymbolId>;
   readonly #regexCompileSites: Emitted.RegexLiteralSite[] = [];
+  // A literal can be emitted more than once — in each copy of a generic body,
+  // or twice in an interpolation's hole — but it is one site and one pattern:
+  // reported once, and built into one constant per pattern in the module.
+  readonly #regexCompileSiteKeys = new Set<string>();
+  readonly #regexConstantNames = new Map<string, string>();
   readonly #regexConstants: { readonly name: string; readonly initializer: string }[] = [];
-  readonly #regexConstant: ((pattern: string, vectorOf: string) => string | undefined) | undefined;
+  readonly #regexConstant: ((pattern: string, vectorOf: string, array: string) => string | undefined) | undefined;
 
   constructor(module: Core.Module, options: JavaScriptEmissionOptions) {
     this.#module = module;
@@ -6194,20 +6199,29 @@ class JavaScriptEmitter {
           isLiteralText(expression.arguments[0]!)
         ) {
           const argument = expression.arguments[0]!;
-          const constant = this.#generatedNames.hoisted("regexLiteral");
           if (this.#regexCompileSymbols.has(expression.callee.symbol)) {
             // `regex.md` §8: a literal handed to `compile` is run while the
             // program is compiled. The site is reported so that the compile can
             // run it, and where it supplies the `Regex` built, the call reads
             // that constant.
             const pattern = literalText(argument);
-            this.#regexCompileSites.push({ pattern, span: argument.span });
-            const built = this.#regexConstant?.(pattern, this.#useHelper("vectorOf"));
+            const { fileId, start, end } = argument.span;
+            const site = `${Number(fileId)}:${start.offset}:${end.offset}`;
+            if (!this.#regexCompileSiteKeys.has(site)) {
+              this.#regexCompileSiteKeys.add(site);
+              this.#regexCompileSites.push({ pattern, span: argument.span });
+            }
+            const named = this.#regexConstantNames.get(pattern);
+            if (named !== undefined) return named;
+            const built = this.#regexConstant?.(pattern, this.#useHelper("vectorOf"), this.#spell("Array"));
             if (built !== undefined) {
+              const constant = this.#generatedNames.hoisted("regexLiteral");
+              this.#regexConstantNames.set(pattern, constant);
               this.#regexConstants.push({ name: constant, initializer: built });
               return constant;
             }
           }
+          const constant = this.#generatedNames.hoisted("regexLiteral");
           this.#regexLiterals.push(constant);
           return `(${constant} ??= ${this.#emitCall(expression, depth, evidenceNames)})`;
         }

@@ -496,9 +496,12 @@ let looseBare(name: String): Option(String) =
 
 let smaller(left: Int, right: Int): Int = if left < right then left else right
 
-// Levenshtein distance between two codepoint vectors, over one rolling row.
+// The edit distance between two codepoint vectors, counting an adjacent
+// transposition as one edit, as the checker's near miss counts it: Levenshtein
+// over rolling rows, with the row before the last kept for the transposition.
 let editDistance(left: Vector(String), right: Vector(String)): Int =
     let width = Vector.length(right)
+    var earlier: Vector(Int) = []
     var previous: Vector(Int) = []
     var column = 0
     while column <= width
@@ -510,8 +513,12 @@ let editDistance(left: Vector(String), right: Vector(String)): Int =
         var other = 1
         while other <= width
             let substituted = previous[other] + (if left[row] == right[other] then 0 else 1)
-            current := current.append(smaller(substituted, smaller(current[other] + 1, previous[other + 1] + 1)))
+            var distance = smaller(substituted, smaller(current[other] + 1, previous[other + 1] + 1))
+            if row > 1 and other > 1 and left[row] == right[other - 1] and left[row - 1] == right[other] then
+                distance := smaller(distance, earlier[other - 1] + 1)
+            current := current.append(distance)
             other := other + 1
+        earlier := previous
         previous := current
         row := row + 1
     previous[width + 1]
@@ -553,8 +560,14 @@ let nearProperty(body: String): Option(String) =
             let value = slice(body, at + 1, String.length(body))
             match valueKind(property)
                 Some(kind) => prefixed(property ++ separator, nearest(spellings(tableOf(kind)), value))
+                // A near name is offered only with a value it has: the one
+                // written, or that value's own near miss.
                 None => match nearest(["gc", "General_Category", "sc", "Script", "scx", "Script_Extensions"], property)
-                    Some(near) => Some(near ++ separator ++ value)
+                    Some(near) => match valueKind(near)
+                        Some(kind) => match lookupValue(kind, value)
+                            Some(_) => Some(near ++ separator ++ value)
+                            None => prefixed(near ++ separator, nearest(spellings(tableOf(kind)), value))
+                        None => None
                     None => None
         None =>
             var candidates: Vector(String) = ["Any", "ASCII", "Assigned"]
@@ -812,8 +825,14 @@ let readClass(pattern: String, text: Vector(String), open: Int, folded: Bool): O
                             Read((Single(highValue), after)) =>
                                 if highValue < low then
                                     let written = slice(pattern, position, after - 1)
-                                    let swapped = slice(pattern, highAt, after - 1) ++ "-" ++ slice(pattern, position, hyphen - 1)
-                                    failure := Some(fault("range `" ++ written ++ "` is reversed; write `" ++ swapped ++ "`", highAt))
+                                    // A `^` moved to the front could open the class
+                                    // negated, so it is written escaped.
+                                    let highWritten = slice(pattern, highAt, after - 1)
+                                    let swapped = (if highWritten == "^" then "\\^" else highWritten) ++ "-" ++ slice(pattern, position, hyphen - 1)
+                                    // A lone surrogate has no spelling to write (§2.3).
+                                    let lone = (low >= 55296 and low <= 57343) or (highValue >= 55296 and highValue <= 57343)
+                                    let advice = if lone then "swap its ends" else "write `" ++ swapped ++ "`"
+                                    failure := Some(fault("range `" ++ written ++ "` is reversed; " ++ advice, highAt))
                                     reading := False
                                 else
                                     ranges := addRange(ranges, low, highValue)

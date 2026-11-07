@@ -28,7 +28,7 @@ export interface LinkedText {
 
 /** What `compile` did with one literal. */
 export type RegexLiteralOutcome =
-  | { readonly kind: "built"; readonly write: (vectorOf: string) => string }
+  | { readonly kind: "built"; readonly write: (vectorOf: string, array: string) => string }
   | { readonly kind: "refused"; readonly message: string; readonly position: number };
 
 /** The program's `Hex.Regex`, linked and ready to run literals. */
@@ -37,6 +37,9 @@ export interface RegexBuilder {
 }
 
 const MEMO_LIMIT = 1024;
+
+/** The length from which an array holding one value throughout is written filled. */
+const FILL_LENGTH = 16;
 
 /**
  * Links `texts` from `regexPath` down and answers a builder over its `compile`.
@@ -184,15 +187,16 @@ function linkModules(texts: ReadonlyMap<string, string>): (path: string) => Reco
 /**
  * The value `compile` built, as a JavaScript expression that builds it again:
  * records and union values as object literals, buffers and tuples as array
- * literals with their holes, each vector through the module's vector
- * construction, and strings, numbers and booleans as themselves.
+ * literals, a long one every slot of which holds one value as that value
+ * filled in, each vector through the module's vector construction, and
+ * strings, numbers and booleans as themselves.
  *
  * Only a buffer is mutable, so only an array reached twice is bound once and
  * shared; an object reached twice is written twice, which no program can tell
  * apart (Unions §6.1). Anything else — a function, a `Map`'s trie, a class
  * instance — is a compiler defect, since a program has none.
  */
-function printer(root: unknown, vectorIterate: unknown): (vectorOf: string) => string {
+function printer(root: unknown, vectorIterate: unknown): (vectorOf: string, array: string) => string {
   const isVector = (value: object): boolean =>
     Object.hasOwn(value, Symbol.iterator) &&
     (value as Record<PropertyKey, unknown>)[Symbol.iterator] === vectorIterate;
@@ -222,6 +226,9 @@ function printer(root: unknown, vectorIterate: unknown): (vectorOf: string) => s
       if (Object.keys(value).some((key) => !/^(?:0|[1-9]\d*)$/u.test(key))) {
         throw new Error("compiler defect: a built `Regex` holds an array with named keys");
       }
+      if (Object.keys(value).length !== value.length) {
+        throw new Error("compiler defect: a built `Regex` holds an array with holes");
+      }
     } else if (prototype !== Object.prototype && prototype !== null) {
       throw new Error("compiler defect: a built `Regex` holds an object that is not plain data");
     }
@@ -232,10 +239,10 @@ function printer(root: unknown, vectorIterate: unknown): (vectorOf: string) => s
   visit(root);
   // Printed once now, so that a value no printer can write is reported where
   // it was built rather than when the module is written.
-  print(root, "__vectorOf");
-  return (vectorOf) => print(root, vectorOf);
+  print(root, "__vectorOf", "Array");
+  return (vectorOf, array) => print(root, vectorOf, array);
 
-  function print(value: unknown, vectorOf: string): string {
+  function print(value: unknown, vectorOf: string, array: string): string {
     const shared = new Map<unknown, string>();
     const bindings: string[] = [];
     const leaf = (item: unknown): string => {
@@ -265,12 +272,12 @@ function printer(root: unknown, vectorIterate: unknown): (vectorOf: string) => s
       if (isVector(item)) {
         text = `${vectorOf}([${[...(item as Iterable<unknown>)].map((element) => write(element, depth + 1)).join(", ")}])`;
       } else if (Array.isArray(item)) {
-        const elements: string[] = [];
-        for (let index = 0; index < item.length; index += 1) {
-          elements.push(Object.hasOwn(item, index) ? write(item[index], depth + 1) : "");
-        }
-        const trailingHole = item.length > 0 && !Object.hasOwn(item, item.length - 1);
-        text = `[${elements.join(", ")}${trailingHole ? "," : ""}]`;
+        const first: unknown = item[0];
+        const filled = item.length >= FILL_LENGTH && (first === null || typeof first !== "object") &&
+          item.every((element: unknown) => Object.is(element, first));
+        text = filled
+          ? `new ${array}(${item.length}).fill(${leaf(first)})`
+          : `[${item.map((element: unknown) => write(element, depth + 1)).join(", ")}]`;
       } else {
         const fields = Object.keys(item).map((name) =>
           `${key(name)}: ${write((item as Record<string, unknown>)[name], depth + 1)}`
@@ -371,6 +378,9 @@ export function refusedLiteral(
   message: string,
   position: number,
 ): Diagnostics.Diagnostic {
+  if (site.span.fileId !== file.id) {
+    throw new Error(`compiler defect: ${file.path} reports a literal pattern another file holds`);
+  }
   const located = literalCodepoints(file.text, site.span.start.offset, site.span.end.offset);
   const primary = located === undefined
     ? site.span

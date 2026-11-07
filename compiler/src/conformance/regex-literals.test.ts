@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import { AnalysisSession } from "../analysis/session.js";
-import { compileMain, runMain } from "../support/test-project";
+import { compileFiles, compileMain, runMain } from "../support/test-project";
 
 /**
  * A literal handed to `Regex.compile` is run while the program is compiled
@@ -66,7 +66,7 @@ describe("a bad literal is refused while compiling (§8)", () => {
     expect(reports(HEADER + 'export let r: Regex.Regex = Regex.compile("\\\\p{Cyrilic}")\n')).toEqual([
       "\\\\: `\\\\p{Cyrilic}` names no supported property; did you mean `\\\\p{Cyrillic}`?",
     ]);
-    // A quote and a dollar before `{` in the pattern are the source's escapes too.
+    // A quote in the pattern is the source's escape too.
     expect(reports(HEADER + 'export let r: Regex.Regex = Regex.compile("[z-\\"]")\n')).toEqual([
       '\\": range `z-\\"` is reversed; write `\\"-z`',
     ]);
@@ -111,6 +111,37 @@ describe("a bad literal is refused while compiling (§8)", () => {
       "*: `**` repeats a repetition; write `(a*)*`",
       "(: missing `)` for the group opened here; close it, or write `\\\\(` for a literal",
     ]);
+  });
+
+  test("a literal emitted more than once is reported once: copies of a generic function, an interpolation's hole", () => {
+    const missing = "(: missing `)` for the group opened here; close it, or write `\\\\(` for a literal";
+    expect(reports(HEADER + [
+      'export let tagged<a: Show>(x: a): String = Regex.compile("(").source() ++ show(x)',
+      "",
+    ].join("\n"))).toEqual([missing]);
+    expect(reports(HEADER + [
+      'export let hole(): String = "v=${Regex.compile("(").source()}"',
+      "",
+    ].join("\n"))).toEqual([missing]);
+    // A generic function another module copies once per type it is used at.
+    const other = [
+      "module Other",
+      "import Hex.Regex as Regex",
+      "",
+      'export let both<a: Show, b: Show>(x: a, y: b): String = Regex.compile("(").source() ++ show(x) ++ show(y)',
+      "",
+    ].join("\n");
+    const main = [
+      "module Main",
+      "import Other",
+      "",
+      'export let used(): String = Other.both(1, "a") ++ Other.both(True, 2.5) ++ Other.both("b", 3)',
+      "",
+    ].join("\n");
+    const compiled = compileFiles([["/main.hex", main], ["/other.hex", other]]);
+    expect(compiled.diagnostics.map(({ primary, message }) =>
+      `${Number(primary.fileId)} ${[main, other][Number(primary.fileId)]!.slice(primary.start.offset, primary.end.offset)}: ${message}`
+    )).toEqual([`1 ${missing}`]);
   });
 
   test("the language server reports it where the editor shows it", () => {
@@ -210,6 +241,21 @@ let described(regex: Regex.Regex, text: String): String =
         }
       }
     }
+  });
+
+  test("one constant per pattern in a module, however often the literal is emitted", async () => {
+    const generic = HEADER + [
+      'export let tagged<a: Show>(x: a): String = Regex.compile("a+").replace(show(x), "-")',
+      'export let hole(text: String): String = "v=${Regex.compile("a+").replace(text, "-")}"',
+      'export let again(text: String): String = Regex.compile("a+").replace(text, "=")',
+      "",
+    ].join("\n");
+    expect(compileMain(generic).diagnostics.map(({ message }) => message)).toEqual([]);
+    const main = compileMain(generic).modules.find(({ name }) => name === "Main")!.javascript.text;
+    expect(main.split('source: "a+"').length - 1).toBe(1);
+    const program = await runMain(generic);
+    expect((program.hole as (text: string) => string)("baab")).toBe("v=b-b");
+    expect((program.again as (text: string) => string)("baab")).toBe("b=b");
   });
 
   test("it is data: no call of compile, the properties by name, and no table", () => {
