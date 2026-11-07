@@ -7973,7 +7973,7 @@ class JavaScriptEmitter {
     const fault = `typeof ${name} === "string" && ${name}.endsWith("Fault")`;
     const caught: CaughtReads = foreign === undefined ? { brand, name } : { brand, name, foreign };
     for (const [index, arm] of arms.entries()) {
-      for (const alternative of alternatives[index]!) {
+      for (const [position, alternative] of alternatives[index]!.entries()) {
         const plan = this.#emitPatternPlan(
           alternative,
           error,
@@ -7994,7 +7994,10 @@ class JavaScriptEmitter {
         const condition = tests.length === 0
           ? "true"
           : tests.join(" && ");
-        armLines.push(`${armIndent}if (${condition}) {`);
+        // An arm's alternatives chain, as `match`'s do: the first that matches
+        // is the arm's, and a `False` guard falls to the next arm, never to the
+        // arm's next alternative (Pattern Matching §3).
+        armLines.push(`${armIndent}${position === 0 ? "if" : "else if"} (${condition}) {`);
         const bodyDepth = depth + 1;
         const bodyIndent = indent(bodyDepth);
         for (const binding of plan.bindings) {

@@ -912,3 +912,25 @@ describe("the foreign branch, where `JsError` sits (§6, §7.4)", () => {
     expect(text).toContain('const __foreign = typeof __brand !== "string";');
   });
 });
+
+describe("a catch arm's guard runs once, on the first alternative that matches (#1473)", () => {
+  // Pattern Matching §3: a `False` guard falls to the next arm, as in `match`,
+  // whose twin `(x, 1) | (2, x) when x == 1` answers 0 on `(2, 1)`.
+  const program = (seat: string, arm: string, thrown: string): string =>
+    "module Main\n\nexception B(Int, Int)\nexception C(Int)\nlet boom(): Int = throw^(" + thrown + ")\n" +
+    (seat === "try"
+      ? "let g(): Int =\n    try\n        boom^()\n    catch\n"
+      : "let g(): Int =\n    match boom^()\n        n => n\n    catch\n") +
+    `        ${arm} => 1\n        _ => 0\n` +
+    "export let out: Int = g()\n";
+
+  test.each([
+    ["try", "B(x, 1) | B(2, x) when x == 1", "B(2, 1)", 0],
+    ["match", "B(x, 1) | B(2, x) when x == 1", "B(2, 1)", 0],
+    ["try", "B(x, 1) | C(x) when x == 1", "C(1)", 1],
+    ["try", "B(x, 1) | B(2, x) when x == 2", "B(2, 1)", 1],
+    ["try", "B(x, 1) | B(2, x)", "B(2, 3)", 1],
+  ])("in `%s`, `%s` on %s answers %i", async (seat, arm, thrown, out) => {
+    expect(await runMain(program(seat, arm, thrown))).toMatchObject({ out });
+  });
+});
