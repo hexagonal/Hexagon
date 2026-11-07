@@ -258,6 +258,25 @@ let described(regex: Regex.Regex, text: String): String =
     expect((program.again as (text: string) => string)("baab")).toBe("b=b");
   });
 
+  test("a filled array is written through the global `Array` where the module binds the name", async () => {
+    const source = [
+      "module Main",
+      "import Hex.Regex as Regex",
+      "import Hex.Array as Array",
+      "",
+      'export let plates(text: String): Bool = Regex.compile("[a-z]{3}\\\\d{4}x{20}(?i)\\\\p{L}+").isMatch(text)',
+      "export let size(values: Array.Array(Int)): Int = Array.length(values)",
+      "",
+    ].join("\n");
+    expect(compileMain(source).diagnostics.map(({ message }) => message)).toEqual([]);
+    const main = compileMain(source).modules.find(({ name }) => name === "Main")!.javascript.text;
+    expect(main).toMatch(/new [\w$]+\(\d+\)\.fill\(-1\)/u);
+    expect(main).not.toMatch(/new Array\(/u);
+    const program = await runMain(source);
+    expect((program.plates as (text: string) => boolean)("abc1234" + "x".repeat(20) + "Q")).toBe(true);
+    expect((program.size as (values: number[]) => number)([1, 2, 3])).toBe(3);
+  });
+
   test("it is data: no call of compile, the properties by name, and no table", () => {
     const main = compileMain(source).modules.find(({ name }) => name === "Main")!.javascript.text;
     expect(main).not.toContain("Regex.compile(\"");

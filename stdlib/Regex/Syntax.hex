@@ -560,15 +560,25 @@ let nearProperty(body: String): Option(String) =
             let value = slice(body, at + 1, String.length(body))
             match valueKind(property)
                 Some(kind) => prefixed(property ++ separator, nearest(spellings(tableOf(kind)), value))
-                // A near name is offered only with a value it has: the one
-                // written, or that value's own near miss.
-                None => match nearest(["gc", "General_Category", "sc", "Script", "scx", "Script_Extensions"], property)
-                    Some(near) => match valueKind(near)
-                        Some(kind) => match lookupValue(kind, value)
-                            Some(_) => Some(near ++ separator ++ value)
-                            None => prefixed(near ++ separator, nearest(spellings(tableOf(kind)), value))
-                        None => None
-                    None => None
+                // A near name is offered only with a value it has: first the
+                // nearest of the names that have the value written, then the
+                // nearest name with that value's own near miss.
+                None =>
+                    let names = ["gc", "General_Category", "sc", "Script", "scx", "Script_Extensions"]
+                    var having: Vector(String) = []
+                    for name in names
+                        match valueKind(name)
+                            Some(kind) => match lookupValue(kind, value)
+                                Some(_) => having := having.append(name)
+                                None => ()
+                            None => ()
+                    match nearest(having, property)
+                        Some(near) => Some(near ++ separator ++ value)
+                        None => match nearest(names, property)
+                            Some(near) => match valueKind(near)
+                                Some(kind) => prefixed(near ++ separator, nearest(spellings(tableOf(kind)), value))
+                                None => None
+                            None => None
         None =>
             var candidates: Vector(String) = ["Any", "ASCII", "Assigned"]
             for table in [generalCategoryNames, scriptNames, binaryNames]

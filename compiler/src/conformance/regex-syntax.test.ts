@@ -428,6 +428,8 @@ describe("Regex.Syntax: RegexError (§2.9)", () => {
     // A near property name is offered only with a value it has.
     ["\\p{Scirpt=Greeek}", "error 1: `\\p{Scirpt=Greeek}` names no supported property; did you mean `\\p{Script=Greek}`?"],
     ["\\p{Scirpt=Lu}", "error 1: `\\p{Scirpt=Lu}` names no supported property"],
+    // `gc` and `sc` are both one edit from `xc`; only `sc` has `Greek`.
+    ["\\p{xc=Greek}", "error 1: `\\p{xc=Greek}` names no supported property; did you mean `\\p{sc=Greek}`?"],
     ["\\p{Lx}", "error 1: `\\p{Lx}` names no supported property; did you mean `\\p{L}`?"],
     ["\\pX", "error 1: `\\pX` names no supported property"],
     ["\\p{Emoji}", "error 1: `\\p{Emoji}` names no supported property"],
