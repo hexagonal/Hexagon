@@ -8473,7 +8473,6 @@ class JavaScriptEmitter {
         // there is none.
         const size = (subject: string) => `${this.#useVectorRuntime("size")}(${subject})`;
         const fixed = pattern.elements.length;
-        //
         // A declared pattern's view is shared by position (Pattern Declarations
         // §5), so a position here is the slot as it is read: `[a, ...]` and
         // `[..., a]` both hold their slot at index 0 and read different

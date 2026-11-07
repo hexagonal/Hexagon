@@ -717,8 +717,19 @@ describe("a vector's view positions are its slots as read (§5, #1472)", () => {
     ["a rest whose window ends sooner", len, "[...(x)len]", "[...(x)len, _]", 2],
     ["a rest whose window starts later", len, "[...(x)len]", "[_, ...(x)len]", 2],
     ["a rest under a rest", len, "[...[...(x)len]]", "[...[...(x)len, _]]", 2],
+    ["two end slots, one further in from the rest", neg, "[_, ..., (x)neg]", "[_, ..., (x)neg, _]", -2],
   ])("%s", async (_shape, declaration, first, second, out) => {
     expect(await runMain(main(declaration + arms(first, second)))).toMatchObject({ out });
+  });
+
+  test.each([
+    ["end slots", neg, "([..., (x)neg], _)", "(_, [..., (x)neg])", -5],
+    ["windows", len, "([...(x)len], _)", "(_, [...(x)len])", 2],
+  ])("%s in two components of a tuple", async (_shape, declaration, first, second, out) => {
+    const source = "fun f(p: (Vector(Int), Vector(Int))): Int =\n    match p\n" +
+      `        ${first} when x > 100 => 1\n        ${second} => x\n        _ => 99\n` +
+      "export let out: Int = f(([1, 2, 3], [4, 5]))\n";
+    expect(await runMain(main(declaration + source))).toMatchObject({ out });
   });
 
   const views = (declaration: string, first: string, second: string): number => {
