@@ -7920,9 +7920,10 @@ class JavaScriptEmitter {
 
   /**
    * §7.4's discrimination as the body of a JS `catch (error)` block — the arms
-   * only. One `if` per or-pattern alternative, each matching arm returning its
-   * body's value, guards inside the block exactly where §5.3 puts them (a
-   * throwing guard propagates, and a failing one falls through to the next arm).
+   * only. Each arm's or-pattern alternatives form one `if`/`else if` chain,
+   * each matching arm returning its body's value, guards inside the block
+   * exactly where §5.3 puts them (a throwing guard propagates, and a failing one
+   * falls through to the next arm, never to the arm's next alternative).
    *
    * The implicit rethrow is the caller's `throw error;` after these lines, so
    * both of `catch`'s seats — `try`'s clause and the match catch clause

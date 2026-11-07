@@ -933,4 +933,12 @@ describe("a catch arm's guard runs once, on the first alternative that matches (
   ])("in `%s`, `%s` on %s answers %i", async (seat, arm, thrown, out) => {
     expect(await runMain(program(seat, arm, thrown))).toMatchObject({ out });
   });
+
+  test("a guard that matches both alternatives runs once", async () => {
+    const source = "module Main\n\nexception B(Int, Int)\nlet h(): Int =\n    var n = 0\n" +
+      "    let r: Int =\n        try\n            throw^(B(1, 1))\n        catch\n" +
+      "            B(1, _) | B(_, 1) when (n := n + 1) == () and False => 1\n            _ => 0\n" +
+      "    r * 100 + n\nexport let out: Int = h()\n";
+    expect(await runMain(source)).toMatchObject({ out: 1 });
+  });
 });
