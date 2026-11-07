@@ -27,6 +27,13 @@ as a child process over stdio, hands it the workspace, and lets
 go-to-definition and find-references all come from the compiler, and a feature
 added to the server appears here with no change to the extension.
 
+One request needs the extension's help, because the protocol has no place for
+what it carries: a hover whose pointer is inside a selection. There the
+extension sends the selection where the request has a position
+(`src/hover-selection.ts`), as rust-analyzer's does, once the server announces
+`experimental.hoverRange`, and the hover answers with the type of the
+expression the selection names.
+
 `npm run build` produces two bundles in `dist/`: `extension.cjs`, and
 `server.cjs`, which is the language server and the compiler it embeds. The
 extension ships its own copy of the server rather than resolving one from the

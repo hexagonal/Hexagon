@@ -65,11 +65,19 @@ const OUTSIDE_DOCUMENT = "this would edit code the Playground does not show";
 export class PlaygroundAnalysis {
   readonly #session = new AnalysisSession();
 
-  hover(source: string, offset: number): PlaygroundHover | undefined {
+  /**
+   * What a hover at `offset` shows; with `end`, the type of the expression the
+   * selection `[offset, end)` names, for a pointer inside a selection.
+   */
+  hover(source: string, offset: number, end?: number): PlaygroundHover | undefined {
     const layout = this.#sync(source);
     const at = layout.map.locate(offset);
     if (at === undefined) return undefined;
-    const hover = this.#session.hover(at.path, at.offset);
+    const until = end === undefined || end === offset ? undefined : layout.map.locate(end);
+    if (end !== undefined && end !== offset && until?.path !== at.path) return undefined;
+    const hover = until === undefined
+      ? this.#session.hover(at.path, at.offset)
+      : this.#session.hoverSelection(at.path, at.offset, until.offset);
     if (hover === undefined) return undefined;
     const range = this.#rangeOfSpan(layout.map, at.path, hover.span);
     // Unreachable today, like the two other refusals of this shape — see
@@ -107,6 +115,21 @@ export class PlaygroundAnalysis {
         .hoverSpans(bufferPath)
         .flatMap((range) => toRange(layout.map.toBufferRange(bufferPath, range))),
     );
+  }
+
+  /**
+   * What "Expand Selection" grows through from each offset, innermost first.
+   * A range the buffer cannot show is left out, and the ones around it still
+   * grow outward.
+   */
+  selectionRanges(source: string, offsets: readonly number[]): readonly (readonly BufferRange[])[] {
+    const layout = this.#sync(source);
+    return offsets.map((offset) => {
+      const at = layout.map.locate(offset);
+      if (at === undefined) return [];
+      const [ranges = []] = this.#session.selectionRanges(at.path, [at.offset]);
+      return ranges.flatMap((range) => toRange(layout.map.toBufferRange(at.path, range)));
+    });
   }
 
   definitions(source: string, offset: number): readonly BufferRange[] {

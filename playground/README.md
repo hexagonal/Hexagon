@@ -219,9 +219,10 @@ be revisited before broader FFI access can expose arbitrary browser facilities.
 ## Editor direction
 
 **Monaco Editor is the primary desktop editor.** The current integration provides
-Hexagon tokenization, compiler-owned diagnostic markers, quick fixes, hover,
-completion, go-to-definition, find-references, rename, and read-only JavaScript
-and `.d.ts` models. This gives the
+Hexagon tokenization, compiler-owned diagnostic markers, quick fixes, hover
+(the type of a selected expression included), completion, signature help,
+"Expand Selection", go-to-definition, find-references, rename, and read-only
+JavaScript and `.d.ts` models. This gives the
 playground the same editor foundation and familiar feel as the TypeScript Playground
 and VS Code without moving language semantics into the UI.
 

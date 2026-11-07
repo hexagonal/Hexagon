@@ -411,8 +411,9 @@ function collectVariables(
       for (const element of type.elements) collectVariables(element, variables);
       return;
     case "Record":
+      // Not the tail: a tail takes a letter only when the scheme quantifies it,
+      // and otherwise renders bare (`displayType`).
       for (const field of type.fields) collectVariables(field.type, variables);
-      if (type.tail !== undefined) variables.add(type.tail);
       return;
     case "Union":
       for (const argument of type.arguments) collectVariables(argument, variables);
@@ -423,10 +424,30 @@ function collectVariables(
     case "ExternType":
       for (const argument of type.arguments) collectVariables(argument, variables);
       return;
+    case "Vector":
+    case "Set":
+    case "Array":
+    case "JsSet":
+    case "Node":
+      collectVariables(type.element, variables);
+      return;
+    case "Map":
+    case "JsMap":
+      collectVariables(type.key, variables);
+      collectVariables(type.value, variables);
+      return;
+    case "Nullable":
+      collectVariables(type.value, variables);
+      return;
     case "Primitive":
     case "Range":
+    case "JsValue":
     case "Error":
       return;
+    default: {
+      const unreachable: never = type;
+      return unreachable;
+    }
   }
 }
 

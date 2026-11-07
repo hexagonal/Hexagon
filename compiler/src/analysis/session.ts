@@ -84,6 +84,14 @@ import {
 import { collectCompletions, type Completion } from "../queries/completions.js";
 import { signatureHelpAt, type SignatureHelp } from "../queries/signature-help.js";
 import {
+  type ExpressionType,
+  type ExpressionTypeInput,
+  expressionHoverRanges,
+  expressionTypeAt,
+  expressionTypeOfSelection,
+} from "../queries/expression-types.js";
+import { selectionRangesAt } from "../queries/syntax-nodes.js";
+import {
   planReturnAnnotation,
   refusedAnnotation,
   type ReturnAnnotationPlan,
@@ -108,7 +116,12 @@ export interface Reference extends Location {
 }
 
 export interface Hover {
-  readonly name: string;
+  /**
+   * The name the answer describes; absent when the answer is an expression's
+   * type, at an operator, a bracket, a literal or a keyword, or for a selection
+   * (`hoverSelection`).
+   */
+  readonly name?: string;
   /**
    * What the name denotes, absent for a name the occurrence index has no
    * identity for — an `honor` member, a record field, a `type` alias, a
@@ -127,7 +140,15 @@ export interface Hover {
   readonly colourOwners?: readonly string[];
   /** The declaration's documentation as Markdown, when it carries any. */
   readonly documentation?: string;
-  /** The identifier the answer describes, for the editor to highlight. */
+  /**
+   * For an expression's type: the type the checker converted the expression to
+   * where it stands, when it did (`Vector(Int)` taken as a `Seq(Int)`).
+   */
+  readonly convertedTo?: string;
+  /**
+   * The text the answer describes, for the editor to highlight: the identifier,
+   * the expression a selection names, or the run of text under the pointer.
+   */
   readonly span: Source.Span;
 }
 
@@ -500,7 +521,13 @@ export class AnalysisSession {
     // index denotes one, and hover is the hole's only reporting channel.
     const hole = this.#holeHover(analysis, normalized, offset);
     if (hole !== undefined) return hole;
-    if (candidates.length === 0) return this.#documentedName(analysis, normalized, offset);
+    if (candidates.length === 0) {
+      // Last, because a name is hover's own (what it denotes, documented): an
+      // expression's type answers only where nothing above does, at an
+      // operator, a bracket, a literal or a keyword.
+      return this.#documentedName(analysis, normalized, offset) ??
+        this.#expressionHover(analysis, normalized, offset, (input) => expressionTypeAt(input, offset));
+    }
     const typed = candidates
       .map((occurrence) => {
         const shown = analysis.typeOccurrenceAt(normalized, occurrence.span);
@@ -521,6 +548,61 @@ export class AnalysisSession {
       ...(best.displayedType === undefined ? {} : { displayedType: best.displayedType }),
       ...(best.colourOwners === undefined ? {} : { colourOwners: best.colourOwners }),
       ...(documentation === undefined ? {} : { documentation }),
+    };
+  }
+
+  /**
+   * The type of the expression a selection names, `[start, end)`: Rust's range
+   * hover, OCaml's type enclosing (`queries/expression-types.ts`).
+   *
+   * A host asks this instead of `hover` when the pointer is inside a selection
+   * that is not empty. The protocol's hover carries only a position, so the
+   * host sends the selection itself: the VS Code extension, as Rust's does, and
+   * the Playground. The answer is the type alone, at this place: a name
+   * selected whole shows the type it has here, its instance, where `hover`
+   * shows its declaration's face and documentation.
+   */
+  hoverSelection(path: string, start: number, end: number): Hover | undefined {
+    const normalized = normalizePath(path);
+    const analysis = this.#analyze();
+    return this.#expressionHover(
+      analysis,
+      normalized,
+      start,
+      (input) => expressionTypeOfSelection(input, start, end),
+    );
+  }
+
+  /**
+   * What "Expand Selection" grows through from each offset: the pieces of the
+   * text around it, innermost first, each wider than the one before
+   * (`selectionRangesAt`). An offset outside every module has none.
+   */
+  selectionRanges(path: string, offsets: readonly number[]): readonly (readonly OffsetRange[])[] {
+    const normalized = normalizePath(path);
+    const analysis = this.#analyze();
+    return offsets.map((offset) => {
+      const module = analysis.moduleAt(normalized, offset);
+      return module === undefined ? [] : selectionRangesAt(module.source, module.parsed, offset).map(offsetsOf);
+    });
+  }
+
+  /** An expression's type, read from the module the offset is in, as a hover. */
+  #expressionHover(
+    analysis: Analysis,
+    path: string,
+    offset: number,
+    answer: (input: ExpressionTypeInput) => ExpressionType | undefined,
+  ): Hover | undefined {
+    const module = analysis.moduleAt(path, offset);
+    if (module === undefined) return undefined;
+    const found = answer({ file: module.source, parsed: module.parsed, typed: module.typed });
+    if (found === undefined) return undefined;
+    return {
+      span: found.span,
+      displayedType: found.displayedType,
+      ...(found.colourOwners === undefined ? {} : { colourOwners: found.colourOwners }),
+      ...(found.convertedTo === undefined ? {} : { convertedTo: found.convertedTo }),
     };
   }
 
@@ -635,7 +717,7 @@ export class AnalysisSession {
    * pointer and the caret is the only thing that moves — and which therefore has
    * to decide whether to open one before it has an answer to show.
    *
-   * The four sources below are `hover`'s own four, read from the same arrays
+   * The five sources below are `hover`'s own five, read from the same arrays
    * with the same containment rule, so the two agree by construction. That is
    * the whole point of the method: the Playground previously gated on the type
    * occurrence table, which answers a different question and so both over- and
@@ -646,7 +728,12 @@ export class AnalysisSession {
    * Order is not reproduced. `hover` short-circuits — a variance site wins
    * outright, and a documented name is consulted only where the occurrence index
    * is silent — but the *set of offsets it answers at* is the plain union of the
-   * four, and that set is all a gate needs.
+   * five, and that set is all a gate needs.
+   *
+   * The fifth, an expression's type, answers in runs of text rather than at
+   * names, and `expressionHoverRanges` gives exactly the offsets it answers at:
+   * a run's characters, and the offset just past it where a caret rests after a
+   * `)`.
    *
    * Every span returned lies in the queried file, which is worth knowing rather
    * than assuming: `collectOccurrences` drops any span whose file is not the
@@ -669,13 +756,14 @@ export class AnalysisSession {
       // typed half runs over **every** module the file declares (Modules §2.2),
       // since a variance site or a hole in any of them is a position the hover
       // answers at.
-      for (const { typed } of analysis.modulesIn(normalized)) {
+      for (const { source, parsed, typed } of analysis.modulesIn(normalized)) {
         for (const site of parameterSites(typed, fileId)) spans.push(offsetsOf(site.span));
         for (const hole of typed.typeHoles) {
           if (hole.span.fileId === fileId && hole.span.start.offset !== hole.span.end.offset) {
             spans.push(offsetsOf(hole.span));
           }
         }
+        for (const range of expressionHoverRanges({ file: source, parsed, typed })) spans.push(range);
       }
       if (this.#texts.has(normalized)) {
         for (const name of analysis.documentation.namesIn(fileId)) {

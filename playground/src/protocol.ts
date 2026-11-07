@@ -231,6 +231,18 @@ interface ServiceRequest {
 export interface HoverRequest extends ServiceRequest {
   readonly kind: "hover";
   readonly offset: number;
+  /**
+   * Where a selection the pointer is inside ends, when there is one: the
+   * selection is `[offset, end)`, and the hover answers with the type of the
+   * expression it names (`AnalysisSession.hoverSelection`).
+   */
+  readonly end?: number;
+}
+
+/** What "Expand Selection" grows through from each offset. */
+export interface SelectionRangesRequest extends ServiceRequest {
+  readonly kind: "selection-ranges";
+  readonly offsets: readonly number[];
 }
 
 /**
@@ -287,6 +299,12 @@ interface ServiceReply {
 export interface HoverReply extends ServiceReply {
   readonly kind: "hover";
   readonly hover: PlaygroundHover | undefined;
+}
+
+export interface SelectionRangesReply extends ServiceReply {
+  readonly kind: "selection-ranges";
+  /** For each offset asked about, the ranges around it, innermost first. */
+  readonly ranges: readonly (readonly BufferRange[])[];
 }
 
 export interface HoverSpansReply extends ServiceReply {
@@ -347,6 +365,7 @@ export type CompilerRequest =
   | CompileRequest
   | HoverRequest
   | HoverSpansRequest
+  | SelectionRangesRequest
   | CodeActionsRequest
   | CompletionRequest
   | SignatureHelpRequest
@@ -358,6 +377,7 @@ export type CompilerRequest =
 export type ServiceReplyMessage =
   | HoverReply
   | HoverSpansReply
+  | SelectionRangesReply
   | CodeActionsReply
   | CompletionReply
   | SignatureHelpReply

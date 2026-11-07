@@ -350,3 +350,21 @@ export function hoverAnswersAtOffset(
     offset >= startOffset && offset <= endOffset
   );
 }
+
+/**
+ * The selection a hover at `offset` sends in place of its position, or
+ * `undefined` to send the position: the first selection that is not empty and
+ * holds the pointer, its ends included, as Monaco's `containsPosition` reads
+ * one. The hover then answers with the type of the expression the selection
+ * names. The VS Code extension makes the same choice for the language server
+ * (`editors/vscode/src/hover-selection.ts`).
+ */
+export function hoverSelectionAt(
+  selections: readonly BufferRange[],
+  offset: number,
+): BufferRange | undefined {
+  return selections.find(({ startOffset, endOffset }) =>
+    startOffset !== endOffset &&
+    Math.min(startOffset, endOffset) <= offset && offset <= Math.max(startOffset, endOffset)
+  );
+}

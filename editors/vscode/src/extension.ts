@@ -7,18 +7,23 @@
  * go-to-definition and find-references all come from the compiler, and adding a
  * feature to the server makes it appear here with no change to this file.
  *
- * Only two things are decided here, and both are about the editor rather than
- * the language: which server binary to run, and when to restart it.
+ * Only three things are decided here, and all are about the editor rather than
+ * the language: which server binary to run, when to restart it, and what a
+ * hover sends when the pointer is inside a selection (`hover-selection.ts`),
+ * which the protocol has no place for.
  */
 
 import { join } from "node:path";
 import * as vscode from "vscode";
 import {
+  HoverRequest,
   LanguageClient,
   TransportKind,
   type LanguageClientOptions,
+  type Position,
   type ServerOptions,
 } from "vscode-languageclient/node";
+import { hoverSelection } from "./hover-selection.js";
 import { trustedStandardLibraryProjects } from "./settings.js";
 
 const LANGUAGE_ID = "hexagon";
@@ -107,6 +112,28 @@ async function startClient(context: vscode.ExtensionContext): Promise<void> {
       fileEvents: vscode.workspace.createFileSystemWatcher("**/*.hex"),
     },
     outputChannelName: CLIENT_NAME,
+    middleware: {
+      // A pointer inside a selection hovers the selection: the server answers
+      // with the type of the expression it names. As rust-analyzer's extension
+      // does, the selection goes where the protocol has a position.
+      provideHover: async (document, position, token, next) => {
+        const selections = vscode.window.visibleTextEditors
+          .filter((editor) => editor.document === document)
+          .flatMap((editor) => editor.selections);
+        const selection = hoverSelection(selections, position, starting.initializeResult?.capabilities);
+        if (selection === undefined) return next(document, position, token);
+        const converter = starting.code2ProtocolConverter;
+        const answer = await starting.sendRequest(
+          HoverRequest.type,
+          {
+            textDocument: converter.asTextDocumentIdentifier(document),
+            position: converter.asRange(selection) as unknown as Position,
+          },
+          token,
+        );
+        return answer === null ? null : starting.protocol2CodeConverter.asHover(answer);
+      },
+    },
   };
 
   const starting = new LanguageClient(CLIENT_ID, CLIENT_NAME, serverOptions, clientOptions);

@@ -240,16 +240,11 @@ describe("AnalysisSession", () => {
    * An open record's row tail, hovered (#959, under #649's rule that no
    * user-facing rendering shows a numbered inference variable).
    *
-   * A tail the display's letter map misses is unquantified, and it used to
-   * fall to an internal number — `{n: Int, ...t487}` — in the channel a user
-   * reads most; it renders as the bare `...` instead. Which tails the map
-   * misses is narrower than "the unquantified ones": the map takes the
-   * scheme's quantified variables *and* every variable the display's own walk
-   * reaches, and that walk does not descend into the container kinds
-   * (`Vector`, `Set`, `Map`, `Array`, `JsMap`, `JsSet`, `JsValue`, `Node`,
-   * `Nullable`), which is why both bare-`...` programs here put the row inside
-   * a `Vector`. That gap is pre-existing and filed separately;
-   * `syntax/typed/display.test.ts` pins both sides of it directly.
+   * An unquantified tail used to fall to an internal number —
+   * `{n: Int, ...t487}` — in the channel a user reads most; it renders as the
+   * bare `...` instead, wherever the row stands, and a tail takes a letter
+   * exactly when the scheme quantifies it. `syntax/typed/display.test.ts`
+   * pins both sides of that directly.
    *
    * The three programs are three ways the row arrives at hover: an extern
    * declaration (the issue's own, refused at the foreign boundary — hover

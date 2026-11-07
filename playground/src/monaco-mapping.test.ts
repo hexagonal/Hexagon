@@ -11,6 +11,7 @@ import {
   toSignatureHelp,
   toWorkspaceEdit,
   hoverAnswersAtOffset,
+  hoverSelectionAt,
   type EditTarget,
 } from "./monaco-mapping";
 
@@ -343,5 +344,29 @@ describe("completionKindOf", () => {
     // The session gains kinds over time; an icon this file has no entry for
     // must not cost the item.
     expect(completionKindOf("keyword")).toBe("Variable");
+  });
+});
+
+describe("hoverSelectionAt", () => {
+  const selected = { startOffset: 4, endOffset: 9 };
+
+  test("a pointer inside a selection, its ends included, hovers the selection", () => {
+    expect(hoverSelectionAt([selected], 4)).toBe(selected);
+    expect(hoverSelectionAt([selected], 6)).toBe(selected);
+    expect(hoverSelectionAt([selected], 9)).toBe(selected);
+  });
+
+  test("a pointer outside every selection hovers its position", () => {
+    expect(hoverSelectionAt([selected], 3)).toBeUndefined();
+    expect(hoverSelectionAt([selected], 10)).toBeUndefined();
+  });
+
+  test("an empty selection is a caret", () => {
+    expect(hoverSelectionAt([{ startOffset: 6, endOffset: 6 }], 6)).toBeUndefined();
+  });
+
+  test("with several, the one holding the pointer, whichever way it was drawn", () => {
+    const backwards = { startOffset: 25, endOffset: 20 };
+    expect(hoverSelectionAt([selected, backwards], 22)).toBe(backwards);
   });
 });

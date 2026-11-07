@@ -128,21 +128,17 @@ describe("displayScheme", () => {
    * An open record's tail, with and without a letter (#959, under #649's rule
    * that no user-facing rendering shows a numbered inference variable).
    *
-   * The rule the renderer follows is narrow, and only one direction of it
-   * holds: a tail the letter map misses is unquantified, so it renders as the
-   * bare `...` — which says exactly what is known, that there may be more
-   * fields and nothing names how many. The converse does **not** hold, and the
-   * third case below pins that: `variableNames` seeds the map with the
-   * scheme's quantified variables and then adds every variable
-   * `collectVariables` reaches, free ones included, so an unquantified tail
-   * the walk reaches takes a letter like any other variable.
+   * A tail takes a letter exactly when the scheme quantifies it. An
+   * unquantified tail renders as the bare `...`, which says exactly what is
+   * known: there may be more fields, and nothing names how many. A letter
+   * would claim a quantifier that is not there.
    *
-   * What decides which tails the walk reaches is a gap, not a design:
-   * `collectVariables` does not descend into the container kinds (`Vector`,
-   * `Set`, `Map`, `Array`, `JsMap`, `JsSet`, `JsValue`, `Node`, `Nullable`),
-   * so a tail inside one of them is the case that used to reach the display
-   * with no letter and fall to a number. That gap is pre-existing and filed
-   * separately; these three expectations pin what the renderer does today.
+   * That holds wherever the row stands. It used to hold only inside a container
+   * (`Vector`, `Set`, `Map`, …), and by accident: the display's walk for
+   * letters skipped the containers, and took every tail it did reach, so an
+   * unquantified tail outside one took a letter and inside one fell to the
+   * bare form (#995, symptom 3). The walk now reaches every kind, and leaves a
+   * tail to the scheme.
    */
   test("renders an unquantified row tail as the bare `...`, never a number", () => {
     const tail = typeVariableId(487);
@@ -170,11 +166,26 @@ describe("displayScheme", () => {
     // A quantified tail is a variable the signature *does* name, and it keeps
     // its letter wherever it stands.
     expect(row(true)).toBe("Vector({n: Int, ...a} -> Unit)");
-    // And the converse of the first line: this tail is unquantified too, but
-    // the walk reaches it — nothing here is a container — so it takes a letter.
-    // The bare form is for the tail the *map* misses, not for every free row.
+    // And outside a container, the same: unquantified, so bare.
     expect(displayScheme({ variables: [], constraints: [], type: record }))
-      .toBe("{n: Int, ...a}");
+      .toBe("{n: Int, ...}");
+  });
+
+  test("letters a variable inside every container kind, never a number (#995)", () => {
+    const first = { kind: "Variable", id: typeVariableId(522) } as const;
+    const second = { kind: "Variable", id: typeVariableId(523) } as const;
+    const shown = (type: Type): string => displayScheme({ variables: [], constraints: [], type });
+    expect(shown({ kind: "Vector", element: first })).toBe("Vector(a)");
+    expect(shown({ kind: "Set", element: first })).toBe("Set(a)");
+    expect(shown({ kind: "Array", element: first })).toBe("Array(a)");
+    expect(shown({ kind: "JsSet", element: first })).toBe("JsSet(a)");
+    expect(shown({ kind: "Node", element: first })).toBe("Node(a)");
+    expect(shown({ kind: "Nullable", value: first })).toBe("Nullable(a)");
+    expect(shown({ kind: "Map", key: first, value: second })).toBe("Map(a, b)");
+    expect(shown({ kind: "JsMap", key: first, value: second })).toBe("JsMap(a, b)");
+    // One variable, one letter, wherever it stands.
+    expect(shown({ kind: "Tuple", elements: [{ kind: "Vector", element: second }, first, second] }))
+      .toBe("(Vector(a), b, a)");
   });
 
   test("renders nominal union names", () => {
