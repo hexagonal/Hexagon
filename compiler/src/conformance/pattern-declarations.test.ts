@@ -701,3 +701,40 @@ describe("pattern declaration boundary and home regressions", () => {
     expect(reports[0]!.fixes?.every(({ edits }) => edits.length === 3)).toBe(true);
   });
 });
+
+describe("a vector's view positions are its slots as read (§5, #1472)", () => {
+  const neg = "pattern neg(n: Int): Int\n    view(v) = 0 - v\n    build(n) = 0 - n\n";
+  const len = "pattern len(n: Int): Vector(Int)\n    view(v: Vector(Int)) = Vector.length(v)\n";
+  const arms = (first: string, second: string): string =>
+    "fun f(v: Vector(Int)): Int =\n    match v\n" +
+    `        ${first} when x > 100 => 1\n        ${second} => x\n        _ => 99\n` +
+    "export let out: Int = f([1, 2, 3])\n";
+
+  test.each([
+    ["front and end", neg, "[(x)neg, ...]", "[..., (x)neg]", -3],
+    ["front and end, with a slot behind each", neg, "[(x)neg, _]", "[..., (x)neg, _]", -2],
+    ["a slot after a rest, then one further from the end", neg, "[_, ..., (x)neg]", "[..., (x)neg, _]", -2],
+    ["a rest whose window ends sooner", len, "[...(x)len]", "[...(x)len, _]", 2],
+    ["a rest whose window starts later", len, "[...(x)len]", "[_, ...(x)len]", 2],
+    ["a rest under a rest", len, "[...[...(x)len]]", "[...[...(x)len, _]]", 2],
+  ])("%s", async (_shape, declaration, first, second, out) => {
+    expect(await runMain(main(declaration + arms(first, second)))).toMatchObject({ out });
+  });
+
+  const views = (declaration: string, first: string, second: string): number => {
+    const project = compileFiles([["/main.hex", main(declaration + arms(first, second))]]);
+    expect(project.diagnostics).toEqual([]);
+    const text = project.modules.find(({ source }) => source.path === "/main.hex")!.javascript.text;
+    return text.match(/__patt_\w+\.view\(/gu)?.length ?? 0;
+  };
+
+  test.each([
+    ["a front slot, with a rest and without", neg, "[(x)neg, ...]", "[(x)neg, _, _]", 1],
+    ["an end slot, from different indexes", neg, "[_, _, ..., (x)neg]", "[..., (x)neg]", 1],
+    ["one window, after a slot", len, "[_, ...(x)len]", "[_, ...(x)len]", 1],
+    ["front and end", neg, "[(x)neg, ...]", "[..., (x)neg]", 2],
+    ["two windows", len, "[...(x)len]", "[...(x)len, _]", 2],
+  ])("views once per position: %s", (_shape, declaration, first, second, count) => {
+    expect(views(declaration, first, second)).toBe(count);
+  });
+});
