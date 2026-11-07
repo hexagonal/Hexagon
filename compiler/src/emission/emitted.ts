@@ -128,6 +128,19 @@ export interface JavaScript extends Output {
    * clean compile.
    */
   readonly copyDemands: readonly CopyDemand[];
+  /**
+   * *(#1468, `regex.md` §8.)* Every literal handed to `Hex.Regex`'s `compile` in
+   * this file, in source order: the pattern it denotes and the literal's span.
+   * `compileProject` runs each while compiling, refuses the call where it
+   * throws, and otherwise emits the file again with the `Regex` built.
+   */
+  readonly regexLiterals: readonly RegexLiteralSite[];
+}
+
+/** One literal handed to `compile` (`JavaScript.regexLiterals`). */
+export interface RegexLiteralSite {
+  readonly pattern: string;
+  readonly span: Source.Span;
 }
 
 /** One copy a file demands of a module it imports (`JavaScript.copyDemands`). */
