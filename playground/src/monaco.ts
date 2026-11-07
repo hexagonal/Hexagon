@@ -271,7 +271,10 @@ export function createMonacoEditors(
       sourceModel.getOffsetAt(position),
       (selection) => services.hover(sourceModel.getValue(), selection.startOffset, selection.endOffset),
     );
+    // The worker's answer took a round trip: what it answered must still be
+    // where the caret is.
     if (!answers || disposed || sourceModel.getVersionId() !== version) return;
+    if (!sourceEditor.getPosition()?.equals(position)) return;
     sourceEditor.trigger("hexagon.ipadTypeAtCaret", "editor.action.showHover", {
       focus: "noAutoFocus",
     });

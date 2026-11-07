@@ -107,7 +107,8 @@ const DECLARATIONS = [
 /**
  * What the standard library does not write: puns, each of which the parser
  * keeps as one piece twice; a lambda that writes its own binder list; `fun`
- * blocks whose head carries one; a parameter with its variance.
+ * blocks whose head carries one; a parameter with its variance; an enum in an
+ * `extern from` block, which the parser lifts out of the block to the module.
  */
 const PUNS = [
   "module Main",
@@ -125,6 +126,11 @@ const PUNS = [
   "        keep(value: b): b = value",
   "    keep(n)",
   "opaque union Both(+a) = | Both(first: a, second: a)",
+  "extern from \"direction\"",
+  "    enum Direction =",
+  "        | Up",
+  "        | Down",
+  "let heading = Up",
   "",
 ].join("\n");
 
@@ -158,9 +164,13 @@ describe("the type of a selection", () => {
     expect(shown(`${rat}let r: Rat = «1.5e1»\n`)).toBe("`Rat` @ 1.5e1");
     expect(shown(`${rat}let r: Rat = «1e2»\n`)).toBe("`Rat` @ 1e2");
     expect(shown(`${rat}let r: Rat = «1.5»\n`)).toBe("`Rat` @ 1.5");
+    expect(shown(`${rat}let r: Rat = «-1.5e1»\n`)).toBe("`Rat` @ -1.5e1");
     // A `BigInt` the text wrote is one, converted, a literal or a name.
     expect(shown(`${rat}let r: Rat = «15n»\n`)).toBe("`BigInt`\n\nconverted to `Rat` here @ 15n");
     expect(shown(`${rat}let b: BigInt = 15\nlet r: Rat = «b»\n`)).toBe("`BigInt`\n\nconverted to `Rat` here @ b");
+    // A negated one is converted, then negated where it stands.
+    expect(shown(`${rat}let r: Rat = -«15n»\n`)).toBe("`BigInt`\n\nconverted to `Rat` here @ 15n");
+    expect(shown(`${rat}let r: Rat = «-15n»\n`)).toBe("`Rat` @ -15n");
     expect(shown(`${rat}let r: Rat = ‸(15n)\n`)).toBe("`BigInt`\n\nconverted to `Rat` here @ (");
   });
 
@@ -571,7 +581,7 @@ describe("selection ranges", () => {
   test("every name the standard library and the rarer forms write is a piece of its own", () => {
     // Words the lexer reads as names that stand as keywords where written.
     const keywords = new Set([
-      "as", "default", "derives", "fault", "from", "get", "method", "module", "opaque", "pattern", "set", "union",
+      "as", "default", "derives", "enum", "fault", "from", "get", "method", "module", "opaque", "pattern", "set", "union",
       "when", "widened", "widens", "with",
     ]);
     const failures: string[] = [];

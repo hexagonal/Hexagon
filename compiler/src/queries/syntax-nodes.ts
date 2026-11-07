@@ -176,16 +176,27 @@ function items(written: readonly Parsed.Item[]): readonly SyntaxNode[] {
   for (const each of written) if (each.kind === "Fun" && each.block !== undefined) heads.set(each.block.id, each.block);
   return [
     ...[...heads.values()].map((head) => node("other", head.span, typeParameters(head.typeParameters))),
-    ...written.map(item),
+    ...written.map((each) => item(each, written)),
   ];
 }
 
-function item(written: Parsed.Item): SyntaxNode {
+/** An item, among the items it was written with (`siblings`). */
+function item(written: Parsed.Item, siblings: readonly Parsed.Item[] = []): SyntaxNode {
   switch (written.kind) {
     case "Import":
       return node("other", written.span, [moduleName(written.module), name(written.alias)]);
     case "ExternBlock":
-      return node("other", written.span, written.declarations.map(externDeclaration));
+      // An enum written in the block is an item the parser lifts out of it,
+      // its text still the block's: it stands in the block, where it was
+      // written, and the block, first in the text, has it at the module.
+      return node("other", written.span, [
+        ...written.declarations.map(externDeclaration),
+        ...siblings
+          .filter((other) =>
+            written.span.start.offset < other.span.start.offset && other.span.end.offset <= written.span.end.offset
+          )
+          .map((other) => item(other)),
+      ]);
     case "ExternImport":
     case "ErrorItem":
       return node("other", written.span, []);

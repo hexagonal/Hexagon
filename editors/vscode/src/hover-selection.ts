@@ -34,10 +34,12 @@ export interface ServerCapabilitiesLike {
  * is working in (`activeTextEditor`) that is not empty and holds the pointer,
  * when that editor shows the document and the server reads a selection.
  *
- * A hover names a document and a position, never an editor, so with the
- * document open in two panes the pointer could be in either. The active one's
- * selection is the one the user is making; one left behind in another pane is
- * not, and is never sent. rust-analyzer's extension makes the same choice.
+ * A hover names a document and a position, never an editor, so the pane the
+ * pointer is in is unknown. The active editor's selection is the one the user
+ * is making, so it is the one sent: a selection left in another pane is never
+ * sent, but with one document open in two panes, a pointer in the other pane
+ * inside the range the active one has selected sends that selection.
+ * rust-analyzer's extension makes the same choice, with the same limit.
  */
 export function hoverSelection<Document, Position, Selection extends SelectionLike<Position>>(
   editor: EditorLike<Document, Selection> | undefined,
