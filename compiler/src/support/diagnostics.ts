@@ -29,7 +29,8 @@ export interface Fix {
    * The family this repair belongs to, whose repairs an editor may apply across
    * a file at once ("fix all"). `mark`: a repair that rewrites only the marks of
    * the calls its report is about, toward what their callees' colours require
-   * (Effects §4.1), never another call's mark or a type.
+   * (Effects §4.1), wrapping a reading's value as `Some(…)` where its `?` goes,
+   * and never another call's mark or a type.
    */
   readonly family?: "mark";
 }

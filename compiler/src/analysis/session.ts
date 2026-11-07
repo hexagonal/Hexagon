@@ -988,10 +988,11 @@ export class AnalysisSession {
     // report with a repair for each side of a contradiction is the writer's
     // to choose (doctrine 8), and where only one side can be repaired from the
     // call, as where a written type binds (#1314), that side is the report's
-    // own. Each rewrites only its own calls' marks, so they compose: what the
-    // file then reports is what the program with them applied one by one
-    // reports (Effects §4.4). A further report the repaired program draws is
-    // its own, answered as any is.
+    // own. Each rewrites only its own calls' marks, and wraps a reading's
+    // value where its `?` goes, so they compose: what the file then reports
+    // is what the program with them applied one by one reports (Effects
+    // §4.4). A further report the repaired program draws is its own, answered
+    // as any is.
     const asker = asked.find((diagnostic) => familyRepair(diagnostic) !== undefined);
     if (asker !== undefined) {
       const { family: kind } = familyRepair(asker)!;
