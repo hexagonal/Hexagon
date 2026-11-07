@@ -3843,16 +3843,33 @@ function firstParameterAnnotation(
  * What a dot judged about its receiver, as `Checker.#noteDotSite` wrote it down
  * at the dot (Method Syntax §8.4).
  *
- * `head` is the receiver as the dot saw it: the shape whose candidates the dot
- * consults, or `undefined` where it consults none — a subject the text does not
- * decide, or one whose own elaboration failed. A record row's fields are copied
- * at the dot, because a later line can widen the row the dot saw.
+ * `head` is the receiver as the dot saw it, or `undefined` where the dot reads
+ * nothing of it — an unsolved subject the text does not decide, or one whose
+ * own elaboration failed. Where the text does not decide the subject
+ * (`decided` false), the dot consults no companion and no member (§3.5), but a
+ * bare field read still reads the fields the receiver has at the dot, so those
+ * are kept. A record row's fields are copied at the dot, because a later line
+ * can widen the row the dot saw. `funGroups` are the `fun` blocks the dot
+ * stands inside, whose members it may not target (§4.4).
  */
 interface NotedDotSite {
   readonly access: Resolved.AccessExpr;
   readonly decided: boolean;
   readonly head: Mono | undefined;
   readonly rowFields?: ReadonlyMap<string, Mono>;
+  readonly funGroups: readonly ReadonlySet<Resolved.SymbolId>[];
+}
+
+/**
+ * One name a dot's candidate set holds, with what decides whether a given dot
+ * may reach it (Method Syntax §4.4): a companion operation's declaration, read
+ * against the dot's place, or the honor a member comes from, read by
+ * Constraints §4.8's top-down law.
+ */
+interface DotOffer {
+  readonly candidate: Typed.DotCandidate;
+  readonly operation?: Resolved.Symbol;
+  readonly honor?: Resolved.HonorItem;
 }
 
 /**
@@ -8228,69 +8245,81 @@ class Checker {
    * The questions are dispatch's own, asked in its order and of the same
    * answers (`#dispatchDotCall`): a declared type variable is read through its
    * written bounds; anything else must be a subject the program's text decides
-   * (`#typeDecided`, §3.1), or the dot consults nothing and offers nothing
-   * (§3.5); a decided subject whose head is still open is a numeric literal,
-   * which takes its `Int` default at the dot (§3.3). Asked at every dot, a bare
-   * field read included, since the name being typed after it is not yet
-   * either.
+   * (`#typeDecided`, §3.1), or the dot consults no companion and no member
+   * (§3.5) — only the fields a bare read reaches there; a decided subject whose
+   * head is still open is a numeric literal, which takes its `Int` default at
+   * the dot (§3.3). Asked at every dot, a bare field read included, since the
+   * name being typed after it is not yet either.
    *
    * The first judgment at a dot stands: the ordinary application path can
    * elaborate a dot-call's callee a second time after dispatch declined it.
    */
   #noteDotSite(access: Resolved.AccessExpr, receiver: Mono): void {
     if (this.#dotSites.has(access)) return;
+    const funGroups = [...this.#funGroups];
     const note = (decided: boolean, head?: Mono, rowFields?: ReadonlyMap<string, Mono>): void => {
       this.#dotSites.set(access, {
         access,
         decided,
-        head: decided ? head : undefined,
+        head,
         ...(rowFields === undefined ? {} : { rowFields }),
+        funGroups,
       });
     };
     const actual = this.#prune(receiver);
     if (actual.kind === "Error") return note(false);
     if (actual.kind === "Variable" && actual.rigidName !== undefined) return note(true, actual);
-    if (!this.#typeDecided(access.receiver)) return note(false);
+    const decided = this.#typeDecided(access.receiver);
     if (actual.kind === "Variable") {
-      return this.#canDefaultToInt(actual) ? note(true, primitive("Int")) : note(false);
+      return decided && this.#canDefaultToInt(actual) ? note(true, primitive("Int")) : note(false);
     }
     if (actual.kind === "Record") {
       const row = this.#normalizeRecord(actual);
-      return note(true, row, new Map(row.fields));
+      return note(decided, row, new Map(row.fields));
     }
-    note(true, actual);
+    note(decided, actual);
   }
 
   /** The dots this module checked, each with its candidates (`Typed.DotSite`). */
   #materializeDotSites(): readonly Typed.DotSite[] {
     // The companion and member half of a set depends on the head alone, so
-    // every dot at one head shares one list.
-    const shared = new Map<string, readonly Typed.DotCandidate[]>();
-    return [...this.#dotSites.values()].map(({ access, decided, head, rowFields }) => ({
-      receiver: access.receiver.span,
-      name: access.field.span,
-      decided,
-      candidates: head === undefined ? [] : this.#dotCandidates(head, rowFields, shared),
+    // every dot at one head shares one list; which of it a dot may reach is
+    // that dot's own question.
+    const shared = new Map<string, readonly DotOffer[]>();
+    return [...this.#dotSites.values()].map((site) => ({
+      receiver: site.access.receiver.span,
+      name: site.access.field.span,
+      decided: site.decided,
+      candidates: site.head === undefined
+        ? []
+        : this.#dotCandidates(site.head, site.rowFields, site.decided, shared)
+          .filter((offer) => this.#dotReaches(site, offer))
+          .map(({ candidate }) => candidate),
     }));
   }
 
   /**
    * §8.4's list at one dot: the candidate set the dot resolves against, and
-   * nothing it does not consult (§11.2).
+   * nothing it does not consult (§11.2). A subject the text does not decide
+   * has no companion candidates; its fields, as a bare read reaches them at
+   * the dot, are still there.
    */
   #dotCandidates(
     head: Mono,
     rowFields: ReadonlyMap<string, Mono> | undefined,
-    shared: Map<string, readonly Typed.DotCandidate[]>,
-  ): readonly Typed.DotCandidate[] {
+    decided: boolean,
+    shared: Map<string, readonly DotOffer[]>,
+  ): readonly DotOffer[] {
     // A declared variable is read as the dot saw it: the dot's own refusal
     // can bind it afterwards to the row a bare read asked of it.
     const actual = head.kind === "Variable" && head.rigidName !== undefined ? head : this.#prune(head);
-    const field = (name: string, type: Mono, declaration?: Source.Span): Typed.DotField => ({
-      kind: "Field",
-      name,
-      scheme: this.#publicScheme({ variables: this.#collectVariables(type), type }),
-      ...(declaration === undefined ? {} : { declaration }),
+    const field = (name: string, type: Mono, declaration?: Source.Span): DotOffer => ({
+      candidate: {
+        kind: "Field",
+        name,
+        scheme: this.#publicScheme({ variables: this.#collectVariables(type), type }),
+        ...(declaration === undefined ? {} : { declaration }),
+      },
     });
     if (rowFields !== undefined) {
       return [...rowFields].map(([name, type]) => field(name, type));
@@ -8299,27 +8328,28 @@ class Checker {
       return actual.elements.map((element, index) => field(`item${index + 1}`, element));
     }
     if (actual.kind === "Variable") {
-      // A declared variable's bounds are its entire candidate set (§3.4).
+      // A declared variable's bounds are its entire candidate set (§3.4). Only
+      // a declared one is ever a head here, and the text decides it.
       const key = `bound ${actual.id}`;
       const known = shared.get(key);
       if (known !== undefined) return known;
-      const members: Typed.DotCandidate[] = [];
+      const members: DotOffer[] = [];
       for (const [name, candidates] of this.#boundMembers(actual)) {
         for (const candidate of candidates) {
-          if (candidate.subjectFirst) members.push(dotMember(name, candidate));
+          if (candidate.subjectFirst) members.push({ candidate: dotMember(name, candidate) });
         }
       }
       shared.set(key, members);
       return members;
     }
-    if (!dispatchesAtHead(actual)) return [];
-    const fields: Typed.DotField[] = [];
+    const fields: DotOffer[] = [];
     if (actual.kind === "NominalRecord" && this.#recordRepresentationVisible(actual.record)) {
       const declared = this.#programRecord(actual.record)?.fields ?? [];
       for (const [name, type] of this.#nominalRecordFields(actual)) {
         fields.push(field(name, type, declared.find((candidate) => candidate.name === name)?.span));
       }
     }
+    if (!decided || !dispatchesAtHead(actual)) return fields;
     return [...fields, ...this.#headOperations(actual, shared)];
   }
 
@@ -8331,16 +8361,16 @@ class Checker {
    */
   #headOperations(
     actual: Mono,
-    shared: Map<string, readonly Typed.DotCandidate[]>,
-  ): readonly Typed.DotCandidate[] {
+    shared: Map<string, readonly DotOffer[]>,
+  ): readonly DotOffer[] {
     const companion = this.#companionKeyOfType(actual);
     const key = `${companion ?? ""} ${this.#subjectKey(actual)}`;
     const known = shared.get(key);
     if (known !== undefined) return known;
     const operations = companion === undefined ? undefined : this.#companionOperations.get(companion);
-    const found: Typed.DotCandidate[] = [];
+    const found: DotOffer[] = [];
     for (const [name, symbol] of operations ?? []) {
-      found.push({ kind: "Operation", name, symbol: symbol.id });
+      found.push({ candidate: { kind: "Operation", name, symbol: symbol.id }, operation: symbol });
     }
     const honored = this.#honoredMembers(actual);
     for (const [name, candidates] of honored) {
@@ -8348,16 +8378,40 @@ class Checker {
       // are one operation, which the dot reaches as the companion's.
       if (operations?.get(name)?.widens === true) continue;
       for (const candidate of candidates) {
-        if (candidate.subjectFirst) found.push(dotMember(name, candidate));
+        if (!candidate.subjectFirst) continue;
+        const honor = this.#instances.get(this.#instanceKey(candidate.identity, actual));
+        found.push({ candidate: dotMember(name, candidate), ...(honor === undefined ? {} : { honor }) });
       }
     }
     for (const name of TOWER_MEMBER_NAMES) {
       if ((honored.get(name) ?? []).length > 0) continue;
       const owned = this.#ownedTowerMember(actual, name);
-      if (owned !== undefined) found.push({ ...dotMember(name, owned), needsFace: true });
+      if (owned !== undefined) found.push({ candidate: { ...dotMember(name, owned), needsFace: true } });
     }
     shared.set(key, found);
     return found;
+  }
+
+  /**
+   * Whether this dot may reach the offer (Method Syntax §4.4), by the rules a
+   * call there is held to: a companion operation by `#dotCallReachability`'s
+   * (declared above the dot within its own file, and never a member of a `fun`
+   * block the dot stands inside), and an honored member by Constraints §4.8's
+   * top-down law, as `#orderUse` reads it — below its honor's knot, or inside
+   * it.
+   */
+  #dotReaches(site: NotedDotSite, { operation, honor }: DotOffer): boolean {
+    const at = site.access.field.span;
+    if (operation !== undefined) {
+      if (site.funGroups.some((members) => members.has(operation.id))) return false;
+      return Number(operation.bindingSpan.fileId) !== Number(at.fileId) ||
+        operation.bindingSpan.start.offset < at.start.offset;
+    }
+    if (honor === undefined || !this.#orderHonorNodes.has(honor)) return true;
+    if (Number(at.fileId) !== this.#fileId) return true;
+    const knot = this.#knotOf(honor);
+    return at.start.offset >= knot.end.offset ||
+      (knot.start.offset <= at.start.offset && at.end.offset <= knot.end.offset);
   }
 
   /** The companion identity a receiver's head names, or none for a headless one. */

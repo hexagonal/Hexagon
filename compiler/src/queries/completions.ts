@@ -89,6 +89,20 @@ export interface Completion {
   readonly needsFace?: true;
 }
 
+/**
+ * Method Syntax §8.4's marks, as an editor shows them beside the label: a
+ * member says whose member it is, and a tower member the receiver's type owns
+ * without honoring its rung says it needs a written type, as the operator does.
+ * Plain text, and one spelling for the language server and the Playground.
+ */
+export function completionMark(
+  completion: Pick<Completion, "constraint" | "needsFace">,
+): string | undefined {
+  if (completion.constraint === undefined) return undefined;
+  const whose = `${completion.constraint} member`;
+  return completion.needsFace === true ? `${whose}, needs a written type` : whose;
+}
+
 export interface CompletionInput {
   /** The file's text, for reading the partial name at the cursor. */
   readonly text: string;
@@ -278,7 +292,8 @@ function dotSiteAt(input: CompletionInput): Typed.DotSite | undefined {
 /**
  * Method Syntax §8.4: what the dot resolves against, and nothing else (§11.2).
  *
- * A dot whose subject the text does not decide offers nothing. Not the names in
+ * A dot whose subject the text does not decide offers no companion operation
+ * and no member, only the fields a bare read reaches there. Not the names in
  * scope, which a dot never consults (§1, "this is not UFCS"), and not a guess
  * from the type inference later settled on, which the dot has already refused
  * to read (§3.5) — the refusal's own message says what to write.

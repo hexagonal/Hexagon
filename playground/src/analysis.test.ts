@@ -685,6 +685,21 @@ describe("completion", () => {
     expect(text(source, completions.range)).toBe("twi");
   });
 
+  test("after a value's dot: its fields and operations, and its members, marked", () => {
+    const source = MAIN +
+      "record Point derives (Show) = { x: Int, y: Int }\n" +
+      "fun probe(p: Point): Int = p.x";
+    const completions = new PlaygroundAnalysis().completions(source, source.length);
+
+    expect(completions.items).toEqual(
+      expect.arrayContaining([
+        { name: "x", kind: "field", detail: "Int" },
+        expect.objectContaining({ name: "show", kind: "member", mark: "Show member" }),
+      ]),
+    );
+    expect(text(source, completions.range)).toBe("x");
+  });
+
   test("answers an offset outside the buffer with nothing, at the caret", () => {
     const completions = new PlaygroundAnalysis().completions(MAIN, MAIN.length + 5);
 

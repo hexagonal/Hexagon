@@ -415,6 +415,18 @@ function offeredAt(marked: string): readonly Completion[] {
   return session.completions("/main.hex", offset);
 }
 
+/** A source marked at several places, keeping only the `index`th (from 0) as the cursor. */
+function cursorAt(marked: string, index: number): string {
+  return marked.split("‸").map((part, at) => (at === index + 1 ? `‸${part}` : part)).join("");
+}
+
+/** The compiler's messages for an unmarked source. */
+function diagnosticsOf(marked: string): readonly string[] {
+  const session = new AnalysisSession();
+  session.setFile("/main.hex", marked.replaceAll("‸", ""));
+  return session.diagnostics("/main.hex").map(({ message }) => message);
+}
+
 /**
  * Method Syntax §8.4: after a value's dot, exactly what the dot consults — read
  * from what the checker decided at that dot.
@@ -537,7 +549,7 @@ describe("completions after a value's dot", () => {
     expect(offered.map(({ name }) => name)).toEqual(["x"]);
   });
 
-  test("a subject the text does not decide: no candidates, though inference knows it", () => {
+  test("a subject the text does not decide: no companion candidates, though inference knows it", () => {
     // The line above has already made `xs` a `Vector` by the time inference
     // reaches the dot, but the text does not decide `xs`, so the dot is refused
     // (§3.2's own example) — and completion offers what the dot consults,
@@ -556,6 +568,95 @@ describe("completions after a value's dot", () => {
       expect.stringContaining("the program's text does not decide `xs`'s type here"),
     );
     expect(offeredAt(source)).toEqual([]);
+  });
+
+  test("a subject the text does not decide still offers the fields a bare read reaches", () => {
+    // §8.4: "record row → known fields; a subject the text does not decide →
+    // no companion candidates". The row `r` has at the dot is the one the line
+    // above gave it, and a bare read of `x` there is accepted.
+    const row = [
+      "module Main",
+      "fun probe(r) =",
+      "    let a: Int = r.x",
+      "    r.‸x + a",
+      "",
+    ].join("\n");
+    expect(diagnosticsOf(row)).toEqual([]);
+    expect(completionsIn(row)).toEqual(["x:field"]);
+    // A nominal record inference already knows at the dot: its fields, which a
+    // bare read reaches, and none of its companion's operations or members,
+    // which a dot call there would be refused.
+    const nominal = [
+      "module Main",
+      POINT,
+      "fun probe(p) =",
+      "    let q: Point = p",
+      "    p.‸x",
+      "",
+    ].join("\n");
+    expect(diagnosticsOf(nominal)).toEqual([]);
+    expect(completionsIn(nominal)).toEqual(["x:field", "y:field"]);
+  });
+
+  test("an operation declared below the dot in its own file is not offered (§4.4)", () => {
+    const source = [
+      "module Main",
+      "export record Point = { x: Int, y: Int }",
+      "fun before(p: Point): Int = p.‸x",
+      "export fun norm(p: Point): Int = p.x + p.y",
+      "fun after(p: Point): Int = p.‸x",
+      "",
+    ].join("\n");
+    expect(diagnosticsOf(source)).toEqual([]);
+    expect(completionsIn(cursorAt(source, 0))).toEqual(["x:field", "y:field"]);
+    expect(completionsIn(cursorAt(source, 1))).toEqual(["norm:operation", "x:field", "y:field"]);
+    // The dot's own refusal says the same.
+    expect(diagnosticsOf(source.replace("p.‸x", "p.norm()"))).toContainEqual(
+      expect.stringContaining("declares `norm` below this call"),
+    );
+  });
+
+  test("a member of the `fun` block the dot stands in is not offered (§4.4)", () => {
+    const source = [
+      "module Main",
+      "export record Box = { value: Int }",
+      "fun",
+      "    export twice(b: Box): Int = b.‸value * 2",
+      "    export quadruple(b: Box): Int = b.‸value * 2",
+      "fun outside(b: Box): Int = b.‸value",
+      "",
+    ].join("\n");
+    expect(diagnosticsOf(source)).toEqual([]);
+    expect(completionsIn(cursorAt(source, 0))).toEqual(["value:field"]);
+    expect(completionsIn(cursorAt(source, 1))).toEqual(["value:field"]);
+    expect(completionsIn(cursorAt(source, 2))).toEqual([
+      "quadruple:operation",
+      "twice:operation",
+      "value:field",
+    ]);
+  });
+
+  test("a member whose honor stands below the dot in this module is not offered", () => {
+    // Constraints §4.8's top-down law: a use of an instance this module
+    // declares stands below its honor's knot, or inside it.
+    const source = [
+      "module Main",
+      "export record P = { name: String }",
+      "constraint Tag<a> =",
+      "    tag(s: a) -> String",
+      "fun before(p: P): String = p.‸name",
+      "honor Tag<P> =",
+      "    tag(s) = s.‸name",
+      "fun after(p: P): String = p.‸name",
+      "",
+    ].join("\n");
+    expect(diagnosticsOf(source)).toEqual([]);
+    expect(completionsIn(cursorAt(source, 0))).toEqual(["name:field"]);
+    expect(completionsIn(cursorAt(source, 1))).toEqual(["name:field", "tag:member"]);
+    expect(completionsIn(cursorAt(source, 2))).toEqual(["name:field", "tag:member"]);
+    expect(diagnosticsOf(source.replace("p.‸name", "p.tag()"))).toContainEqual(
+      expect.stringContaining("its honor is declared below it"),
+    );
   });
 
   test("a `Nat` lists the tower members it owns but does not honor, marked as needing a face", () => {

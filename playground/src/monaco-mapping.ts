@@ -119,7 +119,14 @@ export function toCodeAction<Uri, Range>(
  * numbered because this file may not import Monaco, and `monaco.ts` asserts that
  * every one of these is a real member.
  */
-export type CompletionIconKind = "Function" | "Variable" | "Constructor" | "Class" | "Module";
+export type CompletionIconKind =
+  | "Function"
+  | "Variable"
+  | "Constructor"
+  | "Class"
+  | "Module"
+  | "Field"
+  | "Method";
 
 /**
  * The icon a completion kind is shown with — the language server's
@@ -141,6 +148,13 @@ export function completionKindOf(kind: string): CompletionIconKind {
       return "Class";
     case "module":
       return "Module";
+    case "field":
+      return "Field";
+    // A companion operation and a constraint member are both called after the
+    // dot, so both are methods to an editor; a member's mark tells them apart.
+    case "operation":
+    case "member":
+      return "Method";
     case "parameter":
     case "value":
     default:
@@ -154,7 +168,8 @@ export function completionKindOf(kind: string): CompletionIconKind {
  * string would let it run `command:` links.
  */
 export interface MappedCompletionItem<Range> {
-  readonly label: string;
+  /** Monaco's `CompletionItemLabel` where there is a mark to show beside the name. */
+  readonly label: string | { readonly label: string; readonly description: string };
   readonly kind: CompletionIconKind;
   readonly insertText: string;
   readonly range: Range;
@@ -166,8 +181,9 @@ export interface MappedCompletionItem<Range> {
  * One offered name as Monaco's.
  *
  * The same fields the language server sends (`onCompletion` in `server.ts`):
- * the type as `detail`, which is the plain string beside the label, and the
- * documentation as Markdown. `range` is the partial name being typed, which is
+ * the type as `detail`, which is the plain string beside the label, the
+ * documentation as Markdown, and a member's mark as the label's description,
+ * where the server puts it in `labelDetails`. `range` is the partial name being typed, which is
  * what Monaco filters the list against as typing continues and what accepting
  * an item replaces — every item gets the same one.
  */
@@ -176,7 +192,9 @@ export function toCompletionItem<Range>(
   range: Range,
 ): MappedCompletionItem<Range> {
   return {
-    label: completion.name,
+    label: completion.mark === undefined
+      ? completion.name
+      : { label: completion.name, description: completion.mark },
     kind: completionKindOf(completion.kind),
     insertText: completion.name,
     range,

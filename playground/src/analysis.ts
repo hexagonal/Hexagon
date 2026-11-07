@@ -22,7 +22,13 @@
  * compile.
  */
 
-import { AnalysisSession, hoverMarkdown, type CodeAction, type Source } from "../../compiler/src/index";
+import {
+  AnalysisSession,
+  completionMark,
+  hoverMarkdown,
+  type CodeAction,
+  type Source,
+} from "../../compiler/src/index";
 
 import { identifierStartBefore } from "../../compiler/src/support/identifiers";
 
@@ -150,14 +156,18 @@ export class PlaygroundAnalysis {
     if (at === undefined) {
       return { items: [], range: { startOffset: offset, endOffset: offset } };
     }
-    const items = this.#session.completions(at.path, at.offset).map((completion) => ({
-      name: completion.name,
-      kind: completion.kind,
-      ...(completion.detail === undefined ? {} : { detail: completion.detail }),
-      ...(completion.documentation === undefined
-        ? {}
-        : { documentation: completion.documentation }),
-    }));
+    const items = this.#session.completions(at.path, at.offset).map((completion) => {
+      const mark = completionMark(completion);
+      return {
+        name: completion.name,
+        kind: completion.kind,
+        ...(completion.detail === undefined ? {} : { detail: completion.detail }),
+        ...(completion.documentation === undefined
+          ? {}
+          : { documentation: completion.documentation }),
+        ...(mark === undefined ? {} : { mark }),
+      };
+    });
     return {
       items,
       range: { startOffset: identifierStartBefore(source, offset), endOffset: offset },

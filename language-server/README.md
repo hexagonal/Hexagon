@@ -222,8 +222,12 @@ arm's binder has gone.
 §8.4 asks for exactly the candidates the dot resolves against: a head-known
 nominal's visible fields, its companion's operations and the members honored at
 it, marked as members; a declared type variable's bound members; a record row's
-known fields; and, for a subject the program's text does not decide, nothing.
-That is a judgment the checker makes at the dot, and it cannot be recovered
+known fields; and, for a subject the program's text does not decide, no
+companion operations and no members, only the fields a bare read reaches there.
+Operations and members the dot may not reach are left out: in the home module's
+own file, an operation declared below the dot or in a `fun` block the dot
+stands inside (§4.4), and a member whose honor stands below the dot outside its
+knot (Constraints §4.8). That is a judgment the checker makes at the dot, and it cannot be recovered
 afterwards from the receiver's solved type: inference can learn the type on a
 later line after the dot has already been refused because the text did not
 decide it (§3.5), and offering from the solved type would offer calls the
@@ -680,10 +684,6 @@ less than it looks.
   onward (`q.x`, `q.le`). The dot record is shaped so that a parse which keeps
   the unfinished dot can feed it unchanged; how the parser should keep it is
   awaiting a ruling.
-- **Completion after a dot can offer an operation declared below the call.**
-  The companion set is the type's, and a dot in the home module's own file
-  reaches only operations declared above it (Method Syntax §4.4). Completion
-  lists the whole set there, and the call is then refused with §4.4's report.
 - **Completion offers no constraint names.** They appear only in `<a: C>` and
   `honor C<T>`, positions this does not detect, and the built-in set lives in the
   checker rather than in any table a query can read.

@@ -504,15 +504,20 @@ export interface DotSite {
   readonly name: Source.Span;
   /**
    * Whether the program's text decides the receiver's type here (§3.1). False
-   * where it does not — the dot call is refused there (§3.5) — and where the
-   * receiver's own elaboration failed: in both, the dot has no candidates.
+   * where it does not — a dot call is refused there (§3.5) — and where the
+   * receiver's own elaboration failed.
    */
   readonly decided: boolean;
   /**
-   * The one candidate set the dot resolves against (§4.2, §11.2), as §8.4 lists
-   * it: a head-known nominal's visible fields, its companion's operations and
-   * the members honored at it; a declared type variable's bound members; a
-   * record row's known fields. Empty where `decided` is false.
+   * What the dot accepts (§4.2, §11.2), as §8.4 lists it: a head-known
+   * nominal's visible fields, its companion's operations and the members
+   * honored at it; a declared type variable's bound members; a record row's
+   * known fields. Where `decided` is false there are no companion candidates
+   * and no members, only the fields a bare read reaches at the dot. An
+   * operation or member this dot may not reach is left out: one declared
+   * below it in its own file or in a `fun` block it stands inside (§4.4), or
+   * one whose honor in this module stands below the dot outside its knot
+   * (Constraints §4.8).
    */
   readonly candidates: readonly DotCandidate[];
 }

@@ -53,6 +53,7 @@ import { TextDocument } from "vscode-languageserver-textdocument";
 import { basename } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  completionMark,
   hoverMarkdown,
   refused,
   type Completion,
@@ -300,7 +301,7 @@ export function startServer(connection: Connection): void {
     // for Markdown, which only this field renders as such. `detail` goes on
     // carrying the type, which is what a reader scanning the list wants first.
     return offered.map((completion): CompletionItem => {
-      const mark = memberMarkOf(completion);
+      const mark = completionMark(completion);
       return {
         label: completion.name,
         kind: completionKindOf(completion.kind),
@@ -891,17 +892,6 @@ function completionKindOf(kind: Completion["kind"]): CompletionItemKind {
     case "member":
       return CompletionItemKind.Method;
   }
-}
-
-/**
- * Method Syntax §8.4's marks: a member says whose member it is, and a tower
- * member the type owns without honoring its rung says it needs a written type,
- * as the operator does. Plain text, shown beside the label.
- */
-function memberMarkOf(completion: Completion): string | undefined {
-  if (completion.constraint === undefined) return undefined;
-  const whose = `${completion.constraint} member`;
-  return completion.needsFace === true ? `${whose}, needs a written type` : whose;
 }
 
 /**

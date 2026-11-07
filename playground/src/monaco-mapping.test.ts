@@ -257,19 +257,53 @@ describe("toCompletionItem", () => {
     expect("detail" in item).toBe(false);
     expect("documentation" in item).toBe(false);
   });
+
+  test("shows a member's mark beside its name, as the language server does", () => {
+    const item = toCompletionItem(
+      { name: "show", kind: "member", detail: "Point -> String", mark: "Show member" },
+      range,
+    );
+
+    expect(item).toEqual({
+      label: { label: "show", description: "Show member" },
+      kind: "Method",
+      insertText: "show",
+      range: [27, 29],
+      detail: "Point -> String",
+    });
+  });
 });
 
 describe("completionKindOf", () => {
   test("draws each kind the session sends as the language server does", () => {
     expect(
-      ["value", "function", "parameter", "constructor", "type", "module"].map(completionKindOf),
-    ).toEqual(["Variable", "Function", "Variable", "Constructor", "Class", "Module"]);
+      [
+        "value",
+        "function",
+        "parameter",
+        "constructor",
+        "type",
+        "module",
+        "field",
+        "operation",
+        "member",
+      ].map(completionKindOf),
+    ).toEqual([
+      "Variable",
+      "Function",
+      "Variable",
+      "Constructor",
+      "Class",
+      "Module",
+      "Field",
+      "Method",
+      "Method",
+    ]);
   });
 
   test("draws a kind it has never heard of as a plain value rather than failing", () => {
-    // The session gains kinds (record fields after a value's dot, for one);
-    // an icon this file has no entry for must not cost the item.
-    expect(completionKindOf("field")).toBe("Variable");
-    expect(completionKindOf("member")).toBe("Variable");
+    // The session gains kinds over time; an icon this file has no entry for
+    // must not cost the item.
+    expect(completionKindOf("keyword")).toBe("Variable");
   });
 });

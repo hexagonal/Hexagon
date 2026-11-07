@@ -93,6 +93,7 @@ export {
 } from "./queries/documentation.js";
 export {
   collectCompletions,
+  completionMark,
   qualifierAt,
   type Completion,
   type CompletionInput,

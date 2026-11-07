@@ -153,6 +153,12 @@ export interface PlaygroundCompletion {
   readonly detail?: string;
   /** The declaration's documentation as Markdown, for the ones that carry any. */
   readonly documentation?: string;
+  /**
+   * Shown beside the label: for a constraint member after a dot, whose member
+   * it is (Method Syntax §8.4's "marked as members"), worded by the compiler's
+   * `completionMark`, as the language server words it.
+   */
+  readonly mark?: string;
 }
 
 /**
