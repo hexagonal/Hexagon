@@ -1,6 +1,6 @@
 # Regex literals checked and built while compiling: the deliberation record
 
-**Status:** Notes, not normative. The write-ups James ruled on, 2026-11-06, for regex.md §8's check and construction of literal patterns (#1468), kept verbatim as they stood at each ruling, with a status line and, where a claim turned out wrong, a correction added after it. `spec/regex.md` is the decided text. The parts were separate files during the deliberation, `REGEX-BUILD-D1.md` to `REGEX-BUILD-D4.md`, and refer to each other by those names. The probes and measurements they cite were run on the deliberation's branch and machine, and are not kept in the repository.
+**Status:** Notes, not normative. The write-ups James ruled on, 2026-11-06, for regex.md §8's check and construction of literal patterns (#1468), kept verbatim as they stood at each ruling, with a status line and, where a claim turned out wrong, a correction added after it. `spec/regex.md` is the decided text. The parts were separate files during the deliberation, `REGEX-BUILD-D1.md` to `REGEX-BUILD-D4.md`, and refer to each other by those names; the last part, `REGEX-BUILD-R1.md`, discusses one of the readings the spec amendment asked James to confirm. The probes and measurements they cite were run on the deliberation's branch and machine, and are not kept in the repository.
 
 ---
 
@@ -368,3 +368,75 @@ How does a refused literal meet the Rewrite Rule?
 - **A third family of rewrite-less restrictions** elsewhere in the language. That would suggest the Preamble's paragraph wants a general test rather than a list.
 
 **Meanwhile:** I am revising the spec amendment (#1469) for decisions 1 to 3 with (a) in place, marked as waiting on this ruling. Nothing merges before you rule.
+
+---
+
+## The table of group names (spec PR #1469, reading 1)
+
+**Status:** confirmed by James on 2026-11-07 ("proceed"): the table stays a vector in group order, option (a), with #1469's four other readings. *Written for discussion the same day: a reading in #1469, not a new decision, which James asked to discuss before confirming.*
+
+### What changes, and why
+
+A `Regex` remembers which number each named group has, so that `groupIndex(regex, "year")` and `m.named("year")` can answer. Today that table is a `Map(String, Int)` inside the opaque `Regex` and `Match` records. #1469 makes it a `Vector((String, Int))` in group order, and a lookup walks it from the start.
+
+The reason is decision 3: a literal's `Regex` is built while compiling and written into the program as JavaScript data. A `Map` can't be written that way. Its entries sit where a per-process random seed puts them (Collections Part 2 §2.4, kept for HashDoS resistance and marked "do not re-litigate"). A map written out by the compiler's process would be laid out by the compiler's seed, and the running program, with its own seed, would look in the wrong places. So either the table isn't a `Map`, or the program rebuilds the `Map` when it loads.
+
+**What the programmer sees:** nothing. `groupIndex` and `named` give the same answers, and both records are opaque, so their layout is the library's to change (§4.1). `Regex.Syntax`'s public `Pattern` keeps its `Map`. Only the speed of a lookup changes.
+
+**Up front:**
+- **Doctrine:** seeded placement stays as Collections §2.4 rules it, under every option. Both options below emit what a person would write. Option (a) keeps §8's "written as JavaScript data" exact. Option (b) needs a second clause in the Effects §6.2 sentence #1469 adds, for a part the loading program rebuilds.
+- **Colleague engines** (read from their sources today):
+  - **Go:** `SubexpIndex` is a loop over `subexpNames` in group order.
+  - **OCaml's Re:** `group_names : re -> (string * int) list`, an association list.
+  - **PCRE2:** a name table "in alphabetical order", searched by bisection.
+  - **RE2:** a `std::map` (an ordered tree).
+  - **Rust's regex, Python, Java and .NET:** a hash map (`HashMap`, `dict`, `HashMap` and `Hashtable`). Rust also keeps a vector in group order for listing the names.
+- **HM:** nothing here touches inference. The field sits inside an opaque record.
+
+### What it costs (measured, Node 24.18.0, nanoseconds per lookup, best of five)
+
+| named groups | `Map` | vector in group order | sorted vector, bisected |
+|---|---|---|---|
+| 1 | 45 | 140 | 140 |
+| 10 | 81 | 150 | 410 |
+| 30 | 90 | 380 | 890 |
+| 100 | 132 | 1,340 | 1,310 |
+| 300 | 131 | 3,940 | 630 |
+| 1000 | 137 | 10,480 | 2,600 |
+
+The vector column is the slowest case, the last name or a name the pattern doesn't have.
+
+- **Against the search that produced the match,** the lookup is small at every size. Finding a match and reading one group by name cost 110 µs with 10 named groups, 1.1 ms with 100, and 134 ms with 1000. For a date pattern on a short line, three `named` lookups after a `find` did not register in the timing at all (82 µs either way).
+- **Rebuilding a `Map` at load** costs about half a microsecond a name: 4 µs for 10 names, 54 µs for 100, 580 µs for 1000. Evaluating a whole constant costs 130 to 370 µs.
+- **The emitted constant searches as fast as a pattern built at run time**, 83 µs against 83 µs. I checked this because the constant is new.
+
+### The options
+
+**(a) A vector in group order (what #1469 says).**
+- **What it gives:**
+  - the constant is pure data, and the Effects §6.2 condition ("nothing whose reading depends on the process that built it") holds by construction;
+  - the names have a fixed order, group order, which a `Map` promises only within one run (§2.4). It is the order Go, OCaml's Re and Rust list names in, if Hexagon ever exports such a list;
+  - it is already written, reviewed and tested.
+- **Cost:** a lookup is linear in the named groups. That is 70 to 100 ns slower up to 10 names, and 10 µs at 1000 names. It stays under 1% of the search behind each match.
+
+**(b) Keep the `Map`, and rebuild it when the program loads.** The constant carries the entries, and the emitted code calls `Map.fromVector` on them.
+- **What it gives:**
+  - the library keeps the type that says what the table is;
+  - lookups stay flat at every size;
+  - the printer learns to write any `Map` or `Set`, which a future build-time constant could reuse.
+- **Cost:**
+  - each named literal does a little work at load (above);
+  - the printer gains a case for hash tables;
+  - the Effects §6.2 sentence gains a clause for a part the loading program rebuilds;
+  - #1469's §4.1, §4.5 and §6.4 edits and the implementation's record change are undone.
+
+**(c) A vector sorted by name, bisected (PCRE2).** It is pure data, like (a). Measured in Hexagon, though, it is no faster than (a)'s walk below about 300 names, and four times faster only at 1000. That is not enough to pay for a second ordering. I don't recommend it.
+
+### Recommendation
+
+**(a).** The two options differ by under 1% of the search that produces every match, so speed doesn't choose between them. What does: (a) keeps the constant a plain copy, with no rebuilt parts and no second clause in Effects §6.2. It also gives the names an order that holds across runs. Go and OCaml's Re, the two colleagues closest to Hexagon's shape, make the same choice. (b) is a sound alternative if you would rather the library keep the `Map`. Its cost is one printer case and one more clause.
+
+**What would revisit it:**
+- **Another build-time constant that holds a `Map` or a `Set`.** The printer would need (b)'s case anyway, and the table could go back to a `Map` at little extra cost.
+- **Field evidence** of patterns with hundreds of named groups read by name in a hot loop.
+- **An export that lists the names.** That would favour (a), or Rust's arrangement of both a vector and a map.
