@@ -82,6 +82,7 @@ import {
   varianceHover,
 } from "../queries/variance-claims.js";
 import { collectCompletions, type Completion } from "../queries/completions.js";
+import { signatureHelpAt, type SignatureHelp } from "../queries/signature-help.js";
 import {
   planReturnAnnotation,
   refusedAnnotation,
@@ -728,6 +729,31 @@ export class AnalysisSession {
       facts: analysis.symbolFacts,
       docs: analysis.documentation,
       ...(module?.typed === undefined ? {} : { typed: module.typed }),
+    });
+  }
+
+  /**
+   * The call whose arguments the caret is in: the callee's face as hover shows
+   * it, its parameters, and which one the caret is on (`signatureHelpAt`).
+   *
+   * Like `completions`, asked of a buffer mid-keystroke, and for the same
+   * reason it can answer: the parser keeps a call it could not close, and the
+   * checker types it.
+   */
+  signatureHelp(path: string, offset: number): SignatureHelp | undefined {
+    const normalized = normalizePath(path);
+    const text = this.#texts.get(normalized);
+    if (text === undefined) return undefined;
+    const analysis = this.#analyze();
+    const typed = analysis.moduleAt(normalized, offset)?.typed;
+    if (typed === undefined) return undefined;
+    return signatureHelpAt({
+      text,
+      offset,
+      typed,
+      trees: analysis.trees,
+      typeOccurrenceAt: (span) => analysis.typeOccurrenceAt(normalized, span),
+      documentationOf: (symbol) => analysis.symbolFacts.get(Number(symbol))?.documentation,
     });
   }
 
@@ -1676,6 +1702,11 @@ class Analysis {
   readonly symbolFacts: ReadonlyMap<number, SymbolFacts>;
   /** Attached documentation, indexed for lookup by name and by position. */
   readonly documentation: DocumentationIndex;
+  /**
+   * Every tree the compile checked, emitted or not (`CompiledProject.typedModules`):
+   * where signature help finds the declaration that names a callee's parameters.
+   */
+  readonly trees: readonly Typed.Module[];
 
   constructor(
     project: {
@@ -1723,6 +1754,7 @@ class Analysis {
         ...(project.typedModules ?? []),
       ]),
     ];
+    this.trees = trees;
     this.documentation = DocumentationIndex.of(trees);
     this.symbolFacts = collectSymbolFacts(trees.map((typed) => ({ typed })), this.documentation);
     // Built before the indexing loop: an import may name a module compiled after

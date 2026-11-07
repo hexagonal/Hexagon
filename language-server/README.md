@@ -2,7 +2,7 @@
 
 The Hexagon language server: the process that exposes Hexagon language intelligence through Microsoft's Language Server Protocol (LSP).
 
-Four slices are implemented over a compiler-owned analysis session: diagnostics, hover, go-to-definition and find-references; then semantic tokens, rename and completion; then quick fixes, the diagnostic-driven half of code actions; then documentation in hover and completion. Formatting, refactoring actions and workspace symbols are not, and the server does not announce them; a capability announced but unimplemented offers the user a command that silently does nothing.
+Five slices are implemented over a compiler-owned analysis session: diagnostics, hover, go-to-definition and find-references; then semantic tokens, rename and completion; then quick fixes, the diagnostic-driven half of code actions; then documentation in hover and completion; then signature help. Formatting, refactoring actions and workspace symbols are not, and the server does not announce them; a capability announced but unimplemented offers the user a command that silently does nothing.
 
 This document states the boundary between the language server and the compiler. That boundary is the reason the server is small: every request handler converts coordinates, asks the session one question, and converts the answer back.
 
@@ -25,6 +25,7 @@ The language server does **not** implement a second Hexagon frontend or type che
 - hover information;
 - go-to-definition and reference discovery;
 - completion candidates;
+- signature help;
 - rename validation and edits;
 - semantic token classification; and
 - incremental analysis state.
@@ -108,6 +109,7 @@ Eight compiler queries sit behind these answers, and each exists because no othe
 - `queries/documentation.ts` indexes the doc content the parser attached (`spec/doc-comments.md` §4), under both the names a declaration introduces and the declaration's own first token — an editor holds a name, and the two are the same offset only for the forms that begin with theirs. It also answers by *position*, for the five documentable places the occurrence index has no identity for at all: an `honor` member's name is a bare string in the resolved tree, a record field is not a symbol, a `type` alias is expanded away, and no occurrence walk visits an implied type's name — a constraint's `type` member or an `honor` block's binding of it.
 - `queries/semantic-tokens.ts` classifies names, and only names — see below.
 - `queries/completions.ts` answers what could be written at an offset, from a scope record the resolver now keeps.
+- `queries/signature-help.ts` answers which call's arguments the caret is in, and which parameter it is on — see below.
 - `queries/type-spelling.ts` writes a type back out as source: which nominal types this module has a *name* for, and what to call each type variable.
 - `queries/return-annotation.ts` finds the function a missing return type belongs to and where the colon goes.
 
@@ -253,6 +255,33 @@ closed block's span runs one past its `*)`, so a caret there is already outside
 it, while an unterminated one runs to the end of the file and that last offset is
 exactly where the caret sits as it is being typed. Closure is counted, since
 block comments nest and a text ending in `*)` is not proof of it.
+
+## Signature help
+
+While a call's arguments are being written, the editor shows the callee's line
+exactly as hover shows it — `map: (Vector(a), a ->! b) >-> Vector(b)` — with the
+parameter the caret is on highlighted, its declared name under it, and the
+declaration's documentation below that. The face is the declaration's, not the
+call's instance of it: the arguments are still being written, and the colours
+stay in the arrow, where hover shows them.
+
+Nothing here is computed afresh. The call is the innermost one in the checked
+tree whose parentheses hold the caret; the parser keeps a call it could not
+close (`add(q, ` is a call whose second argument is an error), so the moment the
+user is typing is the moment there is one to read. The face is the type
+occurrence hover reads at the callee's name. A receiver (`v.map(`) or a piped
+value (`x |> f(`) is the call's first argument without being written inside the
+parentheses, so it counts first, and the highlight lands on the parameter the
+text in front of the caret fills; past that, it is the commas the lexer finds
+between the arguments, so one inside a comment or a string is not one.
+
+Each parameter is named by where it stands in the label, for a client that
+reads that (`labelOffsetSupport`, which VS Code and the Playground both do): in
+`(Int, Int) -> Int` only the place tells the two `Int`s apart. A client that
+does not gets the protocol's fallback, the parameter's text. A parameter's name
+comes from the declaration where it has one — a `fun`, a `let` bound to a
+lambda, an `extern fun`, a constraint member — and a union's constructor, a
+record field holding a function and a pattern parameter have none to show.
 
 ## Quick fixes
 
@@ -419,6 +448,11 @@ The fourth adds:
     as the Markdown §6 says it is — including at the positions that reach
     neither emitted artifact, which is what makes documenting a local binder or
     an `honor` member worth doing at all.
+
+The fifth adds:
+
+13. signature help while a call's arguments are written, in VS Code and the
+    Playground.
 
 Formatting, refactoring code actions and workspace symbols follow as the necessary compiler services become stable. Features are not simulated with textual guesses when semantic information is required — where these slices read source text, it is to locate a name the tree already said was there, or to read a half-typed line no tree describes yet, never to decide what a name means.
 

@@ -45,6 +45,7 @@ import {
   type MarkupContent,
   type Range,
   type SemanticTokens,
+  type SignatureHelp,
   type TextEdit,
   type WorkspaceEdit,
   uinteger,
@@ -55,9 +56,12 @@ import { fileURLToPath } from "node:url";
 import {
   completionMark,
   hoverMarkdown,
+  parameterMarkdown,
   refused,
+  signatureMarkdown,
   type Completion,
   type Hover as SessionHover,
+  type SignatureHelp as SessionSignatureHelp,
   type Source,
 } from "../../compiler/src/index.js";
 import { toLspDiagnostic } from "./diagnostics.js";
@@ -88,6 +92,8 @@ export function startServer(connection: Connection): void {
   let watchedFilesRegistered = false;
   /** Read once at initialization: what shape of code action this client takes. */
   let codeActions: CodeActionSupport = { literals: false, disabled: false };
+  /** Read once at initialization: whether this client reads a parameter by its place in the label. */
+  let labelOffsets = false;
   let roots: readonly string[] = [];
   /**
    * Whether this client takes a `WorkspaceEdit`'s `documentChanges` — which is
@@ -129,6 +135,8 @@ export function startServer(connection: Connection): void {
       params.capabilities.workspace?.workspaceEdit?.documentChanges === true;
     watchedFilesRegistered = params.capabilities.workspace?.didChangeWatchedFiles?.dynamicRegistration === true;
     codeActions = codeActionSupportOf(params.capabilities.textDocument?.codeAction);
+    labelOffsets = params.capabilities.textDocument?.signatureHelp?.signatureInformation
+      ?.parameterInformation?.labelOffsetSupport === true;
     return {
       capabilities: {
         // Incremental sync keeps a large file's edits proportional to the edit
@@ -153,6 +161,9 @@ export function startServer(connection: Connection): void {
         // cannot follow a dot. No `resolveProvider`: every item is complete when
         // it is sent, so there is nothing a second round trip would add.
         completionProvider: { triggerCharacters: ["."] },
+        // `(` opens a call and `,` moves to its next parameter; between the
+        // two, a client that is showing the help asks again as the caret moves.
+        signatureHelpProvider: { triggerCharacters: ["(", ","] },
         // Quick fixes only: every action this slice offers answers a diagnostic,
         // and declaring a kind the server never returns makes a client ask for
         // it on every save. No `resolveProvider` — an action arrives complete,
@@ -312,6 +323,16 @@ export function startServer(connection: Connection): void {
           : { documentation: { kind: MarkupKind.Markdown, value: completion.documentation } }),
       };
     });
+  });
+
+  connection.onSignatureHelp(({ textDocument, position }): SignatureHelp | null => {
+    const document = documents.get(textDocument.uri);
+    if (document === undefined) return null;
+    const path = workspace.pathFor(textDocument.uri);
+    const session = workspace.sessionFor(path);
+    if (session === undefined) return null;
+    const help = session.signatureHelp(path, offsetOfPosition(document, position));
+    return help === undefined ? null : toLspSignatureHelp(help, labelOffsets);
   });
 
   connection.onCodeAction(({ textDocument, range, context }): CodeAction[] | null => {
@@ -862,6 +883,37 @@ function wholeDocument(text: string): Range {
  */
 function hoverContents(hover: SessionHover): MarkupContent {
   return { kind: "markdown", value: hoverMarkdown(hover) };
+}
+
+/**
+ * The session's signature help as the protocol carries it: one signature, its
+ * parameters, and the one the caret is on.
+ *
+ * A parameter is named by where it stands in the label when the client can
+ * read that (`labelOffsetSupport`), and by its text otherwise. The text is the
+ * protocol's fallback and a client highlights its first occurrence, which in
+ * `(Int, Int) -> Int` is always the first `Int`; the offsets are what make the
+ * highlight land on the right one.
+ */
+export function toLspSignatureHelp(help: SessionSignatureHelp, labelOffsets: boolean): SignatureHelp {
+  const documentation = signatureMarkdown(help);
+  return {
+    signatures: [{
+      label: help.label,
+      ...(documentation === undefined ? {} : { documentation: { kind: MarkupKind.Markdown, value: documentation } }),
+      parameters: help.parameters.map((parameter) => {
+        const named = parameterMarkdown(parameter);
+        const [start, end] = parameter.range;
+        return {
+          label: labelOffsets ? [start, end] : help.label.slice(start, end),
+          ...(named === undefined ? {} : { documentation: { kind: MarkupKind.Markdown, value: named } }),
+        };
+      }),
+      activeParameter: help.activeParameter,
+    }],
+    activeSignature: 0,
+    activeParameter: help.activeParameter,
+  };
 }
 
 /**

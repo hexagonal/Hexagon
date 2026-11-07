@@ -26,6 +26,7 @@ import type {
   PlaygroundCompletion,
   PlaygroundRenamePlan,
   PlaygroundRenameRefusal,
+  PlaygroundSignatureHelp,
   PlaygroundTextEdit,
 } from "./protocol";
 
@@ -202,6 +203,53 @@ export function toCompletionItem<Range>(
     ...(completion.documentation === undefined
       ? {}
       : { documentation: { value: completion.documentation, isTrusted: false as const } }),
+  };
+}
+
+/** Monaco's `IMarkdownString`, untrusted for the reason `MappedCompletionItem`'s is. */
+interface UntrustedMarkdown {
+  readonly value: string;
+  readonly isTrusted: false;
+}
+
+/** Monaco's `SignatureHelp`, from the fields the language server sends. */
+export interface MappedSignatureHelp {
+  readonly signatures: readonly {
+    readonly label: string;
+    readonly documentation?: UntrustedMarkdown;
+    readonly parameters: readonly {
+      readonly label: [number, number];
+      readonly documentation?: UntrustedMarkdown;
+    }[];
+    readonly activeParameter: number;
+  }[];
+  readonly activeSignature: number;
+  readonly activeParameter: number;
+}
+
+/**
+ * The call the caret is in, as Monaco's signature help.
+ *
+ * The same fields the language server sends (`toLspSignatureHelp` in
+ * `server.ts`), with each parameter named by its place in the label. Monaco
+ * reads places, and only a place tells the two `Int`s of `(Int, Int) -> Int`
+ * apart.
+ */
+export function toSignatureHelp(help: PlaygroundSignatureHelp): MappedSignatureHelp {
+  const markdown = (value: string | undefined): { documentation?: UntrustedMarkdown } =>
+    value === undefined ? {} : { documentation: { value, isTrusted: false } };
+  return {
+    signatures: [{
+      label: help.label,
+      ...markdown(help.documentation),
+      parameters: help.parameters.map((parameter) => ({
+        label: [parameter.range[0], parameter.range[1]],
+        ...markdown(parameter.documentation),
+      })),
+      activeParameter: help.activeParameter,
+    }],
+    activeSignature: 0,
+    activeParameter: help.activeParameter,
   };
 }
 

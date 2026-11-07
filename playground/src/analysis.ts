@@ -26,6 +26,8 @@ import {
   AnalysisSession,
   completionMark,
   hoverMarkdown,
+  parameterMarkdown,
+  signatureMarkdown,
   type CodeAction,
   type Source,
 } from "../../compiler/src/index";
@@ -40,6 +42,7 @@ import type {
   PlaygroundRenamePlan,
   PlaygroundRenameRefusal,
   PlaygroundRenameSubject,
+  PlaygroundSignatureHelp,
   PlaygroundTextEdit,
 } from "./protocol";
 import {
@@ -171,6 +174,28 @@ export class PlaygroundAnalysis {
     return {
       items,
       range: { startOffset: identifierStartBefore(source, offset), endOffset: offset },
+    };
+  }
+
+  /**
+   * The call whose arguments the caret is in, worded as the language server
+   * words it. Nothing in it is a buffer position, so nothing is mapped back.
+   */
+  signatureHelp(source: string, offset: number): PlaygroundSignatureHelp | undefined {
+    const layout = this.#sync(source);
+    const at = layout.map.locate(offset);
+    if (at === undefined) return undefined;
+    const help = this.#session.signatureHelp(at.path, at.offset);
+    if (help === undefined) return undefined;
+    const documentation = signatureMarkdown(help);
+    return {
+      label: help.label,
+      ...(documentation === undefined ? {} : { documentation }),
+      parameters: help.parameters.map((parameter) => {
+        const named = parameterMarkdown(parameter);
+        return { range: parameter.range, ...(named === undefined ? {} : { documentation: named }) };
+      }),
+      activeParameter: help.activeParameter,
     };
   }
 

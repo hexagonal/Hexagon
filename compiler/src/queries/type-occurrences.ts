@@ -13,6 +13,11 @@ export interface TypeOccurrence {
    */
   readonly colourOwners?: readonly string[];
   readonly span: Source.Span;
+  /**
+   * The scheme `displayedType` shows, for a display that needs more than the
+   * text: signature help's parameter positions (`Typed.displayCallFace`).
+   */
+  readonly scheme?: Typed.Scheme;
   /** The value this names, when it names one. Absent for a record field. */
   readonly symbol?: Typed.Symbol["id"];
   /**
@@ -49,6 +54,7 @@ export function collectTypeOccurrences(module: Typed.Module): readonly TypeOccur
       displayedType: face.type,
       ...(face.owners.length === 0 ? {} : { colourOwners: face.owners }),
       span,
+      scheme,
       ...(denoted === undefined
         ? {}
         : { symbol: denoted.symbol, receiverBound: denoted.receiverBound }),
@@ -180,7 +186,7 @@ export function collectTypeOccurrences(module: Typed.Module): readonly TypeOccur
           publish(
             expression.text,
             schemeForType(expression.type),
-            expression.receiverBound === true ? expression.span : spanForIdentifier(expression.span, expression.text),
+            occurrenceSpanOf(expression),
             { symbol: expression.symbol, receiverBound: expression.receiverBound === true },
           );
           return;
@@ -197,6 +203,7 @@ export function collectTypeOccurrences(module: Typed.Module): readonly TypeOccur
           if (part.kind === "Interpolation") visitExpr(part.expression);
         }
         return;
+      case "Vector":
       case "Tuple":
         for (const element of expression.elements) visitExpr(element);
         return;
@@ -322,6 +329,15 @@ function typeOfPattern(pattern: Typed.Pattern): Typed.Type | undefined {
     default:
       return undefined;
   }
+}
+
+/**
+ * Where a name's type occurrence stands: a dot call's operation name as the
+ * checker spanned it, any other name's last identifier. Signature help reads
+ * a callee's type at exactly this span.
+ */
+export function occurrenceSpanOf(name: Typed.NameExpr): Source.Span {
+  return name.receiverBound === true ? name.span : spanForIdentifier(name.span, name.text);
 }
 
 /** Qualified names retain an expression span; hover only the final identifier. */

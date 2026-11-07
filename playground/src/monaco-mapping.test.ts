@@ -8,6 +8,7 @@ import {
   toCodeAction,
   toRenameEdits,
   toRenameLocation,
+  toSignatureHelp,
   toWorkspaceEdit,
   hoverAnswersAtOffset,
   type EditTarget,
@@ -271,6 +272,43 @@ describe("toCompletionItem", () => {
       range: [27, 29],
       detail: "Point -> String",
     });
+  });
+});
+
+describe("toSignatureHelp", () => {
+  test("names each parameter by its place in the label, documentation untrusted", () => {
+    expect(
+      toSignatureHelp({
+        label: "add: (Int, Int) -> Int",
+        documentation: "Adds two numbers.",
+        parameters: [{ range: [6, 9], documentation: "`a`" }, { range: [11, 14] }],
+        activeParameter: 1,
+      }),
+    ).toEqual({
+      signatures: [{
+        label: "add: (Int, Int) -> Int",
+        documentation: { value: "Adds two numbers.", isTrusted: false },
+        // A place, never the text: both parameters read `Int`.
+        parameters: [
+          { label: [6, 9], documentation: { value: "`a`", isTrusted: false } },
+          { label: [11, 14] },
+        ],
+        activeParameter: 1,
+      }],
+      activeSignature: 0,
+      activeParameter: 1,
+    });
+  });
+
+  test("leaves out the documentation the session did not send", () => {
+    const mapped = toSignatureHelp({
+      label: "Some: a -> Option(a)",
+      parameters: [{ range: [6, 7] }],
+      activeParameter: 0,
+    });
+
+    expect("documentation" in mapped.signatures[0]!).toBe(false);
+    expect("documentation" in mapped.signatures[0]!.parameters[0]!).toBe(false);
   });
 });
 

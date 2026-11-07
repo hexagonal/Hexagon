@@ -36,6 +36,7 @@ export type EditorAnalysis = Pick<
   | "references"
   | "codeActions"
   | "completions"
+  | "signatureHelp"
   | "prepareRename"
   | "rename"
 >;
@@ -136,6 +137,13 @@ function serve(
           id,
           version,
           completions: analysis.completions(request.source, request.offset),
+        };
+      case "signature-help":
+        return {
+          kind: "signature-help",
+          id,
+          version,
+          help: analysis.signatureHelp(request.source, request.offset),
         };
       case "definition":
         return {
