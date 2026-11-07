@@ -472,6 +472,61 @@ describe("completions after a value's dot", () => {
     expect(byName.has("probe")).toBe(false);
   });
 
+  test("a dot nothing follows yet: the same list, read from the receiver as written", () => {
+    // Decision 2, ruled (a): the parser keeps the unfinished dot, so the list
+    // opens the moment the dot is typed, and the parser's report is the only one.
+    const midBlock = `module Main\n${POINT}fun probe(p: Point): Int =\n    let z = p.‸\n    0\n`;
+    expect(diagnosticsOf(midBlock)).toEqual(["expected a field name after `.`"]);
+    expect(completionsIn(midBlock)).toEqual([
+      "equals:member",
+      "norm:operation",
+      "notEquals:member",
+      "show:member",
+      "x:field",
+      "y:field",
+    ]);
+    const atEnd = "module Main\nfun probe(v: Vector(Int)) = v.map((n) => n + 1).‸";
+    expect(diagnosticsOf(atEnd)).toEqual(["expected a field name after `.`"]);
+    expect(namesIn(atEnd)).toEqual(expect.arrayContaining(["filter", "first", "map"]));
+    expect(completionsIn("module Main\nfun probe<a: Show>(x: a) = x.‸")).toEqual(["show:member"]);
+  });
+
+  test("a dot nothing follows yet after a module is still the module's list, reported once", () => {
+    // A qualifier is not a value: `Vector`, an imported alias, a nested module
+    // path, or this module's own type name stays the qualifier reading.
+    const module = "module Main\nlet probe = Vector.‸";
+    expect(diagnosticsOf(module)).toEqual(["expected a field name after `.`"]);
+    expect(completionsIn(module)).toContain("map:function");
+    const helper = "module Helper\nexport let one: Int = 1\n";
+    const aliased = "module Main\nimport Helper\nlet probe = Helper.‸";
+    expect(completionsIn(aliased, { "/helper.hex": helper })).toEqual(["one:value"]);
+    const nested = "module Main\nlet probe = Regex.Syntax.‸";
+    expect(diagnosticsOf(nested)).toEqual(["expected a field name after `.`"]);
+    const ownType = "module Point\nexport record Point = { x: Int }\nlet probe = Point.‸";
+    expect(diagnosticsOf(ownType)).toEqual(["expected a field name after `.`"]);
+    // The module-alias reading comes first even where a term is spelled the
+    // same (#829): here a constructor of this module.
+    const shadowed = "module Main\nimport Helper as Circle\nunion Shape = Circle | Square\nlet probe = Circle.‸";
+    expect(completionsIn(shadowed, { "/helper.hex": helper })).toEqual(["one:value"]);
+  });
+
+  test("a dot nothing follows yet, after a subject the text does not decide: nothing", () => {
+    const source = "module Main\nfun probe(xs) =\n    let k = Vector.length(xs)\n    xs.‸\n";
+    expect(diagnosticsOf(source)).toEqual(["expected a field name after `.`"]);
+    expect(completionsIn(source)).toEqual([]);
+  });
+
+  test("a dot nothing follows yet after a name that is not there reports the name too", () => {
+    // The receiver is resolved as usual, so a name in scope nowhere is
+    // reported as it would be with a field after the dot.
+    const source = "module Main\nlet probe = nothing.‸";
+    expect(diagnosticsOf(source)).toEqual([
+      "unknown name `nothing`",
+      "expected a field name after `.`",
+    ]);
+    expect(completionsIn(source)).toEqual([]);
+  });
+
   test("a half-typed name after a vector: the companion's operations, with their types", () => {
     const offered = offeredAt("fun probe(v: Vector(Int)): Vector(Int) = v.ma‸\n");
     const map = offered.find(({ name }) => name === "map");

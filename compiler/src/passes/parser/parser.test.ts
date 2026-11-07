@@ -500,6 +500,42 @@ describe("parse", () => {
     expect(module.diagnostics).toEqual([]);
   });
 
+  test("keeps a dot nothing follows yet, its name empty just after the dot", () => {
+    // Decision 2 of the language-server plan, ruled (a): the receiver is kept,
+    // so the checker can say what the dot would accept (Method Syntax §8.4).
+    const module = parseSource("users.at(1).profile.");
+    const dotEnd = HEADER.length + "users.at(1).profile.".length;
+
+    expect(module.diagnostics.map(({ message }) => message)).toEqual([
+      "expected a field name after `.`",
+    ]);
+    expect(expression(module)).toMatchObject({
+      kind: "Access",
+      unfinished: true,
+      field: { text: "", span: { start: { offset: dotEnd }, end: { offset: dotEnd } } },
+      receiver: { kind: "Access", field: { text: "profile" }, receiver: { kind: "Call" } },
+      span: { end: { offset: dotEnd } },
+    });
+  });
+
+  test("an unfinished dot that anything attaches to is the recovery node it was", () => {
+    // A call, an index, a mark or another dot after it would read a name that
+    // is not there, so each meets the error node and reports only the dot.
+    for (const [text, kind] of [
+      ["q.(1)", "Call"],
+      ["q.[0]", "Index"],
+      ["q. .x", "Access"],
+    ] as const) {
+      const module = parseSource(text);
+      expect(module.diagnostics.map(({ message }) => message)).toEqual([
+        "expected a field name after `.`",
+      ]);
+      const parsed = expression(module) as { readonly kind: string; readonly callee?: Parsed.Expr; readonly receiver?: Parsed.Expr };
+      expect(parsed.kind).toBe(kind);
+      expect((parsed.callee ?? parsed.receiver)?.kind).toBe("ErrorExpr");
+    }
+  });
+
   test("puts exponentiation above unary minus and comparisons above not", () => {
     const module = parseSource("let number = -2 ** 2\nlet flag = not a == b and c");
     const bindings = module.items as readonly Parsed.LetItem[];

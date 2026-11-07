@@ -1241,6 +1241,15 @@ export interface AccessExpr {
   readonly receiver: Expr;
   readonly field: Name;
   readonly span: Source.Span;
+  /**
+   * A dot nothing follows yet — `q.` at the end of a half-typed line. The
+   * parser reported the missing name; `field` is empty, its span the empty
+   * place just after the dot, so the receiver is still resolved and typed and
+   * the dot can record what it would accept (Method Syntax §8.4). Kept only
+   * where nothing attaches after it: a call, index, mark or further dot turns
+   * it back into an `ErrorExpr`, as it was before.
+   */
+  readonly unfinished?: true;
 }
 
 export interface IndexExpr {

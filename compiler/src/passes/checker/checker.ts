@@ -13986,6 +13986,13 @@ class Checker {
       case "Access": {
         const inferredReceiver = this.#prune(this.#inferExpr(expression.receiver, level));
         this.#noteDotSite(expression, inferredReceiver);
+        // A dot nothing follows yet: the parser said what is missing, and the
+        // dot has recorded what it would accept. It reads no field, so its own
+        // value is in error, and nothing more is reported.
+        if (expression.unfinished === true) {
+          type = ERROR;
+          break;
+        }
         const receiver = inferredReceiver.kind === "Record"
           ? this.#normalizeRecord(inferredReceiver)
           : inferredReceiver;

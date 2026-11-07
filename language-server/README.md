@@ -206,7 +206,8 @@ a parent pointer, so a reader does not replay the walk that produced it.
 
 Two things follow from the buffer being half-typed at the moment of the request.
 Telling a qualified request (`Vector.`) from an unqualified one reads source text
-rather than a tree, and has to: `Vector.` does not parse. The reading is lexical
+rather than a tree, and has to: the parser keeps `Vector.` only as a recovery
+node, since a module is no value. The reading is lexical
 only — which identifier precedes the dot, by `spec/lexer.md` §3's own definition
 of an identifier — and nothing about meaning is read from text. And a scope
 region ends at its last *token*, which is not where a user asks: pressing Enter
@@ -227,7 +228,10 @@ companion operations and no members, only the fields a bare read reaches there.
 Operations and members the dot may not reach are left out: in the home module's
 own file, an operation declared below the dot, in a `fun` block the dot stands
 inside (§4.4), or whose own `let` the dot is in, and a member whose honor
-stands below the dot outside its knot (Constraints §4.8). That is a judgment the checker makes at the dot, and it cannot be recovered
+stands below the dot outside its knot (Constraints §4.8). The list opens the
+moment the dot is typed: the parser keeps a dot nothing follows yet (`q.`) with
+an empty name, and the receiver is resolved and typed as it would be with a
+name after it. That is a judgment the checker makes at the dot, and it cannot be recovered
 afterwards from the receiver's solved type: inference can learn the type on a
 later line after the dot has already been refused because the text did not
 decide it (§3.5), and offering from the solved type would offer calls the
@@ -676,14 +680,13 @@ less than it looks.
   names, type names and module names are offered together, each carrying its
   kind. Narrowing would need a parse of the line being typed, which is the line
   that does not parse.
-- **Completion after a bare `q.` offers nothing.** With no name after the dot
-  the parser keeps no access, only an error node that drops the receiver, so
-  the checker never meets that dot and has written no judgment for it. The
-  lexical qualifier reading then finds no module named `q` and answers with
-  nothing. Completion after a value works from the first character of the name
-  onward (`q.x`, `q.le`). The dot record is shaped so that a parse which keeps
-  the unfinished dot can feed it unchanged; how the parser should keep it is
-  awaiting a ruling.
+- **After a dot nothing follows yet, the receiver is a value only where it is
+  nothing else.** The parser keeps `q.` with an empty name, and the checker
+  records its judgment as for any dot. A path whose first name is a module
+  (`Vector.`, `Lib.`, `Regex.Syntax.`) is read as a qualifier, from the text,
+  so `Lib.value.` offers nothing until a name follows, where `Lib.value.x`
+  does. A call, index, mark or further dot written straight after the dot
+  (`q.(1)`) meets the recovery node it always did.
 - **Completion offers no constraint names.** They appear only in `<a: C>` and
   `honor C<T>`, positions this does not detect, and the built-in set lives in the
   checker rather than in any table a query can read.

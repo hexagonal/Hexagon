@@ -700,6 +700,16 @@ describe("completion", () => {
     expect(text(source, completions.range)).toBe("x");
   });
 
+  test("the moment the dot is typed, with nothing after it yet", () => {
+    const source = MAIN +
+      "record Point = { x: Int, y: Int }\n" +
+      "fun probe(p: Point): Int = p.";
+    const completions = new PlaygroundAnalysis().completions(source, source.length);
+
+    expect(completions.items.map(({ name }) => name)).toEqual(["x", "y"]);
+    expect(completions.range).toEqual({ startOffset: source.length, endOffset: source.length });
+  });
+
   test("answers an offset outside the buffer with nothing, at the caret", () => {
     const completions = new PlaygroundAnalysis().completions(MAIN, MAIN.length + 5);
 
