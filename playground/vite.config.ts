@@ -10,9 +10,10 @@ export default defineConfig({
   },
   test: {
     // `src/examples/run-modules.ts` runs a program from a `hex-example-`
-    // directory; Node's own loader links it, refusing a graph whose modules
-    // disagree on a name as the browser does, where Vite's module runner would
-    // load it.
-    server: { deps: { external: [/[\\/]hex-example-/u] } },
+    // directory, and the execution worker's tests from `hex-object-url-` files
+    // (`src/execution-worker-harness.ts`); Node's own loader links both,
+    // refusing a graph whose modules disagree on a name as the browser does,
+    // where Vite's module runner would load it.
+    server: { deps: { external: [/[\\/]hex-example-/u, /[\\/]hex-object-url-/u] } },
   },
 });

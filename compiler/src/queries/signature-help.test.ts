@@ -117,6 +117,13 @@ describe("signature help", () => {
     expect(helpIn("fun t(q: Int): Int = add!‸(q, 1)\n")).toBeUndefined();
   });
 
+  test("a `(` on the next line, after a comment, is the call's own", () => {
+    expect(shown(helpIn("fun t(q: Int): Int = add // note\n    (q, ‸1)\n"))).toBe(`${ADD} @1`);
+    // Not inside yet: in the comment, and in the indentation before the `(`.
+    expect(helpIn("fun t(q: Int): Int = add // no‸te\n    (q, 1)\n")).toBeUndefined();
+    expect(helpIn("fun t(q: Int): Int = add // note\n  ‸  (q, 1)\n")).toBeUndefined();
+  });
+
   test("a receiver is the first argument, so the highlight counts it", () => {
     const help = helpIn("fun t(v: Vector(Int)): Vector(Int) = v.map(‸\n");
     expect(shown(help)).toBe("map: (Vector(a), a ->! b) >-> Vector(b) [values=Vector(a), transform=a ->! b] @1");
@@ -187,6 +194,10 @@ describe("signature help", () => {
     const SHAPE = "union Shape =\n    | Rect(w: Int, h: Int)\n    | Dot(Int, Int)\n";
     expect(shown(helpIn(`${SHAPE}fun t(): Shape = Rect(1, ‸\n`))).toBe("Rect: (Int, Int) -> Shape [w=Int, h=Int] @1");
     expect(shown(helpIn(`${SHAPE}fun t(): Shape = Dot(1, ‸\n`))).toBe("Dot: (Int, Int) -> Shape [_=Int, _=Int] @1");
+    // A refused mix of the two keeps its unnamed slot's place to itself.
+    expect(shown(helpIn("union Mixed =\n    | Mixed(a: Int, Int)\nfun t(): Mixed = Mixed(1, ‸\n"))).toBe(
+      "Mixed: (Int, Int) -> Mixed [a=Int, _=Int] @1",
+    );
     expect(shown(helpIn("exception Oops(code: Int, why: String)\nfun t(): Unit = throw^(Oops(1, ‸\n"))).toBe(
       "Oops: (Int, String) -> Exn [code=Int, why=String] @1",
     );

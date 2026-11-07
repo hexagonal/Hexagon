@@ -264,10 +264,10 @@ parameter the caret is on highlighted, its declared name under it, and the
 declaration's documentation below that. The face is the declaration's, not this
 call's instance of it, since the arguments are still being written, and the
 colours stay in the arrow, where hover shows them. Where hover shows something
-narrower, so does signature help: a constraint member called at a known
-instance shows that instance's face (a member whose contract is `->!`, called on
-a value whose instance is pure, reads `->`), and a record field holding a
-function shows the field's type in that record.
+narrower, so does signature help: a constraint member whose colour waits on its
+instance shows that instance's face once the call decides it (a member whose
+contract is `->!`, called on a value whose instance is pure, reads `->`), and a
+record field holding a function shows the field's type in that record.
 
 Nothing here is computed afresh. The call is the innermost one in the checked
 tree whose parentheses hold the caret; the parser keeps a call it could not
@@ -277,9 +277,10 @@ occurrence hover reads at the callee's name. A receiver (`v.map(`) or a piped
 value (`x |> f(`) is the call's first argument without being written inside the
 parentheses, so it counts first, and the highlight lands on the parameter the
 text in front of the caret fills; past that, it is the commas the lexer finds
-between the arguments, so one inside a comment or a string is not one. An
-unclosed call reaches over the spaces and comments after what the parser kept,
-to the next token, reading the comments the lexer already found.
+between the arguments, so one inside a comment or a string is not one. The `(`
+may stand after spaces, line breaks and comments, and an unclosed call reaches
+over the same after what the parser kept, to the next token; the comments are
+the ones the lexer already found.
 
 Each parameter is named by where it stands in the label, for a client that
 reads that (`labelOffsetSupport`, which VS Code and the Playground both do): in
@@ -290,11 +291,13 @@ lambda, an `extern fun`, a constraint member, a constructor or an exception
 whose slots are named. A constructor's unnamed slot, a record field holding a
 function and a pattern parameter have none to show.
 
-Two calls get no help. An operator member called by name on its subject
-(`1.add(`) is kept by the checker as a constraint call with no callee of its
-own, so there is no type at the name to read, for hover either. A `|>` stage
-written without parentheses (`x |> f`) has none to be inside. When more arguments are written than the callee takes, the active
-parameter is past the last one, and VS Code and the Playground show no
+Two calls get no help. A prelude member that stands behind an operator (`add`,
+`concat`, `shiftLeft`, …), called by name — bare, through its constraint or on
+its subject (`add(1, `, `Num.add(1, `, `1.add(`) — is kept by the checker as a
+constraint call with no callee of its own, so there is no type at the name to
+read, for hover either. A `|>` stage written without parentheses (`x |> f`) has
+none to be inside. When more arguments are written than the callee takes, the
+active parameter is past the last one, and VS Code and the Playground show no
 highlight.
 
 ## Quick fixes
