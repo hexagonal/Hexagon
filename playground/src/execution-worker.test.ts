@@ -90,6 +90,27 @@ describe("the results pane receives a run's output", () => {
   });
 });
 
+describe("the worker links a run's modules as the browser does", () => {
+  test("a module importing a name its import does not export is refused", async () => {
+    // Under the stubs, Node's own loader links the graph, not Vite's module
+    // runner, which would load it with the name undefined.
+    harness.posted.length = 0;
+
+    await harness.send({
+      kind: "execute",
+      version: 900,
+      modules: [
+        { path: "/Lib.hex", javascript: "export const a = 1;\n" },
+        { path: "/Main.hex", javascript: "import { missing } from \"./Lib.js\";\nconsole.log(String(missing));\n" },
+      ],
+      entryPath: "/Main.hex",
+      input: "",
+    });
+
+    expect(failureAt(harness.posted, 900)).toMatch(/does not provide an export named 'missing'/u);
+  });
+});
+
 /**
  * An uncaught throw reaches the pane as `Show<Exn>` would show it: its name,
  * then its message when it has one. The message alone used to stand here, which

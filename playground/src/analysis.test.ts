@@ -720,6 +720,43 @@ describe("completion", () => {
   });
 });
 
+describe("signature help", () => {
+  test("while a call is unclosed: hover's line, the parameter the caret is on, its name", () => {
+    const source = MAIN +
+      "(** Adds two numbers. *)\n" +
+      "fun add(a: Int, b: Int): Int = a + b\n" +
+      "let sum = add(1, ";
+    const help = new PlaygroundAnalysis().signatureHelp(source, source.length);
+
+    expect(help).toEqual({
+      label: "add: (Int, Int) -> Int",
+      documentation: "Adds two numbers.",
+      parameters: [
+        { range: [6, 9], documentation: "`a`" },
+        { range: [11, 14], documentation: "`b`" },
+      ],
+      activeParameter: 1,
+    });
+  });
+
+  test("a dot call counts its receiver as the first argument", () => {
+    const source = MAIN + "fun probe(v: Vector(Int)): Vector(Int) = v.map(";
+    const help = new PlaygroundAnalysis().signatureHelp(source, source.length);
+
+    expect(help?.label).toBe("map: (Vector(a), a ->! b) >-> Vector(b)");
+    expect(help?.activeParameter).toBe(1);
+    expect(help?.parameters[1]?.documentation).toBe("`transform`");
+  });
+
+  test("answers outside any call, and outside the buffer, with nothing", () => {
+    const source = MAIN + "fun add(a: Int, b: Int): Int = a + b\nlet sum = add(1, 2)\n";
+    const analysis = new PlaygroundAnalysis();
+
+    expect(analysis.signatureHelp(source, source.length)).toBeUndefined();
+    expect(analysis.signatureHelp(MAIN, MAIN.length + 5)).toBeUndefined();
+  });
+});
+
 describe("the session across requests", () => {
   test("answers about the newest source it was asked about, not the first", () => {
     const analysis = new PlaygroundAnalysis();

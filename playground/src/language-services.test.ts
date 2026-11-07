@@ -159,6 +159,25 @@ describe("createLanguageServices", () => {
     expect(await answer).toBeUndefined();
   });
 
+  test("asks for signature help at the caret and hands back the session's answer", async () => {
+    const { channel, sent, reply } = harness();
+    const services = createLanguageServices(channel, () => 2);
+    const source = "module Main\n\nlet sum = add(1, ";
+
+    const answer = services.signatureHelp(source, source.length);
+    expect(sent).toMatchObject([
+      { kind: "signature-help", version: 2, source, offset: source.length },
+    ]);
+    const help = {
+      label: "add: (Int, Int) -> Int",
+      parameters: [{ range: [6, 9] as const }, { range: [11, 14] as const }],
+      activeParameter: 1,
+    };
+    reply({ kind: "signature-help", id: 0, version: 2, help });
+
+    expect(await answer).toEqual(help);
+  });
+
   test("matches replies to requests by id, whatever order they arrive in", async () => {
     const { channel, reply } = harness();
     const services = createLanguageServices(channel, () => 1);

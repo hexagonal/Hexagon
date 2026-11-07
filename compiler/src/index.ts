@@ -71,6 +71,7 @@ export {
   type SessionPackage,
 } from "./analysis/session.js";
 export { hoverMarkdown } from "./analysis/hover-text.js";
+export { parameterMarkdown, signatureMarkdown } from "./analysis/signature-text.js";
 export {
   collectOccurrences,
   targetKey,
@@ -99,6 +100,7 @@ export {
   type CompletionInput,
   type CompletionKind,
 } from "./queries/completions.js";
+export { type SignatureHelp, type SignatureParameter } from "./queries/signature-help.js";
 export {
   emitJavaScript,
   emitDeclarations,

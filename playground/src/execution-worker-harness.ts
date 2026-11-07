@@ -13,11 +13,15 @@ import type { ExecutionRequest } from "./protocol";
  * The worker registers its listener on `self` at import time and builds module
  * URLs with `URL.createObjectURL`, neither of which the test environment
  * provides — and Node cannot `import()` a `blob:` URL at all. Both are stubbed
- * below. The object-URL stub answers a `data:` URL carrying a per-call counter,
- * which models the one property of blob URLs these tests depend on: **every
- * call yields a distinct module identity**. That is the browser's guarantee,
- * not the worker's, and substituting bare `data:` URLs would model the
- * opposite, since the registry keys those by their text.
+ * below. The object-URL stub writes each call's text to a file of its own and
+ * answers that file's URL, which models the two properties of blob URLs these
+ * tests depend on. **Every call yields a distinct module identity**: that is
+ * the browser's guarantee, not the worker's, and a bare `data:` URL would model
+ * the opposite, since the registry keys those by their text. **And the URL is
+ * short**, whatever it names: a `data:` URL carries its text, and a module
+ * whose imports are `data:` URLs carries theirs in turn, re-encoded at each
+ * level, which ran a file's runs out of memory. Revoking a URL removes its
+ * file, as it ends a blob: the worker revokes each once its run is over.
  */
 
 export interface WorkerHarness {
@@ -41,6 +45,25 @@ export async function installWorkerHarness(): Promise<void> {
     console: { log: (...values: unknown[]) => void };
   };
 
+  // Node's own modules, named by what the stub calls: the playground is typed
+  // for the browser.
+  const fsName = "node:fs";
+  const osName = "node:os";
+  const pathName = "node:path";
+  const urlName = "node:url";
+  const fs = await import(/* @vite-ignore */ fsName) as {
+    readonly writeFileSync: (path: string, data: string) => void;
+    readonly rmSync: (path: string, options: { readonly force: boolean }) => void;
+  };
+  const os = await import(/* @vite-ignore */ osName) as { readonly tmpdir: () => string };
+  const paths = await import(/* @vite-ignore */ pathName) as { readonly join: (...parts: string[]) => string };
+  const url = await import(/* @vite-ignore */ urlName) as {
+    readonly pathToFileURL: (path: string) => { readonly href: string };
+  };
+  // Named apart from every other process's: each test file has one.
+  const prefix = `hex-object-url-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+  const files = new Map<string, string>();
+
   const blobText = new WeakMap<object, string>();
   const OriginalBlob = host.Blob;
   host.Blob = class StubBlob {
@@ -53,12 +76,18 @@ export async function installWorkerHarness(): Promise<void> {
   let objectUrls = 0;
   host.URL.createObjectURL = (blob: Blob): string => {
     objectUrls += 1;
-    const text = blobText.get(blob as unknown as object) ?? "";
-    return `data:text/javascript;charset=utf-8,${
-      encodeURIComponent(`// object url ${objectUrls}\n${text}`)
-    }`;
+    const file = paths.join(os.tmpdir(), `${prefix}-${objectUrls}.mjs`);
+    fs.writeFileSync(file, blobText.get(blob as unknown as object) ?? "");
+    const href = url.pathToFileURL(file).href;
+    files.set(href, file);
+    return href;
   };
-  host.URL.revokeObjectURL = () => undefined;
+  host.URL.revokeObjectURL = (href: string) => {
+    const file = files.get(href);
+    if (file === undefined) return;
+    files.delete(href);
+    fs.rmSync(file, { force: true });
+  };
 
   // Captured before the worker module is imported, because the worker binds its
   // own native sink at exactly that moment. Everything it writes through comes

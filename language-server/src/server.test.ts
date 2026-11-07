@@ -36,6 +36,7 @@ import {
   type Location,
   type Range,
   type SemanticTokens,
+  type SignatureHelp,
   type TextEdit,
   type WorkspaceEdit,
   type ProtocolConnection,
@@ -357,6 +358,7 @@ describe("the Hexagon language server", () => {
       expect(result.capabilities.textDocumentSync).toBe(2);
       expect(result.capabilities.renameProvider).toEqual({ prepareProvider: true });
       expect(result.capabilities.completionProvider).toEqual({ triggerCharacters: ["."] });
+      expect(result.capabilities.signatureHelpProvider).toEqual({ triggerCharacters: ["(", ","] });
       expect(result.capabilities.semanticTokensProvider).toMatchObject({ full: true });
       // Withheld from *this* client because it declared no capabilities: every
       // action this server offers is a literal carrying its own edit, and a
@@ -587,6 +589,8 @@ describe("the Hexagon language server", () => {
       "",
       "let nameOf(tag: Tag): String = tag.name",
       "",
+      "let lit: Int = brighten(probe)",
+      "",
     ].join("\n");
 
     let documented: Harness;
@@ -686,6 +690,68 @@ describe("the Hexagon language server", () => {
         labelDetails: { description: "Show member" },
       });
     });
+
+    test("signature help carries hover's line, the parameter's name and the documentation", async () => {
+      const call = positionOf(DOCUMENTED, "brighten(probe)");
+      const help = await documented.client.sendRequest("textDocument/signatureHelp", {
+        textDocument: { uri: documented.uriOf("main.hex") },
+        position: { line: call.line, character: call.character + "brighten(".length },
+      }) as SignatureHelp | null;
+      expect(help).toEqual({
+        signatures: [{
+          label: "brighten: Int -> Int",
+          documentation: {
+            kind: "markdown",
+            value: "Brightens a colour.\n\nFenced, even:\n\n```\nbrighten(Red)\n```",
+          },
+          // This client declared no `labelOffsetSupport`, so the parameter is
+          // named by its text, the protocol's fallback.
+          parameters: [{ label: "Int", documentation: { kind: "markdown", value: "`colour`" } }],
+          activeParameter: 0,
+        }],
+        activeSignature: 0,
+        activeParameter: 0,
+      });
+    });
+  });
+
+  test("signature help names each parameter by its place in the label, for a client that reads that", async () => {
+    const SOURCE = "module Main\n\nlet add(a: Int, b: Int): Int = a + b\n\nlet sum: Int = add(1, 2)\n";
+    const offsets = await harness({ "main.hex": SOURCE }, {
+      textDocument: { signatureHelp: { signatureInformation: { parameterInformation: { labelOffsetSupport: true } } } },
+    });
+    try {
+      await offsets.client.sendNotification(DidOpenTextDocumentNotification.type, {
+        textDocument: { uri: offsets.uriOf("main.hex"), languageId: "hexagon", version: 1, text: SOURCE },
+      });
+      const second = positionOf(SOURCE, "2)");
+      const help = await offsets.client.sendRequest("textDocument/signatureHelp", {
+        textDocument: { uri: offsets.uriOf("main.hex") },
+        position: second,
+      }) as SignatureHelp | null;
+      // Both parameters read `Int`, so only their places tell them apart: the
+      // second `Int` is the one highlighted.
+      expect(help).toEqual({
+        signatures: [{
+          label: "add: (Int, Int) -> Int",
+          parameters: [
+            { label: [6, 9], documentation: { kind: "markdown", value: "`a`" } },
+            { label: [11, 14], documentation: { kind: "markdown", value: "`b`" } },
+          ],
+          activeParameter: 1,
+        }],
+        activeSignature: 0,
+        activeParameter: 1,
+      });
+      // Outside the parentheses there is no call to help with.
+      const after = positionOf(SOURCE, "\n", 5);
+      expect(await offsets.client.sendRequest("textDocument/signatureHelp", {
+        textDocument: { uri: offsets.uriOf("main.hex") },
+        position: after,
+      })).toBeNull();
+    } finally {
+      await offsets.dispose();
+    }
   });
 
   test("completion offers what is in scope, with kinds and types", async () => {

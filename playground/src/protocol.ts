@@ -175,6 +175,31 @@ export interface PlaygroundCompletions {
   readonly range: BufferRange;
 }
 
+/**
+ * The call whose arguments the caret is in — the compiler's `SignatureHelp`
+ * crossing the worker boundary, its text already worded by the compiler's
+ * `signatureMarkdown` and `parameterMarkdown`, as the language server words it.
+ *
+ * A parameter's `range` is a place in `label`, not in the buffer, so it
+ * crosses unmapped.
+ */
+export interface PlaygroundSignatureHelp {
+  /** `name: face`, the line hover shows for the callee. */
+  readonly label: string;
+  /** The gloss and the declaration's documentation, as Markdown. */
+  readonly documentation?: string;
+  readonly parameters: readonly PlaygroundSignatureParameter[];
+  /** The parameter the caret is on; past the last one when more are written than taken. */
+  readonly activeParameter: number;
+}
+
+export interface PlaygroundSignatureParameter {
+  /** Where the parameter stands in the label, `[start, end)`. */
+  readonly range: readonly [number, number];
+  /** Its declared name, as Markdown, when it has one. */
+  readonly documentation?: string;
+}
+
 export interface PlaygroundRenameSubject {
   readonly name: string;
   readonly range: BufferRange;
@@ -228,6 +253,11 @@ export interface CompletionRequest extends ServiceRequest {
   readonly offset: number;
 }
 
+export interface SignatureHelpRequest extends ServiceRequest {
+  readonly kind: "signature-help";
+  readonly offset: number;
+}
+
 export interface DefinitionRequest extends ServiceRequest {
   readonly kind: "definition";
   readonly offset: number;
@@ -274,6 +304,11 @@ export interface CompletionReply extends ServiceReply {
   readonly completions: PlaygroundCompletions;
 }
 
+export interface SignatureHelpReply extends ServiceReply {
+  readonly kind: "signature-help";
+  readonly help: PlaygroundSignatureHelp | undefined;
+}
+
 export interface DefinitionReply extends ServiceReply {
   readonly kind: "definition";
   readonly ranges: readonly BufferRange[];
@@ -314,6 +349,7 @@ export type CompilerRequest =
   | HoverSpansRequest
   | CodeActionsRequest
   | CompletionRequest
+  | SignatureHelpRequest
   | DefinitionRequest
   | ReferencesRequest
   | PrepareRenameRequest
@@ -324,6 +360,7 @@ export type ServiceReplyMessage =
   | HoverSpansReply
   | CodeActionsReply
   | CompletionReply
+  | SignatureHelpReply
   | DefinitionReply
   | ReferencesReply
   | PrepareRenameReply

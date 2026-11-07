@@ -22,11 +22,13 @@ import {
   toCompletionItem,
   toRenameEdits,
   toRenameLocation,
+  toSignatureHelp,
   type CompletionIconKind,
   type EditTarget,
   type MappedCodeAction,
   type MappedCompletionItem,
   type MappedRenameLocation,
+  type MappedSignatureHelp,
 } from "./monaco-mapping";
 import {
   createGrammarLoader,
@@ -447,6 +449,27 @@ function registerLanguageProviders(
         };
       },
     }),
+    monaco.languages.registerSignatureHelpProvider(hexagonLanguage, {
+      // `(` opens a call and `,` moves to its next parameter, as the language
+      // server announces; Monaco asks again on its own as the caret moves.
+      signatureHelpTriggerCharacters: ["(", ","],
+      provideSignatureHelp: async (model, position) => {
+        if (!owns(model)) return undefined;
+        const help = await services.signatureHelp(model.getValue(), model.getOffsetAt(position));
+        if (help === undefined) return undefined;
+        const mapped = toSignatureHelp(help);
+        return {
+          value: {
+            ...mapped,
+            signatures: mapped.signatures.map((signature) => ({
+              ...signature,
+              parameters: signature.parameters.map((parameter) => ({ ...parameter })),
+            })),
+          },
+          dispose: () => {},
+        };
+      },
+    }),
     monaco.languages.registerDefinitionProvider(hexagonLanguage, {
       provideDefinition: async (model, position) => {
         if (!owns(model)) return undefined;
@@ -549,6 +572,19 @@ type _CodeActionFields = Assert<
 type _CompletionItemFields = Assert<
   Required<Pick<MappedCompletionItem<monaco.Range>, "detail" | "documentation">> extends
     Required<Pick<monaco.languages.CompletionItem, "detail" | "documentation">> ? true : false
+>;
+
+/**
+ * That signature help's optional fields are Monaco's names and shapes:
+ * `documentation` is optional on a signature and on a parameter alike.
+ */
+type _SignatureFields = Assert<
+  Required<Pick<MappedSignatureHelp["signatures"][number], "documentation">> extends
+    Required<Pick<monaco.languages.SignatureInformation, "documentation">> ? true : false
+>;
+type _ParameterFields = Assert<
+  Required<Pick<MappedSignatureHelp["signatures"][number]["parameters"][number], "documentation">> extends
+    Required<Pick<monaco.languages.ParameterInformation, "documentation">> ? true : false
 >;
 
 /** That every icon `completionKindOf` names is a member of Monaco's enum. */

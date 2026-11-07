@@ -39,13 +39,39 @@ export function displayFace(
   scheme: Typed.Scheme,
   context?: ColourContext,
 ): { readonly type: string; readonly owners: readonly string[] } {
+  const { type, owners } = displayCallFace(scheme, context);
+  return { type, owners };
+}
+
+/**
+ * A face as `displayFace` shows it, and where in that text each parameter of
+ * its outer arrow stands, as `[start, end)` offsets: signature help highlights
+ * the one being written. Empty for a face that is not a function.
+ *
+ * The positions come from the same pieces the text is built from, so the two
+ * cannot disagree.
+ */
+export function displayCallFace(
+  scheme: Typed.Scheme,
+  context?: ColourContext,
+): {
+  readonly type: string;
+  readonly owners: readonly string[];
+  readonly parameters: readonly (readonly [number, number])[];
+} {
   const colours = effectVariables(scheme);
   const variables = variableNames(scheme, colours);
+  const constraints = displayConstraints(scheme, variables);
+  const chosen = new Set(scheme.callersChoice ?? []);
+  const owners = ownerLines(scheme, context);
+  if (scheme.type.kind !== "Function") {
+    return { type: `${constraints}${displayType(scheme.type, variables, "spine", chosen)}`, owners, parameters: [] };
+  }
+  const shown = displayFunction(scheme.type, variables, "spine", chosen);
   return {
-    type: `${displayConstraints(scheme, variables)}${
-      displayType(scheme.type, variables, "spine", new Set(scheme.callersChoice ?? []))
-    }`,
-    owners: ownerLines(scheme, context),
+    type: `${constraints}${shown.text}`,
+    owners,
+    parameters: shown.parameters.map(([start, end]) => [constraints.length + start, constraints.length + end] as const),
   };
 }
 
@@ -283,32 +309,50 @@ function displayType(
         : `${type.name}(${type.arguments.map((argument) =>
           inner(argument)
         ).join(", ")})`;
-    case "Function": {
-      // A spine arrow's function-typed parameters are callbacks, whose own
-      // arrows — and those of the functions they return — carry their colours;
-      // everything else in a parameter means what it says (Effects §2.4).
-      const parameters = type.parameters.map((parameter) =>
-        displayType(parameter, variables, place === "spine" && parameter.kind === "Function" ? "callback" : "inside", chosen),
-      );
-      const soleParameter = type.parameters[0];
-      const domain =
-        parameters.length === 0
-          ? "()"
-          : parameters.length === 1
-            // A sole `Unit` parameter displays bare — it renders as a name, so
-            // the parens that keep `((a, b)) -> c` from reading as two
-            // parameters have nothing to disambiguate.
-            ? soleParameter?.kind === "Function" ||
-                (soleParameter?.kind === "Tuple" && soleParameter.elements.length > 0)
-              ? `(${parameters[0]})`
-              : parameters[0]!
-            : `(${parameters.join(", ")})`;
-      return (
-        `${domain} ${displayArrow(type, place, chosen)} ` +
-        displayType(type.result, variables, place === "callback" && type.result.kind !== "Function" ? "inside" : place, chosen)
-      );
-    }
+    case "Function":
+      return displayFunction(type, variables, place, chosen).text;
   }
+}
+
+/**
+ * A function type as displayed, and where each of its parameters stands in
+ * the text (`displayCallFace`).
+ */
+function displayFunction(
+  type: Typed.FunctionType,
+  variables: ReadonlyMap<Typed.TypeVariableId, string>,
+  place: ArrowPlace,
+  chosen: ReadonlySet<Typed.TypeVariableId>,
+): { readonly text: string; readonly parameters: readonly (readonly [number, number])[] } {
+  // A spine arrow's function-typed parameters are callbacks, whose own
+  // arrows — and those of the functions they return — carry their colours;
+  // everything else in a parameter means what it says (Effects §2.4).
+  const parameters = type.parameters.map((parameter) =>
+    displayType(parameter, variables, place === "spine" && parameter.kind === "Function" ? "callback" : "inside", chosen),
+  );
+  const soleParameter = type.parameters[0];
+  // A sole `Unit` parameter displays bare — it renders as a name, so the
+  // parens that keep `((a, b)) -> c` from reading as two parameters have
+  // nothing to disambiguate.
+  const bare = parameters.length === 1 &&
+    !(soleParameter?.kind === "Function" ||
+      (soleParameter?.kind === "Tuple" && soleParameter.elements.length > 0));
+  const domain = parameters.length === 0
+    ? "()"
+    : bare
+    ? parameters[0]!
+    : `(${parameters.join(", ")})`;
+  const ranges: (readonly [number, number])[] = [];
+  let at = bare ? 0 : 1;
+  for (const parameter of parameters) {
+    ranges.push([at, at + parameter.length]);
+    at += parameter.length + ", ".length;
+  }
+  return {
+    text: `${domain} ${displayArrow(type, place, chosen)} ` +
+      displayType(type.result, variables, place === "callback" && type.result.kind !== "Function" ? "inside" : place, chosen),
+    parameters: ranges,
+  };
 }
 
 /**

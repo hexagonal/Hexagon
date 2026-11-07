@@ -30,6 +30,7 @@ import type {
   PlaygroundRenamePlan,
   PlaygroundRenameRefusal,
   PlaygroundRenameSubject,
+  PlaygroundSignatureHelp,
   ServiceReplyMessage,
 } from "./protocol";
 
@@ -65,6 +66,8 @@ export interface LanguageServices {
    * provider as "nothing from me" and asks again on the next keystroke.
    */
   completions(source: string, offset: number): Promise<PlaygroundCompletions | undefined>;
+  /** The call whose arguments `offset` is in; `undefined` for none, and for a dropped reply. */
+  signatureHelp(source: string, offset: number): Promise<PlaygroundSignatureHelp | undefined>;
   definitions(source: string, offset: number): Promise<readonly BufferRange[]>;
   references(source: string, offset: number): Promise<readonly BufferRange[]>;
   prepareRename(
@@ -175,6 +178,16 @@ export function createLanguageServices(
         offset,
       }));
       return reply?.kind === "completion" ? reply.completions : undefined;
+    },
+    async signatureHelp(source, offset) {
+      const reply = await ask((id, version) => ({
+        kind: "signature-help",
+        id,
+        version,
+        source,
+        offset,
+      }));
+      return reply?.kind === "signature-help" ? reply.help : undefined;
     },
     async definitions(source, offset) {
       const reply = await ask((id, version) => ({

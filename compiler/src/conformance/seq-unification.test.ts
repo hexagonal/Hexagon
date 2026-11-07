@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import { compileProject, Source } from "../index";
+import { runProject } from "../support/test-project.js";
 
 /**
  * Conformance for the `Seq` unification (plan Phase 4 steps 8–9): the prelude
@@ -33,74 +34,40 @@ function elements(value: unknown): unknown[] {
   return [...(value as Iterable<unknown>)];
 }
 
-/** Minimal ESM linker: rewrite compiler-owned relative imports to data-URL modules. */
-function resolveModulePath(importer: string, specifier: string): string | undefined {
-  if (!specifier.startsWith("./") && !specifier.startsWith("../")) return undefined;
-  const directory = importer.slice(0, Math.max(0, importer.lastIndexOf("/")));
-  const parts: string[] = [];
-  for (const part of `${directory}/${specifier}`.split("/")) {
-    if (part === "" || part === ".") continue;
-    if (part === "..") parts.pop();
-    else parts.push(part);
-  }
-  const path = `/${parts.join("/")}`;
-  return path.endsWith(".js") ? `${path.slice(0, -3)}.hex` : path;
-}
-
-function link(
-  javascript: string,
-  importerPath: string,
-  moduleUrls: ReadonlyMap<string, string>,
-): string {
-  return javascript.replace(
-    /^(\s*import(?:[^;\n]*?\sfrom)?\s+)(["'])([^"']+)\2;/gmu,
-    (statement, prefix: string, _quote: string, specifier: string) => {
-      const target = resolveModulePath(importerPath, specifier);
-      const url = target === undefined ? undefined : moduleUrls.get(target);
-      return url === undefined ? statement : `${prefix}${JSON.stringify(url)};`;
-    },
-  );
-}
-
 /**
  * Compiles a project and executes it, returning `/main.hex`'s exports.
  *
  * `foreign` supplies genuine JavaScript modules by specifier, so an `extern`
  * boundary can actually be crossed at runtime rather than only typechecked.
+ * The program runs from files, through the shared harness: each foreign module
+ * imports nothing, so it alone travels as a data URL. A data URL holding a
+ * module whose imports are data URLs in turn re-encodes every module beneath
+ * it at each level, and a prelude program came to 277 MB that way, enough over
+ * this file's tests to run a worker out of memory.
+ *
+ * A module's URL is its identity to the module cache, so each run's foreign
+ * modules carry the run's number: a probe keeps state (`calls`, `held`), and
+ * two runs handed the same text must not share it.
  */
+let runs = 0;
 async function run(
   files: readonly (readonly [string, string])[],
   foreign: Readonly<Record<string, string>> = {},
 ): Promise<Record<string, unknown>> {
-  const project = compileProject(
-    files.map(([path, text], index) => new Source.File(Source.fileId(index), path, text)),
-  );
-  expect(project.diagnostics).toEqual([]);
-  const moduleUrls = new Map<string, string>();
-  for (const [specifier, source] of Object.entries(foreign)) {
-    moduleUrls.set(specifier, `data:text/javascript;charset=utf-8,${encodeURIComponent(source)}`);
-  }
-  // The program's runtime module, keyed by the `.hex` path `resolveModulePath`
-  // derives from its importers' `./hex.js`: a catch's kept read and
-  // `toArray`'s look are filed in the record it makes (FFI Part 11 §1).
-  const runtime = project.runtimeGlobals;
-  if (runtime !== undefined) moduleUrls.set(runtime.path.replace(/\.js$/u, ".hex"), `data:text/javascript;charset=utf-8,${encodeURIComponent(runtime.text)}`);
-  for (const module of project.modules) {
-    const linked = link(module.javascript.text, module.source.path, moduleUrls)
-      .replace(
+  runs += 1;
+  const stamp = runs;
+  return runProject(files, {
+    transform: (_path, javascript) =>
+      javascript.replace(
         /^(\s*import(?:[^;\n]*?\sfrom)?\s+)(["'])([^"']+)\2;/gmu,
         (statement, prefix: string, _quote: string, specifier: string) => {
-          const url = moduleUrls.get(specifier);
-          return url === undefined ? statement : `${prefix}${JSON.stringify(url)};`;
+          const source = foreign[specifier];
+          return source === undefined
+            ? statement
+            : `${prefix}${JSON.stringify(`data:text/javascript;charset=utf-8,${encodeURIComponent(`${source}\n// run ${stamp}\n`)}`)};`;
         },
-      );
-    moduleUrls.set(
-      module.source.path,
-      `data:text/javascript;charset=utf-8,${encodeURIComponent(linked)}`,
-    );
-  }
-  // By path, never `modules[0]`: the prelude members share the project.
-  return (await import(/* @vite-ignore */ moduleUrls.get("/main.hex")!)) as Record<string, unknown>;
+      ),
+  });
 }
 
 function main(source: string): Promise<Record<string, unknown>> {
