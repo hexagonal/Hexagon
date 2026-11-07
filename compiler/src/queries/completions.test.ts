@@ -491,6 +491,32 @@ describe("completions after a value's dot", () => {
     expect(completionsIn("module Main\nfun probe<a: Show>(x: a) = x.‸")).toEqual(["show:member"]);
   });
 
+  test("a dot nothing follows yet is reported once, wherever it stands", () => {
+    // A `|>` stage is the callee its rewrite calls, and an enclosing form that
+    // holds the unfinished dot knows an earlier pass reported it: neither
+    // reports again, as with the recovery node the dot used to be.
+    const head = "module Main\nrecord P = { name: String }\n";
+    for (const shape of [
+      "fun t(q: P): Int = 1 |> q.",
+      "fun t(q: P): Int = 1 |> q. |> Vector.length",
+      "fun t(q) = 1 |> q.",
+      "fun t<a: Show>(v: a) = 1 |> v.",
+      "fun t(q: P): Int = throw(q.)",
+      "fun t(q: P): Int = q. |> throw",
+      "fun t(q: P): Int =\n    let (a, b) = q.\n    a.foo(1)",
+      "fun t(q: P): Int = [q.].map((z) => z.foo(1)).length()",
+    ]) {
+      expect(diagnosticsOf(`${head}${shape}\n`), shape).toEqual(["expected a field name after `.`"]);
+    }
+  });
+
+  test("a constructor before a dot nothing follows yet is a value, and hover answers on it", () => {
+    const text = "module Main\nlet probe = Some.";
+    const session = new AnalysisSession();
+    session.setFile("/main.hex", text);
+    expect(session.hover("/main.hex", text.indexOf("Some") + 1)).toMatchObject({ name: "Some" });
+  });
+
   test("a dot nothing follows yet after a module is still the module's list, reported once", () => {
     // A qualifier is not a value: `Vector`, an imported alias, a nested module
     // path, or this module's own type name stays the qualifier reading.

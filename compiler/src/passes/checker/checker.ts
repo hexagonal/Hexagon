@@ -8979,12 +8979,15 @@ class Checker {
     });
   }
 
-  /** Whether an expression holds a node an earlier pass refused (`ErrorExpr`), which reported already. */
+  /**
+   * Whether an expression holds a node an earlier pass refused (`ErrorExpr`),
+   * or a dot nothing follows yet, which the parser reported already.
+   */
   #holdsErrorNode(expression: Resolved.Expr): boolean {
     let found = false;
     this.#walkSyntax(expression, {
       expression: (inner) => {
-        if (inner.kind === "ErrorExpr") found = true;
+        if (inner.kind === "ErrorExpr" || (inner.kind === "Access" && inner.unfinished === true)) found = true;
       },
     });
     return found;

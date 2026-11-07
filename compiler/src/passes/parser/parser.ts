@@ -5981,11 +5981,16 @@ class Parser {
 
       const token = this.#advance();
       const pipeStage = operation.operator === "Pipe";
-      const right = this.#parseExpression(
+      let right = this.#parseExpression(
         operation.rightBindingPower,
         effectiveStops,
         pipeStage,
       );
+      // A stage is a call-in-waiting (the rewrite supplies its arguments), so
+      // an unfinished dot there is one a call attaches to, as in the loop above.
+      if (pipeStage && right.kind === "Access" && right.unfinished === true) {
+        right = { kind: "ErrorExpr", span: right.receiver.span };
+      }
       const stageMark = pipeStage ? this.#stageMark : undefined;
       if (pipeStage) this.#stageMark = undefined;
       if (operation.assignment === true) {

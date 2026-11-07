@@ -4410,7 +4410,7 @@ class Resolver {
       (this.#namedModule(root.text) !== undefined ||
         (root.startClass === "upper" && this.#lookupTerm(root.text, scope) === undefined))
     ) {
-      return { kind: "ErrorExpr", span: expression.span };
+      return { kind: "ErrorExpr", span: expression.receiver.span };
     }
     return {
       kind: "Access",

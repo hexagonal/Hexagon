@@ -520,20 +520,27 @@ describe("parse", () => {
 
   test("an unfinished dot that anything attaches to is the recovery node it was", () => {
     // A call, an index, a mark or another dot after it would read a name that
-    // is not there, so each meets the error node and reports only the dot.
-    for (const [text, kind] of [
-      ["q.(1)", "Call"],
-      ["q.[0]", "Index"],
-      ["q. .x", "Access"],
+    // is not there, so each meets the error node and reports what it did
+    // before: the dot, and for a mark, the mark's seat, a gap from its callee.
+    const missing = "expected a field name after `.`";
+    const markSeat = "a call mark governs an argument list; write it immediately before `(`, " +
+      "or (in a `|>` stage) at the end of the stage — a reference carries no colour";
+    for (const [text, kind, reports] of [
+      ["q.(1)", "Call", [missing]],
+      ["q.!(1)", "Call", [missing, markSeat]],
+      ["q.[0]", "Index", [missing]],
+      ["q. .x", "Access", [missing]],
     ] as const) {
       const module = parseSource(text);
-      expect(module.diagnostics.map(({ message }) => message)).toEqual([
-        "expected a field name after `.`",
-      ]);
+      expect(module.diagnostics.map(({ message }) => message)).toEqual(reports);
       const parsed = expression(module) as { readonly kind: string; readonly callee?: Parsed.Expr; readonly receiver?: Parsed.Expr };
       expect(parsed.kind).toBe(kind);
       expect((parsed.callee ?? parsed.receiver)?.kind).toBe("ErrorExpr");
     }
+    // A `|>` stage is a call-in-waiting, the stage its callee.
+    const piped = parseSource("1 |> q.");
+    expect(piped.diagnostics.map(({ message }) => message)).toEqual(["expected a field name after `.`"]);
+    expect(expression(piped)).toMatchObject({ kind: "Binary", operator: "Pipe", right: { kind: "ErrorExpr" } });
   });
 
   test("puts exponentiation above unary minus and comparisons above not", () => {
