@@ -11,17 +11,28 @@
  *   the moment the user is typing is the moment there is one to read.
  * - **The callee's face,** exactly as hover shows it at that name: the same type
  *   occurrence, the same scheme, the same display (`Typed.displayCallFace`).
- *   That is the declaration's face, not the call's instance of it; the call's
- *   own arguments are still being written.
+ *   That is the declaration's face, not this call's instance of it, since the
+ *   call's own arguments are still being written. Where hover shows something
+ *   narrower, so does this: a constraint member called at a known instance shows
+ *   that instance's face (a member whose contract is `->!`, called on a value
+ *   whose instance is pure, reads `->`), and a record field holding a function
+ *   shows the field's type in that record.
  * - **Which parameter the caret is on,** counted from the arguments the call
  *   holds. A receiver (`v.map(`) or a piped value (`x |> f(`) is the first
  *   argument without being written inside the parentheses, and counts first, so
  *   the highlight lands on the parameter the text in front of the caret fills.
  *
  * The parameter's name comes from the declaration where it has one: a `fun`, a
- * `let` bound to a lambda, an `extern fun`, a constraint member. A union's
- * constructor has none, and a pattern parameter's binder is the compiler's own,
- * so neither is named.
+ * `let` bound to a lambda, an `extern fun`, a constraint member, a constructor
+ * or an exception whose slots are named. A pattern parameter's binder is the
+ * compiler's own, and an unnamed slot's field is only its place, so neither is
+ * named.
+ *
+ * Two things it does not answer, both where hover has nothing to read either:
+ * an operator member called by name on its subject (`1.add(`), which the checker
+ * keeps as a constraint call with no callee of its own, and a call written
+ * without parentheses. When more arguments are written than the callee takes,
+ * the active parameter is past the last one, and a host shows no highlight.
  */
 
 import { lex } from "../passes/lexer/lexer.js";
@@ -117,10 +128,11 @@ interface CallAround {
  * argument wins over the call it is an argument of.
  */
 function innermostCall(module: Typed.Module, text: string, offset: number): CallAround | undefined {
+  const comments = new Map(module.comments.map(({ span }) => [span.start.offset, span.end.offset]));
   let best: CallAround | undefined;
   forEachExpression(module, (expression) => {
     if (expression.kind !== "Call") return;
-    const around = callAround(expression, text, offset, module.fileId);
+    const around = callAround(expression, text, comments);
     if (around === undefined) return;
     const [start, end] = around.inside;
     if (offset < start || offset > end) return;
@@ -130,15 +142,16 @@ function innermostCall(module: Typed.Module, text: string, offset: number): Call
 }
 
 /**
- * A call's parentheses, or nothing for a call written without them (a bare
- * `|>` stage, `x |> f`, is a call with no `(` of its own) and for one whose
- * `(` is not before the offset, which cannot hold it.
+ * A call's parentheses: where they open, and what they hold.
+ *
+ * A call written without them needs no test of its own. It ends where its
+ * callee does (a bare `|>` stage, `x |> f`, has its one argument in front), so
+ * it holds nothing, and no caret is inside it.
  */
 function callAround(
   call: Typed.CallExpr,
   text: string,
-  offset: number,
-  fileId: Source.FileId,
+  comments: ReadonlyMap<number, number>,
 ): CallAround | undefined {
   const callee = call.callee;
   // A callee no source wrote, such as a sequence adaptation's inserted `toSeq`
@@ -150,10 +163,9 @@ function callAround(
     ? callee.field.span
     : callee.span;
   // The `(` follows the callee, after a mark (`f!(`, `f?(`) and any spaces on
-  // the same line; anything else there means this call has none.
+  // the same line.
   let open = callee.span.end.offset;
   while (open < text.length && " \t!?^~".includes(text[open]!)) open += 1;
-  if (text[open] !== "(" || offset <= open) return undefined;
   const written = call.arguments.filter((argument) => argument.span.start.offset > open);
   const before = call.arguments.length - written.length;
   const last = written.at(-1);
@@ -163,12 +175,21 @@ function callAround(
   const closed = last === undefined || end > last.span.end.offset;
   if (closed) return { calleeName, open, inside: [open + 1, end - 1], written, before };
   // An unclosed call reaches as far as the caret can still be typing in it: over
-  // the spaces and comments after what the parser kept, to the next token (the
-  // lexer ends every text with one, `Eof`).
-  const next = lex(new Source.File(fileId, "<rest>", text.slice(end))).tokens[0]!;
-  const reach = end + next.span.start.offset;
+  // the spaces, line breaks and comments after what the parser kept, to where the
+  // next token starts or the text ends. The comments are the ones the lexer
+  // found, by where each starts, read rather than found again. (What follows an
+  // unclosed call in its module is read as more of its arguments, so a comment
+  // after it is always its module's own.)
+  let reach = end;
+  while (reach < text.length) {
+    const comment = comments.get(reach);
+    if (comment !== undefined) reach = comment;
+    else if (" \t\r\n".includes(text[reach]!)) reach += 1;
+    else break;
+  }
   return { calleeName, open, inside: [open + 1, reach], written, before };
 }
+
 
 /** Which written argument the caret is on, counting the commas before it. */
 function activeArgument(call: CallAround, text: string, offset: number, fileId: Source.FileId): number {
@@ -234,6 +255,14 @@ function parameterNames(
             if (member.binding.symbol === symbol) found = named(member.parameters);
           }
           return;
+        case "Union":
+          for (const constructor of item.constructors) {
+            if (constructor.symbol === symbol) found = slotNames(constructor.slots);
+          }
+          return;
+        case "Exception":
+          if (item.binding.symbol === symbol) found = slotNames(item.slots);
+          return;
         default:
           return;
       }
@@ -242,6 +271,18 @@ function parameterNames(
     if (found !== undefined) return found;
   }
   return undefined;
+}
+
+/**
+ * A constructor's slot names, or none where its slots are unnamed. A
+ * constructor's slots are all named or all unnamed (Unions §2.1), and an unnamed
+ * slot is kept under its place's field, `item1` to `itemN` (§6), which no
+ * program reads by that name (§5). So fields that are exactly their places say
+ * nothing a name would; a constructor named that way by hand loses nothing.
+ */
+function slotNames(slots: readonly Typed.ConstructorSlot[]): readonly (string | undefined)[] {
+  if (slots.every(({ field }, index) => field === `item${index + 1}`)) return slots.map(() => undefined);
+  return slots.map(({ field }) => field);
 }
 
 /** Every item of a module, nested ones in blocks included. */

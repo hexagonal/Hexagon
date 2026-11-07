@@ -94,6 +94,18 @@ describe("signature help", () => {
     expect(shown(helpIn("fun t(q: Int): Int = add(q, ‸"))).toBe(`${ADD} @1`);
   });
 
+  test("an unclosed call reaches over the spaces, line breaks and comments after it, to the next token", () => {
+    expect(shown(helpIn("fun t(q: Int): Int = add(q, (* a *)\n    // b\n    (* c *) ‸"))).toBe(`${ADD} @1`);
+    // Past the last argument kept, with no comma after it yet: a tab and a
+    // carriage return are spaces and line breaks too.
+    expect(shown(helpIn("fun t(q: Int): Int = add(q\t‸"))).toBe(`${ADD} @0`);
+    expect(shown(helpIn("fun t(q: Int): Int = add(q\r\n‸"))).toBe(`${ADD} @0`);
+    // An unterminated comment runs to the end of the text, and so does the call.
+    expect(shown(helpIn("fun t(q: Int): Int = add(q, (* a ‸"))).toBe(`${ADD} @1`);
+    // The next token is not the call's to reach past.
+    expect(helpIn("fun t(q: Int): Int = add(q, \nfun u(): Int = ‸1\n")).toBeUndefined();
+  });
+
   test("an unclosed call in the middle of a block", () => {
     expect(shown(helpIn("fun t(q: Int): Int =\n    let z = add(q, ‸\n    z\n"))).toBe(`${ADD} @1`);
   });
@@ -101,6 +113,8 @@ describe("signature help", () => {
   test("a mark or a space between the callee and its `(`", () => {
     expect(shown(helpIn("fun t(q: Int): Int = add!(q, ‸)\n"))).toBe(`${ADD} @1`);
     expect(shown(helpIn("fun t(q: Int): Int = add (q, ‸)\n"))).toBe(`${ADD} @1`);
+    // Before the `(`, past the mark, the caret is not inside yet.
+    expect(helpIn("fun t(q: Int): Int = add!‸(q, 1)\n")).toBeUndefined();
   });
 
   test("a receiver is the first argument, so the highlight counts it", () => {
@@ -145,9 +159,37 @@ describe("signature help", () => {
     expect(help?.documentation).toBe("The canonical textual form of `value`.");
   });
 
+  test("a constraint member at a known instance: the instance's face, as hover shows it", () => {
+    const READER = [
+      "record Job = { id: Int }",
+      "constraint Reader<r> =",
+      "    read(source: r, n: Int) ->! String",
+      "honor Reader<Job> =",
+      "    read(job, n) = \"x\"",
+      "",
+    ].join("\n");
+    expect(shown(helpIn(`${READER}fun t(j: Job): String = read(j, ‸1)\n`))).toBe(
+      "read: (Job, Int) -> String [source=Job, n=Int] @1",
+    );
+    expect(shown(helpIn(`${READER}fun t(j: Job): String = j.read(‸1)\n`))).toBe(
+      "read: (Job, Int) -> String [source=Job, n=Int] @1",
+    );
+    // In generic code, the member's contract.
+    expect(shown(helpIn(`${READER}fun t<a: Reader>(j: a): String = read!(j, ‸1)\n`))).toBe(
+      "read: <a: Reader> (a, Int) ->! String [source=a, n=Int] @1",
+    );
+  });
+
   test("names come from the declaration, where it has one", () => {
-    // A union's constructor has no parameter names.
-    expect(shown(helpIn("fun t(): Option(Int) = Some(‸\n"))).toBe("Some: a -> Option(a) [_=a] @0");
+    // A constructor's named slots, and an exception's; an unnamed slot is only
+    // its place, and has none.
+    expect(shown(helpIn("fun t(): Option(Int) = Some(‸\n"))).toBe("Some: a -> Option(a) [value=a] @0");
+    const SHAPE = "union Shape =\n    | Rect(w: Int, h: Int)\n    | Dot(Int, Int)\n";
+    expect(shown(helpIn(`${SHAPE}fun t(): Shape = Rect(1, ‸\n`))).toBe("Rect: (Int, Int) -> Shape [w=Int, h=Int] @1");
+    expect(shown(helpIn(`${SHAPE}fun t(): Shape = Dot(1, ‸\n`))).toBe("Dot: (Int, Int) -> Shape [_=Int, _=Int] @1");
+    expect(shown(helpIn("exception Oops(code: Int, why: String)\nfun t(): Unit = throw^(Oops(1, ‸\n"))).toBe(
+      "Oops: (Int, String) -> Exn [code=Int, why=String] @1",
+    );
     // A record field holding a function: its type, no names.
     expect(shown(helpIn("fun t(p: Point): Int = p.h(‸\n"))).toBe("h: Int -> Int [_=Int] @0");
     // A pattern parameter's binder is the compiler's own.

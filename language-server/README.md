@@ -101,7 +101,7 @@ Positions crossing this API are UTF-16 offsets into the named file, never line a
 
 An analysis retains every module's resolved *and* typed tree, since a code action asks the checker's own answer for a declaration and the two must be read together. Analysis is recomputed lazily and wholly: any change discards it and the next question rebuilds it. That is a decision, not a placeholder. Reanalyzing this repository's own `stdlib/` and `runtime/` after an edit measures a median of about 40ms — well inside the delay diagnostics are debounced by — so incremental reuse would buy nothing yet and would have to guess what is worth keeping before any query exists to say. A rename adds roughly one more compilation on top of whatever the session already holds, since it recompiles an edited copy and compares the two; it is not on the keystroke path.
 
-Eight compiler queries sit behind these answers, and each exists because no other part of the compiler still knows what it knows:
+Nine compiler queries sit behind these answers, and each exists because no other part of the compiler still knows what it knows:
 
 - `queries/occurrences.ts` indexes every name that denotes something together with what it denotes — values, unions, records, foreign types, and constraints. Definitions, references, rename and semantic tokens all read this one table. It reads the resolved tree for identity, the parsed tree for constraints, the source for a head name inside a wider span, and the *typed* tree for one thing only: the operation name of a dot call, which nothing earlier has decided the meaning of.
 - `queries/type-occurrences.ts` gives hover its types, keyed by the same spans.
@@ -261,9 +261,13 @@ block comments nest and a text ending in `*)` is not proof of it.
 While a call's arguments are being written, the editor shows the callee's line
 exactly as hover shows it — `map: (Vector(a), a ->! b) >-> Vector(b)` — with the
 parameter the caret is on highlighted, its declared name under it, and the
-declaration's documentation below that. The face is the declaration's, not the
-call's instance of it: the arguments are still being written, and the colours
-stay in the arrow, where hover shows them.
+declaration's documentation below that. The face is the declaration's, not this
+call's instance of it, since the arguments are still being written, and the
+colours stay in the arrow, where hover shows them. Where hover shows something
+narrower, so does signature help: a constraint member called at a known
+instance shows that instance's face (a member whose contract is `->!`, called on
+a value whose instance is pure, reads `->`), and a record field holding a
+function shows the field's type in that record.
 
 Nothing here is computed afresh. The call is the innermost one in the checked
 tree whose parentheses hold the caret; the parser keeps a call it could not
@@ -273,15 +277,25 @@ occurrence hover reads at the callee's name. A receiver (`v.map(`) or a piped
 value (`x |> f(`) is the call's first argument without being written inside the
 parentheses, so it counts first, and the highlight lands on the parameter the
 text in front of the caret fills; past that, it is the commas the lexer finds
-between the arguments, so one inside a comment or a string is not one.
+between the arguments, so one inside a comment or a string is not one. An
+unclosed call reaches over the spaces and comments after what the parser kept,
+to the next token, reading the comments the lexer already found.
 
 Each parameter is named by where it stands in the label, for a client that
 reads that (`labelOffsetSupport`, which VS Code and the Playground both do): in
 `(Int, Int) -> Int` only the place tells the two `Int`s apart. A client that
 does not gets the protocol's fallback, the parameter's text. A parameter's name
 comes from the declaration where it has one — a `fun`, a `let` bound to a
-lambda, an `extern fun`, a constraint member — and a union's constructor, a
-record field holding a function and a pattern parameter have none to show.
+lambda, an `extern fun`, a constraint member, a constructor or an exception
+whose slots are named. A constructor's unnamed slot, a record field holding a
+function and a pattern parameter have none to show.
+
+Two calls get no help. An operator member called by name on its subject
+(`1.add(`) is kept by the checker as a constraint call with no callee of its
+own, so there is no type at the name to read, for hover either. A `|>` stage
+written without parentheses (`x |> f`) has none to be inside. When more arguments are written than the callee takes, the active
+parameter is past the last one, and VS Code and the Playground show no
+highlight.
 
 ## Quick fixes
 
