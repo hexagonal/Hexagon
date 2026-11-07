@@ -91,7 +91,12 @@ diagnostics(path)         one file's diagnostics
 allDiagnostics()          every held file's, empty lists included
 definitions(path, offset) where the name at this offset is declared
 references(path, offset)  every occurrence of what it denotes
-hover(path, offset)       what it is, its type if it has one, its documentation
+hover(path, offset)       what it is, its type if it has one, its documentation;
+                          off a name, the type of the expression there
+hoverSelection(path, start, end)
+                          the type of the expression a selection names
+selectionRanges(path, offsets)
+                          what "Expand Selection" grows through from each offset
 codeActions(path, range)  the repairs offered here, refusals included
 pathOfFile(fileId)        the file a span's numeric identity names
 referenceFile(path, text) gives a non-Hexagon file an identity, uncompiled
@@ -101,7 +106,7 @@ Positions crossing this API are UTF-16 offsets into the named file, never line a
 
 An analysis retains every module's resolved *and* typed tree, since a code action asks the checker's own answer for a declaration and the two must be read together. Analysis is recomputed lazily and wholly: any change discards it and the next question rebuilds it. That is a decision, not a placeholder. Reanalyzing this repository's own `stdlib/` and `runtime/` after an edit measures a median of about 40ms — well inside the delay diagnostics are debounced by — so incremental reuse would buy nothing yet and would have to guess what is worth keeping before any query exists to say. A rename adds roughly one more compilation on top of whatever the session already holds, since it recompiles an edited copy and compares the two; it is not on the keystroke path.
 
-Nine compiler queries sit behind these answers, and each exists because no other part of the compiler still knows what it knows:
+Eleven compiler queries sit behind these answers, and each exists because no other part of the compiler still knows what it knows:
 
 - `queries/occurrences.ts` indexes every name that denotes something together with what it denotes — values, unions, records, foreign types, and constraints. Definitions, references, rename and semantic tokens all read this one table. It reads the resolved tree for identity, the parsed tree for constraints, the source for a head name inside a wider span, and the *typed* tree for one thing only: the operation name of a dot call, which nothing earlier has decided the meaning of.
 - `queries/type-occurrences.ts` gives hover its types, keyed by the same spans.
@@ -110,6 +115,8 @@ Nine compiler queries sit behind these answers, and each exists because no other
 - `queries/semantic-tokens.ts` classifies names, and only names — see below.
 - `queries/completions.ts` answers what could be written at an offset, from a scope record the resolver now keeps.
 - `queries/signature-help.ts` answers which call's arguments the caret is in, and which parameter it is on — see below.
+- `queries/syntax-nodes.ts` reads the parsed tree as one shape of node — what each piece of the text is (an expression, a name, a part of an expression's own syntax, or anything else) and what it holds — for the type of an expression and for "Expand Selection".
+- `queries/expression-types.ts` answers the type of the expression a selection or a position names, from the checked tree by span — see below.
 - `queries/type-spelling.ts` writes a type back out as source: which nominal types this module has a *name* for, and what to call each type variable.
 - `queries/return-annotation.ts` finds the function a missing return type belongs to and where the colon goes.
 
@@ -300,6 +307,51 @@ none to be inside. When more arguments are written than the callee takes, the
 active parameter is past the last one, and VS Code and the Playground show no
 highlight.
 
+## The type of an expression, and Expand Selection
+
+Select `Vector.first(["a", "b"])` and hover it, and the hover shows
+`Option(String)`: the type the expression has there (OCaml's type enclosing,
+Rust's range hover). The protocol's hover carries a position and nothing about
+what is selected, so the server announces `experimental.hoverRange`, as
+rust-analyzer does, and a hover request may carry a range where it has a
+position; the VS Code extension sends the selection when the pointer is inside
+one, and the Playground does the same. Off a name, a hover answers the same way
+at an operator, a bracket, a comma, a literal or a keyword: hovering `*` in
+`1 + 2 * 3` shows `Int`. A name keeps hover's own answer, what it denotes and
+its documentation; a caret just after a `)` is on it, as a caret just after a
+name is on the name.
+
+The rule, from the piece the selection or the pointer names outward: an
+expression answers with its type; a part of an expression's own syntax (a
+`match` arm's `=>`, a record field's `=`, a string's text) is the expression's;
+a pattern, a type annotation, a declaration or a binder answers nothing. A
+selection names the smallest piece holding it, so selecting `+ 2` in
+`1 + 2 * 3` names the whole sum, and one inside a record field or a `match` arm
+names the expression it belongs to; a selected name answers with its type here,
+the instance (`Vector.first` selected reads `Vector(String) -> Option(String)`,
+where hover on `first` shows `Vector(a) -> Option(a)`).
+
+Nothing is computed afresh. The pieces are the parsed tree's, which keeps every
+piece the source wrote; the type is the checked tree's, read by span. Where the
+checker folded a piece into the one around it, so that it has no type of its own
+(a module qualifier, a method's `receiver.name`, a `|>` stage's call), the piece
+answers nothing rather than borrowing its parent's type. Where the checker
+converted the expression in place, the answer is the type the text has and the
+type it became: `[1, 2]` where a `Seq(Int)` is wanted reads `Vector(Int)`,
+"converted to `Seq(Int)` here" (Rust's "coerced to"). A decimal-point literal
+at a `Frac` type (`1.5e1` at `Rat`) is that type's own literal, though the
+checker builds it from a `BigInt`.
+
+"Expand Selection" (`textDocument/selectionRange`) grows from the caret through
+the same pieces, innermost first: a name, the expression around it, the next,
+out to the declaration and the module; a pattern and a type grow through their
+own kinds, and a caret in a comment starts at the comment. In a program still
+being written, where the parser makes a piece over text another already has (a
+`for` with no body yet), the text is the first piece's.
+
+Each hover letters its own type from `a`, as hover on a name does, so inside
+`let pair(m: b, xs: Vector(a))` the selection `xs` reads `Vector(a)`.
+
 ## Quick fixes
 
 Code actions arrive in two halves, and this is the first: **every action answers
@@ -469,7 +521,9 @@ The fourth adds:
 The fifth adds:
 
 13. signature help while a call's arguments are written, in VS Code and the
-    Playground.
+    Playground; and
+14. the type of any expression, on a selection or off a name, and "Expand
+    Selection", in both.
 
 Formatting, refactoring code actions and workspace symbols follow as the necessary compiler services become stable. Features are not simulated with textual guesses when semantic information is required — where these slices read source text, it is to locate a name the tree already said was there, or to read a half-typed line no tree describes yet, never to decide what a name means.
 

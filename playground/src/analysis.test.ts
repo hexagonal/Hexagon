@@ -242,6 +242,51 @@ describe("hover", () => {
   });
 });
 
+describe("the type of an expression", () => {
+  const source = MAIN + "let scores: Seq(Int) = [1, 2]\nlet total = 1 + 2 * 3\n";
+
+  test("a selection: the type of the expression it names, worded as the language server words it", () => {
+    const analysis = new PlaygroundAnalysis();
+    const start = at(source, "[1, 2]");
+    const hover = analysis.hover(source, start, start + "[1, 2]".length);
+    expect(hover?.markdown).toBe("`Vector(Int)`\n\nconverted to `Seq(Int)` here");
+    expect(text(source, hover?.range ?? { startOffset: 0, endOffset: 0 })).toBe("[1, 2]");
+  });
+
+  test("a selection running from one module into the next names no expression", () => {
+    const analysis = new PlaygroundAnalysis();
+    const blocks = "module Helper\n\nexport fun twice(n: Int) = n * 2\n\nend module Helper\n\n" +
+      "module Main\n\nimport Helper\n\nlet four = Helper.twice(2) + 0\n";
+    const start = at(blocks, "n * 2");
+    expect(analysis.hover(blocks, start, start + "n * 2".length)?.markdown).toBe("`Int`");
+    expect(analysis.hover(blocks, start, at(blocks, "+ 0"))).toBeUndefined();
+    // Nor does one whose end the buffer does not hold, which is not a caret either.
+    expect(analysis.hover(blocks, start, blocks.length + 5)).toBeUndefined();
+  });
+
+  test("an empty selection is a caret, and answers as a position does", () => {
+    const analysis = new PlaygroundAnalysis();
+    const caret = at(source, "scores");
+    expect(analysis.hover(source, caret, caret)?.markdown).toBe("value `scores: Seq(Int)`");
+  });
+
+  test("an operator: the type of its expression", () => {
+    const analysis = new PlaygroundAnalysis();
+    const hover = analysis.hover(source, at(source, "*"));
+    expect(hover?.markdown).toBe("`Int`");
+    expect(text(source, hover?.range ?? { startOffset: 0, endOffset: 0 })).toBe("*");
+  });
+
+  test("selection ranges grow from each offset through the pieces around it", () => {
+    const analysis = new PlaygroundAnalysis();
+    const [ranges = [], outside = []] = analysis.selectionRanges(source, [at(source, "3\n"), source.length + 5]);
+    expect(ranges.slice(0, 4).map((range) => text(source, range)))
+      .toEqual(["3", "2 * 3", "1 + 2 * 3", "let total = 1 + 2 * 3"]);
+    // Past the buffer's end there is nothing to grow from.
+    expect(outside).toEqual([]);
+  });
+});
+
 describe("hoverSpans", () => {
   /**
    * Documented and undocumented positions of every kind #254 measured, in a

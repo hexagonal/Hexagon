@@ -18,6 +18,8 @@ import type { Hover } from "./session.js";
  * One shape for every hover: what the name is, then its type when it has one,
  * then its documentation. A value and a union reading differently would make
  * the hover's own layout something the user has to parse before the content.
+ * An expression's type has no name, so it is the type alone, and then, where
+ * the checker converted the expression in place, the type it became.
  *
  * The documentation is Markdown by `spec/doc-comments.md` §6 and goes in as
  * itself — no fencing, no escaping — because rendering it as Markdown is what
@@ -26,7 +28,9 @@ import type { Hover } from "./session.js";
  * restyle the signature above it.
  */
 export function hoverMarkdown(hover: Hover): string {
-  const signature = hover.displayedType === undefined
+  const signature = hover.name === undefined
+    ? `\`${hover.displayedType}\``
+    : hover.displayedType === undefined
     ? `\`${hover.name}\``
     : `\`${hover.name}: ${hover.displayedType}\``;
   // A name the session found no identity for — an `honor` member, a record
@@ -37,9 +41,12 @@ export function hoverMarkdown(hover: Hover): string {
     : `${describeTarget(hover.target)} ${signature}`;
   // Effects §10's owner line (#873): a captured colour the type had to number
   // is named beside it, one line each.
-  const heading = hover.colourOwners === undefined
+  const glossed = hover.colourOwners === undefined
     ? named
     : [named, ...hover.colourOwners].join("\n\n");
+  const heading = hover.convertedTo === undefined
+    ? glossed
+    : `${glossed}\n\nconverted to \`${hover.convertedTo}\` here`;
   return hover.documentation === undefined
     ? heading
     : `${heading}\n\n${hover.documentation}`;

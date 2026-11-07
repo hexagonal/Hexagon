@@ -32,6 +32,7 @@ export type EditorAnalysis = Pick<
   PlaygroundAnalysis,
   | "hover"
   | "hoverSpans"
+  | "selectionRanges"
   | "definitions"
   | "references"
   | "codeActions"
@@ -115,7 +116,14 @@ function serve(
           kind: "hover",
           id,
           version,
-          hover: analysis.hover(request.source, request.offset),
+          hover: analysis.hover(request.source, request.offset, request.end),
+        };
+      case "selection-ranges":
+        return {
+          kind: "selection-ranges",
+          id,
+          version,
+          ranges: analysis.selectionRanges(request.source, request.offsets),
         };
       case "hover-spans":
         return {

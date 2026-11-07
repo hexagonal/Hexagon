@@ -35,6 +35,7 @@ import {
   type InitializeResult,
   type Location,
   type Range,
+  type SelectionRange,
   type SemanticTokens,
   type SignatureHelp,
   type TextEdit,
@@ -46,7 +47,8 @@ import {
   StreamMessageWriter,
 } from "vscode-languageserver-protocol/node.js";
 import { createConnection } from "vscode-languageserver/node.js";
-import { startServer } from "./server.js";
+import { TextDocument } from "vscode-languageserver-textdocument";
+import { startServer, toSelectionRange } from "./server.js";
 import { removeTemporaryRoots, temporaryRoot } from "../../host/src/test-roots.js";
 import { STDLIB_SOURCES } from "../../compiler/src/stdlib-sources.js";
 
@@ -359,6 +361,9 @@ describe("the Hexagon language server", () => {
       expect(result.capabilities.renameProvider).toEqual({ prepareProvider: true });
       expect(result.capabilities.completionProvider).toEqual({ triggerCharacters: ["."] });
       expect(result.capabilities.signatureHelpProvider).toEqual({ triggerCharacters: ["(", ","] });
+      expect(result.capabilities.selectionRangeProvider).toBe(true);
+      // A hover may carry a selection, for the extension to send one.
+      expect(result.capabilities.experimental).toEqual({ hoverRange: true });
       expect(result.capabilities.semanticTokensProvider).toMatchObject({ full: true });
       // Withheld from *this* client because it declared no capabilities: every
       // action this server offers is a literal carrying its own edit, and a
@@ -752,6 +757,95 @@ describe("the Hexagon language server", () => {
     } finally {
       await offsets.dispose();
     }
+  });
+
+  describe("the type of an expression", () => {
+    const SOURCE = "module Main\n\nlet scores: Seq(Int) = [1, 2]\nlet total: Int = 1 + 2 * 3\n";
+    let typed: Harness;
+
+    beforeAll(async () => {
+      typed = await harness({ "main.hex": SOURCE });
+      await typed.client.sendNotification(DidOpenTextDocumentNotification.type, {
+        textDocument: { uri: typed.uriOf("main.hex"), languageId: "hexagon", version: 1, text: SOURCE },
+      });
+    });
+
+    afterAll(async () => {
+      await typed.dispose();
+    });
+
+    /** `needle`'s place in the text, as the protocol's range over it. */
+    function rangeOf(needle: string): { start: { line: number; character: number }; end: { line: number; character: number } } {
+      const start = positionOf(SOURCE, needle);
+      return { start, end: { line: start.line, character: start.character + needle.length } };
+    }
+
+    test("a hover carrying a selection answers with the type of the expression it names", async () => {
+      const hover = await typed.client.sendRequest("textDocument/hover", {
+        textDocument: { uri: typed.uriOf("main.hex") },
+        // `hoverRange`: a selection where the protocol has a position.
+        position: rangeOf("[1, 2]"),
+      }) as Hover | null;
+      expect(hover).toEqual({
+        contents: { kind: "markdown", value: "`Vector(Int)`\n\nconverted to `Seq(Int)` here" },
+        range: rangeOf("[1, 2]"),
+      });
+    });
+
+    test("a selection made backwards answers as the same selection made forwards", async () => {
+      const { start, end } = rangeOf("[1, 2]");
+      const hover = await typed.client.sendRequest("textDocument/hover", {
+        textDocument: { uri: typed.uriOf("main.hex") },
+        position: { start: end, end: start },
+      }) as Hover | null;
+      expect(hover?.contents).toEqual({ kind: "markdown", value: "`Vector(Int)`\n\nconverted to `Seq(Int)` here" });
+    });
+
+    test("an empty selection is a caret, and answers as a position does", async () => {
+      const at = positionOf(SOURCE, "scores");
+      const hover = await typed.client.sendRequest("textDocument/hover", {
+        textDocument: { uri: typed.uriOf("main.hex") },
+        position: { start: at, end: at },
+      }) as Hover | null;
+      expect(hover?.contents).toEqual({ kind: "markdown", value: "value `scores: Seq(Int)`" });
+    });
+
+    test("a hover on an operator answers with the type of its expression", async () => {
+      const hover = await typed.client.sendRequest("textDocument/hover", {
+        textDocument: { uri: typed.uriOf("main.hex") },
+        position: positionOf(SOURCE, "*"),
+      }) as Hover | null;
+      expect(hover).toEqual({ contents: { kind: "markdown", value: "`Int`" }, range: rangeOf("*") });
+    });
+
+    test("selection ranges grow from the caret through each piece around it", async () => {
+      const ranges = await typed.client.sendRequest("textDocument/selectionRange", {
+        textDocument: { uri: typed.uriOf("main.hex") },
+        positions: [positionOf(SOURCE, "3\n"), positionOf(SOURCE, "scores")],
+      }) as SelectionRange[];
+      // One answer per position, each its own.
+      expect(ranges[1]?.range).toEqual(rangeOf("scores"));
+      const chain: string[] = [];
+      for (let at: SelectionRange | undefined = ranges[0]; at !== undefined; at = at.parent) {
+        const lines = SOURCE.split("\n");
+        const { start, end } = at.range;
+        chain.push(start.line === end.line
+          ? lines[start.line]!.slice(start.character, end.character)
+          : `${start.line}:${start.character}-${end.line}:${end.character}`);
+      }
+      // The last is the module, the whole file.
+      expect(chain).toEqual(["3", "2 * 3", "1 + 2 * 3", "let total: Int = 1 + 2 * 3", "0:0-4:0"]);
+    });
+
+    test("a position with nothing around it is answered with itself, as the protocol pairs them", () => {
+      const document = TextDocument.create("file:///main.hex", "hexagon", 1, SOURCE);
+      const position = { line: 1, character: 0 };
+      expect(toSelectionRange(document, position, [])).toEqual({ range: { start: position, end: position } });
+      expect(toSelectionRange(document, position, [{ start: 0, end: 4 }, { start: 0, end: 11 }])).toEqual({
+        range: { start: { line: 0, character: 0 }, end: { line: 0, character: 4 } },
+        parent: { range: { start: { line: 0, character: 0 }, end: { line: 0, character: 11 } } },
+      });
+    });
   });
 
   test("completion offers what is in scope, with kinds and types", async () => {

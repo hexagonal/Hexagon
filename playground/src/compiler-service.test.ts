@@ -17,6 +17,19 @@ describe("createCompilerService", () => {
       version: 4,
       hover: { markdown: "value `twice: Int -> Int`" },
     });
+    // A selection: the type of the expression it names, `twice(3)`.
+    const call = source.indexOf("twice(3)");
+    expect(service.handle({ kind: "hover", ...asked, offset: call, end: call + "twice(3)".length }))
+      .toMatchObject({ kind: "hover", id: 9, version: 4, hover: { markdown: "`Int`" } });
+    expect(service.handle({ kind: "selection-ranges", ...asked, offsets: [caret] })).toMatchObject({
+      kind: "selection-ranges",
+      id: 9,
+      version: 4,
+      ranges: [expect.arrayContaining([{
+        startOffset: source.indexOf("twice"),
+        endOffset: source.indexOf("twice") + "twice".length,
+      }])],
+    });
     expect(service.handle({ kind: "hover-spans", ...asked })).toMatchObject({
       kind: "hover-spans",
       id: 9,

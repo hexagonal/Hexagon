@@ -36,7 +36,10 @@ import type {
 
 /** What Monaco's providers are given; the worker is not visible past here. */
 export interface LanguageServices {
-  hover(source: string, offset: number): Promise<PlaygroundHover | undefined>;
+  /** With `end`, the selection `[offset, end)` the pointer is inside. */
+  hover(source: string, offset: number, end?: number): Promise<PlaygroundHover | undefined>;
+  /** What "Expand Selection" grows through from each offset; empty for a dropped reply. */
+  selectionRanges(source: string, offsets: readonly number[]): Promise<readonly (readonly BufferRange[])[]>;
   /**
    * Every region of `source` a hover would answer at; see `HoverSpansRequest`.
    *
@@ -140,15 +143,26 @@ export function createLanguageServices(
   };
 
   return {
-    async hover(source, offset) {
+    async hover(source, offset, end) {
       const reply = await ask((id, version) => ({
         kind: "hover",
         id,
         version,
         source,
         offset,
+        ...(end === undefined ? {} : { end }),
       }));
       return reply?.kind === "hover" ? reply.hover : undefined;
+    },
+    async selectionRanges(source, offsets) {
+      const reply = await ask((id, version) => ({
+        kind: "selection-ranges",
+        id,
+        version,
+        source,
+        offsets,
+      }));
+      return reply?.kind === "selection-ranges" ? reply.ranges : [];
     },
     async hoverSpans(source) {
       const reply = await ask((id, version) => ({

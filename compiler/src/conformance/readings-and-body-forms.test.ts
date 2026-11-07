@@ -250,9 +250,13 @@ describe("review r1 of 8c-ii: the form's added words, its reports, and the missp
     const session = new AnalysisSession();
     session.setFile("/world.js", "");
     session.setFile("/main.hex", whole);
-    for (const word of ["attempt", "assume"]) {
+    for (const [word, type] of [["attempt", "Result(Int)"], ["assume", "Int"]] as const) {
       const at = whole.indexOf(word);
-      expect(session.hover("/main.hex", at), word).toBeUndefined();
+      // The keyword is no name: hover shows the type of the form it opens,
+      // as at any keyword of an expression.
+      const hover = session.hover("/main.hex", at);
+      expect(hover?.name, word).toBeUndefined();
+      expect(hover?.displayedType, word).toBe(type);
       expect(session.definitions("/main.hex", at), word).toEqual([]);
       expect(session.prepareRename("/main.hex", at), word).toBeUndefined();
       expect(session.references("/main.hex", at), word).toEqual([]);
@@ -261,8 +265,16 @@ describe("review r1 of 8c-ii: the form's added words, its reports, and the missp
     // file once, beside the prelude's declaration.
     const references = session.references("/main.hex", whole.lastIndexOf("Ok(1)"), { includeDeclaration: false });
     expect(references.filter(({ path }) => path === "/main.hex")).toHaveLength(1);
+    // Nothing hover answers at has a span of no width, as a name the compiler
+    // wrote would. A range closed on one offset is an expression's character
+    // before another (the `(` of `Ok(1)`), whose hover covers that character.
     const occurrences = session.hoverSpans("/main.hex");
-    expect(occurrences.every(({ start, end }) => start !== end)).toBe(true);
+    const single = occurrences.filter(({ start, end }) => start === end);
+    expect(single.length).toBeGreaterThan(0);
+    for (const { start } of single) {
+      const shown = session.hover("/main.hex", start);
+      expect(shown !== undefined && shown.span.start.offset < shown.span.end.offset, `${start}`).toBe(true);
+    }
     const ok = whole.lastIndexOf("Ok(1)");
     expect(session.hoverSpans("/main.hex").filter(({ start, end }) => start <= ok && ok < end)).toHaveLength(1);
     expect(session.semanticTokens("/main.hex").every(({ span }) => span.start.offset !== span.end.offset)).toBe(true);
