@@ -44,6 +44,8 @@ import {
   type Location,
   type MarkupContent,
   type Range,
+  type Position,
+  type SelectionRange,
   type SemanticTokens,
   type SignatureHelp,
   type TextEdit,
@@ -61,6 +63,7 @@ import {
   signatureMarkdown,
   type Completion,
   type Hover as SessionHover,
+  type OffsetRange,
   type SignatureHelp as SessionSignatureHelp,
   type Source,
 } from "../../compiler/src/index.js";
@@ -143,6 +146,9 @@ export function startServer(connection: Connection): void {
         // rather than to the file; `TextDocuments` applies them for us.
         textDocumentSync: TextDocumentSyncKind.Incremental,
         hoverProvider: true,
+        // "Expand Selection" and "Shrink Selection", through the pieces of the
+        // text around the caret.
+        selectionRangeProvider: true,
         definitionProvider: true,
         referencesProvider: true,
         // `prepareProvider` is what lets the editor pre-select the identifier
@@ -172,6 +178,11 @@ export function startServer(connection: Connection): void {
         ...(codeActions.literals
           ? { codeActionProvider: { codeActionKinds: [CodeActionKind.QuickFix] } }
           : {}),
+        // A hover request may carry a selection where the protocol has a
+        // position (rust-analyzer's `hoverRange`): the protocol's hover cannot
+        // say what is selected, so a client that knows this server sends it.
+        // The VS Code extension does, when the pointer is inside a selection.
+        experimental: { hoverRange: true },
       },
       serverInfo: { name: "Hexagon Language Server", version: "0.0.1" },
     };
@@ -263,9 +274,27 @@ export function startServer(connection: Connection): void {
     const path = workspace.pathFor(textDocument.uri);
     const session = workspace.sessionFor(path);
     if (session === undefined) return null;
-    const hover = session.hover(path, offsetOfPosition(document, position));
+    // A selection where the protocol has a position (`hoverRange`, announced
+    // above): the type of the expression it names. An empty one is a caret.
+    const where = position as Position | Range;
+    const [start, end] = "start" in where
+      ? [offsetOfPosition(document, where.start), offsetOfPosition(document, where.end)]
+      : [offsetOfPosition(document, where), undefined];
+    const hover = end === undefined || end === start
+      ? session.hover(path, start)
+      : session.hoverSelection(path, start, end);
     if (hover === undefined) return null;
     return { contents: hoverContents(hover), range: rangeOfSpan(hover.span) };
+  });
+
+  connection.onSelectionRanges(({ textDocument, positions }): SelectionRange[] | null => {
+    const document = documents.get(textDocument.uri);
+    if (document === undefined) return null;
+    const path = workspace.pathFor(textDocument.uri);
+    const session = workspace.sessionFor(path);
+    if (session === undefined) return null;
+    const ranges = session.selectionRanges(path, positions.map((position) => offsetOfPosition(document, position)));
+    return positions.map((position, index) => toSelectionRange(document, position, ranges[index] ?? []));
   });
 
   connection.onDefinition(({ textDocument, position }): Definition | null => {
@@ -874,6 +903,25 @@ function wholeDocument(text: string): Range {
     start: { line: 0, character: 0 },
     end: { line: lines.length - 1, character: lines.at(-1)!.length },
   };
+}
+
+/**
+ * The pieces around one position as the protocol carries them: the innermost,
+ * with each wider one as its parent. A position the session has nothing around
+ * is answered with the position itself, since the protocol pairs every
+ * position it asked about with one answer.
+ */
+export function toSelectionRange(
+  document: TextDocument,
+  position: Position,
+  ranges: readonly OffsetRange[],
+): SelectionRange {
+  let answer: SelectionRange | undefined;
+  for (const { start, end } of [...ranges].reverse()) {
+    const range = { start: document.positionAt(start), end: document.positionAt(end) };
+    answer = answer === undefined ? { range } : { range, parent: answer };
+  }
+  return answer ?? { range: { start: position, end: position } };
 }
 
 /**

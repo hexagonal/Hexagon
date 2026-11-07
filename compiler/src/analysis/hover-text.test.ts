@@ -102,4 +102,17 @@ describe("hoverMarkdown", () => {
       })),
     ).toBe("value `x: Int`\n\nSee `Vector.length` and *note* the [link](x).");
   });
+
+  test("an expression's type is the type alone, then its gloss, then what it was converted to", () => {
+    expect(hoverMarkdown({ span, displayedType: "Vector(Int)" })).toBe("`Vector(Int)`");
+    expect(
+      hoverMarkdown({
+        span,
+        displayedType: "() >-> Unit",
+        colourOwners: ["impure only if `cb` is"],
+        convertedTo: "Seq(Int)",
+        documentation: "Docs.",
+      }),
+    ).toBe("`() >-> Unit`\n\nimpure only if `cb` is\n\nconverted to `Seq(Int)` here\n\nDocs.");
+  });
 });

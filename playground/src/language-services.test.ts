@@ -178,6 +178,44 @@ describe("createLanguageServices", () => {
     expect(await answer).toEqual(help);
   });
 
+  test("asks for a hover over a selection with its end, and for selection ranges", async () => {
+    const { channel, sent, reply } = harness();
+    const services = createLanguageServices(channel, () => 3);
+    const source = "module Main\n\nlet n = 1 + 2\n";
+
+    const hover = services.hover(source, 21, 26);
+    const ranges = services.selectionRanges(source, [23]);
+    expect(sent).toMatchObject([
+      { kind: "hover", version: 3, source, offset: 21, end: 26 },
+      { kind: "selection-ranges", version: 3, source, offsets: [23] },
+    ]);
+    const shown = { markdown: "`Int`", range: { startOffset: 21, endOffset: 26 } };
+    const grown = [[{ startOffset: 21, endOffset: 26 }, { startOffset: 13, endOffset: 26 }]];
+    reply({ kind: "hover", id: 0, version: 3, hover: shown });
+    reply({ kind: "selection-ranges", id: 1, version: 3, ranges: grown });
+
+    expect(await hover).toEqual(shown);
+    expect(await ranges).toEqual(grown);
+  });
+
+  test("a hover at a position sends no end", async () => {
+    const { channel, sent } = harness();
+    const services = createLanguageServices(channel, () => 1);
+    void services.hover("let one = 1\n", 4);
+    expect(sent[0]).not.toHaveProperty("end");
+  });
+
+  test("settles a selection-range request the worker could not answer with none", async () => {
+    const { channel, reply } = harness();
+    const services = createLanguageServices(channel, () => 1);
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const answer = services.selectionRanges("let one = 1\n", [4]);
+    reply({ kind: "service-failure", id: 0, version: 1, message: "boom" });
+
+    expect(await answer).toEqual([]);
+  });
+
   test("matches replies to requests by id, whatever order they arrive in", async () => {
     const { channel, reply } = harness();
     const services = createLanguageServices(channel, () => 1);

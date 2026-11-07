@@ -13,11 +13,13 @@ import type {
   SourceEditor,
 } from "./editor";
 import { createHoverSpanCache } from "./hover-spans";
+import type { BufferRange } from "./protocol";
 import type { LanguageServices } from "./language-services";
 import {
   boundedOffsets,
+  caretHoverAnswers,
   codeActionKinds,
-  hoverAnswersAtOffset,
+  hoverSelectionAt,
   toCodeAction,
   toCompletionItem,
   toRenameEdits,
@@ -192,7 +194,12 @@ export function createMonacoEditors(
     if (suppressChanges) return;
     for (const listener of changeListeners) listener();
   });
-  const providers = registerLanguageProviders(sourceModel, services);
+  const selections = (): readonly BufferRange[] =>
+    (sourceEditor.getSelections() ?? []).map((selection) => ({
+      startOffset: sourceModel.getOffsetAt(selection.getStartPosition()),
+      endOffset: sourceModel.getOffsetAt(selection.getEndPosition()),
+    }));
+  const providers = registerLanguageProviders(sourceModel, services, selections);
   /**
    * Opens the hover where a pointer would have, for a device with no pointer.
    *
@@ -256,7 +263,18 @@ export function createMonacoEditors(
     // *with the pointer*, and a stationary pointer never retries. Monaco
     // already hides on mouse-down and key-down, which is every way the caret
     // moves here bar a jump from the Errors list.
-    if (!hoverAnswersAtOffset(hoverSpans, sourceModel.getOffsetAt(position))) return;
+    // The hover opens at the caret, which is inside the selection when there is
+    // one, so the gate asks what the hover will: the selection's answer there.
+    const answers = await caretHoverAnswers(
+      hoverSpans,
+      selections(),
+      sourceModel.getOffsetAt(position),
+      (selection) => services.hover(sourceModel.getValue(), selection.startOffset, selection.endOffset),
+    );
+    // The worker's answer took a round trip: what it answered must still be
+    // where the caret is.
+    if (!answers || disposed || sourceModel.getVersionId() !== version) return;
+    if (!sourceEditor.getPosition()?.equals(position)) return;
     sourceEditor.trigger("hexagon.ipadTypeAtCaret", "editor.action.showHover", {
       focus: "noAutoFocus",
     });
@@ -381,16 +399,20 @@ export function createMonacoEditors(
 function registerLanguageProviders(
   sourceModel: monaco.editor.ITextModel,
   services: LanguageServices,
+  selections: () => readonly BufferRange[],
 ): monaco.IDisposable {
   const owns = (model: monaco.editor.ITextModel): boolean => model === sourceModel;
   const registrations = [
     monaco.languages.registerHoverProvider(hexagonLanguage, {
       provideHover: async (model, position) => {
         if (!owns(model)) return undefined;
-        const hover = await services.hover(
-          model.getValue(),
-          model.getOffsetAt(position),
-        );
+        const offset = model.getOffsetAt(position);
+        // A pointer inside a selection hovers the selection: the type of the
+        // expression it names, as the language server answers the extension.
+        const selected = hoverSelectionAt(selections(), offset);
+        const hover = selected === undefined
+          ? await services.hover(model.getValue(), offset)
+          : await services.hover(model.getValue(), selected.startOffset, selected.endOffset);
         if (hover === undefined) return undefined;
         return {
           contents: [{ value: hover.markdown }],
@@ -468,6 +490,22 @@ function registerLanguageProviders(
           },
           dispose: () => {},
         };
+      },
+    }),
+    monaco.languages.registerSelectionRangeProvider(hexagonLanguage, {
+      // "Expand Selection" and "Shrink Selection", through the pieces of the
+      // text around each caret, innermost first.
+      provideSelectionRanges: async (model, positions) => {
+        if (!owns(model)) return undefined;
+        const found = await services.selectionRanges(
+          model.getValue(),
+          positions.map((position) => model.getOffsetAt(position)),
+        );
+        return found.map((ranges) =>
+          ranges.map(({ startOffset, endOffset }) => ({
+            range: rangeFromOffsets(model, startOffset, endOffset),
+          }))
+        );
       },
     }),
     monaco.languages.registerDefinitionProvider(hexagonLanguage, {

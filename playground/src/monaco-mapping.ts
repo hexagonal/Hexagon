@@ -350,3 +350,37 @@ export function hoverAnswersAtOffset(
     offset >= startOffset && offset <= endOffset
   );
 }
+
+/**
+ * The selection a hover at `offset` sends in place of its position, or
+ * `undefined` to send the position: the first selection that is not empty and
+ * holds the pointer, its ends included, as Monaco's `containsPosition` reads
+ * one. The hover then answers with the type of the expression the selection
+ * names. The VS Code extension makes the same choice for the language server
+ * (`editors/vscode/src/hover-selection.ts`).
+ */
+export function hoverSelectionAt(
+  selections: readonly BufferRange[],
+  offset: number,
+): BufferRange | undefined {
+  return selections.find(({ startOffset, endOffset }) =>
+    startOffset !== endOffset &&
+    Math.min(startOffset, endOffset) <= offset && offset <= Math.max(startOffset, endOffset)
+  );
+}
+
+/**
+ * Whether the caret hover opens at `offset`: whether the hover it opens has an
+ * answer. A caret inside a selection hovers the selection (`hoverSelectionAt`),
+ * so there the question is whether the selection names an expression, which
+ * only the worker can say; elsewhere it is the published spans' (#254).
+ */
+export async function caretHoverAnswers(
+  spans: readonly BufferRange[],
+  selections: readonly BufferRange[],
+  offset: number,
+  hoverSelection: (selection: BufferRange) => Promise<unknown>,
+): Promise<boolean> {
+  const selected = hoverSelectionAt(selections, offset);
+  return selected === undefined ? hoverAnswersAtOffset(spans, offset) : (await hoverSelection(selected)) !== undefined;
+}

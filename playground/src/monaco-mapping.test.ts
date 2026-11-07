@@ -11,6 +11,8 @@ import {
   toSignatureHelp,
   toWorkspaceEdit,
   hoverAnswersAtOffset,
+  caretHoverAnswers,
+  hoverSelectionAt,
   type EditTarget,
 } from "./monaco-mapping";
 
@@ -343,5 +345,55 @@ describe("completionKindOf", () => {
     // The session gains kinds over time; an icon this file has no entry for
     // must not cost the item.
     expect(completionKindOf("keyword")).toBe("Variable");
+  });
+});
+
+describe("hoverSelectionAt", () => {
+  const selected = { startOffset: 4, endOffset: 9 };
+
+  test("a pointer inside a selection, its ends included, hovers the selection", () => {
+    expect(hoverSelectionAt([selected], 4)).toBe(selected);
+    expect(hoverSelectionAt([selected], 6)).toBe(selected);
+    expect(hoverSelectionAt([selected], 9)).toBe(selected);
+  });
+
+  test("a pointer outside every selection hovers its position", () => {
+    expect(hoverSelectionAt([selected], 3)).toBeUndefined();
+    expect(hoverSelectionAt([selected], 10)).toBeUndefined();
+  });
+
+  test("an empty selection is a caret", () => {
+    expect(hoverSelectionAt([{ startOffset: 6, endOffset: 6 }], 6)).toBeUndefined();
+  });
+
+  test("with several, the one holding the pointer, whichever way it was drawn", () => {
+    const backwards = { startOffset: 25, endOffset: 20 };
+    expect(hoverSelectionAt([selected, backwards], 22)).toBe(backwards);
+  });
+});
+
+describe("caretHoverAnswers", () => {
+  const spans = [{ startOffset: 2, endOffset: 4 }];
+  const selected = { startOffset: 10, endOffset: 20 };
+
+  test("a caret in no selection opens where the published spans answer", async () => {
+    const never = async (): Promise<unknown> => {
+      throw new Error("a caret in no selection asks the worker nothing");
+    };
+    expect(await caretHoverAnswers(spans, [selected], 3, never)).toBe(true);
+    expect(await caretHoverAnswers(spans, [selected], 6, never)).toBe(false);
+  });
+
+  test("a caret in a selection opens where the selection answers, whatever the spans say there", async () => {
+    const asked: unknown[] = [];
+    const answering = async (selection: unknown): Promise<unknown> => {
+      asked.push(selection);
+      return { markdown: "`Int`" };
+    };
+    expect(await caretHoverAnswers(spans, [selected], 20, answering)).toBe(true);
+    expect(asked).toEqual([selected]);
+    // The selection names nothing, though the spans hold the caret.
+    const silent = async (): Promise<unknown> => undefined;
+    expect(await caretHoverAnswers([{ startOffset: 18, endOffset: 22 }], [selected], 20, silent)).toBe(false);
   });
 });
