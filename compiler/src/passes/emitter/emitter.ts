@@ -4807,38 +4807,10 @@ class JavaScriptEmitter {
         const bindings = patternBindings(item.pattern);
         if (bindings.length === 0) return [`${prefix}${value};`];
         const matchName = this.#generatedNames.fresh("match");
-        const names = bindings.map((binding) =>
-          this.#identifier(binding.symbol, binding.name)
-        );
-        const lines = [
+        return [
           `${prefix}const ${matchName} = ${value};`,
-          `${prefix}let ${names.join(", ")};`,
+          ...this.#emitAlternativeBindings(item.pattern, alternatives, matchName, depth, evidenceNames),
         ];
-        const armLines: string[] = [];
-        const views: PatternViewContext = { byPosition: new Map(), uses: [] };
-        alternatives.forEach((alternative, index) => {
-          const plan = this.#emitPatternPlan(
-            alternative,
-            matchName,
-            evidenceNames,
-            false,
-            undefined,
-            views,
-          );
-          const condition = plan.tests.length === 0
-            ? "true"
-            : plan.tests.join(" && ");
-          armLines.push(`${prefix}${index === 0 ? "if" : "else if"} (${condition}) {`);
-          for (const binding of plan.bindings) {
-            armLines.push(`${indent(depth + 1)}${binding.replace(/^const /, "")}`);
-          }
-          armLines.push(`${prefix}}`);
-        });
-        lines.push(...this.#patternViewLines(views, depth), ...armLines);
-        lines.push(
-          `${prefix}else { throw new ${this.#spell("RangeError")}("Unexpected irrefutable pattern."); }`,
-        );
-        return lines;
       }
       if (item.pattern.kind === "Unit") return [`${prefix}${value};`];
       // Collections Part 3 §3.6's shape, at the `let` seat — which is also the
@@ -4865,7 +4837,9 @@ class JavaScriptEmitter {
       // position — §3.4 leaves exactly `[...rest]` and `[...]` — so a test here
       // could only be true, and emitting it would wrap the whole binding group
       // in a dead `if` whose binders would then have to escape it.
-      if (containsVectorPattern(item.pattern) || containsDeclaredPattern(item.pattern)) {
+      // A nested `as` takes this route too (#215): it names a slot its inner
+      // pattern also destructures, which a JS destructuring cannot say.
+      if (containsVectorPattern(item.pattern) || containsDeclaredPattern(item.pattern) || containsNestedAs(item.pattern)) {
         // No binder at all is the anonymous rest, `let [...] = xs`: §3.6 emits
         // no slice for it, and the value still has to be evaluated.
         const bindings = patternBindings(item.pattern);
@@ -5277,6 +5251,49 @@ class JavaScriptEmitter {
     ];
   }
 
+  /**
+   * An irrefutable pattern with alternatives, at a seat that binds: its binders
+   * declared once, and the alternative that matches `matchName` assigns them.
+   */
+  #emitAlternativeBindings(
+    pattern: Core.Pattern,
+    alternatives: readonly Core.Pattern[],
+    matchName: string,
+    depth: number,
+    evidenceNames: EvidenceNames,
+  ): string[] {
+    const prefix = indent(depth);
+    const names = patternBindings(pattern).map((binding) =>
+      this.#identifier(binding.symbol, binding.name)
+    );
+    const armLines: string[] = [];
+    const views: PatternViewContext = { byPosition: new Map(), uses: [] };
+    alternatives.forEach((alternative, index) => {
+      const plan = this.#emitPatternPlan(
+        alternative,
+        matchName,
+        evidenceNames,
+        false,
+        undefined,
+        views,
+      );
+      const condition = plan.tests.length === 0
+        ? "true"
+        : plan.tests.join(" && ");
+      armLines.push(`${prefix}${index === 0 ? "if" : "else if"} (${condition}) {`);
+      for (const binding of plan.bindings) {
+        armLines.push(`${indent(depth + 1)}${binding.replace(/^const /, "")}`);
+      }
+      armLines.push(`${prefix}}`);
+    });
+    return [
+      `${prefix}let ${names.join(", ")};`,
+      ...this.#patternViewLines(views, depth),
+      ...armLines,
+      `${prefix}else { throw new ${this.#spell("RangeError")}("Unexpected irrefutable pattern."); }`,
+    ];
+  }
+
   #emitPattern(pattern: Core.Pattern): string {
     switch (pattern.kind) {
       case "Binding":
@@ -5288,6 +5305,9 @@ class JavaScriptEmitter {
         return "";
       case "Unit":
         return "";
+      // Never met with a binder to lose: the `let` seat sends a nested `as` to
+      // the plan machinery (`containsNestedAs`), and the `switch` route takes
+      // simple payloads only.
       case "As":
         return this.#emitPattern(pattern.pattern);
       case "Or":
@@ -6671,6 +6691,20 @@ class JavaScriptEmitter {
       ];
     }
 
+    // An or-pattern in the head binds as it does at a `let` (#215).
+    const alternatives = expandOrPatterns(expression.pattern);
+    if (alternatives.length > 1 && patternBindings(expression.pattern).length > 0) {
+      const binders = this.#emitAlternativeBindings(expression.pattern, alternatives, head.item, depth + 1, evidenceNames);
+      return [
+        ...head.before,
+        `${prefix}${head.header} {`,
+        ...binders,
+        ...expression.body.items.flatMap((item) =>
+          this.#emitItem(item, depth + 1, evidenceNames, false)
+        ),
+        `${prefix}}`,
+      ];
+    }
     const views: PatternViewContext = { byPosition: new Map(), uses: [] };
     const plan = this.#emitPatternPlan(
       expression.pattern,
@@ -14172,6 +14206,19 @@ function expandOrPatterns(pattern: Core.Pattern): readonly Core.Pattern[] {
       return combinations(pattern.arguments.map(expandOrPatterns)).map(
         (arguments_) => ({ ...pattern, arguments: arguments_ }),
       );
+    case "Vector": {
+      const { rest } = pattern;
+      const rests = rest?.pattern === undefined
+        ? [rest]
+        : expandOrPatterns(rest.pattern).map((nested) => ({ ...rest, pattern: nested }));
+      return combinations(pattern.elements.map(expandOrPatterns)).flatMap((elements) =>
+        rests.map((expanded) => ({
+          ...pattern,
+          elements,
+          ...(expanded === undefined ? {} : { rest: expanded }),
+        }))
+      );
+    }
     default:
       return [pattern];
   }
@@ -18509,6 +18556,38 @@ function containsVectorPattern(pattern: Core.Pattern): boolean {
     case "Constructor":
       return pattern.arguments.some(containsVectorPattern);
   }
+}
+
+/** Whether an `as` stands anywhere below the pattern's root. */
+function containsNestedAs(pattern: Core.Pattern): boolean {
+  const anyAs = (nested: Core.Pattern): boolean => {
+    switch (nested.kind) {
+      case "As":
+        return true;
+      case "Or":
+        return nested.alternatives.some(anyAs);
+      case "Tuple":
+        return nested.elements.some(anyAs);
+      case "Vector":
+        return nested.elements.some(anyAs) ||
+          (nested.rest?.pattern !== undefined && anyAs(nested.rest.pattern));
+      case "Record":
+        return nested.fields.some((field) => anyAs(field.pattern));
+      case "Declared":
+        return nested.components.some(anyAs);
+      case "Constructor":
+        return nested.arguments.some(anyAs);
+      case "Binding":
+      case "Wildcard":
+      case "Unit":
+      case "Integer":
+      case "Dec":
+      case "Float":
+      case "String":
+        return false;
+    }
+  };
+  return pattern.kind === "As" ? anyAs(pattern.pattern) : anyAs(pattern);
 }
 
 function containsDeclaredPattern(pattern: Core.Pattern): boolean {
