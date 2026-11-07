@@ -8473,10 +8473,13 @@ class JavaScriptEmitter {
         // there is none.
         const size = (subject: string) => `${this.#useVectorRuntime("size")}(${subject})`;
         const fixed = pattern.elements.length;
+        // A declared pattern's view is shared by position (Pattern Declarations
+        // §5), so a position here is the slot as it is read: `[a, ...]` and
+        // `[..., a]` both hold their slot at index 0 and read different
+        // elements. The same goes for a rest, whose position is its window.
         const plans = pattern.elements.map((element, index) => {
-          const position = pattern.rest === undefined || index < pattern.rest.index
-            ? String(index)
-            : `${size(value)} - ${fixed - index}`;
+          const fromFront = pattern.rest === undefined || index < pattern.rest.index;
+          const position = fromFront ? String(index) : `${size(value)} - ${fixed - index}`;
           return this.#emitPatternPlan(
             element,
             `${this.#useVectorRuntime("get")}(${value}, ${position})`,
@@ -8484,7 +8487,9 @@ class JavaScriptEmitter {
             exceptionPatterns,
             undefined,
             viewContext,
-            `${positionKey}/vector:${index}`,
+            fromFront
+              ? `${positionKey}/vector:${index}`
+              : `${positionKey}/vector-end:${fixed - index}`,
           );
         });
         const combined = combinePatternPlans(plans);
@@ -8500,7 +8505,7 @@ class JavaScriptEmitter {
               exceptionPatterns,
               undefined,
               viewContext,
-              `${positionKey}/vector-rest:${pattern.rest.index}`,
+              `${positionKey}/vector-rest:${pattern.rest.index}:${fixed - pattern.rest.index}`,
             );
         return {
           tests: [
