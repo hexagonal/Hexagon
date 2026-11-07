@@ -90,11 +90,6 @@ describe("the results pane receives a run's output", () => {
   });
 });
 
-/**
- * An uncaught throw reaches the pane as `Show<Exn>` would show it: its name,
- * then its message when it has one. The message alone used to stand here, which
- * dropped the name and left an exception without a `message` slot as nothing.
- */
 describe("the worker links a run's modules as the browser does", () => {
   test("a module importing a name its import does not export is refused", async () => {
     // Under the stubs, Node's own loader links the graph, not Vite's module
@@ -116,6 +111,11 @@ describe("the worker links a run's modules as the browser does", () => {
   });
 });
 
+/**
+ * An uncaught throw reaches the pane as `Show<Exn>` would show it: its name,
+ * then its message when it has one. The message alone used to stand here, which
+ * dropped the name and left an exception without a `message` slot as nothing.
+ */
 describe("an uncaught throw is reported by name", () => {
   test("with its message, and after the lines printed before it", async () => {
     harness.posted.length = 0;
