@@ -3840,6 +3840,22 @@ function firstParameterAnnotation(
 }
 
 /**
+ * What a dot judged about its receiver, as `Checker.#noteDotSite` wrote it down
+ * at the dot (Method Syntax §8.4).
+ *
+ * `head` is the receiver as the dot saw it: the shape whose candidates the dot
+ * consults, or `undefined` where it consults none — a subject the text does not
+ * decide, or one whose own elaboration failed. A record row's fields are copied
+ * at the dot, because a later line can widen the row the dot saw.
+ */
+interface NotedDotSite {
+  readonly access: Resolved.AccessExpr;
+  readonly decided: boolean;
+  readonly head: Mono | undefined;
+  readonly rowFields?: ReadonlyMap<string, Mono>;
+}
+
+/**
  * One constraint member a dot call could mean (Method Syntax §4.2).
  *
  * `subjectFirst` is the section's syntactic test, decided once per declaration:
@@ -4440,6 +4456,65 @@ function spineParameters(value: Resolved.Expr): readonly Resolved.Parameter[] {
     given.push(...node.parameters);
   }
   return given;
+}
+
+/** A member candidate as completion after a dot lists it (`Typed.DotMember`). */
+function dotMember(name: string, candidate: MemberCandidate): Typed.DotMember {
+  return { kind: "Member", name, symbol: candidate.symbol, constraint: candidate.constraint };
+}
+
+/**
+ * Whether a head-known receiver of this kind dispatches at the dot through §3.4's
+ * nominal or primitive row — the shapes whose dot has a companion, members, or
+ * both. Everything else (a structural record, a tuple, a function) is left to
+ * the ordinary field machinery. One list, read by dispatch and by the dot
+ * record completion reads (`Checker.#materializeDotSites`).
+ */
+function dispatchesAtHead(actual: Mono): boolean {
+  // `Seq` is a nominal record like any other, so `source.map(f)` is
+  // ordinary companion dispatch (Products §3.2) against prelude
+  // `Seq.hex` — no dedicated dot-call path, and no fixed operation list.
+  const nominal =
+    actual.kind === "NominalRecord" ||
+    actual.kind === "Union" ||
+    actual.kind === "Vector" ||
+    actual.kind === "Set" ||
+    actual.kind === "Map" ||
+    // `JsValue` joins them because it has what this list is really asking
+    // about: a companion module addressable under its own name
+    // (`BUILTIN_COMPANIONS`, Method Syntax §4.1's "the fixed prelude companion
+    // of the same name"). `stdlib/JsValue.hex` is that module, so `v.kind()`
+    // and `v.toInt()` are ordinary companion dispatch and reach exactly what
+    // `JsValue.kind(v)` reaches.
+    actual.kind === "JsValue" ||
+    // `Array` joins for the same reason, and settles Method Syntax §4.1's
+    // boundary row (#511): `stdlib/Array.hex` is the module addressable under
+    // the name, so `xs.length()` *is* `Array.length(xs)` — FFI Part 2 §13.1's
+    // "the call form stopped being an error entirely" is a fact about this
+    // line.
+    actual.kind === "Array" ||
+    // `Nullable` joins under #786. The receiver is pruned before this point,
+    // so an absorbed spelling continues to use the absorbing type's own
+    // companion rather than gaining nullable operations by force.
+    actual.kind === "Nullable" ||
+    // The two borrowed collection views join for the same reason (#792,
+    // FFI Part 10 §3): `stdlib/JsMap.hex` and `stdlib/JsSet.hex` are the
+    // modules addressable under the names, so `m.size()`, `m.get(k)` and
+    // `s.contains(x)` are ordinary companion dispatch.
+    actual.kind === "JsMap" ||
+    actual.kind === "JsSet" ||
+    // `Range` joins with its own companion (#1073, `BUILTIN_COMPANIONS`):
+    // `stdlib/Range.hex` honors `Iterable<Range>`, so `r.toSeq()` is its member.
+    actual.kind === "Range" ||
+    // An extern nominal type joins with its binding module as companion
+    // (Method Syntax §4.1's extern row; FFI Part 5 §9, #982): `url.hostname()`
+    // is `Url.hostname(url)`, and an opaque foreign value has no fields.
+    actual.kind === "ExternType";
+  // Primitives join the table for the member clause alone (§3.4's Primitive
+  // row): they have no fields and no companion module, so the wired instances
+  // are their whole dot surface — `42n.show()` is `Show`'s member at `BigInt`.
+  const primitive_ = actual.kind === "Constructor";
+  return nominal || primitive_;
 }
 
 /**
@@ -6611,6 +6686,12 @@ class Checker {
    */
   readonly #typeHoles: { readonly span: Source.Span; readonly type: Mono }[] = [];
   /**
+   * Each dot this module checked, with what the dot judged there, in the order
+   * met (Method Syntax §8.4; `#noteDotSite`). The judgment is made at the dot
+   * and kept; only the display of a field's type waits for materialization.
+   */
+  readonly #dotSites = new Map<Resolved.AccessExpr, NotedDotSite>();
+  /**
    * The constraints **declared in this module**, by name.
    *
    * Ownership, never visibility. Two rules read exactly this set and nothing
@@ -7878,6 +7959,7 @@ class Checker {
       comments: module.comments,
       docs: module.docs,
       typeHoles: this.#materializeTypeHoles(),
+      dotSites: this.#materializeDotSites(),
       ...this.#materializeColourScopes(),
       instanceColours: this.#publishedInstanceColours(),
       companionImports: [...this.#companionImports.values()],
@@ -8136,6 +8218,146 @@ class Checker {
       if (candidate !== undefined) return candidate;
     }
     return undefined;
+  }
+
+  /**
+   * Writes down what this dot judges about its receiver, for completion after
+   * it (Method Syntax §8.4) — at the dot, where the judgment is made, because
+   * completion must read the dot's verdict and never the final solved type.
+   *
+   * The questions are dispatch's own, asked in its order and of the same
+   * answers (`#dispatchDotCall`): a declared type variable is read through its
+   * written bounds; anything else must be a subject the program's text decides
+   * (`#typeDecided`, §3.1), or the dot consults nothing and offers nothing
+   * (§3.5); a decided subject whose head is still open is a numeric literal,
+   * which takes its `Int` default at the dot (§3.3). Asked at every dot, a bare
+   * field read included, since the name being typed after it is not yet
+   * either.
+   *
+   * The first judgment at a dot stands: the ordinary application path can
+   * elaborate a dot-call's callee a second time after dispatch declined it.
+   */
+  #noteDotSite(access: Resolved.AccessExpr, receiver: Mono): void {
+    if (this.#dotSites.has(access)) return;
+    const note = (decided: boolean, head?: Mono, rowFields?: ReadonlyMap<string, Mono>): void => {
+      this.#dotSites.set(access, {
+        access,
+        decided,
+        head: decided ? head : undefined,
+        ...(rowFields === undefined ? {} : { rowFields }),
+      });
+    };
+    const actual = this.#prune(receiver);
+    if (actual.kind === "Error") return note(false);
+    if (actual.kind === "Variable" && actual.rigidName !== undefined) return note(true, actual);
+    if (!this.#typeDecided(access.receiver)) return note(false);
+    if (actual.kind === "Variable") {
+      return this.#canDefaultToInt(actual) ? note(true, primitive("Int")) : note(false);
+    }
+    if (actual.kind === "Record") {
+      const row = this.#normalizeRecord(actual);
+      return note(true, row, new Map(row.fields));
+    }
+    note(true, actual);
+  }
+
+  /** The dots this module checked, each with its candidates (`Typed.DotSite`). */
+  #materializeDotSites(): readonly Typed.DotSite[] {
+    // The companion and member half of a set depends on the head alone, so
+    // every dot at one head shares one list.
+    const shared = new Map<string, readonly Typed.DotCandidate[]>();
+    return [...this.#dotSites.values()].map(({ access, decided, head, rowFields }) => ({
+      receiver: access.receiver.span,
+      name: access.field.span,
+      decided,
+      candidates: head === undefined ? [] : this.#dotCandidates(head, rowFields, shared),
+    }));
+  }
+
+  /**
+   * §8.4's list at one dot: the candidate set the dot resolves against, and
+   * nothing it does not consult (§11.2).
+   */
+  #dotCandidates(
+    head: Mono,
+    rowFields: ReadonlyMap<string, Mono> | undefined,
+    shared: Map<string, readonly Typed.DotCandidate[]>,
+  ): readonly Typed.DotCandidate[] {
+    // A declared variable is read as the dot saw it: the dot's own refusal
+    // can bind it afterwards to the row a bare read asked of it.
+    const actual = head.kind === "Variable" && head.rigidName !== undefined ? head : this.#prune(head);
+    const field = (name: string, type: Mono, declaration?: Source.Span): Typed.DotField => ({
+      kind: "Field",
+      name,
+      scheme: this.#publicScheme({ variables: this.#collectVariables(type), type }),
+      ...(declaration === undefined ? {} : { declaration }),
+    });
+    if (rowFields !== undefined) {
+      return [...rowFields].map(([name, type]) => field(name, type));
+    }
+    if (actual.kind === "Tuple") {
+      return actual.elements.map((element, index) => field(`item${index + 1}`, element));
+    }
+    if (actual.kind === "Variable") {
+      // A declared variable's bounds are its entire candidate set (§3.4).
+      const key = `bound ${actual.id}`;
+      const known = shared.get(key);
+      if (known !== undefined) return known;
+      const members: Typed.DotCandidate[] = [];
+      for (const [name, candidates] of this.#boundMembers(actual)) {
+        for (const candidate of candidates) {
+          if (candidate.subjectFirst) members.push(dotMember(name, candidate));
+        }
+      }
+      shared.set(key, members);
+      return members;
+    }
+    if (!dispatchesAtHead(actual)) return [];
+    const fields: Typed.DotField[] = [];
+    if (actual.kind === "NominalRecord" && this.#recordRepresentationVisible(actual.record)) {
+      const declared = this.#programRecord(actual.record)?.fields ?? [];
+      for (const [name, type] of this.#nominalRecordFields(actual)) {
+        fields.push(field(name, type, declared.find((candidate) => candidate.name === name)?.span));
+      }
+    }
+    return [...fields, ...this.#headOperations(actual, shared)];
+  }
+
+  /**
+   * §4.2's companion operation set at a head-known receiver: the companion's
+   * exported subject-first operations, the subject-first members honored at
+   * the type, and, for `Nat`, `Int` and `BigInt`, the tower members owned but
+   * not honored — each source as `#dotClaimants` reads it.
+   */
+  #headOperations(
+    actual: Mono,
+    shared: Map<string, readonly Typed.DotCandidate[]>,
+  ): readonly Typed.DotCandidate[] {
+    const companion = this.#companionKeyOfType(actual);
+    const key = `${companion ?? ""} ${this.#subjectKey(actual)}`;
+    const known = shared.get(key);
+    if (known !== undefined) return known;
+    const operations = companion === undefined ? undefined : this.#companionOperations.get(companion);
+    const found: Typed.DotCandidate[] = [];
+    for (const [name, symbol] of operations ?? []) {
+      found.push({ kind: "Operation", name, symbol: symbol.id });
+    }
+    const honored = this.#honoredMembers(actual);
+    for (const [name, candidates] of honored) {
+      // §6.1's one claimant: a `widens` binding and the members it supplies
+      // are one operation, which the dot reaches as the companion's.
+      if (operations?.get(name)?.widens === true) continue;
+      for (const candidate of candidates) {
+        if (candidate.subjectFirst) found.push(dotMember(name, candidate));
+      }
+    }
+    for (const name of TOWER_MEMBER_NAMES) {
+      if ((honored.get(name) ?? []).length > 0) continue;
+      const owned = this.#ownedTowerMember(actual, name);
+      if (owned !== undefined) found.push({ ...dotMember(name, owned), needsFace: true });
+    }
+    shared.set(key, found);
+    return found;
   }
 
   /** The companion identity a receiver's head names, or none for a headless one. */
@@ -8771,50 +8993,7 @@ class Checker {
       }
       return undefined;
     }
-    // `Seq` is a nominal record like any other, so `source.map(f)` is
-    // ordinary companion dispatch (Products §3.2) against prelude
-    // `Seq.hex` — no dedicated dot-call path, and no fixed operation list.
-    const nominal =
-      actual.kind === "NominalRecord" ||
-      actual.kind === "Union" ||
-      actual.kind === "Vector" ||
-      actual.kind === "Set" ||
-      actual.kind === "Map" ||
-      // `JsValue` joins them because it has what this list is really asking
-      // about: a companion module addressable under its own name
-      // (`BUILTIN_COMPANIONS`, Method Syntax §4.1's "the fixed prelude companion
-      // of the same name"). `stdlib/JsValue.hex` is that module, so `v.kind()`
-      // and `v.toInt()` are ordinary companion dispatch and reach exactly what
-      // `JsValue.kind(v)` reaches.
-      actual.kind === "JsValue" ||
-      // `Array` joins for the same reason, and settles Method Syntax §4.1's
-      // boundary row (#511): `stdlib/Array.hex` is the module addressable under
-      // the name, so `xs.length()` *is* `Array.length(xs)` — FFI Part 2 §13.1's
-      // "the call form stopped being an error entirely" is a fact about this
-      // line.
-      actual.kind === "Array" ||
-      // `Nullable` joins under #786. The receiver is pruned before this point,
-      // so an absorbed spelling continues to use the absorbing type's own
-      // companion rather than gaining nullable operations by force.
-      actual.kind === "Nullable" ||
-      // The two borrowed collection views join for the same reason (#792,
-      // FFI Part 10 §3): `stdlib/JsMap.hex` and `stdlib/JsSet.hex` are the
-      // modules addressable under the names, so `m.size()`, `m.get(k)` and
-      // `s.contains(x)` are ordinary companion dispatch.
-      actual.kind === "JsMap" ||
-      actual.kind === "JsSet" ||
-      // `Range` joins with its own companion (#1073, `BUILTIN_COMPANIONS`):
-      // `stdlib/Range.hex` honors `Iterable<Range>`, so `r.toSeq()` is its member.
-      actual.kind === "Range" ||
-      // An extern nominal type joins with its binding module as companion
-      // (Method Syntax §4.1's extern row; FFI Part 5 §9, #982): `url.hostname()`
-      // is `Url.hostname(url)`, and an opaque foreign value has no fields.
-      actual.kind === "ExternType";
-    // Primitives join the table for the member clause alone (§3.4's Primitive
-    // row): they have no fields and no companion module, so the wired instances
-    // are their whole dot surface — `42n.show()` is `Show`'s member at `BigInt`.
-    const primitive_ = actual.kind === "Constructor";
-    if (!nominal && !primitive_) return undefined;
+    if (!dispatchesAtHead(actual)) return undefined;
     let claimants = this.#dotClaimants(actual, name, callee, expression.arguments);
     // A receiver dispatched on its written head is read as an argument only by
     // a companion operation it reaches; any other claimant reads its whole
@@ -13135,6 +13314,7 @@ class Checker {
             this.#holdsErrorNode(expression.callee.receiver);
           this.#receiverRoot = enclosingRoot;
           this.#forwardedReceiver = enclosingReceiver;
+          this.#noteDotSite(expression.callee, receiver);
           // A receiver that already refused under the face takes the call with
           // it, whether it said so by marking itself — a forwarding form's part
           // disagreement — or by typing as `Error`: dispatching on what the
@@ -13727,6 +13907,7 @@ class Checker {
       }
       case "Access": {
         const inferredReceiver = this.#prune(this.#inferExpr(expression.receiver, level));
+        this.#noteDotSite(expression, inferredReceiver);
         const receiver = inferredReceiver.kind === "Record"
           ? this.#normalizeRecord(inferredReceiver)
           : inferredReceiver;

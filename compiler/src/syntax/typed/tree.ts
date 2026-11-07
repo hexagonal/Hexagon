@@ -399,6 +399,18 @@ export interface Module {
    */
   readonly typeHoles: readonly TypeHole[];
   /**
+   * Every dot this module checked, with what the checker decided there — the
+   * record completion after a value's dot reads (Method Syntax §8.4).
+   *
+   * Completion must offer exactly what the dot itself consults, and must read
+   * it **as the dot judged it**, never off the final solved type: inference can
+   * learn a receiver's type further down the body, after the dot was already
+   * refused because the program's text did not decide it (§3.5). So the
+   * checker writes its judgment down where it makes it. Metadata, like
+   * `typeHoles`: nothing between here and emission reads it.
+   */
+  readonly dotSites: readonly DotSite[];
+  /**
    * Whose callback each settled callback colour is, in a report's words —
    * "`outer`'s `action`" — so a face depending on a captured colour can name
    * its owner *(Effects §10)*. Where a join made one variable of several
@@ -476,6 +488,69 @@ export interface CompanionImport {
    * the exporter published.
    */
   readonly internalNames: Resolved.InternalNameInputs;
+}
+
+/**
+ * One dot the checker met, and what it decided there (Method Syntax §8.4).
+ *
+ * Keyed by the name after the dot rather than by the whole access, because
+ * that is where the editor's cursor is when it asks. A dot nothing follows yet
+ * has an empty `name` at the end of the dot, so a parse that keeps such a dot
+ * can feed this same record.
+ */
+export interface DotSite {
+  readonly receiver: Source.Span;
+  /** The name after the dot, as written so far. */
+  readonly name: Source.Span;
+  /**
+   * Whether the program's text decides the receiver's type here (§3.1). False
+   * where it does not — the dot call is refused there (§3.5) — and where the
+   * receiver's own elaboration failed: in both, the dot has no candidates.
+   */
+  readonly decided: boolean;
+  /**
+   * The one candidate set the dot resolves against (§4.2, §11.2), as §8.4 lists
+   * it: a head-known nominal's visible fields, its companion's operations and
+   * the members honored at it; a declared type variable's bound members; a
+   * record row's known fields. Empty where `decided` is false.
+   */
+  readonly candidates: readonly DotCandidate[];
+}
+
+export type DotCandidate = DotField | DotOperation | DotMember;
+
+/** A field the receiver has: a declared record's visible field, a row's, or a tuple's `itemN`. */
+export interface DotField {
+  readonly kind: "Field";
+  readonly name: string;
+  /** The field's type at this receiver. */
+  readonly scheme: Scheme;
+  /** The field's declaration, where a declared record has one, for its documentation. */
+  readonly declaration?: Source.Span;
+}
+
+/** An exported operation of the receiver type's companion (§4.2's first clause). */
+export interface DotOperation {
+  readonly kind: "Operation";
+  readonly name: string;
+  readonly symbol: Resolved.SymbolId;
+}
+
+/**
+ * A constraint member the dot reaches (§4.2's second clause): one honored at
+ * the receiver's type, or one of a declared type variable's bounds.
+ */
+export interface DotMember {
+  readonly kind: "Member";
+  readonly name: string;
+  readonly symbol: Resolved.SymbolId;
+  /** The constraint's declared name. */
+  readonly constraint: string;
+  /**
+   * A tower member the type owns without honoring its rung (§4.2's ownership
+   * clause): the call takes a written face, or is refused as the operator is.
+   */
+  readonly needsFace?: true;
 }
 
 /**

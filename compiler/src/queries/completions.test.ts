@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { AnalysisSession } from "../analysis/session.js";
-import { qualifierAt } from "./completions.js";
+import { qualifierAt, type Completion } from "./completions.js";
 
 /**
  * The cursor is written as `‸` in these sources, and removed before compiling.
@@ -404,6 +404,183 @@ describe("completions", () => {
       expect(offered).toContain("brighten :: Brightens it.");
       expect(offered).toContain("plain :: -");
     });
+  });
+});
+
+/** Every completion at the cursor, whole, for assertions about kinds, details and documentation. */
+function offeredAt(marked: string): readonly Completion[] {
+  const { text, offset } = at(marked);
+  const session = new AnalysisSession();
+  session.setFile("/main.hex", text);
+  return session.completions("/main.hex", offset);
+}
+
+/**
+ * Method Syntax §8.4: after a value's dot, exactly what the dot consults — read
+ * from what the checker decided at that dot.
+ */
+describe("completions after a value's dot", () => {
+  const POINT = [
+    "export record Point derives (Eq, Show) = {",
+    "    (** How far across. *)",
+    "    x: Int,",
+    "    y: Int,",
+    "}",
+    "",
+    "(** The sum of the two coordinates. *)",
+    "export fun norm(p: Point): Int = p.x + p.y",
+    "",
+    "export fun make(x: Int, y: Int): Point = Point({x, y})",
+    "",
+  ].join("\n");
+
+  test("a declared record: its fields, its companion's operations, and its members, marked", () => {
+    const offered = offeredAt(`${POINT}fun probe(p: Point): Int = p.‸x\n`);
+    expect(offered.map(({ name, kind }) => `${name}:${kind}`)).toEqual([
+      "equals:member",
+      "norm:operation",
+      "notEquals:member",
+      "show:member",
+      "x:field",
+      "y:field",
+    ]);
+    const byName = new Map(offered.map((completion) => [completion.name, completion]));
+    expect(byName.get("x")).toMatchObject({ detail: "Int", documentation: "How far across." });
+    expect(byName.get("y")?.documentation).toBeUndefined();
+    expect(byName.get("norm")).toMatchObject({
+      detail: "Point -> Int",
+      documentation: "The sum of the two coordinates.",
+    });
+    expect(byName.get("show")).toMatchObject({ constraint: "Show" });
+    expect(byName.get("show")?.needsFace).toBeUndefined();
+    // `make` is exported by the home module but does not take a `Point` first,
+    // so it is not dot-callable (§4.2) and is not offered after one; neither is
+    // `probe`, the scope's own name, since a dot never consults the scope (§1).
+    expect(byName.has("make")).toBe(false);
+    expect(byName.has("probe")).toBe(false);
+  });
+
+  test("a half-typed name after a vector: the companion's operations, with their types", () => {
+    const offered = offeredAt("fun probe(v: Vector(Int)): Vector(Int) = v.ma‸\n");
+    const map = offered.find(({ name }) => name === "map");
+    expect(map).toMatchObject({ kind: "operation" });
+    expect(map?.detail).toMatch(/^\(Vector\(a\), a ->! b\) >-> Vector\(b\)/u);
+    expect(offered.map(({ name }) => name)).toContain("filter");
+    // `Vector.empty` takes no `Vector` first: correctly invisible after a dot.
+    expect(offered.map(({ name }) => name)).not.toContain("empty");
+    expect(offered.map(({ name }) => name)).not.toContain("v");
+  });
+
+  test("a prelude operation carries its documentation", () => {
+    const offered = offeredAt("fun probe(v: Vector(Int)): Option(Int) = v.fi‸rst()\n");
+    expect(offered.find(({ name }) => name === "first")).toMatchObject({
+      kind: "operation",
+      detail: "Vector(a) -> Option(a)",
+      documentation: "The first element of `values`, or `None` when it is empty.",
+    });
+  });
+
+  test("mid-chain: each link's subject is the call before it", () => {
+    const offered = offeredAt(
+      "fun probe(v: Vector(Int)): Option(Int) = v.map((n) => n + 1).fi‸\n",
+    );
+    const names = offered.map(({ name }) => name);
+    expect(names).toContain("first");
+    expect(names).toContain("filter");
+  });
+
+  test("a declared type variable: the subject-first members of its bounds, bases included", () => {
+    const offered = offeredAt("fun probe<a: Ord>(x: a, y: a): Ordering = x.‸compare(y)\n");
+    expect(offered.map(({ name, kind, constraint }) => `${name}:${kind}:${constraint}`)).toEqual([
+      "compare:member:Ord",
+      "equals:member:Eq",
+      "max:member:Ord",
+      "min:member:Ord",
+      "notEquals:member:Eq",
+    ]);
+  });
+
+  test("a declared type variable keeps its bounds while its name is half-typed", () => {
+    // A bare read `x.s` asks `a` for a row, and the refusal of that binds the
+    // variable after the dot: completion reads the variable the dot saw.
+    const offered = offeredAt("fun probe<a: Show>(x: a): String = x.s‸\n");
+    expect(offered.map(({ name, kind }) => `${name}:${kind}`)).toEqual(["show:member"]);
+  });
+
+  test("a numeric literal takes its default at the dot (§3.3)", () => {
+    const names = offeredAt("let probe = (40 + 2).sh‸ow()\n").map(({ name }) => name);
+    expect(names).toContain("show");
+    expect(names).toContain("div");
+  });
+
+  test("a tuple: its positional fields", () => {
+    const offered = offeredAt('let pair = (1, "one")\nlet probe = pair.it‸em1\n');
+    expect(offered.map(({ name, detail }) => `${name}:${detail}`)).toEqual(["item1:Int", "item2:String"]);
+  });
+
+  test("a `widens` binding and the members it supplies are offered once, as the operation", () => {
+    const pows = offeredAt("fun probe(b: BigInt): BigInt = b.po‸w(2)\n")
+      .filter(({ name }) => name === "pow");
+    expect(pows.map(({ kind }) => kind)).toEqual(["operation"]);
+  });
+
+  test("a structural record row: its known fields and nothing else", () => {
+    const offered = offeredAt("fun probe(r: {x: Int, y: String}): Int = r.‸x\n");
+    expect(offered.map(({ name, kind, detail }) => `${name}:${kind}:${detail}`)).toEqual([
+      "x:field:Int",
+      "y:field:String",
+    ]);
+  });
+
+  test("an open row: the fields known at the dot, not the ones a later line adds", () => {
+    const offered = offeredAt("fun probe(r: {x: Int, ...}): Int = r.‸x + r.width\n");
+    expect(offered.map(({ name }) => name)).toEqual(["x"]);
+  });
+
+  test("a subject the text does not decide: no candidates, though inference knows it", () => {
+    // The line above has already made `xs` a `Vector` by the time inference
+    // reaches the dot, but the text does not decide `xs`, so the dot is refused
+    // (§3.2's own example) — and completion offers what the dot consults,
+    // which is nothing. Reading the solved type would offer `length`, and the
+    // call it completes would be refused.
+    const source = [
+      "fun probe(xs) =",
+      "    let k = Vector.length(xs)",
+      "    xs.le‸ngth() + k",
+      "",
+    ].join("\n");
+    const { text } = at(source);
+    const session = new AnalysisSession();
+    session.setFile("/main.hex", text);
+    expect(session.diagnostics("/main.hex").map(({ message }) => message)).toContainEqual(
+      expect.stringContaining("the program's text does not decide `xs`'s type here"),
+    );
+    expect(offeredAt(source)).toEqual([]);
+  });
+
+  test("a `Nat` lists the tower members it owns but does not honor, marked as needing a face", () => {
+    const offered = offeredAt("fun probe(n: Nat, m: Nat): Int = n.su‸\n");
+    const byName = new Map(offered.map((completion) => [completion.name, completion]));
+    expect(byName.get("subtract")).toMatchObject({ kind: "member", constraint: "Signed", needsFace: true });
+    expect(byName.get("divide")).toMatchObject({ kind: "member", needsFace: true });
+    // An honored member needs no face.
+    expect(byName.get("add")).toMatchObject({ kind: "member", constraint: "Num" });
+    expect(byName.get("add")?.needsFace).toBeUndefined();
+  });
+});
+
+describe("completions after a prelude module", () => {
+  test("carry each member's documentation, though nothing has reached the module yet", () => {
+    // The companion is not emitted until the program uses it, so its doc blocks
+    // were indexed nowhere and every member came back undocumented — while an
+    // imported module, always emitted, documented its own.
+    for (const [marked, name, documentation] of [
+      ["let probe = Vector.‸\n", "first", "The first element of `values`, or `None` when it is empty."],
+      ["let probe = Option.‸\n", "map", "Transforms a present value. `None` stays `None`."],
+    ] as const) {
+      expect(offeredAt(marked).find((completion) => completion.name === name)?.documentation)
+        .toBe(documentation);
+    }
   });
 });
 

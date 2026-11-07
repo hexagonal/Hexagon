@@ -299,14 +299,18 @@ export function startServer(connection: Connection): void {
     // protocol's `detail` is a plain string shown beside the label, and §8 asks
     // for Markdown, which only this field renders as such. `detail` goes on
     // carrying the type, which is what a reader scanning the list wants first.
-    return offered.map((completion): CompletionItem => ({
-      label: completion.name,
-      kind: completionKindOf(completion.kind),
-      ...(completion.detail === undefined ? {} : { detail: completion.detail }),
-      ...(completion.documentation === undefined
-        ? {}
-        : { documentation: { kind: MarkupKind.Markdown, value: completion.documentation } }),
-    }));
+    return offered.map((completion): CompletionItem => {
+      const mark = memberMarkOf(completion);
+      return {
+        label: completion.name,
+        kind: completionKindOf(completion.kind),
+        ...(completion.detail === undefined ? {} : { detail: completion.detail }),
+        ...(mark === undefined ? {} : { labelDetails: { description: mark } }),
+        ...(completion.documentation === undefined
+          ? {}
+          : { documentation: { kind: MarkupKind.Markdown, value: completion.documentation } }),
+      };
+    });
   });
 
   connection.onCodeAction(({ textDocument, range, context }): CodeAction[] | null => {
@@ -878,7 +882,26 @@ function completionKindOf(kind: Completion["kind"]): CompletionItemKind {
       return CompletionItemKind.Module;
     case "value":
       return CompletionItemKind.Variable;
+    case "field":
+      return CompletionItemKind.Field;
+    // A companion operation and a constraint member are both called after the
+    // dot, so both are methods to an editor; the member's constraint is what
+    // tells them apart, and it rides in the label's description.
+    case "operation":
+    case "member":
+      return CompletionItemKind.Method;
   }
+}
+
+/**
+ * Method Syntax §8.4's marks: a member says whose member it is, and a tower
+ * member the type owns without honoring its rung says it needs a written type,
+ * as the operator does. Plain text, shown beside the label.
+ */
+function memberMarkOf(completion: Completion): string | undefined {
+  if (completion.constraint === undefined) return undefined;
+  const whose = `${completion.constraint} member`;
+  return completion.needsFace === true ? `${whose}, needs a written type` : whose;
 }
 
 /**

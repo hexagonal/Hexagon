@@ -579,6 +579,8 @@ describe("the Hexagon language server", () => {
       "",
       "let probe: Int = 1",
       "",
+      "let widthOf(box: Box): Int = box.width",
+      "",
     ].join("\n");
 
     let documented: Harness;
@@ -643,6 +645,22 @@ describe("the Hexagon language server", () => {
       // An undocumented offer carries no empty section for a client to render.
       expect(offered.find(({ label }) => label === "probe")?.documentation)
         .toBeUndefined();
+    });
+
+    test("completion after a value's dot carries a field's documentation too", async () => {
+      const dot = positionOf(DOCUMENTED, "box.width");
+      const offered = await documented.client.sendRequest("textDocument/completion", {
+        textDocument: { uri: documented.uriOf("main.hex") },
+        position: { line: dot.line, character: dot.character + "box.".length },
+      }) as CompletionItem[];
+      // Method Syntax §8.4: the record's field, then its companion's operations
+      // — `brighten` is not one, its first parameter not being a `Box`.
+      expect(offered.map(({ label }) => label)).toEqual(["width"]);
+      expect(offered[0]).toMatchObject({
+        kind: CompletionItemKind.Field,
+        detail: "Int",
+        documentation: { kind: "markdown", value: "How wide it is." },
+      });
     });
   });
 
