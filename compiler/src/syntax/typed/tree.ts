@@ -495,8 +495,7 @@ export interface CompanionImport {
  *
  * Keyed by the name after the dot rather than by the whole access, because
  * that is where the editor's cursor is when it asks. A dot nothing follows yet
- * has an empty `name` at the end of the dot, so a parse that keeps such a dot
- * can feed this same record.
+ * (`q.`, an unfinished `AccessExpr`) has an empty `name` just after the dot.
  */
 export interface DotSite {
   readonly receiver: Source.Span;
@@ -1437,6 +1436,8 @@ export interface AccessExpr extends ExpressionFields {
   readonly kind: "Access";
   readonly receiver: Expr;
   readonly field: FieldName;
+  /** A dot nothing follows yet, its name empty and its type in error: see the parsed tree's. */
+  readonly unfinished?: true;
   readonly tupleIndex?: number;
   readonly recordField?: string;
 }

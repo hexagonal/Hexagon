@@ -2225,6 +2225,8 @@ export interface AccessExpr {
   readonly receiver: Expr;
   readonly field: FieldName;
   readonly span: Source.Span;
+  /** A dot nothing follows yet, its name empty: see the parsed tree's. */
+  readonly unfinished?: true;
 }
 
 export interface ThrowExpr {

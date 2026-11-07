@@ -464,6 +464,12 @@ interface WrittenArguments {
  * reason the test is a small allowlist rather than a list of the shapes that
  * need help — a shape nobody thought of gets parentheses and stays correct.
  */
+/** The first name of `a.b.c`, for a path of plain names; `undefined` for anything else. */
+function pathRoot(expression: Parsed.Expr): Parsed.Name | undefined {
+  if (expression.kind === "Name") return expression.name;
+  return expression.kind === "Access" ? pathRoot(expression.receiver) : undefined;
+}
+
 function dispatchesAsWritten(expression: Parsed.Expr): boolean {
   return expression.kind === "Name" || expression.kind === "Access" ||
     expression.kind === "Call" || expression.kind === "Group" ||
@@ -4387,6 +4393,34 @@ class Resolver {
     });
   }
 
+  /**
+   * A dot nothing follows yet (`q.`; the parser reported the missing name).
+   *
+   * A path the module-alias reading claims — one whose first name is an
+   * imported or prelude module (`Vector.`, `Regex.Syntax.`), first even where
+   * a term has the same spelling (#829), or an upper-case name no term answers
+   * — is a qualifier, which completion reads from the text, so it stays the
+   * recovery node it always was, and nothing more is reported. Any other receiver is a value: it is resolved as one, and the dot
+   * is kept for the checker to judge (Method Syntax §8.4).
+   */
+  #resolveUnfinishedAccess(expression: Parsed.AccessExpr, scope: Scope): Resolved.Expr {
+    const root = pathRoot(expression.receiver);
+    if (
+      root !== undefined &&
+      (this.#namedModule(root.text) !== undefined ||
+        (root.startClass === "upper" && this.#lookupTerm(root.text, scope) === undefined))
+    ) {
+      return { kind: "ErrorExpr", span: expression.receiver.span };
+    }
+    return {
+      kind: "Access",
+      receiver: this.#resolveExpr(expression.receiver, scope),
+      field: { text: "", startClass: expression.field.startClass, span: expression.field.span },
+      span: expression.span,
+      unfinished: true,
+    };
+  }
+
   #resolveExpr(expression: Parsed.Expr, scope: Scope): Resolved.Expr {
     switch (expression.kind) {
       case "Name":
@@ -4662,6 +4696,7 @@ class Resolver {
           ),
         };
       case "Access":
+        if (expression.unfinished === true) return this.#resolveUnfinishedAccess(expression, scope);
         if (expression.receiver.kind === "Name") {
           // Term position, so the top-down half of §3 applies before any read:
           // an alias whose import the walk has not reached binds `Lib.area` no

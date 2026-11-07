@@ -17,9 +17,9 @@
  * the checker's own judgment written down at the dot — whether the text decides
  * the receiver, and the one candidate set the dot resolves against — never from
  * the receiver's final solved type, which a later line can have learned after
- * the dot already refused it (§3.5). A dot nothing follows yet (`q.`) does not
- * parse into an access today, so it has no record and is answered by the
- * qualifier reading below, which finds no module and offers nothing.
+ * the dot already refused it (§3.5). A dot nothing follows yet (`q.`) is kept
+ * by the parser with an empty name, so it has its record like any other; one
+ * whose receiver is a module (`Vector.`) is the qualifier reading's, below.
  *
  * **Qualified** — `Vector.` — lists one module's members, and is the common case
  * in a language whose library is reached through module names. **Unqualified**

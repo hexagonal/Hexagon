@@ -5875,6 +5875,16 @@ class Parser {
 
     while (!effectiveStops.has(this.#current().kind)) {
       const mark = this.#markAt();
+      // A dot nothing followed (`#parseAccess`) is kept only where nothing
+      // attaches after it: a call, index, mark or further dot meets the
+      // recovery node it always met, so what it reports is unchanged.
+      if (
+        left.kind === "Access" && left.unfinished === true &&
+        (mark !== undefined || this.#at("Question") || this.#at("LeftParen") ||
+          this.#at("Dot") || this.#at("LeftBracket"))
+      ) {
+        left = { kind: "ErrorExpr", span: left.receiver.span };
+      }
       // `^` and `~` standing where an operator would — before an operand, or
       // with space on both sides — take `bitwise.md` §9's redirect, not the
       // mark seat's (Lexer §8.3).
@@ -5971,11 +5981,16 @@ class Parser {
 
       const token = this.#advance();
       const pipeStage = operation.operator === "Pipe";
-      const right = this.#parseExpression(
+      let right = this.#parseExpression(
         operation.rightBindingPower,
         effectiveStops,
         pipeStage,
       );
+      // A stage is a call-in-waiting (the rewrite supplies its arguments), so
+      // an unfinished dot there is one a call attaches to, as in the loop above.
+      if (pipeStage && right.kind === "Access" && right.unfinished === true) {
+        right = { kind: "ErrorExpr", span: right.receiver.span };
+      }
       const stageMark = pipeStage ? this.#stageMark : undefined;
       if (pipeStage) this.#stageMark = undefined;
       if (operation.assignment === true) {
@@ -6613,7 +6628,7 @@ class Parser {
   }
 
   #parseAccess(receiver: Parsed.Expr): Parsed.Expr {
-    this.#advance();
+    const dot = this.#advance();
     // No `union` special case here any more (#373). While `union` was a hard
     // keyword this arm existed so `Vector.union` could at least *parse* as a
     // field — the one position a reserved word was let through. The word is
@@ -6622,7 +6637,16 @@ class Parser {
     // written for it.
     const field = this.#takeAnyName("expected a field name after `.`");
     if (field === undefined) {
-      return { kind: "ErrorExpr", span: receiver.span };
+      // Decision 2 of the language-server plan, ruled (a): the dot is kept
+      // with no name yet, so the editor can ask what it would accept.
+      const after = { ...dot.span, start: dot.span.end };
+      return {
+        kind: "Access",
+        receiver,
+        field: { text: "", startClass: "non-upper", span: after },
+        span: spanFrom(receiver.span, dot.span),
+        unfinished: true,
+      };
     }
     return {
       kind: "Access",

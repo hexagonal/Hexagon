@@ -500,6 +500,49 @@ describe("parse", () => {
     expect(module.diagnostics).toEqual([]);
   });
 
+  test("keeps a dot nothing follows yet, its name empty just after the dot", () => {
+    // Decision 2 of the language-server plan, ruled (a): the receiver is kept,
+    // so the checker can say what the dot would accept (Method Syntax §8.4).
+    const module = parseSource("users.at(1).profile.");
+    const dotEnd = HEADER.length + "users.at(1).profile.".length;
+
+    expect(module.diagnostics.map(({ message }) => message)).toEqual([
+      "expected a field name after `.`",
+    ]);
+    expect(expression(module)).toMatchObject({
+      kind: "Access",
+      unfinished: true,
+      field: { text: "", span: { start: { offset: dotEnd }, end: { offset: dotEnd } } },
+      receiver: { kind: "Access", field: { text: "profile" }, receiver: { kind: "Call" } },
+      span: { end: { offset: dotEnd } },
+    });
+  });
+
+  test("an unfinished dot that anything attaches to is the recovery node it was", () => {
+    // A call, an index, a mark or another dot after it would read a name that
+    // is not there, so each meets the error node and reports what it did
+    // before: the dot, and for a mark, the mark's seat, a gap from its callee.
+    const missing = "expected a field name after `.`";
+    const markSeat = "a call mark governs an argument list; write it immediately before `(`, " +
+      "or (in a `|>` stage) at the end of the stage — a reference carries no colour";
+    for (const [text, kind, reports] of [
+      ["q.(1)", "Call", [missing]],
+      ["q.!(1)", "Call", [missing, markSeat]],
+      ["q.[0]", "Index", [missing]],
+      ["q. .x", "Access", [missing]],
+    ] as const) {
+      const module = parseSource(text);
+      expect(module.diagnostics.map(({ message }) => message)).toEqual(reports);
+      const parsed = expression(module) as { readonly kind: string; readonly callee?: Parsed.Expr; readonly receiver?: Parsed.Expr };
+      expect(parsed.kind).toBe(kind);
+      expect((parsed.callee ?? parsed.receiver)?.kind).toBe("ErrorExpr");
+    }
+    // A `|>` stage is a call-in-waiting, the stage its callee.
+    const piped = parseSource("1 |> q.");
+    expect(piped.diagnostics.map(({ message }) => message)).toEqual(["expected a field name after `.`"]);
+    expect(expression(piped)).toMatchObject({ kind: "Binary", operator: "Pipe", right: { kind: "ErrorExpr" } });
+  });
+
   test("puts exponentiation above unary minus and comparisons above not", () => {
     const module = parseSource("let number = -2 ** 2\nlet flag = not a == b and c");
     const bindings = module.items as readonly Parsed.LetItem[];

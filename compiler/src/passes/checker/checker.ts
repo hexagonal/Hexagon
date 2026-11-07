@@ -8979,12 +8979,15 @@ class Checker {
     });
   }
 
-  /** Whether an expression holds a node an earlier pass refused (`ErrorExpr`), which reported already. */
+  /**
+   * Whether an expression holds a node an earlier pass refused (`ErrorExpr`),
+   * or a dot nothing follows yet, which the parser reported already.
+   */
   #holdsErrorNode(expression: Resolved.Expr): boolean {
     let found = false;
     this.#walkSyntax(expression, {
       expression: (inner) => {
-        if (inner.kind === "ErrorExpr") found = true;
+        if (inner.kind === "ErrorExpr" || (inner.kind === "Access" && inner.unfinished === true)) found = true;
       },
     });
     return found;
@@ -13986,6 +13989,13 @@ class Checker {
       case "Access": {
         const inferredReceiver = this.#prune(this.#inferExpr(expression.receiver, level));
         this.#noteDotSite(expression, inferredReceiver);
+        // A dot nothing follows yet: the parser said what is missing, and the
+        // dot has recorded what it would accept. It reads no field, so its own
+        // value is in error, and nothing more is reported.
+        if (expression.unfinished === true) {
+          type = ERROR;
+          break;
+        }
         const receiver = inferredReceiver.kind === "Record"
           ? this.#normalizeRecord(inferredReceiver)
           : inferredReceiver;
