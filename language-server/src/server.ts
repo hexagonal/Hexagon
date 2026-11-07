@@ -282,7 +282,7 @@ export function startServer(connection: Connection): void {
       : [offsetOfPosition(document, where), undefined];
     const hover = end === undefined || end === start
       ? session.hover(path, start)
-      : session.hoverSelection(path, Math.min(start, end), Math.max(start, end));
+      : session.hoverSelection(path, start, end);
     if (hover === undefined) return null;
     return { contents: hoverContents(hover), range: rangeOfSpan(hover.span) };
   });

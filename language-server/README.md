@@ -326,7 +326,8 @@ expression answers with its type; a part of an expression's own syntax (a
 `match` arm's `=>`, a record field's `=`, a string's text) is the expression's;
 a pattern, a type annotation, a declaration or a binder answers nothing. A
 selection names the smallest piece holding it, so selecting `+ 2` in
-`1 + 2 * 3` names the whole sum; a selected name answers with its type here,
+`1 + 2 * 3` names the whole sum, and one inside a record field or a `match` arm
+names the expression it belongs to; a selected name answers with its type here,
 the instance (`Vector.first` selected reads `Vector(String) -> Option(String)`,
 where hover on `first` shows `Vector(a) -> Option(a)`).
 
@@ -337,12 +338,16 @@ checker folded a piece into the one around it, so that it has no type of its own
 answers nothing rather than borrowing its parent's type. Where the checker
 converted the expression in place, the answer is the type the text has and the
 type it became: `[1, 2]` where a `Seq(Int)` is wanted reads `Vector(Int)`,
-"converted to `Seq(Int)` here" (Rust's "coerced to").
+"converted to `Seq(Int)` here" (Rust's "coerced to"). A decimal-point literal
+at a `Frac` type (`1.5e1` at `Rat`) is that type's own literal, though the
+checker builds it from a `BigInt`.
 
 "Expand Selection" (`textDocument/selectionRange`) grows from the caret through
 the same pieces, innermost first: a name, the expression around it, the next,
 out to the declaration and the module; a pattern and a type grow through their
-own kinds, and a caret in a comment starts at the comment.
+own kinds, and a caret in a comment starts at the comment. In a program still
+being written, where the parser makes a piece over text another already has (a
+`for` with no body yet), the text is the first piece's.
 
 Each hover letters its own type from `a`, as hover on a name does, so inside
 `let pair(m: b, xs: Vector(a))` the selection `xs` reads `Vector(a)`.

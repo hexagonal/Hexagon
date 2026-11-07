@@ -17,24 +17,37 @@ export interface SelectionLike<Position> {
   contains(position: Position): boolean;
 }
 
+/** The part of a VS Code editor this decision reads. */
+export interface EditorLike<Document, Selection> {
+  readonly document: Document;
+  readonly selections: readonly Selection[];
+}
+
 /** The part of the server's `initialize` answer this decision reads. */
 export interface ServerCapabilitiesLike {
   readonly experimental?: unknown;
 }
 
 /**
- * The selection to send for a hover at `position`, or `undefined` to send the
- * position: the first selection, among those the editors showing the document
- * hold, that is not empty and holds the pointer, when the server reads one.
+ * The selection to send for a hover at `position` in `document`, or
+ * `undefined` to send the position: the first selection of the editor the user
+ * is working in (`activeTextEditor`) that is not empty and holds the pointer,
+ * when that editor shows the document and the server reads a selection.
+ *
+ * A hover names a document and a position, never an editor, so with the
+ * document open in two panes the pointer could be in either. The active one's
+ * selection is the one the user is making; one left behind in another pane is
+ * not, and is never sent. rust-analyzer's extension makes the same choice.
  */
-export function hoverSelection<Position, Selection extends SelectionLike<Position>>(
-  selections: readonly Selection[],
+export function hoverSelection<Document, Position, Selection extends SelectionLike<Position>>(
+  editor: EditorLike<Document, Selection> | undefined,
+  document: Document,
   position: Position,
   capabilities: ServerCapabilitiesLike | undefined,
 ): Selection | undefined {
   const experimental = capabilities?.experimental;
   const reads = typeof experimental === "object" && experimental !== null &&
     (experimental as { readonly hoverRange?: unknown }).hoverRange === true;
-  if (!reads) return undefined;
-  return selections.find((selection) => !selection.isEmpty && selection.contains(position));
+  if (!reads || editor === undefined || editor.document !== document) return undefined;
+  return editor.selections.find((selection) => !selection.isEmpty && selection.contains(position));
 }

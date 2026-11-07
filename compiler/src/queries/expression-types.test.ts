@@ -6,6 +6,7 @@ import { lex } from "../passes/lexer/lexer.js";
 import { parseFile } from "../passes/parser/parser.js";
 import { STDLIB_SOURCES } from "../stdlib-sources.js";
 import * as Source from "../support/source.js";
+import type * as Parsed from "../syntax/parsed/index.js";
 import { selectionRangesAt, type SyntaxNode, syntaxTree } from "./syntax-nodes.js";
 
 /**
@@ -103,6 +104,38 @@ const DECLARATIONS = [
   "",
 ].join("\n");
 
+/**
+ * What the standard library does not write: puns, each of which the parser
+ * keeps as one piece twice; a lambda that writes its own binder list; `fun`
+ * blocks whose head carries one; a parameter with its variance.
+ */
+const PUNS = [
+  "module Main",
+  "let x = 1",
+  "let p = { x }",
+  "let f(q: {x: Int}): Int = match q",
+  "    { x } => x",
+  "let g({ x }: {x: Int}): Int = x",
+  "let same = <a: Eq>(left: a, right: a) => left == right",
+  "fun<a: Eq>",
+  "    equal(left: a, right: a): Bool = left == right",
+  "    apart(left: a, right: a): Bool = not equal(left, right)",
+  "let local(n: Int): Int =",
+  "    fun<b>",
+  "        keep(value: b): b = value",
+  "    keep(n)",
+  "opaque union Both(+a) = | Both(first: a, second: a)",
+  "",
+].join("\n");
+
+/** Every program the sweeps read: the standard library's modules and the forms it rarely writes. */
+const SWEPT = { ...STDLIB_SOURCES, "forms.hex": FORMS, "declarations.hex": DECLARATIONS, "puns.hex": PUNS };
+
+function modulesOf(path: string, text: string): readonly { readonly file: Source.File; readonly module: Parsed.Module }[] {
+  const file = new Source.File(Source.fileId(0), path, text);
+  return parseFile(applyLayout(lex(file)), path).map((module) => ({ file, module }));
+}
+
 describe("the type of a selection", () => {
   test("a call: the type it has here, over the call", () => {
     expect(shown(`${HEAD}let h = «Vector.first(["a", "b"])»\n`))
@@ -116,6 +149,26 @@ describe("the type of a selection", () => {
   test("a selection that is not one expression names the smallest one holding it", () => {
     expect(shown(`${HEAD}let n = 1 «+ 2» * 3\n`)).toBe("`Int` @ 1 + 2 * 3");
     expect(shown(`${HEAD}let n = (1, «"a")»\n`)).toBe('`(Int, String)` @ (1, "a")');
+  });
+
+  test("a decimal-point literal at a `Frac` type is that type's own literal, not a converted `BigInt` (#525)", () => {
+    const rat = `${HEAD}import Rat\n`;
+    // The checker builds `1.5e1` and `1e2` from one injected `BigInt`, and
+    // `1.5` from two and a division: each is the literal the text wrote.
+    expect(shown(`${rat}let r: Rat = «1.5e1»\n`)).toBe("`Rat` @ 1.5e1");
+    expect(shown(`${rat}let r: Rat = «1e2»\n`)).toBe("`Rat` @ 1e2");
+    expect(shown(`${rat}let r: Rat = «1.5»\n`)).toBe("`Rat` @ 1.5");
+    // A `BigInt` the text wrote is one, converted, a literal or a name.
+    expect(shown(`${rat}let r: Rat = «15n»\n`)).toBe("`BigInt`\n\nconverted to `Rat` here @ 15n");
+    expect(shown(`${rat}let b: BigInt = 15\nlet r: Rat = «b»\n`)).toBe("`BigInt`\n\nconverted to `Rat` here @ b");
+    expect(shown(`${rat}let r: Rat = ‸(15n)\n`)).toBe("`BigInt`\n\nconverted to `Rat` here @ (");
+  });
+
+  test("a reading whose value was widened inside its `Some`: the reading as written, and the one it became", () => {
+    const risky = `${HEAD}exception Oops(code: Int)\nlet risky(n: Int): Nat = if n > 0 then 1 else throw^(Oops(n))\n`;
+    expect(shown(`${risky}let o: Option(Int) = «risky?(1)»\n`))
+      .toBe("`Option(Nat)`\n\nconverted to `Option(Int)` here @ risky?(1)");
+    expect(shown(`${risky}let o = «risky?(1)»\n`)).toBe("`Option(Nat)` @ risky?(1)");
   });
 
   test("an expression the checker converted in place: the type it has, and the one it became", () => {
@@ -154,7 +207,9 @@ describe("the type of a selection", () => {
     expect(shown(`${HEAD}let n = 3\nlet r = «if n > 2 then n else 0»\n`)).toBe("`Int` @ if n > 2 then n else 0");
   });
 
-  test("inside a generic function, the type's own letters, never an internal number", () => {
+  test("inside a generic function, letters, never an internal number; each hover's from `a`, as a name's are", () => {
+    // Not the letters the source wrote: each hover letters its own type, in
+    // the order it meets the variables, as hover on a name does (#995).
     expect(shown(`${HEAD}let pair(m: b, xs: Vector(a)): (b, Vector(a)) = («m, xs»)\n`))
       .toBe("`(a, Vector(b))` @ (m, xs)");
     expect(shown(`${HEAD}let first(xs: Vector(a)): Vector(a) = «xs»\n`)).toBe("`Vector(a)` @ xs");
@@ -207,6 +262,25 @@ describe("the type of a selection", () => {
 
   test("a selection is read in the module it starts in", () => {
     expect(shown("module First\nlet a = «1\n\n»module Second\nlet b = 2\n")).toBe("`Int` @ 1");
+  });
+
+  test("a selection drawn backwards is the same text", () => {
+    const text = `${HEAD}let n = 1 + 2 * 3\n`;
+    const session = sessionOf(text);
+    const start = text.indexOf("2 * 3");
+    const forwards = session.hoverSelection("/main.hex", start, start + 5);
+    expect(forwards === undefined ? "none" : text.slice(forwards.span.start.offset, forwards.span.end.offset)).toBe("2 * 3");
+    expect(session.hoverSelection("/main.hex", start + 5, start)).toEqual(forwards);
+    // And read in the module it starts in, which is where its end was drawn.
+    const two = "module First\nlet a = 1\n\nmodule Second\nlet b = 2\n";
+    const one = two.indexOf("1");
+    expect(sessionOf(two).hoverSelection("/main.hex", one + 3, one)?.displayedType).toBe("Int");
+  });
+
+  test("a selection inside a record field or a `match` arm names the expression, over its text", () => {
+    expect(shown(`${HEAD}let p = { «x = 1», y = "a" }\n`)).toBe('`{x: Int, y: String}` @ { x = 1, y = "a" }');
+    expect(shown(`${HEAD}let k = match 1\n    «0 => 2»\n    _ => 3\n`)).toBe("`Int` @ match 1\n    0 => 2\n    _ => 3\n");
+    expect(shown(`${HEAD}let n = 1\nlet s = "a«\${n}»b"\n`)).toBe('`String` @ "a${n}b"');
   });
 
   test("nothing selected but spaces answers nothing", () => {
@@ -451,6 +525,27 @@ describe("selection ranges", () => {
     expect(failures).toEqual([]);
   });
 
+  test("a `fun` block's head is a piece of its own, above the members it is shared by", () => {
+    const block = [
+      HEAD + "fun<a: Eq>",
+      "    same(x: a, y: a): Bool = x == y",
+      "    other(x: a): Bool = same(x, x)",
+      "",
+    ].join("\n");
+    expect(grown(block.replace("<a: Eq>", "<a: E‸q>")).slice(0, 4)).toEqual(["Eq", "a: Eq", "fun<a: Eq>", marked(block.replace("<a: Eq>", "<a: E‸q>")).text]);
+    // One in a body too, where a block holds items.
+    const local = `${HEAD}let g(n: Int): Int =\n    fun<b>\n        inner(m: ‸b): b = m\n    inner(n)\n`;
+    expect(grown(local.replace("fun<b>", "fun<‸b>").replace("m: ‸b", "m: b")).slice(0, 2)).toEqual(["b", "fun<b>"]);
+  });
+
+  test("in a program still being written, a piece the parser made over text another has is that one", () => {
+    // A `for` with no body yet: the parser's body is over the iterable's text.
+    expect(grown(`${HEAD}let r = for i in 1..‸3`).slice(0, 2)).toEqual(["3", "1..3"]);
+    expect(shown(`${HEAD}let r = for i in «1..3»`)).toBe("`Range` @ 1..3");
+    // An `if` with no `then` branch yet: two pieces over `t`.
+    expect(grown(`${HEAD}let n = 1\nlet r = if n > 0 ‸t`).slice(0, 2)).toEqual(["t", "if n > 0 t"]);
+  });
+
   test("a function's binder list and a constraint's default body are pieces of their own", () => {
     expect(grown(`${HEAD}let same<a: E‸q>(x: a, y: a): Bool = x == y\n`).slice(0, 2)).toEqual(["Eq", "a: Eq"]);
     const constraint = [
@@ -481,8 +576,7 @@ describe("selection ranges", () => {
     ]);
     const failures: string[] = [];
     let checked = 0;
-    const sources = { ...STDLIB_SOURCES, "forms.hex": FORMS, "declarations.hex": DECLARATIONS };
-    for (const [path, text] of Object.entries(sources)) {
+    for (const [path, text] of Object.entries(SWEPT)) {
       const file = new Source.File(Source.fileId(0), path, text);
       const lexed = lex(file);
       const modules = parseFile(applyLayout(lexed), path);
@@ -507,44 +601,93 @@ describe("selection ranges", () => {
   /**
    * The tree's shape, which the runs of text an expression answers in and
    * "Expand Selection" both stand on: every piece inside the one that holds it,
-   * with width, and its pieces in the text's order, none sharing text.
+   * with width, and its pieces in the text's order, none sharing text. In a
+   * program still being written too, where the parser mints pieces over text
+   * another already has: each prefix of the rarer forms, and each with one
+   * character gone.
    */
-  test("in the standard library and beyond, every piece's pieces are in order, inside it, and apart", () => {
-    // What the standard library does not write: puns, each of which the parser
-    // keeps as one piece twice, and a lambda that writes its own binder list.
-    const puns = [
-      "module Main",
-      "let x = 1",
-      "let p = { x }",
-      "let f(q: {x: Int}): Int = match q",
-      "    { x } => x",
-      "let g({ x }: {x: Int}): Int = x",
-      "let same = <a: Eq>(left: a, right: a) => left == right",
-      "",
-    ].join("\n");
-    const sources = { ...STDLIB_SOURCES, "forms.hex": FORMS, "declarations.hex": DECLARATIONS, "puns.hex": puns };
+  test("every piece's pieces are in order, inside it, and apart, finished or still being written", () => {
     const failures: string[] = [];
     let nodes = 0;
-    const visit = (path: string, text: string, node: SyntaxNode): void => {
+    const visit = (label: string, text: string, node: SyntaxNode): void => {
       nodes += 1;
       let at = node.span.start.offset;
       for (const child of node.children) {
         const { start, end } = { start: child.span.start.offset, end: child.span.end.offset };
         if (start < at || end > node.span.end.offset || start >= end) {
-          failures.push(`${path}: ${JSON.stringify(text.slice(start, end).slice(0, 30))} at ${start} in ${node.role}`);
+          failures.push(`${label}: ${JSON.stringify(text.slice(start, end).slice(0, 30))} at ${start} in ${node.role}`);
         }
         at = Math.max(at, end);
-        visit(path, text, child);
+        visit(label, text, child);
       }
     };
-    for (const [path, text] of Object.entries(sources)) {
-      const file = new Source.File(Source.fileId(0), path, text);
-      const modules = parseFile(applyLayout(lex(file)), path);
-      for (const module of modules) visit(path, text, syntaxTree(module));
+    const sweep = (label: string, text: string): void => {
+      for (const { module } of modulesOf("/main.hex", text)) visit(label, text, syntaxTree(module));
+    };
+    for (const [path, text] of Object.entries(SWEPT)) sweep(path, text);
+    expect(nodes).toBeGreaterThan(50000);
+    for (const [name, text] of Object.entries({ FORMS, DECLARATIONS, PUNS })) {
+      for (let cut = 1; cut < text.length; cut += 1) {
+        sweep(`${name} to ${cut}`, text.slice(0, cut));
+        sweep(`${name} without ${cut}`, text.slice(0, cut) + text.slice(cut + 1));
+      }
     }
     expect(failures).toEqual([]);
-    expect(nodes).toBeGreaterThan(50000);
-    expect(sessionOf(puns).diagnostics("/main.hex")).toEqual([]);
+    expect(sessionOf(PUNS).diagnostics("/main.hex")).toEqual([]);
+  });
+
+  /**
+   * Nothing the parser kept is lost: every piece of the parsed tree with width
+   * is a piece here, found by walking the parsed tree's own fields rather than
+   * the cases this file wrote. A piece built in the wrong place would otherwise
+   * vanish without a trace, because a node leaves out what lies outside it.
+   */
+  test("every piece the parser kept from the standard library and the rarer forms is a piece", () => {
+    const failures: string[] = [];
+    let checked = 0;
+    for (const [path, text] of Object.entries(SWEPT)) {
+      for (const { module } of modulesOf(path, text)) {
+        const spans = new Set<string>();
+        const add = (node: SyntaxNode): void => {
+          spans.add(`${node.span.start.offset}:${node.span.end.offset}`);
+          node.children.forEach(add);
+        };
+        add(syntaxTree(module));
+        const seen = new Set<object>();
+        const visit = (value: unknown, field: string, around: Record<string, unknown> | undefined): void => {
+          if (typeof value !== "object" || value === null || seen.has(value)) return;
+          seen.add(value);
+          if (Array.isArray(value)) {
+            for (const each of value) visit(each, field, around);
+            return;
+          }
+          const piece = value as Record<string, unknown>;
+          const span = piece.span as Source.Span | undefined;
+          if (span !== undefined && span.start.offset < span.end.offset) {
+            checked += 1;
+            // A qualified type is a piece from its module qualifier, which the
+            // parser keeps outside the type's span.
+            const qualifier = piece.qualifier as { readonly span?: Source.Span } | undefined;
+            const from = Math.min(span.start.offset, qualifier?.span?.start.offset ?? span.start.offset);
+            // A constraint member with a default is the lambda the parser built
+            // from its name through the default; the member's own span is the
+            // lambda's beginning, its header.
+            const defaulted = around?.kind === "ConstraintDeclaration" && piece.defaultValue !== undefined;
+            if (!spans.has(`${from}:${span.end.offset}`) && !defaulted) {
+              failures.push(`${path}: ${String(piece.kind ?? field)} ${JSON.stringify(text.slice(from, span.end.offset).slice(0, 40))}`);
+            }
+          }
+          // Not into spans, nor into comments and documentation, which are not
+          // pieces of the tree (a caret in one starts from it).
+          for (const [key, inner] of Object.entries(piece)) {
+            if (key !== "span" && key !== "comments" && key !== "docs") visit(inner, key, piece);
+          }
+        };
+        visit(module, "module", undefined);
+      }
+    }
+    expect(failures).toEqual([]);
+    expect(checked).toBeGreaterThan(50000);
   });
 
   test("in a file of two modules, the outermost is the module, not the file", () => {

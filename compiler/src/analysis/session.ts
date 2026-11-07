@@ -560,16 +560,18 @@ export class AnalysisSession {
    * host sends the selection itself: the VS Code extension, as Rust's does, and
    * the Playground. The answer is the type alone, at this place: a name
    * selected whole shows the type it has here, its instance, where `hover`
-   * shows its declaration's face and documentation.
+   * shows its declaration's face and documentation. A selection drawn
+   * backwards, its end before its start, is the same text.
    */
   hoverSelection(path: string, start: number, end: number): Hover | undefined {
     const normalized = normalizePath(path);
     const analysis = this.#analyze();
+    const [from, to] = start <= end ? [start, end] : [end, start];
     return this.#expressionHover(
       analysis,
       normalized,
-      start,
-      (input) => expressionTypeOfSelection(input, start, end),
+      from,
+      (input) => expressionTypeOfSelection(input, from, to),
     );
   }
 

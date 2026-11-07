@@ -32,7 +32,9 @@ what it carries: a hover whose pointer is inside a selection. There the
 extension sends the selection where the request has a position
 (`src/hover-selection.ts`), as rust-analyzer's does, once the server announces
 `experimental.hoverRange`, and the hover answers with the type of the
-expression the selection names.
+expression the selection names. The selection is the active editor's: a hover
+names a document and a position, never a pane, so a selection left in another
+pane showing the same file is not sent.
 
 `npm run build` produces two bundles in `dist/`: `extension.cjs`, and
 `server.cjs`, which is the language server and the compiler it embeds. The

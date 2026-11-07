@@ -117,10 +117,12 @@ async function startClient(context: vscode.ExtensionContext): Promise<void> {
       // with the type of the expression it names. As rust-analyzer's extension
       // does, the selection goes where the protocol has a position.
       provideHover: async (document, position, token, next) => {
-        const selections = vscode.window.visibleTextEditors
-          .filter((editor) => editor.document === document)
-          .flatMap((editor) => editor.selections);
-        const selection = hoverSelection(selections, position, starting.initializeResult?.capabilities);
+        const selection = hoverSelection(
+          vscode.window.activeTextEditor,
+          document,
+          position,
+          starting.initializeResult?.capabilities,
+        );
         if (selection === undefined) return next(document, position, token);
         const converter = starting.code2ProtocolConverter;
         const answer = await starting.sendRequest(

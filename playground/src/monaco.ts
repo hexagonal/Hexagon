@@ -17,8 +17,8 @@ import type { BufferRange } from "./protocol";
 import type { LanguageServices } from "./language-services";
 import {
   boundedOffsets,
+  caretHoverAnswers,
   codeActionKinds,
-  hoverAnswersAtOffset,
   hoverSelectionAt,
   toCodeAction,
   toCompletionItem,
@@ -194,12 +194,12 @@ export function createMonacoEditors(
     if (suppressChanges) return;
     for (const listener of changeListeners) listener();
   });
-  const providers = registerLanguageProviders(sourceModel, services, () =>
+  const selections = (): readonly BufferRange[] =>
     (sourceEditor.getSelections() ?? []).map((selection) => ({
       startOffset: sourceModel.getOffsetAt(selection.getStartPosition()),
       endOffset: sourceModel.getOffsetAt(selection.getEndPosition()),
-    }))
-  );
+    }));
+  const providers = registerLanguageProviders(sourceModel, services, selections);
   /**
    * Opens the hover where a pointer would have, for a device with no pointer.
    *
@@ -263,7 +263,15 @@ export function createMonacoEditors(
     // *with the pointer*, and a stationary pointer never retries. Monaco
     // already hides on mouse-down and key-down, which is every way the caret
     // moves here bar a jump from the Errors list.
-    if (!hoverAnswersAtOffset(hoverSpans, sourceModel.getOffsetAt(position))) return;
+    // The hover opens at the caret, which is inside the selection when there is
+    // one, so the gate asks what the hover will: the selection's answer there.
+    const answers = await caretHoverAnswers(
+      hoverSpans,
+      selections(),
+      sourceModel.getOffsetAt(position),
+      (selection) => services.hover(sourceModel.getValue(), selection.startOffset, selection.endOffset),
+    );
+    if (!answers || disposed || sourceModel.getVersionId() !== version) return;
     sourceEditor.trigger("hexagon.ipadTypeAtCaret", "editor.action.showHover", {
       focus: "noAutoFocus",
     });

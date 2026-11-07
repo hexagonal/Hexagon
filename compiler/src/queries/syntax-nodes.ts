@@ -24,8 +24,11 @@
  * Every child lies inside its parent and has width: a piece the parser minted
  * where nothing was written (an `if`'s missing `else`) is left out by that rule
  * rather than by name. Children are in the order the text has them, and no two
- * share text: where the parser keeps one piece twice (a pun, a member's name
- * and the lambda built over it), it is a node once.
+ * share text: where the parser keeps one piece twice (a pun, an import or an
+ * extern row without `as`) or, in a broken program, mints one over text another
+ * piece already has (a `for` with no body yet), the first in the text is the
+ * node. Where the second is the one to keep (a member's name and the lambda
+ * built over it, a punned record field), the node is built that way by name.
  */
 
 import * as Source from "../support/source.js";
@@ -50,7 +53,7 @@ export function syntaxTree(module: Parsed.Module): SyntaxNode {
   if (known !== undefined) return known;
   const built = node("other", module.span, [
     ...(module.name.declared ? [moduleName(module.name)] : []),
-    ...module.items.map(item),
+    ...items(module.items),
   ]);
   trees.set(module, built);
   return built;
@@ -125,10 +128,6 @@ function qualified(span: Source.Span, qualifier: Parsed.Name | undefined): Sourc
     : { ...span, start: qualifier.span.start };
 }
 
-function sameText(left: Source.Span, right: Source.Span): boolean {
-  return left.start.offset === right.start.offset && left.end.offset === right.end.offset;
-}
-
 function holds(node: SyntaxNode, start: number, end: number): boolean {
   return node.span.start.offset <= start && end <= node.span.end.offset;
 }
@@ -147,7 +146,13 @@ function node(
       child.span.end.offset <= span.end.offset
     )
     .sort((left, right) => left.span.start.offset - right.span.start.offset);
-  return { role, span, ...(expression === undefined ? {} : { expression }), children: inside };
+  // Text another piece already has is that piece's: the first one's.
+  const apart: SyntaxNode[] = [];
+  for (const child of inside) {
+    const last = apart.at(-1);
+    if (last === undefined || last.span.end.offset <= child.span.start.offset) apart.push(child);
+  }
+  return { role, span, ...(expression === undefined ? {} : { expression }), children: apart };
 }
 
 function name(written: Parsed.Name): SyntaxNode {
@@ -162,14 +167,23 @@ function moduleName(written: Parsed.ModuleName): SyntaxNode {
   return node("other", written.span, names(written.segments));
 }
 
+/**
+ * A list of items, and the head of each `fun` block among them: the keyword
+ * and its binder list, written once above the members it is shared by.
+ */
+function items(written: readonly Parsed.Item[]): readonly SyntaxNode[] {
+  const heads = new Map<number, Parsed.FunBlockHead>();
+  for (const each of written) if (each.kind === "Fun" && each.block !== undefined) heads.set(each.block.id, each.block);
+  return [
+    ...[...heads.values()].map((head) => node("other", head.span, typeParameters(head.typeParameters))),
+    ...written.map(item),
+  ];
+}
+
 function item(written: Parsed.Item): SyntaxNode {
   switch (written.kind) {
     case "Import":
-      // An import without `as` has one name, which the parser keeps as both.
-      return node("other", written.span, [
-        moduleName(written.module),
-        sameText(written.alias.span, written.module.span) ? undefined : name(written.alias),
-      ]);
+      return node("other", written.span, [moduleName(written.module), name(written.alias)]);
     case "ExternBlock":
       return node("other", written.span, written.declarations.map(externDeclaration));
     case "ExternImport":
@@ -205,7 +219,7 @@ function item(written: Parsed.Item): SyntaxNode {
     case "Union":
       return node("other", written.span, [
         name(written.name),
-        ...names(written.parameters),
+        ...declaredParameters(written.parameters, written.declaredParameters),
         ...names(written.derives),
         ...written.constructors.map((constructor) =>
           node("other", constructor.span, [
@@ -219,7 +233,7 @@ function item(written: Parsed.Item): SyntaxNode {
     case "RecordDeclaration":
       return node("other", written.span, [
         name(written.name),
-        ...names(written.parameters),
+        ...declaredParameters(written.parameters, written.declaredParameters),
         ...names(written.derives),
         ...written.fields.map(typeField),
       ]);
@@ -338,10 +352,7 @@ function lambdaPieces(written: Parsed.LambdaExpr): readonly (SyntaxNode | undefi
 }
 
 function externDeclaration(written: Parsed.ExternDeclaration): SyntaxNode {
-  // A row without `as` has one name, which the parser keeps as both.
-  const foreign = written.foreignName === undefined || sameText(written.foreignName.span, written.localName.span)
-    ? undefined
-    : name(written.foreignName);
+  const foreign = written.foreignName === undefined ? undefined : name(written.foreignName);
   switch (written.kind) {
     case "ExternFun":
       // Not its `owner`: that is the type declaration it belongs to, a node of
@@ -384,6 +395,17 @@ function slot(written: Parsed.ConstructorSlot): SyntaxNode {
 
 function typeField(written: Parsed.RecordTypeField): SyntaxNode {
   return node("other", written.span, [name(written.name), annotation(written.annotation)]);
+}
+
+/**
+ * A type's parameters, each as declared: with its variance (`+a`) where it
+ * claims one. The parser keeps the two lists side by side, one entry each.
+ */
+function declaredParameters(
+  written: readonly Parsed.Name[],
+  declared: readonly Parsed.DeclaredTypeParameter[],
+): readonly SyntaxNode[] {
+  return written.map((parameter, index) => node("other", declared[index]?.span ?? parameter.span, [name(parameter)]));
 }
 
 function typeParameters(written: readonly Parsed.TypeParameter[] | undefined): readonly SyntaxNode[] {
@@ -478,12 +500,7 @@ function pattern(written: Parsed.Pattern): SyntaxNode {
       return node(
         "other",
         written.span,
-        // A punned field (`{ x }`) is its binding, written once.
-        written.fields.map((field) =>
-          sameText(field.name.span, field.pattern.span)
-            ? pattern(field.pattern)
-            : node("other", field.span, [name(field.name), pattern(field.pattern)])
-        ),
+        written.fields.map((field) => node("other", field.span, [name(field.name), pattern(field.pattern)])),
       );
     case "Constructor":
       return node("other", written.span, [
@@ -543,7 +560,7 @@ function expression(written: Parsed.Expr): SyntaxNode {
     case "Ascription":
       return own([expression(written.expression), annotation(written.annotation)]);
     case "Block":
-      return own(written.items.map(item));
+      return own(items(written.items));
     case "Lambda":
       return own(lambdaPieces(written));
     case "If":

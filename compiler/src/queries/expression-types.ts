@@ -21,8 +21,13 @@
  * method's `receiver.name`, a module qualifier, a `|>` stage's call), the piece
  * answers nothing rather than borrowing its parent's type; a group is the
  * expression it holds. Where the checker converted the expression in place
- * (a `Nat` widened to `Int`, a vector adapted to a `Seq`), the answer is the
- * type the text has and the type it was converted to (Rust's "coerced to").
+ * (a `Nat` widened to `Int`, a vector adapted to a `Seq`, a reading's value
+ * widened inside its `Some`), the answer is the type the text has and the type
+ * it was converted to (Rust's "coerced to").
+ *
+ * One declaration's punctuation answers: a function's header (`let f(n: Int):
+ * Int = …`) is the lambda the parser built from it, so its `(`, `:` and `=`
+ * answer with the function's type.
  */
 
 import type * as Source from "../support/source.js";
@@ -60,8 +65,10 @@ interface ExpressionRun {
 }
 
 /**
- * The type of the expression a selection names, `[start, end)`. Spaces, line
- * breaks and comments at either end of the selection are not part of it.
+ * The type of the expression a selection names, `[start, end)`, over that
+ * expression's text. Spaces, line breaks and comments at either end of the
+ * selection are not part of it, and a selection inside a part of an
+ * expression's syntax (a record field, a `match` arm) names the expression.
  */
 export function expressionTypeOfSelection(
   input: ExpressionTypeInput,
@@ -78,13 +85,14 @@ export function expressionTypeOfSelection(
   const named = chain.at(-1);
   if (named === undefined) return undefined;
   const lookup = typedAt(input.typed);
-  let answer: Typed.Expr | undefined;
+  let answering: SyntaxNode | undefined;
   if (named.role === "name") {
-    answer = chain.at(-2)?.role === "expression" ? lookup(named) : undefined;
+    answering = chain.at(-2)?.role === "expression" ? named : undefined;
   } else {
-    for (const node of chain) answer = step(answer, node, lookup);
+    for (const node of chain) answering = step(answering, node);
   }
-  return answer === undefined ? undefined : described(input, answer, named.span);
+  const answer = answering === undefined ? undefined : lookup(answering);
+  return answer === undefined ? undefined : described(input, answer, answering!.span);
 }
 
 /**
@@ -141,15 +149,16 @@ function expressionRuns(input: ExpressionTypeInput): readonly ExpressionRun[] {
       }
     }
   };
-  const visit = (node: SyntaxNode, around: Typed.Expr | undefined): void => {
-    const answer = step(around, node, lookup);
+  const visit = (node: SyntaxNode, around: SyntaxNode | undefined): void => {
+    const answering = step(around, node);
+    const answer = answering === undefined ? undefined : lookup(answering);
     // Kept only where `described` answers, so the runs are the answer's own
     // offsets: an expression the checker could not type answers nothing.
-    const shown = answer !== undefined && describable(answer) ? answer : undefined;
+    const shown = answer !== undefined && describable(input, answer) ? answer : undefined;
     let at = node.span.start.offset;
     for (const child of node.children) {
       if (shown !== undefined) own(at, child.span.start.offset, shown);
-      visit(child, answer);
+      visit(child, answering);
       at = child.span.end.offset;
     }
     if (shown !== undefined) own(at, node.span.end.offset, shown);
@@ -159,15 +168,14 @@ function expressionRuns(input: ExpressionTypeInput): readonly ExpressionRun[] {
   return runs;
 }
 
-/** What a node answers with, given what the node around it answers with. */
-function step(
-  around: Typed.Expr | undefined,
-  node: SyntaxNode,
-  lookup: (node: SyntaxNode) => Typed.Expr | undefined,
-): Typed.Expr | undefined {
+/**
+ * The expression a node answers for, given the one the node around it answers
+ * for: itself, an expression's; the expression's, a part's; none, the rest's.
+ */
+function step(around: SyntaxNode | undefined, node: SyntaxNode): SyntaxNode | undefined {
   switch (node.role) {
     case "expression":
-      return lookup(node);
+      return node;
     case "part":
       return around;
     case "name":
@@ -209,37 +217,51 @@ function keyOf(span: Source.Span): string {
 }
 
 /**
- * The expression the text wrote, inside the conversions the checker put around
- * it in place, over the same text: a numeric widening, and a sequence
- * adaptation, the one call whose callee no source wrote (and so has no width).
+ * The type the text has, inside the conversions the checker made in place over
+ * the same text: a numeric widening; a sequence adaptation, the one call whose
+ * callee no source wrote (and so has no width); a reading's value widened
+ * inside its `Some`. A decimal-point literal the checker built at a `Frac` type
+ * from an injected `BigInt` (#525) is that type's own literal, not a conversion.
  */
-function written(expression: Typed.Expr): Typed.Expr {
+function writtenType(input: ExpressionTypeInput, expression: Typed.Expr): Typed.Type {
   switch (expression.kind) {
+    case "WidenBigInt":
+      if (expression.value.kind === "BigInt" && !wroteBigInt(input, expression.value.span)) return expression.type;
+      return writtenType(input, expression.value);
     case "WidenNat":
     case "WidenInt":
-    case "WidenBigInt":
-      return written(expression.value);
+      return writtenType(input, expression.value);
     case "Call": {
       const [argument] = expression.arguments;
       const inserted = expression.callee.span.start.offset === expression.callee.span.end.offset;
-      return inserted && argument !== undefined ? written(argument) : expression;
+      if (inserted && argument !== undefined) return writtenType(input, argument);
+      const { callee, readingWidening, type } = expression;
+      return readingWidening !== undefined && type.kind === "Union" && callee.type.kind === "Function"
+        ? { ...type, arguments: [callee.type.result] }
+        : type;
     }
     default:
-      return expression;
+      return expression.type;
   }
 }
 
+/** Whether the text at a span is a `BigInt` literal as written (`15n`). */
+function wroteBigInt(input: ExpressionTypeInput, span: Source.Span): boolean {
+  const chain = enclosingNodes(syntaxTree(input.parsed), span.start.offset, span.end.offset);
+  return chain.at(-1)?.expression?.kind === "BigInt";
+}
+
 /** Whether `described` answers for an expression: whether the checker typed it. */
-function describable(outer: Typed.Expr): boolean {
-  return written(outer).type.kind !== "Error";
+function describable(input: ExpressionTypeInput, outer: Typed.Expr): boolean {
+  return writtenType(input, outer).kind !== "Error";
 }
 
 function described(input: ExpressionTypeInput, outer: Typed.Expr, span: Source.Span): ExpressionType | undefined {
-  if (!describable(outer)) return undefined;
-  const inner = written(outer);
+  const written = writtenType(input, outer);
+  if (written.kind === "Error") return undefined;
   const context = Typed.colourContextAt(input.typed);
-  const face = Typed.displayFace({ variables: [], constraints: [], type: inner.type }, context);
-  const converted = inner === outer
+  const face = Typed.displayFace({ variables: [], constraints: [], type: written }, context);
+  const converted = written === outer.type
     ? undefined
     : Typed.displayFace({ variables: [], constraints: [], type: outer.type }, context).type;
   return {
