@@ -219,7 +219,8 @@ be revisited before broader FFI access can expose arbitrary browser facilities.
 ## Editor direction
 
 **Monaco Editor is the primary desktop editor.** The current integration provides
-Hexagon tokenization, compiler-owned diagnostic markers, quick fixes, hover
+Hexagon tokenization, compiler-owned diagnostic markers, quick fixes (the plain
+ones preferred, and every call's mark in the buffer at once), hover
 (the type of a selected expression included), completion, signature help,
 "Expand Selection", go-to-definition, find-references, rename, and read-only
 JavaScript and `.d.ts` models. This gives the

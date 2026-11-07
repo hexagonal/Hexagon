@@ -103,6 +103,12 @@ describe("toCodeAction", () => {
     expect(action.disabled).toBe("`m` is already bound");
   });
 
+  test("marks the session's preferred repair as the one Auto Fix applies, and no other", () => {
+    const plain = { title: "mark the call `!`", kind: "quickfix" as const, edits: [] };
+    expect(toCodeAction(target, { ...plain, preferred: true }).isPreferred).toBe(true);
+    expect("isPreferred" in toCodeAction(target, plain)).toBe(false);
+  });
+
   test("keeps the kind, which decides whether a filtered trigger sees it", () => {
     expect(
       toCodeAction(target, { title: "Declare `Box(+a)`", kind: "refactor", edits: [] }).kind,

@@ -188,6 +188,13 @@ export interface CodeAction {
   readonly disabled?: string;
   /** A repair the compiler offered only as a suggestion (`Diagnostics.Fix.suggestion`): never preferred. */
   readonly suggestion?: true;
+  /**
+   * The repair an editor may apply on its own ("Auto Fix"): every quick fix that
+   * can be applied and is not a suggestion. A report with a fix for each side
+   * of a contradiction has two, and the editor asks which (doctrine 8): it never
+   * picks a side, and never a "perhaps" (Declarations Preamble §1.1).
+   */
+  readonly preferred?: true;
 }
 
 /**
@@ -970,7 +977,34 @@ export class AnalysisSession {
         }
       }
     }
-    return actions;
+    const answered = actions.map((action): CodeAction =>
+      action.kind === "refactor" || action.disabled !== undefined || action.suggestion === true
+        ? action
+        : { ...action, preferred: true }
+    );
+
+    // Every repair of one family in the file at once, offered beside each of
+    // them once there are two. Each is its report's one repair, so none picks
+    // a side of a contradiction (doctrine 8), and each fixes only its own call,
+    // so they compose: what the file then reports is what the program with
+    // them applied one by one reports (Effects §4.4). A further report the
+    // repaired program draws is its own, answered as any is.
+    const asker = asked.find((diagnostic) => familyRepair(diagnostic) !== undefined);
+    if (asker !== undefined) {
+      const { family: kind } = familyRepair(asker)!;
+      const family = here.filter((diagnostic) => familyRepair(diagnostic)?.family === kind);
+      if (family.length > 1) {
+        answered.push({
+          title: FIX_ALL_TITLES[kind],
+          diagnostic: asker,
+          kind: "quickfix",
+          edits: family
+            .flatMap((diagnostic) => locate(analysis, familyRepair(diagnostic)!.edits) ?? [])
+            .sort((left, right) => left.span.start.offset - right.span.start.offset),
+        });
+      }
+    }
+    return answered;
   }
 
   /**
@@ -2198,6 +2232,27 @@ function soleNameToken(candidate: string): Lexed.NameToken | undefined {
  * time the body did, which is not what a menu entry is for.
  */
 const RETURN_ANNOTATION_TITLE = "Infer return type";
+
+type FixFamily = NonNullable<Diagnostics.Fix["family"]>;
+
+/** What applying every repair of a family in a file does, by family. */
+const FIX_ALL_TITLES: Readonly<Record<FixFamily, string>> = {
+  mark: "correct the marks in this file",
+};
+
+/**
+ * A report's one repair, where it is of a family an editor may apply across a
+ * file. A report with more than one is a contradiction with a repair for each
+ * side, which only the writer can choose between (doctrine 8); a suggestion is
+ * no repair to apply unasked (Declarations Preamble §1.1).
+ */
+function familyRepair(
+  diagnostic: Diagnostics.Diagnostic,
+): (Diagnostics.Fix & { readonly family: FixFamily }) | undefined {
+  const plain = (diagnostic.fixes ?? []).filter((fix) => fix.suggestion !== true);
+  const only = plain.length === 1 ? plain[0]! : undefined;
+  return only?.family === undefined ? undefined : { ...only, family: only.family };
+}
 
 /**
  * Whether a diagnostic's span is close enough to the region the host asked

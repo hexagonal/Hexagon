@@ -25,6 +25,12 @@ export interface Fix {
    * the preferred repair, and never applied with other fixes.
    */
   readonly suggestion?: true;
+  /**
+   * The family this repair belongs to, whose repairs an editor may apply across
+   * a file at once ("fix all"). `mark`: a call's own mark set to the one its
+   * callee's colours require (Effects §4.1), so each fixes only its own call.
+   */
+  readonly family?: "mark";
 }
 
 export interface Diagnostic {

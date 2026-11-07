@@ -2,7 +2,7 @@
 
 The Hexagon language server: the process that exposes Hexagon language intelligence through Microsoft's Language Server Protocol (LSP).
 
-Five slices are implemented over a compiler-owned analysis session: diagnostics, hover, go-to-definition and find-references; then semantic tokens, rename and completion; then quick fixes, the diagnostic-driven half of code actions; then documentation in hover and completion; then signature help. Formatting, refactoring actions and workspace symbols are not, and the server does not announce them; a capability announced but unimplemented offers the user a command that silently does nothing.
+Five slices are implemented over a compiler-owned analysis session: diagnostics, hover, go-to-definition and find-references; then semantic tokens, rename and completion; then quick fixes, the diagnostic-driven half of code actions, each plain one preferred and, beside a call's mark repair, one that corrects every mark in the file; then documentation in hover and completion; then signature help. Formatting, refactoring actions and workspace symbols are not, and the server does not announce them; a capability announced but unimplemented offers the user a command that silently does nothing.
 
 This document states the boundary between the language server and the compiler. That boundary is the reason the server is small: every request handler converts coordinates, asks the session one question, and converts the answer back.
 
@@ -97,7 +97,8 @@ hoverSelection(path, start, end)
                           the type of the expression a selection names
 selectionRanges(path, offsets)
                           what "Expand Selection" grows through from each offset
-codeActions(path, range)  the repairs offered here, refusals included
+codeActions(path, range)  the repairs offered here, refusals included, the
+                          plain ones preferred, and a file's marks at once
 pathOfFile(fileId)        the file a span's numeric identity names
 referenceFile(path, text) gives a non-Hexagon file an identity, uncompiled
 ```

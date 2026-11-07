@@ -117,6 +117,11 @@ describe("converting one action", () => {
     expect(convert({ literals: true, disabled: false }) && "isPreferred" in convert({ literals: true, disabled: false })!).toBe(false);
   });
 
+  test("a plain repair the session prefers is the one an editor applies on its own", () => {
+    const preferred: CodeAction = { ...action, preferred: true };
+    expect(convert({ literals: true, disabled: false }, preferred)?.isPreferred).toBe(true);
+  });
+
   test("a refusal carries its reason and no edit, and only where it can be shown", () => {
     const refused: CodeAction = { ...action, edits: [], disabled: "the body has an error" };
     const shown = convert({ literals: true, disabled: true }, refused);

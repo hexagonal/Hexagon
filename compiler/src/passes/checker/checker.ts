@@ -30016,11 +30016,20 @@ class Checker {
         : `${[wanted, ...(alternative === undefined ? [] : [alternative])].map(named).join(" or ")}, not ${named(written)}`;
       const source = readingGoes ? this.#sourceFile() : undefined;
       const call = obligation.call;
+      // Written around the call and at its mark, never over its arguments, so
+      // that a call in them takes its own fix beside this one.
       const kept = source === undefined || obligation.markSpan === undefined ||
           Number(call.span.fileId) !== this.#fileId
         ? undefined
-        : `Some(${source.text.slice(call.span.start.offset, obligation.markSpan.start.offset)}` +
-          `${markSpelling(wanted)}${source.text.slice(obligation.markSpan.end.offset, call.span.end.offset)})`;
+        : {
+          text: `Some(${source.text.slice(call.span.start.offset, obligation.markSpan.start.offset)}` +
+            `${markSpelling(wanted)}${source.text.slice(obligation.markSpan.end.offset, call.span.end.offset)})`,
+          edits: [
+            { span: source.file.span(call.span.start.offset, call.span.start.offset), replacement: "Some(" },
+            { span: obligation.markSpan, replacement: markSpelling(wanted) },
+            { span: source.file.span(call.span.end.offset, call.span.end.offset), replacement: ")" },
+          ],
+        };
       // The facts it is seen to fail, other than the one recorded where it
       // decided: a written type the parameter itself meets, or what the
       // callee's declaration shows (Effects §3.4, #1240, #1307). The colour
@@ -30058,9 +30067,10 @@ class Checker {
           : {}),
         fixes: [
           ...(readingGoes
-            ? kept === undefined || source === undefined ? [] : [{
-              message: `keep the value: \`${kept.length > 40 ? "Some(…)" : kept}\``,
-              edits: [{ span: source.file.span(call.span.start.offset, call.span.end.offset), replacement: kept }],
+            ? kept === undefined ? [] : [{
+              message: `keep the value: \`${kept.text.length > 40 ? "Some(…)" : kept.text}\``,
+              edits: kept.edits,
+              family: "mark" as const,
             }]
             : [{
               message: wanted.world || wanted.fail ? `mark the call ${named(wanted)}` : "remove the mark",
@@ -30069,6 +30079,7 @@ class Checker {
                   ? { span: obligation.insertAt, replacement: spelled(wanted) }
                   : { span: obligation.markSpan, replacement: spelled(wanted) },
               ],
+              family: "mark" as const,
             }]),
           ...(fact === undefined ? this.#readerFixes(told, byCall) : this.#factReaderFixes(fact, over, byCall)),
         ],
@@ -30102,6 +30113,7 @@ class Checker {
           const certain: Diagnostics.Fix[] = missing.length === 0 ? [] : [{
             message: `mark the call ${named(kept)}`,
             edits: [{ span: obligation.markSpan ?? obligation.insertAt, replacement: spelled(kept) }],
+            family: "mark",
           }];
           const hedged: Diagnostics.Diagnostic = {
             ...report,
@@ -30760,6 +30772,7 @@ class Checker {
         fixes.push({
           message: corrections.every((edit) => edit!.replacement === "") ? "remove the marks" : "correct the marks",
           edits: corrections as Diagnostics.Edit[],
+          family: "mark",
         });
       }
       // `assume` keeps the facts, as correcting the marks does, so it too is
