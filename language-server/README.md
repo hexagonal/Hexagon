@@ -225,9 +225,9 @@ it, marked as members; a declared type variable's bound members; a record row's
 known fields; and, for a subject the program's text does not decide, no
 companion operations and no members, only the fields a bare read reaches there.
 Operations and members the dot may not reach are left out: in the home module's
-own file, an operation declared below the dot or in a `fun` block the dot
-stands inside (§4.4), and a member whose honor stands below the dot outside its
-knot (Constraints §4.8). That is a judgment the checker makes at the dot, and it cannot be recovered
+own file, an operation declared below the dot, in a `fun` block the dot stands
+inside (§4.4), or whose own `let` the dot is in, and a member whose honor
+stands below the dot outside its knot (Constraints §4.8). That is a judgment the checker makes at the dot, and it cannot be recovered
 afterwards from the receiver's solved type: inference can learn the type on a
 later line after the dot has already been refused because the text did not
 decide it (§3.5), and offering from the solved type would offer calls the

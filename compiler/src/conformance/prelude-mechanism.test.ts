@@ -157,6 +157,30 @@ describe("ordered intra-prelude visibility", () => {
     )).toBe(true);
   });
 
+  test("completion after the dot does not offer what Option's data seat withholds", () => {
+    // Method Syntax §8.4 offers what the dot accepts, and here the dot refuses
+    // `map` (Modules §5.5): the completion record says the same.
+    const text = "module Int\nexport let later: Option(Bool) = Some(True).map((flag) => flag)\n";
+    const compiled = project([["/Int.hex", text]], ["Int"]);
+    const offeredAtMap = compiled.typedModules
+      .filter(({ fileId }) => Number(fileId) === 0)
+      .flatMap(({ dotSites }) => dotSites)
+      .filter(({ name }) => text.slice(name.start.offset, name.end.offset) === "map")
+      .map(({ candidates }) => candidates.map(({ name }) => name));
+    expect(offeredAtMap).toHaveLength(1);
+    expect(offeredAtMap[0]).not.toContain("map");
+    // After the full seat, the same dot offers it.
+    const afterText = text.replace("module Int", "module Main");
+    const after = project([["/main.hex", afterText]], []);
+    const offeredAfter = after.typedModules
+      .filter(({ fileId }) => Number(fileId) === 0)
+      .flatMap(({ dotSites }) => dotSites)
+      .filter(({ name }) => afterText.slice(name.start.offset, name.end.offset) === "map")
+      .map(({ candidates }) => candidates.map(({ name }) => name));
+    expect(offeredAfter).toHaveLength(1);
+    expect(offeredAfter[0]).toContain("map");
+  });
+
   test("Option's data seat supplies its type and constructors, made where they are used", () => {
     const compiled = project([[
       "/Int.hex",

@@ -3850,7 +3850,12 @@ function firstParameterAnnotation(
  * bare field read still reads the fields the receiver has at the dot, so those
  * are kept. A record row's fields are copied at the dot, because a later line
  * can widen the row the dot saw. `funGroups` are the `fun` blocks the dot
- * stands inside, whose members it may not target (§4.4).
+ * stands inside, whose members it may not target (§4.4). `unseeded` are the
+ * head's companion operations with no scheme at the dot, which dispatch
+ * refuses: past the order test, the one whose own right-hand side the dot sits
+ * in, which a `let` cannot reach (`#dispatchDotCall`'s self-reference), and,
+ * in a module between a provider's data seat and its full seat, the
+ * provider's operations, which that module never sees (Modules §5.5).
  */
 interface NotedDotSite {
   readonly access: Resolved.AccessExpr;
@@ -3858,6 +3863,7 @@ interface NotedDotSite {
   readonly head: Mono | undefined;
   readonly rowFields?: ReadonlyMap<string, Mono>;
   readonly funGroups: readonly ReadonlySet<Resolved.SymbolId>[];
+  readonly unseeded?: ReadonlySet<Resolved.SymbolId>;
 }
 
 /**
@@ -8258,12 +8264,14 @@ class Checker {
     if (this.#dotSites.has(access)) return;
     const funGroups = [...this.#funGroups];
     const note = (decided: boolean, head?: Mono, rowFields?: ReadonlyMap<string, Mono>): void => {
+      const unseeded = decided && head !== undefined ? this.#unseededOperations(head) : undefined;
       this.#dotSites.set(access, {
         access,
         decided,
         head,
         ...(rowFields === undefined ? {} : { rowFields }),
         funGroups,
+        ...(unseeded === undefined ? {} : { unseeded }),
       });
     };
     const actual = this.#prune(receiver);
@@ -8278,6 +8286,20 @@ class Checker {
       return note(decided, row, new Map(row.fields));
     }
     note(decided, actual);
+  }
+
+  /**
+   * The head's companion operations that have no scheme yet, as dispatch would
+   * find them at this dot; none, almost always.
+   */
+  #unseededOperations(head: Mono): ReadonlySet<Resolved.SymbolId> | undefined {
+    const companion = this.#companionKeyOfType(head);
+    const operations = companion === undefined ? undefined : this.#companionOperations.get(companion);
+    let found: Set<Resolved.SymbolId> | undefined;
+    for (const symbol of operations?.values() ?? []) {
+      if (!this.#schemes.has(symbol.id)) (found ??= new Set()).add(symbol.id);
+    }
+    return found;
   }
 
   /** The dots this module checked, each with its candidates (`Typed.DotSite`). */
@@ -8396,7 +8418,8 @@ class Checker {
    * Whether this dot may reach the offer (Method Syntax §4.4), by the rules a
    * call there is held to: a companion operation by `#dotCallReachability`'s
    * (declared above the dot within its own file, and never a member of a `fun`
-   * block the dot stands inside), and an honored member by Constraints §4.8's
+   * block the dot stands inside) and by dispatch's self-reference refusal (not
+   * from inside its own `let`), and an honored member by Constraints §4.8's
    * top-down law, as `#orderUse` reads it — below its honor's knot, or inside
    * it.
    */
@@ -8404,6 +8427,7 @@ class Checker {
     const at = site.access.field.span;
     if (operation !== undefined) {
       if (site.funGroups.some((members) => members.has(operation.id))) return false;
+      if (site.unseeded?.has(operation.id) === true) return false;
       return Number(operation.bindingSpan.fileId) !== Number(at.fileId) ||
         operation.bindingSpan.start.offset < at.start.offset;
     }

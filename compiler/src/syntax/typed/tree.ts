@@ -515,9 +515,9 @@ export interface DotSite {
    * known fields. Where `decided` is false there are no companion candidates
    * and no members, only the fields a bare read reaches at the dot. An
    * operation or member this dot may not reach is left out: one declared
-   * below it in its own file or in a `fun` block it stands inside (§4.4), or
-   * one whose honor in this module stands below the dot outside its knot
-   * (Constraints §4.8).
+   * below it in its own file, in a `fun` block it stands inside (§4.4), or in
+   * whose own `let` it stands, and one whose honor in this module stands below
+   * the dot outside its knot (Constraints §4.8).
    */
   readonly candidates: readonly DotCandidate[];
 }

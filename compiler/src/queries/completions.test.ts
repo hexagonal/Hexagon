@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { AnalysisSession } from "../analysis/session.js";
-import { qualifierAt, type Completion } from "./completions.js";
+import { completionMark, qualifierAt, type Completion } from "./completions.js";
 
 /**
  * The cursor is written as `‸` in these sources, and removed before compiling.
@@ -659,6 +659,64 @@ describe("completions after a value's dot", () => {
     );
   });
 
+  test("a `let` operation is not offered inside its own definition (`let` is non-recursive)", () => {
+    const source = [
+      "module Main",
+      "export record Point = { x: Int }",
+      "export let first(p: Point): Int = p.‸x",
+      "export let second(p: Point): Int = p.‸x + 1",
+      "",
+    ].join("\n");
+    expect(diagnosticsOf(source)).toEqual([]);
+    expect(completionsIn(cursorAt(source, 0))).toEqual(["x:field"]);
+    expect(completionsIn(cursorAt(source, 1))).toEqual(["first:operation", "x:field"]);
+    // The call it would complete is refused in the same words as the bare one.
+    expect(diagnosticsOf(source.replace("p.‸x", "p.first()"))).toEqual([
+      "`first` is not in scope in its own `let` definition; `let` is non-recursive — use `fun`.",
+    ]);
+  });
+
+  test("a literal's default is the dot's only where the text decides it", () => {
+    // `n` is an unannotated lambda parameter nothing writes a type for, so the
+    // dot after `(n + 1)` is refused, and offers nothing.
+    const source = "module Main\nlet f = (n) => (n + 1).sh‸ow()\n";
+    expect(diagnosticsOf(source)).toContainEqual(expect.stringContaining("does not decide"));
+    expect(completionsIn(source)).toEqual([]);
+  });
+
+  test("a member that does not take its subject first is not offered", () => {
+    // `fromNat` builds a value of the subject from a `Nat`: no receiver to put
+    // before a dot (§4.2), at a bound or at a concrete type alike.
+    expect(namesIn("fun probe<a: Num>(x: a): a = x.‸add(x)\n")).not.toContain("fromNat");
+    const atInt = namesIn("fun probe(n: Int): Int = n.‸add(n)\n");
+    expect(atInt).toContain("add");
+    expect(atInt).not.toContain("fromNat");
+  });
+
+  test("each declared type variable keeps its own bounds", () => {
+    const source = "fun probe<a: Show, b: Ord>(x: a, y: b): String = x.‸show() + y.‸compare(y).show()\n";
+    expect(completionsIn(cursorAt(source, 0))).toEqual(["show:member"]);
+    expect(completionsIn(cursorAt(source, 1))).toEqual([
+      "compare:member",
+      "equals:member",
+      "max:member",
+      "min:member",
+      "notEquals:member",
+    ]);
+  });
+
+  test("an imported opaque record: its operations, and none of its fields", () => {
+    const helper = [
+      "module Helper",
+      "export opaque record Box = { hidden: Int }",
+      "export let peek(box: Box): Int = box.hidden",
+      "",
+    ].join("\n");
+    expect(completionsIn("module Main\nimport Helper\nlet probe(box: Helper.Box): Int = box.pe‸ek()\n", {
+      "/helper.hex": helper,
+    })).toEqual(["peek:operation"]);
+  });
+
   test("a `Nat` lists the tower members it owns but does not honor, marked as needing a face", () => {
     const offered = offeredAt("fun probe(n: Nat, m: Nat): Int = n.su‸\n");
     const byName = new Map(offered.map((completion) => [completion.name, completion]));
@@ -667,6 +725,15 @@ describe("completions after a value's dot", () => {
     // An honored member needs no face.
     expect(byName.get("add")).toMatchObject({ kind: "member", constraint: "Num" });
     expect(byName.get("add")?.needsFace).toBeUndefined();
+  });
+});
+
+describe("completionMark", () => {
+  test("says whose member it is, and that an owned tower member needs a written type", () => {
+    expect(completionMark({ constraint: "Show" })).toBe("Show member");
+    expect(completionMark({ constraint: "Signed", needsFace: true }))
+      .toBe("Signed member, needs a written type");
+    expect(completionMark({})).toBeUndefined();
   });
 });
 

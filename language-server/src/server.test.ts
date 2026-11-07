@@ -581,6 +581,12 @@ describe("the Hexagon language server", () => {
       "",
       "let widthOf(box: Box): Int = box.width",
       "",
+      "export record Tag derives (Show) = { name: String }",
+      "",
+      "export let named(tag: Tag): String = tag.name",
+      "",
+      "let nameOf(tag: Tag): String = tag.name",
+      "",
     ].join("\n");
 
     let documented: Harness;
@@ -660,6 +666,24 @@ describe("the Hexagon language server", () => {
         kind: CompletionItemKind.Field,
         detail: "Int",
         documentation: { kind: "markdown", value: "How wide it is." },
+      });
+    });
+
+    test("completion after a value's dot draws operations and members as methods, members marked", async () => {
+      // The second `tag.name`, in `nameOf`, below the operation it can reach.
+      const later = positionOf(DOCUMENTED, "tag.name", 2);
+      const offered = await documented.client.sendRequest("textDocument/completion", {
+        textDocument: { uri: documented.uriOf("main.hex") },
+        position: { line: later.line, character: later.character + "tag.".length },
+      }) as CompletionItem[];
+      const byLabel = new Map(offered.map((item) => [item.label, item]));
+      expect([...byLabel.keys()].sort()).toEqual(["name", "named", "show"]);
+      expect(byLabel.get("name")?.kind).toBe(CompletionItemKind.Field);
+      expect(byLabel.get("named")?.kind).toBe(CompletionItemKind.Method);
+      expect(byLabel.get("named")?.labelDetails).toBeUndefined();
+      expect(byLabel.get("show")).toMatchObject({
+        kind: CompletionItemKind.Method,
+        labelDetails: { description: "Show member" },
       });
     });
   });
