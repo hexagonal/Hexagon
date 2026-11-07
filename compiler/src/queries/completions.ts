@@ -8,7 +8,18 @@
  * resolution consumes and discards. `Resolved.Module.scopes` is the resolver
  * writing those layers down as it goes, and this query reads them back.
  *
- * ## Two shapes of request
+ * ## Three shapes of request
+ *
+ * **After a value's dot** — `p.x`, a half-typed `v.ma`, mid-chain
+ * `v.map(f).fi` — lists what that dot consults (Method Syntax §8.4), and it is
+ * the one answer here that is not about names in scope at all: a dot is
+ * type-directed, never lexical (§1). So it is read from `Typed.Module.dotSites`,
+ * the checker's own judgment written down at the dot — whether the text decides
+ * the receiver, and the one candidate set the dot resolves against — never from
+ * the receiver's final solved type, which a later line can have learned after
+ * the dot already refused it (§3.5). A dot nothing follows yet (`q.`) does not
+ * parse into an access today, so it has no record and is answered by the
+ * qualifier reading below, which finds no module and offers nothing.
  *
  * **Qualified** — `Vector.` — lists one module's members, and is the common case
  * in a language whose library is reached through module names. **Unqualified**
@@ -50,7 +61,13 @@ export type CompletionKind =
   | "parameter"
   | "constructor"
   | "type"
-  | "module";
+  | "module"
+  /** A field after a value's dot: a record's, a row's, or a tuple's `itemN`. */
+  | "field"
+  /** An exported operation of the receiver type's companion (Method Syntax §4.2). */
+  | "operation"
+  /** A constraint member the dot reaches (Method Syntax §4.2, §8.4). */
+  | "member";
 
 export interface Completion {
   readonly name: string;
@@ -62,6 +79,28 @@ export interface Completion {
    * for the ones that carry any.
    */
   readonly documentation?: string;
+  /** For a `member`, the constraint whose member it is (§8.4: "marked as members"). */
+  readonly constraint?: string;
+  /**
+   * For a `member`, a tower member the receiver's type owns without honoring
+   * its rung (Method Syntax §4.2's ownership clause): the call takes a written
+   * face, as the operator does (§8.4).
+   */
+  readonly needsFace?: true;
+}
+
+/**
+ * Method Syntax §8.4's marks, as an editor shows them beside the label: a
+ * member says whose member it is, and a tower member the receiver's type owns
+ * without honoring its rung says it needs a written type, as the operator does.
+ * Plain text, and one spelling for the language server and the Playground.
+ */
+export function completionMark(
+  completion: Pick<Completion, "constraint" | "needsFace">,
+): string | undefined {
+  if (completion.constraint === undefined) return undefined;
+  const whose = `${completion.constraint} member`;
+  return completion.needsFace === true ? `${whose}, needs a written type` : whose;
 }
 
 export interface CompletionInput {
@@ -76,7 +115,7 @@ export interface CompletionInput {
    * captured colour displays there (Effects §10, #873). Absent when checking
    * produced none; the detail is then the location-blind display.
    */
-  readonly typed?: Pick<Typed.Module, "fileId" | "colourOwners">;
+  readonly typed?: Pick<Typed.Module, "fileId" | "colourOwners" | "dotSites">;
 }
 
 export function collectCompletions(input: CompletionInput): readonly Completion[] {
@@ -84,6 +123,10 @@ export function collectCompletions(input: CompletionInput): readonly Completion[
   // alone deliberately: one can hold an interpolation, where names *do* belong,
   // and telling the two apart needs the token stream rather than the text.
   if (input.resolved.comments.some((comment) => inComment(input.offset, comment))) return [];
+  // After a value's dot the checker has already said what the dot consults,
+  // so that is the whole answer — including where it is nothing at all.
+  const site = dotSiteAt(input);
+  if (site !== undefined) return afterDot(site, input);
   const qualifier = qualifierAt(input.text, input.offset);
   if (qualifier !== undefined) return membersOf(qualifier, input);
   const found = new Map<string, Completion>();
@@ -229,6 +272,58 @@ function indentOfLineAt(text: string, offset: number): number {
   return line.length - line.trimStart().length;
 }
 
+/**
+ * The dot whose name the cursor is in, where the checker met one: from just
+ * after the dot to the end of whatever name has been typed after it.
+ *
+ * Read from the checked tree rather than from text, unlike the module
+ * qualifier below, because what a *value* is cannot be read from text: only the
+ * dot's own judgment says which candidates it consults (Method Syntax §8.4).
+ */
+function dotSiteAt(input: CompletionInput): Typed.DotSite | undefined {
+  const typed = input.typed;
+  if (typed === undefined) return undefined;
+  return typed.dotSites.find(({ name }) =>
+    Number(name.fileId) === Number(typed.fileId) &&
+    input.offset >= name.start.offset && input.offset <= name.end.offset
+  );
+}
+
+/**
+ * Method Syntax §8.4: what the dot resolves against, and nothing else (§11.2).
+ *
+ * A dot whose subject the text does not decide offers no companion operation
+ * and no member, only the fields a bare read reaches there. Not the names in
+ * scope, which a dot never consults (§1, "this is not UFCS"), and not a guess
+ * from the type inference later settled on, which the dot has already refused
+ * to read (§3.5) — the refusal's own message says what to write.
+ */
+function afterDot(site: Typed.DotSite, input: CompletionInput): readonly Completion[] {
+  const colours = cursorColours(input);
+  return sorted(site.candidates.map((candidate): Completion => {
+    switch (candidate.kind) {
+      case "Field": {
+        const documentation = input.docs.at(candidate.declaration);
+        return {
+          name: candidate.name,
+          kind: "field",
+          detail: detailOf(candidate.scheme, colours),
+          ...(documentation === undefined ? {} : { documentation }),
+        };
+      }
+      case "Operation":
+        return { ...ofSymbol(candidate.name, candidate.symbol, input.facts, colours), kind: "operation" };
+      case "Member":
+        return {
+          ...ofSymbol(candidate.name, candidate.symbol, input.facts, colours),
+          kind: "member",
+          constraint: candidate.constraint,
+          ...(candidate.needsFace === undefined ? {} : { needsFace: true }),
+        };
+    }
+  }));
+}
+
 function membersOf(qualifier: string, input: CompletionInput): readonly Completion[] {
   const named = input.resolved.moduleAliases.find(({ alias }) => alias === qualifier);
   // A qualifier that names no module is answered with nothing rather than with
@@ -258,16 +353,22 @@ function ofSymbol(
 ): Completion {
   const known = facts.get(Number(symbol));
   if (known === undefined) return { name, kind: "value" };
-  // The gloss beside the type, as hover reads it (Effects §10), the detail
-  // being one line of plain text: a module with no callback colours glosses
-  // a face too.
-  const face = Typed.displayFace(known.scheme, colours);
   return {
     name,
     kind: kindOf(known),
-    detail: [face.type, ...face.owners.map((owner) => owner.replaceAll("`", ""))].join(" — "),
+    detail: detailOf(known.scheme, colours),
     ...(known.documentation === undefined ? {} : { documentation: known.documentation }),
   };
+}
+
+/**
+ * The type as hover shows it, with the gloss beside it (Effects §10), the
+ * detail being one line of plain text: a module with no callback colours
+ * glosses a face too.
+ */
+function detailOf(scheme: Typed.Scheme, colours: Typed.ColourContext | undefined): string {
+  const face = Typed.displayFace(scheme, colours);
+  return [face.type, ...face.owners.map((owner) => owner.replaceAll("`", ""))].join(" — ");
 }
 
 /**

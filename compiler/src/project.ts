@@ -218,6 +218,16 @@ function recognitionProjection(module: Parsed.Module): Parsed.Module {
 
 export interface CompiledProject {
   readonly modules: readonly CompiledModule[];
+  /**
+   * The checked tree of **every** module this compile checked, emitted or not.
+   *
+   * `modules` is the emitted closure, so a prelude companion nothing reached —
+   * `Vector.hex` in a program that has not used a `Vector` yet — is absent
+   * from it, while its members are still offered after `Vector.` and its types
+   * still shown. An editor documenting those needs the declaring module's doc
+   * blocks, and this is where they are. Nothing else reads it.
+   */
+  readonly typedModules: readonly Typed.Module[];
   /** Explicit roots, in request order; empty for the legacy whole-project request. */
   readonly roots: readonly CompiledRoot[];
   /**
@@ -2065,6 +2075,7 @@ export function compileProject(
     : validatePatternFixes(diagnostics.toArray(), files, options);
   return {
     modules,
+    typedModules: [...checked.values()].map(({ typed }) => typed),
     roots: requestedRoots.map(({ fileId, sourcePath, units: own }) => ({
       fileId,
       sourcePath,

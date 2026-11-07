@@ -1678,7 +1678,11 @@ class Analysis {
   readonly documentation: DocumentationIndex;
 
   constructor(
-    project: { readonly modules: readonly CompiledModule[]; readonly diagnostics: readonly Diagnostics.Diagnostic[] },
+    project: {
+      readonly modules: readonly CompiledModule[];
+      readonly typedModules?: readonly Typed.Module[];
+      readonly diagnostics: readonly Diagnostics.Diagnostic[];
+    },
     /** Every file the compile was handed, by path — see the loop below. */
     supplied: ReadonlyMap<string, Source.File>,
   ) {
@@ -1703,8 +1707,24 @@ class Analysis {
     for (const [path, file] of supplied) this.#pathsByFileId.set(Number(file.id), path);
     // Before the facts, which carry each symbol's documentation with them: a
     // completion asks about a symbol, not about a place.
-    this.documentation = DocumentationIndex.of(project.modules.map(({ typed }) => typed));
-    this.symbolFacts = collectSymbolFacts(project.modules, this.documentation);
+    //
+    // Over every module the compile *checked*, not only the emitted ones. A
+    // prelude companion nothing has reached yet is not emitted, but its members
+    // are offered all the same — after `Vector.`, and after a value's dot — and
+    // their documentation lives in its doc blocks. Indexing only the emitted
+    // closure left every one of them undocumented until the program happened to
+    // use the module, while an imported module, always emitted, documented its
+    // own. The emitted modules come first, so a symbol's facts are what they
+    // were; the rest only fill in symbols nothing emitted declares.
+    // A tree in both lists is one object, and is indexed once.
+    const trees = [
+      ...new Set([
+        ...project.modules.map(({ typed }) => typed),
+        ...(project.typedModules ?? []),
+      ]),
+    ];
+    this.documentation = DocumentationIndex.of(trees);
+    this.symbolFacts = collectSymbolFacts(trees.map((typed) => ({ typed })), this.documentation);
     // Built before the indexing loop: an import may name a module compiled after
     // this one, and a type name in an import list can only be resolved once the
     // specifier's target file is known.

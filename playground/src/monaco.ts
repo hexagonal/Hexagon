@@ -19,10 +19,13 @@ import {
   codeActionKinds,
   hoverAnswersAtOffset,
   toCodeAction,
+  toCompletionItem,
   toRenameEdits,
   toRenameLocation,
+  type CompletionIconKind,
   type EditTarget,
   type MappedCodeAction,
+  type MappedCompletionItem,
   type MappedRenameLocation,
 } from "./monaco-mapping";
 import {
@@ -420,6 +423,30 @@ function registerLanguageProviders(
       // above: the rule has one owner and it is not this file.
       { providedCodeActionKinds: codeActionKinds },
     ),
+    monaco.languages.registerCompletionItemProvider(hexagonLanguage, {
+      // `.` because a module's members are the list most worth opening
+      // unasked; typing a name opens the unqualified list on its own.
+      triggerCharacters: ["."],
+      provideCompletionItems: async (model, position) => {
+        if (!owns(model)) return undefined;
+        const offered = await services.completions(
+          model.getValue(),
+          model.getOffsetAt(position),
+        );
+        if (offered === undefined) return undefined;
+        const range = rangeFromOffsets(
+          model,
+          offered.range.startOffset,
+          offered.range.endOffset,
+        );
+        return {
+          suggestions: offered.items.map((completion) => {
+            const item = toCompletionItem(completion, range);
+            return { ...item, kind: monaco.languages.CompletionItemKind[item.kind] };
+          }),
+        };
+      },
+    }),
     monaco.languages.registerDefinitionProvider(hexagonLanguage, {
       provideDefinition: async (model, position) => {
         if (!owns(model)) return undefined;
@@ -512,6 +539,21 @@ type Assert<T extends true> = T;
 type _CodeActionFields = Assert<
   Required<Pick<MappedCodeAction<monaco.Uri, monaco.Range>, "disabled" | "kind">> extends
     Required<Pick<monaco.languages.CodeAction, "disabled" | "kind">> ? true : false
+>;
+
+/**
+ * That the optional completion fields are Monaco's names and shapes — the same
+ * gap as the two above: `documentation` and `detail` are optional on
+ * `CompletionItem`, so a misspelling would assign and silently drop the field.
+ */
+type _CompletionItemFields = Assert<
+  Required<Pick<MappedCompletionItem<monaco.Range>, "detail" | "documentation">> extends
+    Required<Pick<monaco.languages.CompletionItem, "detail" | "documentation">> ? true : false
+>;
+
+/** That every icon `completionKindOf` names is a member of Monaco's enum. */
+type _CompletionIconKinds = Assert<
+  CompletionIconKind extends keyof typeof monaco.languages.CompletionItemKind ? true : false
 >;
 
 type _RenameLocationFields = Assert<

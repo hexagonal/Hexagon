@@ -218,6 +218,26 @@ that sits at that column itself. A cursor in a block's column is inside the
 block; a cursor in a match arm's column is writing the next arm, and the previous
 arm's binder has gone.
 
+**After a value's dot, completion reads what the dot decided.** Method Syntax
+§8.4 asks for exactly the candidates the dot resolves against: a head-known
+nominal's visible fields, its companion's operations and the members honored at
+it, marked as members; a declared type variable's bound members; a record row's
+known fields; and, for a subject the program's text does not decide, no
+companion operations and no members, only the fields a bare read reaches there.
+Operations and members the dot may not reach are left out: in the home module's
+own file, an operation declared below the dot, in a `fun` block the dot stands
+inside (§4.4), or whose own `let` the dot is in, and a member whose honor
+stands below the dot outside its knot (Constraints §4.8). That is a judgment the checker makes at the dot, and it cannot be recovered
+afterwards from the receiver's solved type: inference can learn the type on a
+later line after the dot has already been refused because the text did not
+decide it (§3.5), and offering from the solved type would offer calls the
+compiler then refuses. So the checker writes each dot's judgment down as it
+makes it — `Typed.Module.dotSites`, keyed by the name after the dot — and
+completion reads that record and nothing else. A member carries its
+constraint, which the server shows beside the label; a tower member a `Nat`,
+`Int` or `BigInt` owns without honoring its rung is marked as needing a
+written type.
+
 Completion does not narrow by position: a type annotation gets value names
 offered alongside type names, because knowing an offset is in type position means
 having a parse. Every candidate carries its kind, so a wrong-kind suggestion
@@ -381,7 +401,7 @@ The second adds:
 
 8. semantic tokens over names, layered on the TextMate grammar rather than replacing it;
 9. rename, with a preparation step, across every file the project owns; and
-10. completion, unqualified and after a module name.
+10. completion, unqualified, after a module name, and after a value's dot.
 
 The third adds:
 
@@ -656,6 +676,14 @@ less than it looks.
   names, type names and module names are offered together, each carrying its
   kind. Narrowing would need a parse of the line being typed, which is the line
   that does not parse.
+- **Completion after a bare `q.` offers nothing.** With no name after the dot
+  the parser keeps no access, only an error node that drops the receiver, so
+  the checker never meets that dot and has written no judgment for it. The
+  lexical qualifier reading then finds no module named `q` and answers with
+  nothing. Completion after a value works from the first character of the name
+  onward (`q.x`, `q.le`). The dot record is shaped so that a parse which keeps
+  the unfinished dot can feed it unchanged; how the parser should keep it is
+  awaiting a ruling.
 - **Completion offers no constraint names.** They appear only in `<a: C>` and
   `honor C<T>`, positions this does not detect, and the built-in set lives in the
   checker rather than in any table a query can read.

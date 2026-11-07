@@ -22,11 +22,20 @@
  * compile.
  */
 
-import { AnalysisSession, hoverMarkdown, type CodeAction, type Source } from "../../compiler/src/index";
+import {
+  AnalysisSession,
+  completionMark,
+  hoverMarkdown,
+  type CodeAction,
+  type Source,
+} from "../../compiler/src/index";
+
+import { identifierStartBefore } from "../../compiler/src/support/identifiers";
 
 import type {
   BufferRange,
   PlaygroundCodeAction,
+  PlaygroundCompletions,
   PlaygroundHover,
   PlaygroundRenamePlan,
   PlaygroundRenameRefusal,
@@ -128,6 +137,41 @@ export class PlaygroundAnalysis {
           toRange(layout.map.toBufferRange(path, offsetsOf(span)))
         ),
     );
+  }
+
+  /**
+   * What could be written at the caret, and the partial name it would replace.
+   *
+   * The items are the session's, passed through whole: nothing is filtered or
+   * re-ranked here, so the Playground offers what the language server offers.
+   * They carry no spans, so there is nothing to map back to the buffer.
+   *
+   * The range is read with the compiler's own identifier rule — the one the
+   * session uses to find the name before a dot — so the text Monaco filters
+   * against is the text the session treated as the partial name.
+   */
+  completions(source: string, offset: number): PlaygroundCompletions {
+    const layout = this.#sync(source);
+    const at = layout.map.locate(offset);
+    if (at === undefined) {
+      return { items: [], range: { startOffset: offset, endOffset: offset } };
+    }
+    const items = this.#session.completions(at.path, at.offset).map((completion) => {
+      const mark = completionMark(completion);
+      return {
+        name: completion.name,
+        kind: completion.kind,
+        ...(completion.detail === undefined ? {} : { detail: completion.detail }),
+        ...(completion.documentation === undefined
+          ? {}
+          : { documentation: completion.documentation }),
+        ...(mark === undefined ? {} : { mark }),
+      };
+    });
+    return {
+      items,
+      range: { startOffset: identifierStartBefore(source, offset), endOffset: offset },
+    };
   }
 
   codeActions(

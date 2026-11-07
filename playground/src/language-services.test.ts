@@ -108,6 +108,57 @@ describe("createLanguageServices", () => {
     expect(await answer).toEqual([]);
   });
 
+  test("asks for completions at the caret and hands back the session's list", async () => {
+    const { channel, sent, reply } = harness();
+    const services = createLanguageServices(channel, () => 5);
+    const source = "module Main\n\nlet v = Vector.le";
+
+    const answer = services.completions(source, source.length);
+    expect(sent).toMatchObject([
+      { kind: "completion", version: 5, source, offset: source.length },
+    ]);
+    const completions = {
+      items: [{ name: "length", kind: "function", detail: "Vector(a) -> Int" }],
+      range: { startOffset: source.length - 2, endOffset: source.length },
+    };
+    reply({ kind: "completion", id: 0, version: 5, completions });
+
+    expect(await answer).toEqual(completions);
+  });
+
+  test("drops a completion list about text the user has since changed", async () => {
+    const { channel, reply } = harness();
+    let version = 3;
+    const services = createLanguageServices(channel, () => version);
+
+    const answer = services.completions("module Main\n\nlet v = Vector.", 27);
+    version = 4;
+    reply({
+      kind: "completion",
+      id: 0,
+      version: 3,
+      completions: {
+        items: [{ name: "length", kind: "function" }],
+        range: { startOffset: 27, endOffset: 27 },
+      },
+    });
+
+    // Settled, not left hanging, and with nothing: its range describes text
+    // that is no longer on screen.
+    expect(await answer).toBeUndefined();
+  });
+
+  test("settles a completion request the worker could not answer", async () => {
+    const { channel, reply } = harness();
+    const services = createLanguageServices(channel, () => 1);
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const answer = services.completions("let one = 1\n", 4);
+    reply({ kind: "service-failure", id: 0, version: 1, message: "boom" });
+
+    expect(await answer).toBeUndefined();
+  });
+
   test("matches replies to requests by id, whatever order they arrive in", async () => {
     const { channel, reply } = harness();
     const services = createLanguageServices(channel, () => 1);

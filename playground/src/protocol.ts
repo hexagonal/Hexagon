@@ -137,6 +137,44 @@ export interface PlaygroundCodeAction {
   readonly disabled?: string;
 }
 
+/**
+ * One name that could be written at the caret — the compiler's `Completion`
+ * crossing the worker boundary.
+ *
+ * `kind` is a plain string rather than the compiler's `CompletionKind` union on
+ * purpose: the session gains kinds over time, and a kind the editor has no icon
+ * for should still be offered (with a default icon) rather than refused. See
+ * `completionKindOf` in `monaco-mapping.ts`.
+ */
+export interface PlaygroundCompletion {
+  readonly name: string;
+  readonly kind: string;
+  /** The checker's type, for the ones that have one. */
+  readonly detail?: string;
+  /** The declaration's documentation as Markdown, for the ones that carry any. */
+  readonly documentation?: string;
+  /**
+   * Shown beside the label: for a constraint member after a dot, whose member
+   * it is (Method Syntax §8.4's "marked as members"), worded by the compiler's
+   * `completionMark`, as the language server words it.
+   */
+  readonly mark?: string;
+}
+
+/**
+ * Every name offered at one caret, and the text they would replace.
+ *
+ * `range` is the partial identifier the user has typed so far, ending at the
+ * caret — empty right after a `.` or a space. It travels with the items because
+ * the editor filters the list against it as the user keeps typing, and the
+ * worker is the side that knows what a Hexagon identifier is (`spec/lexer.md`
+ * §3); Monaco's own word pattern is not that.
+ */
+export interface PlaygroundCompletions {
+  readonly items: readonly PlaygroundCompletion[];
+  readonly range: BufferRange;
+}
+
 export interface PlaygroundRenameSubject {
   readonly name: string;
   readonly range: BufferRange;
@@ -185,6 +223,11 @@ export interface CodeActionsRequest extends ServiceRequest, BufferRange {
   readonly kind: "code-actions";
 }
 
+export interface CompletionRequest extends ServiceRequest {
+  readonly kind: "completion";
+  readonly offset: number;
+}
+
 export interface DefinitionRequest extends ServiceRequest {
   readonly kind: "definition";
   readonly offset: number;
@@ -226,6 +269,11 @@ export interface CodeActionsReply extends ServiceReply {
   readonly actions: readonly PlaygroundCodeAction[];
 }
 
+export interface CompletionReply extends ServiceReply {
+  readonly kind: "completion";
+  readonly completions: PlaygroundCompletions;
+}
+
 export interface DefinitionReply extends ServiceReply {
   readonly kind: "definition";
   readonly ranges: readonly BufferRange[];
@@ -265,6 +313,7 @@ export type CompilerRequest =
   | HoverRequest
   | HoverSpansRequest
   | CodeActionsRequest
+  | CompletionRequest
   | DefinitionRequest
   | ReferencesRequest
   | PrepareRenameRequest
@@ -274,6 +323,7 @@ export type ServiceReplyMessage =
   | HoverReply
   | HoverSpansReply
   | CodeActionsReply
+  | CompletionReply
   | DefinitionReply
   | ReferencesReply
   | PrepareRenameReply
