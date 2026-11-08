@@ -539,6 +539,7 @@ describe("Regex.Syntax: RegexError (§2.9)", () => {
     // The constructs only a backtracking engine has are refused by name
     // (§2.8), never steered toward a construct that means something else.
     ["a*+", "error 3: `*+` is possessive repetition, which the dialect does not have; to repeat a repetition, write `(?:a*)+`"],
+    ["a?+", "error 3: `?+` is possessive repetition, which the dialect does not have; to repeat a repetition, write `(?:a?)+`"],
     ["a{3}+", "error 5: `{3}+` is possessive repetition, which the dialect does not have; to repeat a repetition, write `(?:a{3})+`"],
     ["a*?+", "error 4: `*?+` repeats a repetition; write `(?:a*?)+`"],
     ["(?>a)", "error 2: `(?>` is an atomic group, which the dialect does not have"],
