@@ -12,6 +12,7 @@ import type {
   GeneratedCodeEditor,
   SourceEditor,
 } from "./editor";
+import { restartInlayHints } from "./editor";
 import { createHoverSpanCache } from "./hover-spans";
 import type { BufferRange } from "./protocol";
 import type { LanguageServices } from "./language-services";
@@ -323,6 +324,7 @@ export function createMonacoEditors(
       );
     },
     setTheme: (nextTheme) => monaco.editor.setTheme(toMonacoTheme(nextTheme)),
+    refreshInlayHints: () => restartInlayHints(sourceEditor),
     dispose: () => {
       disposed = true;
       if (caretHoverTimer !== undefined) clearTimeout(caretHoverTimer);
@@ -499,8 +501,8 @@ function registerLanguageProviders(
     }),
     monaco.languages.registerInlayHintsProvider(hexagonLanguage, {
       // The hints in the lines Monaco shows, as the language server sends
-      // them, and shown as its are by default: Monaco's `inlayHints.enabled`
-      // starts on, as VS Code's does.
+      // them; which kinds `services` answers with is the page's settings, and
+      // the editor asks again when they change (`refreshInlayHints`).
       provideInlayHints: async (model, range) => {
         if (!owns(model)) return undefined;
         const hints = await services.inlayHints(model.getValue(), {

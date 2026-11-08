@@ -3,10 +3,11 @@
  * decides what they are; this only translates and filters).
  *
  * Three settings, `hexagon.inlayHints.types`, `hexagon.inlayHints.colours`
- * and `hexagon.inlayHints.regexGroups`, all on by default (LANGUAGE-SERVER-D3.md,
- * ruled (a), and LANGUAGE-SERVER-R2.md for a literal's group numbers). The editor's own
- * `editor.inlayHints.enabled` stands above all three, so a dev who wants hints only
- * while holding a key sets that, as for any language.
+ * and `hexagon.inlayHints.regexGroups` (LANGUAGE-SERVER-D3.md, and
+ * LANGUAGE-SERVER-R2.md for a literal's group numbers), all off until the dev
+ * turns them on. The editor's own `editor.inlayHints.enabled` stands above all
+ * three, so a dev who wants hints only while holding a key sets that, as for
+ * any language.
  *
  * A hint carries no `textEdits`: a written type binds, so a hint is never
  * written on a double-click (the plan's doctrine point 3). Writing one is
@@ -25,12 +26,12 @@ export interface InlayHintSettings {
   readonly regexGroups: boolean;
 }
 
-export const DEFAULT_INLAY_HINT_SETTINGS: InlayHintSettings = { types: true, colours: true, regexGroups: true };
+export const DEFAULT_INLAY_HINT_SETTINGS: InlayHintSettings = { types: false, colours: false, regexGroups: false };
 
 /**
  * The settings in a `workspace/configuration` answer for `hexagon.inlayHints`.
  * Anything that is not a boolean, or not there, keeps its default: a client
- * that knows nothing of these settings shows every hint.
+ * that knows nothing of these settings shows no hint.
  */
 export function inlayHintSettingsOf(value: unknown): InlayHintSettings {
   const flag = (name: keyof InlayHintSettings): boolean => {

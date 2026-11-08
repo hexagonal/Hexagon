@@ -54,9 +54,9 @@ none of them describes the project:
 | `hexagon.languageServer.enabled` | Turn the server off to keep highlighting alone. |
 | `hexagon.languageServer.path` | Run a different server build — for developing the server itself, where reinstalling the extension each iteration is the whole cost. |
 | `hexagon.languageServer.trustedStandardLibraryProjects` | Explicitly allow listed absolute project roots to develop the standard library. Defaults to an empty list; only the user setting is read. |
-| `hexagon.inlayHints.types` | Show the types inference gave the places a type could be written. On by default. |
-| `hexagon.inlayHints.colours` | Show a function's colour in words at the end of its header's line. On by default. |
-| `hexagon.inlayHints.regexGroups` | Show each capturing group's number at its `(` in a pattern handed to `Regex.compile` as a literal. On by default. |
+| `hexagon.inlayHints.types` | Show the types inference gave the places a type could be written. Off until turned on. |
+| `hexagon.inlayHints.colours` | Show a function's colour in words at the end of its header's line. Off until turned on. |
+| `hexagon.inlayHints.regexGroups` | Show each capturing group's number at its `(` in a pattern handed to `Regex.compile` as a literal. Off until turned on. |
 | `hexagon.trace.server` | Log the traffic between extension and server. |
 
 VS Code's own `editor.inlayHints.enabled` stands above all three, as for any

@@ -234,7 +234,123 @@ button:disabled {
   color: white;
 }
 
-.theme-control,
+/* A button with an icon: the icon before the words, as in VS Code's own. */
+.actions .settings-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.button-icon {
+  flex: none;
+}
+
+/* The Settings… window: one checkbox per setting, its words beside it. */
+.settings-dialog {
+  width: min(34rem, calc(100vw - 2rem));
+  max-height: calc(100vh - 4rem);
+  padding: 1.1rem 1.2rem 1rem;
+  border: 1px solid var(--control-border);
+  border-radius: 0.6rem;
+  background: var(--topbar-background);
+  color: var(--text);
+}
+
+.settings-dialog::backdrop {
+  background: rgb(0 0 0 / 45%);
+}
+
+.settings-dialog h2 {
+  margin: 0 0 0.6rem;
+  font-size: 1rem;
+  font-weight: 650;
+}
+
+.settings-dialog fieldset {
+  display: grid;
+  gap: 0.7rem;
+  margin: 0 0 0.9rem;
+  padding: 0;
+  border: 0;
+}
+
+.settings-dialog legend {
+  margin-bottom: 0.5rem;
+  padding: 0;
+  color: var(--accent-text);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.setting-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: 0.6rem;
+  row-gap: 0.15rem;
+  align-items: baseline;
+}
+
+.setting-row input {
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.setting-name {
+  font-size: 0.86rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.setting-description {
+  grid-column: 2;
+  color: var(--muted-text);
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+/* A choice among several: its name and its menu on one line, its words below. */
+.setting-choice {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: 0.6rem;
+  row-gap: 0.3rem;
+  align-items: center;
+}
+
+.setting-choice select {
+  justify-self: start;
+}
+
+.setting-choice .setting-description {
+  grid-column: 1 / -1;
+}
+
+.setting-description code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.74rem;
+}
+
+.settings-note {
+  margin: 0;
+  color: var(--muted-text);
+  font-size: 0.78rem;
+  font-style: italic;
+  line-height: 1.45;
+}
+
+.settings-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.settings-actions button {
+  min-height: 2.1rem;
+  padding: 0.3rem 1rem;
+}
+
 .example-control {
   display: flex;
   align-items: center;
@@ -243,7 +359,7 @@ button:disabled {
   font-size: 0.72rem;
 }
 
-.theme-control select,
+.settings-dialog select,
 .example-control select {
   min-height: 2.25rem;
   padding: 0.35rem 1.8rem 0.35rem 0.55rem;
@@ -282,6 +398,10 @@ button:disabled {
   padding: 0.4rem 0.9rem;
   border-top: 1px solid var(--border);
   background: var(--chrome-background);
+}
+
+.input-box[hidden] {
+  display: none;
 }
 
 .input-box span {

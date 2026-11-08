@@ -747,7 +747,7 @@ describe("the Hexagon language server", () => {
       }) as InlayHint[] | null;
     };
 
-    test("a client with no settings to read sees every hint, lettered once per declaration", async () => {
+    test("a client with no settings to read sees no hint, and is never asked for any", async () => {
       const hex = await harness(FILES);
       // A client that declares none of the three is never asked for settings,
       // never sent a registration for their changes, and never asked to redraw.
@@ -760,8 +760,18 @@ describe("the Hexagon language server", () => {
       }
       try {
         await hex.client.sendNotification("workspace/didChangeConfiguration", { settings: null });
-        const hints = await hintsOf(hex);
+        expect(await hintsOf(hex)).toEqual([]);
         expect(asked).toEqual([]);
+      } finally {
+        await hex.dispose();
+      }
+    });
+
+    test("with types and colours turned on, every hint, lettered once per declaration", async () => {
+      const hex = await harness(FILES, { workspace: { configuration: true } });
+      hex.client.onRequest("workspace/configuration", () => [{ types: true, colours: true }]);
+      try {
+        const hints = await hintsOf(hex);
         const first = positionOf(SOURCE, "first,");
         const doc = positionOf(SOURCE, "doc)");
         const pairUp = { kind: "markdown", value: "`pairUp: (a, b) -> (a, b)`" };
@@ -829,17 +839,16 @@ describe("the Hexagon language server", () => {
       }
     });
 
-    test("a client that fails to answer for its settings sees every hint, and is asked again", async () => {
+    test("a client that fails to answer for its settings sees no hint, and is asked again", async () => {
       const hex = await harness(FILES, { workspace: { configuration: true } });
       let answers = 0;
       hex.client.onRequest("workspace/configuration", () => {
         answers += 1;
         if (answers === 1) throw new Error("no settings yet");
-        return [{ types: false }];
+        return [{ colours: true }];
       });
       try {
-        expect((await hintsOf(hex))?.map(({ label }) => label))
-          .toEqual([": a", ": b", ": (a, b)", ": String", ": Unit", "impure; may fail"]);
+        expect(await hintsOf(hex)).toEqual([]);
         expect((await hintsOf(hex))?.map(({ label }) => label)).toEqual(["impure; may fail"]);
         expect(answers).toBe(2);
       } finally {

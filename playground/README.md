@@ -86,8 +86,9 @@ no diagnostic anywhere — the helper is a legitimate program that happens to do
 nothing. Naming the program `module Main` is the repair, and is why the rule reads
 the name first.
 
-The Theme selector offers **System**, **Dark**, and **Light**. System is the default
-and follows live operating-system colour-scheme changes. The selected preference is
+The Theme choice, in the `Settings…` window, offers **System**, **Dark**, and
+**Light**. System is the default and follows live operating-system colour-scheme
+changes. The selected preference is
 remembered in browser `localStorage`; if storage is unavailable, it still applies
 for the lifetime of the current page.
 
@@ -131,6 +132,16 @@ The initial desktop layout is:
 ```
 
 On narrow screens the result panel moves below the source editor. The source always remains the primary editable surface; generated artefacts are read-only.
+
+### Settings
+
+`Settings…` opens a window listing the playground's settings, kept in the browser:
+
+- **Theme:** System, Dark or Light, as above.
+- **Inlay hints:** types, colours and regex group numbers, the three the extension's `hexagon.inlayHints.*` settings name, in the extension's words. Monaco shows them; the plain editor that narrow and touch screens keep shows none, and the window says so there.
+- **Input box:** the run's standard input under the editor (`spec/program-io.md` §6). While it is off, a run reads no input; a shared link that carries input shows it each time it is opened, until the dev turns the box on or off.
+
+The hints and the input box are off until the dev turns them on (`src/settings.ts`). A new playground setting gets a row here, off until the dev turns it on, rather than a control in the toolbar.
 
 ### Result tabs
 
@@ -222,8 +233,9 @@ be revisited before broader FFI access can expose arbitrary browser facilities.
 Hexagon tokenization, compiler-owned diagnostic markers, quick fixes (the plain
 ones preferred, and a buffer's mark repairs at once), hover
 (the type of a selected expression included), completion, signature help,
-inlay hints (the types inference gave, and a function's colour in words, as the
-language server shows them),
+inlay hints (the types inference gave, a function's colour in words, and each
+regex group's number, as the language server shows them, each kind off until
+turned on in `Settings…`),
 "Expand Selection", go-to-definition, find-references, rename, and read-only
 JavaScript and `.d.ts` models. This gives the
 playground the same editor foundation and familiar feel as the TypeScript Playground

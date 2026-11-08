@@ -442,12 +442,13 @@ elsewhere in the literal, its groups in order. A literal the build refused shows
 its report and fixes instead.
 
 Three settings, `hexagon.inlayHints.types`, `hexagon.inlayHints.colours` and
-`hexagon.inlayHints.regexGroups`, all on by default, are read from the client
-through `workspace/configuration`, and read again when the client says they
-changed, after which the server asks it to redraw. A client that cannot be asked
-shows every hint. The editor's own `editor.inlayHints.enabled` stands above all
-three, so a dev who wants hints only while holding Ctrl+Alt (Ctrl+Option on
-macOS) sets that, as for any language.
+`hexagon.inlayHints.regexGroups`, all off until the dev turns them on, are read
+from the client through `workspace/configuration`, and read again when the
+client says they changed, after which the server asks it to redraw. A client
+that cannot be asked shows no hint. The editor's own
+`editor.inlayHints.enabled` stands above all three, so a dev who wants hints
+only while holding Ctrl+Alt (Ctrl+Option on macOS) sets that, as for any
+language.
 Types are shown whole, since a cut type is not one a dev could write, so the
 extension sets `editor.inlayHints.maximumLength` to `0` for Hexagon files (VS
 Code cuts a line's hints at 43 characters otherwise), and the Playground sets
