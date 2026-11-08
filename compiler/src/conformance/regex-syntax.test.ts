@@ -262,6 +262,11 @@ describe("Regex.Syntax: the rewrites a refusal names, as edits (§2.9)", () => {
     const atom = (length: number) => `(?:${"a".repeat(length - 4)})`;
     expect(rewritesOf(`${atom(5000)}{1500}`)).toBe(`write the run as a sequence [1-5007=${atom(5000)}{1000}${atom(5000)}{500}]`);
     expect(rewritesOf(`${atom(5001)}{1500}`)).toBe("");
+    // The optional part's own piece counts too: three pieces of 3,333, and of
+    // one codepoint more.
+    expect(rewritesOf(`${atom(3333)}{1500,2500}`))
+      .toBe(`write the run as a sequence [1-3345=${atom(3333)}{1000}${atom(3333)}{500}${atom(3333)}{0,1000}]`);
+    expect(rewritesOf(`${atom(3334)}{1500,2500}`)).toBe("");
   });
 });
 
