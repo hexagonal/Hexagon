@@ -212,8 +212,11 @@ export interface PlaygroundInlayHint {
   /** The buffer offset the hint is drawn at, before the text there. */
   readonly offset: number;
   readonly label: string;
-  /** `type`: a type, where one could be written. `colour`: a function's colour in words. */
-  readonly kind: "type" | "colour";
+  /**
+   * `type`: a type, where one could be written. `colour`: a function's colour in
+   * words. `regexGroup`: a capturing group's number, at its `(` in a literal.
+   */
+  readonly kind: "type" | "colour" | "regexGroup";
   /** The face the hint is a piece of, as Markdown. */
   readonly tooltip: string;
 }

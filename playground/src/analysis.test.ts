@@ -860,6 +860,24 @@ describe("inlay hints", () => {
   });
 });
 
+describe("a literal handed to `Regex.compile`", () => {
+  const source = MAIN + 'import Hex.Regex as Regex\n\nlet r = Regex.compile("(?<year>[0-9]{4})-([0-9]{2})")\n';
+
+  test("hover on a group names it and how a match reads it, as the language server does", () => {
+    const hover = new PlaygroundAnalysis().hover(source, source.indexOf("([0-9]{2})") + 1);
+    expect(hover?.markdown).toContain("group 2: `([0-9]{2})`");
+    expect(hover?.markdown).toContain("Read it with `m.group(2)`.");
+    expect(text(source, hover?.range ?? { startOffset: 0, endOffset: 0 })).toBe("([0-9]{2})");
+  });
+
+  test("each group's number is a hint at its `(`, with the group's hover as its tooltip", () => {
+    const hints = new PlaygroundAnalysis().inlayHints(source, { startOffset: 0, endOffset: source.length })
+      .filter(({ kind }) => kind === "regexGroup");
+    expect(hints.map(({ offset, label }) => [source.slice(offset, offset + 3), label])).toEqual([["(?<", "1"], ["([0", "2"]]);
+    expect(hints[1]?.tooltip).toBe("group 2: `([0-9]{2})`\n\nRead it with `m.group(2)`.");
+  });
+});
+
 describe("the session across requests", () => {
   test("answers about the newest source it was asked about, not the first", () => {
     const analysis = new PlaygroundAnalysis();

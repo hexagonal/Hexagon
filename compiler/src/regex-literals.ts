@@ -45,9 +45,29 @@ export type RegexLiteralOutcome =
     readonly rewrites: readonly RegexRewrite[];
   };
 
+/**
+ * One capturing group of a literal pattern, as `Regex.Syntax` reads it
+ * (`regex.md` §5): its number, its name, and where it is written.
+ */
+export interface RegexGroup {
+  /** The number `Regex.group` reads it by. */
+  readonly index: number;
+  /** Its name, where the pattern names it. */
+  readonly name?: string;
+  /** Its `(`'s 1-based codepoint position in the pattern. */
+  readonly start: number;
+  /** Its codepoint count, from its `(` through its `)`. */
+  readonly length: number;
+}
+
 /** The program's `Hex.Regex`, linked and ready to run literals. */
 export interface RegexBuilder {
   run(pattern: string): RegexLiteralOutcome;
+  /**
+   * The capturing groups of `pattern` in group order, as the program's own
+   * `Regex.Syntax` parses it; `undefined` for a pattern it refuses.
+   */
+  groups(pattern: string): readonly RegexGroup[] | undefined;
 }
 
 const MEMO_LIMIT = 1024;
@@ -64,6 +84,7 @@ export function linkRegexBuilder(
   texts: readonly LinkedText[],
   regexPath: string,
   vectorTriePath: string,
+  syntaxPath: string,
 ): RegexBuilder {
   const load = linkModules(new Map(texts.map(({ path, text }) => [path, text])));
   const regex = load(regexPath);
@@ -78,7 +99,25 @@ export function linkRegexBuilder(
     throw new Error(`compiler defect: ${vectorTriePath} exports no \`empty\` vector to recognise vectors by`);
   }
   const memo = new Map<string, RegexLiteralOutcome>();
+  const groupMemo = new Map<string, readonly RegexGroup[] | undefined>();
   return {
+    groups(pattern) {
+      if (groupMemo.has(pattern)) return groupMemo.get(pattern);
+      const parse = load(syntaxPath)["parse"] as ((pattern: string) => unknown) | undefined;
+      if (typeof parse !== "function") {
+        throw new Error(`compiler defect: ${syntaxPath} exports no \`parse\` to read a literal's groups with`);
+      }
+      let groups: readonly RegexGroup[] | undefined;
+      try {
+        groups = groupsOf(parse(pattern));
+      } catch (error) {
+        if ((error as { readonly name?: unknown } | null)?.name !== "RegexError") throw error;
+        groups = undefined;
+      }
+      if (groupMemo.size >= MEMO_LIMIT) groupMemo.delete(groupMemo.keys().next().value!);
+      groupMemo.set(pattern, groups);
+      return groups;
+    },
     run(pattern) {
       const known = memo.get(pattern);
       if (known !== undefined) return known;
@@ -113,6 +152,32 @@ export function linkRegexBuilder(
       return outcome;
     },
   };
+}
+
+/**
+ * A parsed `Pattern`'s groups as plain data: its `spans` in group order, each
+ * named from its `names`, whose entries iterate as pairs. Any other shape is a
+ * compiler defect, since the standard library's `Regex.Syntax` builds it.
+ */
+function groupsOf(parsed: unknown): readonly RegexGroup[] {
+  const defect = () => new Error("compiler defect: `Regex.Syntax.parse` answered a pattern of a shape it cannot read");
+  const each = (value: unknown): readonly unknown[] => {
+    if (value === null || typeof value !== "object" || !(Symbol.iterator in value)) throw defect();
+    return [...(value as Iterable<unknown>)];
+  };
+  const { spans, names } = (parsed ?? {}) as { readonly spans?: unknown; readonly names?: unknown };
+  const named = new Map<number, string>();
+  for (const entry of each(names)) {
+    const [name, index] = Array.isArray(entry) ? entry as unknown[] : [];
+    if (typeof name !== "string" || typeof index !== "number") throw defect();
+    named.set(index, name);
+  }
+  return each(spans).map((span, at) => {
+    const { start, length } = (span ?? {}) as { readonly start?: unknown; readonly length?: unknown };
+    if (typeof start !== "number" || typeof length !== "number") throw defect();
+    const name = named.get(at + 1);
+    return { index: at + 1, ...(name === undefined ? {} : { name }), start, length };
+  });
 }
 
 /**

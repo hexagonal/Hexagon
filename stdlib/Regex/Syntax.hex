@@ -50,9 +50,16 @@ export union PropertyKind = GeneralCategory | Script | ScriptExtensions | Binary
 
 export union AnchorKind = TextStart | TextEnd | LineStart | LineEnd | WordBoundary | NotWordBoundary
 
-// A parsed pattern: its tree, the number of capturing groups (group 0 not
-// counted), and each group name's number.
-export record Pattern = { root: Expr, groupCount: Int, names: Map(String, Int) }
+(** Where a capturing group is written in its pattern: from its `(` through its
+    `)`, as a 1-based codepoint start and a codepoint count (`spec/regex.md`
+    §3.1, §5). *)
+export record Span = { start: Int, length: Int }
+
+(** A parsed pattern: its tree, the number of capturing groups (group 0 not
+    counted), each group name's number, and where each group is written, in
+    group order (`spec/regex.md` §5). The tree holds what the pattern means;
+    `names` and `spans` hold facts of its text beside it. *)
+export record Pattern = { root: Expr, groupCount: Int, names: Map(String, Int), spans: Vector(Span) }
 
 (** One edit of a rewrite: the pattern's codepoints from `start` up to, not
     including, `end`, written as `text` instead. Both are 1-based, as a
@@ -1307,6 +1314,9 @@ let parseText(pattern: String, text: Vector(String)): Outcome(Pattern, Refusal) 
     var flags = noFlags
     var count = 0
     var names: Map(String, Int) = Map.empty
+    // Each group's span, in group order: its start when it opens, its length
+    // when it closes.
+    var spans: Vector(Span) = []
     var position = 1
     var failure: Option(Refusal) = None
     var reading = True
@@ -1331,7 +1341,10 @@ let parseText(pattern: String, text: Vector(String)): Outcome(Pattern, Refusal) 
                     let body = alternationOf(top.branches.append(sequenceOf(top.pieces)))
                     let product = if productOf(top.pieces) > top.product then productOf(top.pieces) else top.product
                     let group = match top.capture
-                        Some(index) => Capture(body, index, top.name)
+                        Some(index) =>
+                            let opened = spans[index]
+                            spans := Vector.set(spans, index, { opened with length = position - opened.start + 1 })
+                            Capture(body, index, top.name)
                         None => body
                     flags := top.saved
                     let piece = Piece({ expr = group, kind = Atom, start = top.opening, product = product })
@@ -1354,6 +1367,7 @@ let parseText(pattern: String, text: Vector(String)): Outcome(Pattern, Refusal) 
                     reading := False
                 else if isCapture then
                     count := count + 1
+                    spans := spans.append(Span({ start = position, length = 0 }))
                     frames := frames.append(frameOf(position, Some(count), None, flags))
                     position := position + 1
                 else
@@ -1381,6 +1395,7 @@ let parseText(pattern: String, text: Vector(String)): Outcome(Pattern, Refusal) 
                                 reading := False
                             else
                                 count := count + 1
+                                spans := spans.append(Span({ start = position, length = 0 }))
                                 names := Map.set(names, name, count)
                                 frames := frames.append(frameOf(position, Some(count), Some(name), flags))
                                 position := next
@@ -1438,7 +1453,7 @@ let parseText(pattern: String, text: Vector(String)): Outcome(Pattern, Refusal) 
                 Refused(fault("missing `)` for the group opened here; close it, or write `\\(` for a literal", frames[2].opening))
             else
                 let root = alternationOf(top.branches.append(sequenceOf(top.pieces)))
-                Read(Pattern({ root = root, groupCount = count, names = names }))
+                Read(Pattern({ root = root, groupCount = count, names = names, spans = spans }))
 
 (** Parses `pattern` as the dialect of `spec/regex.md` §2: the tree. A pattern
     the dialect refuses throws `RegexError` for the first defect in reading

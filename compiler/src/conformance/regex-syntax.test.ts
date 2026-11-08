@@ -122,6 +122,15 @@ export let rewritten(pattern: String): Vector(String) =
             results
         _ => []
 
+// Each group's span, as start+length, in group order.
+export let spansOf(pattern: String): String = match Syntax.parse?(pattern)
+    Some(parsed) =>
+        var out: Vector(String) = []
+        for span in parsed.spans
+            out := out.append(show(span.start) ++ "+" ++ show(span.length))
+        joined(out, " ")
+    None => "refused"
+
 export let groupIndex(pattern: String, name: String): Int = match Syntax.parse?(pattern)
     Some(parsed) => match Map.get(parsed.names, name)
         Some(index) => index
@@ -131,6 +140,7 @@ export let groupIndex(pattern: String, name: String): Int = match Syntax.parse?(
 
 let parse: (pattern: string) => string;
 let groupIndex: (pattern: string, name: string) => number;
+let spansOf: (pattern: string) => string;
 let rewritesOf: (pattern: string) => string;
 let rewritten: (pattern: string) => Iterable<string>;
 
@@ -138,6 +148,7 @@ beforeAll(async () => {
   const module = await runMain(RENDERER);
   parse = module.describe as typeof parse;
   groupIndex = module.groupIndex as typeof groupIndex;
+  spansOf = module.spansOf as typeof spansOf;
   rewritesOf = module.rewritesOf as typeof rewritesOf;
   rewritten = module.rewritten as typeof rewritten;
 }, 60_000);
@@ -395,6 +406,21 @@ describe("Regex.Syntax: trees (§5)", () => {
     expect(groupIndex("(a)(?<year>b)(?P<day>c)", "year")).toBe(2);
     expect(groupIndex("(a)(?<year>b)(?P<day>c)", "day")).toBe(3);
     expect(groupIndex("(a)(?<year>b)", "month")).toBe(0);
+  });
+
+  test.each([
+    ["^(?<year>[0-9]{4})-([0-9]{2})$", "2+17 20+10"],
+    ["((a)(b))", "1+8 2+3 5+3"],
+    ["(?:(a))(?i)(b)", "4+3 12+3"],
+    ["(?x) ( a # c\n )", "6+10"],
+    ["😀(b)", "2+3"],
+    ["\\((a)", "3+3"],
+    ["[(](a)", "4+3"],
+    ["(?P<n>a)|(b)", "1+8 10+3"],
+    ["abc", ""],
+    ["(a", "refused"],
+  ])("each group's span, from its `(` through its `)`, in group order (§5): %j", (pattern, spans) => {
+    expect(spansOf(pattern)).toBe(spans);
   });
 });
 

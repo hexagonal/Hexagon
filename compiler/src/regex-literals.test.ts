@@ -101,10 +101,29 @@ describe("the builder writes what compile built (§8, §9)", () => {
     "};",
     "export const compile = (pattern) => (values[pattern] ?? (() => ({ p: pattern })))();",
   ].join("\n");
+  const syntax = [
+    'import { vector } from "../Runtime/VectorTrie.js";',
+    "const parsed = {",
+    "  dated: () => ({ root: {}, groupCount: 2, names: [[\"year\", 1]], spans: vector([{ start: 2, length: 17 }, { start: 20, length: 10 }]) }),",
+    "  none: () => ({ root: {}, groupCount: 0, names: [], spans: vector([]) }),",
+    "  bad: () => { throw { name: \"RegexError\", message: \"m\", position: 1, rewrites: [] }; },",
+    "  unspanned: () => ({ names: [], spans: vector([{ start: 1 }]) }),",
+    "  unnamed: () => ({ names: [[1, 1]], spans: vector([]) }),",
+    "  broken: () => { throw new TypeError(\"broken\"); },",
+    "};",
+    "const counted = () => { globalThis.__syntaxParses = (globalThis.__syntaxParses ?? 0) + 1; };",
+    "const fresh = (pattern) => () => ({ names: [], spans: vector([{ start: 1, length: pattern.length }]) });",
+    "export const parse = (pattern) => (counted(), (parsed[pattern] ?? fresh(pattern))());",
+  ].join("\n");
   const builder = () => linkRegexBuilder(
-    [{ path: "/Hex/Runtime/VectorTrie.js", text: trie }, { path: "/Hex/Regex.js", text: regex }],
+    [
+      { path: "/Hex/Runtime/VectorTrie.js", text: trie },
+      { path: "/Hex/Regex.js", text: regex },
+      { path: "/Hex/Regex/Syntax.js", text: syntax },
+    ],
     "/Hex/Regex.js",
     "/Hex/Runtime/VectorTrie.js",
+    "/Hex/Regex/Syntax.js",
   );
   const written = (pattern: string): string => {
     const outcome = builder().run(pattern);
@@ -165,6 +184,34 @@ describe("the builder writes what compile built (§8, §9)", () => {
     for (const pattern of ["untitled", "unspanned", "scalar"]) {
       expect(() => builder().run(pattern)).toThrow(/rewrites of a shape it cannot read/u);
     }
+  });
+
+  test("a pattern's groups are read off the parse, named where the pattern names them", () => {
+    expect(builder().groups("dated")).toEqual([
+      { index: 1, name: "year", start: 2, length: 17 },
+      { index: 2, start: 20, length: 10 },
+    ]);
+    expect(builder().groups("none")).toEqual([]);
+    expect(builder().groups("bad")).toBeUndefined();
+    expect(() => builder().groups("broken")).toThrow(/broken/u);
+    for (const pattern of ["unspanned", "unnamed"]) {
+      expect(() => builder().groups(pattern)).toThrow(/a pattern of a shape it cannot read/u);
+    }
+  });
+
+  test("groups are kept per pattern, a refusal's too, the oldest dropped past the limit", () => {
+    const parses = (): number => (globalThis as { __syntaxParses?: number }).__syntaxParses ?? 0;
+    const linked = builder();
+    const first = linked.groups("q0");
+    expect(linked.groups("q0")).toBe(first);
+    const before = parses();
+    expect(linked.groups("bad")).toBeUndefined();
+    expect(linked.groups("bad")).toBeUndefined();
+    expect(parses()).toBe(before + 1);
+    for (let index = 1; index <= 1024; index += 1) linked.groups(`q${index}`);
+    const latest = linked.groups("q1024");
+    expect(linked.groups("q1024")).toBe(latest);
+    expect(linked.groups("q0")).not.toBe(first);
   });
 
   test("answers are kept per pattern, the oldest dropped past the limit", () => {

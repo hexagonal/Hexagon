@@ -7,20 +7,24 @@ const HINTS: readonly InlayHint[] = [
   { offset: 3, label: ": Int", kind: "type", tooltip: "x: Int" },
   { offset: 9, label: "impure; may fail", kind: "colour", tooltip: "save0: () ->! Unit" },
   { offset: 12, label: "<a: Show>", kind: "type", tooltip: "f: <a: Show> a -> String\ng: Int -> Int" },
+  { offset: 20, label: "1", kind: "regexGroup", tooltip: "group 1: `(a)`\n\nRead it with `m.group(1)`." },
 ];
 const at = (offset: number) => ({ line: 0, character: offset });
 
 describe("the inlay hint settings", () => {
-  test("both on by default, for a client with nothing to say and for junk", () => {
-    expect(DEFAULT_INLAY_HINT_SETTINGS).toEqual({ types: true, colours: true });
-    expect(inlayHintSettingsOf(undefined)).toEqual({ types: true, colours: true });
-    expect(inlayHintSettingsOf(null)).toEqual({ types: true, colours: true });
-    expect(inlayHintSettingsOf({ types: "no", colours: 0 })).toEqual({ types: true, colours: true });
+  const all = { types: true, colours: true, regexGroups: true };
+
+  test("all on by default, for a client with nothing to say and for junk", () => {
+    expect(DEFAULT_INLAY_HINT_SETTINGS).toEqual(all);
+    expect(inlayHintSettingsOf(undefined)).toEqual(all);
+    expect(inlayHintSettingsOf(null)).toEqual(all);
+    expect(inlayHintSettingsOf({ types: "no", colours: 0, regexGroups: "off" })).toEqual(all);
   });
 
   test("each read on its own", () => {
-    expect(inlayHintSettingsOf({ types: false })).toEqual({ types: false, colours: true });
-    expect(inlayHintSettingsOf({ colours: false })).toEqual({ types: true, colours: false });
+    expect(inlayHintSettingsOf({ types: false })).toEqual({ ...all, types: false });
+    expect(inlayHintSettingsOf({ colours: false })).toEqual({ ...all, colours: false });
+    expect(inlayHintSettingsOf({ regexGroups: false })).toEqual({ ...all, regexGroups: false });
   });
 });
 
@@ -47,10 +51,18 @@ describe("hints as the protocol's", () => {
       .toEqual({ kind: "markdown", value: "`f: <a: Show> a -> String`\n\n`g: Int -> Int`" });
   });
 
+  test("a regex group's number has no kind, sits against its `(`, and carries the group's hover", () => {
+    expect(toLspInlayHints([HINTS[3]!], at, DEFAULT_INLAY_HINT_SETTINGS)).toEqual([
+      { position: at(20), label: "1", tooltip: { kind: "markdown", value: "group 1: `(a)`\n\nRead it with `m.group(1)`." } },
+    ]);
+  });
+
   test("a setting turned off leaves its kind out, and only its kind", () => {
-    expect(toLspInlayHints(HINTS, at, { types: false, colours: true }).map(({ label }) => label))
-      .toEqual(["impure; may fail"]);
-    expect(toLspInlayHints(HINTS, at, { types: true, colours: false }).map(({ label }) => label))
-      .toEqual([": Int", "<a: Show>"]);
+    expect(toLspInlayHints(HINTS, at, { types: false, colours: true, regexGroups: true }).map(({ label }) => label))
+      .toEqual(["impure; may fail", "1"]);
+    expect(toLspInlayHints(HINTS, at, { types: true, colours: false, regexGroups: true }).map(({ label }) => label))
+      .toEqual([": Int", "<a: Show>", "1"]);
+    expect(toLspInlayHints(HINTS, at, { types: true, colours: true, regexGroups: false }).map(({ label }) => label))
+      .toEqual([": Int", "impure; may fail", "<a: Show>"]);
   });
 });

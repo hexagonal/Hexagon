@@ -84,6 +84,8 @@ import {
 import { collectCompletions, type Completion } from "../queries/completions.js";
 import { signatureHelpAt, type SignatureHelp } from "../queries/signature-help.js";
 import { inlayHints, type InlayHint } from "../queries/inlay-hints.js";
+import { regexGroupHints, regexHoverAt } from "../queries/regex-groups.js";
+import type { RegexGroup } from "../regex-literals.js";
 import {
   type ExpressionType,
   type ExpressionTypeInput,
@@ -533,8 +535,12 @@ export class AnalysisSession {
       // Last, because a name is hover's own (what it denotes, documented): an
       // expression's type answers only where nothing above does, at an
       // operator, a bracket, a literal or a keyword.
-      return this.#documentedName(analysis, normalized, offset) ??
-        this.#expressionHover(analysis, normalized, offset, (input) => expressionTypeAt(input, offset));
+      return this.#documentedName(analysis, normalized, offset) ?? this.#literalHover(
+        analysis,
+        normalized,
+        offset,
+        this.#expressionHover(analysis, normalized, offset, (input) => expressionTypeAt(input, offset)),
+      );
     }
     const typed = candidates
       .map((occurrence) => {
@@ -595,6 +601,19 @@ export class AnalysisSession {
       const module = analysis.moduleAt(normalized, offset);
       return module === undefined ? [] : selectionRangesAt(module.source, module.parsed, offset).map(offsetsOf);
     });
+  }
+
+  /**
+   * A literal handed to `Regex.compile` answers about its groups (`regex.md`
+   * §5, `queries/regex-groups.ts`): on a group, that group, over its own span;
+   * elsewhere in the literal, its groups in order. The literal's type stays
+   * the first line. Anywhere else, the expression's hover as it is.
+   */
+  #literalHover(analysis: Analysis, path: string, offset: number, expression: Hover | undefined): Hover | undefined {
+    const module = analysis.moduleAt(path, offset);
+    if (module === undefined || expression === undefined) return expression;
+    const regex = regexHoverAt(module.source, module, analysis.regexGroups, offset);
+    return regex === undefined ? expression : { ...expression, span: regex.span, documentation: regex.documentation };
   }
 
   /** An expression's type, read from the module the offset is in, as a hover. */
@@ -859,19 +878,28 @@ export class AnalysisSession {
    * The inlay hints of one file, or of the offsets `[start, end]` of it a host
    * shows (`queries/inlay-hints.ts`): each declaration's types where they could
    * be written, and its colour in words where they could not
-   * (LANGUAGE-SERVER-D3.md). A file of several modules has each one's.
+   * (LANGUAGE-SERVER-D3.md), and each capturing group's number in a literal
+   * handed to `Regex.compile` (`queries/regex-groups.ts`). A file of several
+   * modules has each one's.
    */
   inlayHints(path: string, range?: OffsetRange): readonly InlayHint[] {
     const normalized = normalizePath(path);
     const text = this.#texts.get(normalized);
     const fileId = this.#fileIds.get(normalized);
     if (text === undefined || fileId === undefined) return [];
-    const modules = this.#analyze().modulesIn(normalized);
+    const analysis = this.#analyze();
+    const modules = analysis.modulesIn(normalized);
     if (modules.length === 0) return [];
     const lexed = lex(new Source.File(fileId, normalized, text));
-    return modules.flatMap(({ parsed, typed }) =>
+    // A literal's group numbers (`regex.md` §5) join the types and colours,
+    // in the order of the text.
+    const groups = modules.flatMap((module) => regexGroupHints(module, analysis.regexGroups))
+      .filter(({ offset }) => range === undefined || (range.start <= offset && offset <= range.end))
+      .map(({ offset, label, tooltip }): InlayHint => ({ offset, label, kind: "regexGroup", tooltip }));
+    const faces = modules.flatMap(({ parsed, typed }) =>
       inlayHints({ parsed, typed, lexed, ...(range === undefined ? {} : { range }) })
     );
+    return groups.length === 0 ? faces : [...faces, ...groups].sort((left, right) => left.offset - right.offset);
   }
 
   /**
@@ -1855,12 +1883,15 @@ class Analysis {
    * where signature help finds the declaration that names a callee's parameters.
    */
   readonly trees: readonly Typed.Module[];
+  /** The program's own reading of a `compile` literal's groups (`CompiledProject.regexGroups`). */
+  readonly regexGroups: (pattern: string) => readonly RegexGroup[] | undefined;
 
   constructor(
     project: {
       readonly modules: readonly CompiledModule[];
       readonly typedModules?: readonly Typed.Module[];
       readonly diagnostics: readonly Diagnostics.Diagnostic[];
+      readonly regexGroups?: (pattern: string) => readonly RegexGroup[] | undefined;
     },
     /** Every file the compile was handed, by path — see the loop below. */
     supplied: ReadonlyMap<string, Source.File>,
@@ -1903,6 +1934,7 @@ class Analysis {
       ]),
     ];
     this.trees = trees;
+    this.regexGroups = project.regexGroups ?? (() => undefined);
     this.documentation = DocumentationIndex.of(trees);
     this.symbolFacts = collectSymbolFacts(trees.map((typed) => ({ typed })), this.documentation);
     // Built before the indexing loop: an import may name a module compiled after
