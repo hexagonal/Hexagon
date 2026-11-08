@@ -63,17 +63,17 @@
         },
         "hexagon.inlayHints.types": {
           "type": "boolean",
-          "default": true,
+          "default": false,
           "markdownDescription": "Show the types inference gives the places a type could be written: a parameter, a function's result, a `let` with no written type. Shown only: a hint is never written into the file."
         },
         "hexagon.inlayHints.colours": {
           "type": "boolean",
-          "default": true,
+          "default": false,
           "markdownDescription": "Show a function's colour in words, such as \"impure; may fail\", at the end of its header's line. A header has no place to write it."
         },
         "hexagon.inlayHints.regexGroups": {
           "type": "boolean",
-          "default": true,
+          "default": false,
           "markdownDescription": "Show each capturing group's number, the one `Regex.group` reads it by, at its `(` in a pattern handed to `Regex.compile` as a literal."
         },
         "hexagon.trace.server": {

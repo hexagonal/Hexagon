@@ -20,6 +20,8 @@ export interface SourceEditor {
   onDidChange(listener: () => void): EditorSubscription;
   publishDiagnostics(diagnostics: readonly LocatedDiagnostic[]): void;
   setTheme(theme: EditorTheme): void;
+  /** Asks for the inlay hints again, after the settings that choose them change. */
+  refreshInlayHints(): void;
   dispose(): void;
 }
 
@@ -89,6 +91,7 @@ export function createTextareaSourceEditor(
     },
     publishDiagnostics: () => {},
     setTheme: () => {},
+    refreshInlayHints: () => {},
     dispose: () => {
       listeners.clear();
       element.removeEventListener("input", handleInput);

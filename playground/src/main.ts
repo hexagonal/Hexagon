@@ -23,7 +23,7 @@ import {
 } from "./generated-code";
 import { helloWorld } from "./examples/hello-world";
 import { readStoredInput, readStoredSource, writeStoredInput, writeStoredSource } from "./persistence";
-import { createLanguageServices } from "./language-services";
+import { createLanguageServices, type LanguageServices } from "./language-services";
 import type {
   CompilerMessage,
   ExecutionEvent,
@@ -33,6 +33,16 @@ import type {
 } from "./protocol";
 import { exitStatusNote, outputSegments, type OutputChunk } from "./output-pane";
 import { readSharedInput, readSharedSource, shareUrl } from "./sharing";
+import {
+  anyHintShown,
+  hintShown,
+  inputBoxShown,
+  parseSettings,
+  serializeSettings,
+  settingRows,
+  settingsStorageKey,
+  type PlaygroundSettings,
+} from "./settings";
 import {
   parseThemePreference,
   resolveTheme,
@@ -115,6 +125,9 @@ app.innerHTML = `
           <option value="">Choose…</option>
         </select>
       </label>
+      <button class="settings-button" type="button" data-action="settings" aria-haspopup="dialog">
+        <svg class="button-icon" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg><span>Settings…</span>
+      </button>
       <button type="button" data-action="share">Share</button>
       <button class="run-button" type="button" data-action="run" disabled>Run</button>
     </nav>
@@ -134,7 +147,7 @@ app.innerHTML = `
         spellcheck="false"
       ></textarea>
       <div id="monaco-source-editor" class="monaco-editor-host" hidden></div>
-      <label class="input-box">
+      <label class="input-box" hidden>
         <span>Input</span>
         <textarea
           id="input-editor"
@@ -174,10 +187,24 @@ app.innerHTML = `
     <span id="compile-status">Compiler starting…</span>
     <span>Compiler analysis session · no LSP</span>
   </footer>
+
+  <dialog id="settings-dialog" class="settings-dialog" aria-labelledby="settings-heading">
+    <form method="dialog">
+      <h2 id="settings-heading">Settings</h2>
+      <div id="settings-rows"></div>
+      <footer class="settings-actions">
+        <button type="submit">Done</button>
+      </footer>
+    </form>
+  </dialog>
 `;
 
 const sourceTextarea = requireElement<HTMLTextAreaElement>("#source-editor");
 const inputTextarea = requireElement<HTMLTextAreaElement>("#input-editor");
+const inputBox = requireElement<HTMLElement>(".input-box");
+const settingsButton = requireElement<HTMLButtonElement>("[data-action='settings']");
+const settingsDialog = requireElement<HTMLDialogElement>("#settings-dialog");
+const settingsRows = requireElement<HTMLElement>("#settings-rows");
 const sourceEditorContainer = requireElement<HTMLElement>("#monaco-source-editor");
 const resultView = requireElement<HTMLElement>("#result-view");
 const resultText = requireElement<HTMLElement>("#result-text");
@@ -193,6 +220,15 @@ const javaScriptViewSelect = requireElement<HTMLSelectElement>("#js-view-select"
 const zeroEntryPointNote = requireElement<HTMLElement>("#zero-entry-points");
 runButton.title = "Run the most recently compiled program.";
 const tabButtons = Array.from(app.querySelectorAll<HTMLButtonElement>("[data-tab]"));
+
+// The `Settings…` window's choices, each off until the dev turns it on. A
+// page opened from a shared link that carries input shows the input box
+// whatever they say, so its run reads what its author's did, until the dev
+// turns the box on or off here.
+let settings: PlaygroundSettings = readSettings();
+let sharedInput: string | undefined = readSharedInput(new URL(window.location.href));
+applyInputBoxSetting();
+renderSettingRows();
 
 let sourceEditor: SourceEditor = createTextareaSourceEditor(sourceTextarea);
 let generatedCodeEditor: GeneratedCodeEditor | undefined;
@@ -252,6 +288,17 @@ const languageServices = createLanguageServices(
   },
   () => state.sourceVersion,
 );
+
+// The editor's view of those services: the inlay hints the settings show, and
+// none asked for while they show none.
+const shownLanguageServices: LanguageServices = {
+  ...languageServices,
+  inlayHints: async (source, range) => {
+    if (!anyHintShown(settings)) return [];
+    const hints = await languageServices.inlayHints(source, range);
+    return hints.filter(({ kind }) => hintShown(kind, settings));
+  },
+};
 
 compilerWorker.addEventListener("message", (event: MessageEvent<CompilerMessage>) => {
   const response = event.data;
@@ -323,6 +370,11 @@ function handleSourceChange(): void {
 
 runButton.addEventListener("click", runCurrentProgram);
 shareButton.addEventListener("click", shareCurrentSource);
+settingsButton.addEventListener("click", () => settingsDialog.showModal());
+// A click on the backdrop, outside the window's own box, closes it too.
+settingsDialog.addEventListener("click", (event) => {
+  if (event.target === settingsDialog) settingsDialog.close();
+});
 javaScriptViewSelect.addEventListener("change", () => {
   state.javascriptView = javaScriptViewSelect.value;
   renderResult();
@@ -355,7 +407,7 @@ function compileCurrentSource(): void {
 }
 
 async function shareCurrentSource(): Promise<void> {
-  const shared = shareUrl(new URL(window.location.href), sourceEditor.getSource(), inputTextarea.value);
+  const shared = shareUrl(new URL(window.location.href), sourceEditor.getSource(), runInput());
   window.history.replaceState(null, "", shared);
 
   try {
@@ -418,7 +470,7 @@ function runCurrentProgram(): void {
     version,
     modules: state.executionModules,
     entryPath: state.entryPath,
-    input: inputTextarea.value,
+    input: runInput(),
   });
   executionTimer = setTimeout(() => {
     if (version !== state.sourceVersion) return;
@@ -657,7 +709,7 @@ async function initializeMonaco(): Promise<void> {
         navigator.platform,
         navigator.maxTouchPoints,
       ),
-      languageServices,
+      shownLanguageServices,
     );
     sourceSubscription.dispose();
     sourceEditor.dispose();
@@ -705,6 +757,84 @@ function writeCurrentInput(input: string): void {
     writeStoredInput(localStorage, input);
   } catch {
     // Accessing the storage object itself can fail in restricted contexts.
+  }
+}
+
+/** The run's standard input: the box's text while it is on the page, else none. */
+function runInput(): string {
+  return inputBox.hidden ? "" : inputTextarea.value;
+}
+
+function applyInputBoxSetting(): void {
+  inputBox.hidden = !inputBoxShown(settings, sharedInput);
+}
+
+/** One checkbox per setting, under its group's heading, each saved as it changes. */
+function renderSettingRows(): void {
+  settingsRows.replaceChildren();
+  let fieldset: HTMLFieldSetElement | undefined;
+  for (const row of settingRows) {
+    if (fieldset === undefined || fieldset.dataset.group !== row.group) {
+      fieldset = document.createElement("fieldset");
+      fieldset.dataset.group = row.group;
+      const legend = document.createElement("legend");
+      legend.textContent = row.group;
+      fieldset.append(legend);
+      settingsRows.append(fieldset);
+    }
+    const label = document.createElement("label");
+    label.className = "setting-row";
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.id = `setting-${row.key}`;
+    checkbox.checked = row.key === "inputBox" ? !inputBox.hidden : settings[row.key];
+    checkbox.addEventListener("change", () => changeSetting(row.key, checkbox.checked));
+    const name = document.createElement("span");
+    name.className = "setting-name";
+    name.textContent = row.label;
+    const description = document.createElement("span");
+    description.className = "setting-description";
+    description.append(...withCode(row.description));
+    label.append(checkbox, name, description);
+    fieldset.append(label);
+  }
+}
+
+function changeSetting(key: keyof PlaygroundSettings, on: boolean): void {
+  settings = { ...settings, [key]: on };
+  writeSettings(settings);
+  if (key === "inputBox") {
+    sharedInput = undefined;
+    applyInputBoxSetting();
+  } else {
+    sourceEditor.refreshInlayHints();
+  }
+}
+
+/** Text with its backquoted spans set as code. */
+function withCode(text: string): Node[] {
+  return text.split("`").map((piece, index) => {
+    if (index % 2 === 0) return document.createTextNode(piece);
+    const code = document.createElement("code");
+    code.textContent = piece;
+    return code;
+  });
+}
+
+function readSettings(): PlaygroundSettings {
+  try {
+    return parseSettings(localStorage.getItem(settingsStorageKey));
+  } catch {
+    return parseSettings(undefined);
+  }
+}
+
+function writeSettings(next: PlaygroundSettings): void {
+  try {
+    localStorage.setItem(settingsStorageKey, serializeSettings(next));
+  } catch {
+    // Storage can be unavailable in restricted browsing contexts; the page
+    // still honours the settings for the rest of its lifetime.
   }
 }
 

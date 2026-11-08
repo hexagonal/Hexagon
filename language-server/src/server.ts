@@ -393,7 +393,7 @@ export function startServer(connection: Connection): void {
   /**
    * The inlay hint settings, read from the client the first time hints are
    * asked for after a change, and the defaults for a client that has no
-   * settings to read. A read that fails shows every hint and is not kept, so
+   * settings to read. A read that fails shows no hint and is not kept, so
    * the next request asks again.
    */
   const inlayHintSettings = (): Promise<InlayHintSettings> => {

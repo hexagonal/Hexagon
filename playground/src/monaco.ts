@@ -323,6 +323,14 @@ export function createMonacoEditors(
       );
     },
     setTheme: (nextTheme) => monaco.editor.setTheme(toMonacoTheme(nextTheme)),
+    // A provider's `onDidChangeInlayHints` would be the way, but Monaco's
+    // controller stops listening to it after its next update (it keeps the
+    // provider as watched while disposing the subscription), so this restarts
+    // the controller instead: turning the option off and on asks anew.
+    refreshInlayHints: () => {
+      sourceEditor.updateOptions({ inlayHints: { enabled: "off" } });
+      sourceEditor.updateOptions({ inlayHints: { enabled: "on" } });
+    },
     dispose: () => {
       disposed = true;
       if (caretHoverTimer !== undefined) clearTimeout(caretHoverTimer);
@@ -499,8 +507,8 @@ function registerLanguageProviders(
     }),
     monaco.languages.registerInlayHintsProvider(hexagonLanguage, {
       // The hints in the lines Monaco shows, as the language server sends
-      // them, and shown as its are by default: Monaco's `inlayHints.enabled`
-      // starts on, as VS Code's does.
+      // them; which kinds `services` answers with is the page's settings, and
+      // the editor asks again when they change (`refreshInlayHints`).
       provideInlayHints: async (model, range) => {
         if (!owns(model)) return undefined;
         const hints = await services.inlayHints(model.getValue(), {

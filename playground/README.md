@@ -132,6 +132,13 @@ The initial desktop layout is:
 
 On narrow screens the result panel moves below the source editor. The source always remains the primary editable surface; generated artefacts are read-only.
 
+### Settings
+
+`Settings…` opens a window listing the playground's settings, each off until the dev turns it on and kept in the browser (`src/settings.ts`):
+
+- **Inlay hints:** types, colours and regex group numbers, the three the extension's `hexagon.inlayHints.*` settings name, in the extension's words.
+- **Input box:** the run's standard input under the editor (`spec/program-io.md` §6). While it is off, a run reads no input; a shared link that carries input shows it.
+
 ### Result tabs
 
 - **Output** shows captured `log(...)` lines plus execution completion,
