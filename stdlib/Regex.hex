@@ -49,10 +49,11 @@ honor Show<Regex> =
 // Compilation (§4.2)
 
 (** Thrown by `compile` for a pattern that does not parse: the 1-based position
-    of the first defect, and §2.9's message with that position after it, so that
-    an uncaught one says where. A fault, because a pattern handed to `compile` is
-    the programmer's own, and a bad one is the programmer's mistake. *)
-export fault RegexCompileFault(message: String, position: Int)
+    of the first defect, §2.9's message with that position after it, so that an
+    uncaught one says where, and the rewrites the message names, as edits. A
+    fault, because a pattern handed to `compile` is the programmer's own, and a
+    bad one is the programmer's mistake. *)
+export fault RegexCompileFault(message: String, position: Int, rewrites: Vector(Syntax.Rewrite))
 
 // The group number in one entry of a regex's table of names.
 let numberIn(entry: (String, Int)): Int = match entry
@@ -81,8 +82,8 @@ export let compile(pattern: String): Regex =
     try
         compiled(pattern, Syntax.parse^(pattern))
     catch
-        Syntax.RegexError(message, position) =>
-            throw(RegexCompileFault("${message} (position: ${position})", position))
+        Syntax.RegexError(message, position, rewrites) =>
+            throw(RegexCompileFault("${message} (position: ${position})", position, rewrites))
         // `Syntax.parse` throws nothing else, so this arm is the writer's word
         // that nothing else arrives: an exception or a foreign throw that did
         // would become an `AssumptionFault`, and a fault passes the arm as it

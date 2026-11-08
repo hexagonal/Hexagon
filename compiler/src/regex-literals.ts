@@ -26,10 +26,24 @@ export interface LinkedText {
   readonly text: string;
 }
 
+/**
+ * A rewrite a refusal names, as `Regex.Syntax` builds it (`regex.md` §2.9): its
+ * words, and its edits over the pattern's 1-based codepoints, `end` exclusive.
+ */
+export interface RegexRewrite {
+  readonly title: string;
+  readonly edits: readonly { readonly start: number; readonly end: number; readonly text: string }[];
+}
+
 /** What `compile` did with one literal. */
 export type RegexLiteralOutcome =
   | { readonly kind: "built"; readonly write: (vectorOf: string, array: string) => string }
-  | { readonly kind: "refused"; readonly message: string; readonly position: number };
+  | {
+    readonly kind: "refused";
+    readonly message: string;
+    readonly position: number;
+    readonly rewrites: readonly RegexRewrite[];
+  };
 
 /** The program's `Hex.Regex`, linked and ready to run literals. */
 export interface RegexBuilder {
@@ -76,7 +90,12 @@ export function linkRegexBuilder(
         const write = printer(built, vectorIterate);
         outcome = { kind: "built", write };
       } catch (error) {
-        const fault = error as { readonly name?: unknown; readonly message?: unknown; readonly position?: unknown };
+        const fault = error as {
+          readonly name?: unknown;
+          readonly message?: unknown;
+          readonly position?: unknown;
+          readonly rewrites?: unknown;
+        };
         if (
           fault === null || typeof fault !== "object" || fault.name !== "RegexCompileFault" ||
           typeof fault.message !== "string" || typeof fault.position !== "number"
@@ -87,13 +106,38 @@ export function linkRegexBuilder(
         const message = fault.message.endsWith(suffix)
           ? fault.message.slice(0, -suffix.length)
           : fault.message;
-        outcome = { kind: "refused", message, position: fault.position };
+        outcome = { kind: "refused", message, position: fault.position, rewrites: rewritesOf(fault.rewrites) };
       }
       if (memo.size >= MEMO_LIMIT) memo.delete(memo.keys().next().value!);
       memo.set(pattern, outcome);
       return outcome;
     },
   };
+}
+
+/**
+ * The fault's rewrites as plain data. They are `Vector`s of records, which
+ * iterate as JavaScript does; any other shape is a compiler defect, since the
+ * standard library's `Regex.Syntax` is what builds them.
+ */
+function rewritesOf(value: unknown): readonly RegexRewrite[] {
+  const defect = () => new Error("compiler defect: a `RegexCompileFault` carries rewrites of a shape it cannot read");
+  const each = (vector: unknown): readonly unknown[] => {
+    if (vector === null || typeof vector !== "object" || !(Symbol.iterator in vector)) throw defect();
+    return [...(vector as Iterable<unknown>)];
+  };
+  return each(value).map((rewrite) => {
+    const { title, edits } = (rewrite ?? {}) as { readonly title?: unknown; readonly edits?: unknown };
+    if (typeof title !== "string") throw defect();
+    return {
+      title,
+      edits: each(edits).map((edit) => {
+        const { start, end, text } = (edit ?? {}) as { readonly start?: unknown; readonly end?: unknown; readonly text?: unknown };
+        if (typeof start !== "number" || typeof end !== "number" || typeof text !== "string") throw defect();
+        return { start, end, text };
+      }),
+    };
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -370,13 +414,15 @@ export function sourceSpelling(message: string): string {
 /**
  * The report for a literal `compile` refuses (`regex.md` §8): §2.9's message,
  * on the codepoint its position names, or on the closing quote for a pattern
- * that ended early.
+ * that ended early, with each rewrite the message names as a fix on the
+ * literal's source.
  */
 export function refusedLiteral(
   file: Source.File,
   site: Emitted.RegexLiteralSite,
   message: string,
   position: number,
+  rewrites: readonly RegexRewrite[] = [],
 ): Diagnostics.Diagnostic {
   if (site.span.fileId !== file.id) {
     throw new Error(`compiler defect: ${file.path} reports a literal pattern another file holds`);
@@ -387,6 +433,10 @@ export function refusedLiteral(
     : position >= 1 && position <= located.codepoints.length
     ? file.span(located.codepoints[position - 1]![0], located.codepoints[position - 1]![1])
     : file.span(located.closing, located.closing + 1);
+  const fixes = located === undefined ? [] : rewrites.map((rewrite) => ({
+    message: sourceSpelling(rewrite.title),
+    edits: rewrite.edits.map((edit) => sourceEdit(file, located, [...site.pattern], edit)),
+  }));
   return {
     severity: "error",
     message: sourceSpelling(message),
@@ -394,5 +444,40 @@ export function refusedLiteral(
     notes: [
       "a pattern written as a literal is checked when the program is compiled",
     ],
+    ...(fixes.length === 0 ? {} : { fixes }),
   };
+}
+
+/**
+ * One edit of the pattern as an edit of the literal's source: its codepoints'
+ * source text replaced by the new text spelled as the literal spells it. A `$`
+ * or `#` and a `{` that the edit would bring together are spelled apart, as
+ * `sourceSpelling` spells them within its text, so that the edit opens no
+ * interpolation; where the one before the edit is written bare, the edit takes
+ * it in and writes it again.
+ */
+function sourceEdit(
+  file: Source.File,
+  located: { readonly codepoints: readonly (readonly [number, number])[]; readonly closing: number },
+  pattern: readonly string[],
+  edit: RegexRewrite["edits"][number],
+): Diagnostics.Edit {
+  const offsetOf = (position: number): number =>
+    position <= located.codepoints.length ? located.codepoints[position - 1]![0] : located.closing;
+  let start = edit.start;
+  let text = edit.text;
+  const after = pattern[edit.end - 1];
+  const before = pattern[start - 2];
+  const opens = (point: string | undefined) => point === "$" || point === "#";
+  if (opens(before) && (text + (after ?? "")).startsWith("{")) {
+    const [from, to] = located.codepoints[start - 2]!;
+    if (file.text.slice(from, to) === before) {
+      start -= 1;
+      text = before + text;
+    }
+  }
+  const spelled = after === "{" && opens([...text].at(-1))
+    ? sourceSpelling(`${text}{`).slice(0, -1)
+    : sourceSpelling(text);
+  return { span: file.span(offsetOf(start), offsetOf(edit.end)), replacement: spelled };
 }

@@ -65,7 +65,7 @@ let explain(pattern: String) =
     try
         Debug.log("\${pattern} has \${Regex.parse^(pattern).groupCount()} groups")
     catch
-        Syntax.RegexError(message, position) => Debug.log("\${pattern}: \${message}, at position \${position}")
+        Syntax.RegexError(message, position, _) => Debug.log("\${pattern}: \${message}, at position \${position}")
         other => Debug.log("\${pattern}: \${other}")
 
 explain("(a)(b)")

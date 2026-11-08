@@ -80,8 +80,47 @@ export let describe(pattern: String): String =
     match Syntax.parse^(pattern)
         parsed => render(parsed.root) ++ " #" ++ show(parsed.groupCount)
     catch
-        Syntax.RegexError(message, position) => "error " ++ show(position) ++ ": " ++ message
+        Syntax.RegexError(message, position, _) => "error " ++ show(position) ++ ": " ++ message
         other => "other " ++ show(other)
+
+// Each rewrite a refusal names: its words, and its edits as start-end=text.
+export let rewritesOf(pattern: String): String =
+    match Syntax.parse^(pattern)
+        _ => "parsed"
+    catch
+        Syntax.RegexError(_, _, rewrites) =>
+            var texts: Vector(String) = []
+            for rewrite in rewrites
+                var edits: Vector(String) = []
+                for edit in rewrite.edits
+                    edits := edits.append(show(edit.start) ++ "-" ++ show(edit.end) ++ "=" ++ edit.text)
+                texts := texts.append(rewrite.title ++ " [" ++ joined(edits, ", ") ++ "]")
+            joined(texts, " | ")
+        other => "other " ++ show(other)
+
+// The pattern with each rewrite's edits applied, one pattern per rewrite.
+export let rewritten(pattern: String): Vector(String) =
+    match Syntax.parse^(pattern)
+        _ => []
+    catch
+        Syntax.RegexError(_, _, rewrites) =>
+            let points = Vector.fromSeq(Iterable.toSeq(pattern))
+            var results: Vector(String) = []
+            for rewrite in rewrites
+                var out: Vector(String) = []
+                var at = 1
+                for edit in rewrite.edits
+                    while at < edit.start
+                        out := out.append(points[at])
+                        at := at + 1
+                    out := out.append(edit.text)
+                    at := edit.end
+                while at <= Vector.length(points)
+                    out := out.append(points[at])
+                    at := at + 1
+                results := results.append(joined(out, ""))
+            results
+        _ => []
 
 export let groupIndex(pattern: String, name: String): Int = match Syntax.parse?(pattern)
     Some(parsed) => match Map.get(parsed.names, name)
@@ -92,11 +131,15 @@ export let groupIndex(pattern: String, name: String): Int = match Syntax.parse?(
 
 let parse: (pattern: string) => string;
 let groupIndex: (pattern: string, name: string) => number;
+let rewritesOf: (pattern: string) => string;
+let rewritten: (pattern: string) => Iterable<string>;
 
 beforeAll(async () => {
   const module = await runMain(RENDERER);
   parse = module.describe as typeof parse;
   groupIndex = module.groupIndex as typeof groupIndex;
+  rewritesOf = module.rewritesOf as typeof rewritesOf;
+  rewritten = module.rewritten as typeof rewritten;
 }, 60_000);
 
 describe("Regex.Syntax: the module", () => {
@@ -113,6 +156,117 @@ describe("Regex.Syntax: the module", () => {
     expect(STDLIB_SOURCES["Regex.Syntax"]).toBe(source);
     expect(source.match(/^\s*extern\b/gmu)).toHaveLength(1);
     expect(source.match(/^\s*fun \w+ as /gmu)).toEqual(["    fun stringCodepointUnchecked as "]);
+  });
+});
+
+describe("Regex.Syntax: the rewrites a refusal names, as edits (§2.9)", () => {
+  // Each rewrite: its words, then its edits as start-end=text over the
+  // pattern's 1-based codepoints, `end` exclusive. A row carries an edit only
+  // where the text it refuses has one reading, the dialect's or Unicode's, and
+  // the edit writes that reading: a count past its bound, a flag setting's part
+  // that does nothing, a loose spelling of a property. A count's runs keep the
+  // product of the counts inside the bound, so a count on an atom that holds
+  // one runs shorter.
+  test.each([
+    ["a{1500}", "write the run as a sequence [1-8=a{1000}a{500}]"],
+    ["a{2500}", "write the run as a sequence [1-8=a{1000}a{1000}a{500}]"],
+    ["(?:ab){1500,}", "write the run as a sequence [1-14=(?:ab){1000}(?:ab){500,}]"],
+    ["a{1500,2000}?", "write the run as a sequence [1-14=a{1000}a{500,1000}?]"],
+    // The rest and the optional part past the bound together: the optional
+    // part is a piece of its own.
+    ["a{1000,1500}", "write the run as a sequence [1-13=a{1000}a{0,500}]"],
+    ["a{1000,1500}?", "write the run as a sequence [1-14=a{1000}a{0,500}?]"],
+    ["a{1500,2400}", "write the run as a sequence [1-13=a{1000}a{500}a{0,900}]"],
+    ["a{2000,2500}", "write the run as a sequence [1-13=a{1000}a{1000}a{0,500}]"],
+    ["a{2000,3000}", "write the run as a sequence [1-13=a{1000}a{1000}a{0,1000}]"],
+    ["a{2000,3001}", ""],
+    // The optional part's own piece counts toward the 100.
+    ["a{98500,99100}", `write the run as a sequence [1-15=${"a{1000}".repeat(98)}a{500}a{0,600}]`],
+    ["a{99500,100100}", ""],
+    ["a{100000}", `write the run as a sequence [1-10=${"a{1000}".repeat(100)}]`],
+    ["(?:a{10}){1500}", `write the run as a sequence [1-16=${"(?:a{10}){100}".repeat(15)}]`],
+    ["(?:x{100}){20}", "write the outer repetition as a sequence [1-15=(?:x{100}){10}(?:x{100}){10}]"],
+    ["(?:(?:x{100}){5}){3}", "write the outer repetition as a sequence [1-21=(?:(?:x{100}){5}){2}(?:(?:x{100}){5}){1}]"],
+    ["(?:x{100}){20,}?", "write the outer repetition as a sequence [1-17=(?:x{100}){10}(?:x{100}){10,}?]"],
+    // A sequence whose runs would repeat a group, read an optional part in
+    // another order, keep no reading of reversed ends, or run past 100 pieces
+    // or 10,000 codepoints of atom.
+    ["(ab){1500}", ""],
+    ["(?:x(a)){1500}", ""],
+    ["(?:x|(a)){1500}", ""],
+    ["(?:(a)*){1500}", ""],
+    ["a{0,1500}", ""],
+    ["a{2500,1200}", ""],
+    ["a{1500,1499}", ""],
+    ["a{100001}", ""],
+    ["a{1234567}", ""],
+    ["(?:a{1000}){999999}", ""],
+    ["(x{100}){20}", ""],
+    ["(?:x{100}){2,20}", ""],
+    ["\\p{greek}", "write `\\p{Greek}` [1-10=\\p{Greek}]"],
+    ["\\p{Space}", "write `\\p{White_Space}` [1-10=\\p{White_Space}]"],
+    ["\\P{gc=lu}", "write `\\P{gc=Lu}` [1-10=\\P{gc=Lu}]"],
+    ["\\pl", "write `\\p{L}` [1-4=\\p{L}]"],
+    ["\\p{Cyrilic}", ""],
+    ["(?ii)a", "drop the second `i` [4-5=]"],
+    ["(?-ii)a", "drop the second `i` [5-6=]"],
+    ["(?-mii)a", "drop the second `i` [6-7=]"],
+    ["(?ii:a)", "drop the second `i` [4-5=]"],
+    // Nor where the setting has another defect the drop would leave.
+    ["(?ii-i)a", ""],
+    ["(?iii)a", ""],
+    ["(?iiq)a", ""],
+    ["(?ii-)a", ""],
+    ["(?ii", ""],
+    ["(?i-i)a", ""],
+    ["(?i-mi)a", ""],
+    ["(?)a", "drop the `(?)` [1-4=]"],
+    ["(?-)a", "drop the `(?-)` [1-5=]"],
+    ["(?i-)a", "drop the `-` [4-5=]"],
+    // Nor where the drop would hand a quantifier to the piece before.
+    ["a(?)*", ""],
+    ["(?x)a(?) *", ""],
+    ["a(?-){2}", ""],
+    ["(?x)a(?-) *", ""],
+  ])("%j", (pattern, rewrites) => {
+    expect(rewritesOf(pattern)).toBe(rewrites);
+  });
+
+  // Text the dialect gives no reading carries no edit, whatever its words
+  // name: which reading the programmer meant is theirs to say.
+  test.each([
+    "(ab", "((a", "(?i", "(?x)(a # note", "a)", "[ab", "[]a]", "[^]a]", "[[]", "[a[]", "[a[bc]]", "[[:alpha:]]",
+    "[a-\\d]", "[a-z-[aeiou]]", "[z-a]", "[xa--]", "[\uDBFF-\uD800]", "[\\b]", "x{", "a{,3}", "a{3,1}", "*a",
+    "(*FAIL)|x", "^*a", "(?i)*a", "a\\", "\\y", "\\Z", "(?U)a*", "(?-U)a", "(?i-i)a",
+    // A quantifier on a quantifier has no reading; a comment group and `\p{^…}`
+    // are another engine's spellings, which the dialect refuses without reading.
+    "a**", "a*?*", "a*+", "a?+", "a{3}+", "a*{3,1}", "(?#hi)a", "(?x)(?#hi)a", "\\p{^L}",
+  ])("%j", (pattern) => {
+    expect(parse(pattern)).toMatch(/^error /u);
+    expect(rewritesOf(pattern)).toBe("");
+  });
+
+  test("each rewrite, applied, leaves a pattern that parses", () => {
+    const applied: string[] = [];
+    for (const pattern of ["a{1500}", "a{1500,2000}?", "(?:ab){1500,}", "(?:a{10}){1500}", "a{100000}", "(?:x{100}){20}", "(?:(?:x{100}){5}){3}", "(?:x{100}){20,}?",
+      "a{1000,1500}", "a{1500,2400}", "a{2000,3000}", "\\p{greek}", "\\pl", "\\p{Space}", "\\P{gc=lu}", "(?ii)a", "(?-mii)a", "(?ii:a)", "(?)a", "(?-)a", "(?i-)a"]) {
+      for (const each of rewritten(pattern)) applied.push(`${each} ${parse(each).startsWith("error") ? "refused" : "parses"}`);
+    }
+    expect(applied.filter((line) => line.endsWith("refused"))).toEqual([]);
+    expect(applied).toContain("a{1000}a{500} parses");
+    expect(applied).toContain("a{1000}a{0,500} parses");
+  });
+
+  test("a count's sequence stays near a hand-written pattern's size: 10,000 codepoints of atom in all", () => {
+    // Two pieces of a 5,000-codepoint atom, and of one codepoint more.
+    const atom = (length: number) => `(?:${"a".repeat(length - 4)})`;
+    expect(rewritesOf(`${atom(5000)}{1500}`)).toBe(`write the run as a sequence [1-5007=${atom(5000)}{1000}${atom(5000)}{500}]`);
+    expect(rewritesOf(`${atom(5001)}{1500}`)).toBe("");
+    // The optional part's own piece counts too: three pieces of 3,333, and of
+    // one codepoint more.
+    expect(rewritesOf(`${atom(3333)}{1500,2500}`))
+      .toBe(`write the run as a sequence [1-3345=${atom(3333)}{1000}${atom(3333)}{500}${atom(3333)}{0,1000}]`);
+    expect(rewritesOf(`${atom(3334)}{1500,2500}`)).toBe("");
   });
 });
 
@@ -178,7 +332,7 @@ describe("Regex.Syntax: trees (§5)", () => {
     ["[a-]", "[#45 a] #0"],
     ["[^-a]", "[^#45 a] #0"],
     ["[a^b]", "[^ a-b] #0"],
-    ["[a--]", "error 4: range `a--` is reversed; write `--a`"],
+    ["[a--]", "error 4: range `a--` is reversed; write `\\--a`"],
     ["[\\-]", "[#45] #0"],
     ["[\\]]", "[#93] #0"],
   ])("classes: %j", (pattern, tree) => {
@@ -316,9 +470,9 @@ describe("Regex.Syntax: RegexError (§2.9)", () => {
     ["\\b+", "error 3: nothing to repeat before `+`; `\\b` is an assertion, not an atom; write `\\+` for a literal `+`"],
     ["(?i)?", "error 5: nothing to repeat before `?`; `(?i)` sets flags, not an atom; write `\\?` for a literal `?`"],
     ["a(?i)*", "error 6: nothing to repeat before `*`; `(?i)` sets flags, not an atom; write `\\*` for a literal `*`"],
-    ["a**", "error 3: `**` repeats a repetition; write `(a*)*`"],
-    ["a+?*", "error 4: `+?*` repeats a repetition; write `(a+?)*`"],
-    ["a{2}{3}", "error 5: `{2}{3}` repeats a repetition; write `(a{2}){3}`"],
+    ["a**", "error 3: `**` repeats a repetition; write `(?:a*)*`"],
+    ["a+?*", "error 4: `+?*` repeats a repetition; write `(?:a+?)*`"],
+    ["a{2}{3}", "error 5: `{2}{3}` repeats a repetition; write `(?:a{2}){3}`"],
     ["a{", "error 2: `{` must begin a counted repetition `{n}`, `{n,}`, or `{n,m}`; write `\\{` for a literal"],
     ["a{,3}", "error 2: `{` must begin a counted repetition `{n}`, `{n,}`, or `{n,m}`; write `\\{` for a literal"],
     ["a{x}", "error 2: `{` must begin a counted repetition `{n}`, `{n,}`, or `{n,m}`; write `\\{` for a literal"],
@@ -375,7 +529,7 @@ describe("Regex.Syntax: RegexError (§2.9)", () => {
     ["(?<!a)", "error 2: `(?<!` is negative lookbehind, which the dialect does not have"],
     ["(?P=n)", "error 2: `(?P=` is a backreference, which the dialect does not have"],
     ["(?", "error 2: `(?` must be followed by `:`, `P<`, `<`, or flags"],
-    ["(?U)", "error 3: `U` is not a flag; the dialect has no ungreedy mode, so write each repetition lazy, such as `*?`"],
+    ["(?U)", "error 3: `U` is not a flag; the dialect has no ungreedy mode, so write each repetition as `U` reads it: a greedy one lazy, such as `*?`, and a lazy one greedy"],
     ["(?iq:a)", "error 4: `q` is not a flag; the flags are `i`, `m`, `s`, `x`"],
     ["(?ii)", "error 4: `i` is set twice; write it once"],
     ["(?i-i)", "error 5: `i` is set twice; write it once"],
@@ -389,9 +543,10 @@ describe("Regex.Syntax: RegexError (§2.9)", () => {
     ["(?<a>x)(?P<a>y)", "error 12: group `a` is already defined; give this group another name"],
     // The constructs only a backtracking engine has are refused by name
     // (§2.8), never steered toward a construct that means something else.
-    ["a*+", "error 3: `*+` is possessive repetition, which the dialect does not have; to repeat a repetition, write `(a*)+`"],
-    ["a{3}+", "error 5: `{3}+` is possessive repetition, which the dialect does not have; to repeat a repetition, write `(a{3})+`"],
-    ["a*?+", "error 4: `*?+` repeats a repetition; write `(a*?)+`"],
+    ["a*+", "error 3: `*+` is possessive repetition, which the dialect does not have; to repeat a repetition, write `(?:a*)+`"],
+    ["a?+", "error 3: `?+` is possessive repetition, which the dialect does not have; to repeat a repetition, write `(?:a?)+`"],
+    ["a{3}+", "error 5: `{3}+` is possessive repetition, which the dialect does not have; to repeat a repetition, write `(?:a{3})+`"],
+    ["a*?+", "error 4: `*?+` repeats a repetition; write `(?:a*?)+`"],
     ["(?>a)", "error 2: `(?>` is an atomic group, which the dialect does not have"],
     ["(?(1)a|b)", "error 2: `(?(` is a conditional, which the dialect does not have"],
     ["(?R)", "error 2: `(?R` is recursion, which the dialect does not have"],
