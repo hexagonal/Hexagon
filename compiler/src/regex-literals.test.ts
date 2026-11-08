@@ -65,7 +65,11 @@ describe("the builder writes what compile built (§8, §9)", () => {
     "  vector: () => ({ v: vector([1, vector([2])]) }),",
     "  holes: () => ({ h: [1, , 3] }),",
     "  map: () => ({ m: new Map() }),",
-    "  bad: () => { throw { name: \"RegexCompileFault\", message: \"bad (position: 3)\", position: 3 }; },",
+    "  bad: () => { throw { name: \"RegexCompileFault\", message: \"bad (position: 3)\", position: 3, rewrites: [] }; },",
+    "  fixed: () => { throw { name: \"RegexCompileFault\", message: \"m (position: 1)\", position: 1, rewrites: vector([{ title: \"t\", edits: vector([{ start: 1, end: 2, text: \"x\" }]) }]) }; },",
+    "  untitled: () => { throw { name: \"RegexCompileFault\", message: \"m (position: 1)\", position: 1, rewrites: [{ edits: [] }] }; },",
+    "  unspanned: () => { throw { name: \"RegexCompileFault\", message: \"m (position: 1)\", position: 1, rewrites: [{ title: \"t\", edits: [{ start: 1, text: \"x\" }] }] }; },",
+    "  scalar: () => { throw { name: \"RegexCompileFault\", message: \"m (position: 1)\", position: 1, rewrites: 3 }; },",
     "  broken: () => { throw new TypeError(\"broken\"); },",
     "};",
     "export const compile = (pattern) => (values[pattern] ?? (() => ({ p: pattern })))();",
@@ -121,7 +125,19 @@ describe("the builder writes what compile built (§8, §9)", () => {
   });
 
   test("a fault is a refusal, its position taken off the message", () => {
-    expect(builder().run("bad")).toEqual({ kind: "refused", message: "bad", position: 3 });
+    expect(builder().run("bad")).toEqual({ kind: "refused", message: "bad", position: 3, rewrites: [] });
+  });
+
+  test("a fault's rewrites are read off its vectors, and any other shape is a compiler defect", () => {
+    expect(builder().run("fixed")).toEqual({
+      kind: "refused",
+      message: "m",
+      position: 1,
+      rewrites: [{ title: "t", edits: [{ start: 1, end: 2, text: "x" }] }],
+    });
+    for (const pattern of ["untitled", "unspanned", "scalar"]) {
+      expect(() => builder().run(pattern)).toThrow(/rewrites of a shape it cannot read/u);
+    }
   });
 
   test("answers are kept per pattern, the oldest dropped past the limit", () => {

@@ -92,7 +92,7 @@ describe("a bad literal is refused while compiling (§8)", () => {
       "    try",
       '        Regex.compile("a(").source()',
       "    catch",
-      "        Regex.RegexCompileFault(message, _) => message",
+      "        Regex.RegexCompileFault(message, _, _) => message",
       "",
     ].join("\n");
     expect(reports(caught)).toEqual([
@@ -108,7 +108,7 @@ describe("a bad literal is refused while compiling (§8)", () => {
       "",
     ].join("\n"))).toEqual([
       "(: missing `)` for the group opened here; close it, or write `\\\\(` for a literal",
-      "*: `**` repeats a repetition; write `(a*)*`",
+      "*: `**` repeats a repetition; write `(?:a*)*`",
       "(: missing `)` for the group opened here; close it, or write `\\\\(` for a literal",
     ]);
   });
@@ -152,6 +152,81 @@ describe("a bad literal is refused while compiling (§8)", () => {
       `${text.slice(primary.start.offset, primary.end.offset)}: ${message}`
     );
     expect(found).toEqual(["(: missing `)` for the group opened here; close it, or write `\\\\(` for a literal"]);
+  });
+});
+
+describe("the rewrite a refusal names is a fix on the literal (§2.9, §8)", () => {
+  /** Each fix the report carries: its title, and the program with its edits applied. */
+  function fixed(source: string): { readonly title: string; readonly source: string }[] {
+    const [report] = compileMain(source).diagnostics;
+    return (report?.fixes ?? []).map((fix) => {
+      let out = source;
+      for (const edit of [...fix.edits].sort((left, right) => right.span.start.offset - left.span.start.offset)) {
+        out = out.slice(0, edit.span.start.offset) + edit.replacement + out.slice(edit.span.end.offset);
+      }
+      return { title: fix.message, source: out };
+    });
+  }
+  const call = (literal: string) => HEADER + `export let r: Regex.Regex = Regex.compile(${literal})\n`;
+
+  test("each edit spelled as the literal spells it, and the program it leaves compiles", () => {
+    const cases: readonly (readonly [string, readonly (readonly [string, string])[]])[] = [
+      ['"a(b"', [["close the group", '"a(b)"'], ["write `\\\\(` for a literal `(`", '"a\\\\(b"']]],
+      ['"[z-a]"', [["write `a-z`", '"[a-z]"']]],
+      ['"a\\\\"', [["write `\\\\\\\\` for a literal backslash", '"a\\\\\\\\"']]],
+      ['"a{1500}"', [["write the run as a sequence", '"a{1000}a{500}"']]],
+      ['"a(?U)b*"', [["drop the `U`, and write each repetition it reaches as it reads it", '"ab*?"']]],
+      ['"a*+"', [["write `(?:a*)+`", '"(?:a*)+"']]],
+      ['"(?:x{100}){20}"', [["write the outer repetition as a sequence", '"(?:x{100}){10}(?:x{100}){10}"']]],
+    ];
+    for (const [literal, fixes] of cases) {
+      const found = fixed(call(literal));
+      expect(found.map(({ title, source }) => [title, source.slice(source.indexOf("compile(") + 8, source.lastIndexOf(")"))]))
+        .toEqual(fixes);
+      for (const { source } of found) expect(compileMain(source).diagnostics).toEqual([]);
+    }
+  });
+
+  test("an edit's span counts codepoints through escapes, astral codepoints and a physical CRLF", () => {
+    // `(` written as a Unicode escape is replaced whole.
+    expect(fixed(call('"\\u{28}a"')).map(({ source }) => source.slice(source.indexOf("compile(") + 8, source.lastIndexOf(")"))))
+      .toEqual(['"\\u{28}a)"', '"\\\\(a"']);
+    expect(fixed(call('"😀\\n(x"')).map(({ source }) => source.slice(source.indexOf("compile(") + 8, source.lastIndexOf(")"))))
+      .toEqual(['"😀\\n(x)"', '"😀\\n\\\\(x"']);
+    const crlf = fixed(call('"a\r\n(b"'));
+    expect(crlf.map(({ source }) => source.slice(source.indexOf("compile(") + 8, source.lastIndexOf(")"))))
+      .toEqual(['"a\r\n(b)"', '"a\r\n\\\\(b"']);
+  });
+
+  test("an edit that would bring a `$` or `#` and a `{` together spells them apart, so it opens no interpolation", () => {
+    for (const [literal, after] of [['"$(?){"', '"\\${"'], ['"#(?){"', '"\\#{"'], ['"\\u{24}(?){"', '"\\u{24}{"']] as const) {
+      const [only] = fixed(call(literal));
+      expect(only?.source.slice(only.source.indexOf("compile(") + 8, only.source.lastIndexOf(")"))).toBe(after);
+      // What is left is the next fault, a `{` that begins no count, and no interpolation.
+      expect(reports(only!.source)).toEqual([
+        "{: `{` must begin a counted repetition `{n}`, `{n,}`, or `{n,m}`; write `\\\\{` for a literal",
+      ]);
+    }
+    // An edit whose own text ends in `$` before a `{`: the range's ends swapped.
+    const [swap] = fixed(call('"[$-!{]"'));
+    expect(swap?.source.slice(swap.source.indexOf("compile(") + 8, swap.source.lastIndexOf(")"))).toBe('"[!-\\${]"');
+    expect(compileMain(swap!.source).diagnostics).toEqual([]);
+  });
+
+  test("a refusal whose rewrite needs the programmer's choice, or meets a limitation, carries no fix", () => {
+    for (const literal of ['"\\\\p{Cyrilic}"', '"(?=a)"', '"(?<n>a)(?<n>b)"', '"(a){1500}"', '"\\\\x41"']) {
+      expect(compileMain(call(literal)).diagnostics.map(({ fixes }) => fixes)).toEqual([undefined]);
+    }
+  });
+
+  test("the language server offers each fix where the report is", () => {
+    const text = call('"a(b"');
+    const session = new AnalysisSession();
+    session.setFile("/main.hex", text);
+    const at = text.indexOf("(b");
+    expect(session.codeActions("/main.hex", { start: at, end: at }).map(({ title, edits }) =>
+      [title, edits.map(({ replacement }) => replacement)]
+    )).toEqual([["close the group", [")"]], ["write `\\\\(` for a literal `(`", ["\\\\("]]]);
   });
 });
 

@@ -27,7 +27,7 @@ let parsedOf(pattern: String): Parsed =
     try
         Good(Syntax.parse^(pattern))
     catch
-        Syntax.RegexError(message, _) => Bad(message)
+        Syntax.RegexError(message, _, _) => Bad(message)
         other => Bad(show(other))
 let opText(program: Compiled, at: Int): String =
     let op = read~(program.ops, at)

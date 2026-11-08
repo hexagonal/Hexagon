@@ -91,6 +91,22 @@ describe("code actions", () => {
     expect(compileSource(2, repaired)).toMatchObject({ kind: "compile-success" });
   });
 
+  test("offers the rewrite a refused regex literal names, as the compiler does", () => {
+    const analysis = new PlaygroundAnalysis();
+    const source = MAIN + "import Hex.Regex as Regex\n\nexport let r: Regex.Regex = Regex.compile(\"a{1500}\")\n";
+    const caret = source.indexOf("{1500}");
+    expect(compileSource(1, source).kind).toBe("compile-failure");
+
+    const fix = analysis
+      .codeActions(source, { startOffset: caret, endOffset: caret })
+      .find(({ title }) => title === "write the run as a sequence");
+    expect(fix?.kind).toBe("quickfix");
+    const repaired = applied(source, fix?.edits ?? []);
+
+    expect(repaired).toContain('Regex.compile("a{1000}a{500}")');
+    expect(compileSource(2, repaired)).toMatchObject({ kind: "compile-success" });
+  });
+
   test("files the variance offer as a refactor, since it repairs nothing", () => {
     const analysis = new PlaygroundAnalysis();
     const source = MAIN +

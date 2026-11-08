@@ -31,7 +31,7 @@ export let parseError(pattern: String): String =
     try
         "ok " ++ show(Regex.parse^(pattern))
     catch
-        Syntax.RegexError(message, position) => show(position) ++ ": " ++ message
+        Syntax.RegexError(message, position, _) => show(position) ++ ": " ++ message
         other => "other " ++ show(other)
 
 // A pattern the programmer wrote: compile's fault, caught by name.
@@ -39,7 +39,7 @@ export let compileFault(pattern: String): String =
     try
         "ok " ++ show(Regex.compile(pattern))
     catch
-        Regex.RegexCompileFault(message, position) => show(position) ++ ": " ++ message
+        Regex.RegexCompileFault(message, position, _) => show(position) ++ ": " ++ message
 
 export let find(pattern: String, text: String): String = using(pattern, "refused", (regex) => shown(regex.find(text)))
 
@@ -127,7 +127,7 @@ export let refusedParsedLiteral(): String =
     try
         Regex.parse^("(").source()
     catch
-        Syntax.RegexError(message, _) => message
+        Syntax.RegexError(message, _, _) => message
         other => show(other)
 
 exception Boom(text: String)

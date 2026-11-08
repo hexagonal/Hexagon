@@ -2169,7 +2169,7 @@ function buildRegexLiterals(
       const outcome = run(site.pattern);
       if (outcome.kind !== "refused") continue;
       refused = true;
-      diagnostics.add(refusedLiteral(module.source, site, outcome.message, outcome.position));
+      diagnostics.add(refusedLiteral(module.source, site, outcome.message, outcome.position, outcome.rewrites));
     }
   }
   if (refused) return;
