@@ -85,12 +85,15 @@ export function rewrite(
     const edit = { start, end, replacement };
     if (keepsReading(file, module, edit)) return { title, edit };
   }
-  // A `//` comment kept inside the new form runs to the end of its line, over
-  // whatever the rewrite writes after it there.
-  const lineComment = module.comments.some(({ kind, span }) =>
-    kind === "Line" && start <= span.start.offset && span.end.offset <= end
+  // A `//` comment on a kept text's last line runs to the end of that line,
+  // over whatever the rewrite writes after the text.
+  const swallowing = module.comments.some(({ kind, span }) =>
+    kind === "Line" && written.kept.some((kept) =>
+      kept.start.offset <= span.start.offset && span.end.offset <= kept.end.offset &&
+      !file.text.slice(span.end.offset, solid(file, kept).end).includes("\n")
+    )
   );
-  if (lineComment) {
+  if (swallowing) {
     return { title, disabled: "A `//` comment inside it would swallow what the rewrite writes after it. Move the comment out first." };
   }
   return { title, disabled: "Written the other way here, it would parse as a different program." };
@@ -285,13 +288,14 @@ function writtenAsPipeline(file: Source.File, { outer, stages, subject }: CallCh
   const lineStart = text.lastIndexOf("\n", start - 1) + 1;
   const indent = text.slice(lineStart, start);
   const after = text.slice(end).split("\n", 1)[0]!;
-  const ownLine = /^[ \t]*$/.test(indent) && /^[ \t]*$/.test(after) && text.slice(start, end).includes("\n");
+  const ownLine = /^[ \t]*$/.test(indent) && /^[ \t]*\r?$/.test(after) && text.slice(start, end).includes("\n");
+  const newline = after.endsWith("\r") ? "\r\n" : "\n";
   // Bare where the pipeline may stand as the call did, as an argument, an
   // element, a statement or an item; parenthesized where it would bind too
   // loosely, as an operand or a receiver. The parse says which.
   const texts = heads.flatMap((head) => {
     const line = [head, ...written].join(" |> ");
-    const lines = [head, ...written.map((stage) => `${indent}|> ${stage}`)].join("\n");
+    const lines = [head, ...written.map((stage) => `${indent}|> ${stage}`)].join(newline);
     return ownLine ? [lines, `(${lines})`, line, `(${line})`] : [line, `(${line})`];
   });
   return { texts, kept };

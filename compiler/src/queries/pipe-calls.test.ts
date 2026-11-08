@@ -128,6 +128,8 @@ describe("a pipeline written as calls", () => {
     expect(asCalls("let a = 1 ‸|> match\n    1 => 2\n    _ => 3 // the rest\n")).toBe(
       "refused: A `//` comment inside it would swallow what the rewrite writes after it. Move the comment out first.",
     );
+    expect(asCalls("let a = 1 ‸|> match\n    1 => 2\n    _ => 3 (* the rest *)\n"))
+      .toBe("let a = (match\n    1 => 2\n    _ => 3 (* the rest *))(1)\n");
   });
 });
 
@@ -172,6 +174,8 @@ describe("calls written as a pipeline", () => {
 
   test("a name an import brings is a module's, so its call is qualified", () => {
     expect(asPipeline("import Regex\nlet a = Regex.comp‸ile(\"a\")")).toBe("import Regex\nlet a = \"a\" |> Regex.compile");
+    expect(asPipeline("import Regex\nlet a = Seq.ta‸ke(Regex.compile(\"a\"), 3)"))
+      .toBe("import Regex\nlet a = \"a\" |> Regex.compile |> Seq.take(3)");
   });
 
   test("a dot call ends the chain, as the pipeline's first value", () => {
@@ -217,6 +221,27 @@ describe("calls written as a pipeline", () => {
     expect(asPipeline("let b(x: Bool): Bool = x\nlet a = ‸b(not true)")).toBe("let b(x: Bool): Bool = x\nlet a = (not true) |> b");
     expect(asPipeline("let apply(k: Int -> Int, x: Int): Int = k(x)\nlet a = app‸ly(x => x + 1, 2)"))
       .toBe("let apply(k: Int -> Int, x: Int): Int = k(x)\nlet a = (x => x + 1) |> apply(2)");
+  });
+
+  test("from just after a call that is an argument, that call", () => {
+    expect(asPipeline("let a = g(f(1)‸, 2)")).toBe("let a = g(1 |> f, 2)");
+  });
+
+  test("not from inside a plain argument", () => {
+    expect(asPipeline("let a = f(1‸2)")).toBe("not offered");
+    expect(asPipeline("let a = g(1, [2‸])")).toBe("not offered");
+  });
+
+  test("a `//` comment that runs over nothing is not named as the reason", () => {
+    const apply = "let apply(k: Int -> Int, x: Int): Int = k(x)\n";
+    expect(asPipeline(apply + "let a = app‸ly(x => // c\n    x + 1, 2)\n")).toBe(
+      "refused: Written the other way here, it would parse as a different program.",
+    );
+  });
+
+  test("in a file whose lines end CRLF, its lines do too", () => {
+    expect(asPipeline("let a =\r\n    Seq.ta‸ke(\r\n        Seq.map(xs, f),\r\n        3)\r\n"))
+      .toBe("let a =\r\n    xs\r\n    |> Seq.map(f)\r\n    |> Seq.take(3)\r\n");
   });
 
   test("a callee's own call, from its name or as a selection, is that call", () => {
@@ -297,22 +322,18 @@ describe("the parse that checks a rewrite", () => {
       .toEqual({ title: "t", disabled: "Written the other way here, it would parse as a different program." });
   });
 
-  test("names a `//` comment as the reason when no text reads the same", () => {
-    const refused = (body: string) => {
-      const source = PRELUDE + body;
-      const commented = new Source.File(1 as Source.FileId, "/main.hex", source);
-      const [parsed] = parseFile(applyLayout(lex(commented)), commented.path);
-      const item = parsed!.items.at(-1) as { readonly value: Parameters<typeof rewrite>[3] };
-      return rewrite(commented, parsed!, "t", item.value, { texts: ["f(2)"], kept: [item.value.span] });
+  test("names a `//` comment as the reason only where it ends a kept text", () => {
+    const source = PRELUDE + "let a = f(1) (* one *)\nlet b = f(1) // two\n";
+    const commented = new Source.File(1 as Source.FileId, "/main.hex", source);
+    const [parsed] = parseFile(applyLayout(lex(commented)), commented.path);
+    const refused = (name: string, comment: string) => {
+      const item = parsed!.items.find((each) => each.kind === "Let" && source.slice(each.span.start.offset).startsWith(`let ${name}`));
+      const value = (item as { readonly value: Parameters<typeof rewrite>[3] }).value;
+      const kept = commented.span(value.span.start.offset, source.indexOf(comment) + comment.length);
+      return rewrite(commented, parsed!, "t", value, { texts: ["f(2)"], kept: [kept] }).disabled;
     };
-    expect(refused("let a = g(1, // one\n    2)\n")).toEqual({
-      title: "t",
-      disabled: "A `//` comment inside it would swallow what the rewrite writes after it. Move the comment out first.",
-    });
-    expect(refused("let a = g(1, (* one *) 2)\n")).toEqual({
-      title: "t",
-      disabled: "Written the other way here, it would parse as a different program.",
-    });
+    expect(refused("b", "// two")).toBe("A `//` comment inside it would swallow what the rewrite writes after it. Move the comment out first.");
+    expect(refused("a", "(* one *)")).toBe("Written the other way here, it would parse as a different program.");
   });
 
   test("reads no edit outside a top-level item as keeping the program", () => {
