@@ -1537,3 +1537,176 @@ describe("code actions: a refusal whose repair is a rename (`renameRepair`)", ()
     expect(action.disabled).toContain("BadFault");
   });
 });
+
+describe("code actions: the repair an editor applies on its own, and every repair of one family at once", () => {
+  const world = "module Main\n\n" + 'extern from "./world.js"\n' +
+    "    export fun log(s: String) ->~ Unit\n" +
+    "    export fun save(s: String) ->! Unit\n" +
+    "    export fun load(key: String) ->! String\n" +
+    "let noop(): Unit = ()\nlet log0(): Unit = log~(\"x\")\nlet save0(): Unit = save!(\"x\")\n";
+  const FIX_ALL = "correct the marks in this file";
+
+  function open(source: string, more: Record<string, string> = {}) {
+    return sessionOf({ "/world.js": "", "/main.hex": source, ...more }).session;
+  }
+  /** Each action offered at the report standing on `needle`: its title, and whether it is preferred. */
+  function offered(session: AnalysisSession, source: string, needle: string, nth = 1): readonly (readonly [string, boolean])[] {
+    return actionsOn(session, "/main.hex", source, needle, nth).map(({ title, preferred }) => [title, preferred === true] as const);
+  }
+  function fixAll(session: AnalysisSession, source: string, needle: string, nth = 1): CodeAction | undefined {
+    return actionsOn(session, "/main.hex", source, needle, nth).find(({ title }) => title === FIX_ALL);
+  }
+
+  test("a compiler's plain fix is the preferred repair", () => {
+    const source = world + "export let p(): Unit = save0()\n";
+    expect(offered(open(source), source, "save0()\n")).toEqual([["mark the call `!`", true]]);
+  });
+
+  test("a suggestion never is, and the part a call certainly wants beside it still is", () => {
+    const source = world + "export let p(): Unit = noop!()\nexport let q(): Unit = log0^()\n";
+    const session = open(source);
+    expect(offered(session, source, "!()")).toEqual([["perhaps remove the mark", false]]);
+    expect(offered(session, source, "^()")).toEqual([["mark the call `!`", true], ["perhaps mark the call `~`", false]]);
+  });
+
+  test("a repair for each side of a contradiction are both preferred, so the editor asks which (doctrine 8)", () => {
+    const errors = "module Errors\n\nexport exception TimeoutFault(millis: Int)\n";
+    const { session } = sessionOf({ "/errors.hex": errors });
+    expect(actionsOn(session, "/errors.hex", errors, "TimeoutFault").map(({ title, preferred }) => [title, preferred === true]))
+      .toEqual([["declare it with `fault`", true], ["rename to `TimeoutError`", true]]);
+  });
+
+  test("an action offered disabled is not preferred, and an enabled one of its kind is", () => {
+    const refused = "module Main\n\nfault Bad\nfault BadFault\n";
+    expect(sole(actionsOn(sessionOf({ "/main.hex": refused }).session, "/main.hex", refused, "Bad\n")).preferred).toBeUndefined();
+    const helper = "module Helper\n\nexport union Colour =\n    | Red\n    | Green\n";
+    const mid = "module Mid\n\nimport Helper as H\nexport fun red(): H.Colour = H.Red\n";
+    const unnamed = "module Main\n\nimport Mid\n\nexport fun pick() = Mid.red()\n";
+    const { session } = sessionOf({ "/helper.hex": helper, "/mid.hex": mid, "/main.hex": unnamed });
+    const off = sole(actionsOn(session, "/main.hex", unnamed, "pick"));
+    expect([off.title, off.disabled !== undefined, off.preferred]).toEqual(["Infer return type", true, undefined]);
+    const named = "module Main\n\nexport union Colour =\n    | Red\n    | Green\n\nexport fun brighten(colour: Colour) = colour\n";
+    const on = sole(actionsOn(sessionOf({ "/main.hex": named }).session, "/main.hex", named, "brighten"));
+    expect([on.title, on.preferred]).toEqual(["Infer return type", true]);
+  });
+
+  test("a refactor is not a repair, so it is never preferred", () => {
+    const source = "module Main\n\nopaque record Box(a) = { get: () -> a }\n";
+    const action = sole(actionsOn(sessionOf({ "/main.hex": source }).session, "/main.hex", source, "a) = {"));
+    expect([action.kind, action.preferred]).toEqual(["refactor", undefined]);
+  });
+
+  test("two reports whose one repair is a call's own mark each offer both at once, after their own", () => {
+    const source = world + "export let p(): Unit =\n    save0()\n    log0()\n";
+    const session = open(source);
+    expect(offered(session, source, "save0()\n")).toEqual([["mark the call `!`", true], [FIX_ALL, false]]);
+    expect(offered(session, source, "log0()\n")).toEqual([["mark the call `~`", true], [FIX_ALL, false]]);
+    const all = fixAll(session, source, "log0()\n")!;
+    // Grouped under the report it was asked at, as a quick fix.
+    expect([all.kind, all.diagnostic?.message]).toEqual(["quickfix", "this call is impure, so `log0` wants `~`, not no mark"]);
+    expect(applied(source, all)).toBe(world + "export let p(): Unit =\n    save0!()\n    log0~()\n");
+    expect(applied(source, fixAll(session, source, "save0()\n")!)).toBe(applied(source, all));
+  });
+
+  test("one such report is not enough", () => {
+    const source = world + "export let p(): Unit = save0()\n";
+    expect(fixAll(open(source), source, "save0()\n")).toBeUndefined();
+  });
+
+  test("a report with more than one repair is not one of them: the writer chooses", () => {
+    // `g`'s bare calls make it pure, which the mark contradicts: remove the
+    // mark, or mark every call that makes the fact. Neither is the editor's.
+    const source = world + "let z2(g) =\n    g()\n    g()\n    g!()\nexport let p(): Unit = save0()\n";
+    const session = open(source);
+    expect(offered(session, source, "!()")).toEqual([
+      ["remove the mark", true],
+      ["mark every call that makes `g` pure and unable to fail", true],
+    ]);
+    expect(fixAll(session, source, "save0()\n")).toBeUndefined();
+  });
+
+  test("a limitation's repair of the marks is a side the writer chooses, so of no family, in either line order", () => {
+    // §3.4's limitation where untyped parameters share a colour: write their
+    // types, or remove the marks (#1263, #1324).
+    for (const order of ["    f!()\n    (if c then g else f)!()\n", "    (if c then g else f)!()\n    f!()\n"]) {
+      const source = world + "let pureOnly(g: () -> Unit): Unit = ()\nlet j3(g, f, c: Bool) =\n    pureOnly(g)\n" + order;
+      expect([order, open(source).diagnostics("/main.hex").flatMap(({ fixes }) => (fixes ?? []).map(({ message, family }) => [message, family]))])
+        .toEqual([order, [["write the types of `g` and `f`", undefined], ["remove the marks", undefined]]]);
+    }
+  });
+
+  test("a report whose one repair marks another call is not one of them", () => {
+    // `tw!`'s mark is refused for `f`'s bare call: the repair marks that call,
+    // which is not the refused call's own mark.
+    const source = world + "let tw(f) =\n    f()\n    0\nexport let p(): Int = tw!(save0)\nexport let q(): Unit = save0()\n";
+    const session = open(source);
+    expect(offered(session, source, "!(save0)")).toEqual([["mark the call of `f` `!`", true]]);
+    expect(fixAll(session, source, "save0()\n")).toBeUndefined();
+  });
+
+  test("a suggestion is not one of them, and the part a call certainly wants beside one is", () => {
+    const hedged = world + "export let p(): Unit = noop!()\nexport let q(): Unit = save0()\n";
+    expect(fixAll(open(hedged), hedged, "save0()\n")).toBeUndefined();
+    const certain = world + "export let p(): Unit = log0^()\nexport let q(): Unit = save0()\n";
+    expect(applied(certain, fixAll(open(certain), certain, "save0()\n")!))
+      .toBe(world + "export let p(): Unit = log0!()\nexport let q(): Unit = save0!()\n");
+  });
+
+  test("a selection over reports of other kinds offers it for the one of the family it holds", () => {
+    const source = world + "export let p(): Unit =\n    noop!()\n    save0()\nexport let q(): Unit = save0()\n";
+    const session = open(source);
+    const all = session.codeActions("/main.hex", { start: at(source, "noop!()"), end: at(source, "save0()\nexport") + 3 })
+      .find(({ title }) => title === FIX_ALL)!;
+    expect(all.diagnostic?.primary.start.offset).toBe(at(source, "save0()\nexport"));
+    expect(applied(source, all)).toBe(world + "export let p(): Unit =\n    noop!()\n    save0!()\nexport let q(): Unit = save0!()\n");
+  });
+
+  test("a report correcting several calls' marks is one of them, all of its marks with it", () => {
+    const source = world + "let pureOnly(f: () -> Unit): Unit = f()\nlet pinned(f) =\n    pureOnly(f)\n    f!()\n    f!()\n" +
+      "export let q(): Unit = save0()\n";
+    expect(applied(source, fixAll(open(source), source, "save0()\n")!)).toBe(
+      world + "let pureOnly(f: () -> Unit): Unit = f()\nlet pinned(f) =\n    pureOnly(f)\n    f()\n    f()\n" +
+        "export let q(): Unit = save0!()\n",
+    );
+  });
+
+  test("keeping a reading's value and marking a call in its arguments compose, in the order they stand", () => {
+    const source = world + "let get(k: String): Int = 1\nexport let p(): Option(Int) = get?(load(\"x\"))\n";
+    const all = fixAll(open(source), source, "load(\"x\")")!;
+    expect(all.edits.map(({ replacement }) => replacement)).toEqual(["Some(", "", "!", ")"]);
+    expect(applied(source, all)).toBe(
+      world + "let get(k: String): Int = 1\nexport let p(): Option(Int) = Some(get(load!(\"x\")))\n",
+    );
+  });
+
+  test("a reading that keeps its world part keeps it in the value", () => {
+    const source = world + "export let p(): Option(Unit) = log~?(\"x\")\nexport let q(): Unit = save0()\n";
+    expect(applied(source, fixAll(open(source), source, "save0()\n")!))
+      .toBe(world + "export let p(): Option(Unit) = Some(log~(\"x\"))\nexport let q(): Unit = save0!()\n");
+  });
+
+  test("only this file's reports", () => {
+    const other = "module Other\n\n" + 'extern from "./world.js"\n    export fun save(s: String) ->! Unit\n' +
+      "export let r(): Unit = save(\"y\")\n";
+    const source = world + "export let p(): Unit = save0()\n";
+    const session = open(source, { "/other.hex": other });
+    expect(session.diagnostics("/other.hex").map(({ message }) => message))
+      .toEqual(["this call is impure and may fail, so `save` wants `!`, not no mark"]);
+    expect(fixAll(session, source, "save0()\n")).toBeUndefined();
+  });
+
+  test("what the file then reports is what applying them one by one does, in any order", () => {
+    const source = world + "let outer() =\n    save0()\n    log0()\nexport let user(): Unit = outer()\n";
+    const session = open(source);
+    const all = applied(source, fixAll(session, source, "outer()\n")!);
+    let oneByOne = source;
+    for (const needle of ["outer()\n", "log0()\n", "save0()\n"]) {
+      session.setFile("/main.hex", oneByOne);
+      oneByOne = applied(oneByOne, actionsOn(session, "/main.hex", oneByOne, needle).find(({ preferred }) => preferred)!);
+    }
+    expect(all).toBe(world + "let outer() =\n    save0!()\n    log0~()\nexport let user(): Unit = outer!()\n");
+    expect(oneByOne).toBe(all);
+    session.setFile("/main.hex", all);
+    expect(session.diagnostics("/main.hex")).toEqual([]);
+  });
+});

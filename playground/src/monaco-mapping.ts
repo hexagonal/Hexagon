@@ -74,6 +74,7 @@ export interface MappedCodeAction<Uri, Range> {
   readonly kind: string;
   readonly edit?: MappedWorkspaceEdit<Uri, Range>;
   readonly disabled?: string;
+  readonly isPreferred?: boolean;
 }
 
 export interface MappedRenameLocation<Range> {
@@ -111,7 +112,13 @@ export function toCodeAction<Uri, Range>(
   action: PlaygroundCodeAction,
 ): MappedCodeAction<Uri, Range> {
   return action.disabled === undefined
-    ? { title: action.title, kind: action.kind, edit: toWorkspaceEdit(target, action.edits) }
+    ? {
+      title: action.title,
+      kind: action.kind,
+      edit: toWorkspaceEdit(target, action.edits),
+      // What "Auto Fix" applies on its own (the session's `preferred`).
+      ...(action.preferred === true ? { isPreferred: true } : {}),
+    }
     : { title: action.title, kind: action.kind, disabled: action.disabled };
 }
 

@@ -1689,6 +1689,30 @@ describe("the Hexagon language server", () => {
     }
   });
 
+  test("each mark's repair is preferred, and beside it the repair of every mark in the file", async () => {
+    const source = "module Main\n\n" + 'extern from "./world.js"\n    export fun save(s: String) ->! Unit\n' +
+      "export let p(): Unit =\n    save(\"a\")\n    save(\"b\")\n";
+    const solo = await opened(source, MODERN);
+    try {
+      const reported = await solo.diagnosticsFor(solo.uriOf("main.hex"));
+      expect(reported.map(({ message }) => message)).toEqual([
+        "this call is impure and may fail, so `save` wants `!`, not no mark",
+        "this call is impure and may fail, so `save` wants `!`, not no mark",
+      ]);
+      const actions = await solo.client.sendRequest("textDocument/codeAction", {
+        textDocument: { uri: solo.uriOf("main.hex") },
+        range: { start: reported[1]!.range.start, end: reported[1]!.range.start },
+        context: { diagnostics: reported },
+      }) as CodeAction[] | null;
+      expect(actions!.map(({ title, kind, isPreferred }) => [title, kind, isPreferred]))
+        .toEqual([["mark the call `!`", "quickfix", true], ["correct the marks in this file", "quickfix", undefined]]);
+      const edits = actions![1]!.edit!.changes![solo.uriOf("main.hex")]!;
+      expect(applyEdits(source, edits)).toBe(source.replaceAll("save(\"", "save!(\""));
+    } finally {
+      await solo.dispose();
+    }
+  });
+
   test("a refusal arrives greyed out, carrying its reason", async () => {
     // The result is an open record whose row comes from `r`, and `r` has no
     // type yet — so the type is not settled and nothing may be written. What

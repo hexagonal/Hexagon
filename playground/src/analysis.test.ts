@@ -75,6 +75,22 @@ describe("code actions", () => {
     expect(compileSource(2, repaired)).toMatchObject({ kind: "compile-success" });
   });
 
+  test("each mark's repair is preferred, and beside it the repair of every mark in the buffer", () => {
+    const analysis = new PlaygroundAnalysis();
+    const source = MAIN + "import Stdio\n\nexport let p(): Unit =\n    Stdio.writeLine(\"a\")\n    Stdio.writeLine(\"b\")\n";
+    const caret = source.indexOf("writeLine(\"b\")");
+
+    const actions = analysis.codeActions(source, { startOffset: caret, endOffset: caret });
+
+    expect(actions.map(({ title, preferred }) => [title, preferred])).toEqual([
+      ["mark the call `~`", true],
+      ["correct the marks in this file", undefined],
+    ]);
+    const repaired = applied(source, actions[1]!.edits);
+    expect(repaired).toBe(source.replaceAll("writeLine(", "writeLine~("));
+    expect(compileSource(2, repaired)).toMatchObject({ kind: "compile-success" });
+  });
+
   test("files the variance offer as a refactor, since it repairs nothing", () => {
     const analysis = new PlaygroundAnalysis();
     const source = MAIN +

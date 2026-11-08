@@ -47,6 +47,18 @@ function fixes(source: string): readonly (readonly [string, readonly string[]])[
   );
 }
 
+/** The source with every report's first fix applied at once. */
+function repaired(source: string): string {
+  const whole = text(source);
+  const edits = compileFiles(files(source)).diagnostics.flatMap(({ fixes: written }) => written?.[0]?.edits ?? [])
+    .sort((left, right) => right.span.start.offset - left.span.start.offset);
+  let result = whole;
+  for (const { span, replacement } of edits) {
+    result = result.slice(0, span.start.offset) + replacement + result.slice(span.end.offset);
+  }
+  return result.slice(text("").length);
+}
+
 /** What a hover on the binding `name` shows as its type. */
 function face(source: string, name: string): string | undefined {
   const whole = text(source);
@@ -81,9 +93,19 @@ describe("Effects §3.1: the reading `?` and `~?`", () => {
       ["~?", "this call cannot fail, so `log` wants `~`, not `~?`"],
     ]);
     expect(fixes("let a() = noop?()\nlet b() = log~?(\"x\")\n")).toEqual([
-      ["keep the value: `Some(noop())`", ["Some(noop())"]],
-      ["keep the value: `Some(log~(\"x\"))`", ["Some(log~(\"x\"))"]],
+      ["keep the value: `Some(noop())`", ["Some(", "", ")"]],
+      ["keep the value: `Some(log~(\"x\"))`", ["Some(", "~", ")"]],
     ]);
+    expect(repaired("let a() = noop?()\nlet b() = log~?(\"x\")\n")).toBe("let a() = Some(noop())\nlet b() = Some(log~(\"x\"))\n");
+  });
+
+  test("keeping the value writes around the call and at its mark, so a call in its arguments takes its own fix beside it", () => {
+    const source = "let size(n: Int): Int = n\nlet a(): Option(Int) = size?(parse(\"1\"))\n";
+    expect(fixes(source)).toEqual([
+      ["keep the value: `Some(size(parse(\"1\")))`", ["Some(", "", ")"]],
+      ["mark the call `^`", ["^"]],
+    ]);
+    expect(repaired(source)).toBe("let size(n: Int): Int = n\nlet a(): Option(Int) = Some(size(parse^(\"1\")))\n");
   });
 
   test("a reading of a tower member's call is a call, not a number its tree holds", () => {

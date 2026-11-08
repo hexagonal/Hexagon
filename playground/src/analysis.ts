@@ -356,7 +356,7 @@ export class PlaygroundAnalysis {
       }
       edits.push({ ...range, replacement: edit.replacement });
     }
-    return { title: action.title, kind, edits };
+    return { title: action.title, kind, edits, ...(action.preferred === true ? { preferred: true } : {}) };
   }
 
   /**

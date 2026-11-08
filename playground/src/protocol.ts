@@ -135,6 +135,8 @@ export interface PlaygroundCodeAction {
   readonly kind: "quickfix" | "refactor";
   readonly edits: readonly PlaygroundTextEdit[];
   readonly disabled?: string;
+  /** The repair the editor may apply on its own: the session's `preferred`. */
+  readonly preferred?: true;
 }
 
 /**
