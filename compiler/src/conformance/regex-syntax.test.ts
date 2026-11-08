@@ -163,9 +163,9 @@ describe("Regex.Syntax: the rewrites a refusal names, as edits (§2.9)", () => {
   // Each rewrite: its words, then its edits as start-end=text over the
   // pattern's 1-based codepoints, `end` exclusive. A row that names no fixed
   // edit has none: a capturing atom repeated, an optional part a sequence
-  // would read in another order, a reversed count or one past 100 runs, a near
-  // miss, a guess at what another engine meant, a drop that would hand a
-  // quantifier to the piece before, and a `U` whose reach holds another fault.
+  // would read in another order, a reversed count or one past 100 runs or
+  // 10,000 codepoints, a near miss, a guess at what another engine meant, and a
+  // drop that would hand a quantifier to the piece before.
   // A count's runs keep the product of the counts inside the bound, so a count
   // on an atom that holds one runs shorter.
   test.each([
@@ -179,6 +179,7 @@ describe("Regex.Syntax: the rewrites a refusal names, as edits (§2.9)", () => {
     ["(?:(a)*){1500}", ""],
     ["a{0,1500}", ""],
     ["a{2500,1200}", ""],
+    ["a{1500,1499}", ""],
     ["a{100000}", `write the run as a sequence [1-10=${"a{1000}".repeat(100)}]`],
     ["a{100001}", ""],
     ["a{1234567}", ""],
@@ -196,9 +197,17 @@ describe("Regex.Syntax: the rewrites a refusal names, as edits (§2.9)", () => {
     ["(?i", "close the group [4-4=)] | write `\\(` for a literal `(` [1-2=\\(]"],
     ["a)", "write `\\)` for a literal `)` [2-3=\\)]"],
     ["[ab", "close the class [4-4=]] | write `\\[` for a literal `[` [1-2=\\[]"],
-    ["[]a]", "write `\\]` for a literal `]` [2-3=\\]]"],
-    ["[^]a]", "write `\\]` for a literal `]` [3-4=\\]]"],
+    ["[]a]", ""],
+    ["[^]a]", ""],
     ["[[]", "write `\\[` [2-3=\\[]"],
+    ["[a[]", "write `\\[` [3-4=\\[]"],
+    ["[a[b]", "write `\\[` [3-4=\\[]"],
+    ["[a[\\]]", "write `\\[` [3-4=\\[]"],
+    ["[a[bc]]", ""],
+    ["[a[b]c]", ""],
+    ["[a-z&&[^aeiou]]", ""],
+    ["[[=a=]]", ""],
+    ["[[.a.]]", ""],
     ["[[:alpha:]]", ""],
     ["[a-\\d]", "write `\\-` for a literal hyphen [3-4=\\-]"],
     ["[z-a]", "write `a-z` [2-5=a-z]"],
@@ -231,49 +240,44 @@ describe("Regex.Syntax: the rewrites a refusal names, as edits (§2.9)", () => {
     ["(?x)a(?) *", ""],
     ["(?-)a", "drop the `(?-)` [1-5=]"],
     ["a(?-){2}", ""],
+    ["(?x)a(?-) *", ""],
     ["(?i-)a", "drop the `-` [4-5=]"],
-    ["(?-U)a", "drop the `(?-U)` [1-6=]"],
-    ["a(?-U)+", ""],
-    ["a(?-U", "drop the `(?-U)` [2-6=]"],
-    ["(?-Ui)a", "drop the `U` [4-5=]"],
-    ["(?-Ui*)", "drop the `U` [4-5=]"],
-    ["(?i-U)a", "drop the `-U` [4-6=]"],
-    ["(?i-U)*", "drop the `-U` [4-6=]"],
-    ["(?-U:a)", "write `(?:` for `(?-U:` [1-6=(?:]"],
-    ["(?-U:*)", "write `(?:` for `(?-U:` [1-6=(?:]"],
     ["(?#hi)a", "drop the comment [1-7=]"],
     ["a(?#hi) *", "drop the comment [2-8=]"],
     ["a(?#hi)*", ""],
+    ["(?x)a(?#hi) *", ""],
     ["((?#hi)?:a)(b)", ""],
     ["(?x)(?#hi)a", "drop the comment [5-11=] | write the comment after `#` [5-11=#hi\n]"],
     ["(?x)(?#h\ni)a", "drop the comment [5-12=]"],
-    ["a(?U)b*c+?", "drop the `U`, and write each repetition it reaches as it reads it [2-6=, 8-8=?, 10-11=]"],
-    ["(?U:a*)b*", "drop the `U`, and write each repetition it reaches as it reads it [3-4=, 7-7=?]"],
-    ["(?Ui)a+", "drop the `U`, and write each repetition it reaches as it reads it [3-4=, 8-8=?]"],
-    ["(?U)a{3}b?", "drop the `U`, and write each repetition it reaches as it reads it [1-5=, 11-11=?]"],
-    ["(?U)a{3,}?", "drop the `U`, and write each repetition it reaches as it reads it [1-5=, 10-11=]"],
-    ["(?xU)a* ?b", "drop the `U`, and write each repetition it reaches as it reads it [4-5=, 9-10=]"],
-    // Edits that would touch are joined into one.
-    ["(?U)a*(?U)b", "drop the `U`, and write each repetition it reaches as it reads it [1-5=, 7-11=?]"],
-    ["(?U)a*?(?U)b", "drop the `U`, and write each repetition it reaches as it reads it [1-5=, 7-12=]"],
-    ["(?U)a)", ""],
-    ["(?UU)a*", ""],
+    // Java reads `U` as Unicode classes, so neither setting nor clearing it
+    // has an edit.
+    ["a(?U)b*c+?", ""],
+    ["(?U:a*)b*", ""],
+    ["(?-U)a", ""],
+    ["(?i-U)a", ""],
+    ["(?-Ui)a", ""],
+    ["(?-U:a)", ""],
   ])("%j", (pattern, rewrites) => {
     expect(rewritesOf(pattern)).toBe(rewrites);
   });
 
   test("each rewrite, applied, leaves a pattern that parses", () => {
     const applied: string[] = [];
-    for (const pattern of ["a{1500}", "a{1500,2000}?", "(?:ab){1500,}", "(?:a{10}){1500}", "a{100000}", "(?:x{100}){20}", "(?:(?:x{100}){5}){3}", "(?:x{100}){20,}?", "(ab", "(?x)(a # note", "a)", "[ab", "[]a]", "[[]", "[a-\\d]", "[z-a]",
+    for (const pattern of ["a{1500}", "a{1500,2000}?", "(?:ab){1500,}", "(?:a{10}){1500}", "a{100000}", "(?:x{100}){20}", "(?:(?:x{100}){5}){3}", "(?:x{100}){20,}?", "(ab", "(?x)(a # note", "a)", "[ab", "[[]", "[a[]", "[a[\\]]", "[a-\\d]", "[z-a]",
       "[xa--]", "[\\b]", "[\uDBFF-\uD800]", "x{", "a{3,1}", "*a", "a**", "a*?*", "a\\", "\\p{greek}", "\\p{^L}", "(?ii)a", "(?-mii)a", "(?)a", "(?-)a", "(?i-)a",
-      "(?-U)a", "(?i-U)a", "(?-U:a)", "(?#hi)a", "a(?#hi) *", "(?x)(?#hi)a", "a(?U)b*c+?", "(?U:a*)b*", "(?Ui)a+", "(?U)a{3,}?", "(?U)a*(?U)b"]) {
+      "(?#hi)a", "a(?#hi) *", "(?x)(?#hi)a"]) {
       for (const each of rewritten(pattern)) applied.push(`${each} ${parse(each).startsWith("error") ? "refused" : "parses"}`);
     }
     expect(applied.filter((line) => line.endsWith("refused"))).toEqual([]);
-    expect(applied).toContain("ab*?c+ parses");
     expect(applied).toContain("(?:a*)* parses");
     expect(applied).toContain("[x\\--a] parses");
-    expect(applied).toContain("a*?b parses");
+  });
+
+  test("a count's sequence stays near a hand-written pattern's size: 10,000 codepoints of atom in all", () => {
+    // Two pieces of a 5,000-codepoint atom, and of one codepoint more.
+    const atom = (length: number) => `(?:${"a".repeat(length - 4)})`;
+    expect(rewritesOf(`${atom(5000)}{1500}`)).toBe(`write the run as a sequence [1-5007=${atom(5000)}{1000}${atom(5000)}{500}]`);
+    expect(rewritesOf(`${atom(5001)}{1500}`)).toBe("");
   });
 
   test("a group that holds a group is closed whole, and its escape leaves the inner one to report", () => {

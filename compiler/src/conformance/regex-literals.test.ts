@@ -175,11 +175,7 @@ describe("the rewrite a refusal names is a fix on the literal (§2.9, §8)", () 
       ['"[z-a]"', [["write `a-z`", '"[a-z]"']]],
       ['"a\\\\"', [["write `\\\\\\\\` for a literal backslash", '"a\\\\\\\\"']]],
       ['"a{1500}"', [["write the run as a sequence", '"a{1000}a{500}"']]],
-      ['"a(?U)b*"', [["drop the `U`, and write each repetition it reaches as it reads it", '"ab*?"']]],
       ['"a**"', [["write `(?:a*)*`", '"(?:a*)*"']]],
-      // Edits that would touch are joined, so an applier that sorts them by
-      // where they start keeps their order.
-      ['"(?U)a*(?U)b"', [["drop the `U`, and write each repetition it reaches as it reads it", '"a*?b"']]],
       ['"(?:x{100}){20}"', [["write the outer repetition as a sequence", '"(?:x{100}){10}(?:x{100}){10}"']]],
     ];
     for (const [literal, fixes] of cases) {
@@ -219,8 +215,8 @@ describe("the rewrite a refusal names is a fix on the literal (§2.9, §8)", () 
     expect(compileMain(swap!.source).diagnostics).toEqual([]);
   });
 
-  test("a refusal whose rewrite needs the programmer's choice, or meets a limitation, carries no fix", () => {
-    for (const literal of ['"\\\\p{Cyrilic}"', '"(?=a)"', '"(?<n>a)(?<n>b)"', '"(a){1500}"', '"\\\\x41"']) {
+  test("a refusal whose rewrite needs the programmer's choice, meets a limitation, or guesses at another engine's meaning carries no fix", () => {
+    for (const literal of ['"\\\\p{Cyrilic}"', '"(?=a)"', '"(?<n>a)(?<n>b)"', '"(a){1500}"', '"\\\\x41"', '"(?U)a*"', '"[]a]"', '"\\\\Z"']) {
       expect(compileMain(call(literal)).diagnostics.map(({ fixes }) => fixes)).toEqual([undefined]);
     }
   });
