@@ -56,6 +56,8 @@ describe("hover inside a literal handed to `Regex.compile` (regex.md §5)", () =
     expect(hoverAt(dated, ")-(", 1)).toEqual(whole);
     expect(hoverAt(dated, '"^')).toEqual(whole);
     expect(hoverAt(dated, '$"', 1)).toEqual(whole);
+    // The closing quote ends the literal: just after it, the call's own hover.
+    expect(hoverAt(dated, '")', 1)).toEqual({ over: ")", type: "Regex", says: undefined });
     expect(hoverAt(program('"(a)"'), '"(')?.says)
       .toBe("One capturing group, in the order `Regex.group` numbers them:\n\n- group 1: `(a)`");
     expect(hoverAt(program('"a(?:b)c"'), "b")?.says).toBe("No capturing groups.");
@@ -127,6 +129,9 @@ describe("a group's number as an inlay hint at its `(` (regex.md §5)", () => {
     // A range that ends at the `(` holds its hint, one that ends before it doesn't.
     expect(session.inlayHints("/main.hex", { start: second - 3, end: second }).map(({ kind }) => kind)).toEqual(["regexGroup"]);
     expect(session.inlayHints("/main.hex", { start: second - 3, end: second - 1 })).toEqual([]);
+    // And one that starts at it holds it, one that starts after it doesn't.
+    expect(session.inlayHints("/main.hex", { start: second, end: second + 3 }).map(({ kind }) => kind)).toEqual(["regexGroup"]);
+    expect(session.inlayHints("/main.hex", { start: second + 1, end: second + 3 })).toEqual([]);
   });
 
   test("a literal the build refused has none", () => {

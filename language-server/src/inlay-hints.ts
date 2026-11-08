@@ -5,7 +5,7 @@
  * Three settings, `hexagon.inlayHints.types`, `hexagon.inlayHints.colours`
  * and `hexagon.inlayHints.regexGroups`, all on by default (LANGUAGE-SERVER-D3.md,
  * ruled (a), and LANGUAGE-SERVER-R2.md for a literal's group numbers). The editor's own
- * `editor.inlayHints.enabled` stands above both, so a dev who wants hints only
+ * `editor.inlayHints.enabled` stands above all three, so a dev who wants hints only
  * while holding a key sets that, as for any language.
  *
  * A hint carries no `textEdits`: a written type binds, so a hint is never
