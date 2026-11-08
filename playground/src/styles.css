@@ -290,17 +290,18 @@ button:disabled {
   column-gap: 0.6rem;
   row-gap: 0.15rem;
   align-items: baseline;
-  cursor: pointer;
 }
 
 .setting-row input {
   margin: 0;
   accent-color: var(--accent);
+  cursor: pointer;
 }
 
 .setting-name {
   font-size: 0.86rem;
   font-weight: 600;
+  cursor: pointer;
 }
 
 .setting-description {
@@ -310,9 +311,34 @@ button:disabled {
   line-height: 1.45;
 }
 
+/* A choice among several: its name and its menu on one line, its words below. */
+.setting-choice {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: 0.6rem;
+  row-gap: 0.3rem;
+  align-items: center;
+}
+
+.setting-choice select {
+  justify-self: start;
+}
+
+.setting-choice .setting-description {
+  grid-column: 1 / -1;
+}
+
 .setting-description code {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 0.74rem;
+}
+
+.settings-note {
+  margin: 0;
+  color: var(--muted-text);
+  font-size: 0.78rem;
+  font-style: italic;
+  line-height: 1.45;
 }
 
 .settings-actions {
@@ -325,7 +351,6 @@ button:disabled {
   padding: 0.3rem 1rem;
 }
 
-.theme-control,
 .example-control {
   display: flex;
   align-items: center;
@@ -334,7 +359,7 @@ button:disabled {
   font-size: 0.72rem;
 }
 
-.theme-control select,
+.settings-dialog select,
 .example-control select {
   min-height: 2.25rem;
   padding: 0.35rem 1.8rem 0.35rem 0.55rem;

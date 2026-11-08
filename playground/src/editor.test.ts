@@ -3,8 +3,17 @@ import { describe, expect, test } from "vitest";
 import {
   insertIndentedLineBreak,
   isIPadOS,
+  restartInlayHints,
   supportsMonacoEditor,
 } from "./editor";
+
+describe("restartInlayHints", () => {
+  test("turns the hints off and then on, which makes Monaco ask for them anew", () => {
+    const options: unknown[] = [];
+    restartInlayHints({ updateOptions: (option) => void options.push(option) });
+    expect(options).toEqual([{ inlayHints: { enabled: "off" } }, { inlayHints: { enabled: "on" } }]);
+  });
+});
 
 describe("insertIndentedLineBreak", () => {
   test("copies the current line's leading spaces", () => {

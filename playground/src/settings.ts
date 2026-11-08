@@ -63,7 +63,7 @@ export const settingRows: readonly SettingRow[] = [
     group: "Running",
     label: "Input box",
     description:
-      "Show a box under the editor whose text a run reads as its standard input, with `Stdio.readText`. While it is hidden, a run reads no input.",
+      "Show a box under the editor whose text a run reads as its standard input, with `Stdio.readText` or `Stdio.readTextLossy`. While it is hidden, a run reads no input.",
   },
 ];
 
@@ -120,4 +120,56 @@ export function anyHintShown(settings: PlaygroundSettings): boolean {
  */
 export function inputBoxShown(settings: PlaygroundSettings, sharedInput: string | undefined): boolean {
   return settings.inputBox || (sharedInput !== undefined && sharedInput !== "");
+}
+
+/**
+ * Where the page's settings stand: the stored ones, and a shared link's input
+ * for as long as it keeps the box on the page.
+ */
+export interface SettingsState {
+  readonly settings: PlaygroundSettings;
+  /** The input the page's link carries, until the dev turns the box on or off. */
+  readonly sharedInput: string | undefined;
+}
+
+/** Whether a setting's row is ticked: the input box's says whether the box is on the page. */
+export function settingOn(state: SettingsState, key: keyof PlaygroundSettings): boolean {
+  return key === "inputBox" ? inputBoxShown(state.settings, state.sharedInput) : state.settings[key];
+}
+
+/**
+ * The state after the dev turns a setting on or off. Turning the box on or off
+ * ends a shared link's hold on it, so the dev's choice is the one that stands.
+ */
+export function withSetting(state: SettingsState, key: keyof PlaygroundSettings, on: boolean): SettingsState {
+  return {
+    settings: { ...state.settings, [key]: on },
+    sharedInput: key === "inputBox" ? undefined : state.sharedInput,
+  };
+}
+
+/** A run's standard input: the box's text while the box is on the page, else none. */
+export function runInput(state: SettingsState, boxText: string): string {
+  return settingOn(state, "inputBox") ? boxText : "";
+}
+
+/**
+ * The inlay hints the settings show, of those `ask` gives. While they show none,
+ * `ask` is never called, so the compiler is not asked for hints no one sees.
+ */
+export async function shownHints<Hint extends { readonly kind: PlaygroundInlayHint["kind"] }>(
+  settings: PlaygroundSettings,
+  ask: () => Promise<readonly Hint[]>,
+): Promise<Hint[]> {
+  if (!anyHintShown(settings)) return [];
+  return (await ask()).filter(({ kind }) => hintShown(kind, settings));
+}
+
+/** Whether a point lies within a box, edges included, as a click on a window's border is a click on the window. */
+export function pointWithin(
+  x: number,
+  y: number,
+  box: { readonly left: number; readonly right: number; readonly top: number; readonly bottom: number },
+): boolean {
+  return x >= box.left && x <= box.right && y >= box.top && y <= box.bottom;
 }

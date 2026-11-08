@@ -12,6 +12,7 @@ import type {
   GeneratedCodeEditor,
   SourceEditor,
 } from "./editor";
+import { restartInlayHints } from "./editor";
 import { createHoverSpanCache } from "./hover-spans";
 import type { BufferRange } from "./protocol";
 import type { LanguageServices } from "./language-services";
@@ -323,14 +324,7 @@ export function createMonacoEditors(
       );
     },
     setTheme: (nextTheme) => monaco.editor.setTheme(toMonacoTheme(nextTheme)),
-    // A provider's `onDidChangeInlayHints` would be the way, but Monaco's
-    // controller stops listening to it after its next update (it keeps the
-    // provider as watched while disposing the subscription), so this restarts
-    // the controller instead: turning the option off and on asks anew.
-    refreshInlayHints: () => {
-      sourceEditor.updateOptions({ inlayHints: { enabled: "off" } });
-      sourceEditor.updateOptions({ inlayHints: { enabled: "on" } });
-    },
+    refreshInlayHints: () => restartInlayHints(sourceEditor),
     dispose: () => {
       disposed = true;
       if (caretHoverTimer !== undefined) clearTimeout(caretHoverTimer);

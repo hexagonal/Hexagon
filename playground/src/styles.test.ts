@@ -78,8 +78,10 @@ describe("the hidden guards", () => {
   // The panel and the view control inside it. Both are laid out and both are
   // toggled from `renderBuildReport`; `.zero-entry-points` beside them is
   // toggled too and sets no `display`, so the attribute alone still hides it and
-  // it is not listed here.
-  for (const selector of [".build-report", ".js-view-control"]) {
+  // it is not listed here. The input box is laid out too, and hidden while the
+  // `Settings…` window has it off; the window's `.settings-note` sets no
+  // `display`.
+  for (const selector of [".build-report", ".js-view-control", ".input-box"]) {
     test(`${selector} is hidden by the attribute it is toggled with`, () => {
       const laidOut = rulesSetting("display").find((rule) => rule.selector === selector);
       const guard = rulesSetting("display").find(

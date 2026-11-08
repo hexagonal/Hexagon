@@ -25,6 +25,20 @@ export interface SourceEditor {
   dispose(): void;
 }
 
+/**
+ * Makes a Monaco editor ask for its inlay hints anew, by turning them off and
+ * on, which restarts its hint controller. A provider's `onDidChangeInlayHints`
+ * would be the way, but Monaco's controller stops listening to it after its
+ * next update: it keeps the provider as watched while disposing the
+ * subscription. Monaco merges the option, so the hints' other options stay.
+ */
+export function restartInlayHints(
+  editor: { updateOptions(options: { inlayHints: { enabled: "on" | "off" } }): void },
+): void {
+  editor.updateOptions({ inlayHints: { enabled: "off" } });
+  editor.updateOptions({ inlayHints: { enabled: "on" } });
+}
+
 /** Read-only generated-code boundary; plain text remains the startup fallback. */
 export interface GeneratedCodeEditor {
   show(language: "javascript" | "typescript", source: string): void;
