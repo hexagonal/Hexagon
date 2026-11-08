@@ -210,14 +210,42 @@ describe("Regex.Syntax: the rewrites a refusal names, as edits (§2.9)", () => {
     ["[[.a.]]", ""],
     ["[[:alpha:]]", ""],
     ["[a-\\d]", "write `\\-` for a literal hyphen [3-4=\\-]"],
+    ["[a-\\b]", "write `\\-` for a literal hyphen [3-4=\\-]"],
+    ["[\\w-a]", "write `\\-` for a literal hyphen [4-5=\\-]"],
+    // .NET reads `-[` as subtracting a class, and Java as a union.
+    ["[a-z-[aeiou]]", ""],
+    ["[\\w-[0-9]]", ""],
     ["[z-a]", "write `a-z` [2-5=a-z]"],
     ["[xa--]", "write `\\--a` [3-6=\\--a]"],
     ["[\uDBFF-\uD800]", "swap its ends [2-5=\uD800-\uDBFF]"],
     ["[\\b]", "write `\\u{8}` for a backspace [2-4=\\u{8}]"],
     ["x{", "write `\\{` for a literal `{` [2-3=\\{]"],
+    ["a{x}", "write `\\{` for a literal `{` [2-3=\\{]"],
+    ["a{3,", "write `\\{` for a literal `{` [2-3=\\{]"],
+    ["a{}", "write `\\{` for a literal `{` [2-3=\\{]"],
+    ["a{ }", "write `\\{` for a literal `{` [2-3=\\{]"],
+    ["a{1,2,3}", "write `\\{` for a literal `{` [2-3=\\{]"],
+    ["a{3a}", "write `\\{` for a literal `{` [2-3=\\{]"],
+    // Python, Perl and Ruby read these as counts.
+    ["a{,3}", ""],
+    ["a{,}", ""],
+    ["a{1, 3}", ""],
+    ["a{ 3}", ""],
+    ["a{3\t}", ""],
     ["a{3,1}", "write `{1,3}` [2-7={1,3}]"],
     ["a{3,1}?", "write `{1,3}` [2-7={1,3}]"],
     ["*a", "write `\\*` for a literal `*` [1-2=\\*]"],
+    ["a|+", "write `\\+` for a literal `+` [3-4=\\+]"],
+    ["(+)", "write `\\+` for a literal `+` [2-3=\\+]"],
+    ["(?:*)", "write `\\*` for a literal `*` [4-5=\\*]"],
+    ["(?i)*a", "write `\\*` for a literal `*` [5-6=\\*]"],
+    // PCRE reads `(*` as a verb, and Java, Perl and Ruby repeat an assertion.
+    ["(*UTF)abc", ""],
+    ["(*FAIL)|x", ""],
+    ["a(*SKIP)(*F)|b", ""],
+    ["^*a", ""],
+    ["\\b+a", ""],
+    ["a$?", ""],
     ["a**", "write `(?:a*)*` [1-1=(?:, 3-3=)]"],
     ["\uD800**", "write `(?:U+D800*)*` [1-1=(?:, 3-3=)]"],
     ["a*+", ""],
@@ -228,6 +256,9 @@ describe("Regex.Syntax: the rewrites a refusal names, as edits (§2.9)", () => {
     ["\\o{12}", ""],
     ["\\Z", ""],
     ["\\p{greek}", "write `\\p{Greek}` [1-10=\\p{Greek}]"],
+    ["\\p{SPACE}", "write `\\p{White_Space}` [1-10=\\p{White_Space}]"],
+    // Java reads its POSIX class names as ASCII only.
+    ["\\p{Space}", ""],
     ["\\p{^L}", "write `\\P{L}` [1-7=\\P{L}]"],
     ["\\p{Cyrilic}", ""],
     ["(?ii)a", "drop the second `i` [4-5=]"],
@@ -263,8 +294,8 @@ describe("Regex.Syntax: the rewrites a refusal names, as edits (§2.9)", () => {
 
   test("each rewrite, applied, leaves a pattern that parses", () => {
     const applied: string[] = [];
-    for (const pattern of ["a{1500}", "a{1500,2000}?", "(?:ab){1500,}", "(?:a{10}){1500}", "a{100000}", "(?:x{100}){20}", "(?:(?:x{100}){5}){3}", "(?:x{100}){20,}?", "(ab", "(?x)(a # note", "a)", "[ab", "[[]", "[a[]", "[a[\\]]", "[a-\\d]", "[z-a]",
-      "[xa--]", "[\\b]", "[\uDBFF-\uD800]", "x{", "a{3,1}", "*a", "a**", "a*?*", "a\\", "\\p{greek}", "\\p{^L}", "(?ii)a", "(?-mii)a", "(?)a", "(?-)a", "(?i-)a",
+    for (const pattern of ["a{1500}", "a{1500,2000}?", "(?:ab){1500,}", "(?:a{10}){1500}", "a{100000}", "(?:x{100}){20}", "(?:(?:x{100}){5}){3}", "(?:x{100}){20,}?", "(ab", "(?x)(a # note", "a)", "[ab", "[[]", "[a[]", "[a[\\]]", "[a-\\d]", "[\\w-a]", "[z-a]",
+      "[xa--]", "[\\b]", "[\uDBFF-\uD800]", "x{", "a{x}", "a{}", "a{3,", "a{1,2,3}", "a{3,1}", "*a", "a|+", "(+)", "(?:*)", "(?i)*a", "a**", "a*?*", "a\\", "\\p{greek}", "\\p{SPACE}", "\\p{^L}", "(?ii)a", "(?-mii)a", "(?)a", "(?-)a", "(?i-)a",
       "(?#hi)a", "a(?#hi) *", "(?x)(?#hi)a"]) {
       for (const each of rewritten(pattern)) applied.push(`${each} ${parse(each).startsWith("error") ? "refused" : "parses"}`);
     }

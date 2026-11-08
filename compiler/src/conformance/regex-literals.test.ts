@@ -216,7 +216,7 @@ describe("the rewrite a refusal names is a fix on the literal (§2.9, §8)", () 
   });
 
   test("a refusal whose rewrite needs the programmer's choice, meets a limitation, or guesses at another engine's meaning carries no fix", () => {
-    for (const literal of ['"\\\\p{Cyrilic}"', '"(?=a)"', '"(?<n>a)(?<n>b)"', '"(a){1500}"', '"\\\\x41"', '"(?U)a*"', '"[]a]"', '"\\\\Z"']) {
+    for (const literal of ['"\\\\p{Cyrilic}"', '"(?=a)"', '"(?<n>a)(?<n>b)"', '"(a){1500}"', '"\\\\x41"', '"(?U)a*"', '"[]a]"', '"\\\\Z"', '"a{,3}"', '"^*a"', '"\\\\p{Space}"']) {
       expect(compileMain(call(literal)).diagnostics.map(({ fixes }) => fixes)).toEqual([undefined]);
     }
   });
