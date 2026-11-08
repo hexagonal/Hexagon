@@ -238,8 +238,8 @@ describe("Regex.Syntax: the rewrites a refusal names, as edits (§2.9)", () => {
     "(ab", "((a", "(?i", "(?x)(a # note", "a)", "[ab", "[]a]", "[^]a]", "[[]", "[a[]", "[a[bc]]", "[[:alpha:]]",
     "[a-\\d]", "[a-z-[aeiou]]", "[z-a]", "[xa--]", "[\uDBFF-\uD800]", "[\\b]", "x{", "a{,3}", "a{3,1}", "*a",
     "(*FAIL)|x", "^*a", "(?i)*a", "a\\", "\\y", "\\Z", "(?U)a*", "(?-U)a", "(?i-i)a",
-    // A quantifier on a quantifier, a comment group and `\p{^…}` are another
-    // engine's spellings, which the dialect refuses without reading them.
+    // A quantifier on a quantifier has no reading; a comment group and `\p{^…}`
+    // are another engine's spellings, which the dialect refuses without reading.
     "a**", "a*?*", "a*+", "a?+", "a{3}+", "a*{3,1}", "(?#hi)a", "(?x)(?#hi)a", "\\p{^L}",
   ])("%j", (pattern) => {
     expect(parse(pattern)).toMatch(/^error /u);
