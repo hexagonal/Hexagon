@@ -176,7 +176,10 @@ describe("the rewrite a refusal names is a fix on the literal (§2.9, §8)", () 
       ['"a\\\\"', [["write `\\\\\\\\` for a literal backslash", '"a\\\\\\\\"']]],
       ['"a{1500}"', [["write the run as a sequence", '"a{1000}a{500}"']]],
       ['"a(?U)b*"', [["drop the `U`, and write each repetition it reaches as it reads it", '"ab*?"']]],
-      ['"a*+"', [["write `(?:a*)+`", '"(?:a*)+"']]],
+      ['"a**"', [["write `(?:a*)*`", '"(?:a*)*"']]],
+      // Edits that would touch are joined, so an applier that sorts them by
+      // where they start keeps their order.
+      ['"(?U)a*(?U)b"', [["drop the `U`, and write each repetition it reaches as it reads it", '"a*?b"']]],
       ['"(?:x{100}){20}"', [["write the outer repetition as a sequence", '"(?:x{100}){10}(?:x{100}){10}"']]],
     ];
     for (const [literal, fixes] of cases) {
@@ -199,14 +202,17 @@ describe("the rewrite a refusal names is a fix on the literal (§2.9, §8)", () 
   });
 
   test("an edit that would bring a `$` or `#` and a `{` together spells them apart, so it opens no interpolation", () => {
-    for (const [literal, after] of [['"$(?){"', '"\\${"'], ['"#(?){"', '"\\#{"'], ['"\\u{24}(?){"', '"\\u{24}{"']] as const) {
+    // An edit whose text begins with `{` after a `$` or `#` the source writes
+    // plainly: the count's ends swapped after an atom that ends in one.
+    for (const [literal, after] of [['"#\\u{7B}3,1}"', '"\\#{1,3}"'], ['"\\\\$\\u{7B}3,1}"', '"\\\\\\${1,3}"']] as const) {
       const [only] = fixed(call(literal));
       expect(only?.source.slice(only.source.indexOf("compile(") + 8, only.source.lastIndexOf(")"))).toBe(after);
-      // What is left is the next fault, a `{` that begins no count, and no interpolation.
-      expect(reports(only!.source)).toEqual([
-        "{: `{` must begin a counted repetition `{n}`, `{n,}`, or `{n,m}`; write `\\\\{` for a literal",
-      ]);
+      expect(compileMain(only!.source).diagnostics).toEqual([]);
     }
+    // A `#` the source writes as an escape needs nothing.
+    const [escaped] = fixed(call('"\\u{23}\\u{7B}3,1}"'));
+    expect(escaped?.source.slice(escaped.source.indexOf("compile(") + 8, escaped.source.lastIndexOf(")"))).toBe('"\\u{23}{1,3}"');
+    expect(compileMain(escaped!.source).diagnostics).toEqual([]);
     // An edit whose own text ends in `$` before a `{`: the range's ends swapped.
     const [swap] = fixed(call('"[$-!{]"'));
     expect(swap?.source.slice(swap.source.indexOf("compile(") + 8, swap.source.lastIndexOf(")"))).toBe('"[!-\\${]"');

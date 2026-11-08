@@ -163,9 +163,11 @@ describe("Regex.Syntax: the rewrites a refusal names, as edits (§2.9)", () => {
   // Each rewrite: its words, then its edits as start-end=text over the
   // pattern's 1-based codepoints, `end` exclusive. A row that names no fixed
   // edit has none: a capturing atom repeated, an optional part a sequence
-  // would read in another order, a near miss, and a `U` whose reach holds
-  // another fault. A count's runs keep the product of the counts inside the
-  // bound, so a count on an atom that holds one runs shorter.
+  // would read in another order, a reversed count or one past 100 runs, a near
+  // miss, a guess at what another engine meant, a drop that would hand a
+  // quantifier to the piece before, and a `U` whose reach holds another fault.
+  // A count's runs keep the product of the counts inside the bound, so a count
+  // on an atom that holds one runs shorter.
   test.each([
     ["a{1500}", "write the run as a sequence [1-8=a{1000}a{500}]"],
     ["a{2500}", "write the run as a sequence [1-8=a{1000}a{1000}a{500}]"],
@@ -176,6 +178,11 @@ describe("Regex.Syntax: the rewrites a refusal names, as edits (§2.9)", () => {
     ["(?:x|(a)){1500}", ""],
     ["(?:(a)*){1500}", ""],
     ["a{0,1500}", ""],
+    ["a{2500,1200}", ""],
+    ["a{100000}", `write the run as a sequence [1-10=${"a{1000}".repeat(100)}]`],
+    ["a{100001}", ""],
+    ["a{1234567}", ""],
+    ["(?:a{1000}){999999}", ""],
     ["(?:a{10}){1500}", `write the run as a sequence [1-16=${"(?:a{10}){100}".repeat(15)}]`],
     ["(?:x{100}){20}", "write the outer repetition as a sequence [1-15=(?:x{100}){10}(?:x{100}){10}]"],
     ["(?:(?:x{100}){5}){3}", "write the outer repetition as a sequence [1-21=(?:(?:x{100}){5}){2}(?:(?:x{100}){5}){1}]"],
@@ -184,35 +191,60 @@ describe("Regex.Syntax: the rewrites a refusal names, as edits (§2.9)", () => {
     ["(?:x{100}){2,20}", ""],
     ["(ab", "close the group [4-4=)] | write `\\(` for a literal `(` [1-2=\\(]"],
     ["((a", "close the group [4-4=))] | write `\\(` for a literal `(` [1-2=\\(]"],
+    ["((?i", "close the group [5-5=))] | write `\\(` for a literal `(` [2-3=\\(]"],
     ["(?x)(a # note", "close the group [14-14=\n)] | write `\\(` for a literal `(` [5-6=\\(]"],
     ["(?i", "close the group [4-4=)] | write `\\(` for a literal `(` [1-2=\\(]"],
     ["a)", "write `\\)` for a literal `)` [2-3=\\)]"],
     ["[ab", "close the class [4-4=]] | write `\\[` for a literal `[` [1-2=\\[]"],
     ["[]a]", "write `\\]` for a literal `]` [2-3=\\]]"],
+    ["[^]a]", "write `\\]` for a literal `]` [3-4=\\]]"],
     ["[[]", "write `\\[` [2-3=\\[]"],
+    ["[[:alpha:]]", ""],
     ["[a-\\d]", "write `\\-` for a literal hyphen [3-4=\\-]"],
     ["[z-a]", "write `a-z` [2-5=a-z]"],
+    ["[xa--]", "write `\\--a` [3-6=\\--a]"],
     ["[\uDBFF-\uD800]", "swap its ends [2-5=\uD800-\uDBFF]"],
     ["[\\b]", "write `\\u{8}` for a backspace [2-4=\\u{8}]"],
     ["x{", "write `\\{` for a literal `{` [2-3=\\{]"],
     ["a{3,1}", "write `{1,3}` [2-7={1,3}]"],
+    ["a{3,1}?", "write `{1,3}` [2-7={1,3}]"],
     ["*a", "write `\\*` for a literal `*` [1-2=\\*]"],
-    ["a*+", "write `(?:a*)+` [1-1=(?:, 3-3=)]"],
+    ["a**", "write `(?:a*)*` [1-1=(?:, 3-3=)]"],
+    ["\uD800**", "write `(?:U+D800*)*` [1-1=(?:, 3-3=)]"],
+    ["a*+", ""],
+    ["a{3}+", ""],
     ["a*?*", "write `(?:a*?)*` [1-1=(?:, 4-4=)]"],
     ["a\\", "write `\\\\` for a literal backslash [3-3=\\]"],
-    ["\\y", "write `y` [1-3=y]"],
-    ["\\Z", "write `\\z` [1-3=\\z]"],
+    ["\\y", ""],
+    ["\\o{12}", ""],
+    ["\\Z", ""],
     ["\\p{greek}", "write `\\p{Greek}` [1-10=\\p{Greek}]"],
     ["\\p{^L}", "write `\\P{L}` [1-7=\\P{L}]"],
     ["\\p{Cyrilic}", ""],
     ["(?ii)a", "drop the second `i` [4-5=]"],
+    ["(?-ii)a", "drop the second `i` [5-6=]"],
+    ["(?-mii)a", "drop the second `i` [6-7=]"],
+    ["(?i-i)a", ""],
+    ["(?i-mi)a", ""],
     ["(?)a", "drop the `(?)` [1-4=]"],
+    ["a(?)*", ""],
+    ["(?x)a(?) *", ""],
     ["(?-)a", "drop the `(?-)` [1-5=]"],
+    ["a(?-){2}", ""],
     ["(?i-)a", "drop the `-` [4-5=]"],
     ["(?-U)a", "drop the `(?-U)` [1-6=]"],
+    ["a(?-U)+", ""],
+    ["a(?-U", "drop the `(?-U)` [2-6=]"],
+    ["(?-Ui)a", "drop the `U` [4-5=]"],
+    ["(?-Ui*)", "drop the `U` [4-5=]"],
     ["(?i-U)a", "drop the `-U` [4-6=]"],
+    ["(?i-U)*", "drop the `-U` [4-6=]"],
     ["(?-U:a)", "write `(?:` for `(?-U:` [1-6=(?:]"],
+    ["(?-U:*)", "write `(?:` for `(?-U:` [1-6=(?:]"],
     ["(?#hi)a", "drop the comment [1-7=]"],
+    ["a(?#hi) *", "drop the comment [2-8=]"],
+    ["a(?#hi)*", ""],
+    ["((?#hi)?:a)(b)", ""],
     ["(?x)(?#hi)a", "drop the comment [5-11=] | write the comment after `#` [5-11=#hi\n]"],
     ["(?x)(?#h\ni)a", "drop the comment [5-12=]"],
     ["a(?U)b*c+?", "drop the `U`, and write each repetition it reaches as it reads it [2-6=, 8-8=?, 10-11=]"],
@@ -220,25 +252,33 @@ describe("Regex.Syntax: the rewrites a refusal names, as edits (§2.9)", () => {
     ["(?Ui)a+", "drop the `U`, and write each repetition it reaches as it reads it [3-4=, 8-8=?]"],
     ["(?U)a{3}b?", "drop the `U`, and write each repetition it reaches as it reads it [1-5=, 11-11=?]"],
     ["(?U)a{3,}?", "drop the `U`, and write each repetition it reaches as it reads it [1-5=, 10-11=]"],
+    ["(?xU)a* ?b", "drop the `U`, and write each repetition it reaches as it reads it [4-5=, 9-10=]"],
+    // Edits that would touch are joined into one.
+    ["(?U)a*(?U)b", "drop the `U`, and write each repetition it reaches as it reads it [1-5=, 7-11=?]"],
+    ["(?U)a*?(?U)b", "drop the `U`, and write each repetition it reaches as it reads it [1-5=, 7-12=]"],
     ["(?U)a)", ""],
+    ["(?UU)a*", ""],
   ])("%j", (pattern, rewrites) => {
     expect(rewritesOf(pattern)).toBe(rewrites);
   });
 
   test("each rewrite, applied, leaves a pattern that parses", () => {
     const applied: string[] = [];
-    for (const pattern of ["a{1500}", "a{1500,2000}?", "(?:ab){1500,}", "(?:a{10}){1500}", "(?:x{100}){20}", "(?:(?:x{100}){5}){3}", "(?:x{100}){20,}?", "(ab", "(?x)(a # note", "a)", "[ab", "[]a]", "[[]", "[a-\\d]", "[z-a]",
-      "[\\b]", "[\uDBFF-\uD800]", "x{", "a{3,1}", "*a", "a*+", "a*?*", "a\\", "\\y", "\\Z", "\\p{greek}", "\\p{^L}", "(?ii)a", "(?)a", "(?-)a", "(?i-)a",
-      "(?-U)a", "(?i-U)a", "(?-U:a)", "(?#hi)a", "(?x)(?#hi)a", "a(?U)b*c+?", "(?U:a*)b*", "(?Ui)a+", "(?U)a{3,}?"]) {
+    for (const pattern of ["a{1500}", "a{1500,2000}?", "(?:ab){1500,}", "(?:a{10}){1500}", "a{100000}", "(?:x{100}){20}", "(?:(?:x{100}){5}){3}", "(?:x{100}){20,}?", "(ab", "(?x)(a # note", "a)", "[ab", "[]a]", "[[]", "[a-\\d]", "[z-a]",
+      "[xa--]", "[\\b]", "[\uDBFF-\uD800]", "x{", "a{3,1}", "*a", "a**", "a*?*", "a\\", "\\p{greek}", "\\p{^L}", "(?ii)a", "(?-mii)a", "(?)a", "(?-)a", "(?i-)a",
+      "(?-U)a", "(?i-U)a", "(?-U:a)", "(?#hi)a", "a(?#hi) *", "(?x)(?#hi)a", "a(?U)b*c+?", "(?U:a*)b*", "(?Ui)a+", "(?U)a{3,}?", "(?U)a*(?U)b"]) {
       for (const each of rewritten(pattern)) applied.push(`${each} ${parse(each).startsWith("error") ? "refused" : "parses"}`);
     }
     expect(applied.filter((line) => line.endsWith("refused"))).toEqual([]);
     expect(applied).toContain("ab*?c+ parses");
-    expect(applied).toContain("(?:a*)+ parses");
+    expect(applied).toContain("(?:a*)* parses");
+    expect(applied).toContain("[x\\--a] parses");
+    expect(applied).toContain("a*?b parses");
   });
 
   test("a group that holds a group is closed whole, and its escape leaves the inner one to report", () => {
     expect([...rewritten("((a")]).toEqual(["((a))", "\\((a"]);
+    expect([...rewritten("((?i")]).toEqual(["((?i))", "(\\(?i"]);
     expect(parse("\\((a")).toBe("error 3: missing `)` for the group opened here; close it, or write `\\(` for a literal");
   });
 });
@@ -305,7 +345,7 @@ describe("Regex.Syntax: trees (§5)", () => {
     ["[a-]", "[#45 a] #0"],
     ["[^-a]", "[^#45 a] #0"],
     ["[a^b]", "[^ a-b] #0"],
-    ["[a--]", "error 4: range `a--` is reversed; write `--a`"],
+    ["[a--]", "error 4: range `a--` is reversed; write `\\--a`"],
     ["[\\-]", "[#45] #0"],
     ["[\\]]", "[#93] #0"],
   ])("classes: %j", (pattern, tree) => {
@@ -502,7 +542,7 @@ describe("Regex.Syntax: RegexError (§2.9)", () => {
     ["(?<!a)", "error 2: `(?<!` is negative lookbehind, which the dialect does not have"],
     ["(?P=n)", "error 2: `(?P=` is a backreference, which the dialect does not have"],
     ["(?", "error 2: `(?` must be followed by `:`, `P<`, `<`, or flags"],
-    ["(?U)", "error 3: `U` is not a flag; the dialect has no ungreedy mode, so write each repetition lazy, such as `*?`"],
+    ["(?U)", "error 3: `U` is not a flag; the dialect has no ungreedy mode, so write each repetition as `U` reads it: a greedy one lazy, such as `*?`, and a lazy one greedy"],
     ["(?iq:a)", "error 4: `q` is not a flag; the flags are `i`, `m`, `s`, `x`"],
     ["(?ii)", "error 4: `i` is set twice; write it once"],
     ["(?i-i)", "error 5: `i` is set twice; write it once"],
