@@ -178,6 +178,26 @@ describe("createLanguageServices", () => {
     expect(await answer).toEqual(help);
   });
 
+  test("asks for the inlay hints in a range and hands back the session's; none for a dropped reply", async () => {
+    const { channel, sent, reply } = harness();
+    let version = 5;
+    const services = createLanguageServices(channel, () => version);
+    const source = "module Main\n\nlet double(n) = n * 2\n";
+
+    const answer = services.inlayHints(source, { startOffset: 13, endOffset: 35 });
+    expect(sent).toMatchObject([
+      { kind: "inlay-hints", version: 5, source, startOffset: 13, endOffset: 35 },
+    ]);
+    const hints = [{ offset: 25, label: ": Int", kind: "type" as const, tooltip: "`double: Int -> Int`" }];
+    reply({ kind: "inlay-hints", id: 0, version: 5, hints });
+    expect(await answer).toEqual(hints);
+
+    const stale = services.inlayHints(source, { startOffset: 13, endOffset: 35 });
+    version = 6;
+    reply({ kind: "inlay-hints", id: 1, version: 5, hints });
+    expect(await stale).toEqual([]);
+  });
+
   test("asks for a hover over a selection with its end, and for selection ranges", async () => {
     const { channel, sent, reply } = harness();
     const services = createLanguageServices(channel, () => 3);

@@ -38,6 +38,7 @@ export type EditorAnalysis = Pick<
   | "codeActions"
   | "completions"
   | "signatureHelp"
+  | "inlayHints"
   | "prepareRename"
   | "rename"
 >;
@@ -152,6 +153,13 @@ function serve(
           id,
           version,
           help: analysis.signatureHelp(request.source, request.offset),
+        };
+      case "inlay-hints":
+        return {
+          kind: "inlay-hints",
+          id,
+          version,
+          hints: analysis.inlayHints(request.source, request),
         };
       case "definition":
         return {

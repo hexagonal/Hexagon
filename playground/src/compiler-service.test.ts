@@ -57,6 +57,16 @@ describe("createCompilerService", () => {
         range: { startOffset: afterDot, endOffset: afterDot },
       },
     });
+    // A hint needs a type the text did not write; this source writes them all.
+    const hinted = "module Main\n\nlet double(n: Int) = n * 2\n";
+    expect(
+      service.handle({ kind: "inlay-hints", ...asked, source: hinted, startOffset: 0, endOffset: hinted.length }),
+    ).toEqual({
+      kind: "inlay-hints",
+      id: 9,
+      version: 4,
+      hints: [{ offset: hinted.indexOf(" = n"), label: ": Int", kind: "type", tooltip: "`double: Int -> Int`" }],
+    });
     expect(service.handle({ kind: "definition", ...asked, offset: caret })).toMatchObject({
       kind: "definition",
       id: 9,

@@ -54,7 +54,15 @@ none of them describes the project:
 | `hexagon.languageServer.enabled` | Turn the server off to keep highlighting alone. |
 | `hexagon.languageServer.path` | Run a different server build — for developing the server itself, where reinstalling the extension each iteration is the whole cost. |
 | `hexagon.languageServer.trustedStandardLibraryProjects` | Explicitly allow listed absolute project roots to develop the standard library. Defaults to an empty list; only the user setting is read. |
+| `hexagon.inlayHints.types` | Show the types inference gave the places a type could be written. On by default. |
+| `hexagon.inlayHints.colours` | Show a function's colour in words at the end of its header's line. On by default. |
 | `hexagon.trace.server` | Log the traffic between extension and server. |
+
+VS Code's own `editor.inlayHints.enabled` stands above both, as for any
+language. The extension sets one editor default for Hexagon files:
+`editor.inlayHints.maximumLength` is `0`, so a line's hints are never cut. VS
+Code cuts them at 43 characters a line otherwise, and a cut type, such as
+`Vector(a…`, is not a type a dev could write.
 
 Changing a `languageServer` setting restarts the server immediately; there
 is also **Hexagon: Restart Language Server** for when it has wedged. A server

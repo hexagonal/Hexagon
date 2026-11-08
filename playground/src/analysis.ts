@@ -26,6 +26,7 @@ import {
   AnalysisSession,
   completionMark,
   hoverMarkdown,
+  inlayHintTooltipMarkdown,
   parameterMarkdown,
   signatureMarkdown,
   type CodeAction,
@@ -39,6 +40,7 @@ import type {
   PlaygroundCodeAction,
   PlaygroundCompletions,
   PlaygroundHover,
+  PlaygroundInlayHint,
   PlaygroundRenamePlan,
   PlaygroundRenameRefusal,
   PlaygroundRenameSubject,
@@ -220,6 +222,28 @@ export class PlaygroundAnalysis {
       }),
       activeParameter: help.activeParameter,
     };
+  }
+
+  /**
+   * The hints whose offsets fall in `range`, ends included, as the language
+   * server sends them: the session's own, at buffer offsets, each tooltip
+   * worded once for both. A hint the buffer cannot show is left out.
+   */
+  inlayHints(source: string, range: BufferRange): readonly PlaygroundInlayHint[] {
+    const layout = this.#sync(source);
+    const start = layout.map.locate(range.startOffset);
+    const end = layout.map.locate(range.endOffset);
+    if (start === undefined || end === undefined) return [];
+    return this.#session
+      .inlayHints(start.path, { start: start.offset, end: end.offset })
+      .flatMap((hint) => {
+        // Unreachable today, as `hoverSpans`' is: the hints asked for are the
+        // buffer's own file's. Asked of the map all the same, so the map stays
+        // the one place that knows the buffer is that file.
+        const offset = layout.map.toBuffer(start.path, hint.offset);
+        if (offset === undefined) return [];
+        return [{ offset, label: hint.label, kind: hint.kind, tooltip: inlayHintTooltipMarkdown(hint) }];
+      });
   }
 
   codeActions(

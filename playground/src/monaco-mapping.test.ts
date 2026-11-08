@@ -6,6 +6,7 @@ import {
   completionKindOf,
   toCompletionItem,
   toCodeAction,
+  toInlayHint,
   toRenameEdits,
   toRenameLocation,
   toSignatureHelp,
@@ -317,6 +318,36 @@ describe("toSignatureHelp", () => {
 
     expect("documentation" in mapped.signatures[0]!).toBe(false);
     expect("documentation" in mapped.signatures[0]!.parameters[0]!).toBe(false);
+  });
+});
+
+describe("toInlayHint", () => {
+  test("a type is a `Type` hint, drawn where it stands, with its face, untrusted", () => {
+    expect(toInlayHint({ offset: 25, label: ": Int", kind: "type", tooltip: "`x: Int`" }, { line: 3, column: 13 }))
+      .toEqual({
+        label: ": Int",
+        position: { line: 3, column: 13 },
+        kind: "Type",
+        tooltip: { value: "`x: Int`", isTrusted: false },
+      });
+  });
+
+  test("a colour has no kind, stands apart from its line, and carries its face, untrusted", () => {
+    expect(toInlayHint(
+      { offset: 90, label: "pure; may fail", kind: "colour", tooltip: "`parse: String ->^ Int`" },
+      { line: 3, column: 78 },
+    )).toEqual({
+      label: "pure; may fail",
+      position: { line: 3, column: 78 },
+      paddingLeft: true,
+      tooltip: { value: "`parse: String ->^ Int`", isTrusted: false },
+    });
+  });
+
+  test("never carries an edit", () => {
+    expect("textEdits" in toInlayHint({ offset: 9, label: ": Int", kind: "type", tooltip: "`x: Int`" }, 9)).toBe(false);
+    expect("textEdits" in toInlayHint({ offset: 9, label: "impure", kind: "colour", tooltip: "`f: () ->! Unit`" }, 9))
+      .toBe(false);
   });
 });
 

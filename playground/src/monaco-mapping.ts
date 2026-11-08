@@ -24,6 +24,7 @@ import type {
   BufferRange,
   PlaygroundCodeAction,
   PlaygroundCompletion,
+  PlaygroundInlayHint,
   PlaygroundRenamePlan,
   PlaygroundRenameRefusal,
   PlaygroundSignatureHelp,
@@ -258,6 +259,32 @@ export function toSignatureHelp(help: PlaygroundSignatureHelp): MappedSignatureH
     activeSignature: 0,
     activeParameter: help.activeParameter,
   };
+}
+
+/** Monaco's `InlayHint`, from the fields the language server sends. */
+export interface MappedInlayHint<Position> {
+  readonly label: string;
+  readonly position: Position;
+  /** A member of Monaco's `InlayHintKind`, by name, as `CompletionIconKind` is. */
+  readonly kind?: "Type";
+  readonly paddingLeft?: boolean;
+  readonly tooltip: UntrustedMarkdown;
+}
+
+/**
+ * A hint as Monaco draws it: the same fields the language server sends
+ * (`toLspInlayHints` in `language-server/src/inlay-hints.ts`). A type is a
+ * `Type` hint. A colour is neither a type nor a parameter name, so it has no
+ * kind: words, set off from the line they end. Each has the face it is a piece
+ * of as its tooltip. No hint carries an edit: a hint is shown, never written.
+ */
+export function toInlayHint<Position>(
+  hint: PlaygroundInlayHint,
+  position: Position,
+): MappedInlayHint<Position> {
+  const tooltip = { value: hint.tooltip, isTrusted: false as const };
+  if (hint.kind === "type") return { label: hint.label, position, kind: "Type", tooltip };
+  return { label: hint.label, position, paddingLeft: true, tooltip };
 }
 
 /**
