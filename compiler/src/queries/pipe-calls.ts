@@ -289,7 +289,7 @@ function writtenAsPipeline(file: Source.File, { outer, stages, subject }: CallCh
   const indent = text.slice(lineStart, start);
   const after = text.slice(end).split("\n", 1)[0]!;
   const ownLine = /^[ \t]*$/.test(indent) && /^[ \t]*\r?$/.test(after) && text.slice(start, end).includes("\n");
-  const newline = after.endsWith("\r") ? "\r\n" : "\n";
+  const newline = text.slice(start, end).includes("\r\n") ? "\r\n" : "\n";
   // Bare where the pipeline may stand as the call did, as an argument, an
   // element, a statement or an item; parenthesized where it would bind too
   // loosely, as an operand or a receiver. The parse says which.

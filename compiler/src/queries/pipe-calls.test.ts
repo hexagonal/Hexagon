@@ -242,6 +242,8 @@ describe("calls written as a pipeline", () => {
   test("in a file whose lines end CRLF, its lines do too", () => {
     expect(asPipeline("let a =\r\n    Seq.ta‸ke(\r\n        Seq.map(xs, f),\r\n        3)\r\n"))
       .toBe("let a =\r\n    xs\r\n    |> Seq.map(f)\r\n    |> Seq.take(3)\r\n");
+    expect(asPipeline("let a =\r\n    Seq.ta‸ke(\r\n        Seq.map(xs, f),\r\n        3)"))
+      .toBe("let a =\r\n    xs\r\n    |> Seq.map(f)\r\n    |> Seq.take(3)");
   });
 
   test("a callee's own call, from its name or as a selection, is that call", () => {
