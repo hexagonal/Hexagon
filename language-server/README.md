@@ -432,12 +432,22 @@ binder list shows the binding's true type, which the checker refuses written
 beside that list today (#1483); the same issue refuses the entries the hint
 adds to that list while the lambda's other parameters are unwritten.
 
-Two settings, `hexagon.inlayHints.types` and `hexagon.inlayHints.colours`, both
-on by default, are read from the client through `workspace/configuration`, and
-read again when the client says they changed, after which the server asks it to
-redraw. A client that cannot be asked shows every hint. The editor's own
-`editor.inlayHints.enabled` stands above both, so a dev who wants hints only
-while holding Ctrl+Alt (Ctrl+Option on macOS) sets that, as for any language.
+A literal handed to `Regex.compile` shows each capturing group's number just
+before its `(`, the number `Regex.group` reads it by, with the group's hover as
+its tooltip (`queries/regex-groups.ts`). Which `(` opens which group is the
+program's own `Regex.Syntax`'s to say (`regex.md` §5): the server never reads a
+pattern for itself. Hover inside such a literal answers about its groups: on a
+group, the innermost one there, its number, its name and how a match reads it;
+elsewhere in the literal, its groups in order. A literal the build refused shows
+its report and fixes instead.
+
+Three settings, `hexagon.inlayHints.types`, `hexagon.inlayHints.colours` and
+`hexagon.inlayHints.regexGroups`, all on by default, are read from the client
+through `workspace/configuration`, and read again when the client says they
+changed, after which the server asks it to redraw. A client that cannot be asked
+shows every hint. The editor's own `editor.inlayHints.enabled` stands above all
+three, so a dev who wants hints only while holding Ctrl+Alt (Ctrl+Option on
+macOS) sets that, as for any language.
 Types are shown whole, since a cut type is not one a dev could write, so the
 extension sets `editor.inlayHints.maximumLength` to `0` for Hexagon files (VS
 Code cuts a line's hints at 43 characters otherwise), and the Playground sets

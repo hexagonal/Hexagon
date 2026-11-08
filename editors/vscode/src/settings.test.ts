@@ -41,7 +41,7 @@ describe("standard-library development authority", () => {
 });
 
 describe("inlay hints", () => {
-  test("two settings, both on, and a Hexagon line's hints never cut", async () => {
+  test("three settings, all on, and a Hexagon line's hints never cut", async () => {
     const manifest = JSON.parse(await readFile(fileURLToPath(
       new URL("../package.json", import.meta.url),
     ), "utf8")) as {
@@ -51,7 +51,7 @@ describe("inlay hints", () => {
       };
     };
     const { properties } = manifest.contributes.configuration;
-    for (const name of ["hexagon.inlayHints.types", "hexagon.inlayHints.colours"]) {
+    for (const name of ["hexagon.inlayHints.types", "hexagon.inlayHints.colours", "hexagon.inlayHints.regexGroups"]) {
       expect(properties[name]).toMatchObject({ type: "boolean", default: true });
     }
     // VS Code cuts a line's hints at 43 characters; a cut type is not a face.

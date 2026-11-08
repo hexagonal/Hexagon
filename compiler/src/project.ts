@@ -68,7 +68,7 @@ import {
   PRIMITIVE_COMPANION_MODULES,
 } from "./prelude.js";
 import { RUNTIME_MODULES } from "./runtime-modules.js";
-import { linkRegexBuilder, refusedLiteral, type RegexBuilder } from "./regex-literals.js";
+import { linkRegexBuilder, refusedLiteral, type RegexBuilder, type RegexGroup } from "./regex-literals.js";
 import { deepFreeze } from "./support/deep-freeze.js";
 
 /**
@@ -272,6 +272,13 @@ export interface CompiledProject {
    */
   readonly fundamentalSeats: ReadonlyMap<string, FundamentalInstances>;
   readonly diagnostics: readonly Diagnostics.Diagnostic[];
+  /**
+   * *(`regex.md` §5, §8.)* The capturing groups of a pattern, read by the
+   * program's own `Regex.Syntax`, the parser `compile` runs; `undefined` for a
+   * pattern it refuses. Present where the program hands `compile` a literal,
+   * for an editor to answer about the groups in it.
+   */
+  readonly regexGroups?: (pattern: string) => readonly RegexGroup[] | undefined;
 }
 
 /**
@@ -1880,7 +1887,7 @@ export function compileProject(
       copyDemand: demand ?? new Map(),
     });
   }
-  buildRegexLiterals(emittedModules, emissionOptions, injectedUnits, runtimeBasename, diagnostics);
+  const regexBuilder = buildRegexLiterals(emittedModules, emissionOptions, injectedUnits, runtimeBasename, diagnostics);
   // And every demand reached a module this compile emitted: one that did not
   // would leave its importer calling a copy nobody wrote.
   for (const [target, byTerm] of copyDemand) {
@@ -2110,6 +2117,7 @@ export function compileProject(
     fundamentalInstances,
     fundamentalSeats,
     diagnostics: finalDiagnostics,
+    ...(regexBuilder === undefined ? {} : { regexGroups: (pattern: string) => regexBuilder.groups(pattern) }),
   };
 }
 
@@ -2126,6 +2134,7 @@ let regexBuilderCache: { readonly key: readonly string[]; readonly builder: Rege
  * codepoint its position names; where it refuses none, each module holding a
  * literal is emitted again with the `Regex` it built written in as a constant.
  * A program with a refused literal keeps the once-per-load form, and never runs.
+ * Answers the builder it ran them with, or `undefined` for a program with none.
  */
 function buildRegexLiterals(
   emittedModules: Map<string, CompiledModule>,
@@ -2133,9 +2142,9 @@ function buildRegexLiterals(
   injectedUnits: readonly { readonly source: Source.File }[],
   runtimeBasename: string,
   diagnostics: Diagnostics.Bag,
-): void {
+): RegexBuilder | undefined {
   const holders = [...emittedModules.values()].filter(({ javascript }) => javascript.regexLiterals.length > 0);
-  if (holders.length === 0) return;
+  if (holders.length === 0) return undefined;
   const key = injectedUnits.map(({ source }) => source.text);
   let builder = regexBuilderCache !== undefined && regexBuilderCache.key.length === key.length &&
       regexBuilderCache.key.every((text, index) => text === key[index])
@@ -2159,6 +2168,7 @@ function buildRegexLiterals(
       ],
       pathOf("Hex.Regex"),
       pathOf("Hex.Runtime.VectorTrie"),
+      pathOf("Hex.Regex.Syntax"),
     );
     regexBuilderCache = { key, builder };
   }
@@ -2172,7 +2182,7 @@ function buildRegexLiterals(
       diagnostics.add(refusedLiteral(module.source, site, outcome.message, outcome.position, outcome.rewrites));
     }
   }
-  if (refused) return;
+  if (refused) return builder;
   for (const module of holders) {
     const options = emissionOptions.get(module.path);
     if (options === undefined) {
@@ -2192,6 +2202,7 @@ function buildRegexLiterals(
     }
     emittedModules.set(module.path, { ...module, javascript });
   }
+  return builder;
 }
 
 /** Guards the recursive compile used to prove a pattern collision repair. */

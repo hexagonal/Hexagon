@@ -276,7 +276,9 @@ export interface MappedInlayHint<Position> {
  * (`toLspInlayHints` in `language-server/src/inlay-hints.ts`). A type is a
  * `Type` hint. A colour is neither a type nor a parameter name, so it has no
  * kind: words, set off from the line they end. Each has the face it is a piece
- * of as its tooltip. No hint carries an edit: a hint is shown, never written.
+ * of as its tooltip. A regex group's number has no kind either, and sits
+ * against the `(` it numbers, with its group's hover as its tooltip. No hint
+ * carries an edit: a hint is shown, never written.
  */
 export function toInlayHint<Position>(
   hint: PlaygroundInlayHint,
@@ -284,6 +286,7 @@ export function toInlayHint<Position>(
 ): MappedInlayHint<Position> {
   const tooltip = { value: hint.tooltip, isTrusted: false as const };
   if (hint.kind === "type") return { label: hint.label, position, kind: "Type", tooltip };
+  if (hint.kind === "regexGroup") return { label: hint.label, position, tooltip };
   return { label: hint.label, position, paddingLeft: true, tooltip };
 }
 

@@ -47,14 +47,17 @@ export interface InlayHint {
   readonly label: string;
   /**
    * `type`: a piece of a face, at a place one could be written. `colour`: a
-   * function's colour in words, at the end of its header's line.
+   * function's colour in words, at the end of its header's line. `regexGroup`:
+   * a capturing group's number, at its `(` in a literal handed to
+   * `Regex.compile` (`queries/regex-groups.ts`).
    */
-  readonly kind: "type" | "colour";
+  readonly kind: "type" | "colour" | "regexGroup";
   /**
    * The whole face of the declaration the hint is a piece of, as hover's first
    * line writes it (`name: face`), lettered as the hints are: one line for each
    * face, so a `fun` block's head shows each member's. A lambda has no name, so
-   * its face is its type alone. Worded for a host by `inlayHintTooltipMarkdown`.
+   * its face is its type alone. A group's number has the group's hover, already
+   * Markdown. Worded for a host by `inlayHintTooltipMarkdown`.
    */
   readonly tooltip: string;
 }

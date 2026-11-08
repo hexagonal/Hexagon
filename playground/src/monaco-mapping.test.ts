@@ -344,6 +344,15 @@ describe("toInlayHint", () => {
     });
   });
 
+  test("a regex group's number has no kind and sits against its `(`, with its group's hover, untrusted", () => {
+    expect(toInlayHint({ offset: 40, label: "2", kind: "regexGroup", tooltip: "group 2: `(b)`" }, { line: 3, column: 30 }))
+      .toEqual({
+        label: "2",
+        position: { line: 3, column: 30 },
+        tooltip: { value: "group 2: `(b)`", isTrusted: false },
+      });
+  });
+
   test("never carries an edit", () => {
     expect("textEdits" in toInlayHint({ offset: 9, label: ": Int", kind: "type", tooltip: "`x: Int`" }, 9)).toBe(false);
     expect("textEdits" in toInlayHint({ offset: 9, label: "impure", kind: "colour", tooltip: "`f: () ->! Unit`" }, 9))
