@@ -406,6 +406,24 @@ describe("inlay hints: bindings, lambdas and patterns", () => {
       .toBe(`${fetch}constraint Loud<a> =\n    loud(s: a) ->! String\nhonor Loud<Int> =\n    loud(s⟦: Int⟧) fetch!("x")\nlet other⟦: Int⟧ = 1\n`);
   });
 
+  test("an instance member's callbacks are its own, named by its parameters in the words", () => {
+    const tooltip = sessionWith("module Main\n\nconstraint Runs<a> =\n    run(x: a, f: (a) ->! Unit) >-> Unit\nhonor Runs<Int> =\n    run(x, f) =\n        f!(x)\n")
+      .inlayHints("/main.hex").find(({ kind }) => kind === "colour");
+    expect(tooltip?.label).toBe("impure only if `f` is; may fail only if `f` may");
+    const two = sessionWith([
+      "module Main",
+      "",
+      "constraint Runs<a> =",
+      "    run(x: a, f: (a) ->! Unit, g: (a) ->! Unit) >-> Unit",
+      "honor Runs<Int> =",
+      "    run(x, f, g) =",
+      "        f!(x)",
+      "        g!(x)",
+      "",
+    ].join("\n")).inlayHints("/main.hex").find(({ kind }) => kind === "colour");
+    expect(two?.label).toBe("impure only if `f` or `g` is; may fail only if `f` or `g` may");
+  });
+
   test("an instance's own letters are the honor head's", () => {
     expect(hinted([
       "record Box(a) = { value: a }",
@@ -472,10 +490,56 @@ describe("inlay hints: bindings, lambdas and patterns", () => {
     expect(two[0]?.tooltip).toBe("twice: <a: Num> a -> a\nsay: <b: Show> b -> String");
   });
 
-  test("no list on a `fun` block's head where two members spell their own variables alike", () => {
-    // On the head, the two `a`s would be one variable (Functions §7.3).
+  test("no entry on a `fun` block's head for a spelling two members each write for their own", () => {
+    // On the head, the two `a`s would be one variable (Functions §7.3): written
+    // there, `g` would take `f`'s `Show`, or the two would be tied.
     expect(hinted('fun\n    f(x: a) = x + x\n    g(y: a) = "${y}"\n'))
       .toBe('fun\n    f(x: a)⟦: a⟧ = x + x\n    g(y: a)⟦: String⟧ = "${y}"\n');
+    expect(hinted('fun\n    f(x: a) = "${x}"\n    g(y: a) = y\n'))
+      .toBe('fun\n    f(x: a)⟦: String⟧ = "${x}"\n    g(y: a)⟦: a⟧ = y\n');
+    expect(hinted('fun\n    f(x: a) = "${x}"\n    g(y: a) = "${y}"\n'))
+      .toBe('fun\n    f(x: a)⟦: String⟧ = "${x}"\n    g(y: a)⟦: String⟧ = "${y}"\n');
+    // The other entries still have their place.
+    expect(hinted('fun\n    f(x: a) = "${x}"\n    g(y: a) = y\n    h(z) = z + 1\n'))
+      .toBe('fun⟦<b: Num>⟧\n    f(x: a)⟦: String⟧ = "${x}"\n    g(y: a)⟦: a⟧ = y\n    h(z⟦: b⟧)⟦: b⟧ = z + 1\n');
+    // Nor in a list the head writes.
+    expect(hinted('fun<a: Num>\n    twice(n: a) = n + n\n    say(x: b) = "${x}"\n    same(z: b) = z\n'))
+      .toBe('fun<a: Num>\n    twice(n: a)⟦: a⟧ = n + n\n    say(x: b)⟦: String⟧ = "${x}"\n    same(z: b)⟦: b⟧ = z\n');
+  });
+
+  test("a `fun` block in a body has its own head, and its members' lists go there", () => {
+    const knot = [
+      "let outer(k) =",
+      "    fun",
+      "        isEven(n) = if n == 0 then True else isOdd(n - 1)",
+      "        isOdd(n) = if n == 0 then False else isEven(n - 1)",
+      "    isEven(k)",
+      "",
+    ].join("\n");
+    expect(hinted(knot)).toBe([
+      "let outer⟦<a: (Eq, Signed)>⟧(k⟦: a⟧)⟦: Bool⟧ =",
+      "    fun⟦<b: (Eq, Signed)>⟧",
+      "        isEven(n⟦: b⟧)⟦: Bool⟧ = if n == 0 then True else isOdd(n - 1)",
+      "        isOdd(n⟦: b⟧)⟦: Bool⟧ = if n == 0 then False else isEven(n - 1)",
+      "    isEven(k)",
+      "",
+    ].join("\n"));
+    // A block inside a block's member: each head takes its own members' lists.
+    const nested = 'fun\n    outer(k) =\n        fun\n            say(x) = "${x}"\n        say(k)\n';
+    expect(hinted(nested)).toBe(
+      'fun⟦<a: Show>⟧\n    outer(k⟦: a⟧)⟦: String⟧ =\n        fun⟦<b: Show>⟧\n            say(x⟦: b⟧)⟦: String⟧ = "${x}"\n        say(k)\n',
+    );
+    // Written out, both compile to the same faces.
+    for (const body of [knot, nested]) {
+      const text = `module Main\n\n${body}`;
+      const session = sessionWith(text);
+      const face = (source: string) => session.hover("/main.hex", source.indexOf("outer"))?.displayedType;
+      const before = face(text);
+      const out = written(text, session.inlayHints("/main.hex"));
+      session.setFile("/main.hex", out);
+      expect(session.diagnostics("/main.hex")).toEqual([]);
+      expect(face(out)).toBe(before);
+    }
   });
 
   test("written out, a `fun` block's hints compile to the same faces", () => {

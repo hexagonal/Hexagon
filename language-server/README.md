@@ -369,9 +369,11 @@ let report<a: (Num, Show)>(rows: Vector(Vector(a))): Unit =    impure; cannot fa
 The binder list stands after the name (Functions §4.2), each parameter's type
 after the parameter, the result after the parameter list. A `fun` block's
 members take no list of their own, so theirs stands on the block's head,
-`fun<a: (Eq, Signed)>`, one list for the block (§7.3); where two members spell
-their own variables alike, a list on the head would make them one variable, so
-none is drawn. A list the dev wrote takes the entries it leaves out, before its
+`fun<a: (Eq, Signed)>`, one list for the block (§7.3), a block in a body
+included. A variable the head declares is every member's that writes its
+spelling, so where one spelling stands for two variables in the declaration
+(two members' own `a`s, constrained or not), an entry naming it would make them
+one: that piece of the face has no place, and is left out. A list the dev wrote takes the entries it leaves out, before its
 `>` (`<a: Show, b: Show>`), since a declaration takes one list. A header has no
 place for its outer arrow, since a definition's colour is inferred and never
 written (Functions §4.1), so the colour is shown in hover's words (Effects §10's
@@ -409,7 +411,8 @@ even one written only in a binder list or inside a type alias's arguments.
 Through an alias nothing is paired, since an alias may reorder its arguments,
 so a hint there takes a letter of its own, and is not one a dev could write
 back. A local's own variables take letters the declaration does not use, and a
-`fun` block's members letter together, being one knot. A callback parameter
+`fun` block's members letter together, since the head's list is every
+member's (§7.3). A callback parameter
 shows the face's own arrow, `() ->! a`, where hover on the parameter shows the
 enclosing function's colour passing through, which a parameter type cannot
 write.
@@ -425,7 +428,8 @@ both ways, and a knot's shared variable with no constraint, which only a
 `<a>` on the block's head can declare, and which the head's hint, being the
 members' faces' lists, does not show. A binding whose lambda writes its own
 binder list shows the binding's true type, which the checker refuses written
-beside that list today (#1483).
+beside that list today (#1483); the same issue refuses the entries the hint
+adds to that list while the lambda's other parameters are unwritten.
 
 Two settings, `hexagon.inlayHints.types` and `hexagon.inlayHints.colours`, both
 on by default, are read from the client through `workspace/configuration`, and

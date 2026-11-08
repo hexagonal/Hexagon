@@ -107,6 +107,7 @@ export function inlayHints(input: InlayHintInput): readonly InlayHint[] {
         lambda: item.value,
         binder: item.block === undefined ? "name" : "head",
         end: item.span.end.offset,
+        ...(item.block === undefined ? {} : { block: item.block }),
       });
     } else if (item.kind === "Let" && item.value.kind === "Lambda" && isHeader(item.name, item.value)) {
       headers.set(item.value, { name: item.name, lambda: item.value, binder: "name", end: item.span.end.offset });
@@ -148,15 +149,17 @@ export function inlayHints(input: InlayHintInput): readonly InlayHint[] {
 
     // Each item itself first, so its face is lettered before anything in its
     // body mints a letter; then what its body declares, in the order written.
-    const members: Member[] = [];
+    // Each `fun` block met, the module's or one in a body, keeps its own
+    // members for its own head.
+    const blocks: Blocks = new Map();
     group.forEach((item, at) => {
       const sites: { readonly start: number; readonly visit: () => void }[] = [];
       const addItem = (each: Parsed.Item): void => {
-        sites.push({ start: each.span.start.offset, visit: () => itemHints(each, letters, members) });
+        sites.push({ start: each.span.start.offset, visit: () => itemHints(each, letters, blocks) });
         if (each.kind !== "Honor") return;
         for (const member of each.members) {
           const header = member.value === undefined ? undefined : headers.get(member.value);
-          if (header !== undefined) sites.push({ start: member.span.start.offset, visit: () => headerHints(header, letters, members) });
+          if (header !== undefined) sites.push({ start: member.span.start.offset, visit: () => headerHints(header, letters, blocks) });
         }
       };
       addItem(item);
@@ -169,7 +172,7 @@ export function inlayHints(input: InlayHintInput): readonly InlayHint[] {
       sites.sort((left, right) => left.start - right.start);
       for (const site of sites) site.visit();
     });
-    if (head !== undefined) headHints(head, members);
+    for (const { head, members } of blocks.values()) headHints(head, members, letters);
   }
   return hints
     .filter(({ offset }) => range === undefined || (offset >= range.start && offset <= range.end))
@@ -226,15 +229,15 @@ export function inlayHints(input: InlayHintInput): readonly InlayHint[] {
     }
   }
 
-  function itemHints(item: Parsed.Item, letters: Typed.Letters, members: Member[]): void {
+  function itemHints(item: Parsed.Item, letters: Typed.Letters, blocks: Blocks): void {
     switch (item.kind) {
       case "Fun":
-        headerHints(headers.get(item.value)!, letters, members);
+        headerHints(headers.get(item.value)!, letters, blocks);
         return;
       case "Let":
       case "Var": {
         const header = item.value.kind === "Lambda" ? headers.get(item.value) : undefined;
-        if (header !== undefined) headerHints(header, letters, members);
+        if (header !== undefined) headerHints(header, letters, blocks);
         else bindingHints(item, letters);
         return;
       }
@@ -259,17 +262,22 @@ export function inlayHints(input: InlayHintInput): readonly InlayHint[] {
    * `fun` block's member gives its binder list to the block's head, which
    * `headHints` draws once every member is lettered.
    */
-  function headerHints(header: Header, letters: Typed.Letters, members: Member[]): void {
+  function headerHints(header: Header, letters: Typed.Letters, blocks: Blocks): void {
     const { name, lambda } = header;
-    // An instance member's face is its lambda's type at the instance.
+    // An instance member's face is its lambda's type at the instance, whose
+    // callbacks' colours are its own, as a header's are.
     const scheme = header.binder === "instance"
-      ? schemeOf(lambdas.get(key(lambda.span))?.type)
+      ? instanceScheme(lambdas.get(key(lambda.span))?.type)
       : symbols.get(key(name.span))?.scheme;
     if (scheme === undefined) return;
     const face = Typed.displayCallFace(scheme, context, letters);
     const tooltip = `${name.text}: ${face.type}`;
     if (header.binder === "name") entryHints(face.binderEntries, lambda.typeParameters, name.span.end.offset, tooltip);
-    if (header.binder === "head") members.push({ face, tooltip });
+    if (header.block !== undefined) {
+      const block = blocks.get(header.block.id) ?? { head: header.block, members: [] };
+      block.members.push({ face, tooltip });
+      blocks.set(header.block.id, block);
+    }
     parameterHints(lambda, face, scheme.type, false, tooltip);
     // A header always ends at its `=`; nothing is drawn for one that somehow does not.
     const end = headerEnd(lambda);
@@ -290,16 +298,16 @@ export function inlayHints(input: InlayHintInput): readonly InlayHint[] {
 
   /**
    * A `fun` block's binder list, on its head, where §4.2 writes it (Functions
-   * §7.3): the members' lists as one, since their letters are one set. Where
-   * two members' variables take one spelling, a list on the head would make
-   * them one variable, so it is not drawn.
+   * §7.3): the members' lists as one, since their letters are one set. A
+   * variable the head declares is every member's that writes its spelling, so
+   * an entry whose spelling stands for two variables anywhere in the
+   * declaration would make them one there: it has no place, and is left out.
    */
-  function headHints(head: Parsed.FunBlockHead, members: readonly Member[]): void {
+  function headHints(head: Parsed.FunBlockHead, members: readonly Member[], letters: Typed.Letters): void {
     const entries = new Map<string, Typed.BinderEntry>();
     for (const { face } of members) {
       for (const entry of face.binderEntries) {
-        const known = entries.get(entry.subject);
-        if (known !== undefined && known.text !== entry.text) return;
+        if (letters.variablesNamed(entry.subject) > 1) continue;
         entries.set(entry.subject, entry);
       }
     }
@@ -473,9 +481,31 @@ interface Member {
   readonly tooltip: string;
 }
 
+/** The `fun` blocks met in one declaration, by id: each one's head and members. */
+type Blocks = Map<number, { readonly head: Parsed.FunBlockHead; readonly members: Member[] }>;
+
 /** A type as a scheme of its own: its variables are the enclosing declaration's. */
 function schemeOf(type: Typed.Type | undefined): Typed.Scheme | undefined {
   return type === undefined ? undefined : { variables: [], constraints: [], type };
+}
+
+/**
+ * An instance member's type as its scheme: its type variables are the honor
+ * head's, but its callbacks' colours are its own, so the gloss names them by
+ * the member's parameters rather than as an enclosing function's.
+ */
+function instanceScheme(type: Typed.Type | undefined): Typed.Scheme | undefined {
+  if (type === undefined) return undefined;
+  const colours = new Set<Typed.TypeVariableId>();
+  // Each callback's colour stands alone on its parameter's arrow; a join is
+  // made of those.
+  walkData(type, (node) => {
+    if (node.kind !== "Function") return;
+    for (const colour of [(node as Typed.FunctionType).effect, (node as Typed.FunctionType).fail]) {
+      if (typeof colour === "object" && "variable" in colour) colours.add(colour.variable);
+    }
+  });
+  return { variables: [...colours], constraints: [], type };
 }
 
 /**
@@ -509,9 +539,11 @@ function firstStartingAt(spanned: readonly { readonly span: Source.Span }[], off
 
 /**
  * The module's declarations, each the items that letter as one: an item on its
- * own, or a `fun` block's members together. A block's members are checked as
- * one knot at shared types (Functions §7.4), so one variable can stand in two
- * members' faces, and it must read as one letter in both.
+ * own, or a `fun` block's members together. A block is one declaration whose
+ * head's binder list is every member's (Functions §7.3, SML's `fun … and …`),
+ * so its members' letters must be one set for that list to be one; and where
+ * members do share a variable, through the head or a knot (§7.4), it reads as
+ * one letter in each.
  */
 function declarations(items: readonly Parsed.Item[]): readonly (readonly Parsed.Item[])[] {
   const groups: Parsed.Item[][] = [];
@@ -549,6 +581,8 @@ interface Header {
    * (#1484).
    */
   readonly binder: "name" | "head" | "instance";
+  /** The `fun` block it is a member of, whose head takes its binder list. */
+  readonly block?: Parsed.FunBlockHead;
   /** Where the item ends. */
   readonly end: number;
 }
