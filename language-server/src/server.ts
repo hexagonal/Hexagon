@@ -26,6 +26,7 @@
 import {
   CodeActionKind,
   CompletionItemKind,
+  DidChangeConfigurationNotification,
   DidChangeWatchedFilesNotification,
   ErrorCodes,
   FileChangeType,
@@ -40,6 +41,7 @@ import {
   type Definition,
   type Hover,
   type InitializeParams,
+  type InlayHint,
   type InitializeResult,
   type Location,
   type MarkupContent,
@@ -75,6 +77,12 @@ import {
   type CodeActionSupport,
 } from "./code-actions.js";
 import { offsetOfPosition, rangeOfSpan } from "./positions.js";
+import {
+  DEFAULT_INLAY_HINT_SETTINGS,
+  inlayHintSettingsOf,
+  toLspInlayHints,
+  type InlayHintSettings,
+} from "./inlay-hints.js";
 import { Workspace, type OutsideEveryPackage } from "./workspace.js";
 import { MANIFEST_NAME, type SeatedProblem } from "../../host/src/index.js";
 import { LEGEND, encodeSemanticTokens } from "./semantic-tokens.js";
@@ -97,6 +105,17 @@ export function startServer(connection: Connection): void {
   let codeActions: CodeActionSupport = { literals: false, disabled: false };
   /** Read once at initialization: whether this client reads a parameter by its place in the label. */
   let labelOffsets = false;
+  /**
+   * Read once at initialization: whether this client answers
+   * `workspace/configuration`, which is where the inlay hint settings are read
+   * (`inlayHintSettings`); whether it takes a registration that tells the
+   * server when they change; and whether it can be asked to redraw its hints.
+   */
+  let configurationPull = false;
+  let configurationChanges = false;
+  let inlayHintRefresh = false;
+  /** The inlay hint settings as last read, until a change is announced. */
+  let inlayHintSettingsRead: InlayHintSettings | undefined;
   let roots: readonly string[] = [];
   /**
    * Whether this client takes a `WorkspaceEdit`'s `documentChanges` — which is
@@ -140,6 +159,9 @@ export function startServer(connection: Connection): void {
     codeActions = codeActionSupportOf(params.capabilities.textDocument?.codeAction);
     labelOffsets = params.capabilities.textDocument?.signatureHelp?.signatureInformation
       ?.parameterInformation?.labelOffsetSupport === true;
+    configurationPull = params.capabilities.workspace?.configuration === true;
+    configurationChanges = params.capabilities.workspace?.didChangeConfiguration?.dynamicRegistration === true;
+    inlayHintRefresh = params.capabilities.workspace?.inlayHint?.refreshSupport === true;
     return {
       capabilities: {
         // Incremental sync keeps a large file's edits proportional to the edit
@@ -170,6 +192,8 @@ export function startServer(connection: Connection): void {
         // `(` opens a call and `,` moves to its next parameter; between the
         // two, a client that is showing the help asks again as the caret moves.
         signatureHelpProvider: { triggerCharacters: ["(", ","] },
+        // No `resolveProvider`: a hint arrives whole, its tooltip included.
+        inlayHintProvider: true,
         // Quick fixes only: every action this slice offers answers a diagnostic,
         // and declaring a kind the server never returns makes a client ask for
         // it on every save. No `resolveProvider` — an action arrives complete,
@@ -194,6 +218,11 @@ export function startServer(connection: Connection): void {
     // leave a user who opens a project and looks at the Problems panel — the
     // ordinary way to ask "what is broken here?" — seeing nothing at all.
     schedulePublish();
+    // Only this section: a change anywhere else in the settings says nothing
+    // about the hints, and the client sends one notification per change.
+    if (configurationChanges) {
+      await connection.client.register(DidChangeConfigurationNotification.type, { section: "hexagon.inlayHints" });
+    }
     if (!watchedFilesRegistered) return;
     // Files can change without ever being opened — a branch switch, a formatter,
     // a generated module. Without this the graph silently keeps stale text.
@@ -352,6 +381,42 @@ export function startServer(connection: Connection): void {
           : { documentation: { kind: MarkupKind.Markdown, value: completion.documentation } }),
       };
     });
+  });
+
+  /**
+   * The inlay hint settings, read from the client the first time hints are
+   * asked for after a change, and the defaults for a client that has no
+   * settings to read.
+   */
+  const inlayHintSettings = async (): Promise<InlayHintSettings> => {
+    if (!configurationPull) return DEFAULT_INLAY_HINT_SETTINGS;
+    if (inlayHintSettingsRead === undefined) {
+      const read = await connection.workspace.getConfiguration("hexagon.inlayHints").catch(() => undefined);
+      inlayHintSettingsRead = inlayHintSettingsOf(read);
+    }
+    return inlayHintSettingsRead;
+  };
+
+  connection.onDidChangeConfiguration(() => {
+    inlayHintSettingsRead = undefined;
+    if (inlayHintRefresh) void connection.languages.inlayHint.refresh().catch(() => {});
+  });
+
+  connection.languages.inlayHint.on(async ({ textDocument, range }): Promise<InlayHint[] | null> => {
+    // The settings first: reading them is the one wait in this handler, and the
+    // document is read after it, so the answer is about the text as it stands
+    // when the analysis runs, as every other handler's is.
+    const settings = await inlayHintSettings();
+    const document = documents.get(textDocument.uri);
+    if (document === undefined) return null;
+    const path = workspace.pathFor(textDocument.uri);
+    const session = workspace.sessionFor(path);
+    if (session === undefined) return null;
+    const hints = session.inlayHints(path, {
+      start: offsetOfPosition(document, range.start),
+      end: offsetOfPosition(document, range.end),
+    });
+    return toLspInlayHints(hints, (offset) => document.positionAt(offset), settings);
   });
 
   connection.onSignatureHelp(({ textDocument, position }): SignatureHelp | null => {

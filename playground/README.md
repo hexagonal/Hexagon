@@ -222,6 +222,8 @@ be revisited before broader FFI access can expose arbitrary browser facilities.
 Hexagon tokenization, compiler-owned diagnostic markers, quick fixes (the plain
 ones preferred, and a buffer's mark repairs at once), hover
 (the type of a selected expression included), completion, signature help,
+inlay hints (the types inference gave, and a function's colour in words, as the
+language server shows them),
 "Expand Selection", go-to-definition, find-references, rename, and read-only
 JavaScript and `.d.ts` models. This gives the
 playground the same editor foundation and familiar feel as the TypeScript Playground

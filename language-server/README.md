@@ -2,7 +2,7 @@
 
 The Hexagon language server: the process that exposes Hexagon language intelligence through Microsoft's Language Server Protocol (LSP).
 
-Five slices are implemented over a compiler-owned analysis session: diagnostics, hover, go-to-definition and find-references; then semantic tokens, rename and completion; then quick fixes, the diagnostic-driven half of code actions, each plain one preferred and, beside a call's mark repair, one that applies every such repair in the file that is its report's only one; then documentation in hover and completion; then signature help. Formatting, refactoring actions and workspace symbols are not, and the server does not announce them; a capability announced but unimplemented offers the user a command that silently does nothing.
+Five slices are implemented over a compiler-owned analysis session: diagnostics, hover, go-to-definition and find-references; then semantic tokens, rename and completion; then quick fixes, the diagnostic-driven half of code actions, each plain one preferred and, beside a call's mark repair, one that applies every such repair in the file that is its report's only one; then documentation in hover and completion; then signature help and inlay hints. Formatting, refactoring actions and workspace symbols are not, and the server does not announce them; a capability announced but unimplemented offers the user a command that silently does nothing.
 
 This document states the boundary between the language server and the compiler. That boundary is the reason the server is small: every request handler converts coordinates, asks the session one question, and converts the answer back.
 
@@ -26,6 +26,7 @@ The language server does **not** implement a second Hexagon frontend or type che
 - go-to-definition and reference discovery;
 - completion candidates;
 - signature help;
+- inlay hints;
 - rename validation and edits;
 - semantic token classification; and
 - incremental analysis state.
@@ -353,6 +354,70 @@ being written, where the parser makes a piece over text another already has (a
 Each hover letters its own type from `a`, as hover on a name does, so inside
 `let pair(m: b, xs: Vector(a))` the selection `xs` reads `Vector(a)`.
 
+## Inlay hints
+
+Inferred types are drawn faintly where they could be written, and a function's
+colour in words where nothing can be written (LANGUAGE-SERVER-D3.md, ruled
+(a)). Each hint is a piece of a declaration's face, at the place a header
+gives that piece:
+
+```text
+let total<a: Num>(rows: Vector(Vector(a))): a = Vector.fold(rows, 0, (sum: a, row: Vector(a)) => …)
+let report<a: (Num, Show)>(rows: Vector(Vector(a))): Unit =    impure; cannot fail
+```
+
+The binder list stands after the name (Functions §4.2), each parameter's type
+after the parameter, the result after the parameter list. A header has no place
+for its outer arrow, since a definition's colour is inferred and never written
+(Functions §4.1), so the colour is shown in hover's words (Effects §10's gloss)
+at the end of the header's line, only where the arrow is not `->`, with the face
+as its tooltip, set as hover sets its first line (`inlayHintTooltipMarkdown`,
+shared with the Playground). A `let` or `var` with no written type shows its
+type after its name, a constrained one its binder list there too, and one that
+writes its binder list on its name shows its type after the list, where
+`: type` is written (#1047). A lambda's parameters show theirs, a bare
+`x => …` in the parentheses a written type needs; a `let` pattern's names show
+theirs. Not hinted: what is written, a lambda's result, a lambda that is a
+binding's whole value (the binding's type already says it), a pattern outside a
+`let`, a pattern parameter, and a type with an error in it, nor a colour whose
+face has one.
+
+One declaration is lettered once (`Typed.Letters`). Hover letters each name's
+type from `a` on its own, so `first: a` and `second: a` stand beside
+`pairUp: (a, b) -> (a, b)`; drawn side by side, as hints are, that would claim
+a tie the function does not have, since a type variable written anywhere in one
+declaration is one variable (Functions §4.1). The dev's own spellings come
+first, and a minted letter never takes one the declaration writes anywhere,
+even one written only in a binder list or inside a type alias's arguments.
+Through an alias nothing is paired, since an alias may reorder its arguments,
+so a hint there takes a letter of its own, and is not one a dev could write
+back. A local's own variables take letters the declaration does not use, and a
+`fun` block's members letter together, being one knot. A callback parameter
+shows the face's own arrow, `() ->! a`, where hover on the parameter shows the
+enclosing function's colour passing through, which a parameter type cannot
+write.
+
+A hint is never written: it carries no `textEdits`, because a written type binds
+(a type variable becomes rigid, an open record row closes), so double-clicking
+one does nothing. Written into the 110 programs of the book and the Playground
+that have type hints, every hint but a pattern's (a pattern takes no type; its
+hint is display only, as rust-analyzer's is), each program compiles to the same
+faces. Where a face is a display a source cannot write (a local's captured
+colour, a function under a type argument read both ways, a knot's shared
+variable, which only a `fun` block's head can declare), the hint shows it as
+hover does.
+
+Two settings, `hexagon.inlayHints.types` and `hexagon.inlayHints.colours`, both
+on by default, are read from the client through `workspace/configuration`, and
+read again when the client says they changed, after which the server asks it to
+redraw. A client that cannot be asked shows every hint. The editor's own
+`editor.inlayHints.enabled` stands above both, so a dev who wants hints only
+while holding Ctrl+Alt (Ctrl+Option on macOS) sets that, as for any language.
+Types are shown whole, since a cut type is not one a dev could write, so the
+extension sets `editor.inlayHints.maximumLength` to `0` for Hexagon files (VS
+Code cuts a line's hints at 43 characters otherwise), and the Playground sets
+the same.
+
 ## Quick fixes
 
 Code actions arrive in two halves, and this is the first: **every action answers
@@ -522,9 +587,11 @@ The fourth adds:
 The fifth adds:
 
 13. signature help while a call's arguments are written, in VS Code and the
-    Playground; and
+    Playground;
 14. the type of any expression, on a selection or off a name, and "Expand
-    Selection", in both.
+    Selection", in both; and
+15. inlay hints: inferred types where they could be written, and a function's
+    colour in words, in both.
 
 Formatting, refactoring code actions and workspace symbols follow as the necessary compiler services become stable. Features are not simulated with textual guesses when semantic information is required — where these slices read source text, it is to locate a name the tree already said was there, or to read a half-typed line no tree describes yet, never to decide what a name means.
 

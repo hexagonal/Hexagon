@@ -6,6 +6,7 @@ import {
   completionKindOf,
   toCompletionItem,
   toCodeAction,
+  toInlayHint,
   toRenameEdits,
   toRenameLocation,
   toSignatureHelp,
@@ -317,6 +318,32 @@ describe("toSignatureHelp", () => {
 
     expect("documentation" in mapped.signatures[0]!).toBe(false);
     expect("documentation" in mapped.signatures[0]!.parameters[0]!).toBe(false);
+  });
+});
+
+describe("toInlayHint", () => {
+  test("a type is a `Type` hint, drawn where it stands, with nothing else", () => {
+    expect(toInlayHint({ offset: 25, label: ": Int", kind: "type" }, { line: 3, column: 13 }))
+      .toEqual({ label: ": Int", position: { line: 3, column: 13 }, kind: "Type" });
+  });
+
+  test("a colour has no kind, stands apart from its line, and carries its face, untrusted", () => {
+    expect(toInlayHint(
+      { offset: 90, label: "pure; may fail", kind: "colour", tooltip: "`parse: String ->^ Int`" },
+      { line: 3, column: 78 },
+    )).toEqual({
+      label: "pure; may fail",
+      position: { line: 3, column: 78 },
+      paddingLeft: true,
+      tooltip: { value: "`parse: String ->^ Int`", isTrusted: false },
+    });
+  });
+
+  test("leaves out the tooltip the session did not send, and never carries an edit", () => {
+    const mapped = toInlayHint({ offset: 9, label: "impure", kind: "colour" }, 9);
+
+    expect("tooltip" in mapped).toBe(false);
+    expect("textEdits" in mapped).toBe(false);
   });
 });
 

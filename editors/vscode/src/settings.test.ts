@@ -39,3 +39,23 @@ describe("standard-library development authority", () => {
     })).toEqual(["/trusted"]);
   });
 });
+
+describe("inlay hints", () => {
+  test("two settings, both on, and a Hexagon line's hints never cut", async () => {
+    const manifest = JSON.parse(await readFile(fileURLToPath(
+      new URL("../package.json", import.meta.url),
+    ), "utf8")) as {
+      contributes: {
+        configuration: { properties: Record<string, { type?: string; default?: unknown }> };
+        configurationDefaults: Record<string, Record<string, unknown>>;
+      };
+    };
+    const { properties } = manifest.contributes.configuration;
+    for (const name of ["hexagon.inlayHints.types", "hexagon.inlayHints.colours"]) {
+      expect(properties[name]).toMatchObject({ type: "boolean", default: true });
+    }
+    // VS Code cuts a line's hints at 43 characters; a cut type is not a face.
+    expect(manifest.contributes.configurationDefaults["[hexagon]"])
+      .toEqual({ "editor.inlayHints.maximumLength": 0 });
+  });
+});

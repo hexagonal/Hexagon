@@ -61,6 +61,16 @@
           },
           "description": "Absolute project roots explicitly authorized to compile their sources as registered Hex standard-library members. Intended only for developing the standard library."
         },
+        "hexagon.inlayHints.types": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Show the types inference gives the places a type could be written: a parameter, a function's result, a `let` with no written type. Shown only: a hint is never written into the file."
+        },
+        "hexagon.inlayHints.colours": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Show a function's colour in words, such as \"impure; may fail\", at the end of its header's line. A header has no place to write it."
+        },
         "hexagon.trace.server": {
           "type": "string",
           "enum": [
@@ -71,6 +81,11 @@
           "default": "off",
           "description": "Log the traffic between this extension and the Hexagon language server."
         }
+      }
+    },
+    "configurationDefaults": {
+      "[hexagon]": {
+        "editor.inlayHints.maximumLength": 0
       }
     },
     "commands": [

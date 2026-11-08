@@ -27,6 +27,7 @@ import type {
   PlaygroundCodeAction,
   PlaygroundCompletions,
   PlaygroundHover,
+  PlaygroundInlayHint,
   PlaygroundRenamePlan,
   PlaygroundRenameRefusal,
   PlaygroundRenameSubject,
@@ -71,6 +72,8 @@ export interface LanguageServices {
   completions(source: string, offset: number): Promise<PlaygroundCompletions | undefined>;
   /** The call whose arguments `offset` is in; `undefined` for none, and for a dropped reply. */
   signatureHelp(source: string, offset: number): Promise<PlaygroundSignatureHelp | undefined>;
+  /** The hints in `range`, ends included; empty for a dropped reply. */
+  inlayHints(source: string, range: BufferRange): Promise<readonly PlaygroundInlayHint[]>;
   definitions(source: string, offset: number): Promise<readonly BufferRange[]>;
   references(source: string, offset: number): Promise<readonly BufferRange[]>;
   prepareRename(
@@ -202,6 +205,16 @@ export function createLanguageServices(
         offset,
       }));
       return reply?.kind === "signature-help" ? reply.help : undefined;
+    },
+    async inlayHints(source, range) {
+      const reply = await ask((id, version) => ({
+        kind: "inlay-hints",
+        id,
+        version,
+        source,
+        ...range,
+      }));
+      return reply?.kind === "inlay-hints" ? reply.hints : [];
     },
     async definitions(source, offset) {
       const reply = await ask((id, version) => ({

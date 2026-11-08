@@ -22,6 +22,7 @@ import {
   hoverSelectionAt,
   toCodeAction,
   toCompletionItem,
+  toInlayHint,
   toRenameEdits,
   toRenameLocation,
   toSignatureHelp,
@@ -29,6 +30,7 @@ import {
   type EditTarget,
   type MappedCodeAction,
   type MappedCompletionItem,
+  type MappedInlayHint,
   type MappedRenameLocation,
   type MappedSignatureHelp,
 } from "./monaco-mapping";
@@ -153,6 +155,9 @@ export function createMonacoEditors(
     model: sourceModel,
     automaticLayout: true,
     fontSize: 14,
+    // A line's hints are never cut, as the extension sets for VS Code: Monaco
+    // cuts them at 43 characters otherwise, and a cut type is not a face.
+    inlayHints: { maximumLength: 0 },
     insertSpaces: true,
     minimap: { enabled: false },
     padding: { top: 14 },
@@ -492,6 +497,27 @@ function registerLanguageProviders(
         };
       },
     }),
+    monaco.languages.registerInlayHintsProvider(hexagonLanguage, {
+      // The hints in the lines Monaco shows, as the language server sends
+      // them, and shown as its are by default: Monaco's `inlayHints.enabled`
+      // starts on, as VS Code's does.
+      provideInlayHints: async (model, range) => {
+        if (!owns(model)) return undefined;
+        const hints = await services.inlayHints(model.getValue(), {
+          startOffset: model.getOffsetAt(range.getStartPosition()),
+          endOffset: model.getOffsetAt(range.getEndPosition()),
+        });
+        return {
+          hints: hints.map((hint) => {
+            const { kind, ...mapped } = toInlayHint(hint, model.getPositionAt(hint.offset));
+            return kind === undefined
+              ? mapped
+              : { ...mapped, kind: monaco.languages.InlayHintKind[kind] };
+          }),
+          dispose: () => {},
+        };
+      },
+    }),
     monaco.languages.registerSelectionRangeProvider(hexagonLanguage, {
       // "Expand Selection" and "Shrink Selection", through the pieces of the
       // text around each caret, innermost first.
@@ -623,6 +649,19 @@ type _SignatureFields = Assert<
 type _ParameterFields = Assert<
   Required<Pick<MappedSignatureHelp["signatures"][number]["parameters"][number], "documentation">> extends
     Required<Pick<monaco.languages.ParameterInformation, "documentation">> ? true : false
+>;
+
+/** That inlay hints' optional fields are Monaco's names and shapes. */
+type _InlayHintFields = Assert<
+  Required<Pick<MappedInlayHint<monaco.IPosition>, "paddingLeft" | "tooltip">> extends
+    Required<Pick<monaco.languages.InlayHint, "paddingLeft" | "tooltip">> ? true : false
+>;
+
+/** That the kind `toInlayHint` names is a member of Monaco's enum. */
+type _InlayHintKind = Assert<
+  NonNullable<MappedInlayHint<monaco.IPosition>["kind"]> extends keyof typeof monaco.languages.InlayHintKind
+    ? true
+    : false
 >;
 
 /** That every icon `completionKindOf` names is a member of Monaco's enum. */

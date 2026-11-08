@@ -83,6 +83,7 @@ import {
 } from "../queries/variance-claims.js";
 import { collectCompletions, type Completion } from "../queries/completions.js";
 import { signatureHelpAt, type SignatureHelp } from "../queries/signature-help.js";
+import { inlayHints, type InlayHint } from "../queries/inlay-hints.js";
 import {
   type ExpressionType,
   type ExpressionTypeInput,
@@ -852,6 +853,26 @@ export class AnalysisSession {
       typeOccurrenceAt: (span) => analysis.typeOccurrenceAt(normalized, span),
       documentationOf: (symbol) => analysis.symbolFacts.get(Number(symbol))?.documentation,
     });
+  }
+
+  /**
+   * The inlay hints of one file, or of the offsets `[start, end]` of it a host
+   * shows (`queries/inlay-hints.ts`): each declaration's types where they could
+   * be written, and its colour in words where they could not
+   * (LANGUAGE-SERVER-D3.md). A file of several modules has each one's.
+   */
+  inlayHints(path: string, range?: OffsetRange): readonly InlayHint[] {
+    const normalized = normalizePath(path);
+    const text = this.#texts.get(normalized);
+    const fileId = this.#fileIds.get(normalized);
+    if (text === undefined || fileId === undefined) return [];
+    const modules = this.#analyze().modulesIn(normalized);
+    if (modules.length === 0) return [];
+    const lexed = lex(new Source.File(fileId, normalized, text));
+    const hints = modules.flatMap(({ parsed, typed }) => inlayHints({ parsed, typed, lexed }));
+    return range === undefined
+      ? hints
+      : hints.filter(({ offset }) => offset >= range.start && offset <= range.end);
   }
 
   /**

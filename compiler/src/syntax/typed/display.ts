@@ -44,35 +44,97 @@ export function displayFace(
 }
 
 /**
- * A face as `displayFace` shows it, and where in that text each parameter of
- * its outer arrow stands, as `[start, end)` offsets: signature help highlights
- * the one being written. Empty for a face that is not a function.
+ * A face as `displayFace` shows it, and where in that text each piece of its
+ * outer arrow stands, as `[start, end)` offsets: each parameter, which
+ * signature help highlights as it is written, and the result. The binder list
+ * is given apart, without the space that sets it off. A face that is not a
+ * function has no parameters and no result.
  *
  * The positions come from the same pieces the text is built from, so the two
  * cannot disagree.
+ *
+ * With `letters`, the face is lettered as one display among several of one
+ * declaration (`Letters`), which is how inlay hints show a declaration piece by
+ * piece without letting two of its pieces disagree.
  */
 export function displayCallFace(
   scheme: Typed.Scheme,
   context?: ColourContext,
+  letters?: Letters,
 ): {
   readonly type: string;
   readonly owners: readonly string[];
+  readonly binder: string;
   readonly parameters: readonly (readonly [number, number])[];
+  readonly result?: readonly [number, number];
 } {
   const colours = effectVariables(scheme);
-  const variables = variableNames(scheme, colours);
+  const variables = letters === undefined
+    ? variableNames(scheme, colours)
+    : letters.letter(variableOrder(scheme, colours));
   const constraints = displayConstraints(scheme, variables);
+  const binder = constraints.trimEnd();
   const chosen = new Set(scheme.callersChoice ?? []);
   const owners = ownerLines(scheme, context);
   if (scheme.type.kind !== "Function") {
-    return { type: `${constraints}${displayType(scheme.type, variables, "spine", chosen)}`, owners, parameters: [] };
+    return { type: `${constraints}${displayType(scheme.type, variables, "spine", chosen)}`, owners, binder, parameters: [] };
   }
   const shown = displayFunction(scheme.type, variables, "spine", chosen);
   return {
     type: `${constraints}${shown.text}`,
     owners,
+    binder,
     parameters: shown.parameters.map(([start, end]) => [constraints.length + start, constraints.length + end] as const),
+    result: [constraints.length + shown.result, constraints.length + shown.text.length],
   };
+}
+
+/**
+ * The letters every display of one declaration shares *(inlay hints, Effects
+ * §10)*. A type variable keeps one letter across all of them: the spelling the
+ * source writes for it where it writes one, since a type variable written
+ * anywhere in one declaration is one variable (Functions §4.1), and otherwise
+ * the first letter no spelling of the declaration takes, minted in the order
+ * the face it first appears in reaches it. A declaration that writes no
+ * variable is lettered exactly as its face is on its own.
+ *
+ * Shown one display at a time, each type letters from `a` (Functions §5.1), so
+ * `first: a` and `second: a` both stand beside `pairUp: (a, b) -> (a, b)`.
+ * Shown together, as hints are, that would claim a tie the function does not
+ * have.
+ */
+export class Letters {
+  readonly #names = new Map<Typed.TypeVariableId, string>();
+  readonly #taken = new Set<string>();
+
+  /**
+   * Records that the source writes this variable `name`. A variable written
+   * twice in one declaration is written with one name, or the checker refuses
+   * the declaration.
+   */
+  bind(id: Typed.TypeVariableId, name: string): void {
+    this.#taken.add(name);
+    this.#names.set(id, name);
+  }
+
+  /** Reserves a spelling the declaration writes, whatever it names. */
+  reserve(name: string): void {
+    this.#taken.add(name);
+  }
+
+  /** Letters `variables` in order, minting for those with no letter yet; every letter so far. */
+  letter(variables: Iterable<Typed.TypeVariableId>): ReadonlyMap<Typed.TypeVariableId, string> {
+    for (const variable of variables) {
+      if (this.#names.has(variable)) continue;
+      for (let index = 0; ; index += 1) {
+        const candidate = variableName(index);
+        if (this.#taken.has(candidate)) continue;
+        this.bind(variable, candidate);
+        break;
+      }
+    }
+    return this.#names;
+  }
 }
 
 /**
@@ -323,7 +385,12 @@ function displayFunction(
   variables: ReadonlyMap<Typed.TypeVariableId, string>,
   place: ArrowPlace,
   chosen: ReadonlySet<Typed.TypeVariableId>,
-): { readonly text: string; readonly parameters: readonly (readonly [number, number])[] } {
+): {
+  readonly text: string;
+  readonly parameters: readonly (readonly [number, number])[];
+  /** Where the result starts in `text`; it runs to the end. */
+  readonly result: number;
+} {
   // A spine arrow's function-typed parameters are callbacks, whose own
   // arrows — and those of the functions they return — carry their colours;
   // everything else in a parameter means what it says (Effects §2.4).
@@ -348,10 +415,12 @@ function displayFunction(
     ranges.push([at, at + parameter.length]);
     at += parameter.length + ", ".length;
   }
+  const head = `${domain} ${displayArrow(type, place, chosen)} `;
   return {
-    text: `${domain} ${displayArrow(type, place, chosen)} ` +
+    text: head +
       displayType(type.result, variables, place === "callback" && type.result.kind !== "Function" ? "inside" : place, chosen),
     parameters: ranges,
+    result: head.length,
   };
 }
 
@@ -381,16 +450,23 @@ function variableNames(
   scheme: Typed.Scheme,
   colours: readonly Typed.TypeVariableId[],
 ): ReadonlyMap<Typed.TypeVariableId, string> {
+  return new Map(
+    variableOrder(scheme, colours).map((variable, index) => [variable, variableName(index)]),
+  );
+}
+
+/** The variables `variableNames` letters, in the order it letters them. */
+function variableOrder(
+  scheme: Typed.Scheme,
+  colours: readonly Typed.TypeVariableId[],
+): readonly Typed.TypeVariableId[] {
   const effects = new Set(colours);
   const variables = new Set(scheme.variables.filter((variable) => !effects.has(variable)));
   collectVariables(scheme.type, variables);
   for (const constraint of scheme.constraints) {
     collectVariables(constraint.type, variables);
   }
-
-  return new Map(
-    [...variables].map((variable, index) => [variable, variableName(index)]),
-  );
+  return [...variables];
 }
 
 function collectVariables(

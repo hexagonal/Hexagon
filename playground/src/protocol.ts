@@ -202,6 +202,22 @@ export interface PlaygroundSignatureParameter {
   readonly documentation?: string;
 }
 
+/**
+ * A piece of a face drawn between the characters of the buffer — the
+ * compiler's `InlayHint` crossing the worker boundary, at a buffer offset, its
+ * tooltip already worded by the compiler's `inlayHintTooltipMarkdown`, as the
+ * language server words it.
+ */
+export interface PlaygroundInlayHint {
+  /** The buffer offset the hint is drawn at, before the text there. */
+  readonly offset: number;
+  readonly label: string;
+  /** `type`: a type, where one could be written. `colour`: a function's colour in words. */
+  readonly kind: "type" | "colour";
+  /** For a colour: the function's face, as Markdown. */
+  readonly tooltip?: string;
+}
+
 export interface PlaygroundRenameSubject {
   readonly name: string;
   readonly range: BufferRange;
@@ -272,6 +288,11 @@ export interface SignatureHelpRequest extends ServiceRequest {
   readonly offset: number;
 }
 
+/** The hints whose offsets fall in a region of the buffer, ends included. */
+export interface InlayHintsRequest extends ServiceRequest, BufferRange {
+  readonly kind: "inlay-hints";
+}
+
 export interface DefinitionRequest extends ServiceRequest {
   readonly kind: "definition";
   readonly offset: number;
@@ -329,6 +350,11 @@ export interface SignatureHelpReply extends ServiceReply {
   readonly help: PlaygroundSignatureHelp | undefined;
 }
 
+export interface InlayHintsReply extends ServiceReply {
+  readonly kind: "inlay-hints";
+  readonly hints: readonly PlaygroundInlayHint[];
+}
+
 export interface DefinitionReply extends ServiceReply {
   readonly kind: "definition";
   readonly ranges: readonly BufferRange[];
@@ -371,6 +397,7 @@ export type CompilerRequest =
   | CodeActionsRequest
   | CompletionRequest
   | SignatureHelpRequest
+  | InlayHintsRequest
   | DefinitionRequest
   | ReferencesRequest
   | PrepareRenameRequest
@@ -383,6 +410,7 @@ export type ServiceReplyMessage =
   | CodeActionsReply
   | CompletionReply
   | SignatureHelpReply
+  | InlayHintsReply
   | DefinitionReply
   | ReferencesReply
   | PrepareRenameReply
