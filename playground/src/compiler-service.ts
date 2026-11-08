@@ -138,7 +138,7 @@ function serve(
           kind: "code-actions",
           id,
           version,
-          actions: analysis.codeActions(request.source, request),
+          actions: analysis.codeActions(request.source, request, request.invoked),
         };
       case "completion":
         return {

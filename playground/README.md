@@ -236,7 +236,9 @@ ones preferred, and a buffer's mark repairs at once), hover
 inlay hints (the types inference gave, a function's colour in words, and each
 regex group's number, as the language server shows them, each kind off until
 turned on in `Settings…`),
-"Expand Selection", go-to-definition, find-references, rename, and read-only
+"Expand Selection", go-to-definition, find-references, rename, refactorings
+(a pipeline and calls written as each other, offered when asked for with
+Ctrl+. or `Refactor…`, never in the light bulb), and read-only
 JavaScript and `.d.ts` models. This gives the
 playground the same editor foundation and familiar feel as the TypeScript Playground
 and VS Code without moving language semantics into the UI.

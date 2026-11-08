@@ -26,6 +26,7 @@ import {
   PublishDiagnosticsNotification,
   ShutdownRequest,
   CompletionItemKind,
+  CodeActionTriggerKind,
   createProtocolConnection,
   type CompletionItem,
   type Diagnostic,
@@ -1831,7 +1832,7 @@ describe("the Hexagon language server", () => {
     const solo = await opened(UNSIGNED, MODERN);
     try {
       expect(solo.capabilities.codeActionProvider)
-        .toEqual({ codeActionKinds: ["quickfix"] });
+        .toEqual({ codeActionKinds: ["quickfix", "refactor"] });
       const reported = await solo.diagnosticsFor(solo.uriOf("main.hex"));
       const actions = await solo.client.sendRequest("textDocument/codeAction", {
         textDocument: { uri: solo.uriOf("main.hex") },
@@ -1868,10 +1869,40 @@ describe("the Hexagon language server", () => {
         range: { start: reported[1]!.range.start, end: reported[1]!.range.start },
         context: { diagnostics: reported },
       }) as CodeAction[] | null;
-      expect(actions!.map(({ title, kind, isPreferred }) => [title, kind, isPreferred]))
-        .toEqual([["mark the call `!`", "quickfix", true], ["correct the marks in this file", "quickfix", undefined]]);
-      const edits = actions![1]!.edit!.changes![solo.uriOf("main.hex")]!;
+      expect(actions!.map(({ title, kind, isPreferred }) => [title, kind, isPreferred])).toEqual([
+        ["mark the call `!`", "quickfix", true],
+        ["Write the calls as a pipeline", "refactor", undefined],
+        ["correct the marks in this file", "quickfix", undefined],
+      ]);
+      const edits = actions![2]!.edit!.changes![solo.uriOf("main.hex")]!;
       expect(applyEdits(source, edits)).toBe(source.replaceAll("save(\"", "save!(\""));
+    } finally {
+      await solo.dispose();
+    }
+  });
+
+  test("a pipeline is written as calls from the `Refactor…` menu, and back", async () => {
+    const source = "module Main\n\nlet f(x: Int): Int = x + 1\nexport let a = 1 |> f |> f\n";
+    const solo = await opened(source, MODERN);
+    try {
+      const uri = solo.uriOf("main.hex");
+      const at = (offset: number) => ({ line: 3, character: offset });
+      const ask = async (character: number) =>
+        await solo.client.sendRequest("textDocument/codeAction", {
+          textDocument: { uri },
+          range: { start: at(character), end: at(character) },
+          context: { diagnostics: [], only: ["refactor"], triggerKind: CodeActionTriggerKind.Invoked },
+        }) as CodeAction[] | null;
+      const unasked = await solo.client.sendRequest("textDocument/codeAction", {
+        textDocument: { uri },
+        range: { start: at("export let a = 1 |> f ".length), end: at("export let a = 1 |> f ".length) },
+        context: { diagnostics: [], triggerKind: CodeActionTriggerKind.Automatic },
+      }) as CodeAction[] | null;
+      expect(unasked).toBeNull();
+      const onPipe = await ask("export let a = 1 |> f ".length);
+      expect(onPipe!.map(({ title, kind }) => [title, kind])).toEqual([["Write the pipeline as calls", "refactor"]]);
+      const calls = applyEdits(source, onPipe![0]!.edit!.changes![uri]!);
+      expect(calls).toBe("module Main\n\nlet f(x: Int): Int = x + 1\nexport let a = f(f(1))\n");
     } finally {
       await solo.dispose();
     }

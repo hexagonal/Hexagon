@@ -94,6 +94,7 @@ import {
   expressionTypeOfSelection,
 } from "../queries/expression-types.js";
 import { selectionRangesAt } from "../queries/syntax-nodes.js";
+import { pipeCallRefactorings } from "../queries/pipe-calls.js";
 import {
   planReturnAnnotation,
   refusedAnnotation,
@@ -175,16 +176,18 @@ export interface CodeAction {
   /**
    * The diagnostic this answers, for a host that shows the two together.
    *
-   * Absent for an action that answers no diagnostic. There is exactly one such
-   * action, and it exists because Hexagon has no warning tier: an opaque type
-   * that under-claims its variance is not wrong, so nothing reports it, and the
-   * offer to claim more has nothing to attach itself to (closure doc §8.2).
+   * Absent for an action that answers no diagnostic: a refactor. One is the
+   * offer to claim the variance an opaque type's representation supports,
+   * which exists because Hexagon has no warning tier: an under-claim is not
+   * wrong, so nothing reports it, and the offer has nothing to attach itself to
+   * (closure doc §8.2). The others are the rewrites the dev asks for.
    */
   readonly diagnostic?: Diagnostics.Diagnostic;
   /**
    * Which family the action belongs to. A repair for a diagnostic is a quick
-   * fix; the variance offer is a refactor, since it changes what a declaration
-   * promises rather than fixing something broken.
+   * fix. The variance offer is a refactor, since it changes what a declaration
+   * promises rather than fixing something broken, and so is a rewrite between
+   * forms the spec defines as one another.
    */
   readonly kind?: "quickfix" | "refactor";
   readonly edits: readonly ActionEdit[];
@@ -198,6 +201,17 @@ export interface CodeAction {
    * picks a side, and never a "perhaps" (Declarations Preamble §1.1).
    */
   readonly preferred?: true;
+}
+
+/** How a host asks for code actions. */
+export interface CodeActionRequest {
+  /**
+   * The dev asked for them, from a menu or a key, rather than the editor asking
+   * on its own as the caret moves to decide whether to show its light bulb.
+   * The rewrites between forms the spec defines as one another are offered
+   * only then, as TypeScript offers its own rewrites.
+   */
+  readonly invoked?: boolean;
 }
 
 /**
@@ -903,11 +917,10 @@ export class AnalysisSession {
   }
 
   /**
-   * What could be repaired in this region of one file.
+   * What could be repaired, or rewritten, in this region of one file.
    *
-   * Every action here answers a diagnostic — this is the diagnostic-driven half
-   * of code actions, not the refactoring half — so the work is bounded by the
-   * errors the user can already see. That bound is what makes the expensive one
+   * The repairs answer diagnostics, so their work is bounded by the errors the
+   * user can already see. That bound is what makes the expensive one
    * affordable: an inferred return type is offered only after being compiled and
    * compared, and nothing compiles unless the caret is on the error it fixes.
    *
@@ -915,8 +928,12 @@ export class AnalysisSession {
    * the problem was found — the lexer's redirect from a JavaScript-spelled block
    * comment to `(* … *)` is one — and those are decided already, so they pass
    * straight through. The rest are computed here, needing the whole project.
+   *
+   * The refactorings answer none: the variance an opaque type could claim, and
+   * the rewrites between forms the spec defines as one another, offered where
+   * the range is on the form (`queries/pipe-calls.ts`).
    */
-  codeActions(path: string, range: OffsetRange): readonly CodeAction[] {
+  codeActions(path: string, range: OffsetRange, request: CodeActionRequest = {}): readonly CodeAction[] {
     const normalized = normalizePath(path);
     const analysis = this.#analyze();
     const here = analysis.diagnosticsByPath.get(normalized) ?? [];
@@ -1022,6 +1039,28 @@ export class AnalysisSession {
               replacement: `${site.parameter.computed === "co" ? "+" : "-"}${site.parameter.name}`,
             }],
           });
+        }
+      }
+      // The refactorings that trade one form for another the spec defines as
+      // the same (LANGUAGE-SERVER-PLAN.md, section C, tier 1), each checked by
+      // parsing what it leaves (`queries/same-reading.ts`). Only when asked:
+      // nearly every line has a call, so offered unasked they would light the
+      // editor's bulb on every line.
+      for (const { source, parsed } of request.invoked === true ? analysis.modulesIn(normalized) : []) {
+        for (const refactoring of pipeCallRefactorings(source, parsed, range.start, range.end)) {
+          actions.push(
+            refactoring.edit === undefined
+              ? { title: refactoring.title, kind: "refactor", edits: [], disabled: refactoring.disabled }
+              : {
+                title: refactoring.title,
+                kind: "refactor",
+                edits: [{
+                  path: normalized,
+                  span: source.span(refactoring.edit.start, refactoring.edit.end),
+                  replacement: refactoring.edit.replacement,
+                }],
+              },
+          );
         }
       }
     }

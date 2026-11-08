@@ -43,8 +43,16 @@ describe("createCompilerService", () => {
       }]),
     });
     expect(
-      service.handle({ kind: "code-actions", ...asked, startOffset: 0, endOffset: 0 }),
+      service.handle({ kind: "code-actions", ...asked, startOffset: 0, endOffset: 0, invoked: false }),
     ).toMatchObject({ kind: "code-actions", id: 9, version: 4, actions: [] });
+    // On a call's name, asked as the caret moves: nothing; asked by the dev:
+    // the rewrite to a pipeline.
+    expect(
+      service.handle({ kind: "code-actions", ...asked, startOffset: call, endOffset: call, invoked: false }),
+    ).toMatchObject({ kind: "code-actions", actions: [] });
+    expect(
+      service.handle({ kind: "code-actions", ...asked, startOffset: call, endOffset: call, invoked: true }),
+    ).toMatchObject({ kind: "code-actions", actions: [{ title: "Write the calls as a pipeline", kind: "refactor" }] });
     // Completion after `Debug.`, the module-member list: answered with the
     // session's own items and the (empty) partial name the caret has typed.
     const afterDot = source.indexOf("Debug.") + "Debug.".length;

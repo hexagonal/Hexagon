@@ -57,6 +57,7 @@ export {
   refused,
   type ActionEdit,
   type CodeAction,
+  type CodeActionRequest,
   type Definition,
   type Hover,
   type Location,

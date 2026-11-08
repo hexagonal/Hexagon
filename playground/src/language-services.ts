@@ -61,6 +61,7 @@ export interface LanguageServices {
   codeActions(
     source: string,
     range: BufferRange,
+    invoked: boolean,
   ): Promise<readonly PlaygroundCodeAction[]>;
   /**
    * What could be written at `offset`; `undefined` for a dropped reply.
@@ -176,13 +177,14 @@ export function createLanguageServices(
       }));
       return reply?.kind === "hover-spans" ? reply.ranges : undefined;
     },
-    async codeActions(source, range) {
+    async codeActions(source, range, invoked) {
       const reply = await ask((id, version) => ({
         kind: "code-actions",
         id,
         version,
         source,
         ...range,
+        invoked,
       }));
       return reply?.kind === "code-actions" ? reply.actions : [];
     },

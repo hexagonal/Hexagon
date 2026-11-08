@@ -249,6 +249,7 @@ export class PlaygroundAnalysis {
   codeActions(
     source: string,
     range: BufferRange,
+    invoked = false,
   ): readonly PlaygroundCodeAction[] {
     const layout = this.#sync(source);
     const start = layout.map.locate(range.startOffset);
@@ -259,7 +260,7 @@ export class PlaygroundAnalysis {
     // is what the session already answers, per diagnostic, at the offsets the
     // range touches.
     return this.#session
-      .codeActions(start.path, { start: start.offset, end: end.offset })
+      .codeActions(start.path, { start: start.offset, end: end.offset }, { invoked })
       .map((action) => this.#action(layout.map, action));
   }
 
