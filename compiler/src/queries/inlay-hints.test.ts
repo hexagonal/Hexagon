@@ -490,7 +490,7 @@ describe("inlay hints: bindings, lambdas and patterns", () => {
     expect(two[0]?.tooltip).toBe("twice: <a: Num> a -> a\nsay: <b: Show> b -> String");
   });
 
-  test("no entry on a `fun` block's head for a spelling two members each write for their own", () => {
+  test("no entry on a `fun` block's head for a spelling another member writes for its own", () => {
     // On the head, the two `a`s would be one variable (Functions §7.3): written
     // there, `g` would take `f`'s `Show`, or the two would be tied.
     expect(hinted('fun\n    f(x: a) = x + x\n    g(y: a) = "${y}"\n'))
@@ -499,12 +499,21 @@ describe("inlay hints: bindings, lambdas and patterns", () => {
       .toBe('fun\n    f(x: a)⟦: String⟧ = "${x}"\n    g(y: a)⟦: a⟧ = y\n');
     expect(hinted('fun\n    f(x: a) = "${x}"\n    g(y: a) = "${y}"\n'))
       .toBe('fun\n    f(x: a)⟦: String⟧ = "${x}"\n    g(y: a)⟦: String⟧ = "${y}"\n');
-    // The other entries still have their place.
+    // The other entries still have their place, the same member's too.
     expect(hinted('fun\n    f(x: a) = "${x}"\n    g(y: a) = y\n    h(z) = z + 1\n'))
       .toBe('fun⟦<b: Num>⟧\n    f(x: a)⟦: String⟧ = "${x}"\n    g(y: a)⟦: a⟧ = y\n    h(z⟦: b⟧)⟦: b⟧ = z + 1\n');
+    expect(hinted('fun\n    f(x: a, w) = "${x}${w}"\n    g(y: a) = y\n'))
+      .toBe('fun⟦<b: Show>⟧\n    f(x: a, w⟦: b⟧)⟦: String⟧ = "${x}${w}"\n    g(y: a)⟦: a⟧ = y\n');
     // Nor in a list the head writes.
     expect(hinted('fun<a: Num>\n    twice(n: a) = n + n\n    say(x: b) = "${x}"\n    same(z: b) = z\n'))
       .toBe('fun<a: Num>\n    twice(n: a)⟦: a⟧ = n + n\n    say(x: b)⟦: String⟧ = "${x}"\n    same(z: b)⟦: b⟧ = z\n');
+    // Wherever the other member writes it: in its body, or through an alias,
+    // where nothing pairs its `a` with a variable but the head would still
+    // declare it.
+    expect(hinted('fun\n    f(x: a) = "${x}"\n    g(y) =\n        let z: a = y\n        z\n'))
+      .toBe('fun\n    f(x: a)⟦: String⟧ = "${x}"\n    g(y⟦: a⟧)⟦: a⟧ =\n        let z: a = y\n        z\n');
+    expect(hinted('type Swap(p, q) = (q, p)\n\nfun\n    f(x: Swap(a, Int)): Swap(a, Int) = x\n    g(y: a) = "${y}"\n'))
+      .toBe('type Swap(p, q) = (q, p)\n\nfun\n    f(x: Swap(a, Int)): Swap(a, Int) = x\n    g(y: a)⟦: String⟧ = "${y}"\n');
   });
 
   test("a `fun` block in a body has its own head, and its members' lists go there", () => {
@@ -529,16 +538,29 @@ describe("inlay hints: bindings, lambdas and patterns", () => {
     expect(hinted(nested)).toBe(
       'fun⟦<a: Show>⟧\n    outer(k⟦: a⟧)⟦: String⟧ =\n        fun⟦<b: Show>⟧\n            say(x⟦: b⟧)⟦: String⟧ = "${x}"\n        say(k)\n',
     );
-    // Written out, both compile to the same faces.
-    for (const body of [knot, nested]) {
+    // A spelling two blocks each write for their own is each head's own; one a
+    // member of the block writes, in a block of its own, is not the head's.
+    const siblings = 'let outer(k) =\n    fun\n        f(x: a) = "${x}"\n    fun\n        g(y: a) = y + 1\n    g(1)\n';
+    expect(hinted(siblings)).toBe(
+      'let outer(k⟦: b⟧)⟦: Int⟧ =\n    fun⟦<a: Show>⟧\n        f(x: a)⟦: String⟧ = "${x}"\n    fun⟦<a: Num>⟧\n        g(y: a)⟦: a⟧ = y + 1\n    g(1)\n',
+    );
+    const within = 'fun\n    f(x: a) = "${x}"\n    outer(k) =\n        fun\n            h(z: a) = z + 1\n        h(k)\n';
+    expect(hinted(within)).toBe(
+      'fun⟦<b: Num>⟧\n    f(x: a)⟦: String⟧ = "${x}"\n    outer(k⟦: b⟧)⟦: b⟧ =\n        fun⟦<a: Num>⟧\n            h(z: a)⟦: a⟧ = z + 1\n        h(k)\n',
+    );
+    // Written out, each compiles to the same faces, the blocks' members' too.
+    for (const body of [knot, nested, siblings, within]) {
       const text = `module Main\n\n${body}`;
       const session = sessionWith(text);
-      const face = (source: string) => session.hover("/main.hex", source.indexOf("outer"))?.displayedType;
-      const before = face(text);
+      const at = (source: string, name: string) => source.search(new RegExp(`\\b${name}[<(]`));
+      const names = ["outer", "isEven", "isOdd", "say", "f", "g", "h"].filter((name) => at(text, name) !== -1);
+      const faces = (source: string) => names.map((name) => session.hover("/main.hex", at(source, name))?.displayedType);
+      const before = faces(text);
+      expect(before).not.toContain(undefined);
       const out = written(text, session.inlayHints("/main.hex"));
       session.setFile("/main.hex", out);
       expect(session.diagnostics("/main.hex")).toEqual([]);
-      expect(face(out)).toBe(before);
+      expect(faces(out)).toEqual(before);
     }
   });
 

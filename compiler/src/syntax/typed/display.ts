@@ -133,17 +133,6 @@ export class Letters {
     this.#taken.add(name);
   }
 
-  /**
-   * How many variables `name` stands for so far: more than one only where
-   * the source writes one spelling for two, as two `fun` block members may,
-   * each for its own (Functions §7.3).
-   */
-  variablesNamed(name: string): number {
-    let count = 0;
-    for (const named of this.#names.values()) if (named === name) count += 1;
-    return count;
-  }
-
   /** Letters `variables` in order, minting for those with no letter yet; every letter so far. */
   letter(variables: Iterable<Typed.TypeVariableId>): ReadonlyMap<Typed.TypeVariableId, string> {
     for (const variable of variables) {

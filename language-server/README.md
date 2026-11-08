@@ -371,10 +371,11 @@ after the parameter, the result after the parameter list. A `fun` block's
 members take no list of their own, so theirs stands on the block's head,
 `fun<a: (Eq, Signed)>`, one list for the block (§7.3), a block in a body
 included. A variable the head declares is every member's that writes its
-spelling, so where one spelling stands for two variables in the declaration
-(two members' own `a`s, constrained or not), an entry naming it would make them
-one: that piece of the face has no place, and is left out. A list the dev wrote takes the entries it leaves out, before its
-`>` (`<a: Show, b: Show>`), since a declaration takes one list. A header has no
+spelling, so an entry whose spelling another member of the block writes for its
+own (two members' own `a`s, constrained or not, written anywhere in them, through
+an alias too) would tie the two: that piece of the face has no place, and is left
+out. A list the dev wrote takes the entries it leaves out, before its `>`
+(`<a: Show, b: Show>`), since a declaration takes one list. A header has no
 place for its outer arrow, since a definition's colour is inferred and never
 written (Functions §4.1), so the colour is shown in hover's words (Effects §10's
 gloss) at the end of the line the header ends on, only where the arrow is not

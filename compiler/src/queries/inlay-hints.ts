@@ -172,7 +172,7 @@ export function inlayHints(input: InlayHintInput): readonly InlayHint[] {
       sites.sort((left, right) => left.start - right.start);
       for (const site of sites) site.visit();
     });
-    for (const { head, members } of blocks.values()) headHints(head, members, letters);
+    for (const { head, members } of blocks.values()) headHints(head, members);
   }
   return hints
     .filter(({ offset }) => range === undefined || (offset >= range.start && offset <= range.end))
@@ -275,7 +275,7 @@ export function inlayHints(input: InlayHintInput): readonly InlayHint[] {
     if (header.binder === "name") entryHints(face.binderEntries, lambda.typeParameters, name.span.end.offset, tooltip);
     if (header.block !== undefined) {
       const block = blocks.get(header.block.id) ?? { head: header.block, members: [] };
-      block.members.push({ face, tooltip });
+      block.members.push({ face, tooltip, writes: spellingsIn(lambda) });
       blocks.set(header.block.id, block);
     }
     parameterHints(lambda, face, scheme.type, false, tooltip);
@@ -300,17 +300,17 @@ export function inlayHints(input: InlayHintInput): readonly InlayHint[] {
    * A `fun` block's binder list, on its head, where §4.2 writes it (Functions
    * §7.3): the members' lists as one, since their letters are one set. A
    * variable the head declares is every member's that writes its spelling, so
-   * an entry whose spelling stands for two variables anywhere in the
-   * declaration would make them one there: it has no place, and is left out.
+   * an entry whose spelling another member of the block writes for its own
+   * would tie the two there: it has no place, and is left out.
    */
-  function headHints(head: Parsed.FunBlockHead, members: readonly Member[], letters: Typed.Letters): void {
+  function headHints(head: Parsed.FunBlockHead, members: readonly Member[]): void {
     const entries = new Map<string, Typed.BinderEntry>();
-    for (const { face } of members) {
+    members.forEach(({ face }, at) => {
       for (const entry of face.binderEntries) {
-        if (letters.variablesNamed(entry.subject) > 1) continue;
+        if (members.some(({ writes }, other) => other !== at && writes.has(entry.subject))) continue;
         entries.set(entry.subject, entry);
       }
-    }
+    });
     const tooltip = members.map(({ tooltip }) => tooltip).join("\n");
     const keyword = tokens[firstStartingAt(tokens, head.span.start.offset)];
     if (keyword === undefined) return;
@@ -475,10 +475,11 @@ export function inlayHints(input: InlayHintInput): readonly InlayHint[] {
 
 type Face = ReturnType<typeof Typed.displayCallFace>;
 
-/** A `fun` block member, as its head's binder list needs it. */
+/** A `fun` block member, as its head's binder list needs it: its face, and the spellings it writes. */
 interface Member {
   readonly face: Face;
   readonly tooltip: string;
+  readonly writes: ReadonlySet<string>;
 }
 
 /** The `fun` blocks met in one declaration, by id: each one's head and members. */
@@ -625,14 +626,21 @@ function forEachBinder(pattern: Parsed.Pattern, visit: (name: Parsed.Name) => vo
  * else in the same declaration.
  */
 function reserveWritten(item: Parsed.Item, letters: Typed.Letters): void {
-  walkData(item, (node) => {
-    if (node.kind === "TypeVariable") letters.reserve((node as unknown as Parsed.TypeVariable).name.text);
-  });
+  for (const spelling of spellingsIn(item)) letters.reserve(spelling);
   walkData(item, (node) => {
     const parameters = (node as { typeParameters?: unknown }).typeParameters;
     if (!Array.isArray(parameters)) return;
     for (const parameter of parameters as readonly Parsed.TypeParameter[]) letters.reserve(parameter.name.text);
   });
+}
+
+/** The type variable spellings written anywhere in a piece of the parsed tree. */
+function spellingsIn(node: unknown): ReadonlySet<string> {
+  const spellings = new Set<string>();
+  walkData(node, (each) => {
+    if (each.kind === "TypeVariable") spellings.add((each as unknown as Parsed.TypeVariable).name.text);
+  });
+  return spellings;
 }
 
 /**
@@ -709,9 +717,9 @@ function argumentsOf(type: Typed.Type): { readonly constructor: string; readonly
 }
 
 /**
- * Every node with a `kind` in a piece of the parsed tree, for the two questions
- * above that ask about every node of one shape whatever holds it: the spellings
- * an item writes, and the names a pattern binds.
+ * Every node with a `kind` in a piece of a tree, parsed or typed, for the
+ * questions above that ask about every node of one shape whatever holds it: the
+ * spellings written, the names a pattern binds, and the arrows a type holds.
  */
 function walkData(value: unknown, visit: (node: { readonly kind: string }) => void, seen = new Set<unknown>()): void {
   if (value === null || typeof value !== "object" || seen.has(value)) return;
