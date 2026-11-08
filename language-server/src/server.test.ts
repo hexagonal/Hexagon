@@ -1903,6 +1903,13 @@ describe("the Hexagon language server", () => {
       expect(onPipe!.map(({ title, kind }) => [title, kind])).toEqual([["Write the pipeline as calls", "refactor"]]);
       const calls = applyEdits(source, onPipe![0]!.edit!.changes![uri]!);
       expect(calls).toBe("module Main\n\nlet f(x: Int): Int = x + 1\nexport let a = f(f(1))\n");
+      await solo.client.sendNotification(DidChangeTextDocumentNotification.type, {
+        textDocument: { uri, version: 2 },
+        contentChanges: [{ text: calls }],
+      });
+      const onCall = await ask("export let a = ".length);
+      expect(onCall!.map(({ title, kind }) => [title, kind])).toEqual([["Write the calls as a pipeline", "refactor"]]);
+      expect(applyEdits(calls, onCall![0]!.edit!.changes![uri]!)).toBe(source);
     } finally {
       await solo.dispose();
     }

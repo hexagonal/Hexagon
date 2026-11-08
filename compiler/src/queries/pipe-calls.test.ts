@@ -29,7 +29,7 @@ const PRELUDE = [
   "let f(x: Int): Int = x + 1",
   "let g(x: Int, y: Int): Int = x + y",
   "let save(x: Int): Int = x",
-  "let xs = Vector.fromArray([1, 2, 3])",
+  "let xs = [1, 2, 3]",
   "",
 ].join("\n");
 
@@ -88,6 +88,19 @@ describe("a pipeline written as calls", () => {
     expect(asCalls("let a = 1 ‸|> g!(2)")).toBe("let a = g!(1, 2)");
   });
 
+  test("a mark the parser reported is kept as written", () => {
+    expect(asCalls("let a = 1 ‸|> save!?")).toBe("let a = save!?(1)");
+  });
+
+  test("a mark after a stage's own list refuses it, since it marks nothing", () => {
+    expect(asCalls("let a = 1 ‸|> g(2)!")).toBe(
+      "refused: A mark after a stage's own argument list marks nothing, and would be lost. Mark the list instead, as in `take!(3)`.",
+    );
+    expect(asCalls("let a = 1 |> g(2)! ‸|> f")).toBe(
+      "refused: A mark after a stage's own argument list marks nothing, and would be lost. Mark the list instead, as in `take!(3)`.",
+    );
+  });
+
   test("a stage that is not a callee by its form is parenthesized", () => {
     expect(asCalls("let a = 1 ‸|> (x => x + 1)")).toBe("let a = (x => x + 1)(1)");
     expect(asCalls("let a = 1 ‸|> (g(2))")).toBe("let a = (g(2))(1)");
@@ -96,8 +109,8 @@ describe("a pipeline written as calls", () => {
   });
 
   test("a stage that ends a line keeps the line break outside the call", () => {
-    expect(asCalls("let a = 1 ‸|> match\n    | 1 => 2\n    | _ => 3\nlet b = 2\n"))
-      .toBe("let a = (match\n    | 1 => 2\n    | _ => 3)(1)\nlet b = 2\n");
+    expect(asCalls("let a = 1 ‸|> match\n    1 => 2\n    _ => 3\nlet b = 2\n"))
+      .toBe("let a = (match\n    1 => 2\n    _ => 3)(1)\nlet b = 2\n");
   });
 
   test("a pipeline over several lines becomes one call", () => {
@@ -110,12 +123,29 @@ describe("a pipeline written as calls", () => {
       .toBe("refused: A comment inside it would be lost. Move the comment out first.");
     expect(asCalls("let a = xs ‸|> Seq.take(f((* three *) 3))")).toBe("let a = Seq.take(xs, f((* three *) 3))");
   });
+
+  test("a `//` comment it would keep inside the call refuses it, naming the comment", () => {
+    expect(asCalls("let a = 1 ‸|> match\n    1 => 2\n    _ => 3 // the rest\n")).toBe(
+      "refused: A `//` comment inside it would swallow what the rewrite writes after it. Move the comment out first.",
+    );
+  });
 });
 
 describe("calls written as a pipeline", () => {
   test("the call and the calls in its first argument, innermost first", () => {
     expect(asPipeline("let a = Seq.ta‸ke(Seq.map(xs, f), 3)")).toBe("let a = xs |> Seq.map(f) |> Seq.take(3)");
     expect(asPipeline("let a = f‸(f(1))")).toBe("let a = 1 |> f |> f");
+  });
+
+  test("from just before the list, whatever the callee", () => {
+    expect(asPipeline("let a = (x => x + 1)‸(2)")).toBe("let a = 2 |> (x => x + 1)");
+    expect(asPipeline("let fs = [f]\nlet a = fs[0]‸(2)")).toBe("let fs = [f]\nlet a = 2 |> fs[0]");
+    expect(asPipeline("let k(x: Int): Int -> Int = y => x + y\nlet a = k(1)‸(2)"))
+      .toBe("let k(x: Int): Int -> Int = y => x + y\nlet a = 2 |> k(1)()");
+  });
+
+  test("a call that is a pipe's first value", () => {
+    expect(asPipeline("let a = ‸f(1) |> g(2)")).toBe("let a = 1 |> f |> g(2)");
   });
 
   test("from the call's name, mark or parentheses, not from inside its arguments", () => {
@@ -136,6 +166,12 @@ describe("calls written as a pipeline", () => {
     expect(asPipeline("let a = xs.ta‸ke(3)")).toBe("not offered");
     expect(asPipeline("let a = Main.xs.ta‸ke(3)")).toBe("not offered");
     expect(asPipeline("let a = (xs).ta‸ke(3)")).toBe("not offered");
+    // An upper-case receiver that is no module's alias is a term: `None` here.
+    expect(asPipeline("let a = None.defaultV‸alue(2)")).toBe("not offered");
+  });
+
+  test("a name an import brings is a module's, so its call is qualified", () => {
+    expect(asPipeline("import Regex\nlet a = Regex.comp‸ile(\"a\")")).toBe("import Regex\nlet a = \"a\" |> Regex.compile");
   });
 
   test("a dot call ends the chain, as the pipeline's first value", () => {
@@ -151,12 +187,46 @@ describe("calls written as a pipeline", () => {
   test("a first value that binds tighter than `|>` stands bare", () => {
     expect(asPipeline("let a = ‸f(1 + 2)")).toBe("let a = 1 + 2 |> f");
     expect(asPipeline("let a = ‸f(-1)")).toBe("let a = -1 |> f");
+    const bare = [
+      "()",
+      "\"s\"",
+      "1n",
+      "1.5d",
+      "1.5",
+      "[1]",
+      "(1, 2)",
+      "{x = 1}",
+      "(1 + 2)",
+      "(1 : Int)",
+      "xs[0]",
+      "1 < 2",
+      "r.x",
+      "None",
+      "(1, 2)p",
+    ];
+    for (const value of bare) {
+      expect(asPipeline(`let r = {x = 1}\nlet a = Debug.lo‸g(${value})`)).toBe(`let r = {x = 1}\nlet a = ${value} |> Debug.log`);
+    }
+  });
+
+  test("a first value whose last operand reaches to the right is parenthesized", () => {
+    expect(asPipeline("let c = true\nlet a = ‸f(1 + if c then 2 else 3)")).toBe("let c = true\nlet a = (1 + if c then 2 else 3) |> f");
   });
 
   test("a first value that reaches to the right, or binds looser, is parenthesized", () => {
     expect(asPipeline("let b(x: Bool): Bool = x\nlet a = ‸b(not true)")).toBe("let b(x: Bool): Bool = x\nlet a = (not true) |> b");
     expect(asPipeline("let apply(k: Int -> Int, x: Int): Int = k(x)\nlet a = app‸ly(x => x + 1, 2)"))
       .toBe("let apply(k: Int -> Int, x: Int): Int = k(x)\nlet a = (x => x + 1) |> apply(2)");
+  });
+
+  test("a callee's own call, from its name or as a selection, is that call", () => {
+    const k = "let k(x: Int): Int -> Int = y => x + y\n";
+    expect(asPipeline(k + "let a = ‸k(1)(2)")).toBe(k + "let a = (1 |> k)(2)");
+    expect(asPipeline(k + "let a = «k(1)»(2)")).toBe(k + "let a = (1 |> k)(2)");
+  });
+
+  test("a selection of a callee that is no name is not on the call", () => {
+    expect(asPipeline("let a = «(x => x + 1)»(2)")).toBe("not offered");
   });
 
   test("a callee that is itself a call keeps an empty list", () => {
@@ -172,6 +242,10 @@ describe("calls written as a pipeline", () => {
   test("on a line of its own over several lines, a stage to a line at the first value's column", () => {
     expect(asPipeline("let a =\n    Seq.ta‸ke(\n        Seq.map(xs, f),\n        3)\n"))
       .toBe("let a =\n    xs\n    |> Seq.map(f)\n    |> Seq.take(3)\n");
+  });
+
+  test("over several lines with more after it on its last line, one line", () => {
+    expect(asPipeline("let a =\n    ‸g(\n        f(1),\n        2) + 1\n")).toBe("let a =\n    (1 |> f |> g(2)) + 1\n");
   });
 
   test("a comment it would lose refuses it", () => {
@@ -223,8 +297,46 @@ describe("the parse that checks a rewrite", () => {
       .toEqual({ title: "t", disabled: "Written the other way here, it would parse as a different program." });
   });
 
+  test("names a `//` comment as the reason when no text reads the same", () => {
+    const refused = (body: string) => {
+      const source = PRELUDE + body;
+      const commented = new Source.File(1 as Source.FileId, "/main.hex", source);
+      const [parsed] = parseFile(applyLayout(lex(commented)), commented.path);
+      const item = parsed!.items.at(-1) as { readonly value: Parameters<typeof rewrite>[3] };
+      return rewrite(commented, parsed!, "t", item.value, { texts: ["f(2)"], kept: [item.value.span] });
+    };
+    expect(refused("let a = g(1, // one\n    2)\n")).toEqual({
+      title: "t",
+      disabled: "A `//` comment inside it would swallow what the rewrite writes after it. Move the comment out first.",
+    });
+    expect(refused("let a = g(1, (* one *) 2)\n")).toEqual({
+      title: "t",
+      disabled: "Written the other way here, it would parse as a different program.",
+    });
+  });
+
   test("reads no edit outside a top-level item as keeping the program", () => {
     expect(keepsReading(file, module!, { start: 0, end: "module".length, replacement: "module" })).toBe(false);
     expect(keepsReading(file, module!, { start: call, end: call + 4, replacement: "(f(1))" })).toBe(true);
+  });
+
+  test("reads an edit at either end of an item as inside it", () => {
+    const item = text.lastIndexOf("let a");
+    expect(keepsReading(file, module!, { start: item, end: item + 3, replacement: "let" })).toBe(true);
+    expect(keepsReading(file, module!, { start: call, end: call + 4, replacement: "f(2)" })).toBe(false);
+    expect(keepsReading(file, module!, { start: call + 3, end: call + 4, replacement: ")" })).toBe(true);
+  });
+
+  test("keeps the parentheses that make a field's call of a dot call", () => {
+    const source = PRELUDE + "let r = {h = f}\nlet a = r.h(2)\n";
+    const fields = new Source.File(1 as Source.FileId, "/main.hex", source);
+    const [parsed] = parseFile(applyLayout(lex(fields)), fields.path);
+    const at = source.indexOf("r.h(2)");
+    const edit = (replacement: string) => ({ start: at, end: at + "r.h(2)".length, replacement });
+    expect(keepsReading(fields, parsed!, edit("(r.h)(2)"))).toBe(false);
+    expect(keepsReading(fields, parsed!, edit("(r).h(2)"))).toBe(true);
+    const field = new Source.File(1 as Source.FileId, "/main.hex", source.replace("r.h(2)", "(r.h)(2)"));
+    const [grouped] = parseFile(applyLayout(lex(field)), field.path);
+    expect(keepsReading(field, grouped!, { start: at, end: at + "(r.h)(2)".length, replacement: "((r.h))(2)" })).toBe(true);
   });
 });

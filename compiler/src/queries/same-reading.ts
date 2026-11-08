@@ -1,19 +1,18 @@
 /**
  * Whether a rewrite of the text keeps the program the parser reads from it.
  *
- * The tier-1 refactorings (LANGUAGE-SERVER-PLAN.md, section C) trade one form
- * for another the spec defines as the same: `a |> f(b)` is `f(a, b)` by
- * Operators §8's rewrite, done before inference. So a rewrite is right when the
- * text it leaves parses to the same tree, once each form is read as its
- * definition. That is a question for the parser alone: nothing here asks a
- * type, so there is no second reading of the program to disagree with the
- * checker's (doctrine point 4 asks this only of the refactorings that move
- * code).
+ * The refactorings that trade one form for another the spec defines as the
+ * same: `a |> f(b)` is `f(a, b)` by Operators §8's rewrite, done before
+ * inference. So a rewrite is right when the text it leaves parses to the same
+ * tree, once each form is read as its definition. That is a question for the
+ * parser alone: nothing here asks a type, so there is no second reading of the
+ * program to disagree with the checker's.
  *
  * The comparison reads the tree the way the checker does: a pipe as the call
  * it rewrites to, and a pair of parentheses as what they hold, with every
- * position left out. A comment is compared by its text, so a rewrite that drops
- * one is refused as surely as one that changes an expression.
+ * position left out. A comment is compared by its text, and the parser's
+ * reports by theirs, so a rewrite that drops a comment or breaks the parse is
+ * refused as surely as one that changes an expression.
  */
 
 import { applyLayout } from "../passes/layout/layout.js";
@@ -58,11 +57,18 @@ function sameReading(before: unknown, after: unknown): boolean {
 /**
  * A parsed value as the checker reads it: positions dropped, keys in one order,
  * a group as what it holds, and a pipe as its call.
+ *
+ * But not a group that holds a call's callee written `e.name`: `(e.name)(args)`
+ * reads the field and calls it, where `e.name(args)` is a dot call (Method
+ * Syntax §2.1), so those parentheses are kept.
  */
 function reading(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(reading);
   if (value === null || typeof value !== "object") return value;
   const node = value as Record<string, unknown>;
+  if (node.kind === "Call" && fieldCallee(node.callee as Parsed.Expr)) {
+    return reading({ ...node, callee: { kind: "FieldCallee", access: node.callee } });
+  }
   if (node.kind === "Group" && "expression" in node) return reading(node.expression);
   if (node.kind === "Binary" && node.operator === "Pipe") return reading(pipeCall(node as unknown as Parsed.BinaryExpr));
   const read: Record<string, unknown> = {};
@@ -71,6 +77,15 @@ function reading(value: unknown): unknown {
     read[key] = reading(node[key]);
   }
   return read;
+}
+
+/** A callee that reads a field: `e.name` in parentheses, which a dot call is not. */
+function fieldCallee(callee: Parsed.Expr): boolean {
+  return callee.kind === "Group" && ungrouped(callee).kind === "Access";
+}
+
+function ungrouped(expression: Parsed.Expr): Parsed.Expr {
+  return expression.kind === "Group" ? ungrouped(expression.expression) : expression;
 }
 
 /**

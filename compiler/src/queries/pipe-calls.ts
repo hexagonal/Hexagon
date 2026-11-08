@@ -1,5 +1,6 @@
 /**
- * Pipe and call, either way (LANGUAGE-SERVER-PLAN.md, section C, tier 1).
+ * Pipe and call, either way: a refactoring between forms the spec defines as
+ * one another.
  *
  * `xs |> Seq.map(f) |> Seq.take(3)` and `Seq.take(Seq.map(xs, f), 3)` are one
  * program: a pipe stage is the call that takes the pipe's left side as its
@@ -19,6 +20,7 @@
 
 import * as Source from "../support/source.js";
 import type * as Parsed from "../syntax/parsed/index.js";
+import { PRELUDE_MODULES } from "../prelude.js";
 import { keepsReading, type TextEdit } from "./same-reading.js";
 import { enclosingNodes, type SyntaxNode, syntaxTree } from "./syntax-nodes.js";
 
@@ -40,8 +42,14 @@ export function pipeCallRefactorings(
   const chain = enclosingNodes(syntaxTree(module), start, end);
   const found: Refactoring[] = [];
   const pipe = pipelineAt(chain);
-  if (pipe !== undefined) found.push(rewrite(file, module, PIPE_TO_CALLS_TITLE, pipe, writtenAsCalls(file, pipe)));
-  const calls = callChainAt(chain);
+  if (pipe !== undefined) {
+    found.push(
+      unreadMark(pipe)
+        ? { title: PIPE_TO_CALLS_TITLE, disabled: UNREAD_MARK }
+        : rewrite(file, module, PIPE_TO_CALLS_TITLE, pipe, writtenAsCalls(file, pipe)),
+    );
+  }
+  const calls = callChainAt(chain, start, moduleAliases(module));
   if (calls !== undefined) {
     found.push(rewrite(file, module, CALLS_TO_PIPE_TITLE, calls.outer, writtenAsPipeline(file, calls)));
   }
@@ -77,7 +85,30 @@ export function rewrite(
     const edit = { start, end, replacement };
     if (keepsReading(file, module, edit)) return { title, edit };
   }
+  // A `//` comment kept inside the new form runs to the end of its line, over
+  // whatever the rewrite writes after it there.
+  const lineComment = module.comments.some(({ kind, span }) =>
+    kind === "Line" && start <= span.start.offset && span.end.offset <= end
+  );
+  if (lineComment) {
+    return { title, disabled: "A `//` comment inside it would swallow what the rewrite writes after it. Move the comment out first." };
+  }
   return { title, disabled: "Written the other way here, it would parse as a different program." };
+}
+
+const UNREAD_MARK = "A mark after a stage's own argument list marks nothing, and would be lost. Mark the list instead, as in `take!(3)`.";
+
+/**
+ * Whether a stage with its own argument list carries a mark after that list
+ * (`x |> g(2)!`). A stage with a list marks the list (Operators §8); the parser
+ * takes the mark at the stage's end and nothing reads it, so a rewrite would
+ * drop it without a word (#1491).
+ */
+function unreadMark(pipe: Parsed.BinaryExpr): boolean {
+  for (let at: Parsed.Expr = pipe; isPipe(at); at = at.left) {
+    if (at.right.kind === "Call" && at.markSpan !== undefined) return true;
+  }
+  return false;
 }
 
 /**
@@ -160,17 +191,30 @@ interface CallChain {
  * nested in its first argument. None for a call with no argument, a pipe's own
  * stage (its first argument is the pipe's left side, not written in it), or a
  * dot call.
+ *
+ * A range that starts just before a call's `(` is on that call, whatever its
+ * callee: after a name's last letter, a parenthesized callee's `)`, an index's
+ * `]`, or the list of a callee that is itself a call (`k(1)‸(2)` is on the
+ * outer call).
  */
-function callChainAt(chain: readonly SyntaxNode[]): CallChain | undefined {
-  const at = innermost(chain, (expression) => expression.kind === "Call");
+function callChainAt(
+  chain: readonly SyntaxNode[],
+  start: number,
+  aliases: ReadonlySet<string>,
+): CallChain | undefined {
+  let at = innermost(chain, (expression) => expression.kind === "Call");
   if (at < 0) return undefined;
+  const holding = chain[at - 1]?.expression;
+  const atEnd = start === chain[at]!.span.end.offset;
+  if (atEnd && holding?.kind === "Call" && holding.callee === chain[at]!.expression) at -= 1;
   const outer = chain[at]!.expression as Parsed.CallExpr;
-  if (!onName(chain.slice(at + 1), outer.callee.span) || !pipeable(outer)) return undefined;
+  const beforeList = start === outer.callee.span.end.offset;
+  if (!(beforeList || onName(chain.slice(at + 1), outer.callee.span)) || !pipeable(outer, aliases)) return undefined;
   const holder = chain[at - 1];
   if (isPipe(holder?.expression) && holder.expression.right === outer) return undefined;
   const stages: Parsed.CallExpr[] = [outer];
   let subject = outer.arguments[0]!;
-  while (subject.kind === "Call" && pipeable(subject)) {
+  while (subject.kind === "Call" && pipeable(subject, aliases)) {
     stages.unshift(subject);
     subject = subject.arguments[0]!;
   }
@@ -178,25 +222,37 @@ function callChainAt(chain: readonly SyntaxNode[]): CallChain | undefined {
 }
 
 /** A call a pipe can feed: one with a first argument, and not a dot call. */
-function pipeable(call: Parsed.CallExpr): boolean {
-  return call.arguments.length > 0 && !dotCall(call.callee);
+function pipeable(call: Parsed.CallExpr, aliases: ReadonlySet<string>): boolean {
+  return call.arguments.length > 0 && !dotCall(call.callee, aliases);
 }
 
 /**
  * Whether a callee is a dot call's `receiver.name`, read off the text as the
- * resolver reads it: an upper-case name before a `.` is a module's alias
- * (Modules §5.1, rule 1), so `Seq.map` is a qualified name and `v.map` a dot
- * call.
+ * resolver reads it: an upper-case name before a `.` is a module's alias where
+ * one is in scope (Modules §5.1, rule 1), so `Seq.map` is a qualified name, and
+ * `v.map` and `None.defaultValue` are dot calls.
  */
-function dotCall(callee: Parsed.Expr): boolean {
+function dotCall(callee: Parsed.Expr, aliases: ReadonlySet<string>): boolean {
   if (callee.kind !== "Access") return false;
   let receiver: Parsed.Expr = callee.receiver;
   while (receiver.kind === "Access") {
     if (receiver.field.startClass !== "upper") return true;
     receiver = receiver.receiver;
   }
-  return receiver.kind !== "Name" || receiver.name.startClass !== "upper";
+  return receiver.kind !== "Name" || !aliases.has(receiver.name.text);
 }
+
+/**
+ * The module aliases in scope in a module: its imports' and the prelude's
+ * modules (Modules §5.5), which every module reaches by name.
+ */
+function moduleAliases(module: Parsed.Module): ReadonlySet<string> {
+  const aliases = new Set(PRELUDE_ALIASES);
+  for (const item of module.items) if (item.kind === "Import") aliases.add(item.alias.text);
+  return aliases;
+}
+
+const PRELUDE_ALIASES: readonly string[] = PRELUDE_MODULES.map(({ name }) => name);
 
 /**
  * `g(f(a, b))` as `a |> f(b) |> g`. On a line of its own and over several, as
@@ -210,9 +266,11 @@ function writtenAsPipeline(file: Source.File, { outer, stages, subject }: CallCh
     return textOf(file, span);
   };
   const first = keep(subject.span);
-  const head = SUBJECT_FORMS.has(subject.kind) && !(subject.kind === "Unary" && subject.operator === "Not")
-    ? first
-    : `(${first})`;
+  // A first value that stands bare is tried bare and then parenthesized, for
+  // one whose last operand reaches to the right (`1 + if c then 2 else 3`).
+  const heads = SUBJECT_FORMS.has(subject.kind) && !(subject.kind === "Unary" && subject.operator === "Not")
+    ? [first, `(${first})`]
+    : [`(${first})`];
   const written = stages.map((call) => {
     const rest = call.arguments.slice(1).map(({ span }) => keep(span));
     const name = keep(call.callee.span);
@@ -223,22 +281,27 @@ function writtenAsPipeline(file: Source.File, { outer, stages, subject }: CallCh
   });
   const { text } = file;
   const start = outer.span.start.offset;
+  const { end } = solid(file, outer.span);
   const lineStart = text.lastIndexOf("\n", start - 1) + 1;
   const indent = text.slice(lineStart, start);
-  const ownLine = /^[ \t]*$/.test(indent) && textOf(file, outer.span).includes("\n");
-  const line = [head, ...written].join(" |> ");
-  const lines = [head, ...written.map((stage) => `${indent}|> ${stage}`)].join("\n");
+  const after = text.slice(end).split("\n", 1)[0]!;
+  const ownLine = /^[ \t]*$/.test(indent) && /^[ \t]*$/.test(after) && text.slice(start, end).includes("\n");
   // Bare where the pipeline may stand as the call did, as an argument, an
   // element, a statement or an item; parenthesized where it would bind too
   // loosely, as an operand or a receiver. The parse says which.
-  const texts = ownLine ? [lines, `(${lines})`, line, `(${line})`] : [line, `(${line})`];
+  const texts = heads.flatMap((head) => {
+    const line = [head, ...written].join(" |> ");
+    const lines = [head, ...written.map((stage) => `${indent}|> ${stage}`)].join("\n");
+    return ownLine ? [lines, `(${lines})`, line, `(${line})`] : [line, `(${line})`];
+  });
   return { texts, kept };
 }
 
 /**
  * Forms that stand as a pipe's left side as they are. The others reach to the
- * right (a lambda, `if`, `match`) or bind looser than `|>` (`:=`, `not`), and
- * are parenthesized.
+ * right (a lambda, `if`, `match`) or bind looser than `|>` (`:=`), and are
+ * parenthesized. So is a `not`, which binds tighter, by choice: `not a |> f` is
+ * `f(not a)`, but reads to a person as `not (a |> f)`.
  */
 const SUBJECT_FORMS: ReadonlySet<Parsed.Expr["kind"]> = new Set([
   "Name",

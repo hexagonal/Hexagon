@@ -1016,7 +1016,7 @@ export class AnalysisSession {
       });
     }
 
-    // The one action with no diagnostic behind it (closure doc §8.2). The fix
+    // The variance offer, which answers no diagnostic (closure doc §8.2). The fix
     // text is the computed truth the compiler already holds from §6.3's
     // machinery, so applying it is one keystroke and cannot be wrong: the claim
     // being offered is exactly the one verification would accept.
@@ -1042,7 +1042,7 @@ export class AnalysisSession {
         }
       }
       // The refactorings that trade one form for another the spec defines as
-      // the same (LANGUAGE-SERVER-PLAN.md, section C, tier 1), each checked by
+      // the same (a pipe is its call, Operators §8), each checked by
       // parsing what it leaves (`queries/same-reading.ts`). Only when asked:
       // nearly every line has a call, so offered unasked they would light the
       // editor's bulb on every line.
