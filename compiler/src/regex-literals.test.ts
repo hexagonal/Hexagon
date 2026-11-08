@@ -48,6 +48,30 @@ describe("a report sits on the codepoint its position names (§8)", () => {
   });
 });
 
+describe("an edit placed on the literal opens no interpolation (§8)", () => {
+  // Each: the literal's source, the pattern it writes, one edit, and the
+  // literal the edit leaves.
+  test.each([
+    // A bare `#` before an edit whose text begins with `{` is taken in and
+    // written apart from it.
+    ['"#\\u{7B}3,1}"', "#{3,1}", { start: 2, end: 7, text: "{1,3}" }, '"\\#{1,3}"'],
+    ['"\\\\$\\u{7B}3,1}"', "\\${3,1}", { start: 3, end: 8, text: "{1,3}" }, '"\\\\\\${1,3}"'],
+    // A `#` the source writes as an escape opens nothing.
+    ['"\\u{23}\\u{7B}3,1}"', "#{3,1}", { start: 2, end: 7, text: "{1,3}" }, '"\\u{23}{1,3}"'],
+    // An edit whose text ends in `$` before a `{`.
+    ['"[$-!{]"', "[$-!{]", { start: 2, end: 5, text: "!-$" }, '"[!-\\${]"'],
+  ] as const)("%s", (literal, pattern, edit, after) => {
+    const file = new Source.File(Source.fileId(0), "/main.hex", `Regex.compile(${literal})`);
+    const site = { pattern, span: file.span(14, 14 + literal.length) };
+    const [fix] = refusedLiteral(file, site, "m", 1, [{ title: "t", edits: [edit] }]).fixes ?? [];
+    let out = file.text;
+    for (const each of fix!.edits) {
+      out = out.slice(0, each.span.start.offset) + each.replacement + out.slice(each.span.end.offset);
+    }
+    expect(out.slice(14, -1)).toBe(after);
+  });
+});
+
 describe("the builder writes what compile built (§8, §9)", () => {
   const trie = [
     "function iterate() { return this.items[Symbol.iterator](); }",

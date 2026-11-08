@@ -171,12 +171,14 @@ describe("the rewrite a refusal names is a fix on the literal (§2.9, §8)", () 
 
   test("each edit spelled as the literal spells it, and the program it leaves compiles", () => {
     const cases: readonly (readonly [string, readonly (readonly [string, string])[]])[] = [
-      ['"a(b"', [["close the group", '"a(b)"'], ["write `\\\\(` for a literal `(`", '"a\\\\(b"']]],
-      ['"[z-a]"', [["write `a-z`", '"[a-z]"']]],
-      ['"a\\\\"', [["write `\\\\\\\\` for a literal backslash", '"a\\\\\\\\"']]],
       ['"a{1500}"', [["write the run as a sequence", '"a{1000}a{500}"']]],
-      ['"a**"', [["write `(?:a*)*`", '"(?:a*)*"']]],
       ['"(?:x{100}){20}"', [["write the outer repetition as a sequence", '"(?:x{100}){10}(?:x{100}){10}"']]],
+      ['"a**"', [["write `(?:a*)*`", '"(?:a*)*"']]],
+      ['"\\\\p{greek}"', [["write `\\\\p{Greek}`", '"\\\\p{Greek}"']]],
+      ['"(?ii)a"', [["drop the second `i`", '"(?i)a"']]],
+      // An edit that ends past the pattern's last codepoint ends before the
+      // closing quote.
+      ['"(?x)a(?#c)"', [["drop the comment", '"(?x)a"'], ["write the comment after `#`", '"(?x)a#c\\n"']]],
     ];
     for (const [literal, fixes] of cases) {
       const found = fixed(call(literal));
@@ -187,48 +189,34 @@ describe("the rewrite a refusal names is a fix on the literal (§2.9, §8)", () 
   });
 
   test("an edit's span counts codepoints through escapes, astral codepoints and a physical CRLF", () => {
-    // `(` written as a Unicode escape is replaced whole.
-    expect(fixed(call('"\\u{28}a"')).map(({ source }) => source.slice(source.indexOf("compile(") + 8, source.lastIndexOf(")"))))
-      .toEqual(['"\\u{28}a)"', '"\\\\(a"']);
-    expect(fixed(call('"😀\\n(x"')).map(({ source }) => source.slice(source.indexOf("compile(") + 8, source.lastIndexOf(")"))))
-      .toEqual(['"😀\\n(x)"', '"😀\\n\\\\(x"']);
-    const crlf = fixed(call('"a\r\n(b"'));
-    expect(crlf.map(({ source }) => source.slice(source.indexOf("compile(") + 8, source.lastIndexOf(")"))))
-      .toEqual(['"a\r\n(b)"', '"a\r\n\\\\(b"']);
+    const pattern = (source: string) => source.slice(source.indexOf("compile(") + 8, source.lastIndexOf(")"));
+    // The second `i` written as a Unicode escape is dropped whole.
+    expect(fixed(call('"(?i\\u{69})a"')).map(({ source }) => pattern(source))).toEqual(['"(?i)a"']);
+    expect(fixed(call('"😀\\n(?ii)x"')).map(({ source }) => pattern(source))).toEqual(['"😀\\n(?i)x"']);
+    expect(fixed(call('"a\r\n(?ii)b"')).map(({ source }) => pattern(source))).toEqual(['"a\r\n(?i)b"']);
   });
 
-  test("an edit that would bring a `$` or `#` and a `{` together spells them apart, so it opens no interpolation", () => {
-    // An edit whose text begins with `{` after a `$` or `#` the source writes
-    // plainly: the count's ends swapped after an atom that ends in one.
-    for (const [literal, after] of [['"#\\u{7B}3,1}"', '"\\#{1,3}"'], ['"\\\\$\\u{7B}3,1}"', '"\\\\\\${1,3}"']] as const) {
-      const [only] = fixed(call(literal));
-      expect(only?.source.slice(only.source.indexOf("compile(") + 8, only.source.lastIndexOf(")"))).toBe(after);
-      expect(compileMain(only!.source).diagnostics).toEqual([]);
-    }
-    // A `#` the source writes as an escape needs nothing.
-    const [escaped] = fixed(call('"\\u{23}\\u{7B}3,1}"'));
-    expect(escaped?.source.slice(escaped.source.indexOf("compile(") + 8, escaped.source.lastIndexOf(")"))).toBe('"\\u{23}{1,3}"');
-    expect(compileMain(escaped!.source).diagnostics).toEqual([]);
-    // An edit whose own text ends in `$` before a `{`: the range's ends swapped.
-    const [swap] = fixed(call('"[$-!{]"'));
-    expect(swap?.source.slice(swap.source.indexOf("compile(") + 8, swap.source.lastIndexOf(")"))).toBe('"[!-\\${]"');
-    expect(compileMain(swap!.source).diagnostics).toEqual([]);
+  test("an edit's text spelled as the literal spells it opens no interpolation", () => {
+    // The count's atom is a `#`, so each run writes `#{`.
+    const [only] = fixed(call('"#\\u{7B}1500}"'));
+    expect(only?.source.slice(only.source.indexOf("compile(") + 8, only.source.lastIndexOf(")"))).toBe('"\\#{1000}\\#{500}"');
+    expect(compileMain(only!.source).diagnostics).toEqual([]);
   });
 
-  test("a refusal whose rewrite needs the programmer's choice, meets a limitation, or guesses at another engine's meaning carries no fix", () => {
-    for (const literal of ['"\\\\p{Cyrilic}"', '"(?=a)"', '"(?<n>a)(?<n>b)"', '"(a){1500}"', '"\\\\x41"', '"(?U)a*"', '"[]a]"', '"\\\\Z"', '"a{,3}"', '"^*a"', '"\\\\p{Space}"']) {
+  test("a refusal of text the dialect gives no reading, of a limitation, or of a near miss carries no fix", () => {
+    for (const literal of ['"a(b"', '"[z-a]"', '"a\\\\"', '"x{"', '"*a"', '"\\\\p{Cyrilic}"', '"(?=a)"', '"(?<n>a)(?<n>b)"', '"(a){1500}"', '"\\\\x41"', '"(?U)a*"', '"\\\\Z"']) {
       expect(compileMain(call(literal)).diagnostics.map(({ fixes }) => fixes)).toEqual([undefined]);
     }
   });
 
   test("the language server offers each fix where the report is", () => {
-    const text = call('"a(b"');
+    const text = call('"(?x)a(?#c)"');
     const session = new AnalysisSession();
     session.setFile("/main.hex", text);
-    const at = text.indexOf("(b");
+    const at = text.indexOf("?#");
     expect(session.codeActions("/main.hex", { start: at, end: at }).map(({ title, edits }) =>
       [title, edits.map(({ replacement }) => replacement)]
-    )).toEqual([["close the group", [")"]], ["write `\\\\(` for a literal `(`", ["\\\\("]]]);
+    )).toEqual([["drop the comment", [""]], ["write the comment after `#`", ["#c\\n"]]]);
   });
 });
 

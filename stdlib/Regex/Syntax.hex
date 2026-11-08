@@ -168,15 +168,6 @@ let edit(start: Int, end: Int, text: String): Edit = Edit({ start = start, end =
 let writing(title: String, start: Int, end: Int, text: String): Rewrite =
     Rewrite({ title = quoted(title), edits = [edit(start, end, text)] })
 
-// The group opened at `opening` that the pattern, `size` codepoints long, never
-// closes: close it with `closers` at the end, or escape its `(`.
-let unclosedGroup(opening: Int, size: Int, closers: String): Refusal =
-    let rewrites = [
-        writing("close the group", size + 1, size + 1, closers),
-        writing("write `\\(` for a literal `(`", opening, opening + 1, "\\("),
-    ]
-    fixed("missing `)` for the group opened here; close it, or write `\\(` for a literal", opening, rewrites)
-
 // ---------------------------------------------------------------------------
 // Codepoints
 
@@ -278,15 +269,6 @@ let dropping(message: String, position: Int, title: String, text: Vector(String)
         fault(message, position)
     else
         fixed(message, position, [writing(title, start, end, "")])
-
-// `count` closing parentheses.
-let closingParens(count: Int): String =
-    var written = ""
-    var closed = 0
-    while closed < count
-        written := written ++ ")"
-        closed := closed + 1
-    written
 
 // ---------------------------------------------------------------------------
 // Escapes (§2.3)
@@ -650,13 +632,6 @@ let nearProperty(body: String): Option(String) =
                     candidates := candidates.append(spelling)
             nearest(candidates, body)
 
-// Java's POSIX class names, which it reads as ASCII only.
-let isJavaPosix(name: String): Bool =
-    var found = False
-    for each in ["Alnum", "Alpha", "ASCII", "Blank", "Cntrl", "Digit", "Graph", "Lower", "Print", "Punct", "Space", "Upper", "XDigit"]
-        if each == name then found := True
-    found
-
 // The property a `\p` body names, by exact spelling; or, refused, the canonical
 // spelling of what it loosely matches, if anything (§2.4: no loose matching, but
 // the message names the spelling).
@@ -696,12 +671,7 @@ let propertyEscape(
                 Some(spelling) =>
                     let spelled = "\\" ++ letter ++ "{" ++ spelling ++ "}"
                     let message = "`" ++ written ++ "` names no supported property; write `" ++ spelled ++ "`"
-                    // Java reads its POSIX class names, such as `\p{Space}`, as
-                    // ASCII only, so the canonical spelling would be a guess.
-                    if isJavaPosix(body) then
-                        Refused(fault(message, position))
-                    else
-                        Refused(fixed(message, position, [writing("write `" ++ spelled ++ "`", position, next, spelled)]))
+                    Refused(fixed(message, position, [writing("write `" ++ spelled ++ "`", position, next, spelled)]))
                 None =>
                     // A near miss is a guess, so it names no edit.
                     let advice = match nearProperty(body)
@@ -777,8 +747,7 @@ let readCodeEscape(text: Vector(String), position: Int): Outcome((Escaped, Int),
 let readEscape(pattern: String, text: Vector(String), position: Int): Outcome((Escaped, Int), Refusal) =
     let size = Vector.length(text)
     if position + 1 > size then
-        let rewrite = writing("write `\\\\` for a literal backslash", size + 1, size + 1, "\\")
-        Refused(fixed("pattern ends inside an escape; write `\\\\` for a literal backslash", size + 1, [rewrite]))
+        Refused(fault("pattern ends inside an escape; write `\\\\` for a literal backslash", size + 1))
     else
         let letter = text[position + 1]
         let next = position + 2
@@ -804,8 +773,6 @@ let readEscape(pattern: String, text: Vector(String), position: Int): Outcome((E
                 "z" => Read((EscapedAnchor(TextEnd, "\\z"), next))
                 _ => match refusedEscape(letter)
                     Some(message) => Refused(fault(message, position))
-                    // Another engine may read the escape as something else, such
-                    // as `\o{…}` for an octal codepoint, so the letter is a guess.
                     None => Refused(fault("`\\" ++ letter ++ "` is not an escape; write `" ++ letter ++ "`, or see the escape table", position))
 
 // ---------------------------------------------------------------------------
@@ -840,40 +807,14 @@ let complemented(items: Vector(ClassItem)): Vector(ClassItem) =
 
 let isAssertionLetter(letter: String): Bool = letter == "b" or letter == "B" or letter == "A" or letter == "z"
 
-// A hyphen at `position`, with a codepoint after it, that joins no range.
-// Before a `[` it names no edit: .NET reads `-[` as subtracting a class, and
-// Java as a union with a nested one.
-let rangeEndFault(text: Vector(String), position: Int): Refusal =
-    let message = "a range's ends are single codepoints; write `\\-` for a literal hyphen"
-    if text[position + 1] == "[" then
-        fault(message, position)
-    else
-        fixed(message, position, [writing("write `\\-` for a literal hyphen", position, position + 1, "\\-")])
+let rangeEndFault(position: Int): Refusal =
+    fault("a range's ends are single codepoints; write `\\-` for a literal hyphen", position)
 
-// A `[` inside a class. Engines with nested classes, such as Java's, read it as
-// opening one, and POSIX `[:`, `[=` and `[.` as a named set; `\[` keeps only the
-// reading of a literal `[`, so it is offered only where no other reading closes:
-// where no `]` follows the one that would close this class.
 let innerBracketFault(text: Vector(String), position: Int): Refusal =
-    let size = Vector.length(text)
-    if position + 1 <= size and text[position + 1] == ":" then
+    if position + 1 <= Vector.length(text) and text[position + 1] == ":" then
         fault("`[` inside a class must be written `\\[`; POSIX classes are not part of the dialect; write `\\p{Alphabetic}`", position)
     else
-        // The `]` the literal reading closes the class with, then any after it;
-        // an escape is passed whole.
-        var at = position + 1
-        var closes = 0
-        while at <= size and closes < 2
-            if text[at] == "\\" then
-                at := at + 2
-            else
-                if text[at] == "]" then closes := closes + 1
-                at := at + 1
-        let message = "`[` inside a class must be written `\\[`"
-        if closes < 2 then
-            fixed(message, position, [writing("write `\\[`", position, position + 1, "\\[")])
-        else
-            fault(message, position)
+        fault("`[` inside a class must be written `\\[`", position)
 
 // One member at `position` inside a class: a codepoint or a class escape's items.
 let readMember(pattern: String, text: Vector(String), position: Int): Outcome((Member, Int), Refusal) =
@@ -883,13 +824,8 @@ let readMember(pattern: String, text: Vector(String), position: Int): Outcome((M
             Read((EscapedPoint(value), next)) => Read((Single(value), next))
             Read((EscapedItems(items, negated), next)) =>
                 Read((Several(if negated then complemented(items) else items), next))
-            Read((EscapedAnchor(_, written), next)) =>
-                let message = "`" ++ written ++ "` is an assertion, not a codepoint; a class cannot hold it, so write it outside the class"
-                if written == "\\b" then
-                    let rewrite = writing("write `\\u{8}` for a backspace", position, next, "\\u{8}")
-                    Refused(fixed(message ++ ", or `\\u{8}` for a backspace", position, [rewrite]))
-                else
-                    Refused(fault(message, position))
+            Read((EscapedAnchor(_, written), _)) =>
+                Refused(fault("`" ++ written ++ "` is an assertion, not a codepoint; a class cannot hold it, so write it outside the class" ++ (if written == "\\b" then ", or `\\u{8}` for a backspace" else ""), position))
             Refused(error) => Refused(error)
     else if point == "[" then
         Refused(innerBracketFault(text, position))
@@ -909,24 +845,18 @@ let readClass(pattern: String, text: Vector(String), open: Int, folded: Bool): O
     var properties: Vector(ClassItem) = []
     var failure: Option(Refusal) = None
     var reading = True
-    // No edit: JavaScript reads `[]` as matching nothing and `[^]` as matching
-    // any codepoint, so `\]` is a guess at the engine meant (§2.9).
     if position <= size and text[position] == "]" then
         failure := Some(fault("empty class; write `\\]` for a literal `]`", open))
         reading := False
     while reading
         if position > size then
-            let rewrites = [
-                writing("close the class", size + 1, size + 1, "]"),
-                writing("write `\\[` for a literal `[`", open, open + 1, "\\["),
-            ]
-            failure := Some(fixed("missing `]` for the class opened here; close it, or write `\\[` for a literal", open, rewrites))
+            failure := Some(fault("missing `]` for the class opened here; close it, or write `\\[` for a literal", open))
             reading := False
         else if text[position] == "]" then
             position := position + 1
             reading := False
         else if text[position] == "-" and position != first and position + 1 <= size and text[position + 1] != "]" then
-            failure := Some(rangeEndFault(text, position))
+            failure := Some(rangeEndFault(position))
             reading := False
         else
             match readMember(pattern, text, position)
@@ -942,7 +872,7 @@ let readClass(pattern: String, text: Vector(String), open: Int, folded: Bool): O
                     let highAt = hyphen + 1
                     let assertionEnd = isRange and highAt + 1 <= size and text[highAt] == "\\" and isAssertionLetter(text[highAt + 1])
                     if assertionEnd then
-                        failure := Some(rangeEndFault(text, hyphen))
+                        failure := Some(rangeEndFault(hyphen))
                         reading := False
                     else if not isRange then
                         ranges := addRange(ranges, low, low)
@@ -953,7 +883,7 @@ let readClass(pattern: String, text: Vector(String), open: Int, folded: Bool): O
                                 failure := Some(error)
                                 reading := False
                             Read((Several(_), _)) =>
-                                failure := Some(rangeEndFault(text, hyphen))
+                                failure := Some(rangeEndFault(hyphen))
                                 reading := False
                             Read((Single(highValue), after)) =>
                                 if highValue < low then
@@ -964,15 +894,10 @@ let readClass(pattern: String, text: Vector(String), open: Int, folded: Bool): O
                                     let highWritten = slice(pattern, highAt, after - 1)
                                     let highSpelled = if highWritten == "^" or highWritten == "-" then "\\" ++ highWritten else highWritten
                                     let swapped = highSpelled ++ "-" ++ slice(pattern, position, hyphen - 1)
-                                    // A lone surrogate has no spelling a message can show
-                                    // (§2.3), so the words name the swap, not its text.
+                                    // A lone surrogate has no spelling to write (§2.3).
                                     let lone = (low >= 55296 and low <= 57343) or (highValue >= 55296 and highValue <= 57343)
-                                    if lone then
-                                        let rewrite = Rewrite({ title = "swap its ends", edits = [edit(position, after, swapped)] })
-                                        failure := Some(fixed("range `" ++ written ++ "` is reversed; swap its ends", highAt, [rewrite]))
-                                    else
-                                        let rewrite = writing("write `" ++ swapped ++ "`", position, after, swapped)
-                                        failure := Some(fixed("range `" ++ written ++ "` is reversed; write `" ++ swapped ++ "`", highAt, [rewrite]))
+                                    let advice = if lone then "swap its ends" else "write `" ++ swapped ++ "`"
+                                    failure := Some(fault("range `" ++ written ++ "` is reversed; " ++ advice, highAt))
                                     reading := False
                                 else
                                     ranges := addRange(ranges, low, highValue)
@@ -997,30 +922,9 @@ let readDigits(text: Vector(String), position: Int): (Int, Int, Int) =
         at := at + 1
     (value, at - position, at)
 
-// Whether the `{` at `open` begins what another engine reads as a count: up to
-// a `}`, only digits, blanks and at most one comma, with a digit or the comma.
-// Python, Perl and Ruby read `a{,3}` as `a{0,3}`, and Perl reads `a{1, 3}` as
-// `a{1,3}`, so `\{` would not keep their reading (§2.9).
-let countLike(text: Vector(String), open: Int): Bool =
-    let size = Vector.length(text)
-    var at = open + 1
-    var commas = 0
-    var marks = 0
-    while at <= size and (isAsciiDigit(text[at]) or text[at] == "," or text[at] == " " or text[at] == "\t")
-        if text[at] == "," then commas := commas + 1
-        if text[at] != " " and text[at] != "\t" then marks := marks + 1
-        at := at + 1
-    at <= size and text[at] == "}" and commas <= 1 and marks > 0
-
-// The `{` at `open` that begins no counted repetition: built only when refused,
-// since a count read whole is the common case. Where another engine reads it as
-// a count, `\{` is a guess, so it names no edit.
-let countFault(text: Vector(String), open: Int): Refusal =
-    let message = "`{` must begin a counted repetition `{n}`, `{n,}`, or `{n,m}`; write `\\{` for a literal"
-    if countLike(text, open) then
-        fault(message, open)
-    else
-        fixed(message, open, [writing("write `\\{` for a literal `{`", open, open + 1, "\\{")])
+// The `{` at `open` that begins no counted repetition.
+let countFault(open: Int): Refusal =
+    fault("`{` must begin a counted repetition `{n}`, `{n,}`, or `{n,m}`; write `\\{` for a literal", open)
 
 // The counted repetition whose `{` is at `open`: its minimum, its maximum, and
 // the position after its `}`; read whole, so no `x`-mode space may fall inside.
@@ -1028,17 +932,17 @@ let readCount(text: Vector(String), open: Int): Outcome((Int, Option(Int), Int),
     let size = Vector.length(text)
     let (low, lowDigits, afterLow) = readDigits(text, open + 1)
     if lowDigits == 0 or afterLow > size then
-        Refused(countFault(text, open))
+        Refused(countFault(open))
     else if text[afterLow] == "}" then
         Read((low, Some(low), afterLow + 1))
     else if text[afterLow] != "," then
-        Refused(countFault(text, open))
+        Refused(countFault(open))
     else if afterLow + 1 <= size and text[afterLow + 1] == "}" then
         Read((low, None, afterLow + 2))
     else
         let (high, highDigits, afterHigh) = readDigits(text, afterLow + 1)
         if highDigits == 0 or afterHigh > size or text[afterHigh] != "}" then
-            Refused(countFault(text, open))
+            Refused(countFault(open))
         else
             Read((low, Some(high), afterHigh + 1))
 
@@ -1052,9 +956,8 @@ let flagLetter(flags: Flags, letter: String, value: Bool): Flags = match letter
     _ => { flags with extended = value }
 
 // The flags of `(?flags)` or `(?flags:` whose first letter is at `position`, the
-// position of its closing `)` or `:`, and whether it closed with `)`. `open`
-// counts the groups a `)` at the end would close, this one included.
-let readFlags(text: Vector(String), position: Int, opening: Int, open: Int, flags: Flags): Outcome((Flags, Int, Bool), Refusal) =
+// position of its closing `)` or `:`, and whether it closed with `)`.
+let readFlags(text: Vector(String), position: Int, opening: Int, flags: Flags): Outcome((Flags, Int, Bool), Refusal) =
     let size = Vector.length(text)
     var at = position
     var result = flags
@@ -1066,7 +969,7 @@ let readFlags(text: Vector(String), position: Int, opening: Int, open: Int, flag
     var reading = True
     while reading
         if at > size then
-            failure := Some(unclosedGroup(opening, size, closingParens(open)))
+            failure := Some(fault("missing `)` for the group opened here; close it, or write `\\(` for a literal", opening))
             reading := False
         else
             let point = text[at]
@@ -1117,14 +1020,9 @@ let readFlags(text: Vector(String), position: Int, opening: Int, open: Int, flag
                     "write `(?:` for `(?-U:`"
                 else
                     "drop the `(?-U)`"
-                // No edit: Java reads `U` as Unicode classes, which `-U` clears,
-                // so the drop keeps only the other engines' reading (§2.9).
                 failure := Some(fault("`U` is not a flag; the dialect has no ungreedy mode, so there is nothing to clear: " ++ drop, at))
                 reading := False
             else if point == "U" then
-                // No edit, as for `-U`: Java reads `(?U)` as Unicode classes, which
-                // the dialect's are already, so the repetitions an ungreedy mode
-                // would rewrite are a guess at the engine meant (§2.9).
                 failure := Some(fault("`U` is not a flag; the dialect has no ungreedy mode, so write each repetition as `U` reads it: a greedy one lazy, such as `*?`, and a lazy one greedy", at))
                 reading := False
             else
@@ -1149,9 +1047,8 @@ let readName(pattern: String, text: Vector(String), angle: Int): Outcome(Opened,
         else
             Refused(fault("group name must match `[A-Za-z_][A-Za-z0-9_]*`", angle + 1))
 
-// The `(?` prefix whose `(` is at `opening`, with `open` groups a `)` at the end
-// would close, its own included.
-let readPrefix(pattern: String, text: Vector(String), opening: Int, open: Int, flags: Flags): Outcome(Opened, Refusal) =
+// The `(?` prefix whose `(` is at `opening`.
+let readPrefix(pattern: String, text: Vector(String), opening: Int, flags: Flags): Outcome(Opened, Refusal) =
     let size = Vector.length(text)
     let question = opening + 1
     let at = opening + 2
@@ -1209,7 +1106,7 @@ let readPrefix(pattern: String, text: Vector(String), opening: Int, open: Int, f
         else if (point == "+" or point == "-") and isAsciiDigit(next) then
             Refused(fault("`(?" ++ point ++ next ++ "` is recursion, which the dialect does not have", question))
         else if isAsciiLetter(point) or point == "-" or point == ")" then
-            match readFlags(text, at, opening, open, flags)
+            match readFlags(text, at, opening, flags)
                 Read((result, close, True)) => Read(OpenedSetting(result, close + 1))
                 Read((result, close, False)) => Read(OpenedGroup(result, close + 1))
                 Refused(error) => Refused(error)
@@ -1322,18 +1219,6 @@ let countSequence(atom: String, low: Int, high: Option(Int), lazy: Bool, bound: 
             chunks := chunks.append(atom ++ count ++ (if lazy then "?" else ""))
             Some(String.join(Iterable.toSeq(chunks), ""))
 
-// The quantifier `written`, from `position` up to `after`, with nothing before
-// it to repeat, for the `reason` the piece before it gives: refused, with the
-// quantifier's literal spelling as its rewrite where `literal` holds, that is,
-// where no other engine reads the quantifier otherwise (§2.9).
-let nothingToRepeat(written: String, reason: String, position: Int, after: Int, literal: Bool): Refusal =
-    let spelled = literalSpelling(written)
-    let message = "nothing to repeat before `" ++ written ++ "`" ++ reason ++ "; write `" ++ spelled ++ "` for a literal `" ++ written ++ "`"
-    if literal then
-        fixed(message, position, [writing("write `" ++ spelled ++ "` for a literal `" ++ written ++ "`", position, after, spelled)])
-    else
-        fault(message, position)
-
 // A counted repetition as written: its counts, whether it is lazy, and the span
 // from its `{` up to the codepoint after it.
 record Counted = { low: Int, high: Option(Int), lazy: Bool, start: Int, after: Int }
@@ -1380,18 +1265,14 @@ let quantify(
             let top = frames[depth]
             let count = Vector.length(top.pieces)
             if count == 0 then
-                // A `*` just after a `(` opens a verb in PCRE, such as `(*FAIL)`.
-                let verb = point == "*" and position > 1 and text[position - 1] == "("
-                Refused(nothingToRepeat(written, "", position, after, not verb))
+                Refused(fault("nothing to repeat before `" ++ written ++ "`" ++ "; write `" ++ literalSpelling(written) ++ "` for a literal `" ++ written ++ "`", position))
             else
                 let last = top.pieces[count]
                 match last.kind
-                    // Java, Perl and Ruby repeat an assertion, as in `^*` and `\b+`,
-                    // so the literal spelling would not keep their reading.
                     Asserted(assertion) =>
-                        Refused(nothingToRepeat(written, "; `" ++ assertion ++ "` is an assertion, not an atom", position, after, False))
+                        Refused(fault("nothing to repeat before `" ++ written ++ "`; `" ++ assertion ++ "` is an assertion, not an atom" ++ "; write `" ++ literalSpelling(written) ++ "` for a literal `" ++ written ++ "`", position))
                     Setting(setting) =>
-                        Refused(nothingToRepeat(written, "; `" ++ setting ++ "` sets flags, not an atom", position, after, True))
+                        Refused(fault("nothing to repeat before `" ++ written ++ "`; `" ++ setting ++ "` sets flags, not an atom" ++ "; write `" ++ literalSpelling(written) ++ "` for a literal `" ++ written ++ "`", position))
                     Quantified(previous) =>
                         // A group around the repetition, one that captures nothing,
                         // so that no later group's number moves.
@@ -1402,8 +1283,8 @@ let quantify(
                             edits = [edit(last.start, last.start, "(?:"), edit(position, position, ")")],
                         })
                         let previousLazy = String.length(previous) > 1 and String.endsWith(previous, "?")
-                        // A possessive repetition never gives back what it took, so
-                        // the group that repeats it is a guess at what was meant.
+                        // A possessive repetition never gives back what it took, and
+                        // the group that repeats it does, so it carries no edit.
                         if written == "+" and not previousLazy then
                             Refused(fault("`" ++ previous ++ written ++ "` is possessive repetition, which the dialect does not have; to repeat a repetition, " ++ nested, position))
                         else
@@ -1416,9 +1297,7 @@ let quantify(
                             let message = "repetition count exceeds 1000; write a longer run as a sequence, such as `x{1000}x{500}` for `x{1500}`"
                             Refused(pastBound(pattern, last, Counted({ low = low, high = high, lazy = lazy, start = position, after = after }), message, "write the run as a sequence"))
                         else if low > maximum then
-                            let swapped = "{${maximum},${low}}"
-                            let rewrite = writing("write `" ++ swapped ++ "`", position, afterCount, swapped)
-                            Refused(fixed("`" ++ slice(pattern, position, afterCount - 1) ++ "` has a minimum above its maximum; write `" ++ swapped ++ "`", position, [rewrite]))
+                            Refused(fault("`" ++ slice(pattern, position, afterCount - 1) ++ "` has a minimum above its maximum; write `{${maximum},${low}}`", position))
                         else
                             let factor = if point == "{" and maximum > 1 then maximum else 1
                             let product = factor * last.product
@@ -1462,8 +1341,7 @@ let parseText(pattern: String, text: Vector(String)): Outcome(Pattern, Refusal) 
                 position := position + 1
             else if point == ")" then
                 if depth == 1 then
-                    let rewrite = writing("write `\\)` for a literal `)`", position, position + 1, "\\)")
-                    failure := Some(fixed("unmatched `)`; write `\\)` for a literal", position, [rewrite]))
+                    failure := Some(fault("unmatched `)`; write `\\)` for a literal", position))
                     reading := False
                 else
                     let body = alternationOf(top.branches.append(sequenceOf(top.pieces)))
@@ -1480,7 +1358,7 @@ let parseText(pattern: String, text: Vector(String)): Outcome(Pattern, Refusal) 
                 // nesting bound; past it, the opening is the fault whatever its
                 // prefix would have said.
                 let opened = if position + 1 <= size and text[position + 1] == "?" then
-                    readPrefix(pattern, text, position, depth, flags)
+                    readPrefix(pattern, text, position, flags)
                 else
                     Read(OpenedGroup(flags, position + 1))
                 let isSetting = match opened
@@ -1573,10 +1451,7 @@ let parseText(pattern: String, text: Vector(String)): Outcome(Pattern, Refusal) 
             let depth = Vector.length(frames)
             let top = frames[depth]
             if depth > 1 then
-                // Every open group closed at the end; on a line of its own under
-                // `x`, where the end may sit inside a comment.
-                let newline = if flags.extended then "\n" else ""
-                Refused(unclosedGroup(frames[2].opening, size, newline ++ closingParens(depth - 1)))
+                Refused(fault("missing `)` for the group opened here; close it, or write `\\(` for a literal", frames[2].opening))
             else
                 let root = alternationOf(top.branches.append(sequenceOf(top.pieces)))
                 Read(Pattern({ root = root, groupCount = count, names = names }))
