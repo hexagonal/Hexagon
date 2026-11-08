@@ -701,9 +701,7 @@ let readProperty(pattern: String, text: Vector(String), position: Int, negated: 
                 Refused(_) => False
             if text[open + 1] == "^" and known then
                 let other = if negated then "p" else "P"
-                let spelled = "\\" ++ other ++ "{" ++ name ++ "}"
-                let message = "`\\" ++ letter ++ "{^" ++ name ++ "}` is not a spelling; write `" ++ spelled ++ "`"
-                Refused(fixed(message, position, [writing("write `" ++ spelled ++ "`", position, close + 1, spelled)]))
+                Refused(fault("`\\" ++ letter ++ "{^" ++ name ++ "}` is not a spelling; write `\\" ++ other ++ "{" ++ name ++ "}`", position))
             else if text[open + 1] == "^" then
                 Refused(fault("`\\" ++ letter ++ "{" ++ body ++ "}` names no supported property", position))
             else
@@ -965,6 +963,11 @@ let readFlags(text: Vector(String), position: Int, opening: Int, flags: Flags): 
     var clearing = False
     var afterHyphen = 0
     var failure: Option(Refusal) = None
+    // A letter set twice on one side of the `-`, as its message, position and
+    // letter: refused at the end, with its drop where nothing else in the
+    // setting is refused, since only then does the drop leave a setting that
+    // reads as the first letter alone.
+    var twice: Option((String, Int, String)) = None
     var closed = False
     var reading = True
     while reading
@@ -993,15 +996,14 @@ let readFlags(text: Vector(String), position: Int, opening: Int, flags: Flags): 
                     index := index + 1
                     if letter == point then earlier := index
                 if earlier > 0 then
-                    // The second letter dropped leaves the first's meaning, so the
-                    // drop is offered only where both sit on one side of the `-`.
                     let message = "`" ++ point ++ "` is set twice; write it once"
-                    let refusal = if not clearing or earlier > Vector.length(seen) - afterHyphen then
-                        fixed(message, at, [writing("drop the second `" ++ point ++ "`", at, at + 1, "")])
+                    let oneSide = not clearing or earlier > Vector.length(seen) - afterHyphen
+                    if oneSide and isAbsent(twice) then
+                        twice := Some((message, at, point))
+                        at := at + 1
                     else
-                        fault(message, at)
-                    failure := Some(refusal)
-                    reading := False
+                        failure := Some(fault(message, at))
+                        reading := False
                 else
                     seen := seen.append(point)
                     result := flagLetter(result, point, not clearing)
@@ -1028,9 +1030,12 @@ let readFlags(text: Vector(String), position: Int, opening: Int, flags: Flags): 
             else
                 failure := Some(fault("`" ++ point ++ "` is not a flag; the flags are `i`, `m`, `s`, `x`", at))
                 reading := False
-    match failure
-        Some(error) => Refused(error)
-        None => Read((result, at, closed))
+    match (twice, failure)
+        (Some((message, position, _)), Some(_)) => Refused(fault(message, position))
+        (Some((message, position, letter)), None) =>
+            Refused(fixed(message, position, [writing("drop the second `" ++ letter ++ "`", position, position + 1, "")]))
+        (None, Some(error)) => Refused(error)
+        (None, None) => Read((result, at, closed))
 
 // A group name after the `<` at `angle`.
 let readName(pattern: String, text: Vector(String), angle: Int): Outcome(Opened, Refusal) =
@@ -1081,24 +1086,7 @@ let readPrefix(pattern: String, text: Vector(String), opening: Int, flags: Flags
         else if point == ">" then
             Refused(fault("`(?>` is an atomic group, which the dialect does not have", question))
         else if point == "#" then
-            let message = "`(?#` begins a comment in other engines, which the dialect does not have; drop it, or under the `x` flag write the comment after `#`, ending it with a newline"
-            var close = at + 1
-            while close <= size and text[close] != ")"
-                close := close + 1
-            // A comment followed by a quantifier is neither dropped nor moved:
-            // either would hand the quantifier to the piece before it.
-            if close > size or quantifiedAt(text, close + 1, flags.extended) then
-                Refused(fault(message, question))
-            else
-                let drop = writing("drop the comment", opening, close + 1, "")
-                // Under `x`, the comment written after `#` ends at a newline, so
-                // one whose text holds a newline would end early.
-                let body = slice(pattern, at + 1, close - 1)
-                if flags.extended and not String.contains(body, "\n") then
-                    let comment = writing("write the comment after `#`", opening, close + 1, "#" ++ body ++ "\n")
-                    Refused(fixed(message, question, [drop, comment]))
-                else
-                    Refused(fixed(message, question, [drop]))
+            Refused(fault("`(?#` begins a comment in other engines, which the dialect does not have; drop it, or under the `x` flag write the comment after `#`, ending it with a newline", question))
         else if point == "(" then
             Refused(fault("`(?(` is a conditional, which the dialect does not have", question))
         else if point == "R" or point == "&" or isAsciiDigit(point) then
@@ -1184,40 +1172,42 @@ let holdsCapture(expr: Expr): Bool =
     found
 
 // The count `{low,high}` past its bound on the atom written `atom`, as the
-// sequence that matches what it would: whole runs of `{bound}`, then the rest,
-// lazy where the count was. `bound` is the largest count the atom takes, 1000
-// over the product of the counts inside it (§2.5). A count whose optional part
-// would need two pieces prefers its runs in another order, so it has no such
-// sequence; nor has a reversed count, nor one that would take more than
-// `pieceLimit` pieces, whose counts `readDigits` may not have read whole, nor
-// one whose atoms would run past `sequenceLimit` codepoints.
+// sequence that matches what it would: whole runs of `{bound}`, then the rest
+// with the optional part, lazy where the count was, or, where the two pass the
+// bound together, the rest and then the optional part alone. `bound` is the
+// largest count the atom takes, 1000 over the product of the counts inside it
+// (§2.5). An optional part past the bound alone would need two pieces, which
+// prefer their runs in another order, so its count has no such sequence; nor
+// has a reversed count, nor one that would take more than `pieceLimit` pieces,
+// whose counts `readDigits` may not have read whole, nor one whose atoms would
+// run past `sequenceLimit` codepoints.
 let countSequence(atom: String, low: Int, high: Option(Int), lazy: Bool, bound: Int): Option(String) =
     let runs = if low > 0 then Int.div(low - 1, bound) else 0
     let rest = low - runs * bound
-    let reversed = match high
-        Some(value) => value < low
-        None => False
-    let long = runs >= pieceLimit or (runs + 1) * String.length(atom) > sequenceLimit
-    let last = if reversed or long then
-        None
-    else
-        match high
-            None => Some("{${rest},}")
-            Some(value) =>
-                let restHigh = value - runs * bound
-                if restHigh > bound then None
-                else if restHigh == rest then Some("{${rest}}")
-                else Some("{${rest},${restHigh}}")
-    match last
+    let tail: Option(Vector(String)) = match high
+        None => Some(["{${rest},}"])
+        Some(value) =>
+            let optional = value - low
+            if optional < 0 or optional > bound then None
+            else if optional == 0 then Some(["{${rest}}"])
+            else if rest + optional <= bound then Some(["{${rest},${rest + optional}}"])
+            else Some(["{${rest}}", "{0,${optional}}"])
+    match tail
         None => None
-        Some(count) =>
-            var chunks: Vector(String) = []
-            var run = 0
-            while run < runs
-                chunks := chunks.append(atom ++ "{${bound}}")
-                run := run + 1
-            chunks := chunks.append(atom ++ count ++ (if lazy then "?" else ""))
-            Some(String.join(Iterable.toSeq(chunks), ""))
+        Some(counts) =>
+            let pieces = runs + Vector.length(counts)
+            if pieces > pieceLimit or pieces * String.length(atom) > sequenceLimit then
+                None
+            else
+                var chunks: Vector(String) = []
+                var run = 0
+                while run < runs
+                    chunks := chunks.append(atom ++ "{${bound}}")
+                    run := run + 1
+                for count in counts
+                    chunks := chunks.append(atom ++ count)
+                if lazy then chunks := chunks.append("?")
+                Some(String.join(Iterable.toSeq(chunks), ""))
 
 // A counted repetition as written: its counts, whether it is lazy, and the span
 // from its `{` up to the codepoint after it.
@@ -1278,17 +1268,11 @@ let quantify(
                         // so that no later group's number moves.
                         let repeated = slice(pattern, last.start, position - 1)
                         let nested = "write `(?:" ++ repeated ++ ")" ++ written ++ "`"
-                        let wrapped = Rewrite({
-                            title = quoted(nested),
-                            edits = [edit(last.start, last.start, "(?:"), edit(position, position, ")")],
-                        })
                         let previousLazy = String.length(previous) > 1 and String.endsWith(previous, "?")
-                        // A possessive repetition never gives back what it took, and
-                        // the group that repeats it does, so it carries no edit.
                         if written == "+" and not previousLazy then
                             Refused(fault("`" ++ previous ++ written ++ "` is possessive repetition, which the dialect does not have; to repeat a repetition, " ++ nested, position))
                         else
-                            Refused(fixed("`" ++ previous ++ written ++ "` repeats a repetition; " ++ nested, position, [wrapped]))
+                            Refused(fault("`" ++ previous ++ written ++ "` repeats a repetition; " ++ nested, position))
                     Atom =>
                         let maximum = match high
                             Some(value) => value

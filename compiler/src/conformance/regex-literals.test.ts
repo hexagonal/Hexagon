@@ -171,14 +171,14 @@ describe("the rewrite a refusal names is a fix on the literal (§2.9, §8)", () 
 
   test("each edit spelled as the literal spells it, and the program it leaves compiles", () => {
     const cases: readonly (readonly [string, readonly (readonly [string, string])[]])[] = [
-      ['"a{1500}"', [["write the run as a sequence", '"a{1000}a{500}"']]],
-      ['"(?:x{100}){20}"', [["write the outer repetition as a sequence", '"(?:x{100}){10}(?:x{100}){10}"']]],
-      ['"a**"', [["write `(?:a*)*`", '"(?:a*)*"']]],
-      ['"\\\\p{greek}"', [["write `\\\\p{Greek}`", '"\\\\p{Greek}"']]],
-      ['"(?ii)a"', [["drop the second `i`", '"(?i)a"']]],
       // An edit that ends past the pattern's last codepoint ends before the
       // closing quote.
-      ['"(?x)a(?#c)"', [["drop the comment", '"(?x)a"'], ["write the comment after `#`", '"(?x)a#c\\n"']]],
+      ['"a{1500}"', [["write the run as a sequence", '"a{1000}a{500}"']]],
+      ['"(?:x{100}){20}"', [["write the outer repetition as a sequence", '"(?:x{100}){10}(?:x{100}){10}"']]],
+      ['"\\\\p{greek}"', [["write `\\\\p{Greek}`", '"\\\\p{Greek}"']]],
+      ['"(?ii)a"', [["drop the second `i`", '"(?i)a"']]],
+      // One that ends at the last codepoint keeps it.
+      ['"x(?ii)"', [["drop the second `i`", '"x(?i)"']]],
     ];
     for (const [literal, fixes] of cases) {
       const found = fixed(call(literal));
@@ -203,20 +203,20 @@ describe("the rewrite a refusal names is a fix on the literal (§2.9, §8)", () 
     expect(compileMain(only!.source).diagnostics).toEqual([]);
   });
 
-  test("a refusal of text the dialect gives no reading, of a limitation, or of a near miss carries no fix", () => {
-    for (const literal of ['"a(b"', '"[z-a]"', '"a\\\\"', '"x{"', '"*a"', '"\\\\p{Cyrilic}"', '"(?=a)"', '"(?<n>a)(?<n>b)"', '"(a){1500}"', '"\\\\x41"', '"(?U)a*"', '"\\\\Z"']) {
+  test("a refusal of text the dialect gives no reading, of a limitation, of a near miss, or whose rewrite would not keep the reading, carries no fix", () => {
+    for (const literal of ['"a(b"', '"[z-a]"', '"a\\\\"', '"x{"', '"*a"', '"a**"', '"(?#c)a"', '"\\\\p{Cyrilic}"', '"(?=a)"', '"(?<n>a)(?<n>b)"', '"(a){1500}"', '"\\\\x41"', '"(?U)a*"', '"\\\\Z"']) {
       expect(compileMain(call(literal)).diagnostics.map(({ fixes }) => fixes)).toEqual([undefined]);
     }
   });
 
   test("the language server offers each fix where the report is", () => {
-    const text = call('"(?x)a(?#c)"');
+    const text = call('"(?ii)a"');
     const session = new AnalysisSession();
     session.setFile("/main.hex", text);
-    const at = text.indexOf("?#");
+    const at = text.indexOf("i)a");
     expect(session.codeActions("/main.hex", { start: at, end: at }).map(({ title, edits }) =>
       [title, edits.map(({ replacement }) => replacement)]
-    )).toEqual([["drop the comment", [""]], ["write the comment after `#`", ["#c\\n"]]]);
+    )).toEqual([["drop the second `i`", [""]]]);
   });
 });
 

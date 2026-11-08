@@ -60,6 +60,9 @@ describe("an edit placed on the literal opens no interpolation (§8)", () => {
     ['"\\u{23}\\u{7B}3,1}"', "#{3,1}", { start: 2, end: 7, text: "{1,3}" }, '"\\u{23}{1,3}"'],
     // An edit whose text ends in `$` before a `{`.
     ['"[$-!{]"', "[$-!{]", { start: 2, end: 5, text: "!-$" }, '"[!-\\${]"'],
+    // A deletion that would leave a bare `#` or `$` before a `{`.
+    ['"#(?){"', "#(?){", { start: 2, end: 5, text: "" }, '"\\#{"'],
+    ['"$(?){"', "$(?){", { start: 2, end: 5, text: "" }, '"\\${"'],
   ] as const)("%s", (literal, pattern, edit, after) => {
     const file = new Source.File(Source.fileId(0), "/main.hex", `Regex.compile(${literal})`);
     const site = { pattern, span: file.span(14, 14 + literal.length) };

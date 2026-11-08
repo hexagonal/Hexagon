@@ -163,15 +163,26 @@ describe("Regex.Syntax: the rewrites a refusal names, as edits (§2.9)", () => {
   // Each rewrite: its words, then its edits as start-end=text over the
   // pattern's 1-based codepoints, `end` exclusive. A row carries an edit only
   // where the text it refuses has one reading, the dialect's or Unicode's, and
-  // the edit writes that reading: a count past its bound, a flag setting or a
-  // comment that does nothing, a loose or `^` spelling of a property, a
-  // repetition repeated. A count's runs keep the product of the counts inside
-  // the bound, so a count on an atom that holds one runs shorter.
+  // the edit writes that reading: a count past its bound, a flag setting's part
+  // that does nothing, a loose spelling of a property. A count's runs keep the
+  // product of the counts inside the bound, so a count on an atom that holds
+  // one runs shorter.
   test.each([
     ["a{1500}", "write the run as a sequence [1-8=a{1000}a{500}]"],
     ["a{2500}", "write the run as a sequence [1-8=a{1000}a{1000}a{500}]"],
     ["(?:ab){1500,}", "write the run as a sequence [1-14=(?:ab){1000}(?:ab){500,}]"],
     ["a{1500,2000}?", "write the run as a sequence [1-14=a{1000}a{500,1000}?]"],
+    // The rest and the optional part past the bound together: the optional
+    // part is a piece of its own.
+    ["a{1000,1500}", "write the run as a sequence [1-13=a{1000}a{0,500}]"],
+    ["a{1000,1500}?", "write the run as a sequence [1-14=a{1000}a{0,500}?]"],
+    ["a{1500,2400}", "write the run as a sequence [1-13=a{1000}a{500}a{0,900}]"],
+    ["a{2000,2500}", "write the run as a sequence [1-13=a{1000}a{1000}a{0,500}]"],
+    ["a{2000,3000}", "write the run as a sequence [1-13=a{1000}a{1000}a{0,1000}]"],
+    ["a{2000,3001}", ""],
+    // The optional part's own piece counts toward the 100.
+    ["a{98500,99100}", `write the run as a sequence [1-15=${"a{1000}".repeat(98)}a{500}a{0,600}]`],
+    ["a{99500,100100}", ""],
     ["a{100000}", `write the run as a sequence [1-10=${"a{1000}".repeat(100)}]`],
     ["(?:a{10}){1500}", `write the run as a sequence [1-16=${"(?:a{10}){100}".repeat(15)}]`],
     ["(?:x{100}){20}", "write the outer repetition as a sequence [1-15=(?:x{100}){10}(?:x{100}){10}]"],
@@ -192,36 +203,31 @@ describe("Regex.Syntax: the rewrites a refusal names, as edits (§2.9)", () => {
     ["(?:a{1000}){999999}", ""],
     ["(x{100}){20}", ""],
     ["(?:x{100}){2,20}", ""],
-    ["a**", "write `(?:a*)*` [1-1=(?:, 3-3=)]"],
-    ["\uD800**", "write `(?:U+D800*)*` [1-1=(?:, 3-3=)]"],
-    ["a*?*", "write `(?:a*?)*` [1-1=(?:, 4-4=)]"],
-    ["a*+", ""],
-    ["a{3}+", ""],
     ["\\p{greek}", "write `\\p{Greek}` [1-10=\\p{Greek}]"],
     ["\\p{Space}", "write `\\p{White_Space}` [1-10=\\p{White_Space}]"],
     ["\\P{gc=lu}", "write `\\P{gc=Lu}` [1-10=\\P{gc=Lu}]"],
-    ["\\p{^L}", "write `\\P{L}` [1-7=\\P{L}]"],
+    ["\\pl", "write `\\p{L}` [1-4=\\p{L}]"],
     ["\\p{Cyrilic}", ""],
     ["(?ii)a", "drop the second `i` [4-5=]"],
     ["(?-ii)a", "drop the second `i` [5-6=]"],
     ["(?-mii)a", "drop the second `i` [6-7=]"],
+    ["(?ii:a)", "drop the second `i` [4-5=]"],
+    // Nor where the setting has another defect the drop would leave.
+    ["(?ii-i)a", ""],
+    ["(?iii)a", ""],
+    ["(?iiq)a", ""],
+    ["(?ii-)a", ""],
+    ["(?ii", ""],
     ["(?i-i)a", ""],
     ["(?i-mi)a", ""],
     ["(?)a", "drop the `(?)` [1-4=]"],
     ["(?-)a", "drop the `(?-)` [1-5=]"],
     ["(?i-)a", "drop the `-` [4-5=]"],
-    ["(?#hi)a", "drop the comment [1-7=]"],
-    ["a(?#hi) *", "drop the comment [2-8=]"],
-    ["(?x)(?#hi)a", "drop the comment [5-11=] | write the comment after `#` [5-11=#hi\n]"],
-    ["(?x)(?#h\ni)a", "drop the comment [5-12=]"],
-    ["((?#hi)?:a)(b)", ""],
     // Nor where the drop would hand a quantifier to the piece before.
     ["a(?)*", ""],
     ["(?x)a(?) *", ""],
     ["a(?-){2}", ""],
     ["(?x)a(?-) *", ""],
-    ["a(?#hi)*", ""],
-    ["(?x)a(?#hi) *", ""],
   ])("%j", (pattern, rewrites) => {
     expect(rewritesOf(pattern)).toBe(rewrites);
   });
@@ -231,7 +237,10 @@ describe("Regex.Syntax: the rewrites a refusal names, as edits (§2.9)", () => {
   test.each([
     "(ab", "((a", "(?i", "(?x)(a # note", "a)", "[ab", "[]a]", "[^]a]", "[[]", "[a[]", "[a[bc]]", "[[:alpha:]]",
     "[a-\\d]", "[a-z-[aeiou]]", "[z-a]", "[xa--]", "[\uDBFF-\uD800]", "[\\b]", "x{", "a{,3}", "a{3,1}", "*a",
-    "(*FAIL)|x", "^*a", "(?i)*a", "a\\", "\\y", "\\Z", "(?U)a*", "(?-U)a",
+    "(*FAIL)|x", "^*a", "(?i)*a", "a\\", "\\y", "\\Z", "(?U)a*", "(?-U)a", "(?i-i)a",
+    // A quantifier on a quantifier, a comment group and `\p{^…}` are another
+    // engine's spellings, which the dialect refuses without reading them.
+    "a**", "a*?*", "a*+", "a?+", "a{3}+", "a*{3,1}", "(?#hi)a", "(?x)(?#hi)a", "\\p{^L}",
   ])("%j", (pattern) => {
     expect(parse(pattern)).toMatch(/^error /u);
     expect(rewritesOf(pattern)).toBe("");
@@ -240,12 +249,12 @@ describe("Regex.Syntax: the rewrites a refusal names, as edits (§2.9)", () => {
   test("each rewrite, applied, leaves a pattern that parses", () => {
     const applied: string[] = [];
     for (const pattern of ["a{1500}", "a{1500,2000}?", "(?:ab){1500,}", "(?:a{10}){1500}", "a{100000}", "(?:x{100}){20}", "(?:(?:x{100}){5}){3}", "(?:x{100}){20,}?",
-      "a**", "a*?*", "\\p{greek}", "\\p{Space}", "\\P{gc=lu}", "\\p{^L}", "(?ii)a", "(?-mii)a", "(?)a", "(?-)a", "(?i-)a", "(?#hi)a", "a(?#hi) *", "(?x)(?#hi)a"]) {
+      "a{1000,1500}", "a{1500,2400}", "a{2000,3000}", "\\p{greek}", "\\pl", "\\p{Space}", "\\P{gc=lu}", "(?ii)a", "(?-mii)a", "(?ii:a)", "(?)a", "(?-)a", "(?i-)a"]) {
       for (const each of rewritten(pattern)) applied.push(`${each} ${parse(each).startsWith("error") ? "refused" : "parses"}`);
     }
     expect(applied.filter((line) => line.endsWith("refused"))).toEqual([]);
-    expect(applied).toContain("(?:a*)* parses");
     expect(applied).toContain("a{1000}a{500} parses");
+    expect(applied).toContain("a{1000}a{0,500} parses");
   });
 
   test("a count's sequence stays near a hand-written pattern's size: 10,000 codepoints of atom in all", () => {
