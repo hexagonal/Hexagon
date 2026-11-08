@@ -1,15 +1,17 @@
 /**
- * What a colour hint's tooltip reads as, for every host that draws one: the
- * language server over LSP, and the Playground in Monaco. Written once, as
- * hover's text is (`hover-text.ts`), so the two cannot drift.
+ * What a hint's tooltip reads as, for every host that draws one: the language
+ * server over LSP, and the Playground in Monaco. Written once, as hover's text
+ * is (`hover-text.ts`), so the two cannot drift.
  */
 
 import type { InlayHint } from "../queries/inlay-hints.js";
 
 /**
- * The function's face, set as hover sets its first line, so the words in the
- * hint sit beside the arrow they read; nothing for a hint with no tooltip.
+ * The face the hint is a piece of, set as hover sets its first line, so a
+ * piece is read beside the whole it belongs to, and a colour's words beside
+ * the arrow they read. A `fun` block's head has one face for each member, one
+ * line each, set apart as hover sets its owner lines.
  */
-export function inlayHintTooltipMarkdown(hint: InlayHint): string | undefined {
-  return hint.tooltip === undefined ? undefined : `\`${hint.tooltip}\``;
+export function inlayHintTooltipMarkdown(hint: InlayHint): string {
+  return hint.tooltip.split("\n").map((face) => `\`${face}\``).join("\n\n");
 }

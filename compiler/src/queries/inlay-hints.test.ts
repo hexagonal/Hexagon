@@ -12,10 +12,16 @@ function sessionWith(text: string): AnalysisSession {
   return session;
 }
 
-/** The text with every hint drawn in: a type as `⟦…⟧` where it stands, a colour as `  ⟪…⟫`. */
+/**
+ * The text with every hint drawn in: a type as `⟦…⟧` where it stands, a colour
+ * as `  ⟪…⟫`. Hints at one offset are drawn in the order given, as an editor
+ * draws them.
+ */
 function drawn(text: string, hints: readonly InlayHint[]): string {
   let out = text;
-  for (const hint of [...hints].sort((left, right) => right.offset - left.offset)) {
+  const order = hints.map((hint, index) => ({ hint, index }))
+    .sort((left, right) => right.hint.offset - left.hint.offset || right.index - left.index);
+  for (const { hint } of order) {
     const shown = hint.kind === "colour" ? `  ⟪${hint.label}⟫` : `⟦${hint.label}⟧`;
     out = out.slice(0, hint.offset) + shown + out.slice(hint.offset);
   }
@@ -90,6 +96,16 @@ describe("inlay hints: a declaration's face, piece by piece", () => {
     ].join("\n"));
   });
 
+  test("an ascription's letters are the dev's too, and so is a lambda's written result", () => {
+    // Functions §4.1: an ascription is a fourth annotation position.
+    expect(hinted("let f(x, y) =\n    let z = (x : a)\n    (z, y)\n"))
+      .toBe("let f(x⟦: a⟧, y⟦: b⟧)⟦: (a, b)⟧ =\n    let z⟦: a⟧ = (x : a)\n    (z, y)\n");
+    expect(hinted("let outer(n) =\n    let g = (x): a => x\n    g(n)\n"))
+      .toBe("let outer(n⟦: b⟧)⟦: b⟧ =\n    let g⟦: a -> a⟧ = (x): a => x\n    g(n)\n");
+    expect(hinted("let f(xs) = Vector.map(xs, (x): a => x)\n"))
+      .toBe("let f(xs⟦: Vector(a)⟧)⟦: Vector(a)⟧ = Vector.map(xs, (x⟦: a⟧): a => x)\n");
+  });
+
   test("a written result, or a binding's written type, letters the pieces that are not written", () => {
     expect(hinted("let wrap(x): Vector(b) = [x]\n")).toBe("let wrap(x⟦: b⟧): Vector(b) = [x]\n");
     expect(hinted("let apply: (Vector(a)) -> Vector(a) = (xs) => xs.map((y) => y)\n"))
@@ -122,11 +138,37 @@ describe("inlay hints: a declaration's face, piece by piece", () => {
     expect(hinted("let f<a>(x) = x\n")).toBe("let f<a>(x⟦: b⟧)⟦: b⟧ = x\n");
   });
 
+  test("a written binder list takes the entries it leaves out, before its `>`", () => {
+    // A declaration takes one list (Functions §4.2), so the rest of the face's goes in it.
+    expect(hinted('let describe<a: Show>(label: a, value) = "${label}: ${value}"\n'))
+      .toBe('let describe<a: Show⟦, b: Show⟧>(label: a, value⟦: b⟧)⟦: String⟧ = "${label}: ${value}"\n');
+    expect(hinted('fun pick<a: (Eq, Show)>(x: a, y) = if x == x then "${y}" else ""\n'))
+      .toBe('fun pick<a: (Eq, Show)⟦, b: Show⟧>(x: a, y⟦: b⟧)⟦: String⟧ = if x == x then "${y}" else ""\n');
+    expect(hinted('let h = <a: Show>(x: a, y) => "${x}${y}"\n'))
+      .toBe('let h⟦: (a, b) -> String⟧ = <a: Show⟦, b: Show⟧>(x: a, y) => "${x}${y}"\n');
+    expect(hinted('let alias<a: Show> = (x: a, y) => "${x}${y}"\n'))
+      .toBe('let alias<a: Show⟦, b: Show⟧>⟦: (a, b) -> String⟧ = (x: a, y) => "${x}${y}"\n');
+    // Written out, a header's list compiles to the same face.
+    const text = 'module Main\n\nlet describe<a: Show>(label: a, value) = "${label}: ${value}"\n';
+    const session = sessionWith(text);
+    const face = (source: string) => session.hover("/main.hex", source.indexOf("describe"))?.displayedType;
+    const before = face(text);
+    const out = written(text, session.inlayHints("/main.hex"));
+    session.setFile("/main.hex", out);
+    expect(session.diagnostics("/main.hex")).toEqual([]);
+    expect(face(out)).toBe(before);
+    expect(before).toBe("<a: Show, b: Show> (a, b) -> String");
+  });
+
   test("what is written takes no hint: a parameter's type, the result, the binder list", () => {
     expect(hinted("let both<a: Show>(x: a, y: Int): String = \"${x}${y}\"\n"))
       .toBe("let both<a: Show>(x: a, y: Int): String = \"${x}${y}\"\n");
     // A result written up to a `)` of its own is still written.
     expect(hinted("let wrap(x: Int): Vector(Int) = [x]\n")).toBe("let wrap(x: Int): Vector(Int) = [x]\n");
+  });
+
+  test("a comment between the name and the parameters leaves a header a header", () => {
+    expect(hinted("let f (* c *) (x) = x + 1\n")).toBe("let f⟦<a: Num>⟧ (* c *) (x⟦: a⟧)⟦: a⟧ = x + 1\n");
   });
 
   test("a pattern parameter takes no hint: it has no name to stand after", () => {
@@ -209,6 +251,16 @@ describe("inlay hints: a function's colour in words", () => {
     expect(colour?.offset).toBe(text.indexOf('save!("x")\r\n') + 'save!("x")'.length);
   });
 
+  test("two functions on one line: the first one's words at its own end, where they read as its", () => {
+    expect(hinted(`${SAVE}let a() = save!("x"); let b() = 1\n`))
+      .toBe(`${SAVE}let a()⟦: Unit⟧ = save!("x")  ⟪impure; may fail⟫; let b()⟦: Int⟧ = 1\n`);
+  });
+
+  test("a header whose `=` starts the next line: at the end of the line the header's last piece is on", () => {
+    expect(hinted(`${SAVE}let g(x)\n    = save!(x)\n`))
+      .toBe(`${SAVE}let g(x⟦: String⟧)⟦: Unit⟧  ⟪impure; may fail⟫\n    = save!(x)\n`);
+  });
+
   test("on an exported function, whose types are all written, the colour is its only hint", () => {
     expect(hinted("export let apply2(f: () ->! Unit, g: () ->! Unit): Unit =\n    f!()\n    g!()\n"))
       .toBe("export let apply2(f: () ->! Unit, g: () ->! Unit): Unit =  ⟪impure only if `f` or `g` is; may fail only if `f` or `g` may⟫\n    f!()\n    g!()\n");
@@ -242,6 +294,28 @@ describe("inlay hints: bindings, lambdas and patterns", () => {
   test("a binding whose lambda writes the binder list takes none on its name", () => {
     expect(hinted("let plus = <a: Num>(x: a, y: a): a => x + y\n"))
       .toBe("let plus⟦: (a, a) -> a⟧ = <a: Num>(x: a, y: a): a => x + y\n");
+  });
+
+  test("every hint's tooltip is the whole face of the declaration it is a piece of", () => {
+    const tooltips = (body: string): readonly (readonly [string, string])[] => {
+      const session = sessionWith(`module Main\n\n${body}`);
+      return session.inlayHints("/main.hex").map(({ label, tooltip }) => [label, tooltip] as const);
+    };
+    // Lettered as the hints are, not as hover letters each face on its own.
+    expect(tooltips("let pairUp(first, second) =\n    let swap = (p) => p\n    swap((first, second))\n")).toEqual([
+      [": a", "pairUp: (a, b) -> (a, b)"],
+      [": b", "pairUp: (a, b) -> (a, b)"],
+      [": (a, b)", "pairUp: (a, b) -> (a, b)"],
+      [": c -> c", "swap: c -> c"],
+    ]);
+    // A lambda has no name, so its face is its type; a pattern's name, its own.
+    expect(tooltips("let sums = [1].map((n) => n + 1)\nlet (x, y) as both = (1, sums)\n")).toEqual([
+      [": Vector(Int)", "sums: Vector(Int)"],
+      [": Int", "Int -> Int"],
+      [": Int", "x: Int"],
+      [": Vector(Int)", "y: Vector(Int)"],
+      [": (Int, Vector(Int))", "both: (Int, Vector(Int))"],
+    ]);
   });
 
   test("a binding that writes its binder list on its name shows its type after the list", () => {
@@ -321,6 +395,17 @@ describe("inlay hints: bindings, lambdas and patterns", () => {
     ].join("\n"));
   });
 
+  test("an instance member's colour, in words at the end of its header's line", () => {
+    expect(hinted(`${SAVE}constraint Loud<a> =\n    loud(s: a) ->! String\nhonor Loud<Int> =\n    loud(s) =\n        save!("x")\n        "y"\n`))
+      .toBe(`${SAVE}constraint Loud<a> =\n    loud(s: a) ->! String\nhonor Loud<Int> =\n    loud(s⟦: Int⟧) =  ⟪impure; may fail⟫\n        save!("x")\n        "y"\n`);
+  });
+
+  test("an instance member the parser recovered without its `=` takes no colour from the next `=`", () => {
+    const fetch = 'extern from "./world.js"\n    export fun fetch(key: String) ->! String\n';
+    expect(hinted(`${fetch}constraint Loud<a> =\n    loud(s: a) ->! String\nhonor Loud<Int> =\n    loud(s) fetch!("x")\nlet other = 1\n`))
+      .toBe(`${fetch}constraint Loud<a> =\n    loud(s: a) ->! String\nhonor Loud<Int> =\n    loud(s⟦: Int⟧) fetch!("x")\nlet other⟦: Int⟧ = 1\n`);
+  });
+
   test("an instance's own letters are the honor head's", () => {
     expect(hinted([
       "record Box(a) = { value: a }",
@@ -335,7 +420,15 @@ describe("inlay hints: bindings, lambdas and patterns", () => {
     ].join("\n"));
   });
 
-  test("a `fun` block's members letter together, and take no binder list of their own", () => {
+  test("an `as` name takes its type; a record field's pun takes none, having no place for one", () => {
+    expect(hinted('let (p, q) as pair = (1, "x")\nlet r = {guest = "x", seats = 2}\nlet {guest, seats = s} = r\n')).toBe(
+      'let (p⟦: Int⟧, q⟦: String⟧) as pair⟦: (Int, String)⟧ = (1, "x")\n' +
+        "let r⟦: {guest: String, seats: Int}⟧ = {guest = \"x\", seats = 2}\nlet {guest, seats = s⟦: Int⟧} = r\n",
+    );
+  });
+
+  test("a `fun` block's members letter together, and their binder list is the block's, on its head", () => {
+    // Functions §7.3: a block's members take no list of their own; the head's is theirs.
     expect(hinted([
       "fun",
       "    isEven(n) = if n == 0 then True else isOdd(n - 1)",
@@ -343,7 +436,7 @@ describe("inlay hints: bindings, lambdas and patterns", () => {
       "fun count(xs) = xs",
       "",
     ].join("\n"))).toBe([
-      "fun",
+      "fun⟦<a: (Eq, Signed)>⟧",
       "    isEven(n⟦: a⟧)⟦: Bool⟧ = if n == 0 then True else isOdd(n - 1)",
       "    isOdd(n⟦: a⟧)⟦: Bool⟧ = if n == 0 then False else isEven(n - 1)",
       "fun count(xs⟦: a⟧)⟦: a⟧ = xs",
@@ -362,6 +455,49 @@ describe("inlay hints: bindings, lambdas and patterns", () => {
       "",
     ].join("\n"));
   });
+
+  test("a `fun` block's head: each member's entries, the ones it writes kept, its members' faces as its tooltip", () => {
+    expect(hinted('fun\n    twice(n) = n + n\n    say(x) = "${x}"\n'))
+      .toBe('fun⟦<a: Num, b: Show>⟧\n    twice(n⟦: a⟧)⟦: a⟧ = n + n\n    say(x⟦: b⟧)⟦: String⟧ = "${x}"\n');
+    expect(hinted('fun<a: Num>\n    twice(n: a) = n + n\n    say(x) = "${x}"\n'))
+      .toBe('fun<a: Num⟦, b: Show⟧>\n    twice(n: a)⟦: a⟧ = n + n\n    say(x⟦: b⟧)⟦: String⟧ = "${x}"\n');
+    const text = "module Main\n\nfun\n    twice(n) = n + n\n";
+    expect(sessionWith(text).inlayHints("/main.hex")[0]).toEqual({
+      offset: text.indexOf("fun") + 3,
+      label: "<a: Num>",
+      kind: "type",
+      tooltip: "twice: <a: Num> a -> a",
+    });
+    const two = sessionWith('module Main\n\nfun\n    twice(n) = n + n\n    say(x) = "${x}"\n').inlayHints("/main.hex");
+    expect(two[0]?.tooltip).toBe("twice: <a: Num> a -> a\nsay: <b: Show> b -> String");
+  });
+
+  test("no list on a `fun` block's head where two members spell their own variables alike", () => {
+    // On the head, the two `a`s would be one variable (Functions §7.3).
+    expect(hinted('fun\n    f(x: a) = x + x\n    g(y: a) = "${y}"\n'))
+      .toBe('fun\n    f(x: a)⟦: a⟧ = x + x\n    g(y: a)⟦: String⟧ = "${y}"\n');
+  });
+
+  test("written out, a `fun` block's hints compile to the same faces", () => {
+    const text = [
+      "module Main",
+      "",
+      "fun",
+      "    isEven(n) = if n == 0 then True else isOdd(n - 1)",
+      "    isOdd(n) = if n == 0 then False else isEven(n - 1)",
+      "    twice(m) = m + m",
+      "",
+    ].join("\n");
+    const session = sessionWith(text);
+    const faces = (source: string) =>
+      ["isEven", "isOdd", "twice"].map((name) => session.hover("/main.hex", source.indexOf(`${name}(`))?.displayedType);
+    const before = faces(text);
+    const out = written(text, session.inlayHints("/main.hex"));
+    expect(out).toContain("fun<a: (Eq, Signed), b: Num>\n");
+    session.setFile("/main.hex", out);
+    expect(session.diagnostics("/main.hex")).toEqual([]);
+    expect(faces(out)).toEqual(before);
+  });
 });
 
 describe("inlay hints: what the host asks for", () => {
@@ -370,6 +506,29 @@ describe("inlay hints: what the host asks for", () => {
     expect(drawn(text, sessionWith(text).inlayHints("/main.hex"))).toBe(
       "module First\n\nlet two(x⟦: a⟧)⟦: a⟧ = x\n\nend module First\n\nmodule Second\n\nlet three(y⟦: a⟧)⟦: Vector(a)⟧ = [y]\n",
     );
+  });
+
+  test("a range that starts inside a declaration shows its hints as the whole file does", () => {
+    const text = "module Main\n\nlet pairUp(first, second) =\n    let swap = (p) => p\n    swap((first, second))\nlet other(z) = z\n";
+    const session = sessionWith(text);
+    const start = text.indexOf("let swap");
+    const end = text.indexOf("let other") - 1;
+    expect(session.inlayHints("/main.hex", { start, end }))
+      .toEqual(session.inlayHints("/main.hex").filter(({ offset }) => offset >= start && offset <= end));
+    expect(session.inlayHints("/main.hex", { start, end }).map(({ label }) => label)).toEqual([": c -> c"]);
+  });
+
+  test("a range that holds only a hint drawn outside its declaration's items still shows it", () => {
+    // A `fun` block's list stands on its head, before its members; a colour
+    // after a comment, past its function's end.
+    const block = "module Main\n\nfun\n    twice(n) = n + n\n";
+    const head = block.indexOf("fun") + 3;
+    expect(sessionWith(block).inlayHints("/main.hex", { start: head, end: head }).map(({ label }) => label))
+      .toEqual(["<a: Num>"]);
+    const line = `module Main\n\n${SAVE}let save1() = save!("x") // once\nlet two(y) = y\n`;
+    const end = line.indexOf(" // once") + " // once".length;
+    expect(sessionWith(line).inlayHints("/main.hex", { start: end, end }).map(({ label }) => label))
+      .toEqual(["impure; may fail"]);
   });
 
   test("only the range shown", () => {
@@ -407,5 +566,23 @@ describe("inlay hints: what the host asks for", () => {
     // The checker's own guess at a body that calls a name it cannot find.
     expect(hinted("let broken(x) =\n    let y: Int = x\n    missing(y)\n"))
       .toBe("let broken(x⟦: Int⟧) =\n    let y: Int = x\n    missing(y)\n");
+  });
+
+  test("nor a colour in error, which reads as the impure arrow but claims nothing", () => {
+    // Effects §3.5: what a function does where the program failed to say it.
+    expect(hinted("let broken(x: Int): Int =\n    missing(x)\n    x\n"))
+      .toBe("let broken(x: Int): Int =\n    missing(x)\n    x\n");
+    expect(hinted("let pick(r) =\n    r.go()\n    1\n")).toBe("let pick(r⟦: a⟧)⟦: Int⟧ =\n    r.go()\n    1\n");
+    // Only its fail colour in error: a `throw` written without its mark.
+    const requireName = "let requireName(o: Option(String)): String =\n    match o\n        Some(name) => name\n        None => throw(NotFound)\n";
+    expect(hinted(requireName)).toBe(requireName);
+    // Only its world colour in error: a mark that names no callee.
+    const twice = "export let twice(action: () ->! Unit): Unit =\n    step?()\n";
+    expect(hinted(twice)).toBe(twice);
+    // Nor a type holding one: a binding's arrow, a lambda's parameter, a bare one's pair.
+    expect(hinted("let run = () =>\n    missing(1)\n    1\n")).toBe("let run = () =>\n    missing(1)\n    1\n");
+    expect(hinted('let (p, q) = (() => missing(1), "x")\n')).toBe('let (p, q⟦: String⟧) = (() => missing(1), "x")\n');
+    expect(hinted("let ys = [() => missing(1)].map((f) => 1)\nlet zs = [() => missing(1)].map(f => 1)\n"))
+      .toBe("let ys⟦: Vector(Int)⟧ = [() => missing(1)].map((f) => 1)\nlet zs⟦: Vector(Int)⟧ = [() => missing(1)].map(f => 1)\n");
   });
 });

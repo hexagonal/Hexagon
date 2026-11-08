@@ -367,27 +367,44 @@ let report<a: (Num, Show)>(rows: Vector(Vector(a))): Unit =    impure; cannot fa
 ```
 
 The binder list stands after the name (Functions §4.2), each parameter's type
-after the parameter, the result after the parameter list. A header has no place
-for its outer arrow, since a definition's colour is inferred and never written
-(Functions §4.1), so the colour is shown in hover's words (Effects §10's gloss)
-at the end of the header's line, only where the arrow is not `->`, with the face
-as its tooltip, set as hover sets its first line (`inlayHintTooltipMarkdown`,
-shared with the Playground). A `let` or `var` with no written type shows its
-type after its name, a constrained one its binder list there too, and one that
+after the parameter, the result after the parameter list. A `fun` block's
+members take no list of their own, so theirs stands on the block's head,
+`fun<a: (Eq, Signed)>`, one list for the block (§7.3); where two members spell
+their own variables alike, a list on the head would make them one variable, so
+none is drawn. A list the dev wrote takes the entries it leaves out, before its
+`>` (`<a: Show, b: Show>`), since a declaration takes one list. A header has no
+place for its outer arrow, since a definition's colour is inferred and never
+written (Functions §4.1), so the colour is shown in hover's words (Effects §10's
+gloss) at the end of the line the header ends on, only where the arrow is not
+`->`. On a one-line function that more code follows on its line
+(`let a() = save!("x"); let b() = 1`), the words stand at the function's own
+end, so they read as its. A `let` or `var` with no written type shows its type
+after its name, a constrained one its binder list there too, and one that
 writes its binder list on its name shows its type after the list, where
 `: type` is written (#1047). A lambda's parameters show theirs, a bare
 `x => …` in the parentheses a written type needs; a `let` pattern's names show
-theirs. Not hinted: what is written, a lambda's result, a lambda that is a
-binding's whole value (the binding's type already says it), a pattern outside a
-`let`, a pattern parameter, and a type with an error in it, nor a colour whose
-face has one.
+theirs, an `as` name included. An instance's member shows its parameters and
+its colour, but not its result, which the parser does not yet take there
+(#1484). Not hinted: what is written (a hole, `x: _`, included), a lambda's
+result, a lambda that is a binding's whole value (the binding's type already
+says it), a record field's pun (`{guest}` has no place for a type), a pattern
+outside a `let`, a pattern parameter, and a type with an error in it, nor a
+colour whose face has one, a colour in error included (it reads as the impure
+arrow, but claims nothing).
+
+Every hint's tooltip is the whole face of the declaration it is a piece of,
+lettered as the hints are and set as hover sets its first line
+(`inlayHintTooltipMarkdown`, shared with the Playground): a parameter's is its
+function's, a colour's is the face whose arrow its words read, a lambda's is
+its type, and a `fun` block head's has each member's face, one line each.
 
 One declaration is lettered once (`Typed.Letters`). Hover letters each name's
 type from `a` on its own, so `first: a` and `second: a` stand beside
 `pairUp: (a, b) -> (a, b)`; drawn side by side, as hints are, that would claim
 a tie the function does not have, since a type variable written anywhere in one
 declaration is one variable (Functions §4.1). The dev's own spellings come
-first, and a minted letter never takes one the declaration writes anywhere,
+first, from every annotation position, ascriptions and a lambda's written result
+included, and a minted letter never takes one the declaration writes anywhere,
 even one written only in a binder list or inside a type alias's arguments.
 Through an alias nothing is paired, since an alias may reorder its arguments,
 so a hint there takes a letter of its own, and is not one a dev could write
@@ -402,10 +419,13 @@ A hint is never written: it carries no `textEdits`, because a written type binds
 one does nothing. Written into the 110 programs of the book and the Playground
 that have type hints, every hint but a pattern's (a pattern takes no type; its
 hint is display only, as rust-analyzer's is), each program compiles to the same
-faces. Where a face is a display a source cannot write (a local's captured
-colour, a function under a type argument read both ways, a knot's shared
-variable, which only a `fun` block's head can declare), the hint shows it as
-hover does.
+faces. Where a face is a display a source cannot write, the hint shows it as
+hover does: a local's captured colour, a function under a type argument read
+both ways, and a knot's shared variable with no constraint, which only a
+`<a>` on the block's head can declare, and which the head's hint, being the
+members' faces' lists, does not show. A binding whose lambda writes its own
+binder list shows the binding's true type, which the checker refuses written
+beside that list today (#1483).
 
 Two settings, `hexagon.inlayHints.types` and `hexagon.inlayHints.colours`, both
 on by default, are read from the client through `workspace/configuration`, and

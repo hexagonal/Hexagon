@@ -226,8 +226,8 @@ export class PlaygroundAnalysis {
 
   /**
    * The hints whose offsets fall in `range`, ends included, as the language
-   * server sends them: the session's own, at buffer offsets, the colour's
-   * tooltip worded once for both. A hint the buffer cannot show is left out.
+   * server sends them: the session's own, at buffer offsets, each tooltip
+   * worded once for both. A hint the buffer cannot show is left out.
    */
   inlayHints(source: string, range: BufferRange): readonly PlaygroundInlayHint[] {
     const layout = this.#sync(source);
@@ -242,13 +242,7 @@ export class PlaygroundAnalysis {
         // the one place that knows the buffer is that file.
         const offset = layout.map.toBuffer(start.path, hint.offset);
         if (offset === undefined) return [];
-        const tooltip = inlayHintTooltipMarkdown(hint);
-        return [{
-          offset,
-          label: hint.label,
-          kind: hint.kind,
-          ...(tooltip === undefined ? {} : { tooltip }),
-        }];
+        return [{ offset, label: hint.label, kind: hint.kind, tooltip: inlayHintTooltipMarkdown(hint) }];
       });
   }
 

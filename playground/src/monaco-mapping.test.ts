@@ -322,9 +322,14 @@ describe("toSignatureHelp", () => {
 });
 
 describe("toInlayHint", () => {
-  test("a type is a `Type` hint, drawn where it stands, with nothing else", () => {
-    expect(toInlayHint({ offset: 25, label: ": Int", kind: "type" }, { line: 3, column: 13 }))
-      .toEqual({ label: ": Int", position: { line: 3, column: 13 }, kind: "Type" });
+  test("a type is a `Type` hint, drawn where it stands, with its face, untrusted", () => {
+    expect(toInlayHint({ offset: 25, label: ": Int", kind: "type", tooltip: "`x: Int`" }, { line: 3, column: 13 }))
+      .toEqual({
+        label: ": Int",
+        position: { line: 3, column: 13 },
+        kind: "Type",
+        tooltip: { value: "`x: Int`", isTrusted: false },
+      });
   });
 
   test("a colour has no kind, stands apart from its line, and carries its face, untrusted", () => {
@@ -339,11 +344,10 @@ describe("toInlayHint", () => {
     });
   });
 
-  test("leaves out the tooltip the session did not send, and never carries an edit", () => {
-    const mapped = toInlayHint({ offset: 9, label: "impure", kind: "colour" }, 9);
-
-    expect("tooltip" in mapped).toBe(false);
-    expect("textEdits" in mapped).toBe(false);
+  test("never carries an edit", () => {
+    expect("textEdits" in toInlayHint({ offset: 9, label: ": Int", kind: "type", tooltip: "`x: Int`" }, 9)).toBe(false);
+    expect("textEdits" in toInlayHint({ offset: 9, label: "impure", kind: "colour", tooltip: "`f: () ->! Unit`" }, 9))
+      .toBe(false);
   });
 });
 

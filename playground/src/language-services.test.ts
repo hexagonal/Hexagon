@@ -188,7 +188,7 @@ describe("createLanguageServices", () => {
     expect(sent).toMatchObject([
       { kind: "inlay-hints", version: 5, source, startOffset: 13, endOffset: 35 },
     ]);
-    const hints = [{ offset: 25, label: ": Int", kind: "type" as const }];
+    const hints = [{ offset: 25, label: ": Int", kind: "type" as const, tooltip: "`double: Int -> Int`" }];
     reply({ kind: "inlay-hints", id: 0, version: 5, hints });
     expect(await answer).toEqual(hints);
 

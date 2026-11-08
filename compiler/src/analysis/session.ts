@@ -869,10 +869,9 @@ export class AnalysisSession {
     const modules = this.#analyze().modulesIn(normalized);
     if (modules.length === 0) return [];
     const lexed = lex(new Source.File(fileId, normalized, text));
-    const hints = modules.flatMap(({ parsed, typed }) => inlayHints({ parsed, typed, lexed }));
-    return range === undefined
-      ? hints
-      : hints.filter(({ offset }) => offset >= range.start && offset <= range.end);
+    return modules.flatMap(({ parsed, typed }) =>
+      inlayHints({ parsed, typed, lexed, ...(range === undefined ? {} : { range }) })
+    );
   }
 
   /**

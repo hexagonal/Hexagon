@@ -44,19 +44,15 @@ export function toLspInlayHints(
   settings: InlayHintSettings,
 ): InlayHint[] {
   return hints.flatMap((hint): InlayHint[] => {
+    // Every hint's tooltip is the face it is a piece of (LANGUAGE-SERVER-D3.md, point 2).
+    const tooltip = { kind: MarkupKind.Markdown, value: inlayHintTooltipMarkdown(hint) };
     if (hint.kind === "type") {
       if (!settings.types) return [];
-      return [{ position: positionAt(hint.offset), label: hint.label, kind: InlayHintKind.Type }];
+      return [{ position: positionAt(hint.offset), label: hint.label, kind: InlayHintKind.Type, tooltip }];
     }
     if (!settings.colours) return [];
     // Neither a type nor a parameter name, so no kind: words, set off from
     // the line they end, with the face whose arrow they read beside them.
-    const tooltip = inlayHintTooltipMarkdown(hint);
-    return [{
-      position: positionAt(hint.offset),
-      label: hint.label,
-      paddingLeft: true,
-      ...(tooltip === undefined ? {} : { tooltip: { kind: MarkupKind.Markdown, value: tooltip } }),
-    }];
+    return [{ position: positionAt(hint.offset), label: hint.label, paddingLeft: true, tooltip }];
   });
 }

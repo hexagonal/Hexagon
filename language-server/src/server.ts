@@ -114,8 +114,12 @@ export function startServer(connection: Connection): void {
   let configurationPull = false;
   let configurationChanges = false;
   let inlayHintRefresh = false;
-  /** The inlay hint settings as last read, until a change is announced. */
-  let inlayHintSettingsRead: InlayHintSettings | undefined;
+  /**
+   * The inlay hint settings as last read, until a change is announced: the
+   * read itself, so requests that arrive while it is out wait on it rather than
+   * each asking again.
+   */
+  let inlayHintSettingsRead: Promise<InlayHintSettings> | undefined;
   let roots: readonly string[] = [];
   /**
    * Whether this client takes a `WorkspaceEdit`'s `documentChanges` — which is
@@ -220,8 +224,11 @@ export function startServer(connection: Connection): void {
     schedulePublish();
     // Only this section: a change anywhere else in the settings says nothing
     // about the hints, and the client sends one notification per change.
+    // A client that refuses it still has its files watched, below.
     if (configurationChanges) {
-      await connection.client.register(DidChangeConfigurationNotification.type, { section: "hexagon.inlayHints" });
+      await connection.client
+        .register(DidChangeConfigurationNotification.type, { section: "hexagon.inlayHints" })
+        .catch(() => undefined);
     }
     if (!watchedFilesRegistered) return;
     // Files can change without ever being opened — a branch switch, a formatter,
@@ -386,13 +393,19 @@ export function startServer(connection: Connection): void {
   /**
    * The inlay hint settings, read from the client the first time hints are
    * asked for after a change, and the defaults for a client that has no
-   * settings to read.
+   * settings to read. A read that fails shows every hint and is not kept, so
+   * the next request asks again.
    */
-  const inlayHintSettings = async (): Promise<InlayHintSettings> => {
-    if (!configurationPull) return DEFAULT_INLAY_HINT_SETTINGS;
+  const inlayHintSettings = (): Promise<InlayHintSettings> => {
+    if (!configurationPull) return Promise.resolve(DEFAULT_INLAY_HINT_SETTINGS);
     if (inlayHintSettingsRead === undefined) {
-      const read = await connection.workspace.getConfiguration("hexagon.inlayHints").catch(() => undefined);
-      inlayHintSettingsRead = inlayHintSettingsOf(read);
+      inlayHintSettingsRead = connection.workspace.getConfiguration("hexagon.inlayHints").then(
+        inlayHintSettingsOf,
+        () => {
+          inlayHintSettingsRead = undefined;
+          return DEFAULT_INLAY_HINT_SETTINGS;
+        },
+      );
     }
     return inlayHintSettingsRead;
   };

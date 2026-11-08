@@ -65,7 +65,7 @@ describe("createCompilerService", () => {
       kind: "inlay-hints",
       id: 9,
       version: 4,
-      hints: [{ offset: hinted.indexOf(" = n"), label: ": Int", kind: "type" }],
+      hints: [{ offset: hinted.indexOf(" = n"), label: ": Int", kind: "type", tooltip: "`double: Int -> Int`" }],
     });
     expect(service.handle({ kind: "definition", ...asked, offset: caret })).toMatchObject({
       kind: "definition",

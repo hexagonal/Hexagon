@@ -764,17 +764,19 @@ describe("the Hexagon language server", () => {
         expect(asked).toEqual([]);
         const first = positionOf(SOURCE, "first,");
         const doc = positionOf(SOURCE, "doc)");
+        const pairUp = { kind: "markdown", value: "`pairUp: (a, b) -> (a, b)`" };
+        const saveTwice = { kind: "markdown", value: "`saveTwice: String ->! Unit`" };
         expect(hints).toEqual([
-          { position: { line: first.line, character: first.character + 5 }, label: ": a", kind: 1 },
-          { position: { line: first.line, character: first.character + 13 }, label: ": b", kind: 1 },
-          { position: { line: first.line, character: first.character + 14 }, label: ": (a, b)", kind: 1 },
-          { position: { line: doc.line, character: doc.character + 3 }, label: ": String", kind: 1 },
-          { position: { line: doc.line, character: doc.character + 4 }, label: ": Unit", kind: 1 },
+          { position: { line: first.line, character: first.character + 5 }, label: ": a", kind: 1, tooltip: pairUp },
+          { position: { line: first.line, character: first.character + 13 }, label: ": b", kind: 1, tooltip: pairUp },
+          { position: { line: first.line, character: first.character + 14 }, label: ": (a, b)", kind: 1, tooltip: pairUp },
+          { position: { line: doc.line, character: doc.character + 3 }, label: ": String", kind: 1, tooltip: saveTwice },
+          { position: { line: doc.line, character: doc.character + 4 }, label: ": Unit", kind: 1, tooltip: saveTwice },
           {
             position: { line: doc.line, character: doc.character + 6 },
             label: "impure; may fail",
             paddingLeft: true,
-            tooltip: { kind: "markdown", value: "`saveTwice: String ->! Unit`" },
+            tooltip: saveTwice,
           },
         ]);
         // Only the lines asked about: `saveTwice`'s header line, not `pairUp`'s.
@@ -810,8 +812,10 @@ describe("the Hexagon language server", () => {
       });
       try {
         expect(await registered).toEqual({ section: "hexagon.inlayHints" });
-        expect((await hintsOf(hex))?.map(({ label }) => label)).toEqual(["impure; may fail"]);
-        // Read once, and not again while nothing has changed.
+        // Read once, by the first two requests together, and not again while nothing has changed.
+        const [first, second] = await Promise.all([hintsOf(hex), hintsOf(hex)]);
+        expect(first?.map(({ label }) => label)).toEqual(["impure; may fail"]);
+        expect(second?.map(({ label }) => label)).toEqual(["impure; may fail"]);
         await hintsOf(hex);
         expect(asked).toEqual([{ section: "hexagon.inlayHints" }]);
         settings = { types: true, colours: false };
@@ -825,12 +829,46 @@ describe("the Hexagon language server", () => {
       }
     });
 
-    test("a client that fails to answer for its settings sees every hint", async () => {
-      // It says it can be asked, and has no handler, so the request fails.
+    test("a client that fails to answer for its settings sees every hint, and is asked again", async () => {
       const hex = await harness(FILES, { workspace: { configuration: true } });
+      let answers = 0;
+      hex.client.onRequest("workspace/configuration", () => {
+        answers += 1;
+        if (answers === 1) throw new Error("no settings yet");
+        return [{ types: false }];
+      });
       try {
         expect((await hintsOf(hex))?.map(({ label }) => label))
           .toEqual([": a", ": b", ": (a, b)", ": String", ": Unit", "impure; may fail"]);
+        expect((await hintsOf(hex))?.map(({ label }) => label)).toEqual(["impure; may fail"]);
+        expect(answers).toBe(2);
+      } finally {
+        await hex.dispose();
+      }
+    });
+
+    test("a client that refuses the settings registration still has its files watched", async () => {
+      const hex = await harness(FILES, {
+        workspace: {
+          configuration: true,
+          didChangeConfiguration: { dynamicRegistration: true },
+          didChangeWatchedFiles: { dynamicRegistration: true },
+        },
+      });
+      const methods: string[] = [];
+      const watched = new Promise<void>((resolve) => {
+        hex.client.onRequest("client/registerCapability", (params: { registrations: { method: string }[] }) => {
+          for (const { method } of params.registrations) methods.push(method);
+          if (params.registrations.some(({ method }) => method === "workspace/didChangeConfiguration")) {
+            throw new Error("not this one");
+          }
+          resolve();
+          return null;
+        });
+      });
+      try {
+        await watched;
+        expect(methods).toEqual(["workspace/didChangeConfiguration", "workspace/didChangeWatchedFiles"]);
       } finally {
         await hex.dispose();
       }

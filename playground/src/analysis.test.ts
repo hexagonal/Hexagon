@@ -824,18 +824,13 @@ describe("inlay hints", () => {
   const after = (text: string): number => source.indexOf(text) + text.length;
   const all = { startOffset: 0, endOffset: source.length };
 
-  test("the session's hints at buffer offsets, a colour's face worded as the language server words it", () => {
-    // Strict: a type hint carries no tooltip key at all, as the server's has none.
+  test("the session's hints at buffer offsets, each face worded as the language server words it", () => {
+    const face = "`parseRow: String ->^ Vector(Int)`";
     expect(new PlaygroundAnalysis().inlayHints(source, all)).toStrictEqual([
-      { offset: after("parseRow(line"), label: ": String", kind: "type" },
-      { offset: after("parseRow(line)"), label: ": Vector(Int)", kind: "type" },
-      { offset: after("((word"), label: ": String", kind: "type" },
-      {
-        offset: after("Int.parse^(word))"),
-        label: "pure; may fail",
-        kind: "colour",
-        tooltip: "`parseRow: String ->^ Vector(Int)`",
-      },
+      { offset: after("parseRow(line"), label: ": String", kind: "type", tooltip: face },
+      { offset: after("parseRow(line)"), label: ": Vector(Int)", kind: "type", tooltip: face },
+      { offset: after("((word"), label: ": String", kind: "type", tooltip: "`String ->^ Int`" },
+      { offset: after("Int.parse^(word))"), label: "pure; may fail", kind: "colour", tooltip: face },
     ]);
   });
 

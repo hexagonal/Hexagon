@@ -214,8 +214,8 @@ export interface PlaygroundInlayHint {
   readonly label: string;
   /** `type`: a type, where one could be written. `colour`: a function's colour in words. */
   readonly kind: "type" | "colour";
-  /** For a colour: the function's face, as Markdown. */
-  readonly tooltip?: string;
+  /** The face the hint is a piece of, as Markdown. */
+  readonly tooltip: string;
 }
 
 export interface PlaygroundRenameSubject {

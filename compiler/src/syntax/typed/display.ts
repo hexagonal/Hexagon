@@ -47,8 +47,9 @@ export function displayFace(
  * A face as `displayFace` shows it, and where in that text each piece of its
  * outer arrow stands, as `[start, end)` offsets: each parameter, which
  * signature help highlights as it is written, and the result. The binder list
- * is given apart, without the space that sets it off. A face that is not a
- * function has no parameters and no result.
+ * is given apart, without the space that sets it off, and so is each of its
+ * entries, by the type it constrains. A face that is not a function has no
+ * parameters and no result.
  *
  * The positions come from the same pieces the text is built from, so the two
  * cannot disagree.
@@ -65,6 +66,7 @@ export function displayCallFace(
   readonly type: string;
   readonly owners: readonly string[];
   readonly binder: string;
+  readonly binderEntries: readonly BinderEntry[];
   readonly parameters: readonly (readonly [number, number])[];
   readonly result?: readonly [number, number];
 } {
@@ -72,18 +74,26 @@ export function displayCallFace(
   const variables = letters === undefined
     ? variableNames(scheme, colours)
     : letters.letter(variableOrder(scheme, colours));
-  const constraints = displayConstraints(scheme, variables);
-  const binder = constraints.trimEnd();
+  const binderEntries = displayConstraints(scheme, variables);
+  const binder = binderEntries.length === 0 ? "" : `<${binderEntries.map(({ text }) => text).join(", ")}>`;
+  const constraints = binder === "" ? "" : `${binder} `;
   const chosen = new Set(scheme.callersChoice ?? []);
   const owners = ownerLines(scheme, context);
   if (scheme.type.kind !== "Function") {
-    return { type: `${constraints}${displayType(scheme.type, variables, "spine", chosen)}`, owners, binder, parameters: [] };
+    return {
+      type: `${constraints}${displayType(scheme.type, variables, "spine", chosen)}`,
+      owners,
+      binder,
+      binderEntries,
+      parameters: [],
+    };
   }
   const shown = displayFunction(scheme.type, variables, "spine", chosen);
   return {
     type: `${constraints}${shown.text}`,
     owners,
     binder,
+    binderEntries,
     parameters: shown.parameters.map(([start, end]) => [constraints.length + start, constraints.length + end] as const),
     result: [constraints.length + shown.result, constraints.length + shown.text.length],
   };
@@ -211,10 +221,16 @@ function ownerLines(scheme: Typed.Scheme, context: ColourContext | undefined): r
  * cannot carry a binder list (§4.2) — under Effects §10's license: display
  * marks what the grammar cannot express.
  */
+/** One entry of a displayed binder list: `a: Show`, and the type it constrains, `a`. */
+export interface BinderEntry {
+  readonly subject: string;
+  readonly text: string;
+}
+
 function displayConstraints(
   scheme: Typed.Scheme,
   variables: ReadonlyMap<Typed.TypeVariableId, string>,
-): string {
+): readonly BinderEntry[] {
   const groups = new Map<string, string[]>();
   for (const constraint of scheme.constraints) {
     const subject = displayType(constraint.type, variables, "inside");
@@ -222,7 +238,7 @@ function displayConstraints(
     if (group === undefined) groups.set(subject, [constraint.name]);
     else group.push(constraint.name);
   }
-  if (groups.size === 0) return "";
+  if (groups.size === 0) return [];
 
   // A subject the letters do not name is not something the checker builds; it
   // sorts last rather than vanishing.
@@ -232,16 +248,15 @@ function displayConstraints(
     return index === -1 ? letters.length : index;
   };
 
-  const entries = [...groups]
+  return [...groups]
     .sort(([left], [right]) => rank(left) - rank(right))
     .map(([subject, names]) => {
       const conjuncts = [...names].sort((left, right) => (left < right ? -1 : left > right ? 1 : 0));
-      return `${subject}: ${
-        conjuncts.length === 1 ? conjuncts[0] : `(${conjuncts.join(", ")})`
-      }`;
+      return {
+        subject,
+        text: `${subject}: ${conjuncts.length === 1 ? conjuncts[0] : `(${conjuncts.join(", ")})`}`,
+      };
     });
-
-  return `<${entries.join(", ")}> `;
 }
 
 /**
