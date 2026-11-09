@@ -411,10 +411,11 @@ export interface Module {
    */
   readonly dotSites: readonly DotSite[];
   /**
-   * Each `match` destruct can write the arms of, with the repair it writes
-   * (LANGUAGE-SERVER-PLAN.md section C, tier 2): a `match` with no arms yet,
-   * one per case of its subject's type. Metadata, like `dotSites`: nothing
-   * between here and emission reads it.
+   * Each `match` with no arms yet, with the arms destruct writes there
+   * (LANGUAGE-SERVER-PLAN.md section C, tier 2). Its splits of a variable or
+   * `_` are worked out only where an editor asks (the checker's
+   * `destructSplits`). Metadata, like `dotSites`: nothing between here and
+   * emission reads it.
    */
   readonly destructs?: readonly Destruct[];
   /**
@@ -468,6 +469,23 @@ export interface Module {
 }
 
 /**
+ * What destruct writes (`Module.destructs`), and where the dev asks for it:
+ *
+ * - `arms`: a `match` with no arms yet, one arm per case of its subject's type,
+ *   each a stand-in. `span` is the `match` and its subject, where the parser
+ *   reports the missing block, and the arms are that report's repair.
+ * - `split`: a variable or `_` in an arm's pattern, the arm written once per
+ *   case that still reaches it there, each with the arm's own body. `span` is
+ *   the variable or `_`, and it is a refactoring, worked out where asked
+ *   (the checker's `destructSplits`).
+ */
+export interface Destruct {
+  readonly kind: "arms" | "split";
+  readonly span: Source.Span;
+  readonly fix: Diagnostics.Fix;
+}
+
+/**
  * One companion operation a dot call reached with no import to name it by, and
  * everything emission needs to write that import (Method Syntax §8.2, #585).
  *
@@ -504,13 +522,6 @@ export interface CompanionImport {
  * that is where the editor's cursor is when it asks. A dot nothing follows yet
  * (`q.`, an unfinished `AccessExpr`) has an empty `name` just after the dot.
  */
-/** A `match` destruct writes the arms of (`Module.destructs`). */
-export interface Destruct {
-  /** The `match` and its subject, where the dev asks. */
-  readonly span: Source.Span;
-  readonly fix: Diagnostics.Fix;
-}
-
 export interface DotSite {
   readonly receiver: Source.Span;
   /** The name after the dot, as written so far. */
