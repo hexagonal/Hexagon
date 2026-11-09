@@ -75,8 +75,25 @@ export interface MappedCodeAction<Uri, Range> {
   readonly title: string;
   readonly kind: string;
   readonly edit?: MappedWorkspaceEdit<Uri, Range>;
+  readonly command?: MappedSnippetCommand<Range>;
   readonly disabled?: string;
   readonly isPreferred?: boolean;
+}
+
+/**
+ * The command that writes a repair as a snippet, its stand-ins selected in turn
+ * (language-server decision 5). Standalone Monaco applies a code action's edit
+ * as plain text whatever it is marked (`StandaloneBulkEditService` ignores
+ * `insertAsSnippet`), so a repair with a snippet runs this instead, which hands
+ * the snippet to the editor's snippet controller. `monaco.ts` registers it.
+ */
+export const INSERT_SNIPPET_COMMAND = "hexagon.insertSnippet";
+
+/** Its arguments: the document version the snippet was made against, its range, and its text. */
+export interface MappedSnippetCommand<Range> {
+  readonly id: string;
+  readonly title: string;
+  readonly arguments: [versionId: number, range: Range, text: string];
 }
 
 export interface MappedRenameLocation<Range> {
@@ -107,21 +124,33 @@ export function toWorkspaceEdit<Uri, Range>(
  * A refused action carries `disabled` and no `edit`, never both and never
  * neither: an action with an empty edit set is one Monaco will happily apply to
  * no effect, which is the outcome the refusal exists to avoid being mistaken
- * for.
+ * for. An action with a snippet carries the command that writes it instead of
+ * its edit.
  */
 export function toCodeAction<Uri, Range>(
   target: EditTarget<Uri, Range>,
   action: PlaygroundCodeAction,
 ): MappedCodeAction<Uri, Range> {
-  return action.disabled === undefined
-    ? {
-      title: action.title,
-      kind: action.kind,
-      edit: toWorkspaceEdit(target, action.edits),
-      // What "Auto Fix" applies on its own (the session's `preferred`).
-      ...(action.preferred === true ? { isPreferred: true } : {}),
-    }
-    : { title: action.title, kind: action.kind, disabled: action.disabled };
+  if (action.disabled !== undefined) return { title: action.title, kind: action.kind, disabled: action.disabled };
+  // A snippet is written by the editor's snippet controller, which takes one
+  // edit to one document: a repair of one edit, as every fill is.
+  const [only, ...others] = action.edits;
+  const snippet = others.length === 0 ? only?.snippet : undefined;
+  return {
+    title: action.title,
+    kind: action.kind,
+    ...(snippet === undefined
+      ? { edit: toWorkspaceEdit(target, action.edits) }
+      : {
+        command: {
+          id: INSERT_SNIPPET_COMMAND,
+          title: action.title,
+          arguments: [target.versionId, target.range(snippet.startOffset, snippet.endOffset), snippet.text],
+        },
+      }),
+    // What "Auto Fix" applies on its own (the session's `preferred`).
+    ...(action.preferred === true ? { isPreferred: true } : {}),
+  };
 }
 
 /**

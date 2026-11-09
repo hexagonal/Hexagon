@@ -14,6 +14,18 @@ export interface Label {
 export interface Edit {
   readonly span: Source.Span;
   readonly replacement: string;
+  /**
+   * Where the replacement writes stand-ins (`Fix.placeholders`), in order: an
+   * editor selects the first for the dev to type over, and Tab moves to the
+   * next (language-server decision 5).
+   */
+  readonly placeholders?: readonly Placeholder[];
+}
+
+/** A stand-in's place in an edit's replacement, as offsets into it. */
+export interface Placeholder {
+  readonly start: number;
+  readonly end: number;
 }
 
 export interface Fix {

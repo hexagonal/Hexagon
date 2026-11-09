@@ -96,6 +96,7 @@ import {
 import { selectionRangesAt } from "../queries/syntax-nodes.js";
 import { matchFunctionRefactorings } from "../queries/match-function.js";
 import { pipeCallRefactorings } from "../queries/pipe-calls.js";
+import { snippetOf, type Snippet } from "./snippet.js";
 import {
   planReturnAnnotation,
   refusedAnnotation,
@@ -160,6 +161,12 @@ export interface Hover {
 /** One replacement, and the file it lies in. An insertion is an empty span. */
 export interface ActionEdit extends Location {
   readonly replacement: string;
+  /**
+   * The same edit as a snippet, its stand-ins selected in turn, for an editor
+   * that takes one (`snippetOf`): present where the repair writes stand-ins
+   * and a snippet can write what it writes.
+   */
+  readonly snippet?: Snippet;
 }
 
 /**
@@ -962,7 +969,7 @@ export class AnalysisSession {
     const written = new Set<string>();
     for (const diagnostic of asked) {
       for (const fix of diagnostic.fixes ?? []) {
-        const edits = locate(analysis, fix.edits);
+        const edits = locate(analysis, fix.edits, (path) => this.#texts.get(path));
         // Every fix a diagnostic carries is a repair for that diagnostic, so
         // the family is settled here rather than at each seat that writes one.
         if (edits === undefined) continue;
@@ -2389,12 +2396,15 @@ function touches(span: Source.Span, range: OffsetRange): boolean {
 function locate(
   analysis: Analysis,
   edits: readonly Diagnostics.Edit[],
+  textOf: (path: string) => string | undefined = () => undefined,
 ): readonly ActionEdit[] | undefined {
   const located: ActionEdit[] = [];
   for (const edit of edits) {
     const path = analysis.pathOf(edit.span.fileId);
     if (path === undefined) return undefined;
-    located.push({ path, span: edit.span, replacement: edit.replacement });
+    const text = edit.placeholders === undefined ? undefined : textOf(path);
+    const snippet = text === undefined ? undefined : snippetOf(new Source.File(edit.span.fileId, path, text), edit);
+    located.push({ path, span: edit.span, replacement: edit.replacement, ...(snippet === undefined ? {} : { snippet }) });
   }
   return located;
 }

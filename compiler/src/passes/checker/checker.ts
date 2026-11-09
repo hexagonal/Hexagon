@@ -4442,6 +4442,25 @@ function restOfLine(
   };
 }
 
+/**
+ * A fill's lines as one edit, each line's stand-in recorded where it falls
+ * (`Diagnostics.Edit.placeholders`), for an editor to select in turn.
+ */
+function standInEdit(
+  span: Source.Span,
+  lines: readonly { readonly lead: string; readonly standIn?: string }[],
+): Diagnostics.Edit {
+  let replacement = "";
+  const placeholders: Diagnostics.Placeholder[] = [];
+  for (const { lead, standIn } of lines) {
+    replacement += lead;
+    if (standIn === undefined) continue;
+    placeholders.push({ start: replacement.length, end: replacement.length + standIn.length });
+    replacement += standIn;
+  }
+  return { span, replacement, placeholders };
+}
+
 /** The `match` keyword a match function begins with, whose parameter occupies no source (Pattern Matching §6.7). */
 function keywordSpan(span: Source.Span): Source.Span {
   const end = { ...span.start, offset: span.start.offset + 5, column: span.start.column + 5 };
@@ -18385,12 +18404,14 @@ class Checker {
     const { indent, newline } = line;
     // A witness is spelled from names, `_` and brackets (a literal prints as
     // `_`, §7.3), so it is a string literal's content as it stands.
-    const written = witnesses.map(({ text: witness }) => `${newline}${indent}${witness} => ${todo}("${witness}")`)
-      .join("");
+    const lines = witnesses.map(({ text: witness }) => ({
+      lead: `${newline}${indent}${witness} => `,
+      standIn: `${todo}("${witness}")`,
+    }));
     const position = file.positionAt(belowLast(text, last.span));
     return {
       message: witnesses.length === 1 ? "Add the missing arm" : `Add the ${witnesses.length} missing arms`,
-      edits: [{ span: { fileId: last.span.fileId, start: position, end: position }, replacement: written }],
+      edits: [standInEdit({ fileId: last.span.fileId, start: position, end: position }, lines)],
       placeholders: true,
     };
   }
@@ -18428,17 +18449,17 @@ class Checker {
     const place = this.#memberPlace(text, item, block);
     if (place === undefined) return undefined;
     const { at, indent, newline } = place;
-    const written = unwritten.map(({ binding, parameters }) => {
-      if (widened.has(binding.name)) return `${newline}${indent}${binding.name} = widened`;
+    const lines = unwritten.map(({ binding, parameters }) => {
+      if (widened.has(binding.name)) return { lead: `${newline}${indent}${binding.name} = widened` };
       // A parameter the constraint wrote as a pattern, which it refuses, has a
       // compiler-minted name no source may write.
       const names = parameters.map(({ name }) => isCompilerMinted(name) ? "_" : name).join(", ");
-      return `${newline}${indent}${binding.name}(${names}) = ${todo}("${binding.name}")`;
-    }).join("");
+      return { lead: `${newline}${indent}${binding.name}(${names}) = `, standIn: `${todo}("${binding.name}")` };
+    });
     const position = file.positionAt(at);
     return {
       message: unwritten.length === 1 ? "Add the missing member" : `Add the ${unwritten.length} missing members`,
-      edits: [{ span: { fileId: item.span.fileId, start: position, end: position }, replacement: written }],
+      edits: [standInEdit({ fileId: item.span.fileId, start: position, end: position }, lines)],
       placeholders: true,
     };
   }

@@ -161,7 +161,10 @@ export function startServer(connection: Connection): void {
     documentChanges =
       params.capabilities.workspace?.workspaceEdit?.documentChanges === true;
     watchedFilesRegistered = params.capabilities.workspace?.didChangeWatchedFiles?.dynamicRegistration === true;
-    codeActions = codeActionSupportOf(params.capabilities.textDocument?.codeAction);
+    codeActions = codeActionSupportOf(
+      params.capabilities.textDocument?.codeAction,
+      params.capabilities.workspace?.workspaceEdit,
+    );
     labelOffsets = params.capabilities.textDocument?.signatureHelp?.signatureInformation
       ?.parameterInformation?.labelOffsetSupport === true;
     configurationPull = params.capabilities.workspace?.configuration === true;

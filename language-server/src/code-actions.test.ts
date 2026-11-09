@@ -23,6 +23,17 @@ describe("what a client is sent", () => {
       disabledSupport: true,
     })).toEqual({ literals: true, disabled: true });
   });
+
+  test("snippet edits, LSP 3.18's, travel in document changes, so a client must take both", () => {
+    const literal = { codeActionLiteralSupport: { codeActionKind: { valueSet: ["quickfix"] } } };
+    // Typed by a protocol library older than the capability.
+    const both = { documentChanges: true, snippetEditSupport: true } as never;
+    expect(codeActionSupportOf(literal, both)).toEqual({ literals: true, disabled: false, snippets: true });
+    expect(codeActionSupportOf(literal, { snippetEditSupport: true } as never))
+      .toEqual({ literals: true, disabled: false });
+    expect(codeActionSupportOf(literal, { documentChanges: true }))
+      .toEqual({ literals: true, disabled: false });
+  });
 });
 
 describe("which requests want the actions this server offers", () => {
@@ -120,6 +131,45 @@ describe("converting one action", () => {
   test("nor is one that writes stand-ins for code not written yet", () => {
     const placeholders: CodeAction = { ...action, title: "Add the missing arm", placeholders: true };
     expect(convert({ literals: true, disabled: false }, placeholders)?.isPreferred).toBe(false);
+  });
+
+  test("its stand-ins are selected in turn where the client takes snippet edits, and plain otherwise", () => {
+    const below = {
+      fileId: 0 as never,
+      start: { offset: 11, line: 1, column: 0 },
+      end: { offset: 11, line: 1, column: 0 },
+    };
+    const arms: CodeAction = {
+      ...action,
+      title: "Add the missing arm",
+      placeholders: true,
+      edits: [{
+        path: "/main.hex",
+        span,
+        replacement: "\n    B => Debug.todo(\"B\")",
+        snippet: { span: below, text: "    B => ${1:Debug.todo(\"B\")}\n" },
+      }],
+    };
+    const snippets = convert({ literals: true, disabled: false, snippets: true } as never, arms);
+    expect(snippets?.edit).toEqual({
+      documentChanges: [{
+        textDocument: { uri: "file:///main.hex", version: null },
+        edits: [{
+          range: { start: { line: 1, character: 0 }, end: { line: 1, character: 0 } },
+          snippet: { kind: "snippet", value: "    B => ${1:Debug.todo(\"B\")}\n" },
+        }],
+      }],
+    });
+    expect(convert({ literals: true, disabled: false }, arms)?.edit).toEqual({
+      changes: {
+        "file:///main.hex": [{
+          range: { start: { line: 0, character: 4 }, end: { line: 0, character: 4 } },
+          newText: "\n    B => Debug.todo(\"B\")",
+        }],
+      },
+    });
+    // A repair with no snippet is plain, whatever the client takes.
+    expect(convert({ literals: true, disabled: false, snippets: true } as never)?.edit?.changes).toBeDefined();
   });
 
   test("a plain repair the session prefers is the one an editor applies on its own", () => {

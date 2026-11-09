@@ -379,7 +379,14 @@ export class PlaygroundAnalysis {
       if (range === undefined) {
         return { title: action.title, kind, edits: [], disabled: OUTSIDE_DOCUMENT };
       }
-      edits.push({ ...range, replacement: edit.replacement });
+      const snippet = edit.snippet === undefined
+        ? undefined
+        : map.toBufferRange(edit.path, offsetsOf(edit.snippet.span));
+      edits.push({
+        ...range,
+        replacement: edit.replacement,
+        ...(snippet === undefined ? {} : { snippet: { ...snippet, text: edit.snippet!.text } }),
+      });
     }
     return { title: action.title, kind, edits, ...(action.preferred === true ? { preferred: true } : {}) };
   }

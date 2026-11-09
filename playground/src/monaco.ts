@@ -21,6 +21,7 @@ import {
   caretHoverAnswers,
   codeActionKinds,
   hoverSelectionAt,
+  INSERT_SNIPPET_COMMAND,
   toCodeAction,
   toCompletionItem,
   toInlayHint,
@@ -206,6 +207,7 @@ export function createMonacoEditors(
       endOffset: sourceModel.getOffsetAt(selection.getEndPosition()),
     }));
   const providers = registerLanguageProviders(sourceModel, services, selections);
+  const snippetCommand = registerSnippetCommand(sourceEditor, sourceModel);
   /**
    * Opens the hover where a pointer would have, for a device with no pointer.
    *
@@ -330,6 +332,7 @@ export function createMonacoEditors(
       if (caretHoverTimer !== undefined) clearTimeout(caretHoverTimer);
       cursorSubscription?.dispose();
       providers.dispose();
+      snippetCommand.dispose();
       changeSubscription.dispose();
       changeListeners.clear();
       sourceEditor.dispose();
@@ -632,8 +635,8 @@ type Assert<T extends true> = T;
  * decision.
  */
 type _CodeActionFields = Assert<
-  Required<Pick<MappedCodeAction<monaco.Uri, monaco.Range>, "disabled" | "kind">> extends
-    Required<Pick<monaco.languages.CodeAction, "disabled" | "kind">> ? true : false
+  Required<Pick<MappedCodeAction<monaco.Uri, monaco.Range>, "disabled" | "kind" | "command">> extends
+    Required<Pick<monaco.languages.CodeAction, "disabled" | "kind" | "command">> ? true : false
 >;
 
 /**
@@ -702,6 +705,33 @@ type _RenameLocationFields = Assert<
  * both; presentable in one. Making the other presentable is the host's job, not
  * this function's.
  */
+/**
+ * The command a repair with a snippet runs (`INSERT_SNIPPET_COMMAND`): the
+ * editor's snippet controller writes it, selecting its first stand-in for the
+ * dev to type over, and Tab moves to the next. Nothing is written where the
+ * document has moved since the snippet was made, as Monaco refuses a stale
+ * edit.
+ */
+function registerSnippetCommand(
+  editor: monaco.editor.IStandaloneCodeEditor,
+  model: monaco.editor.ITextModel,
+): monaco.IDisposable {
+  return monaco.editor.registerCommand(
+    INSERT_SNIPPET_COMMAND,
+    (_accessor, versionId: number, range: monaco.IRange, text: string) => {
+      if (model.getVersionId() !== versionId) return;
+      editor.getContribution<SnippetController>("snippetController2")?.insert([
+        { range: monaco.Range.lift(range), template: text },
+      ]);
+    },
+  );
+}
+
+/** Monaco's snippet controller, which its API reaches only by the contribution's id. */
+interface SnippetController extends monaco.editor.IEditorContribution {
+  insert(edits: readonly { readonly range: monaco.Range; readonly template: string }[]): void;
+}
+
 function editTarget(
   model: monaco.editor.ITextModel,
 ): EditTarget<monaco.Uri, monaco.Range> {
