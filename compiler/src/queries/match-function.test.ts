@@ -149,6 +149,9 @@ describe("a lambda written as a match function", () => {
     expect(asMatchFunction(lines("let apply(sh‸ape: (Shape) => Float) = match shape", ...ARMS))).toBe("not offered");
     expect(asMatchFunction(lines("let apply(sh‸ape): Vector((Shape) => Float) = match shape", ...ARMS))).toBe("not offered");
     expect(asMatchFunction(lines("let apply(sh‸ape: (Shape) =>) = match shape", ...ARMS))).toBe("not offered");
+    // Nor a header missing its `=`, whose body follows its parameters.
+    const sized = ["constraint Sized<a> =", "    size(value: a) -> Float", "honor Sized<Shape> ="];
+    expect(asMatchFunction(lines(...sized, "    size(sh‸ape) match shape", ...INDENTED))).toBe("not offered");
   });
 });
 
