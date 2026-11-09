@@ -211,6 +211,12 @@ describe("an honor's missing members, written as `Debug.todo`", () => {
     ].join("\n");
     const [other] = repairs(both, both.indexOf("honor Scale"), { ...files, "/grow.hex": grow });
     expect(other?.edits.map(({ replacement }) => replacement)).toEqual(["\n    size(value) = Debug.todo(\"size\")"]);
+    // A widened member's line is required even where the member has a
+    // default, so the fill writes it too.
+    const defaulted = { "/scale.hex": scale.replace("scale(value: a, factor: Int) -> a", "scale(value: a, factor: Int) -> a = value") };
+    const [complete] = repairs(text, text.indexOf("honor"), defaulted);
+    expect(complete?.title).toBe("Add the 2 missing members");
+    expect(session({ ...defaulted, "/main.hex": applied(text, complete!) }).diagnostics("/main.hex")).toEqual([]);
   });
 
   test("it keeps the instance's colour: a fault, which a pure contract admits", () => {
@@ -402,6 +408,21 @@ describe("where it is not offered", () => {
     expect(session({ "/main.hex": grouped }).diagnostics("/main.hex").map(({ message }) => message))
       .toContain("instance is missing required member `name`");
     expect(repairs(grouped, grouped.indexOf("Shape<Point>"))).toEqual([]);
+  });
+
+  test("where the head does not begin its line, its block opens deeper than the line", () => {
+    for (const before of ["export let unit: Unit = (); ", "honor Show<Line> = derive; "]) {
+      const text = program(`${before}honor Shape<Point> =`, "    area(p) = 1.0");
+      expect(filled(text, text.indexOf("honor Shape"))).toEqual({
+        text: program(
+          `${before}honor Shape<Point> =`,
+          "    area(p) = 1.0",
+          "    name(s) = Debug.todo(\"name\")",
+          "    scaled(s, by) = Debug.todo(\"scaled\")",
+        ),
+        diagnostics: [],
+      });
+    }
   });
 
   test("where something follows the head's `=` before its block", () => {

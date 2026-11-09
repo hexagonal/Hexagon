@@ -10824,15 +10824,19 @@ class Checker {
         const missing = declaration.members.filter(
           (required) => required.defaultValue === undefined && !supplied.has(required.binding.name),
         );
+        // A member this module's `widens` declaration supplies is accounted
+        // for, never written, and its line is required even where the member
+        // has a default (Constraints §4.7).
+        const widened = new Set(items.flatMap((each) => each.kind === "Let" ? each.widens ?? [] : [])
+          .filter(({ constraintIdentity }) => constraintIdentity === item.constraintIdentity)
+          .map(({ member }) => member));
         // One fill writes them all, so each report offers the same one.
         const fill = missing.length === 0 ? undefined : this.#missingMembersFix(
           item,
-          missing,
-          // A member this module's `widens` declaration supplies is accounted
-          // for, never written (Constraints §4.7).
-          new Set(items.flatMap((each) => each.kind === "Let" ? each.widens ?? [] : [])
-            .filter(({ constraintIdentity }) => constraintIdentity === item.constraintIdentity)
-            .map(({ member }) => member)),
+          declaration.members.filter(({ binding, defaultValue }) =>
+            !supplied.has(binding.name) && (defaultValue === undefined || widened.has(binding.name))
+          ),
+          widened,
         );
         for (const required of missing) {
           this.#diagnostics.add({
@@ -18388,7 +18392,8 @@ class Checker {
    * and the parameters' names, and no types, since a member's type is the
    * constraint's at the honored head (Constraints §4.1) and a type written
    * there binds (Effects §13.2). A member this module widens is written as its
-   * accounting line, `name = widened` (§4.7). They go below the block's last
+   * accounting line, `name = widened`, a defaulted one too, since that line is
+   * required (§4.7). They go below the block's last
    * line at its first line's indentation, or, where the block is empty, on the
    * lines below the head's `=`, indented one step past it.
    *
@@ -18398,11 +18403,11 @@ class Checker {
    */
   #missingMembersFix(
     item: Resolved.HonorItem,
-    missing: readonly Resolved.ConstraintMember[],
+    unwritten: readonly Resolved.ConstraintMember[],
     widened: ReadonlySet<string>,
   ): Diagnostics.Fix | undefined {
     // Accounting lines alone are the resolver's report's rewrite, no stand-in.
-    if (missing.every(({ binding }) => widened.has(binding.name))) return undefined;
+    if (unwritten.every(({ binding }) => widened.has(binding.name))) return undefined;
     const source = this.#sourceFile();
     if (source === undefined) return undefined;
     const { text, file } = source;
@@ -18413,14 +18418,14 @@ class Checker {
     const place = this.#memberPlace(text, item, block);
     if (place === undefined) return undefined;
     const { at, indent, newline } = place;
-    const written = missing.map(({ binding, parameters }) => {
+    const written = unwritten.map(({ binding, parameters }) => {
       if (widened.has(binding.name)) return `${newline}${indent}${binding.name} = widened`;
       const names = parameters.map(({ name }) => isCompilerMinted(name) ? "_" : name).join(", ");
       return `${newline}${indent}${binding.name}(${names}) = ${todo}("${binding.name}")`;
     }).join("");
     const position = file.positionAt(at);
     return {
-      message: missing.length === 1 ? "Add the missing member" : `Add the ${missing.length} missing members`,
+      message: unwritten.length === 1 ? "Add the missing member" : `Add the ${unwritten.length} missing members`,
       edits: [{ span: { fileId: item.span.fileId, start: position, end: position }, replacement: written }],
       placeholders: true,
     };
@@ -18458,10 +18463,11 @@ class Checker {
     // group's next honor.
     if (head.length > 2) return undefined;
     const line = blockLine(text, first.span.start.offset);
-    // Nor is an item no deeper than the head, which the parser read as one
-    // though no block opened.
-    const headColumn = item.span.start.offset - (text.lastIndexOf("\n", item.span.start.offset - 1) + 1);
-    if (line === undefined || line.indent.length <= headColumn) return undefined;
+    // Nor is an item no deeper than the head's line, which the parser read as
+    // one though no block opened (a block opens deeper than the line its head
+    // stands on, wherever on it the head begins).
+    const before = text.slice(text.lastIndexOf("\n", item.span.start.offset - 1) + 1, item.span.start.offset);
+    if (line === undefined || line.indent.length <= /^[ \t]*/.exec(before)![0].length) return undefined;
     return { at: belowLast(text, last.span), ...line };
   }
 
