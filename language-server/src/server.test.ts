@@ -1926,7 +1926,7 @@ describe("the Hexagon language server", () => {
             range: { start: { line: 6, character: 0 }, end: { line: 6, character: 0 } },
             snippet: {
               kind: "snippet",
-              value: "        Square(_) => ${1:Debug.todo(\"Square(_)\")}\n        Tri(_) => ${2:Debug.todo(\"Tri(_)\")}\n",
+              value: "        Square(_) => ${1:Debug.todo(\"Square(_)\")}\n        Tri(_) => ${2:Debug.todo(\"Tri(_)\")}$0\n",
             },
           }],
         }],

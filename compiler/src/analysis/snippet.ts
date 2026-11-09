@@ -25,6 +25,9 @@ export interface Snippet {
  * ends its line moves past that break, and writes the break after its lines
  * instead, which is the same text. Any other edit that begins inside a line
  * has no snippet, and is applied as written, with nothing selected.
+ *
+ * Past the last stand-in, Tab leaves the cursor at the end of the last line
+ * written (`$0`), not at the start of the line after it.
  */
 export function snippetOf(file: Source.File, edit: Diagnostics.Edit): Snippet | undefined {
   const { span, replacement, placeholders } = edit;
@@ -47,7 +50,10 @@ export function snippetOf(file: Source.File, edit: Diagnostics.Edit): Snippet | 
     text += `${escape(written.slice(at, from - shift))}\${${index + 1}:${escape(written.slice(from - shift, to - shift))}}`;
     at = to - shift;
   });
-  text += escape(written.slice(at));
+  // The final stop ends the last line written, where the dev finished typing:
+  // an editor's default, the snippet's end, would be the start of the next.
+  const lineEnd = /\r?\n$/.exec(written)?.[0] ?? "";
+  text += `${escape(written.slice(at, written.length - lineEnd.length))}$0${lineEnd}`;
   const end = start + span.end.offset - span.start.offset;
   return {
     span: { fileId: span.fileId, start: file.positionAt(start), end: file.positionAt(end) },

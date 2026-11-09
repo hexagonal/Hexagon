@@ -690,6 +690,48 @@ type _RenameLocationFields = Assert<
 >;
 
 /**
+ * The command a repair with a snippet runs (`INSERT_SNIPPET_COMMAND`): the
+ * editor's snippet controller writes it, selecting its first stand-in for the
+ * dev to type over, and Tab moves to the next. Where the editor has no snippet
+ * controller, the plain edit is written instead. Nothing is written where the
+ * document has moved since the snippet was made, as Monaco refuses a stale
+ * edit.
+ */
+function registerSnippetCommand(
+  editor: monaco.editor.IStandaloneCodeEditor,
+  model: monaco.editor.ITextModel,
+): monaco.IDisposable {
+  return monaco.editor.registerCommand(
+    INSERT_SNIPPET_COMMAND,
+    (_accessor, ...made: MappedSnippetCommand<monaco.IRange>["arguments"]) => {
+      const controller = editor.getContribution<SnippetController>("snippetController2") ?? undefined;
+      runSnippetCommand(
+        model.getVersionId(),
+        made,
+        controller && ((range, text) => {
+          // The snippet's lines carry their indentation, in spaces. Monaco
+          // would rewrite it in the editor's, which may be tabs, and the
+          // language refuses a tab in indentation.
+          controller.insert([{ range: monaco.Range.lift(range), template: text, keepWhitespace: true }]);
+        }),
+        (range, text) => {
+          editor.executeEdits("hexagon", [{ range: monaco.Range.lift(range), text }]);
+        },
+      );
+    },
+  );
+}
+
+/** Monaco's snippet controller, which its API reaches only by the contribution's id. */
+interface SnippetController extends monaco.editor.IEditorContribution {
+  insert(edits: readonly {
+    readonly range: monaco.Range;
+    readonly template: string;
+    readonly keepWhitespace?: boolean;
+  }[]): void;
+}
+
+/**
  * A model as something edits can be written against.
  *
  * The `versionId` is read once, here, and stamped on every edit in the set. It
@@ -707,32 +749,6 @@ type _RenameLocationFields = Assert<
  * both; presentable in one. Making the other presentable is the host's job, not
  * this function's.
  */
-/**
- * The command a repair with a snippet runs (`INSERT_SNIPPET_COMMAND`): the
- * editor's snippet controller writes it, selecting its first stand-in for the
- * dev to type over, and Tab moves to the next. Nothing is written where the
- * document has moved since the snippet was made, as Monaco refuses a stale
- * edit.
- */
-function registerSnippetCommand(
-  editor: monaco.editor.IStandaloneCodeEditor,
-  model: monaco.editor.ITextModel,
-): monaco.IDisposable {
-  return monaco.editor.registerCommand(
-    INSERT_SNIPPET_COMMAND,
-    (_accessor, ...made: MappedSnippetCommand<monaco.IRange>["arguments"]) =>
-      runSnippetCommand(model.getVersionId(), made, (range, text) =>
-        editor.getContribution<SnippetController>("snippetController2")?.insert([
-          { range: monaco.Range.lift(range), template: text },
-        ])),
-  );
-}
-
-/** Monaco's snippet controller, which its API reaches only by the contribution's id. */
-interface SnippetController extends monaco.editor.IEditorContribution {
-  insert(edits: readonly { readonly range: monaco.Range; readonly template: string }[]): void;
-}
-
 function editTarget(
   model: monaco.editor.ITextModel,
 ): EditTarget<monaco.Uri, monaco.Range> {

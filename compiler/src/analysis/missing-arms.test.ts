@@ -179,7 +179,7 @@ describe("the missing arms, written as `Debug.todo`", () => {
     expect(edit?.snippet?.span.start).toMatchObject({ line: 5, column: 0 });
     expect(edit?.snippet?.text).toBe(
       "        Square(_) => ${1:Debug.todo(\"Square(_)\")}\n" +
-        "        Tri(_, _) => ${2:Debug.todo(\"Tri(_, _)\")}\n",
+        "        Tri(_, _) => ${2:Debug.todo(\"Tri(_, _)\")}$0\n",
     );
     // Before what closes on the `match`'s last line, the lines would begin
     // inside it, so the arms are written as they stand, with nothing selected.
