@@ -508,6 +508,9 @@ const matchFunctionCatchError =
   "`catch` to observe — to guard the arm bodies, write a lambda whose body is " +
   "`try match x …` with `catch` aligned to the `try`";
 
+/** A `match` whose line ends with no arms below it (`#reportEmptyBlock`). */
+const EMPTY_ARM_BLOCK = "expected an indented block of match arms";
+
 /**
  * Parses one layout-aware file into the modules it declares, retaining
  * diagnostics from earlier passes.
@@ -555,11 +558,12 @@ class Parser {
    */
   readonly #refusedImportAliases: Parsed.RefusedImportHead[] = [];
   /**
-   * Where layout reports each empty honor's missing block, the token after its
-   * `=`: the one error the missing-members fill repairs, which leaves the code
-   * read as written (`Parsed.Module.readAsWritten`).
+   * Each block read as missing, by the offset and the words of its one report,
+   * at the token that ends its line: an empty honor's, which layout reports,
+   * and an empty `match`'s. Each is the one error a fill repairs, which leaves
+   * the code read as written (`Parsed.Module.readAsWritten`).
    */
-  readonly #emptyHonorBlocks: number[] = [];
+  readonly #emptyBlocks: { readonly offset: number; readonly message: string }[] = [];
   /**
    * Doc-comment bookkeeping (spec/doc-comments.md §4). Declaration parsers claim
    * the block sitting before their first token; the blocks nobody claims are
@@ -738,19 +742,19 @@ class Parser {
     const sections = this.#sectionModules(items, fileId, path, fileSpan);
     const diagnostics = this.#diagnostics.toArray();
     // Every error in the code, a doc comment's being about the comment, must
-    // be an empty honor's missing block as layout reports it, one each
-    // (another error at the same token is that line's own). An empty honor
-    // layout reported nothing for is one it read otherwise.
-    const emptyHonorBlocks = [...this.#emptyHonorBlocks];
+    // be an empty block's one report, one each (another error at the same
+    // token is that line's own). An empty honor layout reported nothing for is
+    // one it read otherwise.
+    const emptyBlocks = [...this.#emptyBlocks];
     let readAsWritten = true;
     for (let index = 0; index < this.#diagnostics.count; index += 1) {
       if (this.#diagnostics.tagAt(index) === DOC_COMMENT_REPORT) continue;
       const { message, primary } = this.#diagnostics.at(index)!;
-      const own = message === LaidOut.MISSING_BLOCK ? emptyHonorBlocks.indexOf(primary.start.offset) : -1;
+      const own = emptyBlocks.findIndex((block) => block.offset === primary.start.offset && block.message === message);
       if (own === -1) readAsWritten = false;
-      else emptyHonorBlocks.splice(own, 1);
+      else emptyBlocks.splice(own, 1);
     }
-    if (emptyHonorBlocks.length > 0) readAsWritten = false;
+    if (emptyBlocks.length > 0) readAsWritten = false;
     // Comments and doc blocks are the file's, and they are **cut with the
     // items**. Modules §11 emits one JavaScript file per module and Comments §6
     // preserves a module's own comments in it, so a file's whole comment list
@@ -3510,7 +3514,7 @@ class Parser {
     // (Layout closes every block before the end of the file, so `VClose`
     // stands for it too.)
     if (equal !== undefined && (this.#at("VSep") || this.#at("VClose"))) {
-      this.#emptyHonorBlocks.push(this.#current().span.start.offset);
+      this.#emptyBlocks.push({ offset: this.#current().span.start.offset, message: LaidOut.MISSING_BLOCK });
       return {
         kind: "Honor",
         constraint: constraintName ?? fallback,
@@ -6938,6 +6942,28 @@ class Parser {
   }
 
   /**
+   * A block whose line ends with none below it, at the token that ends the
+   * line: read as missing, so the next line is read as it stands rather than
+   * as the block's, with one report in the block's own words (#1311). Layout
+   * has reported it already where a line at the item's column or the end of
+   * the file ends it ("expected an indented block"), and a dedent's is the
+   * parser's, so the one report is layout's, reworded, or this.
+   */
+  #reportEmptyBlock(message: string): void {
+    const at = this.#current().span;
+    for (let index = 0; index < this.#diagnostics.count; index += 1) {
+      const reported = this.#diagnostics.at(index)!;
+      if (reported.message === LaidOut.MISSING_BLOCK && reported.primary.start.offset === at.start.offset) {
+        this.#diagnostics.replace(index, { ...reported, message });
+        this.#emptyBlocks.push({ offset: at.start.offset, message });
+        return;
+      }
+    }
+    this.#errorAt(at, message);
+    this.#emptyBlocks.push({ offset: at.start.offset, message });
+  }
+
+  /**
    * A `match`'s block of arms, shared by both of the head's forms (Pattern
    * Matching §6.1 and §6.7).
    *
@@ -6953,7 +6979,11 @@ class Parser {
     readonly opened: boolean;
     readonly closing: LaidOut.Token | undefined;
   } {
-    const opened = this.#expect("VOpen", "expected an indented block of match arms");
+    if (this.#at("VSep") || this.#at("VClose")) {
+      this.#reportEmptyBlock(EMPTY_ARM_BLOCK);
+      return { arms: [], indentedCatch: undefined, opened: false, closing: undefined };
+    }
+    const opened = this.#expect("VOpen", EMPTY_ARM_BLOCK);
     const arms: Parsed.MatchArm[] = [];
     let indentedCatch: readonly Parsed.MatchArm[] | undefined;
     this.#skipSeparators();

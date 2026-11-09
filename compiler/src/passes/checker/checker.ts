@@ -18338,6 +18338,9 @@ class Checker {
     type: Mono,
     span: Source.Span,
   ): void {
+    // A `match` with no arms is missing its block, which the parser reports:
+    // one cause, one report (#1311).
+    if (arms.length === 0) return;
     const witnesses = this.#coverageWitnesses(
       [type],
       arms.flatMap((arm) => arm.guard === undefined ? [[arm.pattern]] : []),
