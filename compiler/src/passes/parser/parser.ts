@@ -509,7 +509,7 @@ const matchFunctionCatchError =
   "`try match x …` with `catch` aligned to the `try`";
 
 /** A `match` whose line ends with no arms below it (`#reportEmptyBlock`). */
-const EMPTY_ARM_BLOCK = "expected an indented block of match arms";
+export const EMPTY_ARM_BLOCK = "expected an indented block of match arms";
 
 /**
  * Parses one layout-aware file into the modules it declares, retaining
@@ -6855,7 +6855,7 @@ class Parser {
         span: spanFrom(start.span, this.#previous().span),
       };
     }
-    const block = this.#parseArmBlock(false);
+    const block = this.#parseArmBlock(false, spanFrom(start.span, scrutinee.span));
     let end = block.closing?.span ?? block.arms.at(-1)?.span ?? scrutinee.span;
 
     // The match catch clause (Exceptions §5.4, #500). Layout has already
@@ -6908,7 +6908,7 @@ class Parser {
       end: start.span.end,
     };
     const name = this.#freshParameterName(point, 0);
-    const block = this.#parseArmBlock(true);
+    const block = this.#parseArmBlock(true, start.span);
     const end = block.closing?.span ?? block.arms.at(-1)?.span ?? start.span;
 
     // §6.7 grants no clause, ever. A `catch` at the head's own column reaches
@@ -6944,23 +6944,23 @@ class Parser {
   /**
    * A block whose line ends with none below it, at the token that ends the
    * line: read as missing, so the next line is read as it stands rather than
-   * as the block's, with one report in the block's own words (#1311). Layout
-   * has reported it already where a line at the item's column or the end of
-   * the file ends it ("expected an indented block"), and a dedent's is the
-   * parser's, so the one report is layout's, reworded, or this.
+   * as the block's, with one report in the block's own words at `head`, what
+   * the block belongs to (#1311). Layout has reported it already, at that
+   * token, where a line at the item's column or the end of the file ends it
+   * ("expected an indented block"), and a dedent's is the parser's: so the one
+   * report is layout's, reworded and moved to `head`, or this.
    */
-  #reportEmptyBlock(message: string): void {
-    const at = this.#current().span;
+  #reportEmptyBlock(message: string, head: Source.Span): void {
+    const at = this.#current().span.start.offset;
+    this.#emptyBlocks.push({ offset: head.start.offset, message });
     for (let index = 0; index < this.#diagnostics.count; index += 1) {
       const reported = this.#diagnostics.at(index)!;
-      if (reported.message === LaidOut.MISSING_BLOCK && reported.primary.start.offset === at.start.offset) {
-        this.#diagnostics.replace(index, { ...reported, message });
-        this.#emptyBlocks.push({ offset: at.start.offset, message });
+      if (reported.message === LaidOut.MISSING_BLOCK && reported.primary.start.offset === at) {
+        this.#diagnostics.replace(index, { ...reported, message, primary: head });
         return;
       }
     }
-    this.#errorAt(at, message);
-    this.#emptyBlocks.push({ offset: at.start.offset, message });
+    this.#errorAt(head, message);
   }
 
   /**
@@ -6973,14 +6973,14 @@ class Parser {
    * §6.7's own message. Either way the clause is read and dropped, so one
    * misplaced keyword does not cascade through its arms.
    */
-  #parseArmBlock(matchFunction: boolean): {
+  #parseArmBlock(matchFunction: boolean, head: Source.Span): {
     readonly arms: readonly Parsed.MatchArm[];
     readonly indentedCatch: readonly Parsed.MatchArm[] | undefined;
     readonly opened: boolean;
     readonly closing: LaidOut.Token | undefined;
   } {
     if (this.#at("VSep") || this.#at("VClose")) {
-      this.#reportEmptyBlock(EMPTY_ARM_BLOCK);
+      this.#reportEmptyBlock(EMPTY_ARM_BLOCK, head);
       return { arms: [], indentedCatch: undefined, opened: false, closing: undefined };
     }
     const opened = this.#expect("VOpen", EMPTY_ARM_BLOCK);

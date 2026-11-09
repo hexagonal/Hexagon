@@ -6792,6 +6792,8 @@ class Checker {
    * and kept; only the display of a field's type waits for materialization.
    */
   readonly #dotSites = new Map<Resolved.AccessExpr, NotedDotSite>();
+  /** Each `match` destruct can write the arms of (`Typed.Module.destructs`). */
+  readonly #destructs: Typed.Destruct[] = [];
   /**
    * The constraints **declared in this module**, by name.
    *
@@ -8061,6 +8063,7 @@ class Checker {
       docs: module.docs,
       typeHoles: this.#materializeTypeHoles(),
       dotSites: this.#materializeDotSites(),
+      destructs: [...this.#destructs],
       ...this.#materializeColourScopes(),
       instanceColours: this.#publishedInstanceColours(),
       companionImports: [...this.#companionImports.values()],
@@ -16391,6 +16394,10 @@ class Checker {
   /** Runs §7 only after every deferred pattern has received its typing verdict. */
   #checkPendingMatchCoverage(): void {
     for (const { expression, type, reportMissing } of this.#pendingMatchCoverage) {
+      if (expression.arms.length === 0) {
+        const fix = this.#emptyMatchArms(expression.span, type);
+        if (fix !== undefined) this.#destructs.push({ span: expression.span, fix });
+      }
       this.#checkArmReachability(expression.arms, type, MATCH_ARM_REPORTS);
       if (reportMissing) {
         this.#reportMissingCases(expression.arms, type, expression.span);
@@ -18487,6 +18494,47 @@ class Checker {
     return line === undefined || !rest.commented
       ? undefined
       : { at: rest.end, indent: `${line.indent}    `, newline: line.newline };
+  }
+
+  /**
+   * Destruct on a `match` with no arms yet: one arm per case of its subject's
+   * type, each body a `Debug.todo` naming the case (language-server decision
+   * 5), spelled as §7.3 spells a witness, so the arms are the ones the missing
+   * cases would be. They go on the lines below the `match`'s line, after the
+   * comments that end it, one step in from where that line begins, which is
+   * where layout opens the arm block. `span` is the `match` and its subject,
+   * which is where the parser read the missing block.
+   *
+   * Offered where the parser read the file as written, `Debug.todo` reaches
+   * the prelude's, and every case has a spelling here: not on a type with no
+   * cases to name (`Int`, a vector's unbounded lengths, a record) or where a
+   * case's constructor has no pastable spelling (§7.3's third tier).
+   */
+  #emptyMatchArms(span: Source.Span, type: Mono): Diagnostics.Fix | undefined {
+    const source = this.#sourceFile();
+    if (source === undefined || !this.#readAsWritten) return undefined;
+    const { text, file } = source;
+    const todo = this.#todoSpelling(span.start.offset);
+    if (todo === undefined) return undefined;
+    const heads = this.#coverageColumn(type, []).signature;
+    if (heads === undefined || heads.length === 0 || heads.some(({ route }) => route !== undefined)) return undefined;
+    const cases = heads.map((head) => head.print(head.slots.map(() => "_")));
+    if (cases.some((written) => written === "_" || written.includes("[") || written.includes("{"))) return undefined;
+    const rest = restOfLine(text, span.fileId, span.end.offset);
+    if (!rest.commented) return undefined;
+    const lineStart = text.lastIndexOf("\n", span.start.offset - 1) + 1;
+    const indent = `${/^[ \t]*/.exec(text.slice(lineStart))![0]}    `;
+    const newline = text[rest.end] === "\r" ? "\r\n" : "\n";
+    const lines = cases.map((written) => ({
+      lead: `${newline}${indent}${written} => `,
+      standIn: `${todo}("${written}")`,
+    }));
+    const position = file.positionAt(rest.end);
+    return {
+      message: cases.length === 1 ? "Add the arm" : `Add the ${cases.length} arms`,
+      edits: [standInEdit({ fileId: span.fileId, start: position, end: position }, lines)],
+      placeholders: true,
+    };
   }
 
   /**

@@ -411,6 +411,13 @@ export interface Module {
    */
   readonly dotSites: readonly DotSite[];
   /**
+   * Each `match` destruct can write the arms of, with the repair it writes
+   * (LANGUAGE-SERVER-PLAN.md section C, tier 2): a `match` with no arms yet,
+   * one per case of its subject's type. Metadata, like `dotSites`: nothing
+   * between here and emission reads it.
+   */
+  readonly destructs?: readonly Destruct[];
+  /**
    * Whose callback each settled callback colour is, in a report's words —
    * "`outer`'s `action`" — so a face depending on a captured colour can name
    * its owner *(Effects §10)*. Where a join made one variable of several
@@ -497,6 +504,13 @@ export interface CompanionImport {
  * that is where the editor's cursor is when it asks. A dot nothing follows yet
  * (`q.`, an unfinished `AccessExpr`) has an empty `name` just after the dot.
  */
+/** A `match` destruct writes the arms of (`Module.destructs`). */
+export interface Destruct {
+  /** The `match` and its subject, where the dev asks. */
+  readonly span: Source.Span;
+  readonly fix: Diagnostics.Fix;
+}
+
 export interface DotSite {
   readonly receiver: Source.Span;
   /** The name after the dot, as written so far. */
