@@ -402,6 +402,21 @@ describe("applyLayout", () => {
     );
   });
 
+  test("reports an honor group's last honor that a dedent ends without its block", () => {
+    // Its member block is required (§2.1's row), as where a line at its own
+    // column ends it, and the parser reads it as an empty honor with no report
+    // of its own.
+    const message = ({ message, primary }: { message: string; primary: Source.Span }): string =>
+      `${primary.start.line}:${primary.start.column} ${message}`;
+    expect(layout("honor\n    Show<Ping> =\nlet x = 1").diagnostics.map(message))
+      .toEqual(["4:0 expected an indented block"]);
+    expect(layout("honor\n    Show<Ping> =\n    Show<Pong> =\n        show(p) = \"pong\"").diagnostics.map(message))
+      .toEqual(["4:4 expected an indented block"]);
+    // Another block's item that a dedent ends is the parser's to report, which
+    // it does in its own words.
+    expect(layout("fun\n    g() =\nlet x = 1").diagnostics).toEqual([]);
+  });
+
   test("keeps virtual tokens balanced over bracket and indentation soup", () => {
     // `fc.string()` below is a good crash guard but almost never produces a block
     // head, a delimiter, and a dedent in one input — the combination the

@@ -71,6 +71,14 @@ export interface Module {
   readonly docs: readonly Documentation[];
   readonly span: Source.Span;
   readonly diagnostics: readonly Diagnostics.Diagnostic[];
+  /**
+   * Whether the parser read the file's code as written, the file's as
+   * `diagnostics` is: the lexer, layout and parser reported no error but a
+   * doc comment's, which is about the comment, and each empty honor's missing
+   * block, which the missing-members fill writes. A fill that writes into a
+   * block reads the block as the parser did, so it is offered only here.
+   */
+  readonly readAsWritten: boolean;
 }
 
 export type Item =

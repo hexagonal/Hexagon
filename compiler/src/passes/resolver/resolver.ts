@@ -2677,6 +2677,7 @@ class Resolver {
       ...(this.#path === undefined ? {} : { path: this.#path }),
       span: module.span,
       diagnostics: this.#diagnostics.toArray(),
+      readAsWritten: module.readAsWritten,
     };
   }
 
