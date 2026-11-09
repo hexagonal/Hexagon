@@ -104,6 +104,41 @@ describe("the missing arms, written as `Debug.todo`", () => {
     });
   });
 
+  test("every case missing, beneath the constructors the arms name as well as the ones they don't", () => {
+    const flag = "export union Flag = A | B";
+    const text = program(flag, "export let f(o: Option(Flag)): Int =", "    match o", "        Some(A) => 1");
+    expect(session({ "/main.hex": text }).diagnostics("/main.hex").map(({ message }) => message))
+      .toEqual(["match is missing cases: `None`, `Some(B)`"]);
+    expect(filled(text).text).toContain("        Some(A) => 1\n        None => Debug.todo(\"None\")\n        Some(B) => Debug.todo(\"Some(B)\")\n");
+    expect(filled(program(
+      "export let f(a: Bool, b: Bool, c: Bool): Int =",
+      "    match (a, b, c)",
+      "        (True, True, True) => 1",
+    ))).toEqual({
+      text: program(
+        "export let f(a: Bool, b: Bool, c: Bool): Int =",
+        "    match (a, b, c)",
+        "        (True, True, True) => 1",
+        "        (False, _, _) => Debug.todo(\"(False, _, _)\")",
+        "        (True, False, _) => Debug.todo(\"(True, False, _)\")",
+        "        (True, True, False) => Debug.todo(\"(True, True, False)\")",
+      ),
+      diagnostics: [],
+    });
+  });
+
+  test("one `_` where a column has no constructors to name, which covers what its literals miss", () => {
+    expect(filled(program("export let f(i: Int, b: Bool): Int =", "    match (i, b)", "        (0, True) => 1"))).toEqual({
+      text: program(
+        "export let f(i: Int, b: Bool): Int =",
+        "    match (i, b)",
+        "        (0, True) => 1",
+        "        (_, _) => Debug.todo(\"(_, _)\")",
+      ),
+      diagnostics: [],
+    });
+  });
+
   test("keeping the function's colour: a caller needs no mark", () => {
     const { diagnostics } = filled(program(
       "export let area(s: Shape): Float =",
@@ -154,6 +189,39 @@ describe("where the arms go", () => {
     )).text).toContain("            _ => 4 // inner\n        Tri(_, _) => Debug.todo(\"Tri(_, _)\")\n");
   });
 
+  test("above the comments and declarations after a `match` nested in the last arm", () => {
+    expect(filled(program(
+      "export let f(s: Shape): Int =",
+      "    match s",
+      "        Circle(_) => 1",
+      "        Square(_) => match s",
+      "            Circle(_) => 3",
+      "            _ => 4",
+      "",
+      "(** Doubles `n`. *)",
+      "export let g(n: Int): Int = n * 2",
+    ))).toEqual({
+      text: program(
+        "export let f(s: Shape): Int =",
+        "    match s",
+        "        Circle(_) => 1",
+        "        Square(_) => match s",
+        "            Circle(_) => 3",
+        "            _ => 4",
+        "        Tri(_, _) => Debug.todo(\"Tri(_, _)\")",
+        "",
+        "(** Doubles `n`. *)",
+        "export let g(n: Int): Int = n * 2",
+      ),
+      diagnostics: [],
+    });
+  });
+
+  test("below block comments that end the last arm's line", () => {
+    expect(filled(program("export let f(s: Shape): Int =", "    match s", "        Circle(_) => 1 (* round *) // and whole")).text)
+      .toContain("        Circle(_) => 1 (* round *) // and whole\n        Square(_) => Debug.todo(\"Square(_)\")\n");
+  });
+
   test("before what closes around the `match` on its last line", () => {
     expect(filled(program(
       "export let areas(xs: Vector(Shape)): Vector(Float) = xs.map(match",
@@ -191,6 +259,12 @@ describe("where the arms go", () => {
       ).replaceAll("\n", "\r\n"),
       diagnostics: [],
     });
+    const commented = program("export let f(s: Shape): Int =", "    match s", "        Circle(_) => 1 // round")
+      .replaceAll("\n", "\r\n");
+    expect(filled(commented).text).toContain("        Circle(_) => 1 // round\r\n        Square(_) => Debug.todo(\"Square(_)\")\r\n");
+    const unended = program("export let f(s: Shape): Int =", "    match s", "        Circle(_) => 1").replaceAll("\n", "\r\n")
+      .replace(/\r\n$/, "");
+    expect(filled(unended).text).toBe(unended + "\r\n        Square(_) => Debug.todo(\"Square(_)\")\r\n        Tri(_, _) => Debug.todo(\"Tri(_, _)\")");
   });
 });
 
@@ -225,6 +299,11 @@ describe("not offered where the arms would not be the whole of what is missing, 
 
   test("a first arm that does not begin its line, whose column the new arms could not match", () => {
     expect(repairs(program("export let f(s: Shape): Int =", "    match s", "        (* round *) Circle(_) => 1"))).toEqual([]);
+  });
+
+  test("an `import Debug` below the `match`, which the arms could not yet read (Modules §3)", () => {
+    const lines = ["export let f(s: Shape): Int =", "    match s", "        Circle(_) => 1"];
+    expect(repairs(["module Main", SHAPE, ...lines, "import Debug", ""].join("\n"))).toEqual([]);
   });
 
   test("where `Debug` is not the prelude's", () => {

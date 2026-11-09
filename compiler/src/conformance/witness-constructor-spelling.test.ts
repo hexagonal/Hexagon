@@ -478,7 +478,7 @@ describe("aggregation: one clause per declaring module", () => {
         "        (_, B1) => 2\n",
       ],
     ])).toEqual([
-      "match is missing cases: `(A2, B2)` — `A2` is declared in module `A`, and this " +
+      "match is missing cases: `(A2, B2)`, `(A1, B2)` — `A2` is declared in module `A`, and this " +
       "module binds another `A2`; `import A` and spell it `A.A2` — " +
       "`B2` is declared in module `B`, and this module binds another `B2`; " +
       "`import B` and spell it `B.B2`",
@@ -502,7 +502,7 @@ describe("aggregation: one clause per declaring module", () => {
         "        (_, G1) => 2\n",
       ],
     ])).toEqual([
-      "match is missing cases: `(Off, G2)`, `(Dim, G2)`, `(Warm, G2)` …and 1 " +
+      "match is missing cases: `(Off, G2)`, `(Dim, G2)`, `(Warm, G2)` …and 2 " +
       "more — `Off`, `Dim` and `Warm` are declared in module `Flags`, and this " +
       "module binds another `Off`, another `Dim` and another `Warm`; " +
       "`import Flags` and spell them `Flags.Off`, `Flags.Dim` " +

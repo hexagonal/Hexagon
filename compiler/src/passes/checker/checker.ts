@@ -68,6 +68,7 @@ import {
   lineStart,
 } from "../../support/import-placement.js";
 import * as Source from "../../support/source.js";
+import { lex } from "../lexer/lexer.js";
 import { displayParameterName, isCompilerMinted, isSyntheticParameterName } from "../../support/synthetic.js";
 import * as Resolved from "../../syntax/resolved/index.js";
 import { preludeExportSymbol } from "../../support/prelude-symbol.js";
@@ -6067,6 +6068,8 @@ class Checker {
   #aliasNames: ReadonlySet<string> = new Set();
   /** The resolved module's aliases, its own first, for `#todoSpelling`. */
   #aliasTable: readonly Resolved.ModuleAlias[] = [];
+  /** Where the source imports a module as `Debug`, for `#todoSpelling`. */
+  #debugImport: Source.Span | undefined;
   /**
    * Every pattern the checker's **own verdict** found ill-typed — Pattern
    * Matching §7.3's "a pattern that failed to type must not widen the witness's
@@ -17058,6 +17061,9 @@ class Checker {
     this.#aliasQualifications = qualifications;
     this.#aliasNames = aliasNames;
     this.#aliasTable = module.moduleAliases;
+    this.#debugImport = module.items.find((item): item is Resolved.ImportItem =>
+      item.kind === "Import" && item.form.kind === "Namespace" && item.form.alias === "Debug"
+    )?.span;
     this.#brokenPatterns.clear();
   }
 
@@ -18075,26 +18081,32 @@ class Checker {
     const complete = this.#completeCoverageSignature(column, present);
     const signature = complete ?? column.signature;
     const witnesses: CoverageWitness[] = [];
+    // The witnesses under a head the matrix names, each printed beneath it;
+    // whether they reached the limit.
+    const under = (head: CoverageHead): boolean => {
+      for (
+        const witness of this.#coverageWitnesses(
+          [...head.slots, ...rest],
+          this.#specializeMatrix(column, head, matrix),
+          limit - witnesses.length,
+        )
+      ) {
+        witnesses.push({
+          columns: [
+            head.print(witness.columns.slice(0, head.slots.length)),
+            ...witness.columns.slice(head.slots.length),
+          ],
+          routes: headRoutes(head, witness.routes),
+        });
+        if (witnesses.length >= limit) return true;
+      }
+      return false;
+    };
     if (complete !== undefined) {
       // Every head is named, so nothing is missing *here*: the witnesses, if
       // any, are under one of them.
       for (const head of complete) {
-        for (
-          const witness of this.#coverageWitnesses(
-            [...head.slots, ...rest],
-            this.#specializeMatrix(column, head, matrix),
-            limit - witnesses.length,
-          )
-        ) {
-          witnesses.push({
-            columns: [
-              head.print(witness.columns.slice(0, head.slots.length)),
-              ...witness.columns.slice(head.slots.length),
-            ],
-            routes: headRoutes(head, witness.routes),
-          });
-          if (witnesses.length >= limit) return witnesses;
-        }
+        if (under(head)) return witnesses;
       }
       return witnesses;
     }
@@ -18123,6 +18135,14 @@ class Checker {
         });
         if (witnesses.length >= limit) return witnesses;
       }
+    }
+    // A head the matrix names can miss cases beneath it too: `Some(A)` alone
+    // misses `Some(B)` as well as `None`. §7.3 lists every missing case up to
+    // its cap, so they are found as a complete signature's are, after the
+    // shallower missing heads. Where those print as `_`, the signature names
+    // nothing here: no row split the column, or it has no signature.
+    for (const head of (signature ?? []).filter(({ key }) => present.has(key))) {
+      if (under(head)) return witnesses;
     }
     return witnesses;
   }
@@ -18269,34 +18289,39 @@ class Checker {
     arms: readonly Resolved.MatchArm[],
     witnesses: readonly { readonly text: string; readonly routes: readonly RouteNeed[] }[],
   ): Diagnostics.Fix | undefined {
-    const text = this.#sourceText;
+    const source = this.#sourceFile();
     const first = arms[0];
     const last = arms.at(-1);
-    const todo = this.#todoSpelling();
-    if (text === undefined || first === undefined || last === undefined || todo === undefined) return undefined;
+    if (source === undefined || first === undefined || last === undefined) return undefined;
+    const { text, file } = source;
+    const todo = this.#todoSpelling(first.span.start.offset);
+    if (todo === undefined) return undefined;
     if (witnesses.length >= COVERAGE_WITNESS_LIMIT || witnesses.some(({ routes }) => routes.length > 0)) return undefined;
     // A vector witness is one length the arms miss, of unboundedly many
     // (Collections Part 3 §3.3), so arms written from the witnesses would not
     // be the whole of what is missing.
     if (witnesses.some(({ text: witness }) => witness.includes("["))) return undefined;
-    const indent = text.slice(text.lastIndexOf("\n", first.span.start.offset - 1) + 1, first.span.start.offset);
+    const lineStart = text.lastIndexOf("\n", first.span.start.offset - 1) + 1;
+    const indent = text.slice(lineStart, first.span.start.offset);
     if (!/^[ \t]*$/.test(indent)) return undefined;
-    // Below the last arm's line where nothing but a `//` comment follows it,
-    // so the comment stays with its arm; otherwise right after the arm, before
-    // whatever closes around the `match` on that line.
+    const newline = text[lineStart - 2] === "\r" ? "\r\n" : "\n";
     // An arm that ends at a layout boundary, as a nested `match` does, spans
-    // the line break after it.
-    const end = last.span.start.offset + text.slice(last.span.start.offset, last.span.end.offset).trimEnd().length;
+    // what stands before the next token, comments included, so it ends at its
+    // own last token.
+    const armText = text.slice(last.span.start.offset, last.span.end.offset);
+    const lastToken = lex(new Source.File(last.span.fileId, "", armText)).tokens.findLast(({ kind }) => kind !== "Eof")!;
+    const end = last.span.start.offset + lastToken.span.end.offset;
+    // Below the last arm's line where nothing but comments follow it, so they
+    // stay with their arm; otherwise right after the arm, before whatever
+    // closes around the `match` on that line.
     const lineEnd = text.indexOf("\n", end) === -1 ? text.length : text.indexOf("\n", end);
-    const crlf = text[lineEnd - 1] === "\r";
-    const rest = text.slice(end, crlf ? lineEnd - 1 : lineEnd);
-    const at = /^[ \t]*(\/\/.*)?$/.test(rest) ? end + rest.length : end;
-    const newline = crlf ? "\r\n" : "\n";
+    const rest = text.slice(end, lineEnd).replace(/\r$/, "");
+    const at = /^[ \t]*(?:\(\*(?:(?!\*\)).)*\*\)[ \t]*)*(?:\/\/.*)?$/.test(rest) ? end + rest.length : end;
     // A witness is spelled from names, `_` and brackets (a literal prints as
     // `_`, §7.3), so it is a string literal's content as it stands.
     const written = witnesses.map(({ text: witness }) => `${newline}${indent}${witness} => ${todo}("${witness}")`)
       .join("");
-    const position = new Source.File(last.span.fileId, "", text).positionAt(at);
+    const position = file.positionAt(at);
     return {
       message: witnesses.length === 1 ? "Add the missing arm" : `Add the ${witnesses.length} missing arms`,
       edits: [{ span: { fileId: last.span.fileId, start: position, end: position }, replacement: written }],
@@ -18311,14 +18336,17 @@ class Checker {
    * other spelling. A type or constructor named `Debug` hides nothing, since a
    * qualifier is read as a module.
    */
-  #todoSpelling(): string | undefined {
+  #todoSpelling(at: number): string | undefined {
     // A reference reads the first `Debug` alias, and the prelude's is the last:
     // the resolver lists the module's own aliases before the prelude's, which
-    // always binds `Debug`. An `import Debug` that finds no module of the
-    // program's reaches the prelude's, and its `todo` is the same symbol.
+    // binds `Debug` everywhere but in the prelude modules seated before it. An
+    // `import Debug` that finds no module of the program's reaches the
+    // prelude's, and its `todo` is the same symbol; but an import is read
+    // top-down (Modules §3), so only above the use.
     const todos = this.#aliasTable.filter(({ alias }) => alias === "Debug")
       .map(({ members }) => members.find(({ name }) => name === "todo")?.symbol);
-    return todos[0] === todos.at(-1) ? "Debug.todo" : undefined;
+    const imported = this.#debugImport === undefined || this.#debugImport.start.offset < at;
+    return todos.length > 0 && todos[0] === todos.at(-1) && imported ? "Debug.todo" : undefined;
   }
 
   /**
