@@ -19,6 +19,7 @@ import { applyLayout } from "../passes/layout/layout.js";
 import { lex } from "../passes/lexer/lexer.js";
 import { parseFile } from "../passes/parser/parser.js";
 import * as Source from "../support/source.js";
+import { isCompilerMinted } from "../support/synthetic.js";
 import type * as Parsed from "../syntax/parsed/index.js";
 
 /** One replacement in a file's text: `[start, end)` becomes `replacement`. */
@@ -147,6 +148,10 @@ export function matchedBody(lambda: Parsed.LambdaExpr): Parsed.MatchExpr | undef
  * fields and labels included. A lambda's parameter is free to drop or to
  * introduce exactly when its spelling is not among them, which asks more than
  * resolution would and never less.
+ *
+ * Not the binders the parser mints (a match function's, a pattern parameter's,
+ * `_`'s): one is read only inside the lambda that mints it, and they share
+ * their spellings, so a nested match function's would read as the outer one's.
  */
 export function namesIn(value: unknown): ReadonlySet<string> {
   const names = new Set<string>();
@@ -154,7 +159,9 @@ export function namesIn(value: unknown): ReadonlySet<string> {
     if (Array.isArray(node)) return node.forEach(walk);
     if (node === null || typeof node !== "object") return;
     const record = node as Record<string, unknown>;
-    if (typeof record.text === "string" && "startClass" in record) names.add(record.text);
+    if (typeof record.text === "string" && "startClass" in record && !isCompilerMinted(record.text)) {
+      names.add(record.text);
+    }
     for (const key of Object.keys(record)) if (key !== "span") walk(record[key]);
   };
   walk(value);

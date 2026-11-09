@@ -72,6 +72,7 @@ describe("a lambda written as a match function", () => {
     expect(asMatchFunction(lines("let size = (shape) =‸> match shape", ...ARMS))).toBe(matchFunction);
     expect(asMatchFunction(lines("let size = (shape) => ma‸tch shape", ...ARMS))).toBe(matchFunction);
     expect(asMatchFunction(lines("let size = (shape) => match sha‸pe", ...ARMS))).toBe(matchFunction);
+    expect(asMatchFunction(lines("let size = (shape) => match shape‸", ...ARMS))).toBe(matchFunction);
     expect(asMatchFunction(lines("let size = sh‸ape => match shape", ...ARMS))).toBe(matchFunction);
   });
 
@@ -80,6 +81,11 @@ describe("a lambda written as a match function", () => {
       .toBe("not offered");
     expect(asMatchFunction(lines("let size = (shape) => match shape", "    Circ‸le(r) => r", ARMS[1]!)))
       .toBe("not offered");
+  });
+
+  test("the innermost lambda the mark is in", () => {
+    expect(asMatchFunction(lines("let size = (x) => (sh‸ape) => match shape", ...ARMS)))
+      .toBe(lines("let size = (x) => match", ...ARMS));
   });
 
   test("where it stands, as an argument or a callee", () => {
@@ -116,6 +122,7 @@ describe("a lambda written as a match function", () => {
     const typed = "refused: A match function writes no types, so the lambda's written types would be lost.";
     expect(asMatchFunction(lines("let size = (sh‸ape: Shape) => match shape", ...ARMS))).toBe(typed);
     expect(asMatchFunction(lines("let size = (sh‸ape): Float => match shape", ...ARMS))).toBe(typed);
+    expect(asMatchFunction(lines("let size = <t>(sh‸ape) => match shape", ...ARMS))).toBe(typed);
   });
 
   test("refused where the `match` has a `catch` clause", () => {
@@ -130,10 +137,14 @@ describe("a lambda written as a match function", () => {
     expect(asMatchFunction(lines("let size = (sh‸ape) =>", "    shape"))).toBe("not offered");
     expect(asMatchFunction(lines("let size = (sh‸ape, other) => match shape", ...ARMS))).toBe("not offered");
     expect(asMatchFunction(lines("let size = ((sh‸ape, other)) => match shape", ...ARMS))).toBe("not offered");
+    expect(asLambda(lines("let size = ((sh‸ape, other)) => match shape", ...ARMS))).toBe("not offered");
+    expect(asMatchFunction(lines("let size = (‸) => match circle", ...ARMS))).toBe("not offered");
     expect(asMatchFunction(lines("let size(sh‸ape) = match shape", ...ARMS))).toBe("not offered");
     expect(asMatchFunction(lines("let size(shape) = ma‸tch shape", ...ARMS))).toBe("not offered");
     // A header after a lambda that is one: the `=>` is the lambda's, not the header's.
     expect(asMatchFunction(lines("let id = (x) => x", "let size(shape) = ma‸tch shape", ...ARMS))).toBe("not offered");
+    // Nor an arrow in a header's types.
+    expect(asMatchFunction(lines("let apply(sh‸ape: (Shape) => Float) = match shape", ...ARMS))).toBe("not offered");
   });
 });
 
@@ -171,6 +182,23 @@ describe("a match function written as a lambda", () => {
 });
 
 describe("the two rewrites", () => {
+  /**
+   * The binders the parser mints share their spellings: a nested match
+   * function's is the outer one's, and so is a `(_) =>` lambda's. Each is read
+   * only inside the lambda that mints it, so it names no parameter of another.
+   */
+  test("with a lambda in an arm whose parameter the parser minted", () => {
+    const minted = [
+      ["    Circle(r) => (_) => r", "    Square(s) => (_) => s"],
+      ["    Circle(r) => ((a, b)) => r", "    Square(s) => ((a, b)) => s"],
+      ["    Circle(r) => match", "        Circle(q) => q", "        Square(q) => q", "    Square(s) => (x) => s"],
+    ];
+    for (const arms of minted) {
+      expect(asMatchFunction(lines("let f = (sh‸ape) => match shape", ...arms))).toBe(lines("let f = match", ...arms));
+      expect(asLambda(lines("let f = ma‸tch", ...arms))).toBe(lines("let f = (value) => match value", ...arms));
+    }
+  });
+
   test("undo one another", () => {
     const lambda = lines("let sizes = Vector.map(shapes, (value) => match value", ...ARMS, ")");
     const matchFunction = asMatchFunction(lambda.replace("(value)", "(val‸ue)"));
@@ -222,5 +250,7 @@ describe("the parse that checks a rewrite", () => {
       .toBe(false);
     expect(check(matchFunction, lines("let size = (shape, other) => match shape", ...ARMS))).toBe(false);
     expect(check(matchFunction, lines("let size = (shape) => match other", ...ARMS))).toBe(false);
+    expect(check(matchFunction, lines("let size = (shape) => match Some(shape)", ...ARMS))).toBe(false);
+    expect(check(matchFunction, lines("let size = () => match circle", ...ARMS))).toBe(false);
   });
 });

@@ -79,10 +79,11 @@ function isMatchFunction(lambda: Parsed.LambdaExpr, match: Parsed.MatchExpr): bo
 /**
  * Whether the lambda is written as one, with its `=>`, rather than built by the
  * parser from a header (`let size(shape) = …`, an `honor`'s member), whose
- * parameters and body it holds the same way.
+ * parameters and body it holds the same way. The arrow is the one after the
+ * parameters, whose types may hold arrows of their own.
  */
 function written(file: Source.File, lambda: Parsed.LambdaExpr): boolean {
-  const from = lambda.span.start.offset;
+  const from = Math.max(lambda.span.start.offset, ...lambda.parameters.map(({ span }) => span.end.offset));
   const to = lambda.body.span.start.offset;
   return tokensOf(file).some(({ kind, span }) => kind === "FatArrow" && from <= span.start.offset && span.end.offset <= to);
 }
