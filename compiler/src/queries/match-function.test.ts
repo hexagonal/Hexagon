@@ -74,6 +74,8 @@ describe("a lambda written as a match function", () => {
     expect(asMatchFunction(lines("let size = (shape) => match sha‸pe", ...ARMS))).toBe(matchFunction);
     expect(asMatchFunction(lines("let size = (shape) => match shape‸", ...ARMS))).toBe(matchFunction);
     expect(asMatchFunction(lines("let size = sh‸ape => match shape", ...ARMS))).toBe(matchFunction);
+    expect(asMatchFunction(lines("let size = sh‸ape=> match shape", ...ARMS))).toBe(matchFunction);
+    expect(asMatchFunction(lines("let size = (sh‸ape)=>match shape", ...ARMS))).toBe(matchFunction);
   });
 
   test("not from inside an arm", () => {
@@ -143,8 +145,10 @@ describe("a lambda written as a match function", () => {
     expect(asMatchFunction(lines("let size(shape) = ma‸tch shape", ...ARMS))).toBe("not offered");
     // A header after a lambda that is one: the `=>` is the lambda's, not the header's.
     expect(asMatchFunction(lines("let id = (x) => x", "let size(shape) = ma‸tch shape", ...ARMS))).toBe("not offered");
-    // Nor an arrow in a header's types.
+    // Nor an arrow in a header's types, or in what the parser recovered of them.
     expect(asMatchFunction(lines("let apply(sh‸ape: (Shape) => Float) = match shape", ...ARMS))).toBe("not offered");
+    expect(asMatchFunction(lines("let apply(sh‸ape): Vector((Shape) => Float) = match shape", ...ARMS))).toBe("not offered");
+    expect(asMatchFunction(lines("let apply(sh‸ape: (Shape) =>) = match shape", ...ARMS))).toBe("not offered");
   });
 });
 

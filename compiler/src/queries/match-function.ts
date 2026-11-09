@@ -79,13 +79,13 @@ function isMatchFunction(lambda: Parsed.LambdaExpr, match: Parsed.MatchExpr): bo
 /**
  * Whether the lambda is written as one, with its `=>`, rather than built by the
  * parser from a header (`let size(shape) = …`, an `honor`'s member), whose
- * parameters and body it holds the same way. The arrow is the one after the
- * parameters, whose types may hold arrows of their own.
+ * parameters and body it holds the same way: whether the token just before its
+ * body is the arrow. A header's types may hold arrows of their own, and the
+ * lexer's tokens hold no comment or line break.
  */
 function written(file: Source.File, lambda: Parsed.LambdaExpr): boolean {
-  const from = Math.max(lambda.span.start.offset, ...lambda.parameters.map(({ span }) => span.end.offset));
-  const to = lambda.body.span.start.offset;
-  return tokensOf(file).some(({ kind, span }) => kind === "FatArrow" && from <= span.start.offset && span.end.offset <= to);
+  const body = lambda.body.span.start.offset;
+  return tokensOf(file).findLast(({ span }) => span.end.offset <= body)?.kind === "FatArrow";
 }
 
 const lexed = new WeakMap<Source.File, readonly Lexed.Token[]>();
