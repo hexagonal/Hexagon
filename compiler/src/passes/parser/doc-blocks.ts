@@ -48,6 +48,14 @@ export function widenedLineTakesNoDoc(member: string): string {
     "this an ordinary comment (`(* ... *)`).";
 }
 
+/**
+ * The tag on every report a doc block makes (`Diagnostics.Bag.add`): a doc
+ * comment's errors are about the comment, which the parser reads apart from
+ * the code, so they say nothing of whether it read the code as written
+ * (`Parsed.Module.codeErrors`).
+ */
+export const DOC_COMMENT_REPORT = Symbol("doc comment report");
+
 interface Block {
   readonly comments: readonly Source.Comment[];
   readonly span: Source.Span;
@@ -270,6 +278,6 @@ export class DocBlocks {
   }
 
   #report(message: string, primary: Source.Span): void {
-    this.#diagnostics.add({ severity: "error", message, primary });
+    this.#diagnostics.add({ severity: "error", message, primary }, DOC_COMMENT_REPORT);
   }
 }

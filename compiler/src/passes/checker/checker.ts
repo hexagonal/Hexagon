@@ -4399,15 +4399,13 @@ function literalReceiver(receiver: Resolved.Expr): Resolved.Expr {
 /**
  * The indentation and line ending of the line a block's first item begins,
  * for lines written into the block; none where something stands before the
- * item on its line, whose column new lines could not match. The line ending is
- * the one before that line, or on the first line its own.
+ * item on its line, whose column new lines could not match.
  */
 function blockLine(text: string, offset: number): { readonly indent: string; readonly newline: string } | undefined {
   const lineStart = text.lastIndexOf("\n", offset - 1) + 1;
   const indent = text.slice(lineStart, offset);
   if (!/^[ \t]*$/.test(indent)) return undefined;
-  const lineBreak = lineStart > 0 ? lineStart - 1 : text.indexOf("\n", offset);
-  return { indent, newline: text[lineBreak - 1] === "\r" ? "\r\n" : "\n" };
+  return { indent, newline: text[lineStart - 2] === "\r" ? "\r\n" : "\n" };
 }
 
 /**
@@ -6118,6 +6116,10 @@ class Checker {
   #aliasTable: readonly Resolved.ModuleAlias[] = [];
   /** Where the source imports a module as `Debug`, for `#todoSpelling`. */
   #debugImport: Source.Span | undefined;
+  /** Where the file's front-end errors stand, for `#readAsWritten`. */
+  #codeErrors: readonly number[] = [];
+  /** The module's honors whose `=` ends the head with no block, for `#readAsWritten`. */
+  #emptyHonors: readonly Resolved.HonorItem[] = [];
   /**
    * Every pattern the checker's **own verdict** found ill-typed — Pattern
    * Matching §7.3's "a pattern that failed to type must not widen the witness's
@@ -17128,6 +17130,10 @@ class Checker {
     this.#debugImport = module.items.find((item): item is Resolved.ImportItem =>
       item.kind === "Import" && item.form.kind === "Namespace" && item.form.alias === "Debug"
     )?.span;
+    this.#codeErrors = module.codeErrors.map(({ start }) => start.offset);
+    this.#emptyHonors = module.items.filter((item): item is Resolved.HonorItem =>
+      item.kind === "Honor" && item.emptyBlock === true
+    );
     this.#brokenPatterns.clear();
   }
 
@@ -18350,9 +18356,10 @@ class Checker {
    * it will have once the arms are written.
    *
    * Offered only where it writes the whole of what is missing, as the reader
-   * can paste it: every witness found, below the matrix's cap, none a vector's
-   * length, each in a spelling this module can write (§7.3 tiers 1 and 2), and
-   * `Debug.todo` reaching the prelude's. Never preferred, and in no family,
+   * can paste it, into the block as written: every witness found, below the
+   * matrix's cap, none a vector's length, each in a spelling this module can
+   * write (§7.3 tiers 1 and 2), `Debug.todo` reaching the prelude's, and the
+   * parser having read the file as written. Never preferred, and in no family,
    * since it makes the program compile without making it right.
    */
   #missingArmsFix(
@@ -18364,6 +18371,7 @@ class Checker {
     const last = arms.at(-1);
     if (source === undefined || first === undefined || last === undefined) return undefined;
     const { text, file } = source;
+    if (!this.#readAsWritten(text)) return undefined;
     const todo = this.#todoSpelling(first.span.start.offset);
     if (todo === undefined) return undefined;
     if (witnesses.length > COVERAGE_WITNESS_LIMIT || witnesses.some(({ routes }) => routes.length > 0)) return undefined;
@@ -18397,9 +18405,9 @@ class Checker {
    * indentation, or, where the block is empty, on the lines below the head's
    * `=`, indented one step past it.
    *
-   * Offered where it writes a stand-in, `Debug.todo` reaches the prelude's and
-   * the new lines have a column to match. Never preferred, and in no family,
-   * as the missing arms.
+   * Offered where it writes a stand-in, the parser read the file as written,
+   * `Debug.todo` reaches the prelude's and the new lines have a column to
+   * match. Never preferred, and in no family, as the missing arms.
    */
   #missingMembersFix(
     item: Resolved.HonorItem,
@@ -18411,6 +18419,7 @@ class Checker {
     const source = this.#sourceFile();
     if (source === undefined) return undefined;
     const { text, file } = source;
+    if (!this.#readAsWritten(text)) return undefined;
     const todo = this.#todoSpelling(item.span.start.offset);
     if (todo === undefined) return undefined;
     const block = [...item.members, ...item.impliedTypes]
@@ -18420,7 +18429,7 @@ class Checker {
     const { at, indent, newline } = place;
     const written = unwritten.map(({ binding, parameters }) => {
       if (widened.has(binding.name)) return `${newline}${indent}${binding.name} = widened`;
-      const names = parameters.map(({ name }) => isCompilerMinted(name) ? "_" : name).join(", ");
+      const names = parameters.map(({ name }) => name).join(", ");
       return `${newline}${indent}${binding.name}(${names}) = ${todo}("${binding.name}")`;
     }).join("");
     const position = file.positionAt(at);
@@ -18440,24 +18449,39 @@ class Checker {
     const first = block[0];
     const last = block.at(-1);
     if (first !== undefined && last !== undefined) {
-      // Items read by recovery, where no block opened or one held an error,
-      // are no block's as written, so lines written beside them would not be.
-      if (item.malformed !== undefined) return undefined;
       const line = blockLine(text, first.span.start.offset);
       return line === undefined ? undefined : { at: belowLast(text, last.span), ...line };
     }
-    // An empty block is one that never opened: one that opened and read no
-    // item has a column of its own, which a line no item began at doesn't
-    // tell. The head closes with `>` and `=` after its subject, and the members
-    // go below the `=`'s line, one step in from the head, where nothing but
-    // comments follows the `=`.
-    if (item.malformed !== "unopened") return undefined;
-    const subjectEnd = item.subject.span.end.offset;
-    const [, equal] = lex(new Source.File(item.span.fileId, "", text.slice(subjectEnd, item.span.end.offset))).tokens;
+    // An empty block (read as written, so one whose `=` ends the head's line,
+    // where the honor's span ends): the members go below that line, one step in
+    // from the head, after the comments that end it.
     const line = blockLine(text, item.span.start.offset);
-    if (equal?.kind !== "Equal" || line === undefined) return undefined;
-    const rest = restOfLine(text, item.span.fileId, subjectEnd + equal.span.end.offset);
-    return rest.commented ? { at: rest.end, indent: `${line.indent}    `, newline: line.newline } : undefined;
+    const rest = restOfLine(text, item.span.fileId, item.span.end.offset);
+    return line === undefined || !rest.commented
+      ? undefined
+      : { at: rest.end, indent: `${line.indent}    `, newline: line.newline };
+  }
+
+  /**
+   * Whether the parser read this file as written, for the fills that write
+   * into a block: a block read by recovery is not the block as written (a line
+   * of a nested block read as an arm or a member, a misindented line read as
+   * one), so lines placed beside its items would not land in it. Every lexer,
+   * layout and parse error in the code (a doc comment's are about the comment)
+   * must be an empty honor's own, the one error the missing members fill
+   * repairs: layout's "expected an indented block", one for each such honor,
+   * at the next token after its `=`.
+   */
+  #readAsWritten(text: string): boolean {
+    const errors = [...this.#codeErrors];
+    for (const item of this.#emptyHonors) {
+      const from = item.span.end.offset;
+      const [next] = lex(new Source.File(item.span.fileId, "", text.slice(from))).tokens;
+      // One error there is the honor's; another there is the next line's own.
+      const own = errors.indexOf(from + next!.span.start.offset);
+      if (own !== -1) errors.splice(own, 1);
+    }
+    return errors.length === 0;
   }
 
   /**

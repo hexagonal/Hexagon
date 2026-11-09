@@ -141,27 +141,6 @@ describe("an honor's missing members, written as `Debug.todo`", () => {
       .toBe(bag("    type Elem = Int", "    first(b) = b.x", "    count(xs) = Debug.todo(\"count\")"));
   });
 
-  test("a pattern parameter, which the constraint refuses, is written `_`", () => {
-    const text = program(
-      "constraint Paired<a> =",
-      "    first((x, y): (a, Int)) -> a",
-      "    label(s: a) -> String",
-      "honor Paired<Point> =",
-      "    label(p) = \"p\"",
-    );
-    expect(filled(text, text.indexOf("honor Paired"))).toEqual({
-      text: program(
-        "constraint Paired<a> =",
-        "    first((x, y): (a, Int)) -> a",
-        "    label(s: a) -> String",
-        "honor Paired<Point> =",
-        "    label(p) = \"p\"",
-        "    first(_) = Debug.todo(\"first\")",
-      ),
-      diagnostics: ["constraint members take plain parameter names, not patterns"],
-    });
-  });
-
   test("a member this module widens is written as its accounting line, never as a body (Constraints §4.7)", () => {
     const scale = "module Scale\n\nexport constraint Scale<a> =\n    scale(value: a, factor: Int) -> a\n" +
       "    label(value: a) -> String\n    size(value: a) -> Int\n";
@@ -242,13 +221,17 @@ describe("an honor's missing members, written as `Debug.todo`", () => {
 });
 
 describe("where the members go", () => {
-  test("an empty honor: below the `=`, one step in from the head, and the parse errors go with it", () => {
+  test("an empty honor: below the `=`, one step in from the head, and the one report of its missing block goes with it", () => {
     const text = program(
       "honor Shape<Point> =",
       "export let unit: Unit = ()",
     );
-    expect(session({ "/main.hex": text }).diagnostics("/main.hex").map(({ message }) => message))
-      .toContain("expected an indented instance body");
+    expect(session({ "/main.hex": text }).diagnostics("/main.hex").map(({ message }) => message)).toEqual([
+      "instance is missing required member `area`",
+      "instance is missing required member `name`",
+      "instance is missing required member `scaled`",
+      "expected an indented block",
+    ]);
     expect(filled(text)).toEqual({
       text: program(
         "honor Shape<Point> =",
@@ -315,6 +298,28 @@ describe("where the members go", () => {
     });
   });
 
+  test("an empty honor above a group's next one, whose lines are its own", () => {
+    const text = program(
+      "honor",
+      "    Shape<Point> =",
+      "    Shape<Line> =",
+      "        name(l) = \"l\"",
+      "        scaled(l, by) = l",
+    );
+    const after = filled(text, text.indexOf("Shape<Point>"));
+    expect(after.text).toBe(program(
+      "honor",
+      "    Shape<Point> =",
+      "        area(s) = Debug.todo(\"area\")",
+      "        name(s) = Debug.todo(\"name\")",
+      "        scaled(s, by) = Debug.todo(\"scaled\")",
+      "    Shape<Line> =",
+      "        name(l) = \"l\"",
+      "        scaled(l, by) = l",
+    ));
+    expect(after.diagnostics).toEqual(["instance is missing required member `area`"]);
+  });
+
   test("an honor in a group, at its own block's indentation", () => {
     const text = program(
       "honor",
@@ -354,7 +359,36 @@ describe("where the members go", () => {
     ));
   });
 
-  test("with the file's line ending, CRLF included, on the head's first line too", () => {
+  test("beside a doc comment's error, which is about the comment: the parser read the code as written", () => {
+    const trailing = "documentation comments precede what they document — move this above the declaration on its " +
+      "own line, or make it an ordinary comment (`(* ... *)`).";
+    const head = filled(program("honor Shape<Point> = (** points *)", "    area(p) = 1.0", "    name(p) = \"p\""));
+    expect(head.text).toBe(program(
+      "honor Shape<Point> = (** points *)",
+      "    area(p) = 1.0",
+      "    name(p) = \"p\"",
+      "    scaled(s, by) = Debug.todo(\"scaled\")",
+    ));
+    expect(head.diagnostics).toEqual([trailing]);
+    const member = filled(program("honor Shape<Point> =", "    area(p) = 1.0 (** the area *)", "    name(p) = \"p\""));
+    expect(member.text).toBe(program(
+      "honor Shape<Point> =",
+      "    area(p) = 1.0 (** the area *)",
+      "    name(p) = \"p\"",
+      "    scaled(s, by) = Debug.todo(\"scaled\")",
+    ));
+    expect(member.diagnostics).toEqual([trailing]);
+    const empty = filled(program("honor Shape<Point> = (** points *)"));
+    expect(empty.text).toBe(program(
+      "honor Shape<Point> = (** points *)",
+      "    area(s) = Debug.todo(\"area\")",
+      "    name(s) = Debug.todo(\"name\")",
+      "    scaled(s, by) = Debug.todo(\"scaled\")",
+    ));
+    expect(empty.diagnostics).toEqual([trailing]);
+  });
+
+  test("with the file's line ending, CRLF included", () => {
     const text = program("honor Shape<Point> =", "    area(p) = 1.0").replaceAll("\n", "\r\n");
     expect(filled(text)).toEqual({
       text: program(
@@ -365,9 +399,6 @@ describe("where the members go", () => {
       ).replaceAll("\n", "\r\n"),
       diagnostics: [],
     });
-    // The module header is missing, so the head's line is the first.
-    const [first] = repairs("honor Show<Int> =\r\n");
-    expect(first?.edits.map(({ replacement }) => replacement)).toEqual(["\r\n    show(value) = Debug.todo(\"show\")"]);
   });
 });
 
@@ -461,6 +492,25 @@ describe("where it is not offered", () => {
     expect(session({ "/main.hex": unread }).diagnostics("/main.hex").map(({ message }) => message))
       .toContain("instance is missing required member `area`");
     expect(repairs(unread, unread.indexOf("Shape<Point>"))).toEqual([]);
+    // Layout's own errors: a bare `;` line, and a line between two columns.
+    expect(repairs(program("honor Shape<Point> =", "    ;", "        area(p) =", "            1.0"))).toEqual([]);
+    expect(repairs(program("honor Shape<Point> =", "        area(p) = 1.0", "    name(p) = \"p\""))).toEqual([]);
+  });
+
+  test("anywhere the parser did not read the file as written, an empty honor's own block aside", () => {
+    const honor = ["honor Shape<Point> =", "    area(p) = 1.0"];
+    expect(repairs(program(...honor, "export let broken: Int = (1 +"))).toEqual([]);
+    expect(repairs(program("export let broken: Int = (1 +", ...honor))).toEqual([]);
+    // An error at the token after a block is not an empty honor's.
+    expect(repairs(program(...honor, ")"))).toEqual([]);
+    // Two empty honors: each block's error is its own.
+    const two = program("honor Shape<Point> =", "honor Shape<Line> =");
+    expect(repairs(two).map(({ title }) => title)).toEqual(["Add the 3 missing members"]);
+    expect(repairs(two, two.indexOf("honor Shape<Line>")).map(({ title }) => title))
+      .toEqual(["Add the 3 missing members"]);
+    // A block comment the head's line leaves open: the `=` does not end a line
+    // the members could follow.
+    expect(repairs(program("honor Shape<Point> = (* a", "   b *)", "export let unit: Unit = ()"))).toEqual([]);
   });
 
   test("where something follows the head's `=` before its block", () => {
@@ -471,24 +521,12 @@ describe("where it is not offered", () => {
   });
 
   test("where the head has no `=`", () => {
-    const text = program("honor Shape<Point> 42", "export let unit: Unit = ()");
-    expect(session({ "/main.hex": text }).diagnostics("/main.hex").map(({ message }) => message))
-      .toContain("instance is missing required member `area`");
-    expect(repairs(text)).toEqual([]);
+    for (const head of ["honor Shape<Point> 42", "honor Shape<Point>"]) {
+      const text = program(head, "export let unit: Unit = ()");
+      expect(session({ "/main.hex": text }).diagnostics("/main.hex").map(({ message }) => message))
+        .toContain("instance is missing required member `area`");
+      expect(repairs(text)).toEqual([]);
+    }
   });
 
-  test("where an empty honor's block was read from another honor's lines", () => {
-    // The parser reads `Shape<Line>`'s block as `Shape<Point>`'s, so that block
-    // is not where `Shape<Point>`'s members go.
-    const text = program(
-      "honor",
-      "    Shape<Point> =",
-      "    Shape<Line> =",
-      "        name(l) = \"l\"",
-      "        scaled(l, by) = l",
-    );
-    expect(session({ "/main.hex": text }).diagnostics("/main.hex").map(({ message }) => message))
-      .toContain("instance is missing required member `area`");
-    expect(repairs(text, text.indexOf("Shape<Point>"))).toEqual([]);
-  });
 });

@@ -28,7 +28,7 @@ import type * as LaidOut from "../../syntax/laid-out/index.js";
 import type * as Lexed from "../../syntax/lexed/index.js";
 import { hardKeywordSpellings, keywordKinds } from "../../syntax/lexed/token.js";
 import * as Parsed from "../../syntax/parsed/index.js";
-import { DocBlocks, widenedLineTakesNoDoc } from "./doc-blocks.js";
+import { DOC_COMMENT_REPORT, DocBlocks, widenedLineTakesNoDoc } from "./doc-blocks.js";
 
 type TokenKind = LaidOut.Token["kind"];
 
@@ -731,6 +731,10 @@ class Parser {
 
     const sections = this.#sectionModules(items, fileId, path, fileSpan);
     const diagnostics = this.#diagnostics.toArray();
+    const codeErrors: Source.Span[] = [];
+    for (let index = 0; index < this.#diagnostics.count; index += 1) {
+      if (this.#diagnostics.tagAt(index) !== DOC_COMMENT_REPORT) codeErrors.push(this.#diagnostics.at(index)!.primary);
+    }
     // Comments and doc blocks are the file's, and they are **cut with the
     // items**. Modules §11 emits one JavaScript file per module and Comments §6
     // preserves a module's own comments in it, so a file's whole comment list
@@ -776,6 +780,7 @@ class Parser {
       // less the file's report for the file having declared two — a host that
       // showed one module's share would drop the rest.
       diagnostics,
+      codeErrors,
     }));
   }
 
@@ -3480,7 +3485,27 @@ class Parser {
       span: fallback.span,
     };
     this.#expect("Greater", "expected `>` after instance head");
-    this.#expect("Equal", "expected `=` after instance head");
+    const equal = this.#expect("Equal", "expected `=` after instance head");
+    // A head whose `=` ends its line with no block below it: the block is
+    // missing, and the next line is not the block's, so it is read as it
+    // stands rather than as members. Layout has reported the missing block
+    // already ("expected an indented block", at the next line), and one cause
+    // makes one report.
+    // (Layout closes every block before the end of the file, so `VClose`
+    // stands for it too.)
+    if (equal !== undefined && (this.#at("VSep") || this.#at("VClose"))) {
+      return {
+        kind: "Honor",
+        constraint: constraintName ?? fallback,
+        typeParameters,
+        subject,
+        derived: false,
+        impliedTypes: [],
+        members: [],
+        emptyBlock: true,
+        span: spanFrom(start.span, equal.span),
+      };
+    }
     if (this.#at("Derive")) {
       this.#advance();
       return {
@@ -3494,8 +3519,7 @@ class Parser {
         span: spanFrom(start.span, this.#previous().span),
       };
     }
-    const opening = this.#expect("VOpen", "expected an indented instance body");
-    const errors = this.#diagnostics.count;
+    this.#expect("VOpen", "expected an indented instance body");
     const impliedTypes: Parsed.HonorImpliedType[] = [];
     const members: Parsed.HonorMember[] = [];
     this.#skipSeparators();
@@ -3590,11 +3614,6 @@ class Parser {
       derived: false,
       impliedTypes,
       members,
-      ...(opening === undefined
-        ? { malformed: "unopened" as const }
-        : this.#diagnostics.count > errors
-        ? { malformed: "recovered" as const }
-        : {}),
       span: spanFrom(start.span, closing?.span ?? members.at(-1)?.span ?? subject.span),
     };
   }
