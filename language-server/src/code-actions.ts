@@ -111,8 +111,13 @@ export function toLspCodeAction(
     kind,
     ...(diagnostics === undefined ? {} : { diagnostics }),
     // The repair an editor applies on its own ("Auto Fix") is a plain one; a
-    // suggestion never is (Declarations Preamble §1.1).
-    ...(action.preferred === true ? { isPreferred: true } : action.suggestion === true ? { isPreferred: false } : {}),
+    // suggestion never is (Declarations Preamble §1.1), nor one that writes
+    // stand-ins for code not written yet.
+    ...(action.preferred === true
+      ? { isPreferred: true }
+      : action.suggestion === true || action.placeholders === true
+      ? { isPreferred: false }
+      : {}),
     edit: { changes },
   };
 }

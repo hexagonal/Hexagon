@@ -26,6 +26,12 @@ export interface Fix {
    */
   readonly suggestion?: true;
   /**
+   * A repair that writes stand-ins for code not written yet (`Debug.todo`): it
+   * makes the program compile without making it right, so it is never the
+   * repair an editor applies on its own. Rust's `HasPlaceholders`.
+   */
+  readonly placeholders?: true;
+  /**
    * The family this repair belongs to, whose repairs an editor may apply across
    * a file at once ("fix all"). `mark`: a repair that rewrites only the marks of
    * the calls its report is about, toward what their callees' colours require

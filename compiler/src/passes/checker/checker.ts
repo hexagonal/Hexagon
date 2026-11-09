@@ -68,6 +68,7 @@ import {
   lineStart,
 } from "../../support/import-placement.js";
 import * as Source from "../../support/source.js";
+import { lex } from "../lexer/lexer.js";
 import { displayParameterName, isCompilerMinted, isSyntheticParameterName } from "../../support/synthetic.js";
 import * as Resolved from "../../syntax/resolved/index.js";
 import { preludeExportSymbol } from "../../support/prelude-symbol.js";
@@ -2968,11 +2969,11 @@ const CATCH_ALTERNATIVE_REPORTS: Record<ThrowKind, ReachabilityReports> = {
 /**
  * How many witnesses the matrix will produce before it stops looking.
  *
- * §7.3 asks for three and a count, so the cap only has to be far enough above
- * three that the count is the real one for anything a person wrote. It is a
- * budget rather than a nicety: the complete-signature branch of algorithm I
- * fans out across a product of domains, and the early return is what keeps a
- * wide non-exhaustive tuple from enumerating it.
+ * §7.3 asks for three and a count. Every missing case is a witness, so the
+ * count can outrun any cap: the report searches for one more than this, and
+ * where it finds it, says "at least". It is a budget rather than a nicety:
+ * algorithm I fans out across a product of domains, and the early return is
+ * what keeps a wide non-exhaustive tuple from enumerating it.
  */
 const COVERAGE_WITNESS_LIMIT = 100;
 
@@ -6065,6 +6066,10 @@ class Checker {
   #aliasQualifications: ReadonlyMap<Resolved.SymbolId, string> = new Map();
   /** Every module-alias spelling in scope, for the derived-alias repair. */
   #aliasNames: ReadonlySet<string> = new Set();
+  /** The resolved module's aliases, its own first, for `#todoSpelling`. */
+  #aliasTable: readonly Resolved.ModuleAlias[] = [];
+  /** Where the source imports a module as `Debug`, for `#todoSpelling`. */
+  #debugImport: Source.Span | undefined;
   /**
    * Every pattern the checker's **own verdict** found ill-typed — Pattern
    * Matching §7.3's "a pattern that failed to type must not widen the witness's
@@ -17055,6 +17060,10 @@ class Checker {
     this.#bareSpellings = spellings;
     this.#aliasQualifications = qualifications;
     this.#aliasNames = aliasNames;
+    this.#aliasTable = module.moduleAliases;
+    this.#debugImport = module.items.find((item): item is Resolved.ImportItem =>
+      item.kind === "Import" && item.form.kind === "Namespace" && item.form.alias === "Debug"
+    )?.span;
     this.#brokenPatterns.clear();
   }
 
@@ -18072,26 +18081,32 @@ class Checker {
     const complete = this.#completeCoverageSignature(column, present);
     const signature = complete ?? column.signature;
     const witnesses: CoverageWitness[] = [];
+    // The witnesses under a head the matrix names, each printed beneath it;
+    // whether they reached the limit.
+    const under = (head: CoverageHead): boolean => {
+      for (
+        const witness of this.#coverageWitnesses(
+          [...head.slots, ...rest],
+          this.#specializeMatrix(column, head, matrix),
+          limit - witnesses.length,
+        )
+      ) {
+        witnesses.push({
+          columns: [
+            head.print(witness.columns.slice(0, head.slots.length)),
+            ...witness.columns.slice(head.slots.length),
+          ],
+          routes: headRoutes(head, witness.routes),
+        });
+        if (witnesses.length >= limit) return true;
+      }
+      return false;
+    };
     if (complete !== undefined) {
       // Every head is named, so nothing is missing *here*: the witnesses, if
       // any, are under one of them.
       for (const head of complete) {
-        for (
-          const witness of this.#coverageWitnesses(
-            [...head.slots, ...rest],
-            this.#specializeMatrix(column, head, matrix),
-            limit - witnesses.length,
-          )
-        ) {
-          witnesses.push({
-            columns: [
-              head.print(witness.columns.slice(0, head.slots.length)),
-              ...witness.columns.slice(head.slots.length),
-            ],
-            routes: headRoutes(head, witness.routes),
-          });
-          if (witnesses.length >= limit) return witnesses;
-        }
+        if (under(head)) return witnesses;
       }
       return witnesses;
     }
@@ -18120,6 +18135,14 @@ class Checker {
         });
         if (witnesses.length >= limit) return witnesses;
       }
+    }
+    // A head the matrix names can miss cases beneath it too: `Some(A)` alone
+    // misses `Some(B)` as well as `None`. §7.3 lists every missing case up to
+    // its cap, so they are found as a complete signature's are, after the
+    // shallower missing heads. Where those print as `_`, the signature names
+    // nothing here: no row split the column, or it has no signature.
+    for (const head of (signature ?? []).filter(({ key }) => present.has(key))) {
+      if (under(head)) return witnesses;
     }
     return witnesses;
   }
@@ -18228,7 +18251,8 @@ class Checker {
     const witnesses = this.#coverageWitnesses(
       [type],
       arms.flatMap((arm) => arm.guard === undefined ? [[arm.pattern]] : []),
-      COVERAGE_WITNESS_LIMIT,
+      // One more than it lists in full, to tell whether more remain.
+      COVERAGE_WITNESS_LIMIT + 1,
     ).flatMap((witness) =>
       witness.columns[0] === undefined
         ? []
@@ -18238,14 +18262,100 @@ class Checker {
     const listed = witnesses.slice(0, COVERAGE_WITNESSES_SHOWN);
     const shown = listed.map(({ text }) => `\`${text}\``).join(", ");
     const remaining = witnesses.length - COVERAGE_WITNESSES_SHOWN;
+    const fill = this.#missingArmsFix(arms, witnesses);
     this.#diagnostics.add({
       severity: "error",
       message: `match is missing cases: ${shown}` +
-        (remaining > 0 ? ` …and ${remaining} more` : "") +
+        // Where the search stopped with cases unfound, the count is a floor.
+        (remaining <= 0
+          ? ""
+          : witnesses.length > COVERAGE_WITNESS_LIMIT
+          ? ` …and at least ${remaining} more`
+          : ` …and ${remaining} more`) +
         // The cap decides what routes: the tail names no constructors (§7.3).
         this.#routeClauses(listed.flatMap(({ routes }) => routes)),
       primary: span,
+      ...(fill === undefined ? {} : { fixes: [fill] }),
     });
+  }
+
+  /**
+   * The arms a `match` is missing, written below its last arm, one per witness,
+   * each body a `Debug.todo` naming the case it stands in for (language-server
+   * decision 5): a fault, which no colour tracks, so the function keeps the face
+   * it will have once the arms are written.
+   *
+   * Offered only where it writes the whole of what is missing, as the reader
+   * can paste it: every witness found, below the matrix's cap, none a vector's
+   * length, each in a spelling this module can write (§7.3 tiers 1 and 2), and
+   * `Debug.todo` reaching the prelude's. Never preferred, and in no family,
+   * since it makes the program compile without making it right.
+   */
+  #missingArmsFix(
+    arms: readonly Resolved.MatchArm[],
+    witnesses: readonly { readonly text: string; readonly routes: readonly RouteNeed[] }[],
+  ): Diagnostics.Fix | undefined {
+    const source = this.#sourceFile();
+    const first = arms[0];
+    const last = arms.at(-1);
+    if (source === undefined || first === undefined || last === undefined) return undefined;
+    const { text, file } = source;
+    const todo = this.#todoSpelling(first.span.start.offset);
+    if (todo === undefined) return undefined;
+    if (witnesses.length > COVERAGE_WITNESS_LIMIT || witnesses.some(({ routes }) => routes.length > 0)) return undefined;
+    // A vector witness is one length the arms miss, of unboundedly many
+    // (Collections Part 3 §3.3), so arms written from the witnesses would not
+    // be the whole of what is missing.
+    if (witnesses.some(({ text: witness }) => witness.includes("["))) return undefined;
+    const lineStart = text.lastIndexOf("\n", first.span.start.offset - 1) + 1;
+    const indent = text.slice(lineStart, first.span.start.offset);
+    if (!/^[ \t]*$/.test(indent)) return undefined;
+    const newline = text[lineStart - 2] === "\r" ? "\r\n" : "\n";
+    // An arm that ends at a layout boundary, as a nested `match` does, spans
+    // what stands before the next token, comments included, so it ends at its
+    // own last token.
+    const armText = text.slice(last.span.start.offset, last.span.end.offset);
+    const lastToken = lex(new Source.File(last.span.fileId, "", armText)).tokens.findLast(({ kind }) => kind !== "Eof")!;
+    const end = last.span.start.offset + lastToken.span.end.offset;
+    // Below the last arm's line where nothing but comments follow it, so they
+    // stay with their arm; otherwise right after the arm, before whatever
+    // closes around the `match` on that line.
+    const lineEnd = text.indexOf("\n", end) === -1 ? text.length : text.indexOf("\n", end);
+    const rest = text.slice(end, lineEnd).replace(/\r$/, "");
+    // Lexed alone, a tab at the start would read as indentation (Lexer §2.2).
+    const after = lex(new Source.File(last.span.fileId, "", rest.replace(/^[ \t]+/, "")));
+    const commented = after.diagnostics.length === 0 && after.tokens.every(({ kind }) => kind === "Eof");
+    const at = commented ? end + rest.length : end;
+    // A witness is spelled from names, `_` and brackets (a literal prints as
+    // `_`, §7.3), so it is a string literal's content as it stands.
+    const written = witnesses.map(({ text: witness }) => `${newline}${indent}${witness} => ${todo}("${witness}")`)
+      .join("");
+    const position = file.positionAt(at);
+    return {
+      message: witnesses.length === 1 ? "Add the missing arm" : `Add the ${witnesses.length} missing arms`,
+      edits: [{ span: { fileId: last.span.fileId, start: position, end: position }, replacement: written }],
+      placeholders: true,
+    };
+  }
+
+  /**
+   * How this module spells the prelude's `Debug.todo`: `Debug.todo` where that
+   * spelling reaches it, and none otherwise. A module that imports its own
+   * `Debug` hides the prelude's (Modules §5.4), and the prelude module has no
+   * other spelling. A type or constructor named `Debug` hides nothing, since a
+   * qualifier is read as a module.
+   */
+  #todoSpelling(at: number): string | undefined {
+    // A reference reads the first `Debug` alias, and the prelude's is the last:
+    // the resolver lists the module's own aliases before the prelude's, which
+    // binds `Debug` everywhere but in the prelude modules seated before it. An
+    // `import Debug` that finds no module of the program's reaches the
+    // prelude's, and its `todo` is the same symbol; but an import is read
+    // top-down (Modules §3), so only above the use.
+    const todos = this.#aliasTable.filter(({ alias }) => alias === "Debug")
+      .map(({ members }) => members.find(({ name }) => name === "todo")?.symbol);
+    const imported = this.#debugImport === undefined || this.#debugImport.start.offset < at;
+    return todos.length > 0 && todos[0] === todos.at(-1) && imported ? "Debug.todo" : undefined;
   }
 
   /**
