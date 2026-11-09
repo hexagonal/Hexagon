@@ -4,6 +4,8 @@ import {
   boundedOffsets,
   codeActionKinds,
   completionKindOf,
+  INSERT_SNIPPET_COMMAND,
+  runSnippetCommand,
   toCompletionItem,
   toCodeAction,
   toInlayHint,
@@ -102,6 +104,50 @@ describe("toCodeAction", () => {
     // the outcome a refusal exists to avoid being mistaken for.
     expect(action.edit).toBeUndefined();
     expect(action.disabled).toBe("`m` is already bound");
+  });
+
+  test("writes a repair's snippet by the command that selects its stand-ins, against the version it was made at", () => {
+    const snippet = { startOffset: 40, endOffset: 40, text: "    B => ${1:Debug.todo(\"B\")}\n" };
+    const action = toCodeAction(target, {
+      title: "Add the missing arm",
+      kind: "quickfix",
+      edits: [{ startOffset: 39, endOffset: 39, replacement: "\n    B => Debug.todo(\"B\")", snippet }],
+    });
+    // Not its edit too: standalone Monaco writes a code action's edit as plain
+    // text, and the command would then write the arm again.
+    expect(action.edit).toBeUndefined();
+    expect(action.command).toEqual({
+      id: INSERT_SNIPPET_COMMAND,
+      title: "Add the missing arm",
+      arguments: [12, { range: [40, 40], text: snippet.text }, { range: [39, 39], text: "\n    B => Debug.todo(\"B\")" }],
+    });
+    // A repair of several edits is written as it stands.
+    const several = toCodeAction(target, {
+      title: "Add the missing arm",
+      kind: "quickfix",
+      edits: [
+        { startOffset: 39, endOffset: 39, replacement: "\n    B => Debug.todo(\"B\")", snippet },
+        { startOffset: 0, endOffset: 0, replacement: "(* *)" },
+      ],
+    });
+    expect(several.command).toBeUndefined();
+    expect(several.edit?.edits).toHaveLength(2);
+  });
+
+  test("the command writes its snippet only at the version it was made against", () => {
+    const written: [string, readonly [number, number], string][] = [];
+    const insert = (range: readonly [number, number], text: string) => { written.push(["snippet", range, text]); };
+    const write = (range: readonly [number, number], text: string) => { written.push(["plain", range, text]); };
+    const made = [12, { range: [40, 40], text: "${1:x}$0\n" }, { range: [39, 39], text: "\nx" }] as const;
+    runSnippetCommand(13, [...made], insert, write);
+    runSnippetCommand(13, [...made], undefined, write);
+    expect(written).toEqual([]);
+    runSnippetCommand(12, [...made], insert, write);
+    expect(written).toEqual([["snippet", [40, 40], "${1:x}$0\n"]]);
+    // Where the editor has no snippet controller, the repair is still written,
+    // as plain text.
+    runSnippetCommand(12, [...made], undefined, write);
+    expect(written.at(-1)).toEqual(["plain", [39, 39], "\nx"]);
   });
 
   test("marks the session's preferred repair as the one Auto Fix applies, and no other", () => {

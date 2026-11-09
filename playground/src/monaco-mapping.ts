@@ -75,8 +75,52 @@ export interface MappedCodeAction<Uri, Range> {
   readonly title: string;
   readonly kind: string;
   readonly edit?: MappedWorkspaceEdit<Uri, Range>;
+  readonly command?: MappedSnippetCommand<Range>;
   readonly disabled?: string;
   readonly isPreferred?: boolean;
+}
+
+/**
+ * The command that writes a repair as a snippet, its stand-ins selected in turn
+ * (language-server decision 5). Standalone Monaco applies a code action's edit
+ * as plain text whatever it is marked (`StandaloneBulkEditService` ignores
+ * `insertAsSnippet`), so a repair with a snippet runs this instead, which hands
+ * the snippet to the editor's snippet controller. `monaco.ts` registers it.
+ */
+export const INSERT_SNIPPET_COMMAND = "hexagon.insertSnippet";
+
+/**
+ * Its arguments: the document version the snippet was made against, the
+ * snippet, and the same edit as plain text.
+ */
+export interface MappedSnippetCommand<Range> {
+  readonly id: string;
+  readonly title: string;
+  readonly arguments: [versionId: number, snippet: MappedEdit<Range>, plain: MappedEdit<Range>];
+}
+
+/** Text and the range it replaces. */
+export interface MappedEdit<Range> {
+  readonly range: Range;
+  readonly text: string;
+}
+
+/**
+ * Runs the command where the document is still at the version the snippet was
+ * made against: `insert` writes the snippet, or, where the editor has no
+ * snippet controller to write it, `write` writes the plain edit, so the repair
+ * is never lost. Nothing is written where the document has moved since, as
+ * Monaco refuses a stale edit.
+ */
+export function runSnippetCommand<Range>(
+  versionId: number,
+  [madeAt, snippet, plain]: MappedSnippetCommand<Range>["arguments"],
+  insert: ((range: Range, text: string) => void) | undefined,
+  write: (range: Range, text: string) => void,
+): void {
+  if (versionId !== madeAt) return;
+  if (insert === undefined) write(plain.range, plain.text);
+  else insert(snippet.range, snippet.text);
 }
 
 export interface MappedRenameLocation<Range> {
@@ -107,21 +151,37 @@ export function toWorkspaceEdit<Uri, Range>(
  * A refused action carries `disabled` and no `edit`, never both and never
  * neither: an action with an empty edit set is one Monaco will happily apply to
  * no effect, which is the outcome the refusal exists to avoid being mistaken
- * for.
+ * for. An action with a snippet carries the command that writes it instead of
+ * its edit.
  */
 export function toCodeAction<Uri, Range>(
   target: EditTarget<Uri, Range>,
   action: PlaygroundCodeAction,
 ): MappedCodeAction<Uri, Range> {
-  return action.disabled === undefined
-    ? {
-      title: action.title,
-      kind: action.kind,
-      edit: toWorkspaceEdit(target, action.edits),
-      // What "Auto Fix" applies on its own (the session's `preferred`).
-      ...(action.preferred === true ? { isPreferred: true } : {}),
-    }
-    : { title: action.title, kind: action.kind, disabled: action.disabled };
+  if (action.disabled !== undefined) return { title: action.title, kind: action.kind, disabled: action.disabled };
+  // A repair of one edit, as every fill is, is written as a snippet; one of
+  // several is written as it stands, each edit's text as the session wrote it.
+  const [only, ...others] = action.edits;
+  const snippet = others.length === 0 ? only?.snippet : undefined;
+  return {
+    title: action.title,
+    kind: action.kind,
+    ...(only === undefined || snippet === undefined
+      ? { edit: toWorkspaceEdit(target, action.edits) }
+      : {
+        command: {
+          id: INSERT_SNIPPET_COMMAND,
+          title: action.title,
+          arguments: [
+            target.versionId,
+            { range: target.range(snippet.startOffset, snippet.endOffset), text: snippet.text },
+            { range: target.range(only.startOffset, only.endOffset), text: only.replacement },
+          ],
+        },
+      }),
+    // What "Auto Fix" applies on its own (the session's `preferred`).
+    ...(action.preferred === true ? { isPreferred: true } : {}),
+  };
 }
 
 /**

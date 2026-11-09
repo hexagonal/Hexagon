@@ -187,6 +187,9 @@ describe("an honor's missing members, written as `Debug.todo`", () => {
       "    size(value) = Debug.todo(\"size\")",
     ));
     expect(session({ ...files, "/main.hex": after }).diagnostics("/main.hex")).toEqual([]);
+    // The accounting line is written whole, and only the stand-in selected.
+    expect(repair?.edits.map(({ snippet }) => snippet?.text))
+      .toEqual(["    scale = widened\n    size(value) = ${1:Debug.todo(\"size\")}$0\n"]);
     // Accounting lines alone write no stand-in: the resolver's report names
     // that rewrite.
     const accounted = matrix("    label(value) = \"matrix\"", "    size(value) = 1");
@@ -232,6 +235,17 @@ describe("an honor's missing members, written as `Debug.todo`", () => {
       "export let grown: Point = scaled(Point({ x = 1, y = 2 }), 2.0)",
     );
     expect(filled(text).diagnostics).toEqual([]);
+  });
+
+  test("each `Debug.todo` selected in turn, for the dev to type over (decision 5, point 3)", () => {
+    const text = program("honor Shape<Point> =", "export let unit: Unit = ()");
+    const [edit] = repairs(text)[0]!.edits;
+    expect(edit?.snippet?.span.start).toMatchObject({ line: 8, column: 0 });
+    expect(edit?.snippet?.text).toBe(
+      "    area(s) = ${1:Debug.todo(\"area\")}\n" +
+        "    name(s) = ${2:Debug.todo(\"name\")}\n" +
+        "    scaled(s, by) = ${3:Debug.todo(\"scaled\")}$0\n",
+    );
   });
 
   test("never preferred, since it makes the program compile without making it right", () => {

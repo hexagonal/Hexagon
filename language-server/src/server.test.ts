@@ -1903,6 +1903,39 @@ describe("the Hexagon language server", () => {
     }
   });
 
+  test("a client that takes snippet edits gets each `Debug.todo` selected, beginning the line below", async () => {
+    const source = "module Main\n\nexport union Shape = Circle(r: Float) | Square(s: Float) | Tri(a: Float)\n" +
+      "export let area(shape: Shape): Float =\n    match shape\n        Circle(r) => r * r // round\nexport let one = 1\n";
+    const solo = await opened(source, {
+      ...MODERN,
+      workspace: { workspaceEdit: { documentChanges: true, snippetEditSupport: true } as never },
+    });
+    try {
+      const uri = solo.uriOf("main.hex");
+      const reported = await solo.diagnosticsFor(uri);
+      const actions = await solo.client.sendRequest("textDocument/codeAction", {
+        textDocument: { uri },
+        range: { start: reported[0]!.range.start, end: reported[0]!.range.start },
+        context: { diagnostics: reported },
+      }) as CodeAction[] | null;
+      expect(actions!.map(({ title, isPreferred }) => [title, isPreferred])).toEqual([["Add the 2 missing arms", false]]);
+      expect(actions![0]!.edit).toEqual({
+        documentChanges: [{
+          textDocument: { uri, version: null },
+          edits: [{
+            range: { start: { line: 6, character: 0 }, end: { line: 6, character: 0 } },
+            snippet: {
+              kind: "snippet",
+              value: "        Square(_) => ${1:Debug.todo(\"Square(_)\")}\n        Tri(_) => ${2:Debug.todo(\"Tri(_)\")}$0\n",
+            },
+          }],
+        }],
+      });
+    } finally {
+      await solo.dispose();
+    }
+  });
+
   test("a pipeline is written as calls from the `Refactor…` menu, and back", async () => {
     const source = "module Main\n\nlet f(x: Int): Int = x + 1\nexport let a = 1 |> f |> f\n";
     const solo = await opened(source, MODERN);

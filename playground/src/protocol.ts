@@ -120,6 +120,13 @@ export interface PlaygroundHover {
 
 export interface PlaygroundTextEdit extends BufferRange {
   readonly replacement: string;
+  /** The same edit as a snippet, its stand-ins selected in turn (the session's `snippet`). */
+  readonly snippet?: PlaygroundSnippet;
+}
+
+/** A snippet and the range it replaces, in buffer coordinates. */
+export interface PlaygroundSnippet extends BufferRange {
+  readonly text: string;
 }
 
 /**
