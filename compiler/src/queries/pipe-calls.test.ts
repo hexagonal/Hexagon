@@ -4,7 +4,8 @@ import { applyLayout } from "../passes/layout/layout.js";
 import { lex } from "../passes/lexer/lexer.js";
 import { parseFile } from "../passes/parser/parser.js";
 import * as Source from "../support/source.js";
-import { CALLS_TO_PIPE_TITLE, PIPE_TO_CALLS_TITLE, rewrite } from "./pipe-calls.js";
+import { CALLS_TO_PIPE_TITLE, PIPE_TO_CALLS_TITLE } from "./pipe-calls.js";
+import { rewrite } from "./rewrite.js";
 import { keepsReading } from "./same-reading.js";
 
 /**

@@ -94,6 +94,7 @@ import {
   expressionTypeOfSelection,
 } from "../queries/expression-types.js";
 import { selectionRangesAt } from "../queries/syntax-nodes.js";
+import { matchFunctionRefactorings } from "../queries/match-function.js";
 import { pipeCallRefactorings } from "../queries/pipe-calls.js";
 import {
   planReturnAnnotation,
@@ -1047,7 +1048,12 @@ export class AnalysisSession {
       // nearly every line has a call, so offered unasked they would light the
       // editor's bulb on every line.
       for (const { source, parsed } of request.invoked === true ? analysis.modulesIn(normalized) : []) {
-        for (const refactoring of pipeCallRefactorings(source, parsed, range.start, range.end)) {
+        for (
+          const refactoring of [
+            ...pipeCallRefactorings(source, parsed, range.start, range.end),
+            ...matchFunctionRefactorings(source, parsed, range.start, range.end),
+          ]
+        ) {
           actions.push(
             refactoring.edit === undefined
               ? { title: refactoring.title, kind: "refactor", edits: [], disabled: refactoring.disabled }

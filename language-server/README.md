@@ -2,7 +2,7 @@
 
 The Hexagon language server: the process that exposes Hexagon language intelligence through Microsoft's Language Server Protocol (LSP).
 
-Five slices are implemented, and a sixth has begun, over a compiler-owned analysis session: diagnostics, hover, go-to-definition and find-references; then semantic tokens, rename and completion; then quick fixes, the diagnostic-driven half of code actions, each plain one preferred and, beside a call's mark repair, one that applies every such repair in the file that is its report's only one; then documentation in hover and completion; then signature help and inlay hints. Refactorings have begun, with a pipeline and calls written as each other. Formatting and workspace symbols are not, and the server does not announce them; a capability announced but unimplemented offers the user a command that silently does nothing.
+Five slices are implemented, and a sixth has begun, over a compiler-owned analysis session: diagnostics, hover, go-to-definition and find-references; then semantic tokens, rename and completion; then quick fixes, the diagnostic-driven half of code actions, each plain one preferred and, beside a call's mark repair, one that applies every such repair in the file that is its report's only one; then documentation in hover and completion; then signature help and inlay hints. Refactorings have begun, with a pipeline and calls, and a match function and its lambda, written as each other. Formatting and workspace symbols are not, and the server does not announce them; a capability announced but unimplemented offers the user a command that silently does nothing.
 
 This document states the boundary between the language server and the compiler. That boundary is the reason the server is small: every request handler converts coordinates, asks the session one question, and converts the answer back.
 
@@ -592,18 +592,28 @@ the rewrite keeps the program's meaning by definition:
   import brings one of that name, so `None.defaultValue(2)` is a dot call. A
   call over several lines, on a line of its own, becomes a stage to a line,
   aligned as Lexer Layout §2.3's multiline chain is.
+- **Write the lambda as a match function**, on a lambda's head or its `match`
+  line: `(shape) => match shape` and its arms become `match` and the same arms,
+  since a match function is `$x => match $x` for a binder no source can name
+  (Pattern Matching §6.7). Refused, with the reason, where the lambda says more
+  than a match function can: its parameter named in an arm, a written type, a
+  `catch` clause. A function's header (`let size(shape) = match shape`) is not
+  offered it.
+- **Write the match function as a lambda**, on its `match`: the parameter is
+  `value`, or the first of `value2`, `value3`… that no arm spells.
 
 **Each rewrite is checked by parsing what it leaves** (`queries/same-reading.ts`):
 the top-level item the edit lies in is parsed again, and the two trees must be
-the same once a pipe is read as its call and parentheses as what they hold,
-comments included. That is what decides where the result needs parentheses, as
-an operand does and an argument does not, and it catches what a writer of text
-could get wrong about layout. It asks no type, so it is no second solver.
+the same once a pipe is read as its call, parentheses as what they hold, and a
+lambda that matches its one parameter as its match function, comments included.
+That is what decides where the result needs parentheses, as an operand does and
+an argument does not, and it catches what a writer of text could get wrong about
+layout. It asks no type, so it is no second solver.
 
 **A rewrite that would lose something is refused.** The rewrite keeps the text
-of each argument, callee and mark, so a comment between them has nowhere to go. A
-`//` comment it would keep inside the new form would run over what the rewrite
-writes after it on its line. A mark after a stage's own argument list
+of each argument, callee, mark and arm, so a comment between them has nowhere
+to go. A `//` comment it would keep inside the new form would run over what the
+rewrite writes after it on its line. A mark after a stage's own argument list
 (`x |> g(2)!`) marks nothing today (#1491) and would be dropped. A refused
 rewrite shows greyed out with its reason in the `Refactor…` menu; an editor's
 Ctrl+. list leaves it out.
@@ -672,8 +682,9 @@ The fifth adds:
 
 The sixth begins with:
 
-16. refactorings between forms the spec defines as one another: a pipeline and
-    calls, either way, in both.
+16. refactorings between forms the spec defines as one another, in both: a
+    pipeline and calls, either way; and a match function and its lambda, either
+    way.
 
 Formatting and workspace symbols follow as the necessary compiler services become stable. Features are not simulated with textual guesses when semantic information is required — where these slices read source text, it is to locate a name the tree already said was there, or to read a half-typed line no tree describes yet, never to decide what a name means.
 
