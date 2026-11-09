@@ -74,6 +74,20 @@ describe("code actions", () => {
     expect(applied(source, rewrite?.edits ?? [])).toBe("module Main\nlet f(x: Int): Int = x + 1\nlet a = f(f(1))\n");
   });
 
+  test("a fill's edit carries its snippet, in buffer offsets, selecting each `Debug.todo`", () => {
+    const analysis = new PlaygroundAnalysis();
+    const source = MAIN + "export union Shape = Circle(r: Float) | Square(s: Float)\n" +
+      "export let area(shape: Shape): Float =\n    match shape\n        Circle(r) => r * r\n";
+    const caret = source.indexOf("match");
+    const [fill] = analysis.codeActions(source, { startOffset: caret, endOffset: caret });
+    expect(fill?.title).toBe("Add the missing arm");
+    expect(fill?.edits.map(({ snippet }) => snippet)).toEqual([{
+      startOffset: source.length,
+      endOffset: source.length,
+      text: "        Square(_) => ${1:Debug.todo(\"Square(_)\")}\n",
+    }]);
+  });
+
   test("its edits are buffer offsets, and applying them makes the source compile", () => {
     const analysis = new PlaygroundAnalysis();
     const caret = at(factorial, "factorial");

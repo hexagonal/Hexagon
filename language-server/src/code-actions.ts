@@ -17,13 +17,21 @@
  * arrives. A client that cannot show one is sent no such action rather than an
  * enabled one, because an action that appears applicable and is not is worse
  * than an action that is missing.
+ *
+ * **Snippet support.** A repair that writes stand-ins for code not written yet
+ * selects each one for the dev to type over, Tab moving to the next
+ * (language-server decision 5), where the client takes LSP 3.18's snippet
+ * edits. Any other client is sent the same text as a plain edit.
  */
 
 import {
   CodeActionKind,
   type CodeAction as LspCodeAction,
   type CodeActionClientCapabilities,
+  type Range,
   type TextEdit,
+  type WorkspaceEdit,
+  type WorkspaceEditClientCapabilities,
 } from "vscode-languageserver";
 import type { CodeAction } from "../../compiler/src/index.js";
 import { rangeOfSpan, type UriPaths } from "./positions.js";
@@ -33,14 +41,29 @@ import { toLspDiagnostic } from "./diagnostics.js";
 export interface CodeActionSupport {
   readonly literals: boolean;
   readonly disabled: boolean;
+  /** Snippet edits, which a text document edit carries (`documentChanges`). */
+  readonly snippets?: true;
+}
+
+/**
+ * LSP 3.18's snippet edit, and the capability that announces it, both newer
+ * than the protocol library this server is built on (3.17).
+ */
+interface SnippetTextEdit {
+  readonly range: Range;
+  readonly snippet: { readonly kind: "snippet"; readonly value: string };
 }
 
 export function codeActionSupportOf(
   capabilities: CodeActionClientCapabilities | undefined,
+  workspaceEdit?: WorkspaceEditClientCapabilities,
 ): CodeActionSupport {
+  const snippets = workspaceEdit?.documentChanges === true &&
+    (workspaceEdit as { readonly snippetEditSupport?: boolean }).snippetEditSupport === true;
   return {
     literals: capabilities?.codeActionLiteralSupport !== undefined,
     disabled: capabilities?.disabledSupport === true,
+    ...(snippets ? { snippets: true } : {}),
   };
 }
 
@@ -101,11 +124,6 @@ export function toLspCodeAction(
       disabled: { reason: action.disabled },
     };
   }
-  const changes: Record<string, TextEdit[]> = {};
-  for (const edit of action.edits) {
-    const uri = uris.toUri(edit.path);
-    (changes[uri] ??= []).push({ range: rangeOfSpan(edit.span), newText: edit.replacement });
-  }
   return {
     title: action.title,
     kind,
@@ -118,6 +136,39 @@ export function toLspCodeAction(
       : action.suggestion === true || action.placeholders === true
       ? { isPreferred: false }
       : {}),
-    edit: { changes },
+    edit: workspaceEditOf(action, support, uris),
   };
+}
+
+/**
+ * The action's edits: as snippets, where it has one and the client takes them,
+ * in the text document edits a snippet edit travels in, versionless as the
+ * plain form is; plain edits keyed by URI otherwise.
+ */
+function workspaceEditOf(action: CodeAction, support: CodeActionSupport, uris: UriPaths): WorkspaceEdit {
+  if (support.snippets === true && action.edits.some(({ snippet }) => snippet !== undefined)) {
+    const byUri = new Map<string, (TextEdit | SnippetTextEdit)[]>();
+    for (const edit of action.edits) {
+      const uri = uris.toUri(edit.path);
+      if (!byUri.has(uri)) byUri.set(uri, []);
+      byUri.get(uri)!.push(
+        edit.snippet === undefined
+          ? { range: rangeOfSpan(edit.span), newText: edit.replacement }
+          : { range: rangeOfSpan(edit.snippet.span), snippet: { kind: "snippet", value: edit.snippet.text } },
+      );
+    }
+    return {
+      documentChanges: [...byUri].map(([uri, edits]) => ({
+        textDocument: { uri, version: null },
+        // The 3.17 library's type has no snippet edit in it.
+        edits: edits as TextEdit[],
+      })),
+    };
+  }
+  const changes: Record<string, TextEdit[]> = {};
+  for (const edit of action.edits) {
+    const uri = uris.toUri(edit.path);
+    (changes[uri] ??= []).push({ range: rangeOfSpan(edit.span), newText: edit.replacement });
+  }
+  return { changes };
 }

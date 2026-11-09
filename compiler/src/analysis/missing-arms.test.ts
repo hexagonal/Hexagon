@@ -170,6 +170,25 @@ describe("the missing arms, written as `Debug.todo`", () => {
     expect(repair?.preferred).toBeUndefined();
     expect(repair?.placeholders).toBe(true);
   });
+
+  test("each `Debug.todo` selected in turn, for the dev to type over (decision 5, point 3)", () => {
+    // The snippet begins the line below the last arm, where an editor has no
+    // indentation of its own to add to the lines.
+    const text = program("export let f(s: Shape): Int =", "    match s", "        Circle(_) => 1");
+    const [edit] = repairs(text)[0]!.edits;
+    expect(edit?.snippet?.span.start).toMatchObject({ line: 5, column: 0 });
+    expect(edit?.snippet?.text).toBe(
+      "        Square(_) => ${1:Debug.todo(\"Square(_)\")}\n" +
+        "        Tri(_, _) => ${2:Debug.todo(\"Tri(_, _)\")}\n",
+    );
+    // Before what closes on the `match`'s last line, the lines would begin
+    // inside it, so the arms are written as they stand, with nothing selected.
+    const closing = program(
+      "export let areas(xs: Vector(Shape)): Vector(Float) = xs.map(match",
+      "    Circle(r) => r)",
+    );
+    expect(repairs(closing)[0]!.edits.map(({ snippet }) => snippet)).toEqual([undefined]);
+  });
 });
 
 describe("where the arms go", () => {
