@@ -6,7 +6,7 @@
 
 import * as Diagnostics from "../../support/diagnostics.js";
 import type * as Source from "../../support/source.js";
-import type * as LaidOut from "../../syntax/laid-out/index.js";
+import * as LaidOut from "../../syntax/laid-out/index.js";
 import type * as Lexed from "../../syntax/lexed/index.js";
 
 interface Block {
@@ -163,7 +163,7 @@ export function applyLayout(file: Lexed.File): LaidOut.File {
   if (expectsBlock(finalBlock.item, finalBlock.honorGroup === true)) {
     diagnostics.add({
       severity: "error",
-      message: "expected an indented block",
+      message: LaidOut.MISSING_BLOCK,
       primary: eof.span,
     });
   }
@@ -218,11 +218,12 @@ function beginLine(
   if (indentation < block.indentation) {
     // A dedent that ends an honor group ends its last honor too, and that
     // honor's member block is required (§2.1's row) as at any line that ends
-    // it. Inside other blocks the parser reports what is missing.
-    if (block.honorGroup === true && expectsBlock(block.item, true)) {
+    // it. Any other item a dedent ends, in a group or another block, is the
+    // parser's to report, in its own words.
+    if (block.honorGroup === true && opensGroupHonor(block.item)) {
       diagnostics.add({
         severity: "error",
-        message: "expected an indented block",
+        message: LaidOut.MISSING_BLOCK,
         primary: token.span,
       });
     }
@@ -256,7 +257,7 @@ function beginLine(
     if (expectsBlock(block.item, block.honorGroup === true)) {
       diagnostics.add({
         severity: "error",
-        message: "expected an indented block",
+        message: LaidOut.MISSING_BLOCK,
         primary: token.span,
       });
     }
@@ -266,6 +267,16 @@ function beginLine(
       block.hasContent = false;
     }
   }
+}
+
+/**
+ * An honor group's item ending in `=` that the parser reads as an honor —
+ * `Show<Ping> =`, `<a: Show> Show<Rose(a)> =` — which opens that honor's
+ * member block (§2.1's row).
+ */
+function opensGroupHonor(item: readonly Lexed.Token[]): boolean {
+  const first = item[0];
+  return item.at(-1)?.kind === "Equal" && (first?.kind === "UpperName" || first?.kind === "Less");
 }
 
 function expectsBlock(item: readonly Lexed.Token[], honorGroup = false): boolean {
@@ -341,11 +352,10 @@ function expectsBlock(item: readonly Lexed.Token[], honorGroup = false): boolean
   if (first?.kind === "Constraint" || first?.kind === "Honor") {
     return true;
   }
-  // An honor group's item ending in `=` — `Show<Ping> =`, `<a: Show>
-  // Show<Rose(a)> =` — opens that honor's member block (§2.1's row). An item
-  // that is some other declaration lays out as itself, for the parser to
-  // refuse in its own words.
-  if (honorGroup && (first?.kind === "UpperName" || first?.kind === "Less")) {
+  // An honor group's honor opens its member block (§2.1's row). An item that
+  // is some other declaration lays out as itself, for the parser to refuse in
+  // its own words.
+  if (honorGroup && opensGroupHonor(item.slice(head))) {
     return true;
   }
   // A union declaration head is recognized contextually here for the same

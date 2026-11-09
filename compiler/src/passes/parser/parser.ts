@@ -24,7 +24,7 @@ import {
   type ForeignLiteral,
   foreignLiteralKey,
 } from "../../support/foreign-literal.js";
-import type * as LaidOut from "../../syntax/laid-out/index.js";
+import * as LaidOut from "../../syntax/laid-out/index.js";
 import type * as Lexed from "../../syntax/lexed/index.js";
 import { hardKeywordSpellings, keywordKinds } from "../../syntax/lexed/token.js";
 import * as Parsed from "../../syntax/parsed/index.js";
@@ -738,16 +738,19 @@ class Parser {
     const sections = this.#sectionModules(items, fileId, path, fileSpan);
     const diagnostics = this.#diagnostics.toArray();
     // Every error in the code, a doc comment's being about the comment, must
-    // be an empty honor's missing block, one each (another error at the same
-    // token is that line's own).
+    // be an empty honor's missing block as layout reports it, one each
+    // (another error at the same token is that line's own). An empty honor
+    // layout reported nothing for is one it read otherwise.
     const emptyHonorBlocks = [...this.#emptyHonorBlocks];
     let readAsWritten = true;
     for (let index = 0; index < this.#diagnostics.count; index += 1) {
       if (this.#diagnostics.tagAt(index) === DOC_COMMENT_REPORT) continue;
-      const own = emptyHonorBlocks.indexOf(this.#diagnostics.at(index)!.primary.start.offset);
+      const { message, primary } = this.#diagnostics.at(index)!;
+      const own = message === LaidOut.MISSING_BLOCK ? emptyHonorBlocks.indexOf(primary.start.offset) : -1;
       if (own === -1) readAsWritten = false;
       else emptyHonorBlocks.splice(own, 1);
     }
+    if (emptyHonorBlocks.length > 0) readAsWritten = false;
     // Comments and doc blocks are the file's, and they are **cut with the
     // items**. Modules §11 emits one JavaScript file per module and Comments §6
     // preserves a module's own comments in it, so a file's whole comment list
@@ -3501,9 +3504,9 @@ class Parser {
     const equal = this.#expect("Equal", "expected `=` after instance head");
     // A head whose `=` ends its line with no block below it: the block is
     // missing, and the next line is not the block's, so it is read as it
-    // stands rather than as members. Layout reports the missing block
-    // ("expected an indented block", at the token that ends the item), and
-    // one cause makes one report.
+    // stands rather than as members. Layout reports the missing block (at the
+    // token that ends the item, where it reads the blocks as the parser does,
+    // which `readAsWritten` checks), and one cause makes one report.
     // (Layout closes every block before the end of the file, so `VClose`
     // stands for it too.)
     if (equal !== undefined && (this.#at("VSep") || this.#at("VClose"))) {

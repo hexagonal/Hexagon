@@ -10,6 +10,13 @@ import type * as Lexed from "../lexed/index.js";
 
 export type VirtualKind = "VOpen" | "VSep" | "VClose";
 
+/**
+ * Layout's report of a block a line requires and does not open (Lexer &
+ * Layout §2.1's rows). An empty honor's is its one report, which the parser
+ * reads the rest of the file past (`Parsed.Module.readAsWritten`).
+ */
+export const MISSING_BLOCK = "expected an indented block";
+
 export interface VirtualToken {
   readonly kind: VirtualKind;
   readonly span: Source.Span;
