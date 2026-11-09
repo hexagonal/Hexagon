@@ -2969,11 +2969,11 @@ const CATCH_ALTERNATIVE_REPORTS: Record<ThrowKind, ReachabilityReports> = {
 /**
  * How many witnesses the matrix will produce before it stops looking.
  *
- * §7.3 asks for three and a count, so the cap only has to be far enough above
- * three that the count is the real one for anything a person wrote. It is a
- * budget rather than a nicety: the complete-signature branch of algorithm I
- * fans out across a product of domains, and the early return is what keeps a
- * wide non-exhaustive tuple from enumerating it.
+ * §7.3 asks for three and a count. Every missing case is a witness, so the
+ * count can outrun any cap; where it reaches this one, the report says "at
+ * least". It is a budget rather than a nicety: algorithm I fans out across a
+ * product of domains, and the early return is what keeps a wide
+ * non-exhaustive tuple from enumerating it.
  */
 const COVERAGE_WITNESS_LIMIT = 100;
 
@@ -18265,7 +18265,12 @@ class Checker {
     this.#diagnostics.add({
       severity: "error",
       message: `match is missing cases: ${shown}` +
-        (remaining > 0 ? ` …and ${remaining} more` : "") +
+        // Where the search stopped at its cap, the count is only a floor.
+        (remaining <= 0
+          ? ""
+          : witnesses.length >= COVERAGE_WITNESS_LIMIT
+          ? ` …and at least ${remaining} more`
+          : ` …and ${remaining} more`) +
         // The cap decides what routes: the tail names no constructors (§7.3).
         this.#routeClauses(listed.flatMap(({ routes }) => routes)),
       primary: span,
@@ -18316,7 +18321,9 @@ class Checker {
     // closes around the `match` on that line.
     const lineEnd = text.indexOf("\n", end) === -1 ? text.length : text.indexOf("\n", end);
     const rest = text.slice(end, lineEnd).replace(/\r$/, "");
-    const at = /^[ \t]*(?:\(\*(?:(?!\*\)).)*\*\)[ \t]*)*(?:\/\/.*)?$/.test(rest) ? end + rest.length : end;
+    const after = lex(new Source.File(last.span.fileId, "", rest));
+    const commented = after.diagnostics.length === 0 && after.tokens.every(({ kind }) => kind === "Eof");
+    const at = commented ? end + rest.length : end;
     // A witness is spelled from names, `_` and brackets (a literal prints as
     // `_`, §7.3), so it is a string literal's content as it stands.
     const written = witnesses.map(({ text: witness }) => `${newline}${indent}${witness} => ${todo}("${witness}")`)
