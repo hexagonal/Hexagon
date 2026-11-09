@@ -381,6 +381,29 @@ describe("destruct on a variable or `_` in an arm's pattern", () => {
     });
   });
 
+  test("a variable only the guard names stays bound", () => {
+    const text = program(
+      "let round(s: Shape): Bool = True",
+      "export let f(o: Option(Shape)): Int =",
+      "    match o",
+      "        Some(s) when round(s) => 1",
+      "        _ => 0",
+    );
+    expect(split(text, "s) when")).toEqual({
+      title: "Split `s` into 3 arms",
+      text: program(
+        "let round(s: Shape): Bool = True",
+        "export let f(o: Option(Shape)): Int =",
+        "    match o",
+        "        Some(Circle(_) as s) when round(s) => 1",
+        "        Some(Square(_) as s) when round(s) => 1",
+        "        Some(Tri(_, _) as s) when round(s) => 1",
+        "        _ => 0",
+      ),
+      diagnostics: [],
+    });
+  });
+
   test("a field's own pattern, a comment after the arm, and a nested `match` in the body", () => {
     const text = [
       "module Main",
