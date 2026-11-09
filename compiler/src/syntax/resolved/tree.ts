@@ -743,6 +743,8 @@ export interface Module {
   readonly companionPrimitive?: PrimitiveName;
   readonly span: Source.Span;
   readonly diagnostics: readonly Diagnostics.Diagnostic[];
+  /** Whether the parser read the file's code as written (`Parsed.Module.readAsWritten`). */
+  readonly readAsWritten: boolean;
 }
 
 export interface PatternHome {

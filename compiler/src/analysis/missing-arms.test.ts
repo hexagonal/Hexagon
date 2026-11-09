@@ -310,6 +310,16 @@ describe("not offered where the arms would not be the whole of what is missing, 
     expect(repairs(text(101)).map(({ title }) => title)).toEqual(["Add the 100 missing arms"]);
   });
 
+  test("anywhere the parser did not read the file as written, whose recovery's arms are not the block's", () => {
+    const lines = ["export let f(s: Shape): Int =", "    match s", "        Circle(_) => 1"];
+    expect(repairs(program(...lines, "export let broken: Int = (1 +"))).toEqual([]);
+    // Recovery reads a line of a nested block as an arm.
+    expect(repairs(program(...lines, "        fun g() =", "            Square(_) => 2"))).toEqual([]);
+    // A doc comment's error is about the comment, and leaves the code read as
+    // written.
+    expect(repairs(program(...lines, "(** nothing *)")).map(({ title }) => title)).toEqual(["Add the 2 missing arms"]);
+  });
+
   test("a vector's missing length, one of unboundedly many", () => {
     expect(repairs(program("export let f(v: Vector(Int)): Int =", "    match v", "        [x] => x"))).toEqual([]);
   });

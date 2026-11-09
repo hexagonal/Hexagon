@@ -402,6 +402,33 @@ describe("applyLayout", () => {
     );
   });
 
+  test("an honor in a group opens its member block past an `export` the parser refuses", () => {
+    // It lays out as the honor it is, and the parser refuses the `export`.
+    const laid = layout("honor\n    export Show<Ping> =\n        show(p) = \"ping\"\nlet x = 1");
+    expect(virtualKinds(laid.tokens)).toEqual(["VOpen", "VSep", "VOpen", "VOpen", "VClose", "VClose", "VSep", "VClose"]);
+  });
+
+  test("reports an honor group's last honor that a line ends without its block", () => {
+    // Its member block is required (§2.1's row), whether a dedent ends it or a
+    // line at its own column, and the parser reads it as an empty honor with no
+    // report of its own.
+    const message = ({ message, primary }: { message: string; primary: Source.Span }): string =>
+      `${primary.start.line}:${primary.start.column} ${message}`;
+    expect(layout("honor\n    Show<Ping> =\nlet x = 1").diagnostics.map(message))
+      .toEqual(["4:0 expected an indented block"]);
+    expect(layout("honor\n    Show<Ping> =\n    Show<Pong> =\n        show(p) = \"pong\"").diagnostics.map(message))
+      .toEqual(["4:4 expected an indented block"]);
+    // A head with binders is an honor too.
+    expect(layout("honor\n    <a: Show> Show<Rose(a)> =\nlet x = 1").diagnostics.map(message))
+      .toEqual(["4:0 expected an indented block"]);
+    // Another block's item that a dedent ends is the parser's to report, which
+    // it does in its own words, as is a group's item that is no honor.
+    expect(layout("fun\n    g() =\nlet x = 1").diagnostics).toEqual([]);
+    for (const item of ["f(x) =", "match x", "fun", "honor", "honor Show<Ping> =", "widens M.f =", "let x =", "Show<Pong>"]) {
+      expect(layout(`honor\n    Show<Ping> =\n        show(p) = "ping"\n    ${item}\nlet x = 1`).diagnostics).toEqual([]);
+    }
+  });
+
   test("keeps virtual tokens balanced over bracket and indentation soup", () => {
     // `fc.string()` below is a good crash guard but almost never produces a block
     // head, a delimiter, and a dedent in one input — the combination the

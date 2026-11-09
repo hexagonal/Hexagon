@@ -4396,6 +4396,52 @@ function literalReceiver(receiver: Resolved.Expr): Resolved.Expr {
   return decimalLiteral(ungrouped(receiver)) === undefined ? receiver : ungrouped(receiver);
 }
 
+/**
+ * The indentation and line ending of the line a block's first item begins,
+ * for lines written into the block; none where something stands before the
+ * item on its line, whose column new lines could not match.
+ */
+function blockLine(text: string, offset: number): { readonly indent: string; readonly newline: string } | undefined {
+  const lineStart = text.lastIndexOf("\n", offset - 1) + 1;
+  const indent = text.slice(lineStart, offset);
+  if (!/^[ \t]*$/.test(indent)) return undefined;
+  return { indent, newline: text[lineStart - 2] === "\r" ? "\r\n" : "\n" };
+}
+
+/**
+ * Where lines go below a block's last item (an arm, a member): at the end of
+ * its line where nothing but comments follow it, so they stay with it;
+ * otherwise right after it, before whatever closes around the block there.
+ */
+function belowLast(text: string, last: Source.Span): number {
+  // An item that ends at a layout boundary, as a nested `match` does, spans
+  // what stands before the next token, comments included, so it ends at its
+  // own last token.
+  const own = lex(new Source.File(last.fileId, "", text.slice(last.start.offset, last.end.offset)));
+  const end = last.start.offset + own.tokens.findLast(({ kind }) => kind !== "Eof")!.span.end.offset;
+  const rest = restOfLine(text, last.fileId, end);
+  return rest.commented ? rest.end : end;
+}
+
+/**
+ * What follows an offset on its line: whether it is nothing but comments, and
+ * where the line's text ends, before its line break.
+ */
+function restOfLine(
+  text: string,
+  fileId: Source.Span["fileId"],
+  from: number,
+): { readonly commented: boolean; readonly end: number } {
+  const lineEnd = text.indexOf("\n", from) === -1 ? text.length : text.indexOf("\n", from);
+  const rest = text.slice(from, lineEnd).replace(/\r$/, "");
+  // Lexed alone, a tab at the start would read as indentation (Lexer §2.2).
+  const after = lex(new Source.File(fileId, "", rest.replace(/^[ \t]+/, "")));
+  return {
+    commented: after.diagnostics.length === 0 && after.tokens.every(({ kind }) => kind === "Eof"),
+    end: from + rest.length,
+  };
+}
+
 /** The `match` keyword a match function begins with, whose parameter occupies no source (Pattern Matching §6.7). */
 function keywordSpan(span: Source.Span): Source.Span {
   const end = { ...span.start, offset: span.start.offset + 5, column: span.start.column + 5 };
@@ -6070,6 +6116,14 @@ class Checker {
   #aliasTable: readonly Resolved.ModuleAlias[] = [];
   /** Where the source imports a module as `Debug`, for `#todoSpelling`. */
   #debugImport: Source.Span | undefined;
+  /**
+   * Whether the parser read this file's code as written
+   * (`Resolved.Module.readAsWritten`), for the fills that write into a block:
+   * a block read by recovery is not the block as written (a line of a nested
+   * block read as an arm or a member, a misindented line read as one), so
+   * lines placed beside its items would not land in it.
+   */
+  #readAsWritten = false;
   /**
    * Every pattern the checker's **own verdict** found ill-typed — Pattern
    * Matching §7.3's "a pattern that failed to type must not widen the witness's
@@ -10773,14 +10827,30 @@ class Checker {
             });
           }
         }
-        for (const required of declaration.members) {
-          if (required.defaultValue === undefined && !supplied.has(required.binding.name)) {
-            this.#diagnostics.add({
-              severity: "error",
-              message: `instance is missing required member \`${required.binding.name}\``,
-              primary: item.span,
-            });
-          }
+        const missing = declaration.members.filter(
+          (required) => required.defaultValue === undefined && !supplied.has(required.binding.name),
+        );
+        // A member this module's `widens` declaration supplies is accounted
+        // for, never written, and its line is required even where the member
+        // has a default (Constraints §4.7).
+        const widened = new Set(items.flatMap((each) => each.kind === "Let" ? each.widens ?? [] : [])
+          .filter(({ constraintIdentity }) => constraintIdentity === item.constraintIdentity)
+          .map(({ member }) => member));
+        // One fill writes them all, so each report offers the same one.
+        const fill = missing.length === 0 ? undefined : this.#missingMembersFix(
+          item,
+          declaration.members.filter(({ binding, defaultValue }) =>
+            !supplied.has(binding.name) && (defaultValue === undefined || widened.has(binding.name))
+          ),
+          widened,
+        );
+        for (const required of missing) {
+          this.#diagnostics.add({
+            severity: "error",
+            message: `instance is missing required member \`${required.binding.name}\``,
+            primary: item.span,
+            ...(fill === undefined ? {} : { fixes: [fill] }),
+          });
         }
         const checkMember = (member: Resolved.HonorMember): void => {
           const firstDefinition = item.members.findIndex(
@@ -17064,6 +17134,7 @@ class Checker {
     this.#debugImport = module.items.find((item): item is Resolved.ImportItem =>
       item.kind === "Import" && item.form.kind === "Namespace" && item.form.alias === "Debug"
     )?.span;
+    this.#readAsWritten = module.readAsWritten;
     this.#brokenPatterns.clear();
   }
 
@@ -18286,9 +18357,10 @@ class Checker {
    * it will have once the arms are written.
    *
    * Offered only where it writes the whole of what is missing, as the reader
-   * can paste it: every witness found, below the matrix's cap, none a vector's
-   * length, each in a spelling this module can write (§7.3 tiers 1 and 2), and
-   * `Debug.todo` reaching the prelude's. Never preferred, and in no family,
+   * can paste it, into the block as written: every witness found, below the
+   * matrix's cap, none a vector's length, each in a spelling this module can
+   * write (§7.3 tiers 1 and 2), `Debug.todo` reaching the prelude's, and the
+   * parser having read the file as written. Never preferred, and in no family,
    * since it makes the program compile without making it right.
    */
   #missingArmsFix(
@@ -18300,6 +18372,7 @@ class Checker {
     const last = arms.at(-1);
     if (source === undefined || first === undefined || last === undefined) return undefined;
     const { text, file } = source;
+    if (!this.#readAsWritten) return undefined;
     const todo = this.#todoSpelling(first.span.start.offset);
     if (todo === undefined) return undefined;
     if (witnesses.length > COVERAGE_WITNESS_LIMIT || witnesses.some(({ routes }) => routes.length > 0)) return undefined;
@@ -18307,35 +18380,89 @@ class Checker {
     // (Collections Part 3 §3.3), so arms written from the witnesses would not
     // be the whole of what is missing.
     if (witnesses.some(({ text: witness }) => witness.includes("["))) return undefined;
-    const lineStart = text.lastIndexOf("\n", first.span.start.offset - 1) + 1;
-    const indent = text.slice(lineStart, first.span.start.offset);
-    if (!/^[ \t]*$/.test(indent)) return undefined;
-    const newline = text[lineStart - 2] === "\r" ? "\r\n" : "\n";
-    // An arm that ends at a layout boundary, as a nested `match` does, spans
-    // what stands before the next token, comments included, so it ends at its
-    // own last token.
-    const armText = text.slice(last.span.start.offset, last.span.end.offset);
-    const lastToken = lex(new Source.File(last.span.fileId, "", armText)).tokens.findLast(({ kind }) => kind !== "Eof")!;
-    const end = last.span.start.offset + lastToken.span.end.offset;
-    // Below the last arm's line where nothing but comments follow it, so they
-    // stay with their arm; otherwise right after the arm, before whatever
-    // closes around the `match` on that line.
-    const lineEnd = text.indexOf("\n", end) === -1 ? text.length : text.indexOf("\n", end);
-    const rest = text.slice(end, lineEnd).replace(/\r$/, "");
-    // Lexed alone, a tab at the start would read as indentation (Lexer §2.2).
-    const after = lex(new Source.File(last.span.fileId, "", rest.replace(/^[ \t]+/, "")));
-    const commented = after.diagnostics.length === 0 && after.tokens.every(({ kind }) => kind === "Eof");
-    const at = commented ? end + rest.length : end;
+    const line = blockLine(text, first.span.start.offset);
+    if (line === undefined) return undefined;
+    const { indent, newline } = line;
     // A witness is spelled from names, `_` and brackets (a literal prints as
     // `_`, §7.3), so it is a string literal's content as it stands.
     const written = witnesses.map(({ text: witness }) => `${newline}${indent}${witness} => ${todo}("${witness}")`)
       .join("");
-    const position = file.positionAt(at);
+    const position = file.positionAt(belowLast(text, last.span));
     return {
       message: witnesses.length === 1 ? "Add the missing arm" : `Add the ${witnesses.length} missing arms`,
       edits: [{ span: { fileId: last.span.fileId, start: position, end: position }, replacement: written }],
       placeholders: true,
     };
+  }
+
+  /**
+   * The members an `honor` is missing, each written from its constraint's
+   * header as a `Debug.todo` naming it (language-server decision 5): the name
+   * and the parameters' names, and no types, since a member's type is the
+   * constraint's at the honored head (Constraints §4.1) and a type written
+   * there binds (Effects §13.2). A member this module widens is written as its
+   * accounting line, `name = widened`, a defaulted one too, since that line is
+   * required (§4.7). They go below the block's last line at its first line's
+   * indentation, or, where the block is empty, on the lines below the head's
+   * `=`, indented one step past it.
+   *
+   * Offered where it writes a stand-in, the parser read the file as written,
+   * `Debug.todo` reaches the prelude's and the new lines have a column to
+   * match. Never preferred, and in no family, as the missing arms.
+   */
+  #missingMembersFix(
+    item: Resolved.HonorItem,
+    unwritten: readonly Resolved.ConstraintMember[],
+    widened: ReadonlySet<string>,
+  ): Diagnostics.Fix | undefined {
+    // Accounting lines alone are the resolver's report's rewrite, no stand-in.
+    if (unwritten.every(({ binding }) => widened.has(binding.name))) return undefined;
+    const source = this.#sourceFile();
+    if (source === undefined) return undefined;
+    const { text, file } = source;
+    if (!this.#readAsWritten) return undefined;
+    const todo = this.#todoSpelling(item.span.start.offset);
+    if (todo === undefined) return undefined;
+    const block = [...item.members, ...item.impliedTypes]
+      .sort((one, other) => one.span.start.offset - other.span.start.offset);
+    const place = this.#memberPlace(text, item, block);
+    if (place === undefined) return undefined;
+    const { at, indent, newline } = place;
+    const written = unwritten.map(({ binding, parameters }) => {
+      if (widened.has(binding.name)) return `${newline}${indent}${binding.name} = widened`;
+      // A parameter the constraint wrote as a pattern, which it refuses, has a
+      // compiler-minted name no source may write.
+      const names = parameters.map(({ name }) => isCompilerMinted(name) ? "_" : name).join(", ");
+      return `${newline}${indent}${binding.name}(${names}) = ${todo}("${binding.name}")`;
+    }).join("");
+    const position = file.positionAt(at);
+    return {
+      message: unwritten.length === 1 ? "Add the missing member" : `Add the ${unwritten.length} missing members`,
+      edits: [{ span: { fileId: item.span.fileId, start: position, end: position }, replacement: written }],
+      placeholders: true,
+    };
+  }
+
+  /** Where an honor's new members go, and how their lines begin. */
+  #memberPlace(
+    text: string,
+    item: Resolved.HonorItem,
+    block: readonly { readonly span: Source.Span }[],
+  ): { readonly at: number; readonly indent: string; readonly newline: string } | undefined {
+    const first = block[0];
+    const last = block.at(-1);
+    if (first !== undefined && last !== undefined) {
+      const line = blockLine(text, first.span.start.offset);
+      return line === undefined ? undefined : { at: belowLast(text, last.span), ...line };
+    }
+    // An empty block (read as written, so one whose `=` ends the head's line,
+    // where the honor's span ends): the members go below that line, one step in
+    // from the head, after the comments that end it.
+    const line = blockLine(text, item.span.start.offset);
+    const rest = restOfLine(text, item.span.fileId, item.span.end.offset);
+    return line === undefined || !rest.commented
+      ? undefined
+      : { at: rest.end, indent: `${line.indent}    `, newline: line.newline };
   }
 
   /**
