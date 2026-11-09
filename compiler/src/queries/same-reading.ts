@@ -56,7 +56,8 @@ function sameReading(before: unknown, after: unknown): boolean {
 
 /**
  * A parsed value as the checker reads it: positions dropped, keys in one order,
- * a group as what it holds, and a pipe as its call.
+ * a group as what it holds, a pipe as its call, and a lambda that matches its
+ * one parameter as the match function it is.
  *
  * But not a group that holds a call's callee written `e.name`: `(e.name)(args)`
  * reads the field and calls it, where `e.name(args)` is a dot call (Method
@@ -71,6 +72,10 @@ function reading(value: unknown): unknown {
   }
   if (node.kind === "Group" && "expression" in node) return reading(node.expression);
   if (node.kind === "Binary" && node.operator === "Pipe") return reading(pipeCall(node as unknown as Parsed.BinaryExpr));
+  if (node.kind === "Lambda") {
+    const arms = matchFunctionArms(node as unknown as Parsed.LambdaExpr);
+    if (arms !== undefined) return { kind: "MatchFunction", arms: reading(arms) };
+  }
   const read: Record<string, unknown> = {};
   for (const key of Object.keys(node).sort()) {
     if (key === "span" || key.endsWith("Span") || key === "offset" || key === "line" || key === "column") continue;
@@ -105,4 +110,53 @@ export function pipeCall(pipe: Parsed.BinaryExpr): Parsed.CallExpr {
     ...(pipe.markInError === undefined ? {} : { markInError: pipe.markInError }),
     span: pipe.span,
   };
+}
+
+/**
+ * The arms of a lambda that is a match function (Pattern Matching §6.7): one
+ * parameter with no written type, and a body that is a `match` on that
+ * parameter alone, with no `catch` clause and the parameter named in no arm.
+ * The parser builds the scrutinee-less form as exactly this, its binder one no
+ * source can name, so that form and the lambda it is read the same.
+ */
+function matchFunctionArms(lambda: Parsed.LambdaExpr): readonly Parsed.MatchArm[] | undefined {
+  const match = matchedBody(lambda);
+  const [parameter, ...others] = lambda.parameters;
+  if (match === undefined || parameter === undefined || others.length > 0) return undefined;
+  const plain = parameter.annotation === undefined && lambda.returnAnnotation === undefined &&
+    lambda.typeParameters === undefined && lambda.destructurings === undefined && match.catchArms === undefined;
+  const name = parameter.name.text;
+  const onParameter = match.scrutinee.kind === "Name" && match.scrutinee.name.text === name;
+  return plain && onParameter && !namesIn(match.arms).has(name) ? match.arms : undefined;
+}
+
+/**
+ * The `match` a lambda's body is: the body itself, or a block holding it and
+ * nothing else, as a body begun on the line after the arrow is.
+ */
+export function matchedBody(lambda: Parsed.LambdaExpr): Parsed.MatchExpr | undefined {
+  const { body } = lambda;
+  if (body.kind === "Match") return body;
+  if (body.kind !== "Block" || body.items.length !== 1) return undefined;
+  const [item] = body.items;
+  return item!.kind === "ExprItem" && item.expression.kind === "Match" ? item.expression : undefined;
+}
+
+/**
+ * Every name spelled in a parsed value: the names it reads, binds or declares,
+ * fields and labels included. A lambda's parameter is free to drop or to
+ * introduce exactly when its spelling is not among them, which asks more than
+ * resolution would and never less.
+ */
+export function namesIn(value: unknown): ReadonlySet<string> {
+  const names = new Set<string>();
+  const walk = (node: unknown): void => {
+    if (Array.isArray(node)) return node.forEach(walk);
+    if (node === null || typeof node !== "object") return;
+    const record = node as Record<string, unknown>;
+    if (typeof record.text === "string" && "startClass" in record) names.add(record.text);
+    for (const key of Object.keys(record)) if (key !== "span") walk(record[key]);
+  };
+  walk(value);
+  return names;
 }
