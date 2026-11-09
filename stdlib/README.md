@@ -6,7 +6,7 @@ not compiler intrinsics.
 
 Together they are the package **`Hex`** (Packages §2.4): every file here declares
 its module (`module Vector`, full name `Hex.Vector`), and the prelude modules are
-in scope everywhere without an import, Modules §5.5's closed set of twenty-seven
+in scope everywhere without an import, Modules §5.5's closed set of twenty-eight
 being what they seed in the term namespace. `Rat`, `Regex` with `Regex.Syntax`,
 `File`, `Stdio` and `Process` are the modules outside the prelude — the spec's
 "rest of `Hex`" — and the compiler embeds the whole directory, so a program
