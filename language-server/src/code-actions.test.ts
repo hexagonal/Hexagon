@@ -170,6 +170,17 @@ describe("converting one action", () => {
     });
     // A repair with no snippet is plain, whatever the client takes.
     expect(convert({ literals: true, disabled: false, snippets: true } as never)?.edit?.changes).toBeDefined();
+    // Beside a snippet, an edit without one travels as a plain edit.
+    const mixed = convert({ literals: true, disabled: false, snippets: true } as never, {
+      ...arms,
+      edits: [...arms.edits, { path: "/main.hex", span: below, replacement: "(* *)" }],
+    });
+    expect(mixed?.edit?.documentChanges?.[0]).toMatchObject({
+      edits: [
+        { snippet: { value: "    B => ${1:Debug.todo(\"B\")}\n" } },
+        { range: { start: { line: 1, character: 0 }, end: { line: 1, character: 0 } }, newText: "(* *)" },
+      ],
+    });
   });
 
   test("a plain repair the session prefers is the one an editor applies on its own", () => {

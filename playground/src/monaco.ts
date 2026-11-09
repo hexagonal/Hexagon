@@ -22,6 +22,7 @@ import {
   codeActionKinds,
   hoverSelectionAt,
   INSERT_SNIPPET_COMMAND,
+  runSnippetCommand,
   toCodeAction,
   toCompletionItem,
   toInlayHint,
@@ -35,6 +36,7 @@ import {
   type MappedInlayHint,
   type MappedRenameLocation,
   type MappedSignatureHelp,
+  type MappedSnippetCommand,
 } from "./monaco-mapping";
 import {
   createGrammarLoader,
@@ -718,12 +720,11 @@ function registerSnippetCommand(
 ): monaco.IDisposable {
   return monaco.editor.registerCommand(
     INSERT_SNIPPET_COMMAND,
-    (_accessor, versionId: number, range: monaco.IRange, text: string) => {
-      if (model.getVersionId() !== versionId) return;
-      editor.getContribution<SnippetController>("snippetController2")?.insert([
-        { range: monaco.Range.lift(range), template: text },
-      ]);
-    },
+    (_accessor, ...made: MappedSnippetCommand<monaco.IRange>["arguments"]) =>
+      runSnippetCommand(model.getVersionId(), made, (range, text) =>
+        editor.getContribution<SnippetController>("snippetController2")?.insert([
+          { range: monaco.Range.lift(range), template: text },
+        ])),
   );
 }
 

@@ -96,6 +96,19 @@ export interface MappedSnippetCommand<Range> {
   readonly arguments: [versionId: number, range: Range, text: string];
 }
 
+/**
+ * Runs the command: `insert` writes the snippet where the document is still at
+ * the version it was made against, and nothing is written where it has moved
+ * since, as Monaco refuses a stale edit.
+ */
+export function runSnippetCommand<Range>(
+  versionId: number,
+  [madeAt, range, text]: MappedSnippetCommand<Range>["arguments"],
+  insert: (range: Range, text: string) => void,
+): void {
+  if (versionId === madeAt) insert(range, text);
+}
+
 export interface MappedRenameLocation<Range> {
   readonly range: Range;
   readonly text: string;

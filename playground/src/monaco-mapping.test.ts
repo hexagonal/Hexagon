@@ -5,6 +5,7 @@ import {
   codeActionKinds,
   completionKindOf,
   INSERT_SNIPPET_COMMAND,
+  runSnippetCommand,
   toCompletionItem,
   toCodeAction,
   toInlayHint,
@@ -131,6 +132,15 @@ describe("toCodeAction", () => {
     });
     expect(several.command).toBeUndefined();
     expect(several.edit?.edits).toHaveLength(2);
+  });
+
+  test("the command writes its snippet only at the version it was made against", () => {
+    const written: [readonly [number, number], string][] = [];
+    const insert = (range: readonly [number, number], text: string) => { written.push([range, text]); };
+    runSnippetCommand(13, [12, [40, 40], "${1:x}"], insert);
+    expect(written).toEqual([]);
+    runSnippetCommand(12, [12, [40, 40], "${1:x}"], insert);
+    expect(written).toEqual([[[40, 40], "${1:x}"]]);
   });
 
   test("marks the session's preferred repair as the one Auto Fix applies, and no other", () => {

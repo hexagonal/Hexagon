@@ -67,6 +67,21 @@ describe("a repair's stand-ins as a snippet", () => {
     expect(snippet(text, insertion(text, 10, " todo(\"b\")", "todo(\"b\")"))).toBeUndefined();
   });
 
+  test("a replacement keeps the span it replaces, and has none inside a line", () => {
+    const text = "    a => 1\nnext\n";
+    const at = (offset: number) => file(text).positionAt(offset);
+    const replacing = (start: number, end: number, replacement: string) => ({
+      span: { fileId: Source.fileId(0), start: at(start), end: at(end) },
+      replacement,
+      placeholders: [{ start: replacement.indexOf("todo"), end: replacement.length }],
+    });
+    const written = snippetOf(file(text), replacing(11, 15, "b => todo(\"b\")"));
+    expect(written && [written.span.start.offset, written.span.end.offset, written.text])
+      .toEqual([11, 15, "b => ${1:todo(\"b\")}"]);
+    // Moving past the line break would move what it replaces.
+    expect(snippetOf(file(text), replacing(10, 15, "\nb => todo(\"b\")"))).toBeUndefined();
+  });
+
   test("none for an edit without stand-ins", () => {
     const text = "    a => 1\n";
     expect(snippet(text, insertion(text, 11, "    b => 2\n"))).toBeUndefined();
@@ -74,7 +89,7 @@ describe("a repair's stand-ins as a snippet", () => {
 
   test("text that would read as a snippet's own syntax is escaped", () => {
     const text = "x\n";
-    const edit = insertion(text, 2, "a$b}c\\d = todo(\"$}\\\")", "todo(\"$}\\\")");
-    expect(snippet(text, edit)?.text).toBe("a\\$b\\}c\\\\d = ${1:todo(\"\\$\\}\\\\\")}");
+    const edit = insertion(text, 2, "a$b}c\\d = todo(\"$}\\\") $}\\", "todo(\"$}\\\")");
+    expect(snippet(text, edit)?.text).toBe("a\\$b\\}c\\\\d = ${1:todo(\"\\$\\}\\\\\")} \\$\\}\\\\");
   });
 });
