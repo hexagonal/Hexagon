@@ -195,9 +195,11 @@ export interface CodeAction {
   readonly disabled?: string;
   /** A repair the compiler offered only as a suggestion (`Diagnostics.Fix.suggestion`): never preferred. */
   readonly suggestion?: true;
+  /** A repair that writes stand-ins (`Diagnostics.Fix.placeholders`): never preferred. */
+  readonly placeholders?: true;
   /**
    * The repair an editor may apply on its own ("Auto Fix"): every quick fix that
-   * can be applied and is not a suggestion. A report with a fix for each side
+   * can be applied and is neither a suggestion nor a writer of stand-ins. A report with a fix for each side
    * of a contradiction has two, and the editor asks which (doctrine 8): it never
    * picks a side, and never a "perhaps" (Declarations Preamble §1.1).
    */
@@ -971,7 +973,14 @@ export class AnalysisSession {
         }`;
         if (written.has(key)) continue;
         written.add(key);
-        actions.push({ title: fix.message, diagnostic, kind: "quickfix", edits, ...(fix.suggestion ? { suggestion: true } : {}) });
+        actions.push({
+          title: fix.message,
+          diagnostic,
+          kind: "quickfix",
+          edits,
+          ...(fix.suggestion ? { suggestion: true } : {}),
+          ...(fix.placeholders ? { placeholders: true } : {}),
+        });
       }
       if (diagnostic.renameRepair !== undefined) {
         const rename = this.#renameAction(normalized, diagnostic, diagnostic.renameRepair.newName);
@@ -1071,7 +1080,8 @@ export class AnalysisSession {
       }
     }
     const answered = actions.map((action): CodeAction =>
-      action.kind === "refactor" || action.disabled !== undefined || action.suggestion === true
+      action.kind === "refactor" || action.disabled !== undefined || action.suggestion === true ||
+        action.placeholders === true
         ? action
         : { ...action, preferred: true }
     );

@@ -117,6 +117,11 @@ describe("converting one action", () => {
     expect(convert({ literals: true, disabled: false }) && "isPreferred" in convert({ literals: true, disabled: false })!).toBe(false);
   });
 
+  test("nor is one that writes stand-ins for code not written yet", () => {
+    const placeholders: CodeAction = { ...action, title: "Add the missing arm", placeholders: true };
+    expect(convert({ literals: true, disabled: false }, placeholders)?.isPreferred).toBe(false);
+  });
+
   test("a plain repair the session prefers is the one an editor applies on its own", () => {
     const preferred: CodeAction = { ...action, preferred: true };
     expect(convert({ literals: true, disabled: false }, preferred)?.isPreferred).toBe(true);

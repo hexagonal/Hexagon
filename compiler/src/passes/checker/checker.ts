@@ -6065,6 +6065,8 @@ class Checker {
   #aliasQualifications: ReadonlyMap<Resolved.SymbolId, string> = new Map();
   /** Every module-alias spelling in scope, for the derived-alias repair. */
   #aliasNames: ReadonlySet<string> = new Set();
+  /** The resolved module's aliases, its own first, for `#todoSpelling`. */
+  #aliasTable: readonly Resolved.ModuleAlias[] = [];
   /**
    * Every pattern the checker's **own verdict** found ill-typed — Pattern
    * Matching §7.3's "a pattern that failed to type must not widen the witness's
@@ -17055,6 +17057,7 @@ class Checker {
     this.#bareSpellings = spellings;
     this.#aliasQualifications = qualifications;
     this.#aliasNames = aliasNames;
+    this.#aliasTable = module.moduleAliases;
     this.#brokenPatterns.clear();
   }
 
@@ -18238,6 +18241,7 @@ class Checker {
     const listed = witnesses.slice(0, COVERAGE_WITNESSES_SHOWN);
     const shown = listed.map(({ text }) => `\`${text}\``).join(", ");
     const remaining = witnesses.length - COVERAGE_WITNESSES_SHOWN;
+    const fill = this.#missingArmsFix(arms, witnesses);
     this.#diagnostics.add({
       severity: "error",
       message: `match is missing cases: ${shown}` +
@@ -18245,7 +18249,76 @@ class Checker {
         // The cap decides what routes: the tail names no constructors (§7.3).
         this.#routeClauses(listed.flatMap(({ routes }) => routes)),
       primary: span,
+      ...(fill === undefined ? {} : { fixes: [fill] }),
     });
+  }
+
+  /**
+   * The arms a `match` is missing, written below its last arm, one per witness,
+   * each body a `Debug.todo` naming the case it stands in for (language-server
+   * decision 5): a fault, which no colour tracks, so the function keeps the face
+   * it will have once the arms are written.
+   *
+   * Offered only where it writes the whole of what is missing, as the reader
+   * can paste it: every witness found, below the matrix's cap, none a vector's
+   * length, each in a spelling this module can write (§7.3 tiers 1 and 2), and
+   * `Debug.todo` reaching the prelude's. Never preferred, and in no family,
+   * since it makes the program compile without making it right.
+   */
+  #missingArmsFix(
+    arms: readonly Resolved.MatchArm[],
+    witnesses: readonly { readonly text: string; readonly routes: readonly RouteNeed[] }[],
+  ): Diagnostics.Fix | undefined {
+    const text = this.#sourceText;
+    const first = arms[0];
+    const last = arms.at(-1);
+    const todo = this.#todoSpelling();
+    if (text === undefined || first === undefined || last === undefined || todo === undefined) return undefined;
+    if (witnesses.length >= COVERAGE_WITNESS_LIMIT || witnesses.some(({ routes }) => routes.length > 0)) return undefined;
+    // A vector witness is one length the arms miss, of unboundedly many
+    // (Collections Part 3 §3.3), so arms written from the witnesses would not
+    // be the whole of what is missing.
+    if (witnesses.some(({ text: witness }) => witness.includes("["))) return undefined;
+    const indent = text.slice(text.lastIndexOf("\n", first.span.start.offset - 1) + 1, first.span.start.offset);
+    if (!/^[ \t]*$/.test(indent)) return undefined;
+    // Below the last arm's line where nothing but a `//` comment follows it,
+    // so the comment stays with its arm; otherwise right after the arm, before
+    // whatever closes around the `match` on that line.
+    // An arm that ends at a layout boundary, as a nested `match` does, spans
+    // the line break after it.
+    const end = last.span.start.offset + text.slice(last.span.start.offset, last.span.end.offset).trimEnd().length;
+    const lineEnd = text.indexOf("\n", end) === -1 ? text.length : text.indexOf("\n", end);
+    const crlf = text[lineEnd - 1] === "\r";
+    const rest = text.slice(end, crlf ? lineEnd - 1 : lineEnd);
+    const at = /^[ \t]*(\/\/.*)?$/.test(rest) ? end + rest.length : end;
+    const newline = crlf ? "\r\n" : "\n";
+    // A witness is spelled from names, `_` and brackets (a literal prints as
+    // `_`, §7.3), so it is a string literal's content as it stands.
+    const written = witnesses.map(({ text: witness }) => `${newline}${indent}${witness} => ${todo}("${witness}")`)
+      .join("");
+    const position = new Source.File(last.span.fileId, "", text).positionAt(at);
+    return {
+      message: witnesses.length === 1 ? "Add the missing arm" : `Add the ${witnesses.length} missing arms`,
+      edits: [{ span: { fileId: last.span.fileId, start: position, end: position }, replacement: written }],
+      placeholders: true,
+    };
+  }
+
+  /**
+   * How this module spells the prelude's `Debug.todo`: `Debug.todo` where that
+   * spelling reaches it, and none otherwise. A module that imports its own
+   * `Debug` hides the prelude's (Modules §5.4), and the prelude module has no
+   * other spelling. A type or constructor named `Debug` hides nothing, since a
+   * qualifier is read as a module.
+   */
+  #todoSpelling(): string | undefined {
+    // A reference reads the first `Debug` alias, and the prelude's is the last:
+    // the resolver lists the module's own aliases before the prelude's, which
+    // always binds `Debug`. An `import Debug` that finds no module of the
+    // program's reaches the prelude's, and its `todo` is the same symbol.
+    const todos = this.#aliasTable.filter(({ alias }) => alias === "Debug")
+      .map(({ members }) => members.find(({ name }) => name === "todo")?.symbol);
+    return todos[0] === todos.at(-1) ? "Debug.todo" : undefined;
   }
 
   /**

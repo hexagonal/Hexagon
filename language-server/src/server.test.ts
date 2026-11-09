@@ -1881,6 +1881,28 @@ describe("the Hexagon language server", () => {
     }
   });
 
+  test("a match's missing arms are written as `Debug.todo`, never as the repair applied on its own", async () => {
+    const source = "module Main\n\nexport union Shape = Circle(r: Float) | Square(s: Float)\n" +
+      "export let area(shape: Shape): Float =\n    match shape\n        Circle(r) => r * r // round\n";
+    const solo = await opened(source, MODERN);
+    try {
+      const reported = await solo.diagnosticsFor(solo.uriOf("main.hex"));
+      expect(reported.map(({ message }) => message)).toEqual(["match is missing cases: `Square(_)`"]);
+      const actions = await solo.client.sendRequest("textDocument/codeAction", {
+        textDocument: { uri: solo.uriOf("main.hex") },
+        range: { start: reported[0]!.range.start, end: reported[0]!.range.start },
+        context: { diagnostics: reported },
+      }) as CodeAction[] | null;
+      expect(actions!.map(({ title, kind, isPreferred }) => [title, kind, isPreferred])).toEqual([
+        ["Add the missing arm", "quickfix", false],
+      ]);
+      const edits = actions![0]!.edit!.changes![solo.uriOf("main.hex")]!;
+      expect(applyEdits(source, edits)).toBe(source + "        Square(_) => Debug.todo(\"Square(_)\")\n");
+    } finally {
+      await solo.dispose();
+    }
+  });
+
   test("a pipeline is written as calls from the `Refactor…` menu, and back", async () => {
     const source = "module Main\n\nlet f(x: Int): Int = x + 1\nexport let a = 1 |> f |> f\n";
     const solo = await opened(source, MODERN);
