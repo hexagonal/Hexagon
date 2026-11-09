@@ -8553,7 +8553,9 @@ class Checker {
         if (expression.operator !== "Pipe") {
           return this.#typeDecided(expression.left, deep) && this.#typeDecided(expression.right, deep);
         }
-        break;
+        // A pipe stage is the call it rewrites to (Operators §8), and is read
+        // as that call is: `p |> Vector.length` is `Vector.length(p)`.
+        return this.#typeDecided(this.#pipeCall(expression), deep);
       case "If":
         return this.#typeDecided(expression.consequence, deep) && this.#typeDecided(expression.alternative, deep);
       case "Match":
@@ -8584,8 +8586,8 @@ class Checker {
       default:
         break;
     }
-    // Anything else — a pipe, an index — is decided where every name it uses
-    // and does not bind itself is decided whole.
+    // Anything else — an index, say — is decided where every name it uses and
+    // does not bind itself is decided whole.
     return this.#freeNames(expression).every((symbol) => this.#typeDecidedSymbol(symbol, true));
   }
 

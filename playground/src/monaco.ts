@@ -430,12 +430,18 @@ function registerLanguageProviders(
     monaco.languages.registerCodeActionProvider(
       hexagonLanguage,
       {
-        provideCodeActions: async (model, range) => {
+        provideCodeActions: async (model, range, context) => {
           if (!owns(model)) return undefined;
-          const actions = await services.codeActions(model.getValue(), {
-            startOffset: model.getOffsetAt(range.getStartPosition()),
-            endOffset: model.getOffsetAt(range.getEndPosition()),
-          });
+          // Asked from the menu or a key, the rewrites between forms come too;
+          // asked for the light bulb as the caret moves, the repairs alone.
+          const actions = await services.codeActions(
+            model.getValue(),
+            {
+              startOffset: model.getOffsetAt(range.getStartPosition()),
+              endOffset: model.getOffsetAt(range.getEndPosition()),
+            },
+            context.trigger === monaco.languages.CodeActionTriggerType.Invoke,
+          );
           const target = editTarget(model);
           return {
             actions: actions.map((action) => toCodeAction(target, action)),

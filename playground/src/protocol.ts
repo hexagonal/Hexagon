@@ -279,6 +279,11 @@ export interface HoverSpansRequest extends ServiceRequest {
 
 export interface CodeActionsRequest extends ServiceRequest, BufferRange {
   readonly kind: "code-actions";
+  /**
+   * The dev asked, from a menu or a key, rather than the editor asking on its
+   * own as the caret moves: the rewrites between forms come only then.
+   */
+  readonly invoked: boolean;
 }
 
 export interface CompletionRequest extends ServiceRequest {

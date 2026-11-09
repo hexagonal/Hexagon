@@ -36,7 +36,8 @@ import type {
  *
  * Named rather than written inline because it is a claim about the actions the
  * session emits: drop `"refactor"` and Monaco stops asking this provider under
- * a `refactor` filter, which is where the variance offer would appear.
+ * a `refactor` filter, which is where the variance offer and the rewrites
+ * between forms would appear.
  */
 export const codeActionKinds: readonly string[] = ["quickfix", "refactor"];
 

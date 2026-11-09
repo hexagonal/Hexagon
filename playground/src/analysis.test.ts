@@ -61,6 +61,19 @@ describe("code actions", () => {
     expect(fix?.kind).toBe("quickfix");
   });
 
+  test("writes a pipeline as calls when the dev asks, and not as the caret moves", () => {
+    const analysis = new PlaygroundAnalysis();
+    const source = "module Main\nlet f(x: Int): Int = x + 1\nlet a = 1 |> f |> f\n";
+    const caret = at(source, "|> f\n");
+    const range = { startOffset: caret, endOffset: caret };
+
+    expect(analysis.codeActions(source, range).map(({ title }) => title)).toEqual([]);
+    const [rewrite, ...rest] = analysis.codeActions(source, range, true);
+    expect(rest).toEqual([]);
+    expect(rewrite).toMatchObject({ title: "Write the pipeline as calls", kind: "refactor" });
+    expect(applied(source, rewrite?.edits ?? [])).toBe("module Main\nlet f(x: Int): Int = x + 1\nlet a = f(f(1))\n");
+  });
+
   test("its edits are buffer offsets, and applying them makes the source compile", () => {
     const analysis = new PlaygroundAnalysis();
     const caret = at(factorial, "factorial");

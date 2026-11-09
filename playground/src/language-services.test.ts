@@ -94,7 +94,7 @@ describe("createLanguageServices", () => {
     const answer = services.codeActions("let one = 1\n", {
       startOffset: 0,
       endOffset: 0,
-    });
+    }, false);
     version = 4;
     reply({
       kind: "code-actions",
@@ -106,6 +106,17 @@ describe("createLanguageServices", () => {
     // Settled, and settled empty: a promise left hanging leaves Monaco showing
     // a spinner over the source for the rest of the session.
     expect(await answer).toEqual([]);
+  });
+
+  test("says whether the dev asked for code actions, or the editor did as the caret moved", async () => {
+    const { channel, sent } = harness();
+    const services = createLanguageServices(channel, () => 2);
+    void services.codeActions("let one = 1\n", { startOffset: 4, endOffset: 4 }, true);
+    void services.codeActions("let one = 1\n", { startOffset: 4, endOffset: 4 }, false);
+    expect(sent).toMatchObject([
+      { kind: "code-actions", startOffset: 4, endOffset: 4, invoked: true },
+      { kind: "code-actions", startOffset: 4, endOffset: 4, invoked: false },
+    ]);
   });
 
   test("asks for completions at the caret and hands back the session's list", async () => {
@@ -257,7 +268,7 @@ describe("createLanguageServices", () => {
     const answer = services.codeActions("let one = 1\n", {
       startOffset: 0,
       endOffset: 0,
-    });
+    }, false);
     reply({ kind: "service-failure", id: 0, version: 1, message: "boom" });
 
     // The empty answer is the same one a stale reply produces, so the report is

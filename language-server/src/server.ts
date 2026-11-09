@@ -25,6 +25,7 @@
 
 import {
   CodeActionKind,
+  CodeActionTriggerKind,
   CompletionItemKind,
   DidChangeConfigurationNotification,
   DidChangeWatchedFilesNotification,
@@ -198,13 +199,13 @@ export function startServer(connection: Connection): void {
         signatureHelpProvider: { triggerCharacters: ["(", ","] },
         // No `resolveProvider`: a hint arrives whole, its tooltip included.
         inlayHintProvider: true,
-        // Quick fixes only: every action this slice offers answers a diagnostic,
-        // and declaring a kind the server never returns makes a client ask for
-        // it on every save. No `resolveProvider` — an action arrives complete,
-        // because the work that would justify deferring it is the work that
-        // decides whether to offer the action at all.
+        // Quick fixes for diagnostics, and refactors: a client's `Refactor…`
+        // menu asks only a server that declares them. No `resolveProvider` — an
+        // action arrives complete, because the work that would justify
+        // deferring it is the work that decides whether to offer the action at
+        // all.
         ...(codeActions.literals
-          ? { codeActionProvider: { codeActionKinds: [CodeActionKind.QuickFix] } }
+          ? { codeActionProvider: { codeActionKinds: [CodeActionKind.QuickFix, CodeActionKind.Refactor] } }
           : {}),
         // A hover request may carry a selection where the protocol has a
         // position (rust-analyzer's `hoverRange`): the protocol's hover cannot
@@ -459,7 +460,12 @@ export function startServer(connection: Connection): void {
     // ones it happens to be showing, which after an edit is the previous
     // analysis. The session's are the current ones, and an action built from
     // stale spans would edit the wrong characters.
-    const offered = session.codeActions(path, asked);
+    // An editor asks on its own as the caret moves, to decide on its light
+    // bulb, and the dev asks from a menu or a key; the rewrites come only then.
+    // A client that does not say is taken as asked.
+    const offered = session.codeActions(path, asked, {
+      invoked: context.triggerKind !== CodeActionTriggerKind.Automatic,
+    });
     const actions = offered.flatMap((action) => {
       const converted = toLspCodeAction(action, codeActions, workspace.uris, pathOfFile);
       return converted === undefined ? [] : [converted];

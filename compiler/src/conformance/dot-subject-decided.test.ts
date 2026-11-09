@@ -503,6 +503,26 @@ describe("a subject the text decides dispatches at the dot (§3.1)", () => {
       .toEqual([refusalOfSubject("isEmpty")]);
   });
 
+  test("a pipe stage, read as the call it rewrites to (Operators §8)", () => {
+    compiles("let h(p) = Vector.length(p).show()\n");
+    compiles("let h(p) = (p |> Vector.length).show()\n");
+    compiles("let h(p) = (p |> Vector.set(0, 1) |> Vector.length).show()\n");
+    compiles("let h(p) =\n    match p |> Vector.length\n        0 => \"none\"\n        n => n.show()\n");
+    // Each pipeline decides its subject exactly as the calls it is would.
+    const pairs = [
+      ["(p |> Vector.length).show()", "Vector.length(p).show()"],
+      ["(p |> Vector.get(0)).isSome()", "Vector.get(p, 0).isSome()"],
+      ["(p |> g).show()", "g(p).show()"],
+      ["(p |> k).show()", "k(p).show()"],
+      ["(3 |> g).show()", "g(3).show()"],
+    ];
+    for (const [pipeline, calls] of pairs) {
+      const lines = (subject: string) => ["let g = (x) => x", "let k = (x): Int => 1", `let s = ${subject}`];
+      expect(inOrder("let f(p) =", lines(pipeline!)), pipeline).toEqual(inOrder("let f(p) =", lines(calls!)));
+    }
+    expect(inOrder("let f(p) =", ["let g = (x) => x", "let s = (p |> g).show()"])).toEqual([refusalOfSubject("show")]);
+  });
+
   test("a comparison is a `Bool` whatever it compares", () => {
     compiles("let f(x): String = (x == 1).show()\n");
   });

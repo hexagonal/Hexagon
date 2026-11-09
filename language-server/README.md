@@ -2,7 +2,7 @@
 
 The Hexagon language server: the process that exposes Hexagon language intelligence through Microsoft's Language Server Protocol (LSP).
 
-Five slices are implemented over a compiler-owned analysis session: diagnostics, hover, go-to-definition and find-references; then semantic tokens, rename and completion; then quick fixes, the diagnostic-driven half of code actions, each plain one preferred and, beside a call's mark repair, one that applies every such repair in the file that is its report's only one; then documentation in hover and completion; then signature help and inlay hints. Formatting, refactoring actions and workspace symbols are not, and the server does not announce them; a capability announced but unimplemented offers the user a command that silently does nothing.
+Five slices are implemented, and a sixth has begun, over a compiler-owned analysis session: diagnostics, hover, go-to-definition and find-references; then semantic tokens, rename and completion; then quick fixes, the diagnostic-driven half of code actions, each plain one preferred and, beside a call's mark repair, one that applies every such repair in the file that is its report's only one; then documentation in hover and completion; then signature help and inlay hints. Refactorings have begun, with a pipeline and calls written as each other. Formatting and workspace symbols are not, and the server does not announce them; a capability announced but unimplemented offers the user a command that silently does nothing.
 
 This document states the boundary between the language server and the compiler. That boundary is the reason the server is small: every request handler converts coordinates, asks the session one question, and converts the answer back.
 
@@ -457,11 +457,11 @@ the same.
 ## Quick fixes
 
 Code actions arrive in two halves, and this is the first: **every action answers
-a diagnostic**. Refactorings the user asks for out of nowhere — extract this,
-inline that — are the second half and are not here. The split is not tidiness. It
-is what bounds the cost: an action is computed only where the caret is on an
-error the user can already see, which is rare and deliberate, where a refactoring
-menu must answer every cursor movement.
+a diagnostic**. Refactorings the user asks for out of nowhere are the second half
+(below). The split is not tidiness. It is what bounds the cost: an action is
+computed only where the caret is on an error the user can already see, which is
+rare and deliberate. A refactoring could apply on nearly every line, which is why
+those are offered only when the dev asks (below).
 
 Two sources feed the same request. A compiler diagnostic may carry its own
 `fixes`, written at the point the problem was found — the lexer's redirect from
@@ -575,6 +575,47 @@ the ones it happens to be showing, which after an edit describe the previous
 analysis; the session's are current, and an action built from stale spans edits
 the wrong characters.
 
+## Refactorings
+
+The second half of code actions answers no diagnostic: the dev asks for a
+rewrite. The first are the ones where the spec defines one form as the other, so
+the rewrite keeps the program's meaning by definition:
+
+- **Write the pipeline as calls**, on a pipe's `|>` or a stage's name:
+  `xs |> Seq.map(f) |> Seq.take(3)` becomes `Seq.take(Seq.map(xs, f), 3)`. A
+  stage is the call that takes the pipe's left side first (Operators §8), its
+  mark kept: `x |> save!` is `save!(x)`.
+- **Write the calls as a pipeline**, on a call's name or just before its `(`:
+  the call and the calls nested in its first argument, innermost first. A dot
+  call ends the chain, since its receiver is not its first argument as written;
+  an upper-case name before a `.` is a module only where the prelude or an
+  import brings one of that name, so `None.defaultValue(2)` is a dot call. A
+  call over several lines, on a line of its own, becomes a stage to a line,
+  aligned as Lexer Layout §2.3's multiline chain is.
+
+**Each rewrite is checked by parsing what it leaves** (`queries/same-reading.ts`):
+the top-level item the edit lies in is parsed again, and the two trees must be
+the same once a pipe is read as its call and parentheses as what they hold,
+comments included. That is what decides where the result needs parentheses, as
+an operand does and an argument does not, and it catches what a writer of text
+could get wrong about layout. It asks no type, so it is no second solver.
+
+**A rewrite that would lose something is refused.** The rewrite keeps the text
+of each argument, callee and mark, so a comment between them has nowhere to go. A
+`//` comment it would keep inside the new form would run over what the rewrite
+writes after it on its line. A mark after a stage's own argument list
+(`x |> g(2)!`) marks nothing today (#1491) and would be dropped. A refused
+rewrite shows greyed out with its reason in the `Refactor…` menu; an editor's
+Ctrl+. list leaves it out.
+
+**Offered only when asked.** An editor asks for code actions on its own as the
+caret moves, to decide whether to show its light bulb, and nearly every line has
+a call. So the rewrites come only when the dev asks, from the `Refactor…` menu
+or a key, as TypeScript's own rewrites do: the session takes `invoked`, and the
+server passes the request's `triggerKind`, a client that does not say being taken
+as asking. The server announces `refactor` beside `quickfix`, since a client asks
+its `Refactor…` menu only of a server that does.
+
 ## Correctness principles
 
 - LSP positions are converted at one explicit boundary, `positions.ts`, to the compiler's source-position representation. Both count UTF-16 code units and number lines from zero, so a span crossing outward is a rename rather than a computation; only the inward direction needs the document's line index, which is why that direction takes a `TextDocument`.
@@ -629,7 +670,12 @@ The fifth adds:
 15. inlay hints: inferred types where they could be written, and a function's
     colour in words, in both.
 
-Formatting, refactoring code actions and workspace symbols follow as the necessary compiler services become stable. Features are not simulated with textual guesses when semantic information is required — where these slices read source text, it is to locate a name the tree already said was there, or to read a half-typed line no tree describes yet, never to decide what a name means.
+The sixth begins with:
+
+16. refactorings between forms the spec defines as one another: a pipeline and
+    calls, either way, in both.
+
+Formatting and workspace symbols follow as the necessary compiler services become stable. Features are not simulated with textual guesses when semantic information is required — where these slices read source text, it is to locate a name the tree already said was there, or to read a half-typed line no tree describes yet, never to decide what a name means.
 
 ## Implementation and distribution
 
