@@ -190,7 +190,10 @@ emitted one (Packages §6).
   beneath it. The face is pure because nothing in the language can read that
   channel back, and `trace` is the expression-shaped form above `log`. It takes
   the last prelude seat, and its sink is captured when its emitted module
-  initializes — the condition §6.2 attaches to the pure face.
+  initializes — the condition §6.2 attaches to the pure face. `todo<a>(what:
+  String): a` stands in for code not written yet, at any type, and throws the
+  fault `TodoFault(what)` where it is reached; a fault is untracked, so a
+  function holding one has the colour it will have once the code is written.
 
 The complete package/prelude loader and the final boundary of the fundamental
 stdlib remain project-system and stdlib-listing work. The Playground begins that

@@ -722,10 +722,14 @@ describe("the constructor channel: the open unions only", () => {
 
 describe("the exception channel: all of them, as a category", () => {
   /**
-   * The shipped exceptions, bare in a catch arm and in an expression, and
+   * The shipped throwables, bare in a catch arm and in an expression, and
    * reachable qualified beside it. The category rule is what makes a future
-   * prelude exception bare without a ruling — the `…Error` suffix is its own
-   * qualifier — so the list is asserted whole rather than sampled.
+   * prelude throwable bare without a ruling — the `…Error` and `…Fault`
+   * suffixes are their own qualifiers — so every prelude fault, and `JsError`,
+   * is asserted rather than sampled. `NumberFormatError` and `JsConversionError`
+   * are tracked exceptions this `try` cannot throw, so an arm for one would be
+   * refused as one that can never run; their spellings are pinned with the
+   * operations that throw them (`numeric-parse`, `js-kind-qualification`).
    */
   test.each([
     ["DecimalPlacesOverflowFault", "Dec", "(m)"],
@@ -734,11 +738,15 @@ describe("the exception channel: all of them, as a category", () => {
     ["NegativeExponentFault", "Pow", "(m)"],
     ["DivideByZeroFault", "Integral", "(m)"],
     ["FloatRangeFault", "Float", "(m)"],
+    ["UndefinedSignFault", "Float", "(m)"],
     ["IntRangeFault", "Int", "(m)"],
     ["ReentrancyFault", "Seq", ""],
     ["IndexFault", "Vector", "(i, n)"],
     ["SliceFault", "Vector", "(a, b)"],
     ["KeyFault", "Map", ""],
+    ["DuplicateKeyFault", "Map", ""],
+    ["LoneSurrogateFault", "String", "(m, p)"],
+    ["AssumptionFault", "Prelude", "(e)"],
     ["TodoFault", "Debug", "(m)"],
     ["JsError", "JsError", "(e)"],
   ])("`%s` is bare in a catch arm, and qualified through `%s`", (name, home, slots) => {

@@ -253,17 +253,19 @@ export interface PreludeModule {
  * every other prelude function (Modules §5.5).
  *
  * `Debug.hex` is last (#407), and its seat is the opposite kind of fact: almost
- * no signature here forces it. Both members name `Show` and nothing else — `log`
- * since #419 widened it to `log<a: Show>(value: a)`, `trace` from the start — so
- * anywhere after `Show.hex`, which is the first seat, would do. It sits last for
- * what the seat *denies* rather than for anything it needs. A member sees only the members
- * before it, so from the last seat `log` and `trace` are visible to no prelude
- * module at all: nothing in the standard library can quietly acquire a probe,
- * and every print in it would have to be a deliberate import. #742 settled the
- * other half of the same worry for good: the two are reached as `Debug.log` and
- * `Debug.trace` in user code too — James's ruling 1b, against a bare `log` he
- * had been bitten by — so the vocabulary this file spends is now nothing at
- * all, whatever its seat.
+ * no signature here forces it. Its probes name `Show` and nothing else — `log`
+ * since #419 widened it to `log<a: Show>(value: a)`, `trace` from the start — and
+ * `todo` and `TodoFault` (#1493) name only the primitive `String`, so anywhere after
+ * `Show.hex`, which is the first seat, would do. It sits last for what the seat
+ * *denies* rather than for anything it needs. A member sees only the members
+ * before it, so from the last seat `log`, `trace` and `todo` are visible to no
+ * prelude module at all: nothing in the standard library can quietly acquire a
+ * probe or a stand-in, and every print in it would have to be a deliberate
+ * import. #742 settled the other half of the same worry for good: the
+ * functions are reached as `Debug.log`, `Debug.trace` and `Debug.todo` in user
+ * code too — James's ruling 1b, against a bare `log` he had been bitten by — so
+ * the one bare name this file spends is `TodoFault`, a prelude fault and bare by
+ * category (Modules §5.5), whatever its seat.
  */
 export const PRELUDE_MODULES: readonly PreludeModule[] = [
   "Show",

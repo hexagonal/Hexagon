@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 
+import { AnalysisSession } from "../analysis/session.js";
 import { projectDiagnostics, runMain } from "../support/test-project.js";
 
 /**
@@ -54,6 +55,21 @@ describe("`Debug.todo` keeps the face the finished code will have", () => {
       "    show(value) = Debug.todo(\"show\")",
       "export let pick(n: Int): Int -> Int = Debug.todo(\"pick\")",
     ))).toEqual([]);
+  });
+
+  test("its documentation reaches the editor, for both declarations", () => {
+    const text = main("export let later(): Int = Debug.todo(\"later\")",
+      "export let caught(): Int =",
+      "    try",
+      "        later()",
+      "    catch",
+      "        TodoFault(_) => 0");
+    const session = new AnalysisSession();
+    session.setFile("/main.hex", text);
+    expect(session.hover("/main.hex", text.indexOf("todo("))?.documentation)
+      .toMatch(/^Stands in for code not written yet, at any type/);
+    expect(session.hover("/main.hex", text.indexOf("TodoFault"))?.documentation)
+      .toMatch(/^Thrown by `todo` when the code it stands in for is reached/);
   });
 
   test("it is reached qualified, as every prelude function is (Modules §5.5)", () => {
