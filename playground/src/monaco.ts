@@ -715,7 +715,10 @@ function registerSnippetCommand(
           controller.insert([{ range: monaco.Range.lift(range), template: text, keepWhitespace: true }]);
         }),
         (range, text) => {
+          // Undone on its own, as an applied code action is.
+          editor.pushUndoStop();
           editor.executeEdits("hexagon", [{ range: monaco.Range.lift(range), text }]);
+          editor.pushUndoStop();
         },
       );
     },
