@@ -2970,10 +2970,10 @@ const CATCH_ALTERNATIVE_REPORTS: Record<ThrowKind, ReachabilityReports> = {
  * How many witnesses the matrix will produce before it stops looking.
  *
  * §7.3 asks for three and a count. Every missing case is a witness, so the
- * count can outrun any cap; where it reaches this one, the report says "at
- * least". It is a budget rather than a nicety: algorithm I fans out across a
- * product of domains, and the early return is what keeps a wide
- * non-exhaustive tuple from enumerating it.
+ * count can outrun any cap: the report searches for one more than this, and
+ * where it finds it, says "at least". It is a budget rather than a nicety:
+ * algorithm I fans out across a product of domains, and the early return is
+ * what keeps a wide non-exhaustive tuple from enumerating it.
  */
 const COVERAGE_WITNESS_LIMIT = 100;
 
@@ -18251,7 +18251,8 @@ class Checker {
     const witnesses = this.#coverageWitnesses(
       [type],
       arms.flatMap((arm) => arm.guard === undefined ? [[arm.pattern]] : []),
-      COVERAGE_WITNESS_LIMIT,
+      // One more than it lists in full, to tell whether more remain.
+      COVERAGE_WITNESS_LIMIT + 1,
     ).flatMap((witness) =>
       witness.columns[0] === undefined
         ? []
@@ -18265,10 +18266,10 @@ class Checker {
     this.#diagnostics.add({
       severity: "error",
       message: `match is missing cases: ${shown}` +
-        // Where the search stopped at its cap, the count is only a floor.
+        // Where the search stopped with cases unfound, the count is a floor.
         (remaining <= 0
           ? ""
-          : witnesses.length >= COVERAGE_WITNESS_LIMIT
+          : witnesses.length > COVERAGE_WITNESS_LIMIT
           ? ` …and at least ${remaining} more`
           : ` …and ${remaining} more`) +
         // The cap decides what routes: the tail names no constructors (§7.3).
@@ -18301,7 +18302,7 @@ class Checker {
     const { text, file } = source;
     const todo = this.#todoSpelling(first.span.start.offset);
     if (todo === undefined) return undefined;
-    if (witnesses.length >= COVERAGE_WITNESS_LIMIT || witnesses.some(({ routes }) => routes.length > 0)) return undefined;
+    if (witnesses.length > COVERAGE_WITNESS_LIMIT || witnesses.some(({ routes }) => routes.length > 0)) return undefined;
     // A vector witness is one length the arms miss, of unboundedly many
     // (Collections Part 3 §3.3), so arms written from the witnesses would not
     // be the whole of what is missing.
@@ -18321,7 +18322,8 @@ class Checker {
     // closes around the `match` on that line.
     const lineEnd = text.indexOf("\n", end) === -1 ? text.length : text.indexOf("\n", end);
     const rest = text.slice(end, lineEnd).replace(/\r$/, "");
-    const after = lex(new Source.File(last.span.fileId, "", rest));
+    // Lexed alone, a tab at the start would read as indentation (Lexer §2.2).
+    const after = lex(new Source.File(last.span.fileId, "", rest.replace(/^[ \t]+/, "")));
     const commented = after.diagnostics.length === 0 && after.tokens.every(({ kind }) => kind === "Eof");
     const at = commented ? end + rest.length : end;
     // A witness is spelled from names, `_` and brackets (a literal prints as

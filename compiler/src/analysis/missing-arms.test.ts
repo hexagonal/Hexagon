@@ -222,6 +222,8 @@ describe("where the arms go", () => {
       .toContain("        Circle(_) => 1 (* round *) // and whole\n        Square(_) => Debug.todo(\"Square(_)\")\n");
     expect(filled(program("export let f(s: Shape): Int =", "    match s", "        Circle(_) => 1 (* a (* b *) c *)")).text)
       .toContain("        Circle(_) => 1 (* a (* b *) c *)\n        Square(_) => Debug.todo(\"Square(_)\")\n");
+    expect(filled(program("export let f(s: Shape): Int =", "    match s", "        Circle(_) => 1\t// round")).text)
+      .toContain("        Circle(_) => 1\t// round\n        Square(_) => Debug.todo(\"Square(_)\")\n");
   });
 
   test("before a block comment that the last arm's line leaves open", () => {
@@ -298,14 +300,14 @@ describe("not offered where the arms would not be the whole of what is missing, 
       `export union Many = ${Array.from({ length: count }, (_, index) => `C${index}`).join(" | ")}`;
     const text = (count: number) =>
       ["module Main", union(count), "export let f(m: Many): Int =", "    match m", "        C0 => 1", ""].join("\n");
-    // The matrix stops looking at a hundred, so 101 missing cases offer none,
+    // The search lists a hundred in full, so 101 missing cases offer none,
     // and the report's count is a floor.
     const report = (count: number) =>
       session({ "/main.hex": text(count) }).diagnostics("/main.hex").map(({ message }) => message);
-    expect(report(102)).toEqual(["match is missing cases: `C1`, `C2`, `C3` …and at least 97 more"]);
-    expect(report(100)).toEqual(["match is missing cases: `C1`, `C2`, `C3` …and 96 more"]);
+    expect(report(102)).toEqual(["match is missing cases: `C1`, `C2`, `C3` …and at least 98 more"]);
+    expect(report(101)).toEqual(["match is missing cases: `C1`, `C2`, `C3` …and 97 more"]);
     expect(repairs(text(102))).toEqual([]);
-    expect(repairs(text(100)).map(({ title }) => title)).toEqual(["Add the 99 missing arms"]);
+    expect(repairs(text(101)).map(({ title }) => title)).toEqual(["Add the 100 missing arms"]);
   });
 
   test("a vector's missing length, one of unboundedly many", () => {
