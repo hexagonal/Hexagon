@@ -52,7 +52,7 @@ export function widenedLineTakesNoDoc(member: string): string {
  * The tag on every report a doc block makes (`Diagnostics.Bag.add`): a doc
  * comment's errors are about the comment, which the parser reads apart from
  * the code, so they say nothing of whether it read the code as written
- * (`Parsed.Module.codeErrors`).
+ * (`Parsed.Module.readAsWritten`).
  */
 export const DOC_COMMENT_REPORT = Symbol("doc comment report");
 

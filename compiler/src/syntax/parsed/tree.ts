@@ -72,12 +72,13 @@ export interface Module {
   readonly span: Source.Span;
   readonly diagnostics: readonly Diagnostics.Diagnostic[];
   /**
-   * Where the file's lexer, layout and parser reported an error in the code,
-   * the file's as `diagnostics` is: every report but a doc comment's, which is
-   * about the comment (they report only errors). Where there is none, the
-   * parser read the code as written.
+   * Whether the parser read the file's code as written, the file's as
+   * `diagnostics` is: the lexer, layout and parser reported no error but a
+   * doc comment's, which is about the comment, and each empty honor's missing
+   * block, which the missing-members fill writes. A fill that writes into a
+   * block reads the block as the parser did, so it is offered only here.
    */
-  readonly codeErrors: readonly Source.Span[];
+  readonly readAsWritten: boolean;
 }
 
 export type Item =
@@ -459,12 +460,6 @@ export interface HonorItem {
   readonly derived: boolean;
   readonly impliedTypes: readonly HonorImpliedType[];
   readonly members: readonly HonorMember[];
-  /**
-   * Set where the head's `=` ends its line and no indented block follows
-   * (layout reports the missing block, and the next line is read as it
-   * stands): the honor has no items, and its span ends at the `=`.
-   */
-  readonly emptyBlock?: true;
   /**
    * The honor group this instance is an item of (Constraints §4.8, #1227):
    * absent for a lone `honor`, the fused spelling of the one-item group.

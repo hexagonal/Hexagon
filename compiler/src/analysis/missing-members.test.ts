@@ -141,6 +141,27 @@ describe("an honor's missing members, written as `Debug.todo`", () => {
       .toBe(bag("    type Elem = Int", "    first(b) = b.x", "    count(xs) = Debug.todo(\"count\")"));
   });
 
+  test("a pattern parameter, which the constraint refuses, is written `_`", () => {
+    // The constraint's file reports the pattern; this one is read as written.
+    const paired = "module Paired\n\nexport constraint Paired<a> =\n    first((x, y): (a, Int)) -> a\n" +
+      "    label(s: a) -> String\n";
+    const main = (...block: readonly string[]): string => [
+      "module Main",
+      "import Paired",
+      "export record Point = { x: Int, y: Int }",
+      "honor Paired.Paired<Point> =",
+      ...block,
+      "",
+    ].join("\n");
+    const files = { "/paired.hex": paired };
+    const text = main("    label(p) = \"p\"");
+    const [repair, ...others] = repairs(text, text.indexOf("honor"), files);
+    expect(others).toEqual([]);
+    const after = applied(text, repair!);
+    expect(after).toBe(main("    label(p) = \"p\"", "    first(_) = Debug.todo(\"first\")"));
+    expect(session({ ...files, "/main.hex": after }).diagnostics("/main.hex")).toEqual([]);
+  });
+
   test("a member this module widens is written as its accounting line, never as a body (Constraints §4.7)", () => {
     const scale = "module Scale\n\nexport constraint Scale<a> =\n    scale(value: a, factor: Int) -> a\n" +
       "    label(value: a) -> String\n    size(value: a) -> Int\n";
@@ -349,6 +370,14 @@ describe("where the members go", () => {
       "    Shape<Line> =",
       "export let unit: Unit = ()",
     );
+    // The dedent that ends the group ends its last honor, whose block layout
+    // reports missing as at any line that ends it.
+    expect(session({ "/main.hex": empty }).diagnostics("/main.hex").map(({ message }) => message)).toEqual([
+      "instance is missing required member `area`",
+      "instance is missing required member `name`",
+      "instance is missing required member `scaled`",
+      "expected an indented block",
+    ]);
     expect(filled(empty, empty.indexOf("Shape<Line>")).text).toBe(program(
       "honor",
       "    Shape<Line> =",
@@ -501,13 +530,27 @@ describe("where it is not offered", () => {
     const honor = ["honor Shape<Point> =", "    area(p) = 1.0"];
     expect(repairs(program(...honor, "export let broken: Int = (1 +"))).toEqual([]);
     expect(repairs(program("export let broken: Int = (1 +", ...honor))).toEqual([]);
-    // An error at the token after a block is not an empty honor's.
+    // An error at the token after a block is not an empty honor's, nor is
+    // one at the token after a group's last.
     expect(repairs(program(...honor, ")"))).toEqual([]);
+    const grouped = program("honor", "    Shape<Point> =", ")");
+    expect(repairs(grouped, grouped.indexOf("Shape<Point>"))).toEqual([]);
     // Two empty honors: each block's error is its own.
     const two = program("honor Shape<Point> =", "honor Shape<Line> =");
     expect(repairs(two).map(({ title }) => title)).toEqual(["Add the 3 missing members"]);
     expect(repairs(two, two.indexOf("honor Shape<Line>")).map(({ title }) => title))
       .toEqual(["Add the 3 missing members"]);
+    // The file is read as a whole, its modules too: an empty honor in one
+    // leaves another's code read as written.
+    const modules = [
+      "module A", ...SHAPE, "honor Shape<Point> =", "end module A",
+      "module B", "export let f(b: Bool): Int =", "    match b", "        True => 1", "end module B", "",
+    ].join("\n");
+    expect(repairs(modules).map(({ title }) => title)).toEqual(["Add the 3 missing members"]);
+    const at = modules.indexOf("match");
+    expect(session({ "/main.hex": modules }).codeActions("/main.hex", { start: at, end: at })
+      .filter(({ diagnostic }) => diagnostic?.message.startsWith("match is missing cases") === true)
+      .map(({ title }) => title)).toEqual(["Add the missing arm"]);
     // A block comment the head's line leaves open: the `=` does not end a line
     // the members could follow.
     expect(repairs(program("honor Shape<Point> = (* a", "   b *)", "export let unit: Unit = ()"))).toEqual([]);

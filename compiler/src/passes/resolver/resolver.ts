@@ -2677,7 +2677,7 @@ class Resolver {
       ...(this.#path === undefined ? {} : { path: this.#path }),
       span: module.span,
       diagnostics: this.#diagnostics.toArray(),
-      codeErrors: module.codeErrors,
+      readAsWritten: module.readAsWritten,
     };
   }
 
@@ -3941,7 +3941,6 @@ class Resolver {
           // Filled by `#assignMemberSeats`, which runs once every declaration is
           // resolved and the constraint behind this head is in view.
           memberSeats: [],
-          ...(item.emptyBlock === true ? { emptyBlock: true as const } : {}),
           impliedTypes: item.impliedTypes.map((impliedType) => ({
             name: impliedType.name.text,
             annotation: this.#resolveTypeAnnotation(

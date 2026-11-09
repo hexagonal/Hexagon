@@ -216,6 +216,16 @@ function beginLine(
   }
 
   if (indentation < block.indentation) {
+    // A dedent that ends an honor group ends its last honor too, and that
+    // honor's member block is required (§2.1's row) as at any line that ends
+    // it. Inside other blocks the parser reports what is missing.
+    if (block.honorGroup === true && expectsBlock(block.item, true)) {
+      diagnostics.add({
+        severity: "error",
+        message: "expected an indented block",
+        primary: token.span,
+      });
+    }
     while (blocks.length > 1 && indentation < currentBlock(blocks).indentation) {
       blocks.pop();
       output.push(virtual("VClose", token.span));

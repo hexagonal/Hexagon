@@ -555,6 +555,12 @@ class Parser {
    */
   readonly #refusedImportAliases: Parsed.RefusedImportHead[] = [];
   /**
+   * Where layout reports each empty honor's missing block, the token after its
+   * `=`: the one error the missing-members fill repairs, which leaves the code
+   * read as written (`Parsed.Module.readAsWritten`).
+   */
+  readonly #emptyHonorBlocks: number[] = [];
+  /**
    * Doc-comment bookkeeping (spec/doc-comments.md §4). Declaration parsers claim
    * the block sitting before their first token; the blocks nobody claims are
    * §5's hard errors, reported when the module closes.
@@ -731,9 +737,16 @@ class Parser {
 
     const sections = this.#sectionModules(items, fileId, path, fileSpan);
     const diagnostics = this.#diagnostics.toArray();
-    const codeErrors: Source.Span[] = [];
+    // Every error in the code, a doc comment's being about the comment, must
+    // be an empty honor's missing block, one each (another error at the same
+    // token is that line's own).
+    const emptyHonorBlocks = [...this.#emptyHonorBlocks];
+    let readAsWritten = true;
     for (let index = 0; index < this.#diagnostics.count; index += 1) {
-      if (this.#diagnostics.tagAt(index) !== DOC_COMMENT_REPORT) codeErrors.push(this.#diagnostics.at(index)!.primary);
+      if (this.#diagnostics.tagAt(index) === DOC_COMMENT_REPORT) continue;
+      const own = emptyHonorBlocks.indexOf(this.#diagnostics.at(index)!.primary.start.offset);
+      if (own === -1) readAsWritten = false;
+      else emptyHonorBlocks.splice(own, 1);
     }
     // Comments and doc blocks are the file's, and they are **cut with the
     // items**. Modules §11 emits one JavaScript file per module and Comments §6
@@ -780,7 +793,7 @@ class Parser {
       // less the file's report for the file having declared two — a host that
       // showed one module's share would drop the rest.
       diagnostics,
-      codeErrors,
+      readAsWritten,
     }));
   }
 
@@ -3488,12 +3501,13 @@ class Parser {
     const equal = this.#expect("Equal", "expected `=` after instance head");
     // A head whose `=` ends its line with no block below it: the block is
     // missing, and the next line is not the block's, so it is read as it
-    // stands rather than as members. Layout has reported the missing block
-    // already ("expected an indented block", at the next line), and one cause
-    // makes one report.
+    // stands rather than as members. Layout reports the missing block
+    // ("expected an indented block", at the token that ends the item), and
+    // one cause makes one report.
     // (Layout closes every block before the end of the file, so `VClose`
     // stands for it too.)
     if (equal !== undefined && (this.#at("VSep") || this.#at("VClose"))) {
+      this.#emptyHonorBlocks.push(this.#current().span.start.offset);
       return {
         kind: "Honor",
         constraint: constraintName ?? fallback,
@@ -3502,7 +3516,6 @@ class Parser {
         derived: false,
         impliedTypes: [],
         members: [],
-        emptyBlock: true,
         span: spanFrom(start.span, equal.span),
       };
     }

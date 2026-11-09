@@ -6116,10 +6116,14 @@ class Checker {
   #aliasTable: readonly Resolved.ModuleAlias[] = [];
   /** Where the source imports a module as `Debug`, for `#todoSpelling`. */
   #debugImport: Source.Span | undefined;
-  /** Where the file's front-end errors stand, for `#readAsWritten`. */
-  #codeErrors: readonly number[] = [];
-  /** The module's honors whose `=` ends the head with no block, for `#readAsWritten`. */
-  #emptyHonors: readonly Resolved.HonorItem[] = [];
+  /**
+   * Whether the parser read this file's code as written
+   * (`Resolved.Module.readAsWritten`), for the fills that write into a block:
+   * a block read by recovery is not the block as written (a line of a nested
+   * block read as an arm or a member, a misindented line read as one), so
+   * lines placed beside its items would not land in it.
+   */
+  #readAsWritten = false;
   /**
    * Every pattern the checker's **own verdict** found ill-typed — Pattern
    * Matching §7.3's "a pattern that failed to type must not widen the witness's
@@ -17130,10 +17134,7 @@ class Checker {
     this.#debugImport = module.items.find((item): item is Resolved.ImportItem =>
       item.kind === "Import" && item.form.kind === "Namespace" && item.form.alias === "Debug"
     )?.span;
-    this.#codeErrors = module.codeErrors.map(({ start }) => start.offset);
-    this.#emptyHonors = module.items.filter((item): item is Resolved.HonorItem =>
-      item.kind === "Honor" && item.emptyBlock === true
-    );
+    this.#readAsWritten = module.readAsWritten;
     this.#brokenPatterns.clear();
   }
 
@@ -18371,7 +18372,7 @@ class Checker {
     const last = arms.at(-1);
     if (source === undefined || first === undefined || last === undefined) return undefined;
     const { text, file } = source;
-    if (!this.#readAsWritten(text)) return undefined;
+    if (!this.#readAsWritten) return undefined;
     const todo = this.#todoSpelling(first.span.start.offset);
     if (todo === undefined) return undefined;
     if (witnesses.length > COVERAGE_WITNESS_LIMIT || witnesses.some(({ routes }) => routes.length > 0)) return undefined;
@@ -18419,7 +18420,7 @@ class Checker {
     const source = this.#sourceFile();
     if (source === undefined) return undefined;
     const { text, file } = source;
-    if (!this.#readAsWritten(text)) return undefined;
+    if (!this.#readAsWritten) return undefined;
     const todo = this.#todoSpelling(item.span.start.offset);
     if (todo === undefined) return undefined;
     const block = [...item.members, ...item.impliedTypes]
@@ -18429,7 +18430,9 @@ class Checker {
     const { at, indent, newline } = place;
     const written = unwritten.map(({ binding, parameters }) => {
       if (widened.has(binding.name)) return `${newline}${indent}${binding.name} = widened`;
-      const names = parameters.map(({ name }) => name).join(", ");
+      // A parameter the constraint wrote as a pattern, which it refuses, has a
+      // compiler-minted name no source may write.
+      const names = parameters.map(({ name }) => isCompilerMinted(name) ? "_" : name).join(", ");
       return `${newline}${indent}${binding.name}(${names}) = ${todo}("${binding.name}")`;
     }).join("");
     const position = file.positionAt(at);
@@ -18460,28 +18463,6 @@ class Checker {
     return line === undefined || !rest.commented
       ? undefined
       : { at: rest.end, indent: `${line.indent}    `, newline: line.newline };
-  }
-
-  /**
-   * Whether the parser read this file as written, for the fills that write
-   * into a block: a block read by recovery is not the block as written (a line
-   * of a nested block read as an arm or a member, a misindented line read as
-   * one), so lines placed beside its items would not land in it. Every lexer,
-   * layout and parse error in the code (a doc comment's are about the comment)
-   * must be an empty honor's own, the one error the missing members fill
-   * repairs: layout's "expected an indented block", one for each such honor,
-   * at the next token after its `=`.
-   */
-  #readAsWritten(text: string): boolean {
-    const errors = [...this.#codeErrors];
-    for (const item of this.#emptyHonors) {
-      const from = item.span.end.offset;
-      const [next] = lex(new Source.File(item.span.fileId, "", text.slice(from))).tokens;
-      // One error there is the honor's; another there is the next line's own.
-      const own = errors.indexOf(from + next!.span.start.offset);
-      if (own !== -1) errors.splice(own, 1);
-    }
-    return errors.length === 0;
   }
 
   /**

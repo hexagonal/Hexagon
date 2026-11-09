@@ -743,14 +743,8 @@ export interface Module {
   readonly companionPrimitive?: PrimitiveName;
   readonly span: Source.Span;
   readonly diagnostics: readonly Diagnostics.Diagnostic[];
-  /**
-   * Where the file's lexer, layout and parser reported an error in the code
-   * (`Parsed.Module.codeErrors`). A fill that writes into a block reads the
-   * block as the parser did, so it is offered only where the parser read the
-   * code as written (an empty honor's own error aside, which that fill
-   * repairs).
-   */
-  readonly codeErrors: readonly Source.Span[];
+  /** Whether the parser read the file's code as written (`Parsed.Module.readAsWritten`). */
+  readonly readAsWritten: boolean;
 }
 
 export interface PatternHome {
@@ -1862,12 +1856,6 @@ export interface HonorItem {
   readonly memberSeats: readonly MemberSeat[];
   readonly impliedTypes: readonly HonorImpliedType[];
   readonly members: readonly HonorMember[];
-  /**
-   * Set where the head's `=` ends its line and no indented block follows (a
-   * parse error): the honor has no items, and its span ends at the `=`. Read
-   * by the fill for missing members, which writes the block.
-   */
-  readonly emptyBlock?: true;
   /**
    * The honor group this instance is an item of (Constraints §4.8, #1227):
    * absent for a lone `honor` and for a `derives` clause's instance.
