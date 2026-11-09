@@ -162,6 +162,57 @@ describe("an honor's missing members, written as `Debug.todo`", () => {
     });
   });
 
+  test("a member this module widens is written as its accounting line, never as a body (Constraints §4.7)", () => {
+    const scale = "module Scale\n\nexport constraint Scale<a> =\n    scale(value: a, factor: Int) -> a\n" +
+      "    label(value: a) -> String\n    size(value: a) -> Int\n";
+    const matrix = (...block: readonly string[]): string => [
+      "module Matrix",
+      "import Scale",
+      "export record Matrix = {n: Float}",
+      "widens Scale.scale(value: Matrix, factor: Float): Matrix =",
+      "    Matrix({n = value.n * factor})",
+      "honor Scale.Scale<Matrix> =",
+      ...block,
+      "",
+    ].join("\n");
+    const files = { "/scale.hex": scale };
+    const text = matrix("    label(value) = \"matrix\"");
+    const [repair, ...others] = repairs(text, text.indexOf("honor"), files);
+    expect(others).toEqual([]);
+    expect(repair?.title).toBe("Add the 2 missing members");
+    const after = applied(text, repair!);
+    expect(after).toBe(matrix(
+      "    label(value) = \"matrix\"",
+      "    scale = widened",
+      "    size(value) = Debug.todo(\"size\")",
+    ));
+    expect(session({ ...files, "/main.hex": after }).diagnostics("/main.hex")).toEqual([]);
+    // Accounting lines alone write no stand-in: the resolver's report names
+    // that rewrite.
+    const accounted = matrix("    label(value) = \"matrix\"", "    size(value) = 1");
+    expect(session({ ...files, "/main.hex": accounted }).diagnostics("/main.hex").map(({ message }) => message))
+      .toContain("instance is missing required member `scale`");
+    expect(repairs(accounted, accounted.indexOf("honor"), files)).toEqual([]);
+    // A door for another constraint's member of the same name accounts for
+    // nothing here.
+    const grow = "module Grow\n\nexport constraint Grow<a> =\n    size(value: a, by: Int) -> a\n";
+    const both = [
+      "module Matrix",
+      "import Scale",
+      "import Grow",
+      "export record Matrix = {n: Float}",
+      "widens Grow.size(value: Matrix, by: Float): Matrix = value",
+      "honor Grow.Grow<Matrix> =",
+      "    size = widened",
+      "honor Scale.Scale<Matrix> =",
+      "    label(value) = \"matrix\"",
+      "    scale(value, factor) = value",
+      "",
+    ].join("\n");
+    const [other] = repairs(both, both.indexOf("honor Scale"), { ...files, "/grow.hex": grow });
+    expect(other?.edits.map(({ replacement }) => replacement)).toEqual(["\n    size(value) = Debug.todo(\"size\")"]);
+  });
+
   test("it keeps the instance's colour: a fault, which a pure contract admits", () => {
     const text = program(
       "honor Shape<Point> =",
@@ -339,6 +390,24 @@ describe("where it is not offered", () => {
     const text = program("honor Shape<Point> = 42", "export let unit: Unit = ()");
     expect(session({ "/main.hex": text }).diagnostics("/main.hex").map(({ message }) => message))
       .toContain("instance is missing required member `area`");
+    expect(repairs(text)).toEqual([]);
+  });
+
+  test("where the members stand no deeper than the head, so no block opened", () => {
+    const text = program("honor Shape<Point> =", "area(p) = 1.0", "export let unit: Unit = ()");
+    expect(session({ "/main.hex": text }).diagnostics("/main.hex").map(({ message }) => message))
+      .toContain("instance is missing required member `name`");
+    expect(repairs(text)).toEqual([]);
+    const grouped = program("honor", "    Shape<Point> =", "    area(p) = 1.0");
+    expect(session({ "/main.hex": grouped }).diagnostics("/main.hex").map(({ message }) => message))
+      .toContain("instance is missing required member `name`");
+    expect(repairs(grouped, grouped.indexOf("Shape<Point>"))).toEqual([]);
+  });
+
+  test("where something follows the head's `=` before its block", () => {
+    const text = program("honor Shape<Point> = ;", "    area(p) = 1.0", "export let unit: Unit = ()");
+    expect(session({ "/main.hex": text }).diagnostics("/main.hex").map(({ message }) => message))
+      .toContain("instance is missing required member `name`");
     expect(repairs(text)).toEqual([]);
   });
 

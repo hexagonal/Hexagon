@@ -10825,7 +10825,15 @@ class Checker {
           (required) => required.defaultValue === undefined && !supplied.has(required.binding.name),
         );
         // One fill writes them all, so each report offers the same one.
-        const fill = missing.length === 0 ? undefined : this.#missingMembersFix(item, missing);
+        const fill = missing.length === 0 ? undefined : this.#missingMembersFix(
+          item,
+          missing,
+          // A member this module's `widens` declaration supplies is accounted
+          // for, never written (Constraints §4.7).
+          new Set(items.flatMap((each) => each.kind === "Let" ? each.widens ?? [] : [])
+            .filter(({ constraintIdentity }) => constraintIdentity === item.constraintIdentity)
+            .map(({ member }) => member)),
+        );
         for (const required of missing) {
           this.#diagnostics.add({
             severity: "error",
@@ -18379,17 +18387,22 @@ class Checker {
    * header as a `Debug.todo` naming it (language-server decision 5): the name
    * and the parameters' names, and no types, since a member's type is the
    * constraint's at the honored head (Constraints §4.1) and a type written
-   * there binds (Effects §13.2). They go below the block's last line at its
-   * first line's indentation, or, where the block is empty, on the lines below
-   * the head's `=`, indented one step past it.
+   * there binds (Effects §13.2). A member this module widens is written as its
+   * accounting line, `name = widened` (§4.7). They go below the block's last
+   * line at its first line's indentation, or, where the block is empty, on the
+   * lines below the head's `=`, indented one step past it.
    *
-   * Offered where `Debug.todo` reaches the prelude's and the new lines have a
-   * column to match. Never preferred, and in no family, as the missing arms.
+   * Offered where it writes a stand-in, `Debug.todo` reaches the prelude's and
+   * the new lines have a column to match. Never preferred, and in no family,
+   * as the missing arms.
    */
   #missingMembersFix(
     item: Resolved.HonorItem,
     missing: readonly Resolved.ConstraintMember[],
+    widened: ReadonlySet<string>,
   ): Diagnostics.Fix | undefined {
+    // Accounting lines alone are the resolver's report's rewrite, no stand-in.
+    if (missing.every(({ binding }) => widened.has(binding.name))) return undefined;
     const source = this.#sourceFile();
     if (source === undefined) return undefined;
     const { text, file } = source;
@@ -18401,6 +18414,7 @@ class Checker {
     if (place === undefined) return undefined;
     const { at, indent, newline } = place;
     const written = missing.map(({ binding, parameters }) => {
+      if (widened.has(binding.name)) return `${newline}${indent}${binding.name} = widened`;
       const names = parameters.map(({ name }) => isCompilerMinted(name) ? "_" : name).join(", ");
       return `${newline}${indent}${binding.name}(${names}) = ${todo}("${binding.name}")`;
     }).join("");
@@ -18444,7 +18458,11 @@ class Checker {
     // group's next honor.
     if (head.length > 2) return undefined;
     const line = blockLine(text, first.span.start.offset);
-    return line === undefined ? undefined : { at: belowLast(text, last.span), ...line };
+    // Nor is an item no deeper than the head, which the parser read as one
+    // though no block opened.
+    const headColumn = item.span.start.offset - (text.lastIndexOf("\n", item.span.start.offset - 1) + 1);
+    if (line === undefined || line.indent.length <= headColumn) return undefined;
+    return { at: belowLast(text, last.span), ...line };
   }
 
   /**
