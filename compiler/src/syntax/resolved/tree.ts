@@ -1855,6 +1855,12 @@ export interface HonorItem {
   readonly impliedTypes: readonly HonorImpliedType[];
   readonly members: readonly HonorMember[];
   /**
+   * Set where the head opened no indented block, a parse error: any members
+   * are what recovery took from the lines below, not a block's own. Read by
+   * the fill for missing members, which writes into the block.
+   */
+  readonly unopened?: true;
+  /**
    * The honor group this instance is an item of (Constraints §4.8, #1227):
    * absent for a lone `honor` and for a `derives` clause's instance.
    */

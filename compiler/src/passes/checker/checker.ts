@@ -18393,9 +18393,9 @@ class Checker {
    * constraint's at the honored head (Constraints §4.1) and a type written
    * there binds (Effects §13.2). A member this module widens is written as its
    * accounting line, `name = widened`, a defaulted one too, since that line is
-   * required (§4.7). They go below the block's last
-   * line at its first line's indentation, or, where the block is empty, on the
-   * lines below the head's `=`, indented one step past it.
+   * required (§4.7). They go below the block's last line at its first line's
+   * indentation, or, where the block is empty, on the lines below the head's
+   * `=`, indented one step past it.
    *
    * Offered where it writes a stand-in, `Debug.todo` reaches the prelude's and
    * the new lines have a column to match. Never preferred, and in no family,
@@ -18439,36 +18439,22 @@ class Checker {
   ): { readonly at: number; readonly indent: string; readonly newline: string } | undefined {
     const first = block[0];
     const last = block.at(-1);
-    // The head closes with `>` and `=` after its subject. Where the block is
-    // empty, the parser reads on past it, so only those two are the head's.
-    const subjectEnd = item.subject.span.end.offset;
-    const head = lex(new Source.File(
-      item.span.fileId,
-      "",
-      text.slice(subjectEnd, first?.span.start.offset ?? item.span.end.offset),
-    )).tokens.filter(({ kind }) => kind !== "Eof");
-    const equal = head[1];
-    if (equal?.kind !== "Equal") return undefined;
-    if (first === undefined || last === undefined) {
-      // An empty block: the members go below the `=`'s line, one step in from
-      // the head, where nothing but comments follows the `=`.
-      const line = blockLine(text, item.span.start.offset);
-      const rest = restOfLine(text, item.span.fileId, subjectEnd + equal.span.end.offset);
-      return line === undefined || !rest.commented
-        ? undefined
-        : { at: rest.end, indent: `${line.indent}    `, newline: line.newline };
+    if (first !== undefined && last !== undefined) {
+      // Items the parser recovered where no block opened are no block's, and
+      // new lines at their column would open none either.
+      if (item.unopened === true) return undefined;
+      const line = blockLine(text, first.span.start.offset);
+      return line === undefined ? undefined : { at: belowLast(text, last.span), ...line };
     }
-    // Anything more before the first item is not this block's: an empty
-    // block whose items the parser took from the lines below it, as from a
-    // group's next honor.
-    if (head.length > 2) return undefined;
-    const line = blockLine(text, first.span.start.offset);
-    // Nor is an item no deeper than the head's line, which the parser read as
-    // one though no block opened (a block opens deeper than the line its head
-    // stands on, wherever on it the head begins).
-    const before = text.slice(text.lastIndexOf("\n", item.span.start.offset - 1) + 1, item.span.start.offset);
-    if (line === undefined || line.indent.length <= /^[ \t]*/.exec(before)![0].length) return undefined;
-    return { at: belowLast(text, last.span), ...line };
+    // An empty block: the head closes with `>` and `=` after its subject, and
+    // the members go below the `=`'s line, one step in from the head, where
+    // nothing but comments follows the `=`.
+    const subjectEnd = item.subject.span.end.offset;
+    const [, equal] = lex(new Source.File(item.span.fileId, "", text.slice(subjectEnd, item.span.end.offset))).tokens;
+    const line = blockLine(text, item.span.start.offset);
+    if (equal?.kind !== "Equal" || line === undefined) return undefined;
+    const rest = restOfLine(text, item.span.fileId, subjectEnd + equal.span.end.offset);
+    return rest.commented ? { at: rest.end, indent: `${line.indent}    `, newline: line.newline } : undefined;
   }
 
   /**

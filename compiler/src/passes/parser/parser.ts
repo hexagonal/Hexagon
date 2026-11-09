@@ -3494,7 +3494,7 @@ class Parser {
         span: spanFrom(start.span, this.#previous().span),
       };
     }
-    this.#expect("VOpen", "expected an indented instance body");
+    const opening = this.#expect("VOpen", "expected an indented instance body");
     const impliedTypes: Parsed.HonorImpliedType[] = [];
     const members: Parsed.HonorMember[] = [];
     this.#skipSeparators();
@@ -3589,6 +3589,7 @@ class Parser {
       derived: false,
       impliedTypes,
       members,
+      ...(opening === undefined ? { unopened: true as const } : {}),
       span: spanFrom(start.span, closing?.span ?? members.at(-1)?.span ?? subject.span),
     };
   }

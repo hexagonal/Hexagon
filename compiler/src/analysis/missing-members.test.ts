@@ -216,6 +216,11 @@ describe("an honor's missing members, written as `Debug.todo`", () => {
     const defaulted = { "/scale.hex": scale.replace("scale(value: a, factor: Int) -> a", "scale(value: a, factor: Int) -> a = value") };
     const [complete] = repairs(text, text.indexOf("honor"), defaulted);
     expect(complete?.title).toBe("Add the 2 missing members");
+    expect(applied(text, complete!)).toBe(matrix(
+      "    label(value) = \"matrix\"",
+      "    scale = widened",
+      "    size(value) = Debug.todo(\"size\")",
+    ));
     expect(session({ ...defaulted, "/main.hex": applied(text, complete!) }).diagnostics("/main.hex")).toEqual([]);
   });
 
@@ -411,7 +416,7 @@ describe("where it is not offered", () => {
   });
 
   test("where the head does not begin its line, its block opens deeper than the line", () => {
-    for (const before of ["export let unit: Unit = (); ", "honor Show<Line> = derive; "]) {
+    for (const before of ["export let unit: Unit = (); ", "honor Show<Line> = derive; ", "export let two: Int = 1 +\n    1; "]) {
       const text = program(`${before}honor Shape<Point> =`, "    area(p) = 1.0");
       expect(filled(text, text.indexOf("honor Shape"))).toEqual({
         text: program(
@@ -423,6 +428,15 @@ describe("where it is not offered", () => {
         diagnostics: [],
       });
     }
+  });
+
+  test("where a comment before the head sets the column its block must pass, which the members don't", () => {
+    // Layout reads a line's column from its first token, so the group's block
+    // stands at `Shape`, and `area` there opens nothing.
+    const text = program("honor", "    (* note *) Shape<Point> =", "               area(p) = 1.0");
+    expect(session({ "/main.hex": text }).diagnostics("/main.hex").map(({ message }) => message))
+      .toContain("instance is missing required member `name`");
+    expect(repairs(text, text.indexOf("Shape<Point>"))).toEqual([]);
   });
 
   test("where something follows the head's `=` before its block", () => {
