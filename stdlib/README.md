@@ -6,7 +6,7 @@ not compiler intrinsics.
 
 Together they are the package **`Hex`** (Packages §2.4): every file here declares
 its module (`module Vector`, full name `Hex.Vector`), and the prelude modules are
-in scope everywhere without an import, Modules §5.5's closed set of twenty-seven
+in scope everywhere without an import, Modules §5.5's closed set of twenty-eight
 being what they seed in the term namespace. `Rat`, `Regex` with `Regex.Syntax`,
 `File`, `Stdio` and `Process` are the modules outside the prelude — the spec's
 "rest of `Hex`" — and the compiler embeds the whole directory, so a program
@@ -184,13 +184,17 @@ emitted one (Packages §6).
   back from the exception world is no function here but the body form `attempt`
   (`spec/exceptions.md` §8.2): `Ok(value)` on return, `Err(thrown)` on an
   exception or a foreign throw.
-- `Debug.hex` holds the debugging probe: `log<a: Show>(value: a)` renders any
+- `Debug.hex` holds the debugging probe and the stand-in for unwritten code.
+  The probe, `log<a: Show>(value: a)`, renders any
   showable value and writes it to the console through the door's one **species
   (a)** row (`spec/effects.md` §6.2), which stays at `String` and is unexported
   beneath it. The face is pure because nothing in the language can read that
   channel back, and `trace` is the expression-shaped form above `log`. It takes
   the last prelude seat, and its sink is captured when its emitted module
-  initializes — the condition §6.2 attaches to the pure face.
+  initializes — the condition §6.2 attaches to the pure face. `todo<a>(what:
+  String): a` stands in for code not written yet, at any type, and throws the
+  fault `TodoFault(what)` where it is reached; a fault is untracked, so a
+  function holding one has the colour it will have once the code is written.
 
 The complete package/prelude loader and the final boundary of the fundamental
 stdlib remain project-system and stdlib-listing work. The Playground begins that

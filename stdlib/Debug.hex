@@ -20,6 +20,11 @@ module Debug
 // `String` (#419). This is Hexagon's version of `console.log`, not `console.log`
 // precisely — a value with no `Show` is refused where the host would have
 // printed something.
+//
+// `todo` is the module's other tool: a stand-in for code not written yet
+// (#1493). It throws `TodoFault`, a fault, which no colour tracks (Exceptions
+// §1), so a function whose bodies are todos already has the colour and marks it
+// will have once they are written.
 
 extern from "hex:intrinsic"
     // Unexported, beneath `log` below: the door row carries the write and
@@ -40,3 +45,13 @@ export let log<a: Show>(value: a): Unit =
 export let trace<a: Show>(label: String, value: a): a =
     log("${label}: ${value}")
     value
+
+(** Thrown by `todo` when the code it stands in for is reached; `message` names
+    what is not written yet. *)
+export fault TodoFault(message: String)
+
+(** Stands in for code not written yet, at any type, so the program compiles
+    and runs until it is reached; then it throws `TodoFault(what)`, where `what`
+    names what is missing. *)
+export let todo<a>(what: String): a =
+    throw(TodoFault(what))

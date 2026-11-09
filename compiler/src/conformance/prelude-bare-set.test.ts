@@ -15,9 +15,9 @@ import {
  *
  * The prelude used to seed every export into every module's bare term scope.
  * §5.5 now seeds **nothing** there by default, and four channel rules put
- * twenty-four names back: the sixteen throwable constructors, the six
+ * twenty-seven names back: the nineteen throwable constructors, the six
  * constructors of the open unions `Bool`/`Option`/`Result`, `ignore`, and `show`.
- * The set's twenty-fifth name, `throw`, is a language form no module declares,
+ * The set's twenty-eighth name, `throw`, is a language form no module declares,
  * so nothing seeds it. Everything else is reached by the dot or the qualified spelling,
  * and a bare reference to it draws §10's refusal with its routes named.
  *
@@ -25,7 +25,7 @@ import {
  *
  * The companion suites (`vector-prelude-companion`, `float-companion`,
  * `js-kind-qualification`, …) each pin their own module's surface. This one pins
- * the **rule**: the set is exactly twenty-seven names and is closed, each channel
+ * the **rule**: the set is exactly twenty-eight names and is closed, each channel
  * admits what it says it admits and nothing beside, and the refusal has one
  * shape across all three channels. The set pin is written against the *compiled
  * prelude* rather than a transcription, so drift in either direction — a name
@@ -62,7 +62,7 @@ function moduleNames(source: string): readonly string[] {
  * design ruling argued against §5.5, never an edit.
  */
 const BARE_SET = [
-  // The eighteen throwable constructors — fifteen faults and the exceptions
+  // The nineteen throwable constructors — sixteen faults and the exceptions
   // `JsError`, `NumberFormatError` and `JsConversionError` — a category, not a
   // list (§5.5).
   "AssumptionFault",
@@ -82,6 +82,7 @@ const BARE_SET = [
   "NumberFormatError",
   "ReentrancyFault",
   "SliceFault",
+  "TodoFault",
   "UndefinedSignFault",
   // The open unions' six constructors.
   "Err",
@@ -95,13 +96,13 @@ const BARE_SET = [
   "show",
 ].sort();
 
-describe("the bare set is exactly twenty-seven names, and closed", () => {
+describe("the bare set is exactly twenty-eight names, and closed", () => {
   test("the prelude layer binds the set and nothing else", () => {
     expect(bareNames()).toEqual(BARE_SET);
   });
 
-  test("twenty-six of the section's twenty-seven are in the layer; `throw` is the other", () => {
-    expect(BARE_SET.length).toBe(26);
+  test("twenty-seven of the section's twenty-eight are in the layer; `throw` is the other", () => {
+    expect(BARE_SET.length).toBe(27);
   });
 
   /**
@@ -721,10 +722,14 @@ describe("the constructor channel: the open unions only", () => {
 
 describe("the exception channel: all of them, as a category", () => {
   /**
-   * The shipped exceptions, bare in a catch arm and in an expression, and
-   * reachable qualified beside it. The category rule is what makes a future
-   * prelude exception bare without a ruling — the `…Error` suffix is its own
-   * qualifier — so the list is asserted whole rather than sampled.
+   * The shipped throwables, bare in a catch arm and reachable qualified beside
+   * it; the test after this one takes a constructor bare in an expression. The category rule is what makes a future
+   * prelude throwable bare without a ruling — the `…Error` and `…Fault`
+   * suffixes are their own qualifiers — so every prelude fault, and `JsError`,
+   * is asserted rather than sampled. `NumberFormatError` and `JsConversionError`
+   * are tracked exceptions this `try` cannot throw, so an arm for one would be
+   * refused as one that can never run; their bare and qualified spellings are
+   * pinned in `numeric-parse` and `js-kind-qualification`.
    */
   test.each([
     ["DecimalPlacesOverflowFault", "Dec", "(m)"],
@@ -733,11 +738,16 @@ describe("the exception channel: all of them, as a category", () => {
     ["NegativeExponentFault", "Pow", "(m)"],
     ["DivideByZeroFault", "Integral", "(m)"],
     ["FloatRangeFault", "Float", "(m)"],
+    ["UndefinedSignFault", "Float", "(m)"],
     ["IntRangeFault", "Int", "(m)"],
     ["ReentrancyFault", "Seq", ""],
     ["IndexFault", "Vector", "(i, n)"],
     ["SliceFault", "Vector", "(a, b)"],
     ["KeyFault", "Map", ""],
+    ["DuplicateKeyFault", "Map", ""],
+    ["LoneSurrogateFault", "String", "(m, p)"],
+    ["AssumptionFault", "Prelude", "(e)"],
+    ["TodoFault", "Debug", "(m)"],
     ["JsError", "JsError", "(e)"],
   ])("`%s` is bare in a catch arm, and qualified through `%s`", (name, home, slots) => {
     expect(projectDiagnostics("module Main\n\n" + "export fun f(n: Int): Int =\n" +
