@@ -253,10 +253,10 @@ export interface PreludeModule {
  * every other prelude function (Modules §5.5).
  *
  * `Debug.hex` is last (#407), and its seat is the opposite kind of fact: almost
- * no signature here forces it. Its probes name `Show` and nothing else — `log`
- * since #419 widened it to `log<a: Show>(value: a)`, `trace` from the start — and
- * `todo` and `TodoFault` (#1493) name only the primitive `String`, so anywhere after
- * `Show.hex`, which is the first seat, would do. It sits last for what the seat
+ * no signature here forces it. Its probes name `Show` and the primitive `String`
+ * and nothing else — `log` since #419 widened it to `log<a: Show>(value: a)`,
+ * `trace` from the start — and `todo` and `TodoFault` (#1493) name only `String`,
+ * so anywhere after `Show.hex`, which is the first seat, would do. It sits last for what the seat
  * *denies* rather than for anything it needs. A member sees only the members
  * before it, so from the last seat `log`, `trace` and `todo` are visible to no
  * prelude module at all: nothing in the standard library can quietly acquire a

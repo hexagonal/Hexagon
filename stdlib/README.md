@@ -184,7 +184,8 @@ emitted one (Packages §6).
   back from the exception world is no function here but the body form `attempt`
   (`spec/exceptions.md` §8.2): `Ok(value)` on return, `Err(thrown)` on an
   exception or a foreign throw.
-- `Debug.hex` holds the debugging probe: `log<a: Show>(value: a)` renders any
+- `Debug.hex` holds the debugging probe and the stand-in for unwritten code.
+  The probe, `log<a: Show>(value: a)`, renders any
   showable value and writes it to the console through the door's one **species
   (a)** row (`spec/effects.md` §6.2), which stays at `String` and is unexported
   beneath it. The face is pure because nothing in the language can read that

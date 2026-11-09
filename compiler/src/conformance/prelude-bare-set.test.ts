@@ -722,14 +722,14 @@ describe("the constructor channel: the open unions only", () => {
 
 describe("the exception channel: all of them, as a category", () => {
   /**
-   * The shipped throwables, bare in a catch arm and in an expression, and
-   * reachable qualified beside it. The category rule is what makes a future
+   * The shipped throwables, bare in a catch arm and reachable qualified beside
+   * it; the test after this one takes a constructor bare in an expression. The category rule is what makes a future
    * prelude throwable bare without a ruling — the `…Error` and `…Fault`
    * suffixes are their own qualifiers — so every prelude fault, and `JsError`,
    * is asserted rather than sampled. `NumberFormatError` and `JsConversionError`
    * are tracked exceptions this `try` cannot throw, so an arm for one would be
-   * refused as one that can never run; their spellings are pinned with the
-   * operations that throw them (`numeric-parse`, `js-kind-qualification`).
+   * refused as one that can never run; their bare and qualified spellings are
+   * pinned in `numeric-parse` and `js-kind-qualification`.
    */
   test.each([
     ["DecimalPlacesOverflowFault", "Dec", "(m)"],

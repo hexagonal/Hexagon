@@ -24,9 +24,7 @@ module Debug
 // `todo` is the module's other tool: a stand-in for code not written yet
 // (#1493). It throws `TodoFault`, a fault, which no colour tracks (Exceptions
 // §1), so a function whose bodies are todos already has the colour and marks it
-// will have once they are written. Reaching one breaks the dev's own assumption
-// that the code there is written, the way an index out of range breaks theirs
-// that it is in range.
+// will have once they are written.
 
 extern from "hex:intrinsic"
     // Unexported, beneath `log` below: the door row carries the write and
