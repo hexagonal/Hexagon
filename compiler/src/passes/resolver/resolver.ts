@@ -3940,7 +3940,7 @@ class Resolver {
           // Filled by `#assignMemberSeats`, which runs once every declaration is
           // resolved and the constraint behind this head is in view.
           memberSeats: [],
-          ...(item.unopened === true ? { unopened: true as const } : {}),
+          ...(item.malformed === undefined ? {} : { malformed: item.malformed }),
           impliedTypes: item.impliedTypes.map((impliedType) => ({
             name: impliedType.name.text,
             annotation: this.#resolveTypeAnnotation(

@@ -439,6 +439,30 @@ describe("where it is not offered", () => {
     expect(repairs(text, text.indexOf("Shape<Point>"))).toEqual([]);
   });
 
+  test("where the block holds a parse error, so its items are recovery's reading", () => {
+    // Recovery takes `n`, a line of `name`'s body, as a member.
+    const nested = program(
+      "honor Shape<Point> =",
+      "    area(p) = 1.0",
+      "    fun name(p) =",
+      "        let n = \"p\"",
+      "        n",
+    );
+    expect(session({ "/main.hex": nested }).diagnostics("/main.hex").map(({ message }) => message))
+      .toContain("instance is missing required member `scaled`");
+    expect(repairs(nested)).toEqual([]);
+    // A block that opened and read no item: its column is its own.
+    const unread = program(
+      "honor",
+      "    Shape<Point> =",
+      "      Area(p) = 1.0",
+      "    Show<Line> = derive",
+    );
+    expect(session({ "/main.hex": unread }).diagnostics("/main.hex").map(({ message }) => message))
+      .toContain("instance is missing required member `area`");
+    expect(repairs(unread, unread.indexOf("Shape<Point>"))).toEqual([]);
+  });
+
   test("where something follows the head's `=` before its block", () => {
     const text = program("honor Shape<Point> = ;", "    area(p) = 1.0", "export let unit: Unit = ()");
     expect(session({ "/main.hex": text }).diagnostics("/main.hex").map(({ message }) => message))

@@ -3495,6 +3495,7 @@ class Parser {
       };
     }
     const opening = this.#expect("VOpen", "expected an indented instance body");
+    const errors = this.#diagnostics.count;
     const impliedTypes: Parsed.HonorImpliedType[] = [];
     const members: Parsed.HonorMember[] = [];
     this.#skipSeparators();
@@ -3589,7 +3590,11 @@ class Parser {
       derived: false,
       impliedTypes,
       members,
-      ...(opening === undefined ? { unopened: true as const } : {}),
+      ...(opening === undefined
+        ? { malformed: "unopened" as const }
+        : this.#diagnostics.count > errors
+        ? { malformed: "recovered" as const }
+        : {}),
       span: spanFrom(start.span, closing?.span ?? members.at(-1)?.span ?? subject.span),
     };
   }

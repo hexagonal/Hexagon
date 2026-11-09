@@ -18440,15 +18440,18 @@ class Checker {
     const first = block[0];
     const last = block.at(-1);
     if (first !== undefined && last !== undefined) {
-      // Items the parser recovered where no block opened are no block's, and
-      // new lines at their column would open none either.
-      if (item.unopened === true) return undefined;
+      // Items read by recovery, where no block opened or one held an error,
+      // are no block's as written, so lines written beside them would not be.
+      if (item.malformed !== undefined) return undefined;
       const line = blockLine(text, first.span.start.offset);
       return line === undefined ? undefined : { at: belowLast(text, last.span), ...line };
     }
-    // An empty block: the head closes with `>` and `=` after its subject, and
-    // the members go below the `=`'s line, one step in from the head, where
-    // nothing but comments follows the `=`.
+    // An empty block is one that never opened: one that opened and read no
+    // item has a column of its own, which a line no item began at doesn't
+    // tell. The head closes with `>` and `=` after its subject, and the members
+    // go below the `=`'s line, one step in from the head, where nothing but
+    // comments follows the `=`.
+    if (item.malformed !== "unopened") return undefined;
     const subjectEnd = item.subject.span.end.offset;
     const [, equal] = lex(new Source.File(item.span.fileId, "", text.slice(subjectEnd, item.span.end.offset))).tokens;
     const line = blockLine(text, item.span.start.offset);

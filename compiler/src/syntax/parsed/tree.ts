@@ -453,10 +453,12 @@ export interface HonorItem {
   readonly impliedTypes: readonly HonorImpliedType[];
   readonly members: readonly HonorMember[];
   /**
-   * Set where the head opened no indented block, a parse error: any members
-   * are what recovery took from the lines below, not a block's own.
+   * Set where the parser could not read the head's block as written, a parse
+   * error: `"unopened"` where no indented block followed the head, and
+   * `"recovered"` where one did but an error inside it was recovered from.
+   * Any members are then recovery's reading, not the block's own.
    */
-  readonly unopened?: true;
+  readonly malformed?: "unopened" | "recovered";
   /**
    * The honor group this instance is an item of (Constraints §4.8, #1227):
    * absent for a lone `honor`, the fused spelling of the one-item group.
