@@ -30,7 +30,7 @@ import * as Source from "../support/source.js";
 import type * as Parsed from "../syntax/parsed/index.js";
 import type * as Resolved from "../syntax/resolved/index.js";
 import type * as Typed from "../syntax/typed/index.js";
-import { type Refactoring, rewrite, solid, textOf } from "./rewrite.js";
+import { type Refactoring, rewrite, textOf } from "./rewrite.js";
 import { keepsReadingWith, type TextEdit } from "./same-reading.js";
 
 /** The rewrite of the dot call whose `.name` holds `[start, end]`, if it is one. */
@@ -191,7 +191,7 @@ function spellingOf(
   const [below] = bringing;
   if (below?.form.kind === "Namespace") {
     // One line in the message, without its comments, however the import is laid out.
-    const { start, end } = solid(file, below.span);
+    const [start, end] = [below.span.start.offset, below.span.end.offset];
     let line = "";
     let at = start;
     for (const { span } of comments) {
@@ -199,7 +199,7 @@ function spellingOf(
       line += `${file.text.slice(at, span.start.offset)} `;
       at = span.end.offset;
     }
-    line = `${line}${file.text.slice(at, end)}`.trim().replace(/\s+/g, " ");
+    line = `${line}${file.text.slice(at, end)}`.replace(/\s+/g, " ");
     return {
       spelling: `${below.form.alias}.${name}`,
       refused: `This module's \`${line}\` stands below this call, and an import is read from where it stands ` +

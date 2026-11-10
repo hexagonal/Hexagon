@@ -49,7 +49,9 @@ export function matchArmRefactorings(
   const lists = armLists(module);
   const head = headAt(file, module, lists, start, end);
   if (head !== undefined) {
-    return [...combined(file, module, typed, head.arms, runAround(head.arms, head.index)), ...split(file, module, head.arms, head.index)];
+    // A selection of one whole arm touches no other to combine it with.
+    const combining = head.whole ? [] : combined(file, module, typed, head.arms, runAround(head.arms, head.index));
+    return [...combining, ...split(file, module, head.arms, head.index)];
   }
   const selected = armsSelected(file, module, lists, start, end);
   return selected === undefined ? [] : combined(file, module, typed, selected.arms, selected.run);
@@ -76,9 +78,10 @@ function armLists(module: Parsed.Module): readonly (readonly Parsed.MatchArm[])[
 
 /**
  * The arm whose head holds `[start, end]`, its pattern, its guard and its
- * arrow, up to its body, or that a selection takes whole, comments after it on
- * its line or not. A caret before the body's first character is on the body.
- * Of two arms whose heads hold it, the inner one, of a `match` in the outer's guard.
+ * arrow, up to its body, the spaces before it on its line aside; or that a selection
+ * takes whole, comments after it on its line or not, which is `whole`. A
+ * caret before the body's first character is on the body. Of two arms whose
+ * heads hold it, the inner one, of a `match` in the outer's guard.
  */
 function headAt(
   file: Source.File,
@@ -86,19 +89,24 @@ function headAt(
   lists: readonly (readonly Parsed.MatchArm[])[],
   start: number,
   end: number,
-): { readonly arms: readonly Parsed.MatchArm[]; readonly index: number } | undefined {
+): { readonly arms: readonly Parsed.MatchArm[]; readonly index: number; readonly whole: boolean } | undefined {
   const selected = trimmed(file, start, end);
-  const holds = (arm: Parsed.MatchArm): boolean => {
+  // A head selected from its line's start: the spaces before it, not a line break.
+  let from = start;
+  while (from < end && /[ \t]/.test(file.text[from]!)) from += 1;
+  const reach = (arm: Parsed.MatchArm): "head" | "whole" | undefined => {
     const { span, body } = arm;
-    if (start === end) return span.start.offset <= start && start < body.span.start.offset;
-    return (span.start.offset <= start && end <= body.span.start.offset) ||
-      (selected.start === span.start.offset && [solidEnd(file, arm), lineEnd(file, module, arm)].includes(selected.end));
+    if (start === end) return span.start.offset <= start && start < body.span.start.offset ? "head" : undefined;
+    if (span.start.offset <= from && end <= body.span.start.offset) return "head";
+    const ends = [solidEnd(file, arm), lineEnd(file, module, arm)];
+    return selected.start === span.start.offset && ends.includes(selected.end) ? "whole" : undefined;
   };
-  let found: { readonly arms: readonly Parsed.MatchArm[]; readonly index: number } | undefined;
+  let found: { readonly arms: readonly Parsed.MatchArm[]; readonly index: number; readonly whole: boolean } | undefined;
   for (const arms of lists) {
     arms.forEach((arm, index) => {
-      if (holds(arm) && (found === undefined || found.arms[found.index]!.span.start.offset < arm.span.start.offset)) {
-        found = { arms, index };
+      const held = reach(arm);
+      if (held !== undefined && (found === undefined || found.arms[found.index]!.span.start.offset < arm.span.start.offset)) {
+        found = { arms, index, whole: held === "whole" };
       }
     });
   }
@@ -299,10 +307,13 @@ function bindingMismatch(typed: Typed.Module, members: readonly Parsed.MatchArm[
           "in every alternative (Pattern Matching §2.6).";
       }
       if (typeKey(left) !== typeKey(right)) {
-        // Lettered together, so two variables inference kept apart show as two.
-        const letters = new Typed.Letters();
-        const [one, another] = [left, right].map((type) => Typed.displayCallFace({ variables: [], constraints: [], type }, undefined, letters).type);
-        return `\`${name}\` is \`${one}\` in one of these arms and \`${another}\` in another, and an or-pattern binds it at one type.`;
+        // Shown only where each display names one type: a variable's letter
+        // need not be the one the source writes, and two types of one name
+        // from two modules show alike.
+        const [one, another] = [left, right].map((type) => Typed.displayCallFace({ variables: [], constraints: [], type }).type);
+        return one === another || [left, right].some(variable)
+          ? `\`${name}\` has a different type in each of these arms, and an or-pattern binds it at one type.`
+          : `\`${name}\` is \`${one}\` in one of these arms and \`${another}\` in another, and an or-pattern binds it at one type.`;
       }
     }
   }
@@ -360,16 +371,34 @@ function namesBound(pattern: Parsed.Pattern): ReadonlySet<string> {
 
 /**
  * A type as one key: equal keys are one type, however its names were written
- * (`qualifier`) and in whatever order a record type's fields were.
+ * (`qualifier`), and in whatever order a record type's fields were, or the
+ * colours a colour is joined from.
  */
 function typeKey(type: Typed.Type): string {
   return JSON.stringify(type, (key, value: unknown) => {
     if (key === "qualifier") return undefined;
-    const record = value as Partial<Typed.RecordType> | null;
-    return typeof value === "object" && record?.kind === "Record"
+    const record = value as Partial<Typed.RecordType> & { readonly join?: readonly number[] } | null;
+    if (typeof value !== "object" || record === null) return value;
+    // A colour joined from several is one colour whatever order inference met them in.
+    if (Array.isArray(record.join)) return { ...record, join: [...record.join].sort((left, right) => left - right) };
+    return record.kind === "Record"
       ? { ...record, fields: [...record.fields!].sort((left, right) => left.name.localeCompare(right.name)) }
       : value;
   });
+}
+
+/**
+ * Whether a type holds a variable a display letters: a type's or a record's
+ * tail. A colour's shows as `>->`, a letter of none.
+ */
+function variable(type: Typed.Type): boolean {
+  let found = false;
+  JSON.stringify(type, (_, value: unknown) => {
+    const node = value as { readonly kind?: unknown; readonly tail?: unknown } | null;
+    if (node?.kind === "Variable" || (node?.kind === "Record" && node.tail !== undefined)) found = true;
+    return value;
+  });
+  return found;
 }
 
 /**

@@ -276,6 +276,11 @@ describe("where it is refused", () => {
       .toBe(below("import Geo as G"));
     expect(rewritten(["module Main", "export let a(s: G.Shape): Float = s.ar‸ea()", "import Geo(* shapes *)as G", ""].join("\n"), as("G.area")))
       .toBe(below("import Geo as G"));
+    // Not a comment after it.
+    expect(rewritten(
+      ["module Main", "export let a(s: G.Shape): Float = s.ar‸ea()", "import Geo as G", "export let b: Int = 1 // one", ""].join("\n"),
+      as("G.area"),
+    )).toBe(below("import Geo as G"));
   });
 
   test("a bare call a binder in the item would capture, and not a qualified one", () => {

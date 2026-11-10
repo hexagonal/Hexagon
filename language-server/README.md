@@ -625,7 +625,7 @@ the rewrite keeps the program's meaning by definition:
   its alias; and where a binder in the item spells the bare name the home
   module would write.
 - **Combine the 2 arms with this body**, on an arm's pattern or arrow, or on a
-  selection of arms, whole lines included: the run of adjacent arms around it
+  selection of two or more arms, whole lines included: the run of adjacent arms around it
   whose bodies read the same (a body begun on the line after its arrow as the
   one written after it) becomes one arm, its pattern the or-pattern of theirs
   in their order, since arms are tried top to bottom and an or-pattern's
@@ -638,14 +638,19 @@ the rewrite keeps the program's meaning by definition:
   apart, since §2.6 binds each name at one type and unifying two that
   inference kept apart would narrow the function. The types are read from the
   checker's one solve, never worked out again; a record type's fields in
-  another order are the same type. Where the checker could not read the names
+  another order are the same type, and so is a colour joined from others in
+  another order. The refusal shows the two types only where neither holds a
+  variable, whose letter need not be the one the source writes, and they
+  show differently. Where the checker could not read the names
   an arm binds, as with a constructor its scrutinee's type does not have, it is
   not offered.
 - **Split the arm into one per alternative**, on an arm whose pattern is an
   or-pattern, or on the whole arm selected, under a top-level `as` too, written
   in parentheses or not: one arm per alternative, those of an or-pattern among
   them included, each with the `as` and the body, in their order. Refused on a
-  guarded arm, for the same reason. An or-pattern inside a pattern
+  guarded arm, for the same reason, and where a comment stands where the split
+  writes nothing: between alternatives, or inside the parentheses around an
+  `as`, before its first alternative or after its name. An or-pattern inside a pattern
   (`Some(0 | 1)`) is not offered it.
 
 **Each rewrite is checked by parsing what it leaves** (`queries/same-reading.ts`):
