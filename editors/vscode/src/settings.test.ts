@@ -56,6 +56,18 @@ describe("inlay hints", () => {
     }
     // VS Code cuts a line's hints at 43 characters; a cut type is not a face.
     expect(manifest.contributes.configurationDefaults["[hexagon]"])
-      .toEqual({ "editor.inlayHints.maximumLength": 0 });
+      .toMatchObject({ "editor.inlayHints.maximumLength": 0 });
+  });
+});
+
+describe("indentation", () => {
+  test("a Hexagon file is indented with spaces, whatever the editor's own default", async () => {
+    const manifest = JSON.parse(await readFile(fileURLToPath(
+      new URL("../package.json", import.meta.url),
+    ), "utf8")) as { contributes: { configurationDefaults: Record<string, Record<string, unknown>> } };
+    // The language refuses a tab in indentation, and VS Code writes a repair's
+    // snippet with the editor's indentation: tabs, where it is set to tabs.
+    expect(manifest.contributes.configurationDefaults["[hexagon]"])
+      .toEqual({ "editor.inlayHints.maximumLength": 0, "editor.insertSpaces": true });
   });
 });

@@ -60,10 +60,14 @@ none of them describes the project:
 | `hexagon.trace.server` | Log the traffic between extension and server. |
 
 VS Code's own `editor.inlayHints.enabled` stands above all three, as for any
-language. The extension sets one editor default for Hexagon files:
-`editor.inlayHints.maximumLength` is `0`, so a line's hints are never cut. VS
-Code cuts them at 43 characters a line otherwise, and a cut type, such as
-`Vector(a…`, is not a type a dev could write.
+language. The extension sets two editor defaults for Hexagon files:
+
+- `editor.inlayHints.maximumLength` is `0`, so a line's hints are never cut.
+  VS Code cuts them at 43 characters a line otherwise, and a cut type, such as
+  `Vector(a…`, is not a type a dev could write.
+- `editor.insertSpaces` is `true`. Hexagon refuses a tab in indentation, and VS
+  Code writes the lines a repair adds, such as missing arms, in the editor's
+  own indentation: in tabs, where the editor is set to tabs.
 
 Changing a `languageServer` setting restarts the server immediately; there
 is also **Hexagon: Restart Language Server** for when it has wedged. A server

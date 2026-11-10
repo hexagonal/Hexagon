@@ -90,7 +90,8 @@
     },
     "configurationDefaults": {
       "[hexagon]": {
-        "editor.inlayHints.maximumLength": 0
+        "editor.inlayHints.maximumLength": 0,
+        "editor.insertSpaces": true
       }
     },
     "commands": [

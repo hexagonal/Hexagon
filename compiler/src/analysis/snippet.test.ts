@@ -37,14 +37,14 @@ describe("a repair's stand-ins as a snippet", () => {
     const edit = insertion(text, 10, "\n    b => todo(\"b\")\n    c => todo(\"c\")", "todo(\"b\")", "todo(\"c\")");
     expect(snippet(text, edit)).toEqual({
       at: "1:0",
-      text: "    b => ${1:todo(\"b\")}\n    c => ${2:todo(\"c\")}\n",
+      text: "    b => ${1:todo(\"b\")}\n    c => ${2:todo(\"c\")}$0\n",
     });
   });
 
   test("with the file's line break, which the lines carry", () => {
     const text = "    a => 1\r\nnext\r\n";
     const edit = insertion(text, 10, "\r\n    b => todo(\"b\")", "todo(\"b\")");
-    expect(snippet(text, edit)).toEqual({ at: "1:0", text: "    b => ${1:todo(\"b\")}\r\n" });
+    expect(snippet(text, edit)).toEqual({ at: "1:0", text: "    b => ${1:todo(\"b\")}$0\r\n" });
     // A line break other than the one there writes other text.
     expect(snippet(text, insertion(text, 10, "\n    b => todo(\"b\")", "todo(\"b\")"))).toBeUndefined();
   });
@@ -52,7 +52,7 @@ describe("a repair's stand-ins as a snippet", () => {
   test("an edit at a line's start stays where it is", () => {
     const text = "    a => 1\nnext\n";
     expect(snippet(text, insertion(text, 11, "    b => todo(\"b\")\n", "todo(\"b\")")))
-      .toEqual({ at: "1:0", text: "    b => ${1:todo(\"b\")}\n" });
+      .toEqual({ at: "1:0", text: "    b => ${1:todo(\"b\")}$0\n" });
   });
 
   test("none inside a line, where an editor would indent the lines it writes again", () => {
@@ -77,7 +77,7 @@ describe("a repair's stand-ins as a snippet", () => {
     });
     const written = snippetOf(file(text), replacing(11, 15, "b => todo(\"b\")"));
     expect(written && [written.span.start.offset, written.span.end.offset, written.text])
-      .toEqual([11, 15, "b => ${1:todo(\"b\")}"]);
+      .toEqual([11, 15, "b => ${1:todo(\"b\")}$0"]);
     // Moving past the line break would move what it replaces.
     expect(snippetOf(file(text), replacing(10, 15, "\nb => todo(\"b\")"))).toBeUndefined();
   });
@@ -90,6 +90,6 @@ describe("a repair's stand-ins as a snippet", () => {
   test("text that would read as a snippet's own syntax is escaped", () => {
     const text = "x\n";
     const edit = insertion(text, 2, "a$b}c\\d = todo(\"$}\\\") $}\\", "todo(\"$}\\\")");
-    expect(snippet(text, edit)?.text).toBe("a\\$b\\}c\\\\d = ${1:todo(\"\\$\\}\\\\\")} \\$\\}\\\\");
+    expect(snippet(text, edit)?.text).toBe("a\\$b\\}c\\\\d = ${1:todo(\"\\$\\}\\\\\")} \\$\\}\\\\$0");
   });
 });

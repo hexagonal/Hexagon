@@ -84,7 +84,7 @@ describe("code actions", () => {
     expect(fill?.edits.map(({ snippet }) => snippet)).toEqual([{
       startOffset: source.length,
       endOffset: source.length,
-      text: "        Square(_) => ${1:Debug.todo(\"Square(_)\")}\n",
+      text: "        Square(_) => ${1:Debug.todo(\"Square(_)\")}$0\n",
     }]);
   });
 
