@@ -411,6 +411,14 @@ export interface Module {
    */
   readonly dotSites: readonly DotSite[];
   /**
+   * Each `match` with no arms yet, with the arms destruct writes there
+   * (LANGUAGE-SERVER-PLAN.md section C, tier 2). Its splits of a variable or
+   * `_` are worked out only where an editor asks (the checker's
+   * `destructSplits`). Metadata, like `dotSites`: nothing between here and
+   * emission reads it.
+   */
+  readonly destructs?: readonly Destruct[];
+  /**
    * Whose callback each settled callback colour is, in a report's words —
    * "`outer`'s `action`" — so a face depending on a captured colour can name
    * its owner *(Effects §10)*. Where a join made one variable of several
@@ -458,6 +466,22 @@ export interface Module {
   readonly modulePath?: string;
   readonly span: Source.Span;
   readonly diagnostics: readonly Diagnostics.Diagnostic[];
+}
+
+/**
+ * What destruct writes, and where the dev asks for it:
+ *
+ * - On a `match` with no arms yet (`Module.destructs`), one arm per case of its
+ *   subject's type, each a stand-in. `span` is the `match` and its subject,
+ *   where the parser reports the missing block, and the arms are that report's
+ *   repair.
+ * - On a variable or `_` in an arm's pattern (the checker's `destructSplits`),
+ *   the arm written once per case that still reaches it there, each with the
+ *   arm's own body. `span` is the variable or `_`, and it is a refactoring.
+ */
+export interface Destruct {
+  readonly span: Source.Span;
+  readonly fix: Diagnostics.Fix;
 }
 
 /**

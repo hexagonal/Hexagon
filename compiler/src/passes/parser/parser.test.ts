@@ -2302,6 +2302,35 @@ describe("parse", () => {
   });
 });
 
+describe("a `match` with no arms below it", () => {
+  // Its block is missing, and the next line is read as it stands rather than
+  // as arms: one report, in the arm block's words and on the `match`, whatever
+  // ends the line, and the rest of the file read as written.
+  test.each([
+    ["the end of the file", ""],
+    ["a line at its own column", "    let z = 1\n"],
+    ["a dedent", "let z = 1\n"],
+    ["a comment line, then a dedent", "    // note\nlet z = 1\n"],
+  ])("ended by %s", (_, after) => {
+    for (const [head, end] of [["let f(s: Int): Int =\n    match s\n", 11], ["let f: Int -> Int =\n    match\n", 9]] as const) {
+      const module = parseSource(head + after);
+      expect(module.diagnostics.map(({ message, primary }) =>
+        `${primary.start.line}:${primary.start.column}-${primary.end.column} ${message}`
+      )).toEqual([`3:4-${end} expected an indented block of match arms`]);
+      expect(module.readAsWritten).toBe(true);
+    }
+  });
+
+  test("leaves the next declaration standing", () => {
+    const module = parseSource("let f(s: Int): Int =\n    match s\nexport let z = 1\n");
+    expect(module.items.map((item) => item.kind)).toEqual(["Let", "Let"]);
+  });
+
+  test("another error at its token is that line's own", () => {
+    expect(parseSource("let f(s: Int): Int =\n    match s\n)\n").readAsWritten).toBe(false);
+  });
+});
+
 const HEADER = "module Test\n\n";
 
 function parseSource(text: string): Parsed.Module {

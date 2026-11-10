@@ -97,6 +97,8 @@ import { selectionRangesAt } from "../queries/syntax-nodes.js";
 import { matchFunctionRefactorings } from "../queries/match-function.js";
 import { pipeCallRefactorings } from "../queries/pipe-calls.js";
 import { snippetOf, type Snippet } from "./snippet.js";
+import { EMPTY_ARM_BLOCK } from "../passes/parser/parser.js";
+import { destructSplits } from "../passes/checker/checker.js";
 import {
   planReturnAnnotation,
   refusedAnnotation,
@@ -989,6 +991,18 @@ export class AnalysisSession {
           ...(fix.placeholders ? { placeholders: true } : {}),
         });
       }
+      // Destruct on a `match` with no arms (the checker's `destructs`): the
+      // arms, as the repair for the parser's report of the missing block,
+      // which stands on the `match` and its subject.
+      if (diagnostic.message === EMPTY_ARM_BLOCK) {
+        for (const { typed } of analysis.modulesIn(normalized)) {
+          for (const { span, fix } of typed.destructs ?? []) {
+            if (span.start.offset !== diagnostic.primary.start.offset) continue;
+            const edits = locate(analysis, fix.edits, (path) => this.#texts.get(path));
+            if (edits !== undefined) actions.push({ title: fix.message, diagnostic, kind: "quickfix", edits, placeholders: true });
+          }
+        }
+      }
       if (diagnostic.renameRepair !== undefined) {
         const rename = this.#renameAction(normalized, diagnostic, diagnostic.renameRepair.newName);
         if (rename !== undefined) actions.push(rename);
@@ -1063,7 +1077,13 @@ export class AnalysisSession {
       // parsing what it leaves (`queries/same-reading.ts`). Only when asked:
       // nearly every line has a call, so offered unasked they would light the
       // editor's bulb on every line.
-      for (const { source, parsed } of request.invoked === true ? analysis.modulesIn(normalized) : []) {
+      for (const { source, parsed, typed } of request.invoked === true ? analysis.modulesIn(normalized) : []) {
+        // Destruct on a variable or `_` in an arm's pattern: the arm once per
+        // case that reaches it there (the checker's `destructSplits`).
+        for (const { fix } of destructSplits(typed, range.start, range.end)) {
+          const edits = locate(analysis, fix.edits, (path) => this.#texts.get(path));
+          if (edits !== undefined) actions.push({ title: fix.message, kind: "refactor", edits });
+        }
         for (
           const refactoring of [
             ...pipeCallRefactorings(source, parsed, range.start, range.end),

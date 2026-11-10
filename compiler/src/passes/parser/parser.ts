@@ -508,6 +508,9 @@ const matchFunctionCatchError =
   "`catch` to observe — to guard the arm bodies, write a lambda whose body is " +
   "`try match x …` with `catch` aligned to the `try`";
 
+/** A `match` whose line ends with no arms below it (`#reportEmptyBlock`). */
+export const EMPTY_ARM_BLOCK = "expected an indented block of match arms";
+
 /**
  * Parses one layout-aware file into the modules it declares, retaining
  * diagnostics from earlier passes.
@@ -555,11 +558,12 @@ class Parser {
    */
   readonly #refusedImportAliases: Parsed.RefusedImportHead[] = [];
   /**
-   * Where layout reports each empty honor's missing block, the token after its
-   * `=`: the one error the missing-members fill repairs, which leaves the code
-   * read as written (`Parsed.Module.readAsWritten`).
+   * Each block read as missing, by the offset and the words of its one report,
+   * at the token that ends its line: an empty honor's, which layout reports,
+   * and an empty `match`'s. Each is the one error a fill repairs, which leaves
+   * the code read as written (`Parsed.Module.readAsWritten`).
    */
-  readonly #emptyHonorBlocks: number[] = [];
+  readonly #emptyBlocks: { readonly offset: number; readonly message: string }[] = [];
   /**
    * Doc-comment bookkeeping (spec/doc-comments.md §4). Declaration parsers claim
    * the block sitting before their first token; the blocks nobody claims are
@@ -738,19 +742,19 @@ class Parser {
     const sections = this.#sectionModules(items, fileId, path, fileSpan);
     const diagnostics = this.#diagnostics.toArray();
     // Every error in the code, a doc comment's being about the comment, must
-    // be an empty honor's missing block as layout reports it, one each
-    // (another error at the same token is that line's own). An empty honor
-    // layout reported nothing for is one it read otherwise.
-    const emptyHonorBlocks = [...this.#emptyHonorBlocks];
+    // be an empty block's one report, one each (another error at the same
+    // token is that line's own). An empty honor layout reported nothing for is
+    // one it read otherwise.
+    const emptyBlocks = [...this.#emptyBlocks];
     let readAsWritten = true;
     for (let index = 0; index < this.#diagnostics.count; index += 1) {
       if (this.#diagnostics.tagAt(index) === DOC_COMMENT_REPORT) continue;
       const { message, primary } = this.#diagnostics.at(index)!;
-      const own = message === LaidOut.MISSING_BLOCK ? emptyHonorBlocks.indexOf(primary.start.offset) : -1;
+      const own = emptyBlocks.findIndex((block) => block.offset === primary.start.offset && block.message === message);
       if (own === -1) readAsWritten = false;
-      else emptyHonorBlocks.splice(own, 1);
+      else emptyBlocks.splice(own, 1);
     }
-    if (emptyHonorBlocks.length > 0) readAsWritten = false;
+    if (emptyBlocks.length > 0) readAsWritten = false;
     // Comments and doc blocks are the file's, and they are **cut with the
     // items**. Modules §11 emits one JavaScript file per module and Comments §6
     // preserves a module's own comments in it, so a file's whole comment list
@@ -3510,7 +3514,7 @@ class Parser {
     // (Layout closes every block before the end of the file, so `VClose`
     // stands for it too.)
     if (equal !== undefined && (this.#at("VSep") || this.#at("VClose"))) {
-      this.#emptyHonorBlocks.push(this.#current().span.start.offset);
+      this.#emptyBlocks.push({ offset: this.#current().span.start.offset, message: LaidOut.MISSING_BLOCK });
       return {
         kind: "Honor",
         constraint: constraintName ?? fallback,
@@ -6851,7 +6855,7 @@ class Parser {
         span: spanFrom(start.span, this.#previous().span),
       };
     }
-    const block = this.#parseArmBlock(false);
+    const block = this.#parseArmBlock(false, spanFrom(start.span, scrutinee.span), headsItem);
     let end = block.closing?.span ?? block.arms.at(-1)?.span ?? scrutinee.span;
 
     // The match catch clause (Exceptions §5.4, #500). Layout has already
@@ -6904,7 +6908,7 @@ class Parser {
       end: start.span.end,
     };
     const name = this.#freshParameterName(point, 0);
-    const block = this.#parseArmBlock(true);
+    const block = this.#parseArmBlock(true, start.span, headsItem);
     const end = block.closing?.span ?? block.arms.at(-1)?.span ?? start.span;
 
     // §6.7 grants no clause, ever. A `catch` at the head's own column reaches
@@ -6938,6 +6942,49 @@ class Parser {
   }
 
   /**
+   * A block whose line ends with none below it, at the token that ends the
+   * line: read as missing, so the next line is read as it stands rather than
+   * as the block's, with one report in the block's own words at `head`, what
+   * the block belongs to (#1311). Layout has reported it already, at that
+   * token, where a line at the item's column or the end of the file ends it
+   * ("expected an indented block"), and a dedent's is the parser's: so the one
+   * report is layout's, reworded and moved to `head`, or this.
+   */
+  #reportEmptyBlock(message: string, head: Source.Span): void {
+    const at = this.#current().span.start.offset;
+    this.#emptyBlocks.push({ offset: head.start.offset, message });
+    for (let index = 0; index < this.#diagnostics.count; index += 1) {
+      const reported = this.#diagnostics.at(index)!;
+      if (reported.message === LaidOut.MISSING_BLOCK && reported.primary.start.offset === at) {
+        this.#diagnostics.replace(index, { ...reported, message, primary: head });
+        return;
+      }
+    }
+    this.#errorAt(head, message);
+  }
+
+  /**
+   * Whether the line after the separator at hand reads as a `match` arm: a
+   * `=>` stands in it outside brackets before any `=` does, as in `Circle(_)
+   * => 1.0` and not in `let h = x => x`. (A bracket it closes that opened
+   * before the line closes a block first, which ends the line here.)
+   */
+  #nextLineReadsAsArm(): boolean {
+    let depth = 0;
+    for (let index = this.#index + 1; index < this.#tokens.length; index += 1) {
+      const { kind } = this.#tokens[index]!;
+      if (kind === "LeftParen" || kind === "LeftBracket" || kind === "LeftBrace") depth += 1;
+      else if (kind === "RightParen" || kind === "RightBracket" || kind === "RightBrace") depth -= 1;
+      else if (depth > 0) continue;
+      else if (kind === "FatArrow") return true;
+      else if (kind === "Equal" || kind === "VSep" || kind === "VOpen" || kind === "VClose" || kind === "Eof") {
+        return false;
+      }
+    }
+    return false;
+  }
+
+  /**
    * A `match`'s block of arms, shared by both of the head's forms (Pattern
    * Matching §6.1 and §6.7).
    *
@@ -6945,15 +6992,26 @@ class Parser {
    * a scrutinee form can be given the alignment fixit, because there is a clause
    * for it to be aligned *to*; a match function has none to offer, so it gets
    * §6.7's own message. Either way the clause is read and dropped, so one
-   * misplaced keyword does not cascade through its arms.
+   * misplaced keyword does not cascade through its arms. `headsItem` says the
+   * `match` begins its logical item, where arms at its own column are its own.
    */
-  #parseArmBlock(matchFunction: boolean): {
+  #parseArmBlock(matchFunction: boolean, head: Source.Span, headsItem: boolean): {
     readonly arms: readonly Parsed.MatchArm[];
     readonly indentedCatch: readonly Parsed.MatchArm[] | undefined;
     readonly opened: boolean;
     readonly closing: LaidOut.Token | undefined;
   } {
-    const opened = this.#expect("VOpen", "expected an indented block of match arms");
+    // Below a `match` that begins its item, a line at its own column that reads
+    // as an arm is one written a step short, not a line of its own: it is read
+    // as the block's, under the block's report there, rather than as a
+    // statement drawing reports of its own. Below one that doesn't, such a line
+    // is the enclosing construct's: the next arm of an enclosing `match`, or a
+    // lambda the block ends with.
+    if (this.#at("VClose") || (this.#at("VSep") && !(headsItem && this.#nextLineReadsAsArm()))) {
+      this.#reportEmptyBlock(EMPTY_ARM_BLOCK, head);
+      return { arms: [], indentedCatch: undefined, opened: false, closing: undefined };
+    }
+    const opened = this.#expect("VOpen", EMPTY_ARM_BLOCK);
     const arms: Parsed.MatchArm[] = [];
     let indentedCatch: readonly Parsed.MatchArm[] | undefined;
     this.#skipSeparators();

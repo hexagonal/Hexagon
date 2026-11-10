@@ -215,6 +215,22 @@ export function check(
 }
 
 /**
+ * Destruct on the variables and `_`s in `module`'s `match` arms that touch
+ * `start`–`end`, offsets in its file: each arm written once per case that
+ * still reaches it there (LANGUAGE-SERVER-PLAN.md section C, tier 2).
+ *
+ * Worked out when asked, from the types and coverage the check already
+ * settled, by the checker that settled them; nothing is inferred again. Kept
+ * beside the checked tree rather than in it, so the tree stays data.
+ */
+export function destructSplits(module: Typed.Module, start: number, end: number): readonly Typed.Destruct[] {
+  return DEFERRED_SPLITS.get(module)?.(start, end) ?? [];
+}
+
+/** Each checked module's `#splitsAt`, for `destructSplits`. */
+const DEFERRED_SPLITS = new WeakMap<Typed.Module, (start: number, end: number) => readonly Typed.Destruct[]>();
+
+/**
  * What a refused constraint reference contributes to its diagnostic:
  * `#unknownConstraint`'s answer, spread by every seat over its own `severity`
  * and `primary`.
@@ -4414,13 +4430,121 @@ function blockLine(text: string, offset: number): { readonly indent: string; rea
  * otherwise right after it, before whatever closes around the block there.
  */
 function belowLast(text: string, last: Source.Span): number {
-  // An item that ends at a layout boundary, as a nested `match` does, spans
-  // what stands before the next token, comments included, so it ends at its
-  // own last token.
-  const own = lex(new Source.File(last.fileId, "", text.slice(last.start.offset, last.end.offset)));
-  const end = last.start.offset + own.tokens.findLast(({ kind }) => kind !== "Eof")!.span.end.offset;
+  const end = ownEnd(text, last);
   const rest = restOfLine(text, last.fileId, end);
   return rest.commented ? rest.end : end;
+}
+
+/**
+ * Where an item ends at its own last token. One that ends at a layout
+ * boundary, as a nested `match` does, spans what stands before the next token,
+ * comments included.
+ */
+function ownEnd(text: string, span: Source.Span): number {
+  const own = lex(new Source.File(span.fileId, "", text.slice(span.start.offset, span.end.offset)));
+  return span.start.offset + own.tokens.findLast(({ kind }) => kind !== "Eof")!.span.end.offset;
+}
+
+/** Whether a declared pattern stands anywhere in `pattern`. */
+function namesDeclaredPattern(pattern: Resolved.Pattern): boolean {
+  return resolvedPatternNodes(pattern).some(({ kind }) => kind === "Declared");
+}
+
+/**
+ * Each head written as §7.3 writes a witness, `_` in its slots: none where one
+ * is a vector's length, of unboundedly many (Collections Part 3 §3.3).
+ */
+function destructCases(heads: readonly CoverageHead[]): readonly string[] | undefined {
+  const cases = heads.map((head) => head.print(head.slots.map(() => "_")));
+  return cases.some((written) => written.startsWith("[")) ? undefined : cases;
+}
+
+/** A variable or `_` destruct may split, with its arm, the `match`'s arms, and the rows above it (`#armSplits`). */
+interface SplitCandidate {
+  /** Every arm of the `match`. */
+  readonly arms: readonly Resolved.MatchArm[];
+  readonly arm: Resolved.MatchArm;
+  readonly slot: SplittableSlot;
+  /** The `match`'s subject's type. */
+  readonly type: Mono;
+  /** The type at the variable or `_`. */
+  readonly at: Mono;
+  /** The rows covering the `match`'s arms, of which the first `above` are those above this one. */
+  readonly covering: readonly (readonly Resolved.Pattern[])[];
+  readonly above: number;
+}
+
+/**
+ * A variable or `_` in an arm's pattern destruct can split: the record field
+ * that holds it by punning, and whether it stands under `as`, where a case it
+ * binds with `as` again is parenthesized (`p as x as y` does not parse).
+ */
+interface SplittableSlot {
+  readonly pattern: Resolved.BindingPattern | Resolved.WildcardPattern;
+  readonly field?: Resolved.RecordPatternField;
+  readonly underAs?: true;
+}
+
+/**
+ * The variables and `_`s in a pattern destruct can split: every one but those
+ * under an or-pattern, where a split would write one alternative's cases and
+ * not the others'.
+ */
+function splittableSlots(pattern: Resolved.Pattern): readonly SplittableSlot[] {
+  switch (pattern.kind) {
+    case "Binding":
+    case "Wildcard":
+      return [{ pattern }];
+    case "Unit":
+    case "Integer":
+    case "Dec":
+    case "Float":
+    case "Error":
+    case "String":
+    case "Or":
+      return [];
+    case "As":
+      return splittableSlots(pattern.pattern).map((slot) =>
+        slot.pattern === pattern.pattern ? { ...slot, underAs: true } : slot
+      );
+    case "Tuple":
+      return pattern.elements.flatMap(splittableSlots);
+    case "Declared":
+      return pattern.components.flatMap(splittableSlots);
+    case "Vector":
+      return [
+        ...pattern.elements.flatMap(splittableSlots),
+        ...(pattern.rest?.pattern === undefined ? [] : splittableSlots(pattern.rest.pattern)),
+      ];
+    case "Record":
+      return pattern.fields.flatMap((field) =>
+        splittableSlots(field.pattern).map((slot) =>
+          slot.pattern === field.pattern && field.nameSpan.start.offset === field.pattern.span.start.offset
+            ? { ...slot, field }
+            : slot
+        )
+      );
+    case "Constructor":
+      return pattern.arguments.flatMap(splittableSlots);
+  }
+}
+
+/**
+ * Whether `symbol` is named anywhere in `node`. Read off the tree's data
+ * rather than by its kinds, so a form added later is read too: what it may
+ * count wrongly is a mention that isn't one, which costs only an `as` the arm
+ * didn't need.
+ */
+function mentions(node: unknown, symbol: Resolved.SymbolId): boolean {
+  const seen = new Set<object>();
+  const visit = (value: unknown): boolean => {
+    if (typeof value !== "object" || value === null || seen.has(value)) return false;
+    seen.add(value);
+    if (Array.isArray(value)) return value.some(visit);
+    if ((value as { readonly symbol?: unknown }).symbol === symbol) return true;
+    return Object.values(value).some(visit);
+  };
+  return visit(node);
 }
 
 /**
@@ -6792,6 +6916,21 @@ class Checker {
    * and kept; only the display of a field's type waits for materialization.
    */
   readonly #dotSites = new Map<Resolved.AccessExpr, NotedDotSite>();
+  /** Each empty `match` destruct can write the arms of (`Typed.Module.destructs`). */
+  readonly #destructs: Typed.Destruct[] = [];
+  /**
+   * The type at each variable and `_` in a `match` arm's pattern, for destruct
+   * to split it by (`#armSplits`), read once coverage runs, after inference.
+   */
+  readonly #matchSlotTypes = new Map<Resolved.Pattern, Mono>();
+  /**
+   * Each variable and `_` destruct may split, with what the split is worked
+   * out from (`#armSplits`). It is worked out only where an editor asks
+   * (`destructSplits`): a usefulness solve per case of every variable in every
+   * arm cost 13 to 20% of checking the standard library's match-heaviest
+   * modules, for a menu item.
+   */
+  readonly #splitCandidates: SplitCandidate[] = [];
   /**
    * The constraints **declared in this module**, by name.
    *
@@ -8061,6 +8200,7 @@ class Checker {
       docs: module.docs,
       typeHoles: this.#materializeTypeHoles(),
       dotSites: this.#materializeDotSites(),
+      destructs: [...this.#destructs],
       ...this.#materializeColourScopes(),
       instanceColours: this.#publishedInstanceColours(),
       companionImports: [...this.#companionImports.values()],
@@ -8068,6 +8208,9 @@ class Checker {
       span: module.span,
       diagnostics: this.#diagnostics.toArray(),
     };
+    if (this.#splitCandidates.length > 0) {
+      DEFERRED_SPLITS.set(typed, (start, end) => this.#splitsAt(start, end));
+    }
     return typed;
   }
 
@@ -16391,12 +16534,18 @@ class Checker {
   /** Runs §7 only after every deferred pattern has received its typing verdict. */
   #checkPendingMatchCoverage(): void {
     for (const { expression, type, reportMissing } of this.#pendingMatchCoverage) {
+      if (expression.arms.length === 0) {
+        const fix = this.#emptyMatchArms(expression.span, type);
+        if (fix !== undefined) this.#destructs.push({ span: expression.span, fix });
+      }
       this.#checkArmReachability(expression.arms, type, MATCH_ARM_REPORTS);
       if (reportMissing) {
         this.#reportMissingCases(expression.arms, type, expression.span);
       }
+      this.#armSplits(expression.arms, type);
     }
     this.#pendingMatchCoverage.length = 0;
+    this.#matchSlotTypes.clear();
   }
 
   /** Selects an oversized bare pattern's repair after inference and defaulting. */
@@ -16473,12 +16622,16 @@ class Checker {
     level: number,
   ): void {
     if (this.#patternDepth === 0 && !this.#patternRootHeld) this.#patternRoot = pattern;
-    if (pattern.kind === "Wildcard") return;
+    if (pattern.kind === "Wildcard") {
+      this.#matchSlotTypes.set(pattern, expected);
+      return;
+    }
     if (pattern.kind === "Unit") {
       this.#unifyPattern(pattern, expected, UNIT);
       return;
     }
     if (pattern.kind === "Binding") {
+      this.#matchSlotTypes.set(pattern, expected);
       this.#schemes.set(pattern.binding.symbol, { variables: [], type: expected });
       this.#settleSource(pattern.binding.symbol, expected, []);
       return;
@@ -18240,11 +18393,16 @@ class Checker {
   /**
    * Maranget's **U**: whether `row` matches a value no row of `matrix` does.
    * §7.2's reachability is this over the unguarded arms above.
+   *
+   * With `forced`, the row's variable or `_` at `forced.at` reads as
+   * `forced.head` with `_` in its slots: whether that case still reaches the
+   * arm there, which is what destruct writes (`#armSplit`).
    */
   #coverageUseful(
     types: readonly Mono[],
     matrix: readonly (readonly Resolved.Pattern[])[],
     row: readonly Resolved.Pattern[],
+    forced?: { readonly at: Resolved.Pattern; readonly head: CoverageHead },
   ): boolean {
     const first = types[0];
     if (first === undefined) return matrix.length === 0;
@@ -18259,6 +18417,15 @@ class Checker {
     // An or-pattern is useful when any one of its alternatives is (§2.6: they
     // are tried left to right, and each is a shape of its own).
     return alternatives.some((alternative) => {
+      if (forced !== undefined && alternative === forced.at) {
+        const { head } = forced;
+        // The variable is spent: nothing below it is forced.
+        return this.#coverageUseful(
+          [...head.slots, ...rest],
+          this.#specializeMatrix(column, head, matrix),
+          [...wildcardSlots(head.slots.length, alternative.span), ...row.slice(1)],
+        );
+      }
       const split = column.split(alternative);
       if (split !== undefined) {
         // A pattern naming several heads at once (the vector's rest form) is
@@ -18269,6 +18436,7 @@ class Checker {
             [...head.slots, ...rest],
             this.#specializeMatrix(column, head, matrix),
             [...split.subPatterns(head), ...row.slice(1)],
+            forced,
           )
         );
       }
@@ -18283,6 +18451,7 @@ class Checker {
               ...wildcardSlots(candidate.slots.length, alternative.span),
               ...row.slice(1),
             ],
+            forced,
           )
         );
       }
@@ -18290,6 +18459,7 @@ class Checker {
         rest,
         this.#defaultMatrix(column, matrix),
         row.slice(1),
+        forced,
       );
     });
   }
@@ -18338,6 +18508,9 @@ class Checker {
     type: Mono,
     span: Source.Span,
   ): void {
+    // A `match` with no arms is missing its block, which the parser reports:
+    // one cause, one report (#1311).
+    if (arms.length === 0) return;
     const witnesses = this.#coverageWitnesses(
       [type],
       arms.flatMap((arm) => arm.guard === undefined ? [[arm.pattern]] : []),
@@ -18484,6 +18657,168 @@ class Checker {
     return line === undefined || !rest.commented
       ? undefined
       : { at: rest.end, indent: `${line.indent}    `, newline: line.newline };
+  }
+
+  /**
+   * The cases destruct writes for a value of `type`: its coverage signature's
+   * heads, where it has one and each has a spelling here (§7.3's tiers 1 and
+   * 2). None for a record, whose one case names no field that tells values
+   * apart, so there is nothing to split it into.
+   */
+  #destructHeads(type: Mono): readonly CoverageHead[] | undefined {
+    const pruned = this.#prune(type);
+    if (pruned.kind === "Record" || pruned.kind === "NominalRecord") return undefined;
+    const column = this.#coverageColumn(pruned, []);
+    const heads = column.signature;
+    if (heads === undefined || heads.length === 0 || column.signatures !== undefined) return undefined;
+    return heads.some(({ route }) => route !== undefined) ? undefined : heads;
+  }
+
+  /**
+   * Notes each variable and `_` in a `match`'s arms destruct may split
+   * (`#armSplit`), with the arms above it as §7.2's reachability reads them:
+   * the unguarded ones, every alternative of each, broken patterns left out.
+   */
+  #armSplits(arms: readonly Resolved.MatchArm[], type: Mono): void {
+    if (this.#sourceText === undefined || !this.#readAsWritten) return;
+    const covering: (readonly Resolved.Pattern[])[] = [];
+    for (const arm of arms) {
+      if (Number(arm.span.fileId) === this.#fileId && !this.#patternIsBroken(arm.pattern)) {
+        for (const slot of splittableSlots(arm.pattern)) {
+          const at = this.#matchSlotTypes.get(slot.pattern);
+          if (at === undefined) continue;
+          this.#splitCandidates.push({ arms, arm, slot, type, at, covering, above: covering.length });
+        }
+      }
+      if (arm.guard !== undefined) continue;
+      for (const alternative of coverageAlternatives(arm.pattern)) {
+        if (!this.#patternIsBroken(alternative)) covering.push([alternative]);
+      }
+    }
+  }
+
+  /** Destruct's splits of the variables and `_`s that touch `start`–`end` (`destructSplits`). */
+  #splitsAt(start: number, end: number): readonly Typed.Destruct[] {
+    const source = this.#sourceFile();
+    if (source === undefined) return [];
+    return this.#splitCandidates.flatMap((candidate) => {
+      const { span } = candidate.slot.pattern;
+      if (span.start.offset > end || span.end.offset < start) return [];
+      const fix = this.#armSplit(source, candidate);
+      return fix === undefined ? [] : [{ span, fix }];
+    });
+  }
+
+  /**
+   * Destruct on a variable or `_` in an arm's pattern: the arm written once per
+   * case of the type there that still reaches the arm, in the same place, each
+   * with the arm's own body and guard, so every value that reached the arm
+   * reaches exactly one of the new ones and runs what it ran before.
+   *
+   * - A case the arms above already cover is left out: an arm for it would be
+   *   unreachable (Pattern Matching §7.2). Which cases reach is §7's usefulness
+   *   over the unguarded arms above, the head forced at the variable.
+   * - Each case is spelled as §7.3 spells a witness, `Circle(_)`, as the
+   *   missing cases are.
+   * - A variable the arm's body or guard names stays bound, `Circle(_) as s`;
+   *   a field that named it by punning keeps its name, `shape = Circle(_) as
+   *   shape`.
+   *
+   * Offered where the parser read the file as written, the arm begins its
+   * line, and every case reaching it has a spelling here: not on a type with no
+   * cases to name (`Int`, a vector's unbounded lengths, a record), where a
+   * case's constructor has no pastable spelling (§7.3's third tier), under an
+   * or-pattern, in a `match` whose arms name a declared pattern, or on an arm
+   * no value reaches, which the arm's own report says.
+   *
+   * A declared pattern is a signature of its own beside the type's
+   * constructors (Pattern Declarations §4), and coverage never relates the
+   * two: arms naming every constructor beside `(Circle(_))same` still miss
+   * `(Square(_))same`, and a variable inside one, `(t)same`, is read through
+   * the view and never as a case. So where any arm names one, above the split
+   * arm, below it or in it, the cases written could leave the `match` missing
+   * some or write one no value reaches.
+   */
+  #armSplit(
+    { text, file }: { readonly text: string; readonly file: Source.File },
+    { arms, arm, slot, type, at, covering: rows, above }: SplitCandidate,
+  ): Diagnostics.Fix | undefined {
+    const { pattern, field } = slot;
+    const heads = this.#destructHeads(at);
+    if (heads === undefined) return undefined;
+    if (arms.some((each) => namesDeclaredPattern(each.pattern))) return undefined;
+    const covering = rows.slice(0, above);
+    const reaching = heads.filter((head) =>
+      this.#coverageUseful([type], covering, [arm.pattern], { at: pattern, head })
+    );
+    if (reaching.length === 0) return undefined;
+    const cases = destructCases(reaching);
+    if (cases === undefined) return undefined;
+    const line = blockLine(text, arm.span.start.offset);
+    if (line === undefined) return undefined;
+    const end = ownEnd(text, arm.span);
+    const name = pattern.kind === "Binding" ? pattern.binding.name : "_";
+    const bound = pattern.kind === "Binding" &&
+      [arm.guard, arm.body].some((part) => part !== undefined && mentions(part, pattern.binding.symbol));
+    const before = text.slice(arm.span.start.offset, pattern.span.start.offset);
+    const after = text.slice(pattern.span.end.offset, end);
+    const copies = cases.map((written) => {
+      const named = !bound ? written : slot.underAs === true ? `(${written} as ${name})` : `${written} as ${name}`;
+      return `${before}${field === undefined ? "" : `${field.name} = `}${named}${after}`;
+    });
+    return {
+      message: cases.length === 1
+        ? `Write \`${name}\` as \`${cases[0]}\``
+        : `Split \`${name}\` into ${cases.length} arms`,
+      edits: [{
+        span: { fileId: arm.span.fileId, start: arm.span.start, end: file.positionAt(end) },
+        replacement: copies.join(`${line.newline}${line.indent}`),
+      }],
+    };
+  }
+
+  /**
+   * Destruct on a `match` with no arms yet: one arm per case of its subject's
+   * type, each body a `Debug.todo` naming the case (language-server decision
+   * 5), spelled as §7.3 spells a witness, so the arms are the ones the missing
+   * cases would be. They go on the lines below the `match`'s line, after the
+   * comments that end it, one step in from where that line begins, which is
+   * where layout opens the arm block. `span` is the `match` and its subject,
+   * which is where the parser read the missing block.
+   *
+   * Offered where the parser read the file as written, `Debug.todo` reaches
+   * the prelude's, and every case has a spelling here: not on a type with no
+   * cases to name (`Int`, a vector's unbounded lengths, a record) or where a
+   * case's constructor has no pastable spelling (§7.3's third tier).
+   */
+  #emptyMatchArms(span: Source.Span, type: Mono): Diagnostics.Fix | undefined {
+    const source = this.#sourceFile();
+    if (source === undefined || !this.#readAsWritten) return undefined;
+    const { text, file } = source;
+    const todo = this.#todoSpelling(span.start.offset);
+    if (todo === undefined) return undefined;
+    const heads = this.#destructHeads(type);
+    if (heads === undefined) return undefined;
+    const cases = destructCases(heads);
+    if (cases === undefined) return undefined;
+    // The parser read this `match` as missing its block only where its line
+    // ends after the subject, comments aside. A block comment that opens there
+    // and runs onto the next line would hold arms written at the line's end.
+    const rest = restOfLine(text, span.fileId, span.end.offset);
+    if (!rest.commented) return undefined;
+    const lineStart = text.lastIndexOf("\n", span.start.offset - 1) + 1;
+    const indent = `${/^[ \t]*/.exec(text.slice(lineStart))![0]}    `;
+    const newline = text[rest.end] === "\r" ? "\r\n" : "\n";
+    const lines = cases.map((written) => ({
+      lead: `${newline}${indent}${written} => `,
+      standIn: `${todo}("${written}")`,
+    }));
+    const position = file.positionAt(rest.end);
+    return {
+      message: cases.length === 1 ? "Add the arm" : `Add the ${cases.length} arms`,
+      edits: [standInEdit({ fileId: span.fileId, start: position, end: position }, lines)],
+      placeholders: true,
+    };
   }
 
   /**

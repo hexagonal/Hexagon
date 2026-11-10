@@ -265,9 +265,11 @@ describe("it is a `match`: exhaustiveness and reachability are demanded", () => 
     )).toEqual(["this match arm is unreachable; an earlier pattern matches everything"]);
   });
 
-  test("an arm block is still required", () => {
+  test("an arm block is still required, and its absence is the one report", () => {
     expect(projectDiagnostics("module Main\n\n" + "let describe = match\n"))
-      .toContain("expected an indented block of match arms");
+      .toEqual(["expected an indented block of match arms"]);
+    expect(projectDiagnostics("module Main\n\nexport let f(s: Int): Int =\n    match s\nexport let z: Int = 1\n"))
+      .toEqual(["expected an indented block of match arms"]);
   });
 });
 
