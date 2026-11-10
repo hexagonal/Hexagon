@@ -189,7 +189,8 @@ function spellingOf(
   }
   const [below] = bringing;
   if (below?.form.kind === "Namespace") {
-    const line = textOf(file, below.span);
+    // One line in the message, however the import is laid out.
+    const line = textOf(file, below.span).replace(/\s+/g, " ");
     return {
       spelling: `${below.form.alias}.${name}`,
       refused: `This module's \`${line}\` stands below this call, and an import is read from where it stands ` +

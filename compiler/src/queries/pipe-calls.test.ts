@@ -215,16 +215,16 @@ describe("calls written as a pipeline", () => {
   });
 
   test("a first value whose last operand reaches to the right is parenthesized", () => {
-    expect(asPipeline("let c = true\nlet a = ‸f(1 + if c then 2 else 3)")).toBe("let c = true\nlet a = (1 + if c then 2 else 3) |> f");
+    expect(asPipeline("let c = True\nlet a = ‸f(1 + if c then 2 else 3)")).toBe("let c = True\nlet a = (1 + if c then 2 else 3) |> f");
   });
 
   test("parenthesized as well in a `fun` block's member and an honor group's item, read from their heads", () => {
     const value = "b.n + if c then 2 else 3";
     const member = (call: string): string =>
-      `let c = true\nfun\n    g(n: Int): Int = n\n    h(b: {n: Int}): Int =\n        let a = ${call}\n        a\n`;
+      `let c = True\nfun\n    g(n: Int): Int = n\n    h(b: {n: Int}): Int =\n        let a = ${call}\n        a\n`;
     expect(asPipeline(member(`‸f(${value})`))).toBe(member(`(${value}) |> f`));
     const group = (call: string): string => [
-      "let c = true",
+      "let c = True",
       "record Box = { n: Int }",
       "honor",
       "    Show<Box> =",

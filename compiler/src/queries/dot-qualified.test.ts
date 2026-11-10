@@ -269,6 +269,9 @@ describe("where it is refused", () => {
     // The prelude's own module, imported below under its own name.
     expect(rewritten(["module Main", "export let n: Bool = Some(1).isS‸ome()", "import Hex.Option", ""].join("\n"), as("Option.isSome")))
       .toBe(below("import Hex.Option"));
+    // Written over two lines, quoted on one.
+    expect(rewritten(["module Main", "export let a(s: G.Shape): Float = s.ar‸ea()", "import Geo", "    as G", ""].join("\n"), as("G.area")))
+      .toBe(below("import Geo as G"));
   });
 
   test("a bare call a binder in the item would capture, and not a qualified one", () => {
