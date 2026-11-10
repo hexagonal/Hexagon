@@ -96,6 +96,7 @@ import {
 import { selectionRangesAt } from "../queries/syntax-nodes.js";
 import { matchFunctionRefactorings } from "../queries/match-function.js";
 import { recordPunRefactorings } from "../queries/record-puns.js";
+import { dotQualifiedRefactorings } from "../queries/dot-qualified.js";
 import { pipeCallRefactorings } from "../queries/pipe-calls.js";
 import { snippetOf, type Snippet } from "./snippet.js";
 import { EMPTY_ARM_BLOCK } from "../passes/parser/parser.js";
@@ -1078,7 +1079,7 @@ export class AnalysisSession {
       // parsing what it leaves (`queries/same-reading.ts`). Only when asked:
       // nearly every line has a call, so offered unasked they would light the
       // editor's bulb on every line.
-      for (const { source, parsed, typed } of request.invoked === true ? analysis.modulesIn(normalized) : []) {
+      for (const { source, parsed, typed, name } of request.invoked === true ? analysis.modulesIn(normalized) : []) {
         // Destruct on a variable or `_` in an arm's pattern: the arm once per
         // case that reaches it there (the checker's `destructSplits`).
         for (const { fix } of destructSplits(typed, range.start, range.end)) {
@@ -1090,6 +1091,11 @@ export class AnalysisSession {
             ...pipeCallRefactorings(source, parsed, range.start, range.end),
             ...matchFunctionRefactorings(source, parsed, range.start, range.end),
             ...recordPunRefactorings(source, parsed, range.start, range.end),
+            ...dotQualifiedRefactorings(source, parsed, typed, range.start, range.end, {
+              here: name,
+              homeOf: (symbol) => analysis.homeOf(symbol),
+              importName: (fullName) => displayModuleName(fullName, this.#packageNameOf(normalized)),
+            }),
           ]
         ) {
           actions.push(
@@ -2116,6 +2122,21 @@ class Analysis {
    */
   modulesIn(path: string): readonly CompiledModule[] {
     return this.#modulesByPath.get(path) ?? [];
+  }
+
+  /**
+   * The full name of the module that declares a symbol: the one whose text
+   * holds its binding. For a refusal that names the import a rewrite needs.
+   */
+  homeOf(symbol: Resolved.SymbolId): string | undefined {
+    for (const { typed } of this.#modules) {
+      const declared = typed.symbols.find(({ id }) => id === symbol);
+      if (declared === undefined) continue;
+      const { fileId, start } = declared.bindingSpan;
+      const path = this.#pathsByFileId.get(Number(fileId));
+      return path === undefined ? undefined : this.moduleAt(path, start.offset)?.name;
+    }
+    return undefined;
   }
 
   /**
