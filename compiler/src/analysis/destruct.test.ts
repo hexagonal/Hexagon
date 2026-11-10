@@ -73,7 +73,7 @@ describe("destruct on a `match` with no arms", () => {
     expect(repairs(text)[0]?.edits.map(({ snippet }) => snippet?.text)).toEqual([
       "        Circle(_) => ${1:Debug.todo(\"Circle(_)\")}\n" +
       "        Square(_) => ${2:Debug.todo(\"Square(_)\")}\n" +
-      "        Tri(_, _) => ${3:Debug.todo(\"Tri(_, _)\")}\n",
+      "        Tri(_, _) => ${3:Debug.todo(\"Tri(_, _)\")}$0\n",
     ]);
   });
 

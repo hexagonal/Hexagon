@@ -1079,7 +1079,7 @@ export class AnalysisSession {
       // editor's bulb on every line.
       for (const { source, parsed, typed } of request.invoked === true ? analysis.modulesIn(normalized) : []) {
         // Destruct on a variable or `_` in an arm's pattern: the arm once per
-        // case that reaches it there (the checker's `destructs`).
+        // case that reaches it there (the checker's `destructSplits`).
         for (const { fix } of destructSplits(typed, range.start, range.end)) {
           const edits = locate(analysis, fix.edits, (path) => this.#texts.get(path));
           if (edits !== undefined) actions.push({ title: fix.message, kind: "refactor", edits });
