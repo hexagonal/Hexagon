@@ -31,10 +31,10 @@ export interface TextEdit {
 
 /**
  * Whether replacing `edit` in the module's file leaves the module reading as
- * before. Only the top-level item the edit lies in is parsed again: it starts
- * its line, so its columns, which layout reads, are the file's; the edit cannot
- * reach past it; and parsing a few lines is cheap enough to ask as the dev
- * opens a menu.
+ * before. Only the top-level item the edit lies in is parsed again, from its
+ * `fun` block's head where it is a block's member: it starts its line, so its
+ * columns, which layout reads, are the file's; the edit cannot reach past it;
+ * and parsing a few lines is cheap enough to ask as the dev opens a menu.
  */
 export function keepsReading(file: Source.File, module: Parsed.Module, edit: TextEdit): boolean {
   const texts = itemTexts(file, module, edit);
@@ -74,7 +74,9 @@ function itemTexts(
 ): { readonly before: string; readonly after: string; readonly start: number } | undefined {
   const item = module.items.find(({ span }) => span.start.offset <= edit.start && edit.end <= span.end.offset);
   if (item === undefined) return undefined;
-  const start = item.span.start.offset;
+  // A `fun` block's member is an item of its own that starts under the block's
+  // head (Functions §7.3): read from the head, it parses as it does in the file.
+  const start = item.kind === "Fun" && item.block !== undefined ? item.block.span.start.offset : item.span.start.offset;
   const before = file.text.slice(start, item.span.end.offset);
   const after = before.slice(0, edit.start - start) + edit.replacement + before.slice(edit.end - start);
   return { before, after, start };

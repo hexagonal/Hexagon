@@ -1,5 +1,10 @@
 import { describe, expect, test } from "vitest";
 import { AnalysisSession, type CodeAction } from "../analysis/session.js";
+import { applyLayout } from "../passes/layout/layout.js";
+import { lex } from "../passes/lexer/lexer.js";
+import { parseFile } from "../passes/parser/parser.js";
+import * as Source from "../support/source.js";
+import { dotCallAt, readsAsQualified } from "./dot-qualified.js";
 
 const GEO = [
   "module Geo",
@@ -145,6 +150,18 @@ describe("a dot call written as its qualified call", () => {
     expect(rewritten(main("export let a(s: Geo.Shape): Geo.Shape = s.sc‸ale", "    (2.0)"), as("Geo.scale"))).toBe(written);
   });
 
+  test("by the prelude's name where the only import of the module stands below", () => {
+    expect(rewritten(prelude("export let n: Bool = Some(1).isS‸ome()", "import Hex.Option as O"), as("Option.isSome")))
+      .toBe(prelude("export let n: Bool = Option.isSome(Some(1))", "import Hex.Option as O"));
+  });
+
+  test("in a `fun` block's member, and as a block's last line", () => {
+    expect(rewritten(main("fun", "    g(s: Geo.Shape): Float = s.ar‸ea() + h(s)", "    h(s: Geo.Shape): Float = 1.0"), as("Geo.area")))
+      .toBe(main("fun", "    g(s: Geo.Shape): Float = Geo.area(s) + h(s)", "    h(s: Geo.Shape): Float = 1.0"));
+    expect(rewritten(main("export let a(s: Geo.Shape): Float =", "    let t = s", "    t.ar‸ea()"), as("Geo.area")))
+      .toBe(main("export let a(s: Geo.Shape): Float =", "    let t = s", "    Geo.area(t)"));
+  });
+
   test("inside a string's `${…}`", () => {
     expect(rewritten(prelude('export let s: String = "${[1].len‸gth()}"'), as("Vector.length")))
       .toBe(prelude('export let s: String = "${Vector.length([1])}"'));
@@ -156,20 +173,89 @@ describe("a dot call written as its qualified call", () => {
   });
 });
 
+/**
+ * Why the rewrite titled `title` is refused at the caret in `/main.hex`, with
+ * `files` beside it in a session opened with `options`. Every file reports nothing.
+ */
+function refusedAmong(
+  files: Readonly<Record<string, string>>,
+  source: string,
+  title: string,
+  options?: ConstructorParameters<typeof AnalysisSession>[0],
+): readonly (string | undefined)[] {
+  const opened = new AnalysisSession(options);
+  for (const [path, text] of Object.entries(files)) opened.setFile(path, text);
+  const { text, at } = marked(source);
+  opened.setFile("/main.hex", text);
+  for (const path of [...Object.keys(files), "/main.hex"]) expect(opened.diagnostics(path)).toEqual([]);
+  return opened.codeActions("/main.hex", { start: at, end: at }, { invoked: true })
+    .filter((action) => action.title === title).map(({ disabled }) => disabled);
+}
+
 describe("where it is refused", () => {
   test("a dot reaching a module this one does not import, naming the import", () => {
     const source = ["module Main", "import Other", "export let a: Float = Other.shape.ar‸ea()", ""].join("\n");
     const refusal = "This module does not import `Geo`, where `area` is declared. Write `import Geo` first.";
     expect(rewritten(source, as("Geo.area"))).toBe(`refused: ${refusal}`);
-    // Named for the module whose text declares it, not for the first in its file.
-    const opened = new AnalysisSession();
-    opened.setFile("/geo.hex", "module Pad\nexport let pad: Int = 1\nend module Pad\n" + GEO);
-    opened.setFile("/other.hex", OTHER);
-    const { text, at } = marked(source);
-    opened.setFile("/main.hex", text);
-    expect(opened.diagnostics("/geo.hex")).toEqual([]);
-    expect(opened.codeActions("/main.hex", { start: at, end: at }, { invoked: true })
-      .filter(({ title }) => title === as("Geo.area")).map(({ disabled }) => disabled)).toEqual([refusal]);
+    // Named for the module whose text declares it, not for another in its file.
+    const pad = "module Pad\nexport let pad: Int = 1\n";
+    expect(refusedAmong({ "/geo.hex": `${pad}end module Pad\n${GEO}`, "/other.hex": OTHER }, source, as("Geo.area")))
+      .toEqual([refusal]);
+    expect(refusedAmong({ "/geo.hex": `${GEO}end module Geo\n${pad}`, "/other.hex": OTHER }, source, as("Geo.area")))
+      .toEqual([refusal]);
+  });
+
+  test("naming it as this module would import it: whole, or without its own package's name", () => {
+    const source = ["module Main", "import Other", "export let a: Float = Other.shape.ar‸ea()", ""].join("\n");
+    const shapes = {
+      "/geo.hex": GEO.replace("module Geo", "module Shapes.Geo"),
+      "/other.hex": "module Other\nimport Shapes.Geo\nexport let shape: Geo.Shape = Geo.Circle(1.0)\n",
+    };
+    expect(refusedAmong(shapes, source, as("Geo.area")))
+      .toEqual(["This module does not import `Shapes.Geo`, where `area` is declared. Write `import Shapes.Geo` first."]);
+    expect(refusedAmong({ "/geo.hex": GEO, "/other.hex": OTHER }, source, as("Geo.area"), { packageName: "Acme" }))
+      .toEqual(["This module does not import `Geo`, where `area` is declared. Write `import Geo` first."]);
+  });
+
+  test("a home module that is another module of this file", () => {
+    const source = [
+      "module Home",
+      "export union Shape = Circle(radius: Float)",
+      "export let area(s: Shape): Float = 1.0",
+      "export let shape: Shape = Circle(1.0)",
+      "end module Home",
+      "module Mid",
+      "import Home",
+      "export let s: Home.Shape = Home.shape",
+      "end module Mid",
+      "module Main",
+      "import Mid",
+      "export let x: Float = Mid.s.ar‸ea()",
+      "",
+    ].join("\n");
+    expect(refusedAmong({}, source, as("Home.area")))
+      .toEqual(["This module does not import `Home`, where `area` is declared. Write `import Home` first."]);
+  });
+
+  test("an extern member reached through another module's value", () => {
+    const web = [
+      "module Web",
+      'extern from "web"',
+      "    export type Params",
+      "    export fun make() ->! Params",
+      "    export method get(params: Params, key: String) ->! Nullable(String)",
+      "",
+    ].join("\n");
+    const src = "module Src\nimport Web\nexport let p(): Web.Params = Web.make!()\n";
+    const source = ["module Main", "import Src", 'export let v(): Nullable(String) = Src.p!().g‸et!("k")', ""].join("\n");
+    expect(refusedAmong({ "/web.hex": web, "/src.hex": src }, source, as("Web.get")))
+      .toEqual(["This module does not import `Web`, where `get` is declared. Write `import Web` first."]);
+  });
+
+  test("an import below the call, which does not reach it yet", () => {
+    expect(rewritten(["module Main", "export let a(s: Geo.Shape): Float = s.ar‸ea()", "import Geo", ""].join("\n"), as("Geo.area")))
+      .toBe("refused: This module imports `Geo` below this call, and an import is read from where it stands (Modules §3). " +
+        "Move `import Geo` above the call first.");
   });
 
   test("a bare call a binder in the item would capture, and not a qualified one", () => {
@@ -233,6 +319,21 @@ describe("where it is not offered", () => {
     const open = main("export let a(s: Geo.Shape): Geo.Shape = s.sc‸ale(2.0");
     expect(reports(marked(open).text)).toEqual(["expected `)` after arguments"]);
     expect(titles(open)).toEqual([]);
+  });
+});
+
+describe("the parse that checks it", () => {
+  test("reads the new call's mark against the dot call's", () => {
+    const text = main("export let go(s: Geo.Shape): Unit = s.draw!()");
+    const file = new Source.File(1 as Source.FileId, "/main.hex", text);
+    const [module] = parseFile(applyLayout(lex(file)), file.path);
+    const at = text.indexOf("draw");
+    const call = dotCallAt(file, module!, at, at)!;
+    const edit = (replacement: string) => ({ start: call.span.start.offset, end: call.span.end.offset, replacement });
+    expect(readsAsQualified(file, module!, edit("Geo.draw!(s)"), call)).toBe(true);
+    expect(readsAsQualified(file, module!, edit("Geo.draw(s)"), call)).toBe(false);
+    expect(readsAsQualified(file, module!, edit("Geo.draw!(s, s)"), call)).toBe(false);
+    expect(readsAsQualified(file, module!, edit("Geo.draw!"), call)).toBe(false);
   });
 });
 

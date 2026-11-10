@@ -1079,7 +1079,7 @@ export class AnalysisSession {
       // parsing what it leaves (`queries/same-reading.ts`). Only when asked:
       // nearly every line has a call, so offered unasked they would light the
       // editor's bulb on every line.
-      for (const { source, parsed, typed } of request.invoked === true ? analysis.modulesIn(normalized) : []) {
+      for (const { source, parsed, typed, name } of request.invoked === true ? analysis.modulesIn(normalized) : []) {
         // Destruct on a variable or `_` in an arm's pattern: the arm once per
         // case that reaches it there (the checker's `destructSplits`).
         for (const { fix } of destructSplits(typed, range.start, range.end)) {
@@ -1091,7 +1091,11 @@ export class AnalysisSession {
             ...pipeCallRefactorings(source, parsed, range.start, range.end),
             ...matchFunctionRefactorings(source, parsed, range.start, range.end),
             ...recordPunRefactorings(source, parsed, range.start, range.end),
-            ...dotQualifiedRefactorings(source, parsed, typed, range.start, range.end, (symbol) => analysis.homeOf(symbol)),
+            ...dotQualifiedRefactorings(source, parsed, typed, range.start, range.end, {
+              here: name,
+              homeOf: (symbol) => analysis.homeOf(symbol),
+              importName: (fullName) => displayModuleName(fullName, this.#packageNameOf(normalized)),
+            }),
           ]
         ) {
           actions.push(
