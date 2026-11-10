@@ -535,7 +535,7 @@ describe("arms combined, refused", () => {
   test("a name bound at two types with variables, or two types shown alike, the types not shown", () => {
     const different = "refused: `v` has a different type in each of these arms, and an or-pattern binds it at one type.";
     // A variable's letter need not be the one the source writes.
-    for (const written of ["Two(a, b)", "Two(b, a)", "Two((b, Int), (b, String))", "Two(b, Int)", "Two({x: Int, ...r}, {x: String, ...r})"]) {
+    for (const written of ["Two(a, b)", "Two(b, a)", "Two((b, Int), (b, String))", "Two(b, Int)", "Two(Int, b)", "Two({x: Int, ...r}, {x: String, ...r})"]) {
       expect(rewritten(program(
         `export let g(t: ${written}): Int =`,
         "    match t",
@@ -561,7 +561,7 @@ describe("arms combined, refused", () => {
       "        _ => 1",
     ), combineTitle(2))).toBe(different);
     // Record types whose displays differ only in their fields' order.
-    for (const [p, q] of [["{f = a, n = 1}", "{n = 1, f = b}"], ["Some({f = a, n = 1})", "Some({n = 1, f = b})"]]) {
+    for (const [p, q] of [["{f = a, n = 1}", "{n = 1, f = b}"], ["Some({f = a, n = 1})", "Some({n = 1, f = b})"], ["{n = 1, f = a}", "{f = b, n = 1}"]]) {
       expect(rewritten(program(
         "export let g(a: () ->! Int, b: () ->! Int): Int =",
         `    match (Some(${p}), Some(${q}))`,
@@ -607,6 +607,7 @@ describe("arms combined, refused", () => {
     for (const [written, one, another] of [
       ["Two({x: Int}, {x: String})", "{x: Int}", "{x: String}"],
       ["Two({x: Int, y: Int}, {y: Int, x: String})", "{x: Int, y: Int}", "{y: Int, x: String}"],
+      ["Two({y: Int, x: Int}, {x: String, y: Int})", "{y: Int, x: Int}", "{x: String, y: Int}"],
     ]) {
       expect(rewritten(program(
         `export let g(t: ${written}): Int =`,
@@ -645,6 +646,12 @@ describe("arms combined, refused", () => {
       "        (Some(r), _) | (_, Some(r)) => r.x",
       "        _ => 0",
     ));
+    // Fields whose names a locale's order holds equal: a joiner inside one, an accent composed or not.
+    for (const [one, another] of [["ab", "a\u200db"], ["\u00e9", "e\u0301"]]) {
+      const types = `Two({${one}: Int, ${another}: String}, {${another}: String, ${one}: Int})`;
+      expect(rewritten(program(`export let g(t: ${types}): Int =`, "    match t", "        L(v) ‸=> 0", "        R(v) => 0"), combineTitle(2)))
+        .toBe(program(`export let g(t: ${types}): Int =`, "    match t", "        L(v) | R(v) => 0"));
+    }
     // Inside another type.
     const nested = "export union V = A(r: Option({x: Int, y: Int})) | B(r: Option({y: Int, x: Int}))";
     expect(rewritten(program(

@@ -387,7 +387,8 @@ function ordered(type: Typed.Type): Typed.Type {
     // A colour joined from several is one colour whatever order inference met them in.
     if (Array.isArray(record.join)) return { ...record, join: [...record.join].sort((left, right) => left - right) };
     return record.kind === "Record"
-      ? { ...record, fields: [...record.fields!].sort((left, right) => left.name.localeCompare(right.name)) }
+      // By code unit: a locale's order holds some different names equal.
+      ? { ...record, fields: [...record.fields!].sort(({ name: left }, { name: right }) => (left < right ? -1 : left > right ? 1 : 0)) }
       : value;
   })) as Typed.Type;
 }
