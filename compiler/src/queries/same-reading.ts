@@ -69,10 +69,10 @@ export function keepsReadingWith(
 /**
  * Whether replacing `edit` leaves the module reading as `expect` says the text
  * before it reads once rewritten. `expect` is handed the parsed item before the
- * edit, its offsets counted from `start`, the item's own start. For a rewrite
- * that moves or copies what the tree holds apart, such as an arm written once
- * per alternative of its or-pattern: what is moved is moved in the tree too,
- * comments included, and the text written must read as that.
+ * edit, its offsets counted from `start`, where the text parsed again begins.
+ * For a rewrite that moves or copies what the tree holds apart, such as an arm
+ * written once per alternative of its or-pattern: what is moved is moved in
+ * the tree too, comments included, and the text written must read as that.
  */
 export function keepsReadingAs(
   file: Source.File,

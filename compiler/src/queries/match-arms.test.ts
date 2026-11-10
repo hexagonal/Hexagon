@@ -325,6 +325,20 @@ describe("arms with one body combined into one", () => {
       "        Bad(c) | Worse(c) => c",
     ));
   });
+
+  test("in a `fun` block's member, combined and split", () => {
+    const block = (...arms: readonly string[]): string => program(
+      "fun",
+      "    g(s: Shape): Int = h(s)",
+      "    h(s: Shape): Int =",
+      "        match s",
+      ...arms,
+    );
+    expect(rewritten(block("            Circle(_) ‸=> 0", "            Square(_) => 0", "            Dot => 1"), combineTitle(2)))
+      .toBe(block("            Circle(_) | Square(_) => 0", "            Dot => 1"));
+    expect(rewritten(block("            Circle(_) | Square(_) ‸=> 0", "            Dot => 1"), SPLIT_TITLE))
+      .toBe(block("            Circle(_) => 0", "            Square(_) => 0", "            Dot => 1"));
+  });
 });
 
 describe("arms combined, refused", () => {

@@ -2,7 +2,7 @@
 
 The Hexagon language server: the process that exposes Hexagon language intelligence through Microsoft's Language Server Protocol (LSP).
 
-Five slices are implemented, and a sixth has begun, over a compiler-owned analysis session: diagnostics, hover, go-to-definition and find-references; then semantic tokens, rename and completion; then quick fixes, the diagnostic-driven half of code actions, each plain one preferred and, beside a call's mark repair, one that applies every such repair in the file that is its report's only one; then documentation in hover and completion; then signature help and inlay hints. Refactorings have begun, with a pipeline and calls, a match function and its lambda, and a record's puns and its fields written out, each written as the other, and a dot call written as its qualified call. Formatting and workspace symbols are not, and the server does not announce them; a capability announced but unimplemented offers the user a command that silently does nothing.
+Five slices are implemented, and a sixth has begun, over a compiler-owned analysis session: diagnostics, hover, go-to-definition and find-references; then semantic tokens, rename and completion; then quick fixes, the diagnostic-driven half of code actions, each plain one preferred and, beside a call's mark repair, one that applies every such repair in the file that is its report's only one; then documentation in hover and completion; then signature help and inlay hints. Refactorings have begun, with a pipeline and calls, a match function and its lambda, and a record's puns and its fields written out, each written as the other, a dot call written as its qualified call, and arms with one body combined into one or split again. Formatting and workspace symbols are not, and the server does not announce them; a capability announced but unimplemented offers the user a command that silently does nothing.
 
 This document states the boundary between the language server and the compiler. That boundary is the reason the server is small: every request handler converts coordinates, asks the session one question, and converts the answer back.
 
@@ -624,6 +624,23 @@ the rewrite keeps the program's meaning by definition:
   stands (Modules §3); where an import here takes a prelude module's name as
   its alias; and where a binder in the item spells the bare name the home
   module would write.
+- **Combine the 2 arms with this body**, on an arm's pattern or arrow, or on a
+  selection of arms: the run of adjacent arms around it whose bodies read the
+  same becomes one arm, its pattern the or-pattern of theirs in their order,
+  since arms are tried top to bottom and an or-pattern's alternatives left to
+  right (Pattern Matching §8). Only adjacent arms: moving one past another
+  changes which wins where their patterns overlap. Refused, with the reason,
+  where an arm has a `when` guard, which runs once per `match` after the first
+  alternative that matches (§3), so separate arms and alternatives differ; and
+  where the arms bind different names, or a name at types the checker kept
+  apart, since §2.6 binds each name at one type and unifying two that
+  inference kept apart would narrow the function. The types are read from the
+  checker's one solve, never worked out again. An arm whose pattern the checker
+  could not read as written is not offered it.
+- **Split the arm into one per alternative**, on an arm whose pattern is an
+  or-pattern, under a top-level `as` too: one arm per alternative, each with the
+  body, in their order. Refused on a guarded arm, for the same reason. An
+  or-pattern inside a pattern (`Some(0 | 1)`) is not offered it.
 
 **Each rewrite is checked by parsing what it leaves** (`queries/same-reading.ts`):
 the top-level item the edit lies in is parsed again, and the two trees must be
@@ -631,7 +648,9 @@ the same once a pipe is read as its call, parentheses as what they hold, a
 lambda that matches its one parameter as its match function, and a pun as its
 field written out, comments included. A dot call's rewrite is checked the same
 way, with the new call read as the dot call whose receiver has moved into its
-argument list.
+argument list; combining and splitting arms, with the arms read as they are
+with the run combined or the arm split, an or-pattern inside another read as
+its alternatives in place.
 That is what decides where the result needs parentheses, as an operand does and
 an argument does not, and it catches what a writer of text could get wrong about
 layout. It asks no type, so it is no second solver.
@@ -710,8 +729,9 @@ The sixth begins with:
 
 16. refactorings between forms the spec defines as one another, in both: a
     pipeline and calls, either way; a match function and its lambda, either
-    way; a record's puns and its fields written out, either way; and a dot
-    call as its qualified call, that way only.
+    way; a record's puns and its fields written out, either way; a dot call
+    as its qualified call, that way only; and arms with one body and an
+    or-pattern's arm, either way.
 
 Formatting and workspace symbols follow as the necessary compiler services become stable. Features are not simulated with textual guesses when semantic information is required — where these slices read source text, it is to locate a name the tree already said was there, or to read a half-typed line no tree describes yet, never to decide what a name means.
 
