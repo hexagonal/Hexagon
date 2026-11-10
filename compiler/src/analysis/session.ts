@@ -97,6 +97,7 @@ import { selectionRangesAt } from "../queries/syntax-nodes.js";
 import { matchFunctionRefactorings } from "../queries/match-function.js";
 import { recordPunRefactorings } from "../queries/record-puns.js";
 import { matchArmRefactorings } from "../queries/match-arms.js";
+import { typeAliasRefactorings } from "../queries/type-aliases.js";
 import { dotQualifiedRefactorings } from "../queries/dot-qualified.js";
 import { pipeCallRefactorings } from "../queries/pipe-calls.js";
 import { snippetOf, type Snippet } from "./snippet.js";
@@ -1093,6 +1094,7 @@ export class AnalysisSession {
             ...matchFunctionRefactorings(source, parsed, range.start, range.end),
             ...recordPunRefactorings(source, parsed, range.start, range.end),
             ...matchArmRefactorings(source, parsed, typed, range.start, range.end),
+            ...typeAliasRefactorings(source, parsed, range.start, range.end),
             ...dotQualifiedRefactorings(source, parsed, typed, range.start, range.end, {
               here: name,
               homeOf: (symbol) => analysis.homeOf(symbol),
@@ -1100,19 +1102,23 @@ export class AnalysisSession {
             }),
           ]
         ) {
-          actions.push(
-            refactoring.edit === undefined
-              ? { title: refactoring.title, kind: "refactor", edits: [], disabled: refactoring.disabled }
-              : {
-                title: refactoring.title,
-                kind: "refactor",
-                edits: [{
-                  path: normalized,
-                  span: source.span(refactoring.edit.start, refactoring.edit.end),
-                  replacement: refactoring.edit.replacement,
-                }],
-              },
-          );
+          if (refactoring.edit === undefined) {
+            actions.push({ title: refactoring.title, kind: "refactor", edits: [], disabled: refactoring.disabled });
+            continue;
+          }
+          const { edit, elsewhere = [], placeholders } = refactoring;
+          const span = source.span(edit.start, edit.end);
+          const snippet = placeholders === undefined
+            ? undefined
+            : snippetOf(source, { span, replacement: edit.replacement, placeholders });
+          actions.push({
+            title: refactoring.title,
+            kind: "refactor",
+            edits: [
+              { path: normalized, span, replacement: edit.replacement, ...(snippet === undefined ? {} : { snippet }) },
+              ...elsewhere.map(({ start, end, replacement }) => ({ path: normalized, span: source.span(start, end), replacement })),
+            ],
+          });
         }
       }
     }

@@ -27,7 +27,8 @@ export interface Snippet {
  * has no snippet, and is applied as written, with nothing selected.
  *
  * Past the last stand-in, Tab leaves the cursor at the end of the last line
- * written (`$0`), not at the start of the line after it.
+ * written (`$0`), not at the start of the line after it. Stand-ins that share
+ * a stop are one stop the editor writes in each place (`Placeholder.stop`).
  */
 export function snippetOf(file: Source.File, edit: Diagnostics.Edit): Snippet | undefined {
   const { span, replacement, placeholders } = edit;
@@ -46,8 +47,8 @@ export function snippetOf(file: Source.File, edit: Diagnostics.Edit): Snippet | 
   }
   let text = "";
   let at = 0;
-  placeholders.forEach(({ start: from, end: to }, index) => {
-    text += `${escape(written.slice(at, from - shift))}\${${index + 1}:${escape(written.slice(from - shift, to - shift))}}`;
+  placeholders.forEach(({ start: from, end: to, stop }, index) => {
+    text += `${escape(written.slice(at, from - shift))}\${${stop ?? index + 1}:${escape(written.slice(from - shift, to - shift))}}`;
     at = to - shift;
   });
   // The final stop ends the last line written, where the dev finished typing:

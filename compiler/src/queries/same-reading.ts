@@ -140,7 +140,8 @@ export function replaced(value: unknown, node: object, by: object): unknown {
   return copy;
 }
 
-function parsedText(file: Source.File, text: string): readonly Parsed.Module[] {
+/** A text parsed alone, as a file with the module's file's identity. */
+export function parsedText(file: Source.File, text: string): readonly Parsed.Module[] {
   return parseFile(applyLayout(lex(new Source.File(file.id, file.path, text))), file.path);
 }
 

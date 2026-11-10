@@ -2,7 +2,7 @@
 
 The Hexagon language server: the process that exposes Hexagon language intelligence through Microsoft's Language Server Protocol (LSP).
 
-Five slices are implemented, and a sixth has begun, over a compiler-owned analysis session: diagnostics, hover, go-to-definition and find-references; then semantic tokens, rename and completion; then quick fixes, the diagnostic-driven half of code actions, each plain one preferred and, beside a call's mark repair, one that applies every such repair in the file that is its report's only one; then documentation in hover and completion; then signature help and inlay hints. Refactorings have begun, with a pipeline and calls, a match function and its lambda, and a record's puns and its fields written out, each written as the other, a dot call written as its qualified call, and arms with one body combined into one or split again. Formatting and workspace symbols are not, and the server does not announce them; a capability announced but unimplemented offers the user a command that silently does nothing.
+Five slices are implemented, and a sixth has begun, over a compiler-owned analysis session: diagnostics, hover, go-to-definition and find-references; then semantic tokens, rename and completion; then quick fixes, the diagnostic-driven half of code actions, each plain one preferred and, beside a call's mark repair, one that applies every such repair in the file that is its report's only one; then documentation in hover and completion; then signature help and inlay hints. Refactorings have begun, with a pipeline and calls, a match function and its lambda, and a record's puns and its fields written out, each written as the other, a dot call written as its qualified call, arms with one body combined into one or split again, and a type alias introduced or written out. Formatting and workspace symbols are not, and the server does not announce them; a capability announced but unimplemented offers the user a command that silently does nothing.
 
 This document states the boundary between the language server and the compiler. That boundary is the reason the server is small: every request handler converts coordinates, asks the session one question, and converts the answer back.
 
@@ -652,6 +652,35 @@ the rewrite keeps the program's meaning by definition:
   writes nothing: between alternatives, or inside the parentheses around an
   `as`, before its first alternative or after its name. An or-pattern inside a pattern
   (`Some(0 | 1)`) is not offered it.
+- **Write the alias out**, on a use of a `type` alias of this module: the
+  alias's body, the use's arguments in place of its parameters, in parentheses
+  where it would otherwise parse as another type (`Handler(Int) -> Unit` is
+  `(Int -> Unit) -> Unit`), since an alias and its expansion are one type
+  (Declarations Preamble §4) and only what hovers and the `.d.ts` file show
+  changes (§6). **Write the alias out everywhere**, on the alias's name where
+  it is declared: every use in its module, and the declaration with them
+  unless it is exported. Refused, with the reason, where a `_` given for a
+  parameter the body writes twice would become two types, since one written
+  hole is one type through the alias; and where a comment in the body or the
+  declaration would be copied or lost. A name a constraint's implied type
+  takes in that constraint's members is not the alias, and is not offered it;
+  in an honor's body it is, since an implied type cannot be written in a type
+  there (Collections Part 2 §7.3).
+- **Introduce a type alias**, on a type, or a selection of one: `type NewType`
+  above the item, its body the type, and the alias in the type's place. The
+  type's variables are the alias's parameters, in the order the type first
+  writes them, so it uses every one (§5.3); `NewType` is the first of
+  `NewType`, `NewType2`… the module does not write, one stand-in in both places
+  for the dev to type once. Refused, with the reason, where an alias could not
+  hold the type: a `_` in it, a following arrow (§5.1.1), or a named row tail,
+  which is fresh at each use of an alias. An `honor`'s subject is not offered
+  it, since an alias carries no instances of its own (§4). **Introduce a type
+  alias for its 3 places** stands beside it where the module writes the type
+  more than once: the alias in every place that reads as the type, laid out
+  however it is and type variables matched by name, declared above the first
+  of them, the one stand-in in every place. A place in a constraint's member
+  that writes a name its implied type takes is not counted. Refused where a
+  comment inside the type in another place would be lost.
 
 **Each rewrite is checked by parsing what it leaves** (`queries/same-reading.ts`):
 the top-level item the edit lies in is parsed again, and the two trees must be
@@ -661,7 +690,8 @@ field written out, comments included. A dot call's rewrite is checked the same
 way, with the new call read as the dot call whose receiver has moved into its
 argument list; combining and splitting arms, with the arms read as they are
 with the run combined or the arm split, an or-pattern inside another read as
-its alternatives in place.
+its alternatives in place; an alias written out or introduced, with the alias
+read as its body at the use.
 That is what decides where the result needs parentheses, as an operand does and
 an argument does not, and it catches what a writer of text could get wrong about
 layout. It asks no type, so it is no second solver.
@@ -741,8 +771,9 @@ The sixth begins with:
 16. refactorings between forms the spec defines as one another, in both: a
     pipeline and calls, either way; a match function and its lambda, either
     way; a record's puns and its fields written out, either way; a dot call
-    as its qualified call, that way only; and arms with one body and an
-    or-pattern's arm, either way.
+    as its qualified call, that way only; arms with one body and an
+    or-pattern's arm, either way; and a type and a `type` alias for it,
+    either way.
 
 Formatting and workspace symbols follow as the necessary compiler services become stable. Features are not simulated with textual guesses when semantic information is required — where these slices read source text, it is to locate a name the tree already said was there, or to read a half-typed line no tree describes yet, never to decide what a name means.
 
