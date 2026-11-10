@@ -95,6 +95,7 @@ import {
 } from "../queries/expression-types.js";
 import { selectionRangesAt } from "../queries/syntax-nodes.js";
 import { matchFunctionRefactorings } from "../queries/match-function.js";
+import { recordPunRefactorings } from "../queries/record-puns.js";
 import { pipeCallRefactorings } from "../queries/pipe-calls.js";
 import { snippetOf, type Snippet } from "./snippet.js";
 import { EMPTY_ARM_BLOCK } from "../passes/parser/parser.js";
@@ -1088,6 +1089,7 @@ export class AnalysisSession {
           const refactoring of [
             ...pipeCallRefactorings(source, parsed, range.start, range.end),
             ...matchFunctionRefactorings(source, parsed, range.start, range.end),
+            ...recordPunRefactorings(source, parsed, range.start, range.end),
           ]
         ) {
           actions.push(
