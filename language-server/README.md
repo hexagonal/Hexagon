@@ -606,8 +606,8 @@ the rewrite keeps the program's meaning by definition:
   since a pun is its field written out (Pattern Matching §2.4 and §9). A
   selection takes the fields it touches, and the record's brace, its `with` or
   the record it updates takes every field ("Write the fields as puns", "Write
-  the puns out"). A field whose value is anything but its own name, bare, has
-  no pun.
+  the puns out"). A field whose value is anything but its own name has no
+  pun.
 
 **Each rewrite is checked by parsing what it leaves** (`queries/same-reading.ts`):
 the top-level item the edit lies in is parsed again, and the two trees must be

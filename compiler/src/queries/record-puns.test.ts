@@ -115,9 +115,28 @@ describe("a field written as a pun", () => {
       .toBe(lines("let p = {", "    x, // first", "    y", "}"));
   });
 
+  test("from a caret at a field's first character, that field", () => {
+    expect(rewritten("let p = { x = x, ‸y = y }", pun("y"))).toBe("let p = { x = x, y }");
+  });
+
   test("the fields a selection touches, and only those", () => {
     expect(rewritten("let p = { «x = x, y» = y, z = 3 }", PUNS)).toBe("let p = { x, y, z = 3 }");
     expect(rewritten("let p = { x = x, «y = y», z = x }", pun("y"))).toBe("let p = { x = x, y, z = x }");
+    // A selection ending where the next field starts, or starting where the
+    // last one ends, does not touch it.
+    expect(rewritten("let p = { «x = x, »y = y }", pun("x"))).toBe("let p = { x, y = y }");
+    expect(rewritten("let p = { x = x«, »y = y }", PUNS)).toBe("let p = { x, y }");
+    expect(rewritten("let p = { x = x«, y» = y }", pun("y"))).toBe("let p = { x = x, y }");
+  });
+
+  test("not from a selection reaching past the record", () => {
+    expect(titles("let p =« { x = x, y = y }»")).toEqual([]);
+  });
+
+  test("beside a record with no fields, or a copy", () => {
+    expect(rewritten("let e = {}\nlet p = { x = x‸ }", pun("x"))).toBe("let e = {}\nlet p = { x }");
+    expect(rewritten("let e = {...r}\nlet p = { x = x‸ }", pun("x"))).toBe("let e = {...r}\nlet p = { x }");
+    expect(titles("let e = {‸}")).toEqual([]);
   });
 
   test("in the innermost record the mark is in", () => {
@@ -135,6 +154,10 @@ describe("a field written as a pun", () => {
     expect(titles("let p = { x = y‸ }")).toEqual([]);
     expect(titles("let p = { x = r.x‸ }")).toEqual([]);
     expect(titles("let p = { x = (x)‸ }")).toEqual([]);
+    // A pattern's parentheses only group, and the parser keeps no group there:
+    // `{x = (x)}` binds `x` as `{x}` does.
+    expect(rewritten(lines("let f = (q: { x: Int }) => match q", "    { x = (x)‸ } => x"), pun("x")))
+      .toBe(lines("let f = (q: { x: Int }) => match q", "    { x } => x"));
     expect(titles("let p = { x = x + 1‸ }")).toEqual([]);
     expect(titles(lines("let f = (q: { x: Int }) => match q", "    { x = _‸ } => 0"))).toEqual([]);
     expect(titles(lines("let f = (q: { x: Int }) => match q", "    { x = y‸ } => y"))).toEqual([]);
