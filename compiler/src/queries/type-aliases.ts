@@ -1097,8 +1097,9 @@ function usesIn(module: Parsed.Module, item: Parsed.Item, alias: Parsed.TypeAlia
 /**
  * The names an implied type takes where a type is written at `offset` in an
  * item of `module`: in the parameters and result a constraint's member writes,
- * or the parameters an honor's member writes, as the resolver reads them, the
- * implied types of the constraint. An honor of another module's constraint
+ * or the parameters and result an honor's member writes (a result once the
+ * parser reads one, #1484), as the resolver reads them, the implied types of
+ * the constraint. An honor of another module's constraint
  * binds every one of them (the checker reports one missing, or one too many),
  * so there its own bindings name them. Elsewhere, an honor's bindings and a
  * member's body included, a name means what it means in the module: an
