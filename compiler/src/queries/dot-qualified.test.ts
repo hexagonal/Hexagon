@@ -269,8 +269,12 @@ describe("where it is refused", () => {
     // The prelude's own module, imported below under its own name.
     expect(rewritten(["module Main", "export let n: Bool = Some(1).isS‸ome()", "import Hex.Option", ""].join("\n"), as("Option.isSome")))
       .toBe(below("import Hex.Option"));
-    // Written over two lines, quoted on one.
+    // Written over two lines, quoted on one, without its comments.
     expect(rewritten(["module Main", "export let a(s: G.Shape): Float = s.ar‸ea()", "import Geo", "    as G", ""].join("\n"), as("G.area")))
+      .toBe(below("import Geo as G"));
+    expect(rewritten(["module Main // the app", "export let a(s: G.Shape): Float = s.ar‸ea()", "import Geo // geometry", "    as G", ""].join("\n"), as("G.area")))
+      .toBe(below("import Geo as G"));
+    expect(rewritten(["module Main", "export let a(s: G.Shape): Float = s.ar‸ea()", "import Geo(* shapes *)as G", ""].join("\n"), as("G.area")))
       .toBe(below("import Geo as G"));
   });
 

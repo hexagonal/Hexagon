@@ -30,7 +30,7 @@ import * as Source from "../support/source.js";
 import type * as Parsed from "../syntax/parsed/index.js";
 import type * as Resolved from "../syntax/resolved/index.js";
 import type * as Typed from "../syntax/typed/index.js";
-import { type Refactoring, rewrite, textOf } from "./rewrite.js";
+import { type Refactoring, rewrite, solid, textOf } from "./rewrite.js";
 import { keepsReadingWith, type TextEdit } from "./same-reading.js";
 
 /** The rewrite of the dot call whose `.name` holds `[start, end]`, if it is one. */
@@ -48,7 +48,7 @@ export function dotQualifiedRefactorings(
   const name = callee.field.text;
   const symbol = companionOperation(typed, call);
   if (symbol === undefined) return [];
-  const spelled = spellingOf(file, typed, symbol, name, call.span.start.offset, homes);
+  const spelled = spellingOf(file, module.comments, typed, symbol, name, call.span.start.offset, homes);
   if (spelled === undefined) return [];
   if ("refused" in spelled) {
     return [{ title: `Write the dot call as \`${spelled.spelling}(…)\``, disabled: spelled.refused }];
@@ -161,6 +161,7 @@ function companionOperation(typed: Typed.Module, call: DotCall): Resolved.Symbol
  */
 function spellingOf(
   file: Source.File,
+  comments: readonly Source.Comment[],
   typed: Typed.Module,
   symbol: Resolved.SymbolId,
   name: string,
@@ -189,8 +190,16 @@ function spellingOf(
   }
   const [below] = bringing;
   if (below?.form.kind === "Namespace") {
-    // One line in the message, however the import is laid out.
-    const line = textOf(file, below.span).replace(/\s+/g, " ");
+    // One line in the message, without its comments, however the import is laid out.
+    const { start, end } = solid(file, below.span);
+    let line = "";
+    let at = start;
+    for (const { span } of comments) {
+      if (span.start.offset < start || end < span.end.offset) continue;
+      line += `${file.text.slice(at, span.start.offset)} `;
+      at = span.end.offset;
+    }
+    line = `${line}${file.text.slice(at, end)}`.trim().replace(/\s+/g, " ");
     return {
       spelling: `${below.form.alias}.${name}`,
       refused: `This module's \`${line}\` stands below this call, and an import is read from where it stands ` +

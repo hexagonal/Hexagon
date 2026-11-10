@@ -221,7 +221,7 @@ describe("calls written as a pipeline", () => {
   test("parenthesized as well in a `fun` block's member and an honor group's item, read from their heads", () => {
     const value = "b.n + if c then 2 else 3";
     const member = (call: string): string =>
-      `let c = True\nfun\n    g(n: Int): Int = n\n    h(b: {n: Int}): Int =\n        let a = ${call}\n        a\n`;
+      `let c = True\nfun\n    k(n: Int): Int = n\n    h(b: {n: Int}): Int =\n        let a = ${call}\n        a\n`;
     expect(asPipeline(member(`‸f(${value})`))).toBe(member(`(${value}) |> f`));
     const group = (call: string): string => [
       "let c = True",
@@ -237,7 +237,7 @@ describe("calls written as a pipeline", () => {
   });
 
   test("a first value that reaches to the right, or binds looser, is parenthesized", () => {
-    expect(asPipeline("let b(x: Bool): Bool = x\nlet a = ‸b(not true)")).toBe("let b(x: Bool): Bool = x\nlet a = (not true) |> b");
+    expect(asPipeline("let b(x: Bool): Bool = x\nlet a = ‸b(not True)")).toBe("let b(x: Bool): Bool = x\nlet a = (not True) |> b");
     expect(asPipeline("let apply(k: Int -> Int, x: Int): Int = k(x)\nlet a = app‸ly(x => x + 1, 2)"))
       .toBe("let apply(k: Int -> Int, x: Int): Int = k(x)\nlet a = (x => x + 1) |> apply(2)");
   });

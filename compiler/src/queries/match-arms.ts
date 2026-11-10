@@ -26,7 +26,7 @@
  */
 
 import * as Source from "../support/source.js";
-import type * as Parsed from "../syntax/parsed/index.js";
+import * as Parsed from "../syntax/parsed/index.js";
 import * as Typed from "../syntax/typed/index.js";
 import { type Refactoring, rewrite, solid } from "./rewrite.js";
 import { keepsReadingAs, replaced, sameReading, type TextEdit } from "./same-reading.js";
@@ -34,8 +34,9 @@ import { keepsReadingAs, replaced, sameReading, type TextEdit } from "./same-rea
 export const SPLIT_TITLE = "Split the arm into one per alternative";
 export const combineTitle = (count: number): string => `Combine the ${count} arms with this body`;
 
-const GUARDED = "An arm with a `when` guard runs it once per `match`, after the first alternative that matches " +
-  "(Pattern Matching §3), so its alternatives and separate arms are not the same.";
+const GUARDED = "An arm with a `when` guard runs it once, after the first of its alternatives that matches, and " +
+  "separate arms run theirs in turn (Pattern Matching §3), so the two forms differ wherever two of these patterns " +
+  "match one value. Where none do, write the other form by hand.";
 
 /** The combine and split rewrites offered for `[start, end]` of one parsed module. */
 export function matchArmRefactorings(
@@ -46,11 +47,11 @@ export function matchArmRefactorings(
   end: number,
 ): readonly Refactoring[] {
   const lists = armLists(module);
-  const head = headAt(lists, start, end);
+  const head = headAt(file, module, lists, start, end);
   if (head !== undefined) {
     return [...combined(file, module, typed, head.arms, runAround(head.arms, head.index)), ...split(file, module, head.arms, head.index)];
   }
-  const selected = armsSelected(file, lists, start, end);
+  const selected = armsSelected(file, module, lists, start, end);
   return selected === undefined ? [] : combined(file, module, typed, selected.arms, selected.run);
 }
 
@@ -74,36 +75,59 @@ function armLists(module: Parsed.Module): readonly (readonly Parsed.MatchArm[])[
 }
 
 /**
- * The arm whose head holds `[start, end]`: its pattern, its guard and its
- * arrow, up to its body. A caret before the body's first character is on the body.
+ * The arm whose head holds `[start, end]`, its pattern, its guard and its
+ * arrow, up to its body, or that a selection takes whole, comments after it on
+ * its line or not. A caret before the body's first character is on the body.
+ * Of two arms whose heads hold it, the inner one, of a `match` in the outer's guard.
  */
 function headAt(
+  file: Source.File,
+  module: Parsed.Module,
   lists: readonly (readonly Parsed.MatchArm[])[],
   start: number,
   end: number,
 ): { readonly arms: readonly Parsed.MatchArm[]; readonly index: number } | undefined {
+  const selected = trimmed(file, start, end);
+  const holds = (arm: Parsed.MatchArm): boolean => {
+    const { span, body } = arm;
+    if (start === end) return span.start.offset <= start && start < body.span.start.offset;
+    return (span.start.offset <= start && end <= body.span.start.offset) ||
+      (selected.start === span.start.offset && [solidEnd(file, arm), lineEnd(file, module, arm)].includes(selected.end));
+  };
+  let found: { readonly arms: readonly Parsed.MatchArm[]; readonly index: number } | undefined;
   for (const arms of lists) {
-    const index = arms.findIndex(({ span, body }) =>
-      span.start.offset <= start && (start === end ? start < body.span.start.offset : end <= body.span.start.offset)
-    );
-    if (index >= 0) return { arms, index };
+    arms.forEach((arm, index) => {
+      if (holds(arm) && (found === undefined || found.arms[found.index]!.span.start.offset < arm.span.start.offset)) {
+        found = { arms, index };
+      }
+    });
   }
-  return undefined;
+  return found;
+}
+
+/** A selection without the spaces and line breaks at its ends, as a selection of whole lines has. */
+function trimmed(file: Source.File, start: number, end: number): { readonly start: number; readonly end: number } {
+  while (start < end && /\s/.test(file.text[start]!)) start += 1;
+  while (start < end && /\s/.test(file.text[end - 1]!)) end -= 1;
+  return { start, end };
 }
 
 /**
  * The arms a selection touches, two or more of one list, with the selection
- * inside that list. At most one list has them: a list inside another lies in
- * one arm of it.
+ * inside that list, its spaces and line breaks aside, and the comments after
+ * the last arm on its line. At most one list has them: a list inside another
+ * lies in one arm of it.
  */
 function armsSelected(
   file: Source.File,
+  module: Parsed.Module,
   lists: readonly (readonly Parsed.MatchArm[])[],
-  start: number,
-  end: number,
+  selectionStart: number,
+  selectionEnd: number,
 ): { readonly arms: readonly Parsed.MatchArm[]; readonly run: readonly number[] } | undefined {
+  const { start, end } = trimmed(file, selectionStart, selectionEnd);
   for (const arms of lists) {
-    if (start < arms[0]!.span.start.offset || solidEnd(file, arms.at(-1)!) < end) continue;
+    if (start < arms[0]!.span.start.offset || lineEnd(file, module, arms.at(-1)!) < end) continue;
     const run = arms.flatMap((arm, index) => arm.span.start.offset < end && start < solidEnd(file, arm) ? [index] : []);
     if (run.length >= 2) return { arms, run };
   }
@@ -119,7 +143,7 @@ function armsSelected(
 function runAround(arms: readonly Parsed.MatchArm[], index: number): readonly number[] {
   const arm = arms[index]!;
   const joins = (other: Parsed.MatchArm | undefined): boolean =>
-    other !== undefined && other.fault !== true && sameReading(other.body, arm.body) &&
+    other !== undefined && other.fault !== true && sameBody(other.body, arm.body) &&
     (arm.guard !== undefined || other.guard === undefined);
   let first = index;
   let last = index;
@@ -138,7 +162,7 @@ function combined(
 ): readonly Refactoring[] {
   const members = run.map((index) => arms[index]!);
   if (members.length < 2 || members.some(({ fault }) => fault === true)) return [];
-  if (!members.every(({ body }) => sameReading(body, members[0]!.body))) return [];
+  if (!members.every(({ body }) => sameBody(body, members[0]!.body))) return [];
   const title = combineTitle(members.length);
   if (members.some(({ guard }) => guard !== undefined)) return [{ title, disabled: GUARDED }];
   const mismatch = bindingMismatch(typed, members);
@@ -184,53 +208,68 @@ function split(file: Source.File, module: Parsed.Module, arms: readonly Parsed.M
   const or = orOf(pattern);
   if (or === undefined) return [];
   if (arm.guard !== undefined) return [{ title: SPLIT_TITLE, disabled: GUARDED }];
-  // Each new arm starts a line at the arm's own column.
+  // Each new arm starts a line at the arm's own column, with the file's line break.
   const lineStart = file.text.lastIndexOf("\n", arm.span.start.offset - 1) + 1;
   const indent = file.text.slice(lineStart, arm.span.start.offset);
   if (indent.trim() !== "") return [];
+  const newline = file.text[lineStart - 2] === "\r" ? "\r\n" : "\n";
   const target = { span: file.span(arm.span.start.offset, lineEnd(file, module, arm)) };
-  // What follows the alternatives, copied into every arm: an `as`, the arrow, the body.
-  const rest = file.span(or.span.end.offset, lineEnd(file, module, arm));
-  const after = textIn(file, rest);
+  const after = following(file, module, arm, or);
+  const rest = after.map((span) => textIn(file, span)).join("");
   // Under an `as`, an alternative keeps the parentheses an `as` of its own has.
-  const text = or.alternatives
-    .map((each) => (or === pattern ? whole(file, each) : textIn(file, each.span)) + after)
-    .join(`\n${indent}`);
-  const kept = [...or.alternatives.map(({ span }) => span), rest];
-  return [rewrite(file, module, SPLIT_TITLE, target, { texts: [text], kept }, readsSplit(file, module, arms, index, rest))];
+  const text = alternativesOf(or)
+    .map((each) => (or === pattern ? whole(file, each) : textIn(file, each.span)) + rest)
+    .join(`${newline}${indent}`);
+  const kept = [...alternativesOf(or).map(({ span }) => span), ...after];
+  return [rewrite(file, module, SPLIT_TITLE, target, { texts: [text], kept }, readsSplit(file, module, arms, index, after))];
 }
 
 /** The or-pattern an arm's pattern is, or is under a top-level `as`. */
 function orOf(pattern: Parsed.Pattern): Parsed.OrPattern | undefined {
-  return pattern.kind === "Or" ? pattern : pattern.kind === "As" && pattern.pattern.kind === "Or" ? pattern.pattern : undefined;
+  return pattern.kind === "As" && pattern.pattern.kind === "Or" ? pattern.pattern : pattern.kind === "Or" ? pattern : undefined;
+}
+
+/** An or-pattern's alternatives, those of an or-pattern among them in its place, as they are tried (Pattern Matching §8). */
+function alternativesOf(or: Parsed.OrPattern): readonly Parsed.Pattern[] {
+  return or.alternatives.flatMap((each) => each.kind === "Or" ? alternativesOf(each) : [each]);
+}
+
+/**
+ * What follows an arm's alternatives, copied into each arm a split writes: an
+ * `as` and its name, without the parentheses it may be written in, then what
+ * follows the pattern on the arm's last line, the arrow, the body and its comments.
+ */
+function following(file: Source.File, module: Parsed.Module, arm: Parsed.MatchArm, or: Parsed.OrPattern): readonly Source.Span[] {
+  const rest = file.span(arm.pattern.span.end.offset, lineEnd(file, module, arm));
+  return arm.pattern.kind === "As" ? [file.span(or.span.end.offset, arm.pattern.name.span.end.offset), rest] : [rest];
 }
 
 /**
  * Whether an edit leaves the arms reading as they do with the arm at `index`
- * written once per alternative, each copy followed by `rest` (what follows the
- * alternatives) and the comments in them. Exported for its tests, which hand it
- * edits no rewrite here writes.
+ * written once per alternative, each copy followed by the spans in `after`
+ * (what follows the alternatives) and the comments in them. Exported for its
+ * tests, which hand it edits no rewrite here writes.
  */
 export function readsSplit(
   file: Source.File,
   module: Parsed.Module,
   arms: readonly Parsed.MatchArm[],
   index: number,
-  rest: Source.Span,
+  after: readonly Source.Span[],
 ): (edit: TextEdit) => boolean {
-  const { alternatives } = orOf(arms[index]!.pattern)!;
-  const kept = [...alternatives.map(({ span }) => span), rest];
+  const alternatives = alternativesOf(orOf(arms[index]!.pattern)!);
+  const kept = [...alternatives.map(({ span }) => span), ...after];
   return (edit) =>
     keepsReadingAs(file, module, edit, (before, start) => {
       const list = armListAt(before, arms[index]!.span.start.offset - start);
       if (list === undefined) return undefined;
       const old = list[index]!;
-      const each = orOf(old.pattern)!.alternatives.map((alternative): Parsed.MatchArm => ({
+      const each = alternativesOf(orOf(old.pattern)!).map((alternative): Parsed.MatchArm => ({
         ...old,
         pattern: old.pattern.kind === "As" ? { ...old.pattern, pattern: alternative } : alternative,
       }));
       const armsAfter = [...list.slice(0, index), ...each, ...list.slice(index + 1)];
-      return withComments(replaced(before, list, armsAfter), kept, start, alternatives.map(({ span }) => [span, rest]));
+      return withComments(replaced(before, list, armsAfter), kept, start, alternatives.map(({ span }) => [span, ...after]));
     });
 }
 
@@ -260,10 +299,10 @@ function bindingMismatch(typed: Typed.Module, members: readonly Parsed.MatchArm[
           "in every alternative (Pattern Matching §2.6).";
       }
       if (typeKey(left) !== typeKey(right)) {
-        const shown = [left, right].map((type) => Typed.displayScheme({ variables: [], constraints: [], type }));
-        return shown[0] === shown[1]
-          ? `\`${name}\` has a different type in each of these arms, and an or-pattern binds it at one type.`
-          : `\`${name}\` is \`${shown[0]}\` in one of these arms and \`${shown[1]}\` in another, and an or-pattern binds it at one type.`;
+        // Lettered together, so two variables inference kept apart show as two.
+        const letters = new Typed.Letters();
+        const [one, another] = [left, right].map((type) => Typed.displayCallFace({ variables: [], constraints: [], type }, undefined, letters).type);
+        return `\`${name}\` is \`${one}\` in one of these arms and \`${another}\` in another, and an or-pattern binds it at one type.`;
       }
     }
   }
@@ -319,9 +358,18 @@ function namesBound(pattern: Parsed.Pattern): ReadonlySet<string> {
   return names;
 }
 
-/** A type as one key: equal keys are one type, however its names were written (`qualifier`). */
+/**
+ * A type as one key: equal keys are one type, however its names were written
+ * (`qualifier`) and in whatever order a record type's fields were.
+ */
 function typeKey(type: Typed.Type): string {
-  return JSON.stringify(type, (key, value: unknown) => key === "qualifier" ? undefined : value);
+  return JSON.stringify(type, (key, value: unknown) => {
+    if (key === "qualifier") return undefined;
+    const record = value as Partial<Typed.RecordType> | null;
+    return typeof value === "object" && record?.kind === "Record"
+      ? { ...record, fields: [...record.fields!].sort((left, right) => left.name.localeCompare(right.name)) }
+      : value;
+  });
 }
 
 /**
@@ -337,7 +385,16 @@ function alternative(file: Source.File, pattern: Parsed.Pattern): string {
 /** An alternative's text as a whole arm's pattern, without the parentheses an `as` needed among alternatives. */
 function whole(file: Source.File, pattern: Parsed.Pattern): string {
   const text = textIn(file, pattern.span);
-  return pattern.kind === "As" && text.endsWith(")") ? text.slice(1, -1) : text;
+  return pattern.kind === "As" && text.endsWith(")") ? text.slice(1, -1).trim() : text;
+}
+
+/**
+ * Whether two arms' bodies read alike, a body begun on the line after its
+ * arrow as the one written after it: the block that holds it and nothing else
+ * only says where it was written (`Parsed.unwrapBindingValue`).
+ */
+function sameBody(left: Parsed.Expr, right: Parsed.Expr): boolean {
+  return sameReading(Parsed.unwrapBindingValue(left), Parsed.unwrapBindingValue(right));
 }
 
 /** The list of parsed arms holding an arm that starts at `start`. */

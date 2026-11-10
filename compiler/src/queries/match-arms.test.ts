@@ -67,8 +67,9 @@ function rewritten(source: string, title: string): string {
   return after;
 }
 
-const GUARDED = "refused: An arm with a `when` guard runs it once per `match`, after the first alternative that matches " +
-  "(Pattern Matching §3), so its alternatives and separate arms are not the same.";
+const GUARDED = "refused: An arm with a `when` guard runs it once, after the first of its alternatives that matches, and " +
+  "separate arms run theirs in turn (Pattern Matching §3), so the two forms differ wherever two of these patterns " +
+  "match one value. Where none do, write the other form by hand.";
 
 describe("arms with one body combined into one", () => {
   test("adjacent arms, as one or-pattern in their order", () => {
@@ -168,6 +169,47 @@ describe("arms with one body combined into one", () => {
     ));
   });
 
+  test("a body begun on the line after its arrow, as the one written after it", () => {
+    expect(rewritten(program(
+      "export let g(s: Shape): Int =",
+      "    match s",
+      "        Circle(_) ‸=>",
+      "            0",
+      "        Square(_) => 0",
+      "        Dot => 1",
+    ), combineTitle(2))).toBe(program(
+      "export let g(s: Shape): Int =",
+      "    match s",
+      "        Circle(_) | Square(_) =>",
+      "            0",
+      "        Dot => 1",
+    ));
+    expect(titles(program(
+      "export let g(s: Shape): Int =",
+      "    match s",
+      "        Circle(_) ‸=> 0",
+      "        Square(_) =>",
+      "            let n = 0",
+      "            n",
+      "        Dot => 1",
+    ))).toEqual([]);
+  });
+
+  test("an or-pattern inside an arm's, its alternatives as the outer one's", () => {
+    expect(rewritten(program(
+      "export let g(o: Option(Int)): Int =",
+      "    match o",
+      "        Some(1) | (Some(2) | Some(3)) ‸=> 0",
+      "        Some(4) => 0",
+      "        _ => 1",
+    ), combineTitle(2))).toBe(program(
+      "export let g(o: Option(Int)): Int =",
+      "    match o",
+      "        Some(1) | (Some(2) | Some(3)) | Some(4) => 0",
+      "        _ => 1",
+    ));
+  });
+
   test("literal and record patterns", () => {
     expect(rewritten(program(
       "export let g(n: Int): String =",
@@ -212,6 +254,44 @@ describe("arms with one body combined into one", () => {
     ));
   });
 
+  test("whole lines selected, the first arm's or the last's among them, and the comments after the last", () => {
+    const lines = [
+      "export let g(s: Shape): Int =",
+      "    match s",
+      "        Circle(_) => 0",
+      "        Square(_) => 0",
+      "        Dot => 0",
+      "export let h: Int = 1",
+    ];
+    const selecting = (from: number, to: number): string =>
+      program(...lines.map((line, index) => (index === from || index === to ? `‸${line}` : line)));
+    expect(rewritten(selecting(2, 4), combineTitle(2))).toBe(program(
+      "export let g(s: Shape): Int =",
+      "    match s",
+      "        Circle(_) | Square(_) => 0",
+      "        Dot => 0",
+      "export let h: Int = 1",
+    ));
+    expect(rewritten(selecting(3, 5), combineTitle(2))).toBe(program(
+      "export let g(s: Shape): Int =",
+      "    match s",
+      "        Circle(_) => 0",
+      "        Square(_) | Dot => 0",
+      "export let h: Int = 1",
+    ));
+    // The last arm's comments are its own, so the selection is the arms', refused for the comment.
+    expect(rewritten(program(
+      "export let g(s: Shape): Int =",
+      "    match s",
+      "        Circle(_) => 0",
+      "        ‸Square(_) => 0",
+      "        Dot => 0 (* dots *) // too‸",
+      "export let h: Int = 1",
+    ), combineTitle(2))).toBe("refused: A comment inside it would be lost. Move the comment out first.");
+    // Past the arms, into the next item, the selection is not the arms'.
+    expect(titles(selecting(3, 5).replace("‸export let h: Int = 1", "export ‸let h: Int = 1"))).toEqual([]);
+  });
+
   test("a selection of an arm's head up to its body, as a caret there", () => {
     expect(rewritten(program(
       "export let g(s: Shape): Int =",
@@ -245,6 +325,25 @@ describe("arms with one body combined into one", () => {
       "                0 | 1 => 1",
       "                _ => 2",
       "        _ => 3",
+    ));
+  });
+
+  test("in a `match` written in an arm's guard, the inner arms", () => {
+    expect(rewritten(program(
+      "export let g(s: Shape, n: Int): Int =",
+      "    match s",
+      "        Circle(_) when (match n",
+      "            0 ‸=> True",
+      "            1 => True",
+      "            _ => False) => 0",
+      "        _ => 1",
+    ), combineTitle(2))).toBe(program(
+      "export let g(s: Shape, n: Int): Int =",
+      "    match s",
+      "        Circle(_) when (match n",
+      "            0 | 1 => True",
+      "            _ => False) => 0",
+      "        _ => 1",
     ));
   });
 
@@ -404,7 +503,35 @@ describe("arms combined, refused", () => {
       "    match t",
       "        L(v) ‸=> 0",
       "        R(v) => 0",
-    ), combineTitle(2))).toBe("refused: `v` has a different type in each of these arms, and an or-pattern binds it at one type.");
+    ), combineTitle(2))).toBe("refused: `v` is `a` in one of these arms and `b` in another, and an or-pattern binds it at one type.");
+  });
+
+  test("but not record types with their fields in another order, which are one type", () => {
+    const union = "export union U = A(r: {x: Int, y: Int}) | B(r: {y: Int, x: Int})";
+    expect(rewritten(program(
+      union,
+      "export let g(u: U): Int =",
+      "    match u",
+      "        A(r) ‸=> r.x",
+      "        B(r) => r.x",
+    ), combineTitle(2))).toBe(program(
+      union,
+      "export let g(u: U): Int =",
+      "    match u",
+      "        A(r) | B(r) => r.x",
+    ));
+    expect(rewritten(program(
+      "export let g(u: Option({x: Int, y: Int}), w: Option({y: Int, x: Int})): Int =",
+      "    match (u, w)",
+      "        (Some(r), _) ‸=> r.x",
+      "        (_, Some(r)) => r.x",
+      "        _ => 0",
+    ), combineTitle(2))).toBe(program(
+      "export let g(u: Option({x: Int, y: Int}), w: Option({y: Int, x: Int})): Int =",
+      "    match (u, w)",
+      "        (Some(r), _) | (_, Some(r)) => r.x",
+      "        _ => 0",
+    ));
   });
 
   test("but not one type written through two names", () => {
@@ -450,7 +577,19 @@ describe("arms combined, refused", () => {
     ), combineTitle(2))).toBe("refused: A comment inside it would be lost. Move the comment out first.");
   });
 
-  test("but not one after the first arm's body, which the arm keeps, nor one after the arms", () => {
+  test("but not those after the first arm's body, which the arm keeps, nor one after the arms", () => {
+    expect(rewritten(program(
+      "export let g(s: Shape): Int =",
+      "    match s",
+      "        Circle(_) ‸=> 0 (* a *) // b",
+      "        Square(_) => 0",
+      "        Dot => 1",
+    ), combineTitle(2))).toBe(program(
+      "export let g(s: Shape): Int =",
+      "    match s",
+      "        Circle(_) | Square(_) => 0 (* a *) // b",
+      "        Dot => 1",
+    ));
     expect(rewritten(program(
       "export let g(s: Shape): Int =",
       "    match s",
@@ -525,6 +664,11 @@ describe("arms combined, not offered", () => {
   });
 
   test("a selection ending where the next arm starts, or starting where the last ends, which touches one arm", () => {
+    for (const arms of ["‸Some(1) => 1;‸Some(2) => 1", "Some(1) => 1‸;Some(2) => 1‸"]) {
+      const source = program("export let g(o: Option(Int)): Int =", "    match o", `        ${arms}`, "        _ => 0");
+      expect(reports(marked(source).text)).toEqual([]);
+      expect(titles(source)).toEqual([]);
+    }
     expect(titles(program(
       "export let g(o: Option(Int)): Int =",
       "    match o",
@@ -659,6 +803,137 @@ describe("an or-pattern's arm split", () => {
       "        (Square(_) as u) as t => f(t)",
       "        Dot => 0.0",
     ));
+  });
+
+  test("under an `as` written in parentheses around it, which each arm keeps without them", () => {
+    const split = program(
+      "export let g(s: Shape): Float =",
+      "    match s",
+      "        Circle(_) as t => f(t) // either",
+      "        Square(_) as t => f(t) // either",
+      "        Dot => 0.0",
+    );
+    for (const pattern of ["(Circle(_) | Square(_) as t)", "((Circle(_) | Square(_)) as t)", "(Circle(_) | Square(_)) as t"]) {
+      expect(rewritten(program(
+        "export let g(s: Shape): Float =",
+        "    match s",
+        `        ${pattern} ‸=> f(t) // either`,
+        "        Dot => 0.0",
+      ), SPLIT_TITLE)).toBe(split);
+    }
+    // A comment in the `as`, or after the name, goes with it into every arm.
+    expect(rewritten(program(
+      "export let g(s: Shape): Float =",
+      "    match s",
+      "        Circle(_) | Square(_) (* either *) as t (* the shape *) ‸=> f(t)",
+      "        Dot => 0.0",
+    ), SPLIT_TITLE)).toBe(program(
+      "export let g(s: Shape): Float =",
+      "    match s",
+      "        Circle(_) (* either *) as t (* the shape *) => f(t)",
+      "        Square(_) (* either *) as t (* the shape *) => f(t)",
+      "        Dot => 0.0",
+    ));
+  });
+
+  test("alternatives in parentheses with spaces inside, each at the arm's column", () => {
+    const split = (...before: readonly string[]): string => program(
+      "export let g(s: Shape): Float =",
+      "    match s",
+      ...before,
+      "        Circle(_) as t => f(t)",
+      "        Square(_) as t => f(t)",
+    );
+    const arm = "        ( Circle(_) as t ) | ( Square(_) as t ) ‸=> f(t)";
+    expect(rewritten(split("        Dot => 0.0").replace("        Circle(_) as t => f(t)\n        Square(_) as t => f(t)", arm), SPLIT_TITLE))
+      .toBe(split("        Dot => 0.0"));
+    expect(rewritten(program(
+      "export let g(s: Shape): Float =",
+      "    match s",
+      arm,
+      "        Dot => 0.0",
+    ), SPLIT_TITLE)).toBe(program(
+      "export let g(s: Shape): Float =",
+      "    match s",
+      "        Circle(_) as t => f(t)",
+      "        Square(_) as t => f(t)",
+      "        Dot => 0.0",
+    ));
+  });
+
+  test("an or-pattern among the alternatives, one arm for each of its own", () => {
+    expect(rewritten(program(
+      "export let g(s: Shape): Int =",
+      "    match s",
+      "        (Circle(_) | Dot) | Square(_) ‸=> 0",
+    ), SPLIT_TITLE)).toBe(program(
+      "export let g(s: Shape): Int =",
+      "    match s",
+      "        Circle(_) => 0",
+      "        Dot => 0",
+      "        Square(_) => 0",
+    ));
+    expect(rewritten(program(
+      "export let g(s: Shape): Float =",
+      "    match s",
+      "        ((Circle(_) as u) | (Dot as u)) | (Square(_) as u) as t ‸=> f(t)",
+    ), SPLIT_TITLE)).toBe(program(
+      "export let g(s: Shape): Float =",
+      "    match s",
+      "        (Circle(_) as u) as t => f(t)",
+      "        (Dot as u) as t => f(t)",
+      "        (Square(_) as u) as t => f(t)",
+    ));
+  });
+
+  test("in a file whose lines end in CR LF, with its line breaks", () => {
+    const crlf = (text: string): string => text.replaceAll("\n", "\r\n");
+    expect(rewritten(crlf(program(
+      "export let g(s: Shape): Int =",
+      "    match s",
+      "        Circle(_) | Square(_) ‸=>",
+      "            0",
+      "        Dot => 1",
+    )), SPLIT_TITLE)).toBe(crlf(program(
+      "export let g(s: Shape): Int =",
+      "    match s",
+      "        Circle(_) =>",
+      "            0",
+      "        Square(_) =>",
+      "            0",
+      "        Dot => 1",
+    )));
+  });
+
+  test("on a selection of the whole arm, its comments after it or not", () => {
+    const split = program(
+      "export let g(s: Shape): Int =",
+      "    match s",
+      "        Circle(_) => 0 // or",
+      "        Square(_) => 0 // or",
+      "        Dot => 1",
+    );
+    expect(rewritten(program(
+      "export let g(s: Shape): Int =",
+      "    match s",
+      "        ‸Circle(_) | Square(_) => 0‸ // or",
+      "        Dot => 1",
+    ), SPLIT_TITLE)).toBe(split);
+    expect(rewritten(program(
+      "export let g(s: Shape): Int =",
+      "    match s",
+      "‸        Circle(_) | Square(_) => 0 // or",
+      "‸        Dot => 1",
+    ), SPLIT_TITLE)).toBe(split);
+    // Not part of one, past its start or short of its end.
+    for (const arm of ["Circle(_) | ‸Square(_) => 0 // or‸", "‸Circle(_) | Square(_) => 0 // o‸r"]) {
+      expect(titles(program(
+        "export let g(s: Shape): Int =",
+        "    match s",
+        `        ${arm}`,
+        "        Dot => 1",
+      ))).not.toContain(SPLIT_TITLE);
+    }
   });
 
   test("with a body over lines and its comments, copied into every arm", () => {
@@ -810,7 +1085,7 @@ describe("the check of what an edit leaves", () => {
       "        Circle(_) | Square(_) => 0",
       "        Dot => 1",
     ));
-    const reads = readsSplit(file, module, list, 0, list[0]!.body.span);
+    const reads = readsSplit(file, module, list, 0, [list[0]!.body.span]);
     const at = (replacement: string) => ({ ...edit(replacement), end: list[0]!.span.end.offset });
     expect(reads(at("Circle(_) => 0\n        Square(_) => 0"))).toBe(true);
     expect(reads(at("Square(_) => 0\n        Circle(_) => 0"))).toBe(false);

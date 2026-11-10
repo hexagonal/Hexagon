@@ -625,22 +625,28 @@ the rewrite keeps the program's meaning by definition:
   its alias; and where a binder in the item spells the bare name the home
   module would write.
 - **Combine the 2 arms with this body**, on an arm's pattern or arrow, or on a
-  selection of arms: the run of adjacent arms around it whose bodies read the
-  same becomes one arm, its pattern the or-pattern of theirs in their order,
-  since arms are tried top to bottom and an or-pattern's alternatives left to
-  right (Pattern Matching §8). Only adjacent arms: moving one past another
-  changes which wins where their patterns overlap. Refused, with the reason,
-  where an arm has a `when` guard, which runs once per `match` after the first
-  alternative that matches (§3), so separate arms and alternatives differ; and
+  selection of arms, whole lines included: the run of adjacent arms around it
+  whose bodies read the same (a body begun on the line after its arrow as the
+  one written after it) becomes one arm, its pattern the or-pattern of theirs
+  in their order, since arms are tried top to bottom and an or-pattern's
+  alternatives left to right (Pattern Matching §8). Only adjacent arms: moving
+  one past another changes which wins where their patterns overlap. Refused,
+  with the reason, where an arm has a `when` guard, which runs once after the
+  first of its alternatives that matches where separate arms run theirs in
+  turn (§3), so the forms differ wherever two patterns match one value; and
   where the arms bind different names, or a name at types the checker kept
   apart, since §2.6 binds each name at one type and unifying two that
   inference kept apart would narrow the function. The types are read from the
-  checker's one solve, never worked out again. An arm whose pattern the checker
-  could not read as written is not offered it.
+  checker's one solve, never worked out again; a record type's fields in
+  another order are the same type. Where the checker could not read the names
+  an arm binds, as with a constructor its scrutinee's type does not have, it is
+  not offered.
 - **Split the arm into one per alternative**, on an arm whose pattern is an
-  or-pattern, under a top-level `as` too: one arm per alternative, each with the
-  body, in their order. Refused on a guarded arm, for the same reason. An
-  or-pattern inside a pattern (`Some(0 | 1)`) is not offered it.
+  or-pattern, or on the whole arm selected, under a top-level `as` too, written
+  in parentheses or not: one arm per alternative, those of an or-pattern among
+  them included, each with the `as` and the body, in their order. Refused on a
+  guarded arm, for the same reason. An or-pattern inside a pattern
+  (`Some(0 | 1)`) is not offered it.
 
 **Each rewrite is checked by parsing what it leaves** (`queries/same-reading.ts`):
 the top-level item the edit lies in is parsed again, and the two trees must be
