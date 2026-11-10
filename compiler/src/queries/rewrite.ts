@@ -15,25 +15,26 @@ export type Refactoring =
   | { readonly title: string; readonly edit?: undefined; readonly disabled: string };
 
 export interface Written {
-  /** The text that replaces the expression, in the forms to try, the plainest first. */
+  /** The text that replaces the target, in the forms to try, the plainest first. */
   readonly texts: readonly string[];
-  /** The spans of the expression whose text the rewrite keeps. */
+  /** The spans of the target whose text the rewrite keeps. */
   readonly kept: readonly Source.Span[];
 }
 
 /**
- * The refactoring `title` replacing `expression` with the first of `written`'s
- * texts that parses as the same program, or refused with the reason. Exported
- * for its tests, which hand it texts no rewrite here writes.
+ * The refactoring `title` replacing `target`, an expression or a run of text
+ * such as a record's fields, with the first of `written`'s texts that parses as
+ * the same program, or refused with the reason. Exported for its tests, which
+ * hand it texts no rewrite here writes.
  */
 export function rewrite(
   file: Source.File,
   module: Parsed.Module,
   title: string,
-  expression: Parsed.Expr,
+  target: { readonly span: Source.Span },
   written: Written,
 ): Refactoring {
-  const { start, end } = solid(file, expression.span);
+  const { start, end } = solid(file, target.span);
   const lost = module.comments.some(({ span }) =>
     start <= span.start.offset && span.end.offset <= end &&
     !written.kept.some((kept) => kept.start.offset <= span.start.offset && span.end.offset <= kept.end.offset)

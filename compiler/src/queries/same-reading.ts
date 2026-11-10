@@ -57,8 +57,8 @@ function sameReading(before: unknown, after: unknown): boolean {
 
 /**
  * A parsed value as the checker reads it: positions dropped, keys in one order,
- * a group as what it holds, a pipe as its call, and a lambda that matches its
- * one parameter as the match function it is.
+ * a group as what it holds, a pipe as its call, a lambda that matches its one
+ * parameter as the match function it is, and a punned field as written out.
  *
  * But not a group that holds a call's callee written `e.name`: `(e.name)(args)`
  * reads the field and calls it, where `e.name(args)` is a dot call (Method
@@ -80,6 +80,8 @@ function reading(value: unknown): unknown {
   const read: Record<string, unknown> = {};
   for (const key of Object.keys(node).sort()) {
     if (key === "span" || key.endsWith("Span") || key === "offset" || key === "line" || key === "column") continue;
+    // A pun is its field written out (Pattern Matching §9): `{x}` is `{x = x}`.
+    if (key === "punned") continue;
     read[key] = reading(node[key]);
   }
   return read;

@@ -2,7 +2,7 @@
 
 The Hexagon language server: the process that exposes Hexagon language intelligence through Microsoft's Language Server Protocol (LSP).
 
-Five slices are implemented, and a sixth has begun, over a compiler-owned analysis session: diagnostics, hover, go-to-definition and find-references; then semantic tokens, rename and completion; then quick fixes, the diagnostic-driven half of code actions, each plain one preferred and, beside a call's mark repair, one that applies every such repair in the file that is its report's only one; then documentation in hover and completion; then signature help and inlay hints. Refactorings have begun, with a pipeline and calls, and a match function and its lambda, written as each other. Formatting and workspace symbols are not, and the server does not announce them; a capability announced but unimplemented offers the user a command that silently does nothing.
+Five slices are implemented, and a sixth has begun, over a compiler-owned analysis session: diagnostics, hover, go-to-definition and find-references; then semantic tokens, rename and completion; then quick fixes, the diagnostic-driven half of code actions, each plain one preferred and, beside a call's mark repair, one that applies every such repair in the file that is its report's only one; then documentation in hover and completion; then signature help and inlay hints. Refactorings have begun, with a pipeline and calls, a match function and its lambda, and a record's puns and its fields written out, each written as the other. Formatting and workspace symbols are not, and the server does not announce them; a capability announced but unimplemented offers the user a command that silently does nothing.
 
 This document states the boundary between the language server and the compiler. That boundary is the reason the server is small: every request handler converts coordinates, asks the session one question, and converts the answer back.
 
@@ -601,11 +601,19 @@ the rewrite keeps the program's meaning by definition:
   offered it.
 - **Write the match function as a lambda**, on its `match`: the parameter is
   `value`, or the first of `value2`, `value3`… that no arm spells.
+- **Write the field `x` as a pun**, and **Write the pun `x` out**, on a
+  record's field, in a literal, an update or a pattern alike: `x = x` and `x`,
+  since a pun is its field written out (Pattern Matching §2.4 and §9). A
+  selection takes the fields it touches, and the record's brace, its `with` or
+  the record it updates takes every field ("Write the fields as puns", "Write
+  the puns out"). A field whose value is anything but its own name, bare, has
+  no pun.
 
 **Each rewrite is checked by parsing what it leaves** (`queries/same-reading.ts`):
 the top-level item the edit lies in is parsed again, and the two trees must be
-the same once a pipe is read as its call, parentheses as what they hold, and a
-lambda that matches its one parameter as its match function, comments included.
+the same once a pipe is read as its call, parentheses as what they hold, a
+lambda that matches its one parameter as its match function, and a pun as its
+field written out, comments included.
 That is what decides where the result needs parentheses, as an operand does and
 an argument does not, and it catches what a writer of text could get wrong about
 layout. It asks no type, so it is no second solver.
@@ -683,8 +691,8 @@ The fifth adds:
 The sixth begins with:
 
 16. refactorings between forms the spec defines as one another, in both: a
-    pipeline and calls, either way; and a match function and its lambda, either
-    way.
+    pipeline and calls, either way; a match function and its lambda, either
+    way; and a record's puns and its fields written out, either way.
 
 Formatting and workspace symbols follow as the necessary compiler services become stable. Features are not simulated with textual guesses when semantic information is required — where these slices read source text, it is to locate a name the tree already said was there, or to read a half-typed line no tree describes yet, never to decide what a name means.
 
