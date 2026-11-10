@@ -201,6 +201,11 @@ describe("destruct on a `match` with no arms", () => {
       .toEqual([]);
     expect(repairs(program("export let area(s: Shape): Float =", "    match s", ")"))).toEqual([]);
     expect(repairs(program("module Debug", "export let area(s: Shape): Float =", "    match s"))).toEqual([]);
+    // A block comment opened after the subject runs onto the next line, and
+    // would hold arms written at the end of the `match`'s line.
+    const comment = program("export let area(s: Shape): Float =", "    match s (* to do:", "       later *)");
+    expect(reports(comment)).toEqual(["3:4 expected an indented block of match arms"]);
+    expect(repairs(comment)).toEqual([]);
   });
 });
 
@@ -570,7 +575,7 @@ describe("destruct on a variable or `_` in an arm's pattern", () => {
       .toEqual([]);
   });
 
-  test("not on a vector, a case this module cannot spell, or in a declared pattern's column", () => {
+  test("not on a vector or a case this module cannot spell", () => {
     expect(splits(program(
       "export let f(o: Option(Vector(Int))): Int =",
       "    match o",
@@ -595,53 +600,27 @@ describe("destruct on a variable or `_` in an arm's pattern", () => {
     const at = routed.indexOf("flag)");
     expect(session({ ...flags, "/main.hex": routed }).codeActions("/main.hex", { start: at, end: at }, { invoked: true })
       .filter(({ title }) => title.startsWith("Split"))).toEqual([]);
-    const declared = program(
-      ...SAME,
-      "export let f(s: Shape): Float =",
-      "    match s",
-      "        (Circle(_))same => 0.0",
-      "        other => area(other)",
-    );
-    expect(reports(declared)).toEqual([]);
-    expect(splits(declared, "other =>")).toEqual([]);
-    const nested = program(
-      ...SAME,
-      "export let f(o: Option(Shape)): Float =",
-      "    match o",
-      "        Some((Circle(_))same) => 0.0",
-      "        Some(other) => area(other)",
-      "        None => 0.0",
-    );
-    expect(reports(nested)).toEqual([]);
-    expect(splits(nested, "other)")).toEqual([]);
-    // On one path only, `True`'s: the arms below a view naming every
-    // constructor would still miss the view's cases there.
-    const onePath = program(
-      ...SAME,
-      "export let f(p: (Bool, Shape)): Float =",
-      "    match p",
-      "        (True, (Circle(_))same) => 0.0",
-      "        (False, Circle(_)) => 0.0",
-      "        (b, other) => area(other)",
-    );
-    expect(reports(onePath)).toEqual([]);
-    expect(splits(onePath, "other)")).toEqual([]);
   });
 
-  test("beside a declared pattern in another column, read as the arm's reachability reads it", () => {
-    const head = [...SAME, "export let f(p: (Shape, Shape)): Float =", "    match p", "        ((Circle(_))same, Circle(_)) => 0.0"];
-    const text = program(...head, "        (a, other) => area(other)");
-    expect(split(text, "other)")).toEqual({
-      title: "Split `other` into 3 arms",
-      text: program(
-        ...head,
-        "        (a, Circle(_) as other) => area(other)",
-        "        (a, Square(_) as other) => area(other)",
-        "        (a, Tri(_, _) as other) => area(other)",
-      ),
-      diagnostics: [],
-    });
-    expect(splits(text, "a,")).toEqual([]);
+  test("not in a `match` whose arms name a declared pattern, above, below or around the variable", () => {
+    // Coverage reads a view as a signature apart from the constructors: arms
+    // naming every constructor beside one still miss its cases.
+    const refused = (needle: string, subject: string, ...arms: readonly string[]) => {
+      const text = program(...SAME, `export let f(p: ${subject}): Float =`, "    match p", ...arms.map((arm) => `        ${arm}`));
+      expect(reports(text)).toEqual([]);
+      expect(splits(text, needle)).toEqual([]);
+    };
+    refused("other =>", "Shape", "(Circle(_))same => 0.0", "other => area(other)");
+    refused("other)", "Option(Shape)", "Some((Circle(_))same) => 0.0", "Some(other) => area(other)", "None => 0.0");
+    // On one path only, `True`'s, and on one the walk for a case need never take.
+    refused("other)", "(Bool, Shape)", "(True, (Circle(_))same) => 0.0", "(False, Circle(_)) => 0.0", "(b, other) => area(other)");
+    refused("other)", "(Bool, Shape)", "(True, (Circle(_))same) => 0.0", "(False, Circle(0.0)) => 0.0", "(b, other) => area(other)");
+    // Below the arm, where the split arms would stand beside it.
+    refused("other)", "(Bool, Shape)", "(True, other) => area(other)", "(_, (Circle(_))same) => 0.0", "(False, _) => 1.0");
+    // Inside the view, read through it and never as a case.
+    refused("t)same =>", "Shape", "(Circle(_))same => 0.0", "(t)same => area(t)");
+    // In another column.
+    refused("other)", "(Shape, Shape)", "((Circle(_))same, Circle(_)) => 0.0", "(a, other) => area(other)");
   });
 
   test("not offered where there are no cases to name, under an or-pattern, or on an unreachable arm", () => {
