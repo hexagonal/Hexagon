@@ -1106,14 +1106,15 @@ function usesIn(module: Parsed.Module, item: Parsed.Item, alias: Parsed.TypeAlia
  * `item` may be parsed alone, where `module` is the file's.
  */
 function impliedAt(module: Parsed.Module, item: Parsed.Item, offset: number): ReadonlySet<string> {
-  // A constraint member's default shares its parameters, and writes no result;
-  // an honor's member writes no result, since the parser refuses one there
-  // (#1484). When it can, and the resolver reads that result with the implied
-  // types as it reads the parameters, it belongs here beside them.
+  // A constraint member's default shares its parameters, and writes no result.
+  // An honor's member's result is read as the resolver reads it, with the
+  // implied types, though the parser refuses one there today (#1484).
   const written = item.kind === "ConstraintDeclaration"
     ? item.members.flatMap(({ parameters, returnAnnotation }) => [...parameters.map(({ annotation }) => annotation), returnAnnotation])
     : item.kind === "Honor"
-    ? item.members.flatMap(({ value }) => value?.parameters.map(({ annotation }) => annotation) ?? [])
+    ? item.members.flatMap(({ value }) =>
+      value === undefined ? [] : [...value.parameters.map(({ annotation }) => annotation), value.returnAnnotation]
+    )
     : [];
   if (!written.some((type) => type !== undefined && type.span.start.offset <= offset && offset < type.span.end.offset)) return new Set();
   // A qualified constraint's name is never one this module declares; one
