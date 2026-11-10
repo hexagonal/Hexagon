@@ -6855,7 +6855,7 @@ class Parser {
         span: spanFrom(start.span, this.#previous().span),
       };
     }
-    const block = this.#parseArmBlock(false, spanFrom(start.span, scrutinee.span));
+    const block = this.#parseArmBlock(false, spanFrom(start.span, scrutinee.span), headsItem);
     let end = block.closing?.span ?? block.arms.at(-1)?.span ?? scrutinee.span;
 
     // The match catch clause (Exceptions §5.4, #500). Layout has already
@@ -6908,7 +6908,7 @@ class Parser {
       end: start.span.end,
     };
     const name = this.#freshParameterName(point, 0);
-    const block = this.#parseArmBlock(true, start.span);
+    const block = this.#parseArmBlock(true, start.span, headsItem);
     const end = block.closing?.span ?? block.arms.at(-1)?.span ?? start.span;
 
     // §6.7 grants no clause, ever. A `catch` at the head's own column reaches
@@ -6992,18 +6992,22 @@ class Parser {
    * a scrutinee form can be given the alignment fixit, because there is a clause
    * for it to be aligned *to*; a match function has none to offer, so it gets
    * §6.7's own message. Either way the clause is read and dropped, so one
-   * misplaced keyword does not cascade through its arms.
+   * misplaced keyword does not cascade through its arms. `headsItem` says the
+   * `match` begins its logical item, where arms at its own column are its own.
    */
-  #parseArmBlock(matchFunction: boolean, head: Source.Span): {
+  #parseArmBlock(matchFunction: boolean, head: Source.Span, headsItem: boolean): {
     readonly arms: readonly Parsed.MatchArm[];
     readonly indentedCatch: readonly Parsed.MatchArm[] | undefined;
     readonly opened: boolean;
     readonly closing: LaidOut.Token | undefined;
   } {
-    // A line at the `match`'s own column that reads as an arm is one written a
-    // step short, not a line of its own: it is read as the block's, under the
-    // block's report there, rather than as a statement drawing reports of its own.
-    if (this.#at("VClose") || (this.#at("VSep") && !this.#nextLineReadsAsArm())) {
+    // Below a `match` that begins its item, a line at its own column that reads
+    // as an arm is one written a step short, not a line of its own: it is read
+    // as the block's, under the block's report there, rather than as a
+    // statement drawing reports of its own. Below one that doesn't, such a line
+    // is the enclosing construct's: the next arm of an enclosing `match`, or a
+    // lambda the block ends with.
+    if (this.#at("VClose") || (this.#at("VSep") && !(headsItem && this.#nextLineReadsAsArm()))) {
       this.#reportEmptyBlock(EMPTY_ARM_BLOCK, head);
       return { arms: [], indentedCatch: undefined, opened: false, closing: undefined };
     }

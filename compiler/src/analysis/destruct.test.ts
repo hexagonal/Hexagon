@@ -41,9 +41,9 @@ function applied(text: string, action: CodeAction): string {
   );
 }
 
-/** The program after the one repair, and what it then reports. */
-function destructed(text: string): { readonly text: string; readonly diagnostics: readonly string[] } {
-  const [repair, ...others] = repairs(text);
+/** The program after the one repair on the `n`-th `match`, and what it then reports. */
+function destructed(text: string, n = 1): { readonly text: string; readonly diagnostics: readonly string[] } {
+  const [repair, ...others] = repairs(text, {}, n);
   expect(others).toEqual([]);
   if (repair === undefined) throw new Error("no repair offered");
   const after = applied(text, repair);
@@ -190,23 +190,35 @@ describe("destruct on a `match` with no arms", () => {
     expect(repairs(short)).toEqual([]);
   });
 
-  test("a line at its own column with a `=>` in brackets, after an `=`, or past a closing bracket is its own", () => {
+  test("a line at its own column is its own where the `match` doesn't begin its item, or the `=>` stands in brackets, after an `=`, or past a closing bracket", () => {
     for (
       const lines of [
-        ["export let f(s: Shape): Float =", "    let x = match s", "    ((y: Float) => y)(x)"],
-        ["export let f(s: Shape): Float =", "    let x = match s", "    let h = (y: Float) => y", "    h(x)"],
+        // The next arm of an enclosing `match`, in both of the head's forms.
+        ["export let f(o: Option(Shape)): Float =", "    match o", "        Some(s) => match s", "        None => 0.0"],
+        [
+          "export let f(o: Option(Bool)): Shape -> Float =",
+          "    match o",
+          "        Some(b) => match",
+          "        None => (s: Shape) => 0.0",
+        ],
+        // A lambda the block ends with.
+        ["export let f(s: Shape): Float -> Float =", "    let base = match s", "    (y: Float) => y + base"],
+        // Below a `match` that begins its item.
+        ["export let f(s: Shape): Float =", "    match s", "    ((y: Float) => y)(1.0)"],
+        ["export let f(s: Shape): Float =", "    match s", "    let h = (y: Float) => y", "    h(1.0)"],
         [
           "let run(g: () -> Float): Float = g()",
           "export let f(s: Shape): Float =",
           "    run(() =>",
-          "        let x = match s",
-          "        x) |> ((y: Float) => y)",
+          "        match s",
+          "        1.0) |> ((y: Float) => y)",
         ],
       ]
     ) {
       const text = program(...lines);
       expect(reports(text).map((report) => report.replace(/^\d+:\d+ /, ""))).toEqual(["expected an indented block of match arms"]);
-      expect(destructed(text).diagnostics).toEqual([]);
+      // The empty `match` is the last.
+      expect(destructed(text, text.split("match").length - 1).diagnostics).toEqual([]);
     }
   });
 
