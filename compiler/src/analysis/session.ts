@@ -96,6 +96,7 @@ import {
 import { selectionRangesAt } from "../queries/syntax-nodes.js";
 import { matchFunctionRefactorings } from "../queries/match-function.js";
 import { recordPunRefactorings } from "../queries/record-puns.js";
+import { matchArmRefactorings } from "../queries/match-arms.js";
 import { dotQualifiedRefactorings } from "../queries/dot-qualified.js";
 import { pipeCallRefactorings } from "../queries/pipe-calls.js";
 import { snippetOf, type Snippet } from "./snippet.js";
@@ -1091,6 +1092,7 @@ export class AnalysisSession {
             ...pipeCallRefactorings(source, parsed, range.start, range.end),
             ...matchFunctionRefactorings(source, parsed, range.start, range.end),
             ...recordPunRefactorings(source, parsed, range.start, range.end),
+            ...matchArmRefactorings(source, parsed, typed, range.start, range.end),
             ...dotQualifiedRefactorings(source, parsed, typed, range.start, range.end, {
               here: name,
               homeOf: (symbol) => analysis.homeOf(symbol),

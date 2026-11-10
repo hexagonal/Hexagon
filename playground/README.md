@@ -237,9 +237,10 @@ inlay hints (the types inference gave, a function's colour in words, and each
 regex group's number, as the language server shows them, each kind off until
 turned on in `Settings…`),
 "Expand Selection", go-to-definition, find-references, rename, refactorings
-(a pipeline and calls, a match function and its lambda, and a record's puns and
-its fields written out, each written as the other, and a dot call as its
-qualified call, offered when asked for with
+(a pipeline and calls, a match function and its lambda, a record's puns and
+its fields written out, and arms with one body and an or-pattern's arm, each
+written as the other, and a dot call as its qualified call, offered when asked
+for with
 Ctrl+. or `Refactor…`, never in the light bulb; a refused one shows greyed with
 its reason in `Refactor…` only), and read-only
 JavaScript and `.d.ts` models. This gives the
