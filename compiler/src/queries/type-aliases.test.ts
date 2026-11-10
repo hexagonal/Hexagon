@@ -195,6 +195,48 @@ describe("an alias written out at a use", () => {
       .toBe(program("import Geo", "type Point = Geo.Point", "export let f(p: Geo.Point): Float = p.x"));
   });
 
+  test("in a member's signature, where its body names another alias, above the constraint or below it (#1505)", () => {
+    // An alias means the module's types wherever it is used, so `Inner`
+    // written there means the module's `Bool` as `Pred` did.
+    const source = (inConstraint: string, inHonor: string, ...below: readonly string[]): string => program(
+      "type Pred = (Int) -> Inner",
+      "constraint Source<a> =",
+      "    type Bool",
+      `    test(value: a, p: ${inConstraint}) -> Int`,
+      "record Box = {value: Int}",
+      "honor Source<Box> =",
+      "    type Bool = String",
+      `    test(box: Box, p: ${inHonor}) = if p(1) then 1 else 0`,
+      ...below,
+    );
+    const written = "(Int) -> Inner";
+    expect(rewritten(source("Pred", "Pr‸ed", "type Inner = Bool"), WRITE_OUT_TITLE)).toBe(source("Pred", written, "type Inner = Bool"));
+    expect(rewritten(source("Pr‸ed", "Pred", "type Inner = Bool"), WRITE_OUT_TITLE)).toBe(source(written, "Pred", "type Inner = Bool"));
+    expect(rewritten(source("Pred", "Pred", "type Inner = Bool").replace("type Pred", "type P‸red"), WRITE_OUT_EVERYWHERE_TITLE))
+      .toBe(source(written, written, "type Inner = Bool").replace("type Pred = (Int) -> Inner\n", ""));
+    expect(rewritten(source("Pred", "Pr‸ed", "type Inner = Deep", "type Deep = Bool"), WRITE_OUT_TITLE))
+      .toBe(source("Pred", written, "type Inner = Deep", "type Deep = Bool"));
+    const above = (inHonor: string): string => source("Pred", inHonor).replace("type Pred", "type Inner = Bool\ntype Pred");
+    expect(rewritten(above("Pr‸ed"), WRITE_OUT_TITLE)).toBe(above(written));
+    // Where the alias written out stands below too.
+    const both = (inHonor: string): string =>
+      source("Pred", inHonor, "type Pred = (Int) -> Inner", "type Inner = Bool").replace("type Pred = (Int) -> Inner\n", "");
+    expect(rewritten(both("Pr‸ed"), WRITE_OUT_TITLE)).toBe(both(written));
+    // And in the body of an alias below that a member's signature names.
+    const outer = (use: string): string => program(
+      "type Pred = (Int) -> Bool",
+      "constraint Source<a> =",
+      "    type Bool",
+      "    test(value: a, p: Outer) -> Int",
+      "record Box = {value: Int}",
+      "honor Source<Box> =",
+      "    type Bool = String",
+      "    test(box: Box, p: Outer) = if p(1) then 1 else 0",
+      `type Outer = ${use}`,
+    );
+    expect(rewritten(outer("Pr‸ed"), WRITE_OUT_TITLE)).toBe(outer("(Int) -> Bool"));
+  });
+
   test("in a `fun` block's member", () => {
     const POINT = "type Point = (Float, Float)";
     expect(rewritten(program(POINT, "fun", "    a(p: Po‸int): Float = 1.0", "    b(p: Point): Float = a(p)"), WRITE_OUT_TITLE))
@@ -284,41 +326,6 @@ describe("an alias written out, refused", () => {
     expect(rewritten(bound("Pr‸ed"), WRITE_OUT_TITLE)).toBe(bound("(Int) -> Bool"));
   });
 
-  test("in a member's signature, where the body reaches an implied type's name through an alias declared below (#1505)", () => {
-    // The resolver reads an alias it has not reached yet with the implied
-    // types where it is used, so `Inner` there would mean the implied `Bool`.
-    const refusal = "refused: In the types `Source`'s members write, `Bool` is its implied type. The alias's body names " +
-      "`Bool` through `Inner`, declared further down, which the compiler reads there with the implied types, so written " +
-      "out here it would name that instead of the `Bool` it names now.";
-    const source = (inConstraint: string, inHonor: string, ...below: readonly string[]): string => program(
-      "type Pred = (Int) -> Inner",
-      "constraint Source<a> =",
-      "    type Bool",
-      `    test(value: a, p: ${inConstraint}) -> Int`,
-      "record Box = {value: Int}",
-      "honor Source<Box> =",
-      "    type Bool = String",
-      `    test(box: Box, p: ${inHonor}) = if p(1) then 1 else 0`,
-      ...below,
-    );
-    expect(reports(marked(source("Pred", "Pr‸ed", "type Inner = Bool")).text)).toEqual([]);
-    expect(rewritten(source("Pred", "Pr‸ed", "type Inner = Bool"), WRITE_OUT_TITLE)).toBe(refusal);
-    expect(rewritten(source("Pr‸ed", "Pred", "type Inner = Bool"), WRITE_OUT_TITLE)).toBe(refusal);
-    expect(rewritten(source("Pred", "Pred", "type Inner = Bool").replace("type Pred", "type P‸red"), WRITE_OUT_EVERYWHERE_TITLE))
-      .toBe(refusal);
-    // Through every alias below, named by the first.
-    expect(rewritten(source("Pred", "Pr‸ed", "type Inner = Deep", "type Deep = Bool"), WRITE_OUT_TITLE)).toBe(refusal);
-    // An alias above is read where it is declared, and means the module's
-    // `Bool` there too, so the body is written out.
-    const above = (inHonor: string): string => source("Pred", inHonor).replace("type Pred", "type Inner = Bool\ntype Pred");
-    expect(rewritten(above("Pr‸ed"), WRITE_OUT_TITLE)).toBe(above("(Int) -> Inner"));
-    expect(rewritten(above("Pred").replace("type Pred", "type P‸red"), WRITE_OUT_EVERYWHERE_TITLE))
-      .toBe(source("(Int) -> Inner", "(Int) -> Inner").replace("type Pred = (Int) -> Inner", "type Inner = Bool"));
-    const deep = (inHonor: string): string =>
-      source("Pred", inHonor, "type Inner = Deep").replace("type Pred", "type Deep = Bool\ntype Pred");
-    expect(rewritten(deep("Pr‸ed"), WRITE_OUT_TITLE)).toBe(deep("(Int) -> Inner"));
-  });
-
   test("in an honor's member signature, from the implied types its constraint declares, its bindings aside", () => {
     // With a binding the constraint does not declare, the name is the alias.
     const extra = (use: string): string => program(
@@ -345,11 +352,40 @@ describe("an alias written out, refused", () => {
       "honor Source<Box> =",
       "    test(box: Box, p: Pr‸ed) = 1",
     );
+    const refusal = (name: string): string =>
+      `refused: In the types \`Source\`'s members write, \`${name}\` is its implied type, so the alias's body, written ` +
+      `out here, would name that instead of the \`${name}\` it names now.`;
     expect(reports(marked(missing).text)).toEqual(["instance is missing implied type `Bool`"]);
-    expect(applied(missing, WRITE_OUT_TITLE)).toBe(
-      "refused: In the types `Source`'s members write, `Bool` is its implied type, so the alias's body, written out " +
-        "here, would name that instead of the `Bool` it names now.",
+    expect(applied(missing, WRITE_OUT_TITLE)).toBe(refusal("Bool"));
+    // And everywhere, which reads each item alone, from the file's module.
+    const only = program(
+      "type P‸red = (Int) -> Bool",
+      "constraint Source<a> =",
+      "    type Bool",
+      "    test(value: a, p: (Int) -> Int) -> Int",
+      "record Box = {value: Int}",
+      "honor Source<Box> =",
+      "    test(box: Box, p: Pred) = 1",
     );
+    expect(applied(only, WRITE_OUT_EVERYWHERE_TITLE)).toBe(refusal("Bool"));
+    // A constraint declared twice is in error, and the resolver reads the
+    // implied types of both declarations.
+    const twice = (body: string): string => program(
+      `type Pred = (Int) -> ${body}`,
+      "constraint Source<a> =",
+      "    type Bool",
+      "    test(value: a, p: (Int) -> Int) -> Int",
+      "constraint Source<a> =",
+      "    type Item",
+      "    get(value: a) -> Int",
+      "record Box = {value: Int}",
+      "honor Source<Box> =",
+      "    type Bool = String",
+      "    type Item = Int",
+      "    test(box: Box, p: Pr‸ed) = 1",
+    );
+    expect(applied(twice("Bool"), WRITE_OUT_TITLE)).toBe(refusal("Bool"));
+    expect(applied(twice("Item"), WRITE_OUT_TITLE)).toBe(refusal("Item"));
   });
 
   test("where a comment between its name and its arguments would be lost", () => {
@@ -1297,8 +1333,8 @@ describe("an alias introduced for every place its type is written", () => {
     expect(reports(marked(honored("(Int) -> Bo‸ol")).text)).toEqual([]);
     expect(titles(honored("(Int) -> Bo‸ol"))).toEqual([]);
     expect(titles(honored("(Int) -> Bool").replace("f(p: (Int) -> Bool)", "f(p: (Int) -> Bo‸ol)"))).toEqual([INTRODUCE_TITLE]);
-    // Nor where it reaches one through an alias declared below, which the
-    // resolver reads there with the implied types (#1505).
+    // But a place naming an alias is counted, above the constraint or below
+    // it: the alias means the module's types wherever it is used (#1505).
     const below = (inConstraint: string, inHonor: string, outside: string): string => program(
       "constraint Source<a> =",
       "    type Bool",
@@ -1313,11 +1349,25 @@ describe("an alias introduced for every place its type is written", () => {
     const written = "(Int) -> Inner";
     const asked = "(Int) -> Inn‸er";
     const introduced = (source: string): readonly string[] => titles(source).filter((title) => title.startsWith(INTRODUCE_TITLE));
-    expect(reports(marked(below(written, asked, written)).text)).toEqual([]);
-    expect(introduced(below(written, asked, written))).toEqual([]);
-    expect(introduced(below(asked, written, written))).toEqual([]);
-    expect(introduced(below(written, written, asked))).toEqual([INTRODUCE_TITLE]);
-    // An alias above is read where it is declared, and a record anywhere.
+    const all = introduceEverywhereTitle(3);
+    expect(introduced(below(written, asked, written))).toEqual([INTRODUCE_TITLE, all]);
+    expect(rewritten(below(written, written, asked), all))
+      .toBe(below("NewType", "NewType", "NewType").replace("module Main\n", "module Main\ntype NewType = (Int) -> Inner\n\n"));
+    // Or in the body of an alias below that a member's signature names.
+    const outer = (first: string): string => program(
+      `export let f(p: ${first}): Int = 1`,
+      "constraint Source<a> =",
+      "    type Bool",
+      "    test(value: a, p: Outer) -> Int",
+      "record Box = {value: Int}",
+      "honor Source<Box> =",
+      "    type Bool = String",
+      "    test(box: Box, p: Outer) = if p(1) then 1 else 0",
+      `type Outer = ${first.replace("‸", "")}`,
+    );
+    expect(rewritten(outer("(Int) -> Bo‸ol"), introduceEverywhereTitle(2)))
+      .toBe(outer("NewType").replace("module Main\n", "module Main\ntype NewType = (Int) -> Bool\n\n"));
+    // An alias above, and a record anywhere.
     const above = program("type Inner = Bool", "constraint Source<a> =", "    type Bool", "    test(value: a, p: (Int) -> Inn‸er) -> Int");
     expect(rewritten(above, INTRODUCE_TITLE)).toBe(program(
       "type Inner = Bool",
@@ -1329,9 +1379,6 @@ describe("an alias introduced for every place its type is written", () => {
     ));
     const record = program("constraint Source<a> =", "    type Bool", "    test(value: a, p: (Int) -> Pa‸ir) -> Int", "record Pair = {b: Bool}");
     expect(introduced(record)).toEqual([INTRODUCE_TITLE]);
-    // A cycle of aliases below is followed once.
-    const cycle = program("constraint Source<a> =", "    type Bool", "    test(value: a, p: (Int) -> Inn‸er) -> Int", "type Inner = Loop", "type Loop = Inner");
-    expect(introduced(cycle)).toEqual([INTRODUCE_TITLE]);
   });
 
   test("refused where a comment inside the type in another place would be lost", () => {

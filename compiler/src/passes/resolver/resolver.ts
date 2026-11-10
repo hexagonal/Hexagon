@@ -6619,7 +6619,7 @@ class Resolver {
         : [];
       return isResolvedTypeAlias(alias)
         ? this.#instantiateResolvedAlias(alias, arguments_, annotation.span)
-        : this.#resolveAlias(name, arguments_, annotation.span, typeParameters, impliedContext, substitutions);
+        : this.#resolveAlias(name, arguments_, annotation.span, typeParameters, substitutions);
     }
     const externType = this.#externTypeNames.get(name);
     if (externType !== undefined && publicTypeKind(Number(externType)) !== undefined) {
@@ -6930,12 +6930,18 @@ class Resolver {
     return { symbol, name: name.text, span: name.span };
   }
 
+  /**
+   * A use of an alias the item pass has not reached yet: its body read here,
+   * in place. The body names what it names where the alias is written, the
+   * module's types, never the implied types of a constraint the use stands
+   * in, so the alias reads the same above or below that constraint
+   * (Declarations Preamble §4, §7.2; #1505).
+   */
   #resolveAlias(
     name: string,
     arguments_: readonly Resolved.TypeAnnotation[],
     span: Source.Span,
     outerParameters = new Set<string>(),
-    impliedContext?: { readonly owner: string; readonly names: ReadonlySet<string> },
     outerSubstitutions: ReadonlyMap<string, Resolved.TypeAnnotation> = new Map(),
   ): Resolved.TypeAnnotation {
     const alias = this.#typeAliases.get(name);
@@ -6964,7 +6970,7 @@ class Resolver {
     const result = this.#resolveTypeAnnotation(
       alias.annotation,
       new Set([...outerParameters, ...alias.parameters.map(({ text }) => text)]),
-      impliedContext,
+      undefined,
       replacements,
     );
     this.#resolvingAliases.pop();

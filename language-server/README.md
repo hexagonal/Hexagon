@@ -668,17 +668,18 @@ the rewrite keeps the program's meaning by definition:
   copied, lost or left out of place; and in the parameters and result a
   constraint's member writes, or the parameters an honor's member writes,
   where the constraint's implied type takes a name the body writes, which
-  there would mean the implied type, as the resolver reads it. That includes
-  a name the body reaches through an alias declared further down, which the
-  resolver reads there with the implied types until it reaches its
-  declaration (#1505). A name an implied type takes there is not the alias,
-  and is not offered it; in an honor member's body it is, since an implied
-  type cannot be written in a type there (Collections Part 2 §7.3). A use of an alias another module exports
-  (`Geo.Segment`, or `Segment` through the companion fallback) is written out
-  too, each name in its body spelled as this module reaches that type: through
-  this module's import of the module that declares it, bare where the
-  companion fallback reaches it, and a prelude or compiler-owned type bare,
-  or through the prelude's module where a declaration here takes its name. An
+  there would mean the implied type, as the resolver reads it. Another alias
+  the body names means the module's types wherever it is used, above the
+  constraint or below it (Declarations Preamble §7.2), so it is written as it
+  is. A name an implied type takes there is not the alias, and is not offered
+  it; in an honor member's body it is, since an implied type cannot be
+  written in a type there (Collections Part 2 §7.3). A use of an alias
+  another module exports (`Geo.Segment`, or `Segment` through the companion
+  fallback) is written out too, each name in its body spelled as this module
+  reaches that type: through this module's import of the module that declares
+  it, bare where the companion fallback reaches it, and a prelude or
+  compiler-owned type bare, or through the prelude's module where a
+  declaration here takes its name. An
   alias the other module keeps to itself is written out in its place, since
   this module cannot name it. Refused, with the reason: naming the import,
   where this module does not import the module that declares a type the body
@@ -700,10 +701,9 @@ the rewrite keeps the program's meaning by definition:
   more than once: the alias in every place that reads as the type, laid out
   however it is and type variables matched by name, declared above the first
   of them, the one stand-in in every place. A place in a constraint's or an
-  honor's member signature that writes a name the implied type takes, or
-  reaches one through an alias declared further down, is not counted, and is
-  not offered the one-place entry either. Refused where a comment inside the type in another place would be
-  lost.
+  honor's member signature that writes a name the implied type takes is not
+  counted, and is not offered the one-place entry either. Refused where a
+  comment inside the type in another place would be lost.
 
 **Each rewrite is checked by parsing what it leaves** (`queries/same-reading.ts`):
 the top-level item the edit lies in is parsed again, and the two trees must be

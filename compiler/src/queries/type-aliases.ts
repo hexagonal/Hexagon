@@ -545,7 +545,7 @@ function writeOutEverywhereAt(
       const now = parsed?.items.find(({ span }) => span.start.offset === itemStart);
       const [use] = now === undefined ? [] : usesIn(module, now, alias);
       if (use === undefined) break;
-      const done = writeOut(new Source.File(file.id, file.path, text), parsed!, body, use, title, { module, start: item.span.start.offset });
+      const done = writeOut(new Source.File(file.id, file.path, text), parsed!, body, use, title, module);
       if (done.edit === undefined) return [done];
       text = text.slice(0, done.edit.start) + done.edit.replacement + text.slice(done.edit.end);
     }
@@ -579,13 +579,12 @@ function introduceAt(file: Source.File, module: Parsed.Module, start: number, en
 /**
  * Whether a type written in an item can be written above the item instead: a
  * name an implied type takes where a member writes its types means that type
- * there and nothing above the item, written or reached through an alias below
- * it; and a type the parser put in place of one missing has no text to move.
+ * there and nothing above the item, and a type the parser put in place of one
+ * missing has no text to move.
  */
 function movable(module: Parsed.Module, { item, type }: Place): boolean {
   const implied = impliedAt(module, item, type.span.start.offset);
-  return [...typesIn(type)].every((each) => !(each.kind === "NamedType" && each.synthesized === true)) &&
-    namesAt(module, item.span.start.offset, type).every(({ name }) => !implied.has(name));
+  return [...typesIn(type)].every((each) => !(each.kind === "NamedType" && each.synthesized === true) && !implied.has(bareName(each) ?? ""));
 }
 
 /** The name a type writes bare, unqualified, where it is a name or one applied. */
@@ -701,32 +700,23 @@ function writeOut(
   body: Body,
   use: Use,
   title: string,
-  within?: { readonly module: Parsed.Module; readonly start: number },
+  whole: Parsed.Module = module,
 ): Refactoring {
   if (body.comment) return { title, disabled: BODY_COMMENT };
   const { alias } = body;
   // Where a member writes its types a name an implied type takes means that
-  // type, so a body that writes the name, or an alias below that does, would
-  // mean another there. `within` is the file's module, where `module` holds
-  // only the item, and where the item starts in it.
+  // type, so a body that writes the name would mean another there. `whole` is
+  // the file's module, where `module` holds only the item.
   const item = module.items.find(({ span }) => holds(span, use.span.start.offset, use.span.end.offset));
-  if (item !== undefined) {
-    const { module: whole, start } = within ?? { module, start: item.span.start.offset };
-    const implied = impliedAt(whole, item, use.span.start.offset);
-    const taken = namesAt(whole, start, alias.annotation).find(({ name }) => implied.has(name));
-    if (taken !== undefined) {
-      const constraint = item.kind === "ConstraintDeclaration" ? item.name : (item as Parsed.HonorItem).constraint;
-      const { name, through } = taken;
-      return {
-        title,
-        disabled: through === undefined
-          ? `In the types \`${constraint.text}\`'s members write, \`${name}\` is its implied type, so the alias's ` +
-            `body, written out here, would name that instead of the \`${name}\` it names now.`
-          : `In the types \`${constraint.text}\`'s members write, \`${name}\` is its implied type. The alias's body ` +
-            `names \`${name}\` through \`${through}\`, declared further down, which the compiler reads there with the ` +
-            `implied types, so written out here it would name that instead of the \`${name}\` it names now.`,
-      };
-    }
+  const implied = item === undefined ? new Set<string>() : impliedAt(whole, item, use.span.start.offset);
+  const taken = [...typesIn(alias.annotation)].map(bareName).find((name) => name !== undefined && implied.has(name));
+  if (taken !== undefined) {
+    const constraint = item!.kind === "ConstraintDeclaration" ? item!.name : (item as Parsed.HonorItem).constraint;
+    return {
+      title,
+      disabled: `In the types \`${constraint.text}\`'s members write, \`${taken}\` is its implied type, so the alias's ` +
+        `body, written out here, would name that instead of the \`${taken}\` it names now.`,
+    };
   }
   const written = use.kind === "AppliedType" ? use.arguments : [];
   const regions = argumentRegions(file, module, use);
@@ -1124,46 +1114,21 @@ function impliedAt(module: Parsed.Module, item: Parsed.Item, offset: number): Re
     ? item.members.flatMap(({ value }) => value?.parameters.map(({ annotation }) => annotation) ?? [])
     : [];
   if (!written.some((type) => type !== undefined && type.span.start.offset <= offset && offset < type.span.end.offset)) return new Set();
-  // A qualified constraint's name is never one this module declares.
+  // A qualified constraint's name is never one this module declares; one
+  // declared twice is in error, and the resolver reads every declaration's.
   const declared = item.kind === "Honor"
-    ? module.items.find((each): each is Parsed.ConstraintItem =>
+    ? module.items.filter((each): each is Parsed.ConstraintItem =>
       each.kind === "ConstraintDeclaration" && each.name.text === item.constraint.text
     )
-    : undefined;
+    : [];
   const implied: readonly { readonly name: Parsed.Name }[] = item.kind === "ConstraintDeclaration"
     ? item.impliedTypes
-    : declared?.impliedTypes ?? (item.kind === "Honor" ? item.impliedTypes : []);
+    : declared.length > 0
+    ? declared.flatMap(({ impliedTypes }) => impliedTypes)
+    : item.kind === "Honor"
+    ? item.impliedTypes
+    : [];
   return new Set(implied.map(({ name }) => name.text));
-}
-
-/**
- * Each name a type writes bare, and each one written in the body of an alias
- * of this module declared below `from`, through every such alias, with the
- * first alias it is reached through. The resolver reads an alias it has not
- * reached yet where it is used, with the implied types there (#1505).
- */
-function namesAt(
-  module: Parsed.Module,
-  from: number,
-  type: Parsed.TypeAnnotation,
-): readonly { readonly name: string; readonly through?: string }[] {
-  const names: { readonly name: string; readonly through?: string }[] = [];
-  const seen = new Set<string>();
-  const walk = (written: Parsed.TypeAnnotation, through: string | undefined): void => {
-    for (const each of typesIn(written)) {
-      const name = bareName(each);
-      if (name === undefined) continue;
-      names.push(through === undefined ? { name } : { name, through });
-      const below = module.items.find((alias): alias is Parsed.TypeAliasItem =>
-        alias.kind === "TypeAlias" && alias.name.text === name && from < alias.span.start.offset
-      );
-      if (below === undefined || seen.has(name)) continue;
-      seen.add(name);
-      walk(below.annotation, through ?? name);
-    }
-  };
-  walk(type, undefined);
-  return names;
 }
 
 /** The use spanning exactly `[start, end)` in a parsed value. */
