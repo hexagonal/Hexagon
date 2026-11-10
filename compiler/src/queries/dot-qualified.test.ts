@@ -155,9 +155,16 @@ describe("a dot call written as its qualified call", () => {
       .toBe(prelude("export let n: Bool = Option.isSome(Some(1))", "import Hex.Option as O"));
   });
 
-  test("in a `fun` block's member, and as a block's last line", () => {
+  test("in a `fun` block's member, an honor group's item, and as a block's last line", () => {
     expect(rewritten(main("fun", "    g(s: Geo.Shape): Float = s.ar‸ea() + h(s)", "    h(s: Geo.Shape): Float = 1.0"), as("Geo.area")))
       .toBe(main("fun", "    g(s: Geo.Shape): Float = Geo.area(s) + h(s)", "    h(s: Geo.Shape): Float = 1.0"));
+    const group = (call: string): string => main(
+      "record Box = { s: Geo.Shape }",
+      "honor",
+      "    Show<Box> =",
+      `        show(b) = "\${${call}}"`,
+    );
+    expect(rewritten(group("b.s.ar‸ea()"), as("Geo.area"))).toBe(group("Geo.area(b.s)"));
     expect(rewritten(main("export let a(s: Geo.Shape): Float =", "    let t = s", "    t.ar‸ea()"), as("Geo.area")))
       .toBe(main("export let a(s: Geo.Shape): Float =", "    let t = s", "    Geo.area(t)"));
   });
@@ -252,10 +259,16 @@ describe("where it is refused", () => {
       .toEqual(["This module does not import `Web`, where `get` is declared. Write `import Web` first."]);
   });
 
-  test("an import below the call, which does not reach it yet", () => {
+  test("an import below the call, which does not reach it yet, named as it is written", () => {
+    const below = (line: string): string => `refused: This module's \`${line}\` stands below this call, and an import ` +
+      "is read from where it stands (Modules §3). Move it above the call first.";
     expect(rewritten(["module Main", "export let a(s: Geo.Shape): Float = s.ar‸ea()", "import Geo", ""].join("\n"), as("Geo.area")))
-      .toBe("refused: This module imports `Geo` below this call, and an import is read from where it stands (Modules §3). " +
-        "Move `import Geo` above the call first.");
+      .toBe(below("import Geo"));
+    expect(rewritten(["module Main", "export let a(s: G.Shape): Float = s.ar‸ea()", "import Geo as G", ""].join("\n"), as("G.area")))
+      .toBe(below("import Geo as G"));
+    // The prelude's own module, imported below under its own name.
+    expect(rewritten(["module Main", "export let n: Bool = Some(1).isS‸ome()", "import Hex.Option", ""].join("\n"), as("Option.isSome")))
+      .toBe(below("import Hex.Option"));
   });
 
   test("a bare call a binder in the item would capture, and not a qualified one", () => {
