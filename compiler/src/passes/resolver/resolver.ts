@@ -6933,9 +6933,11 @@ class Resolver {
   /**
    * A use of an alias the item pass has not reached yet: its body read here,
    * in place. The body names what it names where the alias is written, the
-   * module's types, never the implied types of a constraint the use stands
-   * in, so the alias reads the same above or below that constraint
-   * (Declarations Preamble §4, §7.2; #1505).
+   * module's types: an implied type's name means the implied type only inside
+   * its constraint and that constraint's honors (Collections Part 2 §6), and
+   * an alias's body is in neither. So the alias is the same type at every
+   * mention (Declarations Preamble §5.1.1), above that constraint or below it
+   * (§7.2; #1505). Its arguments, written at the use, keep the use's reading.
    */
   #resolveAlias(
     name: string,

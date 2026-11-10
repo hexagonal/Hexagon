@@ -281,8 +281,8 @@ describe("an alias written out, refused", () => {
     );
     expect(reports(marked(source("Thi‸ng")).text)).toEqual([]);
     expect(rewritten(source("Thi‸ng"), WRITE_OUT_TITLE)).toBe(refusal("Item"));
-    // And in the parameters and result an honor's member writes, which the
-    // resolver reads with the constraint's implied types; not in its body.
+    // And in the parameters an honor's member writes, which the resolver
+    // reads with the constraint's implied types; not in its body.
     const honored = (use: string): string => program(
       "type Pred = (Int) -> Bool",
       "type Check = (Int) -> Bool",
@@ -297,6 +297,23 @@ describe("an alias written out, refused", () => {
     expect(reports(marked(honored("Pr‸ed")).text)).toEqual([]);
     expect(rewritten(honored("Pr‸ed"), WRITE_OUT_TITLE)).toBe(refusal("Bool"));
     expect(rewritten(honored("Pred").replace("type Pred", "type P‸red"), WRITE_OUT_EVERYWHERE_TITLE)).toBe(refusal("Bool"));
+  });
+
+  test("but offered where the body names the implied type's name qualified, which the implied type never takes", () => {
+    const source = (inConstraint: string, inHonor: string): string => program(
+      "import Geo",
+      "type Thing = Geo.Item",
+      "constraint Source<a> =",
+      "    type Item",
+      `    get(value: a, t: ${inConstraint}) -> Int`,
+      "record Box = {value: Int}",
+      "honor Source<Box> =",
+      "    type Item = String",
+      `    get(box: Box, t: ${inHonor}) = t.x`,
+    );
+    const geo = beside("Geo", "export record Item = {x: Int}");
+    expect(rewritten(source("Thi‸ng", "Thing"), WRITE_OUT_TITLE, geo)).toBe(source("Geo.Item", "Thing"));
+    expect(rewritten(source("Thing", "Thi‸ng"), WRITE_OUT_TITLE, geo)).toBe(source("Thing", "Geo.Item"));
   });
 
   test("but not in a constraint's default body or an honor's binding, which read the module's types", () => {
