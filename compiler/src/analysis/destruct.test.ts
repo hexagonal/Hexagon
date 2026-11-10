@@ -188,6 +188,21 @@ describe("destruct on a `match` with no arms", () => {
       "6:0 expected the module layout block to close",
     ]);
     expect(repairs(short)).toEqual([]);
+    const shortFunction = program(
+      "let area: Shape -> Float =",
+      "    match",
+      "    Circle(_) => 1.0",
+      "    _ => 2.0",
+      "export let one: Float = area(Circle(1.0))",
+    );
+    expect(reports(shortFunction).map((report) => report.replace(/ —.*/, ""))).toEqual([
+      "3:4 this expression's value is discarded",
+      "4:4 expected an indented block of match arms",
+      "4:4 expected an indented block",
+      "6:0 `export` marks module-level declarations; a local binding cannot be exported",
+      "7:0 expected the module layout block to close",
+    ]);
+    expect(repairs(shortFunction)).toEqual([]);
   });
 
   test("a line at its own column is its own where the `match` doesn't begin its item, or the `=>` stands in brackets, after an `=`, or past a closing bracket", () => {
