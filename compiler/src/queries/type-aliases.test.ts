@@ -726,11 +726,6 @@ describe("an alias introduced", () => {
       .toBe(program("import Geo", "type NewType = Geo.Item", "", ...source("NewType")));
   });
 
-  test("not on a member's name where the parser put a type in place of one missing", () => {
-    // Which the parser reports.
-    expect(titles(program("constraint Area<s> =", "    ar‸ea(x: s)"))).not.toContain(INTRODUCE_TITLE);
-  });
-
   test("named for no type the module writes", () => {
     expect(rewritten(program("type NewType = Int", "export let area(s: (Float, Fl‸oat), n: NewType): Float = 1.0"), INTRODUCE_TITLE))
       .toBe(program("type NewType = Int", "type NewType2 = (Float, Float)", "", "export let area(s: NewType2, n: NewType): Float = 1.0"));
@@ -781,6 +776,8 @@ describe("an alias introduced", () => {
     const missing = program("constraint Source<a> =", "    ge‸t(value: a) ->");
     expect(reports(marked(missing).text)).toEqual(["expected a type annotation"]);
     expect(titles(missing)).not.toContain(INTRODUCE_TITLE);
+    // Or its arrow too, which the parser reports.
+    expect(titles(program("constraint Source<a> =", "    ge‸t(value: a)"))).not.toContain(INTRODUCE_TITLE);
   });
 });
 
