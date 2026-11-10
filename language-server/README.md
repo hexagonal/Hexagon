@@ -620,8 +620,10 @@ the rewrite keeps the program's meaning by definition:
   written as a dot call needs its receiver's type decided by the text (§3.1),
   which is a question for the checker. Refused, with the reason, where the dot
   reached a module this one does not import (the reason names the import to
-  write), where an import here takes a prelude module's name as its alias, and
-  where a binder in the item spells the bare name the home module would write.
+  write) or imports only below the call, since an import is read from where it
+  stands (Modules §3); where an import here takes a prelude module's name as
+  its alias; and where a binder in the item spells the bare name the home
+  module would write.
 
 **Each rewrite is checked by parsing what it leaves** (`queries/same-reading.ts`):
 the top-level item the edit lies in is parsed again, and the two trees must be

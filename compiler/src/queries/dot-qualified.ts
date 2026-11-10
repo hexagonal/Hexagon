@@ -40,8 +40,7 @@ export function dotQualifiedRefactorings(
   typed: Typed.Module,
   start: number,
   end: number,
-  /** The full name of the module that declares an operation, for the refusal that names its import. */
-  homeOf: (symbol: Resolved.SymbolId) => string | undefined,
+  homes: Homes,
 ): readonly Refactoring[] {
   const call = dotCallAt(file, module, start, end);
   if (call === undefined) return [];
@@ -49,7 +48,7 @@ export function dotQualifiedRefactorings(
   const name = callee.field.text;
   const symbol = companionOperation(typed, call);
   if (symbol === undefined) return [];
-  const spelled = spellingOf(typed, symbol, name, homeOf);
+  const spelled = spellingOf(typed, symbol, name, call.span.start.offset, homes);
   if (spelled === undefined) return [];
   if ("refused" in spelled) {
     return [{ title: `Write the dot call as \`${spelled.spelling}(…)\``, disabled: spelled.refused }];
@@ -78,14 +77,24 @@ export function dotQualifiedRefactorings(
   return [rewrite(file, module, title, call, { texts: [text], kept }, (edit) => readsAsQualified(file, module, edit, call))];
 }
 
-type DotCall = Parsed.CallExpr & { readonly callee: Parsed.AccessExpr };
+export type DotCall = Parsed.CallExpr & { readonly callee: Parsed.AccessExpr };
+
+/** What the spelling asks of the project beyond this module. */
+export interface Homes {
+  /** This module's full name (Packages §2.3). */
+  readonly here: string;
+  /** The full name of the module that declares an operation. */
+  readonly homeOf: (symbol: Resolved.SymbolId) => string | undefined;
+  /** The name this module imports a module by, as the compiler's own import repair writes it. */
+  readonly importName: (fullName: string) => string;
+}
 
 /**
  * The dot call whose dot or name holds `[start, end]`: a call of `e.name`
  * written with its argument list straight after (Method Syntax §2.1). A field
  * read in parentheses, `(e.name)(…)`, is not one, and its callee is a group.
  */
-function dotCallAt(file: Source.File, module: Parsed.Module, start: number, end: number): DotCall | undefined {
+export function dotCallAt(file: Source.File, module: Parsed.Module, start: number, end: number): DotCall | undefined {
   let found: DotCall | undefined;
   const walk = (node: unknown): void => {
     if (found !== undefined) return;
@@ -141,27 +150,28 @@ function companionOperation(typed: Typed.Module, call: DotCall): Resolved.Symbol
 }
 
 /**
- * How this module spells the operation qualified: through the import whose
- * alias reaches the home module (Modules §3.1), or the prelude module's own
- * name where no import's alias takes it (§5.4); bare in the home module itself.
- * Refused, with the spelling it would have had, where this module has no name
- * for it: the dot reached a module no import here brings (Method Syntax
- * §8.2), or a prelude module whose name an import here gives another.
+ * How this module spells the operation qualified at `at`: through an import
+ * above it whose alias reaches the home module (Modules §3.1; an alias is read
+ * top-down in term position, §3), or the prelude module's own name where no
+ * import's alias takes it (§5.4); bare in the home module itself. Refused, with
+ * the spelling it would have had, where this module has no name for it there:
+ * the dot reached a module no import here brings (Method Syntax §8.2) or one
+ * imported only below the call, or a prelude module whose name an import here
+ * gives another.
  */
 function spellingOf(
   typed: Typed.Module,
   symbol: Resolved.SymbolId,
   name: string,
-  homeOf: (symbol: Resolved.SymbolId) => string | undefined,
+  at: number,
+  homes: Homes,
 ): { readonly spelling: string; readonly refused?: string } | undefined {
   const imports = typed.items.filter((item): item is Typed.ImportItem => item.kind === "Import");
-  for (const { form } of imports) {
-    if (form.kind === "Namespace" && form.names.some((each) => each.symbol === symbol)) {
-      return { spelling: `${form.alias}.${name}` };
-    }
-  }
+  const bringing = imports.filter(({ form }) => form.kind === "Namespace" && form.names.some((each) => each.symbol === symbol));
+  const above = bringing.find(({ span }) => span.end.offset <= at);
+  if (above?.form.kind === "Namespace") return { spelling: `${above.form.alias}.${name}` };
   for (const { form, moduleName } of imports) {
-    if (!form.names.some((each) => each.symbol === symbol)) continue;
+    if (form.kind !== "Named" || !form.names.some((each) => each.symbol === symbol)) continue;
     // A prelude member is addressable by its full name's last segment,
     // `Hex.Vector` as `Vector`, where no import's alias claims it (§5.4).
     const alias = moduleName.split(".").at(-1)!;
@@ -173,11 +183,17 @@ function spellingOf(
         `would not reach the prelude's \`${alias}\`.`,
     };
   }
-  if (!typed.companionImports.some((each) => each.symbol === symbol)) return { spelling: name };
-  const home = homeOf(symbol);
-  return home === undefined ? undefined : {
-    spelling: `${home.split(".").at(-1)}.${name}`,
-    refused: `This module does not import \`${home}\`, where \`${name}\` is declared. Write \`import ${home}\` first.`,
+  const home = homes.homeOf(symbol);
+  if (home === undefined) return undefined;
+  if (home === homes.here) return { spelling: name };
+  const spelling = `${home.split(".").at(-1)}.${name}`;
+  const imported = homes.importName(home);
+  return {
+    spelling,
+    refused: bringing.length > 0
+      ? `This module imports \`${imported}\` below this call, and an import is read from where it stands (Modules §3). ` +
+        `Move \`import ${imported}\` above the call first.`
+      : `This module does not import \`${imported}\`, where \`${name}\` is declared. Write \`import ${imported}\` first.`,
   };
 }
 
@@ -224,9 +240,10 @@ function openParen(file: Source.File, module: Parsed.Module, call: DotCall): num
 /**
  * Whether the edited item reads as before with the dot call read as the
  * qualified call it is: the new call's arguments the dot call's receiver and
- * then its arguments, its mark the dot call's.
+ * then its arguments, its mark the dot call's. Exported, with `dotCallAt`, for
+ * its tests, which hand it edits the rewrite never writes.
  */
-function readsAsQualified(file: Source.File, module: Parsed.Module, edit: TextEdit, call: DotCall): boolean {
+export function readsAsQualified(file: Source.File, module: Parsed.Module, edit: TextEdit, call: DotCall): boolean {
   return keepsReadingWith(file, module, edit, call.span, (before, after) => {
     // The call written spans the replacement, so its callee is the spelling
     // and nothing else, and its mark is read with the rest of it.
