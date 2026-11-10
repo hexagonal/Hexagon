@@ -178,6 +178,38 @@ describe("destruct on a `match` with no arms", () => {
     ]);
   });
 
+  test("arms written at the `match`'s own column are read as its block's", () => {
+    // A line there that reads as an arm, a `=>` outside brackets before any
+    // `=`, is one written a step short, not a line of its own.
+    const short = program("export let f(s: Shape): Float =", "    match s", "    Circle(_) => 1.0", "    _ => 2.0");
+    expect(reports(short)).toEqual([
+      "4:4 expected an indented block of match arms",
+      "4:4 expected an indented block",
+      "6:0 expected the module layout block to close",
+    ]);
+    expect(repairs(short)).toEqual([]);
+  });
+
+  test("a line at its own column with a `=>` in brackets, after an `=`, or past a closing bracket is its own", () => {
+    for (
+      const lines of [
+        ["export let f(s: Shape): Float =", "    let x = match s", "    ((y: Float) => y)(x)"],
+        ["export let f(s: Shape): Float =", "    let x = match s", "    let h = (y: Float) => y", "    h(x)"],
+        [
+          "let run(g: () -> Float): Float = g()",
+          "export let f(s: Shape): Float =",
+          "    run(() =>",
+          "        let x = match s",
+          "        x) |> ((y: Float) => y)",
+        ],
+      ]
+    ) {
+      const text = program(...lines);
+      expect(reports(text).map((report) => report.replace(/^\d+:\d+ /, ""))).toEqual(["expected an indented block of match arms"]);
+      expect(destructed(text).diagnostics).toEqual([]);
+    }
+  });
+
   test("not on a vector's lengths, a case this module cannot spell, or where `Debug` is not the prelude's", () => {
     expect(repairs(program("export let f(v: Vector(Int)): Int =", "    match v"))).toEqual([]);
     const flags = {

@@ -6964,6 +6964,27 @@ class Parser {
   }
 
   /**
+   * Whether the line after the separator at hand reads as a `match` arm: a
+   * `=>` stands in it outside brackets before any `=` does, as in `Circle(_)
+   * => 1.0` and not in `let h = x => x`. (A bracket it closes that opened
+   * before the line closes a block first, which ends the line here.)
+   */
+  #nextLineReadsAsArm(): boolean {
+    let depth = 0;
+    for (let index = this.#index + 1; index < this.#tokens.length; index += 1) {
+      const { kind } = this.#tokens[index]!;
+      if (kind === "LeftParen" || kind === "LeftBracket" || kind === "LeftBrace") depth += 1;
+      else if (kind === "RightParen" || kind === "RightBracket" || kind === "RightBrace") depth -= 1;
+      else if (depth > 0) continue;
+      else if (kind === "FatArrow") return true;
+      else if (kind === "Equal" || kind === "VSep" || kind === "VOpen" || kind === "VClose" || kind === "Eof") {
+        return false;
+      }
+    }
+    return false;
+  }
+
+  /**
    * A `match`'s block of arms, shared by both of the head's forms (Pattern
    * Matching §6.1 and §6.7).
    *
@@ -6979,7 +7000,10 @@ class Parser {
     readonly opened: boolean;
     readonly closing: LaidOut.Token | undefined;
   } {
-    if (this.#at("VSep") || this.#at("VClose")) {
+    // A line at the `match`'s own column that reads as an arm is one written a
+    // step short, not a line of its own: it is read as the block's, under the
+    // block's report there, rather than as a statement drawing reports of its own.
+    if (this.#at("VClose") || (this.#at("VSep") && !this.#nextLineReadsAsArm())) {
       this.#reportEmptyBlock(EMPTY_ARM_BLOCK, head);
       return { arms: [], indentedCatch: undefined, opened: false, closing: undefined };
     }
