@@ -376,6 +376,16 @@ describe("another module's alias written out where it is imported", () => {
     const through = { ...point, ...beside("Geo", "import Point", "export type Segment = (Point, Point)") };
     const source = (type: string): string => program("import Geo", "import Point", "record Point = { y: Int }", `export let run(s: ${type}): Unit = ()`);
     expect(rewritten(source("Geo.Seg‸ment"), WRITE_OUT_TITLE, through)).toBe(source("(Point.Point, Point.Point)"));
+    // Or a constraint's implied type.
+    const implied = (type: string): string => program(
+      "import Geo",
+      "import Point",
+      "constraint Source<a> =",
+      "    type Point",
+      "    get(value: a) -> Point",
+      `export let run(s: ${type}): Unit = ()`,
+    );
+    expect(rewritten(implied("Geo.Seg‸ment"), WRITE_OUT_TITLE, through)).toBe(implied("(Point.Point, Point.Point)"));
   });
 
   test("a prelude type its module names, where an import there takes the name but brings no such type", () => {
@@ -384,6 +394,13 @@ describe("another module's alias written out where it is imported", () => {
     const source = (type: string): string => program("import Geo", `export let run(s: ${type}): Unit = ()`);
     expect(rewritten(source("Geo.May‸be"), WRITE_OUT_TITLE, geo)).toBe(source("Option(Int)"));
     expect(rewritten(source("Geo.In‸ts"), WRITE_OUT_TITLE, geo)).toBe(source("Seq(Int)"));
+    // An import of a module the program does not have brings nothing, though its module reports it.
+    const nowhere = beside("Geo", "import Nowhere as Option", "export type Maybe = Option(Int)");
+    const action = offered(source("Geo.May‸be"), nowhere).get(WRITE_OUT_TITLE);
+    expect(action?.disabled).toBeUndefined();
+    const { text } = marked(source("Geo.May‸be"));
+    const [edit] = action!.edits;
+    expect(text.slice(0, edit!.span.start.offset) + edit!.replacement + text.slice(edit!.span.end.offset)).toBe(source("Option(Int)"));
   });
 
   test("an extern type it names, through the module that declares it", () => {
@@ -401,10 +418,10 @@ describe("another module's alias written out where it is imported", () => {
   test("not this module's alias of the same name, nor that one as the other module's", () => {
     const geo = beside("Geo", "export type Point = (Float, Float)", "export type Pair(a) = (a, a)");
     const source = (first: string, second: string): string =>
-      program("import Geo", "type Point = (Int, Int)", "type Pair(a) = (a, Int)", `export let area(s: ${first}, t: ${second}): Float = 1.0`);
+      program("import Geo", "type Point = (Int, Int)", "type Pair(a) = (a, String)", `export let area(s: ${first}, t: ${second}): Float = 1.0`);
     expect(rewritten(source("Geo.Po‸int", "Pair(Int)"), WRITE_OUT_TITLE, geo)).toBe(source("(Float, Float)", "Pair(Int)"));
     expect(rewritten(source("Geo.Pa‸ir(Int)", "Pair(Int)"), WRITE_OUT_TITLE, geo)).toBe(source("(Int, Int)", "Pair(Int)"));
-    expect(rewritten(source("Geo.Point", "Pa‸ir(Int)"), WRITE_OUT_TITLE, geo)).toBe(source("Geo.Point", "(Int, Int)"));
+    expect(rewritten(source("Geo.Point", "Pa‸ir(Int)"), WRITE_OUT_TITLE, geo)).toBe(source("Geo.Point", "(Int, String)"));
   });
 });
 
@@ -481,6 +498,7 @@ describe("another module's alias written out, not offered", () => {
       ["type A = B", "type B = A", "export type Alias = A"],
       ["type Inner(x) = (x, x)", "export type Alias = Inner"],
       ["export type Alias = Nope"],
+      ["import Nowhere", "export type Alias = (Nowhere.Thing, Int)"],
       ["import Point", "constraint Source<a> =", "    type Point", "    get(value: a) -> Point", "export type Alias = (Point, Point)"],
     ];
     const point = beside("Point", "export record Point = { x: Float }");
@@ -701,6 +719,16 @@ describe("an alias introduced", () => {
   test("above a constraint, for a type in a member's signature", () => {
     expect(rewritten(program("constraint Area<s> =", "    area(x: s, at: (Int, I‸nt)) -> Int"), INTRODUCE_TITLE))
       .toBe(program("type NewType = (Int, Int)", "", "constraint Area<s> =", "    area(x: s, at: NewType) -> Int"));
+    // Another module's type of the name an implied type takes.
+    const geo = beside("Geo", "export record Item = { i: Int }");
+    const source = (type: string): readonly string[] => ["constraint Source<a> =", "    type Item", `    get(value: a, other: ${type}) -> Item`];
+    expect(rewritten(program("import Geo", ...source("Geo.It‸em")), INTRODUCE_TITLE, geo))
+      .toBe(program("import Geo", "type NewType = Geo.Item", "", ...source("NewType")));
+  });
+
+  test("not on a member's name where the parser put a type in place of one missing", () => {
+    // Which the parser reports.
+    expect(titles(program("constraint Area<s> =", "    ar‸ea(x: s)"))).not.toContain(INTRODUCE_TITLE);
   });
 
   test("named for no type the module writes", () => {
@@ -910,6 +938,12 @@ describe("the check of what an introduced alias leaves", () => {
     expect(reads("type NewType = (Float, Float)", "Float")).toBe(false);
     expect(reads("type NewType = (Float, Float)\n// note", "NewType")).toBe(false);
     expect(reads("type NewType = (Float, Float)\n(** note *)", "NewType")).toBe(false);
+  });
+
+  test("nor an alias not written where the type was", () => {
+    const replacement = `type NewType = (Float, Float)\n\n${text.slice(start, end)}`;
+    const name = replacement.indexOf("area");
+    expect(readsIntroduced(file, { start, end, replacement }, to, "NewType", [[name, name + "area".length]])).toBe(false);
   });
 
   test("nor a documentation comment moved onto the alias", () => {

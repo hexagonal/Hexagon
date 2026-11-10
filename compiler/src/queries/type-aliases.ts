@@ -301,7 +301,7 @@ class Speller {
   body(home: Home, alias: Parsed.TypeAliasItem, parameters: ReadonlyMap<string, Spelled>, depth: number): Spelled {
     // A cycle of aliases does not compile, and is not followed round.
     if (depth === 32) throw new Refused(undefined);
-    const { start, end } = solid(home.source, alias.annotation.span);
+    const { start, end } = offsets(alias.annotation.span);
     if (home.parsed.comments.some(({ span }) => start <= span.start.offset && span.end.offset <= end)) {
       throw new Refused(BODY_COMMENT);
     }
@@ -358,7 +358,7 @@ class Speller {
       }
     };
     const tree = rebuilt(type);
-    const { start, end } = solid(home.source, type.span);
+    const { start, end } = offsets(type.span);
     const segments: (string | { readonly parameter: number })[] = [];
     let at = start;
     for (const replacement of replacements) {
@@ -442,6 +442,8 @@ class Speller {
    * it cannot.
    */
   #through(declaring: string, name: string): string {
+    // A module the program does not have, which `home` reports.
+    if (this.#abroad.moduleNamed(declaring) === undefined) throw new Refused(undefined);
     const display = this.#abroad.importName(declaring);
     if (!this.#exports(declaring, name)) {
       throw new Refused(`\`${this.#use}\` names \`${name}\`, which \`${display}\` does not export, so this module cannot write it.`);
@@ -454,6 +456,11 @@ class Speller {
         `Write \`import ${display}\` first.`,
     );
   }
+}
+
+/** A type's span as offsets: it starts and ends at a character of the type. */
+function offsets(span: Source.Span): { readonly start: number; readonly end: number } {
+  return { start: span.start.offset, end: span.end.offset };
 }
 
 /** Where an applied type's own text ends: at the parenthesis that closes its arguments. */
@@ -572,7 +579,7 @@ function introduced(
   title: string,
 ): Refactoring {
   const inside = (span: Source.Span): boolean => {
-    const { start, end } = solid(file, span);
+    const { start, end } = offsets(span);
     return module.comments.some((comment) => start <= comment.span.start.offset && comment.span.end.offset <= end);
   };
   if (inside(type.span)) {
@@ -592,7 +599,7 @@ function introduced(
   const used: (readonly [number, number])[] = [];
   let from = at;
   for (const place of places) {
-    const { start, end } = solid(file, place.type.span);
+    const { start, end } = offsets(place.type.span);
     replacement += file.text.slice(from, start);
     used.push([replacement.length, replacement.length + name.length + applied.length]);
     placeholders.push({ start: replacement.length, end: replacement.length + name.length, stop: 1 });
@@ -737,7 +744,7 @@ interface Body {
 }
 
 function bodyOf(file: Source.File, module: Parsed.Module, alias: Parsed.TypeAliasItem): Body {
-  const { start, end } = solid(file, alias.annotation.span);
+  const { start, end } = offsets(alias.annotation.span);
   const variables = [...typesIn(alias.annotation)].filter((each): each is Parsed.TypeVariable => each.kind === "TypeVariable");
   // A variable's own span takes in parentheses written around it; its name's does not.
   const pieces: string[] = [];
@@ -910,7 +917,7 @@ function typeAt(
   const selected = file.text.slice(from, to);
   return written.flatMap(({ item, type }) => [...typesIn(type)].map((each) => ({ item, type: each })))
     .find(({ type }) =>
-      (type.span.start.offset === from && solid(file, type.span).end === to) ||
+      (type.span.start.offset === from && type.span.end.offset === to) ||
       (holds(type.span, from, to) && selected === ungrouped(file, type))
     );
 }
