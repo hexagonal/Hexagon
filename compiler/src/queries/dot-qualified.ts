@@ -48,7 +48,7 @@ export function dotQualifiedRefactorings(
   const name = callee.field.text;
   const symbol = companionOperation(typed, call);
   if (symbol === undefined) return [];
-  const spelled = spellingOf(typed, symbol, name, call.span.start.offset, homes);
+  const spelled = spellingOf(file, typed, symbol, name, call.span.start.offset, homes);
   if (spelled === undefined) return [];
   if ("refused" in spelled) {
     return [{ title: `Write the dot call as \`${spelled.spelling}(…)\``, disabled: spelled.refused }];
@@ -156,10 +156,11 @@ function companionOperation(typed: Typed.Module, call: DotCall): Resolved.Symbol
  * import's alias takes it (§5.4); bare in the home module itself. Refused, with
  * the spelling it would have had, where this module has no name for it there:
  * the dot reached a module no import here brings (Method Syntax §8.2) or one
- * imported only below the call, or a prelude module whose name an import here
- * gives another.
+ * imported only below the call, the prelude's own modules included, or a
+ * prelude module whose name an import here gives another.
  */
 function spellingOf(
+  file: Source.File,
   typed: Typed.Module,
   symbol: Resolved.SymbolId,
   name: string,
@@ -177,23 +178,31 @@ function spellingOf(
     const alias = moduleName.split(".").at(-1)!;
     const spelling = `${alias}.${name}`;
     const taken = imports.find(({ form }) => form.kind === "Namespace" && form.alias === alias);
-    return taken === undefined ? { spelling } : {
+    if (taken === undefined) return { spelling };
+    // Taken by an import of this module itself, below the call: moving it up is the fix.
+    if (bringing.includes(taken)) break;
+    return {
       spelling,
       refused: `\`${alias}\` here names \`${taken.moduleName}\`, imported as \`${alias}\`, so \`${spelling}(…)\` ` +
         `would not reach the prelude's \`${alias}\`.`,
     };
   }
+  const [below] = bringing;
+  if (below?.form.kind === "Namespace") {
+    const line = textOf(file, below.span);
+    return {
+      spelling: `${below.form.alias}.${name}`,
+      refused: `This module's \`${line}\` stands below this call, and an import is read from where it stands ` +
+        `(Modules §3). Move it above the call first.`,
+    };
+  }
   const home = homes.homeOf(symbol);
   if (home === undefined) return undefined;
   if (home === homes.here) return { spelling: name };
-  const spelling = `${home.split(".").at(-1)}.${name}`;
   const imported = homes.importName(home);
   return {
-    spelling,
-    refused: bringing.length > 0
-      ? `This module imports \`${imported}\` below this call, and an import is read from where it stands (Modules §3). ` +
-        `Move \`import ${imported}\` above the call first.`
-      : `This module does not import \`${imported}\`, where \`${name}\` is declared. Write \`import ${imported}\` first.`,
+    spelling: `${home.split(".").at(-1)}.${name}`,
+    refused: `This module does not import \`${imported}\`, where \`${name}\` is declared. Write \`import ${imported}\` first.`,
   };
 }
 

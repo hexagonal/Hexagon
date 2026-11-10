@@ -218,6 +218,24 @@ describe("calls written as a pipeline", () => {
     expect(asPipeline("let c = true\nlet a = ‸f(1 + if c then 2 else 3)")).toBe("let c = true\nlet a = (1 + if c then 2 else 3) |> f");
   });
 
+  test("parenthesized as well in a `fun` block's member and an honor group's item, read from their heads", () => {
+    const value = "b.n + if c then 2 else 3";
+    const member = (call: string): string =>
+      `let c = true\nfun\n    g(n: Int): Int = n\n    h(b: {n: Int}): Int =\n        let a = ${call}\n        a\n`;
+    expect(asPipeline(member(`‸f(${value})`))).toBe(member(`(${value}) |> f`));
+    const group = (call: string): string => [
+      "let c = true",
+      "record Box = { n: Int }",
+      "honor",
+      "    Show<Box> =",
+      "        show(b) =",
+      `            let a = ${call}`,
+      '            "${a}"',
+      "",
+    ].join("\n");
+    expect(asPipeline(group(`‸f(${value})`))).toBe(group(`(${value}) |> f`));
+  });
+
   test("a first value that reaches to the right, or binds looser, is parenthesized", () => {
     expect(asPipeline("let b(x: Bool): Bool = x\nlet a = ‸b(not true)")).toBe("let b(x: Bool): Bool = x\nlet a = (not true) |> b");
     expect(asPipeline("let apply(k: Int -> Int, x: Int): Int = k(x)\nlet a = app‸ly(x => x + 1, 2)"))
