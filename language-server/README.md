@@ -663,13 +663,14 @@ the rewrite keeps the program's meaning by definition:
   honor's subject; where another item shares its line, the declaration goes
   with the `;` between them. Refused, with the reason, where a `_` given for a
   parameter the body writes twice would become two types, since one written
-  hole is one type through the alias; where a comment in the body or the
-  declaration would be copied or lost; and in a constraint's members, where
-  its implied type takes a name the body writes, which there would mean the
-  implied type. A name a constraint's implied type takes in that constraint's
-  members is not the alias, and is not offered it; in an honor's body it is,
-  since an implied type cannot be written in a type there (Collections Part 2
-  §7.3). A use of an alias another module exports
+  hole is one type through the alias; where a comment in the body, on the
+  declaration or beside it would be copied, lost or left out of place; and in
+  the parameters and result a constraint's member writes, or an honor's, where
+  the constraint's implied type takes a name the body writes, which there
+  would mean the implied type, as the resolver reads it. A name an implied
+  type takes there is not the alias, and is not offered it; in an honor
+  member's body it is, since an implied type cannot be written in a type
+  there (Collections Part 2 §7.3). A use of an alias another module exports
   (`Geo.Segment`, or `Segment` through the companion fallback) is written out
   too, each name in its body spelled as this module reaches that type: through
   this module's import of the module that declares it, bare where the
@@ -695,9 +696,10 @@ the rewrite keeps the program's meaning by definition:
   alias for its 3 places** stands beside it where the module writes the type
   more than once: the alias in every place that reads as the type, laid out
   however it is and type variables matched by name, declared above the first
-  of them, the one stand-in in every place. A place in a constraint's member
-  that writes a name its implied type takes is not counted. Refused where a
-  comment inside the type in another place would be lost.
+  of them, the one stand-in in every place. A place in a constraint's or an
+  honor's member signature that writes a name the implied type takes is not
+  counted. Refused where a comment inside the type in another place would be
+  lost.
 
 **Each rewrite is checked by parsing what it leaves** (`queries/same-reading.ts`):
 the top-level item the edit lies in is parsed again, and the two trees must be
