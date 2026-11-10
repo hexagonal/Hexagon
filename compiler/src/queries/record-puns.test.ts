@@ -37,14 +37,14 @@ const OUTS = "Write the puns out";
 const pun = (name: string): string => `Write the field \`${name}\` as a pun`;
 const out = (name: string): string => `Write the pun \`${name}\` out`;
 
-/** The refactorings offered at the mark, by title. */
+/** The pun refactorings offered at the mark, by title. */
 function offered(body: string): ReadonlyMap<string, CodeAction> {
   const { text, start, end } = marked(PRELUDE + body);
   const session = new AnalysisSession();
   session.setFile("/main.hex", text);
   return new Map(
     session.codeActions("/main.hex", { start, end }, { invoked: true })
-      .filter(({ kind }) => kind === "refactor")
+      .filter(({ kind, title }) => kind === "refactor" && /\bpuns?\b/.test(title))
       .map((action) => [action.title, action]),
   );
 }

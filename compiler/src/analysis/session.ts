@@ -97,6 +97,7 @@ import { selectionRangesAt } from "../queries/syntax-nodes.js";
 import { matchFunctionRefactorings } from "../queries/match-function.js";
 import { recordPunRefactorings } from "../queries/record-puns.js";
 import { matchArmRefactorings } from "../queries/match-arms.js";
+import { typeAliasRefactorings } from "../queries/type-aliases.js";
 import { dotQualifiedRefactorings } from "../queries/dot-qualified.js";
 import { pipeCallRefactorings } from "../queries/pipe-calls.js";
 import { snippetOf, type Snippet } from "./snippet.js";
@@ -1080,7 +1081,7 @@ export class AnalysisSession {
       // parsing what it leaves (`queries/same-reading.ts`). Only when asked:
       // nearly every line has a call, so offered unasked they would light the
       // editor's bulb on every line.
-      for (const { source, parsed, typed, name } of request.invoked === true ? analysis.modulesIn(normalized) : []) {
+      for (const { source, parsed, resolved, typed, name } of request.invoked === true ? analysis.modulesIn(normalized) : []) {
         // Destruct on a variable or `_` in an arm's pattern: the arm once per
         // case that reaches it there (the checker's `destructSplits`).
         for (const { fix } of destructSplits(typed, range.start, range.end)) {
@@ -1093,6 +1094,11 @@ export class AnalysisSession {
             ...matchFunctionRefactorings(source, parsed, range.start, range.end),
             ...recordPunRefactorings(source, parsed, range.start, range.end),
             ...matchArmRefactorings(source, parsed, typed, range.start, range.end),
+            ...typeAliasRefactorings(source, parsed, range.start, range.end, {
+              resolved,
+              moduleNamed: (fullName) => analysis.moduleNamed(fullName),
+              importName: (fullName) => displayModuleName(fullName, this.#packageNameOf(normalized)),
+            }),
             ...dotQualifiedRefactorings(source, parsed, typed, range.start, range.end, {
               here: name,
               homeOf: (symbol) => analysis.homeOf(symbol),
@@ -1100,19 +1106,23 @@ export class AnalysisSession {
             }),
           ]
         ) {
-          actions.push(
-            refactoring.edit === undefined
-              ? { title: refactoring.title, kind: "refactor", edits: [], disabled: refactoring.disabled }
-              : {
-                title: refactoring.title,
-                kind: "refactor",
-                edits: [{
-                  path: normalized,
-                  span: source.span(refactoring.edit.start, refactoring.edit.end),
-                  replacement: refactoring.edit.replacement,
-                }],
-              },
-          );
+          if (refactoring.edit === undefined) {
+            actions.push({ title: refactoring.title, kind: "refactor", edits: [], disabled: refactoring.disabled });
+            continue;
+          }
+          const { edit, elsewhere = [], placeholders } = refactoring;
+          const span = source.span(edit.start, edit.end);
+          const snippet = placeholders === undefined
+            ? undefined
+            : snippetOf(source, { span, replacement: edit.replacement, placeholders });
+          actions.push({
+            title: refactoring.title,
+            kind: "refactor",
+            edits: [
+              { path: normalized, span, replacement: edit.replacement, ...(snippet === undefined ? {} : { snippet }) },
+              ...elsewhere.map(({ start, end, replacement }) => ({ path: normalized, span: source.span(start, end), replacement })),
+            ],
+          });
         }
       }
     }
@@ -2124,6 +2134,11 @@ class Analysis {
    */
   modulesIn(path: string): readonly CompiledModule[] {
     return this.#modulesByPath.get(path) ?? [];
+  }
+
+  /** The module of this full name (Packages §2.3), where the program has one. */
+  moduleNamed(fullName: string): CompiledModule | undefined {
+    return this.#modules.find(({ name }) => name === fullName);
   }
 
   /**

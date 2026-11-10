@@ -7927,7 +7927,7 @@ class Parser {
           ...(qualifier === undefined ? {} : { qualifier }),
           constructor: name,
           arguments: arguments_,
-          span: spanFrom(name.span, closing?.span ?? arguments_.at(-1)?.span ?? name.span),
+          span: spanFrom(qualifier?.span ?? name.span, closing?.span ?? arguments_.at(-1)?.span ?? name.span),
         },
       };
     }

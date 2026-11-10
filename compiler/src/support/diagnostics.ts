@@ -26,6 +26,13 @@ export interface Edit {
 export interface Placeholder {
   readonly start: number;
   readonly end: number;
+  /**
+   * The stop this stand-in shares with the others that write one name, so the
+   * dev types it once and each place takes it: a name declared and used in one
+   * edit. Absent, each stand-in is a stop of its own, in order. An edit's
+   * stand-ins either all name their stop or none does.
+   */
+  readonly stop?: number;
 }
 
 export interface Fix {

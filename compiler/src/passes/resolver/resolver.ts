@@ -6619,7 +6619,7 @@ class Resolver {
         : [];
       return isResolvedTypeAlias(alias)
         ? this.#instantiateResolvedAlias(alias, arguments_, annotation.span)
-        : this.#resolveAlias(name, arguments_, annotation.span, typeParameters, impliedContext, substitutions);
+        : this.#resolveAlias(name, arguments_, annotation.span, typeParameters, substitutions);
     }
     const externType = this.#externTypeNames.get(name);
     if (externType !== undefined && publicTypeKind(Number(externType)) !== undefined) {
@@ -6930,12 +6930,20 @@ class Resolver {
     return { symbol, name: name.text, span: name.span };
   }
 
+  /**
+   * A use of an alias the item pass has not reached yet: its body read here,
+   * in place. The body names what it names where the alias is written, the
+   * module's types: an implied type's name means the implied type only inside
+   * its constraint and that constraint's honors (Collections Part 2 §6), and
+   * an alias's body is in neither. So the alias is the same type at every
+   * mention (Declarations Preamble §5.1.1), above that constraint or below it
+   * (§7.2; #1505). Its arguments, written at the use, keep the use's reading.
+   */
   #resolveAlias(
     name: string,
     arguments_: readonly Resolved.TypeAnnotation[],
     span: Source.Span,
     outerParameters = new Set<string>(),
-    impliedContext?: { readonly owner: string; readonly names: ReadonlySet<string> },
     outerSubstitutions: ReadonlyMap<string, Resolved.TypeAnnotation> = new Map(),
   ): Resolved.TypeAnnotation {
     const alias = this.#typeAliases.get(name);
@@ -6964,7 +6972,7 @@ class Resolver {
     const result = this.#resolveTypeAnnotation(
       alias.annotation,
       new Set([...outerParameters, ...alias.parameters.map(({ text }) => text)]),
-      impliedContext,
+      undefined,
       replacements,
     );
     this.#resolvingAliases.pop();
@@ -8522,7 +8530,7 @@ class Resolver {
   }
 }
 
-function isPrimitiveName(name: string): name is Resolved.PrimitiveName {
+export function isPrimitiveName(name: string): name is Resolved.PrimitiveName {
   return ["Nat", "Int", "Float", "String", "BigInt", "Exn", "Unit"].includes(name);
 }
 

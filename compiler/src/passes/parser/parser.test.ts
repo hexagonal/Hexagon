@@ -184,6 +184,14 @@ describe("parse", () => {
     expect(module.diagnostics).toEqual([]);
   });
 
+  test("spans a qualified type from its qualifier, applied or not", () => {
+    const text = "let pair: Api.Pair(Int) = (1, 2)\nlet token: Api.Token = t";
+    const [pair, token] = parseSource(text).items.map((item) => (item as { readonly annotation: { readonly span: Source.Span } }).annotation.span);
+    const written = HEADER + text;
+    expect(written.slice(pair!.start.offset, pair!.end.offset)).toBe("Api.Pair(Int)");
+    expect(written.slice(token!.start.offset, token!.end.offset)).toBe("Api.Token");
+  });
+
   test("parses module items with the specified arithmetic precedence", () => {
     const module = parseSource("let answer = 1 + 2 * 3 ** 2\nprint(answer)");
 

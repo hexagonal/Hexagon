@@ -5,13 +5,22 @@
  * does or where a comment would be lost.
  */
 
+import type * as Diagnostics from "../support/diagnostics.js";
 import * as Source from "../support/source.js";
 import type * as Parsed from "../syntax/parsed/index.js";
 import { keepsReading, type TextEdit } from "./same-reading.js";
 
 /** A refactoring offered at a place: its edit, or why it is refused there. */
 export type Refactoring =
-  | { readonly title: string; readonly edit: TextEdit; readonly disabled?: undefined }
+  | {
+    readonly title: string;
+    readonly edit: TextEdit;
+    /** Edits elsewhere in the file, applied with `edit`; none overlaps another. */
+    readonly elsewhere?: readonly TextEdit[];
+    /** The stand-ins `edit`'s replacement writes for the dev to type over, as offsets into it. */
+    readonly placeholders?: readonly Diagnostics.Placeholder[];
+    readonly disabled?: undefined;
+  }
   | { readonly title: string; readonly edit?: undefined; readonly disabled: string };
 
 export interface Written {

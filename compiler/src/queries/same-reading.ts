@@ -140,7 +140,8 @@ export function replaced(value: unknown, node: object, by: object): unknown {
   return copy;
 }
 
-function parsedText(file: Source.File, text: string): readonly Parsed.Module[] {
+/** A text parsed alone, as a file with the module's file's identity. */
+export function parsedText(file: Source.File, text: string): readonly Parsed.Module[] {
   return parseFile(applyLayout(lex(new Source.File(file.id, file.path, text))), file.path);
 }
 
@@ -185,6 +186,11 @@ function reading(value: unknown): unknown {
     if (key === "span" || key.endsWith("Span") || key === "offset" || key === "line" || key === "column") continue;
     // A pun is its field written out (Pattern Matching §9): `{x}` is `{x = x}`.
     if (key === "punned") continue;
+    // A report is read by its text. Its fixes are edits, written in the line
+    // break of the text parsed: an item alone, headed by none, is told to
+    // write `module Main` and a blank line, `\r\n` only where the item spans
+    // lines of a CRLF file.
+    if (key === "fixes") continue;
     read[key] = reading(node[key]);
   }
   return read;
