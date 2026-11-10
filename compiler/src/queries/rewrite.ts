@@ -33,6 +33,8 @@ export function rewrite(
   title: string,
   target: { readonly span: Source.Span },
   written: Written,
+  /** Whether an edit leaves the program reading as before: by default, whether it parses to the same tree. */
+  reads: (edit: TextEdit) => boolean = (edit) => keepsReading(file, module, edit),
 ): Refactoring {
   const { start, end } = solid(file, target.span);
   const lost = module.comments.some(({ span }) =>
@@ -42,7 +44,7 @@ export function rewrite(
   if (lost) return { title, disabled: "A comment inside it would be lost. Move the comment out first." };
   for (const replacement of written.texts) {
     const edit = { start, end, replacement };
-    if (keepsReading(file, module, edit)) return { title, edit };
+    if (reads(edit)) return { title, edit };
   }
   // A `//` comment on a kept text's last line runs to the end of that line,
   // over whatever the rewrite writes after the text.

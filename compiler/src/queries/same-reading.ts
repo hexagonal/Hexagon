@@ -37,14 +37,80 @@ export interface TextEdit {
  * opens a menu.
  */
 export function keepsReading(file: Source.File, module: Parsed.Module, edit: TextEdit): boolean {
+  const texts = itemTexts(file, module, edit);
+  return texts !== undefined && sameReading(parsedText(file, texts.before), parsedText(file, texts.after));
+}
+
+/**
+ * Whether replacing `edit` leaves the module reading as before, once the call
+ * at `span` in the text before is read as `substitute` makes it from itself and
+ * from the call the edit writes in its place, which spans the replacement
+ * exactly. For a rewrite between forms the parser reads apart and the checker
+ * reads as one, such as a dot call and its qualified call (Method Syntax §1):
+ * `substitute` says what the one is as the other.
+ */
+export function keepsReadingWith(
+  file: Source.File,
+  module: Parsed.Module,
+  edit: TextEdit,
+  span: Source.Span,
+  substitute: (before: Parsed.CallExpr, after: Parsed.CallExpr) => Parsed.CallExpr,
+): boolean {
+  const texts = itemTexts(file, module, edit);
+  if (texts === undefined) return false;
+  const { start } = texts;
+  const before = parsedText(file, texts.before);
+  const after = parsedText(file, texts.after);
+  const old = callAt(before, span.start.offset - start, span.end.offset - start);
+  const written = callAt(after, edit.start - start, edit.start - start + edit.replacement.length);
+  return old !== undefined && written !== undefined && sameReading(replaced(before, old, substitute(old, written)), after);
+}
+
+/** The text of the top-level item the edit lies in, before and after it, and where the item starts. */
+function itemTexts(
+  file: Source.File,
+  module: Parsed.Module,
+  edit: TextEdit,
+): { readonly before: string; readonly after: string; readonly start: number } | undefined {
   const item = module.items.find(({ span }) => span.start.offset <= edit.start && edit.end <= span.end.offset);
-  if (item === undefined) return false;
-  const { text } = file;
+  if (item === undefined) return undefined;
   const start = item.span.start.offset;
-  const end = item.span.end.offset;
-  const before = text.slice(start, end);
+  const before = file.text.slice(start, item.span.end.offset);
   const after = before.slice(0, edit.start - start) + edit.replacement + before.slice(edit.end - start);
-  return sameReading(parsedText(file, before), parsedText(file, after));
+  return { before, after, start };
+}
+
+/** The call spanning exactly `[start, end)` in a parsed value. */
+function callAt(value: unknown, start: number, end: number): Parsed.CallExpr | undefined {
+  if (Array.isArray(value)) {
+    for (const each of value) {
+      const found = callAt(each, start, end);
+      if (found !== undefined) return found;
+    }
+    return undefined;
+  }
+  if (value === null || typeof value !== "object") return undefined;
+  const node = value as Record<string, unknown>;
+  const span = node.span as Source.Span | undefined;
+  if (node.kind === "Call" && span?.start.offset === start && span.end.offset === end) {
+    return node as unknown as Parsed.CallExpr;
+  }
+  for (const key of Object.keys(node)) {
+    if (key === "span") continue;
+    const found = callAt(node[key], start, end);
+    if (found !== undefined) return found;
+  }
+  return undefined;
+}
+
+/** A parsed value with one node in it, found by identity, taken for another. */
+function replaced(value: unknown, node: object, by: object): unknown {
+  if (value === node) return by;
+  if (Array.isArray(value)) return value.map((each) => replaced(each, node, by));
+  if (value === null || typeof value !== "object") return value;
+  const copy: Record<string, unknown> = {};
+  for (const [key, each] of Object.entries(value)) copy[key] = replaced(each, node, by);
+  return copy;
 }
 
 function parsedText(file: Source.File, text: string): readonly Parsed.Module[] {
