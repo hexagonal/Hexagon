@@ -306,7 +306,7 @@ describe("arms with one body combined into one", () => {
       "        Circle(_) | Square(_) => 0",
       "        Dot => 1",
     ));
-    // From its line's start.
+    // From its line's start, or from before a tab after a `;`.
     expect(titles(program(
       "export let g(s: Shape): Int =",
       "    match s",
@@ -314,6 +314,20 @@ describe("arms with one body combined into one", () => {
       "‸        Square(_) =>‸ 0",
       "        Dot => 1",
     ))).toEqual([combineTitle(2)]);
+    expect(titles(program(
+      "export let g(s: Shape): Int =",
+      "    match s",
+      "        Circle(_) => 0;‸\tSquare(_) =>‸ 0",
+      "        Dot => 1",
+    ))).toEqual([combineTitle(2)]);
+    // But not spaces that end before it, as a caret there.
+    expect(titles(program(
+      "export let g(s: Shape): Int =",
+      "    match s",
+      "        Circle(_) => 0",
+      "‸       ‸ Square(_) => 0",
+      "        Dot => 1",
+    ))).toEqual([]);
   });
 
   test("but not on a selection of one whole arm, which touches no other", () => {
@@ -546,7 +560,32 @@ describe("arms combined, refused", () => {
       "        (_, Some(v)) => 0",
       "        _ => 1",
     ), combineTitle(2))).toBe(different);
-    // Two types of one name, from two modules.
+    // Record types whose displays differ only in their fields' order.
+    for (const [p, q] of [["{f = a, n = 1}", "{n = 1, f = b}"], ["Some({f = a, n = 1})", "Some({n = 1, f = b})"]]) {
+      expect(rewritten(program(
+        "export let g(a: () ->! Int, b: () ->! Int): Int =",
+        `    match (Some(${p}), Some(${q}))`,
+        "        (Some(v), _) ‸=> 0",
+        "        (_, Some(v)) => 0",
+        "        _ => 1",
+      ), combineTitle(2))).toBe(different);
+    }
+    // Two types of one name, from two modules, alone or in fields written in another order.
+    const fields = [
+      "module Geo",
+      "export record Point = {x: Int}",
+      "end module Geo",
+      "module Main",
+      "import Geo",
+      "export record Point = {y: Int}",
+      "export union U = Here(p: {a: Int, b: Point}) | There(p: {b: Geo.Point, a: Int})",
+      "export let g(u: U): Int =",
+      "    match u",
+      "        Here(v) ‸=> 0",
+      "        There(v) => 0",
+      "",
+    ].join("\n");
+    expect(rewritten(fields, combineTitle(2))).toBe(different);
     const two = [
       "module Geo",
       "export record Point = {x: Int}",
@@ -562,6 +601,22 @@ describe("arms combined, refused", () => {
       "",
     ].join("\n");
     expect(rewritten(two, combineTitle(2))).toBe(different);
+  });
+
+  test("record types that differ, shown as written", () => {
+    for (const [written, one, another] of [
+      ["Two({x: Int}, {x: String})", "{x: Int}", "{x: String}"],
+      ["Two({x: Int, y: Int}, {y: Int, x: String})", "{x: Int, y: Int}", "{y: Int, x: String}"],
+    ]) {
+      expect(rewritten(program(
+        `export let g(t: ${written}): Int =`,
+        "    match t",
+        "        L(v) ‸=> 0",
+        "        R(v) => 0",
+      ), combineTitle(2))).toBe(
+        `refused: \`v\` is \`${one}\` in one of these arms and \`${another}\` in another, and an or-pattern binds it at one type.`,
+      );
+    }
   });
 
   test("but not record types with their fields in another order, which are one type", () => {

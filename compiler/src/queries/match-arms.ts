@@ -307,13 +307,14 @@ function bindingMismatch(typed: Typed.Module, members: readonly Parsed.MatchArm[
           "in every alternative (Pattern Matching §2.6).";
       }
       if (typeKey(left) !== typeKey(right)) {
-        // Shown only where each display names one type: a variable's letter
-        // need not be the one the source writes, and two types of one name
-        // from two modules show alike.
-        const [one, another] = [left, right].map((type) => Typed.displayCallFace({ variables: [], constraints: [], type }).type);
-        return one === another || [left, right].some(variable)
+        // Shown only where the displays show what differs: a variable's letter
+        // need not be the one the source writes, two types of one name from
+        // two modules show alike, and so do two colours, and fields in another
+        // order are no difference.
+        const shown = (type: Typed.Type): string => Typed.displayCallFace({ variables: [], constraints: [], type }).type;
+        return shown(ordered(left)) === shown(ordered(right)) || [left, right].some(variable)
           ? `\`${name}\` has a different type in each of these arms, and an or-pattern binds it at one type.`
-          : `\`${name}\` is \`${one}\` in one of these arms and \`${another}\` in another, and an or-pattern binds it at one type.`;
+          : `\`${name}\` is \`${shown(left)}\` in one of these arms and \`${shown(right)}\` in another, and an or-pattern binds it at one type.`;
       }
     }
   }
@@ -375,8 +376,12 @@ function namesBound(pattern: Parsed.Pattern): ReadonlySet<string> {
  * colours a colour is joined from.
  */
 function typeKey(type: Typed.Type): string {
-  return JSON.stringify(type, (key, value: unknown) => {
-    if (key === "qualifier") return undefined;
+  return JSON.stringify(ordered(type), (key, value: unknown) => (key === "qualifier" ? undefined : value));
+}
+
+/** A type with each record type's fields, and each joined colour's parts, in one order. */
+function ordered(type: Typed.Type): Typed.Type {
+  return JSON.parse(JSON.stringify(type, (_, value: unknown) => {
     const record = value as Partial<Typed.RecordType> & { readonly join?: readonly number[] } | null;
     if (typeof value !== "object" || record === null) return value;
     // A colour joined from several is one colour whatever order inference met them in.
@@ -384,7 +389,7 @@ function typeKey(type: Typed.Type): string {
     return record.kind === "Record"
       ? { ...record, fields: [...record.fields!].sort((left, right) => left.name.localeCompare(right.name)) }
       : value;
-  });
+  })) as Typed.Type;
 }
 
 /**

@@ -641,9 +641,9 @@ the rewrite keeps the program's meaning by definition:
   another order are the same type, and so is a colour joined from others in
   another order. The refusal shows the two types only where neither holds a
   variable, whose letter need not be the one the source writes, and they
-  show differently. Where the checker could not read the names
-  an arm binds, as with a constructor its scrutinee's type does not have, it is
-  not offered.
+  show differently with their fields in one order. Where the checker could
+  not read the names an arm binds, as with a constructor its scrutinee's type
+  does not have, it is not offered.
 - **Split the arm into one per alternative**, on an arm whose pattern is an
   or-pattern, or on the whole arm selected, under a top-level `as` too, written
   in parentheses or not: one arm per alternative, those of an or-pattern among
