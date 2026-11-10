@@ -1107,7 +1107,9 @@ function usesIn(module: Parsed.Module, item: Parsed.Item, alias: Parsed.TypeAlia
  */
 function impliedAt(module: Parsed.Module, item: Parsed.Item, offset: number): ReadonlySet<string> {
   // A constraint member's default shares its parameters, and writes no result;
-  // an honor's member writes no result.
+  // an honor's member writes no result, since the parser refuses one there
+  // (#1484). When it can, and the resolver reads that result with the implied
+  // types as it reads the parameters, it belongs here beside them.
   const written = item.kind === "ConstraintDeclaration"
     ? item.members.flatMap(({ parameters, returnAnnotation }) => [...parameters.map(({ annotation }) => annotation), returnAnnotation])
     : item.kind === "Honor"
