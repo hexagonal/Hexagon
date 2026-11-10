@@ -664,13 +664,16 @@ the rewrite keeps the program's meaning by definition:
   with the `;` between them. Refused, with the reason, where a `_` given for a
   parameter the body writes twice would become two types, since one written
   hole is one type through the alias; where a comment in the body, on the
-  declaration or beside it would be copied, lost or left out of place; and in
-  the parameters and result a constraint's member writes, or an honor's, where
-  the constraint's implied type takes a name the body writes, which there
-  would mean the implied type, as the resolver reads it. A name an implied
-  type takes there is not the alias, and is not offered it; in an honor
-  member's body it is, since an implied type cannot be written in a type
-  there (Collections Part 2 §7.3). A use of an alias another module exports
+  declaration or beside it, or a documentation comment above it, would be
+  copied, lost or left out of place; and in the parameters and result a
+  constraint's member writes, or the parameters an honor's member writes,
+  where the constraint's implied type takes a name the body writes, which
+  there would mean the implied type, as the resolver reads it. That includes
+  a name the body reaches through an alias declared further down, which the
+  resolver reads there with the implied types until it reaches its
+  declaration (#1505). A name an implied type takes there is not the alias,
+  and is not offered it; in an honor member's body it is, since an implied
+  type cannot be written in a type there (Collections Part 2 §7.3). A use of an alias another module exports
   (`Geo.Segment`, or `Segment` through the companion fallback) is written out
   too, each name in its body spelled as this module reaches that type: through
   this module's import of the module that declares it, bare where the
@@ -689,16 +692,17 @@ the rewrite keeps the program's meaning by definition:
   writes them, so it uses every one (§5.3); `NewType` is the first of
   `NewType`, `NewType2`… the module does not write, one stand-in in both places
   for the dev to type once, written from the start of the line where another
-  item shares it. Refused, with the reason, where an alias could not
-  hold the type: a `_` in it, a following arrow (§5.1.1), or a named row tail,
+  item shares it, in the line break of the line it goes above. Refused, with
+  the reason, where an alias could not hold the type: a `_` in it, a following arrow (§5.1.1), or a named row tail,
   which is fresh at each use of an alias. An `honor`'s subject is not offered
   it, since an alias carries no instances of its own (§4). **Introduce a type
   alias for its 3 places** stands beside it where the module writes the type
   more than once: the alias in every place that reads as the type, laid out
   however it is and type variables matched by name, declared above the first
   of them, the one stand-in in every place. A place in a constraint's or an
-  honor's member signature that writes a name the implied type takes is not
-  counted. Refused where a comment inside the type in another place would be
+  honor's member signature that writes a name the implied type takes, or
+  reaches one through an alias declared further down, is not counted, and is
+  not offered the one-place entry either. Refused where a comment inside the type in another place would be
   lost.
 
 **Each rewrite is checked by parsing what it leaves** (`queries/same-reading.ts`):

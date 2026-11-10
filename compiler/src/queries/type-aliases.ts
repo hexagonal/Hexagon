@@ -149,7 +149,7 @@ function writeOutAt(
   const here = abroad === undefined ? undefined : reachOf(module, abroad.resolved);
   for (const item of module.items) {
     for (const alias of aliases.values()) {
-      for (const use of usesIn(item, alias)) consider(use, () => bodyOf(file, module, alias));
+      for (const use of usesIn(module, item, alias)) consider(use, () => bodyOf(file, module, alias));
     }
     for (const { use, home, alias } of here === undefined ? [] : usesAbroad(item, here, abroad!)) {
       consider(use, () => bodyAbroad(file, abroad!, here!, home, alias, use));
@@ -254,7 +254,8 @@ function bodyAbroad(
       return speller.body(speller.reachOf(home), alias, parameters, 0);
     });
     // Written in this file's line break, whatever the other file's is.
-    const inThisFile = (pieces: readonly string[]): readonly string[] => pieces.map((piece) => piece.replace(/\r?\n/g, lineBreak(file)));
+    const newline = lineBreak(file, use.span.start.offset);
+    const inThisFile = (pieces: readonly string[]): readonly string[] => pieces.map((piece) => piece.replace(/\r?\n/g, newline));
     const { pieces, written } = split(plain!);
     return {
       alias: { ...alias, annotation: plain!.tree },
@@ -480,9 +481,11 @@ class Speller {
   }
 }
 
-/** The line break the file writes first, or `\n`. */
-function lineBreak(file: Source.File): string {
-  return /\r?\n/.exec(file.text)?.[0] ?? "\n";
+/** The line break that ends the line `at` is on, or else the one before it, or `\n`. */
+function lineBreak(file: Source.File, at: number): string {
+  const after = /\r?\n/.exec(file.text.slice(at));
+  if (after !== null) return after[0];
+  return file.text[file.text.lastIndexOf("\n", at - 1) - 1] === "\r" ? "\r\n" : "\n";
 }
 
 /** A type's span as offsets: it starts and ends at a character of the type. */
@@ -512,7 +515,7 @@ function writeOutEverywhereAt(
 ): readonly Refactoring[] {
   const alias = [...aliases.values()].find(({ name }) => holds(name.span, start, end));
   if (alias === undefined) return [];
-  const items = module.items.filter((item) => usesIn(item, alias).length > 0);
+  const items = module.items.filter((item) => usesIn(module, item, alias).length > 0);
   if (items.length === 0) return [];
   const title = WRITE_OUT_EVERYWHERE_TITLE;
   const body = bodyOf(file, module, alias);
@@ -540,9 +543,9 @@ function writeOutEverywhereAt(
       // Each step is checked to read as before, so the item stays where it was.
       const [parsed] = parsedText(file, text);
       const now = parsed?.items.find(({ span }) => span.start.offset === itemStart);
-      const [use] = now === undefined ? [] : usesIn(now, alias);
+      const [use] = now === undefined ? [] : usesIn(module, now, alias);
       if (use === undefined) break;
-      const done = writeOut(new Source.File(file.id, file.path, text), parsed!, body, use, title);
+      const done = writeOut(new Source.File(file.id, file.path, text), parsed!, body, use, title, { module, start: item.span.start.offset });
       if (done.edit === undefined) return [done];
       text = text.slice(0, done.edit.start) + done.edit.replacement + text.slice(done.edit.end);
     }
@@ -561,12 +564,12 @@ function introduceAt(file: Source.File, module: Parsed.Module, start: number, en
   const target = typeAt(file, module, start, end);
   if (target === undefined) return [];
   const { type } = target;
-  if (type.kind === "TypeVariable" || type.kind === "Hole" || !movable(target)) return [];
+  if (type.kind === "TypeVariable" || type.kind === "Hole" || !movable(module, target)) return [];
   const refused = refusal([...typesIn(type)]);
   if (refused !== undefined) return [{ title: INTRODUCE_TITLE, disabled: refused }];
   const places = module.items.flatMap((item) =>
     writtenTypes(item).flatMap((written) => [...typesIn(written)])
-      .filter((each) => sameReading(each, type) && movable({ item, type: each }))
+      .filter((each) => sameReading(each, type) && movable(module, { item, type: each }))
       .map((each) => ({ item, type: each }))
   );
   const one = introduced(file, module, type, [target], INTRODUCE_TITLE);
@@ -576,12 +579,13 @@ function introduceAt(file: Source.File, module: Parsed.Module, start: number, en
 /**
  * Whether a type written in an item can be written above the item instead: a
  * name an implied type takes where a member writes its types means that type
- * there and nothing above the item, and a type the parser put in place of one
- * missing has no text to move.
+ * there and nothing above the item, written or reached through an alias below
+ * it; and a type the parser put in place of one missing has no text to move.
  */
-function movable({ item, type }: Place): boolean {
-  const implied = impliedAt(item, type.span.start.offset);
-  return [...typesIn(type)].every((each) => !(each.kind === "NamedType" && each.synthesized === true) && !implied.has(bareName(each) ?? ""));
+function movable(module: Parsed.Module, { item, type }: Place): boolean {
+  const implied = impliedAt(module, item, type.span.start.offset);
+  return [...typesIn(type)].every((each) => !(each.kind === "NamedType" && each.synthesized === true)) &&
+    namesAt(module, item.span.start.offset, type).every(({ name }) => !implied.has(name));
 }
 
 /** The name a type writes bare, unqualified, where it is a name or one applied. */
@@ -626,7 +630,7 @@ function introduced(
   const name = freshName(module);
   const applied = parameters.length === 0 ? "" : `(${parameters.join(", ")})`;
   const at = aboveComments(file, module, lineHead(file, module, headOf(places[0]!.item)));
-  const newline = lineBreak(file);
+  const newline = lineBreak(file, at);
   let replacement = `type ${name}${applied} = ${ungrouped(file, type)}${newline}${newline}`;
   const placeholders: Diagnostics.Placeholder[] = [{ start: "type ".length, end: "type ".length + name.length, stop: 1 }];
   const used: (readonly [number, number])[] = [];
@@ -691,21 +695,38 @@ function refusal(types: readonly Parsed.TypeAnnotation[]): string | undefined {
  * alias expanded in the tree. `Handler(Int) -> Unit` is `(Int -> Unit) -> Unit`,
  * not `Int -> Unit -> Unit`.
  */
-function writeOut(file: Source.File, module: Parsed.Module, body: Body, use: Use, title: string): Refactoring {
+function writeOut(
+  file: Source.File,
+  module: Parsed.Module,
+  body: Body,
+  use: Use,
+  title: string,
+  within?: { readonly module: Parsed.Module; readonly start: number },
+): Refactoring {
   if (body.comment) return { title, disabled: BODY_COMMENT };
   const { alias } = body;
   // Where a member writes its types a name an implied type takes means that
-  // type, so a body that writes the name would mean another there.
+  // type, so a body that writes the name, or an alias below that does, would
+  // mean another there. `within` is the file's module, where `module` holds
+  // only the item, and where the item starts in it.
   const item = module.items.find(({ span }) => holds(span, use.span.start.offset, use.span.end.offset));
-  const implied = item === undefined ? new Set<string>() : impliedAt(item, use.span.start.offset);
-  const taken = [...typesIn(alias.annotation)].map(bareName).find((name) => name !== undefined && implied.has(name));
-  if (taken !== undefined) {
-    const constraint = item!.kind === "ConstraintDeclaration" ? item!.name : (item as Parsed.HonorItem).constraint;
-    return {
-      title,
-      disabled: `In the types \`${constraint.text}\`'s members write, \`${taken}\` is its implied type, so the alias's ` +
-        `body, written out here, would name that instead of the \`${taken}\` it names now.`,
-    };
+  if (item !== undefined) {
+    const { module: whole, start } = within ?? { module, start: item.span.start.offset };
+    const implied = impliedAt(whole, item, use.span.start.offset);
+    const taken = namesAt(whole, start, alias.annotation).find(({ name }) => implied.has(name));
+    if (taken !== undefined) {
+      const constraint = item.kind === "ConstraintDeclaration" ? item.name : (item as Parsed.HonorItem).constraint;
+      const { name, through } = taken;
+      return {
+        title,
+        disabled: through === undefined
+          ? `In the types \`${constraint.text}\`'s members write, \`${name}\` is its implied type, so the alias's ` +
+            `body, written out here, would name that instead of the \`${name}\` it names now.`
+          : `In the types \`${constraint.text}\`'s members write, \`${name}\` is its implied type. The alias's body ` +
+            `names \`${name}\` through \`${through}\`, declared further down, which the compiler reads there with the ` +
+            `implied types, so written out here it would name that instead of the \`${name}\` it names now.`,
+      };
+    }
   }
   const written = use.kind === "AppliedType" ? use.arguments : [];
   const regions = argumentRegions(file, module, use);
@@ -897,7 +918,8 @@ export function changed(was: string, now: string, from: number): TextEdit {
  * line, the declaration and the `;` between them. Or why not: a comment would
  * go with it, or one beside it would be left out of place, on what follows or
  * ahead of it on its line: just above it, on a line of its own, or just before
- * or after it on a line it shares.
+ * or after it on a line it shares; or a documentation comment, which documents
+ * it across blank lines.
  */
 function declarationRemoval(file: Source.File, module: Parsed.Module, alias: Parsed.TypeAliasItem): TextEdit | string {
   const { text } = file;
@@ -917,7 +939,9 @@ function declarationRemoval(file: Source.File, module: Parsed.Module, alias: Par
   const commentBefore = module.comments.some(({ span }) =>
     span.end.offset <= from && /^[ \t]*$/.test(text.slice(span.end.offset, from))
   );
-  if (commentBefore) return LEFT;
+  // A documentation comment above it documents it across blank lines too.
+  const documented = module.docs.some(({ target }) => target === from);
+  if (commentBefore || documented) return LEFT;
   let start: number;
   let end: number;
   if (!endsLine) {
@@ -954,7 +978,8 @@ function headOf(item: Parsed.Item): number {
 /**
  * The first item on the line the item at `at` starts on, where items share a
  * line, or the one an item before it on that line starts in: an alias
- * declared there is written from the line's start.
+ * declared there is written from the line's start, or after the module's head
+ * where that shares the line.
  */
 function lineHead(file: Source.File, module: Parsed.Module, at: number): number {
   for (;;) {
@@ -1070,33 +1095,75 @@ function* typesIn(type: Parsed.TypeAnnotation): Generator<Parsed.TypeAnnotation>
  * The uses of `alias` written in `item`, each with as many arguments as it has
  * parameters (§5.1), but not where its name is an implied type's.
  */
-function usesIn(item: Parsed.Item, alias: Parsed.TypeAliasItem): readonly Use[] {
+function usesIn(module: Parsed.Module, item: Parsed.Item, alias: Parsed.TypeAliasItem): readonly Use[] {
   const name = alias.name.text;
   const arity = alias.parameters.length;
   return writtenTypes(item).flatMap((type) => [...typesIn(type)]).filter((type): type is Use =>
     bareName(type) === name && (type.kind === "AppliedType" ? type.arguments.length : 0) === arity &&
-    !impliedAt(item, type.span.start.offset).has(name)
+    !impliedAt(module, item, type.span.start.offset).has(name)
   );
 }
 
 /**
  * The names an implied type takes where a type is written at `offset` in an
- * item: in the parameters and result a constraint's member writes, or an
- * honor's member, as the resolver reads them, the implied types of the
- * constraint. An honor binds every one of them (the checker reports one
- * missing), so its own bindings name them. Elsewhere, an honor's bindings and
- * a member's body included, a name means what it means in the module: an
+ * item of `module`: in the parameters and result a constraint's member writes,
+ * or the parameters an honor's member writes, as the resolver reads them, the
+ * implied types of the constraint. An honor of another module's constraint
+ * binds every one of them (the checker reports one missing, or one too many),
+ * so there its own bindings name them. Elsewhere, an honor's bindings and a
+ * member's body included, a name means what it means in the module: an
  * implied type cannot be written in a type there (Collections Part 2 §7.3).
+ * `item` may be parsed alone, where `module` is the file's.
  */
-function impliedAt(item: Parsed.Item, offset: number): ReadonlySet<string> {
-  // A constraint member's default shares its parameters, and writes no result.
-  const [names, written] = item.kind === "ConstraintDeclaration"
-    ? [item.impliedTypes, item.members.flatMap(({ parameters, returnAnnotation }) => [...parameters.map(({ annotation }) => annotation), returnAnnotation])]
+function impliedAt(module: Parsed.Module, item: Parsed.Item, offset: number): ReadonlySet<string> {
+  // A constraint member's default shares its parameters, and writes no result;
+  // an honor's member writes no result.
+  const written = item.kind === "ConstraintDeclaration"
+    ? item.members.flatMap(({ parameters, returnAnnotation }) => [...parameters.map(({ annotation }) => annotation), returnAnnotation])
     : item.kind === "Honor"
-    ? [item.impliedTypes, item.members.flatMap(({ value }) => value === undefined ? [] : [...value.parameters.map(({ annotation }) => annotation), value.returnAnnotation])]
-    : [[], []];
-  const inside = written.some((type) => type !== undefined && type.span.start.offset <= offset && offset < type.span.end.offset);
-  return new Set(inside ? names.map(({ name }) => name.text) : []);
+    ? item.members.flatMap(({ value }) => value?.parameters.map(({ annotation }) => annotation) ?? [])
+    : [];
+  if (!written.some((type) => type !== undefined && type.span.start.offset <= offset && offset < type.span.end.offset)) return new Set();
+  // A qualified constraint's name is never one this module declares.
+  const declared = item.kind === "Honor"
+    ? module.items.find((each): each is Parsed.ConstraintItem =>
+      each.kind === "ConstraintDeclaration" && each.name.text === item.constraint.text
+    )
+    : undefined;
+  const implied: readonly { readonly name: Parsed.Name }[] = item.kind === "ConstraintDeclaration"
+    ? item.impliedTypes
+    : declared?.impliedTypes ?? (item.kind === "Honor" ? item.impliedTypes : []);
+  return new Set(implied.map(({ name }) => name.text));
+}
+
+/**
+ * Each name a type writes bare, and each one written in the body of an alias
+ * of this module declared below `from`, through every such alias, with the
+ * first alias it is reached through. The resolver reads an alias it has not
+ * reached yet where it is used, with the implied types there (#1505).
+ */
+function namesAt(
+  module: Parsed.Module,
+  from: number,
+  type: Parsed.TypeAnnotation,
+): readonly { readonly name: string; readonly through?: string }[] {
+  const names: { readonly name: string; readonly through?: string }[] = [];
+  const seen = new Set<string>();
+  const walk = (written: Parsed.TypeAnnotation, through: string | undefined): void => {
+    for (const each of typesIn(written)) {
+      const name = bareName(each);
+      if (name === undefined) continue;
+      names.push(through === undefined ? { name } : { name, through });
+      const below = module.items.find((alias): alias is Parsed.TypeAliasItem =>
+        alias.kind === "TypeAlias" && alias.name.text === name && from < alias.span.start.offset
+      );
+      if (below === undefined || seen.has(name)) continue;
+      seen.add(name);
+      walk(below.annotation, through ?? name);
+    }
+  };
+  walk(type, undefined);
+  return names;
 }
 
 /** The use spanning exactly `[start, end)` in a parsed value. */

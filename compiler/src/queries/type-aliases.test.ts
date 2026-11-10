@@ -52,21 +52,23 @@ function reports(text: string, files: Files = {}): readonly string[] {
   return ["/main.hex", ...Object.keys(files)].flatMap((path) => opened.diagnostics(path).map(({ message }) => message));
 }
 
-/**
- * The program after the refactoring named `title` is applied, every edit of
- * it, or why it is refused. The program and what it becomes each report nothing.
- */
-function rewritten(source: string, title: string, files: Files = {}): string {
+/** The program after the refactoring named `title` is applied, every edit of it, or why it is refused. */
+function applied(source: string, title: string, files: Files = {}): string {
   const action = offered(source, files).get(title);
   if (action === undefined) return "not offered";
   if (action.disabled !== undefined) return `refused: ${action.disabled}`;
-  const { text } = marked(source);
   const edits = [...action.edits].sort((left, right) => right.span.start.offset - left.span.start.offset);
-  const after = edits.reduce(
+  return edits.reduce(
     (written, { span, replacement }) => written.slice(0, span.start.offset) + replacement + written.slice(span.end.offset),
-    text,
+    marked(source).text,
   );
-  expect(reports(text, files)).toEqual([]);
+}
+
+/** As `applied`, where the program and what it becomes each report nothing. */
+function rewritten(source: string, title: string, files: Files = {}): string {
+  const after = applied(source, title, files);
+  if (after === "not offered" || after.startsWith("refused: ")) return after;
+  expect(reports(marked(source).text, files)).toEqual([]);
   expect(reports(after, files)).toEqual([]);
   return after;
 }
@@ -280,6 +282,74 @@ describe("an alias written out, refused", () => {
       "    test(box: Box, c: Check) = if c(1) then 1 else 0",
     );
     expect(rewritten(bound("Pr‸ed"), WRITE_OUT_TITLE)).toBe(bound("(Int) -> Bool"));
+  });
+
+  test("in a member's signature, where the body reaches an implied type's name through an alias declared below (#1505)", () => {
+    // The resolver reads an alias it has not reached yet with the implied
+    // types where it is used, so `Inner` there would mean the implied `Bool`.
+    const refusal = "refused: In the types `Source`'s members write, `Bool` is its implied type. The alias's body names " +
+      "`Bool` through `Inner`, declared further down, which the compiler reads there with the implied types, so written " +
+      "out here it would name that instead of the `Bool` it names now.";
+    const source = (inConstraint: string, inHonor: string, ...below: readonly string[]): string => program(
+      "type Pred = (Int) -> Inner",
+      "constraint Source<a> =",
+      "    type Bool",
+      `    test(value: a, p: ${inConstraint}) -> Int`,
+      "record Box = {value: Int}",
+      "honor Source<Box> =",
+      "    type Bool = String",
+      `    test(box: Box, p: ${inHonor}) = if p(1) then 1 else 0`,
+      ...below,
+    );
+    expect(reports(marked(source("Pred", "Pr‸ed", "type Inner = Bool")).text)).toEqual([]);
+    expect(rewritten(source("Pred", "Pr‸ed", "type Inner = Bool"), WRITE_OUT_TITLE)).toBe(refusal);
+    expect(rewritten(source("Pr‸ed", "Pred", "type Inner = Bool"), WRITE_OUT_TITLE)).toBe(refusal);
+    expect(rewritten(source("Pred", "Pred", "type Inner = Bool").replace("type Pred", "type P‸red"), WRITE_OUT_EVERYWHERE_TITLE))
+      .toBe(refusal);
+    // Through every alias below, named by the first.
+    expect(rewritten(source("Pred", "Pr‸ed", "type Inner = Deep", "type Deep = Bool"), WRITE_OUT_TITLE)).toBe(refusal);
+    // An alias above is read where it is declared, and means the module's
+    // `Bool` there too, so the body is written out.
+    const above = (inHonor: string): string => source("Pred", inHonor).replace("type Pred", "type Inner = Bool\ntype Pred");
+    expect(rewritten(above("Pr‸ed"), WRITE_OUT_TITLE)).toBe(above("(Int) -> Inner"));
+    expect(rewritten(above("Pred").replace("type Pred", "type P‸red"), WRITE_OUT_EVERYWHERE_TITLE))
+      .toBe(source("(Int) -> Inner", "(Int) -> Inner").replace("type Pred = (Int) -> Inner", "type Inner = Bool"));
+    const deep = (inHonor: string): string =>
+      source("Pred", inHonor, "type Inner = Deep").replace("type Pred", "type Deep = Bool\ntype Pred");
+    expect(rewritten(deep("Pr‸ed"), WRITE_OUT_TITLE)).toBe(deep("(Int) -> Inner"));
+  });
+
+  test("in an honor's member signature, from the implied types its constraint declares, its bindings aside", () => {
+    // With a binding the constraint does not declare, the name is the alias.
+    const extra = (use: string): string => program(
+      "type Ite‸m = String",
+      "constraint Source<a> =",
+      "    get(value: a, t: String) -> Int",
+      "record Box = {value: Int}",
+      "honor Source<Box> =",
+      "    type Item = Int",
+      `    get(box: Box, t: ${use}) = 1`,
+      `export let f(t: ${use}): Int = 1`,
+    );
+    expect(reports(marked(extra("Item")).text)).toEqual(["`Item` is not an implied type of `Source`"]);
+    expect(applied(extra("Item"), WRITE_OUT_EVERYWHERE_TITLE)).toBe(extra("String").replace("type Ite‸m = String\n", ""));
+    // Without one it declares, the name is still its implied type.
+    const missing = program(
+      "type Pred = (Int) -> Bool",
+      "constraint Other<a> =",
+      "    other(value: a) -> Int",
+      "constraint Source<a> =",
+      "    type Bool",
+      "    test(value: a, p: Pred) -> Int",
+      "record Box = {value: Int}",
+      "honor Source<Box> =",
+      "    test(box: Box, p: Pr‸ed) = 1",
+    );
+    expect(reports(marked(missing).text)).toEqual(["instance is missing implied type `Bool`"]);
+    expect(applied(missing, WRITE_OUT_TITLE)).toBe(
+      "refused: In the types `Source`'s members write, `Bool` is its implied type, so the alias's body, written out " +
+        "here, would name that instead of the `Bool` it names now.",
+    );
   });
 
   test("where a comment between its name and its arguments would be lost", () => {
@@ -524,6 +594,10 @@ describe("another module's alias written out where it is imported", () => {
       .toBe(source("\r\n", "(String) ->\r\n    Option(Int)"));
     expect(rewritten(source("\n", "Geo.Look‸up(Int)"), WRITE_OUT_TITLE, { "/geo.hex": lookup.join("\r\n") }))
       .toBe(source("\n", "(String) ->\n    Option(Int)"));
+    // Where this file's breaks differ, the one ending the use's line.
+    const mixed = (type: string): string => `module Main\nimport Geo\r\nexport let find(l: ${type}): Unit = ()\r\n`;
+    expect(rewritten(mixed("Geo.Look‸up(Int)"), WRITE_OUT_TITLE, { "/geo.hex": lookup.join("\n") }))
+      .toBe(mixed("(String) ->\r\n    Option(Int)"));
     // And where a private alias it writes out goes in parentheses.
     const steps = ["module Geo", "type Step = Int -> Int", "export type Steps = Step ->", "    Int", ""];
     expect(rewritten(source("\n", "Geo.Ste‸ps"), WRITE_OUT_TITLE, { "/geo.hex": steps.join("\r\n") }))
@@ -642,6 +716,10 @@ describe("another module's alias written out, refused", () => {
     );
     expect(reports(marked(abroad).text, constraint)).toEqual([]);
     expect(rewritten(abroad, WRITE_OUT_TITLE, constraint)).toBe(refusal("Bool").replace("`Source`", "`Geo.Source`"));
+    // This module's own constraint of the name is not the one honored there.
+    const own = abroad.replace("record Box", "constraint Source<a> =\n    get(value: a) -> Int\nrecord Box");
+    expect(reports(marked(own).text, constraint)).toEqual([]);
+    expect(rewritten(own, WRITE_OUT_TITLE, constraint)).toBe(refusal("Bool").replace("`Source`", "`Geo.Source`"));
   });
 
   test("where its body, or the body of an alias it writes out, holds a comment", () => {
@@ -849,12 +927,16 @@ describe("an alias written out everywhere", () => {
     expect(everywhere("// A point.", "type Po‸int = (Float, Float)")).toBe(left);
     expect(everywhere("(** A point. *)", "type Po‸int = (Float, Float); export let n: Int = 1")).toBe(left);
     expect(everywhere("export let a: Int = 1; (* a point *) type Po‸int = (Float, Float)")).toBe(left);
+    expect(everywhere("export let a: Int = 1; (* a point *)type Po‸int = (Float, Float)")).toBe(left);
     expect(everywhere("let a: Int = 1; (* a point *) type Po‸int = (Float, Float); export let b: Int = a")).toBe(left);
     // After the `;` it is the next item's, which keeps it, but not at a line's
     // start, where the item would read as part of the line above.
     expect(everywhere("let a: Int = 1; type Po‸int = (Float, Float); (* b *) export let b: Int = a"))
       .toBe(program("let a: Int = 1; (* b *) export let b: Int = a", "export let area(s: (Float, Float)): Float = 1.0"));
     expect(everywhere("type Po‸int = (Float, Float); (* b *) export let b: Int = 1")).toBe(left);
+    // A documentation comment above another item is that item's.
+    expect(everywhere("(** About n. *)", "export let n: Int = 1", "type Po‸int = (Float, Float)"))
+      .toBe(program("(** About n. *)", "export let n: Int = 1", "export let area(s: (Float, Float)): Float = 1.0"));
     // A comment that ends the line above is that line's.
     expect(everywhere("export let n: Int = 1 // one", "type Po‸int = (Float, Float)"))
       .toBe(program("export let n: Int = 1 // one", "export let area(s: (Float, Float)): Float = 1.0"));
@@ -862,9 +944,11 @@ describe("an alias written out everywhere", () => {
       .toBe(program("// About n.", "export let n: Int = 1", "export let area(s: (Float, Float)): Float = 1.0"));
     expect(everywhere("// About a.", "let a: Int = 1; type Po‸int = (Float, Float); export let b: Int = a"))
       .toBe(program("// About a.", "let a: Int = 1; export let b: Int = a", "export let area(s: (Float, Float)): Float = 1.0"));
-    // A comment with a blank line between is not the declaration's, and stays.
+    // A comment with a blank line between is not the declaration's, and stays,
+    // but a documentation comment documents it across blank lines.
     expect(everywhere("// Shapes.", "", "type Po‸int = (Float, Float)", ""))
       .toBe(program("// Shapes.", "", "export let area(s: (Float, Float)): Float = 1.0"));
+    expect(everywhere("(** A point. *)", "", "type Po‸int = (Float, Float)", "")).toBe(left);
     expect(everywhere("(** A point. *)", "export type Po‸int = (Float, Float)"))
       .toBe(program("(** A point. *)", "export type Point = (Float, Float)", "export let area(s: (Float, Float)): Float = 1.0"));
   });
@@ -968,6 +1052,14 @@ describe("an alias introduced", () => {
     const headed = (...lines: readonly string[]): string => [...lines, ""].join("\r\n");
     expect(rewritten(headed("module Main; export let area(s: (Float, Fl‸oat)): Float = 1.0", "export let n: Int = 1"), INTRODUCE_TITLE))
       .toBe(headed("module Main; type NewType = (Float, Float)", "", "export let area(s: NewType): Float = 1.0", "export let n: Int = 1"));
+    // Where they differ, the break of the line it goes above, or of the one
+    // before where that line has none.
+    expect(rewritten("module Main\nexport let n: Int = 1\r\nexport let area(s: (Float, Fl‸oat)): Float = 1.0\r\n", INTRODUCE_TITLE))
+      .toBe("module Main\nexport let n: Int = 1\r\ntype NewType = (Float, Float)\r\n\r\nexport let area(s: NewType): Float = 1.0\r\n");
+    expect(rewritten("module Main\nexport let n: Int = 1\r\nexport let area(s: (Float, Fl‸oat)): Float = 1.0", INTRODUCE_TITLE))
+      .toBe("module Main\nexport let n: Int = 1\r\ntype NewType = (Float, Float)\r\n\r\nexport let area(s: NewType): Float = 1.0");
+    expect(rewritten("module Main\r\nexport let n: Int = 1\nexport let area(s: (Float, Fl‸oat)): Float = 1.0", INTRODUCE_TITLE))
+      .toBe("module Main\r\nexport let n: Int = 1\ntype NewType = (Float, Float)\n\nexport let area(s: NewType): Float = 1.0");
   });
 
   test("above an honor group, for a type one of its items gives", () => {
@@ -1205,6 +1297,41 @@ describe("an alias introduced for every place its type is written", () => {
     expect(reports(marked(honored("(Int) -> Bo‸ol")).text)).toEqual([]);
     expect(titles(honored("(Int) -> Bo‸ol"))).toEqual([]);
     expect(titles(honored("(Int) -> Bool").replace("f(p: (Int) -> Bool)", "f(p: (Int) -> Bo‸ol)"))).toEqual([INTRODUCE_TITLE]);
+    // Nor where it reaches one through an alias declared below, which the
+    // resolver reads there with the implied types (#1505).
+    const below = (inConstraint: string, inHonor: string, outside: string): string => program(
+      "constraint Source<a> =",
+      "    type Bool",
+      `    test(value: a, p: ${inConstraint}) -> Int`,
+      "record Box = {value: Int}",
+      "honor Source<Box> =",
+      "    type Bool = String",
+      `    test(box: Box, p: ${inHonor}) = 1`,
+      `export let f(p: ${outside}): Int = 1`,
+      "type Inner = Bool",
+    );
+    const written = "(Int) -> Inner";
+    const asked = "(Int) -> Inn‸er";
+    const introduced = (source: string): readonly string[] => titles(source).filter((title) => title.startsWith(INTRODUCE_TITLE));
+    expect(reports(marked(below(written, asked, written)).text)).toEqual([]);
+    expect(introduced(below(written, asked, written))).toEqual([]);
+    expect(introduced(below(asked, written, written))).toEqual([]);
+    expect(introduced(below(written, written, asked))).toEqual([INTRODUCE_TITLE]);
+    // An alias above is read where it is declared, and a record anywhere.
+    const above = program("type Inner = Bool", "constraint Source<a> =", "    type Bool", "    test(value: a, p: (Int) -> Inn‸er) -> Int");
+    expect(rewritten(above, INTRODUCE_TITLE)).toBe(program(
+      "type Inner = Bool",
+      "type NewType = (Int) -> Inner",
+      "",
+      "constraint Source<a> =",
+      "    type Bool",
+      "    test(value: a, p: NewType) -> Int",
+    ));
+    const record = program("constraint Source<a> =", "    type Bool", "    test(value: a, p: (Int) -> Pa‸ir) -> Int", "record Pair = {b: Bool}");
+    expect(introduced(record)).toEqual([INTRODUCE_TITLE]);
+    // A cycle of aliases below is followed once.
+    const cycle = program("constraint Source<a> =", "    type Bool", "    test(value: a, p: (Int) -> Inn‸er) -> Int", "type Inner = Loop", "type Loop = Inner");
+    expect(introduced(cycle)).toEqual([INTRODUCE_TITLE]);
   });
 
   test("refused where a comment inside the type in another place would be lost", () => {
