@@ -22,8 +22,12 @@ function marked(source: string): { readonly text: string; readonly start: number
   return { text, start, end: second < 0 ? start : second - 1 };
 }
 
-function session(text: string): AnalysisSession {
+/** Other files of the program, by path. */
+type Files = Readonly<Record<string, string>>;
+
+function session(text: string, files: Files = {}): AnalysisSession {
   const opened = new AnalysisSession();
+  for (const [path, written] of Object.entries(files)) opened.setFile(path, written);
   opened.setFile("/main.hex", text);
   return opened;
 }
@@ -31,27 +35,29 @@ function session(text: string): AnalysisSession {
 const program = (...lines: readonly string[]): string => ["module Main", ...lines, ""].join("\n");
 
 /** The alias refactorings offered at the caret or selection, by title. */
-function offered(source: string): ReadonlyMap<string, CodeAction> {
+function offered(source: string, files: Files = {}): ReadonlyMap<string, CodeAction> {
   const { text, start, end } = marked(source);
   return new Map(
-    session(text).codeActions("/main.hex", { start, end }, { invoked: true })
+    session(text, files).codeActions("/main.hex", { start, end }, { invoked: true })
       .filter(({ kind, title }) => kind === "refactor" && isAliasTitle(title))
       .map((action) => [action.title, action]),
   );
 }
 
-const titles = (source: string): readonly string[] => [...offered(source).keys()];
+const titles = (source: string, files: Files = {}): readonly string[] => [...offered(source, files).keys()];
 
-function reports(text: string): readonly string[] {
-  return session(text).diagnostics("/main.hex").map(({ message }) => message);
+/** What the program reports, in each of its files. */
+function reports(text: string, files: Files = {}): readonly string[] {
+  const opened = session(text, files);
+  return ["/main.hex", ...Object.keys(files)].flatMap((path) => opened.diagnostics(path).map(({ message }) => message));
 }
 
 /**
  * The program after the refactoring named `title` is applied, every edit of
  * it, or why it is refused. The program and what it becomes each report nothing.
  */
-function rewritten(source: string, title: string): string {
-  const action = offered(source).get(title);
+function rewritten(source: string, title: string, files: Files = {}): string {
+  const action = offered(source, files).get(title);
   if (action === undefined) return "not offered";
   if (action.disabled !== undefined) return `refused: ${action.disabled}`;
   const { text } = marked(source);
@@ -60,8 +66,8 @@ function rewritten(source: string, title: string): string {
     (written, { span, replacement }) => written.slice(0, span.start.offset) + replacement + written.slice(span.end.offset),
     text,
   );
-  expect(reports(text)).toEqual([]);
-  expect(reports(after)).toEqual([]);
+  expect(reports(text, files)).toEqual([]);
+  expect(reports(after, files)).toEqual([]);
   return after;
 }
 
@@ -208,19 +214,6 @@ describe("an alias written out, not offered", () => {
       .not.toContain(WRITE_OUT_TITLE);
   });
 
-  test("on a type of another module of the same name", () => {
-    const opened = new AnalysisSession();
-    opened.setFile("/geo.hex", "module Geo\nexport type Point = (Float, Float)\n");
-    opened.setFile("/geo.hex", "module Geo\nexport type Point = (Float, Float)\nexport type Pair(a) = (a, a)\n");
-    for (const use of ["Geo.Po‸int", "Geo.Pa‸ir(Int)"]) {
-      const source = program("import Geo", "type Point = (Int, Int)", "type Pair(a) = (a, Int)", `export let area(s: ${use}, t: Point, u: Pair(Int)): Float = 1.0`);
-      const { text, start, end } = marked(source);
-      opened.setFile("/main.hex", text);
-      expect(opened.diagnostics("/main.hex")).toEqual([]);
-      expect(opened.codeActions("/main.hex", { start, end }, { invoked: true }).map(({ title }) => title)).not.toContain(WRITE_OUT_TITLE);
-    }
-  });
-
   test("on a use with the wrong number of arguments, or an alias in error", () => {
     expect(titles(program("type Point = (Float, Float)", "extern from \"geo\"", "    type Point", "export let area(s: Po‸int): Float = 1.0")))
       .not.toContain(WRITE_OUT_TITLE);
@@ -255,6 +248,170 @@ describe("an alias written out, not offered", () => {
       "        box.value",
     );
     expect(rewritten(honored("It‸em"), WRITE_OUT_TITLE)).toBe(honored("String"));
+  });
+});
+
+/** A module of the program besides `Main`, in its own file. */
+const beside = (name: string, ...lines: readonly string[]): Files => ({
+  [`/${name.toLowerCase()}.hex`]: [`module ${name}`, ...lines, ""].join("\n"),
+});
+
+const GEO = beside(
+  "Geo",
+  "export record Point = { x: Float, y: Float }",
+  "export type Segment = (Point, Point)",
+  "export type Pair(a) = (a, Point)",
+  "export type Lookup(v) = (String) -> Option(v)",
+);
+
+describe("another module's alias written out where it is imported", () => {
+  test("its body, each name in it as this module reaches the type, the use's arguments in place of its parameters", () => {
+    expect(rewritten(program("import Geo", "export let length(s: Geo.Seg‸ment): Float = 1.0"), WRITE_OUT_TITLE, GEO))
+      .toBe(program("import Geo", "export let length(s: (Geo.Point, Geo.Point)): Float = 1.0"));
+    expect(rewritten(program("import Geo as G", "export let length(s: G.Pa‸ir(String)): Float = 1.0"), WRITE_OUT_TITLE, GEO))
+      .toBe(program("import Geo as G", "export let length(s: (String, G.Point)): Float = 1.0"));
+    // The prelude's and the compiler's own types, bare.
+    expect(rewritten(program("import Geo", "export let find(l: Geo.Look‸up(Int)): Unit = ()"), WRITE_OUT_TITLE, GEO))
+      .toBe(program("import Geo", "export let find(l: (String) -> Option(Int)): Unit = ()"));
+  });
+
+  test("from its qualifier, and the innermost use around the caret", () => {
+    const pairs = { ...GEO, ...beside("Two", "export type Both(a) = (a, a)") };
+    const source = (use: string): string => program("import Geo", "import Two", `export let length(s: ${use}): Float = 1.0`);
+    expect(rewritten(source("Tw‸o.Both(Geo.Segment)"), WRITE_OUT_TITLE, pairs))
+      .toBe(source("(Geo.Segment, Geo.Segment)"));
+    expect(rewritten(source("Two.Both(Geo.Seg‸ment)"), WRITE_OUT_TITLE, pairs))
+      .toBe(source("Two.Both((Geo.Point, Geo.Point))"));
+  });
+
+  test("bare, where it is reached through the companion fallback, and naming types the same way", () => {
+    const point = beside("Point", "export record Point = { x: Float }");
+    const geo = { ...point, ...beside("Geo", "import Point", "export type Segment = (Point, Point)") };
+    expect(rewritten(program("import Geo", "import Point", "export let length(s: Geo.Seg‸ment): Float = 1.0"), WRITE_OUT_TITLE, geo))
+      .toBe(program("import Geo", "import Point", "export let length(s: (Point, Point)): Float = 1.0"));
+    expect(rewritten(program("import Geo", "import Point as P", "export let length(s: Geo.Seg‸ment): Float = 1.0"), WRITE_OUT_TITLE, geo))
+      .toBe(program("import Geo", "import Point as P", "export let length(s: (P.Point, P.Point)): Float = 1.0"));
+    const rat = beside("Rat", "export type Rat = (Int, Int)");
+    expect(rewritten(program("import Rat", "export let half(r: R‸at): Float = 1.0"), WRITE_OUT_TITLE, rat))
+      .toBe(program("import Rat", "export let half(r: (Int, Int)): Float = 1.0"));
+  });
+
+  test("a prelude type this module's own declaration takes the name of, through the prelude's module", () => {
+    expect(rewritten(
+      program("import Geo", "union Option = Yes | No", "export let find(l: Geo.Look‸up(Int)): Unit = ()"),
+      WRITE_OUT_TITLE,
+      GEO,
+    )).toBe(program("import Geo", "union Option = Yes | No", "export let find(l: (String) -> Option.Option(Int)): Unit = ()"));
+  });
+
+  test("an alias its module exports kept, and one it keeps to itself written out", () => {
+    const geo = beside(
+      "Geo",
+      "export record Point = { x: Float }",
+      "export type Pt = Point",
+      "export type Segment = (Pt, Pt)",
+      "type Inner(x, y) = (y, x)",
+      "export type Pair(a) = Inner(Point, a)",
+      "type Step = Int -> Int",
+      "export type Steps = Step -> Int",
+      "type Two = (Int, Int)",
+      "export type Sum = Two -> Int",
+    );
+    const source = (type: string): string => program("import Geo", `export let run(s: ${type}): Unit = ()`);
+    expect(rewritten(source("Geo.Seg‸ment"), WRITE_OUT_TITLE, geo)).toBe(source("(Geo.Pt, Geo.Pt)"));
+    expect(rewritten(source("Geo.Pa‸ir(String)"), WRITE_OUT_TITLE, geo)).toBe(source("(String, Geo.Point)"));
+    // In parentheses where a function or a tuple written out would otherwise be another type.
+    expect(rewritten(source("Geo.St‸eps"), WRITE_OUT_TITLE, geo)).toBe(source("(Int -> Int) -> Int"));
+    expect(rewritten(source("Geo.S‸um"), WRITE_OUT_TITLE, geo)).toBe(source("((Int, Int)) -> Int"));
+  });
+
+  test("a type a third module declares, through this module's import of it", () => {
+    const web = beside("Web", "export record Params = { q: String }", "export type Query = String");
+    const geo = { ...web, ...beside("Geo", "import Web as W", "export type Request = (W.Params, W.Query)") };
+    expect(rewritten(program("import Geo", "import Web", "export let send(r: Geo.Requ‸est): Unit = ()"), WRITE_OUT_TITLE, geo))
+      .toBe(program("import Geo", "import Web", "export let send(r: (Web.Params, Web.Query)): Unit = ()"));
+  });
+
+  test("an extern type it names, through the module that declares it", () => {
+    const geo = beside("Geo", "extern from \"widgets\"", "    export type Widget", "export type Tagged = (Widget, Int)");
+    expect(rewritten(program("import Geo", "export let show(w: Geo.Tag‸ged): Unit = ()"), WRITE_OUT_TITLE, geo))
+      .toBe(program("import Geo", "export let show(w: (Geo.Widget, Int)): Unit = ()"));
+  });
+
+  test("in parentheses where an argument would otherwise parse as another type", () => {
+    const geo = beside("Geo", "export type Handler(a) = a -> Unit");
+    expect(rewritten(program("import Geo", "export let run(h: Geo.Hand‸ler(Int -> Int)): Unit = ()"), WRITE_OUT_TITLE, geo))
+      .toBe(program("import Geo", "export let run(h: (Int -> Int) -> Unit): Unit = ()"));
+  });
+
+  test("not this module's alias of the same name, nor that one as the other module's", () => {
+    const geo = beside("Geo", "export type Point = (Float, Float)", "export type Pair(a) = (a, a)");
+    const source = (first: string, second: string): string =>
+      program("import Geo", "type Point = (Int, Int)", "type Pair(a) = (a, Int)", `export let area(s: ${first}, t: ${second}): Float = 1.0`);
+    expect(rewritten(source("Geo.Po‸int", "Pair(Int)"), WRITE_OUT_TITLE, geo)).toBe(source("(Float, Float)", "Pair(Int)"));
+    expect(rewritten(source("Geo.Pa‸ir(Int)", "Pair(Int)"), WRITE_OUT_TITLE, geo)).toBe(source("(Int, Int)", "Pair(Int)"));
+    expect(rewritten(source("Geo.Point", "Pa‸ir(Int)"), WRITE_OUT_TITLE, geo)).toBe(source("Geo.Point", "(Int, Int)"));
+  });
+});
+
+describe("another module's alias written out, refused", () => {
+  test("where it names a type this module does not import, naming the import", () => {
+    const web = beside("Web", "export record Params = { q: String }");
+    const geo = { ...web, ...beside("Geo", "import Web", "export type Request = (Web.Params, Int)") };
+    expect(rewritten(program("import Geo", "export let send(r: Geo.Requ‸est): Unit = ()"), WRITE_OUT_TITLE, geo)).toBe(
+      "refused: `Geo.Request` names `Params`, declared in `Web`, which this module does not import. Write `import Web` first.",
+    );
+  });
+
+  test("where this module's own type takes the name of a compiler's or the prelude's type it names", () => {
+    const geo = beside("Geo", "export type Pair = (Float, Float)", "export type Ints = Vector(Int)");
+    expect(rewritten(program("import Geo", "record Float = { f: Int }", "export let run(p: Geo.Pa‸ir): Unit = ()"), WRITE_OUT_TITLE, geo))
+      .toBe("refused: `Geo.Pair` names the compiler's `Float`, and a type this module reaches takes that name here.");
+    expect(rewritten(program("import Geo", "record Vector = { v: Int }", "export let run(p: Geo.In‸ts): Unit = ()"), WRITE_OUT_TITLE, geo))
+      .toBe("refused: `Geo.Ints` names the prelude's `Vector`, and a type this module reaches takes that name here.");
+    // A prelude union taken bare, and its module's name taken by an import.
+    const rat = beside("Rat", "export type Rat = (Int, Int)");
+    expect(rewritten(
+      program("import Geo", "import Rat as Option", "union Option = Yes | No", "export let find(l: Geo.Look‸up(Int)): Unit = ()"),
+      WRITE_OUT_TITLE,
+      { ...GEO, ...rat },
+    )).toBe("refused: `Geo.Lookup` names the prelude's `Option`, and a type this module reaches takes that name here.");
+    // But an import of the name that brings no such type takes nothing.
+    expect(rewritten(program("import Geo", "import Rat as Option", "export let find(l: Geo.Look‸up(Int)): Unit = ()"), WRITE_OUT_TITLE, { ...GEO, ...rat }))
+      .toBe(program("import Geo", "import Rat as Option", "export let find(l: (String) -> Option(Int)): Unit = ()"));
+    const vector = beside("Vec", "export type Vec = Int");
+    expect(rewritten(program("import Geo", "import Vec as Vector", "export let run(p: Geo.In‸ts): Unit = ()"), WRITE_OUT_TITLE, { ...geo, ...vector }))
+      .toBe(program("import Geo", "import Vec as Vector", "export let run(p: Vector(Int)): Unit = ()"));
+  });
+
+  test("where its body, or the body of an alias it writes out, holds a comment", () => {
+    const geo = beside("Geo", "export type Pair = (Int, (* the second *) Int)", "type Inner = (Int, (* the second *) Int)", "export type Outer = Option(Inner)");
+    expect(rewritten(program("import Geo", "export let run(p: Geo.Pa‸ir): Unit = ()"), WRITE_OUT_TITLE, geo))
+      .toBe("refused: The alias's body holds a comment, which writing it out would copy. Move the comment out first.");
+    expect(rewritten(program("import Geo", "export let run(p: Geo.Out‸er): Unit = ()"), WRITE_OUT_TITLE, geo))
+      .toBe("refused: The alias's body holds a comment, which writing it out would copy. Move the comment out first.");
+  });
+
+  test("where it names a type its module does not export", () => {
+    // Which its module reports.
+    const geo = beside("Geo", "record Hidden = { h: Int }", "export type Shown = (Hidden, Int)");
+    const action = offered(program("import Geo", "export let run(p: Geo.Sh‸own): Unit = ()"), geo).get(WRITE_OUT_TITLE);
+    expect(action?.disabled).toBe("`Geo.Shown` names `Hidden`, which `Geo` does not export, so this module cannot write it.");
+  });
+});
+
+describe("another module's alias written out, not offered", () => {
+  test("for an alias it keeps to itself, or a use with the wrong number of arguments", () => {
+    const geo = beside("Geo", "type Inner = (Int, Int)", "export type Pair(a) = (a, a)");
+    expect(titles(program("import Geo", "export let run(p: Geo.Inn‸er): Unit = ()"), geo)).not.toContain(WRITE_OUT_TITLE);
+    expect(titles(program("import Geo", "export let run(p: Geo.Pa‸ir(Int, Int)): Unit = ()"), geo)).not.toContain(WRITE_OUT_TITLE);
+    expect(titles(program("import Geo", "export let run(p: Geo.Pa‸ir): Unit = ()"), geo)).not.toContain(WRITE_OUT_TITLE);
+  });
+
+  test("for a name this module declares itself or a constraint of it takes", () => {
+    const rat = beside("Rat", "export type Rat = (Int, Int)");
+    expect(rewritten(program("import Rat", "type Rat = Int", "export let half(r: R‸at): Float = 1.0"), WRITE_OUT_TITLE, rat))
+      .toBe(program("import Rat", "type Rat = Int", "export let half(r: Int): Float = 1.0"));
   });
 });
 
@@ -414,6 +571,12 @@ describe("an alias introduced", () => {
     // Parentheses written twice go twice.
     expect(rewritten(program("export let run(h: ‸((Int -> Unit))‸ -> Unit): Unit = ()"), INTRODUCE_TITLE))
       .toBe(program("type NewType = Int -> Unit", "", "export let run(h: NewType -> Unit): Unit = ()"));
+  });
+
+  test("for another module's type, qualified", () => {
+    const geo = beside("Geo", "export type Pair(a) = (a, a)");
+    expect(rewritten(program("import Geo", "export let p: Vector(‸Geo.Pair(Int)‸) = []"), INTRODUCE_TITLE, geo))
+      .toBe(program("import Geo", "type NewType = Geo.Pair(Int)", "", "export let p: Vector(NewType) = []"));
   });
 
   test("for a selection with space before it", () => {

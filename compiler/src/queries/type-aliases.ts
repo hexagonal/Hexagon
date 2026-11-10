@@ -8,7 +8,11 @@
  * or through an alias (Effects §2.4), so an arrow reads the same either way.
  *
  * - **Write the alias out**, on a use: the use becomes the alias's body, with
- *   the use's arguments in place of its parameters.
+ *   the use's arguments in place of its parameters. A use of an alias another
+ *   module exports is written out too, each name in the body spelled as this
+ *   module reaches the type it names, and an alias that module keeps to itself
+ *   written out in its place; refused, naming the import, where this module
+ *   cannot reach a type the body names.
  * - **Write the alias out everywhere**, on the alias's name where it is
  *   declared: every use in its module, and the declaration with them unless
  *   it is exported, since another module may use it.
@@ -21,16 +25,20 @@
  *   writes the type more than once: the alias in every place that reads as
  *   the type, variables by name, declared above the first.
  *
- * Names are read from the text alone: an alias's name means the alias
- * throughout its module (§7.2), save where a constraint's implied type of that
- * name stands. Each rewrite is checked by parsing what it leaves: the text
- * written must read as the alias expanded in the tree.
+ * Names are read from the text: an alias's name means the alias throughout
+ * its module (§7.2), save where a constraint's implied type of that name
+ * stands; another module's names are spelled through this module's imports,
+ * and the prelude's as the resolver spells them here. No type is asked for.
+ * Each rewrite is checked by parsing what it leaves: the text written must
+ * read as the alias expanded in the tree.
  */
 
+import { isPrimitiveName } from "../passes/resolver/resolver.js";
 import { isFollowing } from "../support/arrows.js";
 import type * as Diagnostics from "../support/diagnostics.js";
 import * as Source from "../support/source.js";
 import type * as Parsed from "../syntax/parsed/index.js";
+import type * as Resolved from "../syntax/resolved/index.js";
 import { type Refactoring, rewrite, solid, textOf } from "./rewrite.js";
 import { keepsReadingAs, parsedText, replaced, sameReading, type TextEdit } from "./same-reading.js";
 
@@ -45,16 +53,39 @@ const PARSES_OTHERWISE = "Written the other way here, it would parse as a differ
 /** An alias written where a type goes: its bare name, or its name applied. */
 type Use = Parsed.NamedType | Parsed.AppliedType;
 
+/**
+ * What writing out another module's alias needs: how this module reaches the
+ * program's other modules, and those modules as written and resolved.
+ */
+export interface Abroad {
+  /** This module as the resolver read it: its imports, and how it spells each record and union. */
+  readonly resolved: Resolved.Module;
+  /** A module of the program by its full name (Packages §2.3). */
+  readonly moduleNamed: (fullName: string) => Elsewhere | undefined;
+  /** The module's name as an `import` in this module writes it. */
+  readonly importName: (fullName: string) => string;
+}
+
+/** Another module of the program, as written and as resolved. */
+export interface Elsewhere {
+  /** Its full name. */
+  readonly name: string;
+  readonly source: Source.File;
+  readonly parsed: Parsed.Module;
+  readonly resolved: Resolved.Module;
+}
+
 /** The alias rewrites offered for `[start, end]` of one parsed module. */
 export function typeAliasRefactorings(
   file: Source.File,
   module: Parsed.Module,
   start: number,
   end: number,
+  abroad?: Abroad,
 ): readonly Refactoring[] {
   const aliases = aliasesOf(module);
   return [
-    ...writeOutAt(file, module, aliases, start, end),
+    ...writeOutAt(file, module, aliases, start, end, abroad),
     ...writeOutEverywhereAt(file, module, aliases, start, end),
     ...introduceAt(file, module, start, end),
   ];
@@ -90,26 +121,349 @@ function aliasesOf(module: Parsed.Module): ReadonlyMap<string, Parsed.TypeAliasI
   return aliases;
 }
 
-/** "Write the alias out" on the innermost use that holds `[start, end]`. */
+/**
+ * "Write the alias out" on the innermost use that holds `[start, end]`: of an
+ * alias of this module, or of one another module exports, reached through
+ * this module's import of it.
+ */
 function writeOutAt(
   file: Source.File,
   module: Parsed.Module,
   aliases: ReadonlyMap<string, Parsed.TypeAliasItem>,
   start: number,
   end: number,
+  abroad: Abroad | undefined,
 ): readonly Refactoring[] {
-  let found: { readonly use: Use; readonly alias: Parsed.TypeAliasItem } | undefined;
+  let found: { readonly use: Use; readonly body: () => Body | string | undefined } | undefined;
+  const consider = (use: Use, body: () => Body | string | undefined): void => {
+    if (holds(use.span, start, end) && (found === undefined || found.use.span.start.offset < use.span.start.offset)) {
+      found = { use, body };
+    }
+  };
+  const here = abroad === undefined ? undefined : reachOf(module, abroad.resolved);
   for (const item of module.items) {
     for (const alias of aliases.values()) {
-      for (const use of usesIn(item, alias)) {
-        if (holds(use.span, start, end) && (found === undefined || found.use.span.start.offset < use.span.start.offset)) {
-          found = { use, alias };
-        }
-      }
+      for (const use of usesIn(item, alias)) consider(use, () => bodyOf(file, module, alias));
+    }
+    for (const { use, home, alias } of here === undefined ? [] : usesAbroad(item, here, abroad!)) {
+      consider(use, () => bodyAbroad(file, abroad!, here!, home, alias, use));
     }
   }
   if (found === undefined) return [];
-  return [writeOut(file, module, bodyOf(file, module, found.alias), found.use, WRITE_OUT_TITLE)];
+  const body = found.body();
+  if (body === undefined) return [];
+  if (typeof body === "string") return [{ title: WRITE_OUT_TITLE, disabled: body }];
+  return [writeOut(file, module, body, found.use, WRITE_OUT_TITLE)];
+}
+
+/** What a module's type names reach: its own types, its imports, and the implied types of its constraints. */
+interface Reach {
+  /** Every type the module declares, by name, and whether it exports it. */
+  readonly owned: ReadonlyMap<string, boolean>;
+  /** The names a constraint of the module gives an implied type, which a bare name never reaches past. */
+  readonly implied: ReadonlySet<string>;
+  /** Each module alias an `import` binds, with the full name of the module, in the order written. */
+  readonly imports: ReadonlyMap<string, string>;
+}
+
+function reachOf(parsed: Parsed.Module, resolved: Resolved.Module): Reach {
+  const owned = new Map<string, boolean>();
+  const implied = new Set<string>();
+  for (const item of parsed.items) {
+    if (item.kind === "TypeAlias" || item.kind === "RecordDeclaration" || item.kind === "Union") {
+      owned.set(item.name.text, owned.get(item.name.text) === true || item.exported);
+    }
+    if (item.kind === "ExternBlock") {
+      for (const declaration of item.declarations) {
+        if (declaration.kind !== "ExternType") continue;
+        owned.set(declaration.localName.text, owned.get(declaration.localName.text) === true || declaration.exported);
+      }
+    }
+    if (item.kind === "ConstraintDeclaration") for (const { name } of item.impliedTypes) implied.add(name.text);
+  }
+  const imports = new Map<string, string>();
+  for (const item of resolved.items) {
+    // The prelude's companions are not imports (Modules §5.1 rule 2).
+    if (item.kind === "Import" && !item.synthesized && item.form.kind === "Namespace") imports.set(item.form.alias, item.moduleName);
+  }
+  return { owned, implied, imports };
+}
+
+/**
+ * The uses in an item of an alias another module exports: `Geo.Segment`
+ * through this module's import of it, or `Segment` bare through Modules §5.1
+ * rule 2's companion fallback, where this module declares no `Segment` itself.
+ */
+function usesAbroad(
+  item: Parsed.Item,
+  here: Reach,
+  abroad: Abroad,
+): readonly { readonly use: Use; readonly home: Elsewhere; readonly alias: Parsed.TypeAliasItem }[] {
+  return writtenTypes(item).flatMap((type) => [...typesIn(type)]).flatMap((type) => {
+    if (type.kind !== "NamedType" && type.kind !== "AppliedType") return [];
+    const name = (type.kind === "NamedType" ? type.name : type.constructor).text;
+    const qualifier = type.qualifier?.text;
+    if (qualifier === undefined && (here.owned.has(name) || here.implied.has(name))) return [];
+    const fullName = here.imports.get(qualifier ?? name);
+    const home = fullName === undefined ? undefined : abroad.moduleNamed(fullName);
+    const alias = home === undefined ? undefined : aliasesOf(home.parsed).get(name);
+    const arity = type.kind === "AppliedType" ? type.arguments.length : 0;
+    return alias?.exported === true && alias.parameters.length === arity ? [{ use: type, home: home!, alias }] : [];
+  });
+}
+
+/**
+ * Another module's alias, its body spelled the way this module reaches each
+ * type it names, or why it cannot be: a type this module cannot write, or a
+ * comment in the body. An alias the home module keeps to itself is written
+ * out in its place, since it is the type it stands for (Declarations Preamble
+ * §4) and this module cannot name it.
+ */
+function bodyAbroad(
+  file: Source.File,
+  abroad: Abroad,
+  here: Reach,
+  home: Elsewhere,
+  alias: Parsed.TypeAliasItem,
+  use: Use,
+): Body | string | undefined {
+  const name = use.kind === "NamedType" ? use.name : use.constructor;
+  const spelling = textOf(file, file.span((use.qualifier ?? name).span.start.offset, name.span.end.offset));
+  const parameters = new Map(alias.parameters.map((name, index): [string, Spelled] => [name.text, {
+    segments: [{ parameter: index }],
+    tree: { kind: "TypeVariable", name, span: name.span },
+  }]));
+  const split = ({ segments }: Spelled): { readonly pieces: readonly string[]; readonly written: readonly number[] } => {
+    const pieces = [""];
+    const written: number[] = [];
+    for (const segment of segments) {
+      if (typeof segment === "string") pieces[pieces.length - 1] += segment;
+      else {
+        written.push(segment.parameter);
+        pieces.push("");
+      }
+    }
+    return { pieces, written };
+  };
+  try {
+    const [plain, grouped] = [false, true].map((grouping) => {
+      const speller = new Speller(abroad, here, spelling, grouping);
+      return speller.body(speller.reachOf(home), alias, parameters, 0);
+    });
+    const { pieces, written } = split(plain!);
+    return { alias: { ...alias, annotation: plain!.tree }, pieces, parameters: written, comment: false, grouped: split(grouped!).pieces };
+  } catch (error) {
+    if (error instanceof Refused) return error.reason;
+    throw error;
+  }
+}
+
+/** A type spelled for another module: its text, around the parameters of the alias written out, and its tree. */
+interface Spelled {
+  readonly segments: readonly (string | { readonly parameter: number })[];
+  readonly tree: Parsed.TypeAnnotation;
+}
+
+/** Why a type cannot be spelled for the module, or `undefined` where nothing is offered. */
+class Refused {
+  constructor(readonly reason: string | undefined) {}
+}
+
+/** A module whose aliases are written out in another, with how it reaches its names. */
+interface Home extends Elsewhere {
+  readonly reach: Reach;
+}
+
+/** Spells types written in other modules the way one module, `here`, reaches them. */
+class Speller {
+  readonly #abroad: Abroad;
+  readonly #here: Reach;
+  /** The use being written out, as this module writes it, for the reasons given. */
+  readonly #use: string;
+  readonly #homes = new Map<string, Home>();
+  /** Whether a type written out inside another, or given for a parameter there, is put in parentheses. */
+  readonly #grouping: boolean;
+
+  constructor(abroad: Abroad, here: Reach, use: string, grouping: boolean) {
+    this.#abroad = abroad;
+    this.#here = here;
+    this.#use = use;
+    this.#grouping = grouping;
+  }
+
+  reachOf(module: Elsewhere): Home {
+    let home = this.#homes.get(module.name);
+    if (home === undefined) {
+      home = { ...module, reach: reachOf(module.parsed, module.resolved) };
+      this.#homes.set(module.name, home);
+    }
+    return home;
+  }
+
+  /** An alias's body, spelled here, its parameters each taken by what `parameters` gives. */
+  body(home: Home, alias: Parsed.TypeAliasItem, parameters: ReadonlyMap<string, Spelled>, depth: number): Spelled {
+    // A cycle of aliases does not compile, and is not followed round.
+    if (depth === 32) throw new Refused(undefined);
+    const { start, end } = solid(home.source, alias.annotation.span);
+    if (home.parsed.comments.some(({ span }) => start <= span.start.offset && span.end.offset <= end)) {
+      throw new Refused(BODY_COMMENT);
+    }
+    return this.#spelled(home, alias.annotation, parameters, depth);
+  }
+
+  /** A type written in `home`, spelled here: its text with each name and parameter replaced, and its tree. */
+  #spelled(home: Home, type: Parsed.TypeAnnotation, parameters: ReadonlyMap<string, Spelled>, depth: number): Spelled {
+    const replacements: { readonly start: number; readonly end: number; readonly segments: Spelled["segments"] }[] = [];
+    // The type itself is what its place holds, whatever it is written as.
+    const placed = (each: Parsed.TypeAnnotation, spelled: Spelled): Spelled["segments"] =>
+      this.#grouping && each !== type && (spelled.tree.kind === "Function" || spelled.tree.kind === "Tuple")
+        ? ["(", ...spelled.segments, ")"]
+        : spelled.segments;
+    const rebuilt = (each: Parsed.TypeAnnotation): Parsed.TypeAnnotation => {
+      switch (each.kind) {
+        case "TypeVariable": {
+          // A well-formed alias writes no variable but its parameters.
+          const given = parameters.get(each.name.text)!;
+          replacements.push({ start: each.name.span.start.offset, end: each.name.span.end.offset, segments: placed(each, given) });
+          return given.tree;
+        }
+        case "NamedType":
+        case "AppliedType": {
+          const name = each.kind === "NamedType" ? each.name : each.constructor;
+          const start = (each.qualifier ?? name).span.start.offset;
+          const named = this.#named(home, each, parameters, depth);
+          if ("tree" in named) {
+            const end = each.kind === "NamedType" ? name.span.end.offset : appliedEnd(home.source, each);
+            replacements.push({ start, end, segments: placed(each, named) });
+            return named.tree;
+          }
+          replacements.push({ start, end: name.span.end.offset, segments: [named.spelling] });
+          const qualifier = named.spelling.includes(".") ? named.spelling.slice(0, named.spelling.indexOf(".")) : undefined;
+          const own = named.spelling.slice(named.spelling.indexOf(".") + 1);
+          const { qualifier: _, ...rest } = each;
+          const written = (text: string): Parsed.Name => ({ ...name, text });
+          return {
+            ...rest,
+            ...(qualifier === undefined ? {} : { qualifier: written(qualifier) }),
+            ...(each.kind === "NamedType"
+              ? { name: written(own) }
+              : { constructor: written(own), arguments: each.arguments.map(rebuilt) }),
+          } as Parsed.TypeAnnotation;
+        }
+        case "Tuple":
+          return { ...each, elements: each.elements.map(rebuilt) };
+        case "Record":
+          return { ...each, fields: each.fields.map((field) => ({ ...field, annotation: rebuilt(field.annotation) })) };
+        case "Function":
+          return { ...each, parameters: each.parameters.map(rebuilt), result: rebuilt(each.result) };
+        default:
+          return each;
+      }
+    };
+    const tree = rebuilt(type);
+    const { start, end } = solid(home.source, type.span);
+    const segments: (string | { readonly parameter: number })[] = [];
+    let at = start;
+    for (const replacement of replacements) {
+      segments.push(home.source.text.slice(at, replacement.start), ...replacement.segments);
+      at = replacement.end;
+    }
+    segments.push(home.source.text.slice(at, end));
+    return { segments, tree };
+  }
+
+  /**
+   * A name written in `home`, spelled here; or, for an alias `home` keeps to
+   * itself, written out.
+   */
+  #named(
+    home: Home,
+    type: Parsed.NamedType | Parsed.AppliedType,
+    parameters: ReadonlyMap<string, Spelled>,
+    depth: number,
+  ): { readonly spelling: string } | Spelled {
+    if (type.kind === "NamedType" && type.synthesized === true) throw new Refused(undefined);
+    const name = (type.kind === "NamedType" ? type.name : type.constructor).text;
+    // The module that declares it, read as `home` reads the name: through its
+    // import, its own, or through the companion fallback; or none, for the
+    // prelude's and the compiler's own types.
+    const qualifier = type.qualifier?.text;
+    const companion = home.reach.imports.get(name);
+    const declaring = qualifier !== undefined
+      ? home.reach.imports.get(qualifier)
+      : home.reach.owned.has(name)
+      ? home.name
+      : !home.reach.implied.has(name) && companion !== undefined && this.#exports(companion, name)
+      ? companion
+      : undefined;
+    const kept = declaring === home.name && home.reach.owned.get(name) === false;
+    if (kept && home.parsed.items.some((item) => item.kind === "TypeAlias" && item.name.text === name)) {
+      const alias = aliasesOf(home.parsed).get(name);
+      const given = type.kind === "AppliedType" ? type.arguments : [];
+      if (alias === undefined || alias.parameters.length !== given.length) throw new Refused(undefined);
+      const arguments_ = new Map(
+        alias.parameters.map(({ text }, index) => [text, this.#spelled(home, given[index]!, parameters, depth)] as const),
+      );
+      return this.body(home, alias, arguments_, depth + 1);
+    }
+    if (declaring !== undefined) return { spelling: this.#through(declaring, name) };
+    // The prelude's or the compiler's own, which `home` declares and imports
+    // nothing of the name of.
+    const spellings = this.#abroad.resolved.nominalSpellings;
+    const taken = new Refused(`\`${this.#use}\` names the prelude's \`${name}\`, and a type this module reaches takes that name here.`);
+    const union = home.resolved.preludeUnions.get(name);
+    const record = home.resolved.preludeRecords.get(name);
+    if (union !== undefined || record !== undefined) {
+      // Bare, or through the prelude's module where a declaration here takes the name.
+      const spelling = union !== undefined ? spellings.unions.get(union) : spellings.records.get(record!);
+      if (spelling === undefined) throw taken;
+      return { spelling };
+    }
+    if (isPrimitiveName(name)) {
+      // A compiler-owned type's name is its spelling until a declaration
+      // takes it: `record Float = {…}` makes a bare `Float` the record.
+      if (!spellings.claimed.has(name)) return { spelling: name };
+      throw new Refused(`\`${this.#use}\` names the compiler's \`${name}\`, and a type this module reaches takes that name here.`);
+    }
+    if (!home.resolved.externTypes.some(({ localName }) => localName === name)) throw new Refused(undefined);
+    // An extern type of the prelude's, reached bare where nothing here takes its name.
+    const companionHere = this.#here.imports.get(name);
+    if (this.#here.owned.has(name) || this.#here.implied.has(name) || (companionHere !== undefined && this.#exports(companionHere, name))) {
+      throw taken;
+    }
+    return { spelling: name };
+  }
+
+  /** Whether a module of the program exports a type of this name. */
+  #exports(fullName: string, name: string): boolean {
+    const module = this.#abroad.moduleNamed(fullName);
+    return module !== undefined && this.reachOf(module).reach.owned.get(name) === true;
+  }
+
+  /**
+   * A type `declaring` exports, as this module writes it: bare through the
+   * companion fallback, or through this module's first import of it; or why
+   * it cannot.
+   */
+  #through(declaring: string, name: string): string {
+    const display = this.#abroad.importName(declaring);
+    if (!this.#exports(declaring, name)) {
+      throw new Refused(`\`${this.#use}\` names \`${name}\`, which \`${display}\` does not export, so this module cannot write it.`);
+    }
+    const here = this.#here;
+    if (!here.owned.has(name) && !here.implied.has(name) && here.imports.get(name) === declaring) return name;
+    for (const [alias, fullName] of here.imports) if (fullName === declaring) return `${alias}.${name}`;
+    throw new Refused(
+      `\`${this.#use}\` names \`${name}\`, declared in \`${display}\`, which this module does not import. ` +
+        `Write \`import ${display}\` first.`,
+    );
+  }
+}
+
+/** Where an applied type's own text ends: at the parenthesis that closes its arguments. */
+function appliedEnd(file: Source.File, type: Parsed.AppliedType): number {
+  const open = file.text.indexOf("(", type.constructor.span.end.offset);
+  return open + closing(file.text.slice(open)) + 1;
 }
 
 /**
@@ -325,16 +679,18 @@ function writeOut(file: Source.File, module: Parsed.Module, body: Body, use: Use
       };
     }
   }
-  const spelled = (wrapped: boolean): string => {
-    let text = body.pieces[0]!;
+  const spelled = (pieces: readonly string[], wrapped: boolean): string => {
+    let text = pieces[0]!;
     body.parameters.forEach((index, at) => {
       const { kind } = written[index]!;
       const own = textOf(file, regions[index]!);
-      text += (wrapped && (kind === "Function" || kind === "Tuple") ? `(${own})` : own) + body.pieces[at + 1]!;
+      text += (wrapped && (kind === "Function" || kind === "Tuple") ? `(${own})` : own) + pieces[at + 1]!;
     });
     return text;
   };
-  const texts = [...new Set([spelled(false), spelled(true), `(${spelled(false)})`, `(${spelled(true)})`])];
+  const alternatives = [body.pieces, ...(body.grouped === undefined ? [] : [body.grouped])];
+  const bare = alternatives.flatMap((pieces) => [spelled(pieces, false), spelled(pieces, true)]);
+  const texts = [...new Set([...bare, ...bare.map((text) => `(${text})`)])];
   return rewrite(file, module, title, use, { texts, kept: regions }, (edit) =>
     keepsReadingAs(file, module, edit, (before, start) => {
       const old = useAt(before, use.span.start.offset - start, use.span.end.offset - start);
@@ -375,6 +731,13 @@ interface Body {
   readonly parameters: readonly number[];
   /** Whether a comment stands inside the body. */
   readonly comment: boolean;
+  /**
+   * The pieces with each alias written out inside the body, and each type
+   * given for its parameters, in parentheses where it is a function or a
+   * tuple: for an alias another module exports, whose body may write out
+   * one its module keeps to itself.
+   */
+  readonly grouped?: readonly string[];
 }
 
 function bodyOf(file: Source.File, module: Parsed.Module, alias: Parsed.TypeAliasItem): Body {

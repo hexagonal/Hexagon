@@ -8522,7 +8522,7 @@ class Resolver {
   }
 }
 
-function isPrimitiveName(name: string): name is Resolved.PrimitiveName {
+export function isPrimitiveName(name: string): name is Resolved.PrimitiveName {
   return ["Nat", "Int", "Float", "String", "BigInt", "Exn", "Unit"].includes(name);
 }
 

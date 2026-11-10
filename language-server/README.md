@@ -665,7 +665,15 @@ the rewrite keeps the program's meaning by definition:
   declaration would be copied or lost. A name a constraint's implied type
   takes in that constraint's members is not the alias, and is not offered it;
   in an honor's body it is, since an implied type cannot be written in a type
-  there (Collections Part 2 §7.3).
+  there (Collections Part 2 §7.3). A use of an alias another module exports
+  (`Geo.Segment`, or `Segment` through the companion fallback) is written out
+  too, each name in its body spelled as this module reaches that type: through
+  this module's import of the module that declares it, bare where the
+  companion fallback reaches it, and a prelude or compiler-owned type bare,
+  or through the prelude's module where a declaration here takes its name. An
+  alias the other module keeps to itself is written out in its place, since
+  this module cannot name it. Refused, naming the import, where this module
+  does not import the module that declares a type the body names.
 - **Introduce a type alias**, on a type, or a selection of one: `type NewType`
   above the item, its body the type, and the alias in the type's place. The
   type's variables are the alias's parameters, in the order the type first
