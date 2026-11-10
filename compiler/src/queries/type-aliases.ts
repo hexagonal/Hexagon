@@ -170,13 +170,10 @@ function reachOf(parsed: Parsed.Module, resolved: Resolved.Module): Reach {
   const owned = new Map<string, boolean>();
   const implied = new Set<string>();
   for (const item of parsed.items) {
-    if (item.kind === "TypeAlias" || item.kind === "RecordDeclaration" || item.kind === "Union") {
-      owned.set(item.name.text, owned.get(item.name.text) === true || item.exported);
-    }
+    if (item.kind === "TypeAlias" || item.kind === "RecordDeclaration" || item.kind === "Union") owned.set(item.name.text, item.exported);
     if (item.kind === "ExternBlock") {
       for (const declaration of item.declarations) {
-        if (declaration.kind !== "ExternType") continue;
-        owned.set(declaration.localName.text, owned.get(declaration.localName.text) === true || declaration.exported);
+        if (declaration.kind === "ExternType") owned.set(declaration.localName.text, declaration.exported);
       }
     }
     if (item.kind === "ConstraintDeclaration") for (const { name } of item.impliedTypes) implied.add(name.text);
@@ -382,7 +379,6 @@ class Speller {
     parameters: ReadonlyMap<string, Spelled>,
     depth: number,
   ): { readonly spelling: string } | Spelled {
-    if (type.kind === "NamedType" && type.synthesized === true) throw new Refused(undefined);
     const name = (type.kind === "NamedType" ? type.name : type.constructor).text;
     // The module that declares it, read as `home` reads the name: through its
     // import, its own, or through the companion fallback; or none, for the

@@ -325,11 +325,65 @@ describe("another module's alias written out where it is imported", () => {
     expect(rewritten(source("Geo.S‸um"), WRITE_OUT_TITLE, geo)).toBe(source("((Int, Int)) -> Int"));
   });
 
+  test("one it keeps to itself inside another, or given a function, in parentheses where it needs them", () => {
+    const geo = beside(
+      "Geo",
+      "type Step = Int -> Int",
+      "type Steps = Step -> Int",
+      "export type Via = Steps",
+      "type Apply(x) = x -> Int",
+      "export type Applied = Apply(Int -> Int)",
+      "export record Point = { x: Float }",
+      "type Inner(x, y) = (y, x)",
+      "export type From(a) = (Inner(Point, a)) -> Int",
+    );
+    const source = (type: string): string => program("import Geo", `export let run(s: ${type}): Unit = ()`);
+    expect(rewritten(source("Geo.V‸ia"), WRITE_OUT_TITLE, geo)).toBe(source("(Int -> Int) -> Int"));
+    expect(rewritten(source("Geo.Appl‸ied"), WRITE_OUT_TITLE, geo)).toBe(source("(Int -> Int) -> Int"));
+    expect(rewritten(source("Geo.Fr‸om(String)"), WRITE_OUT_TITLE, geo)).toBe(source("((String, Geo.Point)) -> Int"));
+  });
+
+  test("each name in a record's fields and a function's parameters and result", () => {
+    const geo = beside(
+      "Geo",
+      "export record Point = { x: Float }",
+      "export type Placed = {at: Point, name: String}",
+      "export type Visit = (Point) -> Unit",
+      "export type Make = () -> Point",
+    );
+    const source = (type: string): string => program("import Geo", `export let run(s: ${type}): Unit = ()`);
+    expect(rewritten(source("Geo.Pla‸ced"), WRITE_OUT_TITLE, geo)).toBe(source("{at: Geo.Point, name: String}"));
+    expect(rewritten(source("Geo.Vis‸it"), WRITE_OUT_TITLE, geo)).toBe(source("(Geo.Point) -> Unit"));
+    expect(rewritten(source("Geo.Ma‸ke"), WRITE_OUT_TITLE, geo)).toBe(source("() -> Geo.Point"));
+  });
+
   test("a type a third module declares, through this module's import of it", () => {
     const web = beside("Web", "export record Params = { q: String }", "export type Query = String");
     const geo = { ...web, ...beside("Geo", "import Web as W", "export type Request = (W.Params, W.Query)") };
     expect(rewritten(program("import Geo", "import Web", "export let send(r: Geo.Requ‸est): Unit = ()"), WRITE_OUT_TITLE, geo))
       .toBe(program("import Geo", "import Web", "export let send(r: (Web.Params, Web.Query)): Unit = ()"));
+    // A private alias of the same name there is not the one its qualifier names.
+    const shadowed = { ...web, ...beside("Geo", "import Web as W", "type Params = Int", "export type Request = W.Params") };
+    expect(rewritten(program("import Geo", "import Web", "export let send(r: Geo.Requ‸est): Unit = ()"), WRITE_OUT_TITLE, shadowed))
+      .toBe(program("import Geo", "import Web", "export let send(r: Web.Params): Unit = ()"));
+  });
+
+  test("through this module's first import of the module, and qualified where its own type takes the name", () => {
+    const geo = beside("Geo", "export record Point = { x: Float }", "export type Segment = (Point, Point)");
+    expect(rewritten(program("import Geo", "import Geo as G", "export let run(s: G.Seg‸ment): Unit = ()"), WRITE_OUT_TITLE, geo))
+      .toBe(program("import Geo", "import Geo as G", "export let run(s: (Geo.Point, Geo.Point)): Unit = ()"));
+    const point = beside("Point", "export record Point = { x: Float }");
+    const through = { ...point, ...beside("Geo", "import Point", "export type Segment = (Point, Point)") };
+    const source = (type: string): string => program("import Geo", "import Point", "record Point = { y: Int }", `export let run(s: ${type}): Unit = ()`);
+    expect(rewritten(source("Geo.Seg‸ment"), WRITE_OUT_TITLE, through)).toBe(source("(Point.Point, Point.Point)"));
+  });
+
+  test("a prelude type its module names, where an import there takes the name but brings no such type", () => {
+    const rat = beside("Rat", "export type Rat = (Int, Int)");
+    const geo = { ...rat, ...beside("Geo", "import Rat as Option", "export type Maybe = Option(Int)", "export type Ints = Seq(Int)") };
+    const source = (type: string): string => program("import Geo", `export let run(s: ${type}): Unit = ()`);
+    expect(rewritten(source("Geo.May‸be"), WRITE_OUT_TITLE, geo)).toBe(source("Option(Int)"));
+    expect(rewritten(source("Geo.In‸ts"), WRITE_OUT_TITLE, geo)).toBe(source("Seq(Int)"));
   });
 
   test("an extern type it names, through the module that declares it", () => {
@@ -382,6 +436,15 @@ describe("another module's alias written out, refused", () => {
     const vector = beside("Vec", "export type Vec = Int");
     expect(rewritten(program("import Geo", "import Vec as Vector", "export let run(p: Geo.In‸ts): Unit = ()"), WRITE_OUT_TITLE, { ...geo, ...vector }))
       .toBe(program("import Geo", "import Vec as Vector", "export let run(p: Vector(Int)): Unit = ()"));
+    // Taken by an import that brings a type of the name, or by a constraint's implied type.
+    const records = beside("Vec", "export record Vector = { v: Int }");
+    expect(rewritten(program("import Geo", "import Vec as Vector", "export let run(p: Geo.In‸ts): Unit = ()"), WRITE_OUT_TITLE, { ...geo, ...records }))
+      .toBe("refused: `Geo.Ints` names the prelude's `Vector`, and a type this module reaches takes that name here.");
+    expect(rewritten(
+      program("import Geo", "constraint Source<a> =", "    type Vector", "    get(value: a) -> Vector", "export let run(p: Geo.In‸ts): Unit = ()"),
+      WRITE_OUT_TITLE,
+      geo,
+    )).toBe("refused: `Geo.Ints` names the prelude's `Vector`, and a type this module reaches takes that name here.");
   });
 
   test("where its body, or the body of an alias it writes out, holds a comment", () => {
@@ -397,6 +460,9 @@ describe("another module's alias written out, refused", () => {
     const geo = beside("Geo", "record Hidden = { h: Int }", "export type Shown = (Hidden, Int)");
     const action = offered(program("import Geo", "export let run(p: Geo.Sh‸own): Unit = ()"), geo).get(WRITE_OUT_TITLE);
     expect(action?.disabled).toBe("`Geo.Shown` names `Hidden`, which `Geo` does not export, so this module cannot write it.");
+    const extern = beside("Geo", "extern from \"widgets\"", "    type Widget", "export type Tagged = (Widget, Int)");
+    expect(offered(program("import Geo", "export let show(w: Geo.Tag‸ged): Unit = ()"), extern).get(WRITE_OUT_TITLE)?.disabled)
+      .toBe("`Geo.Tagged` names `Widget`, which `Geo` does not export, so this module cannot write it.");
   });
 });
 
@@ -408,10 +474,30 @@ describe("another module's alias written out, not offered", () => {
     expect(titles(program("import Geo", "export let run(p: Geo.Pa‸ir): Unit = ()"), geo)).not.toContain(WRITE_OUT_TITLE);
   });
 
+  test("for an alias whose body its module reports: a cycle, a wrong number of arguments, an unknown name, an implied type", () => {
+    // Each of which its module reports.
+    const source = (type: string): string => program("import Geo", `export let run(s: ${type}): Unit = ()`);
+    const bodies: readonly (readonly string[])[] = [
+      ["type A = B", "type B = A", "export type Alias = A"],
+      ["type Inner(x) = (x, x)", "export type Alias = Inner"],
+      ["export type Alias = Nope"],
+      ["import Point", "constraint Source<a> =", "    type Point", "    get(value: a) -> Point", "export type Alias = (Point, Point)"],
+    ];
+    const point = beside("Point", "export record Point = { x: Float }");
+    for (const body of bodies) {
+      expect(titles(source("Geo.Al‸ias"), { ...point, ...beside("Geo", ...body) })).not.toContain(WRITE_OUT_TITLE);
+    }
+  });
+
   test("for a name this module declares itself or a constraint of it takes", () => {
     const rat = beside("Rat", "export type Rat = (Int, Int)");
     expect(rewritten(program("import Rat", "type Rat = Int", "export let half(r: R‸at): Float = 1.0"), WRITE_OUT_TITLE, rat))
       .toBe(program("import Rat", "type Rat = Int", "export let half(r: Int): Float = 1.0"));
+    expect(titles(program("import Rat", "record Rat = { n: Int }", "export let half(r: R‸at): Float = 1.0"), rat)).not.toContain(WRITE_OUT_TITLE);
+    expect(titles(
+      program("import Rat", "constraint Source<a> =", "    type Rat", "    get(value: a) -> R‸at"),
+      rat,
+    )).not.toContain(WRITE_OUT_TITLE);
   });
 });
 
