@@ -996,8 +996,8 @@ export class AnalysisSession {
       // which stands on the `match` and its subject.
       if (diagnostic.message === EMPTY_ARM_BLOCK) {
         for (const { typed } of analysis.modulesIn(normalized)) {
-          for (const { kind, span, fix } of typed.destructs ?? []) {
-            if (kind !== "arms" || span.start.offset !== diagnostic.primary.start.offset) continue;
+          for (const { span, fix } of typed.destructs ?? []) {
+            if (span.start.offset !== diagnostic.primary.start.offset) continue;
             const edits = locate(analysis, fix.edits, (path) => this.#texts.get(path));
             if (edits !== undefined) actions.push({ title: fix.message, diagnostic, kind: "quickfix", edits, placeholders: true });
           }

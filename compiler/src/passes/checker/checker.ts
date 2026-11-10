@@ -4447,13 +4447,11 @@ function ownEnd(text: string, span: Source.Span): number {
 
 /**
  * Each head written as §7.3 writes a witness, `_` in its slots: none where one
- * is no case to name, `_` itself or a vector's length, of unboundedly many.
+ * is a vector's length, of unboundedly many (Collections Part 3 §3.3).
  */
 function destructCases(heads: readonly CoverageHead[]): readonly string[] | undefined {
   const cases = heads.map((head) => head.print(head.slots.map(() => "_")));
-  return cases.some((written) => written === "_" || written.includes("[") || written.includes("{"))
-    ? undefined
-    : cases;
+  return cases.some((written) => written.startsWith("[")) ? undefined : cases;
 }
 
 /** A variable or `_` destruct may split, with the arm and the arms above it (`#armSplits`). */
@@ -16531,7 +16529,7 @@ class Checker {
     for (const { expression, type, reportMissing } of this.#pendingMatchCoverage) {
       if (expression.arms.length === 0) {
         const fix = this.#emptyMatchArms(expression.span, type);
-        if (fix !== undefined) this.#destructs.push({ kind: "arms", span: expression.span, fix });
+        if (fix !== undefined) this.#destructs.push({ span: expression.span, fix });
       }
       this.#checkArmReachability(expression.arms, type, MATCH_ARM_REPORTS);
       if (reportMissing) {
@@ -18391,14 +18389,16 @@ class Checker {
    *
    * With `forced`, the row's variable or `_` at `forced.at` reads as the head
    * keyed `forced.key` with `_` in its slots: whether that case still reaches
-   * the arm there, which is what destruct writes (`#armSplits`). A column with
-   * no such head sets `lost`, and the answer is not to be used.
+   * the arm there, which is what destruct writes (`#armSplit`). Where a
+   * declared pattern stands in that column on any path, the column reads by
+   * its view's signature, which holds no constructor: `blind` says so, and the
+   * answer is then no answer about the case.
    */
   #coverageUseful(
     types: readonly Mono[],
     matrix: readonly (readonly Resolved.Pattern[])[],
     row: readonly Resolved.Pattern[],
-    forced?: { readonly at: Resolved.Pattern; readonly key: string; lost: boolean },
+    forced?: { readonly at: Resolved.Pattern; readonly key: string; blind: boolean },
   ): boolean {
     const first = types[0];
     if (first === undefined) return matrix.length === 0;
@@ -18414,17 +18414,16 @@ class Checker {
     // are tried left to right, and each is a shape of its own).
     return alternatives.some((alternative) => {
       if (forced !== undefined && alternative === forced.at) {
-        const head = [column.signature ?? [], ...(column.signatures ?? [])].flat()
-          .find(({ key }) => key === forced.key);
+        const head = (column.signature ?? []).find(({ key }) => key === forced.key);
         if (head === undefined) {
-          forced.lost = true;
+          forced.blind = true;
           return false;
         }
+        // The variable is spent: nothing below it is forced.
         return this.#coverageUseful(
           [...head.slots, ...rest],
           this.#specializeMatrix(column, head, matrix),
           [...wildcardSlots(head.slots.length, alternative.span), ...row.slice(1)],
-          forced,
         );
       }
       const split = column.split(alternative);
@@ -18687,7 +18686,7 @@ class Checker {
       if (Number(arm.span.fileId) === this.#fileId && !this.#patternIsBroken(arm.pattern)) {
         for (const slot of splittableSlots(arm.pattern)) {
           const at = this.#matchSlotTypes.get(slot.pattern);
-          if (at === undefined || slot.pattern.span.start.offset === slot.pattern.span.end.offset) continue;
+          if (at === undefined) continue;
           this.#splitCandidates.push({ arm, slot, type, at, covering, above: covering.length });
         }
       }
@@ -18706,7 +18705,7 @@ class Checker {
       const { span } = candidate.slot.pattern;
       if (span.start.offset > end || span.end.offset < start) return [];
       const fix = this.#armSplit(source, candidate);
-      return fix === undefined ? [] : [{ kind: "split" as const, span, fix }];
+      return fix === undefined ? [] : [{ span, fix }];
     });
   }
 
@@ -18729,7 +18728,8 @@ class Checker {
    * line, and every case reaching it has a spelling here: not on a type with no
    * cases to name (`Int`, a vector's unbounded lengths, a record), where a
    * case's constructor has no pastable spelling (§7.3's third tier), under an
-   * or-pattern, or where no case reaches it, which the arm's own report says.
+   * or-pattern, where a declared pattern stands in the variable's column, or
+   * on an arm no value reaches, which the arm's own report says.
    */
   #armSplit(
     { text, file }: { readonly text: string; readonly file: Source.File },
@@ -18739,14 +18739,20 @@ class Checker {
     const heads = this.#destructHeads(at);
     if (heads === undefined) return undefined;
     const covering = rows.slice(0, above);
-    let lost = false;
+    // A declared pattern in the variable's column, on any path of the walk,
+    // leaves it blind to the case. A view is a signature of its own beside the
+    // type's constructors (Pattern Declarations §4), and the checker does not
+    // relate the two: arms naming every constructor below one still miss the
+    // view's cases, so a split there would leave the `match` missing them. A
+    // view in another column is read as the arms' own reachability reads it.
+    let blind = false;
     const reaching = heads.filter(({ key }) => {
-      const forced = { at: pattern, key, lost: false };
+      const forced = { at: pattern, key, blind: false };
       const reaches = this.#coverageUseful([type], covering, [arm.pattern], forced);
-      lost ||= forced.lost;
+      blind ||= forced.blind;
       return reaches;
     });
-    if (lost || reaching.length === 0) return undefined;
+    if (blind || reaching.length === 0) return undefined;
     const cases = destructCases(reaching);
     if (cases === undefined) return undefined;
     const line = blockLine(text, arm.span.start.offset);
@@ -18796,8 +18802,9 @@ class Checker {
     if (heads === undefined) return undefined;
     const cases = destructCases(heads);
     if (cases === undefined) return undefined;
+    // The parser read this `match` as missing its block only where its line
+    // ends after the subject, comments aside.
     const rest = restOfLine(text, span.fileId, span.end.offset);
-    if (!rest.commented) return undefined;
     const lineStart = text.lastIndexOf("\n", span.start.offset - 1) + 1;
     const indent = `${/^[ \t]*/.exec(text.slice(lineStart))![0]}    `;
     const newline = text[rest.end] === "\r" ? "\r\n" : "\n";

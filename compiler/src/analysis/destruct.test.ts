@@ -20,11 +20,18 @@ function program(...lines: readonly string[]): string {
   return ["module Main", SHAPE, ...lines].join("\n") + "\n";
 }
 
-/** The repairs offered on the first `match`, asked as the editor asks on its own. */
-function repairs(text: string): readonly CodeAction[] {
-  const at = text.indexOf("match");
-  return session({ "/main.hex": text }).codeActions("/main.hex", { start: at, end: at })
+/** The repairs offered on the `n`-th `match`, asked as the editor asks on its own. */
+function repairs(text: string, files: Readonly<Record<string, string>> = {}, n = 1): readonly CodeAction[] {
+  let at = -1;
+  for (let index = 0; index < n; index += 1) at = text.indexOf("match", at + 1);
+  return session({ ...files, "/main.hex": text }).codeActions("/main.hex", { start: at, end: at })
     .filter(({ diagnostic }) => diagnostic?.message === "expected an indented block of match arms");
+}
+
+/** What the file reports, each at its line and column. */
+function reports(text: string): readonly string[] {
+  return session({ "/main.hex": text }).diagnostics("/main.hex")
+    .map(({ message, primary }) => `${primary.start.line}:${primary.start.column} ${message}`);
 }
 
 function applied(text: string, action: CodeAction): string {
@@ -124,6 +131,69 @@ describe("destruct on a `match` with no arms", () => {
     ).replaceAll("\n", "\r\n"));
   });
 
+  test("one case: the arm", () => {
+    const text = program("export union One = Only(n: Int)", "export let f(o: One): Int =", "    match o");
+    expect(repairs(text).map(({ title }) => title)).toEqual(["Add the arm"]);
+  });
+
+  test("each empty `match` its own arms, below it", () => {
+    const text = program(
+      "export let f(s: Shape): Float =",
+      "    match s",
+      "export let g(b: Bool): Int =",
+      "    match b",
+      "export let one: Int = 1",
+    );
+    const [second, ...others] = repairs(text, {}, 2);
+    expect(others).toEqual([]);
+    expect(second?.title).toBe("Add the 2 arms");
+    expect(second && applied(text, second)).toContain(
+      "    match b\n        False => Debug.todo(\"False\")\n        True => Debug.todo(\"True\")\nexport let one",
+    );
+  });
+
+  test("with an empty honor above it, each block its own one report", () => {
+    const text = [
+      "module Main",
+      SHAPE,
+      "constraint Named<a> =",
+      "    name(value: a) -> String",
+      "honor Named<Shape> =",
+      "export let f(s: Shape): Float =",
+      "    match s",
+      "",
+    ].join("\n");
+    expect(reports(text)).toEqual([
+      "4:0 instance is missing required member `name`",
+      "5:0 expected an indented block",
+      "6:4 expected an indented block of match arms",
+    ]);
+  });
+
+  test("an error at the token that ends the line stays its own", () => {
+    const text = program("export let f(s: Shape): Float =", "    match s", "\"oops");
+    expect(reports(text)).toEqual([
+      "3:4 expected an indented block of match arms",
+      "4:0 unterminated string literal",
+    ]);
+  });
+
+  test("not on a vector's lengths, a case this module cannot spell, or where `Debug` is not the prelude's", () => {
+    expect(repairs(program("export let f(v: Vector(Int)): Int =", "    match v"))).toEqual([]);
+    const flags = {
+      "/flags.hex": "module Flags\n\nexport union Flag = On | Off\n",
+      "/b.hex": "module B\n\nimport Flags as F\nexport fun make(): F.Flag = F.On\n",
+    };
+    const routed = ["module Main", "import B", "union Local = Off | Other", "export fun f(): Int =", "    match B.make()", ""]
+      .join("\n");
+    expect(repairs(routed, flags)).toEqual([]);
+    const own = { "/Debug.hex": "module Debug\nexport let todo(what: String): Int = 0\n" };
+    const debug = ["module Main", "import Debug", SHAPE, "export let f(s: Shape): Int =", "    match s", ""].join("\n");
+    expect(session({ ...own, "/main.hex": debug }).diagnostics("/main.hex").map(({ message }) => message))
+      .toEqual(["expected an indented block of match arms"]);
+    expect(repairs(debug, own)).toEqual([]);
+  });
+
   test("not where there are no cases to name, or the file was not read as written", () => {
     expect(repairs(program("export let f(n: Int): Int =", "    match n"))).toEqual([]);
     expect(repairs(program("export let f(p: { x: Int }): Int =", "    match p"))).toEqual([]);
@@ -133,6 +203,9 @@ describe("destruct on a `match` with no arms", () => {
     expect(repairs(program("module Debug", "export let area(s: Shape): Float =", "    match s"))).toEqual([]);
   });
 });
+
+/** A total declared pattern over `Shape` (Pattern Declarations §4), with a function to call. */
+const SAME = ["let area(s: Shape): Float = 1.0", "pattern same(s: Shape): Shape", "    view(s) = s", "    build(s) = s"];
 
 /** The splits offered at the `n`-th occurrence of `needle`, as the editor's Refactor menu asks. */
 function splits(text: string, needle: string, n = 1): readonly CodeAction[] {
@@ -461,6 +534,114 @@ describe("destruct on a variable or `_` in an arm's pattern", () => {
       ).replaceAll("\n", "\r\n"),
       diagnostics: [],
     });
+  });
+
+  test("the cases a row above leaves, through a column it doesn't split and one whose cases it names in full", () => {
+    // `_` at an `Int`: the rows above read in the default matrix.
+    const ints = program(
+      "let area(s: Shape): Float = 1.0",
+      "export let f(pair: (Int, Shape)): Float =",
+      "    match pair",
+      "        (_, Circle(_)) => 0.0",
+      "        (n, s) => area(s)",
+    );
+    expect(split(ints, "s) =>")).toMatchObject({ title: "Split `s` into 2 arms", diagnostics: [] });
+    // `True` and `False` above: every `Bool` named, each case read beneath.
+    const bools = program(
+      "let area(s: Shape): Float = 1.0",
+      "export let f(pair: (Bool, Shape)): Float =",
+      "    match pair",
+      "        (True, Circle(_)) => 0.0",
+      "        (False, Circle(_)) => 0.0",
+      "        (b, s) => area(s)",
+    );
+    expect(split(bools, "s) =>")).toMatchObject({ title: "Split `s` into 2 arms", diagnostics: [] });
+    expect(split(bools, "s) =>").text).toContain("        (b, Square(_) as s) => area(s)\n        (b, Tri(_, _) as s) => area(s)\n");
+  });
+
+  test("not where the file was not read as written, or the arm doesn't begin its line", () => {
+    const arms = ["export let f(o: Option(Bool)): Int =", "    match o", "        Some(b) => 1", "        None => 0"];
+    expect(splits(program(...arms), "b)")).toHaveLength(1);
+    expect(splits(program(...arms, "export let broken: Int = (1 +"), "b)")).toEqual([]);
+    const shared = program("export let f(o: Option(Bool)): Int =", "    match o", "        None => 0; Some(b) => 1");
+    expect(reports(shared)).toEqual([]);
+    expect(splits(shared, "b)")).toEqual([]);
+    expect(splits(program("export let f(o: Option(Bool)): Int =", "    match o", "        None => 0", "        (* b *) Some(b) => 1"), "b)"))
+      .toEqual([]);
+  });
+
+  test("not on a vector, a case this module cannot spell, or in a declared pattern's column", () => {
+    expect(splits(program(
+      "export let f(o: Option(Vector(Int))): Int =",
+      "    match o",
+      "        Some(xs) => 1",
+      "        None => 0",
+    ), "xs)")).toEqual([]);
+    const flags = {
+      "/flags.hex": "module Flags\n\nexport union Flag = On | Off\n",
+      "/b.hex": "module B\n\nimport Flags as F\nexport fun make(): Option(F.Flag) = Some(F.On)\n",
+    };
+    const routed = [
+      "module Main",
+      "import B",
+      "union Local = Off | Other",
+      "export fun f(): Int =",
+      "    match B.make()",
+      "        Some(flag) => 1",
+      "        None => 0",
+      "",
+    ].join("\n");
+    expect(session({ ...flags, "/main.hex": routed }).diagnostics("/main.hex")).toEqual([]);
+    const at = routed.indexOf("flag)");
+    expect(session({ ...flags, "/main.hex": routed }).codeActions("/main.hex", { start: at, end: at }, { invoked: true })
+      .filter(({ title }) => title.startsWith("Split"))).toEqual([]);
+    const declared = program(
+      ...SAME,
+      "export let f(s: Shape): Float =",
+      "    match s",
+      "        (Circle(_))same => 0.0",
+      "        other => area(other)",
+    );
+    expect(reports(declared)).toEqual([]);
+    expect(splits(declared, "other =>")).toEqual([]);
+    const nested = program(
+      ...SAME,
+      "export let f(o: Option(Shape)): Float =",
+      "    match o",
+      "        Some((Circle(_))same) => 0.0",
+      "        Some(other) => area(other)",
+      "        None => 0.0",
+    );
+    expect(reports(nested)).toEqual([]);
+    expect(splits(nested, "other)")).toEqual([]);
+    // On one path only, `True`'s: the arms below a view naming every
+    // constructor would still miss the view's cases there.
+    const onePath = program(
+      ...SAME,
+      "export let f(p: (Bool, Shape)): Float =",
+      "    match p",
+      "        (True, (Circle(_))same) => 0.0",
+      "        (False, Circle(_)) => 0.0",
+      "        (b, other) => area(other)",
+    );
+    expect(reports(onePath)).toEqual([]);
+    expect(splits(onePath, "other)")).toEqual([]);
+  });
+
+  test("beside a declared pattern in another column, read as the arm's reachability reads it", () => {
+    const head = [...SAME, "export let f(p: (Shape, Shape)): Float =", "    match p", "        ((Circle(_))same, Circle(_)) => 0.0"];
+    const text = program(...head, "        (a, other) => area(other)");
+    expect(split(text, "other)")).toEqual({
+      title: "Split `other` into 3 arms",
+      text: program(
+        ...head,
+        "        (a, Circle(_) as other) => area(other)",
+        "        (a, Square(_) as other) => area(other)",
+        "        (a, Tri(_, _) as other) => area(other)",
+      ),
+      diagnostics: [],
+    });
+    expect(splits(text, "a,")).toEqual([]);
   });
 
   test("not offered where there are no cases to name, under an or-pattern, or on an unreachable arm", () => {

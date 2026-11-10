@@ -469,18 +469,17 @@ export interface Module {
 }
 
 /**
- * What destruct writes (`Module.destructs`), and where the dev asks for it:
+ * What destruct writes, and where the dev asks for it:
  *
- * - `arms`: a `match` with no arms yet, one arm per case of its subject's type,
- *   each a stand-in. `span` is the `match` and its subject, where the parser
- *   reports the missing block, and the arms are that report's repair.
- * - `split`: a variable or `_` in an arm's pattern, the arm written once per
- *   case that still reaches it there, each with the arm's own body. `span` is
- *   the variable or `_`, and it is a refactoring, worked out where asked
- *   (the checker's `destructSplits`).
+ * - On a `match` with no arms yet (`Module.destructs`), one arm per case of its
+ *   subject's type, each a stand-in. `span` is the `match` and its subject,
+ *   where the parser reports the missing block, and the arms are that report's
+ *   repair.
+ * - On a variable or `_` in an arm's pattern (the checker's `destructSplits`),
+ *   the arm written once per case that still reaches it there, each with the
+ *   arm's own body. `span` is the variable or `_`, and it is a refactoring.
  */
 export interface Destruct {
-  readonly kind: "arms" | "split";
   readonly span: Source.Span;
   readonly fix: Diagnostics.Fix;
 }
