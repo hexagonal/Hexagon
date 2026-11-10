@@ -66,6 +66,25 @@ export function keepsReadingWith(
   return old !== undefined && written !== undefined && sameReading(replaced(before, old, substitute(old, written)), after);
 }
 
+/**
+ * Whether replacing `edit` leaves the module reading as `expect` says the text
+ * before it reads once rewritten. `expect` is handed the parsed item before the
+ * edit, its offsets counted from `start`, the item's own start. For a rewrite
+ * that moves or copies what the tree holds apart, such as an arm written once
+ * per alternative of its or-pattern: what is moved is moved in the tree too,
+ * comments included, and the text written must read as that.
+ */
+export function keepsReadingAs(
+  file: Source.File,
+  module: Parsed.Module,
+  edit: TextEdit,
+  expect: (before: readonly Parsed.Module[], start: number) => unknown,
+): boolean {
+  const texts = itemTexts(file, module, edit);
+  if (texts === undefined) return false;
+  return sameReading(expect(parsedText(file, texts.before), texts.start), parsedText(file, texts.after));
+}
+
 /** The text of the top-level item the edit lies in, before and after it, and where the item starts. */
 function itemTexts(
   file: Source.File,
@@ -104,7 +123,7 @@ function callAt(value: unknown, start: number, end: number): Parsed.CallExpr | u
 }
 
 /** A parsed value with one node in it, found by identity, taken for another. */
-function replaced(value: unknown, node: object, by: object): unknown {
+export function replaced(value: unknown, node: object, by: object): unknown {
   if (value === node) return by;
   if (Array.isArray(value)) return value.map((each) => replaced(each, node, by));
   if (value === null || typeof value !== "object") return value;
@@ -117,14 +136,16 @@ function parsedText(file: Source.File, text: string): readonly Parsed.Module[] {
   return parseFile(applyLayout(lex(new Source.File(file.id, file.path, text))), file.path);
 }
 
-function sameReading(before: unknown, after: unknown): boolean {
+/** Whether two parsed values read the same, as the checker reads them (`reading`). */
+export function sameReading(before: unknown, after: unknown): boolean {
   return JSON.stringify(reading(before)) === JSON.stringify(reading(after));
 }
 
 /**
  * A parsed value as the checker reads it: positions dropped, keys in one order,
  * a group as what it holds, a pipe as its call, a lambda that matches its one
- * parameter as the match function it is, and a punned field as written out.
+ * parameter as the match function it is, a punned field as written out, and an
+ * or-pattern's alternatives with any or-pattern among them spread in place.
  *
  * But not a group that holds a call's callee written `e.name`: `(e.name)(args)`
  * reads the field and calls it, where `e.name(args)` is a dot call (Method
@@ -139,6 +160,14 @@ function reading(value: unknown): unknown {
   }
   if (node.kind === "Group" && "expression" in node) return reading(node.expression);
   if (node.kind === "Binary" && node.operator === "Pipe") return reading(pipeCall(node as unknown as Parsed.BinaryExpr));
+  // An or-pattern's alternatives are tried left to right (Pattern Matching
+  // §8), so one written inside another is the outer's, in its place.
+  if (node.kind === "Or" && Array.isArray(node.alternatives)) {
+    const alternatives = (node.alternatives as readonly Parsed.Pattern[]).flatMap(function flat(each): readonly Parsed.Pattern[] {
+      return each.kind === "Or" ? each.alternatives.flatMap(flat) : [each];
+    });
+    return { kind: "Or", alternatives: reading(alternatives) };
+  }
   if (node.kind === "Lambda") {
     const arms = matchFunctionArms(node as unknown as Parsed.LambdaExpr);
     if (arms !== undefined) return { kind: "MatchFunction", arms: reading(arms) };
