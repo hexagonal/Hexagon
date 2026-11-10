@@ -659,27 +659,36 @@ the rewrite keeps the program's meaning by definition:
   (Declarations Preamble §4) and only what hovers and the `.d.ts` file show
   changes (§6). **Write the alias out everywhere**, on the alias's name where
   it is declared: every use in its module, and the declaration with them
-  unless it is exported. Refused, with the reason, where a `_` given for a
+  unless something else names it, another module where it is exported or an
+  honor's subject; where another item shares its line, the declaration goes
+  with the `;` between them. Refused, with the reason, where a `_` given for a
   parameter the body writes twice would become two types, since one written
-  hole is one type through the alias; and where a comment in the body or the
-  declaration would be copied or lost. A name a constraint's implied type
-  takes in that constraint's members is not the alias, and is not offered it;
-  in an honor's body it is, since an implied type cannot be written in a type
-  there (Collections Part 2 §7.3). A use of an alias another module exports
+  hole is one type through the alias; where a comment in the body or the
+  declaration would be copied or lost; and in a constraint's members, where
+  its implied type takes a name the body writes, which there would mean the
+  implied type. A name a constraint's implied type takes in that constraint's
+  members is not the alias, and is not offered it; in an honor's body it is,
+  since an implied type cannot be written in a type there (Collections Part 2
+  §7.3). A use of an alias another module exports
   (`Geo.Segment`, or `Segment` through the companion fallback) is written out
   too, each name in its body spelled as this module reaches that type: through
   this module's import of the module that declares it, bare where the
   companion fallback reaches it, and a prelude or compiler-owned type bare,
   or through the prelude's module where a declaration here takes its name. An
   alias the other module keeps to itself is written out in its place, since
-  this module cannot name it. Refused, naming the import, where this module
-  does not import the module that declares a type the body names.
+  this module cannot name it. Refused, with the reason: naming the import,
+  where this module does not import the module that declares a type the body
+  names; where the body names a type its module does not export; and where a
+  type this module reaches takes the name of a compiler-owned or prelude type
+  the body names, and no other spelling reaches it. Not offered where the
+  other module reports the body.
 - **Introduce a type alias**, on a type, or a selection of one: `type NewType`
   above the item, its body the type, and the alias in the type's place. The
   type's variables are the alias's parameters, in the order the type first
   writes them, so it uses every one (§5.3); `NewType` is the first of
   `NewType`, `NewType2`… the module does not write, one stand-in in both places
-  for the dev to type once. Refused, with the reason, where an alias could not
+  for the dev to type once, written from the start of the line where another
+  item shares it. Refused, with the reason, where an alias could not
   hold the type: a `_` in it, a following arrow (§5.1.1), or a named row tail,
   which is fresh at each use of an alias. An `honor`'s subject is not offered
   it, since an alias carries no instances of its own (§4). **Introduce a type

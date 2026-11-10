@@ -15,7 +15,8 @@
  *   cannot reach a type the body names.
  * - **Write the alias out everywhere**, on the alias's name where it is
  *   declared: every use in its module, and the declaration with them unless
- *   it is exported, since another module may use it.
+ *   something else names it: another module, where it is exported, or an
+ *   honor's subject, which is not written out.
  * - **Introduce a type alias**, on a type: `type NewType = ` the type, above
  *   the item it is written in, and the alias in its place. The type's
  *   variables are the alias's parameters, in the order the type first writes
@@ -73,6 +74,8 @@ export interface Elsewhere {
   readonly source: Source.File;
   readonly parsed: Parsed.Module;
   readonly resolved: Resolved.Module;
+  /** Everything it reports: the checker's, after the resolver's and the parser's. */
+  readonly typed: { readonly diagnostics: readonly Diagnostics.Diagnostic[] };
 }
 
 /** The alias rewrites offered for `[start, end]` of one parsed module. */
@@ -305,7 +308,12 @@ class Speller {
     if (home.parsed.comments.some(({ span }) => start <= span.start.offset && span.end.offset <= end)) {
       throw new Refused(BODY_COMMENT);
     }
-    return this.#spelled(home, alias.annotation, parameters, depth);
+    const spelled = this.#spelled(home, alias.annotation, parameters, depth);
+    // A body its own module reports for what the refusals above do not name
+    // would carry the error here: `Range(Int)`, where `Range` takes none.
+    const { diagnostics } = home.typed;
+    if (diagnostics.some(({ primary }) => start <= primary.start.offset && primary.end.offset <= end)) throw new Refused(undefined);
+    return spelled;
   }
 
   /** A type written in `home`, spelled here: its text with each name and parameter replaced, and its tree. */
@@ -415,10 +423,13 @@ class Speller {
       if (spelling === undefined) throw taken;
       return { spelling };
     }
-    if (isPrimitiveName(name)) {
+    if (isPrimitiveName(name) || name === "Nullable" || name === "JsValue") {
       // A compiler-owned type's name is its spelling until a declaration
-      // takes it: `record Float = {…}` makes a bare `Float` the record.
-      if (!spellings.claimed.has(name)) return { spelling: name };
+      // takes it: `record Float = {…}` makes a bare `Float` the record. The
+      // resolver reads a bare `JsValue` after the implied types' names, which
+      // take it too.
+      const implied = name === "JsValue" && this.#here.implied.has(name);
+      if (!spellings.claimed.has(name) && !implied) return { spelling: name };
       throw new Refused(`\`${this.#use}\` names the compiler's \`${name}\`, and a type this module reaches takes that name here.`);
     }
     if (!home.resolved.externTypes.some(({ localName }) => localName === name)) throw new Refused(undefined);
@@ -473,7 +484,8 @@ function appliedEnd(file: Source.File, type: Parsed.AppliedType): number {
  * "Write the alias out everywhere" on the alias's name in its declaration:
  * every use, one at a time, item by item, so that a use inside another's
  * argument is written out where the outer one's body puts it. One edit per
- * item, and one that takes the declaration away unless it is exported.
+ * item, and one that takes the declaration away unless it is exported or an
+ * honor names it.
  */
 function writeOutEverywhereAt(
   file: Source.File,
@@ -490,7 +502,10 @@ function writeOutEverywhereAt(
   const body = bodyOf(file, module, alias);
   if (body.comment) return [{ title, disabled: BODY_COMMENT }];
   const edits: TextEdit[] = [];
-  if (!alias.exported) {
+  // An honor's subject may name the alias (it is the type it stands for), and
+  // is not written out: an alias carries no instances of its own (§4).
+  const subject = module.items.some((item) => item.kind === "Honor" && bareName(item.subject) === alias.name.text);
+  if (!alias.exported && !subject) {
     const removal = declarationRemoval(file, module, alias);
     if (removal === undefined) {
       return [{ title, disabled: "A comment on the alias would be lost with its declaration. Move the comment out first." }];
@@ -552,13 +567,16 @@ function introduceAt(file: Source.File, module: Parsed.Module, start: number, en
  */
 function movable({ item, type }: Place): boolean {
   const implied = impliedNames(item);
-  const named = (each: Parsed.TypeAnnotation): string | undefined =>
-    each.kind === "NamedType" && each.qualifier === undefined
-      ? each.name.text
-      : each.kind === "AppliedType" && each.qualifier === undefined
-      ? each.constructor.text
-      : undefined;
-  return [...typesIn(type)].every((each) => !(each.kind === "NamedType" && each.synthesized === true) && !implied.has(named(each) ?? ""));
+  return [...typesIn(type)].every((each) => !(each.kind === "NamedType" && each.synthesized === true) && !implied.has(bareName(each) ?? ""));
+}
+
+/** The name a type writes bare, unqualified, where it is a name or one applied. */
+function bareName(type: Parsed.TypeAnnotation): string | undefined {
+  return type.kind === "NamedType" && type.qualifier === undefined
+    ? type.name.text
+    : type.kind === "AppliedType" && type.qualifier === undefined
+    ? type.constructor.text
+    : undefined;
 }
 
 /** A type as written, in the item it is written in. */
@@ -593,8 +611,9 @@ function introduced(
   ];
   const name = freshName(module);
   const applied = parameters.length === 0 ? "" : `(${parameters.join(", ")})`;
-  const at = aboveComments(file, module, headOf(places[0]!.item));
-  let replacement = `type ${name}${applied} = ${ungrouped(file, type)}\n\n`;
+  const at = aboveComments(file, module, lineHead(file, module, headOf(places[0]!.item)));
+  const newline = file.text.slice(0, at).endsWith("\r\n") ? "\r\n" : "\n";
+  let replacement = `type ${name}${applied} = ${ungrouped(file, type)}${newline}${newline}`;
   const placeholders: Diagnostics.Placeholder[] = [{ start: "type ".length, end: "type ".length + name.length, stop: 1 }];
   const used: (readonly [number, number])[] = [];
   let from = at;
@@ -661,6 +680,18 @@ function refusal(types: readonly Parsed.TypeAnnotation[]): string | undefined {
 function writeOut(file: Source.File, module: Parsed.Module, body: Body, use: Use, title: string): Refactoring {
   if (body.comment) return { title, disabled: BODY_COMMENT };
   const { alias } = body;
+  // In a constraint's members a name its implied type takes means that type
+  // (reading 10), so a body that writes the name would mean another there.
+  const item = module.items.find(({ span }) => holds(span, use.span.start.offset, use.span.end.offset));
+  const implied = item === undefined ? new Set<string>() : impliedNames(item);
+  const taken = [...typesIn(alias.annotation)].map(bareName).find((name) => name !== undefined && implied.has(name));
+  if (taken !== undefined) {
+    return {
+      title,
+      disabled: `Inside \`${(item as Parsed.ConstraintItem).name.text}\`'s members \`${taken}\` is its implied type, so the ` +
+        `alias's body, written out here, would name that instead of the \`${taken}\` it names now.`,
+    };
+  }
   const written = use.kind === "AppliedType" ? use.arguments : [];
   const regions = argumentRegions(file, module, use);
   for (const [index, argument] of written.entries()) {
@@ -703,7 +734,8 @@ function writeOut(file: Source.File, module: Parsed.Module, body: Body, use: Use
 
 /**
  * Each of a use's arguments with the comments around it: the text between the
- * parenthesis or comma before it and the comma or parenthesis after it.
+ * parenthesis or comma before it and the comma or parenthesis after it. A
+ * constrained hole's constraints, `_ : Show`, follow its span.
  */
 function argumentRegions(file: Source.File, module: Parsed.Module, use: Use): readonly Source.Span[] {
   if (use.kind !== "AppliedType") return [];
@@ -715,9 +747,18 @@ function argumentRegions(file: Source.File, module: Parsed.Module, use: Use): re
       at = comment.span.end.offset;
     }
   };
+  const delimiterAfter = (at: number): number => {
+    for (let depth = 0;; at += 1) {
+      at = code(at);
+      const char = file.text[at];
+      if (char === undefined || (depth === 0 && (char === "," || char === ")"))) return at;
+      if (char === "(") depth += 1;
+      if (char === ")") depth -= 1;
+    }
+  };
   let after = code(use.constructor.span.end.offset) + 1;
   return use.arguments.map((argument) => {
-    const delimiter = code(argument.span.end.offset);
+    const delimiter = delimiterAfter(argument.span.end.offset);
     let start = after;
     while (/\s/.test(file.text[start]!)) start += 1;
     after = delimiter + 1;
@@ -836,24 +877,44 @@ export function changed(was: string, now: string, from: number): TextEdit {
 }
 
 /**
- * The lines an alias's declaration stands on, and a blank line after them
- * where one stands above too, or none where a comment is on those lines or
- * on the lines just above them, which taking the lines away would lose or
- * leave on the declaration below.
+ * The alias's declaration taken away: the lines it stands on, and a blank line
+ * after them where one stands above too; or, where another item shares its
+ * line, the declaration and the `;` between them. None where a comment would
+ * go with it, or one just above it, on a line of its own, would be left on
+ * what follows.
  */
 function declarationRemoval(file: Source.File, module: Parsed.Module, alias: Parsed.TypeAliasItem): TextEdit | undefined {
   const { text } = file;
-  const start = text.lastIndexOf("\n", alias.span.start.offset - 1) + 1;
-  const lineBreak = text.indexOf("\n", solid(file, alias.span).end);
-  let end = lineBreak < 0 ? text.length : lineBreak + 1;
-  const attached = module.comments.some(({ span }) =>
-    (start <= span.start.offset && span.start.offset < end) ||
-    (span.end.offset <= start && /^[ \t]*\r?\n$/.test(text.slice(span.end.offset, start)))
+  const from = alias.span.start.offset;
+  const to = solid(file, alias.span).end;
+  const lineStart = text.lastIndexOf("\n", from - 1) + 1;
+  const startsLine = /^[ \t]*$/.test(text.slice(lineStart, from));
+  const separator = /^[ \t]*;?[ \t]*/.exec(text.slice(to))![0];
+  const endsLine = /^(\r?\n|$)/.test(text.slice(to + separator.length));
+  const commentIn = (start: number, end: number): boolean =>
+    module.comments.some(({ span }) => start <= span.start.offset && span.start.offset < end);
+  const commentAbove = module.comments.some(({ span }) =>
+    span.end.offset <= lineStart && /^[ \t]*\r?\n$/.test(text.slice(span.end.offset, lineStart)) &&
+    /^[ \t]*$/.test(text.slice(text.lastIndexOf("\n", span.start.offset - 1) + 1, span.start.offset))
   );
-  if (attached) return undefined;
-  const blankBelow = /^[ \t]*\r?\n/.exec(text.slice(end));
-  if (blankBelow !== null && (start === 0 || /\n[ \t]*\r?\n$/.test(text.slice(0, start)))) end += blankBelow[0].length;
-  return { start, end, replacement: "" };
+  let start: number;
+  let end: number;
+  if (!endsLine) {
+    // `type P = …; let n = …`: what follows takes the declaration's place.
+    [start, end] = [from, to + separator.length];
+    // A comment just after it is the declaration's own.
+    if ((startsLine && commentAbove) || commentIn(end, end + 1)) return undefined;
+  } else if (!startsLine) {
+    // `let n = …; type P = …`: the line ends where the item before it does.
+    [start, end] = [from - /[ \t]*;?[ \t]*$/.exec(text.slice(lineStart, from))![0].length, to + separator.length];
+  } else {
+    const lineBreak = text.indexOf("\n", to);
+    [start, end] = [lineStart, lineBreak < 0 ? text.length : lineBreak + 1];
+    if (commentAbove) return undefined;
+    const blankBelow = /^[ \t]*\r?\n/.exec(text.slice(end));
+    if (blankBelow !== null && (start === 0 || /\n[ \t]*\r?\n$/.test(text.slice(0, start)))) end += blankBelow[0].length;
+  }
+  return commentIn(start, end) ? undefined : { start, end, replacement: "" };
 }
 
 /** Where an item's text starts when it is parsed again: its `fun` block's or honor group's head where it is a member of one. */
@@ -863,6 +924,15 @@ function headOf(item: Parsed.Item): number {
     : item.kind === "Honor" && item.group !== undefined
     ? item.group.span.start.offset
     : item.span.start.offset;
+}
+
+/**
+ * The first item on the line the item at `at` starts on, where items share a
+ * line: an alias declared there is written from the line's start.
+ */
+function lineHead(file: Source.File, module: Parsed.Module, at: number): number {
+  const lineStart = file.text.lastIndexOf("\n", at - 1) + 1;
+  return Math.min(at, ...module.items.map(headOf).filter((head) => lineStart <= head));
 }
 
 /**

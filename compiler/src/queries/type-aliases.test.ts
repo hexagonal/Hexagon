@@ -172,6 +172,27 @@ describe("an alias written out at a use", () => {
     expect(rewritten(source("Cou‸nt"), WRITE_OUT_TITLE)).toBe(source("Int"));
   });
 
+  test("a constrained `_`, its constraints with it", () => {
+    expect(rewritten(program("type Maybe(a) = Option(a)", "let f(x: Ma‸ybe(_ : Show)): Unit = ()"), WRITE_OUT_TITLE))
+      .toBe(program("type Maybe(a) = Option(a)", "let f(x: Option(_ : Show)): Unit = ()"));
+    expect(rewritten(program("type Maybe(a) = Option(a)", "let f(x: Ma‸ybe(_ : (Eq, Show))): Unit = ()"), WRITE_OUT_TITLE))
+      .toBe(program("type Maybe(a) = Option(a)", "let f(x: Option(_ : (Eq, Show))): Unit = ()"));
+    expect(rewritten(program("type Two(a) = (a, Int)", "let f(x: T‸wo(_ : Show)): Unit = ()"), WRITE_OUT_TITLE))
+      .toBe(program("type Two(a) = (a, Int)", "let f(x: (_ : Show, Int)): Unit = ()"));
+  });
+
+  test("in a file whose lines end in CRLF, from over lines", () => {
+    const crlf = (...lines: readonly string[]): string => ["module Main", ...lines, ""].join("\r\n");
+    const alias = "type Lookup(k, v) = (k) -> Option(v)";
+    expect(rewritten(crlf(alias, "export let find(l: Look‸up(String,", "    Int)): Unit = ()"), WRITE_OUT_TITLE))
+      .toBe(crlf(alias, "export let find(l: (String) -> Option(Int)): Unit = ()"));
+  });
+
+  test("of an alias of another module's type of its name", () => {
+    expect(rewritten(program("import Geo", "type Point = Geo.Point", "export let f(p: Po‸int): Float = p.x"), WRITE_OUT_TITLE, GEO))
+      .toBe(program("import Geo", "type Point = Geo.Point", "export let f(p: Geo.Point): Float = p.x"));
+  });
+
   test("in a `fun` block's member", () => {
     const POINT = "type Point = (Float, Float)";
     expect(rewritten(program(POINT, "fun", "    a(p: Po‸int): Float = 1.0", "    b(p: Point): Float = a(p)"), WRITE_OUT_TITLE))
@@ -196,6 +217,25 @@ describe("an alias written out, refused", () => {
   test("where a comment would be copied", () => {
     expect(rewritten(program("type Pair(a) = (a, a)", "export let p: Pa‸ir(Int (* n *)) = (1, 2)"), WRITE_OUT_TITLE))
       .toBe("refused: A comment inside it would be copied to each place `Pair` writes `a`. Move the comment out first.");
+  });
+
+  test("in a constraint's members, where its implied type takes a name the body writes", () => {
+    // There the name means the implied type (reading 10), and the body means the module's.
+    const source = (use: string): string => program(
+      "record Item = {x: Int}",
+      "type Thing = Item",
+      "constraint Source<a> =",
+      "    type Item",
+      `    get(value: a, t: ${use}) -> Int`,
+      "record Box = {value: Int}",
+      "honor Source<Box> =",
+      "    type Item = String",
+      "    get(box, t) = t.x",
+    );
+    expect(rewritten(source("Thi‸ng"), WRITE_OUT_TITLE)).toBe(
+      "refused: Inside `Source`'s members `Item` is its implied type, so the alias's body, written out here, would name " +
+        "that instead of the `Item` it names now.",
+    );
   });
 
   test("where a comment between its name and its arguments would be lost", () => {
@@ -341,6 +381,9 @@ describe("another module's alias written out where it is imported", () => {
     expect(rewritten(source("Geo.V‸ia"), WRITE_OUT_TITLE, geo)).toBe(source("(Int -> Int) -> Int"));
     expect(rewritten(source("Geo.Appl‸ied"), WRITE_OUT_TITLE, geo)).toBe(source("(Int -> Int) -> Int"));
     expect(rewritten(source("Geo.Fr‸om(String)"), WRITE_OUT_TITLE, geo)).toBe(source("((String, Geo.Point)) -> Int"));
+    // Written in parentheses there already, it goes inside them.
+    const grouped = beside("Geo", "type Step = Int -> Int", "export type Paired = ((Step), Int)");
+    expect(rewritten(source("Geo.Pai‸red"), WRITE_OUT_TITLE, grouped)).toBe(source("((Int -> Int), Int)"));
   });
 
   test("each name in a record's fields and a function's parameters and result", () => {
@@ -386,6 +429,10 @@ describe("another module's alias written out where it is imported", () => {
       `export let run(s: ${type}): Unit = ()`,
     );
     expect(rewritten(implied("Geo.Seg‸ment"), WRITE_OUT_TITLE, through)).toBe(implied("(Point.Point, Point.Point)"));
+    // An import of another module that takes the name reaches that module's type, not Geo's.
+    const other = { ...geo, ...beside("Other", "export record Point = { o: Int }") };
+    const aliased = (type: string): string => program("import Geo", "import Other as Point", `export let run(s: ${type}): Unit = ()`);
+    expect(rewritten(aliased("Geo.Seg‸ment"), WRITE_OUT_TITLE, other)).toBe(aliased("(Geo.Point, Geo.Point)"));
   });
 
   test("a prelude type its module names, where an import there takes the name but brings no such type", () => {
@@ -407,6 +454,12 @@ describe("another module's alias written out where it is imported", () => {
     const geo = beside("Geo", "extern from \"widgets\"", "    export type Widget", "export type Tagged = (Widget, Int)");
     expect(rewritten(program("import Geo", "export let show(w: Geo.Tag‸ged): Unit = ()"), WRITE_OUT_TITLE, geo))
       .toBe(program("import Geo", "export let show(w: (Geo.Widget, Int)): Unit = ()"));
+  });
+
+  test("the compiler's boundary types, bare", () => {
+    const geo = beside("Geo", "export type Foreign = (JsValue, Nullable(Int))");
+    expect(rewritten(program("import Geo", "export let take(f: Geo.Fore‸ign): Unit = ()"), WRITE_OUT_TITLE, geo))
+      .toBe(program("import Geo", "export let take(f: (JsValue, Nullable(Int))): Unit = ()"));
   });
 
   test("in parentheses where an argument would otherwise parse as another type", () => {
@@ -464,6 +517,36 @@ describe("another module's alias written out, refused", () => {
     )).toBe("refused: `Geo.Ints` names the prelude's `Vector`, and a type this module reaches takes that name here.");
   });
 
+  test("where this module takes the name of a compiler's boundary type it names", () => {
+    const geo = beside("Geo", "export type Foreign = (JsValue, Nullable(Int))");
+    const source = (...lines: readonly string[]): string => program("import Geo", ...lines, "export let take(f: Geo.Fore‸ign): Unit = ()");
+    expect(rewritten(source("record JsValue = { v: Int }"), WRITE_OUT_TITLE, geo))
+      .toBe("refused: `Geo.Foreign` names the compiler's `JsValue`, and a type this module reaches takes that name here.");
+    expect(rewritten(source("record Nullable(a) = { v: a }"), WRITE_OUT_TITLE, geo))
+      .toBe("refused: `Geo.Foreign` names the compiler's `Nullable`, and a type this module reaches takes that name here.");
+    // A bare `JsValue` is read after the implied types' names, which take it anywhere in the module.
+    expect(rewritten(source("constraint Source<a> =", "    type JsValue", "    get(value: a) -> Int"), WRITE_OUT_TITLE, geo))
+      .toBe("refused: `Geo.Foreign` names the compiler's `JsValue`, and a type this module reaches takes that name here.");
+  });
+
+  test("in a constraint's members, where its implied type takes a name the body is spelled with, but not outside them", () => {
+    const geo = beside("Geo", "export type Pred = (Int) -> Bool", "export type Ints = (Int, Int)", "export type Find = (String) -> Option(Int)");
+    const source = (implied: string, member: string, outside: string): string => program(
+      "import Geo",
+      "constraint Source<a> =",
+      `    type ${implied}`,
+      `    test(value: a, p: ${member}) -> String`,
+      `export let run(p: ${outside}): Unit = ()`,
+    );
+    const refusal = (name: string): string =>
+      `refused: Inside \`Source\`'s members \`${name}\` is its implied type, so the alias's body, written out here, would name ` +
+      `that instead of the \`${name}\` it names now.`;
+    expect(rewritten(source("Bool", "Geo.Pr‸ed", "Geo.Pred"), WRITE_OUT_TITLE, geo)).toBe(refusal("Bool"));
+    expect(rewritten(source("Int", "Geo.In‸ts", "Geo.Pred"), WRITE_OUT_TITLE, geo)).toBe(refusal("Int"));
+    expect(rewritten(source("Option", "Geo.Fi‸nd", "Geo.Pred"), WRITE_OUT_TITLE, geo)).toBe(refusal("Option"));
+    expect(rewritten(source("Bool", "Geo.Pred", "Geo.Pr‸ed"), WRITE_OUT_TITLE, geo)).toBe(source("Bool", "Geo.Pred", "(Int) -> Bool"));
+  });
+
   test("where its body, or the body of an alias it writes out, holds a comment", () => {
     const geo = beside("Geo", "export type Pair = (Int, (* the second *) Int)", "type Inner = (Int, (* the second *) Int)", "export type Outer = Option(Inner)");
     expect(rewritten(program("import Geo", "export let run(p: Geo.Pa‸ir): Unit = ()"), WRITE_OUT_TITLE, geo))
@@ -500,6 +583,9 @@ describe("another module's alias written out, not offered", () => {
       ["export type Alias = Nope"],
       ["import Nowhere", "export type Alias = (Nowhere.Thing, Int)"],
       ["import Point", "constraint Source<a> =", "    type Point", "    get(value: a) -> Point", "export type Alias = (Point, Point)"],
+      // A prelude type given the wrong number of arguments: `Range` takes none, and `Result` one.
+      ["export type Alias = (Range(Int), Int)"],
+      ["export type Alias = Result(Int, String)"],
     ];
     const point = beside("Point", "export record Point = { x: Float }");
     for (const body of bodies) {
@@ -578,9 +664,33 @@ describe("an alias written out everywhere", () => {
     ));
   });
 
+  test("the declaration alone where another item shares its line, with the `;` between them", () => {
+    const uses = "export let area(s: Point): Float = 1.0";
+    const written = "export let area(s: (Float, Float)): Float = 1.0";
+    expect(rewritten(program("type Po‸int = (Float, Float); export let n: Int = 1", uses), WRITE_OUT_EVERYWHERE_TITLE))
+      .toBe(program("export let n: Int = 1", written));
+    expect(rewritten(program("export let n: Int = 1; type Po‸int = (Float, Float)", "export let m: Int = n", uses), WRITE_OUT_EVERYWHERE_TITLE))
+      .toBe(program("export let n: Int = 1", "export let m: Int = n", written));
+    expect(rewritten(program("export let n: Int = 1; type Po‸int = (Float, Float)  ", uses), WRITE_OUT_EVERYWHERE_TITLE))
+      .toBe(program("export let n: Int = 1", written));
+    expect(rewritten(program("let a: Int = 1; type Po‸int = (Float, Float);  export let b: Int = a", uses), WRITE_OUT_EVERYWHERE_TITLE))
+      .toBe(program("let a: Int = 1; export let b: Int = a", written));
+    // A comment after the other item is that item's, and stays.
+    expect(rewritten(program("type Po‸int = (Float, Float); export let n: Int = 1 // n", uses), WRITE_OUT_EVERYWHERE_TITLE))
+      .toBe(program("export let n: Int = 1 // n", written));
+  });
+
+  test("the declaration kept where an honor's subject names it", () => {
+    const source = (use: string): string =>
+      program("export record Box = {v: Int}", "type B‸x = Box", "honor Show<Bx> =", "    show(b) = \"box\"", `export let f(b: ${use}): Int = 1`);
+    expect(rewritten(source("Bx"), WRITE_OUT_EVERYWHERE_TITLE)).toBe(source("Box").replace("‸", ""));
+  });
+
   test("the declaration as the file's last line", () => {
     expect(rewritten("module Main\nexport let area(s: Point): Float = 1.0\ntype Po‸int = (Float, Float)", WRITE_OUT_EVERYWHERE_TITLE))
       .toBe("module Main\nexport let area(s: (Float, Float)): Float = 1.0\n");
+    expect(rewritten("module Main\nexport let area(s: Point): Float = 1.0\nexport let n: Int = 1; type Po‸int = (Float, Float)", WRITE_OUT_EVERYWHERE_TITLE))
+      .toBe("module Main\nexport let area(s: (Float, Float)): Float = 1.0\nexport let n: Int = 1");
   });
 
   test("uses in an honor group's items", () => {
@@ -615,6 +725,22 @@ describe("an alias written out everywhere", () => {
     expect(rewritten(program("(** A point. *)", "type Po‸int = (Float, Float)", uses), WRITE_OUT_EVERYWHERE_TITLE)).toBe(lost);
     expect(rewritten(program("// A point.", "type Po‸int = (Float, Float)", uses), WRITE_OUT_EVERYWHERE_TITLE)).toBe(lost);
     expect(rewritten(program("type Po‸int = (Float, Float) // A point.", uses), WRITE_OUT_EVERYWHERE_TITLE)).toBe(lost);
+    // Where another item shares its line, the comments its declaration would leave on that item.
+    expect(rewritten(program("export let n: Int = 1; type Po‸int = (Float, Float) // A point.", uses), WRITE_OUT_EVERYWHERE_TITLE))
+      .toBe(lost);
+    expect(rewritten(program("(** A point. *)", "type Po‸int = (Float, Float); export let n: Int = 1", uses), WRITE_OUT_EVERYWHERE_TITLE))
+      .toBe(lost);
+    expect(rewritten(program("let a: Int = 1; type Po‸int = (* a point *) (Float, Float); export let b: Int = a", uses), WRITE_OUT_EVERYWHERE_TITLE))
+      .toBe(lost);
+    expect(rewritten(program("let a: Int = 1; type Po‸int = (Float, Float) (* a point *); export let b: Int = a", uses), WRITE_OUT_EVERYWHERE_TITLE))
+      .toBe(lost);
+    // A comment that ends the line above is that line's.
+    expect(rewritten(program("export let n: Int = 1 // one", "type Po‸int = (Float, Float)", uses), WRITE_OUT_EVERYWHERE_TITLE))
+      .toBe(program("export let n: Int = 1 // one", "export let area(s: (Float, Float)): Float = 1.0"));
+    expect(rewritten(program("// About n.", "export let n: Int = 1; type Po‸int = (Float, Float)", uses), WRITE_OUT_EVERYWHERE_TITLE))
+      .toBe(program("// About n.", "export let n: Int = 1", "export let area(s: (Float, Float)): Float = 1.0"));
+    expect(rewritten(program("// About a.", "let a: Int = 1; type Po‸int = (Float, Float); export let b: Int = a", uses), WRITE_OUT_EVERYWHERE_TITLE))
+      .toBe(program("// About a.", "let a: Int = 1; export let b: Int = a", "export let area(s: (Float, Float)): Float = 1.0"));
     // A comment with a blank line between is not the declaration's, and stays.
     expect(rewritten(program("// Shapes.", "", "type Po‸int = (Float, Float)", "", uses), WRITE_OUT_EVERYWHERE_TITLE))
       .toBe(program("// Shapes.", "", "export let area(s: (Float, Float)): Float = 1.0"));
@@ -631,6 +757,13 @@ describe("an alias written out everywhere", () => {
     )).toBe(
       "refused: `Pair` writes `a` in more than one place, and the `_` given for it is one type in all of them; " +
         "written out, each `_` would be a type of its own. Write the type in place of `_` first.",
+    );
+    expect(rewritten(
+      program("type P‸red = (Int) -> Bool", "constraint Source<a> =", "    type Bool", "    get(value: a, p: Pred) -> Int", "export let f(p: Pred): Int = 1"),
+      WRITE_OUT_EVERYWHERE_TITLE,
+    )).toBe(
+      "refused: Inside `Source`'s members `Bool` is its implied type, so the alias's body, written out here, would name " +
+        "that instead of the `Bool` it names now.",
     );
   });
 
@@ -693,6 +826,17 @@ describe("an alias introduced", () => {
       .toBe(program("let n: Int = 1 // one", "type NewType = (Float, Float)", "", "export let area(s: NewType): Float = 1.0"));
   });
 
+  test("from the start of a line another item shares", () => {
+    expect(rewritten(program("let a: Int = 1; export let f(s: (Fl‸oat, Float)): Float = 1.0"), INTRODUCE_TITLE))
+      .toBe(program("type NewType = (Float, Float)", "", "let a: Int = 1; export let f(s: NewType): Float = 1.0"));
+  });
+
+  test("with the file's line breaks", () => {
+    const crlf = (...lines: readonly string[]): string => ["module Main", ...lines, ""].join("\r\n");
+    expect(rewritten(crlf("export let area(s: (Float, Fl‸oat)): Float = 1.0"), INTRODUCE_TITLE))
+      .toBe(crlf("type NewType = (Float, Float)", "", "export let area(s: NewType): Float = 1.0"));
+  });
+
   test("above an honor group, for a type one of its items gives", () => {
     const group = (item: string): readonly string[] => [
       "honor",
@@ -724,6 +868,10 @@ describe("an alias introduced", () => {
     const source = (type: string): readonly string[] => ["constraint Source<a> =", "    type Item", `    get(value: a, other: ${type}) -> Item`];
     expect(rewritten(program("import Geo", ...source("Geo.It‸em")), INTRODUCE_TITLE, geo))
       .toBe(program("import Geo", "type NewType = Geo.Item", "", ...source("NewType")));
+    const pair = beside("Geo", "export type Pair(a) = (a, a)");
+    const applied = (type: string): readonly string[] => ["constraint Source<a> =", "    type Pair", `    get(value: a, other: ${type}) -> Pair`];
+    expect(rewritten(program("import Geo", ...applied("Geo.Pa‸ir(Int)")), INTRODUCE_TITLE, pair))
+      .toBe(program("import Geo", "type NewType = Geo.Pair(Int)", "", ...applied("NewType")));
   });
 
   test("named for no type the module writes", () => {
@@ -738,6 +886,12 @@ describe("an alias introduced", () => {
     expect(action?.edits.map(({ snippet }) => snippet?.text)).toEqual([
       "type ${1:NewType} = (Float, Float)\n\nexport let area(s: ${1:NewType}$0",
     ]);
+    // From the start of the line, where an editor takes a snippet.
+    const shared = marked(program("let a: Int = 1; export let area(s: (Float, Fl‸oat)): Float = 1.0"));
+    expect(session(shared.text).codeActions("/main.hex", shared, { invoked: true })
+      .find(({ title }) => title === INTRODUCE_TITLE)?.edits.map(({ snippet }) => snippet?.text)).toEqual([
+        "type ${1:NewType} = (Float, Float)\n\nlet a: Int = 1; export let area(s: ${1:NewType}$0",
+      ]);
   });
 
   test("refused for a type an alias cannot be", () => {
@@ -749,6 +903,9 @@ describe("an alias introduced", () => {
       "refused: An alias is a type fragment, not a signature, so a following arrow in it has nothing handed to it " +
         "(Declarations Preamble §5.1.1). Introduce the alias for a part of the type without one.",
     );
+    // A marked arrow that does not follow is a type fragment like any.
+    expect(rewritten(program("export let run(h: (In‸t) ->! Unit): Unit = ()"), INTRODUCE_TITLE))
+      .toBe(program("type NewType = (Int) ->! Unit", "", "export let run(h: NewType): Unit = ()"));
     expect(rewritten(program("export let f(x: {n: Int, ...r‸}): {n: Int, ...r} = x"), INTRODUCE_TITLE)).toBe(
       "refused: A `type` alias's row tail is fresh at each use, so it cannot be named, and this type names `...r`. " +
         "Introduce the alias for a part of the type without it.",
