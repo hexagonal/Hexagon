@@ -189,7 +189,7 @@ Pattern Matching §7's usefulness matrix treats a total view as a **one-construc
 | Situation | Error / hint |
 |---|---|
 | `pattern` inside a function body or block | "declarations live at module level" (Declarations Preamble §7.1) |
-| A component ascribed without its own parentheses, `(1n: BigInt, 2n)rat` in an expression or `(n: BigInt, d)rat` in a pattern | parse error, fixit: "the list is an argument list; ascribe a component in its own parentheses: `((1n: BigInt), 2n)rat`", `((n: BigInt), d)rat` in a pattern (§3.2; Pattern Matching §2.9) |
+| An argument ascribed without its own parentheses in the expression form (`(1n: BigInt, 2n)rat`, `(7: Int)id`) | parse error, fixit: "the list is an argument list; ascribe an argument in its own parentheses: `((1n: BigInt), 2n)rat`", `((7: Int))id` (§3.2). The pattern form's typed component (`(n: BigInt, d)rat`, `(n: Int)id`) is Pattern Matching §12's unparenthesised-slot row |
 | Head with no components; `()name` at a use | "a pattern has at least one component; a test with no components is a guard" (§2.1, §3.1) |
 | Partial head — a component list without a result type; binders alone (a result type alone is a zero-arity head, and the arity row above leads) | "a pattern head is whole or absent: write the result type, or drop the component list", the missing slot named (§2.1) |
 | Block without `view` | "a pattern declares `view`" at the head (§2.1) |
