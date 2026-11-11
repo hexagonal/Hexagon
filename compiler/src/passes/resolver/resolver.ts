@@ -4150,6 +4150,9 @@ class Resolver {
           kind: "LetPattern",
           exported: false,
           pattern,
+          ...(item.annotation === undefined
+            ? {}
+            : { annotation: this.#resolveTypeAnnotation(item.annotation) }),
           value,
           span: item.span,
         };
@@ -5190,6 +5193,18 @@ class Resolver {
         kind: "As",
         pattern: nested,
         binding: (binder as Resolved.BindingPattern).binding,
+        span: pattern.span,
+      };
+    }
+    if (pattern.kind === "Typed") {
+      // Pattern Matching §2.9: the type is an ascription's, resolved on the
+      // ordinary annotation path, so its names reach the occurrence index and
+      // its variables are the enclosing declaration's, which the checker's
+      // annotation scope reads (§2.9 "Type variables are the declaration's").
+      return {
+        kind: "Typed",
+        pattern: this.#resolvePattern(pattern.pattern, scope, seen, binderClass, sharedBindings),
+        annotation: this.#resolveTypeAnnotation(pattern.annotation),
         span: pattern.span,
       };
     }

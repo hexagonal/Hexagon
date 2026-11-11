@@ -25,6 +25,8 @@ export function patternNames(pattern: Pattern): readonly Name[] {
       return [];
     case "As":
       return [...patternNames(pattern.pattern), pattern.name];
+    case "Typed":
+      return patternNames(pattern.pattern);
     case "Or":
       // Every alternative binds the same names, so the first one answers for
       // all of them; taking the union would report each name once per arm.

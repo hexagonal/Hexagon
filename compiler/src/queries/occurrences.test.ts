@@ -80,6 +80,38 @@ describe("collectOccurrences", () => {
     ]);
   });
 
+  test("a type written in a pattern, and a `let` pattern's annotation, are references (Pattern Matching §2.9, §6.3)", () => {
+    const source = [
+      "union Colour =",
+      "    | Red",
+      "    | Green",
+      "",
+      "let (c: Colour, n) = (Red, 1)",
+      "let (d, m): (Colour, Int) = (Green, 2)",
+      "let name(x) = match x",
+      '    (Red: Colour) => "red"',
+      '    _ => "other"',
+      "",
+    ].join("\n");
+    const { occurrences } = index([["/main.hex", HEADER + source]]);
+    const own = occurrences.get("/main.hex")!;
+    expect(render(own, HEADER + source, (o) => o.target.kind === "union")).toEqual([
+      'definition union "Colour"',
+      'reference union "Colour"',
+      'reference union "Colour"',
+      'reference union "Colour"',
+    ]);
+    // What a typed pattern holds is indexed as it would be without the type.
+    expect(render(own, HEADER + source, (o) => o.name === "Red")).toEqual([
+      'definition value "Red"',
+      'reference value "Red"',
+      'reference value "Red"',
+    ]);
+    // The names a typed pattern binds are still the pattern's.
+    expect(render(own, HEADER + source, (o) => o.role === "definition" && o.target.kind === "value"))
+      .toEqual(expect.arrayContaining(['definition value "c"', 'definition value "n"', 'definition value "d"']));
+  });
+
   test("a record name denotes both its type and its constructor", () => {
     const source = [
       "record Box(a) = {",

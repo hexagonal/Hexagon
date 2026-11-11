@@ -27,7 +27,8 @@
  * (`queries/written-types.ts`), which compiles the edit, and which reads the
  * places from here (`typePieces`). A type with an error in it is not shown, nor
  * a colour in error; the report is the information. A `let` pattern's variable
- * is shown though no type can be written there (Pattern Matching §2.4).
+ * is shown unless a type is written over it already: a typed pattern on it or
+ * around it, or the binding's annotation (Pattern Matching §2.9, §6.3).
  *
  * Not hinted in v1: a lambda's result (rust-analyzer's default too), a
  * pattern's bindings outside a `let`, a lambda's pattern parameters, a record
@@ -145,6 +146,11 @@ export interface TypePiece extends Place {
   };
   /** Whether what it shows holds an error, in which case it is never drawn. */
   readonly error: boolean;
+  /**
+   * A pattern variable an `as` binds, whose type is written around the whole
+   * `as` rather than at its name.
+   */
+  readonly asBinder?: true;
 }
 
 /**
@@ -404,7 +410,9 @@ function collect(input: InlayHintInput): readonly (TypePiece | WrittenPiece | In
         return;
       }
       case "LetPattern":
-        forEachBinder(item.pattern, (name) => {
+        // The binding's annotation writes every variable's part already.
+        if (item.annotation !== undefined) return;
+        forEachBinder(item.pattern, (name, asBinder) => {
           const symbol = symbols.get(key(name.span));
           if (symbol === undefined) return;
           const shown = Typed.displayCallFace(symbol.scheme, context, letters);
@@ -418,6 +426,7 @@ function collect(input: InlayHintInput): readonly (TypePiece | WrittenPiece | In
             exported: item.exported,
             letters,
             shown: { type: symbol.scheme.type, scheme: symbol.scheme, text: shown.type, before: ": ", after: "" },
+            ...(asBinder ? { asBinder: true as const } : {}),
           });
         });
         return;
@@ -858,21 +867,25 @@ function expressionsOf(root: SyntaxNode): readonly Parsed.Expr[] {
 /**
  * Every name a pattern binds that a type could follow: not a record field's
  * pun, `{guest}`, which binds the field's own name and is written `{guest =
- * guest}` before it can take a type.
+ * guest}` before it can take a type, and not a name a typed pattern on it or
+ * around it covers, whose type is written already (Pattern Matching §2.9).
  */
-function forEachBinder(pattern: Parsed.Pattern, visit: (name: Parsed.Name) => void): void {
-  const puns = new Set<Parsed.Pattern>();
+function forEachBinder(pattern: Parsed.Pattern, visit: (name: Parsed.Name, asBinder: boolean) => void): void {
+  const skipped = new Set<Parsed.Pattern>();
   walkData(pattern, (node) => {
+    if (node.kind === "Typed") walkData((node as unknown as Parsed.TypedPattern).pattern, (inner) => skipped.add(inner as Parsed.Pattern));
+    // `((x: Int) as y)`: the name stands on the typed part.
+    if (node.kind === "As" && (node as unknown as Parsed.AsPattern).pattern.kind === "Typed") skipped.add(node as unknown as Parsed.Pattern);
     if (node.kind !== "Record") return;
     for (const field of (node as unknown as Parsed.RecordPattern).fields) {
       if (field.pattern.kind === "Binding" && field.pattern.name.span.start.offset === field.name.span.start.offset) {
-        puns.add(field.pattern);
+        skipped.add(field.pattern);
       }
     }
   });
   walkData(pattern, (node) => {
-    if (node.kind === "Binding" && !puns.has(node as unknown as Parsed.Pattern)) visit((node as unknown as Parsed.BindingPattern).name);
-    if (node.kind === "As") visit((node as unknown as Parsed.AsPattern).name);
+    if (node.kind === "Binding" && !skipped.has(node as unknown as Parsed.Pattern)) visit((node as unknown as Parsed.BindingPattern).name, false);
+    if (node.kind === "As" && !skipped.has(node as unknown as Parsed.Pattern)) visit((node as unknown as Parsed.AsPattern).name, true);
   });
 }
 

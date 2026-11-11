@@ -1246,6 +1246,8 @@ export interface LetPatternItem {
   readonly kind: "LetPattern";
   readonly exported: false;
   readonly pattern: Pattern;
+  /** The binding's annotation, `let p: T = e` (Pattern Matching §6.3). */
+  readonly annotation?: TypeAnnotation;
   readonly value: Expr;
   /**
    * Set when this `let` is a **lambda parameter's** destructuring rather than a
@@ -1329,6 +1331,7 @@ export type Pattern =
   | RecordPattern
   | OrPattern
   | AsPattern
+  | TypedPattern
   | DeclaredPattern
   | ConstructorPattern;
 
@@ -1364,6 +1367,19 @@ export interface AsPattern {
   readonly kind: "As";
   readonly pattern: Pattern;
   readonly binding: Binding;
+  readonly span: Source.Span;
+}
+
+/**
+ * A typed pattern, `(p: T)` (Pattern Matching §2.9): a static claim, checked
+ * by unifying the position's type with the written one before `p` is checked
+ * against it. It tests and converts nothing, so it reaches no tree past the
+ * checker: the typed tree holds `p` alone.
+ */
+export interface TypedPattern {
+  readonly kind: "Typed";
+  readonly pattern: Pattern;
+  readonly annotation: TypeAnnotation;
   readonly span: Source.Span;
 }
 

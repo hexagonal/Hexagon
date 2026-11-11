@@ -275,6 +275,9 @@ late pedagogy pass, not a commitment to the current order.
   comparison chains, and simple destructuring.
 - Establishes nested structural patterns, literals, or-patterns, as-patterns, guards,
   exact exhaustiveness/reachability, irrefutability, and patterned parameters.
+- Typed patterns `(p: T)` are claims, never tests or conversions, written only inside a
+  pattern's own parentheses (`Some((n: Int))`); a `let` pattern takes the binding's type
+  after it (`let (a, b): (Float, String) = e`), which is where a conversion happens.
 - Completes the third three-chapter drafting group. Its review is recorded in
   `reviews/03-data-shapes-and-patterns.md`.
 

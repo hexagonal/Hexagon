@@ -390,6 +390,12 @@ function writtenTypeParameter(parameter: Parsed.TypeParameter): string {
 /** Exceptions §5.2, §9: where a `fault` pattern stands other than as a whole catch arm's. */
 const FAULT_PATTERN_SEAT = "a `fault` pattern is a whole catch arm's pattern";
 
+/** An edit a parentheses-only refusal makes (`#refuseBareTypes`). */
+interface BareEdit {
+  readonly span: Source.Span;
+  readonly replacement: string;
+}
+
 const opensVisibleDeclaration = new Set<TokenKind>([
   "Let",
   "Fun",
@@ -432,6 +438,40 @@ const typeOperandStarts = new Set<TokenKind>([
   "NonUpperName",
   "UpperName",
 ]);
+
+/**
+ * The prelude constraints `Int` honors, by name, and of them the ones that
+ * say a binder is a number: a binder list refused on a `let` pattern
+ * (`#refusePatternBinders`) names `Int` as the concrete type it means only for
+ * a binder its constraints call a number, every one of them one `Int`
+ * honors, as `<t: Num>`'s does. A user's constraint of the same name is not
+ * told apart here, which can only cost the example, never the refusal.
+ */
+const intConstraints = new Set(["Num", "Eq", "Ord", "Show", "Hash", "Signed", "Integral"]);
+const numberConstraints = new Set(["Num", "Signed", "Integral"]);
+
+/** The spans where an annotation writes one of `names` as a type variable. */
+function typeVariableSpans(
+  annotation: Parsed.TypeAnnotation,
+  names: ReadonlySet<string>,
+): readonly Source.Span[] {
+  switch (annotation.kind) {
+    case "TypeVariable":
+      return names.has(annotation.name.text) ? [annotation.span] : [];
+    case "NamedType":
+    case "Hole":
+      return [];
+    case "AppliedType":
+      return annotation.arguments.flatMap((argument) => typeVariableSpans(argument, names));
+    case "Tuple":
+      return annotation.elements.flatMap((element) => typeVariableSpans(element, names));
+    case "Record":
+      return annotation.fields.flatMap(({ annotation: field }) => typeVariableSpans(field, names));
+    case "Function":
+      return [...annotation.parameters, annotation.result]
+        .flatMap((part) => typeVariableSpans(part, names));
+  }
+}
 
 /** Nesting bracketry, so the record-update scan reads only its own brace's depth. */
 const opensNesting = new Set<TokenKind>(["LeftParen", "LeftBracket", "LeftBrace", "VOpen"]);
@@ -700,6 +740,10 @@ class Parser {
    */
   #catchArmHead: number | undefined;
   #armFault: Source.Span | undefined;
+  /** Where each `fault` pattern refused where it was read begins (`#headedByRefusedFault`). */
+  readonly #refusedFaults = new Set<number>();
+  /** The edits the parentheses-only refusals have made so far (`#refuseBareTypes`). */
+  readonly #bareEdits: BareEdit[] = [];
 
   constructor(
     tokens: readonly LaidOut.Token[],
@@ -5413,6 +5457,25 @@ class Parser {
       this.#synchronize(itemEnds);
       return { kind: "ErrorItem", span: spanFrom(start.span, this.#previous().span) };
     }
+    const binders = this.#at("Less") ? this.#parseRefusedPatternBinders() : undefined;
+    // Pattern Matching §6.3: a `let` pattern takes a binding annotation as a
+    // name does. It is the binding's, whatever the left side is: the value's
+    // expected type, its supplying seat and the home of its conversions.
+    let annotation: Parsed.TypeAnnotation | undefined;
+    if (this.#at("Colon")) {
+      this.#advance();
+      annotation = this.#parseTypeAnnotation();
+      if (annotation === undefined) {
+        this.#synchronize(itemEnds);
+        return { kind: "ErrorItem", span: spanFrom(start.span, this.#previous().span) };
+      }
+    }
+    if (binders !== undefined) {
+      // The refusal names the annotation's rewrite; the item is checked as if
+      // neither were written, so the refused list reports nothing further.
+      this.#refusePatternBinders(pattern, binders, annotation);
+      annotation = undefined;
+    }
     if (this.#expect("Equal", "expected `=` after `let` pattern") === undefined) {
       this.#synchronize(itemEnds);
       return { kind: "ErrorItem", span: spanFrom(start.span, this.#previous().span) };
@@ -5422,9 +5485,89 @@ class Parser {
       kind: "LetPattern",
       exported: false,
       pattern,
+      ...(annotation === undefined ? {} : { annotation }),
       value,
       span: spanFrom(start.span, value.span),
     };
+  }
+
+  /** A binder list written after a `let` pattern, read so the refusal can name it. */
+  #parseRefusedPatternBinders(): { readonly parameters: readonly Parsed.TypeParameter[]; readonly span: Source.Span } {
+    const opening = this.#current().span;
+    const parameters = this.#parseTypeParameters();
+    return { parameters, span: spanFrom(opening, this.#previous().span) };
+  }
+
+  /**
+   * Pattern Matching §6.3: the binder list form `let p<a: C>: T = e` does not
+   * exist. A pattern binds no single name for a list to follow, and a
+   * destructuring `let` quantifies no constrained variable for a list to
+   * declare, so the rewrite removes the list and writes the type meant in the
+   * annotation, or removes the annotation. The concrete type is named only
+   * where `Int` is one each binder's constraints admit, as for `<t: Num>`.
+   */
+  #refusePatternBinders(
+    pattern: Parsed.Pattern,
+    binders: { readonly parameters: readonly Parsed.TypeParameter[]; readonly span: Source.Span },
+    annotation: Parsed.TypeAnnotation | undefined,
+  ): void {
+    const list = this.#sourceText(binders.span);
+    const reason = "a `let` pattern takes no binder list: it binds no single name, and a " +
+      `destructuring \`let\` quantifies no constrained variable; remove \`${list}\``;
+    const removeList = { span: binders.span, replacement: "" };
+    if (annotation === undefined) {
+      this.#diagnostics.add({
+        severity: "error",
+        message: reason,
+        primary: binders.span,
+        fixes: [{ message: `remove \`${list}\``, edits: [removeList] }],
+      });
+      return;
+    }
+    const names = new Set(binders.parameters.map(({ name }) => name.text));
+    const variables = typeVariableSpans(annotation, names);
+    // `Int` is named only where every binder the annotation writes is a number
+    // `Int` can be. Which number the value is — `<t: Num>` over `(1.5, 2.5)` —
+    // only its type can say, and the parser cannot see it: the edit removing
+    // the list and the annotation, which always compiles, comes first.
+    const written = new Set(variables.map((span) => this.#sourceText(span)));
+    const concrete = binders.parameters.every(({ name, constraints }) =>
+      !written.has(name.text) ||
+      constraints.some(({ text }) => numberConstraints.has(text)) &&
+        constraints.every(({ text }) => intConstraints.has(text))
+    );
+    const annotationText = this.#sourceText(annotation.span);
+    const removeAnnotation = {
+      span: { fileId: annotation.span.fileId, start: binders.span.end, end: annotation.span.end },
+      replacement: "",
+    };
+    if (!concrete || variables.length === 0) {
+      this.#diagnostics.add({
+        severity: "error",
+        message: `${reason}, and write the concrete type you mean, or remove the annotation`,
+        primary: binders.span,
+        fixes: [{ message: `remove \`${list}\` and the annotation`, edits: [removeList, removeAnnotation] }],
+      });
+      return;
+    }
+    let concreteText = annotationText;
+    for (const span of [...variables].sort((left, right) => right.start.offset - left.start.offset)) {
+      const from = span.start.offset - annotation.span.start.offset;
+      concreteText = concreteText.slice(0, from) + "Int" + concreteText.slice(from + span.end.offset - span.start.offset);
+    }
+    this.#diagnostics.add({
+      severity: "error",
+      message: `${reason}, and write the concrete type you mean — ` +
+        `\`let ${this.#sourceText(pattern.span)}: ${concreteText} = …\` — or remove the annotation`,
+      primary: binders.span,
+      fixes: [
+        { message: `remove \`${list}\` and the annotation`, edits: [removeList, removeAnnotation] },
+        {
+          message: `remove \`${list}\` and write \`${concreteText}\``,
+          edits: [removeList, ...variables.map((span) => ({ span, replacement: "Int" }))],
+        },
+      ],
+    });
   }
 
   #parsePattern(): Parsed.Pattern | undefined {
@@ -5459,6 +5602,191 @@ class Parser {
       name,
       span: spanFrom(pattern.span, name.span),
     };
+  }
+
+  /**
+   * One element of a pattern's parentheses: `pattern (: Type)?` (Pattern
+   * Matching §2.9), as an expression's parentheses take `expression (: Type)?`
+   * (Ascription §2.1). The colon ends the element: `#parsePattern` has read
+   * `|` and `as` to completion before it is reached, so `(A(x) | B(x) as v: T)`
+   * types the whole.
+   *
+   * The node spans the element alone; a pattern's own parentheses re-span it
+   * (`#declaredPattern`), which is what tells `(p: T)` from a tuple component
+   * sharing the tuple's (`Parsed.isBareTypedPattern`).
+   */
+  #parsePatternElement(): Parsed.Pattern | undefined {
+    const pattern = this.#parsePattern();
+    if (pattern === undefined || !this.#at("Colon")) return pattern;
+    this.#advance();
+    if (!this.#startsType()) {
+      this.#error("expected a type after `:`");
+      return undefined;
+    }
+    const annotation = this.#parseTypeAnnotation(true);
+    if (annotation === undefined) return undefined;
+    if (this.#headedByRefusedFault(pattern)) return pattern;
+    return { kind: "Typed", pattern, annotation, span: spanFrom(pattern.span, annotation.span) };
+  }
+
+  /**
+   * Whether a pattern begins with a `fault` pattern refused where it was read
+   * (`fault e`, `fault e as x`, `fault e | Oops(_)` outside a catch arm's
+   * head). A type written over it is part of the same mistake (it says what
+   * the `fault` pattern would bind), so the type is dropped with it and claims
+   * nothing: the refusal is the one report, as without the type. Any other
+   * pattern refused where it was read (an oversized literal) is a cause of its
+   * own, and keeps its type.
+   */
+  #headedByRefusedFault(pattern: Parsed.Pattern): boolean {
+    return this.#refusedFaults.has(pattern.span.start.offset);
+  }
+
+  /**
+   * A pattern's own parentheses around one element, spanning them: a refused
+   * `fault` pattern that heads the element heads the group too, so
+   * `(fault e): Exn` drops its type as `fault e: Exn` does.
+   */
+  #grouped(element: Parsed.Pattern, opening: Source.Span, closing: Source.Span): Parsed.Pattern {
+    if (this.#headedByRefusedFault(element)) this.#refusedFaults.add(opening.start.offset);
+    return { ...element, span: spanFrom(opening, closing) };
+  }
+
+  /**
+   * An element at a slot that is not a pattern's own parentheses — a
+   * constructor's slot, a record field's sub-pattern, a vector element — read
+   * with its type, so the pattern stands as written for everything after,
+   * and kept for `#refuseBareTypes` once the enclosing form is whole.
+   */
+  #parseSlotPattern(bare: Parsed.TypedPattern[]): Parsed.Pattern | undefined {
+    const pattern = this.#parsePatternElement();
+    if (pattern?.kind === "Typed" && Parsed.isBareTypedPattern(pattern)) bare.push(pattern);
+    return pattern;
+  }
+
+  /**
+   * Pattern Matching §2.9's parentheses-only rule: a pattern mirrors the value
+   * it takes apart, and an expression takes a type only inside parentheses, so
+   * `Some(n: Int)`, `{x = n: Int}`, `[n: Int]` and a declared pattern's
+   * `(n: BigInt, d)rat` are refused, the fixit giving the typed pattern
+   * parentheses of its own. The message spells the enclosing form rewritten.
+   * A type on a vector's rest is refused with them: a rest is a binder, not an
+   * element, and its type is the vector's, so the rewrite types the whole
+   * vector pattern instead.
+   */
+  #refuseBareTypes(bare: readonly Parsed.TypedPattern[], whole: Source.Span, rest?: Parsed.TypedPattern): void {
+    if (bare.length === 0 && rest === undefined) return;
+    // Each slot of the form is refused where it stands, and each report names
+    // the form with every one of them written, and with every refusal already
+    // made inside it (a slot's, or a sibling's), and its fix writes that form
+    // whole, so the fix compiles alone (as Declarations Preamble §1.1's
+    // reports of one declaration carry one edit). A vector whose rest takes a
+    // type is typed after its brackets.
+    const ordered = [...bare].sort((left, right) => left.span.start.offset - right.span.start.offset);
+    const slots = ordered.map((typed) => ({ span: typed.span, replacement: `(${this.#textWithBareEdits(typed.span)})` }));
+    const binder = rest === undefined ? [] : [{ span: rest.span, replacement: this.#sourceText(rest.pattern.span) }];
+    const form = this.#textWithBareEdits(whole, [...slots, ...binder]);
+    const rewritten = rest === undefined ? form : `(${form}: ${this.#sourceText(rest.annotation.span)})`;
+    const edit = { span: whole, replacement: rewritten };
+    // A fix's title is read on one line, so a form written over several is not quoted in it.
+    const title = rewritten.includes("\n") ? "write the types in parentheses" : `write \`${rewritten}\``;
+    const fix = { message: title, edits: [edit] };
+    for (const typed of ordered) {
+      this.#diagnostics.add({
+        severity: "error",
+        message: `a type in a pattern goes in parentheses: \`${rewritten}\``,
+        primary: typed.span,
+        fixes: [fix],
+      });
+    }
+    if (rest !== undefined) {
+      this.#diagnostics.add({
+        severity: "error",
+        message: `a rest takes the vector's type; type the whole: \`${rewritten}\``,
+        primary: rest.span,
+        fixes: [fix],
+      });
+    }
+    this.#bareEdits.push(edit);
+  }
+
+  /**
+   * The source between two offsets with `own` edits and every refusal's edit
+   * already made inside it applied (`#refuseBareTypes`): an inner form is read
+   * before the form around it, so the rewrite an outer refusal names carries
+   * the inner one's. An edit inside another is the other's already, and of two
+   * that begin together the wider is the outer (a bare type written around a
+   * vector whose rest takes one).
+   */
+  #textWithBareEdits(within: Source.Span, own: readonly BareEdit[] = []): string {
+    const start = within.start.offset;
+    const end = within.end.offset;
+    const edits = [
+      ...this.#bareEdits.filter(({ span }) => span.start.offset >= start && span.end.offset <= end),
+      ...own,
+    ].sort((left, right) =>
+      left.span.start.offset - right.span.start.offset || right.span.end.offset - left.span.end.offset
+    );
+    let text = "";
+    let at = start;
+    for (const { span, replacement } of edits) {
+      if (span.start.offset < at) continue;
+      text += this.#text.slice(at, span.start.offset) + replacement;
+      at = span.end.offset;
+    }
+    return text + this.#text.slice(at, end);
+  }
+
+  /**
+   * A whole pattern a seat reads unparenthesised — a `match` or `catch` arm's —
+   * followed by `:`: the type is read and refused by the same rule, so the
+   * arm's pattern stands as the typed pattern it was meant to be.
+   */
+  #parseSeatPattern(): Parsed.Pattern | undefined {
+    const pattern = this.#parsePattern();
+    if (pattern === undefined || !this.#at("Colon")) return pattern;
+    const typed = this.#parseBareTypeAfter(pattern);
+    if (typed === undefined) return typed;
+    // A `fault` pattern in the arm: a type would put it inside another
+    // pattern (Exceptions §5.2), and its binder is already an `Exn`.
+    const fault = this.#armFault;
+    if (fault !== undefined && fault.start.offset >= pattern.span.start.offset && fault.end.offset <= pattern.span.end.offset) {
+      // Inside a wider pattern (`fault e as x: Exn`) it is refused where the
+      // arm is read, and that is the arm's one report.
+      if (fault.start.offset !== pattern.span.start.offset || fault.end.offset !== pattern.span.end.offset) return typed;
+      // `fault e: Exn`: refused in §5.2's words with the type's removal, and
+      // the arm read as the fault arm it then is, so nothing cascades.
+      const written = this.#sourceText(pattern.span);
+      this.#diagnostics.add({
+        severity: "error",
+        message: `${FAULT_PATTERN_SEAT}, and binds an \`Exn\`; remove the type: \`${written}\``,
+        primary: typed.annotation.span,
+        fixes: [{
+          message: `remove the type: \`${written}\``,
+          edits: [{ span: { fileId: typed.span.fileId, start: pattern.span.end, end: typed.span.end }, replacement: "" }],
+        }],
+      });
+      return pattern;
+    }
+    if (this.#headedByRefusedFault(pattern)) return pattern;
+    this.#refuseBareTypes([typed], typed.span);
+    return typed;
+  }
+
+  /**
+   * `: Type` after a pattern a seat did not parenthesise, read into a bare
+   * typed pattern. The type stops before `=>`, which ends an arm's pattern
+   * here, so the arrow redirect a parenthesised type takes is not read.
+   */
+  #parseBareTypeAfter(pattern: Parsed.Pattern): Parsed.TypedPattern | undefined {
+    this.#advance();
+    if (!this.#startsType()) {
+      this.#error("expected a type after `:`");
+      return undefined;
+    }
+    const annotation = this.#parseTypeAnnotation();
+    if (annotation === undefined) return undefined;
+    return { kind: "Typed", pattern, annotation, span: spanFrom(pattern.span, annotation.span) };
   }
 
   /**
@@ -5544,6 +5872,7 @@ class Parser {
       const span = spanFrom(token.span, binder.span);
       if (head !== this.#catchArmHead) {
         this.#errorAt(span, FAULT_PATTERN_SEAT);
+        this.#refusedFaults.add(span.start.offset);
         return { kind: "Error", span };
       }
       this.#armFault = span;
@@ -5742,11 +6071,12 @@ class Parser {
       }
       const name = parsedName(head);
       const args: Parsed.Pattern[] = [];
+      const bare: Parsed.TypedPattern[] = [];
       let end = head.span;
       if (this.#at("LeftParen")) {
         this.#advance();
         while (!this.#at("RightParen") && !this.#at("Eof")) {
-          const argument = this.#parsePattern();
+          const argument = this.#parseSlotPattern(bare);
           if (argument === undefined) return undefined;
           args.push(argument);
           if (!this.#at("Comma")) break;
@@ -5757,18 +6087,22 @@ class Parser {
           "expected `)` after constructor pattern",
         )?.span ?? end;
       }
+      const span = spanFrom(token.span, end);
+      this.#refuseBareTypes(bare, span);
       return {
         kind: "Constructor",
         ...(qualifier === undefined ? {} : { qualifier }),
         name,
         arguments: args,
-        span: spanFrom(token.span, end),
+        span,
       };
     }
     if (token.kind === "LeftBracket") {
       const opening = this.#advance();
       const elements: Parsed.Pattern[] = [];
+      const bare: Parsed.TypedPattern[] = [];
       let rest: Parsed.VectorPattern["rest"];
+      let restType: Parsed.TypedPattern | undefined;
       while (!this.#at("RightBracket") && !this.#at("Eof")) {
         if (this.#at("Spread")) {
           const spread = this.#advance();
@@ -5778,29 +6112,42 @@ class Parser {
           let pattern: Parsed.Pattern | undefined;
           if (!this.#at("Comma") && !this.#at("RightBracket")) {
             pattern = this.#parsePattern();
+            // A rest is a binder, not an element, and its type is the
+            // vector's (Pattern Matching §2.9): one written on it, bare or in
+            // parentheses, is read and refused once the vector is whole.
+            if (pattern !== undefined && this.#at("Colon")) {
+              restType = this.#parseBareTypeAfter(pattern);
+              if (restType === undefined) return undefined;
+            } else if (pattern?.kind === "Typed") {
+              restType = pattern;
+              pattern = pattern.pattern;
+            }
           }
           rest = {
             ...(pattern === undefined ? {} : { pattern }),
             index: elements.length,
-            span: spanFrom(spread.span, pattern?.span ?? spread.span),
+            span: spanFrom(spread.span, restType?.span ?? pattern?.span ?? spread.span),
           };
         } else {
-          elements.push(this.#parsePattern() ?? { kind: "Wildcard", span: this.#current().span });
+          elements.push(this.#parseSlotPattern(bare) ?? { kind: "Wildcard", span: this.#current().span });
         }
         if (!this.#at("Comma")) break;
         this.#advance();
       }
       const closing = this.#expect("RightBracket", "expected `]` after vector pattern");
+      const span = spanFrom(opening.span, closing?.span ?? rest?.span ?? elements.at(-1)?.span ?? opening.span);
+      this.#refuseBareTypes(bare, span, restType);
       return {
         kind: "Vector",
         elements,
         ...(rest === undefined ? {} : { rest }),
-        span: spanFrom(opening.span, closing?.span ?? rest?.span ?? elements.at(-1)?.span ?? opening.span),
+        span,
       };
     }
     if (token.kind === "LeftBrace") {
       const opening = this.#advance();
       const fields: Parsed.RecordPatternField[] = [];
+      const bare: Parsed.TypedPattern[] = [];
       const seen = new Set<string>();
       while (!this.#at("RightBrace") && !this.#at("Eof")) {
         const field = this.#takeFieldLabel("record patterns contain non-uppercase-start field names");
@@ -5811,8 +6158,8 @@ class Parser {
         let pattern: Parsed.Pattern = this.#refusedPuns.has(name.span.start.offset)
           ? { kind: "Error", span: name.span }
           : { kind: "Binding", name, span: name.span };
-        if (this.#recordFieldSeparator(name.text, true) !== undefined) {
-          const nested = this.#parsePattern();
+        if (this.#recordFieldSeparator(name.text) !== undefined) {
+          const nested = this.#parseSlotPattern(bare);
           if (nested === undefined) return undefined;
           pattern = nested;
         }
@@ -5825,10 +6172,12 @@ class Parser {
         this.#advance();
       }
       const closing = this.#expect("RightBrace", "expected `}` after record pattern");
+      const span = spanFrom(opening.span, closing?.span ?? fields.at(-1)?.span ?? opening.span);
+      this.#refuseBareTypes(bare, span);
       return {
         kind: "Record",
         fields,
-        span: spanFrom(opening.span, closing?.span ?? fields.at(-1)?.span ?? opening.span),
+        span,
       };
     }
     if (token.kind !== "LeftParen") {
@@ -5846,7 +6195,7 @@ class Parser {
       const closing = this.#advance();
       return { kind: "Unit", span: spanFrom(opening.span, closing.span) };
     }
-    const first = this.#parsePattern();
+    const first = this.#parsePatternElement();
     if (first === undefined) return undefined;
     if (!this.#at("Comma")) {
       const closing = this.#expect("RightParen", "expected `)` after pattern");
@@ -5861,7 +6210,7 @@ class Parser {
         this.#advance();
         return undefined;
       }
-      const element = this.#parsePattern();
+      const element = this.#parsePatternElement();
       if (element === undefined) return undefined;
       elements.push(element);
     }
@@ -5885,7 +6234,7 @@ class Parser {
         (next.text === "as" || next.text === "when" || next.text === "derives")
       ) {
         return components.length === 1
-          ? { ...components[0]!, span: spanFrom(opening, closing) }
+          ? this.#grouped(components[0]!, opening, closing)
           : { kind: "Tuple", elements: components, span: spanFrom(opening, closing) };
       }
       const token = this.#advance();
@@ -5898,10 +6247,19 @@ class Parser {
         const mark = this.#advance();
         this.#errorAt(mark.span, `a pattern use has no effect mark; remove \`${markText(mark.kind)}\``);
       }
+      // A declared pattern's component list mirrors its expression form's,
+      // an argument list (Pattern Declarations §3.2), so a component takes a
+      // type in its own parentheses, as a constructor's slot does.
+      this.#refuseBareTypes(
+        components.filter((component): component is Parsed.TypedPattern =>
+          component.kind === "Typed" && Parsed.isBareTypedPattern(component)
+        ),
+        spanFrom(opening, name.span),
+      );
       return { kind: "Declared", components, name, span: spanFrom(opening, this.#previous().span) };
     }
     return components.length === 1
-      ? { ...components[0]!, span: spanFrom(opening, closing) }
+      ? this.#grouped(components[0]!, opening, closing)
       : { kind: "Tuple", elements: components, span: spanFrom(opening, closing) };
   }
 
@@ -6377,7 +6735,7 @@ class Parser {
       const token = this.#takeFieldLabel("record fields must be non-uppercase-start names");
       if (token === undefined) break;
       const name = parsedName(token);
-      const separator = this.#recordFieldSeparator(name.text, false);
+      const separator = this.#recordFieldSeparator(name.text);
       let value: Parsed.Expr;
       if (separator === undefined) {
         value = this.#refusedPuns.has(name.span.start.offset)
@@ -6561,6 +6919,7 @@ class Parser {
       this.#errorAt(token.span, "a pattern's name is written against the parenthesis: `(n, d)rat`");
     }
     const name = parsedName(token as Lexed.NameToken);
+    this.#refuseBareAscriptions(components, spanFrom(opening, name.span));
     let mark: Parsed.CallMark | undefined;
     let markSpan: Source.Span | undefined;
     let reading: true | undefined;
@@ -6589,6 +6948,35 @@ class Parser {
       }),
       span: spanFrom(opening, markSpan ?? name.span),
     };
+  }
+
+  /**
+   * Pattern Declarations §3.2: a construction's component list is an argument
+   * list, and an argument is ascribed in its own parentheses as any argument is.
+   * `(1n: BigInt, 2n)rat` and `(7: Int)id` are the element rule's ascriptions,
+   * sharing the list's parentheses, and are refused with their own; the
+   * pattern form's twin is `#refuseBareTypes`.
+   */
+  #refuseBareAscriptions(components: readonly Parsed.Expr[], whole: Source.Span): void {
+    for (const component of components) {
+      if (
+        component.kind !== "Ascription" ||
+        component.span.start.offset !== component.expression.span.start.offset
+      ) continue;
+      const text = this.#sourceText(component.span);
+      const before = this.#text.slice(whole.start.offset, component.span.start.offset);
+      const after = this.#text.slice(component.span.end.offset, whole.end.offset);
+      this.#diagnostics.add({
+        severity: "error",
+        message: "the list is an argument list; ascribe an argument in its own parentheses: " +
+          `\`${before}(${text})${after}\``,
+        primary: component.span,
+        fixes: [{
+          message: `write \`(${text})\``,
+          edits: [{ span: component.span, replacement: `(${text})` }],
+        }],
+      });
+    }
   }
 
   /**
@@ -6792,12 +7180,37 @@ class Parser {
 
   #parseFor(outerStops: ReadonlySet<TokenKind>): Parsed.Expr {
     const start = this.#advance();
-    const pattern = this.#parsePattern() ?? {
+    let pattern: Parsed.Pattern = this.#parsePattern() ?? {
       kind: "Wildcard" as const,
       span: this.#current().span,
     };
+    // Pattern Matching §6.4: the head takes no binding annotation, since its
+    // elements already exist when it binds them. The element's type is a typed
+    // pattern, so `for x: T in xs` is read as one and refused with its spelling.
+    let unparenthesised: Parsed.TypedPattern | undefined;
+    if (this.#at("Colon")) {
+      const typed = this.#parseBareTypeAfter(pattern);
+      if (typed !== undefined && !this.#headedByRefusedFault(pattern)) pattern = unparenthesised = typed;
+    }
     this.#expect("In", "expected `in` after `for` pattern");
     const iterable = this.#parseExpression(0, withStops(outerStops, "VOpen"));
+    if (unparenthesised !== undefined) {
+      // The pattern's text carries the refusals already made inside it.
+      const typed = this.#textWithBareEdits(unparenthesised.span);
+      // The iterable is quoted where it is short enough to read on one line.
+      const iterableText = this.#sourceText(iterable.span);
+      const shown = iterableText.includes("\n") || iterableText.length > 40 ? "…" : iterableText;
+      this.#diagnostics.add({
+        severity: "error",
+        message: "write the element's type in the pattern: " +
+          `\`for (${typed}) in ${shown}\``,
+        primary: unparenthesised.annotation.span,
+        fixes: [{
+          message: `write \`(${typed})\``,
+          edits: [{ span: unparenthesised.span, replacement: `(${typed})` }],
+        }],
+      });
+    }
     if (!this.#at("VOpen")) {
       this.#error("expected an indented block after `for` iterable");
       return {
@@ -7032,7 +7445,7 @@ class Parser {
         continue;
       }
       const refused = this.#current().span;
-      const pattern = this.#parsePattern();
+      const pattern = this.#parseSeatPattern();
       if (pattern === undefined) {
         // §7.3's fourth tier: the arm is **kept**, its pattern standing as the
         // error it is. Coverage reads it as `_` and it shadows nothing below it,
@@ -7089,7 +7502,7 @@ class Parser {
       const outerFault = this.#armFault;
       this.#catchArmHead = this.#index;
       this.#armFault = undefined;
-      const pattern = this.#parsePattern();
+      const pattern = this.#parseSeatPattern();
       // Read back through a widening: the field was written during the parse
       // above, which narrowing cannot see.
       const faultSpan = this.#armFault as Source.Span | undefined;
@@ -8184,13 +8597,11 @@ class Parser {
   // returns it, or `undefined` when the field is punned. The three near-miss tokens are
   // diagnosed with their permanent fixits (Products §6) and then consumed anyway, so the
   // field's value or sub-pattern still parses and one typo yields one error.
-  #recordFieldSeparator(field: string, pattern: boolean): LaidOut.Token | undefined {
+  #recordFieldSeparator(field: string): LaidOut.Token | undefined {
     if (this.#at("Equal")) return this.#advance();
     if (this.#at("Colon")) {
-      const annotation = pattern && this.#peek(1).kind === "UpperName";
       this.#error(
-        `record fields bind with \`=\`: \`{${field} = …}\`; \`:\` gives a field its type in record types` +
-          (annotation ? "; if you meant a type, patterns destructure values — annotate outside the pattern" : ""),
+        `record fields bind with \`=\`: \`{${field} = …}\`; \`:\` gives a field its type in record types`,
       );
       return this.#advance();
     }
@@ -8301,7 +8712,7 @@ function unclaimedFault(pattern: Parsed.Pattern, span: Source.Span): Parsed.Patt
   if (pattern.span.start.offset === span.start.offset && pattern.span.end.offset === span.end.offset) {
     return { kind: "Error", span };
   }
-  if (pattern.kind === "As") return { ...pattern, pattern: unclaimedFault(pattern.pattern, span) };
+  if (pattern.kind === "As" || pattern.kind === "Typed") return { ...pattern, pattern: unclaimedFault(pattern.pattern, span) };
   if (pattern.kind === "Or") {
     const [first, ...rest] = pattern.alternatives;
     return first === undefined

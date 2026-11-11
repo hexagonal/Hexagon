@@ -829,13 +829,13 @@ interface Guard {
 /**
  * Whether a catch arm catches every exception and every foreign throw (Effects
  * §3.6; Exceptions §5.3): unguarded, and `_` or a bare variable, alone, as an
- * alternative or under `as` — the arms the emitted `catch` treats as catching
+ * alternative, under `as` or under a type (Pattern Matching §2.9) — the arms the emitted `catch` treats as catching
  * everything but a fault.
  */
 function handlesEverything(arm: Resolved.MatchArm): boolean {
   if (arm.guard !== undefined || arm.fault === true) return false;
   const everything = (pattern: Resolved.Pattern): boolean =>
-    pattern.kind === "As"
+    pattern.kind === "As" || pattern.kind === "Typed"
       ? everything(pattern.pattern)
       : pattern.kind === "Or"
       ? pattern.alternatives.some(everything)
@@ -1078,6 +1078,8 @@ function patternSymbols(pattern: Resolved.Pattern): Resolved.SymbolId[] {
       return [pattern.binding.symbol];
     case "As":
       return [pattern.binding.symbol, ...patternSymbols(pattern.pattern)];
+    case "Typed":
+      return patternSymbols(pattern.pattern);
     case "Or":
       return pattern.alternatives.flatMap(patternSymbols);
     case "Vector":
@@ -1132,6 +1134,44 @@ function ordinalWord(position: number): string {
 function indefiniteArticle(name: string): string {
   // A `u` read as "you" takes "a": "a `Unit`", "a `Union`", "a `Uint8Array`".
   return /^(?:[aeio]|u(?!n[io]|s[aeu]|ti|i))/i.test(name) ? "an" : "a";
+}
+
+/**
+ * The first following arrow a written type writes, at any depth (Pattern
+ * Matching §12's row for a pattern's type).
+ */
+function followingArrowIn(
+  annotation: Resolved.TypeAnnotation,
+): Resolved.FunctionTypeAnnotation | undefined {
+  if (annotation.kind === "Function" && isFollowing(annotation.effect)) return annotation;
+  for (const child of annotationChildren(annotation)) {
+    const found = followingArrowIn(child);
+    if (found !== undefined) return found;
+  }
+  return undefined;
+}
+
+/**
+ * The pattern a lambda's parameter is written as, where it is one: such a
+ * parameter reaches the checker as a fresh name its body's first lines take
+ * apart (`LetPattern`'s `parameter`).
+ */
+function parameterPattern(lambda: Resolved.LambdaExpr, parameter: Resolved.SymbolId): Resolved.Pattern | undefined {
+  if (lambda.body.kind !== "Block") return undefined;
+  for (const item of lambda.body.items) {
+    if (item.kind !== "LetPattern" || item.parameter !== true) return undefined;
+    if (item.value.kind === "Name" && item.value.symbol === parameter) return item.pattern;
+  }
+  return undefined;
+}
+
+/** Every written type variable called `name` in one annotation, outermost first. */
+function typeVariableNodes(
+  annotation: Resolved.TypeAnnotation,
+  name: string,
+): Resolved.TypeVariableAnnotation[] {
+  const own = annotation.kind === "TypeVariable" && annotation.name === name ? [annotation] : [];
+  return [...own, ...annotationChildren(annotation).flatMap((child) => typeVariableNodes(child, name))];
 }
 
 /**
@@ -3556,6 +3596,8 @@ function patternBindsGuardName(pattern: Resolved.Pattern): boolean {
     case "As":
       return pattern.binding.name === IS_HEX_ERROR ||
         patternBindsGuardName(pattern.pattern);
+    case "Typed":
+      return patternBindsGuardName(pattern.pattern);
     case "Vector":
       return pattern.elements.some(patternBindsGuardName) ||
         (pattern.rest?.pattern !== undefined &&
@@ -4507,6 +4549,8 @@ function splittableSlots(pattern: Resolved.Pattern): readonly SplittableSlot[] {
       return splittableSlots(pattern.pattern).map((slot) =>
         slot.pattern === pattern.pattern ? { ...slot, underAs: true } : slot
       );
+    case "Typed":
+      return splittableSlots(pattern.pattern);
     case "Tuple":
       return pattern.elements.flatMap(splittableSlots);
     case "Declared":
@@ -4591,17 +4635,23 @@ function keywordSpan(span: Source.Span): Source.Span {
   return { fileId: span.fileId, start: span.start, end };
 }
 
-/** Whether a pattern is a bare integer literal at its top, through `as` and `|` (Pattern Matching §6.1). */
+/**
+ * Whether a pattern is a bare integer literal at its top, through `as` and `|`
+ * (Pattern Matching §6.1), and through a type that writes no head: one that
+ * writes a head names it (§2.9), as `(0: Nat)` names `Nat`.
+ */
 function bareIntegerPattern(pattern: Resolved.Pattern): boolean {
   if (pattern.kind === "As") return bareIntegerPattern(pattern.pattern);
+  if (pattern.kind === "Typed") return !headWritten(pattern.annotation) && bareIntegerPattern(pattern.pattern);
   if (pattern.kind === "Or") return pattern.alternatives.some(bareIntegerPattern);
   return pattern.kind === "Integer" && pattern.bigint !== true;
 }
 
 /**
- * Whether a pattern tests nothing — `_`, a binder, and those under `as` and
- * `|` — so a `match` of such arms reads no representation (Pattern Matching
- * §6.1). A guard is an ordinary expression, and tests nothing of the shape.
+ * Whether a pattern tests nothing — `_`, a binder, and those under `as`, `|`
+ * and a type, which is a claim and never a test (Pattern Matching §2.9) — so
+ * a `match` of such arms reads no representation (§6.1). A guard is an
+ * ordinary expression, and tests nothing of the shape.
  */
 function testsNothingPattern(pattern: Resolved.Pattern): boolean {
   switch (pattern.kind) {
@@ -4609,6 +4659,7 @@ function testsNothingPattern(pattern: Resolved.Pattern): boolean {
     case "Binding":
       return true;
     case "As":
+    case "Typed":
       return testsNothingPattern(pattern.pattern);
     case "Or":
       return pattern.alternatives.every(testsNothingPattern);
@@ -4988,6 +5039,8 @@ class Checker {
   readonly #madeViews = new Map<Resolved.SymbolId, WrittenView | undefined>();
   /** The pattern each pattern-bound name is part of, for the part a written type spells (`#spelledResult`). */
   readonly #partPatterns = new Map<Resolved.SymbolId, Resolved.Pattern>();
+  /** A `let` pattern's binding annotation, by the pattern it types (Pattern Matching §6.3). */
+  readonly #patternAnnotations = new Map<Resolved.Pattern, Resolved.TypeAnnotation>();
   /** The record declaration each constructor builds, across the program, for `#sourceItem`. */
   readonly #constructedRecords = new Map<Resolved.SymbolId, Resolved.RecordDeclaration>();
   /**
@@ -6108,8 +6161,27 @@ class Checker {
    * variables an ascription *declares* (Ascription §3.1). A field rather than a
    * parameter because elaboration never re-enters expression inference, so there
    * is exactly one ascription in flight at a time.
+   *
+   * A type written in a pattern sets it too: its variables are scoped exactly
+   * as an ascription's (Pattern Matching §2.9), and they are reported at its
+   * written type where the binding has no annotation of its own to report at.
    */
   #ascribedTypeSpan: Source.Span | undefined = undefined;
+  /**
+   * The variables a type written in a pattern declared, with the typed pattern
+   * that wrote each, for the declared-variable reports worded for that
+   * spelling (Pattern Matching §2.9): "write the concrete type you mean in the
+   * pattern — `(n: Int)` — or remove the type".
+   */
+  readonly #patternDeclared = new Map<Variable, Resolved.TypedPattern>();
+  /**
+   * A destructuring `let`'s binding annotation while its pattern is checked
+   * (Pattern Matching §6.3): its binders are generalized under it, so a
+   * declared variable the evidence-seat rule or item 7 declines is the
+   * declaration's hard error at the annotation, as at an annotated name — the
+   * annotated arm of `decisions-ml-dialect-generalization-2026-08.md` §13.6.
+   */
+  #patternBindingAnnotation: Source.Span | undefined = undefined;
   readonly #unions = new Map<Resolved.UnionId, Resolved.Union>();
   /**
    * Every union declaration this module can see, indexed before anything else
@@ -9163,13 +9235,135 @@ class Checker {
         if (deep && this.#shapeOpen.get(symbol) === true) return false;
         remember(false);
         return remember(this.#typeDecided(source.value, deep));
-      case "part":
+      case "part": {
         // A caught exception's parts: the exception's declaration writes them.
         if (source.source === undefined) return true;
+        // A type written over the name's part decides it, as a parameter's
+        // annotation does (Pattern Matching §2.9).
+        const written = this.#writtenOverPart(symbol);
+        if (written === "whole" || written === "head" && !deep) return true;
         if (this.#shapeOpen.get(symbol) === true) return false;
         remember(false);
         return remember(this.#typeDecided(source.source, true));
+      }
     }
+  }
+
+  /**
+   * What a type written over the part a pattern's name stands on says of it
+   * (Method Syntax §3.1; Pattern Matching §2.9, §6.3): a typed pattern on the
+   * name or around it, or a `let` pattern's binding annotation, read down to
+   * the name's part through the forms the type spells. `whole` where one of
+   * them writes every part of it, `head` where one writes its head. A
+   * constructor's slot is read where the checker has named the constructor,
+   * which it has wherever the name's own uses are checked.
+   */
+  #writtenOverPart(symbol: Resolved.SymbolId): "whole" | "head" | undefined {
+    const root = this.#partPatterns.get(symbol);
+    if (root === undefined) return undefined;
+    const own = this.#patternAnnotations.get(root);
+    let found: "whole" | "head" | undefined;
+    const visit = (pattern: Resolved.Pattern, written: readonly Resolved.TypeAnnotation[]): void => {
+      const step = (inner: Resolved.Pattern, read: (annotation: Resolved.TypeAnnotation) => Resolved.TypeAnnotation | undefined): void =>
+        visit(inner, written.flatMap((annotation) => read(annotation) ?? []));
+      switch (pattern.kind) {
+        case "Binding":
+        case "As":
+          if (pattern.binding.symbol === symbol) {
+            // `((k: String) as key)`: an `as` stands on the part its pattern
+            // does, so a type written on that pattern is over it too.
+            const own = [...written];
+            for (let inner = pattern.kind === "As" ? pattern.pattern : undefined; inner?.kind === "Typed" || inner?.kind === "As";) {
+              if (inner.kind === "Typed") own.push(inner.annotation);
+              inner = inner.pattern;
+            }
+            for (const annotation of own) {
+              if (annotationWhole(annotation)) found = "whole";
+              else if (headWritten(annotation) && found === undefined) found = "head";
+            }
+          }
+          if (pattern.kind === "As") visit(pattern.pattern, written);
+          return;
+        case "Typed":
+          visit(pattern.pattern, [...written, pattern.annotation]);
+          return;
+        case "Or":
+          for (const alternative of pattern.alternatives) visit(alternative, written);
+          return;
+        case "Tuple":
+          pattern.elements.forEach((element, index) =>
+            step(element, (annotation) =>
+              annotation.kind === "Tuple" && annotation.elements.length === pattern.elements.length
+                ? annotation.elements[index]
+                : undefined
+            )
+          );
+          return;
+        case "Vector":
+          for (const element of pattern.elements) {
+            step(element, (annotation) => annotation.kind === "Vector" ? annotation.element : undefined);
+          }
+          // A rest is the vector's own type.
+          if (pattern.rest?.pattern !== undefined) visit(pattern.rest.pattern, written);
+          return;
+        case "Record":
+          for (const field of pattern.fields) {
+            step(field.pattern, (annotation) =>
+              annotation.kind === "Record"
+                ? annotation.fields.find((written) => written.name === field.name)?.annotation
+                : undefined
+            );
+          }
+          return;
+        case "Constructor":
+          pattern.arguments.forEach((argument, index) =>
+            step(argument, (annotation) => this.#writtenSlot(pattern, index, annotation))
+          );
+          return;
+        case "Declared":
+          // A declared pattern's components are its declaration's, not a
+          // part of the subject's type.
+          for (const component of pattern.components) visit(component, []);
+          return;
+        default:
+          return;
+      }
+    };
+    visit(root, own === undefined ? [] : [own]);
+    return found;
+  }
+
+  /**
+   * The type a written annotation gives a constructor pattern's slot: a
+   * union's constructor's declared slot, or a nominal record's fields, read
+   * with the declaration's parameters given the annotation's arguments
+   * (`givenSlot`).
+   */
+  #writtenSlot(
+    pattern: Resolved.ConstructorPattern,
+    index: number,
+    annotation: Resolved.TypeAnnotation,
+  ): Resolved.TypeAnnotation | undefined {
+    if (pattern.symbol === undefined) return undefined;
+    if (annotation.kind === "Union") {
+      const union = this.#declaredUnions.get(annotation.union) ?? this.#programUnion(annotation.union);
+      const slot = union?.constructors.find((constructor) => constructor.binding.symbol === pattern.symbol)
+        ?.slots[index]?.annotation;
+      if (union === undefined || slot === undefined) return undefined;
+      return givenSlot(slot, new Map(union.parameters.map((name, at) => [name, annotation.arguments[at]!] as const)));
+    }
+    if (annotation.kind === "RecordDeclaration" && index === 0) {
+      const declaration = this.#constructedRecords.get(pattern.symbol);
+      if (declaration === undefined || declaration.id !== annotation.record) return undefined;
+      const given = new Map(declaration.parameters.map((name, at) => [name, annotation.arguments[at]!] as const));
+      return {
+        kind: "Record",
+        fields: declaration.fields.map((field) => ({ ...field, annotation: givenSlot(field.annotation, given) })),
+        open: false,
+        span: annotation.span,
+      };
+    }
+    return undefined;
   }
 
   /**
@@ -11329,7 +11523,9 @@ class Checker {
       }
 
       if (item.kind === "LetPattern") {
-        const valueType = this.#inferExpr(item.value, level + 1);
+        const valueType = item.annotation === undefined
+          ? this.#inferExpr(item.value, level + 1)
+          : this.#inferAnnotatedPatternValue(item.value, item.annotation, item.span, level + 1);
         // `valueType` is passed twice on purpose. As the pattern's expected
         // type it is peeled apart component by component; as the *evaluated*
         // type it stays whole, and it is the whole one the evidence-seat rule
@@ -11345,13 +11541,19 @@ class Checker {
         // for the reader.
         const enclosingSeat = this.#patternSeatIsLambdaParameter;
         this.#patternSeatIsLambdaParameter = item.parameter === true;
-        this.#inferPattern(
-          item.pattern,
-          valueType,
-          level,
-          this.#isValue(item.value),
-          valueType,
-        );
+        const enclosingAnnotation = this.#patternBindingAnnotation;
+        this.#patternBindingAnnotation = item.annotation?.span;
+        try {
+          this.#inferPattern(
+            item.pattern,
+            valueType,
+            level,
+            this.#isValue(item.value),
+            valueType,
+          );
+        } finally {
+          this.#patternBindingAnnotation = enclosingAnnotation;
+        }
         // §5.1's gate, once, over the whole pattern — `let` and the lambda
         // parameter both arrive here (§6.3, §6.5), and both get §5.3's one
         // sentence. Run after the walk, because the walk is what settles the
@@ -13170,19 +13372,29 @@ class Checker {
           for (const [index, parameter] of expression.parameters.entries()) {
             if (parameter.annotation !== undefined) continue;
             const component = landing.parameters[index]!;
-            this.#defaultUnnamed(component, parameter.span, outputs, {
+            // A parameter written as a pattern: a type written in it is a
+            // written parameter type for the parts it writes (Pattern Matching
+            // §2.9), which the claim settles when the pattern is read.
+            const destructured = parameterPattern(expression, parameter.symbol);
+            const claimed = destructured === undefined ? [] : this.#claimedParts(destructured, component);
+            const spelled = destructured === undefined ? parameter.name : this.#sourceSlice(destructured.span);
+            this.#defaultUnnamed(component, parameter.span, [...outputs, ...claimed], {
               span: parameter.span,
               held: component,
               say: (written) =>
-                `\`${parameter.name}\` became an \`Int\` here: the number reached only the lambda's input — ` +
-                (written === undefined ? "write its type here" : `write \`(${parameter.name}: ${written})\``),
+                (destructured === undefined
+                  ? `\`${parameter.name}\` became an \`Int\` here`
+                  : `a number in \`${spelled ?? "the parameter"}\` became an \`Int\` here`) +
+                ": the number reached only the lambda's input — " +
+                (written === undefined || spelled === undefined ? "write its type here" : `write \`(${spelled}: ${written})\``),
             });
+            // A claimed part is settled by its written type; a declared
+            // pattern's components beneath the claim read it through here.
+            const settled = (variable: Variable): boolean =>
+              variable.rigidName !== undefined || claimed.some((part) => this.#occurs(variable, part));
             const head = this.#prune(component);
-            this.#landedHeads.set(parameter.symbol, head.kind !== "Variable" || head.rigidName !== undefined);
-            this.#landedWhole.set(
-              parameter.symbol,
-              this.#shapeVariables(component).every((variable) => variable.rigidName !== undefined),
-            );
+            this.#landedHeads.set(parameter.symbol, head.kind !== "Variable" || settled(head));
+            this.#landedWhole.set(parameter.symbol, this.#shapeVariables(component).every(settled));
           }
         }
         this.#integerTestedParameters(expression, parameters);
@@ -13535,8 +13747,9 @@ class Checker {
           if (!requirement.reported) this.#iterations.set(expression, requirement);
         }
         // The loop's pattern makes new names: a number type nothing has decided
-        // takes `Int` here (Numeric Literals §4).
-        this.#defaultUnnamed(element, expression.iterable.span, [], {
+        // takes `Int` here (Numeric Literals §4), but for a part a type written
+        // in the pattern claims (Pattern Matching §2.9).
+        this.#defaultUnnamed(element, expression.iterable.span, this.#claimedParts(expression.pattern, element), {
           span: expression.iterable.span,
           held: iterable,
           say: (written) =>
@@ -14606,6 +14819,7 @@ class Checker {
     const within = (inner: Resolved.Pattern): SpelledPart | undefined => {
       switch (inner.kind) {
         case "As":
+        case "Typed":
           return within(inner.pattern);
         case "Tuple":
           return first(inner.elements);
@@ -14732,6 +14946,10 @@ class Checker {
         return pattern.binding.symbol === symbol ? part : undefined;
       case "As":
         return pattern.binding.symbol === symbol ? part : this.#patternWritten(pattern.pattern, part, symbol);
+      case "Typed":
+        // A claim unified with the part (Pattern Matching §2.9): the part is
+        // what the outer written type spells, and its arrows are its own.
+        return this.#patternWritten(pattern.pattern, part, symbol);
       case "Tuple":
         return annotation.kind === "Tuple" && annotation.elements.length === pattern.elements.length
           ? first(pattern.elements.map((element, index) => [element, within(annotation.elements[index]!)] as const))
@@ -15047,7 +15265,9 @@ class Checker {
    * Whether a pattern names its position's head (Pattern Matching §4, §6.1): a
    * union's or a record's constructor scope resolves, a tuple, vector, record
    * or unit pattern, a `String`, `Float`, `BigInt` or `Dec` literal, or a
-   * declared pattern whose view's subject has a head — through `as` and `|`. A
+   * declared pattern whose view's subject has a head, or a typed pattern whose
+   * type writes a head (§2.9) — through `as` and `|`, and through a typed
+   * pattern whose type writes none (`(Some(x): _)`). A
    * bare integer literal could be any number type; `_`, a binder, a constructor
    * the expected type's door would resolve, an exception's constructor (a
    * `match` never takes `Exn`), and a declared pattern with a generic subject
@@ -15062,6 +15282,11 @@ class Checker {
         return false;
       case "As":
         return this.#namesHead(pattern.pattern);
+      case "Typed":
+        // A type the resolver refused was written to name it: its report is
+        // the match's (`#claimPatternType`).
+        return headWritten(pattern.annotation) || annotationHasErrorType(pattern.annotation) ||
+          this.#namesHead(pattern.pattern);
       case "Or":
         return pattern.alternatives.some((alternative) => this.#namesHead(alternative));
       case "Integer":
@@ -15265,7 +15490,7 @@ class Checker {
       const rewrites = [
         ...(qualified === undefined
           ? []
-          : [`write \`${qualified}${renderArguments(pattern.arguments)}\``]),
+          : [`write \`${qualified}${renderArguments(pattern.arguments, (argument) => renderPattern(argument, this.#typeText))}\``]),
         this.#patternDepth > 0
           ? "ascribe the scrutinee"
           : "bind the function with its own annotated `let`",
@@ -15738,7 +15963,7 @@ class Checker {
     }
     if (pattern.kind === "Binding") {
       {
-        const scheme = this.#generalize(expected, level, generalizable, undefined, evaluated, pattern.binding.name);
+        const scheme = this.#generalize(expected, level, generalizable, this.#patternBindingAnnotation, evaluated, pattern.binding.name);
         this.#schemes.set(pattern.binding.symbol, scheme);
         this.#settleSource(pattern.binding.symbol, scheme.type, scheme.variables);
       }
@@ -15749,10 +15974,20 @@ class Checker {
         this.#inferPattern(pattern.pattern, expected, level, generalizable, evaluated)
       );
       {
-        const scheme = this.#generalize(expected, level, generalizable, undefined, evaluated, pattern.binding.name);
+        const scheme = this.#generalize(expected, level, generalizable, this.#patternBindingAnnotation, evaluated, pattern.binding.name);
         this.#schemes.set(pattern.binding.symbol, scheme);
         this.#settleSource(pattern.binding.symbol, scheme.type, scheme.variables);
       }
+      return;
+    }
+    if (pattern.kind === "Typed") {
+      // Elaborated at the right-hand side's level, as a binding annotation is,
+      // so the variables it declares are the binders' to generalize.
+      const claimed = this.#claimPatternType(pattern, expected, level + 1);
+      this.#insideWrapper(false, () =>
+        this.#inferPattern(pattern.pattern, claimed ?? ERROR, level, generalizable, evaluated)
+      );
+      if (claimed === undefined) this.#breakWhole(pattern);
       return;
     }
     if (pattern.kind === "Or") {
@@ -15776,7 +16011,7 @@ class Checker {
             this.#scheme(binding.symbol).type,
             level,
             generalizable,
-            undefined,
+            this.#patternBindingAnnotation,
             evaluated,
             binding.name,
           ),
@@ -16117,7 +16352,7 @@ class Checker {
     // about the slot, so every nested position was offered a guard that does not
     // compile.
     const rewrite = this.#termSpellingGuardOffered(refusal, expected)
-      ? literalPatternGuard(pattern, refusal.spelling, this.#patternRoot)
+      ? literalPatternGuard(pattern, refusal.spelling, this.#patternRoot, this.#typeText)
       : undefined;
     const guard = rewrite === undefined
       ? ""
@@ -16445,7 +16680,7 @@ class Checker {
     // that already has one the rendered arm head would replace it.
     const guard = guardUnavailable
       ? undefined
-      : literalPatternGuard(pattern, spelled, root);
+      : literalPatternGuard(pattern, spelled, root, this.#typeText);
     this.#diagnostics.add({
       severity: "error",
       message: guard === undefined
@@ -16587,6 +16822,159 @@ class Checker {
    * (`#inOrAlternative`). Both flags are saved and restored, so a wrapper inside a
    * slot inside a wrapper reads correctly.
    */
+  /**
+   * A destructuring `let`'s binding annotation, `let p: T = e` (Pattern
+   * Matching §6.3): the binding's, whatever the left side is — the value's
+   * expected type, a supplying seat (Functions §4.3) and the home of the
+   * conversions that seat specifies, so `let (a, b): (Float, String) = (n,
+   * "x")` widens `n` as `let t: (Float, String) = (n, "x")` does. It is
+   * Ascription §1's sequence, which is the annotated binding's own: the face
+   * elaborated first where an expectation can land, the value inferred, the
+   * written type met at the seat, and the widened form published. The pattern
+   * is then checked against what this returns.
+   */
+  #inferAnnotatedPatternValue(
+    value: Resolved.Expr,
+    annotation: Resolved.TypeAnnotation,
+    declaration: Source.Span,
+    level: number,
+  ): Mono {
+    const suppliedFace = this.#faceLands(value)
+      ? this.#bindingAnnotation(annotation, level, declaration, undefined)
+      : undefined;
+    const inferred = this.#inferExpr(value, level, suppliedFace);
+    const annotationType = suppliedFace ?? this.#bindingAnnotation(annotation, level, declaration, undefined);
+    const reading = this.#seatReading(annotationType, value, inferred, level);
+    this.#atAnnotationSeat(annotation.span, value, () =>
+      this.#unifyExpected(reading.met, inferred, value, annotation.span, true, true)
+    );
+    let type = this.#hasConversion(value) ||
+        (annotationWhole(annotation) && this.#holdsNumberDefault(inferred))
+      ? annotationType
+      : this.#applyWrittenQualifiers(annotationType, reading.published);
+    type = this.#publishWrittenColours(
+      annotationType,
+      type,
+      annotation.kind === "Function" && isFollowing(annotation.effect),
+    );
+    return this.#publishOutcomes(annotationType, type, level);
+  }
+
+  /**
+   * A typed pattern's claim (Pattern Matching §2.9): the written type,
+   * elaborated in the enclosing declaration's annotation scope as an
+   * ascription's is, unified with the position's type before the pattern
+   * within is checked, so wherever that pattern reads its position's type it
+   * reads the written one. A failed unification is the ordinary mismatch, at
+   * the written type, and the claim is `undefined`: the pattern within is then
+   * read against nothing, so what it reports cannot follow the type it lost
+   * to, and the whole is broken (`#breakWhole`).
+   *
+   * Nothing else: no constraint form and no second pass, as for ascription
+   * (Ascription §9 item 3). Its arrows are the part's own, read as written,
+   * with no fitting (§2.9); a following arrow is refused until its colours are
+   * ruled (#1510), and the claim is then dropped.
+   */
+  #claimPatternType(pattern: Resolved.TypedPattern, expected: Mono, level: number): Mono | undefined {
+    // A type the resolver refused has been reported there; the claim fails
+    // with it, so the pattern beneath reads as `_` and shadows nothing. A
+    // refused part of a written type is an error part, which claims nothing.
+    if (pattern.annotation.kind === "ErrorType") return undefined;
+    const following = followingArrowIn(pattern.annotation);
+    if (following !== undefined) {
+      this.#refusePatternFollowingArrow(following, expected);
+      return undefined;
+    }
+    const enclosingAscribedType = this.#ascribedTypeSpan;
+    this.#ascribedTypeSpan = pattern.annotation.span;
+    let written: Mono;
+    try {
+      written = this.#inPosition("no-signature", () =>
+        this.#annotationType(pattern.annotation, level, new Map(), this.#annotationVariableScope ?? new Map())
+      );
+    } finally {
+      this.#ascribedTypeSpan = enclosingAscribedType;
+    }
+    for (const variable of this.#collectVariables(written)) {
+      if (variable.ascribedAt === pattern.annotation.span) this.#patternDeclared.set(variable, pattern);
+    }
+    const before = this.#reportCount;
+    this.#patternChecks += 1;
+    try {
+      this.#unify(expected, written, pattern.annotation.span);
+    } finally {
+      this.#patternChecks -= 1;
+    }
+    return this.#reportCount > before ? undefined : written;
+  }
+
+  /**
+   * Marks every node of a pattern broken (§7.3's fourth tier): a typed
+   * pattern whose claim failed reads as `_` for coverage at every depth, and
+   * shadows nothing, whatever its pattern within would have covered.
+   */
+  #breakWhole(pattern: Resolved.Pattern): void {
+    for (const node of resolvedPatternNodes(pattern)) this.#brokenPatterns.add(node);
+  }
+
+  /**
+   * Pattern Matching §12's following-arrow row, while #1510 leaves their
+   * colours open: a pattern's type is a claim and fits nothing, so the rewrite
+   * is the part's own type where its arrow is a constant, and removing the type
+   * where the part's own arrow is itself a following one (a function in data).
+   * It leads Effects §2.2.1's inlet rule, whose fixit names constants a fitting
+   * would accept.
+   */
+  #refusePatternFollowingArrow(
+    following: Resolved.FunctionTypeAnnotation,
+    expected: Mono,
+  ): void {
+    const part = this.#prune(expected);
+    const spelled = part.kind === "Function" ? this.#constantSpelling(part) : undefined;
+    this.#diagnostics.add({
+      severity: "error",
+      message: "a following arrow is not written in a pattern's type; " +
+        (spelled === undefined ? "remove the type" : `write \`${spelled}\``),
+      primary: following.arrowSpan ?? following.span,
+    });
+  }
+
+  /**
+   * A type as this site writes it, its arrows included, where each arrow's
+   * colours are constants: `((Int) ->! Int) -> Int`. `undefined` where an
+   * arrow's colour is still a variable, or a part has no spelling here.
+   */
+  #constantSpelling(type: Mono): string | undefined {
+    const actual = this.#prune(type);
+    if (actual.kind !== "Function") return this.#spellingAtSite(actual);
+    const marked: Partial<Record<Axis, boolean>> = {};
+    for (const axis of AXES) {
+      const slot = colourAt(actual, axis);
+      if (slot === undefined) {
+        marked[axis] = false;
+        continue;
+      }
+      const colour = this.#shownColour(slot);
+      if (colour.kind !== "Effect") return undefined;
+      marked[axis] = isImpure(colour);
+    }
+    const parts: string[] = [];
+    for (const part of [...actual.parameters, actual.result]) {
+      const spelled = this.#constantSpelling(part);
+      if (spelled === undefined) return undefined;
+      parts.push(spelled);
+    }
+    const result = parts.pop()!;
+    const arrow = marked.world === true && marked.fail === true
+      ? "->!"
+      : marked.world === true
+      ? "->~"
+      : marked.fail === true
+      ? "->^"
+      : "->";
+    return `(${parts.join(", ")}) ${arrow} ${result}`;
+  }
+
   #insideWrapper(orAlternative: boolean, walk: () => void): void {
     const heldRoot = this.#patternRootHeld;
     const inOrAlternative = this.#inOrAlternative;
@@ -16642,6 +17030,14 @@ class Checker {
       );
       this.#schemes.set(pattern.binding.symbol, { variables: [], type: expected });
       this.#settleSource(pattern.binding.symbol, expected, []);
+      return;
+    }
+    if (pattern.kind === "Typed") {
+      const claimed = this.#claimPatternType(pattern, expected, level);
+      this.#insideWrapper(false, () =>
+        this.#inferMatchPattern(pattern.pattern, claimed ?? ERROR, level)
+      );
+      if (claimed === undefined) this.#breakWhole(pattern);
       return;
     }
     if (pattern.kind === "Or") {
@@ -16913,7 +17309,7 @@ class Checker {
         ? pattern.symbol !== undefined && this.#exceptions.get(pattern.symbol)?.fault === true
         : pattern.kind === "Or"
         ? pattern.alternatives.every(onlyFaults)
-        : pattern.kind === "As" && onlyFaults(pattern.pattern);
+        : (pattern.kind === "As" || pattern.kind === "Typed") && onlyFaults(pattern.pattern);
     const visit = (pattern: Resolved.Pattern): void => {
       switch (pattern.kind) {
         case "Binding":
@@ -16921,6 +17317,9 @@ class Checker {
           return;
         case "As":
           note(pattern.binding.symbol, onlyFaults(pattern.pattern));
+          visit(pattern.pattern);
+          return;
+        case "Typed":
           visit(pattern.pattern);
           return;
         case "Or":
@@ -17076,9 +17475,9 @@ class Checker {
       for (const kind of THROW_KINDS) columns[kind].covering.push(...reached[kind]);
       if (this.#patternIsBroken(arm.pattern)) continue;
       if (arm.fault === true) {
-        columns.fault.shadower ??= `fault ${renderPattern(arm.pattern)}`;
+        columns.fault.shadower ??= `fault ${renderPattern(arm.pattern, this.#typeText)}`;
       } else if (this.#coverageIrrefutable(arm.pattern, type)) {
-        columns.exception.shadower ??= renderPattern(arm.pattern);
+        columns.exception.shadower ??= renderPattern(arm.pattern, this.#typeText);
       }
     }
   }
@@ -17181,6 +17580,16 @@ class Checker {
   #inferExceptionPattern(pattern: Resolved.Pattern, level: number): void {
     if (pattern.kind === "Binding" || pattern.kind === "Wildcard") {
       this.#inferMatchPattern(pattern, primitive("Exn"), level);
+      return;
+    }
+    if (pattern.kind === "Typed") {
+      const claimed = this.#claimPatternType(pattern, primitive("Exn"), level);
+      this.#insideWrapper(false, () =>
+        claimed === undefined
+          ? this.#inferMatchPattern(pattern.pattern, ERROR, level)
+          : this.#inferExceptionPattern(pattern.pattern, level)
+      );
+      if (claimed === undefined) this.#breakWhole(pattern);
       return;
     }
     if (pattern.kind === "As") {
@@ -18997,7 +19406,7 @@ class Checker {
     this.#diagnostics.add({
       severity: "error",
       message: naming !== undefined && shadower !== undefined
-        ? naming(renderPattern(shadower))
+        ? naming(renderPattern(shadower, this.#typeText))
         : reports.covered,
       primary: alternative.span,
     });
@@ -21806,8 +22215,9 @@ class Checker {
     // An arm whose pattern binds makes new names: a number type nothing has
     // decided, in a part of the scrutinee an arm names, takes `Int` here,
     // before any arm is read (Numeric Literals §4).
+    const claimed = patterns.flatMap((pattern) => this.#claimedParts(pattern, scrutinee));
     for (const part of undecided ? [] : this.#armNamedParts(patterns, scrutinee)) {
-      this.#defaultUnnamed(part, expression.scrutinee.span, [], {
+      this.#defaultUnnamed(part, expression.scrutinee.span, claimed, {
         span: expression.scrutinee.span,
         held: scrutinee,
         say: (written) =>
@@ -21831,7 +22241,7 @@ class Checker {
     }
     // Read once, before any arm: one arm's body cannot settle what another
     // arm's pattern binds (#1119 R.b).
-    if (!undecided) this.#settleArms(expression.arms, scrutinee);
+    if (!undecided) this.#settleArms(expression.arms, scrutinee, claimed);
     const outerArmTop = this.#matchArmTop;
     const outerCollisionFixes = this.#matchPatternCollisionFixes;
     this.#matchPatternCollisionFixes = new Map();
@@ -21990,6 +22400,15 @@ class Checker {
         return;
       }
       if (actual.kind === "Variable" && actual.rigidName === undefined) {
+        // A type written to name the head that the resolver refused said so
+        // there; the head it would have named is that report's echo.
+        const refusedClaim = patterns.some((pattern) =>
+          resolvedPatternNodes(pattern).some((node) => node.kind === "Typed" && annotationHasErrorType(node.annotation))
+        );
+        if (refusedClaim) {
+          node.failed = true;
+          return;
+        }
         // The text decides the scrutinee and leaves its head open: a call
         // whose result is a variable nothing fixes (Method Syntax §3.3).
         const { span, message } = this.#undecidedScrutinee(expression);
@@ -23239,13 +23658,16 @@ class Checker {
    * A `match` whose scrutinee's type, where the match reads it, still has a
    * part unsettled: every arm's pattern variable is inferred from its uses
    * (`#settleSource`), read once before any arm, so no arm's body settles
-   * what another arm's pattern binds.
+   * what another arm's pattern binds. A part an arm's written type claims
+   * (`#claimedParts`) is settled by that type, as a written one is, so it
+   * leaves no name's shape open.
    */
-  #settleArms(arms: readonly Resolved.MatchArm[], scrutinee: Mono): void {
+  #settleArms(arms: readonly Resolved.MatchArm[], scrutinee: Mono, claimed: readonly Mono[]): void {
     {
       const shape = new Set(this.#shapeVariables(scrutinee));
       const shapeOpen = this.#collectVariables(scrutinee).some((variable) =>
-        variable.instance === undefined && variable.rigidName === undefined && shape.has(variable)
+        variable.instance === undefined && variable.rigidName === undefined && shape.has(variable) &&
+        !claimed.some((part) => this.#occurs(variable, part))
       );
       if (shapeOpen) {
         for (const arm of arms) for (const symbol of patternSymbols(arm.pattern)) this.#shapeOpen.set(symbol, true);
@@ -23460,6 +23882,8 @@ class Checker {
         this.#bindingSources.set(inner.binding.symbol, { kind: "inferred" });
       } else if (inner.kind === "Fun") {
         this.#bindingSources.set(inner.binding.symbol, { kind: "function", value: inner.value });
+      } else if (inner.kind === "LetPattern" && inner.annotation !== undefined) {
+        this.#patternAnnotations.set(inner.pattern, inner.annotation);
       }
     };
     register(item);
@@ -32604,7 +33028,7 @@ class Checker {
     const subject = head.kind === "NominalRecord" ? spelling.text : this.#display(head);
     return `\`${pattern.text}\` here is ${rival.phrase}; this ${rival.seat} ` +
       `matches a \`${subject}\` — write ` +
-      `\`${spelling.text}${renderArguments(pattern.arguments)}\`` +
+      `\`${spelling.text}${renderArguments(pattern.arguments, (argument) => renderPattern(argument, this.#typeText))}\`` +
       spelling.clause;
   }
 
@@ -33352,13 +33776,21 @@ class Checker {
       this.#bind(variable, primitive("Int"), span);
       return;
     }
+    // Worded for a pattern's spelling where a pattern's type declared it
+    // (Pattern Matching §2.9): the rewrite writes `Int` for the variable in
+    // that pattern's type, which is the type the literal defaults to.
+    const typed = this.#patternDeclared.get(variable);
+    const rewritten = typed === undefined ? undefined : this.#typedPatternWith(typed, variable.rigidName ?? "", "Int");
     this.#diagnostics.add({
       severity: "error",
-      message:
-        `\`${variable.rigidName}\` is a declared type variable, but \`${literal.literal}\` ` +
-        `can be only a \`${literal.name}\` type; ascribe the concrete type you mean — ` +
-        `\`(${literal.literal} : Int)\` — or remove the ascription to let the literal ` +
-        "default to `Int`",
+      message: typed !== undefined && rewritten !== undefined
+        ? `\`${variable.rigidName}\` is a declared type variable, but \`${literal.literal}\` ` +
+          `can be only a \`${literal.name}\` type; write the concrete type you mean in the ` +
+          `pattern — \`${rewritten}\` — or remove the type`
+        : `\`${variable.rigidName}\` is a declared type variable, but \`${literal.literal}\` ` +
+          `can be only a \`${literal.name}\` type; ascribe the concrete type you mean — ` +
+          `\`(${literal.literal} : Int)\` — or remove the ascription to let the literal ` +
+          "default to `Int`",
       primary: span,
     });
     for (const requirement of variable.requirements) {
@@ -33366,6 +33798,26 @@ class Checker {
       this.#settleAbsorbed(requirement);
     }
     variable.instance = ERROR;
+  }
+
+  /**
+   * A typed pattern as the reader wrote it, with every occurrence of the type
+   * variable `name` in its type written `replacement` instead: `(n: Int)` for
+   * `(n: a)`. `undefined` where the module's text is not at hand.
+   */
+  #typedPatternWith(typed: Resolved.TypedPattern, name: string, replacement: string): string | undefined {
+    const text = this.#sourceSlice(typed.span);
+    if (text === undefined) return undefined;
+    const spans = typeVariableNodes(typed.annotation, name)
+      .map(({ span }) => span)
+      .sort((left, right) => right.start.offset - left.start.offset);
+    let written = text;
+    for (const span of spans) {
+      const from = span.start.offset - typed.span.start.offset;
+      written = written.slice(0, from) + replacement + written.slice(from + span.end.offset - span.start.offset);
+    }
+    // A bare typed component shares its tuple's parentheses; written alone it takes its own.
+    return typed.span.start.offset === typed.pattern.span.start.offset ? `(${written})` : written;
   }
 
   /**
@@ -38588,6 +39040,132 @@ class Checker {
   }
 
   /**
+   * The parts of a type a pattern's written types claim (Pattern Matching
+   * §2.9): a number type nothing decided takes the written type before a
+   * binder would make it an `Int` (Numeric Literals §4), and a written type
+   * settles the part it writes, so the seats that make new names from a
+   * pattern's binders leave these parts to the claim. Read down through the
+   * pattern's forms against the type's shape as it stands — tuples, records,
+   * vector elements and a constructor's declared slots —
+   * and down through each written type to the parts it writes whole
+   * (`#annotationClaims`): a hole claims nothing, at any depth, and neither
+   * does a part the type's shape does not yet say where it is.
+   */
+  #claimedParts(pattern: Resolved.Pattern, type: Mono): Mono[] {
+    const actual = this.#prune(type);
+    switch (pattern.kind) {
+      case "Typed":
+        return [...this.#annotationClaims(pattern.annotation, type), ...this.#claimedParts(pattern.pattern, type)];
+      case "As":
+        return this.#claimedParts(pattern.pattern, type);
+      case "Or":
+        return pattern.alternatives.flatMap((alternative) => this.#claimedParts(alternative, type));
+      case "Tuple":
+        return actual.kind === "Tuple" && actual.elements.length === pattern.elements.length
+          ? pattern.elements.flatMap((element, index) => this.#claimedParts(element, actual.elements[index]!))
+          : [];
+      case "Record":
+        return actual.kind === "Record"
+          ? pattern.fields.flatMap((field) => {
+            const part = actual.fields.get(field.name);
+            return part === undefined ? [] : this.#claimedParts(field.pattern, part);
+          })
+          : [];
+      case "Vector":
+        // A rest takes no type of its own (§2.9), so it claims nothing.
+        return actual.kind === "Vector"
+          ? pattern.elements.flatMap((element) => this.#claimedParts(element, actual.element))
+          : [];
+      case "Constructor": {
+        const slots = this.#slotParts(pattern, actual);
+        return slots === undefined
+          ? []
+          : pattern.arguments.flatMap((argument, index) =>
+            slots[index] === undefined ? [] : this.#claimedParts(argument, slots[index]!)
+          );
+      }
+      default:
+        // A declared pattern's components are its declaration's, not a part
+        // of the subject's type.
+        return [];
+    }
+  }
+
+  /**
+   * The parts of `type` a written type writes whole: all of it where the
+   * written type has no hole, and otherwise each part it spells, read down
+   * through tuples, records, collections, `Nullable` and a declaration's
+   * arguments.
+   */
+  #annotationClaims(annotation: Resolved.TypeAnnotation, type: Mono): Mono[] {
+    if (annotationWhole(annotation)) return [type];
+    const actual = this.#prune(type);
+    const along = (written: readonly Resolved.TypeAnnotation[], parts: readonly Mono[]): Mono[] =>
+      written.length === parts.length ? written.flatMap((inner, index) => this.#annotationClaims(inner, parts[index]!)) : [];
+    switch (annotation.kind) {
+      case "Tuple":
+        return actual.kind === "Tuple" ? along(annotation.elements, actual.elements) : [];
+      case "Record":
+        return actual.kind === "Record"
+          ? annotation.fields.flatMap((field) => {
+            const part = actual.fields.get(field.name);
+            return part === undefined ? [] : this.#annotationClaims(field.annotation, part);
+          })
+          : [];
+      case "Vector":
+      case "Set":
+      case "Array":
+      case "JsSet":
+      case "Node":
+        return actual.kind === annotation.kind ? this.#annotationClaims(annotation.element, actual.element) : [];
+      case "Map":
+      case "JsMap":
+        return actual.kind === annotation.kind
+          ? [...this.#annotationClaims(annotation.key, actual.key), ...this.#annotationClaims(annotation.value, actual.value)]
+          : [];
+      case "Nullable":
+        return actual.kind === "Nullable" ? this.#annotationClaims(annotation.value, actual.value) : [];
+      case "Union":
+        return actual.kind === "Union" && actual.union === annotation.union
+          ? along(annotation.arguments, actual.arguments)
+          : [];
+      case "RecordDeclaration":
+        return actual.kind === "NominalRecord" && actual.record === annotation.record
+          ? along(annotation.arguments, actual.arguments)
+          : [];
+      default:
+        return [];
+    }
+  }
+
+  /**
+   * A constructor pattern's slots as parts of the type it stands on: the
+   * constructor's declared slots, the declaration's parameters given that
+   * type's arguments. `undefined` where the type is not yet the constructor's
+   * own. A head the door will resolve (§2.2) is read the way the door reads
+   * it, from the type's declaration, and nothing is written.
+   */
+  #slotParts(pattern: Resolved.ConstructorPattern, actual: Mono): readonly Mono[] | undefined {
+    if (actual.kind !== "Union" && actual.kind !== "NominalRecord") return undefined;
+    const symbol = pattern.symbol ?? (pattern.open === true ? this.#constructorOfType(actual, pattern.text) : undefined);
+    if (symbol === undefined) return undefined;
+    if (actual.kind === "Union") this.#materializeReachedUnion(actual.union);
+    else this.#materializeReachedRecord(actual.record);
+    const shape = this.#prune(this.#scheme(symbol).type);
+    const result = this.#prune(shape.kind === "Function" ? shape.result : shape);
+    const same = result.kind === "Union" && actual.kind === "Union" && result.union === actual.union ||
+      result.kind === "NominalRecord" && actual.kind === "NominalRecord" && result.record === actual.record;
+    if (!same || result.arguments.length !== actual.arguments.length) return undefined;
+    const replacements = new Map<number, Mono>();
+    for (const [index, argument] of result.arguments.entries()) {
+      const variable = this.#prune(argument);
+      if (variable.kind !== "Variable") return undefined;
+      replacements.set(variable.id, actual.arguments[index]!);
+    }
+    return shape.kind === "Function" ? shape.parameters.map((slot) => this.#replaceVariables(slot, replacements)) : [];
+  }
+
+  /**
    * The labels pointing a refusal back to where a side of it became `Int`
    * (`#numberDefaults`), naming the type to write there where the other side
    * is a number type the `Int` could have been. Where it is not, the default
@@ -39487,6 +40065,10 @@ class Checker {
     if (Number(span.fileId) !== this.#fileId || this.#sourceText === undefined) return undefined;
     return this.#sourceText.slice(span.start.offset, span.end.offset);
   }
+
+  /** A written type as the reader wrote it, for a pattern rendered back (`renderPattern`). */
+  readonly #typeText = (annotation: Resolved.TypeAnnotation): string | undefined =>
+    this.#sourceSlice(annotation.span);
 
   /** Where an honor's head stands: from its first token to its subject, the extending honor's head of §8. */
   #honorHeadSpan(item: Resolved.HonorItem): Source.Span {
@@ -44335,6 +44917,9 @@ class Checker {
         },
       };
     }
+    // A typed pattern is a claim, checked already: it tests and converts
+    // nothing, and emits as its pattern (Pattern Matching §2.9).
+    if (pattern.kind === "Typed") return this.#materializePattern(pattern.pattern);
     if (pattern.kind === "Constructor") {
       // A head Pattern Matching §2.2's door refused never resolved to a
       // constructor, so there is none to materialize: the program has already
@@ -45524,6 +46109,8 @@ function patternPositionPath(
   const visit = (child: Resolved.Pattern, step: string): string | undefined =>
     patternPositionPath(child, target, `${path}/${step}`);
   if (root.kind === "As") return visit(root.pattern, "as");
+  // A type is no structural seat: `(x: Int)` stands where `x` would.
+  if (root.kind === "Typed") return patternPositionPath(root.pattern, target, path);
   if (root.kind === "Or") {
     for (const alternative of root.alternatives) {
       const found = visit(alternative, "or");
@@ -45916,7 +46503,7 @@ function floatLiteralKey(value: number): string {
 }
 
 function unwrapAsPattern(pattern: Resolved.Pattern): Resolved.Pattern {
-  return pattern.kind === "As" ? unwrapAsPattern(pattern.pattern) : pattern;
+  return pattern.kind === "As" || pattern.kind === "Typed" ? unwrapAsPattern(pattern.pattern) : pattern;
 }
 
 /** Every symbol named anywhere inside a resolved subtree, found structurally. */
@@ -46511,6 +47098,7 @@ function resolvedPatternNodes(
     case "String":
       return [pattern];
     case "As":
+    case "Typed":
       return [pattern, ...resolvedPatternNodes(pattern.pattern)];
     case "Or":
       return [pattern, ...pattern.alternatives.flatMap(resolvedPatternNodes)];
@@ -46552,6 +47140,8 @@ function resolvedPatternBindings(
       return [];
     case "As":
       return [...resolvedPatternBindings(pattern.pattern), pattern.binding];
+    case "Typed":
+      return resolvedPatternBindings(pattern.pattern);
     case "Or":
       return pattern.alternatives[0] === undefined
         ? []
@@ -46745,8 +47335,16 @@ function literalPatternGuard(
   /** What the refused node is compared against — `0`, `Float.nan`. */
   operand: string,
   root: Resolved.Pattern | undefined,
+  typeText: (annotation: Resolved.TypeAnnotation) => string | undefined,
 ): string | undefined {
   if (root === undefined || root === refused) return `x when x == ${operand}`;
+  // A type in the pattern is part of what it says (Pattern Matching §2.9):
+  // one the rewrite cannot print would be dropped from it, so none is offered.
+  if (
+    resolvedPatternNodes(root).some((node) =>
+      node.kind === "Typed" && typeText(node.annotation) === undefined
+    )
+  ) return undefined;
   // §2.5 replaces **the refused node** and nothing else, and `renderPattern` can
   // only keep that promise for nodes it can print. A *second* broken node in the
   // same pattern has no spelling to print — a term's spelling that failed to
@@ -46763,7 +47361,7 @@ function literalPatternGuard(
   const taken = new Set(resolvedPatternBindings(root).map(({ name }) => name));
   let binder = "y";
   for (let suffix = 1; taken.has(binder); suffix += 1) binder = `y${suffix}`;
-  return `${renderPattern(root, { target: refused, binder })} when ${binder} == ${operand}`;
+  return `${renderPattern(root, typeText, { target: refused, binder })} when ${binder} == ${operand}`;
 }
 
 /**
@@ -46780,10 +47378,18 @@ function literalPatternGuard(
  */
 function renderPattern(
   pattern: Resolved.Pattern,
+  /**
+   * A typed pattern's type as the reader wrote it (Pattern Matching §2.9). Where
+   * it has no text, the pattern within is printed alone, which tests what the
+   * typed pattern tests; a rewrite that needs the claim asks first
+   * (`literalPatternGuard`).
+   */
+  typeText: (annotation: Resolved.TypeAnnotation) => string | undefined,
   /** One node to print as a binder instead — see `literalPatternGuard`. */
   swap?: { readonly target: Resolved.Pattern; readonly binder: string },
 ): string {
   if (swap !== undefined && pattern === swap.target) return swap.binder;
+  const render = (inner: Resolved.Pattern): string => renderPattern(inner, typeText, swap);
   switch (pattern.kind) {
     case "Wildcard":
       return "_";
@@ -46822,26 +47428,30 @@ function renderPattern(
       // compiles. Only this one nesting needs them — every other operand is
       // tighter, and an `As` beneath a constructor or a tuple is already enclosed
       // by that form's own brackets.
-      const operand = renderPattern(pattern.pattern, swap);
+      const operand = render(pattern.pattern);
       return `${
         pattern.pattern.kind === "As" ? `(${operand})` : operand
       } as ${pattern.binding.name}`;
     }
+    case "Typed": {
+      const text = typeText(pattern.annotation);
+      return text === undefined ? render(pattern.pattern) : `(${render(pattern.pattern)}: ${text})`;
+    }
     case "Or":
-      return pattern.alternatives.map((alternative) => renderPattern(alternative, swap))
+      return pattern.alternatives.map((alternative) => render(alternative))
         .join(" | ");
     case "Tuple":
       return `(${
-        pattern.elements.map((element) => renderPattern(element, swap)).join(", ")
+        pattern.elements.map((element) => render(element)).join(", ")
       })`;
     case "Declared":
-      return `(${pattern.components.map((component) => renderPattern(component, swap)).join(", ")})${pattern.name}`;
+      return `(${pattern.components.map((component) => render(component)).join(", ")})${pattern.name}`;
     case "Vector": {
-      const elements = pattern.elements.map((element) => renderPattern(element, swap));
+      const elements = pattern.elements.map((element) => render(element));
       if (pattern.rest !== undefined) {
         const rest = pattern.rest.pattern === undefined
           ? "..."
-          : `...${renderPattern(pattern.rest.pattern, swap)}`;
+          : `...${render(pattern.rest.pattern)}`;
         elements.splice(pattern.rest.index, 0, rest);
       }
       return `[${elements.join(", ")}]`;
@@ -46851,22 +47461,22 @@ function renderPattern(
         pattern.fields.map(({ name, pattern: field }) =>
           field.kind === "Binding" && field.binding.name === name
             ? name
-            : `${name} = ${renderPattern(field, swap)}`
+            : `${name} = ${render(field)}`
         ).join(", ")
       }}`;
     case "Constructor":
-      return `${pattern.text}${renderArguments(pattern.arguments, swap)}`;
+      return `${pattern.text}${renderArguments(pattern.arguments, render)}`;
   }
 }
 
 /** A constructor pattern's argument list, empty for a nullary head. */
 function renderArguments(
   arguments_: readonly Resolved.Pattern[],
-  swap?: { readonly target: Resolved.Pattern; readonly binder: string },
+  render: (argument: Resolved.Pattern) => string,
 ): string {
   return arguments_.length === 0
     ? ""
-    : `(${arguments_.map((argument) => renderPattern(argument, swap)).join(", ")})`;
+    : `(${arguments_.map(render).join(", ")})`;
 }
 
 /**
