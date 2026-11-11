@@ -27,7 +27,7 @@
 | `var name = e` | blocks inside a function body only (§6.1) |
 | `fun name(params) = body` header form, and the `fun` block (Functions §7.1, §7.3) | any block, incl. module top level |
 | `record` / `union` / `type` / `constraint` / `honor` / `exception` | module top level only (their own specs) |
-| `let pattern = t` destructuring (irrefutable patterns, Pattern Matching §6.3) | any block; every bound name is a sequential binder (§5) |
+| `let pattern = t` / `let pattern: T = t` destructuring (irrefutable patterns, Pattern Matching §6.3; `T` is the binding's annotation, as on a name) | any block; every bound name is a sequential binder (§5) |
 
 **Expressions** (everything else), including the ones that colloquially read as statements:
 

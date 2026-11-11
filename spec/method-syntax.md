@@ -79,7 +79,7 @@ A dot call resolves from its subject's type, so it asks one question of the subj
 The question has two strengths. The **head** of the subject's type, its outermost constructor, is what dispatch reads (§3.4). The **whole** type is what a value taken apart hands on to its parts. The text decides:
 
 - a **literal**: a number, a string, `()`, a lambda, and a vector, tuple, or record literal — its head always, the whole where its parts are decided. A numeric literal's type is fresh and its own, and takes its default at the dot (§3.3);
-- a name with a **written type**: a parameter's, a `let`'s, a `var`'s, or an ascription's annotation — its head where the annotation writes the head, the whole where it writes every part (no hole, no implied type);
+- a name with a **written type**: a parameter's, a `let`'s, a `var`'s, or an ascription's annotation, or a type a pattern writes over the part the name stands on — on the pattern that binds it or one around it (Pattern Matching §2.9), or a `let` pattern's binding annotation (§6.3 there) — its head where the annotation writes the head, the whole where it writes every part (no hole, no implied type);
 - a **name no local binding introduces**: a module's, an import's, a constructor, an extern;
 - an **honor member's or a constraint default's parameter**: the contract writes its type (Constraints §4);
 - a **`let`** made from what the text decides: its head is its right-hand side's, and so is the whole, except where its type kept a part of its shape no generalization settled, which later lines fill (`let held = ident(Vector.empty)`);
