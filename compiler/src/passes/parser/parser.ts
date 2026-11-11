@@ -5700,9 +5700,7 @@ class Parser {
     const edits = [
       ...this.#bareEdits.filter(({ span }) => span.start.offset >= start && span.end.offset <= end),
       ...own,
-    ].sort((left, right) =>
-      left.span.start.offset - right.span.start.offset || right.span.end.offset - left.span.end.offset
-    );
+    ].sort((left, right) => left.span.start.offset - right.span.start.offset);
     let text = "";
     let at = start;
     for (const { span, replacement } of edits) {
