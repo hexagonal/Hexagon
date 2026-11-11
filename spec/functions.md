@@ -124,8 +124,9 @@ in one declaration (parameter annotations, the return annotation, and the
 ascriptions and pattern types it contains) are the same variables, and a name
 not written elsewhere introduces rigid, scoped to that declaration, as
 Ascription §3.1 scopes it. A pattern's type claims what the part it stands on is, and
-converts nothing (Pattern Matching §2.9; §4.3's "none reaches into an existing
-value"); a function's colour fits it as at any use, which does no work.
+does no conversion that does work (Pattern Matching §2.9; §4.3's "none reaches
+into an existing value"); a function's colour fits it as at any use, an
+instantiation.
 
 A type position inside an annotation may instead be left unwritten with a
 **type hole**, spelled `_`: `xs: Vector(_)` claims the constructor and infers
