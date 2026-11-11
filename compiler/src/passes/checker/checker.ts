@@ -1025,8 +1025,8 @@ interface ClaimSubject {
  * A claim's own arrow in a colour report (`Checker.#claimArrow`): where the
  * claim writes it, `undefined` for an alias's, and whether it stands as the
  * demand there. `fixed` where the arrow already says what the report asks
- * of it (`Checker.#claimArrowAt`), so rewriting the arrow would change
- * nothing.
+ * of it (`Checker.#claimArrowAt`): the part's arrow was met as it was
+ * decided, so the report keeps the effect report's own words.
  */
 interface ClaimArrow {
   readonly claim: ClaimAt;
@@ -17371,12 +17371,11 @@ class Checker {
   /**
    * A claim's arrow as the report reads it. An arrow that already says what
    * the report asks of it, marked on each colour the report names as the
-   * demand, silent on each handed a function at a parameter, is not what
-   * cannot hold: the part's own arrow is a constant the claim meets as it was
-   * decided (Pattern Matching §2.9; #1518), so the arrow's rewrite would
-   * change nothing, and the claim's words for an arrow that accepts more
-   * would be false. The report keeps its place, in the effect report's own
-   * words, and its rewrite is the type the part has, whole. An alias's arrow
+   * demand, silent on each handed a function at a parameter, meets a part's
+   * arrow that is a constant, met as it was decided (Pattern Matching §2.9;
+   * #1518): the claim's words for an arrow that accepts more would be false,
+   * so the report keeps its place in the effect report's own words. Its
+   * rewrite is the same as any claim's (`#claimArrowFixes`). An alias's arrow
    * is read so too.
    */
   #claimArrowAt(claimArrow: ClaimArrow, axes: readonly Axis[]): ClaimArrow {
@@ -17389,22 +17388,24 @@ class Checker {
   }
 
   /**
-   * A claim's arrow rewritten with only the colours that cannot hold changed
-   * (Pattern Matching §12): as the demand, marked on each colour the part does
-   * besides; handed a function at a parameter, silent on each the part refuses
-   * there. A following arrow is left to its own rows. Where the arrow is not
-   * written in the claim, an alias's, or already says what the report asks
-   * of it (`fixed`), the rewrite is the type the part has, whole.
+   * A claim's arrow rewritten with exactly the colours the report names
+   * changed, and nothing else (Pattern Matching §2.9; Hexagon Way 7): those
+   * are the colours that cannot hold. As the demand, that marks each colour
+   * the part does that the arrow is silent on; handed a function at a
+   * parameter, it unmarks each the part refuses there; over an arrow met as
+   * it was decided (`fixed`), it unmarks each the part does not do. A
+   * following arrow is left to its own rows. Where the claim does not write
+   * the arrow, an alias's, the rewrite is the type the part has, whole.
    */
   #claimArrowFixes(claimArrow: ClaimArrow, axes: readonly Axis[]): { readonly fixes?: readonly Diagnostics.Fix[] } {
-    if (claimArrow.at === undefined || claimArrow.fixed === true) return { fixes: [this.#claimRewrite(claimArrow.claim)] };
+    if (claimArrow.at === undefined) return { fixes: [this.#claimRewrite(claimArrow.claim)] };
     const marks: boolean[] = [];
     for (const axis of AXES) {
       const slot = colourAt(claimArrow.arrow, axis);
       const colour = slot === undefined ? PURE : this.#prune(slot);
       if (colour.kind !== "Effect") return {};
       const marked = isImpure(colour);
-      marks.push(claimArrow.demand ? marked || axes.includes(axis) : marked && !axes.includes(axis));
+      marks.push(axes.includes(axis) ? !marked : marked);
     }
     const arrow = markedArrow(marks[0]!, marks[1]!);
     const shown = this.#claimText(claimArrow.claim.pattern, claimArrow.at, arrow);
@@ -33899,7 +33900,7 @@ class Checker {
             )
           )) +
             (lazy && axes.includes("fail") ? LAZY_SEQ_ADVICE : "") +
-            (claimArrow !== undefined && (claimArrow.at === undefined || claimArrow.fixed === true) &&
+            (claimArrow !== undefined && claimArrow.at === undefined &&
                 claimArrow.claim.spelling === undefined
               ? "; remove the type"
               : ""),

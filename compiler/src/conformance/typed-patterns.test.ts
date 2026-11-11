@@ -1310,10 +1310,11 @@ describe("§12 a claim the part does not fit (#1510)", () => {
     expect(messages(unspelled.fixed[0]!)).toEqual([]);
   });
 
-  test("an arrow that already says what the report asks of it is not what cannot hold: the rewrite is the part's type", () => {
-    // A payload's arrow its declaration wrote, met as it was decided where nothing re-opens it (#1518): writing the
-    // claim's arrow again would change nothing, so the report stands at the arrow in the effect report's own words,
-    // and its rewrite is the type the part has, which leaves the call's mark to its own report.
+  test("over an arrow met as it was decided, the rewrite unmarks the colours the part does not do", () => {
+    // A payload's arrow its declaration wrote, met as it was decided where nothing re-opens it (#1518): the claim's
+    // extra marks are what cannot hold there, so the report stands at the arrow in the effect report's own words,
+    // and its rewrite unmarks them, as every claim's rewrite changes exactly the colours its report names. The
+    // call's mark is left to its own report.
     for (
       const [declaration, matched] of [
         ["exception A(f: () -> Unit)\nlet g(): Unit = try throw^(A(() => ()))\n    catch\n", "        A((f: () ->! Unit)) => f!()\n        _ => ()\n"],
@@ -1356,19 +1357,55 @@ describe("§12 a claim the part does not fit (#1510)", () => {
     expect(alias.message).toMatch(/^this position's arrow says the function is impure and may fail, and the pure arrow/);
     expect(alias.fixes!.map(({ message }) => message)).toEqual(["write `(f: (() ->! Unit) -> Unit)`"]);
     expect(messages(applied(aliased, alias))).toEqual([]);
-    // Two such arrows: a report at each, as for any two components that fail, each with the rewrite that fixes both.
+    // Two such arrows: a report at each, each rewriting its own arrow and nothing else, so the two together compile.
     const twice = thrown("() -> () -> Unit", "() => () => ()", "() ->! () ->! Unit");
     const both = compiled(twice).diagnostics;
     expect(both.map(({ primary }) => (HEADER + twice).slice(primary.start.offset, primary.end.offset))).toEqual(["->!", "->!"]);
     expect(new Set(both.map(({ primary }) => primary.start.offset)).size).toBe(2);
-    for (const report of both) {
-      expect(report.fixes!.map(({ message }) => message)).toEqual(["write `(f: () -> () -> Unit)`"]);
-      expect(messages(applied(twice, report))).toEqual([]);
+    expect(both.map((report) => report.fixes!.map(({ message }) => message))).toEqual([
+      ["write `(f: () -> () ->! Unit)`"],
+      ["write `(f: () ->! () -> Unit)`"],
+    ]);
+    for (const report of both) expect(messages(applied(twice, report))).toHaveLength(1);
+    expect(messages(applied(applied(twice, both[1]!), both[0]!))).toEqual([]);
+    // A mixed colour over such an arrow draws a report for each colour, each changing its own colour alone, and
+    // either rewrite applied leaves the other report, whose rewrite then writes the part's arrow.
+    const mixed = thrown("() ->~ Unit", "() => ()", "() ->^ Unit");
+    const reports = compiled(mixed).diagnostics;
+    expect(reports.map((report) => report.fixes!.map(({ message }) => message))).toEqual([
+      ["write `(f: () ->! Unit)`"],
+      ["write `(f: () -> Unit)`"],
+    ]);
+    for (const report of reports) {
+      const once = applied(mixed, report);
+      const [left] = compiled(once).diagnostics;
+      expect(compiled(once).diagnostics).toHaveLength(1);
+      expect(left!.fixes!.map(({ message }) => message)).toEqual(["write `(f: () ->~ Unit)`"]);
+      expect(messages(applied(once, left!))).toEqual([]);
     }
-    // A part this module cannot spell: the message says to remove the type, and its fix does.
-    const unspelled = refusal(thrown("({a: Int}) -> Unit", "(r) => ()", "({a: Int}) ->! Unit"));
-    expect(unspelled.message).toMatch(/; write the arrow where it was fixed; remove the type$/);
+    // A hole the claim left stays a hole: only the colours that cannot hold change.
+    const holed = thrown("(Int) -> Unit", "(n) => ()", "(_) ->! Unit");
+    expect(diagnostic(holed).fixes!.map(({ message }) => message)).toEqual(["write `(f: (_) -> Unit)`"]);
+    expect(messages(applied(holed, diagnostic(holed)))).toEqual([]);
+    // Over a value the text does not decide, the same: its arrow was fixed by another use.
+    const undecided = "let g(o) =\n    let p: Option(() -> Unit) = o\n    match o\n        Some((f: () ->! Unit)) => ()\n" +
+      "        _ => ()\n" + OUT;
+    const fixedElsewhere = diagnostic(undecided);
+    expect(fixedElsewhere.message).toMatch(/^this position's arrow says the function is impure and may fail, and the pure arrow/);
+    expect(fixedElsewhere.fixes!.map(({ message }) => message)).toEqual(["write `(f: () -> Unit)`"]);
+    expect(messages(applied(undecided, fixedElsewhere))).toEqual([]);
+    // A part this module cannot spell: the rewrite is the arrow's alone, so it needs no spelling and removes nothing.
+    const unspelledSource = thrown("({a: Int}) -> Unit", "(r) => ()", "({a: Int}) ->! Unit");
+    const unspelled = refusal(unspelledSource);
+    expect(unspelled.message).toMatch(/; write the arrow where it was fixed$/);
+    expect(unspelled.fixed).toEqual([unspelledSource.replace("({a: Int}) ->! Unit", "({a: Int}) -> Unit")]);
     expect(messages(unspelled.fixed[0]!)).toEqual([]);
+    // An alias's arrow, which the claim does not write: the type the part has, or removed where it cannot be spelled.
+    const aliasUnspelledSource = "type Cb = ({a: Int}) ->! Unit\n" + thrown("({a: Int}) -> Unit", "(r) => ()", "Cb");
+    const aliasUnspelled = refusal(aliasUnspelledSource);
+    expect(aliasUnspelled.message).toMatch(/; write the arrow where it was fixed; remove the type$/);
+    expect(aliasUnspelled.fixed).toEqual([aliasUnspelledSource.replace("A((f: Cb))", "A((f))")]);
+    expect(messages(aliasUnspelled.fixed[0]!)).toEqual([]);
   });
 
   test("handed a function at a parameter, the rewrite is the part's arrow there", () => {
