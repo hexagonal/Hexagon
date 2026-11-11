@@ -46742,11 +46742,12 @@ function acceptance(marks: Readonly<Record<Axis, boolean>>): string {
  * Source text a report quotes, on one line: each line break with the
  * indentation around it becomes one space, or nothing after an opening
  * bracket or before a closing one, a comma or a colon.
- * `undefined` where the text holds a comment, which a line break ends.
+ * `undefined` where the text holds a comment, which a line break ends, or a
+ * string, which may hold a line break of its own.
  */
 function oneLine(text: string): string | undefined {
   if (!text.includes("\n")) return text;
-  if (text.includes("//") || text.includes("(*")) return undefined;
+  if (text.includes("//") || text.includes("(*") || text.includes('"')) return undefined;
   return text
     .replace(/([([{])\s*\n\s*/g, "$1")
     .replace(/\s*\n\s*([)\]},:])/g, "$1")

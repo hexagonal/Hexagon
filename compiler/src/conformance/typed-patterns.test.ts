@@ -1074,6 +1074,10 @@ describe("§12 a claim the part does not fit (#1510)", () => {
     expect(diagnostic("let g(): Unit =\n    let (r: Int) = {a = 1}\n    ()\n" + OUT).fixes![0]!.message).toBe("remove the type");
     expect(record.fixed).toEqual(["let g(): Unit =\n    let (r) = {a = 1}\n    ()\n" + OUT]);
     expect(messages(record.fixed[0]!)).toEqual([]);
+    // A string may hold a line break of its own, so a claim holding one over
+    // lines is not quoted: the rewrite names the type alone.
+    const string = 'let g(x: (String, Int)): Unit = match x\n    (("a\n        : b", y): (Int, Int)) => ()\n    _ => ()\n';
+    expect(diagnostic(string + OUT).fixes!.map(({ message }) => message)).toEqual(["write `(String, Int)`"]);
     // A declared variable the part is not: the variable's report, with the
     // claim's rewrite.
     for (
