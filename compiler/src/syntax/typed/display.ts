@@ -222,22 +222,28 @@ function ownerLines(scheme: Typed.Scheme, context: ColourContext | undefined): r
  * cannot carry a binder list (§4.2) — under Effects §10's license: display
  * marks what the grammar cannot express.
  */
-/** One entry of a displayed binder list: `a: Show`, and the type it constrains, `a`. */
+/**
+ * One entry of a displayed binder list: `a: Show`, the type it constrains,
+ * `a`, and each constraint it names, in the order the text names them, with
+ * the declaration it names (Constraints §5.1.1), so a tool writing the entry
+ * can spell each one as the module it writes in names it.
+ */
 export interface BinderEntry {
   readonly subject: string;
   readonly text: string;
+  readonly constraints: readonly { readonly name: string; readonly identity: string }[];
 }
 
 function displayConstraints(
   scheme: Typed.Scheme,
   variables: ReadonlyMap<Typed.TypeVariableId, string>,
 ): readonly BinderEntry[] {
-  const groups = new Map<string, string[]>();
+  const groups = new Map<string, Typed.Constraint[]>();
   for (const constraint of scheme.constraints) {
     const subject = displayType(constraint.type, variables, "inside");
     const group = groups.get(subject);
-    if (group === undefined) groups.set(subject, [constraint.name]);
-    else group.push(constraint.name);
+    if (group === undefined) groups.set(subject, [constraint]);
+    else group.push(constraint);
   }
   if (groups.size === 0) return [];
 
@@ -251,11 +257,15 @@ function displayConstraints(
 
   return [...groups]
     .sort(([left], [right]) => rank(left) - rank(right))
-    .map(([subject, names]) => {
-      const conjuncts = [...names].sort((left, right) => (left < right ? -1 : left > right ? 1 : 0));
+    .map(([subject, constraints]) => {
+      const conjuncts = constraints
+        .map(({ name, identity }) => ({ name, identity }))
+        .sort((left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0));
+      const names = conjuncts.map(({ name }) => name);
       return {
         subject,
-        text: `${subject}: ${conjuncts.length === 1 ? conjuncts[0] : `(${conjuncts.join(", ")})`}`,
+        text: `${subject}: ${names.length === 1 ? names[0] : `(${names.join(", ")})`}`,
+        constraints: conjuncts,
       };
     });
 }

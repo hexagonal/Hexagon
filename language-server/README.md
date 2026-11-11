@@ -747,13 +747,17 @@ The next keep the program's meaning by checking it, since a written type binds
   (**…the inferred result type of `f`**, from its `)` to its `=`), or a binder
   list (**…the inferred binder list of `f`**, on the name or `fun` keyword it
   goes after, or the entries a written one lacks). It writes what the hint
-  shows, letters included, each type spelled as this module names it, as
-  `Infer return type` spells one. A callback's arrow is written as the hint
-  shows it, since a callback's arrow says what the function accepts (Effects
-  §10): `run(f: () ->! a)` for `let run(f) = f!()`.
+  shows, letters included, each type and constraint spelled as this module
+  names it (`Metric.Scale` where the module imports `Metric`), as `Infer return
+  type` spells one; a row's tail the hint shows as `{...}` is written with a
+  letter, `{...a}`. A callback's arrow is written as the hint shows it, since a
+  callback's arrow says what the function accepts (Effects §10):
+  `run(f: () ->! a)` for `let run(f) = f!()`.
 - **Write down this header's types**, on a function's name where two or more
   of its places are unwritten: every one of them in one edit, checked once.
-  It is the one step that completes an exported function's signature.
+  It completes an exported function's signature, except a `fun` block
+  member's binder list, which goes on the block's head (Modules §4.1.1): the
+  head's own action writes it, on the `fun` keyword.
 - **Remove the written type of `x`**, and of a result or binder list, on a
   written type at any of those places, or the name it follows: the reverse.
   Never on an exported term's, whose signature Modules §4.1.1 requires whole,
@@ -765,10 +769,13 @@ variable written in an annotation is rigid while its definition is checked
 and removing one hands a decision from the text to inference. The edited
 project is compiled, and the edit is refused, with the reason, unless no report
 appears anywhere that was not there before, every face in the module renders as
-it did, and the type of every name the place is a piece of is the same. The last
-is what a face alone misses: removing `: Float` from `let m: Float = n`, in a
-function whose result is a `Float`, reports nothing and changes no face, but
-makes `m` an `Int`. Writing `fun copy(r) = {...r}`'s result alone, `: {...a}`,
+it did, and the type of every name the module declares is the same, its locals
+and parameters included. The last is what a face alone misses: removing
+`: Float` from `let m: Float = n`, in a function whose result is a `Float`,
+reports nothing and changes no face, but makes `m` an `Int`. A declaration's
+names are compared with one set of letters, as its hints are, so a tie between
+two of them is compared too: removing `: a` from `y` in `(x: a, y: a) => x`
+leaves each of `x` and `y` an `a` on its own, but unties them. Writing `fun copy(r) = {...r}`'s result alone, `: {...a}`,
 closes the row and makes `copy` take only `{}`, so it is refused; the whole
 header, `copy(r: {...a}): {...a}`, keeps its type. The reports that a signature
 is incomplete are counted rather than compared, since writing a piece of one
@@ -1216,8 +1223,12 @@ less than it looks.
   offers exactly one.
 - **Each type written down or removed costs one compilation of the project**
   per action offered, and a caret on a function's name can offer three: its
-  binder list, its whole header, and a written binder list's removal. They are
-  computed only when the dev asks for refactorings, never as the caret moves.
+  binder list, its whole header, and a written binder list's removal. Only what
+  stands at the caret, or where a selection starts, is offered, so a selection
+  across a module costs what its first place does. They are computed when the
+  dev asks for refactorings, not as the caret moves, but a client that does not
+  say why it asks (no `triggerKind`) is answered as if the dev asked, so there
+  each caret move onto a place pays for its actions.
 - **A prelude module that no other module references is not compiled**, so it has
   no tokens, no completions, and cannot be renamed within. This is only visible
   in a project that compiles the standard library itself, and it can make a

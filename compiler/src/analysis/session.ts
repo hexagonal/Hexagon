@@ -1138,8 +1138,7 @@ export class AnalysisSession {
             lexed,
             laidOut: applyLayout(lexed),
             diagnostics: here,
-            start: range.start,
-            end: range.end,
+            offset: range.start,
             fileOfModule: (moduleName) => analysis.fileIdOfModule(moduleName),
           })
         ) {
@@ -1481,14 +1480,20 @@ export class AnalysisSession {
    * Re-analyses the project with a type written down or removed, and objects
    * unless all three hold (WRITE-DOWN-TYPES.md, reading 2): no report appears
    * anywhere that was not there before; every face in the module renders as
-   * it did; and the type of every name the place is a piece of is the same.
+   * it did; and the type of every name the module declares is the same.
    *
    * `#verifyAnnotation`'s doctrine, widened. A written type binds, so writing
    * one can change what a definition means, and removing one hands a decision
    * from the text to inference, which can decide otherwise with no report and
    * no change of face: removing `: Float` from `let m: Float = n` makes `m` an
-   * `Int`. So the names the place is a piece of are compared as well as the
-   * faces, each found again where the edit moved it.
+   * `Int`. So every name the module declares is compared, its locals and
+   * parameters as well as its faces, each found again where the edit moved
+   * it.
+   *
+   * Each declaration's names are lettered as one (`Typed.Letters`), as its
+   * hints are, so a tie between two of them is compared too: removing `: a`
+   * from `y` in `(x: a, y: a) => x` leaves `x` and `y` each `a` on its own,
+   * and unties them.
    *
    * The reports that a signature is incomplete are counted rather than
    * compared, as `#verifyAnnotation`'s on its declaration are: writing a piece
@@ -1538,18 +1543,18 @@ export class AnalysisSession {
         (at, { start, end, replacement }) => end <= offset ? at + replacement.length - (end - start) : at,
         offset,
       );
-    const meant = this.#analyze();
-    const now = probe.#analyze();
-    const compared = new Set<number>();
-    for (const { offset, name } of [...refactoring.places, ...refactoring.faces]) {
-      if (compared.has(offset)) continue;
-      compared.add(offset);
-      const was = meant.schemeAt(path, offset);
-      if (was === undefined) continue;
-      // A name the edit took away would have been reported: the edits write
-      // and remove types, never names.
-      const is = now.schemeAt(path, moved(offset)) ?? "nothing";
-      if (is !== was) return `${doing} would change the type of \`${name}\` from \`${was}\` to \`${is}\``;
+    const now = namesByOffset(probe.#analyze().modulesIn(path));
+    for (const declaration of declaredNames(this.#analyze().modulesIn(path))) {
+      const after = declaration.map(({ bindingSpan }) => now.get(moved(bindingSpan.start.offset)));
+      const was = shownTogether(declaration);
+      const is = shownTogether(after);
+      for (const [at, symbol] of declaration.entries()) {
+        // A name the edit took away would have been reported: the edits write
+        // and remove types, never names.
+        if (is[at] !== was[at]) {
+          return `${doing} would change the type of \`${symbol.name}\` from \`${was[at]}\` to \`${is[at] ?? "nothing"}\``;
+        }
+      }
     }
     return undefined;
   }
@@ -2686,6 +2691,58 @@ function withoutPositions(message: string): string {
 function readSite(site: string): readonly [string, string] {
   const [place = "", line = "?"] = site.split("#");
   return [place.slice(0, place.lastIndexOf("@")), line];
+}
+
+/**
+ * One declaration's names shown together: with one set of letters
+ * (`Typed.Letters`), so a tie between two of them shows. A colour a name's
+ * own type does not quantify is decided outside it, by its declaration, so it
+ * is shown as the constant it accepts (Effects §10), as one a caller chooses
+ * is (#1184): a parameter's callback `() ->! a`, whether its colour is
+ * written or inferred. A colour that does change shows in the type of the
+ * name that quantifies it, or in a mark the edit leaves wrong.
+ */
+function shownTogether(symbols: readonly (Typed.Symbol | undefined)[]): readonly (string | undefined)[] {
+  const letters = new Typed.Letters();
+  return symbols.map((symbol) => {
+    if (symbol === undefined) return undefined;
+    const { scheme } = symbol;
+    const decided = [...Typed.collectEffectVariables(scheme.type)].filter((variable) => !scheme.variables.includes(variable));
+    const callersChoice = [...(scheme.callersChoice ?? []), ...decided];
+    return Typed.displayCallFace({ ...scheme, callersChoice }, undefined, letters).type;
+  });
+}
+
+/**
+ * Every name a file's modules declare, by where its binding starts. A module's
+ * symbols include names it reached in other files, whose offsets mean nothing
+ * here.
+ */
+function namesByOffset(modules: readonly CompiledModule[]): ReadonlyMap<number, Typed.Symbol> {
+  const found = new Map<number, Typed.Symbol>();
+  for (const { typed } of modules) {
+    for (const symbol of typed.symbols) {
+      if (symbol.bindingSpan.fileId === typed.fileId) found.set(symbol.bindingSpan.start.offset, symbol);
+    }
+  }
+  return found;
+}
+
+/**
+ * Every name a file's modules declare, grouped by the module item that
+ * declares it, in the order of the text (`#verifyWrittenTypes`). A change
+ * reaches only what is read after it, since a module is read top-down and a
+ * `fun` block's members together, so the first name it changes is the edited
+ * declaration's own, or a member's of its block.
+ */
+function declaredNames(modules: readonly CompiledModule[]): readonly (readonly Typed.Symbol[])[] {
+  const symbols = [...namesByOffset(modules).values()]
+    .sort((left, right) => left.bindingSpan.start.offset - right.bindingSpan.start.offset);
+  return modules.flatMap(({ parsed }) =>
+    parsed.items.map(({ span }) =>
+      symbols.filter(({ bindingSpan }) => span.start.offset <= bindingSpan.start.offset && bindingSpan.end.offset <= span.end.offset)
+    )
+  );
 }
 
 /**

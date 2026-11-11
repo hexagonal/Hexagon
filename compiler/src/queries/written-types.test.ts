@@ -131,6 +131,14 @@ describe("write down the inferred type, at one place", () => {
       .toBe(program("let pair<a: Num, b: Show>(x: a, y: b): (a, String) = (x + x, \"${y}\")"));
   });
 
+  test("a `fun` block's binder list, refused where any member does not check", () => {
+    const members = ["    twice(n: a): a = n + n", "    say(x: b): String = \"${x}\" ++ nope"];
+    const refused = "refused: the body of `say` has an error to fix first: unknown name `nope`";
+    expect(applied(program("f‸un", ...members), writeTitle("binder", undefined))).toBe(refused);
+    expect(applied(program("f‸un<a: Num>", ...members), writeTitle("binder", undefined))).toBe(refused);
+    expect(applied(program("f‸un<a: Num>", ...members), removeTitle("binder", undefined))).toBe(refused);
+  });
+
   test("a `fun` block's binder list, on its keyword", () => {
     expect(rewritten(program("f‸un", "    twice(n: a): a = n + n", "    say(x: b): String = \"${x}\""), writeTitle("binder", undefined)))
       .toBe(program("fun<a: Num, b: Show>", "    twice(n: a): a = n + n", "    say(x: b): String = \"${x}\""));
@@ -153,8 +161,58 @@ describe("write down the inferred type, at one place", () => {
     ]);
   });
 
+  test("an exported value's type, which ends its report", () => {
+    expect(reports(program("export let x = 1"))).toEqual(["exported value `x` requires a type annotation"]);
+    const x = applied(program("export let ‸x = 1"), writeTitle("binding", "x"));
+    expect(x).toBe(program("export let x: Int = 1"));
+    expect(reports(x)).toEqual([]);
+    const SHOW = "let show2(x) = \"${x}\"";
+    const shown = applied(program(SHOW, "export let ‸shown = show2"), writeTitle("binding", "shown"));
+    expect(shown).toBe(program(SHOW, "export let shown<a: Show>: a -> String = show2"));
+    expect(reports(shown)).toEqual([]);
+  });
+
   test("a `let` pattern's variable is refused, since the grammar has no place for its type", () => {
     expect(applied(program("let (a, ‸b) = (1, \"x\")"), writeTitle("pattern", "b"))).toBe(`refused: ${PATTERN_REFUSAL}`);
+  });
+});
+
+describe("a constraint, spelled as this module names it", () => {
+  const metric = {
+    "/metric.hex": [
+      "module Metric",
+      "export constraint Scale<a> =",
+      "    scale(x: a, n: Int) -> a",
+      "honor Scale<Int> =",
+      "    scale(x, n) = x * n",
+      "",
+    ].join("\n"),
+  };
+
+  test("through the module that declares it, by the name it is imported as", () => {
+    expect(rewritten(["module Main", "import Metric", "let ‸twice(x) = Metric.scale(x, 2)", ""].join("\n"), HEADER_TITLE, metric))
+      .toBe(["module Main", "import Metric", "let twice<a: Metric.Scale>(x: a): a = Metric.scale(x, 2)", ""].join("\n"));
+    expect(rewritten(["module Main", "import Metric as M", "let ‸twice(x) = M.scale(x, 2)", ""].join("\n"), HEADER_TITLE, metric))
+      .toBe(["module Main", "import Metric as M", "let twice<a: M.Scale>(x: a): a = M.scale(x, 2)", ""].join("\n"));
+    const binding = ["module Main", "import Metric", "let tw(x) = Metric.scale(x, 2)"];
+    expect(rewritten([...binding, "let ‸t2 = tw", ""].join("\n"), writeTitle("binding", "t2"), metric))
+      .toBe([...binding, "let t2<a: Metric.Scale>: a -> a = tw", ""].join("\n"));
+  });
+
+  test("two on one variable, in the order the hint shows them", () => {
+    expect(rewritten(program("let ‸f(x) = \"${x}\" ++ \"${x + 1}\""), HEADER_TITLE))
+      .toBe(program("let f<a: (Num, Show)>(x: a): String = \"${x}\" ++ \"${x + 1}\""));
+  });
+
+  test("refused where this module has no name for it", () => {
+    const files = {
+      ...metric,
+      "/mid.hex": ["module Mid", "import Metric", "export let tw<a: Metric.Scale>(x: a): a = Metric.scale(x, 2)", ""].join("\n"),
+    };
+    expect(applied(["module Main", "import Mid", "let ‸t2 = Mid.tw", ""].join("\n"), writeTitle("binding", "t2"), files))
+      .toBe("refused: the type of `t2` cannot be written here: `Scale` is declared in another module and this one has no name for it");
+    expect(applied(["module Main", "import Mid", "let ‸t3(x) = Mid.tw(x)", ""].join("\n"), HEADER_TITLE, files))
+      .toBe("refused: the binder list of `t3` cannot be written here: `Scale` is declared in another module and this one has no name for it");
   });
 });
 
@@ -193,6 +251,22 @@ describe("write down this header's types", () => {
     expect(rewritten(program(...head, "    ‸two(n, m) = n + m"), HEADER_TITLE)).toBe(program(...head, "    two(n: Int, m: Int) = n + m"));
   });
 
+  test("refused, naming the header", () => {
+    expect(applied(program("let keep(f) = f", "fun ‸m(z) = keep((r) => {...r})"), HEADER_TITLE))
+      .toBe("refused: writing the types of `m`'s header would change the type of `m` from `a -> {...b} -> {...b}` to `a -> {} -> {}`");
+  });
+
+  test("an exported `fun` block member's, whose binder list goes on the block's head", () => {
+    const after = applied(program("fun", "    export ‸twice(n) = n + n"), HEADER_TITLE);
+    expect(after).toBe(program("fun", "    export twice(n: a): a = n + n"));
+    expect(reports(after)).toEqual([
+      "exported function `twice` must declare every constraint in its signature; declare the constraint on the block head: `fun<a: Num>`",
+    ]);
+    const headed = applied(program("f‸un", "    export twice(n: a): a = n + n"), writeTitle("binder", undefined));
+    expect(headed).toBe(program("fun<a: Num>", "    export twice(n: a): a = n + n"));
+    expect(reports(headed)).toEqual([]);
+  });
+
   test("only where two or more places are unwritten", () => {
     expect(titles(program("let ‸h(n: Int) = n + 1"))).toEqual([]);
     expect(titles(program("let ‸h(n) = n ++ \"!\""))).toEqual([HEADER_TITLE]);
@@ -212,6 +286,7 @@ describe("remove the written type", () => {
   test("a result's, and a binding's", () => {
     expect(rewritten(program("let h(n: Int)‸: Int = n + 1"), removeTitle("result", "h"))).toBe(program("let h(n: Int) = n + 1"));
     expect(rewritten(program("let h(n: Int) : Int ‸= n + 1"), removeTitle("result", "h"))).toBe(program("let h(n: Int) = n + 1"));
+    expect(rewritten(program("let h(n: Int)‸ : Int = n + 1"), removeTitle("result", "h"))).toBe(program("let h(n: Int) = n + 1"));
     expect(rewritten(program("let ‸x: Int = 1"), removeTitle("binding", "x"))).toBe(program("let x = 1"));
     // With the space before the `:`, which goes with it.
     expect(rewritten(program("let ‸x : Int = 1"), removeTitle("binding", "x"))).toBe(program("let x = 1"));
@@ -224,6 +299,18 @@ describe("remove the written type", () => {
       .toBe(program("let pair(x: a, y: b): (a, String) = (x + x, \"${y}\")"));
     expect(rewritten(program("f‸un<a: Num>", "    twice(n: a): a = n + n", "    thrice(n: a): a = n + n + n"), removeTitle("binder", undefined)))
       .toBe(program("fun", "    twice(n: a): a = n + n", "    thrice(n: a): a = n + n + n"));
+  });
+
+  test("a binder list on a lambda value, which leaves its binding's `=`", () => {
+    expect(rewritten(program("let ‸id = <a>(x: a): a => x"), removeTitle("binder", "id"))).toBe(program("let id = (x: a): a => x"));
+    // And the space after it, where there is one.
+    expect(rewritten(program("let id = <‸a> (x: a): a => x"), removeTitle("binder", "id"))).toBe(program("let id = (x: a): a => x"));
+  });
+
+  test("a comment beside it stays", () => {
+    expect(rewritten(program("let ‸x (* c *) : Int = 1"), removeTitle("binding", "x"))).toBe(program("let x (* c *) = 1"));
+    expect(rewritten(program("let h(n: Int) // c", "    ‸: Int = n + 1"), removeTitle("result", "h")))
+      .toBe(program("let h(n: Int) // c", "    = n + 1"));
   });
 
   test("a binding's binder list, beside its written type", () => {
@@ -257,6 +344,35 @@ describe("remove the written type", () => {
     expect(reports(program("export let g(n: Int): Float =", "    let m = n", "    m / 2"))).toEqual([]);
     expect(applied(source, removeTitle("binding", "m")))
       .toBe("refused: removing `: Float` would change the type of `m` from `Float` to `Int`");
+  });
+});
+
+describe("every name the module declares keeps its type", () => {
+  // Each name alone is `a` either way; together, `x` and `y` are untied.
+  test("a local function's, and its parameters' ties", () => {
+    expect(applied(
+      program("let apply2(f, p, q) = f(p, q)", "let outer() =", "    let g(n, m) = apply2((x: a, ‸y: a) => x, n, m)", "    \"${g(1, 2)}\""),
+      removeTitle("parameter", "y"),
+    )).toBe("refused: removing `: a` would change the type of `g` from `(a, a) -> a` to `(a, b) -> a`");
+    expect(applied(program("let outer() =", "    let pick(x: a, ‸y: a) = x", "    \"${pick(1, 2)}\""), removeTitle("parameter", "y")))
+      .toBe("refused: removing `: a` would change the type of `pick` from `(a, a) -> a` to `(a, b) -> a`");
+  });
+
+  test("a lambda no name holds, whose parameters are each `a` on their own either way", () => {
+    expect(applied(program("let ignore(f) = ()", "let outer() = ignore((x: a, ‸y: a) => x)"), removeTitle("parameter", "y")))
+      .toBe("refused: removing `: a` would change the type of `y` from `a` to `b`");
+  });
+
+  test("a face, and a pattern's variable's", () => {
+    expect(applied(program("let apply2(f, p, q) = f(p, q)", "let outer(n, m) = apply2((x: a, ‸y: a) => x, n, m)"), removeTitle("parameter", "y")))
+      .toBe("refused: removing `: a` would change the type of `outer` from `(a, a) -> a` to `(a, b) -> a`");
+    expect(applied(program("let (f, k) = ((x: a, ‸y: a) => x, 1)"), removeTitle("parameter", "y")))
+      .toBe("refused: removing `: a` would change the type of `f` from `(a, a) -> a` to `(a, b) -> a`");
+  });
+
+  test("a parameter's callback, whose colour is the constant it accepts whether written or inferred", () => {
+    expect(rewritten(program("let outer(g) =", "    let ‸run(f) = f!()", "    run!(g)"), HEADER_TITLE))
+      .toBe(program("let outer(g) =", "    let run(f: () ->! b): b = f!()", "    run!(g)"));
   });
 });
 
@@ -320,5 +436,11 @@ describe("only when asked", () => {
   test("never offered unasked, nor preferred", () => {
     const { text, start, end } = marked(program("let ‸apply(f, x) = f(x)"));
     expect(session(text).codeActions("/main.hex", { start, end }).filter(({ title }) => isOurs(title))).toEqual([]);
+  });
+
+  test("only where a selection starts, each checked by compiling it", () => {
+    expect(titles(program("let ‸f(x) = x + 1", "let g(y) = y‸ + 2"))).toEqual([writeTitle("binder", "f"), HEADER_TITLE]);
+    expect(titles(program("‸let f(x) = [1].map((x) => x + 1)‸"))).toEqual([]);
+    expect(titles(program("let f(‸x) = [1].map((x) => x + 1)‸"))).toEqual([writeTitle("parameter", "x")]);
   });
 });

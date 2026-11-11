@@ -92,7 +92,11 @@ interface Place {
    * none.
    */
   readonly name?: string;
-  /** The names whose own types it is a piece of: its own, or its header's or binding's, or each member's of a block. */
+  /**
+   * A name in each declaration it is a piece of, which must check before it is
+   * written or removed: its own, or its header's or binding's, or each
+   * member's of a block.
+   */
   readonly places: readonly Source.Span[];
   /** The name of the header whose face it is a piece of, where it is one. */
   readonly header?: Source.Span;
@@ -128,6 +132,17 @@ export interface TypePiece extends Place {
   };
   /** The declaration's letters, every variable it shows lettered. */
   readonly letters: Typed.Letters;
+  /**
+   * The binder entries it shows, with what stands around them: the last
+   * insert's label for a binder list, or the type's `before` for a binding
+   * whose list goes before its type. Each names its constraints' declarations,
+   * so writing it can spell them as the module names them.
+   */
+  readonly entries?: {
+    readonly list: readonly Typed.BinderEntry[];
+    readonly before: string;
+    readonly after: string;
+  };
   /** Whether what it shows holds an error, in which case it is never drawn. */
   readonly error: boolean;
 }
@@ -143,8 +158,11 @@ export interface WrittenPiece extends Place {
    * keyword it follows.
    */
   readonly anchors: readonly Source.Span[];
-  /** What removing it takes out: the `: type` and the space before it, or the binder list. */
-  readonly removed: Source.Span;
+  /**
+   * What removing it takes out, as offsets: the `: type` or the binder list,
+   * and the space beside it on its line, never a comment or a line break.
+   */
+  readonly removed: { readonly start: number; readonly end: number };
 }
 
 /** Every hint in one module, or in its range, in the order of the text. */
@@ -245,16 +263,35 @@ function collect(input: InlayHintInput): readonly (TypePiece | WrittenPiece | In
     found.push({ ...piece, error: piece.shown !== undefined && holdsError(piece.shown.type) });
   };
   /**
-   * A written type's `: type`, and what removing it takes out: from the end of
-   * the token before its `:`, so the space before goes with it. A written type
-   * always follows its `:`.
+   * Text to remove, `[start, end)`, with the space beside it on its line: the
+   * space before it, or, where that space opens the line or `before` is false,
+   * the space after it. A comment or a line break beside it stays.
    */
-  const colonOf = (written: Source.Span): { readonly colon: Source.Span; readonly removed: Source.Span } | undefined => {
+  const cut = (start: number, end: number, before = true): { readonly start: number; readonly end: number } => {
+    const space = (at: number): boolean => text[at] === " " || text[at] === "\t";
+    let from = start;
+    while (from > 0 && space(from - 1)) from -= 1;
+    if (before && from > 0 && text[from - 1] !== "\n" && text[from - 1] !== "\r") return { start: from, end };
+    let to = end;
+    while (to < text.length && space(to)) to += 1;
+    return { start, end: to };
+  };
+  /**
+   * A written type's `: type`, what removing it takes out, and where the token
+   * before its `:` ends. A written type always follows its `:`.
+   */
+  const colonOf = (
+    written: Source.Span,
+  ): { readonly colon: Source.Span; readonly removed: WrittenPiece["removed"]; readonly after: Source.Position } | undefined => {
     const at = firstStartingAt(tokens, written.start.offset);
     const colon = tokens[at - 1];
     const before = tokens[at - 2];
     if (colon === undefined || before === undefined) return undefined;
-    return { colon: { ...written, start: colon.span.start }, removed: { ...written, start: before.span.end } };
+    return {
+      colon: { ...written, start: colon.span.start },
+      removed: cut(colon.span.start.offset, written.end.offset),
+      after: before.span.end,
+    };
   };
   /** A type written at a parameter or binding: asked for on its name or its `: type`. */
   const pushWritten = (piece: Omit<WrittenPiece, "removed" | "anchors">, name: Source.Span, written: Source.Span): void => {
@@ -421,7 +458,7 @@ function collect(input: InlayHintInput): readonly (TypePiece | WrittenPiece | In
       // Asked for from the `)` to the `=`, as an unwritten one is.
       const written = colonOf(lambda.returnAnnotation.span);
       if (written !== undefined) {
-        found.push({ role: "result", ...owner, anchors: [{ ...place, start: written.removed.start }], removed: written.removed });
+        found.push({ role: "result", ...owner, anchors: [{ ...place, start: written.after }], removed: written.removed });
       }
     } else if (face.result !== undefined && header.binder !== "instance") {
       const text = face.type.slice(face.result[0], face.result[1]);
@@ -491,6 +528,7 @@ function collect(input: InlayHintInput): readonly (TypePiece | WrittenPiece | In
         anchor: after,
         ...owner,
         letters,
+        entries: { list: entries, before: "<", after: ">" },
       });
       return;
     }
@@ -499,7 +537,10 @@ function collect(input: InlayHintInput): readonly (TypePiece | WrittenPiece | In
     const opening = openingOf(written);
     if (closing !== undefined && opening !== undefined) {
       const list = { fileId: after.fileId, start: opening.span.start, end: closing.span.end };
-      found.push({ role: "binder", ...owner, anchors: [after, list], removed: { ...list, start: after.end } });
+      // A list on the name or keyword takes the space before it; one on a
+      // lambda value, after its binding's `=`, the space after it.
+      const onName = tokens[firstStartingAt(tokens, opening.span.start.offset) - 1]?.span.end.offset === after.end.offset;
+      found.push({ role: "binder", ...owner, anchors: [after, list], removed: cut(list.start.offset, list.end.offset, onName) });
     }
     if (missing.length > 0 && closing !== undefined) {
       pushTypes({
@@ -509,6 +550,7 @@ function collect(input: InlayHintInput): readonly (TypePiece | WrittenPiece | In
         anchor: after,
         ...owner,
         letters,
+        entries: { list: missing, before: ", ", after: "" },
       });
     }
   }
@@ -539,6 +581,7 @@ function collect(input: InlayHintInput): readonly (TypePiece | WrittenPiece | In
         ...owner,
         letters,
         shown: { type: symbol.scheme.type, scheme: symbol.scheme, text: type, before, after: "" },
+        ...(before === ": " ? {} : { entries: { list: face.binderEntries, before: "<", after: ">: " } }),
       });
     };
     // A binding takes one binder list (Functions §4.2). Where it writes one on
@@ -595,8 +638,7 @@ function collect(input: InlayHintInput): readonly (TypePiece | WrittenPiece | In
       const range = face.parameters[index];
       const shown = type.parameters[index];
       if (isSyntheticParameterName(parameter.name.text)) return;
-      // Its own name, and its header's, whose face it is a piece of.
-      const own = { ...owner, name: parameter.name.text, places: [parameter.name.span, ...owner.places] };
+      const own = { ...owner, name: parameter.name.text, places: [parameter.name.span] };
       if (parameter.annotation !== undefined) {
         pushWritten({ role: "parameter", ...own }, parameter.name.span, parameter.annotation.span);
         return;
