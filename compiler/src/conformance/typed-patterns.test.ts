@@ -1383,6 +1383,13 @@ describe("§12 a claim the part does not fit (#1510)", () => {
       expect(left!.fixes!.map(({ message }) => message)).toEqual(["write `(f: () ->~ Unit)`"]);
       expect(messages(applied(once, left!))).toEqual([]);
     }
+    // In a parameter of the claim's type, an arrow silent on a colour the fixed part's parameter marks: marked on it.
+    const handedFixed = "let g(o: Option((() ->! Unit) -> Unit)): Unit = match o\n    Some((f: (() -> Unit) -> Unit)) => ()\n" +
+      "    _ => ()\n" + OUT;
+    const handed = diagnostic(handedFixed);
+    expect(handed.message).toMatch(/^this position's arrow says the function is impure and may fail, and the pure arrow/);
+    expect(handed.fixes!.map(({ message }) => message)).toEqual(["write `(f: (() ->! Unit) -> Unit)`"]);
+    expect(messages(applied(handedFixed, handed))).toEqual([]);
     // A hole the claim left stays a hole: only the colours that cannot hold change.
     const holed = thrown("(Int) -> Unit", "(n) => ()", "(_) ->! Unit");
     expect(diagnostic(holed).fixes!.map(({ message }) => message)).toEqual(["write `(f: (_) -> Unit)`"]);
