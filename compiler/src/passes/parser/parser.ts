@@ -434,13 +434,15 @@ const typeOperandStarts = new Set<TokenKind>([
 ]);
 
 /**
- * The prelude constraints `Int` honors, by name: a binder list refused on a
- * `let` pattern (`#refusePatternBinders`) names `Int` as the concrete type it
- * means only where each binder's constraints are among these, as `<t: Num>`'s
- * are. A user's constraint of the same name is not told apart here, which can
- * only cost the example, never the refusal.
+ * The prelude constraints `Int` honors, by name, and of them the ones that
+ * say a binder is a number: a binder list refused on a `let` pattern
+ * (`#refusePatternBinders`) names `Int` as the concrete type it means only for
+ * a binder its constraints call a number, every one of them one `Int`
+ * honors, as `<t: Num>`'s does. A user's constraint of the same name is not
+ * told apart here, which can only cost the example, never the refusal.
  */
 const intConstraints = new Set(["Num", "Eq", "Ord", "Show", "Hash", "Signed", "Integral"]);
+const numberConstraints = new Set(["Num", "Signed", "Integral"]);
 
 /** The spans where an annotation writes one of `names` as a type variable. */
 function typeVariableSpans(
@@ -5513,10 +5515,17 @@ class Parser {
       return;
     }
     const names = new Set(binders.parameters.map(({ name }) => name.text));
-    const concrete = binders.parameters.every(({ constraints }) =>
-      constraints.every(({ text }) => intConstraints.has(text))
-    );
     const variables = typeVariableSpans(annotation, names);
+    // `Int` is named only where every binder the annotation writes is a number
+    // `Int` can be. Which number the value is — `<t: Num>` over `(1.5, 2.5)` —
+    // only its type can say, and the parser cannot see it: the edit removing
+    // the list and the annotation, which always compiles, comes first.
+    const written = new Set(variables.map((span) => this.#sourceText(span)));
+    const concrete = binders.parameters.every(({ name, constraints }) =>
+      !written.has(name.text) ||
+      constraints.some(({ text }) => numberConstraints.has(text)) &&
+        constraints.every(({ text }) => intConstraints.has(text))
+    );
     const annotationText = this.#sourceText(annotation.span);
     const removeAnnotation = {
       span: { fileId: annotation.span.fileId, start: binders.span.end, end: annotation.span.end },
@@ -5531,22 +5540,22 @@ class Parser {
       });
       return;
     }
-    let written = annotationText;
+    let concreteText = annotationText;
     for (const span of [...variables].sort((left, right) => right.start.offset - left.start.offset)) {
       const from = span.start.offset - annotation.span.start.offset;
-      written = written.slice(0, from) + "Int" + written.slice(from + span.end.offset - span.start.offset);
+      concreteText = concreteText.slice(0, from) + "Int" + concreteText.slice(from + span.end.offset - span.start.offset);
     }
     this.#diagnostics.add({
       severity: "error",
       message: `${reason}, and write the concrete type you mean — ` +
-        `\`let ${this.#sourceText(pattern.span)}: ${written} = …\` — or remove the annotation`,
+        `\`let ${this.#sourceText(pattern.span)}: ${concreteText} = …\` — or remove the annotation`,
       primary: binders.span,
       fixes: [
+        { message: `remove \`${list}\` and the annotation`, edits: [removeList, removeAnnotation] },
         {
-          message: `remove \`${list}\` and write \`${written}\``,
+          message: `remove \`${list}\` and write \`${concreteText}\``,
           edits: [removeList, ...variables.map((span) => ({ span, replacement: "Int" }))],
         },
-        { message: `remove \`${list}\` and the annotation`, edits: [removeList, removeAnnotation] },
       ],
     });
   }
@@ -5629,18 +5638,26 @@ class Parser {
    * parentheses of its own. The message spells the enclosing form rewritten.
    */
   #refuseBareTypes(bare: readonly Parsed.TypedPattern[], whole: Source.Span): void {
-    for (const typed of bare) {
-      const text = this.#sourceText(typed.span);
-      const before = this.#text.slice(whole.start.offset, typed.span.start.offset);
-      const after = this.#text.slice(typed.span.end.offset, whole.end.offset);
+    // Each slot of the form is refused where it stands, and each report names
+    // and applies the form with every one of them parenthesised, so its fix
+    // compiles alone (as Declarations Preamble §1.1's reports of one
+    // declaration carry one edit).
+    const ordered = [...bare].sort((left, right) => left.span.start.offset - right.span.start.offset);
+    const edits = ordered.map((typed) => ({ span: typed.span, replacement: `(${this.#sourceText(typed.span)})` }));
+    let rewritten = "";
+    let at = whole.start.offset;
+    for (const edit of edits) {
+      rewritten += this.#text.slice(at, edit.span.start.offset) + edit.replacement;
+      at = edit.span.end.offset;
+    }
+    rewritten += this.#text.slice(at, whole.end.offset);
+    const fix = { message: `write ${edits.map(({ replacement }) => `\`${replacement}\``).join(" and ")}`, edits };
+    for (const typed of ordered) {
       this.#diagnostics.add({
         severity: "error",
-        message: `a type in a pattern goes in parentheses: \`${before}(${text})${after}\``,
+        message: `a type in a pattern goes in parentheses: \`${rewritten}\``,
         primary: typed.span,
-        fixes: [{
-          message: `write \`(${text})\``,
-          edits: [{ span: typed.span, replacement: `(${text})` }],
-        }],
+        fixes: [fix],
       });
     }
   }
@@ -5654,7 +5671,29 @@ class Parser {
     const pattern = this.#parsePattern();
     if (pattern === undefined || !this.#at("Colon")) return pattern;
     const typed = this.#parseBareTypeAfter(pattern);
-    if (typed !== undefined) this.#refuseBareTypes([typed], typed.span);
+    if (typed === undefined) return typed;
+    // A `fault` pattern in the arm: a type would put it inside another
+    // pattern (Exceptions §5.2), and its binder is already an `Exn`.
+    const fault = this.#armFault;
+    if (fault !== undefined && fault.start.offset >= pattern.span.start.offset && fault.end.offset <= pattern.span.end.offset) {
+      // Inside a wider pattern (`fault e as x: Exn`) it is refused where the
+      // arm is read, and that is the arm's one report.
+      if (fault.start.offset !== pattern.span.start.offset || fault.end.offset !== pattern.span.end.offset) return typed;
+      // `fault e: Exn`: refused in §5.2's words with the type's removal, and
+      // the arm read as the fault arm it then is, so nothing cascades.
+      const written = this.#sourceText(pattern.span);
+      this.#diagnostics.add({
+        severity: "error",
+        message: `${FAULT_PATTERN_SEAT}, and binds an \`Exn\`; remove the type: \`${written}\``,
+        primary: typed.annotation.span,
+        fixes: [{
+          message: `remove the type: \`${written}\``,
+          edits: [{ span: { fileId: typed.span.fileId, start: pattern.span.end, end: typed.span.end }, replacement: "" }],
+        }],
+      });
+      return pattern;
+    }
+    this.#refuseBareTypes([typed], typed.span);
     return typed;
   }
 
@@ -7100,10 +7139,13 @@ class Parser {
     const iterable = this.#parseExpression(0, withStops(outerStops, "VOpen"));
     if (unparenthesised !== undefined) {
       const typed = this.#sourceText(unparenthesised.span);
+      // The iterable is quoted where it is short enough to read on one line.
+      const iterableText = this.#sourceText(iterable.span);
+      const shown = iterableText.includes("\n") || iterableText.length > 40 ? "…" : iterableText;
       this.#diagnostics.add({
         severity: "error",
         message: "write the element's type in the pattern: " +
-          `\`for (${typed}) in ${this.#sourceText(iterable.span)}\``,
+          `\`for (${typed}) in ${shown}\``,
         primary: unparenthesised.annotation.span,
         fixes: [{
           message: `write \`(${typed})\``,
@@ -8612,7 +8654,7 @@ function unclaimedFault(pattern: Parsed.Pattern, span: Source.Span): Parsed.Patt
   if (pattern.span.start.offset === span.start.offset && pattern.span.end.offset === span.end.offset) {
     return { kind: "Error", span };
   }
-  if (pattern.kind === "As") return { ...pattern, pattern: unclaimedFault(pattern.pattern, span) };
+  if (pattern.kind === "As" || pattern.kind === "Typed") return { ...pattern, pattern: unclaimedFault(pattern.pattern, span) };
   if (pattern.kind === "Or") {
     const [first, ...rest] = pattern.alternatives;
     return first === undefined

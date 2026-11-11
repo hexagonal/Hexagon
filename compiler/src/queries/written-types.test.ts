@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { AnalysisSession, type CodeAction } from "../analysis/session.js";
-import { HEADER_TITLE, PATTERN_REFUSAL, removeTitle, writeTitle } from "./written-types.js";
+import { HEADER_TITLE, patternRefusal, removeTitle, writeTitle } from "./written-types.js";
 
 /** The program without its caret, or its selection between two carets, and where they were. */
 function marked(source: string): { readonly text: string; readonly start: number; readonly end: number } {
@@ -186,8 +186,14 @@ describe("write down the inferred type, at one place", () => {
     expect(reports(shown)).toEqual([]);
   });
 
-  test("a `let` pattern's variable is refused, since the grammar has no place for its type", () => {
-    expect(applied(program("let (a, ‸b) = (1, \"x\")"), writeTitle("pattern", "b"))).toBe(`refused: ${PATTERN_REFUSAL}`);
+  test("a `let` pattern's variable is not offered yet, and the refusal names the typed pattern to write by hand", () => {
+    expect(applied(program("let (a, ‸b) = (1, \"x\")"), writeTitle("pattern", "b"))).toBe(`refused: ${patternRefusal("b", "String")}`);
+    expect(patternRefusal("b", "String")).toBe(
+      "writing a type into a pattern is not offered yet; write it by hand, in parentheses: `(b: String)`",
+    );
+    // What the refusal names compiles.
+    const written = program("let (a, (b: String)) = (1, \"x\")");
+    expect(reports(written)).toEqual([]);
   });
 });
 

@@ -444,9 +444,9 @@ A constructor's slot and a record field are not a pattern's own parentheses, so 
 type there takes a pair of its own:
 
 ```hexagon
-let seatsOf(choice: Option((String, Int))): Int =
+let seatsOf(choice: Option(Int)): Int =
     match choice
-        Some((_, (seats: Int))) => seats
+        Some((seats: Int)) => seats
         None => 0
 ```
 

@@ -44,8 +44,15 @@ import { spellConstraint, spellType, type TypeNames, typeNamesOf, unspellable, V
 
 export const HEADER_TITLE = "Write down this header's types";
 
-export const PATTERN_REFUSAL =
-  "a pattern's variable takes no written type: patterns destructure values, so write the type outside the pattern";
+/**
+ * Why "Write down the inferred type" is not offered at a pattern's variable
+ * yet: a pattern takes a type in its own parentheses (Pattern Matching §2.9),
+ * and writing one there is not this action's edit yet.
+ */
+export function patternRefusal(name: string | undefined, type: string | undefined): string {
+  return "writing a type into a pattern is not offered yet; write it by hand, in parentheses" +
+    (name === undefined || type === undefined ? "" : `: \`(${name}: ${type})\``);
+}
 
 /** "Write down the inferred …" for one place, by what it is. */
 export function writeTitle(role: PieceRole, name: string | undefined): string {
@@ -151,10 +158,13 @@ export function writtenTypeRefactorings(input: WrittenTypesInput): readonly Writ
   for (const piece of unwritten) {
     if (!holds(piece.anchor)) continue;
     const title = writeTitle(piece.role, piece.name);
-    // The hint shows a pattern's variable's type, but the grammar has no
-    // place for one: a pattern destructures a value (Pattern Matching §2.4).
-    if (piece.role === "pattern") found.push({ title, disabled: PATTERN_REFUSAL });
-    else write(title, [piece], undefined);
+    // The hint shows a pattern's variable's type; writing it in the pattern's
+    // own parentheses (Pattern Matching §2.9) is not this action's edit yet.
+    if (piece.role === "pattern") {
+      const text = spelled(piece, spelling);
+      const type = "written" in text && text.written.startsWith(": ") ? text.written.slice(2) : undefined;
+      found.push({ title, disabled: patternRefusal(piece.name, type) });
+    } else write(title, [piece], undefined);
   }
   // A whole header, on its name, where two or more of its places are unwritten.
   const headers = new Map<number, TypePiece[]>();

@@ -214,6 +214,69 @@ describe("§2.9 the parentheses-only rule (§12's rows)", () => {
     });
   }
 
+  test("two bare slots in one form: each report names and applies the form with both written", () => {
+    for (
+      const [source, rewritten, fixed] of [
+        [
+          "let g(xs) = match xs\n    [x: Int, y: Int] => x + y\n    _ => 0\nexport let out: Int = g([1, 2])\n",
+          "[(x: Int), (y: Int)]",
+          "let g(xs) = match xs\n    [(x: Int), (y: Int)] => x + y\n    _ => 0\nexport let out: Int = g([1, 2])\n",
+        ],
+        [
+          "let g(r) = match r\n    {x = n: Int, y = m: Int} => n + m\nexport let out: Int = g({x = 1, y = 2})\n",
+          "{x = (n: Int), y = (m: Int)}",
+          "let g(r) = match r\n    {x = (n: Int), y = (m: Int)} => n + m\nexport let out: Int = g({x = 1, y = 2})\n",
+        ],
+      ] as const
+    ) {
+      const project = compiled(source);
+      expect(project.diagnostics.map(({ message }) => message)).toEqual([
+        `a type in a pattern goes in parentheses: \`${rewritten}\``,
+        `a type in a pattern goes in parentheses: \`${rewritten}\``,
+      ]);
+      for (const diagnostic of project.diagnostics) {
+        const [fix] = diagnostic.fixes!;
+        const written = [...fix!.edits]
+          .sort((left, right) => right.span.start.offset - left.span.start.offset)
+          .reduce(
+            (text, edit) => text.slice(0, edit.span.start.offset) + edit.replacement + text.slice(edit.span.end.offset),
+            HEADER + source,
+          );
+        expect(written).toBe(HEADER + fixed);
+      }
+      expect(messages(fixed)).toEqual([]);
+    }
+  });
+
+  test("`fault e: Exn` is refused in Exceptions §5.2's words, its fix removing the type", () => {
+    const refused = refusal(
+      "exception Oops(n: Int)\nlet f(): Int = try throw^(Oops(3))\n    catch\n        fault e: Exn => 1\n        _ => 0\n" +
+        "export let out: Int = f()\n",
+    );
+    expect(refused.message).toBe(
+      "a `fault` pattern is a whole catch arm's pattern, and binds an `Exn`; remove the type: `fault e`",
+    );
+    expect(refused.fixed).toEqual([
+      "exception Oops(n: Int)\nlet f(): Int = try throw^(Oops(3))\n    catch\n        fault e => 1\n        _ => 0\n" +
+        "export let out: Int = f()\n",
+    ]);
+    expect(messages(refused.fixed[0]!)).toEqual([]);
+    // Under `as`, the `fault` pattern's own refusal is the arm's one report.
+    expect(messages(
+      "exception Oops(n: Int)\nlet f(): Int = try throw^(Oops(3))\n    catch\n        fault e as x: Exn => 1\n        _ => 0\n" +
+        "export let out: Int = f()\n",
+    )).toEqual(["a `fault` pattern is a whole catch arm's pattern"]);
+  });
+
+  test("a loop's refusal quotes a long iterable as `…`", () => {
+    const refused = refusal(
+      "let g(): Int =\n    var s = 0\n    for x: Int in Vector.map([1, 2, 3, 4], (y) => y * 2 + 1)\n" +
+        "        s := s + x\n    s\nexport let out: Int = g()\n",
+    );
+    expect(refused.message).toBe("write the element's type in the pattern: `for (x: Int) in …`");
+    expect(messages(refused.fixed[0]!)).toEqual([]);
+  });
+
   test("a declared pattern's components in an expression, two of them", () => {
     const refused = refusal("import Rat\nexport let r: Rat.Rat = (1n: BigInt, 2n)rat\n");
     expect(refused.message).toBe(
@@ -231,10 +294,35 @@ describe("§2.9 the parentheses-only rule (§12's rows)", () => {
         "`let (a, b): (Int, Int) = …` — or remove the annotation",
     );
     expect(refused.fixed).toEqual([
-      "let (a, b): (Int, Int) = (1, 2)\nexport let out: Int = a + b\n",
       "let (a, b) = (1, 2)\nexport let out: Int = a + b\n",
+      "let (a, b): (Int, Int) = (1, 2)\nexport let out: Int = a + b\n",
     ]);
     for (const fixed of refused.fixed) expect(messages(fixed)).toEqual([]);
+  });
+
+  test("a binder list names `Int` only for a binder its constraints call a number", () => {
+    const reason = (list: string): string =>
+      "a `let` pattern takes no binder list: it binds no single name, and a destructuring `let` " +
+      `quantifies no constrained variable; remove \`${list}\`, and write the concrete type you mean, or remove the annotation`;
+    for (
+      const [source, list] of [
+        ['let (a, b)<t: Show>: (t, t) = ("a", "b")\n', "<t: Show>"],
+        ['let (a, b)<t>: (t, t) = ("a", "b")\n', "<t>"],
+        ['let (a, b)<t: Num, u>: (t, u) = (1, "x")\n', "<t: Num, u>"],
+      ] as const
+    ) {
+      const refused = refusal(source + "export let out: Int = 1\n");
+      expect(refused.message).toBe(reason(list));
+      expect(refused.fixed).toHaveLength(1);
+      expect(messages(refused.fixed[0]!)).toEqual([]);
+    }
+    // A binder the annotation does not write says nothing of what it means.
+    const unwritten = refusal("let (a, b)<t: Num, u>: (t, t) = (1, 2)\nexport let out: Int = a + b\n");
+    expect(unwritten.fixed).toEqual([
+      "let (a, b) = (1, 2)\nexport let out: Int = a + b\n",
+      "let (a, b): (Int, Int) = (1, 2)\nexport let out: Int = a + b\n",
+    ]);
+    for (const fixed of unwritten.fixed) expect(messages(fixed)).toEqual([]);
   });
 });
 
@@ -273,6 +361,9 @@ describe("§2.9 a claim: it tests nothing and converts nothing", () => {
       "union Shape =\n    | Circle(radius: Float)\n    | Square(side: Float)\n" +
         "let f(sh) = match sh\n    (s: Circel) => 1\n    _ => 0\nexport let out: Int = 1\n",
     )).toEqual(["unknown type `Circel`"]);
+    // …and the head it was written to name is that report's echo (§6.1).
+    expect(messages("let g(o) = match o\n    (Some(s): Foo) => 1\n    _ => 0\nexport let out: Int = g(Some(1))\n"))
+      .toEqual(["unknown type `Foo`"]);
     // At a `catch` arm the claim is about the thrown `Exn`; one that disagrees
     // shadows nothing below it.
     expect(messages(
@@ -315,9 +406,81 @@ describe("§2.9 it decides what it writes", () => {
   });
 
   test("a box reads it as a written parameter type (Numeric Literals §4)", () => {
-    expect(scheme("let f = ((n: Float)) => n + 1\nexport let out: Float = f(2.0)\n", "f")).toBe("Float -> Float");
-    expect(scheme("let f = ((n: Float, s)) => n + 1\nexport let out: Float = f((2.0, 1))\n", "f"))
-      .toBe("((Float, a)) -> Float");
+    // A lambda its call opens, at each spelling of the call: the claimed part
+    // is the written type, and the untyped control's is `Int`.
+    for (
+      const [typed, untyped, type, control] of [
+        ['Vector.map([(1, "a")], ((k: Nat, v)) => k)', 'Vector.map([(1, "a")], ((k, v)) => k)', "Vector(Nat)", "Vector(Int)"],
+        ['[(1, "a")].map(((k: Nat, v)) => k)', '[(1, "a")].map(((k, v)) => k)', "Vector(Nat)", "Vector(Int)"],
+        ["Some(1).map(((x: Nat)) => x)", "Some(1).map((x) => x)", "Option(Nat)", "Option(Int)"],
+        ['(1, "a") |> ((k: Nat, v)) => k', '(1, "a") |> ((k, v)) => k', "Nat", "Int"],
+      ] as const
+    ) {
+      expect(scheme(`let o = ${typed}\nexport let out: ${type} = o\n`, "o")).toBe(type);
+      expect(scheme(`let o = ${untyped}\nexport let out: ${control} = o\n`, "o")).toBe(control);
+    }
+    // A constructor's slot: only the slot the type is written over is claimed.
+    const pair = "union Pair(a, b) = | Pair(a, b)\n";
+    expect(scheme(pair + "let o = Option.map(Some(Pair(1, 2)), (Pair((a: Nat), b)) => a)\nexport let out: Option(Nat) = o\n", "o"))
+      .toBe("Option(Nat)");
+    expect(scheme(pair + "let o = Option.map(Some(Pair(1, 2)), (Pair((a: Nat), b)) => b)\nexport let out: Option(Int) = o\n", "o"))
+      .toBe("Option(Int)");
+    // An untyped sibling is a name as it is without the type: its dot call is decided.
+    expect(messages('let o = Vector.map([(1, "a")], ((k: Nat, v)) => v.length())\nexport let out: Vector(Int) = o\n')).toEqual([]);
+    expect(messages(pair + "let o = Option.map(Some(Pair(1, 2)), (Pair((a: Nat), b)) => b.show())\nexport let out: Int = 1\n"))
+      .toEqual([]);
+  });
+
+  test("where a box makes a pattern parameter's number an `Int`, the label names the pattern", () => {
+    const [diagnostic] = compiled("let o = Vector.map([(1, 2)], ((k, v)) => k)\nexport let p: Vector(Nat) = o\n").diagnostics;
+    expect(diagnostic!.message).toBe("type mismatch: expected Nat, found Int");
+    expect(diagnostic!.labels?.map(({ message }) => message)).toEqual([
+      "a number in `(k, v)` became an `Int` here: the number reached only the lambda's input — write `((k, v): (Nat, Int))`",
+    ]);
+    // What the label names compiles.
+    expect(messages("let o = Vector.map([(1, 2)], (((k, v): (Nat, Int))) => k)\nexport let p: Vector(Nat) = o\n")).toEqual([]);
+  });
+
+  test("a type written over one part leaves its untyped siblings as they are without it", () => {
+    // At a `match`: each sibling is decided, and a number in one is an `Int`.
+    for (
+      const [arms, scrutinee] of [
+        ['((a: Nat), b) => b.length()', '(1, "x")'],
+        ["(a, (b: Nat)) => a.show().length()", "(1, 2)"],
+        ["{a = (x: Nat), b} => b.show().length()", "{a = 1, b = 2}"],
+        ["Some(((a: Nat), b)) => b.show().length()\n    _ => 0", "Some((1, 2))"],
+        ["((a, b): (Nat, _)) => b.show().length()", "(1, 2)"],
+        ["[(a: Nat), b] => b.show().length()\n    _ => 0", "[1, 2]"],
+      ] as const
+    ) {
+      expect(messages(`let f() = match ${scrutinee}\n    ${arms}\nexport let out: Int = f()\n`)).toEqual([]);
+    }
+    expect(scheme('let f() = match Some((1, 2))\n    Some(((a: Nat), b)) => b\n    _ => 0\nexport let out: Int = f()\n', "f"))
+      .toBe("() -> Int");
+    // Another arm over the claimed part reads the written type.
+    expect(scheme("let f() = match (1, 2)\n    ((a: Nat), 0) => a\n    (c, d) => c\nexport let out: Nat = f()\n", "f"))
+      .toBe("() -> Nat");
+    // At a loop, through a constructor's slots.
+    const two = "union Two(a, b) = | Two(a, b)\n";
+    expect(scheme(
+      two + 'let g() =\n    var s = ""\n    for Two((x: Nat), y) in [Two(1, 2)]\n        s := y.show()\n    s\nexport let out: String = g()\n',
+      "g",
+    )).toBe("() -> String");
+    expect(scheme(
+      two + "let g() =\n    var s = 0\n    for Two((x: Nat), y) in [Two(1, 2)]\n        let z: Nat = x\n        s := y\n    s\n" +
+        "export let out: Int = g()\n",
+      "g",
+    )).toBe("() -> Int");
+  });
+
+  test("a hole claims nothing, and its part is what it is without the type", () => {
+    expect(scheme("let f() = match 3\n    (n: _) => n.show()\nexport let out: String = f()\n", "f")).toBe("() -> String");
+    // A hole that tests nothing leaves a `match` that needs no head.
+    expect(scheme('let f(x) = match x\n    (v: _) when show(v) == "" => 1\n    _ => 2\nexport let out: Int = f(1)\n', "f"))
+      .toBe("<a: Show> a -> Int");
+    // A head written over a hole decides the head, and a dot call needs no more.
+    expect(scheme("let f = (((xs: Vector(_)), n)) => xs.length()\nexport let out: Int = f(([1], 2))\n", "f"))
+      .toBe("((Vector(a), b)) -> Int");
   });
 
   test("a name it binds has a written type for a dot call (Method Syntax §3.1)", () => {
