@@ -23,9 +23,11 @@
  * that also reads `a`.
  *
  * **Shown, never written.** A hint carries no edit (plan point 3): a written
- * type binds, so writing one is checked by "add annotation", which compiles the
- * edit. A type with an error in it is not shown, nor a colour in error; the
- * report is the information.
+ * type binds, so writing one is "Write down the inferred type"
+ * (`queries/written-types.ts`), which compiles the edit, and which reads the
+ * places from here (`typePieces`). A type with an error in it is not shown, nor
+ * a colour in error; the report is the information. A `let` pattern's variable
+ * is shown though no type can be written there (Pattern Matching §2.4).
  *
  * Not hinted in v1: a lambda's result (rust-analyzer's default too), a
  * pattern's bindings outside a `let`, a lambda's pattern parameters, a record
@@ -75,8 +77,112 @@ export interface InlayHintInput {
   readonly range?: { readonly start: number; readonly end: number };
 }
 
+/**
+ * What a place a type could be written is: a parameter, a `let` or `var`, a
+ * `let` pattern's variable, a header's result, or a binder list.
+ */
+export type PieceRole = "parameter" | "binding" | "pattern" | "result" | "binder";
+
+/** What a place's pieces have in common, written or not. */
+interface Place {
+  readonly role: PieceRole;
+  /**
+   * What the place is named by: the parameter, binding or variable; the
+   * header or binding, for a result or binder list. A `fun` block's head has
+   * none.
+   */
+  readonly name?: string;
+  /** The names whose own types it is a piece of: its own, or its header's or binding's, or each member's of a block. */
+  readonly places: readonly Source.Span[];
+  /** The name of the header whose face it is a piece of, where it is one. */
+  readonly header?: Source.Span;
+  /** Whether that header or binding, or a member of that block, is exported. */
+  readonly exported: boolean;
+}
+
+/**
+ * A type hint's piece of a face, with what writing it down needs
+ * (`queries/written-types.ts`): a hint is shown, never written, and "Write down
+ * the inferred type" is how it is written (plan point 3).
+ */
+export interface TypePiece extends Place {
+  /** Its text where it goes: one insert, or a bare parameter's `(` and `: type)`. */
+  readonly inserts: readonly { readonly offset: number; readonly label: string }[];
+  readonly tooltip: string;
+  /**
+   * Where it is asked for: a parameter's, a binding's or a pattern variable's
+   * name; for a result, from the `)` it goes after to the `=` it goes
+   * before; for a binder list, the name or `fun` keyword it goes after.
+   */
+  readonly anchor: Source.Span;
+  /**
+   * The type it shows, the face's scheme it is read from, and what stands
+   * around its text in the last insert's label. A binder list has none.
+   */
+  readonly shown?: {
+    readonly type: Typed.Type;
+    readonly scheme: Typed.Scheme;
+    readonly text: string;
+    readonly before: string;
+    readonly after: string;
+  };
+  /** The declaration's letters, every variable it shows lettered. */
+  readonly letters: Typed.Letters;
+  /** Whether what it shows holds an error, in which case it is never drawn. */
+  readonly error: boolean;
+}
+
+/**
+ * A type written where a hint would otherwise stand, with what removing it
+ * needs (`queries/written-types.ts`): the reverse of a `TypePiece`.
+ */
+export interface WrittenPiece extends Place {
+  /**
+   * Where it is asked for: the `: type` and the name it follows; for a result,
+   * from the `)` to the `=`; for a binder list, the list and the name or
+   * keyword it follows.
+   */
+  readonly anchors: readonly Source.Span[];
+  /** What removing it takes out: the `: type` and the space before it, or the binder list. */
+  readonly removed: Source.Span;
+}
+
 /** Every hint in one module, or in its range, in the order of the text. */
 export function inlayHints(input: InlayHintInput): readonly InlayHint[] {
+  const hints: InlayHint[] = [];
+  // In the order they were found, which orders two at one offset.
+  for (const found of collect(input)) {
+    if ("removed" in found) continue;
+    if (!("inserts" in found)) hints.push(found);
+    else if (!found.error) {
+      for (const { offset, label } of found.inserts) hints.push({ offset, label, kind: "type", tooltip: found.tooltip });
+    }
+  }
+  const { range } = input;
+  return hints
+    .filter(({ offset }) => range === undefined || (offset >= range.start && offset <= range.end))
+    .sort((left, right) => left.offset - right.offset);
+}
+
+/**
+ * Every place in the declarations a range reaches, or in the whole module, a
+ * type could have been written: those where none was, with the inferred type
+ * for it, the inlay hints' type pieces, those whose type holds an error
+ * included; and those where one was.
+ */
+export function typePieces(input: InlayHintInput): {
+  readonly unwritten: readonly TypePiece[];
+  readonly written: readonly WrittenPiece[];
+} {
+  const found = collect(input);
+  return {
+    unwritten: found.filter((each): each is TypePiece => "inserts" in each),
+    written: found.filter((each): each is WrittenPiece => "removed" in each),
+  };
+}
+
+/** Every piece, written or not, and colour in the declarations the range reaches, in the order found. */
+function collect(input: InlayHintInput): readonly (TypePiece | WrittenPiece | InlayHint)[] {
   const { parsed, typed, lexed, range } = input;
   const { text, tokens } = lexed;
   // The file is part of the key: a module's symbols include members it reached
@@ -110,17 +216,18 @@ export function inlayHints(input: InlayHintInput): readonly InlayHint[] {
         lambda: item.value,
         binder: item.block === undefined ? "name" : "head",
         end: item.span.end.offset,
+        exported: item.exported,
         ...(item.block === undefined ? {} : { block: item.block }),
       });
     } else if (item.kind === "Let" && item.value.kind === "Lambda" && isHeader(item.name, item.value)) {
-      headers.set(item.value, { name: item.name, lambda: item.value, binder: "name", end: item.span.end.offset });
+      headers.set(item.value, { name: item.name, lambda: item.value, binder: "name", end: item.span.end.offset, exported: item.exported });
     } else if (item.kind === "Let" || item.kind === "Var") {
       const value = Parsed.unwrapBindingValue(item.value);
       if (value.kind === "Lambda") bound.add(value);
     } else if (item.kind === "Honor") {
       for (const member of item.members) {
         if (member.value === undefined) continue;
-        headers.set(member.value, { name: member.name, lambda: member.value, binder: "instance", end: member.span.end.offset });
+        headers.set(member.value, { name: member.name, lambda: member.value, binder: "instance", end: member.span.end.offset, exported: false });
       }
     }
   };
@@ -129,16 +236,33 @@ export function inlayHints(input: InlayHintInput): readonly InlayHint[] {
     if (expression.kind === "Block") for (const item of expression.items) classify(item);
   }
 
-  const hints: InlayHint[] = [];
-  /** Type hints that stand or fall together: all of them, or none where the type they show holds an error. */
-  const pushTypes = (
-    shown: readonly Typed.Type[],
-    tooltip: string,
-    ...pieces: readonly { readonly offset: number; readonly label: string }[]
-  ): void => {
-    if (shown.some(holdsError)) return;
-    for (const { offset, label } of pieces) hints.push({ offset, label, kind: "type", tooltip });
+  const found: (TypePiece | WrittenPiece | InlayHint)[] = [];
+  /**
+   * One piece of a face: its inserts stand or fall together, all of them
+   * drawn, or none where the type they show holds an error.
+   */
+  const pushTypes = (piece: Omit<TypePiece, "error">): void => {
+    found.push({ ...piece, error: piece.shown !== undefined && holdsError(piece.shown.type) });
   };
+  /**
+   * A written type's `: type`, and what removing it takes out: from the end of
+   * the token before its `:`, so the space before goes with it. A written type
+   * always follows its `:`.
+   */
+  const colonOf = (written: Source.Span): { readonly colon: Source.Span; readonly removed: Source.Span } | undefined => {
+    const at = firstStartingAt(tokens, written.start.offset);
+    const colon = tokens[at - 1];
+    const before = tokens[at - 2];
+    if (colon === undefined || before === undefined) return undefined;
+    return { colon: { ...written, start: colon.span.start }, removed: { ...written, start: before.span.end } };
+  };
+  /** A type written at a parameter or binding: asked for on its name or its `: type`. */
+  const pushWritten = (piece: Omit<WrittenPiece, "removed" | "anchors">, name: Source.Span, written: Source.Span): void => {
+    const typed = colonOf(written);
+    if (typed !== undefined) found.push({ ...piece, anchors: [name, typed.colon], removed: typed.removed });
+  };
+  /** Where a piece belongs: what names it, the names whose types it is part of, its header, and whether it is exported. */
+  type Owner = Omit<Place, "role">;
 
   for (const group of declarations(parsed.items)) {
     const head = group[0]!.kind === "Fun" ? group[0]!.block : undefined;
@@ -175,11 +299,9 @@ export function inlayHints(input: InlayHintInput): readonly InlayHint[] {
       sites.sort((left, right) => left.start - right.start);
       for (const site of sites) site.visit();
     });
-    for (const { head, members } of blocks.values()) headHints(head, members);
+    for (const { head, members } of blocks.values()) headHints(head, members, letters);
   }
-  return hints
-    .filter(({ offset }) => range === undefined || (offset >= range.start && offset <= range.end))
-    .sort((left, right) => left.offset - right.offset);
+  return found;
 
   /**
    * The expressions inside a module item's span: those that start in it, since
@@ -249,9 +371,16 @@ export function inlayHints(input: InlayHintInput): readonly InlayHint[] {
           const symbol = symbols.get(key(name.span));
           if (symbol === undefined) return;
           const shown = Typed.displayCallFace(symbol.scheme, context, letters);
-          pushTypes([symbol.scheme.type], `${name.text}: ${shown.type}`, {
-            offset: name.span.end.offset,
-            label: `: ${shown.type}`,
+          pushTypes({
+            inserts: [{ offset: name.span.end.offset, label: `: ${shown.type}` }],
+            tooltip: `${name.text}: ${shown.type}`,
+            role: "pattern",
+            anchor: name.span,
+            name: name.text,
+            places: [name.span],
+            exported: item.exported,
+            letters,
+            shown: { type: symbol.scheme.type, scheme: symbol.scheme, text: shown.type, before: ": ", after: "" },
           });
         });
         return;
@@ -275,27 +404,42 @@ export function inlayHints(input: InlayHintInput): readonly InlayHint[] {
     if (scheme === undefined) return;
     const face = Typed.displayCallFace(scheme, context, letters);
     const tooltip = `${name.text}: ${face.type}`;
-    if (header.binder === "name") entryHints(face.binderEntries, lambda.typeParameters, name.span.end.offset, tooltip);
+    const owner: Owner = { name: name.text, places: [name.span], header: name.span, exported: header.exported };
+    if (header.binder === "name") entryHints(face.binderEntries, lambda.typeParameters, name.span, tooltip, owner, letters);
     if (header.block !== undefined) {
       const block = blocks.get(header.block.id) ?? { head: header.block, members: [] };
-      block.members.push({ face, tooltip, writes: spellingsIn(lambda) });
+      block.members.push({ face, tooltip, writes: spellingsIn(lambda), exported: header.exported, name: name.span });
       blocks.set(header.block.id, block);
     }
-    parameterHints(lambda, face, scheme.type, false, tooltip);
+    parameterHints(lambda, face, scheme, false, tooltip, owner, letters);
     // A header always ends at its `=`; nothing is drawn for one that somehow does not.
     const end = headerEnd(lambda);
     if (end === undefined || scheme.type.kind !== "Function") return;
-    if (lambda.returnAnnotation === undefined && face.result !== undefined && header.binder !== "instance") {
-      pushTypes([scheme.type.result], tooltip, {
-        offset: end.before.span.end.offset,
-        label: `: ${face.type.slice(face.result[0], face.result[1])}`,
+    // Its place: from the `)` it is written after to the `=` it is written before.
+    const place = { fileId: name.span.fileId, start: end.before.span.end, end: end.equal.span.end };
+    if (lambda.returnAnnotation !== undefined) {
+      // Asked for from the `)` to the `=`, as an unwritten one is.
+      const written = colonOf(lambda.returnAnnotation.span);
+      if (written !== undefined) {
+        found.push({ role: "result", ...owner, anchors: [{ ...place, start: written.removed.start }], removed: written.removed });
+      }
+    } else if (face.result !== undefined && header.binder !== "instance") {
+      const text = face.type.slice(face.result[0], face.result[1]);
+      pushTypes({
+        inserts: [{ offset: end.before.span.end.offset, label: `: ${text}` }],
+        tooltip,
+        role: "result",
+        anchor: place,
+        ...owner,
+        letters,
+        shown: { type: scheme.type.result, scheme, text, before: ": ", after: "" },
       });
     }
     // The words read the face's arrow, so a face that holds an error, its
     // arrow's own colours included, shows none.
     const colour = face.owners[0];
     if (colour !== undefined && !holdsError(scheme.type)) {
-      hints.push({ offset: colourOffset(end.before, header.end), label: colour, kind: "colour", tooltip });
+      found.push({ offset: colourOffset(end.before, header.end), label: colour, kind: "colour", tooltip });
     }
   }
 
@@ -306,7 +450,7 @@ export function inlayHints(input: InlayHintInput): readonly InlayHint[] {
    * an entry whose spelling another member of the block writes for its own
    * would tie the two there: it has no place, and is left out.
    */
-  function headHints(head: Parsed.FunBlockHead, members: readonly Member[]): void {
+  function headHints(head: Parsed.FunBlockHead, members: readonly Member[], letters: Typed.Letters): void {
     const entries = new Map<string, Typed.BinderEntry>();
     members.forEach(({ face }, at) => {
       for (const entry of face.binderEntries) {
@@ -317,29 +461,55 @@ export function inlayHints(input: InlayHintInput): readonly InlayHint[] {
     const tooltip = members.map(({ tooltip }) => tooltip).join("\n");
     const keyword = tokens[firstStartingAt(tokens, head.span.start.offset)];
     if (keyword === undefined) return;
-    entryHints([...entries.values()], head.typeParameters, keyword.span.end.offset, tooltip);
+    entryHints([...entries.values()], head.typeParameters, keyword.span, tooltip, {
+      places: members.map(({ name }) => name),
+      exported: members.some(({ exported }) => exported),
+    }, letters);
   }
 
   /**
    * Binder entries at their place: a whole list at `place` where none is
    * written, and where one is, the entries it does not write before its `>`,
    * since a declaration takes one list (Functions §4.2). An entry's subject is
-   * one of its face's variables, so it holds no error of its own.
+   * one of its face's variables, so it holds no error of its own. `after` is
+   * the name or keyword the list goes after, which is where it is asked for.
    */
   function entryHints(
     entries: readonly Typed.BinderEntry[],
     written: readonly Parsed.TypeParameter[] | undefined,
-    place: number,
+    after: Source.Span,
     tooltip: string,
+    owner: Owner,
+    letters: Typed.Letters,
   ): void {
     if (written === undefined) {
-      if (entries.length > 0) pushTypes([], tooltip, { offset: place, label: `<${entries.map(({ text }) => text).join(", ")}>` });
+      if (entries.length === 0) return;
+      pushTypes({
+        inserts: [{ offset: after.end.offset, label: `<${entries.map(({ text }) => text).join(", ")}>` }],
+        tooltip,
+        role: "binder",
+        anchor: after,
+        ...owner,
+        letters,
+      });
       return;
     }
     const missing = entries.filter(({ subject }) => !written.some(({ name }) => name.text === subject));
     const closing = closingOf(written);
+    const opening = openingOf(written);
+    if (closing !== undefined && opening !== undefined) {
+      const list = { fileId: after.fileId, start: opening.span.start, end: closing.span.end };
+      found.push({ role: "binder", ...owner, anchors: [after, list], removed: { ...list, start: after.end } });
+    }
     if (missing.length > 0 && closing !== undefined) {
-      pushTypes([], tooltip, { offset: closing.span.start.offset, label: `, ${missing.map(({ text }) => text).join(", ")}` });
+      pushTypes({
+        inserts: [{ offset: closing.span.start.offset, label: `, ${missing.map(({ text }) => text).join(", ")}` }],
+        tooltip,
+        role: "binder",
+        anchor: after,
+        ...owner,
+        letters,
+      });
     }
   }
 
@@ -348,30 +518,46 @@ export function inlayHints(input: InlayHintInput): readonly InlayHint[] {
    * list before it where it has one.
    */
   function bindingHints(item: Parsed.LetItem | Parsed.VarItem, letters: Typed.Letters): void {
-    if (item.annotation !== undefined) return;
+    const owner: Owner = { name: item.name.text, places: [item.name.span], exported: item.kind === "Let" && item.exported };
+    if (item.annotation !== undefined) {
+      pushWritten({ role: "binding", ...owner }, item.name.span, item.annotation.span);
+      // Its binder list, written: there is nothing to show, but it can be removed.
+      if (item.kind === "Let" && item.typeParameters !== undefined) entryHints([], item.typeParameters, item.name.span, "", owner, letters);
+      return;
+    }
     const symbol = symbols.get(key(item.name.span));
     if (symbol === undefined) return;
     const face = Typed.displayCallFace(symbol.scheme, context, letters);
     const type = face.binder === "" ? face.type : face.type.slice(face.binder.length + 1);
     const tooltip = `${item.name.text}: ${face.type}`;
-    const shown = [symbol.scheme.type];
+    const typed = (offset: number, before: string): void => {
+      pushTypes({
+        inserts: [{ offset, label: `${before}${type}` }],
+        tooltip,
+        role: "binding",
+        anchor: item.name.span,
+        ...owner,
+        letters,
+        shown: { type: symbol.scheme.type, scheme: symbol.scheme, text: type, before, after: "" },
+      });
+    };
     // A binding takes one binder list (Functions §4.2). Where it writes one on
     // its name, the type goes after it, where `: type` would be written (#1047).
     const written = item.kind === "Let" ? item.typeParameters : undefined;
     const closing = written === undefined ? undefined : closingOf(written);
     if (written !== undefined) {
-      entryHints(face.binderEntries, written, item.name.span.end.offset, tooltip);
-      if (closing !== undefined) pushTypes(shown, tooltip, { offset: closing.span.end.offset, label: `: ${type}` });
+      entryHints(face.binderEntries, written, item.name.span, tooltip, owner, letters);
+      if (closing !== undefined) typed(closing.span.end.offset, ": ");
       return;
     }
     // Where its lambda writes one, that is the list, and the name takes none.
     const value = Parsed.unwrapBindingValue(item.value);
     if (value.kind === "Lambda" && value.typeParameters !== undefined) {
-      entryHints(face.binderEntries, value.typeParameters, item.name.span.end.offset, tooltip);
-      pushTypes(shown, tooltip, { offset: item.name.span.end.offset, label: `: ${type}` });
+      entryHints(face.binderEntries, value.typeParameters, item.name.span, tooltip, owner, letters);
+      typed(item.name.span.end.offset, ": ");
       return;
     }
-    pushTypes(shown, tooltip, { offset: item.name.span.end.offset, label: `${face.binder}: ${type}` });
+    typed(item.name.span.end.offset, `${face.binder}: `);
   }
 
   /** A lambda written as a value: its parameters, read from its own type. */
@@ -379,7 +565,7 @@ export function inlayHints(input: InlayHintInput): readonly InlayHint[] {
     const scheme = schemeOf(lambdas.get(key(lambda.span))?.type);
     if (scheme === undefined) return;
     const face = Typed.displayCallFace(scheme, context, letters);
-    parameterHints(lambda, face, scheme.type, isBare(lambda), face.type);
+    parameterHints(lambda, face, scheme, isBare(lambda), face.type, { places: [], exported: false }, letters);
   }
 
   /** Whether a lambda's one parameter is written bare, `x => …`: the `=>` follows it straight away. */
@@ -394,24 +580,39 @@ export function inlayHints(input: InlayHintInput): readonly InlayHint[] {
    * Each parameter with no written type, its piece of the face after it. A
    * bare parameter, `x => …`, is shown in the parentheses a written type needs.
    */
-  function parameterHints(lambda: Parsed.LambdaExpr, face: Face, type: Typed.Type, bare: boolean, tooltip: string): void {
+  function parameterHints(
+    lambda: Parsed.LambdaExpr,
+    face: Face,
+    scheme: Typed.Scheme,
+    bare: boolean,
+    tooltip: string,
+    owner: Owner,
+    letters: Typed.Letters,
+  ): void {
+    const { type } = scheme;
     if (type.kind !== "Function") return;
     lambda.parameters.forEach((parameter, index) => {
       const range = face.parameters[index];
       const shown = type.parameters[index];
-      if (parameter.annotation !== undefined || range === undefined || shown === undefined) return;
       if (isSyntheticParameterName(parameter.name.text)) return;
-      const piece = face.type.slice(range[0], range[1]);
-      if (bare) {
-        pushTypes(
-          [shown],
-          tooltip,
-          { offset: parameter.span.start.offset, label: "(" },
-          { offset: parameter.name.span.end.offset, label: `: ${piece})` },
-        );
-      } else {
-        pushTypes([shown], tooltip, { offset: parameter.name.span.end.offset, label: `: ${piece}` });
+      // Its own name, and its header's, whose face it is a piece of.
+      const own = { ...owner, name: parameter.name.text, places: [parameter.name.span, ...owner.places] };
+      if (parameter.annotation !== undefined) {
+        pushWritten({ role: "parameter", ...own }, parameter.name.span, parameter.annotation.span);
+        return;
       }
+      if (range === undefined || shown === undefined) return;
+      const text = face.type.slice(range[0], range[1]);
+      const end = { offset: parameter.name.span.end.offset, label: `: ${text}${bare ? ")" : ""}` };
+      pushTypes({
+        inserts: bare ? [{ offset: parameter.span.start.offset, label: "(" }, end] : [end],
+        tooltip,
+        role: "parameter",
+        anchor: parameter.name.span,
+        ...own,
+        letters,
+        shown: { type: shown, scheme, text, before: ": ", after: bare ? ")" : "" },
+      });
     });
   }
 
@@ -458,6 +659,12 @@ export function inlayHints(input: InlayHintInput): readonly InlayHint[] {
     return undefined;
   }
 
+  /** A written binder list's opening `<`: the token before its first entry. */
+  function openingOf(written: readonly Parsed.TypeParameter[]): Lexed.Token | undefined {
+    const first = written[0];
+    return first === undefined ? undefined : tokens[firstStartingAt(tokens, first.span.start.offset) - 1];
+  }
+
   /**
    * Where a colour's words go: the end of the line its header ends on. On a
    * one-line function that more code follows on its line, that would set the
@@ -483,6 +690,8 @@ interface Member {
   readonly face: Face;
   readonly tooltip: string;
   readonly writes: ReadonlySet<string>;
+  readonly exported: boolean;
+  readonly name: Source.Span;
 }
 
 /** The `fun` blocks met in one declaration, by id: each one's head and members. */
@@ -589,6 +798,8 @@ interface Header {
   readonly block?: Parsed.FunBlockHead;
   /** Where the item ends. */
   readonly end: number;
+  /** Whether the module exports it: an instance's member is not exported itself. */
+  readonly exported: boolean;
 }
 
 /** Every parsed expression, in the order of the text. */

@@ -397,10 +397,26 @@ function unsettledBy(
   item: Resolved.FunItem | Resolved.LetItem,
   lambda: Resolved.LambdaExpr,
 ): string | undefined {
-  const name = item.binding.name;
-  const body = lambda.body.span.start.offset;
-  const from = item.span.start.offset;
-  const to = item.span.end.offset;
+  return unsettledDeclaration(diagnostics, lexed, laidOut, {
+    who: `\`${item.binding.name}\``,
+    from: item.span.start.offset,
+    body: lambda.body.span.start.offset,
+    to: item.span.end.offset,
+  });
+}
+
+/**
+ * `unsettledBy`'s three questions of any declaration: `who` names it, as the
+ * sentence's subject (`` `f` `` or "this instance"), and `body` is where its
+ * body starts, which names an error before it the signature's.
+ */
+export function unsettledDeclaration(
+  diagnostics: readonly Diagnostics.Diagnostic[],
+  lexed: Lexed.File,
+  laidOut: LaidOut.File,
+  declaration: { readonly who: string; readonly from: number; readonly body: number; readonly to: number },
+): string | undefined {
+  const { who: name, from, body, to } = declaration;
   for (const diagnostic of diagnostics) {
     // Errors only, for now because there is nothing else: no compiler pass emits
     // a warning today. The day one does, it must not take a repair away — a
@@ -422,7 +438,7 @@ function unsettledBy(
       // sentences say the same thing about the same error — and worth knowing
       // before trusting the word to point at a region.
       const where = start.offset >= body ? "body" : "signature";
-      return `the ${where} of \`${name}\` has an error to fix first: ${diagnostic.message}`;
+      return `the ${where} of ${name} has an error to fix first: ${diagnostic.message}`;
     }
   }
   // Over the body alone. Widening it to the whole declaration changes no answer
@@ -431,12 +447,12 @@ function unsettledBy(
   // — so the narrower region is the one that matches what the sentence says.
   const unclosed = unclosedGroupIn(lexed, body, to);
   if (unclosed !== undefined) {
-    return `the body of \`${name}\` has an unclosed \`${unclosed}\`, ` +
+    return `the body of ${name} has an unclosed \`${unclosed}\`, ` +
       "so its type is not settled yet";
   }
-  return separated(laidOut, item.span.end.offset)
+  return separated(laidOut, to)
     ? undefined
-    : `the parser could not carry on past \`${name}\`, so its type is not settled yet`;
+    : `the parser could not carry on past ${name}, so its type is not settled yet`;
 }
 
 /**

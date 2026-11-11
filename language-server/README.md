@@ -500,9 +500,11 @@ type variable written in one is rigid while that definition is checked (Function
 allowed to mean. The edited project is compiled and the result compared — the
 function's type must render identically, and no diagnostic may appear anywhere
 that was not there before. The case that justifies the expense produces no
-diagnostic at all: `fun copy(r) = {...r}` infers the *open* record `{...a} ->
-{...a}`, and writing that type closes it, leaving a function that accepts only
-the empty record and an error message nowhere.
+diagnostic at all: `export fun m() = keep((r) => {...r})` returns the *open*
+record function `{...a} -> {...a}`, and writing that as its result closes the
+row, since a written face reaches no argument through a function's result
+(Functions §4.3, #1066), leaving a function whose result accepts only the empty
+record and an error message nowhere.
 
 A declaration that does not typecheck is refused before any of that. Inference
 does not stop at an unknown name — it yields a variable — so the repair on offer
@@ -735,6 +737,52 @@ server passes the request's `triggerKind`, a client that does not say being take
 as asking. The server announces `refactor` beside `quickfix`, since a client asks
 its `Refactor…` menu only of a server that does.
 
+### A type written down, or removed
+
+The next keep the program's meaning by checking it, since a written type binds
+(`queries/written-types.ts`):
+
+- **Write down the inferred type of `x`**, on one place an inlay hint stands:
+  a parameter of a function or lambda, a `let` or `var`, a header's result
+  (**…the inferred result type of `f`**, from its `)` to its `=`), or a binder
+  list (**…the inferred binder list of `f`**, on the name or `fun` keyword it
+  goes after, or the entries a written one lacks). It writes what the hint
+  shows, letters included, each type spelled as this module names it, as
+  `Infer return type` spells one. A callback's arrow is written as the hint
+  shows it, since a callback's arrow says what the function accepts (Effects
+  §10): `run(f: () ->! a)` for `let run(f) = f!()`.
+- **Write down this header's types**, on a function's name where two or more
+  of its places are unwritten: every one of them in one edit, checked once.
+  It is the one step that completes an exported function's signature.
+- **Remove the written type of `x`**, and of a result or binder list, on a
+  written type at any of those places, or the name it follows: the reverse.
+  Never on an exported term's, whose signature Modules §4.1.1 requires whole,
+  a `fun` block's head included where a member is exported.
+
+**Each is checked by compiling the edit**, as `Infer return type` is. A type
+variable written in an annotation is rigid while its definition is checked
+(Functions §4.1), so writing a type down can change what a definition means,
+and removing one hands a decision from the text to inference. The edited
+project is compiled, and the edit is refused, with the reason, unless no report
+appears anywhere that was not there before, every face in the module renders as
+it did, and the type of every name the place is a piece of is the same. The last
+is what a face alone misses: removing `: Float` from `let m: Float = n`, in a
+function whose result is a `Float`, reports nothing and changes no face, but
+makes `m` an `Int`. Writing `fun copy(r) = {...r}`'s result alone, `: {...a}`,
+closes the row and makes `copy` take only `{}`, so it is refused; the whole
+header, `copy(r: {...a}): {...a}`, keeps its type. The reports that a signature
+is incomplete are counted rather than compared, since writing a piece of one
+changes what they say.
+
+Refused before any of that, with the reason: a declaration that does not check;
+a type this module cannot spell, or one holding an error; a result's or a
+binding's arrow whose colour follows a callback, shown `>->`, which `Infer
+return type` refuses too; and a `let` pattern's variable, whose hint shows a type
+the grammar has no place for, since a pattern destructures a value (Pattern
+Matching §2.4). A definition's own colour, its outer arrow, is never written
+(Functions §4.1, #355). Like the rest, these come only when asked, and are
+never preferred.
+
 ## Correctness principles
 
 - LSP positions are converted at one explicit boundary, `positions.ts`, to the compiler's source-position representation. Both count UTF-16 code units and number lines from zero, so a span crossing outward is a rename rather than a computation; only the inward direction needs the document's line index, which is why that direction takes a `TextDocument`.
@@ -796,7 +844,9 @@ The sixth begins with:
     way; a record's puns and its fields written out, either way; a dot call
     as its qualified call, that way only; arms with one body and an
     or-pattern's arm, either way; and a type and a `type` alias for it,
-    either way.
+    either way; and
+17. the inferred type written down where a hint stands, a whole header's at
+    once, and a written type removed, in both, each checked by compiling it.
 
 Formatting and workspace symbols follow as the necessary compiler services become stable. Features are not simulated with textual guesses when semantic information is required — where these slices read source text, it is to locate a name the tree already said was there, or to read a half-typed line no tree describes yet, never to decide what a name means.
 
@@ -1164,6 +1214,10 @@ less than it looks.
   it does it to, so in that one case the menu entries are told apart only by
   their previews. A caret on one error — how a quick fix is normally reached —
   offers exactly one.
+- **Each type written down or removed costs one compilation of the project**
+  per action offered, and a caret on a function's name can offer three: its
+  binder list, its whole header, and a written binder list's removal. They are
+  computed only when the dev asks for refactorings, never as the caret moves.
 - **A prelude module that no other module references is not compiled**, so it has
   no tokens, no completions, and cannot be renamed within. This is only visible
   in a project that compiles the standard library itself, and it can make a
