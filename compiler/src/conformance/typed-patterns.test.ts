@@ -361,9 +361,15 @@ describe("§2.9 a claim: it tests nothing and converts nothing", () => {
       "union Shape =\n    | Circle(radius: Float)\n    | Square(side: Float)\n" +
         "let f(sh) = match sh\n    (s: Circel) => 1\n    _ => 0\nexport let out: Int = 1\n",
     )).toEqual(["unknown type `Circel`"]);
-    // …and the head it was written to name is that report's echo (§6.1).
+    // …and the head it was written to name is that report's echo (§6.1),
+    // a head only the door would find included.
     expect(messages("let g(o) = match o\n    (Some(s): Foo) => 1\n    _ => 0\nexport let out: Int = g(Some(1))\n"))
       .toEqual(["unknown type `Foo`"]);
+    const colours = ["/colors.hex", "module Colors\n\nexport union Colour =\n    | Red\n    | Green\n"] as const;
+    expect(compileFiles([
+      colours,
+      ["/main.hex", HEADER + "import Colors\nlet f(k) = match k\n    (Red: Colour) => 1\n    _ => 0\nexport let out: Int = f(Colors.Red)\n"],
+    ]).diagnostics.map(({ message }) => message)).toEqual(["unknown type `Colour`"]);
     // At a `catch` arm the claim is about the thrown `Exn`; one that disagrees
     // shadows nothing below it.
     expect(messages(
@@ -470,6 +476,39 @@ describe("§2.9 it decides what it writes", () => {
       two + "let g() =\n    var s = 0\n    for Two((x: Nat), y) in [Two(1, 2)]\n        let z: Nat = x\n        s := y\n    s\n" +
         "export let out: Int = g()\n",
       "g",
+    )).toBe("() -> Int");
+  });
+
+  test("what a type writes is claimed through each form, and through each written type", () => {
+    // Under `as`, in each alternative of an or-pattern, and inside a typed pattern.
+    for (
+      const [arms, scrutinee] of [
+        ["(((a: Nat) as c), b) => c", "(1, 2)"],
+        ["((a: Nat), 0) | ((a: Nat), _) => a", "(1, 2)"],
+        ["(Some((a: Nat)): Option(_)) => a\n    _ => 0", "Some(1)"],
+        // Down through a written type's tuple, record, vector and declarations.
+        ["({a, b}: {a: Nat, b: _}) => a", "{a = 1, b = 2}"],
+        ["([(a, b)]: Vector((Nat, _))) => a\n    _ => 0", "[(1, 2)]"],
+        ["(Some((a, b)): Option((Nat, _))) => a\n    _ => 0", "Some((1, 2))"],
+      ] as const
+    ) {
+      expect(scheme(`let f() = match ${scrutinee}\n    ${arms}\nexport let out: Nat = f()\n`, "f")).toBe("() -> Nat");
+    }
+    expect(scheme(
+      "record Pt(a, b) = {x: a, y: b}\nlet f() = match Pt({x = 1, y = 2})\n    (Pt({x, y}): Pt(Nat, _)) => x\n" +
+        "export let out: Nat = f()\n",
+      "f",
+    )).toBe("() -> Nat");
+    // A constructor only the head's door finds is read through its declaration.
+    const pairs = ["/pairs.hex", "module Pairs\n\nexport union Pair(a, b) =\n    | P(a, b)\n"] as const;
+    expect(compileFiles([
+      pairs,
+      ["/main.hex", HEADER + "import Pairs\nlet f() = match Pairs.P(1, 2)\n    P((a: Nat), b) => a\nexport let out: Nat = f()\n"],
+    ]).diagnostics.map(({ message }) => message)).toEqual([]);
+    // A function an arm takes apart beside a claimed part is called as it is without the type.
+    expect(scheme(
+      "let g(x: Int): Int = x + 1\nlet f() = match (1, g)\n    ((a: Nat), h) => h(2)\nexport let out: Int = f()\n",
+      "f",
     )).toBe("() -> Int");
   });
 

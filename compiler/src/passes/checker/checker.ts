@@ -13388,11 +13388,14 @@ class Checker {
                 ": the number reached only the lambda's input — " +
                 (written === undefined || spelled === undefined ? "write its type here" : `write \`(${spelled}: ${written})\``),
             });
-            const settled = (variable: Variable): boolean =>
-              variable.rigidName !== undefined || claimed.some((part) => this.#occurs(variable, part));
             const head = this.#prune(component);
-            this.#landedHeads.set(parameter.symbol, head.kind !== "Variable" || settled(head));
-            this.#landedWhole.set(parameter.symbol, this.#shapeVariables(component).every(settled));
+            this.#landedHeads.set(parameter.symbol, head.kind !== "Variable" || head.rigidName !== undefined);
+            this.#landedWhole.set(
+              parameter.symbol,
+              this.#shapeVariables(component).every((variable) =>
+                variable.rigidName !== undefined || claimed.some((part) => this.#occurs(variable, part))
+              ),
+            );
           }
         }
         this.#integerTestedParameters(expression, parameters);
@@ -23656,20 +23659,21 @@ class Checker {
    * part unsettled: every arm's pattern variable is inferred from its uses
    * (`#settleSource`), read once before any arm, so no arm's body settles
    * what another arm's pattern binds. A part an arm's written type claims
-   * (`#claimedParts`) is settled by that type, as a written one is.
+   * (`#claimedParts`) is settled by that type, as a written one is, so it
+   * leaves no name's shape open.
    */
   #settleArms(arms: readonly Resolved.MatchArm[], scrutinee: Mono, claimed: readonly Mono[]): void {
-    const open = (variable: Variable): boolean => !claimed.some((part) => this.#occurs(variable, part));
     {
       const shape = new Set(this.#shapeVariables(scrutinee));
       const shapeOpen = this.#collectVariables(scrutinee).some((variable) =>
-        variable.instance === undefined && variable.rigidName === undefined && shape.has(variable) && open(variable)
+        variable.instance === undefined && variable.rigidName === undefined && shape.has(variable) &&
+        !claimed.some((part) => this.#occurs(variable, part))
       );
       if (shapeOpen) {
         for (const arm of arms) for (const symbol of patternSymbols(arm.pattern)) this.#shapeOpen.set(symbol, true);
       }
     }
-    if (!this.#unsettledVariables(scrutinee).some(open)) return;
+    if (this.#unsettledVariables(scrutinee).length === 0) return;
     for (const arm of arms) {
       for (const symbol of patternSymbols(arm.pattern)) {
         const source = this.#bindingSources.get(symbol);
@@ -39042,7 +39046,7 @@ class Checker {
    * settles the part it writes, so the seats that make new names from a
    * pattern's binders leave these parts to the claim. Read down through the
    * pattern's forms against the type's shape as it stands — tuples, records,
-   * vectors (a rest is the vector itself) and a constructor's declared slots —
+   * vector elements and a constructor's declared slots —
    * and down through each written type to the parts it writes whole
    * (`#annotationClaims`): a hole claims nothing, at any depth, and neither
    * does a part the type's shape does not yet say where it is.
@@ -39068,11 +39072,9 @@ class Checker {
           })
           : [];
       case "Vector":
+        // A rest takes no type of its own (§2.9), so it claims nothing.
         return actual.kind === "Vector"
-          ? [
-            ...pattern.elements.flatMap((element) => this.#claimedParts(element, actual.element)),
-            ...(pattern.rest?.pattern === undefined ? [] : this.#claimedParts(pattern.rest.pattern, type)),
-          ]
+          ? pattern.elements.flatMap((element) => this.#claimedParts(element, actual.element))
           : [];
       case "Constructor": {
         const slots = this.#slotParts(pattern, actual);
