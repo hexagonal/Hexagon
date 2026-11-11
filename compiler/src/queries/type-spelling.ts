@@ -212,26 +212,24 @@ export function typeNamesOf(
 }
 
 /**
- * A constraint as this module names it, or the reason it cannot: the name its
- * declaration gave it where that names it here, then any bare name the module
- * has for it, then a qualified one (Constraints §5.1.1's tiers 1 and 2, as the
- * checker's advice spells one).
+ * A constraint as this module names it, or the reason it cannot: a bare name
+ * where the module has one, which can only be the name its declaration gave
+ * it, and otherwise a qualified one (Constraints §5.1.1's tiers 1 and 2, as
+ * the checker's advice spells one).
  */
 export function spellConstraint(
   constraint: { readonly name: string; readonly identity: string },
   names: TypeNames,
 ): SpellingResult {
-  const declared = constraint.name.slice(constraint.name.lastIndexOf(".") + 1);
-  if (names.constraints.get(declared) === constraint.identity) return { text: declared };
   let qualified: string | undefined;
   for (const [spelling, identity] of names.constraints) {
     if (identity !== constraint.identity) continue;
     if (!spelling.includes(".")) return { text: spelling };
     qualified ??= spelling;
   }
-  return qualified === undefined
-    ? { unspellable: `\`${declared}\` is declared in another module and this one has no name for it` }
-    : { text: qualified };
+  if (qualified !== undefined) return { text: qualified };
+  const declared = constraint.name.slice(constraint.name.lastIndexOf(".") + 1);
+  return { unspellable: `\`${declared}\` is declared in another module and this one has no name for it` };
 }
 
 /**

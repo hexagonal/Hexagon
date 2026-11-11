@@ -197,11 +197,27 @@ describe("a constraint, spelled as this module names it", () => {
     const binding = ["module Main", "import Metric", "let tw(x) = Metric.scale(x, 2)"];
     expect(rewritten([...binding, "let ‸t2 = tw", ""].join("\n"), writeTitle("binding", "t2"), metric))
       .toBe([...binding, "let t2<a: Metric.Scale>: a -> a = tw", ""].join("\n"));
+    // The entries a written list lacks.
+    const lacking = (head: string): string =>
+      ["module Main", "import Metric", `let ${head}(x: a, y: b): (a, b) = (Metric.scale(x, 2), y)`, ""].join("\n");
+    expect(rewritten(lacking("‸tw<b>"), writeTitle("binder", "tw"), metric)).toBe(lacking("tw<b, a: Metric.Scale>"));
+  });
+
+  test("bare where the module has a bare name for it", () => {
+    const scale = {
+      "/scale.hex": metric["/metric.hex"].replace("module Metric", "module Scale"),
+    };
+    // A module whose alias is its constraint's own name lends that name bare (Modules §5.1).
+    expect(rewritten(["module Main", "import Scale", "let ‸twice(x) = Scale.scale(x, 2)", ""].join("\n"), HEADER_TITLE, scale))
+      .toBe(["module Main", "import Scale", "let twice<a: Scale>(x: a): a = Scale.scale(x, 2)", ""].join("\n"));
+    const own = ["constraint Twice<a> =", "    twice(x: a) -> a", "honor Twice<Int> =", "    twice(x) = x + x"];
+    expect(rewritten(program(...own, "let ‸quad(x) = twice(twice(x))"), HEADER_TITLE))
+      .toBe(program(...own, "let quad<a: Twice>(x: a): a = twice(twice(x))"));
   });
 
   test("two on one variable, in the order the hint shows them", () => {
-    expect(rewritten(program("let ‸f(x) = \"${x}\" ++ \"${x + 1}\""), HEADER_TITLE))
-      .toBe(program("let f<a: (Num, Show)>(x: a): String = \"${x}\" ++ \"${x + 1}\""));
+    expect(rewritten(program("let ‸f(x) = \"${x}\" ++ (if x == x then \"\" else \"\")"), HEADER_TITLE))
+      .toBe(program("let f<a: (Eq, Show)>(x: a): String = \"${x}\" ++ (if x == x then \"\" else \"\")"));
   });
 
   test("refused where this module has no name for it", () => {
