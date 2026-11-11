@@ -17336,11 +17336,13 @@ class Checker {
    * A claim's own arrow handed a function at a parameter, in the binding
    * annotation's words for a callback written so (Effects §4.2), less the
    * callback, since a pattern's type writes none outside a `let` (Pattern
-   * Matching §12): the arrow accepts a function the part refuses.
-   * `undefined` where the arrow stands as the demand, or is not the claim's.
+   * Matching §12): the arrow accepts a function the part refuses. An arrow an
+   * alias spells is not at the report, so the report names it by what it
+   * marks, and its rewrite is the type the part has, whole. `undefined` where
+   * the arrow stands as the demand.
    */
   #claimSupplyMessage(claimArrow: ClaimArrow, axes: readonly Axis[]): string | undefined {
-    if (claimArrow.demand || claimArrow.at === undefined) return undefined;
+    if (claimArrow.demand) return undefined;
     const marks: Record<Axis, boolean> = { world: false, fail: false };
     for (const axis of AXES) {
       const slot = colourAt(claimArrow.arrow, axis);
@@ -17350,9 +17352,15 @@ class Checker {
     }
     const pattern = claimArrow.claim.pattern.pattern;
     const part = pattern.kind === "Binding" ? `\`${pattern.binding.name}\`` : "the part";
+    const arrow = markedArrow(marks.world, marks.fail);
     const fix = markedArrow(marks.world && !axes.includes("world"), marks.fail && !axes.includes("fail"));
-    return `this \`${markedArrow(marks.world, marks.fail)}\` accepts any function${acceptance(marks)}, and ${part} ` +
-      `accepts only ${silentOne(axes)} — write its arrow \`${fix}\``;
+    if (claimArrow.at === undefined) {
+      return `the \`${arrow}\` this type spells in a parameter accepts any function${acceptance(marks)}, and ${part} ` +
+        `accepts only ${silentOne(axes)} — ` +
+        (claimArrow.claim.spelling === undefined ? "remove the type" : `write the type ${part} has`);
+    }
+    return `this \`${arrow}\` accepts any function${acceptance(marks)}, and ${part} accepts only ${silentOne(axes)} — ` +
+      `write its arrow \`${fix}\``;
   }
 
   /**

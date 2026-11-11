@@ -1353,16 +1353,31 @@ describe("§12 a claim the part does not fit (#1510)", () => {
       expect(each.fixes!.map(({ message }) => message)).toEqual([`write \`${rewrite}\``]);
       expect(messages(applied(WORLD + body + OUT, each))).toEqual([]);
     }
-    // An arrow an alias wrote there: the demand's words, and the part's type whole.
-    const alias = WORLD + "type Cb = () ->! Unit\nlet g(x: ((() -> Unit) -> Unit, Int)): Unit = match x\n" +
-      "    ((m: (Cb) -> Unit), n) => m(noop)\n" + OUT;
-    const aliased = diagnostic(alias);
-    expect(aliased.message).toBe(
-      "a `->` arrow promises purity and that the function cannot fail, and this function is impure and may fail — " +
-        "the demand is written `->`",
+    // An arrow an alias spells there: named by what it marks, and the part's type whole.
+    for (const head of ["match x\n    ((m: (Cb) -> Unit), n) => m(noop)\n", "match x\n    ((_: (Cb) -> Unit), n) => ()\n"]) {
+      const alias = WORLD + "type Cb = () ->! Unit\nlet g(x: ((() -> Unit) -> Unit, Int)): Unit = " + head + OUT;
+      const aliased = diagnostic(alias);
+      const part = head.includes("(m:") ? "`m`" : "the part";
+      expect(aliased.message).toBe(
+        `the \`->!\` this type spells in a parameter accepts any function, and ${part} accepts only one that is pure ` +
+          `and cannot fail — write the type ${part} has`,
+      );
+      expect((HEADER + alias).slice(aliased.primary.start.offset, aliased.primary.end.offset)).toBe("(Cb) -> Unit");
+      expect(aliased.fixes!.map(({ message }) => message)).toEqual([
+        `write \`(${head.includes("(m:") ? "m" : "_"}: (() -> Unit) -> Unit)\``,
+      ]);
+      expect(messages(applied(alias, aliased))).toEqual([]);
+    }
+    // Where this module cannot spell the part, the type removed.
+    const unspelled = WORLD + "type Cb = ({a: Int}) ->! Unit\nlet g(x: (({a: Int}) -> Unit) -> Unit): Unit =\n" +
+      "    for (m: (Cb) -> Unit) in [x]\n        ()\n" + OUT;
+    const removed = diagnostic(unspelled);
+    expect(removed.message).toBe(
+      "the `->!` this type spells in a parameter accepts any function, and `m` accepts only one that is pure and cannot " +
+        "fail — remove the type",
     );
-    expect(aliased.fixes!.map(({ message }) => message)).toEqual(["write `(m: (() -> Unit) -> Unit)`"]);
-    expect(messages(applied(alias, aliased))).toEqual([]);
+    expect(removed.fixes!.map(({ message }) => message)).toEqual(["remove the type"]);
+    expect(messages(applied(unspelled, removed))).toEqual([]);
     // In a `let` pattern the binding annotation's callback row is the claim's.
     expect(messages(WORLD + "let g(x: ((() -> Unit) -> Unit, Int)): Unit =\n    let ((m: (() ->! Unit) -> Unit), n) = x\n    ()\n" + OUT))
       .toEqual([
