@@ -820,23 +820,198 @@ describe("§6.3 `let p: T = e`", () => {
   });
 });
 
-describe("colours in a pattern's type, until they are ruled (#1510)", () => {
-  test("a following arrow is refused and names the constant spelling", () => {
-    const refused = messages("let f(x: Int): Int = x\nlet ((m: (Int) >-> Int), n) = (f, 1)\nexport let out: Int = 1\n");
-    expect(refused).toHaveLength(1);
-    expect(refused[0]).toContain("a following arrow is not written in a pattern's type");
-    expect(refused[0]).toContain("`(Int) -> Int`");
+const WORLD = 'extern from "./world.js"\n    export fun save(s: String) ->! Unit\n' +
+  'let save0(): Unit = save!("x")\nlet noop(): Unit = ()\nlet run(cb: () ->! Unit): Unit = cb!()\n';
+const OUT = "export let out: Int = 0\n";
+
+describe("§2.9 a function fits the claim, at every position (#1510)", () => {
+  test("a pure function fits a `->!` claim at a `match` and a `for`, as at a `let`", () => {
+    for (const body of [
+      "let g(x: (() -> Unit, Int)): Unit = match x\n    ((f: () ->! Unit), n) => f!()\n",
+      "let x = (noop, 1)\nlet g(): Unit = match x\n    ((f: () ->! Unit), n) => f!()\n",
+      "let g(o: Option(() -> Unit)): Unit = match o\n    Some((f: () ->! Unit)) => f!()\n    None => ()\n",
+      "let mk(): (() -> Unit, Int) = (noop, 1)\nlet g(): Unit = match mk()\n    ((f: () ->! Unit), n) => f!()\n",
+      "let g(xs: Vector(() -> Unit)): Unit =\n    for (f: () ->! Unit) in xs\n        f!()\n",
+      "let xs = [noop]\nlet g(): Unit =\n    for (f: () ->! Unit) in xs\n        f!()\n",
+      "let g(x: (() -> Unit, Int)): Unit =\n    let ((f: () ->! Unit), n) = x\n    f!()\n",
+      "let g(x: (() -> Unit, Int)): Unit =\n    let ((f: () ->! Unit), n): (() -> Unit, Int) = x\n    f!()\n",
+      "let k = (((f: () ->! Unit), n): (() -> Unit, Int)) => f!()\n",
+      // A union constructor's payload, which the pattern takes from the declaration.
+      "union Box = Box(f: () -> Unit)\nlet g(b: Box): Unit =\n    let Box((f: () ->! Unit)) = b\n    f!()\n",
+      "union Box = Box(f: () -> Unit)\nlet g(b: Box): Unit = match b\n    Box((f: () ->! Unit)) => f!()\n",
+    ]) {
+      expect(messages(WORLD + body + OUT)).toEqual([]);
+    }
+    // The claim fits even where the arm never calls the function.
+    expect(scheme(WORLD + "let g(x: (() -> Unit, Int)): Int = match x\n    ((f: () ->! Unit), n) => n\n" + OUT, "g"))
+      .toBe("((() -> Unit, Int)) -> Int");
   });
 
-  test("the constant spelling writes the empty tuple's type `Unit`", () => {
-    const refused = messages("let noop(): Unit = ()\nlet (m: () >-> Unit) = noop\nexport let out: Int = 1\n");
-    expect(refused).toEqual(["a following arrow is not written in a pattern's type; write `() -> Unit`"]);
-    expect(messages("let noop(): Unit = ()\nlet (m: () -> Unit) = noop\nexport let out: Int = 1\n")).toEqual([]);
-  });
-
-  test("a written arrow is the part's own", async () => {
+  test("a written arrow the part has is the part's own", async () => {
     const source = "let f(x: Int): Int = x\nlet ((m: (Int) -> Int), n) = (f, 1)\nexport let out: Int = m(n)\n";
     expect(scheme(source, "m")).toBe("Int -> Int");
     expect(await run(source)).toMatchObject({ out: 1 });
+  });
+
+  test("a `->!` the part's written type spells in a parameter accepts any function, at every position", () => {
+    for (const body of [
+      "let g(x: ((() ->! Unit) -> Unit, Int)): Unit = match x\n    ((m: (() -> Unit) ->! Unit), n) => m!(noop)\n",
+      "let g(xs: Vector((() ->! Unit) -> Unit)): Unit =\n    for (m: (() -> Unit) ->! Unit) in xs\n        m!(noop)\n",
+      "let g(x: ((() ->! Unit) -> Unit, Int)): Unit =\n    let ((m: (() -> Unit) ->! Unit), n) = x\n    m!(noop)\n",
+      "let k = (((m: (() -> Unit) ->! Unit), n): ((() ->! Unit) -> Unit, Int)) => m!(noop)\n",
+    ]) {
+      expect(messages(WORLD + body + OUT)).toEqual([]);
+    }
+    // One written `->` there accepts only what it says.
+    expect(messages(WORLD + "let g(x: ((() -> Unit) -> Unit, Int)): Unit = match x\n" +
+      "    ((m: (() ->! Unit) ->! Unit), n) => m!(save0)\n" + OUT)).toHaveLength(1);
+  });
+
+  test("a claim under an or-pattern reads its part in the alternative that holds it", () => {
+    const claim = "(m: (() -> Unit) ->! Unit)";
+    for (const body of [
+      `let g(x: ((() ->! Unit) -> Unit, Int)): Unit = match x\n    (${claim}, 1) | (${claim}, _) => m!(noop)\n`,
+      `let g(x: (Int, ((() ->! Unit) -> Unit, Int))): Unit = match x\n    (n, (${claim}, 1) | (${claim}, _)) => m!(noop)\n`,
+      `let g(x: ((() ->! Unit) -> Unit, Int)): Unit =\n    let (${claim}, 1) | (${claim}, _) = x\n    m!(noop)\n`,
+    ]) {
+      expect(messages(WORLD + body + OUT)).toEqual([]);
+    }
+    // A name the alternatives bind apart is one binder at unifiable types
+    // (§2.6). An arm reads its scrutinee in place (Effects §3.4), so where
+    // one alternative claims and the other doesn't, the two types differ;
+    // a `let`'s value is a use, so there they meet.
+    expect(messages(WORLD + "let g(x: (() -> Unit, Int)): Unit = match x\n    ((f: () ->! Unit), 1) | (f, _) => f!()\n" +
+      OUT)).not.toEqual([]);
+    expect(messages(WORLD + "let g(x: (() -> Unit, Int)): Unit =\n    let ((f: () ->! Unit), 1) | (f, _) = x\n    f!()\n" +
+      OUT)).toEqual([]);
+  });
+
+  test("the binder takes the written type, so its calls wear the marks it writes", () => {
+    expect(messages(WORLD + "let g(x: (() -> Unit, Int)): Unit = match x\n    ((f: () ->! Unit), n) => f()\n" + OUT))
+      .toEqual(["this call is impure and may fail, so `f` wants `!`, not no mark"]);
+  });
+
+  test("a colour the environment holds is left to the binding that holds it", () => {
+    expect(scheme(WORLD + "let g(h) =\n    match (h, 1)\n        ((f: () ->! Unit), n) => f!()\n" + OUT, "g"))
+      .toBe("(() ->! Unit) ->! Unit");
+    expect(scheme(WORLD + "let g(h) =\n    let p = (h, 1)\n    match p\n        ((f: () ->! Unit), n) => f!()\n" + OUT, "g"))
+      .toBe("(() ->! Unit) ->! Unit");
+  });
+
+  test("a value the text does not decide meets the claim as inference decides it, at every position", () => {
+    // `h` has no written type, so the claim is not room above its colour: it decides it, and `h()` is refused.
+    const report = "this call is impure and may fail only because `h`, which has no written type, meets " +
+      "`() ->! Unit` — write `h`'s type, or wrap `h` where it meets it: `() => h()`";
+    for (const body of [
+      "let g(h) =\n    h()\n    match (h, 1)\n        ((f: () ->! Unit), n) => f!()\n",
+      "let g(h) =\n    h()\n    let ((f: () ->! Unit), n) = (h, 1)\n    f!()\n",
+      "let g(h) =\n    h()\n    for (f: () ->! Unit) in [h]\n        f!()\n",
+    ]) {
+      expect(messages(WORLD + body + OUT)).toEqual([report]);
+    }
+    // Where the binding's annotation writes the part, the text decides it, and the claim fits.
+    expect(scheme(WORLD + "let g(h) =\n    h()\n    let ((f: () ->! Unit), n): (() -> Unit, Int) = (h, 1)\n    f!()\n" + OUT, "g"))
+      .toBe("(() -> Unit) ->! Unit");
+  });
+
+  test("the reverse stays refused, at every position", () => {
+    for (const body of [
+      "let (f: () -> Unit) = save0\n",
+      "let g(x: (() ->! Unit, Int)): Int = match x\n    ((f: () -> Unit), n) => n\n",
+      "let g(xs: Vector(() ->! Unit)): Unit =\n    for (f: () -> Unit) in xs\n        f()\n",
+    ]) {
+      const refused = messages(WORLD + body + OUT);
+      expect(refused).toHaveLength(1);
+      expect(refused[0]).toContain("impure and may fail");
+    }
+  });
+});
+
+describe("§2.9 a following arrow follows the binders' class (#1510)", () => {
+  test("in a `let` pattern it reads as the binding annotation on the same name", () => {
+    const source = WORLD + "let ((m: (() ->! Unit) >-> Unit), n) = (run, 1)\n" +
+      "let a(): Unit = m(noop)\nlet b(): Unit = m!(save0)\n" + OUT;
+    expect(scheme(source, "m")).toBe("(() ->! Unit) >-> Unit");
+    expect(scheme(source, "a")).toBe("() -> Unit");
+    expect(scheme(source, "b")).toBe("() ->! Unit");
+    // Its refusals are the annotation's, word for word, at top level and inside a body.
+    expect(messages(WORLD + "let (m: () >-> Unit) = noop\n" + OUT)).toEqual(messages(WORLD + "let m: () >-> Unit = noop\n" + OUT));
+    expect(messages(WORLD + "let g(): Unit =\n    let (m: () >-> Unit) = noop\n    m!()\n" + OUT)).toEqual([
+      "`>->` means only as effectful as what it is handed, and nothing is handed here — this annotation has no " +
+        "callbacks of its own, and a local `>->` does not borrow the enclosing function's — leave its type to " +
+        "inference, or write `->!`",
+    ]);
+  });
+
+  test("at a head binder it is refused, naming what the position binds, and reads as its constant", () => {
+    const frame = (binds: string) =>
+      `\`>->\` means only as effectful as what it is handed, and ${binds} is one value, whose calls share one ` +
+      "colour; write `->!` for a function that is impure and may fail, or `->` for one that is pure and cannot fail";
+    const arm = "let g(): Unit = match (run, 1)\n    ((m: (() ->! Unit) >-> Unit), n) => m!(save0)\n";
+    expect(refusal(WORLD + arm + OUT)).toEqual({
+      message: frame("what an arm binds"),
+      fixed: [WORLD + arm.replace(">->", "->!") + OUT],
+    });
+    expect(messages(WORLD + "let g(): Unit =\n    for (m: (() ->! Unit) >-> Unit) in [run]\n        m!(save0)\n" + OUT))
+      .toEqual([frame("what a `for` head binds")]);
+    expect(messages(WORLD + "let k = (((m: (() ->! Unit) >-> Unit), n)) => m!(save0)\nlet g(): Unit = k!((run, 1))\n" + OUT))
+      .toEqual([frame("what a lambda's parameter binds")]);
+    // A `catch` arm is an arm.
+    expect(messages(WORLD + "exception Oops\nlet g(): Int = try throw^(Oops)\n    catch\n        (e: () >-> Unit) => 1\n" + OUT))
+      .toContain(frame("what an arm binds"));
+    // It reads as its constant, so a bare call of it asks for the mark the constant implies.
+    expect(messages(WORLD + "let g(): Unit = match (run, 1)\n    ((m: (() ->! Unit) >-> Unit), n) => m(noop)\n" + OUT))
+      .toEqual([frame("what an arm binds"), "this call is impure and may fail, so `m` wants `!`, not no mark"]);
+  });
+
+  test("it leads the passes-through and type-argument rows, and names each arrow's own constant", () => {
+    const refused = messages(WORLD + "let g(): Int = match ([noop], 1)\n    ((v: Vector(() >-> Unit)), n) => n\n" + OUT);
+    expect(refused).toEqual([
+      "`>->` means only as effectful as what it is handed, and what an arm binds is one value, whose calls share " +
+        "one colour; write `->!` for a function that is impure and may fail, or `->` for one that is pure and cannot fail",
+    ]);
+    // Over a callback marked only for failure, the passes-through row does not speak.
+    expect(messages(WORLD + "let check(c: () ->^ Unit): Unit = c^()\nlet g(): Unit = match (check, 1)\n" +
+      "    ((m: (() ->^ Unit) >-> Unit), n) => m!(() => ())\n" + OUT)).toEqual([
+      "`>->` means only as effectful as what it is handed, and what an arm binds is one value, whose calls share " +
+        "one colour; write `->!` for a function that is impure and may fail, or `->` for one that is pure and cannot fail",
+    ]);
+    expect(messages(WORLD + "let g(): Int = match ([noop], 1)\n    ((v: Vector(() >^> Unit)), n) => n\n" + OUT)).toEqual([
+      "`>^>` means only as effectful as what it is handed, and what an arm binds is one value, whose calls share " +
+        "one colour; write `->^` for a function that is pure and may fail, or `->` for one that is pure and cannot fail",
+    ]);
+  });
+
+  test("inside a parameter type of a head binder's type, the parameter-type frame", () => {
+    expect(messages(WORLD + "let use(h: () ->! Unit): Unit = ()\nlet g(): Unit = match (use, 1)\n" +
+      "    ((m: (() >-> Unit) -> Unit), n) => m(noop)\n" + OUT)).toEqual([
+      "`>->` means only as effectful as what it is handed, and nothing is handed here — an arrow inside a parameter " +
+        "type, other than a callback's own, is a constant; write `->!` for a function that is impure and may fail, " +
+        "or `->` for one that is pure and cannot fail",
+    ]);
+  });
+});
+
+describe("§2.9 a head binder's type writes no callback (#1510)", () => {
+  test("a function type inside a lambda parameter's pattern is data; on the parameter it is a callback", () => {
+    expect(messages(WORLD + "let g(): Vector(Unit) = Vector.map([(noop, 1)], (((f: () ->! Unit), n)) => f!())\n" + OUT))
+      .toEqual(["this call is impure and may fail, so `map` wants `!`, not no mark"]);
+    expect(messages(WORLD + "let g(): Vector(Unit) = Vector.map([noop], (f: () ->! Unit) => f!())\n" + OUT)).toEqual([]);
+  });
+
+  test("an arm's type reads a parameter's `->!` as the constant, where a `let` pattern's reads a callback", () => {
+    // In a `let` pattern `->!` on a parameter is a callback's colour, which `run` follows, so `->` around it is the
+    // callback row's report; at an arm it is the constant, and `run` handed any function is impure, so the arm's
+    // `->` is the ordinary mismatch.
+    expect(messages(WORLD + "let ((m: (() ->! Unit) -> Unit), n) = (run, 1)\n" + OUT)).toEqual([
+      "this callback is written `->!`, which accepts any function, and this accepts only one that is pure and cannot " +
+        "fail — write its arrow `->`",
+    ]);
+    const arm = messages(WORLD + "let g(): Int = match (run, 1)\n    ((m: (() ->! Unit) -> Unit), n) => n\n" + OUT);
+    expect(arm).toHaveLength(1);
+    expect(arm[0]).not.toContain("callback");
+    // With the constant written around it, the arm fits.
+    expect(scheme(WORLD + "let g(): Unit = match (run, 1)\n    ((m: (() ->! Unit) ->! Unit), n) => m!(noop)\n" + OUT, "g"))
+      .toBe("() ->! Unit");
   });
 });
