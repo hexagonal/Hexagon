@@ -218,7 +218,11 @@ function item(written: Parsed.Item, siblings: readonly Parsed.Item[] = []): Synt
         expression(written.value),
       ]);
     case "LetPattern":
-      return node("other", written.span, [pattern(written.pattern), expression(written.value)]);
+      return node("other", written.span, [
+        pattern(written.pattern),
+        annotation(written.annotation),
+        expression(written.value),
+      ]);
     case "Fun":
       return node("other", written.span, [
         name(written.name),
@@ -492,6 +496,8 @@ function pattern(written: Parsed.Pattern): SyntaxNode {
       return node("other", written.span, [name(written.qualifier), name(written.name)]);
     case "As":
       return node("other", written.span, [pattern(written.pattern), name(written.name)]);
+    case "Typed":
+      return node("other", written.span, [pattern(written.pattern), annotation(written.annotation)]);
     case "Declared":
       return node("other", written.span, [...written.components.map(pattern), name(written.name)]);
     case "Or":

@@ -377,6 +377,7 @@ class Collector {
         return;
       case "LetPattern":
         this.#visitPattern(item.pattern);
+        if (item.annotation !== undefined) this.#visitAnnotation(item.annotation);
         this.#visitExpr(item.value);
         return;
       case "Fun":
@@ -520,6 +521,12 @@ class Collector {
         return;
       case "As":
         this.#visitPattern(pattern.pattern);
+        return;
+      case "Typed":
+        // A type written in a pattern names its types as any annotation does
+        // (Pattern Matching §2.9).
+        this.#visitPattern(pattern.pattern);
+        this.#visitAnnotation(pattern.annotation);
         return;
       case "Or":
         for (const alternative of pattern.alternatives) this.#visitPattern(alternative);

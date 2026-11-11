@@ -70,6 +70,7 @@ Related forms and likely lookup terms should point to one another.
 | Nullable | Chapter 26, “`Nullable` is the foreign nullish door” | `NullableCase`; conversion to and from `Option` |
 | Option | Chapter 10, “`Option` represents possible absence” | Later collections and FFI chapters |
 | or-pattern | Chapter 11, “Or-patterns share one arm” | — |
+| typed pattern | Chapter 11, “Patterns can write the types they take apart” | See also **pattern** |
 | partial application | Chapter 3, “Arity is part of a function” | Not implicit in Hexagon; write an explicit lambda; see **currying** |
 | declared pattern | Chapter 11, “Declared patterns expose a view” | See also **pattern**, **match-only pattern** |
 | match-only pattern | Chapter 11, “Declared patterns expose a view” | A view without a build |

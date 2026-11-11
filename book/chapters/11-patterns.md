@@ -421,6 +421,61 @@ scrutinee is the parameter, a value the caller already produced before this func
 entered, so there is nothing left for a clause to watch. That chapter's version of this
 paragraph says what to write instead.
 
+## Patterns can write the types they take apart
+
+A pattern rarely needs a type: the value it takes apart already has one. Sometimes it
+helps to say it anyway, for the reader or to settle a number. A **typed pattern**,
+`(p: T)`, says that the part `p` stands on has type `T`:
+
+```hexagon
+let size = (3.0, 4.5)
+let (width: Float, height: Float) = size
+```
+
+Inside a pattern's own parentheses each element may take `: Type`. A lambda's tuple
+parameter is the same form:
+
+```hexagon
+let guests = [("Ada", 2), ("Lin", 4)]
+let names = Vector.map(guests, ((guest: String, seats)) => guest)
+```
+
+A constructor's slot and a record field are not a pattern's own parentheses, so a
+type there takes a pair of its own:
+
+```hexagon
+let seatsOf(choice: Option((String, Int))): Int =
+    match choice
+        Some((_, (seats: Int))) => seats
+        None => 0
+```
+
+Writing `Some(seats: Int)` is an error that shows the parenthesised spelling. A whole
+arm takes one the same way: `(Circle(radius): Shape) => radius`.
+
+A typed pattern is a **claim**, checked when the program compiles. It never tests
+anything at run time, and it never converts. The emitted JavaScript is exactly the
+code for `p` alone, `const [width, height] = size;` above. Where nothing has
+settled a number yet, the claim settles it, as `let ratio: Float = 1` does:
+
+```hexagon
+let (ratio: Float, label) = (1, "full")    // ratio : Float
+```
+
+A type that disagrees with what the part already is, though, is an error, and a
+typed pattern is not a place to convert. `let (share: Float, label) = (count,
+"seats")` with `count : Int` is a type mismatch. A conversion belongs to the binding,
+and a `let` pattern takes a type after it just as a named binding does:
+
+```hexagon
+let count: Int = 3
+let (share, label): (Float, String) = (count, "seats")    // share : Float
+```
+
+The binding's type faces the value and converts it, as `let share: Float = count`
+would. The pattern then takes apart a `(Float, String)`. The binding faces the
+whole value; a pattern faces its parts.
+
 ## Declared patterns expose a view
 
 An opaque type can offer a useful way to take its values apart without exposing
@@ -456,7 +511,9 @@ The components here are `BigInt`, so the bare integer patterns are checked at
 `BigInt`. A view exposing `Float` components can likewise contain Float
 literal patterns, with the same equality and signed-zero behavior explained
 earlier. An as-pattern keeps the original subject:
-`(n, d)rat as fraction` binds `fraction` to the Rat, not to a tuple.
+`(n, d)rat as fraction` binds `fraction` to the Rat, not to a tuple. The list before
+`rat` is a list of components, like a constructor's slots, so a component's type takes
+its own parentheses: `((n: BigInt), d)rat`.
 
 A pattern declaration supplies a required `view` function and an optional
 `build` function. Inside the Rat module, after its accessors and `create`
@@ -560,7 +617,10 @@ dialects.
 - as-patterns retain both a matched component and its whole value;
 - guards test runtime conditions and contribute nothing to exhaustiveness;
 - missing and unreachable cases are compile errors;
-- `let`, loop, and parameter patterns must be irrefutable; and
+- `let`, loop, and parameter patterns must be irrefutable;
+- a typed pattern `(p: T)` writes the type of the part it takes apart, inside a pattern's
+  own parentheses; it is checked when the program compiles and never tests or converts,
+  while `let p: T = e` types the whole binding and converts as a named binding's type does;
 - a `match` with nothing after it on the line is the function that matches its argument,
   which is how refutable patterns reach callback position; and
 - a type written around a function reaches its parameters before its arms are checked, so

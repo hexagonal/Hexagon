@@ -121,7 +121,10 @@ exact length. A rest pattern matches the remaining middle and binds it as anothe
 ```
 
 The rest spelling is `...`, not the `..` range operator. Element positions accept the
-full pattern language, so `[Some(value), ...rest]` is legal.
+full pattern language, so `[Some(value), ...rest]` is legal, and an element's type
+takes its own parentheses, `[(first: Int), ...rest]`. The rest takes none: it is the
+vector's own type, so a type for it is written over the whole, `([first, ...rest]:
+Vector(Int))`.
 
 Length matters to exhaustiveness. Fixed-length patterns alone cannot cover vectors of
 every possible size; a rest pattern supplies the unbounded case. In a binding position,

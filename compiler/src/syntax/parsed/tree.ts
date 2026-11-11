@@ -280,6 +280,13 @@ export interface LetPatternItem {
   readonly kind: "LetPattern";
   readonly exported: false;
   readonly pattern: Pattern;
+  /**
+   * The binding's annotation, `let p: T = e` (Pattern Matching §6.3): the
+   * value's expected type, a supplying seat and the home of its conversions,
+   * whatever the left side is. A type written *inside* the pattern is a typed
+   * pattern instead, and converts nothing (§2.9).
+   */
+  readonly annotation?: TypeAnnotation;
   readonly value: Expr;
   readonly span: Source.Span;
 }
@@ -634,6 +641,7 @@ export type Pattern =
   | RecordPattern
   | OrPattern
   | AsPattern
+  | TypedPattern
   | DeclaredPattern
   | ConstructorPattern;
 
@@ -658,6 +666,31 @@ export interface AsPattern {
   readonly pattern: Pattern;
   readonly name: Name;
   readonly span: Source.Span;
+}
+
+/**
+ * A typed pattern, `(p: T)` (Pattern Matching §2.9): `p` at the written type,
+ * a static claim that tests and converts nothing.
+ *
+ * Inside a pattern's parentheses every element is `pattern (: Type)?`, as an
+ * expression's is (Ascription §2.1), so a tuple component's type shares the
+ * tuple's parentheses: `(p1: T1, p2)`. The span says which: a typed pattern in
+ * parentheses of its own spans them, and one sharing a tuple's starts where
+ * its pattern does (`isBareTypedPattern`), as an ascription's does.
+ */
+export interface TypedPattern {
+  readonly kind: "Typed";
+  readonly pattern: Pattern;
+  readonly annotation: TypeAnnotation;
+  readonly span: Source.Span;
+}
+
+/**
+ * Whether a typed pattern shares its parentheses with a tuple's components
+ * (`(n: BigInt, d)`) rather than standing in its own (`((n: BigInt), d)`).
+ */
+export function isBareTypedPattern(pattern: TypedPattern): boolean {
+  return pattern.span.start.offset === pattern.pattern.span.start.offset;
 }
 
 /** `(p1, …, pn)name`, whose name resolves in the pattern namespace (#834). */
