@@ -773,22 +773,25 @@ it did, and the type of every name the module declares is the same, its locals
 and parameters included. The last is what a face alone misses: removing
 `: Float` from `let m: Float = n`, in a function whose result is a `Float`,
 reports nothing and changes no face, but makes `m` an `Int`. A declaration's
-names are compared with one set of letters, as its hints are, so a tie between
-two of them is compared too: removing `: a` from `y` in `(x: a, y: a) => x`
-leaves each of `x` and `y` an `a` on its own, but unties them. Writing `fun copy(r) = {...r}`'s result alone, `: {...a}`,
-closes the row and makes `copy` take only `{}`, so it is refused; the whole
-header, `copy(r: {...a}): {...a}`, keeps its type. The reports that a signature
-is incomplete are counted rather than compared, since writing a piece of one
-changes what they say.
+names are compared with one set of letters, so a tie between two of them is
+compared too, a row's tail's included: removing `: a` from `y` in
+`(x: a, y: a) => x` leaves each of `x` and `y` an `a` on its own, but unties
+them. A refusal shows the comparison's letters, minted in order, which are not
+always the ones the source writes. Writing `fun copy(r) = {...r}`'s result
+alone, `: {...a}`, closes the row and makes `copy` take only `{}`, so it is
+refused; the whole header, `copy(r: {...a}): {...a}`, keeps its type. The
+reports that a signature is incomplete are counted rather than compared, since
+writing a piece of one changes what they say.
 
-Refused before any of that, with the reason: a declaration that does not check;
-a type this module cannot spell, or one holding an error; a result's or a
-binding's arrow whose colour follows a callback, shown `>->`, which `Infer
-return type` refuses too; and a `let` pattern's variable, whose hint shows a type
-the grammar has no place for, since a pattern destructures a value (Pattern
-Matching §2.4). A definition's own colour, its outer arrow, is never written
-(Functions §4.1, #355). Like the rest, these come only when asked, and are
-never preferred.
+Refused before any of that, with the reason: a declaration that does not
+check, and for a `fun` block's member any member of its block, since they are
+checked together; a type this module cannot spell, or one holding an error; a
+result's or a binding's arrow whose colour follows a callback, shown `>->`,
+which `Infer return type` refuses too; and a `let` pattern's variable, whose
+hint shows a type the grammar has no place for, since a pattern destructures a
+value (Pattern Matching §2.4). A definition's own colour, its outer arrow, is
+never written (Functions §4.1, #355). Like the rest, these come only when
+asked, and are never preferred.
 
 ## Correctness principles
 

@@ -237,13 +237,27 @@ function spelled(
 
 /**
  * Why the declaration a span is in does not check, if it does not: the module
- * item holding it, as `unsettledDeclaration` asks of "Infer return type"'s.
+ * item holding it, as `unsettledDeclaration` asks of "Infer return type"'s,
+ * and, for a member of a `fun` block, every member, since members are checked
+ * together (Functions §7.3): one that does not check leaves its siblings'
+ * types unsettled too.
  */
 function unsettled(input: WrittenTypesInput, span: Source.Span): string | undefined {
   const item = input.parsed.items.find((each) =>
     each.span.start.offset <= span.start.offset && span.end.offset <= each.span.end.offset
   );
   if (item === undefined) return undefined;
+  const block = item.kind === "Fun" ? item.block : undefined;
+  if (block === undefined) return unsettledItem(input, item);
+  for (const member of input.parsed.items) {
+    if (member.kind !== "Fun" || member.block?.id !== block.id) continue;
+    const refused = unsettledItem(input, member);
+    if (refused !== undefined) return refused;
+  }
+  return undefined;
+}
+
+function unsettledItem(input: WrittenTypesInput, item: Parsed.Item): string | undefined {
   const named = item.kind === "Fun" || item.kind === "Let" || item.kind === "Var" ? item : undefined;
   const value = named?.value;
   const body = value === undefined

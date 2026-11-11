@@ -139,6 +139,20 @@ describe("write down the inferred type, at one place", () => {
     expect(applied(program("f‸un<a: Num>", ...members), removeTitle("binder", undefined))).toBe(refused);
   });
 
+  test("a member of a `fun` block, refused where another member does not check", () => {
+    // Checked together, a member's types wait on its siblings': `g`'s would be
+    // `<a: (Eq, Signed)> a -> Int` once `f` checks.
+    const refused = "refused: the body of `f` has an error to fix first: unknown name `nope`";
+    const knot = (head: string): string =>
+      program("fun", `    ${head} = f(m)`, "    f(n) = if n == 0 then nope else g(n - 1)");
+    expect(applied(knot("‸g(m)"), HEADER_TITLE)).toBe(refused);
+    expect(applied(knot("g(‸m)"), writeTitle("parameter", "m"))).toBe(refused);
+    expect(applied(knot("g(‸m: Int)"), removeTitle("parameter", "m"))).toBe(refused);
+    // Another `fun` that does not check, in no block of this member's, is no reason.
+    expect(applied(program("fun other() = nope", "fun", "    ‸apply(f, x) = f(x)"), HEADER_TITLE))
+      .toBe(program("fun other() = nope", "fun", "    apply(f: a -> b, x: a): b = f(x)"));
+  });
+
   test("a `fun` block's binder list, on its keyword", () => {
     expect(rewritten(program("f‸un", "    twice(n: a): a = n + n", "    say(x: b): String = \"${x}\""), writeTitle("binder", undefined)))
       .toBe(program("fun<a: Num, b: Show>", "    twice(n: a): a = n + n", "    say(x: b): String = \"${x}\""));
@@ -377,6 +391,11 @@ describe("every name the module declares keeps its type", () => {
   test("a lambda no name holds, whose parameters are each `a` on their own either way", () => {
     expect(applied(program("let ignore(f) = ()", "let outer() = ignore((x: a, ‸y: a) => x)"), removeTitle("parameter", "y")))
       .toBe("refused: removing `: a` would change the type of `y` from `a` to `b`");
+  });
+
+  test("a row's tail, tied or not", () => {
+    expect(applied(program("let ignore(f) = ()", "let outer() = ignore((r: {...a}, ‸s: {...a}) => {...s})"), removeTitle("parameter", "s")))
+      .toBe("refused: removing `: {...a}` would change the type of `s` from `{...a}` to `{...b}`");
   });
 
   test("a face, and a pattern's variable's", () => {

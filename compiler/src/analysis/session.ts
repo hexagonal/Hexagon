@@ -1490,10 +1490,10 @@ export class AnalysisSession {
    * parameters as well as its faces, each found again where the edit moved
    * it.
    *
-   * Each declaration's names are lettered as one (`Typed.Letters`), as its
-   * hints are, so a tie between two of them is compared too: removing `: a`
-   * from `y` in `(x: a, y: a) => x` leaves `x` and `y` each `a` on its own,
-   * and unties them.
+   * Each declaration's names are lettered as one (`Typed.Letters`), so a tie
+   * between two of them is compared too: removing `: a` from `y` in
+   * `(x: a, y: a) => x` leaves `x` and `y` each `a` on its own, and unties
+   * them.
    *
    * The reports that a signature is incomplete are counted rather than
    * compared, as `#verifyAnnotation`'s on its declaration are: writing a piece
@@ -2695,7 +2695,9 @@ function readSite(site: string): readonly [string, string] {
 
 /**
  * One declaration's names shown together: with one set of letters
- * (`Typed.Letters`), so a tie between two of them shows. A colour a name's
+ * (`Typed.Letters`), so a tie between two of them shows, a row's tail's
+ * included. The letters are the comparison's, minted in order, not always
+ * the ones the source writes. A colour a name's
  * own type does not quantify is decided outside it, by its declaration, so it
  * is shown as the constant it accepts (Effects §10), as one a caller chooses
  * is (#1184): a parameter's callback `() ->! a`, whether its colour is
@@ -2709,7 +2711,11 @@ function shownTogether(symbols: readonly (Typed.Symbol | undefined)[]): readonly
     const { scheme } = symbol;
     const decided = [...Typed.collectEffectVariables(scheme.type)].filter((variable) => !scheme.variables.includes(variable));
     const callersChoice = [...(scheme.callersChoice ?? []), ...decided];
-    return Typed.displayCallFace({ ...scheme, callersChoice }, undefined, letters).type;
+    // Every variable lettered, a row's tail the scheme does not quantify
+    // included, which a display alone shows bare, `{...}`.
+    const free = [...Typed.collectTypeVariables(scheme.type)].filter((variable) => !scheme.variables.includes(variable));
+    const variables = [...scheme.variables, ...free];
+    return Typed.displayCallFace({ ...scheme, variables, callersChoice }, undefined, letters).type;
   });
 }
 
