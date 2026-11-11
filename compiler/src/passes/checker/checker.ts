@@ -1024,13 +1024,16 @@ interface ClaimSubject {
 /**
  * A claim's own arrow in a colour report (`Checker.#claimArrow`): where the
  * claim writes it, `undefined` for an alias's, and whether it stands as the
- * demand there.
+ * demand there. `fixed` where the arrow already says what the report asks
+ * of it (`Checker.#claimArrowAt`), so rewriting the arrow would change
+ * nothing.
  */
 interface ClaimArrow {
   readonly claim: ClaimAt;
   readonly arrow: FunctionMono;
   readonly at: Source.Span | undefined;
   readonly demand: boolean;
+  readonly fixed?: boolean;
 }
 
 /** A claim being met (`#claimPatternType`), for the reports its unification makes. */
@@ -17339,10 +17342,12 @@ class Checker {
    * Matching §12): the arrow accepts a function the part refuses. An arrow an
    * alias spells is not at the report, so the report names it by what it
    * marks, and its rewrite is the type the part has, whole. `undefined` where
-   * the arrow stands as the demand.
+   * the arrow stands as the demand, or accepts no more than the part does
+   * (`fixed`): there the part's arrow is what is fixed, and the effect
+   * report's own words say so.
    */
   #claimSupplyMessage(claimArrow: ClaimArrow, axes: readonly Axis[]): string | undefined {
-    if (claimArrow.demand) return undefined;
+    if (claimArrow.demand || claimArrow.fixed === true) return undefined;
     const marks: Record<Axis, boolean> = { world: false, fail: false };
     for (const axis of AXES) {
       const slot = colourAt(claimArrow.arrow, axis);
@@ -17364,21 +17369,23 @@ class Checker {
   }
 
   /**
-   * A claim's arrow as the report reads it. As the demand, an arrow that
-   * already marks every colour the report names is not what cannot hold: the
-   * part's own arrow is a constant the claim meets as it was decided (Pattern
-   * Matching §2.9), so the arrow's rewrite would change nothing, and the
-   * report reads it as an alias's, whose rewrite is the type the part has,
-   * whole.
+   * A claim's arrow as the report reads it. An arrow that already says what
+   * the report asks of it, marked on each colour the report names as the
+   * demand, silent on each handed a function at a parameter, is not what
+   * cannot hold: the part's own arrow is a constant the claim meets as it was
+   * decided (Pattern Matching §2.9; #1518), so the arrow's rewrite would
+   * change nothing, and the claim's words for an arrow that accepts more
+   * would be false. The report keeps its place, in the effect report's own
+   * words, and its rewrite is the type the part has, whole. An alias's arrow
+   * is read so too.
    */
   #claimArrowAt(claimArrow: ClaimArrow, axes: readonly Axis[]): ClaimArrow {
-    if (claimArrow.at === undefined || !claimArrow.demand) return claimArrow;
     for (const axis of AXES) {
       const slot = colourAt(claimArrow.arrow, axis);
       const colour = slot === undefined ? PURE : this.#prune(slot);
-      if (colour.kind !== "Effect" || (axes.includes(axis) && !isImpure(colour))) return claimArrow;
+      if (colour.kind !== "Effect" || (axes.includes(axis) && isImpure(colour) !== claimArrow.demand)) return claimArrow;
     }
-    return { ...claimArrow, at: undefined };
+    return { ...claimArrow, fixed: true };
   }
 
   /**
@@ -17386,11 +17393,11 @@ class Checker {
    * (Pattern Matching §12): as the demand, marked on each colour the part does
    * besides; handed a function at a parameter, silent on each the part refuses
    * there. A following arrow is left to its own rows. Where the arrow is not
-   * written in the claim, an alias's, the rewrite is the type the part has,
-   * whole.
+   * written in the claim, an alias's, or already says what the report asks
+   * of it (`fixed`), the rewrite is the type the part has, whole.
    */
   #claimArrowFixes(claimArrow: ClaimArrow, axes: readonly Axis[]): { readonly fixes?: readonly Diagnostics.Fix[] } {
-    if (claimArrow.at === undefined) return { fixes: [this.#claimRewrite(claimArrow.claim)] };
+    if (claimArrow.at === undefined || claimArrow.fixed === true) return { fixes: [this.#claimRewrite(claimArrow.claim)] };
     const marks: boolean[] = [];
     for (const axis of AXES) {
       const slot = colourAt(claimArrow.arrow, axis);
@@ -33892,7 +33899,8 @@ class Checker {
             )
           )) +
             (lazy && axes.includes("fail") ? LAZY_SEQ_ADVICE : "") +
-            (claimArrow?.at === undefined && claimArrow?.claim.spelling === undefined && claimArrow !== undefined
+            (claimArrow !== undefined && (claimArrow.at === undefined || claimArrow.fixed === true) &&
+                claimArrow.claim.spelling === undefined
               ? "; remove the type"
               : ""),
           // Refused at the value handed, where the contract is the parameter's.
