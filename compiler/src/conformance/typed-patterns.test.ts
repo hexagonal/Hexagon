@@ -13,7 +13,7 @@
 
 import { describe, expect, test } from "vitest";
 
-import { compileMain, runMain } from "../support/test-project.js";
+import { compileFiles, compileMain, runMain } from "../support/test-project.js";
 import * as Typed from "../syntax/typed/index.js";
 
 const HEADER = "module Main\n\n";
@@ -266,6 +266,19 @@ describe("§2.9 a claim: it tests nothing and converts nothing", () => {
     expect(messages(
       'let n: Int = 3\nlet g() = match (n, "x")\n    ((x: Float), s) => s\nexport let out: String = g()\n',
     )).toHaveLength(1);
+    // At a `let`, `Some(x)` read as written would add "this pattern can fail".
+    expect(messages("let (Some(x): Option(String)) = Some(1)\nexport let out: Int = 1\n")).toHaveLength(1);
+    // At a `catch` arm the claim is about the thrown `Exn`; one that disagrees
+    // shadows nothing below it.
+    expect(messages(
+      "exception Oops(code: Int)\nlet f(): Int = try throw^(Oops(3))\n    catch\n        (e: String) => 0\n        Oops(c) => c\n" +
+        "export let out: Int = f()\n",
+    )).toEqual(["type mismatch: expected Exn, found String"]);
+    // `Some(1)` read at the type claimed, or as written, would add a mismatch
+    // or a missing `Some(_)`: the claim's report is the one.
+    expect(messages(
+      "let g(o: Option(Int)): Int = match o\n    (Some(1): Option(String)) => 0\n    None => 1\nexport let out: Int = g(None)\n",
+    )).toHaveLength(1);
   });
 });
 
@@ -280,6 +293,15 @@ describe("§2.9 it decides what it writes", () => {
     expect(messages(loop.replace("(x: Nat)", "x"))).toEqual([
       "`x` is a `Int` and cannot enter `Nat`, so the addition could not run at `Nat`",
     ]);
+  });
+
+  test("a constructor only the head's door finds is found through the written type (§6.1 rule 2)", () => {
+    const colours = ["/colors.hex", "module Colors\n\nexport union Colour =\n    | Red\n    | Green\n"] as const;
+    const main = (pattern: string): string =>
+      HEADER + `import Colors\nlet f(k) = match k\n    ${pattern} => 1\n    _ => 0\nexport let out: Int = f(Colors.Red)\n`;
+    expect(compileFiles([colours, ["/main.hex", main("(Red: Colors.Colour)")]]).diagnostics.map(({ message }) => message))
+      .toEqual([]);
+    expect(compileFiles([colours, ["/main.hex", main("Red")]]).diagnostics).toHaveLength(1);
   });
 
   test("at a `match`, it names the head (§6.1 rule 2)", () => {

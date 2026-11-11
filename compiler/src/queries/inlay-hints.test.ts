@@ -369,6 +369,22 @@ describe("inlay hints: bindings, lambdas and patterns", () => {
     ].join("\n"));
   });
 
+  test("a `let` pattern's name with a type written over it takes none (Pattern Matching §2.9, §6.3)", () => {
+    expect(hinted([
+      'let (a: Float, b) = (1, "x")',
+      'let ((c, d): (Int, _)) = (1, "x")',
+      "let ((e: Int) as f, g) = (1, 2)",
+      'let (h, i): (Int, String) = (1, "x")',
+      "",
+    ].join("\n"))).toBe([
+      'let (a: Float, b⟦: String⟧) = (1, "x")',
+      'let ((c, d): (Int, _)) = (1, "x")',
+      "let ((e: Int) as f, g⟦: Int⟧) = (1, 2)",
+      'let (h, i): (Int, String) = (1, "x")',
+      "",
+    ].join("\n"));
+  });
+
   test("a `let` pattern's names, a `var`, an instance member's parameters", () => {
     expect(hinted([
       'let (a, b) = (1, "x")',

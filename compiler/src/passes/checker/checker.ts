@@ -843,20 +843,6 @@ function handlesEverything(arm: Resolved.MatchArm): boolean {
   return everything(arm.pattern);
 }
 
-/**
- * The pattern a lambda's pattern parameter destructures its argument with: the
- * `let` the resolver opens the body with for that parameter (Pattern Matching
- * §6.5), or `undefined` for a plain parameter.
- */
-function parameterPattern(lambda: Resolved.LambdaExpr, parameter: Resolved.SymbolId): Resolved.Pattern | undefined {
-  if (lambda.body.kind !== "Block") return undefined;
-  for (const item of lambda.body.items) {
-    if (item.kind !== "LetPattern" || item.parameter !== true) return undefined;
-    if (item.value.kind === "Name" && item.value.symbol === parameter) return item.pattern;
-  }
-  return undefined;
-}
-
 /** One call a body absorbed: its colour, where it was written, and its mark. */
 interface AbsorbedColour {
   readonly effect: Mono;
@@ -13372,11 +13358,7 @@ class Checker {
           for (const [index, parameter] of expression.parameters.entries()) {
             if (parameter.annotation !== undefined) continue;
             const component = landing.parameters[index]!;
-            // A type written in a pattern parameter is read as a written
-            // parameter type, for the part it claims (Pattern Matching §2.9).
-            const destructured = parameterPattern(expression, parameter.symbol);
-            const claimed = destructured === undefined ? [] : this.#claimedParts(destructured, component);
-            this.#defaultUnnamed(component, parameter.span, [...outputs, ...claimed], {
+            this.#defaultUnnamed(component, parameter.span, outputs, {
               span: parameter.span,
               held: component,
               say: (written) =>

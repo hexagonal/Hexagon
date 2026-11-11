@@ -1182,12 +1182,16 @@ describe("parse", () => {
       expect(module.diagnostics[0]?.message).toContain("record fields bind with `=`");
     });
 
-    test("an uppercase-start value in a pattern adds the annotate-outside hint (F4)", () => {
+    test("an uppercase-start value in a pattern takes the separator repair alone at the parser (F4)", () => {
+      // A type has a place in a pattern now (Pattern Matching §2.9), so "annotate
+      // outside the pattern" would send the dev the wrong way. Whether `Float`
+      // names a type or a constructor is the resolver's to say, and the typed
+      // pattern `{x = (x: Float)}` is offered only where it names a type.
       const module = parseSource("let {x: Float} = p");
 
-      expect(module.diagnostics[0]?.message).toContain(
-        "if you meant a type, patterns destructure values — annotate outside the pattern",
-      );
+      expect(module.diagnostics.map(({ message }) => message)).toEqual([
+        "record fields bind with `=`: `{x = …}`; `:` gives a field its type in record types",
+      ]);
     });
 
     test("the annotate-outside hint is pattern-only, not offered for literals", () => {
