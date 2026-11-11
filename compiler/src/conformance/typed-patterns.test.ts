@@ -248,6 +248,46 @@ describe("§2.9 the parentheses-only rule (§12's rows)", () => {
     }
   });
 
+  test("a refusal around another names and applies the inner one's rewrite too", () => {
+    for (
+      const [source, messages_, fixed] of [
+        [
+          "let f(o) = match o\n    Some(Some(n: Int): Option(Int)) => n\n    _ => 0\nexport let out: Int = f(None)\n",
+          ["`Some((Some((n: Int)): Option(Int)))`", "`Some((n: Int))`"],
+          "let f(o) = match o\n    Some((Some((n: Int)): Option(Int))) => n\n    _ => 0\nexport let out: Int = f(None)\n",
+        ],
+        [
+          "let f(o) = match o\n    Some(n: Int): Option(Int) => n\n    _ => 0\nexport let out: Int = f(None)\n",
+          ["`(Some((n: Int)): Option(Int))`", "`Some((n: Int))`"],
+          "let f(o) = match o\n    (Some((n: Int)): Option(Int)) => n\n    _ => 0\nexport let out: Int = f(None)\n",
+        ],
+      ] as const
+    ) {
+      const project = compiled(source);
+      expect(project.diagnostics.map(({ message }) => message)).toEqual(
+        messages_.map((rewrite) => `a type in a pattern goes in parentheses: ${rewrite}`),
+      );
+      // The outer report's fix compiles alone.
+      const [edit] = project.diagnostics[0]!.fixes![0]!.edits;
+      const written = (HEADER + source).slice(0, edit!.span.start.offset) + edit!.replacement +
+        (HEADER + source).slice(edit!.span.end.offset);
+      expect(written).toBe(HEADER + fixed);
+      expect(messages(fixed)).toEqual([]);
+    }
+    // A vector whose rest takes a type is rewritten whole, its elements' types written in it.
+    const project = compiled("let g(xs) = match xs\n    [x: Int, ...rest: Vector(Int)] => x\n    _ => 0\nexport let out: Int = g([1])\n");
+    const whole = "`([(x: Int), ...rest]: Vector(Int))`";
+    expect(project.diagnostics.map(({ message }) => message)).toEqual([
+      `a type in a pattern goes in parentheses: ${whole}`,
+      `a rest takes the vector's type; type the whole: ${whole}`,
+    ]);
+    for (const diagnostic of project.diagnostics) {
+      expect(diagnostic.fixes![0]!.edits.map(({ replacement }) => replacement)).toEqual(["([(x: Int), ...rest]: Vector(Int))"]);
+    }
+    expect(messages("let g(xs) = match xs\n    ([(x: Int), ...rest]: Vector(Int)) => x\n    _ => 0\nexport let out: Int = g([1])\n"))
+      .toEqual([]);
+  });
+
   test("`fault e: Exn` is refused in Exceptions §5.2's words, its fix removing the type", () => {
     const refused = refusal(
       "exception Oops(n: Int)\nlet f(): Int = try throw^(Oops(3))\n    catch\n        fault e: Exn => 1\n        _ => 0\n" +
@@ -266,6 +306,9 @@ describe("§2.9 the parentheses-only rule (§12's rows)", () => {
       "exception Oops(n: Int)\nlet f(): Int = try throw^(Oops(3))\n    catch\n        fault e as x: Exn => 1\n        _ => 0\n" +
         "export let out: Int = f()\n",
     )).toEqual(["a `fault` pattern is a whole catch arm's pattern"]);
+    // In a `match` arm, the `fault` pattern's refusal is the arm's one report, as without the type.
+    expect(messages("let f(x: Int): Int = match x\n    fault e: Exn => 1\n    _ => 0\nexport let out: Int = f(1)\n"))
+      .toEqual(["a `fault` pattern is a whole catch arm's pattern"]);
   });
 
   test("a loop's refusal quotes a long iterable as `…`", () => {
@@ -361,6 +404,10 @@ describe("§2.9 a claim: it tests nothing and converts nothing", () => {
       "union Shape =\n    | Circle(radius: Float)\n    | Square(side: Float)\n" +
         "let f(sh) = match sh\n    (s: Circel) => 1\n    _ => 0\nexport let out: Int = 1\n",
     )).toEqual(["unknown type `Circel`"]);
+    // A refused part of a written type is that one report, and the rest of the type still decides.
+    expect(messages("let ((x, y): (Foo, Int)) = (1, 2)\nexport let v: String = y.show()\n")).toEqual(["unknown type `Foo`"]);
+    expect(messages("let f() = match (1, 2)\n    ((x, y): (Foo, Int)) => y.show()\nexport let out: String = f()\n"))
+      .toEqual(["unknown type `Foo`"]);
     // …and the head it was written to name is that report's echo (§6.1),
     // a head only the door would find included.
     expect(messages("let g(o) = match o\n    (Some(s): Foo) => 1\n    _ => 0\nexport let out: Int = g(Some(1))\n"))
@@ -437,6 +484,15 @@ describe("§2.9 it decides what it writes", () => {
       .toEqual([]);
   });
 
+  test("a declared pattern under a box's claim is read through it, as the label's rewrite says", () => {
+    const untyped = compiled("import Rat\nlet o = Some(1).map((((n, d)rat)) => n.show())\nexport let out: Option(String) = o\n");
+    expect(untyped.diagnostics.flatMap(({ labels }) => labels ?? []).map(({ message }) => message)).toEqual([
+      "a number in `((n, d)rat)` became an `Int` here: the number reached only the lambda's input — write `(((n, d)rat): Rat)`",
+    ]);
+    expect(scheme("import Rat\nlet o = Some(1).map(((((n, d)rat): Rat)) => n.show())\nexport let out: Option(String) = o\n", "o"))
+      .toBe("Option(String)");
+  });
+
   test("where a box makes a pattern parameter's number an `Int`, the label names the pattern", () => {
     const [diagnostic] = compiled("let o = Vector.map([(1, 2)], ((k, v)) => k)\nexport let p: Vector(Nat) = o\n").diagnostics;
     expect(diagnostic!.message).toBe("type mismatch: expected Nat, found Int");
@@ -490,6 +546,8 @@ describe("§2.9 it decides what it writes", () => {
         ["({a, b}: {a: Nat, b: _}) => a", "{a = 1, b = 2}"],
         ["([(a, b)]: Vector((Nat, _))) => a\n    _ => 0", "[(1, 2)]"],
         ["(Some((a, b)): Option((Nat, _))) => a\n    _ => 0", "Some((1, 2))"],
+        // The one alternative that writes a type claims for both.
+        ["(a, 0) | ((a: Nat), _) => a", "(1, 2)"],
       ] as const
     ) {
       expect(scheme(`let f() = match ${scrutinee}\n    ${arms}\nexport let out: Nat = f()\n`, "f")).toBe("() -> Nat");
@@ -499,6 +557,28 @@ describe("§2.9 it decides what it writes", () => {
         "export let out: Nat = f()\n",
       "f",
     )).toBe("() -> Nat");
+    // Down through a written collection's and `Nullable`'s parts, at a loop, a `match` and a box.
+    const map = 'Map.fromVector([("a", 1)])';
+    expect(scheme(
+      `let g() =\n    var s = 0\n    for (m: Map(_, Nat)) in [${map}]\n        s := m.size()\n    s\nexport let out: Int = g()\n`,
+      "g",
+    )).toBe("() -> Int");
+    expect(scheme(
+      `let f() = match Some(${map})\n    (Some(m): Option(Map(_, Nat))) => m.size()\n    _ => 0\nexport let out: Int = f()\n`,
+      "f",
+    )).toBe("() -> Int");
+    expect(scheme(`let o = Vector.map([${map}], ((m: Map(_, Nat))) => m.size())\nexport let out: Vector(Int) = o\n`, "o"))
+      .toBe("Vector(Int)");
+    expect(scheme(
+      "let g() =\n    var s = 0\n    for (t: Set((Nat, _))) in [Set.fromVector([(1, 2)])]\n        s := t.size()\n    s\n" +
+        "export let out: Int = g()\n",
+      "g",
+    )).toBe("() -> Int");
+    expect(scheme(
+      "let o = Vector.map([Nullable.fromOption(Some((1, 2)))], ((v: Nullable((Nat, _)))) => Nullable.isNullish(v))\n" +
+        "export let out: Vector(Bool) = o\n",
+      "o",
+    )).toBe("Vector(Bool)");
     // A constructor only the head's door finds is read through its declaration.
     const pairs = ["/pairs.hex", "module Pairs\n\nexport union Pair(a, b) =\n    | P(a, b)\n"] as const;
     expect(compileFiles([

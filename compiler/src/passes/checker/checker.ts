@@ -13388,14 +13388,13 @@ class Checker {
                 ": the number reached only the lambda's input — " +
                 (written === undefined || spelled === undefined ? "write its type here" : `write \`(${spelled}: ${written})\``),
             });
+            // A claimed part is settled by its written type; a declared
+            // pattern's components beneath the claim read it through here.
+            const settled = (variable: Variable): boolean =>
+              variable.rigidName !== undefined || claimed.some((part) => this.#occurs(variable, part));
             const head = this.#prune(component);
-            this.#landedHeads.set(parameter.symbol, head.kind !== "Variable" || head.rigidName !== undefined);
-            this.#landedWhole.set(
-              parameter.symbol,
-              this.#shapeVariables(component).every((variable) =>
-                variable.rigidName !== undefined || claimed.some((part) => this.#occurs(variable, part))
-              ),
-            );
+            this.#landedHeads.set(parameter.symbol, head.kind !== "Variable" || settled(head));
+            this.#landedWhole.set(parameter.symbol, this.#shapeVariables(component).every(settled));
           }
         }
         this.#integerTestedParameters(expression, parameters);
@@ -16878,8 +16877,9 @@ class Checker {
    */
   #claimPatternType(pattern: Resolved.TypedPattern, expected: Mono, level: number): Mono | undefined {
     // A type the resolver refused has been reported there; the claim fails
-    // with it, so the pattern beneath reads as `_` and shadows nothing.
-    if (annotationHasErrorType(pattern.annotation)) return undefined;
+    // with it, so the pattern beneath reads as `_` and shadows nothing. A
+    // refused part of a written type is an error part, which claims nothing.
+    if (pattern.annotation.kind === "ErrorType") return undefined;
     const following = followingArrowIn(pattern.annotation);
     if (following !== undefined) {
       this.#refusePatternFollowingArrow(following, expected);
@@ -39094,7 +39094,8 @@ class Checker {
   /**
    * The parts of `type` a written type writes whole: all of it where the
    * written type has no hole, and otherwise each part it spells, read down
-   * through tuples, records, vectors and a declaration's arguments.
+   * through tuples, records, collections, `Nullable` and a declaration's
+   * arguments.
    */
   #annotationClaims(annotation: Resolved.TypeAnnotation, type: Mono): Mono[] {
     if (annotationWhole(annotation)) return [type];
@@ -39112,7 +39113,18 @@ class Checker {
           })
           : [];
       case "Vector":
-        return actual.kind === "Vector" ? this.#annotationClaims(annotation.element, actual.element) : [];
+      case "Set":
+      case "Array":
+      case "JsSet":
+      case "Node":
+        return actual.kind === annotation.kind ? this.#annotationClaims(annotation.element, actual.element) : [];
+      case "Map":
+      case "JsMap":
+        return actual.kind === annotation.kind
+          ? [...this.#annotationClaims(annotation.key, actual.key), ...this.#annotationClaims(annotation.value, actual.value)]
+          : [];
+      case "Nullable":
+        return actual.kind === "Nullable" ? this.#annotationClaims(annotation.value, actual.value) : [];
       case "Union":
         return actual.kind === "Union" && actual.union === annotation.union
           ? along(annotation.arguments, actual.arguments)

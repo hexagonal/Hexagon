@@ -390,6 +390,12 @@ function writtenTypeParameter(parameter: Parsed.TypeParameter): string {
 /** Exceptions §5.2, §9: where a `fault` pattern stands other than as a whole catch arm's. */
 const FAULT_PATTERN_SEAT = "a `fault` pattern is a whole catch arm's pattern";
 
+/** An edit a parentheses-only refusal makes (`#refuseBareTypes`). */
+interface BareEdit {
+  readonly span: Source.Span;
+  readonly replacement: string;
+}
+
 const opensVisibleDeclaration = new Set<TokenKind>([
   "Let",
   "Fun",
@@ -734,6 +740,8 @@ class Parser {
    */
   #catchArmHead: number | undefined;
   #armFault: Source.Span | undefined;
+  /** The edits the parentheses-only refusals have made so far (`#refuseBareTypes`). */
+  readonly #bareEdits: BareEdit[] = [];
 
   constructor(
     tokens: readonly LaidOut.Token[],
@@ -5636,21 +5644,30 @@ class Parser {
    * `Some(n: Int)`, `{x = n: Int}`, `[n: Int]` and a declared pattern's
    * `(n: BigInt, d)rat` are refused, the fixit giving the typed pattern
    * parentheses of its own. The message spells the enclosing form rewritten.
+   * A type on a vector's rest is refused with them: a rest is a binder, not an
+   * element, and its type is the vector's, so the rewrite types the whole
+   * vector pattern instead.
    */
-  #refuseBareTypes(bare: readonly Parsed.TypedPattern[], whole: Source.Span): void {
+  #refuseBareTypes(bare: readonly Parsed.TypedPattern[], whole: Source.Span, rest?: Parsed.TypedPattern): void {
+    if (bare.length === 0 && rest === undefined) return;
     // Each slot of the form is refused where it stands, and each report names
-    // and applies the form with every one of them parenthesised, so its fix
+    // and applies the form with every one of them written, so its fix
     // compiles alone (as Declarations Preamble §1.1's reports of one
-    // declaration carry one edit).
+    // declaration carry one edit). A slot's own text carries the refusals
+    // already made inside it, and a vector whose rest takes a type is
+    // rewritten whole, typed after its brackets.
     const ordered = [...bare].sort((left, right) => left.span.start.offset - right.span.start.offset);
-    const edits = ordered.map((typed) => ({ span: typed.span, replacement: `(${this.#sourceText(typed.span)})` }));
-    let rewritten = "";
-    let at = whole.start.offset;
-    for (const edit of edits) {
-      rewritten += this.#text.slice(at, edit.span.start.offset) + edit.replacement;
-      at = edit.span.end.offset;
+    const slots = ordered.map((typed) => ({ span: typed.span, replacement: `(${this.#textWithBareEdits(typed.span)})` }));
+    let rewritten: string;
+    let edits: readonly BareEdit[];
+    if (rest === undefined) {
+      rewritten = this.#textWithBareEdits(whole, slots);
+      edits = slots;
+    } else {
+      const binder = { span: rest.span, replacement: this.#sourceText(rest.pattern.span) };
+      rewritten = `(${this.#textWithBareEdits(whole, [...slots, binder])}: ${this.#sourceText(rest.annotation.span)})`;
+      edits = [{ span: whole, replacement: rewritten }];
     }
-    rewritten += this.#text.slice(at, whole.end.offset);
     const fix = { message: `write ${edits.map(({ replacement }) => `\`${replacement}\``).join(" and ")}`, edits };
     for (const typed of ordered) {
       this.#diagnostics.add({
@@ -5660,6 +5677,40 @@ class Parser {
         fixes: [fix],
       });
     }
+    if (rest !== undefined) {
+      this.#diagnostics.add({
+        severity: "error",
+        message: `a rest takes the vector's type; type the whole: \`${rewritten}\``,
+        primary: rest.span,
+        fixes: [fix],
+      });
+    }
+    this.#bareEdits.push(...edits);
+  }
+
+  /**
+   * The source between two offsets with `own` edits and every refusal's edit
+   * already made inside it applied (`#refuseBareTypes`): an inner form is read
+   * before the form around it, so the rewrite an outer refusal names carries
+   * the inner one's. An edit inside another is the other's already.
+   */
+  #textWithBareEdits(within: Source.Span, own: readonly BareEdit[] = []): string {
+    const start = within.start.offset;
+    const end = within.end.offset;
+    const edits = [
+      ...this.#bareEdits.filter(({ span }) => span.start.offset >= start && span.end.offset <= end),
+      ...own,
+    ].sort((left, right) =>
+      left.span.start.offset - right.span.start.offset || right.span.end.offset - left.span.end.offset
+    );
+    let text = "";
+    let at = start;
+    for (const { span, replacement } of edits) {
+      if (span.start.offset < at) continue;
+      text += this.#text.slice(at, span.start.offset) + replacement;
+      at = span.end.offset;
+    }
+    return text + this.#text.slice(at, end);
   }
 
   /**
@@ -5693,27 +5744,11 @@ class Parser {
       });
       return pattern;
     }
+    // A pattern refused where it was read (a `fault` pattern in a `match`
+    // arm) is the arm's one report, and claims nothing.
+    if (pattern.kind === "Error") return pattern;
     this.#refuseBareTypes([typed], typed.span);
     return typed;
-  }
-
-  /**
-   * A type written on a vector pattern's rest (Pattern Matching §2.9): a rest is
-   * a binder, not an element, and its type is the vector's, so the rewrite
-   * types the whole vector pattern instead.
-   */
-  #refuseRestType(typed: Parsed.TypedPattern, vector: Source.Span): void {
-    const type = this.#sourceText(typed.annotation.span);
-    const binder = this.#sourceText(typed.pattern.span);
-    const written = this.#text.slice(vector.start.offset, typed.span.start.offset) + binder +
-      this.#text.slice(typed.span.end.offset, vector.end.offset);
-    const replacement = `(${written}: ${type})`;
-    this.#diagnostics.add({
-      severity: "error",
-      message: `a rest takes the vector's type; type the whole: \`${replacement}\``,
-      primary: typed.span,
-      fixes: [{ message: `write \`${replacement}\``, edits: [{ span: vector, replacement }] }],
-    });
   }
 
   /**
@@ -6078,8 +6113,7 @@ class Parser {
       }
       const closing = this.#expect("RightBracket", "expected `]` after vector pattern");
       const span = spanFrom(opening.span, closing?.span ?? rest?.span ?? elements.at(-1)?.span ?? opening.span);
-      this.#refuseBareTypes(bare, span);
-      if (restType !== undefined) this.#refuseRestType(restType, span);
+      this.#refuseBareTypes(bare, span, restType);
       return {
         kind: "Vector",
         elements,

@@ -146,6 +146,11 @@ export interface TypePiece extends Place {
   };
   /** Whether what it shows holds an error, in which case it is never drawn. */
   readonly error: boolean;
+  /**
+   * A pattern variable an `as` binds, whose type is written around the whole
+   * `as` rather than at its name.
+   */
+  readonly asBinder?: true;
 }
 
 /**
@@ -407,7 +412,7 @@ function collect(input: InlayHintInput): readonly (TypePiece | WrittenPiece | In
       case "LetPattern":
         // The binding's annotation writes every variable's part already.
         if (item.annotation !== undefined) return;
-        forEachBinder(item.pattern, (name) => {
+        forEachBinder(item.pattern, (name, asBinder) => {
           const symbol = symbols.get(key(name.span));
           if (symbol === undefined) return;
           const shown = Typed.displayCallFace(symbol.scheme, context, letters);
@@ -421,6 +426,7 @@ function collect(input: InlayHintInput): readonly (TypePiece | WrittenPiece | In
             exported: item.exported,
             letters,
             shown: { type: symbol.scheme.type, scheme: symbol.scheme, text: shown.type, before: ": ", after: "" },
+            ...(asBinder ? { asBinder: true as const } : {}),
           });
         });
         return;
@@ -864,7 +870,7 @@ function expressionsOf(root: SyntaxNode): readonly Parsed.Expr[] {
  * guest}` before it can take a type, and not a name a typed pattern on it or
  * around it covers, whose type is written already (Pattern Matching §2.9).
  */
-function forEachBinder(pattern: Parsed.Pattern, visit: (name: Parsed.Name) => void): void {
+function forEachBinder(pattern: Parsed.Pattern, visit: (name: Parsed.Name, asBinder: boolean) => void): void {
   const skipped = new Set<Parsed.Pattern>();
   walkData(pattern, (node) => {
     if (node.kind === "Typed") walkData((node as unknown as Parsed.TypedPattern).pattern, (inner) => skipped.add(inner as Parsed.Pattern));
@@ -878,8 +884,8 @@ function forEachBinder(pattern: Parsed.Pattern, visit: (name: Parsed.Name) => vo
     }
   });
   walkData(pattern, (node) => {
-    if (node.kind === "Binding" && !skipped.has(node as unknown as Parsed.Pattern)) visit((node as unknown as Parsed.BindingPattern).name);
-    if (node.kind === "As" && !skipped.has(node as unknown as Parsed.Pattern)) visit((node as unknown as Parsed.AsPattern).name);
+    if (node.kind === "Binding" && !skipped.has(node as unknown as Parsed.Pattern)) visit((node as unknown as Parsed.BindingPattern).name, false);
+    if (node.kind === "As" && !skipped.has(node as unknown as Parsed.Pattern)) visit((node as unknown as Parsed.AsPattern).name, true);
   });
 }
 

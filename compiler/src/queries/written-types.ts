@@ -163,7 +163,9 @@ export function writtenTypeRefactorings(input: WrittenTypesInput): readonly Writ
     if (piece.role === "pattern") {
       const text = spelled(piece, spelling);
       const type = "written" in text && text.written.startsWith(": ") ? text.written.slice(2) : undefined;
-      found.push({ title, disabled: patternRefusal(piece.name, type) });
+      // An `as` binder's type is written around the whole `as`, which is no
+      // spelling at its name.
+      found.push({ title, disabled: patternRefusal(piece.name, piece.asBinder === true ? undefined : type) });
     } else write(title, [piece], undefined);
   }
   // A whole header, on its name, where two or more of its places are unwritten.

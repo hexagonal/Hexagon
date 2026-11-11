@@ -194,6 +194,10 @@ describe("write down the inferred type, at one place", () => {
     // What the refusal names compiles.
     const written = program("let (a, (b: String)) = (1, \"x\")");
     expect(reports(written)).toEqual([]);
+    // An `as` binder's type is written around the whole `as`, so none is spelled at its name.
+    expect(applied(program("let (a, b) as ‸p = (1, \"x\")"), writeTitle("pattern", "p"))).toBe(
+      "refused: writing a type into a pattern is not offered yet; write it by hand, in parentheses",
+    );
   });
 });
 
