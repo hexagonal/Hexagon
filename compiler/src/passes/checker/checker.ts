@@ -1004,6 +1004,17 @@ type WrittenRole = "spine" | "callback" | "data";
  */
 type PatternBinders = "let" | HeadBinders;
 
+/**
+ * The value a pattern takes apart, for the claims its typed patterns make
+ * (`Checker.#claimPatternType`): whether the text decides it whole, its own
+ * written type as the pattern's root meets it, and that root.
+ */
+interface ClaimSubject {
+  readonly decided: boolean;
+  readonly view: WrittenView | undefined;
+  readonly root: Resolved.Pattern;
+}
+
 /** A head binder's position, which names it in Effects §4.4's clause. */
 type HeadBinders = "arm" | "for" | "parameter";
 
@@ -7313,12 +7324,11 @@ class Checker {
    */
   #patternBinders: PatternBinders = "arm";
   /**
-   * The value the pattern being checked takes apart where its form reads it in
-   * place (`#readInPlace`: a `match` scrutinee, a `for` iterable), for the
-   * claims its typed patterns make; `undefined` where the pattern meets a value
-   * a use already read, or a lambda's parameter.
+   * The value the pattern being checked takes apart, for the claims its typed
+   * patterns make (`#claimSubject`); `undefined` at a `catch` arm, whose `Exn`
+   * holds no function.
    */
-  #claimSubject: Resolved.Expr | undefined;
+  #claimSubject: ClaimSubject | undefined;
   /**
    * A lambda literal applied where it is written — a call's callee, which a
    * pipe's right-hand lambda is (Operators §8) — and what it is applied to,
@@ -11566,9 +11576,13 @@ class Checker {
         const enclosingAnnotation = this.#patternBindingAnnotation;
         this.#patternBindingAnnotation = item.annotation?.span;
         try {
-          // A lambda's parameter makes head binders, a `let` sequential ones,
-          // and the value either meets was read by a use already.
-          this.#atBinders(item.parameter === true ? "parameter" : "let", undefined, () =>
+          // A lambda's parameter makes head binders, a `let` sequential ones.
+          // The value is the binding's annotation where it writes one, which
+          // the pattern then meets.
+          const subject: ClaimSubject = item.annotation === undefined
+            ? { decided: this.#receivedDecided(item.value), view: this.#writtenView(item.value), root: item.pattern }
+            : { decided: annotationWhole(item.annotation), view: { written: item.annotation, role: "spine" }, root: item.pattern };
+          this.#atBinders(item.parameter === true ? "parameter" : "let", subject, () =>
             this.#inferPattern(
               item.pattern,
               valueType,
@@ -13785,7 +13799,13 @@ class Checker {
               ? "write its type here"
               : `write \`(${this.#spelledExpression(expression.iterable) ?? "…"}: ${written})\``),
         });
-        this.#atBinders("for", expression.iterable, () => this.#inferMatchPattern(expression.pattern, element, level));
+        const iterated = this.#writtenView(expression.iterable);
+        const subject: ClaimSubject = {
+          decided: this.#receivedDecided(expression.iterable),
+          view: iterated?.written.kind === "Vector" ? { written: iterated.written.element, role: iterated.role } : undefined,
+          root: expression.pattern,
+        };
+        this.#atBinders("for", subject, () => this.#inferMatchPattern(expression.pattern, element, level));
         this.#markNamed(element);
         // §5.3: one sentence across all three gated positions, and this is one
         // of them. The loop's own wording is retired with the rest of the
@@ -14951,13 +14971,17 @@ class Checker {
 
   /**
    * The type a written type gives the part of a value a pattern binds as
-   * `symbol` *(#1180)*, read through each tuple, record, vector and nominal
+   * `symbol`, or a claim stands on *(#1180)*, read through each tuple, record, vector and nominal
    * record pattern as it takes the value apart: a record's field as
    * `#fieldWritten` reads it. `undefined` where the pattern meets a part the
    * written type does not spell, and under an or-pattern, whose alternatives
    * bind the name apart.
    */
-  #patternWritten(pattern: Resolved.Pattern, part: SpelledPart, symbol: Resolved.SymbolId): SpelledPart | undefined {
+  #patternWritten(
+    pattern: Resolved.Pattern,
+    part: SpelledPart,
+    symbol: Resolved.SymbolId | Resolved.TypedPattern,
+  ): SpelledPart | undefined {
     const annotation = part.written;
     const within = (written: Resolved.TypeAnnotation): SpelledPart => ({ written, role: part.role });
     const first = (pairs: readonly (readonly [Resolved.Pattern, SpelledPart | undefined])[]) => {
@@ -14974,8 +14998,9 @@ class Checker {
         return pattern.binding.symbol === symbol ? part : this.#patternWritten(pattern.pattern, part, symbol);
       case "Typed":
         // A claim unified with the part (Pattern Matching §2.9): the part is
-        // what the outer written type spells, and its arrows are its own.
-        return this.#patternWritten(pattern.pattern, part, symbol);
+        // what the outer written type spells, and its arrows are its own. A
+        // claim asked for is that part (`#claimView`).
+        return pattern === symbol ? part : this.#patternWritten(pattern.pattern, part, symbol);
       case "Tuple":
         return annotation.kind === "Tuple" && annotation.elements.length === pattern.elements.length
           ? first(pattern.elements.map((element, index) => [element, within(annotation.elements[index]!)] as const))
@@ -16903,14 +16928,17 @@ class Checker {
    * (Effects §2.2.1); at a head binder, which is one value, they are data and a
    * following arrow is refused with its constant, which it reads as (§4.4).
    *
-   * The claim is a use of the part (Effects §3.4): each arrow it receives that
-   * the text decides is read as its colour or more, so a pure function fits a
-   * `->!` claim. A `let`'s right-hand side was such a use already. A value a
-   * `match` or a `for` reads in place had only its own arrow re-opened, and
-   * what its pattern takes out is re-opened here, where the text decides the
-   * value whole, as a use of a name the pattern binds there would read it. A
-   * colour the environment holds joins room of its own, and is left to the
-   * binding that holds it.
+   * The claim is a use of the part (Effects §3.4): where the text decides the
+   * value the pattern takes apart whole, each arrow the claim receives is read
+   * as its colour or more, beside the part's own written type, so a pure
+   * function fits a `->!` claim and a function whose written type spells `->!`
+   * in a parameter accepts any function there. A value a `match` or a `for`
+   * reads in place had only its own arrow re-opened, and a `let`'s right-hand
+   * side's use does not reach a union constructor's payload, which the pattern
+   * takes from the declaration: the claim reads each as a use of a name the
+   * pattern binds there would. A value the text does not decide meets the
+   * claim as inference decides it, and a colour the environment holds joins
+   * room of its own, left to the binding that holds it.
    */
   #claimPatternType(pattern: Resolved.TypedPattern, expected: Mono, level: number): Mono | undefined {
     // A type the resolver refused has been reported there; the claim fails
@@ -16934,7 +16962,9 @@ class Checker {
       if (variable.ascribedAt === pattern.annotation.span) this.#patternDeclared.set(variable, pattern);
     }
     const subject = this.#claimSubject;
-    const part = subject !== undefined && this.#receivedDecided(subject) ? this.#openReceived(expected, level) : expected;
+    const part = subject?.decided === true
+      ? this.#openReceived(expected, level, true, this.#claimView(subject, pattern))
+      : expected;
     const before = this.#reportCount;
     this.#patternChecks += 1;
     try {
@@ -16946,13 +16976,26 @@ class Checker {
   }
 
   /**
+   * The written type a claim's part has (`#claimPatternType`): the part of
+   * the subject's own that the pattern's way down reaches (`#patternWritten`).
+   * A lambda's face is not read: its written parameters are callbacks, whose
+   * own arrows are colours, so nothing there is a constant to accept more.
+   */
+  #claimView(subject: ClaimSubject, claim: Resolved.TypedPattern): WrittenView | undefined {
+    const written = subject.view?.written;
+    return written === undefined || written.kind === "Face"
+      ? undefined
+      : this.#patternWritten(subject.root, { written, role: subject.view!.role }, claim);
+  }
+
+  /**
    * Runs a pattern's walk with its binders' class and the value it takes
-   * apart in place, if any (`#patternBinders`, `#claimSubject`). Every walk
+   * apart, if any (`#patternBinders`, `#claimSubject`). Every walk
    * that reaches a claim starts here, so neither the fields' defaults nor the
    * restore can be told apart from source today (equivalent mutants); the save
    * is kept as the other pattern seats keep theirs.
    */
-  #atBinders<T>(binders: PatternBinders, subject: Resolved.Expr | undefined, walk: () => T): T {
+  #atBinders<T>(binders: PatternBinders, subject: ClaimSubject | undefined, walk: () => T): T {
     const enclosingBinders = this.#patternBinders;
     const enclosingSubject = this.#claimSubject;
     this.#patternBinders = binders;
@@ -22268,7 +22311,12 @@ class Checker {
       try {
         // A refused `match`'s patterns are read against nothing, so what they
         // report cannot follow what another line made of the scrutinee.
-        this.#atBinders("arm", expression.scrutinee, () =>
+        const subject: ClaimSubject = {
+          decided: this.#receivedDecided(expression.scrutinee),
+          view: this.#writtenView(expression.scrutinee),
+          root: arm.pattern,
+        };
+        this.#atBinders("arm", subject, () =>
           this.#inferMatchPattern(arm.pattern, undecided ? ERROR : scrutinee, level)
         );
       } finally {

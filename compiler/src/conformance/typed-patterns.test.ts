@@ -834,6 +834,11 @@ describe("§2.9 a function fits the claim, at every position (#1510)", () => {
       "let g(xs: Vector(() -> Unit)): Unit =\n    for (f: () ->! Unit) in xs\n        f!()\n",
       "let xs = [noop]\nlet g(): Unit =\n    for (f: () ->! Unit) in xs\n        f!()\n",
       "let g(x: (() -> Unit, Int)): Unit =\n    let ((f: () ->! Unit), n) = x\n    f!()\n",
+      "let g(x: (() -> Unit, Int)): Unit =\n    let ((f: () ->! Unit), n): (() -> Unit, Int) = x\n    f!()\n",
+      "let k = (((f: () ->! Unit), n): (() -> Unit, Int)) => f!()\n",
+      // A union constructor's payload, which the pattern takes from the declaration.
+      "union Box = Box(f: () -> Unit)\nlet g(b: Box): Unit =\n    let Box((f: () ->! Unit)) = b\n    f!()\n",
+      "union Box = Box(f: () -> Unit)\nlet g(b: Box): Unit = match b\n    Box((f: () ->! Unit)) => f!()\n",
     ]) {
       expect(messages(WORLD + body + OUT)).toEqual([]);
     }
@@ -846,6 +851,20 @@ describe("§2.9 a function fits the claim, at every position (#1510)", () => {
     const source = "let f(x: Int): Int = x\nlet ((m: (Int) -> Int), n) = (f, 1)\nexport let out: Int = m(n)\n";
     expect(scheme(source, "m")).toBe("Int -> Int");
     expect(await run(source)).toMatchObject({ out: 1 });
+  });
+
+  test("a `->!` the part's written type spells in a parameter accepts any function, at every position", () => {
+    for (const body of [
+      "let g(x: ((() ->! Unit) -> Unit, Int)): Unit = match x\n    ((m: (() -> Unit) ->! Unit), n) => m!(noop)\n",
+      "let g(xs: Vector((() ->! Unit) -> Unit)): Unit =\n    for (m: (() -> Unit) ->! Unit) in xs\n        m!(noop)\n",
+      "let g(x: ((() ->! Unit) -> Unit, Int)): Unit =\n    let ((m: (() -> Unit) ->! Unit), n) = x\n    m!(noop)\n",
+      "let k = (((m: (() -> Unit) ->! Unit), n): ((() ->! Unit) -> Unit, Int)) => m!(noop)\n",
+    ]) {
+      expect(messages(WORLD + body + OUT)).toEqual([]);
+    }
+    // One written `->` there accepts only what it says.
+    expect(messages(WORLD + "let g(x: ((() -> Unit) -> Unit, Int)): Unit = match x\n" +
+      "    ((m: (() ->! Unit) ->! Unit), n) => m!(save0)\n" + OUT)).toHaveLength(1);
   });
 
   test("the binder takes the written type, so its calls wear the marks it writes", () => {
@@ -871,6 +890,9 @@ describe("§2.9 a function fits the claim, at every position (#1510)", () => {
     ]) {
       expect(messages(WORLD + body + OUT)).toEqual([report]);
     }
+    // Where the binding's annotation writes the part, the text decides it, and the claim fits.
+    expect(scheme(WORLD + "let g(h) =\n    h()\n    let ((f: () ->! Unit), n): (() -> Unit, Int) = (h, 1)\n    f!()\n" + OUT, "g"))
+      .toBe("(() -> Unit) ->! Unit");
   });
 
   test("the reverse stays refused, at every position", () => {
@@ -958,11 +980,19 @@ describe("§2.9 a head binder's type writes no callback (#1510)", () => {
     expect(messages(WORLD + "let g(): Vector(Unit) = Vector.map([noop], (f: () ->! Unit) => f!())\n" + OUT)).toEqual([]);
   });
 
-  test("an arm's type reads a callback parameter's `->!` as the constant", () => {
-    // `m` accepts any function and is impure, whatever it is handed.
+  test("an arm's type reads a parameter's `->!` as the constant, where a `let` pattern's reads a callback", () => {
+    // In a `let` pattern `->!` on a parameter is a callback's colour, which `run` follows, so `->` around it is the
+    // callback row's report; at an arm it is the constant, and `run` handed any function is impure, so the arm's
+    // `->` is the ordinary mismatch.
+    expect(messages(WORLD + "let ((m: (() ->! Unit) -> Unit), n) = (run, 1)\n" + OUT)).toEqual([
+      "this callback is written `->!`, which accepts any function, and this accepts only one that is pure and cannot " +
+        "fail — write its arrow `->`",
+    ]);
+    const arm = messages(WORLD + "let g(): Int = match (run, 1)\n    ((m: (() ->! Unit) -> Unit), n) => n\n" + OUT);
+    expect(arm).toHaveLength(1);
+    expect(arm[0]).not.toContain("callback");
+    // With the constant written around it, the arm fits.
     expect(scheme(WORLD + "let g(): Unit = match (run, 1)\n    ((m: (() ->! Unit) ->! Unit), n) => m!(noop)\n" + OUT, "g"))
       .toBe("() ->! Unit");
-    expect(scheme(WORLD + "let g(): Unit = match (run, 1)\n    ((m: (() -> Unit) -> Unit), n) => m(noop)\n" + OUT, "g"))
-      .toBe("() -> Unit");
   });
 });
