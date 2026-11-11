@@ -16849,6 +16849,9 @@ class Checker {
    * ruled (#1510), and the claim is then dropped.
    */
   #claimPatternType(pattern: Resolved.TypedPattern, expected: Mono, level: number): Mono | undefined {
+    // A type the resolver refused has been reported there; the claim fails
+    // with it, so the pattern beneath reads as `_` and shadows nothing.
+    if (annotationHasErrorType(pattern.annotation)) return undefined;
     const following = followingArrowIn(pattern.annotation);
     if (following !== undefined) {
       this.#refusePatternFollowingArrow(following, expected);

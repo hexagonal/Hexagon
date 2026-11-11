@@ -268,6 +268,11 @@ describe("§2.9 a claim: it tests nothing and converts nothing", () => {
     )).toHaveLength(1);
     // At a `let`, `Some(x)` read as written would add "this pattern can fail".
     expect(messages("let (Some(x): Option(String)) = Some(1)\nexport let out: Int = 1\n")).toHaveLength(1);
+    // A type the resolver refused is its one report: the arm below is reached.
+    expect(messages(
+      "union Shape =\n    | Circle(radius: Float)\n    | Square(side: Float)\n" +
+        "let f(sh) = match sh\n    (s: Circel) => 1\n    _ => 0\nexport let out: Int = 1\n",
+    )).toEqual(["unknown type `Circel`"]);
     // At a `catch` arm the claim is about the thrown `Exn`; one that disagrees
     // shadows nothing below it.
     expect(messages(
