@@ -108,6 +108,8 @@ declarations through this list before considering the segment done.
   **constrained** hole is never inert and is never dropped: `x: _ : Show`
   carries a claim and stays written. The ascription's degenerate spelling
   normalizes the same way: `(e : _)` becomes `(e)` (Ascription spec §3.2).
+  So does a typed pattern's: `(p: _)` becomes `p`, its parentheses with it
+  where they group nothing else (Pattern Matching §2.9).
   (`decisions-ml-dialect-annotations-2026-08.md` §5.2, §4.4)
 - **S12 [canonical]** A hole is never written where a type variable would
   hold. If the position is genuinely generic, write the variable — the
