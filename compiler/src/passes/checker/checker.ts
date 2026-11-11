@@ -39215,6 +39215,10 @@ class Checker {
     };
     switch (actual.kind) {
       case "Tuple": {
+        // The empty tuple's type is written `Unit` (Products §2.7): `()` in
+        // type notation is only a zero-parameter domain. Its name is its
+        // spelling until a declaration takes it, as a compiler-owned type's.
+        if (actual.elements.length === 0) return this.#nominalSpellings.claimed.has("Unit") ? undefined : "Unit";
         const inner = spelled(actual.elements);
         return inner === undefined ? undefined : `(${inner})`;
       }

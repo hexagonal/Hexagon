@@ -609,6 +609,12 @@ describe("§2.9 it decides what it writes", () => {
     ]);
     // What the label names compiles.
     expect(messages("let o = Vector.map([(1, 2)], (((k, v): (Nat, Int))) => k)\nexport let p: Vector(Nat) = o\n")).toEqual([]);
+    // A part that is the empty tuple is written `Unit`.
+    const [unit] = compiled("let o = Vector.map([(1, ())], ((k, u)) => k)\nexport let p: Vector(Nat) = o\n").diagnostics;
+    expect(unit!.labels?.map(({ message }) => message)).toEqual([
+      "a number in `(k, u)` became an `Int` here: the number reached only the lambda's input — write `((k, u): (Nat, Unit))`",
+    ]);
+    expect(messages("let o = Vector.map([(1, ())], (((k, u): (Nat, Unit))) => k)\nexport let p: Vector(Nat) = o\n")).toEqual([]);
   });
 
   test("a type written over one part leaves its untyped siblings as they are without it", () => {
@@ -820,6 +826,12 @@ describe("colours in a pattern's type, until they are ruled (#1510)", () => {
     expect(refused).toHaveLength(1);
     expect(refused[0]).toContain("a following arrow is not written in a pattern's type");
     expect(refused[0]).toContain("`(Int) -> Int`");
+  });
+
+  test("the constant spelling writes the empty tuple's type `Unit`", () => {
+    const refused = messages("let noop(): Unit = ()\nlet (m: () >-> Unit) = noop\nexport let out: Int = 1\n");
+    expect(refused).toEqual(["a following arrow is not written in a pattern's type; write `() -> Unit`"]);
+    expect(messages("let noop(): Unit = ()\nlet (m: () -> Unit) = noop\nexport let out: Int = 1\n")).toEqual([]);
   });
 
   test("a written arrow is the part's own", async () => {
