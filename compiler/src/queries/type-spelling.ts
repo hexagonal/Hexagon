@@ -22,6 +22,7 @@
  * §2.2.1 requires, are not questions this type can answer.
  */
 
+import { PRE_REGISTERED_CONSTRAINTS, preRegisteredConstraintIdentity } from "../constraints.js";
 import { markedArrow } from "../support/arrows.js";
 import { isCallersChoice } from "../syntax/typed/display.js";
 import type * as Resolved from "../syntax/resolved/index.js";
@@ -64,6 +65,12 @@ export interface TypeNames {
    * every module unable to write anything.
    */
   readonly taken: ReadonlySet<string>;
+  /**
+   * Every constraint spelling this module has, and the identity of the
+   * declaration each names (Constraints §5.1.1): the language's own, this
+   * module's declarations, and each import's, `Alias.Name` included.
+   */
+  readonly constraints: ReadonlyMap<string, string>;
 }
 
 /**
@@ -189,7 +196,40 @@ export function typeNamesOf(
     }
   }
 
-  return { unions, records, externTypes, taken };
+  // Constraints are spelled as the checker spells its advice (§5.1.1's
+  // advised-spelling law, tiers 1 and 2): the names the module has, its own
+  // declarations' and every import's, `Alias.Name` included.
+  const constraints = new Map<string, string>(
+    PRE_REGISTERED_CONSTRAINTS.map((name) => [name, preRegisteredConstraintIdentity(name)] as const),
+  );
+  for (const item of resolved.items) {
+    if (item.kind === "ConstraintDeclaration") constraints.set(item.name, item.identity);
+    if (item.kind !== "Import") continue;
+    for (const { local, declaration } of item.constraints) constraints.set(local, declaration.identity);
+  }
+
+  return { unions, records, externTypes, taken, constraints };
+}
+
+/**
+ * A constraint as this module names it, or the reason it cannot: a bare name
+ * where the module has one, which can only be the name its declaration gave
+ * it, and otherwise a qualified one (Constraints §5.1.1's tiers 1 and 2, as
+ * the checker's advice spells one).
+ */
+export function spellConstraint(
+  constraint: { readonly name: string; readonly identity: string },
+  names: TypeNames,
+): SpellingResult {
+  let qualified: string | undefined;
+  for (const [spelling, identity] of names.constraints) {
+    if (identity !== constraint.identity) continue;
+    if (!spelling.includes(".")) return { text: spelling };
+    qualified ??= spelling;
+  }
+  if (qualified !== undefined) return { text: qualified };
+  const declared = constraint.name.slice(constraint.name.lastIndexOf(".") + 1);
+  return { unspellable: `\`${declared}\` is declared in another module and this one has no name for it` };
 }
 
 /**

@@ -2008,8 +2008,11 @@ describe("the Hexagon language server", () => {
         context: { diagnostics: reported },
       }) as CodeAction[] | null;
       // Not an enabled one: an action that looks applicable and is not is worse
-      // than an action that is missing.
-      expect(actions).toBeNull();
+      // than an action that is missing. What does apply is still sent: the
+      // header's types written down whole, which a client that does not say
+      // whether it asked is taken as asking for.
+      expect(actions?.map(({ title }) => title)).toEqual(["Write down this header's types"]);
+      expect(actions?.map(({ disabled }) => disabled)).toEqual([undefined]);
     } finally {
       await solo.dispose();
     }

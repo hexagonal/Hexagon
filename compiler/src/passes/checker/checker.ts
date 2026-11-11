@@ -42999,6 +42999,9 @@ class Checker {
         severity: "error",
         message: `exported value \`${item.binding.name}\` requires a type annotation`,
         primary: item.binding.span,
+        // The absence of what a signature-writing repair writes, as the
+        // function's report below is: writing the binding's type ends it.
+        incompleteSignature: true,
       });
       return;
     }

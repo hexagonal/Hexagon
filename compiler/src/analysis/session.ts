@@ -98,6 +98,7 @@ import { matchFunctionRefactorings } from "../queries/match-function.js";
 import { recordPunRefactorings } from "../queries/record-puns.js";
 import { matchArmRefactorings } from "../queries/match-arms.js";
 import { typeAliasRefactorings } from "../queries/type-aliases.js";
+import { type WrittenTypeRefactoring, writtenTypeRefactorings } from "../queries/written-types.js";
 import { dotQualifiedRefactorings } from "../queries/dot-qualified.js";
 import { pipeCallRefactorings } from "../queries/pipe-calls.js";
 import { snippetOf, type Snippet } from "./snippet.js";
@@ -1124,6 +1125,40 @@ export class AnalysisSession {
             ],
           });
         }
+        // A type written down where a hint stands, or a written one removed
+        // (`queries/written-types.ts`): each checked by compiling it.
+        const text = this.#texts.get(normalized);
+        if (text === undefined) continue;
+        const lexed = lex(new Source.File(fileId, normalized, text));
+        for (
+          const refactoring of writtenTypeRefactorings({
+            parsed,
+            typed,
+            resolved,
+            lexed,
+            laidOut: applyLayout(lexed),
+            diagnostics: here,
+            offset: range.start,
+            fileOfModule: (moduleName) => analysis.fileIdOfModule(moduleName),
+          })
+        ) {
+          if (refactoring.edits === undefined) {
+            actions.push({ title: refactoring.title, kind: "refactor", edits: [], disabled: refactoring.disabled });
+            continue;
+          }
+          const edits = refactoring.edits.map(({ start, end, replacement }) => ({
+            path: normalized,
+            span: source.span(start, end),
+            replacement,
+          }));
+          const objection = this.#verifyWrittenTypes(normalized, refactoring);
+          actions.push({
+            title: refactoring.title,
+            kind: "refactor",
+            edits: objection === undefined ? edits : [],
+            ...(objection === undefined ? {} : { disabled: objection }),
+          });
+        }
       }
     }
     const answered = actions.map((action): CodeAction =>
@@ -1437,6 +1472,89 @@ export class AnalysisSession {
     }
     if (meant !== undefined && now !== meant) {
       return `${written} would change the type of \`${plan.name}\` from \`${meant}\` to \`${now}\``;
+    }
+    return undefined;
+  }
+
+  /**
+   * Re-analyses the project with a type written down or removed, and objects
+   * unless all three hold (WRITE-DOWN-TYPES.md, reading 2): no report appears
+   * anywhere that was not there before; every face in the module renders as
+   * it did; and the type of every name the module declares is the same.
+   *
+   * `#verifyAnnotation`'s doctrine, widened. A written type binds, so writing
+   * one can change what a definition means, and removing one hands a decision
+   * from the text to inference, which can decide otherwise with no report and
+   * no change of face: removing `: Float` from `let m: Float = n` makes `m` an
+   * `Int`. So every name the module declares is compared, its locals and
+   * parameters as well as its faces, each found again where the edit moved
+   * it.
+   *
+   * Each declaration's names are lettered as one (`Typed.Letters`), so a tie
+   * between two of them is compared too: removing `: a` from `y` in
+   * `(x: a, y: a) => x` leaves `x` and `y` each `a` on its own, and unties
+   * them.
+   *
+   * The reports that a signature is incomplete are counted rather than
+   * compared, as `#verifyAnnotation`'s on its declaration are: writing a piece
+   * of an exported function's signature changes what that report says, and
+   * may end it.
+   */
+  #verifyWrittenTypes(path: string, refactoring: Extract<WrittenTypeRefactoring, { edits: readonly unknown[] }>): string | undefined {
+    const text = this.#texts.get(path);
+    const fileId = this.#fileIds.get(path);
+    if (text === undefined || fileId === undefined) return undefined;
+    const source = new Source.File(fileId, path, text);
+    const edits = refactoring.edits.map(({ start, end, replacement }) => ({ span: source.span(start, end), replacement }));
+    const probe = new AnalysisSession(this.#options);
+    for (const [owner, written] of this.#texts) {
+      probe.setFile(owner, owner === path ? applyEdits(written, edits) : written);
+    }
+    const { doing } = refactoring;
+
+    const split = (all: ReadonlyMap<string, readonly Diagnostics.Diagnostic[]>) => {
+      const others = new Map<string, readonly Diagnostics.Diagnostic[]>();
+      const incomplete: string[] = [];
+      for (const [owner, diagnostics] of all) {
+        others.set(owner, diagnostics.filter(({ incompleteSignature }) => incompleteSignature !== true));
+        for (const diagnostic of diagnostics) {
+          if (diagnostic.incompleteSignature === true) incomplete.push(diagnostic.message);
+        }
+      }
+      return { others, incomplete };
+    };
+    const before = split(this.allDiagnostics());
+    const after = split(probe.allDiagnostics());
+    const was = diagnosticTally(before.others, []);
+    for (const [key, appearance] of diagnosticTally(after.others, [])) {
+      if ((was.get(key)?.count ?? 0) >= appearance.count) continue;
+      return appearance.path === path
+        ? `${doing} would report a new problem: ${appearance.message}`
+        : `${doing} would break \`${appearance.path}\`: ${appearance.message}`;
+    }
+    if (after.incomplete.length > before.incomplete.length) {
+      const fresh = after.incomplete.find((message) => !before.incomplete.includes(message)) ?? after.incomplete[0]!;
+      return `${doing} would report a new problem: ${fresh}`;
+    }
+
+    // Where the edit moved each name: past every edit that ends at or before it.
+    const moved = (offset: number): number =>
+      refactoring.edits.reduce(
+        (at, { start, end, replacement }) => end <= offset ? at + replacement.length - (end - start) : at,
+        offset,
+      );
+    const now = namesByOffset(probe.#analyze().modulesIn(path));
+    for (const declaration of declaredNames(this.#analyze().modulesIn(path))) {
+      const after = declaration.map(({ bindingSpan }) => now.get(moved(bindingSpan.start.offset)));
+      const was = shownTogether(declaration);
+      const is = shownTogether(after);
+      for (const [at, symbol] of declaration.entries()) {
+        // A name the edit took away would have been reported: the edits write
+        // and remove types, never names.
+        if (is[at] !== was[at]) {
+          return `${doing} would change the type of \`${symbol.name}\` from \`${was[at]}\` to \`${is[at] ?? "nothing"}\``;
+        }
+      }
     }
     return undefined;
   }
@@ -2573,6 +2691,64 @@ function withoutPositions(message: string): string {
 function readSite(site: string): readonly [string, string] {
   const [place = "", line = "?"] = site.split("#");
   return [place.slice(0, place.lastIndexOf("@")), line];
+}
+
+/**
+ * One declaration's names shown together: with one set of letters
+ * (`Typed.Letters`), so a tie between two of them shows, a row's tail's
+ * included. The letters are the comparison's, minted in order, not always
+ * the ones the source writes. A colour a name's
+ * own type does not quantify is decided outside it, by its declaration, so it
+ * is shown as the constant it accepts (Effects §10), as one a caller chooses
+ * is (#1184): a parameter's callback `() ->! a`, whether its colour is
+ * written or inferred. A colour that does change shows in the type of the
+ * name that quantifies it, or in a mark the edit leaves wrong.
+ */
+function shownTogether(symbols: readonly (Typed.Symbol | undefined)[]): readonly (string | undefined)[] {
+  const letters = new Typed.Letters();
+  return symbols.map((symbol) => {
+    if (symbol === undefined) return undefined;
+    const { scheme } = symbol;
+    const decided = [...Typed.collectEffectVariables(scheme.type)].filter((variable) => !scheme.variables.includes(variable));
+    const callersChoice = [...(scheme.callersChoice ?? []), ...decided];
+    // Every variable lettered, a row's tail the scheme does not quantify
+    // included, which a display alone shows bare, `{...}`.
+    const free = [...Typed.collectTypeVariables(scheme.type)].filter((variable) => !scheme.variables.includes(variable));
+    const variables = [...scheme.variables, ...free];
+    return Typed.displayCallFace({ ...scheme, variables, callersChoice }, undefined, letters).type;
+  });
+}
+
+/**
+ * Every name a file's modules declare, by where its binding starts. A module's
+ * symbols include names it reached in other files, whose offsets mean nothing
+ * here.
+ */
+function namesByOffset(modules: readonly CompiledModule[]): ReadonlyMap<number, Typed.Symbol> {
+  const found = new Map<number, Typed.Symbol>();
+  for (const { typed } of modules) {
+    for (const symbol of typed.symbols) {
+      if (symbol.bindingSpan.fileId === typed.fileId) found.set(symbol.bindingSpan.start.offset, symbol);
+    }
+  }
+  return found;
+}
+
+/**
+ * Every name a file's modules declare, grouped by the module item that
+ * declares it, in the order of the text (`#verifyWrittenTypes`). A change
+ * reaches only what is read after it, since a module is read top-down and a
+ * `fun` block's members together, so the first name it changes is the edited
+ * declaration's own, or a member's of its block.
+ */
+function declaredNames(modules: readonly CompiledModule[]): readonly (readonly Typed.Symbol[])[] {
+  const symbols = [...namesByOffset(modules).values()]
+    .sort((left, right) => left.bindingSpan.start.offset - right.bindingSpan.start.offset);
+  return modules.flatMap(({ parsed }) =>
+    parsed.items.map(({ span }) =>
+      symbols.filter(({ bindingSpan }) => span.start.offset <= bindingSpan.start.offset && bindingSpan.end.offset <= span.end.offset)
+    )
+  );
 }
 
 /**
