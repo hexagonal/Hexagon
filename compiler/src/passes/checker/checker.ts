@@ -17104,7 +17104,7 @@ class Checker {
     }
     const own = this.#claimText(pattern, pattern.annotation.span, claim.spelling);
     return {
-      message: `write \`${own === undefined || own.includes("\n") ? claim.spelling : own}\``,
+      message: `write \`${own ?? claim.spelling}\``,
       edits: [{ span: pattern.annotation.span, replacement: claim.spelling }],
     };
   }
@@ -17135,8 +17135,8 @@ class Checker {
     if (inner === undefined) return undefined;
     const from = (own ? typed.span.start.offset : typed.pattern.span.end.offset) - root.span.start.offset;
     const to = (own ? typed.span.end.offset : typed.annotation.span.end.offset) - root.span.start.offset;
-    const pattern = text.slice(0, from) + (own ? inner : "") + text.slice(to);
-    return pattern.includes("\n") ? undefined : `let ${pattern}: ${whole} = …`;
+    const pattern = oneLine(text.slice(0, from) + (own ? inner : "") + text.slice(to));
+    return pattern === undefined ? undefined : `let ${pattern}: ${whole} = …`;
   }
 
   /** The expression of `value` that builds the part `claim` stands on, through grouping and tuples. */
@@ -17162,15 +17162,17 @@ class Checker {
 
   /**
    * `type` spelled with the part `claim` stands on written `replacement`,
-   * walked beside `pattern` through its tuples. `undefined` where the walk
-   * meets the claim beneath a shape it does not read, or a part this module
-   * cannot spell.
+   * walked beside `pattern` through its tuples, and a hole for each sibling
+   * this module cannot spell. `undefined` where the walk meets the claim
+   * beneath a shape it does not read.
    */
   #spelledAlong(pattern: Resolved.Pattern, type: Mono, claim: Resolved.TypedPattern, replacement: string): string | undefined {
     if (pattern === claim) return replacement;
     const holds = (inner: Resolved.Pattern): boolean =>
       inner.span.start.offset <= claim.span.start.offset && claim.span.end.offset <= inner.span.end.offset;
-    if (!holds(pattern)) return this.#claimSpelling(type);
+    // A sibling the module cannot spell is a hole: the annotation still
+    // decides the claim's part, and inference gives the rest as before.
+    if (!holds(pattern)) return this.#claimSpelling(type) ?? "_";
     const actual = this.#prune(type);
     switch (pattern.kind) {
       case "Typed":
@@ -17193,15 +17195,18 @@ class Checker {
 
   /**
    * A typed pattern as the reader wrote it, with the text at `span` within it
-   * written `replacement`: `(x: Int)` for `(x: Float)`. A bare typed component
-   * shares its tuple's parentheses, so written alone it takes its own.
+   * written `replacement`, on one line: `(x: Int)` for `(x: Float)`. A bare
+   * typed component shares its tuple's parentheses, so written alone it takes
+   * its own.
    */
   #claimText(typed: Resolved.TypedPattern, span: Source.Span, replacement: string): string | undefined {
     const text = this.#sourceSlice(typed.span);
     if (text === undefined) return undefined;
     const from = span.start.offset - typed.span.start.offset;
-    const written = text.slice(0, from) + replacement + text.slice(from + span.end.offset - span.start.offset);
-    return typed.span.start.offset === typed.pattern.span.start.offset ? `(${written})` : written;
+    const written = oneLine(text.slice(0, from) + replacement + text.slice(from + span.end.offset - span.start.offset));
+    return written === undefined || typed.span.start.offset !== typed.pattern.span.start.offset
+      ? written
+      : `(${written})`;
   }
 
   /**
@@ -17313,6 +17318,29 @@ class Checker {
    * following arrow is left to its own rows. Where the arrow is not written in
    * the claim, an alias's, the rewrite is the type the part has, whole.
    */
+  /**
+   * A claim's own arrow handed a function at a parameter, in the binding
+   * annotation's words for a callback written so (Effects §4.2), less the
+   * callback, since a pattern's type writes none outside a `let` (Pattern
+   * Matching §12): the arrow accepts a function the part refuses.
+   * `undefined` where the arrow stands as the demand, or is not the claim's.
+   */
+  #claimSupplyMessage(claimArrow: ClaimArrow, axes: readonly Axis[]): string | undefined {
+    if (claimArrow.demand || claimArrow.at === undefined) return undefined;
+    const marks: Record<Axis, boolean> = { world: false, fail: false };
+    for (const axis of AXES) {
+      const slot = colourAt(claimArrow.arrow, axis);
+      const colour = slot === undefined ? PURE : this.#prune(slot);
+      if (colour.kind !== "Effect") return undefined;
+      marks[axis] = isImpure(colour);
+    }
+    const pattern = claimArrow.claim.pattern.pattern;
+    const part = pattern.kind === "Binding" ? `\`${pattern.binding.name}\`` : "the part";
+    const fix = markedArrow(marks.world && !axes.includes("world"), marks.fail && !axes.includes("fail"));
+    return `this \`${markedArrow(marks.world, marks.fail)}\` accepts any function${acceptance(marks)}, and ${part} ` +
+      `accepts only ${silentOne(axes)} — write its arrow \`${fix}\``;
+  }
+
   #claimArrowFixes(claimArrow: ClaimArrow, axes: readonly Axis[]): { readonly fixes?: readonly Diagnostics.Fix[] } {
     if (claimArrow.at === undefined) return { fixes: [this.#claimRewrite(claimArrow.claim)] };
     const marks: boolean[] = [];
@@ -17327,7 +17355,7 @@ class Checker {
     const shown = this.#claimText(claimArrow.claim.pattern, claimArrow.at, arrow);
     return {
       fixes: [{
-        message: `write \`${shown === undefined || shown.includes("\n") ? arrow : shown}\``,
+        message: `write \`${shown ?? arrow}\``,
         edits: [{ span: claimArrow.at, replacement: arrow }],
       }],
     };
@@ -33802,11 +33830,12 @@ class Checker {
           return lazy && axes.includes("fail") ? { ...seam, message: seam.message + LAZY_SEQ_ADVICE } : seam;
         }
         const assume = atParameter && contractOf !== undefined ? this.#assumeFix(contractOf.argument, axes) : undefined;
+        const supplied = claimArrow === undefined ? undefined : this.#claimSupplyMessage(claimArrow, axes);
         return {
           severity: "error",
           // Settled only where inference settled every colour the report
           // names; one written there keeps the written clause (#1376).
-          message: effectMismatchMessage(direction, axes, demandWritten, axes.every((axis) =>
+          message: supplied ?? effectMismatchMessage(direction, axes, demandWritten, axes.every((axis) =>
             this.#settledPure.has(
               axis === reportAxis || demandArrow === undefined
                 ? demand
@@ -34363,6 +34392,11 @@ class Checker {
         // Named as every report names a type (#649), never by a number (#699).
         const required = this.#display(type);
         const recursive = this.#knotCallAt(span);
+        const claim = this.#claimAt;
+        // A claim's span is never a call's, so its report is never the knot's.
+        const claimed = claim !== undefined && span === claim.pattern.annotation.span
+          ? this.#claimRewrite(claim)
+          : undefined;
         this.#diagnostics.add({
           severity: "error",
           message: recursive === undefined
@@ -34380,6 +34414,8 @@ class Checker {
                   NO_POLYMORPHIC_RECURSION
                 : `change the annotation to \`${required}\`, or remove it to let the type be inferred`),
           primary: span,
+          // A claim's first rewrite is the type its part has (Pattern Matching §2.9).
+          ...(claimed === undefined ? {} : { fixes: [claimed] }),
         });
       }
       this.#markDeclarationsRefused(variable);
@@ -46678,6 +46714,20 @@ function followsFix(arrow: FaceArrow | undefined, axes: readonly Axis[]): string
 /** The words for what a callback arrow accepts beyond "any function" (Effects §2.3). */
 function acceptance(marks: Readonly<Record<Axis, boolean>>): string {
   return marks.world && marks.fail ? "" : marks.world ? " that cannot fail" : marks.fail ? " that is pure" : "";
+}
+
+/**
+ * Source text a report quotes, on one line: each line break with the
+ * indentation around it becomes one space, or nothing beside a bracket.
+ * `undefined` where the text holds a comment, which a line break ends.
+ */
+function oneLine(text: string): string | undefined {
+  if (!text.includes("\n")) return text;
+  if (text.includes("//") || text.includes("(*")) return undefined;
+  return text
+    .replace(/([([{])\s*\n\s*/g, "$1")
+    .replace(/\s*\n\s*([)\]}])/g, "$1")
+    .replace(/\s*\n\s*/g, " ");
 }
 
 /** A written mark's two parts (Effects §1's alphabet): `!` carries both, `~` the world's, `^` the fail colour's. */

@@ -1074,6 +1074,38 @@ describe("§12 a claim the part does not fit (#1510)", () => {
     expect(diagnostic("let g(): Unit =\n    let (r: Int) = {a = 1}\n    ()\n" + OUT).fixes![0]!.message).toBe("remove the type");
     expect(record.fixed).toEqual(["let g(): Unit =\n    let (r) = {a = 1}\n    ()\n" + OUT]);
     expect(messages(record.fixed[0]!)).toEqual([]);
+    // A declared variable the part is not: the variable's report, with the
+    // claim's rewrite.
+    for (
+      const [body, variable, rewrite] of [
+        ["let g(x: Int) =\n    let (y: b) = x\n    y\n", "b", "(y: Int)"],
+        ["let g(x: a, n: Int): Unit =\n    let (y: a, m) = (n, x)\n    ()\n", "a", "(y: Int)"],
+        ['let g(x: (Int, String)) =\n    let (y: (b, String)) = x\n    y\n', "b", "(y: (Int, String))"],
+      ] as const
+    ) {
+      const each = diagnostic(body + OUT);
+      expect(each.message).toBe(
+        `\`${variable}\` is a declared type variable, but the body requires \`Int\`; change the annotation to \`Int\`, ` +
+          "or remove it to let the type be inferred",
+      );
+      expect(each.fixes!.map(({ message }) => message)).toEqual([`write \`${rewrite}\``]);
+      expect(messages(applied(body + OUT, each))).toEqual([]);
+    }
+    // A unification the claim's sets off at another span, a constraint met
+    // there, keeps that span's report, with no rewrite of the claim.
+    const elsewhere = [
+      "let g(q, n: Int) =\n    for x in q\n        ignore(x + n)\n    let (v: Vector(String)) = q\n    ()\n",
+      WORLD + "let g(q) =\n    for f in q\n        ignore([f, save0])\n    let (v: Vector(() -> Unit)) = q\n    ()\n",
+      "let g(q, x: a): Unit =\n    for y in q\n        ignore([y, x])\n    let (v: Vector(Int)) = q\n    ()\n",
+    ];
+    expect(diagnostic(elsewhere[0]! + OUT).message).toBe("type mismatch: expected Int, found String");
+    expect(diagnostic(elsewhere[1]! + OUT).message).toMatch(/^this position's arrow says the function is impure and may fail/);
+    expect(diagnostic(elsewhere[2]! + OUT).message).toMatch(/^`a` is a declared type variable, but the body requires `Int`/);
+    for (const body of elsewhere) {
+      const each = diagnostic(body + OUT);
+      expect((HEADER + body + OUT).slice(each.primary.start.offset, each.primary.end.offset)).toBe("q");
+      expect(each.fixes ?? []).toEqual([]);
+    }
   });
 
   test("where a conversion exists, the report says why none happens and names where it would", () => {
@@ -1094,6 +1126,32 @@ describe("§12 a claim the part does not fit (#1510)", () => {
     ]);
     expect(messages('let g(n: Nat): Int =\n    let (k, (x, s)): (Int, (Int, String)) = (1, (n, "x"))\n    x\n' + OUT))
       .toEqual([]);
+    // A sibling this module cannot spell is a hole in the binding's
+    // annotation, and a pattern over lines is quoted on one line.
+    for (
+      const [pattern, value, binding, annotation] of [
+        ["(x: Float, r)", "(n, {a = 1})", "(x, r)", "(Float, _)"],
+        ["(x: Float, r)", "(n, (y) => y)", "(x, r)", "(Float, _)"],
+        ["(x: Float, r)", "(n, (y: Int) => y)", "(x, r)", "(Float, _)"],
+        ["(\n        (x: Float),\n        s\n    )", '(n, "s")', "(x, s)", "(Float, String)"],
+        ["((x:\n        Float), s)", '(n, "s")', "(x, s)", "(Float, String)"],
+      ] as const
+    ) {
+      const each = diagnostic(`let g(n: Int): Unit =\n    let ${pattern} = ${value}\n    ()\n` + OUT);
+      expect(each.message).toBe(
+        "`x` is an `Int` here: a type in a pattern says what the part is and converts nothing; write `(x: Int)`, or " +
+          `to convert, write the type on the binding: \`let ${binding}: ${annotation} = …\``,
+      );
+      expect(each.fixes!.map(({ message }) => message)).toEqual(["write `(x: Int)`"]);
+      expect(messages(`let g(n: Int): Unit =\n    let ${binding}: ${annotation} = ${value}\n    ()\n` + OUT)).toEqual([]);
+    }
+    // A comment ends at its line break, so a pattern holding one is not
+    // quoted on one line: the conversion written out.
+    expect(messages('let g(n: Int): Unit =\n    let (\n        x: Float, // x\n        s\n    ) = (n, "s")\n    ()\n' + OUT))
+      .toEqual([
+        "`x` is an `Int` here: a type in a pattern says what the part is and converts nothing; remove the type and " +
+        "convert `x` where it is used: `Float.fromInt(x)`",
+      ]);
     // Everywhere else the conversion is named written out: a value that
     // already exists, an arm, a `for` head, a lambda's pattern parameter.
     for (
@@ -1179,6 +1237,13 @@ describe("§12 a claim the part does not fit (#1510)", () => {
     expect(fail.message).toBe("a `->` arrow promises the function cannot fail, and this function may fail — the demand is written `->`");
     expect(fail.fixes!.map(({ message }) => message)).toEqual(["write `(f: () ->^ Unit)`"]);
     expect(messages(applied(oops + "let g(): Unit =\n    let (f: () -> Unit) = bad\n    ()\n" + OUT, fail))).toEqual([]);
+    // A call the arrow written let go unmarked then draws its own report,
+    // whose fix marks it.
+    const unmarked = WORLD + 'let g(): Unit =\n    let (h: () -> Unit) = () => save!("x")\n    h()\n' + OUT;
+    const rewritten = applied(unmarked, diagnostic(unmarked));
+    const call = diagnostic(rewritten);
+    expect(call.message).toBe("this call is impure and may fail, so `h` wants `!`, not no mark");
+    expect(messages(applied(rewritten, call))).toEqual([]);
   });
 
   test("an arrow an alias wrote is not the claim's: the rewrite is the part's type, whole", () => {
@@ -1208,10 +1273,50 @@ describe("§12 a claim the part does not fit (#1510)", () => {
   test("handed a function at a parameter, the rewrite is the part's arrow there", () => {
     // At an arm, whose type writes no callback, the claim's `->!` hands any
     // function to one that takes only a pure one.
+    // The report is in the callback row's words, less the callback.
     const source = WORLD + "let g(x: ((() -> Unit) -> Unit, Int)): Unit = match x\n    ((m: (() ->! Unit) -> Unit), n) => m(noop)\n" + OUT;
     const refused = diagnostic(source);
+    expect(refused.message).toBe(
+      "this `->!` accepts any function, and `m` accepts only one that is pure and cannot fail — write its arrow `->`",
+    );
+    const text = HEADER + source;
+    expect(text.slice(refused.primary.start.offset, refused.primary.end.offset)).toBe("->!");
     expect(refused.fixes!.map(({ message }) => message)).toEqual(["write `(m: (() -> Unit) -> Unit)`"]);
     expect(messages(applied(source, refused))).toEqual([]);
+    for (
+      const [body, message, rewrite] of [
+        [
+          "let g(x: ((() ->^ Unit) -> Unit, Int)): Unit = match x\n    ((m: (() ->! Unit) -> Unit), n) => m(noop)\n",
+          "this `->!` accepts any function, and `m` accepts only a pure one — write its arrow `->^`",
+          "(m: (() ->^ Unit) -> Unit)",
+        ],
+        [
+          "let g(x: ((() -> Unit) -> Unit, Int)): Unit = match x\n    ((_: (() ->! Unit) -> Unit), n) => ()\n",
+          "this `->!` accepts any function, and the part accepts only one that is pure and cannot fail — write its arrow `->`",
+          "(_: (() -> Unit) -> Unit)",
+        ],
+        [
+          "let g(xs: Vector((() -> Unit) -> Unit)): Unit =\n    for (m: (() ->! Unit) -> Unit) in xs\n        m(noop)\n",
+          "this `->!` accepts any function, and `m` accepts only one that is pure and cannot fail — write its arrow `->`",
+          "(m: (() -> Unit) -> Unit)",
+        ],
+      ] as const
+    ) {
+      const each = diagnostic(WORLD + body + OUT);
+      expect(each.message).toBe(message);
+      expect(each.fixes!.map(({ message }) => message)).toEqual([`write \`${rewrite}\``]);
+      expect(messages(applied(WORLD + body + OUT, each))).toEqual([]);
+    }
+    // An arrow an alias wrote there: the demand's words, and the part's type whole.
+    const alias = WORLD + "type Cb = () ->! Unit\nlet g(x: ((() -> Unit) -> Unit, Int)): Unit = match x\n" +
+      "    ((m: (Cb) -> Unit), n) => m(noop)\n" + OUT;
+    const aliased = diagnostic(alias);
+    expect(aliased.message).toBe(
+      "a `->` arrow promises purity and that the function cannot fail, and this function is impure and may fail — " +
+        "the demand is written `->`",
+    );
+    expect(aliased.fixes!.map(({ message }) => message)).toEqual(["write `(m: (() -> Unit) -> Unit)`"]);
+    expect(messages(applied(alias, aliased))).toEqual([]);
     // In a `let` pattern the binding annotation's callback row is the claim's.
     expect(messages(WORLD + "let g(x: ((() -> Unit) -> Unit, Int)): Unit =\n    let ((m: (() ->! Unit) -> Unit), n) = x\n    ()\n" + OUT))
       .toEqual([
