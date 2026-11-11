@@ -322,10 +322,20 @@ describe("§2.9 the parentheses-only rule (§12's rows)", () => {
       const project = compiled(source);
       const outer = project.diagnostics.find(({ message }) => message.includes(rewritten))!;
       expect(outer.message).toBe(`a type in a pattern goes in parentheses: \`${rewritten}\``);
+      expect(outer.fixes![0]!.message).toBe(`write \`${rewritten}\``);
       const fixed = applied(source, outer);
       expect(messages(fixed)).toEqual([]);
       expect(fixed).toContain(rewritten);
     }
+    // A form written over several lines is quoted in the report, and its fix's title, read on one line, names no text.
+    const lines = "union Two = | Two(Option(Int), Int)\nlet f(o) = match o\n    Two(\n        Some(a: Int),\n        b: Int\n    ) => b\n" +
+      "    _ => 0\nexport let out: Int = f(Two(None, 1))\n";
+    const across = compiled(lines).diagnostics.find(({ message }) => message.includes("Two("))!;
+    expect(across.message).toBe(
+      "a type in a pattern goes in parentheses: `Two(\n        Some((a: Int)),\n        (b: Int)\n    )`",
+    );
+    expect(across.fixes![0]!.message).toBe("write the types in parentheses");
+    expect(messages(applied(lines, across))).toEqual([]);
   });
 
   test("`fault e: Exn` is refused in Exceptions §5.2's words, its fix removing the type", () => {
@@ -364,6 +374,17 @@ describe("§2.9 the parentheses-only rule (§12's rows)", () => {
         ["let f(x: (Int, Int)): Int = match x\n    (fault e: Exn, b) => b\n", "fault e: Exn", "fault e"],
         ["let g(): Int =\n    for fault _: Exn in [1]\n        ignore(1)\n    0\n", "fault _: Exn", "fault _"],
         ["let o = Vector.map([1], ((fault e: Exn)) => 0)\n", "(fault e: Exn)", "(fault e)"],
+        // Through the pattern's own parentheses around it.
+        ["let f(x: Int): Int = match x\n    (fault e): Exn => 1\n    _ => 0\n", "(fault e): Exn", "(fault e)"],
+        ["let f(x: Int): Int = match x\n    ((fault e)): Exn => 1\n    _ => 0\n", "((fault e)): Exn", "((fault e))"],
+        ["let f(x: Int): Int = match x\n    (fault e) as y: Exn => 1\n    _ => 0\n", "(fault e) as y: Exn", "(fault e) as y"],
+        ["let f(x: Option(Int)): Int = match x\n    Some((fault e): Exn) => 1\n    _ => 0\n", "(fault e): Exn", "(fault e)"],
+        ["let g(): Int =\n    for (fault _): Exn in [1]\n        ignore(1)\n    0\n", "(fault _): Exn", "(fault _)"],
+        [
+          "exception Oops(n: Int)\nlet f(): Int = try throw^(Oops(3))\n    catch\n        (fault e): Exn => 1\n        _ => 0\n",
+          "(fault e): Exn",
+          "(fault e)",
+        ],
       ].map(([source, written, without]) => [source!, source!.replace(written!, without!)] as const)
     ) {
       expect(messages(typed)).toEqual(messages(untyped));

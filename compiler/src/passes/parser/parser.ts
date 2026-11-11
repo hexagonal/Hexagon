@@ -5643,6 +5643,16 @@ class Parser {
   }
 
   /**
+   * A pattern's own parentheses around one element, spanning them: a refused
+   * `fault` pattern that heads the element heads the group too, so
+   * `(fault e): Exn` drops its type as `fault e: Exn` does.
+   */
+  #grouped(element: Parsed.Pattern, opening: Source.Span, closing: Source.Span): Parsed.Pattern {
+    if (this.#headedByRefusedFault(element)) this.#refusedFaults.add(opening.start.offset);
+    return { ...element, span: spanFrom(opening, closing) };
+  }
+
+  /**
    * An element at a slot that is not a pattern's own parentheses — a
    * constructor's slot, a record field's sub-pattern, a vector element — read
    * with its type, so the pattern stands as written for everything after,
@@ -5678,7 +5688,9 @@ class Parser {
     const form = this.#textWithBareEdits(whole, [...slots, ...binder]);
     const rewritten = rest === undefined ? form : `(${form}: ${this.#sourceText(rest.annotation.span)})`;
     const edit = { span: whole, replacement: rewritten };
-    const fix = { message: `write \`${rewritten}\``, edits: [edit] };
+    // A fix's title is read on one line, so a form written over several is not quoted in it.
+    const title = rewritten.includes("\n") ? "write the types in parentheses" : `write \`${rewritten}\``;
+    const fix = { message: title, edits: [edit] };
     for (const typed of ordered) {
       this.#diagnostics.add({
         severity: "error",
@@ -6222,7 +6234,7 @@ class Parser {
         (next.text === "as" || next.text === "when" || next.text === "derives")
       ) {
         return components.length === 1
-          ? { ...components[0]!, span: spanFrom(opening, closing) }
+          ? this.#grouped(components[0]!, opening, closing)
           : { kind: "Tuple", elements: components, span: spanFrom(opening, closing) };
       }
       const token = this.#advance();
@@ -6247,7 +6259,7 @@ class Parser {
       return { kind: "Declared", components, name, span: spanFrom(opening, this.#previous().span) };
     }
     return components.length === 1
-      ? { ...components[0]!, span: spanFrom(opening, closing) }
+      ? this.#grouped(components[0]!, opening, closing)
       : { kind: "Tuple", elements: components, span: spanFrom(opening, closing) };
   }
 
