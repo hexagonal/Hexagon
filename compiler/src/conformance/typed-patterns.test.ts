@@ -1310,6 +1310,38 @@ describe("§12 a claim the part does not fit (#1510)", () => {
     expect(messages(unspelled.fixed[0]!)).toEqual([]);
   });
 
+  test("an arrow that already marks what the part does is not what cannot hold: the rewrite is the part's type", () => {
+    // A payload's arrow its declaration wrote, met as it was decided where nothing re-opens it (#1518): writing the
+    // claim's arrow again would change nothing, so the rewrite is the type the part has, which leaves the call's
+    // mark to its own report.
+    for (
+      const [declaration, matched] of [
+        ["exception A(f: () -> Unit)\nlet g(): Unit = try throw^(A(() => ()))\n    catch\n", "        A((f: () ->! Unit)) => f!()\n        _ => ()\n"],
+        ["union U =\n    | A(f: () -> Unit)\n    | B\nlet g(u) = match u\n", "    A((f: () ->! Unit)) => f!()\n    _ => ()\n"],
+      ] as const
+    ) {
+      const source = declaration + matched + (declaration.includes("g(u)") ? "export let h: Unit = g(B)\n" : "") + OUT;
+      const refused = diagnostic(source);
+      expect(refused.message).toMatch(/^this position's arrow says the function is impure and may fail, and the pure arrow/);
+      const text = HEADER + source;
+      expect(text.slice(refused.primary.start.offset, refused.primary.end.offset)).toBe("() ->! Unit");
+      expect(refused.fixes!.map(({ message }) => message)).toEqual(["write `(f: () -> Unit)`"]);
+      expect(applied(source, refused)).toBe(source.replace("(f: () ->! Unit)", "(f: () -> Unit)"));
+      expect(messages(applied(source, refused))).toEqual([
+        "this call is pure and cannot fail, so `f` wants no mark, not `!` — perhaps the mark is wrong; or, if this " +
+        "call is impure and may fail, something makes it pure and unable to fail that this report does not name",
+      ]);
+    }
+    // An arrow that marks one colour, where that is the one the report names.
+    for (const arrow of ["->~", "->^"]) {
+      const source = "exception A(f: () -> Unit)\nlet g(): Unit = try throw^(A(() => ()))\n    catch\n" +
+        `        A((f: () ${arrow} Unit)) => ()\n        _ => ()\n` + OUT;
+      const refused = diagnostic(source);
+      expect(refused.fixes!.map(({ message }) => message)).toEqual(["write `(f: () -> Unit)`"]);
+      expect(messages(applied(source, refused))).toEqual([]);
+    }
+  });
+
   test("handed a function at a parameter, the rewrite is the part's arrow there", () => {
     // At an arm, whose type writes no callback, the claim's `->!` hands any
     // function to one that takes only a pure one.

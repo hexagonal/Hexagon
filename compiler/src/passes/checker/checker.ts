@@ -17364,6 +17364,24 @@ class Checker {
   }
 
   /**
+   * A claim's arrow as the report reads it. As the demand, an arrow that
+   * already marks every colour the report names is not what cannot hold: the
+   * part's own arrow is a constant the claim meets as it was decided (Pattern
+   * Matching §2.9), so the arrow's rewrite would change nothing, and the
+   * report reads it as an alias's, whose rewrite is the type the part has,
+   * whole.
+   */
+  #claimArrowAt(claimArrow: ClaimArrow, axes: readonly Axis[]): ClaimArrow {
+    if (claimArrow.at === undefined || !claimArrow.demand) return claimArrow;
+    for (const axis of AXES) {
+      const slot = colourAt(claimArrow.arrow, axis);
+      const colour = slot === undefined ? PURE : this.#prune(slot);
+      if (colour.kind !== "Effect" || (axes.includes(axis) && !isImpure(colour))) return claimArrow;
+    }
+    return { ...claimArrow, at: undefined };
+  }
+
+  /**
    * A claim's arrow rewritten with only the colours that cannot hold changed
    * (Pattern Matching §12): as the demand, marked on each colour the part does
    * besides; handed a function at a parameter, silent on each the part refuses
@@ -33850,8 +33868,9 @@ class Checker {
       const reportAxis = this.#currentAxis;
       // A claim's own arrow: the report stands there, and its rewrite is the
       // arrow the part has (Pattern Matching §12).
-      const claimArrow = arrows === undefined ? undefined : this.#claimArrow(span, arrows.left, !this.#parameterParity);
+      const writtenClaimArrow = arrows === undefined ? undefined : this.#claimArrow(span, arrows.left, !this.#parameterParity);
       this.#colourReport(`effect-mismatch ${spanKey(span)} ${direction} ${arrows?.id ?? ""}`, (axes) => {
+        const claimArrow = writtenClaimArrow === undefined ? undefined : this.#claimArrowAt(writtenClaimArrow, axes);
         // §3.4's limitation, not the contract: an untyped parameter a written
         // type's impure constant fixed fits once its own type is written
         // (#1263, D2). Read again once every call of a parameter is known.
