@@ -1013,6 +1013,38 @@ interface ClaimSubject {
   readonly decided: boolean;
   readonly view: WrittenView | undefined;
   readonly root: Resolved.Pattern;
+  /**
+   * A `let` that writes no annotation: its right-hand side and the type the
+   * pattern takes apart, which a report names the binding's annotation over
+   * where the right-hand side builds the part (Pattern Matching §2.9).
+   */
+  readonly built?: { readonly value: Resolved.Expr; readonly type: Mono };
+}
+
+/**
+ * A claim's own arrow in a colour report (`Checker.#claimArrow`): where the
+ * claim writes it, `undefined` for an alias's, and whether it stands as the
+ * demand there. `fixed` where the arrow already says what the report asks
+ * of it (`Checker.#claimArrowAt`): the part's arrow was met as it was
+ * decided, so the report keeps the effect report's own words.
+ */
+interface ClaimArrow {
+  readonly claim: ClaimAt;
+  readonly arrow: FunctionMono;
+  readonly at: Source.Span | undefined;
+  readonly demand: boolean;
+  readonly fixed?: boolean;
+}
+
+/** A claim being met (`#claimPatternType`), for the reports its unification makes. */
+interface ClaimAt {
+  readonly pattern: Resolved.TypedPattern;
+  readonly subject: ClaimSubject | undefined;
+  /** The written type and the part it meets, whole. */
+  readonly written: Mono;
+  readonly part: Mono;
+  /** The part's type spelled before the claim met it, or `undefined` where this module cannot spell it. */
+  readonly spelling: string | undefined;
 }
 
 /** A head binder's position, which names it in Effects §4.4's clause. */
@@ -7323,6 +7355,8 @@ class Checker {
    * pattern's walk starts (`#atBinders`).
    */
   #patternBinders: PatternBinders = "arm";
+  /** The claim whose unification is running, for its reports (`#claimMismatch`, `#claimArrowFix`). */
+  #claimAt: ClaimAt | undefined;
   /**
    * The value the pattern being checked takes apart, for the claims its typed
    * patterns make (`#claimSubject`); `undefined` at a `catch` arm, whose `Exn`
@@ -11580,7 +11614,12 @@ class Checker {
           // The value is the binding's annotation where it writes one, which
           // the pattern then meets.
           const subject: ClaimSubject = item.annotation === undefined
-            ? { decided: this.#receivedDecided(item.value), view: this.#writtenView(item.value), root: item.pattern }
+            ? {
+              decided: this.#receivedDecided(item.value),
+              view: this.#writtenView(item.value),
+              root: item.pattern,
+              ...(item.parameter === true ? {} : { built: { value: item.value, type: valueType } }),
+            }
             : { decided: annotationWhole(item.annotation), view: { written: item.annotation, role: "spine" }, root: item.pattern };
           this.#atBinders(item.parameter === true ? "parameter" : "let", subject, () =>
             this.#inferPattern(
@@ -16919,10 +16958,12 @@ class Checker {
    * elaborated in the enclosing declaration's annotation scope as an
    * ascription's is, unified with the position's type before the pattern
    * within is checked, so wherever that pattern reads its position's type it
-   * reads the written one. A failed unification is the ordinary mismatch, at
-   * the written type, and the claim is `undefined`: the pattern within is then
-   * read against nothing, so what it reports cannot follow the type it lost
-   * to, and the whole is broken (`#breakWhole`).
+   * reads the written one. The written type is the demand, as a binding
+   * annotation's is. A failed unification is the ordinary mismatch, at the
+   * written type, its first rewrite the type the part has (`#claimRefusal`;
+   * a colour's, `#claimArrow`), and the claim is `undefined`: the pattern
+   * within is then read against nothing, so what it reports cannot follow the
+   * type it lost to, and the whole is broken (`#breakWhole`).
    *
    * Nothing else: no constraint form and no second pass, as for ascription
    * (Ascription §9 item 3). Its function types follow the binders' class
@@ -16965,15 +17006,27 @@ class Checker {
       if (variable.ascribedAt === pattern.annotation.span) this.#patternDeclared.set(variable, pattern);
     }
     const subject = this.#claimSubject;
-    const part = subject?.decided === true
-      ? this.#openReceived(expected, level, true, this.#claimView(subject, pattern))
-      : expected;
+    const view = subject === undefined ? undefined : this.#claimView(subject, pattern);
+    const part = subject?.decided === true ? this.#openReceived(expected, level, true, view) : expected;
     const before = this.#reportCount;
+    const enclosingClaim = this.#claimAt;
+    // The type the part has, before the claim meets it: a refusal's first
+    // rewrite (Pattern Matching §2.9).
+    this.#claimAt = {
+      pattern,
+      subject,
+      written,
+      part,
+      spelling: this.#writtenSpelling(view) ?? this.#claimSpelling(expected),
+    };
     this.#patternChecks += 1;
     try {
-      this.#unify(part, written, pattern.annotation.span);
+      // The written type is the demand, as a binding annotation's is, so a
+      // refusal reads as the same arrow's on one does (§12).
+      this.#unify(written, part, pattern.annotation.span);
     } finally {
       this.#patternChecks -= 1;
+      this.#claimAt = enclosingClaim;
     }
     return this.#reportCount > before ? undefined : written;
   }
@@ -16984,6 +17037,386 @@ class Checker {
    * A lambda's face is not read: its written parameters are callbacks, whose
    * own arrows are colours, so nothing there is a constant to accept more.
    */
+  /**
+   * A claim the part does not fit (Pattern Matching §2.9, §12): the ordinary
+   * mismatch at the written type, its first rewrite the type the part has, as
+   * this module spells it, or the type removed where it cannot. Where a
+   * specified conversion from the part's type into the written one exists,
+   * the report says why none happens and names where it would: the binding's
+   * annotation, where the `let`'s right-hand side builds the part and the
+   * text decides its type, and the conversion written out everywhere else.
+   * `undefined` for a mismatch the claim's unification does not make.
+   */
+  #claimRefusal(
+    span: Source.Span,
+    written: Mono,
+    part: Mono,
+  ): { readonly message: string | undefined; readonly fix: Diagnostics.Fix } | undefined {
+    const claim = this.#claimAt;
+    if (claim === undefined || span !== claim.pattern.annotation.span) return undefined;
+    const pattern = claim.pattern;
+    const own = claim.spelling === undefined ? undefined : this.#claimText(pattern, pattern.annotation.span, claim.spelling);
+    const fix = this.#claimRewrite(claim);
+    // The conversion is about the part a binder names, met whole.
+    const source = this.#prune(part);
+    const target = this.#prune(written);
+    const binder = pattern.pattern.kind === "Binding" ? pattern.pattern.binding.name : undefined;
+    if (
+      binder === undefined || source !== this.#prune(claim.part) || target !== this.#prune(claim.written) ||
+      source.kind !== "Constructor"
+    ) {
+      return { message: undefined, fix };
+    }
+    const evidence = source.name === "Nat"
+      ? "Num"
+      : source.name === "Int"
+      ? "Signed"
+      : source.name === "BigInt"
+      ? "FromBigInt"
+      : undefined;
+    if (evidence === undefined || this.#sameSeat(source, target) || !this.#supportsTarget(target, evidence)) {
+      return { message: undefined, fix };
+    }
+    const from = this.#display(source);
+    const lead = `\`${binder}\` is ${article(from)} \`${from}\` here: a type in a pattern says what the part is and ` +
+      "converts nothing";
+    const binding = own === undefined ? undefined : this.#claimBindingRewrite(claim, target);
+    if (binding !== undefined) {
+      return { message: `${lead}; write \`${own}\`, or to convert, write the type on the binding: \`${binding}\``, fix };
+    }
+    const companion = this.#typeSpellingAtSite(target);
+    if (companion === undefined) return { message: undefined, fix };
+    return {
+      message: `${lead}; remove the type and convert \`${binder}\` where it is used: ` +
+        `\`${companion}.from${source.name}(${binder})\``,
+      fix,
+    };
+  }
+
+  /**
+   * A claim's first rewrite (Pattern Matching §2.9): the type the part has,
+   * as this module spells it, or the type removed where it cannot.
+   */
+  #claimRewrite(claim: ClaimAt): Diagnostics.Fix {
+    const pattern = claim.pattern;
+    if (claim.spelling === undefined) {
+      return {
+        message: "remove the type",
+        edits: [{ span: { ...pattern.annotation.span, start: pattern.pattern.span.end }, replacement: "" }],
+      };
+    }
+    const own = this.#claimText(pattern, pattern.annotation.span, claim.spelling);
+    return {
+      message: `write \`${own ?? claim.spelling}\``,
+      edits: [{ span: pattern.annotation.span, replacement: claim.spelling }],
+    };
+  }
+
+  /**
+   * The binding's annotation a claim's conversion would happen under, as
+   * `let (x, s): (Float, String) = …`: where the claim stands in a `let`
+   * that writes none, whose right-hand side builds the part through its
+   * tuples and the text decides its type (Numeric Literals §5.1). A binding
+   * annotation reaches no value that already exists, and an inferred type is
+   * not widened (#1195), so anywhere else `undefined`.
+   */
+  #claimBindingRewrite(claim: ClaimAt, target: Mono): string | undefined {
+    const built = claim.subject?.built;
+    if (built === undefined) return undefined;
+    const root = claim.subject!.root;
+    const value = this.#builtPart(root, built.value, claim.pattern);
+    if (value === undefined || !this.#widensFrom(value)) return undefined;
+    const written = this.#typeSpellingAtSite(target);
+    const moved: Resolved.TypedPattern[] = [];
+    const whole = written === undefined ? undefined : this.#spelledAlong(root, built.type, claim.pattern, written, moved);
+    let text = this.#sourceSlice(root.span);
+    if (whole === undefined || text === undefined) return undefined;
+    // The pattern with each moved type taken out, and the parentheses that
+    // held only its claim with it, the last first so the offsets hold.
+    const typed = [claim.pattern, ...moved].sort((left, right) => right.span.start.offset - left.span.start.offset);
+    for (const each of typed) {
+      const inner = this.#sourceSlice(each.pattern.span);
+      if (inner === undefined) return undefined;
+      const own = each.span.start.offset !== each.pattern.span.start.offset;
+      const from = (own ? each.span.start.offset : each.pattern.span.end.offset) - root.span.start.offset;
+      const to = (own ? each.span.end.offset : each.annotation.span.end.offset) - root.span.start.offset;
+      text = text.slice(0, from) + (own ? inner : "") + text.slice(to);
+    }
+    const pattern = oneLine(text);
+    return pattern === undefined ? undefined : `let ${pattern}: ${whole} = …`;
+  }
+
+  /** The expression of `value` that builds the part `claim` stands on, through grouping and tuples. */
+  #builtPart(pattern: Resolved.Pattern, value: Resolved.Expr, claim: Resolved.TypedPattern): Resolved.Expr | undefined {
+    const given = ungrouped(value);
+    if (pattern === claim) return given;
+    switch (pattern.kind) {
+      case "Typed":
+      case "As":
+        return this.#builtPart(pattern.pattern, given, claim);
+      case "Tuple": {
+        if (given.kind !== "Tuple" || given.elements.length !== pattern.elements.length) return undefined;
+        for (const [index, element] of pattern.elements.entries()) {
+          const found = this.#builtPart(element, given.elements[index]!, claim);
+          if (found !== undefined) return found;
+        }
+        return undefined;
+      }
+      default:
+        return undefined;
+    }
+  }
+
+  /**
+   * `type` spelled with the part `claim` stands on written `replacement`,
+   * walked beside `pattern` through its tuples. Another claim the walk meets
+   * is spelled as written and recorded in `moved`, since the binding's
+   * annotation then decides its part too, and a sibling this module cannot
+   * spell is a hole. `undefined` where a moved claim's text cannot be
+   * quoted on one line.
+   */
+  #spelledAlong(
+    pattern: Resolved.Pattern,
+    type: Mono,
+    claim: Resolved.TypedPattern,
+    replacement: string,
+    moved: Resolved.TypedPattern[],
+  ): string | undefined {
+    if (pattern === claim) return replacement;
+    const holds = pattern.span.start.offset <= claim.span.start.offset &&
+      claim.span.end.offset <= pattern.span.end.offset;
+    // A sibling the module cannot spell is a hole: the annotation still
+    // decides the claim's part, and inference gives the rest as before.
+    const sibling = (): string => this.#claimSpelling(type) ?? "_";
+    const actual = this.#prune(type);
+    switch (pattern.kind) {
+      case "Typed": {
+        if (holds) return this.#spelledAlong(pattern.pattern, actual, claim, replacement, moved);
+        const written = this.#sourceSlice(pattern.annotation.span);
+        const text = written === undefined ? undefined : oneLine(written);
+        if (text === undefined) return undefined;
+        moved.push(pattern);
+        return text;
+      }
+      case "As":
+        return this.#spelledAlong(pattern.pattern, actual, claim, replacement, moved);
+      case "Tuple": {
+        // Not yet met at a tuple: a sibling the walk has not reached.
+        if (actual.kind !== "Tuple" || actual.elements.length !== pattern.elements.length) return sibling();
+        const parts: string[] = [];
+        for (const [index, element] of pattern.elements.entries()) {
+          const part = this.#spelledAlong(element, actual.elements[index]!, claim, replacement, moved);
+          if (part === undefined) return undefined;
+          parts.push(part);
+        }
+        return `(${parts.join(", ")})`;
+      }
+      // `#builtPart` found the claim through these shapes, so any other is a sibling.
+      default:
+        return sibling();
+    }
+  }
+
+  /**
+   * A typed pattern as the reader wrote it, with the text at `span` within it
+   * written `replacement`, on one line: `(x: Int)` for `(x: Float)`. A bare
+   * typed component shares its tuple's parentheses, so written alone it takes
+   * its own.
+   */
+  #claimText(typed: Resolved.TypedPattern, span: Source.Span, replacement: string): string | undefined {
+    const text = this.#sourceSlice(typed.span);
+    if (text === undefined) return undefined;
+    const from = span.start.offset - typed.span.start.offset;
+    const written = oneLine(text.slice(0, from) + replacement + text.slice(from + span.end.offset - span.start.offset));
+    return written === undefined || typed.span.start.offset !== typed.pattern.span.start.offset
+      ? written
+      : `(${written})`;
+  }
+
+  /**
+   * The type a part's written view spells, as this module wrote it: ground,
+   * so it names no other declaration's variable, and in this file, so its
+   * names resolve here. `undefined` otherwise.
+   */
+  #writtenSpelling(view: WrittenView | undefined): string | undefined {
+    const written = view?.written;
+    if (written === undefined || written.kind === "Face" || !annotationGround(written)) return undefined;
+    return this.#sourceSlice(written.span);
+  }
+
+  /**
+   * A type as a claim would write it (Pattern Matching §2.9): the type this
+   * module spells, with a hole for each part inference has not settled and a
+   * declared variable by its name. `undefined` where any part cannot be
+   * written here: a structural record, a nominal type no name reaches, a
+   * colour still open.
+   */
+  #claimSpelling(type: Mono): string | undefined {
+    const actual = this.#prune(type);
+    const spelled = (parts: readonly Mono[]): string | undefined => {
+      const written: string[] = [];
+      for (const part of parts) {
+        const spelling = this.#claimSpelling(part);
+        if (spelling === undefined) return undefined;
+        written.push(spelling);
+      }
+      return written.join(", ");
+    };
+    const applied = (head: string | undefined, parts: readonly Mono[]): string | undefined => {
+      const inner = spelled(parts);
+      return head === undefined || inner === undefined ? undefined : `${head}(${inner})`;
+    };
+    switch (actual.kind) {
+      case "Variable":
+        return actual.rigidName ?? "_";
+      case "Tuple": {
+        if (actual.elements.length === 0) return this.#nominalSpellings.claimed.has("Unit") ? undefined : "Unit";
+        const inner = spelled(actual.elements);
+        return inner === undefined ? undefined : `(${inner})`;
+      }
+      case "Vector":
+        return applied("Vector", [actual.element]);
+      case "Set":
+        return applied("Set", [actual.element]);
+      case "Array":
+        return applied("Array", [actual.element]);
+      case "JsSet":
+        return applied("JsSet", [actual.element]);
+      case "Map":
+        return applied("Map", [actual.key, actual.value]);
+      case "JsMap":
+        return applied("JsMap", [actual.key, actual.value]);
+      case "Nullable":
+        return applied("Nullable", [actual.value]);
+      case "Union":
+      case "NominalRecord":
+        return actual.arguments.length === 0
+          ? this.#typeSpellingAtSite(actual)
+          : applied(this.#typeSpellingAtSite({ ...actual, arguments: [] }), actual.arguments);
+      case "Function": {
+        const marks: boolean[] = [];
+        for (const axis of AXES) {
+          const slot = colourAt(actual, axis);
+          const colour = slot === undefined ? PURE : this.#prune(slot);
+          if (colour.kind !== "Effect") return undefined;
+          marks.push(isImpure(colour));
+        }
+        const parameters = spelled(actual.parameters);
+        const result = this.#claimSpelling(actual.result);
+        if (parameters === undefined || result === undefined) return undefined;
+        return `(${parameters}) ${markedArrow(marks[0]!, marks[1]!)} ${result}`;
+      }
+      case "Constructor":
+        return this.#typeSpellingAtSite(actual);
+      default:
+        return undefined;
+    }
+  }
+
+  /**
+   * The claim's own written arrow among the two a colour report meets, where
+   * the claim's unification is running: `left` is the written side's, since the
+   * claim is the demand (`#claimPatternType`). `demand` says whether that arrow
+   * stands as the demand here, outside an odd number of parameter positions.
+   */
+  #claimArrow(
+    span: Source.Span,
+    left: FunctionMono,
+    demand: boolean,
+  ): ClaimArrow | undefined {
+    const claim = this.#claimAt;
+    if (claim === undefined || span !== claim.pattern.annotation.span) return undefined;
+    // An arrow an alias's declaration wrote is not the claim's to rewrite.
+    const written = this.#writtenArrowSpans.get(left);
+    const within = claim.pattern.annotation.span;
+    const at = written === undefined || written.start.offset < within.start.offset || written.end.offset > within.end.offset
+      ? undefined
+      : written;
+    return { claim, arrow: left, at, demand };
+  }
+
+  /**
+   * A claim's own arrow handed a function at a parameter, in the binding
+   * annotation's words for a callback written so (Effects §4.2), less the
+   * callback, since a pattern's type writes none outside a `let` (Pattern
+   * Matching §12): the arrow accepts a function the part refuses. An arrow an
+   * alias spells is not at the report, so the report names it by what it
+   * marks, and its rewrite is the type the part has, whole. `undefined` where
+   * the arrow stands as the demand, or accepts no more than the part does
+   * (`fixed`): there the part's arrow is what is fixed, and the effect
+   * report's own words say so.
+   */
+  #claimSupplyMessage(claimArrow: ClaimArrow, axes: readonly Axis[]): string | undefined {
+    if (claimArrow.demand || claimArrow.fixed === true) return undefined;
+    const marks: Record<Axis, boolean> = { world: false, fail: false };
+    for (const axis of AXES) {
+      const slot = colourAt(claimArrow.arrow, axis);
+      const colour = slot === undefined ? PURE : this.#prune(slot);
+      if (colour.kind !== "Effect") return undefined;
+      marks[axis] = isImpure(colour);
+    }
+    const pattern = claimArrow.claim.pattern.pattern;
+    const part = pattern.kind === "Binding" ? `\`${pattern.binding.name}\`` : "the part";
+    const arrow = markedArrow(marks.world, marks.fail);
+    const fix = markedArrow(marks.world && !axes.includes("world"), marks.fail && !axes.includes("fail"));
+    if (claimArrow.at === undefined) {
+      return `the \`${arrow}\` this type spells in a parameter accepts any function${acceptance(marks)}, and ${part} ` +
+        `accepts only ${silentOne(axes)} — ` +
+        (claimArrow.claim.spelling === undefined ? "remove the type" : `write the type ${part} has`);
+    }
+    return `this \`${arrow}\` accepts any function${acceptance(marks)}, and ${part} accepts only ${silentOne(axes)} — ` +
+      `write its arrow \`${fix}\``;
+  }
+
+  /**
+   * A claim's arrow as the report reads it. An arrow that already says what
+   * the report asks of it, marked on each colour the report names as the
+   * demand, silent on each handed a function at a parameter, meets a part's
+   * arrow that is a constant, met as it was decided (Pattern Matching §2.9;
+   * #1518): the claim's words for an arrow that accepts more would be false,
+   * so the report keeps its place in the effect report's own words. Its
+   * rewrite is the same as any claim's (`#claimArrowFixes`). An alias's arrow
+   * is read so too.
+   */
+  #claimArrowAt(claimArrow: ClaimArrow, axes: readonly Axis[]): ClaimArrow {
+    for (const axis of AXES) {
+      const slot = colourAt(claimArrow.arrow, axis);
+      const colour = slot === undefined ? PURE : this.#prune(slot);
+      if (colour.kind !== "Effect" || (axes.includes(axis) && isImpure(colour) !== claimArrow.demand)) return claimArrow;
+    }
+    return { ...claimArrow, fixed: true };
+  }
+
+  /**
+   * A claim's arrow rewritten with exactly the colours the report names
+   * changed, and nothing else (Pattern Matching §2.9; Hexagon Way 7): those
+   * are the colours that cannot hold. As the demand, that marks each colour
+   * the part does that the arrow is silent on; handed a function at a
+   * parameter, it unmarks each the part refuses there; over an arrow met as
+   * it was decided (`fixed`), it unmarks each the part does not do. A
+   * following arrow is left to its own rows. Where the claim does not write
+   * the arrow, an alias's, the rewrite is the type the part has, whole.
+   */
+  #claimArrowFixes(claimArrow: ClaimArrow, axes: readonly Axis[]): { readonly fixes?: readonly Diagnostics.Fix[] } {
+    if (claimArrow.at === undefined) return { fixes: [this.#claimRewrite(claimArrow.claim)] };
+    const marks: boolean[] = [];
+    for (const axis of AXES) {
+      const slot = colourAt(claimArrow.arrow, axis);
+      const colour = slot === undefined ? PURE : this.#prune(slot);
+      if (colour.kind !== "Effect") return {};
+      const marked = isImpure(colour);
+      marks.push(axes.includes(axis) ? !marked : marked);
+    }
+    const arrow = markedArrow(marks[0]!, marks[1]!);
+    const shown = this.#claimText(claimArrow.claim.pattern, claimArrow.at, arrow);
+    return {
+      fixes: [{
+        message: `write \`${shown ?? arrow}\``,
+        edits: [{ span: claimArrow.at, replacement: arrow }],
+      }],
+    };
+  }
+
   #claimView(subject: ClaimSubject, claim: Resolved.TypedPattern): WrittenView | undefined {
     const written = subject.view?.written;
     return written === undefined || written.kind === "Face"
@@ -33441,7 +33874,11 @@ class Checker {
         (arrows.left === parameterArrow || arrows.right === parameterArrow);
       const contract = atParameter && contractOf?.declared !== undefined ? this.#contractLabel(contractOf.declared) : undefined;
       const reportAxis = this.#currentAxis;
+      // A claim's own arrow: the report stands there, and its rewrite is the
+      // arrow the part has (Pattern Matching §12).
+      const writtenClaimArrow = arrows === undefined ? undefined : this.#claimArrow(span, arrows.left, !this.#parameterParity);
       this.#colourReport(`effect-mismatch ${spanKey(span)} ${direction} ${arrows?.id ?? ""}`, (axes) => {
+        const claimArrow = writtenClaimArrow === undefined ? undefined : this.#claimArrowAt(writtenClaimArrow, axes);
         // §3.4's limitation, not the contract: an untyped parameter a written
         // type's impure constant fixed fits once its own type is written
         // (#1263, D2). Read again once every call of a parameter is known.
@@ -33450,22 +33887,28 @@ class Checker {
           return lazy && axes.includes("fail") ? { ...seam, message: seam.message + LAZY_SEQ_ADVICE } : seam;
         }
         const assume = atParameter && contractOf !== undefined ? this.#assumeFix(contractOf.argument, axes) : undefined;
+        const supplied = claimArrow === undefined ? undefined : this.#claimSupplyMessage(claimArrow, axes);
         return {
           severity: "error",
           // Settled only where inference settled every colour the report
           // names; one written there keeps the written clause (#1376).
-          message: effectMismatchMessage(direction, axes, demandWritten, axes.every((axis) =>
+          message: supplied ?? effectMismatchMessage(direction, axes, demandWritten, axes.every((axis) =>
             this.#settledPure.has(
               axis === reportAxis || demandArrow === undefined
                 ? demand
                 : this.#prune(colourAt(demandArrow, axis) ?? PURE),
             )
           )) +
-            (lazy && axes.includes("fail") ? LAZY_SEQ_ADVICE : ""),
+            (lazy && axes.includes("fail") ? LAZY_SEQ_ADVICE : "") +
+            (claimArrow !== undefined && claimArrow.at === undefined &&
+                claimArrow.claim.spelling === undefined
+              ? "; remove the type"
+              : ""),
           // Refused at the value handed, where the contract is the parameter's.
-          primary: atParameter && contractOf !== undefined ? contractOf.argument.span : span,
+          primary: atParameter && contractOf !== undefined ? contractOf.argument.span : claimArrow?.at ?? span,
           ...(contract === undefined ? {} : { labels: [contract] }),
           ...(assume === undefined ? {} : { fixes: [assume] }),
+          ...(claimArrow === undefined ? {} : this.#claimArrowFixes(claimArrow, axes)),
         };
       });
       return;
@@ -33667,14 +34110,20 @@ class Checker {
       this.#postFinalisationRedirect(actualLeft, actualRight) ??
       this.#unadaptedSequence(actualLeft, actualRight);
     const unconverted = replaced === undefined ? this.#unconvertedResult(actualLeft, actualRight) : undefined;
+    // A claim the part does not fit: its first rewrite is the type the part
+    // has, and a conversion that exists is named where it would happen.
+    const claimed = replaced === undefined && unconverted === undefined
+      ? this.#claimRefusal(span, actualLeft, actualRight)
+      : undefined;
     this.#diagnostics.add({
       severity: "error",
-      message: replaced ?? unconverted?.message ??
+      message: replaced ?? unconverted?.message ?? claimed?.message ??
         `type mismatch: expected ${this.#display(actualLeft)}, found ` +
           this.#display(actualRight),
       primary: span,
       ...this.#numberDefaultLabels(actualLeft, actualRight),
       ...(unconverted === undefined ? {} : { fixes: [unconverted.fix] }),
+      ...(claimed === undefined ? {} : { fixes: [claimed.fix] }),
     });
   }
 
@@ -34001,6 +34450,11 @@ class Checker {
         // Named as every report names a type (#649), never by a number (#699).
         const required = this.#display(type);
         const recursive = this.#knotCallAt(span);
+        const claim = this.#claimAt;
+        // A claim's span is never a call's, so its report is never the knot's.
+        const claimed = claim !== undefined && span === claim.pattern.annotation.span
+          ? this.#claimRewrite(claim)
+          : undefined;
         this.#diagnostics.add({
           severity: "error",
           message: recursive === undefined
@@ -34018,6 +34472,8 @@ class Checker {
                   NO_POLYMORPHIC_RECURSION
                 : `change the annotation to \`${required}\`, or remove it to let the type be inferred`),
           primary: span,
+          // A claim's first rewrite is the type its part has (Pattern Matching §2.9).
+          ...(claimed === undefined ? {} : { fixes: [claimed] }),
         });
       }
       this.#markDeclarationsRefused(variable);
@@ -46316,6 +46772,22 @@ function followsFix(arrow: FaceArrow | undefined, axes: readonly Axis[]): string
 /** The words for what a callback arrow accepts beyond "any function" (Effects §2.3). */
 function acceptance(marks: Readonly<Record<Axis, boolean>>): string {
   return marks.world && marks.fail ? "" : marks.world ? " that cannot fail" : marks.fail ? " that is pure" : "";
+}
+
+/**
+ * Source text a report quotes, on one line: each line break with the
+ * indentation around it becomes one space, or nothing after an opening
+ * bracket or before a closing one, a comma or a colon.
+ * `undefined` where the text holds a comment, which a line break ends, or a
+ * string, which may hold a line break of its own.
+ */
+function oneLine(text: string): string | undefined {
+  if (!text.includes("\n")) return text;
+  if (text.includes("//") || text.includes("(*") || text.includes('"')) return undefined;
+  return text
+    .replace(/([([{])\s*\n\s*/g, "$1")
+    .replace(/\s*\n\s*([)\]},:])/g, "$1")
+    .replace(/\s*\n\s*/g, " ");
 }
 
 /** A written mark's two parts (Effects §1's alphabet): `!` carries both, `~` the world's, `^` the fail colour's. */
