@@ -867,6 +867,25 @@ describe("§2.9 a function fits the claim, at every position (#1510)", () => {
       "    ((m: (() ->! Unit) ->! Unit), n) => m!(save0)\n" + OUT)).toHaveLength(1);
   });
 
+  test("a claim under an or-pattern reads its part in the alternative that holds it", () => {
+    const claim = "(m: (() -> Unit) ->! Unit)";
+    for (const body of [
+      `let g(x: ((() ->! Unit) -> Unit, Int)): Unit = match x\n    (${claim}, 1) | (${claim}, _) => m!(noop)\n`,
+      `let g(x: (Int, ((() ->! Unit) -> Unit, Int))): Unit = match x\n    (n, (${claim}, 1) | (${claim}, _)) => m!(noop)\n`,
+      `let g(x: ((() ->! Unit) -> Unit, Int)): Unit =\n    let (${claim}, 1) | (${claim}, _) = x\n    m!(noop)\n`,
+    ]) {
+      expect(messages(WORLD + body + OUT)).toEqual([]);
+    }
+    // A name the alternatives bind apart is one binder at unifiable types
+    // (§2.6). An arm reads its scrutinee in place (Effects §3.4), so where
+    // one alternative claims and the other doesn't, the two types differ;
+    // a `let`'s value is a use, so there they meet.
+    expect(messages(WORLD + "let g(x: (() -> Unit, Int)): Unit = match x\n    ((f: () ->! Unit), 1) | (f, _) => f!()\n" +
+      OUT)).not.toEqual([]);
+    expect(messages(WORLD + "let g(x: (() -> Unit, Int)): Unit =\n    let ((f: () ->! Unit), 1) | (f, _) = x\n    f!()\n" +
+      OUT)).toEqual([]);
+  });
+
   test("the binder takes the written type, so its calls wear the marks it writes", () => {
     expect(messages(WORLD + "let g(x: (() -> Unit, Int)): Unit = match x\n    ((f: () ->! Unit), n) => f()\n" + OUT))
       .toEqual(["this call is impure and may fail, so `f` wants `!`, not no mark"]);

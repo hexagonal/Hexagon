@@ -14974,8 +14974,8 @@ class Checker {
    * `symbol`, or a claim stands on *(#1180)*, read through each tuple, record, vector and nominal
    * record pattern as it takes the value apart: a record's field as
    * `#fieldWritten` reads it. `undefined` where the pattern meets a part the
-   * written type does not spell, and under an or-pattern, whose alternatives
-   * bind the name apart.
+   * written type does not spell, and for a name under an or-pattern, whose
+   * alternatives bind it apart.
    */
   #patternWritten(
     pattern: Resolved.Pattern,
@@ -15001,6 +15001,9 @@ class Checker {
         // what the outer written type spells, and its arrows are its own. A
         // claim asked for is that part (`#claimView`).
         return pattern === symbol ? part : this.#patternWritten(pattern.pattern, part, symbol);
+      case "Or":
+        // A claim is one node, found in the alternative that holds it.
+        return typeof symbol === "object" ? first(pattern.alternatives.map((inner) => [inner, part] as const)) : undefined;
       case "Tuple":
         return annotation.kind === "Tuple" && annotation.elements.length === pattern.elements.length
           ? first(pattern.elements.map((element, index) => [element, within(annotation.elements[index]!)] as const))
