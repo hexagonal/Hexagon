@@ -996,6 +996,24 @@ function annotationHasFunction(annotation: Resolved.TypeAnnotation): boolean {
  */
 type WrittenRole = "spine" | "callback" | "data";
 
+/**
+ * The class of the binders a pattern makes, as its position gives it (Pattern
+ * Matching §4): a `let` pattern's are sequential binders; a `match` or `catch`
+ * arm's, a `for` head's and a lambda parameter's are head binders, which never
+ * generalize.
+ */
+type PatternBinders = "let" | HeadBinders;
+
+/** A head binder's position, which names it in Effects §4.4's clause. */
+type HeadBinders = "arm" | "for" | "parameter";
+
+/** What a head binder's position binds, in Effects §4.4's clause (Pattern Matching §12). */
+const HEAD_BINDS: Readonly<Record<HeadBinders, string>> = {
+  arm: "what an arm binds",
+  for: "what a `for` head binds",
+  parameter: "what a lambda's parameter binds",
+};
+
 /** A function's written face: its parameters' written types, where written, and its written result. */
 interface WrittenFace {
   readonly kind: "Face";
@@ -1136,19 +1154,9 @@ function indefiniteArticle(name: string): string {
   return /^(?:[aeio]|u(?!n[io]|s[aeu]|ti|i))/i.test(name) ? "an" : "a";
 }
 
-/**
- * The first following arrow a written type writes, at any depth (Pattern
- * Matching §12's row for a pattern's type).
- */
-function followingArrowIn(
-  annotation: Resolved.TypeAnnotation,
-): Resolved.FunctionTypeAnnotation | undefined {
-  if (annotation.kind === "Function" && isFollowing(annotation.effect)) return annotation;
-  for (const child of annotationChildren(annotation)) {
-    const found = followingArrowIn(child);
-    if (found !== undefined) return found;
-  }
-  return undefined;
+/** Whether §4.4's position is a head binder's type (Pattern Matching §2.9). */
+function isHeadBinders(position: string): position is HeadBinders {
+  return position === "arm" || position === "for" || position === "parameter";
 }
 
 /**
@@ -4861,7 +4869,8 @@ class Checker {
     | "record"
     | "union"
     | "alias"
-    | "no-signature" = "no-signature";
+    | "no-signature"
+    | HeadBinders = "no-signature";
   /**
    * Whether the arrows being elaborated are an **extern row's** *(#869)*.
    *
@@ -7297,6 +7306,19 @@ class Checker {
    * only by `#matchFunctionFixit`.
    */
   #patternSeatIsLambdaParameter = false;
+  /**
+   * The class of the binders the pattern being checked makes, for the types
+   * it writes (`#claimPatternType`; Pattern Matching §2.9). Set where a
+   * pattern's walk starts (`#atBinders`).
+   */
+  #patternBinders: PatternBinders = "arm";
+  /**
+   * The value the pattern being checked takes apart where its form reads it in
+   * place (`#readInPlace`: a `match` scrutinee, a `for` iterable), for the
+   * claims its typed patterns make; `undefined` where the pattern meets a value
+   * a use already read, or a lambda's parameter.
+   */
+  #claimSubject: Resolved.Expr | undefined;
   /**
    * A lambda literal applied where it is written — a call's callee, which a
    * pipe's right-hand lambda is (Operators §8) — and what it is applied to,
@@ -11544,12 +11566,16 @@ class Checker {
         const enclosingAnnotation = this.#patternBindingAnnotation;
         this.#patternBindingAnnotation = item.annotation?.span;
         try {
-          this.#inferPattern(
-            item.pattern,
-            valueType,
-            level,
-            this.#isValue(item.value),
-            valueType,
+          // A lambda's parameter makes head binders, a `let` sequential ones,
+          // and the value either meets was read by a use already.
+          this.#atBinders(item.parameter === true ? "parameter" : "let", undefined, () =>
+            this.#inferPattern(
+              item.pattern,
+              valueType,
+              level,
+              this.#isValue(item.value),
+              valueType,
+            )
           );
         } finally {
           this.#patternBindingAnnotation = enclosingAnnotation;
@@ -13759,7 +13785,7 @@ class Checker {
               ? "write its type here"
               : `write \`(${this.#spelledExpression(expression.iterable) ?? "…"}: ${written})\``),
         });
-        this.#inferMatchPattern(expression.pattern, element, level);
+        this.#atBinders("for", expression.iterable, () => this.#inferMatchPattern(expression.pattern, element, level));
         this.#markNamed(element);
         // §5.3: one sentence across all three gated positions, and this is one
         // of them. The loop's own wording is retired with the rest of the
@@ -16871,41 +16897,72 @@ class Checker {
    * to, and the whole is broken (`#breakWhole`).
    *
    * Nothing else: no constraint form and no second pass, as for ascription
-   * (Ascription §9 item 3). Its arrows are the part's own, read as written,
-   * with no fitting (§2.9); a following arrow is refused until its colours are
-   * ruled (#1510), and the claim is then dropped.
+   * (Ascription §9 item 3). Its function types follow the binders' class
+   * (`#patternBinders`): in a `let` pattern they are elaborated as a binding
+   * annotation's are, so a following arrow there reads as the annotation's
+   * (Effects §2.2.1); at a head binder, which is one value, they are data and a
+   * following arrow is refused with its constant, which it reads as (§4.4).
+   *
+   * The claim is a use of the part (Effects §3.4): each arrow it receives that
+   * the text decides is read as its colour or more, so a pure function fits a
+   * `->!` claim. A `let`'s right-hand side was such a use already. A value a
+   * `match` or a `for` reads in place had only its own arrow re-opened, and
+   * what its pattern takes out is re-opened here, where the text decides the
+   * value whole, as a use of a name the pattern binds there would read it. A
+   * colour the environment holds joins room of its own, and is left to the
+   * binding that holds it.
    */
   #claimPatternType(pattern: Resolved.TypedPattern, expected: Mono, level: number): Mono | undefined {
     // A type the resolver refused has been reported there; the claim fails
     // with it, so the pattern beneath reads as `_` and shadows nothing. A
     // refused part of a written type is an error part, which claims nothing.
     if (pattern.annotation.kind === "ErrorType") return undefined;
-    const following = followingArrowIn(pattern.annotation);
-    if (following !== undefined) {
-      this.#refusePatternFollowingArrow(following, expected);
-      return undefined;
-    }
     const enclosingAscribedType = this.#ascribedTypeSpan;
     this.#ascribedTypeSpan = pattern.annotation.span;
+    const binders = this.#patternBinders;
     let written: Mono;
     try {
-      written = this.#inPosition("no-signature", () =>
-        this.#annotationType(pattern.annotation, level, new Map(), this.#annotationVariableScope ?? new Map())
-      );
+      written = binders === "let"
+        ? this.#bindingAnnotation(pattern.annotation, level, pattern.span, undefined)
+        : this.#inPosition(binders, () =>
+          this.#annotationType(pattern.annotation, level, new Map(), this.#annotationVariableScope ?? new Map())
+        );
     } finally {
       this.#ascribedTypeSpan = enclosingAscribedType;
     }
     for (const variable of this.#collectVariables(written)) {
       if (variable.ascribedAt === pattern.annotation.span) this.#patternDeclared.set(variable, pattern);
     }
+    const subject = this.#claimSubject;
+    const part = subject !== undefined && this.#receivedDecided(subject) ? this.#openReceived(expected, level) : expected;
     const before = this.#reportCount;
     this.#patternChecks += 1;
     try {
-      this.#unify(expected, written, pattern.annotation.span);
+      this.#unify(part, written, pattern.annotation.span);
     } finally {
       this.#patternChecks -= 1;
     }
     return this.#reportCount > before ? undefined : written;
+  }
+
+  /**
+   * Runs a pattern's walk with its binders' class and the value it takes
+   * apart in place, if any (`#patternBinders`, `#claimSubject`). Every walk
+   * that reaches a claim starts here, so neither the fields' defaults nor the
+   * restore can be told apart from source today (equivalent mutants); the save
+   * is kept as the other pattern seats keep theirs.
+   */
+  #atBinders<T>(binders: PatternBinders, subject: Resolved.Expr | undefined, walk: () => T): T {
+    const enclosingBinders = this.#patternBinders;
+    const enclosingSubject = this.#claimSubject;
+    this.#patternBinders = binders;
+    this.#claimSubject = subject;
+    try {
+      return walk();
+    } finally {
+      this.#patternBinders = enclosingBinders;
+      this.#claimSubject = enclosingSubject;
+    }
   }
 
   /**
@@ -16915,64 +16972,6 @@ class Checker {
    */
   #breakWhole(pattern: Resolved.Pattern): void {
     for (const node of resolvedPatternNodes(pattern)) this.#brokenPatterns.add(node);
-  }
-
-  /**
-   * Pattern Matching §12's following-arrow row, while #1510 leaves their
-   * colours open: a pattern's type is a claim and fits nothing, so the rewrite
-   * is the part's own type where its arrow is a constant, and removing the type
-   * where the part's own arrow is itself a following one (a function in data).
-   * It leads Effects §2.2.1's inlet rule, whose fixit names constants a fitting
-   * would accept.
-   */
-  #refusePatternFollowingArrow(
-    following: Resolved.FunctionTypeAnnotation,
-    expected: Mono,
-  ): void {
-    const part = this.#prune(expected);
-    const spelled = part.kind === "Function" ? this.#constantSpelling(part) : undefined;
-    this.#diagnostics.add({
-      severity: "error",
-      message: "a following arrow is not written in a pattern's type; " +
-        (spelled === undefined ? "remove the type" : `write \`${spelled}\``),
-      primary: following.arrowSpan ?? following.span,
-    });
-  }
-
-  /**
-   * A type as this site writes it, its arrows included, where each arrow's
-   * colours are constants: `((Int) ->! Int) -> Int`. `undefined` where an
-   * arrow's colour is still a variable, or a part has no spelling here.
-   */
-  #constantSpelling(type: Mono): string | undefined {
-    const actual = this.#prune(type);
-    if (actual.kind !== "Function") return this.#spellingAtSite(actual);
-    const marked: Partial<Record<Axis, boolean>> = {};
-    for (const axis of AXES) {
-      const slot = colourAt(actual, axis);
-      if (slot === undefined) {
-        marked[axis] = false;
-        continue;
-      }
-      const colour = this.#shownColour(slot);
-      if (colour.kind !== "Effect") return undefined;
-      marked[axis] = isImpure(colour);
-    }
-    const parts: string[] = [];
-    for (const part of [...actual.parameters, actual.result]) {
-      const spelled = this.#constantSpelling(part);
-      if (spelled === undefined) return undefined;
-      parts.push(spelled);
-    }
-    const result = parts.pop()!;
-    const arrow = marked.world === true && marked.fail === true
-      ? "->!"
-      : marked.world === true
-      ? "->~"
-      : marked.fail === true
-      ? "->^"
-      : "->";
-    return `(${parts.join(", ")}) ${arrow} ${result}`;
   }
 
   #insideWrapper(orAlternative: boolean, walk: () => void): void {
@@ -17380,7 +17379,7 @@ class Checker {
       const outerCatchPattern = this.#catchPattern;
       this.#catchPattern = true;
       try {
-        this.#inferExceptionPattern(arm.pattern, level);
+        this.#atBinders("arm", undefined, () => this.#inferExceptionPattern(arm.pattern, level));
       } finally {
         this.#armGuardSeat = outerGuardSeat;
         this.#armHasGuard = outerHasGuard;
@@ -22269,7 +22268,9 @@ class Checker {
       try {
         // A refused `match`'s patterns are read against nothing, so what they
         // report cannot follow what another line made of the scrutinee.
-        this.#inferMatchPattern(arm.pattern, undecided ? ERROR : scrutinee, level);
+        this.#atBinders("arm", expression.scrutinee, () =>
+          this.#inferMatchPattern(arm.pattern, undecided ? ERROR : scrutinee, level)
+        );
       } finally {
         this.#exnScrutinee = outerExnScrutinee;
         this.#currentMatchPattern = outerMatchPattern;
@@ -25348,6 +25349,7 @@ class Checker {
       | "union"
       | "alias"
       | "no-signature"
+      | HeadBinders
       | "colour"
       | "argument",
     written: FollowingArrow = "linked",
@@ -25416,6 +25418,11 @@ class Checker {
       : position === "local"
       ? nothingHanded + `this annotation has no callbacks of its own, and a local \`${text}\` does not ` +
         `borrow the enclosing function's — leave its type to inference, or write \`${fix}\``
+      // A head binder's type (Pattern Matching §2.9): something may be handed
+      // to the function it binds, and its calls still share one colour.
+      : position === "arm" || position === "for" || position === "parameter"
+      ? `\`${text}\` means only as effectful as what it is handed, and ${HEAD_BINDS[position]} is one value, ` +
+        "whose calls share one colour" + constants
       : nothingHanded + {
         inside: "an arrow inside a parameter type, other than a callback's own, is a constant",
         untyped: "no callback of this signature has been handed over by the time this arrow runs; " +
@@ -25446,7 +25453,7 @@ class Checker {
 
   /** Runs `body` with §4.4's position set, restoring whatever was in force. */
   #inPosition<T>(
-    position: "record" | "union" | "alias" | "no-signature",
+    position: "record" | "union" | "alias" | "no-signature" | HeadBinders,
     body: () => T,
   ): T {
     const previous = this.#linkedArrowPosition;
@@ -40454,6 +40461,12 @@ class Checker {
         // what they say; a function it returns directly carries its colour.
         parameters = this.#inRole({ kind: "inside" }, () => annotation.parameters.map(elaborate));
         resultRole = annotation.result.kind === "Function" ? role : { kind: "inside" };
+      } else if (role === undefined && isHeadBinders(this.#linkedArrowPosition)) {
+        // A head binder's type is data: a following arrow inside a parameter
+        // type of it takes §4.4's parameter-type frame, which leads its own
+        // (Pattern Matching §12).
+        parameters = this.#inRole({ kind: "inside" }, () => annotation.parameters.map(elaborate));
+        resultRole = role;
       } else {
         parameters = annotation.parameters.map(elaborate);
         resultRole = role;
