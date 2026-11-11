@@ -459,6 +459,15 @@ describe("the report points to where the number became an `Int`, and says what t
         "write `((1, 2): (Nat, Int))`",
     ]);
     compiles(NAT + "\nlet f(): Unit =\n    match ((1, 2): (Nat, Int))\n        (a, b) => useNat(a)\n");
+    // The empty tuple's type is written `Unit` (Products §2.7): `()` in type notation is a parameter list.
+    expect(labels(NAT + "\nlet f(): Option(Unit) = Some((1, ())).map((p) => match p\n    (a, u) => useNat(a))\n")).toEqual([
+      "[p] `p` became an `Int` here: the number reached only the lambda's input — write `(p: (Nat, Unit))`",
+    ]);
+    compiles(NAT + "\nlet f(): Option(Unit) = Some((1, ())).map((p: (Nat, Unit)) => match p\n    (a, u) => useNat(a))\n");
+    // Where a declaration takes the name, the site has no spelling for the empty tuple's type.
+    expect(labels(
+      "union Unit = | U\nlet useNat(v: Nat): Int = 1\nlet f(): Option(Int) = Some((1, ())).map((p) => match p\n    (a, u) => useNat(a))\n",
+    )).toEqual(["[p] `p` became an `Int` here: the number reached only the lambda's input — write its type here"]);
   });
 
   test("no label where the default did not cause the refusal", () => {
