@@ -102,7 +102,7 @@ _                -- wildcard arm: matches anything, binds nothing
 ```
 
 - **The flat forms above are the degenerate case of the single pattern grammar** (Pattern Matching §2). Nesting, literals, guards, or-patterns, as-patterns, tuple/record/vector patterns, and **generalized `match` scrutinees** (tuples, records, `Bool`, …) all ship there; an uppercase-start name in a slot position is simply a nested constructor pattern.
-- **Positional, always** (this doc's rule, standing). `Circle(r)` binds `r` to the first slot whether the declaration named it `radius` or not; slot names never appear in constructor patterns in v1. **Named-slot constructor patterns** (`Circle(radius: r)`) remain a genuine deferred item, owned by Pattern Matching §11.3.
+- **Positional, always** (this doc's rule, standing). `Circle(r)` binds `r` to the first slot whether the declaration named it `radius` or not; slot names never appear in constructor patterns in v1. **Named-slot constructor patterns** (`Circle(radius = r)`, `=` binding as in a record pattern, Products §1) remain a genuine deferred item, owned by Pattern Matching §11.3.
 - **Unions own the constructor arity/nullary diagnostics**: pattern arity must equal constructor arity — a payload constructor used bare (`Circle =>`) is an arity error with the hint "`Circle` carries 1 field; write `Circle(_)` to ignore it"; a nullary constructor with parens (`Point() =>`) gets the §2.2 hint. Pattern Matching §2.2 consumes these unchanged.
 - Duplicate binder in one whole pattern (`Rect(w, w)`): error (whole-pattern check now Pattern Matching §2.1's).
 

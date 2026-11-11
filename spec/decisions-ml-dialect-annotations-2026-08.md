@@ -121,6 +121,7 @@ A hole may appear in **any type position inside an inference-checked annotation*
 - return annotations (`let f(x): _ -> Bool = ...` and plain `let f(x): Vector(_) = ...`),
 - binding annotations on `let` and `var` statements (`let n: _ = 42`),
 - expression ascriptions (`(parse(raw) : Vector(_))` — the Ascription spec; §5.5). *(added 2026-08-06, #307)*
+- types written in patterns (`let (xs: Vector(_), n) = parse(raw)` — Pattern Matching §2.9): a claim about the part of a value the pattern takes apart, under the same contract, its variables the declaration's (Functions §4.1). *(added 2026-11-11, #1509)*
 
 Within such an annotation, every type position admits a hole: type arguments (`Map(String, _)`), function-type parameters and results (`(_ -> Bool)`), tuple elements (`(_, Int)`), structural-record field types (`{ name: _ }`), and nesting of all of these.
 
@@ -256,6 +257,10 @@ Applied in the #368 change:
 Applied in the #1261 change:
 
 - **§2.4** gains the fitting paragraph: fitting is a specified conversion, and the wrapper `() => f()` writes it out, so the test holds for colours (Effects §3.4's limitation, §11).
+
+Applied in the #1509 change:
+
+- **§5.1** gains the pattern-type position (Pattern Matching §2.9); **Functions §4.1** names it the fifth annotation position under one contract.
 
 To apply on next touch of the target:
 
