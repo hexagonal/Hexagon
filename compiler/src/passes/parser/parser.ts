@@ -740,6 +740,8 @@ class Parser {
    */
   #catchArmHead: number | undefined;
   #armFault: Source.Span | undefined;
+  /** Where each `fault` pattern refused where it was read begins (`#headedByRefusedFault`). */
+  readonly #refusedFaults = new Set<number>();
   /** The edits the parentheses-only refusals have made so far (`#refuseBareTypes`). */
   readonly #bareEdits: BareEdit[] = [];
 
@@ -5623,7 +5625,21 @@ class Parser {
     }
     const annotation = this.#parseTypeAnnotation(true);
     if (annotation === undefined) return undefined;
+    if (this.#headedByRefusedFault(pattern)) return pattern;
     return { kind: "Typed", pattern, annotation, span: spanFrom(pattern.span, annotation.span) };
+  }
+
+  /**
+   * Whether a pattern begins with a `fault` pattern refused where it was read
+   * (`fault e`, `fault e as x`, `fault e | Oops(_)` outside a catch arm's
+   * head). A type written over it is part of the same mistake (it says what
+   * the `fault` pattern would bind), so the type is dropped with it and claims
+   * nothing: the refusal is the one report, as without the type. Any other
+   * pattern refused where it was read (an oversized literal) is a cause of its
+   * own, and keeps its type.
+   */
+  #headedByRefusedFault(pattern: Parsed.Pattern): boolean {
+    return this.#refusedFaults.has(pattern.span.start.offset);
   }
 
   /**
@@ -5651,24 +5667,18 @@ class Parser {
   #refuseBareTypes(bare: readonly Parsed.TypedPattern[], whole: Source.Span, rest?: Parsed.TypedPattern): void {
     if (bare.length === 0 && rest === undefined) return;
     // Each slot of the form is refused where it stands, and each report names
-    // and applies the form with every one of them written, so its fix
-    // compiles alone (as Declarations Preamble §1.1's reports of one
-    // declaration carry one edit). A slot's own text carries the refusals
-    // already made inside it, and a vector whose rest takes a type is
-    // rewritten whole, typed after its brackets.
+    // the form with every one of them written, and with every refusal already
+    // made inside it (a slot's, or a sibling's), and its fix writes that form
+    // whole, so the fix compiles alone (as Declarations Preamble §1.1's
+    // reports of one declaration carry one edit). A vector whose rest takes a
+    // type is typed after its brackets.
     const ordered = [...bare].sort((left, right) => left.span.start.offset - right.span.start.offset);
     const slots = ordered.map((typed) => ({ span: typed.span, replacement: `(${this.#textWithBareEdits(typed.span)})` }));
-    let rewritten: string;
-    let edits: readonly BareEdit[];
-    if (rest === undefined) {
-      rewritten = this.#textWithBareEdits(whole, slots);
-      edits = slots;
-    } else {
-      const binder = { span: rest.span, replacement: this.#sourceText(rest.pattern.span) };
-      rewritten = `(${this.#textWithBareEdits(whole, [...slots, binder])}: ${this.#sourceText(rest.annotation.span)})`;
-      edits = [{ span: whole, replacement: rewritten }];
-    }
-    const fix = { message: `write ${edits.map(({ replacement }) => `\`${replacement}\``).join(" and ")}`, edits };
+    const binder = rest === undefined ? [] : [{ span: rest.span, replacement: this.#sourceText(rest.pattern.span) }];
+    const form = this.#textWithBareEdits(whole, [...slots, ...binder]);
+    const rewritten = rest === undefined ? form : `(${form}: ${this.#sourceText(rest.annotation.span)})`;
+    const edit = { span: whole, replacement: rewritten };
+    const fix = { message: `write \`${rewritten}\``, edits: [edit] };
     for (const typed of ordered) {
       this.#diagnostics.add({
         severity: "error",
@@ -5685,14 +5695,16 @@ class Parser {
         fixes: [fix],
       });
     }
-    this.#bareEdits.push(...edits);
+    this.#bareEdits.push(edit);
   }
 
   /**
    * The source between two offsets with `own` edits and every refusal's edit
    * already made inside it applied (`#refuseBareTypes`): an inner form is read
    * before the form around it, so the rewrite an outer refusal names carries
-   * the inner one's. An edit inside another is the other's already.
+   * the inner one's. An edit inside another is the other's already, and of two
+   * that begin together the wider is the outer (a bare type written around a
+   * vector whose rest takes one).
    */
   #textWithBareEdits(within: Source.Span, own: readonly BareEdit[] = []): string {
     const start = within.start.offset;
@@ -5700,7 +5712,9 @@ class Parser {
     const edits = [
       ...this.#bareEdits.filter(({ span }) => span.start.offset >= start && span.end.offset <= end),
       ...own,
-    ].sort((left, right) => left.span.start.offset - right.span.start.offset);
+    ].sort((left, right) =>
+      left.span.start.offset - right.span.start.offset || right.span.end.offset - left.span.end.offset
+    );
     let text = "";
     let at = start;
     for (const { span, replacement } of edits) {
@@ -5742,9 +5756,7 @@ class Parser {
       });
       return pattern;
     }
-    // A pattern refused where it was read (a `fault` pattern in a `match`
-    // arm) is the arm's one report, and claims nothing.
-    if (pattern.kind === "Error") return pattern;
+    if (this.#headedByRefusedFault(pattern)) return pattern;
     this.#refuseBareTypes([typed], typed.span);
     return typed;
   }
@@ -5848,6 +5860,7 @@ class Parser {
       const span = spanFrom(token.span, binder.span);
       if (head !== this.#catchArmHead) {
         this.#errorAt(span, FAULT_PATTERN_SEAT);
+        this.#refusedFaults.add(span.start.offset);
         return { kind: "Error", span };
       }
       this.#armFault = span;
@@ -7164,13 +7177,14 @@ class Parser {
     // pattern, so `for x: T in xs` is read as one and refused with its spelling.
     let unparenthesised: Parsed.TypedPattern | undefined;
     if (this.#at("Colon")) {
-      unparenthesised = this.#parseBareTypeAfter(pattern);
-      if (unparenthesised !== undefined) pattern = unparenthesised;
+      const typed = this.#parseBareTypeAfter(pattern);
+      if (typed !== undefined && !this.#headedByRefusedFault(pattern)) pattern = unparenthesised = typed;
     }
     this.#expect("In", "expected `in` after `for` pattern");
     const iterable = this.#parseExpression(0, withStops(outerStops, "VOpen"));
     if (unparenthesised !== undefined) {
-      const typed = this.#sourceText(unparenthesised.span);
+      // The pattern's text carries the refusals already made inside it.
+      const typed = this.#textWithBareEdits(unparenthesised.span);
       // The iterable is quoted where it is short enough to read on one line.
       const iterableText = this.#sourceText(iterable.span);
       const shown = iterableText.includes("\n") || iterableText.length > 40 ? "…" : iterableText;
