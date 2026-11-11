@@ -17124,18 +17124,22 @@ class Checker {
     const value = this.#builtPart(root, built.value, claim.pattern);
     if (value === undefined || !this.#widensFrom(value)) return undefined;
     const written = this.#typeSpellingAtSite(target);
-    const whole = written === undefined ? undefined : this.#spelledAlong(root, built.type, claim.pattern, written);
-    const text = this.#sourceSlice(root.span);
+    const moved: Resolved.TypedPattern[] = [];
+    const whole = written === undefined ? undefined : this.#spelledAlong(root, built.type, claim.pattern, written, moved);
+    let text = this.#sourceSlice(root.span);
     if (whole === undefined || text === undefined) return undefined;
-    // The pattern with the claim's type taken out, and the parentheses that
-    // held only the claim with it.
-    const typed = claim.pattern;
-    const inner = this.#sourceSlice(typed.pattern.span);
-    const own = typed.span.start.offset !== typed.pattern.span.start.offset;
-    if (inner === undefined) return undefined;
-    const from = (own ? typed.span.start.offset : typed.pattern.span.end.offset) - root.span.start.offset;
-    const to = (own ? typed.span.end.offset : typed.annotation.span.end.offset) - root.span.start.offset;
-    const pattern = oneLine(text.slice(0, from) + (own ? inner : "") + text.slice(to));
+    // The pattern with each moved type taken out, and the parentheses that
+    // held only its claim with it, the last first so the offsets hold.
+    const typed = [claim.pattern, ...moved].sort((left, right) => right.span.start.offset - left.span.start.offset);
+    for (const each of typed) {
+      const inner = this.#sourceSlice(each.pattern.span);
+      if (inner === undefined) return undefined;
+      const own = each.span.start.offset !== each.pattern.span.start.offset;
+      const from = (own ? each.span.start.offset : each.pattern.span.end.offset) - root.span.start.offset;
+      const to = (own ? each.span.end.offset : each.annotation.span.end.offset) - root.span.start.offset;
+      text = text.slice(0, from) + (own ? inner : "") + text.slice(to);
+    }
+    const pattern = oneLine(text);
     return pattern === undefined ? undefined : `let ${pattern}: ${whole} = …`;
   }
 
@@ -17162,34 +17166,51 @@ class Checker {
 
   /**
    * `type` spelled with the part `claim` stands on written `replacement`,
-   * walked beside `pattern` through its tuples, and a hole for each sibling
-   * this module cannot spell. `undefined` where the walk meets the claim
-   * beneath a shape it does not read.
+   * walked beside `pattern` through its tuples. Another claim the walk meets
+   * is spelled as written and recorded in `moved`, since the binding's
+   * annotation then decides its part too, and a sibling this module cannot
+   * spell is a hole. `undefined` where a moved claim's text cannot be
+   * quoted on one line.
    */
-  #spelledAlong(pattern: Resolved.Pattern, type: Mono, claim: Resolved.TypedPattern, replacement: string): string | undefined {
+  #spelledAlong(
+    pattern: Resolved.Pattern,
+    type: Mono,
+    claim: Resolved.TypedPattern,
+    replacement: string,
+    moved: Resolved.TypedPattern[],
+  ): string | undefined {
     if (pattern === claim) return replacement;
-    const holds = (inner: Resolved.Pattern): boolean =>
-      inner.span.start.offset <= claim.span.start.offset && claim.span.end.offset <= inner.span.end.offset;
+    const holds = pattern.span.start.offset <= claim.span.start.offset &&
+      claim.span.end.offset <= pattern.span.end.offset;
     // A sibling the module cannot spell is a hole: the annotation still
     // decides the claim's part, and inference gives the rest as before.
-    if (!holds(pattern)) return this.#claimSpelling(type) ?? "_";
+    const sibling = (): string => this.#claimSpelling(type) ?? "_";
     const actual = this.#prune(type);
     switch (pattern.kind) {
-      case "Typed":
+      case "Typed": {
+        if (holds) return this.#spelledAlong(pattern.pattern, actual, claim, replacement, moved);
+        const written = this.#sourceSlice(pattern.annotation.span);
+        const text = written === undefined ? undefined : oneLine(written);
+        if (text === undefined) return undefined;
+        moved.push(pattern);
+        return text;
+      }
       case "As":
-        return this.#spelledAlong(pattern.pattern, actual, claim, replacement);
+        return this.#spelledAlong(pattern.pattern, actual, claim, replacement, moved);
       case "Tuple": {
-        if (actual.kind !== "Tuple" || actual.elements.length !== pattern.elements.length) return undefined;
+        // Not yet met at a tuple: a sibling the walk has not reached.
+        if (actual.kind !== "Tuple" || actual.elements.length !== pattern.elements.length) return sibling();
         const parts: string[] = [];
         for (const [index, element] of pattern.elements.entries()) {
-          const part = this.#spelledAlong(element, actual.elements[index]!, claim, replacement);
+          const part = this.#spelledAlong(element, actual.elements[index]!, claim, replacement, moved);
           if (part === undefined) return undefined;
           parts.push(part);
         }
         return `(${parts.join(", ")})`;
       }
+      // `#builtPart` found the claim through these shapes, so any other is a sibling.
       default:
-        return undefined;
+        return sibling();
     }
   }
 
@@ -17312,13 +17333,6 @@ class Checker {
   }
 
   /**
-   * A claim's arrow rewritten to the arrow the part has (Pattern Matching
-   * §12): as the demand, marked on each colour the part does besides; handed
-   * a function at a parameter, silent on each the part refuses there. A
-   * following arrow is left to its own rows. Where the arrow is not written in
-   * the claim, an alias's, the rewrite is the type the part has, whole.
-   */
-  /**
    * A claim's own arrow handed a function at a parameter, in the binding
    * annotation's words for a callback written so (Effects §4.2), less the
    * callback, since a pattern's type writes none outside a `let` (Pattern
@@ -17341,6 +17355,14 @@ class Checker {
       `accepts only ${silentOne(axes)} — write its arrow \`${fix}\``;
   }
 
+  /**
+   * A claim's arrow rewritten with only the colours that cannot hold changed
+   * (Pattern Matching §12): as the demand, marked on each colour the part does
+   * besides; handed a function at a parameter, silent on each the part refuses
+   * there. A following arrow is left to its own rows. Where the arrow is not
+   * written in the claim, an alias's, the rewrite is the type the part has,
+   * whole.
+   */
   #claimArrowFixes(claimArrow: ClaimArrow, axes: readonly Axis[]): { readonly fixes?: readonly Diagnostics.Fix[] } {
     if (claimArrow.at === undefined) return { fixes: [this.#claimRewrite(claimArrow.claim)] };
     const marks: boolean[] = [];
@@ -46718,7 +46740,8 @@ function acceptance(marks: Readonly<Record<Axis, boolean>>): string {
 
 /**
  * Source text a report quotes, on one line: each line break with the
- * indentation around it becomes one space, or nothing beside a bracket.
+ * indentation around it becomes one space, or nothing after an opening
+ * bracket or before a closing one, a comma or a colon.
  * `undefined` where the text holds a comment, which a line break ends.
  */
 function oneLine(text: string): string | undefined {
@@ -46726,7 +46749,7 @@ function oneLine(text: string): string | undefined {
   if (text.includes("//") || text.includes("(*")) return undefined;
   return text
     .replace(/([([{])\s*\n\s*/g, "$1")
-    .replace(/\s*\n\s*([)\]}])/g, "$1")
+    .replace(/\s*\n\s*([)\]},:])/g, "$1")
     .replace(/\s*\n\s*/g, " ");
 }
 

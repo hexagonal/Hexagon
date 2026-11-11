@@ -1135,6 +1135,13 @@ describe("§12 a claim the part does not fit (#1510)", () => {
         ["(x: Float, r)", "(n, (y: Int) => y)", "(x, r)", "(Float, _)"],
         ["(\n        (x: Float),\n        s\n    )", '(n, "s")', "(x, s)", "(Float, String)"],
         ["((x:\n        Float), s)", '(n, "s")', "(x, s)", "(Float, String)"],
+        ["(\n        x\n        : Float,\n        s\n    )", '(n, "s")', "(x, s)", "(Float, String)"],
+        ["(\n        (x: Float)\n        , s\n    )", '(n, "s")', "(x, s)", "(Float, String)"],
+        ["((x: Float), (s, r))", '(n, ("s", {a = 1}))', "(x, (s, r))", "(Float, (String, _))"],
+        // Another claim moves onto the binding as written.
+        ["((x: Float), (s: String))", '(n, "s")', "(x, s)", "(Float, String)"],
+        ["((x: Float), (r: _))", "(n, {a = 1})", "(x, r)", "(Float, _)"],
+        ['((x: Float), (p: (String,\n        String)))', '(n, ("a", "b"))', "(x, p)", "(Float, (String, String))"],
       ] as const
     ) {
       const each = diagnostic(`let g(n: Int): Unit =\n    let ${pattern} = ${value}\n    ()\n` + OUT);
@@ -1143,6 +1150,29 @@ describe("§12 a claim the part does not fit (#1510)", () => {
           `to convert, write the type on the binding: \`let ${binding}: ${annotation} = …\``,
       );
       expect(each.fixes!.map(({ message }) => message)).toEqual(["write `(x: Int)`"]);
+      expect(messages(`let g(n: Int): Unit =\n    let ${binding}: ${annotation} = ${value}\n    ()\n` + OUT)).toEqual([]);
+    }
+    // A sibling the walk has not yet met at a tuple is a hole.
+    expect(messages("let g(n: Int, q): Unit =\n    let ((x: Float), (s, t)) = (n, q)\n    ()\n" + OUT)).toEqual([
+      "`x` is an `Int` here: a type in a pattern says what the part is and converts nothing; write `(x: Int)`, or to " +
+      "convert, write the type on the binding: `let (x, (s, t)): (Float, _) = …`",
+    ]);
+    expect(messages("let g(n: Int, q): Unit =\n    let (x, (s, t)): (Float, _) = (n, q)\n    ()\n" + OUT)).toEqual([]);
+    // Two claims the parts do not have: each report names the one binding
+    // that converts both.
+    for (
+      const [pattern, value, binding, annotation] of [
+        ["((x: Float), (y: Float))", "(n, n)", "(x, y)", "(Float, Float)"],
+        ["((x: Float), (s, (y: Float)))", '(n, ("s", n))', "(x, (s, y))", "(Float, (String, Float))"],
+        ["((x: Float), (y: Float) as z)", "(n, n)", "(x, y as z)", "(Float, Float)"],
+      ] as const
+    ) {
+      expect(messages(`let g(n: Int): Unit =\n    let ${pattern} = ${value}\n    ()\n` + OUT)).toEqual(
+        ["x", "y"].map((name) =>
+          `\`${name}\` is an \`Int\` here: a type in a pattern says what the part is and converts nothing; write ` +
+          `\`(${name}: Int)\`, or to convert, write the type on the binding: \`let ${binding}: ${annotation} = …\``
+        ),
+      );
       expect(messages(`let g(n: Int): Unit =\n    let ${binding}: ${annotation} = ${value}\n    ()\n` + OUT)).toEqual([]);
     }
     // A comment ends at its line break, so a pattern holding one is not
@@ -1232,6 +1262,12 @@ describe("§12 a claim the part does not fit (#1510)", () => {
     const world = diagnostic(tick + "let g(): Unit =\n    let (f: () -> Unit) = tick\n    ()\n" + OUT);
     expect(world.message).toBe("a `->` arrow promises purity, and this function is impure — the demand is written `->`");
     expect(world.fixes!.map(({ message }) => message)).toEqual(["write `(f: () ->~ Unit)`"]);
+    // Only what cannot hold changes: a colour the claim marks stays marked.
+    const kept = tick + "let g(): Unit =\n    let (f: () ->^ Unit) = tick\n    ()\n" + OUT;
+    const marked = diagnostic(kept);
+    expect(marked.message).toBe("a `->^` arrow promises purity, and this function is impure — the demand is written `->^`");
+    expect(marked.fixes!.map(({ message }) => message)).toEqual(["write `(f: () ->! Unit)`"]);
+    expect(messages(applied(kept, marked))).toEqual([]);
     const oops = "exception Oops(n: Int)\nlet bad(): Unit = throw^(Oops(1))\n";
     const fail = diagnostic(oops + "let g(): Unit =\n    let (f: () -> Unit) = bad\n    ()\n" + OUT);
     expect(fail.message).toBe("a `->` arrow promises the function cannot fail, and this function may fail — the demand is written `->`");
@@ -1289,6 +1325,12 @@ describe("§12 a claim the part does not fit (#1510)", () => {
           "let g(x: ((() ->^ Unit) -> Unit, Int)): Unit = match x\n    ((m: (() ->! Unit) -> Unit), n) => m(noop)\n",
           "this `->!` accepts any function, and `m` accepts only a pure one — write its arrow `->^`",
           "(m: (() ->^ Unit) -> Unit)",
+        ],
+        // Only what cannot hold changes: a colour the claim leaves silent stays silent.
+        [
+          "let g(x: ((() ->~ Unit) -> Unit, Int)): Unit = match x\n    ((m: (() ->^ Unit) -> Unit), n) => m(noop)\n",
+          "this `->^` accepts any function that is pure, and `m` accepts only one that cannot fail — write its arrow `->`",
+          "(m: (() -> Unit) -> Unit)",
         ],
         [
           "let g(x: ((() -> Unit) -> Unit, Int)): Unit = match x\n    ((_: (() ->! Unit) -> Unit), n) => ()\n",
