@@ -427,23 +427,44 @@ describe("a constructor's declaration decides the parts it writes (#1518)", () =
     expect(files(
       "union T3 =\n    | T3(x: M1.W1)\nlet g(t) = match t\n    T3(WC(f)) =>\n        let h: () ->! Unit = f\n        ()\n",
     )).toEqual([]);
-    // At the pattern's top the position's type is the value's: where a written type chose a record, its fields are
-    // read as they write.
+    // At the pattern's top the position's type is the value's: over a value the text decides, every position's type is
+    // the text's, so a record the door named is read through its fields at every step, and over one it does not, it is
+    // the value's.
     const records = (source: string): readonly string[] =>
       compileFiles([
-        ["/main.hex", HEADER + WORLD + "import R1\nimport R2\nrecord S = {run: (() -> Unit) -> Unit}\n" + source + OUT],
+        [
+          "/main.hex",
+          HEADER + WORLD + "import R1\nimport R2\nrecord S = {run: (() -> Unit) -> Unit}\nunion T(a) =\n    | T(x: a)\n" +
+          source + OUT,
+        ],
         ["/r1.hex", "module R1\n\nexport record WC = {f: (() ->! Unit) -> Unit}\n"],
         ["/r2.hex", "module R2\n\nexport record WC = {n: Int}\n"],
       ]).diagnostics.map(({ message }) => message);
+    const run = "ignore(S({run = f}))";
+    for (
+      const [head, arm, expected] of [
+        ["w: R1.WC", `WC({f = f}) => ${run}`, []],
+        ["w: R1.WC", `(WC({f = f}) as v) => ${run}`, []],
+        ["w: R1.WC", `(WC({f = f}): _) => ${run}`, []],
+        ["w: (R1.WC, Int)", `(WC({f = f}), 0) | (WC({f = f}), 1) => ${run}\n    _ => ()`, []],
+        ["w: (R1.WC, Int)", `(WC({f = f}), _) => ${run}`, []],
+        ["w: T(R1.WC)", `T(WC({f = f})) => ${run}`, []],
+        ["w: {w: R1.WC}", `{w = WC({f = f})} => ${run}`, []],
+        ["w: Vector(R1.WC)", `[WC({f = f})] => ${run}\n    _ => ()`, []],
+      ] as const
+    ) {
+      const source = `let g(${head}): Unit = match w\n    ${arm}\n`;
+      expect([arm, records(source)]).toEqual([arm, expected]);
+    }
     for (
       const source of [
-        "let g(w: R1.WC): Unit = match w\n    WC({f = f}) => ignore(S({run = f}))\n",
-        "let g(w: R1.WC): Unit =\n    let WC({f = f}) = w\n    ignore(S({run = f}))\n",
-        "let g(t: (R1.WC, Int)): Unit = match t\n    (WC({f = f}), _) => ignore(S({run = f}))\n",
+        `let g(): Unit =\n    let w = R1.WC({f = (c) => ()})\n    match w\n        WC({f = f}) => ${run}\n`,
+        `let g(w: R1.WC): Unit =\n    let WC({f = f}) = w\n    ${run}\n`,
       ]
     ) {
       expect([source, records(source)]).toEqual([source, []]);
     }
+    expect(records(`let g(t) =\n    let q: T(R1.WC) = t\n    match t\n        T(WC({f = f})) => ${run}\n`)).toEqual([FIXED]);
   });
 
   test("in a `let`, a `for` head and a lambda's parameter, as at an arm", () => {

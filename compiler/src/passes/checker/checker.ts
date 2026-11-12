@@ -14951,58 +14951,17 @@ class Checker {
   }
 
   /**
-   * A part a pattern takes out of a value the text decides, through a declared
-   * record's field *(#1207)*: the field's declared type, which is data, as a
-   * field read of the same value gives it (`Access` above). Read through the
-   * patterns around the part to the record's, a record nested in another's
-   * field included (`#patternWritten`). What the declarations of the
-   * constructors around it write, as for any value, is read first
-   * (`#declaredView`, #1518): it reads every slot with the type arguments
-   * the types above it give, so it decides at least as much wherever both
-   * answer, and a typed value's part is never read for less than an
-   * untyped one's. This reading stands where it says nothing, a constructor
-   * the door named included.
+   * A part a pattern takes out of a value the text decides: what the
+   * declarations of the constructors around it write, as for any value
+   * (`#partDeclared`, #1518), a declared record's field included, which is
+   * data, as a field read of the same value gives it (#1207, `Access`
+   * above). The value's type is the text's at every position, so a
+   * constructor the door named is read too.
    */
   #partWritten(symbol: Resolved.SymbolId): WrittenView | undefined {
     const pattern = this.#partPatterns.get(symbol);
     if (pattern === undefined || !this.#decidedBinding(symbol)) return undefined;
-    const first = (patterns: readonly Resolved.Pattern[]): SpelledPart | undefined => {
-      for (const inner of patterns) {
-        const found = within(inner);
-        if (found !== undefined) return found;
-      }
-      return undefined;
-    };
-    const within = (inner: Resolved.Pattern): SpelledPart | undefined => {
-      switch (inner.kind) {
-        case "As":
-        case "Typed":
-          return within(inner.pattern);
-        case "Tuple":
-          return first(inner.elements);
-        case "Vector":
-          return first([...inner.elements, ...(inner.rest?.pattern === undefined ? [] : [inner.rest.pattern])]);
-        case "Record":
-          return first(inner.fields.map((field) => field.pattern));
-        case "Constructor": {
-          const declaration = inner.symbol === undefined ? undefined : this.#constructedRecords.get(inner.symbol);
-          const fields = inner.arguments.length === 1 ? inner.arguments[0] : undefined;
-          if (declaration !== undefined && fields?.kind === "Record") {
-            for (const field of fields.fields) {
-              const declared = declaration.fields.find((candidate) => candidate.name === field.name)?.annotation;
-              const found = declared === undefined
-                ? undefined
-                : this.#patternWritten(field.pattern, { written: declared, role: "data" }, symbol);
-              if (found !== undefined) return found;
-            }
-          }
-          return first(inner.arguments);
-        }
-        default:
-          return undefined;
-      }
-    };
-    return this.#declaredView(symbol) ?? within(pattern);
+    return declaredView(this.#partDeclared(pattern, symbol, undefined, true));
   }
 
   /**
@@ -17561,16 +17520,18 @@ class Checker {
    * binding pattern binds. A constructor's slot is the declaration's
    * (`#patternSlot`); a declared pattern's components are read only for the
    * constructors written in them, its declaration being chosen with the type
-   * it meets. `undefined` where the text gives the part no type.
+   * it meets. `decided` where the value `pattern` takes apart is one the
+   * text decides. `undefined` where the text gives the part no type.
    */
   #partDeclared(
     pattern: Resolved.Pattern,
     target: Resolved.TypedPattern | Resolved.SymbolId,
     written: Resolved.TypeAnnotation | undefined,
+    decided = false,
   ): Resolved.TypeAnnotation | undefined {
     const first = (pairs: readonly (readonly [Resolved.Pattern, Resolved.TypeAnnotation | undefined])[]) => {
       for (const [inner, annotation] of pairs) {
-        const found = this.#partDeclared(inner, target, annotation);
+        const found = this.#partDeclared(inner, target, annotation, decided);
         if (found !== undefined) return found;
       }
       return undefined;
@@ -17579,15 +17540,17 @@ class Checker {
       case "Binding":
         return pattern.binding.symbol === target ? written : undefined;
       case "As":
-        return pattern.binding.symbol === target ? written : this.#partDeclared(pattern.pattern, target, written);
+        return pattern.binding.symbol === target
+          ? written
+          : this.#partDeclared(pattern.pattern, target, written, decided);
       case "Typed":
-        return pattern === target ? written : this.#partDeclared(pattern.pattern, target, written);
+        return pattern === target ? written : this.#partDeclared(pattern.pattern, target, written, decided);
       case "Or": {
         // A claim is one node, found in the alternative that holds it. A name
         // the alternatives each bind holds what any of them gave it: the text
         // writes what every alternative writes (`#declaredMeet`).
         if (typeof target === "object") return first(pattern.alternatives.map((inner) => [inner, written] as const));
-        const parts = pattern.alternatives.map((inner) => this.#partDeclared(inner, target, written));
+        const parts = pattern.alternatives.map((inner) => this.#partDeclared(inner, target, written, decided));
         return parts.every((part) => part !== undefined) ? this.#declaredMeet(parts) : undefined;
       }
       case "Tuple":
@@ -17613,7 +17576,9 @@ class Checker {
       }
       case "Constructor":
         return first(
-          pattern.arguments.map((argument, index) => [argument, this.#patternSlot(pattern, index, written)] as const),
+          pattern.arguments.map((argument, index) =>
+            [argument, this.#patternSlot(pattern, index, written, decided)] as const
+          ),
         );
       case "Declared":
         return first(pattern.components.map((component) => [component, undefined] as const));
@@ -17656,7 +17621,8 @@ class Checker {
    * nominal record's, its type parameters given holes, since only what they
    * become is the value's (Method Syntax §3.1). A head the door resolved
    * (Pattern Matching §2.2) was chosen by the type its position met, so its
-   * declaration is read only where a written type gives that position. What
+   * declaration is read only where a written type gives that position, or
+   * where the value is `decided`, its type being the text's. What
    * a union's or an exception's slot writes is noted as the slot's
    * (`#slotTypes`).
    */
@@ -17664,11 +17630,12 @@ class Checker {
     pattern: Resolved.ConstructorPattern,
     index: number,
     written: Resolved.TypeAnnotation | undefined,
+    decided: boolean,
   ): Resolved.TypeAnnotation | undefined {
     const made = (read: Resolved.TypeAnnotation): void => void this.#slotTypes.add(read);
     const given = written === undefined ? undefined : this.#writtenSlot(pattern, index, written, made);
     const symbol = pattern.symbol;
-    if (given !== undefined || symbol === undefined || pattern.open === true) return given;
+    if (given !== undefined || symbol === undefined || pattern.open === true && !decided) return given;
     const holes = (parameters: readonly string[]): ReadonlyMap<string, Resolved.TypeAnnotation> =>
       new Map(parameters.map((name) => [name, { kind: "Hole", id: -1, constraints: [], span: pattern.span }] as const));
     const exception = this.#exceptions.get(symbol);
