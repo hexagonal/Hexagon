@@ -127,7 +127,7 @@ describe("signature help", () => {
   test("a receiver is the first argument, so the highlight counts it", () => {
     const help = helpIn("fun t(v: Vector(Int)): Vector(Int) = v.map(‸\n");
     expect(shown(help)).toBe("map: (Vector(a), a ->! b) >-> Vector(b) [values=Vector(a), transform=a ->! b] @1");
-    expect(help?.documentation).toContain("`transform` applied to each element");
+    expect(help?.documentation).toContain("calling the function `transform` on each element");
     // The same operation through its module counts every written argument.
     expect(shown(helpIn("fun t(v: Vector(Int)): Vector(Int) = Vector.map(v, ‸\n"))).toBe(
       "map: (Vector(a), a ->! b) >-> Vector(b) [values=Vector(a), transform=a ->! b] @1",

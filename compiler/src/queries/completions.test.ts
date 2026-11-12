@@ -569,7 +569,7 @@ describe("completions after a value's dot", () => {
     expect(offered.find(({ name }) => name === "first")).toMatchObject({
       kind: "operation",
       detail: "Vector(a) -> Option(a)",
-      documentation: "The first element of `values`, or `None` when it is empty.",
+      documentation: "The first element, or `None` when the vector is empty.",
     });
   });
 
@@ -824,7 +824,7 @@ describe("completions after a prelude module", () => {
     // were indexed nowhere and every member came back undocumented — while an
     // imported module, always emitted, documented its own.
     for (const [marked, name, documentation] of [
-      ["let probe = Vector.‸\n", "first", "The first element of `values`, or `None` when it is empty."],
+      ["let probe = Vector.‸\n", "first", "The first element, or `None` when the vector is empty."],
       ["let probe = Option.‸\n", "map", "Transforms a present value. `None` stays `None`."],
     ] as const) {
       expect(offeredAt(marked).find((completion) => completion.name === name)?.documentation)
