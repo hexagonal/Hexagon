@@ -26,16 +26,25 @@ function helpIn(marked: string, head = HEAD): SignatureHelp | undefined {
   return session.signatureHelp("/main.hex", offset);
 }
 
-/** The label, each parameter as `name=type` read out of it, and the active one. */
+/**
+ * The label, each parameter as the text it covers there, and the active one. A
+ * named parameter covers its name with its type, so its name must begin what
+ * it covers; an unnamed one is marked `_=`.
+ */
 function shown(help: SignatureHelp | undefined): string | undefined {
   if (help === undefined) return undefined;
   const parameters = help.parameters
-    .map(({ range: [start, end], name }) => `${name ?? "_"}=${help.label.slice(start, end)}`)
+    .map(({ range: [start, end], name }) => {
+      const covered = help.label.slice(start, end);
+      if (name === undefined) return `_=${covered}`;
+      if (!covered.startsWith(`${name}: `)) throw new Error(`\`${name}\` covers \`${covered}\``);
+      return covered;
+    })
     .join(", ");
   return `${help.label} [${parameters}] @${help.activeParameter}`;
 }
 
-const ADD = "add: (Int, Int) -> Int [a=Int, b=Int]";
+const ADD = "add: (a: Int, b: Int) -> Int [a: Int, b: Int]";
 
 describe("signature help", () => {
   test("an unclosed call: hover's line, each parameter's place and name, the documentation", () => {
@@ -51,7 +60,8 @@ describe("signature help", () => {
     session.setFile("/main.hex", text);
     const hover = session.hover("/main.hex", text.indexOf("fold") + 1);
     const help = session.signatureHelp("/main.hex", offset);
-    expect(help?.label).toBe(`fold: ${hover?.displayedType}`);
+    expect(help?.label).toBe(`fold: ${hover?.signature}`);
+    expect(hover?.signature).toBe("(values: Vector(a), initial: b, combine: (b, a) ->! b) >-> b");
     expect(help?.colourOwners).toEqual(hover?.colourOwners);
     expect(help?.colourOwners).toHaveLength(1);
   });
@@ -83,7 +93,7 @@ describe("signature help", () => {
 
   test("the innermost call holds the caret, and the outer one resumes after it closes", () => {
     expect(shown(helpIn("fun t(q: Int): Int = add(q, negate(‸\n"))).toBe(
-      "negate: Int -> Int [n=Int] @0",
+      "negate: (n: Int) -> Int [n: Int] @0",
     );
     expect(shown(helpIn("fun t(q: Int): Int = add(negate(q)‸, 1)\n"))).toBe(`${ADD} @0`);
     expect(shown(helpIn("fun t(q: Int): Int = add(negate(q), ‸1)\n"))).toBe(`${ADD} @1`);
@@ -126,11 +136,11 @@ describe("signature help", () => {
 
   test("a receiver is the first argument, so the highlight counts it", () => {
     const help = helpIn("fun t(v: Vector(Int)): Vector(Int) = v.map(‸\n");
-    expect(shown(help)).toBe("map: (Vector(a), a ->! b) >-> Vector(b) [values=Vector(a), transform=a ->! b] @1");
+    expect(shown(help)).toBe("map: (values: Vector(a), transform: a ->! b) >-> Vector(b) [values: Vector(a), transform: a ->! b] @1");
     expect(help?.documentation).toContain("calling the function `transform` on each element");
     // The same operation through its module counts every written argument.
     expect(shown(helpIn("fun t(v: Vector(Int)): Vector(Int) = Vector.map(v, ‸\n"))).toBe(
-      "map: (Vector(a), a ->! b) >-> Vector(b) [values=Vector(a), transform=a ->! b] @1",
+      "map: (values: Vector(a), transform: a ->! b) >-> Vector(b) [values: Vector(a), transform: a ->! b] @1",
     );
   });
 
@@ -143,7 +153,7 @@ describe("signature help", () => {
     // `v` is handed to a `Seq` parameter through an adaptation the compiler
     // writes (Collections Part 5 §3.6); that is a call no source wrote.
     expect(shown(helpIn("fun t(v: Vector(Int)): Seq(Int) = Seq.map((v‸), (n) => n)\n"))).toBe(
-      "map: (Seq(a), a -> b) -> Seq(b) [source=Seq(a), transform=a -> b] @0",
+      "map: (source: Seq(a), transform: a -> b) -> Seq(b) [source: Seq(a), transform: a -> b] @0",
     );
   });
 
@@ -151,7 +161,7 @@ describe("signature help", () => {
     // The adaptation starts where its argument does, at `(v)`'s parenthesis,
     // which is not a call's.
     expect(shown(helpIn("fun t(v: Vector(Int)): Seq(Int) = Seq.map((v‸).map((n) => n), (m) => m)\n"))).toBe(
-      "map: (Seq(a), a -> b) -> Seq(b) [source=Seq(a), transform=a -> b] @0",
+      "map: (source: Seq(a), transform: a -> b) -> Seq(b) [source: Seq(a), transform: a -> b] @0",
     );
   });
 
@@ -162,7 +172,7 @@ describe("signature help", () => {
 
   test("a constrained member called on its subject: the subject fills the only parameter", () => {
     const help = helpIn("fun t(): String = 1.show(‸)\n");
-    expect(shown(help)).toBe("show: <a: Show> a -> String [value=a] @1");
+    expect(shown(help)).toBe("show: <a: Show> (value: a) -> String [value: a] @1");
     expect(help?.documentation).toBe("The canonical textual form of `value`.");
   });
 
@@ -176,40 +186,40 @@ describe("signature help", () => {
       "",
     ].join("\n");
     expect(shown(helpIn(`${READER}fun t(j: Job): String = read(j, ‸1)\n`))).toBe(
-      "read: (Job, Int) -> String [source=Job, n=Int] @1",
+      "read: (source: Job, n: Int) -> String [source: Job, n: Int] @1",
     );
     expect(shown(helpIn(`${READER}fun t(j: Job): String = j.read(‸1)\n`))).toBe(
-      "read: (Job, Int) -> String [source=Job, n=Int] @1",
+      "read: (source: Job, n: Int) -> String [source: Job, n: Int] @1",
     );
     // In generic code, the member's contract.
     expect(shown(helpIn(`${READER}fun t<a: Reader>(j: a): String = read!(j, ‸1)\n`))).toBe(
-      "read: <a: Reader> (a, Int) ->! String [source=a, n=Int] @1",
+      "read: <a: Reader> (source: a, n: Int) ->! String [source: a, n: Int] @1",
     );
   });
 
   test("names come from the declaration, where it has one", () => {
     // A constructor's named slots, and an exception's; an unnamed slot is only
     // its place, and has none.
-    expect(shown(helpIn("fun t(): Option(Int) = Some(‸\n"))).toBe("Some: a -> Option(a) [value=a] @0");
+    expect(shown(helpIn("fun t(): Option(Int) = Some(‸\n"))).toBe("Some: (value: a) -> Option(a) [value: a] @0");
     const SHAPE = "union Shape =\n    | Rect(w: Int, h: Int)\n    | Dot(Int, Int)\n";
-    expect(shown(helpIn(`${SHAPE}fun t(): Shape = Rect(1, ‸\n`))).toBe("Rect: (Int, Int) -> Shape [w=Int, h=Int] @1");
+    expect(shown(helpIn(`${SHAPE}fun t(): Shape = Rect(1, ‸\n`))).toBe("Rect: (w: Int, h: Int) -> Shape [w: Int, h: Int] @1");
     expect(shown(helpIn(`${SHAPE}fun t(): Shape = Dot(1, ‸\n`))).toBe("Dot: (Int, Int) -> Shape [_=Int, _=Int] @1");
     // A refused mix of the two keeps its unnamed slot's place to itself.
     expect(shown(helpIn("union Mixed =\n    | Mixed(a: Int, Int)\nfun t(): Mixed = Mixed(1, ‸\n"))).toBe(
-      "Mixed: (Int, Int) -> Mixed [a=Int, _=Int] @1",
+      "Mixed: (a: Int, Int) -> Mixed [a: Int, _=Int] @1",
     );
     expect(shown(helpIn("exception Oops(code: Int, why: String)\nfun t(): Unit = throw^(Oops(1, ‸\n"))).toBe(
-      "Oops: (Int, String) -> Exn [code=Int, why=String] @1",
+      "Oops: (code: Int, why: String) -> Exn [code: Int, why: String] @1",
     );
     // A record field holding a function: its type, no names.
     expect(shown(helpIn("fun t(p: Point): Int = p.h(‸\n"))).toBe("h: Int -> Int [_=Int] @0");
     // A pattern parameter's binder is the compiler's own.
     expect(shown(helpIn("fun t(): Int = pair((1, 2), ‸\n"))).toBe(
-      "pair: ((Int, Int), Int) -> Int [_=(Int, Int), c=Int] @1",
+      "pair: ((Int, Int), c: Int) -> Int [_=(Int, Int), c: Int] @1",
     );
     // A `let` bound to a lambda.
     expect(shown(helpIn("fun t(): Int =\n    let g = (m: Int, n: Int) => m * n\n    g(1, ‸\n"))).toBe(
-      "g: (Int, Int) -> Int [m=Int, n=Int] @1",
+      "g: (m: Int, n: Int) -> Int [m: Int, n: Int] @1",
     );
     // A `let` bound to another name, not to a lambda: no parameter list of its own.
     expect(shown(helpIn("fun t(): Int =\n    let h = add\n    h(1, ‸\n"))).toBe(
@@ -222,9 +232,9 @@ describe("signature help", () => {
     // A constraint member's own declaration names them, and so does an extern one.
     expect(shown(helpIn(
       "constraint Tag<a> =\n    tag(s: a, n: Int) -> String\nfun t<a: Tag>(v: a): String = tag(v, ‸\n",
-    ))).toBe("tag: <a: Tag> (a, Int) -> String [s=a, n=Int] @1");
+    ))).toBe("tag: <a: Tag> (s: a, n: Int) -> String [s: a, n: Int] @1");
     expect(shown(helpIn("extern from \"m\"\n    fun twice(count: Int) ->! Int\nfun t(): Int = twice!(‸\n"))).toBe(
-      "twice: Int ->! Int [count=Int] @0",
+      "twice: (count: Int) ->! Int [count: Int] @0",
     );
   });
 

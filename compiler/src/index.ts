@@ -73,7 +73,7 @@ export {
 } from "./analysis/session.js";
 export { hoverMarkdown } from "./analysis/hover-text.js";
 export { inlayHintTooltipMarkdown } from "./analysis/inlay-hint-text.js";
-export { parameterMarkdown, signatureMarkdown } from "./analysis/signature-text.js";
+export { signatureMarkdown } from "./analysis/signature-text.js";
 export {
   collectOccurrences,
   targetKey,

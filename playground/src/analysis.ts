@@ -27,7 +27,6 @@ import {
   completionMark,
   hoverMarkdown,
   inlayHintTooltipMarkdown,
-  parameterMarkdown,
   signatureMarkdown,
   type CodeAction,
   type Source,
@@ -216,10 +215,7 @@ export class PlaygroundAnalysis {
     return {
       label: help.label,
       ...(documentation === undefined ? {} : { documentation }),
-      parameters: help.parameters.map((parameter) => {
-        const named = parameterMarkdown(parameter);
-        return { range: parameter.range, ...(named === undefined ? {} : { documentation: named }) };
-      }),
+      parameters: help.parameters.map((parameter) => ({ range: parameter.range })),
       activeParameter: help.activeParameter,
     };
   }

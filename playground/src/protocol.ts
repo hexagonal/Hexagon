@@ -187,7 +187,7 @@ export interface PlaygroundCompletions {
 /**
  * The call whose arguments the caret is in — the compiler's `SignatureHelp`
  * crossing the worker boundary, its text already worded by the compiler's
- * `signatureMarkdown` and `parameterMarkdown`, as the language server words it.
+ * `signatureMarkdown`, as the language server words it.
  *
  * A parameter's `range` is a place in `label`, not in the buffer, so it
  * crosses unmapped.
@@ -203,10 +203,8 @@ export interface PlaygroundSignatureHelp {
 }
 
 export interface PlaygroundSignatureParameter {
-  /** Where the parameter stands in the label, `[start, end)`. */
+  /** Where the parameter stands in the label, `[start, end)`, its name included. */
   readonly range: readonly [number, number];
-  /** Its declared name, as Markdown, when it has one. */
-  readonly documentation?: string;
 }
 
 /**

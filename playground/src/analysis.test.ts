@@ -276,7 +276,7 @@ describe("hover", () => {
     const hover = analysis.hover(source, at(source, "twice", 1));
 
     expect(hover?.markdown).toBe(
-      "value `twice: Int -> Int`\n\nDoubles what it is given.",
+      "value `twice: (n: Int) -> Int`\n\nDoubles what it is given.",
     );
   });
 
@@ -296,7 +296,7 @@ describe("hover", () => {
 
     const hover = analysis.hover(source, at(source, "twice"));
 
-    expect(hover?.markdown).toBe("value `twice: Int -> Int`");
+    expect(hover?.markdown).toBe("value `twice: (n: Int) -> Int`");
     expect(text(source, hover?.range ?? { startOffset: 0, endOffset: 0 })).toBe("twice");
   });
 });
@@ -825,7 +825,7 @@ describe("completion", () => {
 });
 
 describe("signature help", () => {
-  test("while a call is unclosed: hover's line, the parameter the caret is on, its name", () => {
+  test("while a call is unclosed: hover's line, its parameters named, the one the caret is on", () => {
     const source = MAIN +
       "(** Adds two numbers. *)\n" +
       "fun add(a: Int, b: Int): Int = a + b\n" +
@@ -833,12 +833,9 @@ describe("signature help", () => {
     const help = new PlaygroundAnalysis().signatureHelp(source, source.length);
 
     expect(help).toEqual({
-      label: "add: (Int, Int) -> Int",
+      label: "add: (a: Int, b: Int) -> Int",
       documentation: "Adds two numbers.",
-      parameters: [
-        { range: [6, 9], documentation: "`a`" },
-        { range: [11, 14], documentation: "`b`" },
-      ],
+      parameters: [{ range: [6, 12] }, { range: [14, 20] }],
       activeParameter: 1,
     });
   });
@@ -847,9 +844,9 @@ describe("signature help", () => {
     const source = MAIN + "fun probe(v: Vector(Int)): Vector(Int) = v.map(";
     const help = new PlaygroundAnalysis().signatureHelp(source, source.length);
 
-    expect(help?.label).toBe("map: (Vector(a), a ->! b) >-> Vector(b)");
+    expect(help?.label).toBe("map: (values: Vector(a), transform: a ->! b) >-> Vector(b)");
     expect(help?.activeParameter).toBe(1);
-    expect(help?.parameters[1]?.documentation).toBe("`transform`");
+    expect(help?.parameters[1]?.range).toEqual([25, 43]);
   });
 
   test("answers outside any call, and outside the buffer, with nothing", () => {
@@ -912,15 +909,15 @@ describe("the session across requests", () => {
     const after = MAIN + "fun thrice(n: Int): Int = n * 3\nDebug.log(\"${thrice(3)}\")\n";
 
     expect(analysis.hover(before, at(before, "twice"))?.markdown).toBe(
-      "value `twice: Int -> Int`",
+      "value `twice: (n: Int) -> Int`",
     );
     expect(analysis.hover(after, at(after, "thrice"))?.markdown).toBe(
-      "value `thrice: Int -> Int`",
+      "value `thrice: (n: Int) -> Int`",
     );
     // Back again: the session is not a one-way ratchet, and the second answer
     // did not come from a cache keyed on anything but the text.
     expect(analysis.hover(before, at(before, "twice"))?.markdown).toBe(
-      "value `twice: Int -> Int`",
+      "value `twice: (n: Int) -> Int`",
     );
   });
 
@@ -940,7 +937,7 @@ describe("the session across requests", () => {
 
     const both = `${helper}${caller}`;
     expect(analysis.hover(both, at(both, "twice", 1))?.markdown).toBe(
-      "value `twice: Int -> Int`",
+      "value `twice: (n: Int) -> Int`",
     );
     // The session is re-seated from the buffer on every request, so a module
     // the user deleted is gone the moment the text is. Answering from the last

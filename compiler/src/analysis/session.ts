@@ -73,6 +73,7 @@ import {
 import { collectTypeOccurrences, type TypeOccurrence } from "../queries/type-occurrences.js";
 import { DocumentationIndex } from "../queries/documentation.js";
 import { collectSemanticTokens, type SemanticToken } from "../queries/semantic-tokens.js";
+import { collectParameterNames, type ParameterNames } from "../queries/parameter-names.js";
 import { collectSymbolFacts, type SymbolFacts } from "../queries/symbol-facts.js";
 import {
   parameterSites,
@@ -145,6 +146,13 @@ export interface Hover {
   readonly target?: Target;
   /** Present for values the checker gave a scheme; absent for types themselves. */
   readonly displayedType?: string;
+  /**
+   * `displayedType` with its parameters under the names the declaration gives
+   * them, the line hover shows (Functions §5.1): `(n: Int) -> Int` beside
+   * `Int -> Int`. Absent where the declaration names none, or where nothing
+   * declares a parameter list — `let g = f`, a parameter that holds a function.
+   */
+  readonly signature?: string;
   /**
    * The gloss (Effects §10): the outer arrow's two colours in words, naming
    * the callbacks a colour passes through, captured ones by their owners;
@@ -579,6 +587,7 @@ export class AnalysisSession {
         return {
           occurrence,
           displayedType: shown?.displayedType,
+          signature: shown === undefined ? undefined : signatureOf(analysis, occurrence.target, shown),
           colourOwners: shown?.colourOwners,
         };
       })
@@ -591,6 +600,7 @@ export class AnalysisSession {
       target: best.occurrence.target,
       span: best.occurrence.span,
       ...(best.displayedType === undefined ? {} : { displayedType: best.displayedType }),
+      ...(best.signature === undefined ? {} : { signature: best.signature }),
       ...(best.colourOwners === undefined ? {} : { colourOwners: best.colourOwners }),
       ...(documentation === undefined ? {} : { documentation }),
     };
@@ -899,9 +909,9 @@ export class AnalysisSession {
       text,
       offset,
       typed,
-      trees: analysis.trees,
       typeOccurrenceAt: (span) => analysis.typeOccurrenceAt(normalized, span),
       documentationOf: (symbol) => analysis.symbolFacts.get(Number(symbol))?.documentation,
+      parameterNamesOf: (symbol) => analysis.parameterNamesOf(symbol),
     });
   }
 
@@ -2094,15 +2104,13 @@ class Analysis {
   /** The project's modules, for the export inventory built on demand below. */
   readonly #modules: readonly CompiledModule[];
   #exporters: Map<string, readonly ModuleExporter[]> | undefined;
+  /** Every tree the compile checked, for the parameter names built on demand below. */
+  readonly #trees: readonly Typed.Module[];
+  #parameterNames: ReadonlyMap<number, ParameterNames> | undefined;
   /** Gathered once for the whole project — see `collectSymbolFacts`. */
   readonly symbolFacts: ReadonlyMap<number, SymbolFacts>;
   /** Attached documentation, indexed for lookup by name and by position. */
   readonly documentation: DocumentationIndex;
-  /**
-   * Every tree the compile checked, emitted or not (`CompiledProject.typedModules`):
-   * where signature help finds the declaration that names a callee's parameters.
-   */
-  readonly trees: readonly Typed.Module[];
   /** The program's own reading of a `compile` literal's groups (`CompiledProject.regexGroups`). */
   readonly regexGroups: (pattern: string) => readonly RegexGroup[] | undefined;
 
@@ -2153,7 +2161,7 @@ class Analysis {
         ...(project.typedModules ?? []),
       ]),
     ];
-    this.trees = trees;
+    this.#trees = trees;
     this.regexGroups = project.regexGroups ?? (() => undefined);
     this.documentation = DocumentationIndex.of(trees);
     this.symbolFacts = collectSymbolFacts(trees.map((typed) => ({ typed })), this.documentation);
@@ -2336,6 +2344,17 @@ class Analysis {
   }
 
   /**
+   * The names a symbol's declaration gives its parameters, for hover and
+   * signature help, or nothing for one no declaration with a parameter list
+   * binds. Built for the whole project the first time a reader asks, so a
+   * recheck nobody hovers after pays nothing for it.
+   */
+  parameterNamesOf(symbol: Typed.Symbol["id"]): ParameterNames | undefined {
+    this.#parameterNames ??= collectParameterNames(this.#trees);
+    return this.#parameterNames.get(Number(symbol));
+  }
+
+  /**
    * Which of the project's modules **export** a type or constraint of this
    * spelling, in path order (#577's workspace tier).
    *
@@ -2430,6 +2449,20 @@ class Analysis {
   typeOccurrenceAt(path: string, span: Source.Span): TypeOccurrence | undefined {
     return this.#typesByPath.get(path)?.get(spanKey(span));
   }
+}
+
+/**
+ * A name's face with its parameters under the names the declaration of what it
+ * denotes gives them (Functions §5.1), or nothing where that declaration names
+ * none, or where no declaration writes a parameter list for it — `let g = f`,
+ * a parameter that holds a function, a value a call returned.
+ */
+function signatureOf(analysis: Analysis, target: Target, shown: TypeOccurrence): string | undefined {
+  if (target.kind !== "value" || shown.scheme === undefined) return undefined;
+  const names = analysis.parameterNamesOf(target.symbol);
+  if (names === undefined) return undefined;
+  const signature = Typed.displayCallFace(shown.scheme, undefined, undefined, names).type;
+  return signature === shown.displayedType ? undefined : signature;
 }
 
 function spanKey(span: Source.Span): string {
