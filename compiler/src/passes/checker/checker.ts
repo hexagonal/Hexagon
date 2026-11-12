@@ -1039,7 +1039,7 @@ interface ClaimArrow {
 /** A claim being met (`#claimPatternType`), for the reports its unification makes. */
 interface ClaimAt {
   readonly pattern: Resolved.TypedPattern;
-  readonly subject: ClaimSubject | undefined;
+  readonly subject: ClaimSubject;
   /** The written type and the part it meets, whole. */
   readonly written: Mono;
   readonly part: Mono;
@@ -1073,39 +1073,17 @@ interface WrittenFace {
 export interface WrittenView {
   readonly written: Resolved.TypeAnnotation | WrittenFace;
   readonly role: WrittenRole;
-  /**
-   * `false` where the written type is no value's own (`#declaredView`): a
-   * union's or an exception's slot, whose `->!` in a parameter it spells is
-   * not read as accepting any function, as a declared field's is.
-   */
-  readonly lowers?: false;
 }
 
 /** A part of a written type `#spelledResult` reads, with its role (`WrittenView`, #1180). */
 interface SpelledPart {
   readonly written: Resolved.TypeAnnotation;
   readonly role: WrittenRole;
-  readonly lowers?: false;
 }
 
-/**
- * The type the declarations a pattern names write for one of its parts
- * (`Checker.#partDeclared`), and whether a nominal record's field wrote it.
- */
-interface DeclaredPart {
-  readonly written: Resolved.TypeAnnotation;
-  readonly field: boolean;
-}
-
-/**
- * A declared part as the view a use reads *(#1518)*: data, as a declared
- * field is, and the value's own written type only where a record's field
- * wrote it (`WrittenView.lowers`).
- */
-function declaredView(declared: DeclaredPart | undefined): SpelledPart | undefined {
-  if (declared === undefined) return undefined;
-  const { written, field } = declared;
-  return field ? { written, role: "data" } : { written, role: "data", lowers: false };
+/** A declared part as the view a use reads *(#1518)*: data, as a declared field is. */
+function declaredView(written: Resolved.TypeAnnotation | undefined): SpelledPart | undefined {
+  return written === undefined ? undefined : { written, role: "data" };
 }
 
 /** A lambda's written face (`WrittenView`). */
@@ -4063,48 +4041,76 @@ function headWritten(annotation: Resolved.TypeAnnotation | undefined): annotatio
 }
 
 /**
- * A declaration's written slot as a written type reads it: each of the
- * declaration's type parameters replaced by the annotation the written type
- * gives it, so `Some`'s slot `a` under `Option((Vector(_)) -> Int)` reads
- * `(Vector(_)) -> Int`, and a hole given there stays a hole.
+ * An annotation with each type written directly beneath it read by `read`, in
+ * the order it is written (a function's parameters before its result); one
+ * with nothing beneath it is itself.
  */
-function givenSlot(
-  slot: Resolved.TypeAnnotation,
-  given: ReadonlyMap<string, Resolved.TypeAnnotation>,
+function readBeneath(
+  annotation: Resolved.TypeAnnotation,
+  read: (inner: Resolved.TypeAnnotation) => Resolved.TypeAnnotation,
 ): Resolved.TypeAnnotation {
-  const read = (inner: Resolved.TypeAnnotation): Resolved.TypeAnnotation => givenSlot(inner, given);
-  switch (slot.kind) {
-    case "TypeVariable":
-      return given.get(slot.name) ?? slot;
+  switch (annotation.kind) {
     case "Function":
-      return { ...slot, parameters: slot.parameters.map(read), result: read(slot.result) };
+      return { ...annotation, parameters: annotation.parameters.map(read), result: read(annotation.result) };
     case "Vector":
     case "Set":
     case "Array":
     case "JsSet":
     case "Node":
-      return { ...slot, element: read(slot.element) };
+      return { ...annotation, element: read(annotation.element) };
     case "Nullable":
-      return { ...slot, value: read(slot.value) };
+      return { ...annotation, value: read(annotation.value) };
     case "Map":
     case "JsMap":
-      return { ...slot, key: read(slot.key), value: read(slot.value) };
+      return { ...annotation, key: read(annotation.key), value: read(annotation.value) };
     case "Tuple":
-      return { ...slot, elements: slot.elements.map(read) };
+      return { ...annotation, elements: annotation.elements.map(read) };
     case "Record":
-      return { ...slot, fields: slot.fields.map((field) => ({ ...field, annotation: read(field.annotation) })) };
+      return {
+        ...annotation,
+        fields: annotation.fields.map((field) => ({ ...field, annotation: read(field.annotation) })),
+      };
     case "Union":
     case "RecordDeclaration":
     case "ExternType":
-      return { ...slot, arguments: slot.arguments.map(read) };
+      return { ...annotation, arguments: annotation.arguments.map(read) };
+    case "TypeVariable":
     case "Hole":
     case "ImpliedType":
     case "ErrorType":
     case "Primitive":
     case "Range":
     case "JsValue":
-      return slot;
+      return annotation;
   }
+}
+
+/** The types written directly beneath an annotation, in `readBeneath`'s order. */
+function writtenBeneath(annotation: Resolved.TypeAnnotation): readonly Resolved.TypeAnnotation[] {
+  const beneath: Resolved.TypeAnnotation[] = [];
+  readBeneath(annotation, (inner) => {
+    beneath.push(inner);
+    return inner;
+  });
+  return beneath;
+}
+
+/**
+ * A declaration's written slot as a written type reads it: each of the
+ * declaration's type parameters replaced by the annotation the written type
+ * gives it, so `Some`'s slot `a` under `Option((Vector(_)) -> Int)` reads
+ * `(Vector(_)) -> Int`, and a hole given there stays a hole. `made` meets
+ * each type the slot itself writes, as read, and none the given types are.
+ */
+function givenSlot(
+  slot: Resolved.TypeAnnotation,
+  given: ReadonlyMap<string, Resolved.TypeAnnotation>,
+  made?: (written: Resolved.TypeAnnotation) => void,
+): Resolved.TypeAnnotation {
+  if (slot.kind === "TypeVariable") return given.get(slot.name) ?? slot;
+  const read = readBeneath(slot, (inner) => givenSlot(inner, given, made));
+  made?.(read);
+  return read;
 }
 
 /**
@@ -5122,6 +5128,15 @@ class Checker {
   readonly #patternAnnotations = new Map<Resolved.Pattern, Resolved.TypeAnnotation>();
   /** The record declaration each constructor builds, across the program, for `#sourceItem`. */
   readonly #constructedRecords = new Map<Resolved.SymbolId, Resolved.RecordDeclaration>();
+  /**
+   * The types a union's or an exception's slot writes, as the declarations a
+   * pattern names give a part (`#patternSlot`) *(#1518)*: a slot is no
+   * value's own written type, so a `->!` among them stays the impure constant
+   * where a use hands something, wherever the slot hands it on, a record's
+   * type argument included (Effects §3.4). Each arrow among them is a node
+   * the walk built, so no other reading meets it.
+   */
+  readonly #slotTypes = new WeakSet<Resolved.TypeAnnotation>();
   /**
    * The colours `#lowerWritten` minted *(#1174 review)*: a written `->!` read
    * as any function where one use hands something. Such a colour belongs to
@@ -9436,12 +9451,13 @@ class Checker {
    * The type a written annotation gives a constructor pattern's slot: a
    * union's constructor's declared slot, or a nominal record's fields, read
    * with the declaration's parameters given the annotation's arguments
-   * (`givenSlot`).
+   * (`givenSlot`). `made` meets each type a union's slot itself writes.
    */
   #writtenSlot(
     pattern: Resolved.ConstructorPattern,
     index: number,
     annotation: Resolved.TypeAnnotation,
+    made?: (written: Resolved.TypeAnnotation) => void,
   ): Resolved.TypeAnnotation | undefined {
     if (pattern.symbol === undefined) return undefined;
     if (annotation.kind === "Union") {
@@ -9449,7 +9465,8 @@ class Checker {
       const slot = union?.constructors.find((constructor) => constructor.binding.symbol === pattern.symbol)
         ?.slots[index]?.annotation;
       if (union === undefined || slot === undefined) return undefined;
-      return givenSlot(slot, new Map(union.parameters.map((name, at) => [name, annotation.arguments[at]!] as const)));
+      const given = new Map(union.parameters.map((name, at) => [name, annotation.arguments[at]!] as const));
+      return givenSlot(slot, given, made);
     }
     if (annotation.kind === "RecordDeclaration" && index === 0) {
       const declaration = this.#constructedRecords.get(pattern.symbol);
@@ -15218,9 +15235,10 @@ class Checker {
           }
           if (!receives) {
             // Where the use hands something, a `->!` the value's own written
-            // type spells as the impure constant accepts any function (#1174).
+            // type spells as the impure constant accepts any function (#1174);
+            // one a union's or an exception's slot wrote is no value's own.
             return written?.kind === "Function" && written.effect !== undefined && !isFollowing(written.effect) &&
-                role === "data" && view?.lowers !== false
+                role === "data" && !this.#slotTypes.has(written)
               ? this.#lowerWritten(rebuilt, level)
               : rebuilt;
           }
@@ -17044,13 +17062,14 @@ class Checker {
     for (const variable of this.#collectVariables(written)) {
       if (variable.ascribedAt === pattern.annotation.span) this.#patternDeclared.set(variable, pattern);
     }
-    const subject = this.#claimSubject;
-    const view = subject === undefined ? undefined : this.#claimView(subject, pattern);
+    // Every walk that reaches a claim starts at `#atBinders`, which sets it.
+    const subject = this.#claimSubject!;
+    const view = this.#claimView(subject, pattern);
     // A constructor's declaration decides the part it writes, whatever the
     // value it is taken from (#1518): each arrow it spells, every one where it
     // writes the part ground.
-    const declared = subject === undefined ? undefined : this.#claimDeclared(subject, pattern);
-    const part = subject?.decided === true
+    const declared = this.#claimDeclared(subject, pattern);
+    const part = subject.decided
       ? this.#openReceived(expected, level, true, view ?? declared)
       : declared === undefined
       ? expected
@@ -17168,9 +17187,9 @@ class Checker {
    * not widened (#1195), so anywhere else `undefined`.
    */
   #claimBindingRewrite(claim: ClaimAt, target: Mono): string | undefined {
-    const built = claim.subject?.built;
+    const built = claim.subject.built;
     if (built === undefined) return undefined;
-    const root = claim.subject!.root;
+    const root = claim.subject.root;
     const value = this.#builtPart(root, built.value, claim.pattern);
     if (value === undefined || !this.#widensFrom(value)) return undefined;
     const written = this.#typeSpellingAtSite(target);
@@ -17488,15 +17507,14 @@ class Checker {
    */
   #declaredPart(symbol: Resolved.SymbolId): Resolved.TypeAnnotation | undefined {
     const root = this.#partPatterns.get(symbol);
-    return root === undefined ? undefined : this.#partDeclared(root, symbol, undefined)?.written;
+    return root === undefined ? undefined : this.#partDeclared(root, symbol, undefined);
   }
 
   /**
    * The declared part (`#declaredPart`) as a view a use reads: data, as a
-   * declared field is. Where a record's field writes it, it is the value's
-   * own written type, so a `->!` it spells in a parameter accepts any
-   * function, as a field read of the record gives it (Effects §3.4); a
-   * union's or an exception's slot is read only for the arrows it spells.
+   * declared field is. A `->!` a record's field writes in a parameter accepts
+   * any function, as a field read of the record gives it; one a union's or an
+   * exception's slot writes does not (`#slotTypes`, Effects §3.4).
    * `undefined` where the declarations write no type for it.
    */
   #declaredView(symbol: Resolved.SymbolId): SpelledPart | undefined {
@@ -17521,38 +17539,34 @@ class Checker {
    * binding pattern binds. A constructor's slot is the declaration's
    * (`#patternSlot`); a declared pattern's components are read only for the
    * constructors written in them, its declaration being chosen with the type
-   * it meets. `undefined` where the text gives the part no type. `field` is
-   * whether the innermost constructor on the way is a nominal record's, whose
-   * field's declared type is its value's own.
+   * it meets. `undefined` where the text gives the part no type.
    */
   #partDeclared(
     pattern: Resolved.Pattern,
     target: Resolved.TypedPattern | Resolved.SymbolId,
     written: Resolved.TypeAnnotation | undefined,
-    field = false,
-  ): DeclaredPart | undefined {
-    const first = (pairs: readonly (readonly [Resolved.Pattern, Resolved.TypeAnnotation | undefined])[], inField = field) => {
+  ): Resolved.TypeAnnotation | undefined {
+    const first = (pairs: readonly (readonly [Resolved.Pattern, Resolved.TypeAnnotation | undefined])[]) => {
       for (const [inner, annotation] of pairs) {
-        const found = this.#partDeclared(inner, target, annotation, inField);
+        const found = this.#partDeclared(inner, target, annotation);
         if (found !== undefined) return found;
       }
       return undefined;
     };
-    const here = written === undefined ? undefined : { written, field };
     switch (pattern.kind) {
       case "Binding":
-        return pattern.binding.symbol === target ? here : undefined;
+        return pattern.binding.symbol === target ? written : undefined;
       case "As":
-        return pattern.binding.symbol === target ? here : this.#partDeclared(pattern.pattern, target, written, field);
+        return pattern.binding.symbol === target ? written : this.#partDeclared(pattern.pattern, target, written);
       case "Typed":
-        return pattern === target ? here : this.#partDeclared(pattern.pattern, target, written, field);
+        return pattern === target ? written : this.#partDeclared(pattern.pattern, target, written);
       case "Or": {
         // A claim is one node, found in the alternative that holds it. A name
-        // the alternatives each bind is read on every path: the text's only
-        // where every alternative writes it ground.
+        // the alternatives each bind holds what any of them gave it: the text
+        // writes what every alternative writes (`#declaredMeet`).
         if (typeof target === "object") return first(pattern.alternatives.map((inner) => [inner, written] as const));
-        const parts = pattern.alternatives.map((inner) => this.#partDeclared(inner, target, written, field));
-        return parts.every((part) => part !== undefined && annotationGround(part.written)) ? parts[0] : undefined;
+        const parts = pattern.alternatives.map((inner) => this.#partDeclared(inner, target, written));
+        return parts.every((part) => part !== undefined) ? this.#declaredMeet(parts) : undefined;
       }
       case "Tuple":
         return first(pattern.elements.map((element, index) =>
@@ -17576,11 +17590,8 @@ class Checker {
         ]);
       }
       case "Constructor":
-        // A nominal record's fields are its own written types; a union's or
-        // an exception's slots are not.
         return first(
           pattern.arguments.map((argument, index) => [argument, this.#patternSlot(pattern, index, written)] as const),
-          pattern.symbol !== undefined && this.#constructedRecords.has(pattern.symbol),
         );
       case "Declared":
         return first(pattern.components.map((component) => [component, undefined] as const));
@@ -17590,30 +17601,62 @@ class Checker {
   }
 
   /**
+   * What every one of `parts` writes *(#1518)*, the types an or-pattern's
+   * alternatives write for a name each binds: a hole where one of them writes
+   * none, and elsewhere the head they write, over what they all write beneath
+   * it. They agree on the name's type, or the or-pattern is refused and the
+   * first stands, so the refusal is the one report. An arrow one of them
+   * reads from a union's or an exception's slot is read so (`#slotTypes`).
+   * Every node it builds is its own.
+   */
+  #declaredMeet(parts: readonly Resolved.TypeAnnotation[]): Resolved.TypeAnnotation {
+    const part = parts[0]!;
+    if (!parts.every(headWritten)) return { kind: "Hole", id: -1, constraints: [], span: part.span };
+    const beneath = parts.map(writtenBeneath);
+    const count = beneath[0]!.length;
+    if (parts.some((other, at) => other.kind !== part.kind || beneath[at]!.length !== count)) return part;
+    let index = 0;
+    const built = readBeneath(part, () => {
+      const at = index++;
+      return this.#declaredMeet(beneath.map((inner) => inner[at]!));
+    });
+    if (parts.some((other) => this.#slotTypes.has(other))) this.#slotTypes.add(built);
+    return built;
+  }
+
+  /**
    * A constructor pattern's slot as the text writes it: as the written type
    * around the pattern gives it (`#writtenSlot`), or else as the
    * constructor's declaration writes it, an exception's, a union's or a
    * nominal record's, its type parameters given holes, since only what they
-   * become is the value's (Method Syntax §3.1).
+   * become is the value's (Method Syntax §3.1). A head the door resolved
+   * (Pattern Matching §2.2) was chosen by the type its position met, so its
+   * declaration is read only where a written type gives that position. What
+   * a union's or an exception's slot writes is noted as the slot's
+   * (`#slotTypes`).
    */
   #patternSlot(
     pattern: Resolved.ConstructorPattern,
     index: number,
     written: Resolved.TypeAnnotation | undefined,
   ): Resolved.TypeAnnotation | undefined {
-    const given = written === undefined ? undefined : this.#writtenSlot(pattern, index, written);
+    const made = (read: Resolved.TypeAnnotation): void => void this.#slotTypes.add(read);
+    const given = written === undefined ? undefined : this.#writtenSlot(pattern, index, written, made);
     const symbol = pattern.symbol;
-    if (given !== undefined || symbol === undefined) return given;
+    if (given !== undefined || symbol === undefined || pattern.open === true) return given;
     const holes = (parameters: readonly string[]): ReadonlyMap<string, Resolved.TypeAnnotation> =>
       new Map(parameters.map((name) => [name, { kind: "Hole", id: -1, constraints: [], span: pattern.span }] as const));
     const exception = this.#exceptions.get(symbol);
-    if (exception !== undefined) return exception.slots[index]?.annotation;
+    if (exception !== undefined) {
+      const slot = exception.slots[index]?.annotation;
+      return slot === undefined ? undefined : givenSlot(slot, new Map(), made);
+    }
     const unionId = this.#constructorUnions.get(symbol) ?? this.#programConstructorUnion(symbol);
     if (unionId !== undefined) {
       const union = this.#declaredUnions.get(unionId) ?? this.#programUnion(unionId);
       const slot = union?.constructors.find((constructor) => constructor.binding.symbol === symbol)?.slots[index]
         ?.annotation;
-      return union === undefined || slot === undefined ? undefined : givenSlot(slot, holes(union.parameters));
+      return union === undefined || slot === undefined ? undefined : givenSlot(slot, holes(union.parameters), made);
     }
     const record = this.#constructedRecords.get(symbol);
     if (record === undefined) return undefined;
@@ -17628,12 +17671,12 @@ class Checker {
 
   /**
    * Runs a pattern's walk with its binders' class and the value it takes
-   * apart, if any (`#patternBinders`, `#claimSubject`). Every walk
+   * apart (`#patternBinders`, `#claimSubject`). Every walk
    * that reaches a claim starts here, so neither the fields' defaults nor the
    * restore can be told apart from source today (equivalent mutants); the save
    * is kept as the other pattern seats keep theirs.
    */
-  #atBinders<T>(binders: PatternBinders, subject: ClaimSubject | undefined, walk: () => T): T {
+  #atBinders<T>(binders: PatternBinders, subject: ClaimSubject, walk: () => T): T {
     const enclosingBinders = this.#patternBinders;
     const enclosingSubject = this.#claimSubject;
     this.#patternBinders = binders;

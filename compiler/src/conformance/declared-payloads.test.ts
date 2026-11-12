@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import { projectDiagnostics } from "../support/test-project.js";
+import { compileFiles, projectDiagnostics } from "../support/test-project.js";
 
 /**
  * Conformance for #1518: **a constructor's declaration decides the parts it
@@ -226,6 +226,41 @@ describe("a constructor's declaration decides the parts it writes (#1518)", () =
         expect([head, arm, messages(source)]).toEqual([head, arm, [FIXED]]);
       }
     }
+    // Nor where a union's or an exception's slot gives a record's type parameter: the arrow is the slot's, whatever the
+    // value, a value the text decides included.
+    const given = "record RA(a) = {f: (a) -> Unit}\nrecord S = {run: (() -> Unit) -> Unit}\n";
+    const slotted = given + "union V =\n    | V(r: RA(() ->! Unit))\n";
+    for (
+      const head of [
+        "let g(v) = match v\n",
+        "let g(v: V): Unit = match v\n",
+        "let g(): Unit =\n    let v = V(RA({f = (c) => ()}))\n    match v\n",
+      ]
+    ) {
+      for (const arm of ["V(RA({f = f})) => ignore(S({run = f}))", "V(RA({f = (f: (() -> Unit) -> Unit)})) => ()"]) {
+        const indent = head.includes("let v =") ? "        " : "    ";
+        expect([head, arm, messages(WORLD + slotted + head + indent + arm + "\n" + OUT)]).toEqual([head, arm, [FIXED]]);
+      }
+    }
+    for (const arm of ["E(RA({f = f})) => ignore(S({run = f}))", "E(RA({f = (f: (() -> Unit) -> Unit)})) => ()"]) {
+      const source = WORLD + given + "exception E(r: RA(() ->! Unit))\nlet g(): Unit = try throw^(E(RA({f = (c) => ()})))\n" +
+        `    catch\n        ${arm}\n        _ => ()\n` + OUT;
+      expect([arm, messages(source)]).toEqual([arm, [FIXED]]);
+    }
+    expect(messages(
+      WORLD + given + "union V3 =\n    | V3(p: (RA(() ->! Unit), Int))\nlet g(v) = match v\n" +
+        "    V3((RA({f = f}), _)) => ignore(S({run = f}))\n" + OUT,
+    )).toEqual([FIXED]);
+    // So a union's slot beneath another's, whose type that slot writes.
+    expect(messages(
+      WORLD + "record S = {run: (() -> Unit) -> Unit}\nunion V4 =\n    | V4(f: (() ->! Unit) -> Unit)\n" +
+        "union O =\n    | O(v: V4)\nlet g(o) = match o\n    O(V4(f)) => ignore(S({run = f}))\n" + OUT,
+    )).toEqual([FIXED]);
+    // A record's own field keeps its reading in a union's slot.
+    const own = "record R3 = {f: (() ->! Unit) -> Unit}\nrecord S = {run: (() -> Unit) -> Unit}\nunion V2 =\n    | V2(r: R3)\n";
+    for (const head of ["let g(v) = match v\n", "let g(v: V2): Unit = match v\n"]) {
+      expect([head, messages(WORLD + own + head + "    V2(R3({f = f})) => ignore(S({run = f}))\n" + OUT)]).toEqual([head, []]);
+    }
     // A part a written type reaches through a record's field, though the value is not decided wholly.
     const partial = "record R2(a) = {f: () -> Unit, x: a}\nlet g(t: (R2(_), Int)): Unit = match t\n";
     for (const arm of ["(R2({f = (f: () ->! Unit), x = _}), _) => ()", "(R2({f = f, x = _}), _) =>\n        let h: () ->! Unit = f\n        ()"]) {
@@ -233,7 +268,7 @@ describe("a constructor's declaration decides the parts it writes (#1518)", () =
     }
   });
 
-  test("an or-pattern: a claim in the alternative that holds it, and a name every alternative writes ground", () => {
+  test("an or-pattern: a claim in the alternative that holds it, and a name what every alternative writes alike", () => {
     const both = "union XY =\n    | X(f: () -> Unit, n: Int)\n    | Y(f: () -> Unit, n: Int)\n";
     for (
       const arm of [
@@ -251,10 +286,98 @@ describe("a constructor's declaration decides the parts it writes (#1518)", () =
       WORLD + slot + "let g(v) = match v\n    V3((Some(f), _) | (_, Some(f))) =>\n        let h: () ->! Unit = f\n        ()\n" +
         "    _ => ()\nexport let k: Unit = g(V3((None, None)))\n" + OUT,
     )).toEqual([]);
-    // A name one alternative takes from a type parameter is the value's on that path.
+    // Position by position: a head every alternative writes, and an arrow every one writes beside a type parameter.
+    const heads = "union L(a) =\n    | X(xs: Vector(a), o: Option(a))\n    | Y(xs: Vector(a), o: Option(a))\n";
+    for (const arm of ["X(xs, _) | Y(xs, _) => xs.length()", "X(_, o) | Y(_, o) => if o.isSome() then 1 else 0"]) {
+      expect([arm, messages(heads + `let g(l) = match l\n    ${arm}\nexport let k: Int = g(X([1], None))\n` + OUT)])
+        .toEqual([arm, []]);
+    }
+    const beside = "union P(a) =\n    | X(p: (() -> Unit, a))\n    | Y(p: (() -> Unit, a))\n";
+    expect(messages(
+      WORLD + beside + "let g(v) = match v\n    X(p) | Y(p) =>\n        let h: (() ->! Unit, Int) = p\n        ()\n" +
+        "export let k: Unit = g(X((noop, 1)))\n" + OUT,
+    )).toEqual([]);
+    // An arrow a union's slot writes on one path keeps that reading on every path.
+    const mixed = "record R = {f: (() ->! Unit) -> Unit}\nrecord S = {run: (() -> Unit) -> Unit}\n";
+    for (
+      const [alternatives, expected] of [
+        ["union W =\n    | X(r: R)\n    | Y(f: (() ->! Unit) -> Unit)\n", [FIXED]],
+        ["union W =\n    | X(r: R)\n    | Y(r: R)\n", []],
+      ] as const
+    ) {
+      const arm = alternatives.includes("Y(f") ? "X(R({f = f})) | Y(f)" : "X(R({f = f})) | Y(R({f = f}))";
+      expect([arm, messages(WORLD + mixed + alternatives + `let g(w) = match w\n    ${arm} => ignore(S({run = f}))\n` + OUT)])
+        .toEqual([arm, expected]);
+    }
+    // Alternatives that write the name different types are refused, and that is the one report, as over a typed value.
+    for (
+      const [x, y, body, report] of [
+        ["Int", "String", "ignore(n.show())", "type mismatch: expected Int, found String"],
+        ["Vector(Int)", "Set(Int)", "ignore(n.length())", "type mismatch: expected Vector(Int), found Set(Int)"],
+        [
+          "() -> Unit",
+          "(Int, Int)",
+          "\n        let h: () ->! Unit = n\n        ()",
+          "type mismatch: expected () -> Unit, found (Int, Int)",
+        ],
+        [
+          "Vector(() -> Unit)",
+          "Option(a)",
+          "\n        let h: Vector(() ->! Unit) = n\n        ()",
+          "type mismatch: expected Vector(() -> Unit), found Option(a)",
+        ],
+        [
+          "(Int) -> (() -> Unit)",
+          "(Int, a) -> Int",
+          "\n        let h: (Int) ->! (() ->! Unit) = n\n        ()",
+          "function arity mismatch: 1 and 2",
+        ],
+      ] as const
+    ) {
+      const source = WORLD + `union XY(a) =\n    | X(n: ${x})\n    | Y(n: ${y})\n` + `let g(v) = match v\n    X(n) | Y(n) => ${body}\n` + OUT;
+      expect([x, y, messages(source)]).toEqual([x, y, [report]]);
+    }
+    // A name one alternative takes from a type parameter is the value's on that path, in either order, beneath a
+    // head they all write too.
+    const nothing = "union R(a) =\n    | P(p: a)\n    | Q(q: {n: Int})\n";
+    for (const arm of ["Q({n = n}) | P({n = n})", "P({n = n}) | Q({n = n})"]) {
+      expect([arm, messages(nothing + `let g(v) = match v\n    ${arm} => n.show()\n` + OUT)]).toEqual([arm, [undecided("n", "show")]]);
+    }
+    const result = "union XY(a) =\n    | X(f: () -> (() -> Unit))\n    | Y(f: () -> a)\n";
+    for (const arm of ["X(f) | Y(f)", "Y(f) | X(f)"]) {
+      const source = WORLD + result + `let g(v) = match v\n    ${arm} =>\n        let h: () ->! (() ->! Unit) = f\n        ()\n` + OUT;
+      expect([arm, messages(source)]).toEqual([arm, [FIXED]]);
+    }
     const one = "union XZ(a) =\n    | X(n: Int)\n    | Z(n: a)\n";
     expect(messages(one + "let g(v) = match v\n    X(n) | Z(n) => n.show()\nexport let k: String = g(X(1))\n" + OUT))
       .toEqual([undecided("n", "show")]);
+  });
+
+  test("a constructor the type its position meets names is read only where the declarations above write that type", () => {
+    const files = (source: string): readonly string[] =>
+      compileFiles([
+        ["/main.hex", HEADER + WORLD + "import M1\nimport M2\n" + source + OUT],
+        ["/m1.hex", "module M1\n\nexport union W1 =\n    | WC(f: () -> Unit)\n"],
+        ["/m2.hex", "module M2\n\nexport union W2 =\n    | WC(n: Int)\n"],
+      ]).diagnostics.map(({ message }) => message);
+    // Beneath a slot written as a type parameter, another line chose `WC`: what it writes is the value's.
+    const param = "union T(a) =\n    | T(x: a)\n";
+    expect(files(param + "let g(t) =\n    let q: T(M2.W2) = t\n    match t\n        T(WC(n)) => n.show()\n"))
+      .toEqual([undecided("n", "show")]);
+    for (
+      const arm of [
+        "T(WC(f)) =>\n            let h: () ->! Unit = f\n            ()",
+        "T(WC((f: () ->! Unit))) => f!()",
+      ]
+    ) {
+      expect([arm, files(param + `let g(t) =\n    let q: T(M1.W1) = t\n    match t\n        ${arm}\n`)]).toEqual([arm, [FIXED]]);
+    }
+    // Written qualified, or beneath a slot that writes its union, it is the text's.
+    expect(files(param + "let g(t) = match t\n    T(M2.WC(n)) => n.show()\n")).toEqual([]);
+    expect(files("union T2 =\n    | T2(x: M2.W2)\nlet g(t) = match t\n    T2(WC(n)) => n.show()\n")).toEqual([]);
+    expect(files(
+      "union T3 =\n    | T3(x: M1.W1)\nlet g(t) = match t\n    T3(WC(f)) =>\n        let h: () ->! Unit = f\n        ()\n",
+    )).toEqual([]);
   });
 
   test("in a `let`, a `for` head and a lambda's parameter, as at an arm", () => {
