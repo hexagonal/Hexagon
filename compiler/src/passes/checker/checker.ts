@@ -4085,6 +4085,22 @@ function readBeneath(
   }
 }
 
+/**
+ * `annotation` with its fields in the order `order` writes them, where both
+ * are record types writing the same field names: a record type's fields are
+ * paired by name. `undefined` where the names differ; any other type itself.
+ */
+function fieldsPaired(
+  annotation: Resolved.TypeAnnotation,
+  order: Resolved.TypeAnnotation,
+): Resolved.TypeAnnotation | undefined {
+  if (annotation.kind !== "Record" || order.kind !== "Record") return annotation;
+  const fields = order.fields.map((field) => annotation.fields.find((own) => own.name === field.name));
+  return fields.length === annotation.fields.length && fields.every((field) => field !== undefined)
+    ? { ...annotation, fields }
+    : undefined;
+}
+
 /** The types written directly beneath an annotation, in `readBeneath`'s order. */
 function writtenBeneath(annotation: Resolved.TypeAnnotation): readonly Resolved.TypeAnnotation[] {
   const beneath: Resolved.TypeAnnotation[] = [];
@@ -14939,7 +14955,9 @@ class Checker {
    * record's field *(#1207)*: the field's declared type, which is data, as a
    * field read of the same value gives it (`Access` above). Read through the
    * patterns around the part to the record's, a record nested in another's
-   * field included (`#patternWritten`).
+   * field included (`#patternWritten`). Elsewhere, what the declarations of
+   * the constructors around it write, as for any value (`#declaredView`,
+   * #1518).
    */
   #partWritten(symbol: Resolved.SymbolId): WrittenView | undefined {
     const pattern = this.#partPatterns.get(symbol);
@@ -14980,7 +14998,7 @@ class Checker {
           return undefined;
       }
     };
-    return within(pattern);
+    return within(pattern) ?? this.#declaredView(symbol);
   }
 
   /**
@@ -17604,17 +17622,20 @@ class Checker {
    * What every one of `parts` writes *(#1518)*, the types an or-pattern's
    * alternatives write for a name each binds: a hole where one of them writes
    * none, and elsewhere the head they write, over what they all write beneath
-   * it. They agree on the name's type, or the or-pattern is refused and the
-   * first stands, so the refusal is the one report. An arrow one of them
-   * reads from a union's or an exception's slot is read so (`#slotTypes`).
-   * Every node it builds is its own.
+   * it, a record type's fields paired by name. They agree on the name's
+   * type, or the or-pattern is refused and the first stands, so the refusal
+   * is the one report. An arrow one of them reads from a union's or an
+   * exception's slot is read so (`#slotTypes`). Every node it builds is its
+   * own.
    */
   #declaredMeet(parts: readonly Resolved.TypeAnnotation[]): Resolved.TypeAnnotation {
     const part = parts[0]!;
     if (!parts.every(headWritten)) return { kind: "Hole", id: -1, constraints: [], span: part.span };
-    const beneath = parts.map(writtenBeneath);
+    const paired = parts.map((other) => other.kind === part.kind ? fieldsPaired(other, part) : undefined);
+    if (!paired.every((other) => other !== undefined)) return part;
+    const beneath = paired.map(writtenBeneath);
     const count = beneath[0]!.length;
-    if (parts.some((other, at) => other.kind !== part.kind || beneath[at]!.length !== count)) return part;
+    if (beneath.some((inner) => inner.length !== count)) return part;
     let index = 0;
     const built = readBeneath(part, () => {
       const at = index++;

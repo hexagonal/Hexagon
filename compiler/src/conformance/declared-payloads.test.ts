@@ -256,10 +256,24 @@ describe("a constructor's declaration decides the parts it writes (#1518)", () =
       WORLD + "record S = {run: (() -> Unit) -> Unit}\nunion V4 =\n    | V4(f: (() ->! Unit) -> Unit)\n" +
         "union O =\n    | O(v: V4)\nlet g(o) = match o\n    O(V4(f)) => ignore(S({run = f}))\n" + OUT,
     )).toEqual([FIXED]);
-    // A record's own field keeps its reading in a union's slot.
+    // A record's own field keeps its reading in a union's slot, and gives a union's type parameter its own, whatever
+    // the value.
     const own = "record R3 = {f: (() ->! Unit) -> Unit}\nrecord S = {run: (() -> Unit) -> Unit}\nunion V2 =\n    | V2(r: R3)\n";
     for (const head of ["let g(v) = match v\n", "let g(v: V2): Unit = match v\n"]) {
       expect([head, messages(WORLD + own + head + "    V2(R3({f = f})) => ignore(S({run = f}))\n" + OUT)]).toEqual([head, []]);
+    }
+    const option = "record S = {run: (() -> Unit) -> Unit}\nrecord RO = {o: Option((() ->! Unit) -> Unit)}\n";
+    for (
+      const head of [
+        "let g(r) = match r\n",
+        "let g(r: RO): Unit = match r\n",
+        "let g(): Unit =\n    let r = RO({o = None})\n    match r\n",
+        "let g(rs: Vector(RO)): Unit =\n    for r in rs\n        match r\n",
+      ]
+    ) {
+      const indent = " ".repeat(head.split("\n").at(-2)!.search(/\S/) + 4);
+      const arms = `${indent}RO({o = Some(f)}) => ignore(S({run = f}))\n${indent}_ => ()\n`;
+      expect([head, messages(WORLD + option + head + arms + OUT)]).toEqual([head, []]);
     }
     // A part a written type reaches through a record's field, though the value is not decided wholly.
     const partial = "record R2(a) = {f: () -> Unit, x: a}\nlet g(t: (R2(_), Int)): Unit = match t\n";
@@ -297,7 +311,7 @@ describe("a constructor's declaration decides the parts it writes (#1518)", () =
       WORLD + beside + "let g(v) = match v\n    X(p) | Y(p) =>\n        let h: (() ->! Unit, Int) = p\n        ()\n" +
         "export let k: Unit = g(X((noop, 1)))\n" + OUT,
     )).toEqual([]);
-    // An arrow a union's slot writes on one path keeps that reading on every path.
+    // An arrow a union's slot writes on one path keeps that reading on every path, whatever the value.
     const mixed = "record R = {f: (() ->! Unit) -> Unit}\nrecord S = {run: (() -> Unit) -> Unit}\n";
     for (
       const [alternatives, expected] of [
@@ -306,20 +320,35 @@ describe("a constructor's declaration decides the parts it writes (#1518)", () =
       ] as const
     ) {
       const arm = alternatives.includes("Y(f") ? "X(R({f = f})) | Y(f)" : "X(R({f = f})) | Y(R({f = f}))";
-      expect([arm, messages(WORLD + mixed + alternatives + `let g(w) = match w\n    ${arm} => ignore(S({run = f}))\n` + OUT)])
-        .toEqual([arm, expected]);
+      for (
+        const [head, body] of [
+          ["let g(w) = match w\n", `    ${arm} => ignore(S({run = f}))\n`],
+          ["let g(w: W): Unit = match w\n", `    ${arm} => ignore(S({run = f}))\n`],
+          ["let g(): Unit =\n    let w = X(R({f = (c) => ()}))\n    match w\n", `        ${arm} => ignore(S({run = f}))\n`],
+          ["let g(w: W): Unit =\n", `    let ${arm} = w\n    ignore(S({run = f}))\n`],
+        ]
+      ) {
+        expect([arm, head, messages(WORLD + mixed + alternatives + head + body + OUT)]).toEqual([arm, head, expected]);
+      }
+    }
+    // A record type's fields are paired by name.
+    for (
+      const [y, expected] of [
+        ["{n: Int, f: () -> Unit}", []],
+        ["{n: Int, f: a}", [FIXED]],
+      ] as const
+    ) {
+      const source = WORLD + `union XY(a) =\n    | X(r: {f: () -> Unit, n: Int})\n    | Y(r: ${y})\n` +
+        "let g(v) = match v\n    X(r) | Y(r) =>\n        let h: () ->! Unit = r.f\n        ()\n" + OUT;
+      expect([y, messages(source)]).toEqual([y, expected]);
     }
     // Alternatives that write the name different types are refused, and that is the one report, as over a typed value.
+    const pure = (value: string): string => `\n        let h: () ->! Unit = ${value}\n        ()`;
     for (
       const [x, y, body, report] of [
         ["Int", "String", "ignore(n.show())", "type mismatch: expected Int, found String"],
         ["Vector(Int)", "Set(Int)", "ignore(n.length())", "type mismatch: expected Vector(Int), found Set(Int)"],
-        [
-          "() -> Unit",
-          "(Int, Int)",
-          "\n        let h: () ->! Unit = n\n        ()",
-          "type mismatch: expected () -> Unit, found (Int, Int)",
-        ],
+        ["() -> Unit", "(Int, Int)", pure("n"), "type mismatch: expected () -> Unit, found (Int, Int)"],
         [
           "Vector(() -> Unit)",
           "Option(a)",
@@ -332,6 +361,8 @@ describe("a constructor's declaration decides the parts it writes (#1518)", () =
           "\n        let h: (Int) ->! (() ->! Unit) = n\n        ()",
           "function arity mismatch: 1 and 2",
         ],
+        ["{f: () -> Unit}", "{g: () -> Unit}", pure("n.f"), "record fields do not match; unexpected `g`"],
+        ["{f: () -> Unit}", "{f: a, n: Int}", pure("n.f"), "record fields do not match; unexpected `n`"],
       ] as const
     ) {
       const source = WORLD + `union XY(a) =\n    | X(n: ${x})\n    | Y(n: ${y})\n` + `let g(v) = match v\n    X(n) | Y(n) => ${body}\n` + OUT;
@@ -378,6 +409,23 @@ describe("a constructor's declaration decides the parts it writes (#1518)", () =
     expect(files(
       "union T3 =\n    | T3(x: M1.W1)\nlet g(t) = match t\n    T3(WC(f)) =>\n        let h: () ->! Unit = f\n        ()\n",
     )).toEqual([]);
+    // At the pattern's top the position's type is the value's: where a written type chose a record, its fields are
+    // read as they write.
+    const records = (source: string): readonly string[] =>
+      compileFiles([
+        ["/main.hex", HEADER + WORLD + "import R1\nimport R2\nrecord S = {run: (() -> Unit) -> Unit}\n" + source + OUT],
+        ["/r1.hex", "module R1\n\nexport record WC = {f: (() ->! Unit) -> Unit}\n"],
+        ["/r2.hex", "module R2\n\nexport record WC = {n: Int}\n"],
+      ]).diagnostics.map(({ message }) => message);
+    for (
+      const source of [
+        "let g(w: R1.WC): Unit = match w\n    WC({f = f}) => ignore(S({run = f}))\n",
+        "let g(w: R1.WC): Unit =\n    let WC({f = f}) = w\n    ignore(S({run = f}))\n",
+        "let g(t: (R1.WC, Int)): Unit = match t\n    (WC({f = f}), _) => ignore(S({run = f}))\n",
+      ]
+    ) {
+      expect([source, records(source)]).toEqual([source, []]);
+    }
   });
 
   test("in a `let`, a `for` head and a lambda's parameter, as at an arm", () => {
