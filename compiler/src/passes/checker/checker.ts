@@ -4112,11 +4112,21 @@ function writtenBeneath(annotation: Resolved.TypeAnnotation): readonly Resolved.
 }
 
 /**
+ * Types a reading built whose span does not spell them: a slot read with a
+ * type argument beneath it, whose span spells the parameter, or a nominal
+ * record's fields, whose span spells the pattern or the record's name. A
+ * rewrite never copies their text (`#writtenSpelling`).
+ */
+const unspelled = new WeakSet<Resolved.TypeAnnotation>();
+
+/**
  * A declaration's written slot as a written type reads it: each of the
  * declaration's type parameters replaced by the annotation the written type
  * gives it, so `Some`'s slot `a` under `Option((Vector(_)) -> Int)` reads
  * `(Vector(_)) -> Int`, and a hole given there stays a hole. `made` meets
  * each type the slot itself writes, as read, and none the given types are.
+ * A type with a parameter beneath it is `unspelled`: given a type, its text
+ * spells the parameter, and left a variable, it is not ground.
  */
 function givenSlot(
   slot: Resolved.TypeAnnotation,
@@ -4124,7 +4134,13 @@ function givenSlot(
   made?: (written: Resolved.TypeAnnotation) => void,
 ): Resolved.TypeAnnotation {
   if (slot.kind === "TypeVariable") return given.get(slot.name) ?? slot;
-  const read = readBeneath(slot, (inner) => givenSlot(inner, given, made));
+  let replaced = false;
+  const read = readBeneath(slot, (inner) => {
+    const built = givenSlot(inner, given, made);
+    if (inner.kind === "TypeVariable" || unspelled.has(built)) replaced = true;
+    return built;
+  });
+  if (replaced) unspelled.add(read);
   made?.(read);
   return read;
 }
@@ -9488,12 +9504,14 @@ class Checker {
       const declaration = this.#constructedRecords.get(pattern.symbol);
       if (declaration === undefined || declaration.id !== annotation.record) return undefined;
       const given = new Map(declaration.parameters.map((name, at) => [name, annotation.arguments[at]!] as const));
-      return {
+      const fields: Resolved.TypeAnnotation = {
         kind: "Record",
         fields: declaration.fields.map((field) => ({ ...field, annotation: givenSlot(field.annotation, given) })),
         open: false,
         span: annotation.span,
       };
+      unspelled.add(fields);
+      return fields;
     }
     return undefined;
   }
@@ -17064,7 +17082,7 @@ class Checker {
       subject,
       written,
       part,
-      spelling: this.#writtenSpelling(view) ?? this.#claimSpelling(expected),
+      spelling: this.#writtenSpelling(view ?? declared) ?? this.#claimSpelling(expected),
     };
     this.#patternChecks += 1;
     try {
@@ -17282,12 +17300,15 @@ class Checker {
 
   /**
    * The type a part's written view spells, as this module wrote it: ground,
-   * so it names no other declaration's variable, and in this file, so its
-   * names resolve here. `undefined` otherwise.
+   * so it names no other declaration's variable, in this file, so its names
+   * resolve here, and spelled by its own span (`unspelled`). `undefined`
+   * otherwise.
    */
   #writtenSpelling(view: WrittenView | undefined): string | undefined {
     const written = view?.written;
-    if (written === undefined || written.kind === "Face" || !annotationGround(written)) return undefined;
+    if (written === undefined || written.kind === "Face" || !annotationGround(written) || unspelled.has(written)) {
+      return undefined;
+    }
     return this.#sourceSlice(written.span);
   }
 
@@ -17611,6 +17632,7 @@ class Checker {
       return this.#declaredMeet(beneath.map((inner) => inner[at]!));
     });
     if (parts.some((other) => this.#slotTypes.has(other))) this.#slotTypes.add(built);
+    if (unspelled.has(part)) unspelled.add(built);
     return built;
   }
 
@@ -17653,12 +17675,14 @@ class Checker {
     const record = this.#constructedRecords.get(symbol);
     if (record === undefined) return undefined;
     const parameters = holes(record.parameters);
-    return {
+    const fields: Resolved.TypeAnnotation = {
       kind: "Record",
       fields: record.fields.map((field) => ({ ...field, annotation: givenSlot(field.annotation, parameters) })),
       open: false,
       span: pattern.span,
     };
+    unspelled.add(fields);
+    return fields;
   }
 
   /**

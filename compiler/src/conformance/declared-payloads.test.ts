@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import { compileFiles, projectDiagnostics } from "../support/test-project.js";
+import { compileFiles, compileMain, projectDiagnostics } from "../support/test-project.js";
 
 /**
  * Conformance for #1518: **a constructor's declaration decides the parts it
@@ -465,6 +465,71 @@ describe("a constructor's declaration decides the parts it writes (#1518)", () =
       expect([source, records(source)]).toEqual([source, []]);
     }
     expect(records(`let g(t) =\n    let q: T(R1.WC) = t\n    match t\n        T(WC({f = f})) => ${run}\n`)).toEqual([FIXED]);
+  });
+
+  test("a claim's rewrite copies the program's text only where that text spells the part's type", () => {
+    // A refused claim's first fix, and what the program it writes draws.
+    const fixed = (source: string): readonly [string, readonly string[]] => {
+      const project = compileMain(HEADER + source);
+      expect(project.diagnostics).toHaveLength(1);
+      const [fix] = project.diagnostics[0]!.fixes!;
+      const written = [...fix!.edits]
+        .sort((left, right) => right.span.start.offset - left.span.start.offset)
+        .reduce(
+          (text, edit) => text.slice(0, edit.span.start.offset) + edit.replacement + text.slice(edit.span.end.offset),
+          HEADER + source,
+        );
+      return [fix!.message, compileMain(written).diagnostics.map(({ message }) => message)];
+    };
+    const record = "record R = {f: (() ->! Unit) -> Unit}\n";
+    const applied = "record RA(a) = {f: (a) -> Unit}\n";
+    for (
+      const [source, rewrite] of [
+        // A nominal record's fields, read where a pattern names its constructor: no name here spells them.
+        [record + "let k(r: R): Unit = match r\n    R(x) =>\n        let (z: R) = x\n        ()\n", "remove the type"],
+        [
+          record + "union V =\n    | V(r: R)\nlet k(v: V): Unit = match v\n    V(R(x)) =>\n        let (z: Int) = x\n        ()\n",
+          "remove the type",
+        ],
+        // A slot read with a type argument: its text spells the parameter.
+        [
+          applied + "union V =\n    | V(r: RA(Int))\nlet k(v: V): Unit = match v\n    V(RA({f = f})) =>\n" +
+          "        let (h: String) = f\n        ()\n",
+          "remove the type",
+        ],
+        [applied + "let k(r: RA(Int)): Unit = match r\n    RA({f = (h: String)}) => ()\n", "write `(h: (Int) -> Unit)`"],
+        [
+          "record RB(a) = {f: Option((a) -> Unit)}\nlet k(r: RB(Int)): Unit = match r\n    RB({f = (h: String)}) => ()\n",
+          "write `(h: Option((Int) -> Unit))`",
+        ],
+        [
+          applied + "union W =\n    | X(r: RA(Int))\n    | Y(r: RA(Int))\nlet k(w: W): Unit = match w\n" +
+          "    X(RA({f = f})) | Y(RA({f = f})) =>\n        let (h: String) = f\n        ()\n",
+          "remove the type",
+        ],
+        [
+          applied + "union V =\n    | V(r: RA(Int))\nlet k(v) = match v\n    V(RA({f = (h: String)})) => ()\n",
+          "write `(h: (Int) -> Unit)`",
+        ],
+        // A declared field's own text spells it, whatever the value.
+        [record + "let k(r: R): Unit = match r\n    R({f = (h: String)}) => ()\n", "write `(h: (() ->! Unit) -> Unit)`"],
+        // And the value's own written type, where it gives what a type parameter the declaration writes becomes.
+        ...["match r\n    RB({f = (h: String)}) => ()\n", "\n    let RB({f = (h: String)}) = r\n    ()\n"].map((body) =>
+          [
+            "type Handler = (Int) -> Unit\nrecord RB(a) = {f: a}\nlet k(r: RB(Handler)): Unit = " + body,
+            "write `(h: Handler)`",
+          ] as const
+        ),
+        ...["let k(r: R): Unit = match r\n", "let k(r) = match r\n"].map((head) =>
+          [
+            "type Handler = (Int) -> Unit\nrecord R = {f: Handler}\n" + head + "    R({f = (h: String)}) => ()\n",
+            "write `(h: Handler)`",
+          ] as const
+        ),
+      ] as const
+    ) {
+      expect([source, fixed(source + OUT)]).toEqual([source, [rewrite, []]]);
+    }
   });
 
   test("in a `let`, a `for` head and a lambda's parameter, as at an arm", () => {
