@@ -17495,10 +17495,11 @@ class Checker {
   /**
    * The view the declarations a pattern names give the part a claim stands on
    * *(#1518; Pattern Matching §2.9)*, as they give a part a name binds
-   * (`#declaredView`): a claim is a use of its part.
+   * (`#declaredView`, and `#partWritten` over a value the text decides): a
+   * claim is a use of its part.
    */
   #claimDeclared(subject: ClaimSubject, claim: Resolved.TypedPattern): SpelledPart | undefined {
-    return declaredView(this.#partDeclared(subject.root, claim, undefined));
+    return declaredView(this.#partDeclared(subject.root, claim, undefined, subject.decided));
   }
 
   /**

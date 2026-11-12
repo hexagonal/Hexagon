@@ -441,6 +441,9 @@ describe("a constructor's declaration decides the parts it writes (#1518)", () =
         ["/r2.hex", "module R2\n\nexport record WC = {n: Int}\n"],
       ]).diagnostics.map(({ message }) => message);
     const run = "ignore(S({run = f}))";
+    // The same arm with a type written over the part instead of a use of it.
+    const claimed = (source: string): string =>
+      source.replaceAll("{f = f}", "{f = (f: (() -> Unit) -> Unit)}").replaceAll(run, "()");
     for (
       const [head, arm, expected] of [
         ["w: R1.WC", `WC({f = f}) => ${run}`, []],
@@ -453,18 +456,24 @@ describe("a constructor's declaration decides the parts it writes (#1518)", () =
         ["w: Vector(R1.WC)", `[WC({f = f})] => ${run}\n    _ => ()`, []],
       ] as const
     ) {
-      const source = `let g(${head}): Unit = match w\n    ${arm}\n`;
-      expect([arm, records(source)]).toEqual([arm, expected]);
+      // A claim is a use of its part, so a type written over it reads the same.
+      for (const written of [arm, claimed(arm)]) {
+        const source = `let g(${head}): Unit = match w\n    ${written}\n`;
+        expect([written, records(source)]).toEqual([written, expected]);
+      }
     }
     for (
       const source of [
         `let g(): Unit =\n    let w = R1.WC({f = (c) => ()})\n    match w\n        WC({f = f}) => ${run}\n`,
         `let g(w: R1.WC): Unit =\n    let WC({f = f}) = w\n    ${run}\n`,
-      ]
+        `let g(t: T(R1.WC)): Unit =\n    let T(WC({f = f})) = t\n    ${run}\n`,
+      ].flatMap((source) => [source, claimed(source)])
     ) {
       expect([source, records(source)]).toEqual([source, []]);
     }
-    expect(records(`let g(t) =\n    let q: T(R1.WC) = t\n    match t\n        T(WC({f = f})) => ${run}\n`)).toEqual([FIXED]);
+    const untyped = `let g(t) =\n    let q: T(R1.WC) = t\n    match t\n        T(WC({f = f})) => ${run}\n`;
+    expect(records(untyped)).toEqual([FIXED]);
+    expect(records(claimed(untyped))).toEqual([FIXED]);
   });
 
   test("a claim's rewrite copies the program's text only where that text spells the part's type", () => {
