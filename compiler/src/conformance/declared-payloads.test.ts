@@ -275,6 +275,24 @@ describe("a constructor's declaration decides the parts it writes (#1518)", () =
       const arms = `${indent}RO({o = Some(f)}) => ignore(S({run = f}))\n${indent}_ => ()\n`;
       expect([head, messages(WORLD + option + head + arms + OUT)]).toEqual([head, []]);
     }
+    // So where a record's field gives a union's parameter the type that union's slot gives a record's: the `->!` is
+    // the field's.
+    const through = "record RA(a) = {f: (a) -> Unit}\nunion U(a) =\n    | U(r: RA(a))\nrecord RO2 = {u: U(() ->! Unit)}\n" +
+      "record S = {run: (() -> Unit) -> Unit}\n";
+    for (
+      const [head, body] of [
+        ["let g(x) = match x\n", "    RO2({u = U(RA({f = f}))}) => ignore(S({run = f}))\n"],
+        ["let g(x: RO2): Unit = match x\n", "    RO2({u = U(RA({f = f}))}) => ignore(S({run = f}))\n"],
+        [
+          "let g(): Unit =\n    let x = RO2({u = U(RA({f = (c) => ()}))})\n    match x\n",
+          "        RO2({u = U(RA({f = f}))}) => ignore(S({run = f}))\n",
+        ],
+        ["let g(x: RO2): Unit = match x\n", "    RO2({u = U(RA({f = (f: (() -> Unit) -> Unit)}))}) => ()\n"],
+        ["let g(x: RO2): Unit =\n", "    let RO2({u = U(RA({f = f}))}) = x\n    ignore(S({run = f}))\n"],
+      ]
+    ) {
+      expect([head, body, messages(WORLD + through + head + body + OUT)]).toEqual([head, body, []]);
+    }
     // A part a written type reaches through a record's field, though the value is not decided wholly.
     const partial = "record R2(a) = {f: () -> Unit, x: a}\nlet g(t: (R2(_), Int)): Unit = match t\n";
     for (const arm of ["(R2({f = (f: () ->! Unit), x = _}), _) => ()", "(R2({f = f, x = _}), _) =>\n        let h: () ->! Unit = f\n        ()"]) {

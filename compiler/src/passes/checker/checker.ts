@@ -14955,9 +14955,13 @@ class Checker {
    * record's field *(#1207)*: the field's declared type, which is data, as a
    * field read of the same value gives it (`Access` above). Read through the
    * patterns around the part to the record's, a record nested in another's
-   * field included (`#patternWritten`). Elsewhere, what the declarations of
-   * the constructors around it write, as for any value (`#declaredView`,
-   * #1518).
+   * field included (`#patternWritten`). What the declarations of the
+   * constructors around it write, as for any value, is read first
+   * (`#declaredView`, #1518): it reads every slot with the type arguments
+   * the types above it give, so it decides at least as much wherever both
+   * answer, and a typed value's part is never read for less than an
+   * untyped one's. This reading stands where it says nothing, a constructor
+   * the door named included.
    */
   #partWritten(symbol: Resolved.SymbolId): WrittenView | undefined {
     const pattern = this.#partPatterns.get(symbol);
@@ -14998,7 +15002,7 @@ class Checker {
           return undefined;
       }
     };
-    return within(pattern) ?? this.#declaredView(symbol);
+    return this.#declaredView(symbol) ?? within(pattern);
   }
 
   /**
