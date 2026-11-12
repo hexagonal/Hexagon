@@ -3,10 +3,10 @@ module Vector
 // The public Vector companion over the compiler's representation core.
 
 (** Thrown when code asks for a position that has no element, as `items[4]` does
-    when the vector has three elements. Brackets on a vector or a string, `at`
-    and `set` throw it. To get `None` instead of a fault, use `Vector.get`.
-    `index` is the position that was asked for, and `size` is how many elements
-    there were. *)
+    when the vector has three elements. Brackets on a vector, an array or a
+    string throw it, and so do `at` and `set`. To get `None` instead of a fault,
+    use `Vector.get`. `index` is the position that was asked for, and `size` is
+    how many positions there were. *)
 export fault IndexFault(index: Int, size: Int)
 
 (** Thrown when a vector or a string is sliced with a range that counts down, as
@@ -35,9 +35,9 @@ extern from "hex:intrinsic"
     (** An ordered list of elements of one type, written `[10, 20, 30]`.
         Positions count from 1, so `items[1]` is the first element. A vector
         never changes: functions such as `append` and `set` return a new vector
-        and leave the original as it was. The new vector shares most of its
-        storage with the original, so this stays fast even for a large
-        vector. *)
+        and leave the original as it was. A new vector made by adding or
+        replacing one element shares most of its storage with the original, so
+        that stays fast even for a large vector. *)
     export type vector as Vector(+a)
 
     (** The number of elements. *)
@@ -54,8 +54,8 @@ extern from "hex:intrinsic"
         the end, so -1 is the last:\
         `[10, 20, 30].at(-1)` is `30`.\
         Brackets, as in `items[2]`, count from the start only. Throws
-        `IndexFault` when the vector has no element at that position, which
-        includes 0. *)
+        `IndexFault` when the vector has no element at that position. No vector
+        has an element at position 0. *)
     export fun vectorAt as at(values: Vector(a), index: Int) -> a
 
     (** A new vector with the element at the position `index` replaced by
@@ -172,8 +172,8 @@ export let filter(values: Vector(a), keep: a ->! Bool): Vector(a) =
             result := append(result, value)
     result
 
-(** Like `map`, for a function `transform` that returns a vector each time. The
-    vectors it returns are joined end to end into one new vector:\
+(** A new vector made by calling the function `transform` on each element and
+    joining the vectors it returns end to end:\
     `[1, 2].flatMap(n => [n, n * 10])` is `[1, 10, 2, 20]`. *)
 export let flatMap(values: Vector(a), transform: a ->! Vector(b)): Vector(b) =
     var result: Vector(b) = []
@@ -252,7 +252,7 @@ export let sort<a: Ord>(values: Vector(a)): Vector(a) = sortUsing(values, Ord.co
 (** A new vector with the elements ordered by what the function `key` returns
     for each one, smallest first:\
     `people.sortBy(person => person.age)` puts the youngest person first.\
-    Elements whose keys are equal keep their original order. *)
+    Elements for which `key` returns equal values keep their original order. *)
 export let sortBy<b: Ord>(values: Vector(a), key: a ->! b): Vector(a) =
     var keyed: Vector((b, a)) = []
     for value in values
@@ -326,20 +326,20 @@ export let min<a: Ord>(values: Vector(a)): Option(a) = minUsing(values, Ord.comp
 (** The element for which the function `key` returns the largest value, or
     `None` when the vector is empty:\
     `people.maxBy(person => person.age)` finds the oldest person.\
-    If several elements share the largest key, the result is the last of
-    them. *)
+    If `key` returns the largest value for several elements, the result is the
+    last of them. *)
 export let maxBy<b: Ord>(values: Vector(a), key: a ->! b): Option(a) =
     unranked(fold!(values, None, (best, value) => laterBy(best, (key!(value), value))))
 
 (** The element for which the function `key` returns the smallest value, or
     `None` when the vector is empty:\
     `people.minBy(person => person.age)` finds the youngest person.\
-    If several elements share the smallest key, the result is the first of
-    them. *)
+    If `key` returns the smallest value for several elements, the result is the
+    first of them. *)
 export let minBy<b: Ord>(values: Vector(a), key: a ->! b): Option(a) =
     unranked(fold!(values, None, (best, value) => earlierBy(best, (key!(value), value))))
 
-(** The elements added together. An empty vector gives 0. *)
+(** The elements added together. *)
 export let sum<a: Num>(values: Vector(a)): a = fold(values, 0, Num.add)
 
 (** The elements multiplied together. An empty vector gives 1. *)

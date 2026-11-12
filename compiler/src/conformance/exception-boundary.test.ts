@@ -703,7 +703,7 @@ describe("the throws manifest (#479, Doc Comments §6.1/§7.4)", () => {
     const vector = project.modules.find(({ source }) => source.path === "/Hex/Vector.hex")!;
 
     expect(vector.declarations.text).toContain(
-      "@throws {IndexFault} when the vector has no element at that position, which includes 0",
+      "@throws {IndexFault} when the vector has no element at that position",
     );
     expect(vector.declarations.text).toContain(
       "@throws {IndexFault} when `index` is not between 1 and the length of the vector",
