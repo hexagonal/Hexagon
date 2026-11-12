@@ -109,10 +109,10 @@ describe("hoverMarkdown", () => {
       hoverMarkdown({
         span,
         displayedType: "() >-> Unit",
-        colourOwners: ["impure only if `cb` is"],
+        colourOwners: ["impure only if `cb` is impure"],
         convertedTo: "Seq(Int)",
         documentation: "Docs.",
       }),
-    ).toBe("`() >-> Unit`\n\nimpure only if `cb` is\n\nconverted to `Seq(Int)` here\n\nDocs.");
+    ).toBe("`() >-> Unit`\n\nimpure only if `cb` is impure\n\nconverted to `Seq(Int)` here\n\nDocs.");
   });
 });

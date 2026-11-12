@@ -46267,8 +46267,8 @@ class Checker {
    * Effects §10 in a report, once every colour has settled: a callback's colour
    * a report showed where the displayed type does not own it — a captured one —
    * names its owner in a note, in the gloss's words: "impure only if `outer`'s
-   * `action` is", or "may fail only if … may". Every mark is then removed, so a
-   * report no captured colour reaches reads as rendered.
+   * `action` is impure", or "may fail only if … may fail". Every mark is then
+   * removed, so a report no captured colour reaches reads as rendered.
    */
   #settleColourNotes(): void {
     this.#diagnostics.rewrite((diagnostic) => {
@@ -46292,7 +46292,7 @@ class Checker {
           const words = scope.owner === undefined
             ? scope.parameter === undefined ? "an enclosing lambda's callback" : `an enclosing lambda's \`${scope.parameter}\``
             : scope.parameter === undefined ? `\`${scope.owner}\`'s callback` : `\`${scope.owner}\`'s \`${scope.parameter}\``;
-          const note = followed === "f" ? `may fail only if ${words} may` : `impure only if ${words} is`;
+          const note = followed === "f" ? `may fail only if ${words} may fail` : `impure only if ${words} is impure`;
           if (!owners.includes(note)) owners.push(note);
           return "";
         });

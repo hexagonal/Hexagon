@@ -173,8 +173,8 @@ describe("Effects §10: an arrow shows from its two colours, each in its own sta
       "export let pick(f: () ->! Unit, g: () ->! Unit): Unit = f!()\n";
     expect(gloss(source, "quiet")).toEqual(["impure; cannot fail"]);
     expect(gloss(source, "calm")).toBeUndefined();
-    expect(gloss(source, "timed")).toEqual(["impure; may fail only if `f` may"]);
-    expect(gloss(source, "pick")).toEqual(["impure only if `f` or `g` is; may fail only if `f` or `g` may"]);
+    expect(gloss(source, "timed")).toEqual(["impure; may fail only if `f` may fail"]);
+    expect(gloss(source, "pick")).toEqual(["impure only if `f` or `g` is impure; may fail only if `f` or `g` may fail"]);
   });
 });
 
@@ -321,7 +321,7 @@ describe("Effects §10: a captured colour passes through in the display, and its
       "    let local() =\n        log~(\"x\")\n        action^()\n" +
       "    let n: Int = local\n    ()\n";
     expect(reports(source)).toEqual([["Int", "type mismatch: expected Int, found () >^>~ Unit"]]);
-    expect(notes(source)).toEqual(["may fail only if `outer`'s `action` may"]);
+    expect(notes(source)).toEqual(["may fail only if `outer`'s `action` may fail"]);
   });
 });
 
@@ -1277,15 +1277,15 @@ describe("Effects §10: the gloss names every callback it can", () => {
     const source = "let runU(f) = f!()\n" +
       "let mixed(g: () ->! Unit, f) =\n    g!()\n    f!()\n" +
       "let hA: (() ->^ Unit) >^> Unit = (f) => f^()\n";
-    expect(gloss(source, "runU")).toEqual(["impure only if `f` is; may fail only if `f` may"]);
-    expect(gloss(source, "mixed")).toEqual(["impure only if `g` or `f` is; may fail only if `g` or `f` may"]);
-    expect(gloss(source, "hA")).toEqual(["pure; may fail only if `f` may"]);
+    expect(gloss(source, "runU")).toEqual(["impure only if `f` is impure; may fail only if `f` may fail"]);
+    expect(gloss(source, "mixed")).toEqual(["impure only if `g` or `f` is impure; may fail only if `g` or `f` may fail"]);
+    expect(gloss(source, "hA")).toEqual(["pure; may fail only if `f` may fail"]);
     // A named callback beside an unnamed one: the gloss names what it can.
     expect(gloss("let hB: (() ->! Unit, () ->! Unit) >-> Unit = (f, _) => f!()\n", "hB"))
-      .toEqual(["impure only if `f` or what it is handed is; may fail only if `f` or what it is handed may"]);
+      .toEqual(["impure only if `f` or another callback is impure; may fail only if `f` or another callback may fail"]);
     // A copy is instantiated, and its callbacks' names stay with the original.
     expect(gloss("let both(f: () ->! Unit) = f!()\nlet copy = both\n", "copy"))
-      .toEqual(["impure only if what it is handed is; may fail only if what it is handed may"]);
+      .toEqual(["impure only if a callback is impure; may fail only if a callback may fail"]);
   });
 
   test("completion detail glosses a face in a module with no callback colour", () => {

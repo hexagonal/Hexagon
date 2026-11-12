@@ -255,7 +255,7 @@ describe("the type of a selection", () => {
   test("a captured colour is glossed as hover glosses it (Effects §10)", () => {
     const source = `${HEAD}export let outer(action: () ->! Unit): Unit =\n    let g = «action»\n    g!()\n`;
     expect(shown(source)).toBe(
-      "`() >-> Unit`\n\nimpure only if `outer`'s `action` is; may fail only if `outer`'s `action` may @ action",
+      "`() >-> Unit`\n\nimpure only if `outer`'s `action` is impure; may fail only if `outer`'s `action` may fail @ action",
     );
   });
 
