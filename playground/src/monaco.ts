@@ -652,16 +652,12 @@ type _CompletionItemFields = Assert<
 >;
 
 /**
- * That signature help's optional fields are Monaco's names and shapes:
- * `documentation` is optional on a signature and on a parameter alike.
+ * That signature help's optional field is Monaco's name and shape:
+ * `documentation` is optional on a signature.
  */
 type _SignatureFields = Assert<
   Required<Pick<MappedSignatureHelp["signatures"][number], "documentation">> extends
     Required<Pick<monaco.languages.SignatureInformation, "documentation">> ? true : false
->;
-type _ParameterFields = Assert<
-  Required<Pick<MappedSignatureHelp["signatures"][number]["parameters"][number], "documentation">> extends
-    Required<Pick<monaco.languages.ParameterInformation, "documentation">> ? true : false
 >;
 
 /** That inlay hints' optional fields are Monaco's names and shapes. */

@@ -57,11 +57,21 @@ export function displayFace(
  * With `letters`, the face is lettered as one display among several of one
  * declaration (`Letters`), which is how inlay hints show a declaration piece by
  * piece without letting two of its pieces disagree.
+ *
+ * With `names`, the outer arrow's parameters are shown under the names their
+ * declaration gives them, one entry per parameter, `undefined` for one it does
+ * not name: `map: (values: Vector(a), transform: a ->! b) >-> Vector(b)`. That
+ * is hover's line and signature help's (Functions §5.1), a signature for the
+ * reader rather than a type the grammar writes, so nothing that writes a type
+ * back into source asks for it. A named parameter list is always
+ * parenthesized, a sole parameter included, and each parameter's position
+ * covers its name.
  */
 export function displayCallFace(
   scheme: Typed.Scheme,
   context?: ColourContext,
   letters?: Letters,
+  names?: readonly (string | undefined)[],
 ): {
   readonly type: string;
   readonly owners: readonly string[];
@@ -88,7 +98,7 @@ export function displayCallFace(
       parameters: [],
     };
   }
-  const shown = displayFunction(scheme.type, variables, "spine", chosen);
+  const shown = displayFunction(scheme.type, variables, "spine", chosen, names);
   return {
     type: `${constraints}${shown.text}`,
     owners,
@@ -422,23 +432,36 @@ function displayFunction(
   variables: ReadonlyMap<Typed.TypeVariableId, string>,
   place: ArrowPlace,
   chosen: ReadonlySet<Typed.TypeVariableId>,
+  names?: readonly (string | undefined)[],
 ): {
   readonly text: string;
   readonly parameters: readonly (readonly [number, number])[];
   /** Where the result starts in `text`; it runs to the end. */
   readonly result: number;
 } {
+  // Names are the declaration's, one per parameter; a list of another length
+  // is not this face's, and names nothing.
+  const named = names !== undefined && names.length === type.parameters.length &&
+    names.some((name) => name !== undefined);
   // A spine arrow's function-typed parameters are callbacks, whose own
   // arrows — and those of the functions they return — carry their colours;
   // everything else in a parameter means what it says (Effects §2.4).
-  const parameters = type.parameters.map((parameter) =>
-    displayType(parameter, variables, place === "spine" && parameter.kind === "Function" ? "callback" : "inside", chosen),
-  );
+  const parameters = type.parameters.map((parameter, index) => {
+    const shown = displayType(
+      parameter,
+      variables,
+      place === "spine" && parameter.kind === "Function" ? "callback" : "inside",
+      chosen,
+    );
+    const name = named ? names?.[index] : undefined;
+    return name === undefined ? shown : `${name}: ${shown}`;
+  });
   const soleParameter = type.parameters[0];
   // A sole `Unit` parameter displays bare — it renders as a name, so the
   // parens that keep `((a, b)) -> c` from reading as two parameters have
-  // nothing to disambiguate.
-  const bare = parameters.length === 1 &&
+  // nothing to disambiguate. A named one never does: `values: Vector(a) ->
+  // Bool` would read as a name for the whole arrow.
+  const bare = !named && parameters.length === 1 &&
     !(soleParameter?.kind === "Function" ||
       (soleParameter?.kind === "Tuple" && soleParameter.elements.length > 0));
   const domain = parameters.length === 0

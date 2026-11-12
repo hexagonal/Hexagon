@@ -16,7 +16,8 @@ import type { Hover } from "./session.js";
 
 /**
  * One shape for every hover: what the name is, then its type when it has one,
- * then its documentation. A value and a union reading differently would make
+ * its parameters under their declared names where it has those (Functions
+ * §5.1), then its documentation. A value and a union reading differently would make
  * the hover's own layout something the user has to parse before the content.
  * An expression's type has no name, so it is the type alone, and then, where
  * the checker converted the expression in place, the type it became.
@@ -28,11 +29,12 @@ import type { Hover } from "./session.js";
  * restyle the signature above it.
  */
 export function hoverMarkdown(hover: Hover): string {
+  const type = hover.signature ?? hover.displayedType;
   const signature = hover.name === undefined
-    ? `\`${hover.displayedType}\``
-    : hover.displayedType === undefined
+    ? `\`${type}\``
+    : type === undefined
     ? `\`${hover.name}\``
-    : `\`${hover.name}: ${hover.displayedType}\``;
+    : `\`${hover.name}: ${type}\``;
   // A name the session found no identity for — an `honor` member, a record
   // field — is answered by its documentation alone, so there is no word to put
   // in front of it.

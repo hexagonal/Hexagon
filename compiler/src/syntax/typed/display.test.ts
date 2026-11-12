@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import * as Source from "../../support/source.js";
-import { displayFace, displayScheme } from "./display.js";
+import { displayCallFace, displayFace, displayScheme } from "./display.js";
 import { type Effect, typeVariableId, type Scheme, type Type } from "./tree.js";
 import { unionId } from "../resolved/tree.js";
 
@@ -205,6 +205,73 @@ describe("displayScheme", () => {
  * entry order, conjunct order — and inference reaches only the combinations it
  * happens to build.
  */
+/**
+ * Hover's and signature help's line (Functions §5.1): the face with its
+ * parameters under the names their declaration gives them.
+ */
+describe("displayCallFace: parameters under their declared names", () => {
+  const int: Type = { kind: "Primitive", name: "Int" };
+  const string: Type = { kind: "Primitive", name: "String" };
+  const bool: Type = { kind: "Union", union: unionId(0), name: "Bool", arguments: [] };
+  const face = (parameters: readonly Type[], result: Type = bool): Scheme => ({
+    variables: [],
+    constraints: [],
+    type: { kind: "Function", parameters, result },
+  });
+  const named = (scheme: Scheme, names: readonly (string | undefined)[]) => {
+    const shown = displayCallFace(scheme, undefined, undefined, names);
+    return { type: shown.type, parameters: shown.parameters.map(([start, end]) => shown.type.slice(start, end)) };
+  };
+
+  test("each named parameter reads `name: Type`, and its place covers the name", () => {
+    expect(named(face([string, int]), ["text", "count"])).toEqual({
+      type: "(text: String, count: Int) -> Bool",
+      parameters: ["text: String", "count: Int"],
+    });
+  });
+
+  test("a sole named parameter keeps its parentheses, whatever its type", () => {
+    expect(named(face([int]), ["n"]).type).toBe("(n: Int) -> Bool");
+    expect(named(face([{ kind: "Tuple", elements: [int, int] }]), ["pair"]).type).toBe("(pair: (Int, Int)) -> Bool");
+    expect(named(face([{ kind: "Function", parameters: [int], result: int }]), ["step"]).type)
+      .toBe("(step: Int -> Int) -> Bool");
+    expect(named(face([{ kind: "Tuple", elements: [] }]), ["unit"]).type).toBe("(unit: Unit) -> Bool");
+  });
+
+  test("an unnamed parameter shows its type alone beside named ones", () => {
+    expect(named(face([{ kind: "Tuple", elements: [int, int] }, int]), [undefined, "c"])).toEqual({
+      type: "((Int, Int), c: Int) -> Bool",
+      parameters: ["(Int, Int)", "c: Int"],
+    });
+  });
+
+  test("no name at all, or names that are not this face's, leave the face as it is", () => {
+    const sole = face([int]);
+    expect(named(sole, [undefined]).type).toBe(displayScheme(sole));
+    expect(named(sole, []).type).toBe(displayScheme(sole));
+    expect(named(sole, ["a", "b"]).type).toBe(displayScheme(sole));
+    expect(named(face([]), []).type).toBe("() -> Bool");
+  });
+
+  test("the constraint bracket stays in front, and the names follow it", () => {
+    const variable = typeVariableId(3);
+    const scheme: Scheme = {
+      variables: [variable],
+      constraints: [{ name: "Show", identity: "hex:Show", type: { kind: "Variable", id: variable }, span: source.span(0, 0) }],
+      type: { kind: "Function", parameters: [{ kind: "Variable", id: variable }], result: string },
+    };
+    expect(named(scheme, ["value"])).toEqual({
+      type: "<a: Show> (value: a) -> String",
+      parameters: ["value: a"],
+    });
+  });
+
+  test("a callback's own parameters stay unnamed: names are the outer arrow's", () => {
+    const callback: Type = { kind: "Function", parameters: [int, int], result: int };
+    expect(named(face([callback], int), ["combine"]).type).toBe("(combine: (Int, Int) -> Int) -> Int");
+  });
+});
+
 describe("displayScheme: the constraint bracket", () => {
   const constraint = (name: string, id: number) => ({
     name,

@@ -4,7 +4,7 @@
  * is (`hover-text.ts`), so the two cannot drift.
  */
 
-import type { SignatureHelp, SignatureParameter } from "../queries/signature-help.js";
+import type { SignatureHelp } from "../queries/signature-help.js";
 
 /**
  * The text under the signature: the gloss, one line each (Effects §10), then
@@ -14,9 +14,4 @@ import type { SignatureHelp, SignatureParameter } from "../queries/signature-hel
 export function signatureMarkdown(help: SignatureHelp): string | undefined {
   const parts = [...help.colourOwners ?? [], ...help.documentation === undefined ? [] : [help.documentation]];
   return parts.length === 0 ? undefined : parts.join("\n\n");
-}
-
-/** The text under the highlighted parameter: its declared name, or nothing. */
-export function parameterMarkdown(parameter: SignatureParameter): string | undefined {
-  return parameter.name === undefined ? undefined : `\`${parameter.name}\``;
 }

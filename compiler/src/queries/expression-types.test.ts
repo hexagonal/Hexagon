@@ -323,7 +323,7 @@ describe("the type at an operator, a bracket, a literal or a keyword", () => {
   });
 
   test("a `(` just after a callee is the callee's, as a caret just after a name is on it", () => {
-    expect(shown(`${HEAD}let twice(n: Int): Int = n * 2\nlet t = twice‸(1)\n`)).toBe("value `twice: Int -> Int` @ twice");
+    expect(shown(`${HEAD}let twice(n: Int): Int = n * 2\nlet t = twice‸(1)\n`)).toBe("value `twice: (n: Int) -> Int` @ twice");
     expect(shown(`${HEAD}let twice(n: Int): Int = n * 2\nlet t = twice(1‸)\n`)).toBe("`Int` @ )");
   });
 

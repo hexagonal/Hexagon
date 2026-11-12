@@ -814,6 +814,102 @@ describe("AnalysisSession", () => {
  * documentable position — including the ones that reach neither emitted
  * artifact, which is the whole reason the attachment exists for them.
  */
+/**
+ * Hover's first line names a function's parameters as its declaration does
+ * (Functions §5.1, Effects §10). Names belong to a declaration that writes a
+ * parameter list; anything else is the type alone, since a function type
+ * carries no names and its text writes none. The face itself stays the face.
+ */
+describe("AnalysisSession.hover: parameters under their declared names", () => {
+  /** The line hover shows: the signature where there is one, the face otherwise. */
+  const hovered = (text: string, needle: string, nth = 1): string | undefined => {
+    const { session } = sessionOf({ "/main.hex": text });
+    const hover = session.hover("/main.hex", at(text, needle, nth));
+    return hover?.signature ?? hover?.displayedType;
+  };
+
+  test("a function from another module, called qualified or by the dot", () => {
+    const text = [
+      "module Main",
+      "",
+      "let a = Vector.map([1], n => n + 1)",
+      "let b = [1].map(n => n + 1)",
+      "let c = IndexFault(1, 2)",
+      "",
+    ].join("\n");
+    expect(hovered(text, "map", 1)).toBe("(values: Vector(a), transform: a ->! b) >-> Vector(b)");
+    expect(hovered(text, "map", 2)).toBe("(values: Vector(a), transform: a ->! b) >-> Vector(b)");
+    expect(hovered(text, "IndexFault")).toBe("(index: Int, size: Int) -> Exn");
+  });
+
+  test("at its declaration and at a use, a sole parameter in parentheses; the face stays the face", () => {
+    const text = "module Main\n\nlet twice(n: Int): Int = n * 2\nlet four = twice(2)\n";
+    expect(hovered(text, "twice", 1)).toBe("(n: Int) -> Int");
+    expect(hovered(text, "twice", 2)).toBe("(n: Int) -> Int");
+    const { session } = sessionOf({ "/main.hex": text });
+    expect(session.hover("/main.hex", at(text, "twice", 2))).toMatchObject({
+      displayedType: "Int -> Int",
+      signature: "(n: Int) -> Int",
+    });
+  });
+
+  test("a `let` bound to a lambda writes its names where it is written", () => {
+    const text = "module Main\n\nlet double = n => n * 2\nlet add = (left: Int, right: Int) => left + right\n";
+    expect(hovered(text, "double")).toBe("<a: Num> (n: a) -> a");
+    expect(hovered(text, "add")).toBe("(left: Int, right: Int) -> Int");
+  });
+
+  test("constructors and exceptions with named slots; an unnamed slot is its type alone", () => {
+    const text = [
+      "module Main",
+      "",
+      "union Shape =",
+      "    | Rect(w: Int, h: Int)",
+      "    | Dot(Int, Int)",
+      "exception Oops(code: Int)",
+      "let r = Rect(1, 2)",
+      "let d = Dot(1, 2)",
+      "let o = Oops(1)",
+      "",
+    ].join("\n");
+    expect(hovered(text, "Rect", 2)).toBe("(w: Int, h: Int) -> Shape");
+    expect(hovered(text, "Oops", 2)).toBe("(code: Int) -> Exn");
+    // Nothing named, so no signature beside the face.
+    const { session } = sessionOf({ "/main.hex": text });
+    const dot = session.hover("/main.hex", at(text, "Dot", 2));
+    expect([dot?.displayedType, dot?.signature]).toEqual(["(Int, Int) -> Shape", undefined]);
+  });
+
+  test("a pattern parameter has no name, and its named siblings keep theirs", () => {
+    const text = "module Main\n\nlet pair((x, y): (Int, Int), c: Int): Int = x + y + c\n";
+    expect(hovered(text, "pair")).toBe("((Int, Int), c: Int) -> Int");
+    // A sole pattern parameter leaves nothing named.
+    const sole = "module Main\n\nlet sum((x, y): (Int, Int)): Int = x + y\n";
+    const { session } = sessionOf({ "/main.hex": sole });
+    const hover = session.hover("/main.hex", at(sole, "sum"));
+    expect([hover?.displayedType, hover?.signature]).toEqual(["((Int, Int)) -> Int", undefined]);
+  });
+
+  test("no declared names, no names: another name, a parameter, a call's result", () => {
+    const text = [
+      "module Main",
+      "",
+      "let twice(n: Int): Int = n * 2",
+      "let again = twice",
+      "let apply(f: (Int) -> Int): Int = f(1)",
+      "let pick(k: Int): (Int) -> Int = twice",
+      "let picked = pick(1)",
+      "",
+    ].join("\n");
+    expect(hovered(text, "twice", 2)).toBe("(n: Int) -> Int");
+    for (const [needle, nth] of [["again", 1], ["f(1)", 1], ["picked", 1]] as const) {
+      const { session } = sessionOf({ "/main.hex": text });
+      const hover = session.hover("/main.hex", at(text, needle, nth));
+      expect([needle, hover?.displayedType, hover?.signature]).toEqual([needle, "Int -> Int", undefined]);
+    }
+  });
+});
+
 describe("AnalysisSession.hover documentation", () => {
   const DOCUMENTED = "module Helper\n\n" + [
     "(** A colour, as the light leaves it. *)",
