@@ -162,6 +162,14 @@ function ownerLines(scheme: Typed.Scheme, context: ColourContext | undefined): r
   if (arrow.effect === undefined && arrow.fail === undefined) return [];
   const parts = (effect: Typed.Effect): readonly Typed.TypeVariableId[] =>
     typeof effect !== "object" ? [] : "join" in effect ? effect.join : [effect.variable];
+  // A face's own callback is named by the scheme where it carries its names,
+  // as a module's symbols do (#1523), and by nothing else there: those are
+  // this scheme's variables, which the context's are only where the scheme is
+  // displayed in the module that made it.
+  const own = (part: Typed.TypeVariableId): string | undefined =>
+    scheme.colourNames === undefined
+      ? context?.names?.get(part)
+      : scheme.colourNames.find(([variable]) => variable === part)?.[1];
   // The callbacks a colour passes through: the face's own by name, a captured
   // one by its owner, and "a callback" for those with no name to quote —
   // "another callback" beside one that is named.
@@ -170,7 +178,7 @@ function ownerLines(scheme: Typed.Scheme, context: ColourContext | undefined): r
     let unnamed = false;
     for (const part of parts(effect)) {
       const name = scheme.variables.includes(part)
-        ? context?.names?.get(part)
+        ? own(part)
         : context?.owners.get(part);
       if (name === undefined) {
         unnamed = true;

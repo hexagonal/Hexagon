@@ -1298,6 +1298,137 @@ describe("Effects §10: the gloss names every callback it can", () => {
   });
 });
 
+describe("Effects §10: an imported face names its callbacks as its home does (#1523)", () => {
+  const LIB = "module Lib\n\n" +
+    "export let run(f: () ->! Unit): Unit = f!()\n" +
+    "export let both(f: () ->! Unit, g: () ->! Unit): Unit =\n    f!()\n    g!()\n" +
+    "export let untyped(action) = action!()\n" +
+    "export let copy = both\n" +
+    "export record Box = { n: Int }\n" +
+    "export let each(box: Box, visit: Int ->! Unit): Unit = visit!(box.n)\n";
+  const MID = "module Mid\n\nimport Lib\n\nexport let make(): Lib.Box = Lib.Box({ n = 1 })\n";
+  /** A session over `Lib`, `Mid` and a `Main` that imports `imports` and holds `body`. */
+  const across = (imports: string, body: string): { readonly session: AnalysisSession; readonly main: string } => {
+    const main = `module Main\n\n${imports}\n\n` +
+      // Callbacks of its own, whose names are no other face's.
+      "let mine(first: () ->! Unit, second: () ->! Unit): Unit =\n    first!()\n    second!()\n" +
+      body;
+    const session = new AnalysisSession();
+    session.setFile("/lib.hex", LIB);
+    session.setFile("/mid.hex", MID);
+    session.setFile("/main.hex", main);
+    return { session, main };
+  };
+  /** The gloss a hover shows on the last `name` in `Main`. */
+  const hovered = (imports: string, body: string, name: string): readonly string[] | undefined => {
+    const { session, main } = across(imports, body);
+    return session.hover("/main.hex", main.lastIndexOf(name) + 1)?.colourOwners;
+  };
+
+  test("hover names the callbacks of a function another module declares", () => {
+    expect(hovered("import Lib", "let a(): Unit = Lib.run(() => ())\n", "run"))
+      .toEqual(["impure only if `f` is impure; may fail only if `f` may fail"]);
+    expect(hovered("import Lib", "let a(): Unit = Lib.both(() => (), () => ())\n", "both"))
+      .toEqual(["impure only if `f` or `g` is impure; may fail only if `f` or `g` may fail"]);
+    // A callback its home wrote no type for is named there, and so here.
+    expect(hovered("import Lib", "let a(): Unit = Lib.untyped(() => ())\n", "untyped"))
+      .toEqual(["impure only if `action` is impure; may fail only if `action` may fail"]);
+    // A copy keeps no names at home, and gains none by being imported.
+    expect(hovered("import Lib", "let a(): Unit = Lib.copy(() => (), () => ())\n", "copy"))
+      .toEqual(["impure only if a callback is impure; may fail only if a callback may fail"]);
+  });
+
+  test("a dot call's operation is named too", () => {
+    expect(hovered("import Lib", "let a(box: Lib.Box): Unit = box.each(n => ())\n", "each"))
+      .toEqual(["impure only if `visit` is impure; may fail only if `visit` may fail"]);
+  });
+
+  test("the library's own combinators read by their parameters' names", () => {
+    expect(hovered("import Lib", "let a(xs: Vector(Int)): Vector(Int) = Vector.map(xs, n => n + 1)\n", "map"))
+      .toEqual(["impure only if `transform` is impure; may fail only if `transform` may fail"]);
+    expect(hovered("import Lib", "let a(xs: Vector(Int)): Vector(Int) = xs.filter(n => n > 1)\n", "filter"))
+      .toEqual(["impure only if `keep` is impure; may fail only if `keep` may fail"]);
+  });
+
+  test("signature help names them", () => {
+    const { session, main } = across("import Lib", "let a(): Unit = Lib.both(\n");
+    expect(session.signatureHelp("/main.hex", main.length - 1)?.colourOwners)
+      .toEqual(["impure only if `f` or `g` is impure; may fail only if `f` or `g` may fail"]);
+  });
+
+  test("completion detail names them, after a qualifier and after a value's dot", () => {
+    const qualified = across("import Lib", "let a(): Unit = Lib.\n");
+    const details = new Map(
+      qualified.session.completions("/main.hex", qualified.main.length - 1).map(({ name, detail }) => [name, detail]),
+    );
+    expect(details.get("run")).toBe("(() ->! Unit) >-> Unit — impure only if f is impure; may fail only if f may fail");
+    expect(details.get("both")).toBe(
+      "(() ->! Unit, () ->! Unit) >-> Unit — impure only if f or g is impure; may fail only if f or g may fail",
+    );
+    // Never by a name of the module the cursor is in: `copy` has none to give.
+    expect(details.get("copy")).toBe(
+      "(() ->! Unit, () ->! Unit) >-> Unit — impure only if a callback is impure; may fail only if a callback may fail",
+    );
+    // `Main` never imports `Lib` here: the operation arrives with the type.
+    const dotted = across("import Mid", "let a(): Unit = Mid.make().\n");
+    expect(
+      dotted.session.completions("/main.hex", dotted.main.length - 1).find(({ name }) => name === "each")?.detail,
+    ).toBe("(Box, Int ->! Unit) >-> Unit — impure only if visit is impure; may fail only if visit may fail");
+  });
+
+  test("the names travel on the symbol's scheme, a list even where it is empty", () => {
+    const main = "module Main\n\nimport Lib\n\n" +
+      "let a(): Unit =\n    Lib.run(() => ())\n    Lib.both(() => (), () => ())\n    Lib.copy(() => (), () => ())\n" +
+      "let plain(n: Int): Int = n\n";
+    const project = compileFiles([["/lib.hex", LIB], ["/main.hex", main]]);
+    // `untyped` and `copy` are written as an editor meets them, unannotated;
+    // the build refuses that much and still types both modules.
+    expect(project.diagnostics.map(({ message }) => message)).toEqual([
+      "exported function `untyped` requires a complete signature; add type for parameter `action` and a return type",
+      "exported value `copy` requires a type annotation",
+    ]);
+    // By the module's name: `typed.modulePath` is where it is emitted.
+    const modules = project.modules.filter(({ name }) => name === "Lib" || name === "Main");
+    expect(modules.map(({ name }) => name)).toEqual(["Lib", "Main"]);
+    const listed = new Map<string, readonly number[]>();
+    for (const { name: home, typed } of modules) {
+      const scheme = (name: string) => typed.symbols.find((symbol) => symbol.name === name)?.scheme;
+      // A callback passes two colours through, its effect and its failure, and
+      // each is named for it.
+      const names = (name: string) => scheme(name)?.colourNames?.map(([, callback]) => callback);
+      expect(names("run")).toEqual(["f", "f"]);
+      expect(names("both")).toEqual(["f", "f", "g", "g"]);
+      expect(names("untyped")).toEqual(["action", "action"]);
+      // A list with nothing in it: no name is this face's, here or anywhere.
+      expect(names("copy")).toEqual([]);
+      // Every name is for one of the face's own variables, as the importer
+      // numbers them.
+      for (const name of ["run", "both", "untyped"]) {
+        const own = scheme(name)!;
+        for (const [variable] of own.colourNames ?? []) expect(own.variables).toContain(variable);
+      }
+      listed.set(home, (scheme("both")?.colourNames ?? []).map(([variable]) => variable));
+    }
+    // Re-attached to `Main`'s own copy, not carried over by `Lib`'s numbers.
+    expect(listed.get("Main")).not.toEqual(listed.get("Lib"));
+    const mainTyped = modules.find(({ name }) => name === "Main")?.typed;
+    const plain = mainTyped?.symbols.find((symbol) => symbol.name === "plain");
+    expect(plain).toBeDefined();
+    // And none where no colour passes through: there is no gloss to name in.
+    expect(plain?.scheme.colourNames).toBeUndefined();
+  });
+
+  test("a face is named the same in its own module as before", () => {
+    const { session, main } = across("import Lib", "let probe: Int = 1\n");
+    expect(session.hover("/main.hex", main.indexOf("let mine") + 4)?.colourOwners)
+      .toEqual(["impure only if `first` or `second` is impure; may fail only if `first` or `second` may fail"]);
+    expect(session.completions("/main.hex", main.length - 2).find(({ name }) => name === "mine")?.detail).toBe(
+      "(() ->! Unit, () ->! Unit) >-> Unit — " +
+        "impure only if first or second is impure; may fail only if first or second may fail",
+    );
+  });
+});
+
 describe("Effects §13.3: a `widens` door under a following member wears what it passes through", () => {
   const lib = (arrow: string) => "module Lib\n\n" +
     `export constraint R<a> =\n    run(s: a, n: Int, action: () ->! Unit) ${arrow} Unit\n`;

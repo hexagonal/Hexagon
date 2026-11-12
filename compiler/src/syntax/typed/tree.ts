@@ -313,6 +313,15 @@ export interface Scheme {
    * are none.
    */
   readonly callersChoice?: readonly TypeVariableId[];
+  /**
+   * The quantified callback colours that have a parameter's name, each with
+   * that name (`spec/effects.md` §10, #1523): what the gloss names this face's
+   * own callbacks by. A module's `colourNames` is keyed by its own variables,
+   * which an importer renumbers, so the names travel on the scheme, and where
+   * a scheme carries the list it is the whole answer, empty or not. Present on
+   * a module's `symbols`, where the outer arrow passes a colour through.
+   */
+  readonly colourNames?: readonly (readonly [TypeVariableId, string])[];
 }
 
 /** The constraint a constraint member's scheme belongs to; see `Scheme`. */

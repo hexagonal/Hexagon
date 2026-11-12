@@ -5332,6 +5332,13 @@ class Checker {
    * names the colour.
    */
   readonly #namedColours: { readonly colour: Variable; readonly name: string; readonly owner: string | undefined }[] = [];
+  /**
+   * The callbacks of the faces this module imports, by the names their home
+   * gave them (Effects §10, #1523): each is a quantified colour of an imported
+   * scheme's copy, so it is a name for that face's own gloss and nobody's
+   * captured colour.
+   */
+  readonly #importedColourNames: (readonly [Variable, string])[] = [];
   /** `#colourScopes` by the colour's representative, for the tie test's lookups. */
   readonly #scopesByColour = new ByRepresentative<ColourScope>((colour) => this.#prune(colour));
   /**
@@ -8285,12 +8292,15 @@ class Checker {
     this.#settleColourNotes();
 
     const listed = new Set(module.symbols.map(({ id }) => id));
+    // Settled before the symbols are published, which carry the names of
+    // their own callbacks out to an importer (#1523).
+    const colours = this.#materializeColourScopes();
     const symbols = [
       ...module.symbols,
       ...[...this.#reachedReceiverMembers.values()].filter(({ id }) => !listed.has(id)),
     ].map((symbol) => ({
       ...symbol,
-      scheme: this.#publicScheme(this.#scheme(symbol.id)),
+      scheme: this.#namedScheme(this.#publicScheme(this.#scheme(symbol.id)), colours.colourNames),
     }));
 
     const typed: Typed.Module = {
@@ -8339,7 +8349,7 @@ class Checker {
       typeHoles: this.#materializeTypeHoles(),
       dotSites: this.#materializeDotSites(),
       destructs: [...this.#destructs],
-      ...this.#materializeColourScopes(),
+      ...colours,
       instanceColours: this.#publishedInstanceColours(),
       companionImports: [...this.#companionImports.values()],
       ...(this.#modulePath === undefined ? {} : { modulePath: this.#modulePath }),
@@ -41539,6 +41549,12 @@ class Checker {
         case "Error": return ERROR;
       }
     };
+    // Its callbacks keep their names for the gloss (Effects §10, #1523). A
+    // quantified variable is never bound, so the copy is the colour as shown.
+    for (const [id, name] of scheme.colourNames ?? []) {
+      const variable = minted.get(id);
+      if (variable !== undefined) this.#importedColourNames.push([variable, name]);
+    }
     for (const constraint of scheme.constraints) {
       // The identity travels with the imported constraint: this module may not
       // be able to spell the name at all, and if it can, the spelling may be
@@ -44889,12 +44905,38 @@ class Checker {
       if (known === undefined) owners.set(variable, { owner: words, name, level: Number.POSITIVE_INFINITY });
       else if (known.name === undefined) owners.set(variable, { ...known, name });
     }
+    const colourNames = new Map(
+      [...owners].flatMap(([variable, { name }]) => name === undefined ? [] : [[variable, name] as const]),
+    );
+    // An imported face's own callbacks keep the names their home gave them
+    // (#1523). They own nothing here: no face of this module captures one.
+    for (const [colour, name] of this.#importedColourNames) {
+      const variable = Typed.typeVariableId(colour.id);
+      if (!colourNames.has(variable)) colourNames.set(variable, name);
+    }
     return {
       colourOwners: new Map([...owners].map(([variable, { owner }]) => [variable, owner])),
-      colourNames: new Map(
-        [...owners].flatMap(([variable, { name }]) => name === undefined ? [] : [[variable, name] as const]),
-      ),
+      colourNames,
     };
+  }
+
+  /**
+   * A published scheme with the names of its own callbacks on it, for the
+   * gloss wherever the scheme is shown (Effects §10, #1523): `colourNames` is
+   * keyed by this module's variables, and an importer mints its own. Only a
+   * face whose outer arrow passes a colour through has a gloss that reads
+   * them, and it carries the list even where it is empty, which says that no
+   * other module's names are its.
+   */
+  #namedScheme(scheme: Typed.Scheme, names: ReadonlyMap<Typed.TypeVariableId, string>): Typed.Scheme {
+    if (scheme.type.kind !== "Function") return scheme;
+    if (typeof scheme.type.effect !== "object" && typeof scheme.type.fail !== "object") return scheme;
+    const named: (readonly [Typed.TypeVariableId, string])[] = [];
+    for (const variable of scheme.variables) {
+      const name = names.get(variable);
+      if (name !== undefined) named.push([variable, name]);
+    }
+    return { ...scheme, colourNames: named };
   }
 
   #publicScheme(scheme: Scheme): Typed.Scheme {

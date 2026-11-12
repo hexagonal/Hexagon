@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import * as Source from "../../support/source.js";
-import { displayScheme } from "./display.js";
+import { displayFace, displayScheme } from "./display.js";
 import { type Effect, typeVariableId, type Scheme, type Type } from "./tree.js";
 import { unionId } from "../resolved/tree.js";
 
@@ -514,5 +514,41 @@ describe("displayScheme: the arrow trio", () => {
       .toBe("(String ->! String) >~>^ String");
     expect(show({ kind: "Function", parameters: [arrow(colour(4), colour(5))], result: string, effect: colour(4) }))
       .toBe("(String ->! String) >~> String");
+  });
+});
+
+describe("displayFace: the gloss names a face's own callbacks (Effects §10, #1523)", () => {
+  const colour = (id: number) => ({ variable: typeVariableId(id) }) as const;
+  const string = { kind: "Primitive", name: "String" } as const;
+  const run = (colourNames?: Scheme["colourNames"]): Scheme => ({
+    variables: [typeVariableId(7)],
+    constraints: [],
+    type: {
+      kind: "Function",
+      parameters: [{ kind: "Function", parameters: [], result: string, effect: colour(7), fail: colour(7) }],
+      result: string,
+      effect: colour(7),
+      fail: colour(7),
+    },
+    ...(colourNames === undefined ? {} : { colourNames }),
+  });
+  // Another module's names, which happen to be numbered as this scheme is.
+  const elsewhere = { owners: new Map(), names: new Map([[typeVariableId(7), "theirs"]]) };
+
+  test("by the names the scheme carries, wherever it is shown", () => {
+    const named = run([[typeVariableId(7), "f"]]);
+    expect(displayFace(named).owners).toEqual(["impure only if `f` is impure; may fail only if `f` may fail"]);
+    expect(displayFace(named, elsewhere).owners)
+      .toEqual(["impure only if `f` is impure; may fail only if `f` may fail"]);
+  });
+
+  test("a scheme that carries none takes no name from where it is shown", () => {
+    expect(displayFace(run([]), elsewhere).owners)
+      .toEqual(["impure only if a callback is impure; may fail only if a callback may fail"]);
+  });
+
+  test("a scheme with no list of its own is named by its module's", () => {
+    expect(displayFace(run(), elsewhere).owners)
+      .toEqual(["impure only if `theirs` is impure; may fail only if `theirs` may fail"]);
   });
 });
