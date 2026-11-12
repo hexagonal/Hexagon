@@ -441,9 +441,9 @@ describe("a constructor's declaration decides the parts it writes (#1518)", () =
         ["/r2.hex", "module R2\n\nexport record WC = {n: Int}\n"],
       ]).diagnostics.map(({ message }) => message);
     const run = "ignore(S({run = f}))";
-    // The same arm with a type written over the part instead of a use of it.
-    const claimed = (source: string): string =>
-      source.replaceAll("{f = f}", "{f = (f: (() -> Unit) -> Unit)}").replaceAll(run, "()");
+    // The same arm with a type written over the part instead of a use of it, binding the name or not.
+    const claimed = (source: string, name = "f"): string =>
+      source.replaceAll("{f = f}", `{f = (${name}: (() -> Unit) -> Unit)}`).replaceAll(run, "()");
     for (
       const [head, arm, expected] of [
         ["w: R1.WC", `WC({f = f}) => ${run}`, []],
@@ -457,7 +457,7 @@ describe("a constructor's declaration decides the parts it writes (#1518)", () =
       ] as const
     ) {
       // A claim is a use of its part, so a type written over it reads the same.
-      for (const written of [arm, claimed(arm)]) {
+      for (const written of [arm, claimed(arm), claimed(arm, "_")]) {
         const source = `let g(${head}): Unit = match w\n    ${written}\n`;
         expect([written, records(source)]).toEqual([written, expected]);
       }
@@ -467,13 +467,26 @@ describe("a constructor's declaration decides the parts it writes (#1518)", () =
         `let g(): Unit =\n    let w = R1.WC({f = (c) => ()})\n    match w\n        WC({f = f}) => ${run}\n`,
         `let g(w: R1.WC): Unit =\n    let WC({f = f}) = w\n    ${run}\n`,
         `let g(t: T(R1.WC)): Unit =\n    let T(WC({f = f})) = t\n    ${run}\n`,
-      ].flatMap((source) => [source, claimed(source)])
+        `let mk(x: a): T(R1.WC) = T(R1.WC({f = (c) => ()}))\nlet g(u) = match mk(u)\n    T(WC({f = f})) => ${run}\n`,
+      ].flatMap((source) => [source, claimed(source), claimed(source, "_")])
     ) {
       expect([source, records(source)]).toEqual([source, []]);
     }
-    const untyped = `let g(t) =\n    let q: T(R1.WC) = t\n    match t\n        T(WC({f = f})) => ${run}\n`;
-    expect(records(untyped)).toEqual([FIXED]);
-    expect(records(claimed(untyped))).toEqual([FIXED]);
+    // A value is decided for a claim exactly where it is for a use of a part (Effects §3.4), whether or not the claim
+    // binds a name: made from the text or a ground call, and not where a type is written over an untyped name or a
+    // literal leaves the `match` open.
+    for (
+      const [source, expected] of [
+        [`let g(t) =\n    let q: T(R1.WC) = t\n    match t\n        T(WC({f = f})) => ${run}\n`, [FIXED]],
+        [`let g(t) = match (t: T(R1.WC))\n    T(WC({f = f})) => ${run}\n`, [FIXED]],
+        [`let g(t) =\n    let T(WC({f = f})): T(R1.WC) = t\n    ${run}\n`, [FIXED]],
+        [`let g(t: T(R1.WC)): Unit = match (t, 1)\n    (T(WC({f = f})), _) => ${run}\n`, [FIXED]],
+        [`let g(t: T(R1.WC)): Unit =\n    let T(WC({f = f})): T(_) = t\n    ${run}\n`, []],
+      ] as const
+    ) {
+      expect([source, records(source), records(claimed(source)), records(claimed(source, "_"))])
+        .toEqual([source, expected, expected, expected]);
+    }
   });
 
   test("a claim's rewrite copies the program's text only where that text spells the part's type", () => {

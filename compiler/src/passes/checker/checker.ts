@@ -5156,6 +5156,10 @@ class Checker {
   readonly #madeViews = new Map<Resolved.SymbolId, WrittenView | undefined>();
   /** The pattern each pattern-bound name is part of, for the part a written type spells (`#spelledResult`). */
   readonly #partPatterns = new Map<Resolved.SymbolId, Resolved.Pattern>();
+  /** The value each pattern takes apart, by the pattern, as its parts' sources note it (`#partsDecided`). */
+  readonly #partRoots = new Map<Resolved.Pattern, Resolved.Expr | undefined>();
+  /** The arms whose parts a `match` left open (`#settleArms`), by their patterns (`#partsDecided`). */
+  readonly #openRoots = new Set<Resolved.Pattern>();
   /** A `let` pattern's binding annotation, by the pattern it types (Pattern Matching §6.3). */
   readonly #patternAnnotations = new Map<Resolved.Pattern, Resolved.TypeAnnotation>();
   /** The record declaration each constructor builds, across the program, for `#sourceItem`. */
@@ -17496,10 +17500,25 @@ class Checker {
    * The view the declarations a pattern names give the part a claim stands on
    * *(#1518; Pattern Matching §2.9)*, as they give a part a name binds
    * (`#declaredView`, and `#partWritten` over a value the text decides): a
-   * claim is a use of its part.
+   * claim is a use of its part, so it reads the value as decided where a use
+   * of a part does (`#partsDecided`).
    */
   #claimDeclared(subject: ClaimSubject, claim: Resolved.TypedPattern): SpelledPart | undefined {
-    return declaredView(this.#partDeclared(subject.root, claim, undefined, subject.decided));
+    return declaredView(this.#partDeclared(subject.root, claim, undefined, this.#partsDecided(subject.root)));
+  }
+
+  /**
+   * Whether the value a pattern takes apart is one the text decides, as a use
+   * of a part it takes out reads it (`#decidedBinding`; Effects §3.4): made
+   * from the text, or a call whose written result type is ground, and not left
+   * open by the `match` it is an arm of (`#settleArms`). It is the pattern's,
+   * so a claim reads it whether or not the pattern binds a name. A caught
+   * exception is no value the text makes.
+   */
+  #partsDecided(root: Resolved.Pattern): boolean {
+    const source = this.#partRoots.get(root);
+    return !this.#openRoots.has(root) && source !== undefined &&
+      (this.#madeFromText(source) || this.#groundResult(source));
   }
 
   /**
@@ -24427,6 +24446,7 @@ class Checker {
     }
     if (this.#unsettledVariables(scrutinee).length === 0) return;
     for (const arm of arms) {
+      this.#openRoots.add(arm.pattern);
       for (const symbol of patternSymbols(arm.pattern)) {
         const source = this.#bindingSources.get(symbol);
         if (source?.kind === "part") this.#resource(symbol, { ...source, open: true, outerOpen: true });
@@ -24766,6 +24786,7 @@ class Checker {
         for (const symbol of patternSymbols(pattern)) this.#typeSources.set(symbol, { kind: "part", source });
         for (const symbol of patternSymbols(pattern)) this.#bindingSources.set(symbol, { kind: "part", source });
         for (const symbol of patternSymbols(pattern)) this.#partPatterns.set(symbol, pattern);
+        this.#partRoots.set(pattern, source);
       },
     });
     if (item.kind === "Honor") for (const member of item.members) contractTyped(member.value);
