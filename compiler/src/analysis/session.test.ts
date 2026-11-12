@@ -873,13 +873,21 @@ describe("AnalysisSession.hover: parameters under their declared names", () => {
       "",
     ].join("\n");
     expect(hovered(text, "Rect", 2)).toBe("(w: Int, h: Int) -> Shape");
-    expect(hovered(text, "Dot", 2)).toBe("(Int, Int) -> Shape");
     expect(hovered(text, "Oops", 2)).toBe("(code: Int) -> Exn");
+    // Nothing named, so no signature beside the face.
+    const { session } = sessionOf({ "/main.hex": text });
+    const dot = session.hover("/main.hex", at(text, "Dot", 2));
+    expect([dot?.displayedType, dot?.signature]).toEqual(["(Int, Int) -> Shape", undefined]);
   });
 
   test("a pattern parameter has no name, and its named siblings keep theirs", () => {
     const text = "module Main\n\nlet pair((x, y): (Int, Int), c: Int): Int = x + y + c\n";
     expect(hovered(text, "pair")).toBe("((Int, Int), c: Int) -> Int");
+    // A sole pattern parameter leaves nothing named.
+    const sole = "module Main\n\nlet sum((x, y): (Int, Int)): Int = x + y\n";
+    const { session } = sessionOf({ "/main.hex": sole });
+    const hover = session.hover("/main.hex", at(sole, "sum"));
+    expect([hover?.displayedType, hover?.signature]).toEqual(["((Int, Int)) -> Int", undefined]);
   });
 
   test("no declared names, no names: another name, a parameter, a call's result", () => {
