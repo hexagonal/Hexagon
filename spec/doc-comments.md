@@ -1,6 +1,6 @@
 # Hexagon Spec: Documentation Comments
 
-**Status:** Decided (August 2026). Ruled on issue #191 (James's directive, given in-session 2026-08-01): the doc-comment block form reserved since Comments §1 — `(** ... *)` — is **active in v1**, and it is the **only** documentation form: the `///` reservation is **revoked**, not activated (§2.3, §10; James's narrowing directive, same day, during the PR #192 review round). This document is the "future documentation spec" that Comments §5/§6 and Lexer §7 have been deferring to; with it, that horizon is discharged.
+**Status:** Decided (August 2026). Ruled on issue #191 (James's directive, given in-session 2026-08-01): the doc-comment block form reserved since Comments §1 — `(** ... *)` — is **active in v1**, and it is the **only** documentation form: the `///` reservation is **revoked**, not activated (§2.3, §10; James's narrowing directive, same day, during the PR #192 review round). This document is the "future documentation spec" that Comments §5/§6 and Lexer §7 have been deferring to; with it, that horizon is discharged. Amended 2026-11-12 (#1526): §6.2 states the house style of the standard library's own doc comments.
 **Scope:** Recognition of the doc form (§2), including the `///` revocation; content extraction and doc blocks (§3); attachment (§4); the new hard errors (§5); the content model (§6); emission as JSDoc into the readable JS and the `.d.ts` (§7); tooling surface (§8); reservations and deferrals (§9); rejected alternatives (§10).
 **Not in scope:** Ordinary comment lexing, nesting, layout interaction, and the JS-spelling redirects — Comments owns all of it, unchanged. A doc *tag* language (`@param`-style), intra-doc link resolution, parameter docs, and module-level (inner) docs — deferred with revisit bars, §9. A rendered-manual pipeline (HTML docs generator) — post-v1 tooling; this spec fixes what such a tool consumes, not the tool.
 **Companions:** Comments (host of the comment forms; correction record §13 there records what activation and the revocation supersede), Lexer §7 (doc trivia), Declarations Preamble §7.1 (the declaration inventory §4 quantifies over), Modules §4 (`export`; complete-signature rule §4.1.1), FFI Part 7 (the `.d.ts` §7 emits into), `decisions-ml-dialect-comments-2026-07.md` §5 (the reservation this activates and narrows).
@@ -123,6 +123,75 @@ Throws `X` when <condition>.
 - **This is not a tag language.** §6's bullet stands and §9.2's bar is untouched: no `@word` gains Hexagon meaning, nothing is written in tag syntax in Hexagon source; the one recognized form is a prose sentence, and the tag is emission's output, not the author's input.
 - Nothing is checked: whether the declaration actually throws `X` is not verified — the manifest is documentation (a lint is parked with Exceptions §10.4's posture).
 
+### 6.2 The standard library's style *(#1526)*
+
+Every exported item of the standard library carries a doc comment, and that comment is written for one reader:
+
+> **A competent object-oriented programmer who has no computer science background, no mathematics background and no functional programming background.**
+
+The comment is what this reader sees on hovering over a name, at the moment of deciding whether and how to call it. Each rule below says something this reader needs. This is house style, as §6's line-break rule is, and it covers `stdlib/` alone. The compiler recognizes none of it and checks none of it, and a programmer's own comments are the programmer's to write.
+
+For a doc comment on an exported standard-library item, this section governs in place of two of Comments §12's criteria. Every such item has a comment, even where the code already says the same, which criterion 4 would omit. How long the comment is follows the rule on length below, not criterion 1's one or two lines. Comments §12 holds otherwise, including what it keeps out of shipped comments, save the precedent that the rule on other languages allows; the rule below on what is left out adds to it.
+
+**What a comment says.**
+
+- **What the item is for comes first.**
+- **A comment uses words this reader already has.** Where there is a term of art, the comment says what it means instead: "never throws", not *total*; "keep their original order", not *stable*; "from smallest to largest", not "under its `Ord`"; "never returns", not *does not terminate*.
+- **A comment is short.** Two sentences is a guide and not a limit: where what an item needs does not fit in two sentences, the comment takes more, and how many is a matter of taste.
+- **Where the name does not say what the item is for, the comment does.** `indexed`: "Handy for a loop that needs the position:", and then `for (i, name) in names.indexed()` on its own line.
+- **A comment says which way round things go**: which of two things comes first, which end a pass starts from, and what a position counts from. "`Less` when the first belongs before the second"; "from first to last"; "counting from 1".
+- **A function that returns a changed collection says that it is a new one**: "a new vector". This reader expects `append` to change the vector it is given.
+- **An edge case is mentioned only where the answer would surprise.** `all` gives `True` for an empty vector, and says so; `any` gives `False`, and does not.
+- **A comment points to the neighbouring item the reader probably wants.** `set` never makes a vector longer, so its comment names `append`; `IndexFault`'s comment names `get`.
+- **A recipe is put where the reader will look for it.** The recipe for sorting from largest to smallest goes on `sort`: `items.sortUsing((a, b) => Ord.compare(b, a))`.
+- **What only the spec needs is left out**: how many times a comparison function is called, section references, and where a design came from. The one exception is the precedent that the next rule allows.
+- **No comment explains an item by another language's.** `fold` is described by what it does. This reader is assumed competent in object-oriented programming, and in no particular language (§10). Where a comment needs to point to precedent, it may point to ML, of which Hexagon is a dialect, and to no other. The precedent is added to what the comment says about the item and never stands in for it: the comment reads whole to a reader who does not know ML.
+
+**How it names things.**
+
+- **A parameter is called by its name**, never "the function" or "the parameter" alone. The first mention introduces the name with what it is, as in "the function `keep`" and "the position `index`"; later mentions use the name alone.
+- **A name that already says what it is needs no introduction**: "replaced by `value`", not "replaced by the value `value`".
+- **The value a module is about is not called by its parameter's name.** It is "the vector": there is only one, so nobody mistakes which is meant. Only the other parameters are named.
+
+**Examples.**
+
+- **A comment gives a one-line example where the idea is likely to be new to this reader**, as for `map`, `fold`, `flatMap` and `zip`, and none where the name says it all, as for `isEmpty` and `first`.
+- **An example is written the way this reader will type it.** A call is a dot call: `[1, 2, 3].map(n => n * 2)`, not `Vector.map([1, 2, 3], n => n * 2)`. A function with one parameter is written without parentheses, `n => n * 2`, since `(n)` is redundant grouping (Functions §3.1).
+- **Code that is meant to be read as code stands on a line of its own**: the line before it ends with a trailing backslash, §6's hard line break. An example with its result is such code, and so is a recipe to copy. A name or a short expression, as `keep`, `None` and `items[4]` are, stays in its sentence. Where prose follows the code, the code's own line ends with a backslash as well. A backslash never comes straight after a `Throws` sentence: a backslash is not whitespace, so the period before it no longer ends the sentence (§6.1). The sentence then runs on to the next period in the paragraph and takes the next line into its condition, or is not recognized at all.
+- **Every example has been run**, and its code is spelled as Hexagon spells it: `True`, not `true`.
+
+The rules together, on five of `Vector`'s exports. Bodies are left out, and `set` is declared in the module's `extern from` block as `vectorSet as set`:
+
+```
+(** A new vector with only the elements for which the function `keep` returns
+    `True`. *)
+export let filter(values: Vector(a), keep: a ->! Bool): Vector(a)
+
+(** The element at the position `index`, counting from 1, or `None` when the
+    vector has no element there. Unlike brackets, as in `items[4]`, it never
+    throws, so use it when `index` may be out of range. *)
+export let get(values: Vector(a), index: Int): Option(a)
+
+(** A new vector with the element at the position `index` replaced by `value`:\
+    `[10, 20, 30].set(2, 99)` is `[10, 99, 30]`.\
+    Positions count from 1. Throws `IndexFault` when `index` is not between 1
+    and the length of the vector. To make a vector longer, use `append` or
+    `prepend`. *)
+export fun set(values: Vector(a), index: Int, value: a) -> Vector(a)
+
+(** Combines the elements into one result. It starts with the value `initial`.
+    For each element, from first to last, it calls the function `combine` with
+    the result so far and that element, and what `combine` returns becomes the
+    result:\
+    `[1, 2, 3].fold(0, (total, n) => total + n)` is `6`. *)
+export let fold(values: Vector(a), initial: b, combine: (b, a) ->! b): b
+
+(** A new vector with the elements from smallest to largest. For largest
+    first, write:\
+    `items.sortUsing((a, b) => Ord.compare(b, a))` *)
+export let sort<a: Ord>(values: Vector(a)): Vector(a)
+```
+
 ## 7. Emission
 
 ### 7.1 Where documentation goes
@@ -197,6 +266,8 @@ JSDoc — the design target (§1) — has module-level documentation, and has it
 - **Emitting docs to the `.d.ts` only** (keep the `.js` clean). Breaks the readable-JS doctrine — the `.js` is a presentation of the source, and Comments §6 already preserves item-boundary comments there; demoting exactly the *documentation* comments would preserve the trivia and drop the substance. TS precedent emits both.
 - **Doc comments as parser tokens** (attachment in the grammar). Would make a comment affect the token sequence, crossing the line Lexer §7 draws; attachment works on trivia-annotated declarations and the two errors are parse-time checks, not grammar productions.
 - **Blank-line-sensitive attachment** (a blank line between doc and declaration detaches it, haiku-style). Turns invisible whitespace into a semantic switch and makes reformatting change what a doc documents; the errors in §5 catch real mistakes instead.
+- **Explaining a standard-library item by another language's** (`fold` "is like `reduce` in JavaScript"; #1526). Particular languages, JavaScript included, are not available as documentation. The reader §6.2 writes for is assumed competent in object-oriented programming, not in any one language, so a comparison serves only the reader who happens to know that language, and misleads wherever the two functions differ. The one exception is ML, of which Hexagon is a dialect: a comment may point to it as precedent, and then only beside its own explanation (§6.2).
+- **A fixed length for a standard-library comment** (two sentences, read as a limit; #1526). Held to two sentences, a comment falls back on terms of art that its reader does not know. Short is the rule, and how short is a matter of taste for what the item needs (§6.2).
 
 ## 11. Acceptance tests
 
@@ -299,6 +370,7 @@ fun helper(s: String): Ast = ...         -- unexported: manifest is house style,
 | Dangling and trailing doc comments are hard errors with Rewrite-Rule redirects; the `extern from` header gets its own message | §5 |
 | Content is CommonMark, carried opaque; bare fences default to Hexagon; no tags, no link resolution in v1 | §6 |
 | House style: a hard line break in doc content is a trailing backslash, never two trailing spaces (invisible, and trimmed on save in `.hex` files); both forms pass through verbatim | §6 |
+| House style for the standard library's own comments (#1526): written for a competent object-oriented programmer with no computer science, mathematics or functional programming background; purpose first, in plain words, short; a parameter called by its name and introduced once, the module's own value not named; a one-line example where the idea is new, written as a dot call, on a line of its own, and run; no other language as explanation, and ML the one precedent a comment may point to; nothing recognized or checked; governs in place of Comments §12's criteria 1 and 4 for these comments | §6.2, §10 |
 | Emission: JSDoc in both `.js` and `.d.ts` at every corresponding seat; `*/` → `*\/`; no seat → tooling-only | §7 |
 | Verbatim emission makes TS's tag vocabulary live at the boundary — recorded, neither validated nor suppressed; the tag-language ruling inherits it | §6, §7.2, §9.2 |
 | User + generated docs merge into one JSDoc block, user first | §7.3 |
@@ -319,6 +391,12 @@ Applied in this ruling's PR (direct edits):
 | `decisions-ml-dialect-comments-2026-07.md` | §5 annotated: block reservation activated by #191, `///` reservation revoked by the same ruling; predicate tightened here. |
 | Book: `chapters/05-layout.md`, `FEATURES.md`, `plans/05-layout.md`, `CONTINUITY.md` | Every reservation-era passage re-taught: `(** *)` docs active; `///` not mentioned as anything but an ordinary comment *(the plans and continuity files were the cold review's finding 6)*. |
 
+Applied with §6.2 (#1526):
+
+| Target | Edit |
+|---|---|
+| `comments.md` | §12 gains a pointer: a doc comment on an exported standard-library item takes its presence and its length from §6.2 here, in place of criteria 1 and 4. |
+
 Owed (README rule 4 — applied on next touch of the target):
 
 - **FFI Part 7 §4.1 / §10** and **Unions §6.2**: the representation-cliff warning's coexistence note — discharged by #771: the warning is retired (FFI Part 7 §4.1); §7.3's generated instance is §7.4's `@throws` tags.
@@ -333,4 +411,5 @@ Owed (README rule 4 — applied on next touch of the target):
 - **VS Code configuration**: `onEnterRules` already treat `(**` as the doc opener with `(**)` excluded (#171 §11); verify the continuation behaviour against §2.2's `(***` carve-out. *(Done with the grammar, #194: the openers carry the same tightened predicate — a banner no longer continues as a doc comment — and the `///` continuation rule went with the revocation.)*
 - **LSP**: hover carries attached doc content as Markdown (slice 1's hover path). *(Done 2026-08-01, issue #195: hover and completion both carry it, keyed off the name a declaration introduces — recorded by the attachment alongside the target span, since an editor holds a name and §4's key is the declaration's first token. Two facts the work turned up, neither of them a change to this ruling. **Completion carries the content in the protocol's `documentation` field, not `detail`**: `detail` is a plain string beside the label, and §8's "rendered as Markdown" is only true of the other one — `detail` goes on carrying the type. And **five documentable positions have no identity in the compiler's occurrence index at all** — an `honor` member (its name is a bare string in the resolved tree), a record field (not a symbol), a `type` alias (expanded away), a constraint's `type` member and an `honor` block's implied-type binding (no occurrence walk visits an implied type's name) — so hover answers those from the documentation alone, which is the only way §8's "every documentable position" holds. Two forms introduce no single name to file a block under: a destructuring `let` is filed under *every* binder it introduces (they are ordinary symbols, but only the attachment knows which names one block covers), and an `honor` block under the constraint in its head, which is the only name it writes — so hovering that name shows the instance's documentation, and the constraint's own shows everywhere else it is written. A pattern that binds nothing at all — `let (_, _) = …` — is the one documentable position whose content reaches no reader; it names nothing to point at.)*
 - **Stdlib sweep**: a follow-up issue — upgrade Comments-§12-compliant manual-facing comments to `(** *)` where the comment documents the following declaration. Not mechanical-only (each upgrade asserts "this is manual prose"); a fresh-session task after the compiler work lands.
+- **Stdlib comments in §6.2's style** (#1527): the doc comments that the sweep above gave `stdlib/` are rewritten to §6.2, `stdlib/Vector.hex` first, and the exported items that have none are given one. `vector-to-array.test.ts` pins `toArray`'s present wording and changes with it.
 - **Conformance**: §11's snippets as attachment/diagnostic/emission goldens, including the `///`-is-nothing pin.
