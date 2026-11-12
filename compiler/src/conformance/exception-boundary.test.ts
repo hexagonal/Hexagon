@@ -703,10 +703,10 @@ describe("the throws manifest (#479, Doc Comments §6.1/§7.4)", () => {
     const vector = project.modules.find(({ source }) => source.path === "/Hex/Vector.hex")!;
 
     expect(vector.declarations.text).toContain(
-      "@throws {IndexFault} when no such element exists — zero never addresses one",
+      "@throws {IndexFault} when the vector has no element at that position",
     );
     expect(vector.declarations.text).toContain(
-      "@throws {IndexFault} when `index` is out of range; it never extends the vector",
+      "@throws {IndexFault} when `index` is not between 1 and the length of the vector",
     );
   });
 });

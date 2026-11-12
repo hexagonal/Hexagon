@@ -2,13 +2,18 @@ module Vector
 
 // The public Vector companion over the compiler's representation core.
 
-(** Raised when an asserted index addresses no element, from `values[index]`,
-    `at`, `set`, or String indexing. `index` is the index as passed and `size`
-    the collection's size at the fault. *)
+(** Thrown when code asks for a position that has no element, as `items[4]` does
+    when the vector has three elements. Brackets on a vector, an array or a
+    string throw it, and so do `at` and `set`. To get `None` instead of a fault,
+    use `Vector.get`. `index` is the position that was asked for, and `size` is
+    how many positions there were. *)
 export fault IndexFault(index: Int, size: Int)
 
-(** Raised when a slice is taken with a descending range: a window has no
-    direction. `start` and `end` are the range's endpoints as supplied. *)
+(** Thrown when a vector or a string is sliced with a range that counts down, as
+    in `items[Range.down(5, 2)]`. A slice never reverses the elements. To get
+    them in the opposite order, slice with a range that counts up and then call
+    `reverse`. `start` and `end` are the two ends of the range that was
+    given. *)
 export fault SliceFault(start: Int, end: Int)
 
 // The whole boundary Collections Part 3 section 7 pins: representation-sensitive
@@ -27,26 +32,38 @@ export fault SliceFault(start: Int, end: Int)
 // type is this module's own, its values are the runtime's `TrieVector` records,
 // and the `+` is checked against that record's variance here, at the row.
 extern from "hex:intrinsic"
-    (** An immutable sequence of elements, indexed from 1. Every update answers a
-        new vector and leaves the one it was given as it was. *)
+    (** An ordered list of elements of one type, written `[10, 20, 30]`.
+        Positions count from 1, so `items[1]` is the first element. A vector
+        never changes: functions such as `append` and `set` return a new vector
+        and leave the original as it was. A new vector made by adding or
+        replacing one element shares most of its storage with the original, so
+        that stays fast even for a large vector. *)
     export type vector as Vector(+a)
 
-    (** How many elements `values` holds, in constant time. *)
+    (** The number of elements. *)
     export fun vectorLength as length(values: Vector(a)) -> Int
 
-    (** `values` with `value` added after its last element. *)
+    (** A new vector with `value` added after the last element. *)
     export fun vectorAppend as append(values: Vector(a), value: a) -> Vector(a)
 
-    (** `values` with `value` added before its first element. *)
+    (** A new vector with `value` added before the first element. *)
     export fun vectorPrepend as prepend(values: Vector(a), value: a) -> Vector(a)
 
-    (** The element at a signed `index`: 1-based from the start, or from the end
-        when negative, so `at(values, -1)` is the last element. Throws
-        `IndexFault` when no such element exists — zero never addresses one. *)
+    (** The element at the position `index`. A positive `index` counts from the
+        start, so 1 is the first element. A negative `index` counts back from
+        the end, so -1 is the last:\
+        `[10, 20, 30].at(-1)` is `30`.\
+        Brackets, as in `items[2]`, count from the start only. Throws
+        `IndexFault` when the vector has no element at that position. No vector
+        has an element at position 0. *)
     export fun vectorAt as at(values: Vector(a), index: Int) -> a
 
-    (** `values` with the element at 1-based `index` replaced by `value`. Throws
-        `IndexFault` when `index` is out of range; it never extends the vector. *)
+    (** A new vector with the element at the position `index` replaced by
+        `value`:\
+        `[10, 20, 30].set(2, 99)` is `[10, 99, 30]`.\
+        Positions count from 1. Throws `IndexFault` when `index` is not between
+        1 and the length of the vector. To make a vector longer, use `append` or
+        `prepend`. *)
     export fun vectorSet as set(values: Vector(a), index: Int, value: a) -> Vector(a)
 
     // Unexported, beneath the `Iterable` instance at the end of the file:
@@ -59,15 +76,15 @@ extern from "hex:intrinsic"
     // takes it whole.
     fun vectorToSeq as elements(values: Vector(a)) -> Seq(a)
 
-    (** The elements of `values` collected into a vector. It forces the whole
-        sequence, so it does not terminate on an infinite one. *)
+    (** A vector of every element that the sequence `values` produces, in the
+        same order. It reads the sequence to its end before it returns, so it
+        never returns for a sequence that has no end. *)
     export fun vectorFromSeq as fromSeq(values: Seq(a)) -> Vector(a)
 
-    (** The elements of `values` as a fresh JavaScript array, in order. The
-        array is built at once and is a new one every call, so writing to it
-        changes nothing here; the crossing is shallow, so an element that is
-        itself a vector arrives as that same vector. The empty vector gives an
-        empty array. *)
+    (** A new JavaScript array with the elements of the vector, in the same
+        order. Every call makes a separate array, so changing the array never
+        changes the vector. The elements themselves are not converted: an
+        element that is a vector is still a vector in the array. *)
     export fun vectorToArray as toArray(values: Vector(a)) -> Array(a)
 
     // Unexported, beneath `find`, `any`, `all`, `contains` and `indexOf` below:
@@ -77,47 +94,54 @@ extern from "hex:intrinsic"
     // (`collection-combinators.md` section 8).
     fun vectorFindPosition as findPosition(values: Vector(a), matches: a ->! Bool) >-> Int
 
-    (** The elements of `left` and `right` paired by position, as many pairs as
-        the shorter holds: `Seq.zip`, run at once. *)
+    (** A new vector that pairs each element with the element at the same
+        position in the vector `right`:\
+        `[1, 2, 3].zip(["a", "b"])` is `[(1, "a"), (2, "b")]`.\
+        The result is as long as the shorter of the two, and the extra elements
+        of the longer one are left out. *)
     export fun vectorZip as zip(left: Vector(a), right: Vector(b)) -> Vector((a, b))
 
-    (** `values` in the order `compare` decides, as a new vector; elements it
-        answers `Equal` for keep their order. How often `compare` is called, and
-        on which pairs, is not fixed, and one that does not answer consistently
-        still gets every element back. *)
+    (** A new vector with the elements in the order that the function `compare`
+        decides. `compare` is given two elements and returns `Less` when the
+        first belongs before the second, `Greater` when it belongs after, and
+        `Equal` when neither goes first. Elements that compare `Equal` keep
+        their original order. For the usual order, use `sort`. To order by one
+        property of each element, use `sortBy`. *)
     export fun vectorSortUsing as sortUsing(values: Vector(a), compare: (a, a) ->! Ordering) >-> Vector(a)
 
-(** The empty vector. *)
+(** A vector with no elements, the same as `[]`. *)
 export let empty: Vector(a) = []
 
-(** A vector with a single value. *)
+(** A vector with one element, the same as `[value]`. *)
 export let singleton(value: a): Vector(a) = [value]
 
-(** Whether `values` holds no elements. *)
+(** Whether the vector has no elements. *)
 export let isEmpty(values: Vector(a)): Bool = length(values) == 0
 
-(** The first element of `values`, or `None` when it is empty. *)
+(** The first element, or `None` when the vector is empty. *)
 export let first(values: Vector(a)): Option(a) = match values
     [] => None
     [value, ...] => Some(value)
 
-(** The last element of `values`, or `None` when it is empty. *)
+(** The last element, or `None` when the vector is empty. *)
 export let last(values: Vector(a)): Option(a) = match values
     [] => None
     [..., value] => Some(value)
 
-(** `values` without its first element. The empty vector stays empty. *)
+(** A new vector without the first element. An empty vector stays empty. *)
 export let dropFirst(values: Vector(a)): Vector(a) = match values
     [] => []
     [_, ...rest] => rest
 
-(** `values` without its last element. The empty vector stays empty. *)
+(** A new vector without the last element. An empty vector stays empty. *)
 export let dropLast(values: Vector(a)): Vector(a) = match values
     [] => []
     [...rest, _] => rest
 
-(** The element at 1-based `index`, or `None` when there is none. The total
-    accessor: out of bounds is an answer, not a fault. *)
+(** The element at the position `index`, counting from 1, or `None` when the
+    vector has no element there. Unlike brackets, as in `items[4]`, it never
+    throws, so use it when `index` may be out of range. A negative `index` gives
+    `None` as well: only `at` counts back from the end. *)
 export let get(values: Vector(a), index: Int): Option(a) =
     if index < 1 or index > length(values) then
         None
@@ -130,16 +154,17 @@ export let get(values: Vector(a), index: Int): Option(a) =
 // read the trie leaf by leaf through the vector's iterator; the search and `zip`
 // are the door rows above.
 
-(** `transform` applied to each element of `values`, in order: `Seq.map`, run at
-    once, so `transform` may be impure or fail. *)
+(** A new vector made by calling the function `transform` on each element, from
+    first to last:\
+    `[1, 2, 3].map(n => n * 2)` is `[2, 4, 6]`. *)
 export let map(values: Vector(a), transform: a ->! b): Vector(b) =
     var result: Vector(b) = []
     for value in values
         result := append(result, transform!(value))
     result
 
-(** The elements of `values` that `keep` accepts, in order: `Seq.filter`, run at
-    once, so `keep` may be impure or fail. *)
+(** A new vector with only the elements for which the function `keep` returns
+    `True`. *)
 export let filter(values: Vector(a), keep: a ->! Bool): Vector(a) =
     var result: Vector(a) = []
     for value in values
@@ -147,8 +172,9 @@ export let filter(values: Vector(a), keep: a ->! Bool): Vector(a) =
             result := append(result, value)
     result
 
-(** The vectors `transform` returns for the elements of `values`, joined in
-    order. *)
+(** A new vector made by calling the function `transform` on each element and
+    joining the vectors it returns end to end:\
+    `[1, 2].flatMap(n => [n, n * 10])` is `[1, 10, 2, 20]`. *)
 export let flatMap(values: Vector(a), transform: a ->! Vector(b)): Vector(b) =
     var result: Vector(b) = []
     for value in values
@@ -156,53 +182,60 @@ export let flatMap(values: Vector(a), transform: a ->! Vector(b)): Vector(b) =
             result := append(result, produced)
     result
 
-(** The vectors in `rows`, joined in order into one vector. *)
+(** Joins a vector of vectors end to end into one new vector:\
+    `[[1, 2], [3]].flatten()` is `[1, 2, 3]`. *)
 export let flatten(rows: Vector(Vector(a))): Vector(a) =
     flatMap(rows, row => row)
 
-(** `initial` combined with every element of `values`, left to right:
-    `Seq.fold`, whose `combine` may be impure or fail. *)
+(** Combines the elements into one result. It starts with the value `initial`.
+    For each element, from first to last, it calls the function `combine` with
+    the result so far and that element, and what `combine` returns becomes the
+    result:\
+    `[1, 2, 3].fold(0, (total, n) => total + n)` is `6`. *)
 export let fold(values: Vector(a), initial: b, combine: (b, a) ->! b): b =
     var accumulated = initial
     for value in values
         accumulated := combine!(accumulated, value)
     accumulated
 
-(** The first element of `values` that `matches` accepts, or `None`. It stops
-    there: no later element is handed to `matches`. *)
+(** The first element for which the function `matches` returns `True`, or `None`
+    when there is none. It stops at that element and does not look at the
+    rest. *)
 export let find(values: Vector(a), matches: a ->! Bool): Option(a) =
     let position = findPosition!(values, matches)
     if position == 0 then None else Some(values[position])
 
-(** Whether some element of `values` satisfies `matches`. It stops at the first
-    that does. *)
+(** Whether the function `matches` returns `True` for at least one element. It
+    stops at the first one that does. *)
 export let any(values: Vector(a), matches: a ->! Bool): Bool =
     findPosition!(values, matches) != 0
 
-(** Whether every element of `values` satisfies `matches`, which the empty
-    vector does. It stops at the first that does not. *)
+(** Whether the function `matches` returns `True` for every element. It stops at
+    the first one that does not. An empty vector gives `True`. *)
 export let all(values: Vector(a), matches: a ->! Bool): Bool =
     findPosition!(values, (value) => not matches!(value)) == 0
 
-(** Whether some element of `values` equals `element`. *)
+(** Whether the vector has an element equal to `element`. *)
 export let contains<a: Eq>(values: Vector(a), element: a): Bool =
     findPosition(values, (value) => value == element) != 0
 
-(** The 1-based position of the first element of `values` that equals
-    `element`, or `None`. *)
+(** The position of the first element equal to `element`, counting from 1, or
+    `None` when there is none. *)
 export let indexOf<a: Eq>(values: Vector(a), element: a): Option(Int) =
     let position = findPosition(values, (value) => value == element)
     if position == 0 then None else Some(position)
 
-(** The elements of `values` in the opposite order. *)
+(** A new vector with the elements in the opposite order. *)
 export let reverse(values: Vector(a)): Vector(a) =
     var result: Vector(a) = []
     for value in values
         result := prepend(result, value)
     result
 
-(** Each element of `values` paired with its 1-based position, position first:
-    `indexed(["a", "b"])` is `[(1, "a"), (2, "b")]`. *)
+(** A new vector that pairs each element with its position, counting from 1:\
+    `["a", "b"].indexed()` is `[(1, "a"), (2, "b")]`.\
+    Handy for a loop that needs the position:\
+    `for (i, name) in names.indexed()` *)
 export let indexed(values: Vector(a)): Vector((Int, a)) =
     var result: Vector((Int, a)) = []
     var position = 0
@@ -211,13 +244,15 @@ export let indexed(values: Vector(a)): Vector((Int, a)) =
         result := append(result, (position, value))
     result
 
-(** `values` from least to greatest under their `Ord`, as a new vector; equal
-    elements keep their order. *)
+(** A new vector with the elements from smallest to largest. To order by one
+    property of each element, use `sortBy`. For largest first, write:\
+    `items.sortUsing((a, b) => Ord.compare(b, a))` *)
 export let sort<a: Ord>(values: Vector(a)): Vector(a) = sortUsing(values, Ord.compare)
 
-(** `values` ordered by what `key` gives for each, under that result's `Ord`, as
-    a new vector; elements with equal keys keep their order. `key` runs once per
-    element, in order, before any comparison. *)
+(** A new vector with the elements ordered by what the function `key` returns
+    for each one, smallest first:\
+    `people.sortBy(person => person.age)` puts the youngest person first.\
+    Elements for which `key` returns equal values keep their original order. *)
 export let sortBy<b: Ord>(values: Vector(a), key: a ->! b): Vector(a) =
     var keyed: Vector((b, a)) = []
     for value in values
@@ -260,9 +295,10 @@ let unranked(best: Option((b, a))): Option(a) = match best
     Some((_, value)) => Some(value)
     None => None
 
-(** The element of `values` that `compare` ranks greatest, or `None` when
-    `values` is empty, and of elements it ranks equal, the last. `compare` runs
-    once for each element after the first, as `compare(best, element)`. *)
+(** The largest element, or `None` when the vector is empty. The function
+    `compare` decides which of two elements is larger, as it does for
+    `sortUsing`. If several elements are equally large, the result is the last
+    of them. *)
 export let maxUsing(values: Vector(a), compare: (a, a) ->! Ordering): Option(a) =
     fold!(values, None, (best: Option(a), value: a) => match best
         Some(kept) => match compare!(kept, value)
@@ -270,9 +306,10 @@ export let maxUsing(values: Vector(a), compare: (a, a) ->! Ordering): Option(a) 
             _ => Some(value)
         None => Some(value))
 
-(** The element of `values` that `compare` ranks least, or `None` when `values`
-    is empty, and of elements it ranks equal, the first. `compare` runs once for
-    each element after the first, as `compare(best, element)`. *)
+(** The smallest element, or `None` when the vector is empty. The function
+    `compare` decides which of two elements is smaller, as it does for
+    `sortUsing`. If several elements are equally small, the result is the first
+    of them. *)
 export let minUsing(values: Vector(a), compare: (a, a) ->! Ordering): Option(a) =
     fold!(values, None, (best: Option(a), value: a) => match best
         Some(kept) => match compare!(kept, value)
@@ -280,32 +317,32 @@ export let minUsing(values: Vector(a), compare: (a, a) ->! Ordering): Option(a) 
             _ => best
         None => Some(value))
 
-(** The greatest element of `values` under its `Ord`, or `None` when `values` is
-    empty, and of equal greatest elements, the last, where `sort` puts it. *)
+(** The largest element, or `None` when the vector is empty. *)
 export let max<a: Ord>(values: Vector(a)): Option(a) = maxUsing(values, Ord.compare)
 
-(** The least element of `values` under its `Ord`, or `None` when `values` is
-    empty, and of equal least elements, the first, where `sort` puts it. *)
+(** The smallest element, or `None` when the vector is empty. *)
 export let min<a: Ord>(values: Vector(a)): Option(a) = minUsing(values, Ord.compare)
 
-(** The element of `values` whose key is greatest, or `None` when `values` is
-    empty, and of elements whose keys are equal, the last. `key` runs once per
-    element, in order. *)
+(** The element for which the function `key` returns the largest value, or
+    `None` when the vector is empty:\
+    `people.maxBy(person => person.age)` finds the oldest person.\
+    If `key` returns the largest value for several elements, the result is the
+    last of them. *)
 export let maxBy<b: Ord>(values: Vector(a), key: a ->! b): Option(a) =
     unranked(fold!(values, None, (best, value) => laterBy(best, (key!(value), value))))
 
-(** The element of `values` whose key is least, or `None` when `values` is
-    empty, and of elements whose keys are equal, the first. `key` runs once per
-    element, in order. *)
+(** The element for which the function `key` returns the smallest value, or
+    `None` when the vector is empty:\
+    `people.minBy(person => person.age)` finds the youngest person.\
+    If `key` returns the smallest value for several elements, the result is the
+    first of them. *)
 export let minBy<b: Ord>(values: Vector(a), key: a ->! b): Option(a) =
     unranked(fold!(values, None, (best, value) => earlierBy(best, (key!(value), value))))
 
-(** The elements of `values` added left to right, starting from zero, so the
-    empty vector's sum is zero. *)
+(** The elements added together. *)
 export let sum<a: Num>(values: Vector(a)): a = fold(values, 0, Num.add)
 
-(** The elements of `values` multiplied left to right, starting from one, so the
-    empty vector's product is one. *)
+(** The elements multiplied together. An empty vector gives 1. *)
 export let product<a: Num>(values: Vector(a)): a = fold(values, 1, Num.multiply)
 
 honor Iterable<Vector(a)> =

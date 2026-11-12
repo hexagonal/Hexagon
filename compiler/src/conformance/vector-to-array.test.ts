@@ -479,11 +479,10 @@ describe("the `.d.ts` face is the `Array(a)` row (Part 1 §4.1, §9.1 obligation
     expect(vector).toBeDefined();
     expect(vector!.declarations.text).toContain(
       "/**\n" +
-        " * The elements of `values` as a fresh JavaScript array, in order. The\n" +
-        " * array is built at once and is a new one every call, so writing to it\n" +
-        " * changes nothing here; the crossing is shallow, so an element that is\n" +
-        " * itself a vector arrives as that same vector. The empty vector gives an\n" +
-        " * empty array.\n" +
+        " * A new JavaScript array with the elements of the vector, in the same\n" +
+        " * order. Every call makes a separate array, so changing the array never\n" +
+        " * changes the vector. The elements themselves are not converted: an\n" +
+        " * element that is a vector is still a vector in the array.\n" +
         " */\n" +
         "export declare function toArray<a>(values: Vector<a>): ReadonlyArray<a>;",
     );
