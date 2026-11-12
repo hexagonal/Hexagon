@@ -10,6 +10,7 @@ const hover = (fields: {
   readonly name: string;
   readonly target?: Target;
   readonly displayedType?: string;
+  readonly signature?: string;
   readonly documentation?: string;
 }) => ({ span, ...fields });
 
@@ -74,6 +75,18 @@ describe("hoverMarkdown", () => {
 
     expect(rendered).toBe("value `twice: Int -> Int`\n\nDoubles it.");
     expect(rendered).not.toContain("---");
+  });
+
+  test("shows the parameters under their declared names where the declaration gives them", () => {
+    // Functions §5.1: the signature is the face with its names, and stands in
+    // its place on the first line.
+    expect(hoverMarkdown(hover({
+      name: "twice",
+      target: targets.value,
+      displayedType: "Int -> Int",
+      signature: "(n: Int) -> Int",
+      documentation: "Doubles `n`.",
+    }))).toBe("value `twice: (n: Int) -> Int`\n\nDoubles `n`.");
   });
 
   test("carries a numbered arrow face through unchanged", () => {

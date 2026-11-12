@@ -15,7 +15,7 @@ describe("createCompilerService", () => {
       kind: "hover",
       id: 9,
       version: 4,
-      hover: { markdown: "value `twice: Int -> Int`" },
+      hover: { markdown: "value `twice: (n: Int) -> Int`" },
     });
     // A selection: the type of the expression it names, `twice(3)`.
     const call = source.indexOf("twice(3)");

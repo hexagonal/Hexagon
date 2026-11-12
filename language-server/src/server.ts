@@ -61,7 +61,6 @@ import { fileURLToPath } from "node:url";
 import {
   completionMark,
   hoverMarkdown,
-  parameterMarkdown,
   refused,
   signatureMarkdown,
   type Completion,
@@ -1036,14 +1035,9 @@ export function toLspSignatureHelp(help: SessionSignatureHelp, labelOffsets: boo
     signatures: [{
       label: help.label,
       ...(documentation === undefined ? {} : { documentation: { kind: MarkupKind.Markdown, value: documentation } }),
-      parameters: help.parameters.map((parameter) => {
-        const named = parameterMarkdown(parameter);
-        const [start, end] = parameter.range;
-        return {
-          label: labelOffsets ? [start, end] : help.label.slice(start, end),
-          ...(named === undefined ? {} : { documentation: { kind: MarkupKind.Markdown, value: named } }),
-        };
-      }),
+      parameters: help.parameters.map(({ range: [start, end] }) => ({
+        label: labelOffsets ? [start, end] : help.label.slice(start, end),
+      })),
       activeParameter: help.activeParameter,
     }],
     activeSignature: 0,
