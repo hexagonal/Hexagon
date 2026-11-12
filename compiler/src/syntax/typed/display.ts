@@ -150,9 +150,11 @@ export class Letters {
 
 /**
  * The gloss (Effects §10): the outer arrow's world colour and fail colour in
- * words, one clause each — "pure", "impure" or "impure only if `f` is"; then
- * "cannot fail", "may fail" or "may fail only if `f` may" — for every face
- * whose outer arrow is not `->`, since silence is the strong claim (§1).
+ * words, one clause each — "pure", "impure" or "impure only if `f` is impure";
+ * then "cannot fail", "may fail" or "may fail only if `f` may fail" — for every
+ * face whose outer arrow is not `->`, since silence is the strong claim (§1).
+ * A clause says its condition whole: it repeats the word it turns on, so the
+ * reader is never left to finish "only if `f` is".
  */
 function ownerLines(scheme: Typed.Scheme, context: ColourContext | undefined): readonly string[] {
   if (scheme.type.kind !== "Function") return [];
@@ -160,14 +162,23 @@ function ownerLines(scheme: Typed.Scheme, context: ColourContext | undefined): r
   if (arrow.effect === undefined && arrow.fail === undefined) return [];
   const parts = (effect: Typed.Effect): readonly Typed.TypeVariableId[] =>
     typeof effect !== "object" ? [] : "join" in effect ? effect.join : [effect.variable];
+  // A face's own callback is named by the scheme where it carries its names,
+  // as a module's symbols do (#1523), and by nothing else there: those are
+  // this scheme's variables, which the context's are only where the scheme is
+  // displayed in the module that made it.
+  const own = (part: Typed.TypeVariableId): string | undefined =>
+    scheme.colourNames === undefined
+      ? context?.names?.get(part)
+      : scheme.colourNames.find(([variable]) => variable === part)?.[1];
   // The callbacks a colour passes through: the face's own by name, a captured
-  // one by its owner, and "what it is handed" for those with no name to quote.
+  // one by its owner, and "a callback" for those with no name to quote —
+  // "another callback" beside one that is named.
   const followed = (effect: Typed.Effect): string => {
     const names: string[] = [];
     let unnamed = false;
     for (const part of parts(effect)) {
       const name = scheme.variables.includes(part)
-        ? context?.names?.get(part)
+        ? own(part)
         : context?.owners.get(part);
       if (name === undefined) {
         unnamed = true;
@@ -176,18 +187,18 @@ function ownerLines(scheme: Typed.Scheme, context: ColourContext | undefined): r
       const quoted = scheme.variables.includes(part) ? `\`${name}\`` : name;
       if (!names.includes(quoted)) names.push(quoted);
     }
-    if (unnamed || names.length === 0) names.push("what it is handed");
+    if (unnamed || names.length === 0) names.push(names.length === 0 ? "a callback" : "another callback");
     return names.join(" or ");
   };
   const world = arrow.effect === undefined
     ? "pure"
     : typeof arrow.effect === "object"
-    ? `impure only if ${followed(arrow.effect)} is`
+    ? `impure only if ${followed(arrow.effect)} is impure`
     : "impure";
   const fail = arrow.fail === undefined
     ? "cannot fail"
     : typeof arrow.fail === "object"
-    ? `may fail only if ${followed(arrow.fail)} may`
+    ? `may fail only if ${followed(arrow.fail)} may fail`
     : "may fail";
   return [`${world}; ${fail}`];
 }

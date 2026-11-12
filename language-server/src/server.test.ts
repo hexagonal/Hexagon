@@ -2153,7 +2153,7 @@ describe("hover renders the arrow trio", () => {
     // the one face in the language whose colour is *written* rather than
     // inferred from a body.
     expect(await hovered("runner")).toBe(
-      "value `runner: (() ->! String) >-> Int`\n\nimpure only if `step` is; may fail only if `step` may",
+      "value `runner: (() ->! String) >-> Int`\n\nimpure only if `step` is impure; may fail only if `step` may fail",
     );
   });
 });
