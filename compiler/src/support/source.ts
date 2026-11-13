@@ -57,17 +57,18 @@ export interface Qualification {
 export interface Comment {
   readonly kind: "Line" | "Block";
   /**
-   * A documentation comment (spec/doc-comments.md §2.1): `(**` followed by a
-   * character that is neither `)` nor `*`. Doc comments ride the ordinary
+   * A documentation comment (spec/doc-comments.md §2.1): `{--` followed by a
+   * character that is neither `-` nor `}`. Doc comments ride the ordinary
    * comment channel — activation added a classification, not a channel — and
-   * only `Block` comments can carry it: `///` has no status of any kind (§2.3).
+   * only `Block` comments can carry it: a line comment is never documentation
+   * (§2.3).
    */
   readonly documentation: boolean;
   /**
    * Whether the comment closed. Only a block comment can fail to, and only at
    * end of file; the lexer takes a separate path for it and reports it there.
    * Recorded rather than re-derived, because a *nested* unterminated comment
-   * ends in `*)` too — `(** a (* b *)` is open at depth 1 — so the text is not
+   * ends in `-}` too — `{-- a {- b -}` is open at depth 1 — so the text is not
    * evidence.
    */
   readonly terminated: boolean;

@@ -1,7 +1,7 @@
 module Concat
 
-(** The polymorphic face of concatenation. Honoring `Concat` gives a type the
-    `++` operator. *)
+{-- The polymorphic face of concatenation. Honoring `Concat` gives a type the
+    `++` operator. -}
 export constraint Concat<a> =
-    (** `left` followed by `right`. *)
+    {-- `left` followed by `right`. -}
     concat(left: a, right: a) -> a

@@ -55,7 +55,7 @@ export function rewrite(
     const edit = { start, end, replacement };
     if (reads(edit)) return { title, edit };
   }
-  // A `//` comment on a kept text's last line runs to the end of that line,
+  // A `--` comment on a kept text's last line runs to the end of that line,
   // over whatever the rewrite writes after the text.
   const swallowing = module.comments.some(({ kind, span }) =>
     kind === "Line" && written.kept.some((kept) =>
@@ -64,7 +64,7 @@ export function rewrite(
     )
   );
   if (swallowing) {
-    return { title, disabled: "A `//` comment inside it would swallow what the rewrite writes after it. Move the comment out first." };
+    return { title, disabled: "A `--` comment inside it would swallow what the rewrite writes after it. Move the comment out first." };
   }
   return { title, disabled: "Written the other way here, it would parse as a different program." };
 }

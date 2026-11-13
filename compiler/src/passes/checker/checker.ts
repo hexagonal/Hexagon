@@ -3446,17 +3446,31 @@ function spanKey(span: Source.Span): string {
 /**
  * A name's spelling as written, without the trivia a dotted path may hold
  * between its segments: whitespace, line comments, and block comments, which
- * nest (Comments §2, §3), and the JavaScript block spelling the lexer detects
- * and refuses. `Frac.\n    divide` and `Frac. // why\n    divide` are both
- * `Frac.divide`.
+ * nest (Comments §2, §3), and the other languages' spellings the lexer detects
+ * and refuses (§3.1). `Frac.\n    divide` and `Frac. -- why\n    divide` are
+ * both `Frac.divide`.
  */
 function writtenName(text: string): string {
   let written = "";
   let index = 0;
   while (index < text.length) {
-    if (text.startsWith("//", index)) {
+    if (text.startsWith("--", index) || text.startsWith("//", index)) {
       const end = text.indexOf("\n", index);
       index = end === -1 ? text.length : end;
+    } else if (text.startsWith("{-", index)) {
+      let depth = 0;
+      while (index < text.length) {
+        if (text.startsWith("{-", index)) {
+          depth += 1;
+          index += 2;
+        } else if (text.startsWith("-}", index)) {
+          depth -= 1;
+          index += 2;
+          if (depth === 0) break;
+        } else {
+          index += 1;
+        }
+      }
     } else if (text.startsWith("(*", index)) {
       let depth = 0;
       while (index < text.length) {
@@ -14387,7 +14401,7 @@ class Checker {
           //
           // The fixit is offered only where the deletion is exactly the two
           // characters it names. A gap holding anything more — an argument
-          // expression, a comment (`None((* why *))`), a glued effect mark
+          // expression, a comment (`None({- why -})`), a glued effect mark
           // (`None!()`) — is the writer's text, and "delete the `()`" must not
           // delete it.
           if (expression.mark === "caret") {
@@ -47113,7 +47127,7 @@ function acceptance(marks: Readonly<Record<Axis, boolean>>): string {
  */
 function oneLine(text: string): string | undefined {
   if (!text.includes("\n")) return text;
-  if (text.includes("//") || text.includes("(*") || text.includes('"')) return undefined;
+  if (text.includes("--") || text.includes("{-") || text.includes('"')) return undefined;
   return text
     .replace(/([([{])\s*\n\s*/g, "$1")
     .replace(/\s*\n\s*([)\]},:])/g, "$1")

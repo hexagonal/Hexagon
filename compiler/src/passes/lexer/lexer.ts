@@ -322,23 +322,25 @@ class Scanner {
         this.#scanTab();
       } else if (isNewlineStart(codeUnit)) {
         this.#scanNewline();
-      } else if (this.#startsWith("//")) {
-        // The lexer does not count slashes (spec/doc-comments.md §2.3): `///`
-        // is a line comment whose text begins with `/`, and so is `////`.
-        // There is no line documentation form, and no reservation of one.
+      } else if (this.#startsWith("--")) {
+        // Comments §2: `--` begins a comment wherever a token may begin,
+        // whatever stands beside it, and a run of more dashes is one comment.
+        // A line comment is never documentation (Doc Comments §2.3).
         const commentStart = this.#offset;
         this.#atLineStart = false;
         this.#offset += 2;
-        while (
-          this.#offset < this.#source.text.length &&
-          !isNewlineStart(this.#source.text.charCodeAt(this.#offset))
-        ) {
-          this.#offset += scalarWidth(this.#source.text, this.#offset);
-        }
+        this.#skipToLineEnd();
         this.#recordComment("Line", commentStart);
-      } else if (this.#startsWith("(*")) {
+      } else if (this.#startsWith("{-")) {
+        // Ahead of the record brace: no record begins with `-` (Comments §3).
         this.#atLineStart = false;
         this.#scanBlockComment();
+      } else if (this.#startsWith("//")) {
+        this.#atLineStart = false;
+        this.#scanJavaScriptLineComment();
+      } else if (this.#startsWith("(*")) {
+        this.#atLineStart = false;
+        this.#scanOCamlBlockComment();
       } else if (this.#startsWith("/*")) {
         this.#atLineStart = false;
         this.#scanJavaScriptBlockComment();
@@ -385,29 +387,40 @@ class Scanner {
     this.#atLineStart = true;
   }
 
+  /** Advances to the end of the physical line, leaving the newline. */
+  #skipToLineEnd(): void {
+    while (
+      this.#offset < this.#source.text.length &&
+      !isNewlineStart(this.#source.text.charCodeAt(this.#offset))
+    ) {
+      this.#offset += scalarWidth(this.#source.text, this.#offset);
+    }
+  }
+
   /**
    * Block comments, including the documentation form. The doc opener differs
    * from the ordinary one only in what the trivia is *for* (spec/doc-comments.md
    * §2.1): the body is scanned identically, so nesting, string non-interaction,
-   * and the unterminated error are shared verbatim.
+   * and the unterminated error are shared verbatim. Inside a block comment only
+   * `{-` and `-}` are read; `--` is comment text (Comments §3).
    */
   #scanBlockComment(): void {
     const commentStart = this.#offset;
-    // §2.1's predicate: `(**` then a character that is neither `)` nor `*`.
-    // `(**)` is the empty ordinary comment and `(***…` is a banner (§2.2); an
-    // unterminated `(**` at end of file has no character after the opener and
+    // §2.1's predicate: `{--` then a character that is neither `-` nor `}`.
+    // `{--}` is the empty ordinary comment and `{---…` is a banner (§2.2); an
+    // unterminated `{--` at end of file has no character after the opener and
     // so is ordinary too.
     const after = this.#source.text[this.#offset + 3];
-    const documentation = this.#startsWith("(**") &&
-      after !== undefined && after !== ")" && after !== "*";
+    const documentation = this.#startsWith("{--") &&
+      after !== undefined && after !== "-" && after !== "}";
     const openers: number[] = [this.#offset];
     this.#offset += 2;
 
     while (this.#offset < this.#source.text.length) {
-      if (this.#startsWith("(*")) {
+      if (this.#startsWith("{-")) {
         openers.push(this.#offset);
         this.#offset += 2;
-      } else if (this.#startsWith("*)")) {
+      } else if (this.#startsWith("-}")) {
         openers.pop();
         this.#offset += 2;
         if (openers.length === 0) {
@@ -433,7 +446,7 @@ class Scanner {
     const depth = openers.length;
     const nested =
       depth > 1
-        ? ` (nested ${depth} levels deep; each \`(*\` needs its own \`*)\`)`
+        ? ` (nested ${depth} levels deep; each \`{-\` needs its own \`-}\`)`
         : "";
     // An unterminated doc comment stays classified: the §5 row for it is
     // Comments §5's unterminated-block error, and nothing else fires.
@@ -445,6 +458,99 @@ class Scanner {
         this.#source.positionAt(innermost).line + 1
       }, column ${this.#source.positionAt(innermost).column + 1}${nested}`,
     );
+  }
+
+  /**
+   * `//` is JavaScript's line comment, never Hexagon's (Comments §3.1), and a
+   * longer run of slashes is refused with it. The rest of the line is taken as
+   * the comment it was meant to be, so one pasted comment costs one diagnostic;
+   * the fix turns each slash into a dash, so `/// note` becomes `--- note`.
+   */
+  #scanJavaScriptLineComment(): void {
+    const start = this.#offset;
+    while (this.#source.text[this.#offset] === "/") {
+      this.#offset += 1;
+    }
+    const slashes = this.#offset - start;
+    this.#skipToLineEnd();
+    const run = this.#source.span(start, start + slashes);
+    this.#diagnostics.add({
+      severity: "error",
+      message: "JavaScript line comment syntax — Hexagon line comments are `-- ...`",
+      primary: run,
+      fixes: [
+        {
+          message: "use the Hexagon line comment spelling",
+          edits: [{ span: run, replacement: "-".repeat(slashes) }],
+        },
+      ],
+    });
+  }
+
+  /**
+   * `(*` is OCaml's opener, never Hexagon's (Comments §3.1). The redirect is
+   * reported at the opener; OCaml's own nesting extent is then skipped so one
+   * pasted comment costs one diagnostic instead of a cascade from its body.
+   */
+  #scanOCamlBlockComment(): void {
+    const start = this.#offset;
+    // OCaml's documentation opener: `(**` then a character that is neither `)`
+    // nor `*`, so `(**)` stays empty and `(***…` a banner, as they were.
+    const after = this.#source.text[start + 3];
+    const documentation = this.#startsWith("(**") &&
+      after !== undefined && after !== ")" && after !== "*";
+    const delimiters: { readonly offset: number; readonly replacement: string }[] = [
+      { offset: start, replacement: "{-" },
+    ];
+    let depth = 1;
+    this.#offset = start + 2;
+
+    while (this.#offset < this.#source.text.length && depth > 0) {
+      if (this.#startsWith("(*")) {
+        delimiters.push({ offset: this.#offset, replacement: "{-" });
+        depth += 1;
+        this.#offset += 2;
+      } else if (this.#startsWith("*)")) {
+        delimiters.push({ offset: this.#offset, replacement: "-}" });
+        depth -= 1;
+        this.#offset += 2;
+      } else if (isNewlineStart(this.#source.text.charCodeAt(this.#offset))) {
+        this.#scanNewline();
+        this.#atLineStart = false;
+      } else {
+        this.#offset += scalarWidth(this.#source.text, this.#offset);
+      }
+    }
+
+    const opener = this.#source.span(start, start + (documentation ? 3 : 2));
+    const message = `OCaml block comment syntax — Hexagon block comments are \`{- ... -}\`${
+      documentation ? " (documentation form: `{-- ... -}`)" : ""
+    }`;
+
+    // Every delimiter is rewritten together, or none is: the comment must keep
+    // its extent under the new spelling. So an unterminated comment, or a body
+    // that already holds `{-` or `-}` text, takes the redirect on its message.
+    const body = this.#source.text.slice(start + 2, this.#offset - (depth === 0 ? 2 : 0));
+    if (depth > 0 || body.includes("{-") || body.includes("-}")) {
+      this.#diagnostics.add({ severity: "error", message, primary: opener });
+      return;
+    }
+
+    this.#diagnostics.add({
+      severity: "error",
+      message,
+      primary: opener,
+      fixes: [
+        {
+          message: "use the Hexagon block comment spelling",
+          edits: delimiters.map(({ offset, replacement }, index) =>
+            index === 0 && documentation
+              ? { span: opener, replacement: "{--" }
+              : { span: this.#source.span(offset, offset + 2), replacement }
+          ),
+        },
+      ],
+    });
   }
 
   /**
@@ -475,14 +581,16 @@ class Scanner {
     }
 
     const opener = this.#source.span(start, openerEnd);
-    const message = `JavaScript block comment syntax — Hexagon block comments are \`(* ... *)\`${
-      documentation ? " (documentation form: `(** ... *)`)" : ""
+    const message = `JavaScript block comment syntax — Hexagon block comments are \`{- ... -}\`${
+      documentation ? " (documentation form: `{-- ... -}`)" : ""
     }`;
 
     // Both delimiters are rewritten together, or neither: fixing the opener alone
-    // would leave the JavaScript closer inside an unterminated Hexagon comment. With
-    // no closer to pair with, the redirect stands on its message.
-    if (closerStart === undefined) {
+    // would leave the JavaScript closer inside an unterminated Hexagon comment.
+    // With no closer to pair with, or a body whose `{-` or `-}` text would change
+    // the comment's extent once it nests, the redirect stands on its message.
+    const body = this.#source.text.slice(openerEnd, closerStart ?? this.#offset);
+    if (closerStart === undefined || body.includes("{-") || body.includes("-}")) {
       this.#diagnostics.add({ severity: "error", message, primary: opener });
       return;
     }
@@ -495,8 +603,8 @@ class Scanner {
         {
           message: "use the Hexagon block comment spelling",
           edits: [
-            { span: opener, replacement: documentation ? "(**" : "(*" },
-            { span: this.#source.span(closerStart, closerStart + 2), replacement: "*)" },
+            { span: opener, replacement: documentation ? "{--" : "{-" },
+            { span: this.#source.span(closerStart, closerStart + 2), replacement: "-}" },
           ],
         },
       ],
@@ -531,20 +639,32 @@ class Scanner {
       return undefined;
     }
 
-    if (this.#startsWith("*)")) {
+    // Comments §3: no legal program holds `-` directly before `}`, so a closer
+    // with no comment open is its own error, never a minus and a brace.
+    if (this.#startsWith("-}")) {
       this.#offset += 2;
-      this.#error(start, this.#offset, "unmatched `*)` — no open block comment");
+      this.#error(start, this.#offset, "unmatched `-}` — no open block comment");
       return undefined;
     }
 
-    // No fix is offered: rewriting a stray closer to `*)` only exchanges this
-    // error for the unmatched-closer one above.
+    // No fix is offered for a stray closer of another language: rewriting it
+    // to `-}` only exchanges this error for the unmatched-closer one above.
+    if (this.#startsWith("*)")) {
+      this.#offset += 2;
+      this.#error(
+        start,
+        this.#offset,
+        "`*)` is OCaml's block comment closer — Hexagon spells it `-}`; no block comment is open here",
+      );
+      return undefined;
+    }
+
     if (this.#startsWith("*/")) {
       this.#offset += 2;
       this.#error(
         start,
         this.#offset,
-        "`*/` is JavaScript's block comment closer — Hexagon spells it `*)`; no block comment is open here",
+        "`*/` is JavaScript's block comment closer — Hexagon spells it `-}`; no block comment is open here",
       );
       return undefined;
     }

@@ -367,12 +367,12 @@ const EMPTY_HONOR_GROUP = "an honor group needs at least one honor";
 const HONOR_GROUP_HEAD_DOC =
   "documentation attaches to an honor group's instances, not to the group — move " +
   "it above the instance it describes, or make it an ordinary comment " +
-  "(`(* ... *)`)";
+  "(`{- ... -}`)";
 
 const FUN_BLOCK_HEAD_DOC =
   "documentation attaches to a `fun` block's members, not to the block — move " +
   "it above the member it describes, or make it an ordinary comment " +
-  "(`(* ... *)`)";
+  "(`{- ... -}`)";
 
 /** A written binder as its author spelled it, for the member-binder advice. */
 function writtenTypeParameter(parameter: Parsed.TypeParameter): string {
@@ -1762,7 +1762,7 @@ class Parser {
    * The edit spans the pair *and the gap between them*, which is what `* as`
    * does and is why the two spellings read alike. The gap is whitespace in every
    * line anyone writes, but it is not whitespace by construction: a comment may
-   * stand there — `export (* why *) opaque record` — and applying the fix would
+   * stand there — `export {- why -} opaque record` — and applying the fix would
    * take it with the word. Narrowing to two edits would keep it, at the cost of
    * spending trivia spans this pass does not otherwise carry, on an input no
    * corpus has produced. Recorded rather than repaired, so the trade is visible

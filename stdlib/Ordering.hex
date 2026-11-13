@@ -1,6 +1,6 @@
 module Ordering
 
-// The outcome of comparing two values, as produced by `Ord.compare`.
+-- The outcome of comparing two values, as produced by `Ord.compare`.
 export union Ordering derives (Eq, Show) =
     | Less
     | Equal

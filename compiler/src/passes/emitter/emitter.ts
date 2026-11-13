@@ -14393,12 +14393,16 @@ function sourceEntries(
 // so it is re-presented as a run of `//` comments on whole lines.
 function commentLines(comment: Source.Comment): string[] {
   const split = (text: string) => text.split(/\r\n|\r|\n/u);
-  if (comment.kind === "Line") return split(comment.text);
+  // A line comment's `--` becomes JavaScript's `//`; the text after it is kept.
+  if (comment.kind === "Line") return split(`//${comment.text.slice(2)}`);
 
   // An unterminated comment still reaches here — it is recorded alongside its
   // diagnostic — and its text has no closer to strip. Taking one off regardless
   // would delete the last two characters of the file.
-  const body = comment.text.slice(2, comment.terminated ? -2 : undefined);
+  // A documentation comment's `{--` opener is JavaScript's `/**`, so that a doc
+  // comment emitted as a comment rather than as JSDoc still reads as JSDoc does.
+  const body = (comment.documentation ? "*" : "") +
+    comment.text.slice(comment.documentation ? 3 : 2, comment.terminated ? -2 : undefined);
   return body.includes("*/")
     ? split(body).map((line) => `//${line}`.trimEnd())
     : split(`/*${body}*/`);

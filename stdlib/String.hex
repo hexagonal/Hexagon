@@ -1,53 +1,53 @@
 module String
 
-// The public `String` companion. A primitive's home module is its fixed prelude
-// companion (Constraints §5.3), so this file is where `String`'s instances are
-// declared and where the orphan rule lets them be declared.
+-- The public `String` companion. A primitive's home module is its fixed prelude
+-- companion (Constraints §5.3), so this file is where `String`'s instances are
+-- declared and where the orphan rule lets them be declared.
 
-// The natives, and only the natives. An own-operation member body cannot be
-// written in operators or interpolation — that sugar selects the very slot being
-// defined (Constraints §6.1) — so every such member is a one-line delegation to
-// one of the declarations below. `compare` is here for a second reason as well:
-// its codepoint walk has no strictly simpler Hexagon to be written in, because
-// the language has no codepoint API.
-//
-// `Show<String>`'s `show` is absent from this block on purpose: it is the
-// identity by ruling (Primitive Types §7), so its body is the plain binding
-// `value` — no operator, no interpolation, nothing that selects its own slot —
-// and the strictly-simpler doctrine sends such a body to ordinary Hexagon
-// (`spec/intrinsics.md` §3.2). The public length, text-processing, and joining
-// operations now live in this companion as ordinary Hexagon wherever the
-// language can express their policy.
-//
-// `fromSeq` is the one row here that is not a member's core, and it is here for
-// a different reason than the natives above. Collections Part 5 section 5.3
-// defines it as concatenation and then binds the implementation — collect
-// chunks and join — marking the fold of `++` semantic only and ruling out
-// repeated immutable concatenation by name. The fold is exactly what a Hexagon
-// body would be, so the operation crosses the door to reach a linear join. Its
-// twin `toSeq` is the member of this file's authoritative `Iterable<String>`
-// instance. Its private intrinsic supplies only the lazy representation walk;
-// the source block owns the coherence slot and `Item = String`. The consumer
-// spellings are the dot call `"ab".toSeq()` and the uniform-access read
-// `String.toSeq("ab")`. The remaining private rows are the Unicode 17.0.0
-// property, mapping, and scalar primitives that ordinary Hexagon cannot spell;
-// all traversal and matching policy is source below.
-//
-// Searching tries each original-codepoint start and compares the target there:
-// its worst-case bound is O(n * m) for source length n and target length m.
-// Split and replacement reuse that search and additionally count their output.
-//
-// `toWellFormed` is the one public row here that ordinary Hexagon could write,
-// over `toCodepoint`. It crosses the door for its cost, as the program I/O
-// writers' check does (`spec/string-text-processing.md` sections 11 and 13,
-// `spec/program-io.md` section 9): JavaScript answers at once for text stored
-// one byte per character, where a walk in source pays for every codepoint.
-(** Thrown when text that is about to be written holds a lone surrogate, which
+-- The natives, and only the natives. An own-operation member body cannot be
+-- written in operators or interpolation — that sugar selects the very slot being
+-- defined (Constraints §6.1) — so every such member is a one-line delegation to
+-- one of the declarations below. `compare` is here for a second reason as well:
+-- its codepoint walk has no strictly simpler Hexagon to be written in, because
+-- the language has no codepoint API.
+--
+-- `Show<String>`'s `show` is absent from this block on purpose: it is the
+-- identity by ruling (Primitive Types §7), so its body is the plain binding
+-- `value` — no operator, no interpolation, nothing that selects its own slot —
+-- and the strictly-simpler doctrine sends such a body to ordinary Hexagon
+-- (`spec/intrinsics.md` §3.2). The public length, text-processing, and joining
+-- operations now live in this companion as ordinary Hexagon wherever the
+-- language can express their policy.
+--
+-- `fromSeq` is the one row here that is not a member's core, and it is here for
+-- a different reason than the natives above. Collections Part 5 section 5.3
+-- defines it as concatenation and then binds the implementation — collect
+-- chunks and join — marking the fold of `++` semantic only and ruling out
+-- repeated immutable concatenation by name. The fold is exactly what a Hexagon
+-- body would be, so the operation crosses the door to reach a linear join. Its
+-- twin `toSeq` is the member of this file's authoritative `Iterable<String>`
+-- instance. Its private intrinsic supplies only the lazy representation walk;
+-- the source block owns the coherence slot and `Item = String`. The consumer
+-- spellings are the dot call `"ab".toSeq()` and the uniform-access read
+-- `String.toSeq("ab")`. The remaining private rows are the Unicode 17.0.0
+-- property, mapping, and scalar primitives that ordinary Hexagon cannot spell;
+-- all traversal and matching policy is source below.
+--
+-- Searching tries each original-codepoint start and compares the target there:
+-- its worst-case bound is O(n * m) for source length n and target length m.
+-- Split and replacement reuse that search and additionally count their output.
+--
+-- `toWellFormed` is the one public row here that ordinary Hexagon could write,
+-- over `toCodepoint`. It crosses the door for its cost, as the program I/O
+-- writers' check does (`spec/string-text-processing.md` sections 11 and 13,
+-- `spec/program-io.md` section 9): JavaScript answers at once for text stored
+-- one byte per character, where a walk in source pays for every codepoint.
+{-- Thrown when text that is about to be written holds a lone surrogate, which
     is one half of a two-part codepoint with its other half missing. Such text
     cannot be written as UTF-8, and only JavaScript code can produce it.
     `File.writeText`, `File.writeTextBom` and the `Stdio` writers throw it
     before they write anything. `position` is where the first lone surrogate is,
-    counting codepoints from 1. To repair the text first, use `toWellFormed`. *)
+    counting codepoints from 1. To repair the text first, use `toWellFormed`. -}
 export fault LoneSurrogateFault(message: String, position: Int)
 
 extern from "hex:intrinsic"
@@ -56,11 +56,11 @@ extern from "hex:intrinsic"
     fun stringCompare as nativeCompare(left: String, right: String) -> Ordering
     fun stringHash as nativeHash(value: String) -> Int
 
-    (** One string made by joining the strings that the sequence `values`
+    {-- One string made by joining the strings that the sequence `values`
         produces, end to end, with nothing between them:\
         `String.fromSeq(["ab", "c"])` is `"abc"`.\
         To put a separator between them, use `join`. It reads the sequence to
-        its end, so it never returns for a sequence that has no end. *)
+        its end, so it never returns for a sequence that has no end. -}
     export fun stringFromSeq as fromSeq(values: Seq(String)) -> String
 
     fun stringToSeq as nativeToSeq(text: String) -> Seq(String)
@@ -74,12 +74,12 @@ extern from "hex:intrinsic"
     fun stringCodepointUnchecked as codepointUnchecked(point: String) -> Int
     fun stringFromCodepointUnchecked as fromCodepointUnchecked(value: Int) -> String
 
-    (** The string with every lone surrogate replaced by the replacement
+    {-- The string with every lone surrogate replaced by the replacement
         character, U+FFFD, and everything else as it was. A lone surrogate is
         one half of a two-part codepoint with its other half missing. Only
         JavaScript code can produce one, and text that holds one cannot be
         written to a file, so call this on text from such code before writing
-        it. *)
+        it. -}
     export fun stringToWellFormed as toWellFormed(text: String) -> String
 
 honor Iterable<String> =
@@ -87,40 +87,40 @@ honor Iterable<String> =
     toSeq(text) = nativeToSeq(text)
 
 honor Eq<String> =
-    (** Whether `left` and `right` are the same text, codepoint for codepoint.
+    {-- Whether `left` and `right` are the same text, codepoint for codepoint.
         Two ways of writing what looks like the same text are not equal: a
         letter with an accent built in differs from the plain letter followed by
-        a separate accent. *)
+        a separate accent. -}
     equals(left, right) = nativeEquals(left, right)
 
 honor Ord<String> =
-    (** Which of `left` and `right` comes first: `Less` when `left` does,
+    {-- Which of `left` and `right` comes first: `Less` when `left` does,
         `Greater` when `right` does, and `Equal` when they are the same text.
         The two are compared codepoint by codepoint, by Unicode number. That is
         not dictionary order: every capital letter comes before every small one,
-        so `"Zebra"` comes before `"apple"`. *)
+        so `"Zebra"` comes before `"apple"`. -}
     compare(left, right) = nativeCompare(left, right)
 
 honor Show<String> =
-    (** The string itself, with no quotes added and nothing escaped. *)
+    {-- The string itself, with no quotes added and nothing escaped. -}
     show(value) = value
 
 honor Concat<String> =
-    (** `left` followed by `right`, as one string, which is what `++` gives. *)
+    {-- `left` followed by `right`, as one string, which is what `++` gives. -}
     concat(left, right) = nativeConcat(left, right)
 
 honor Hash<String> =
-    (** A number worked out from the string, which `Map` and `Set` use to find a
-        key quickly. Strings that are equal have the same hash. *)
+    {-- A number worked out from the string, which `Map` and `Set` use to find a
+        key quickly. Strings that are equal have the same hash. -}
     hash(value) = nativeHash(value)
 
-// The scans below read the text they scan through brackets, `text[i]` and
-// `text[lo..hi]`: Collections Part 3 §9 keeps a string's codepoint positions
-// once it has been read, so a bracket on a string read again is amortised
-// O(1), and a scan costs its traversal. A search reads its target through
-// `points` once instead, so no scan alternates brackets between two strings:
-// §9's memo tells strings apart by comparing them, which for two long strings
-// of one length costs the prefix they share, on every bracket.
+-- The scans below read the text they scan through brackets, `text[i]` and
+-- `text[lo..hi]`: Collections Part 3 §9 keeps a string's codepoint positions
+-- once it has been read, so a bracket on a string read again is amortised
+-- O(1), and a scan costs its traversal. A search reads its target through
+-- `points` once instead, so no scan alternates brackets between two strings:
+-- §9's memo tells strings apart by comparing them, which for two long strings
+-- of one length costs the prefix they share, on every bracket.
 
 let points(text: String): Vector(String) =
     var result: Vector(String) = []
@@ -128,14 +128,14 @@ let points(text: String): Vector(String) =
         result := result.append(point)
     result
 
-(** The number of codepoints in the string. A codepoint is one Unicode
+{-- The number of codepoints in the string. A codepoint is one Unicode
     character: a letter, a digit or a plain emoji is one codepoint, and a letter
-    followed by a separate accent mark is two. *)
+    followed by a separate accent mark is two. -}
 export let length(text: String): Int =
-    // The last position whose one-codepoint window is not empty, found by
-    // doubling and then halving. A window past the end clamps to `""`, and
-    // each window is amortised O(1) once the string has been read
-    // (Collections Part 3 §9), so this is O(log n) then.
+    -- The last position whose one-codepoint window is not empty, found by
+    -- doubling and then halving. A window past the end clamps to `""`, and
+    -- each window is amortised O(1) once the string has been read
+    -- (Collections Part 3 §9), so this is O(log n) then.
     if text == "" then
         0
     else
@@ -183,8 +183,8 @@ let foldedEnd(source: String, sourceLength: Int, target: Vector(String), start: 
     var matching = True
     var result = None
     while matching and sourceIndex <= sourceLength
-        // A mismatch ends the match: the rest of this expansion may still
-        // advance `targetIndex`, but nothing reads it once `matching` is false.
+        -- A mismatch ends the match: the rest of this expansion may still
+        -- advance `targetIndex`, but nothing reads it once `matching` is false.
         for point in nativeCaseFoldMapping(source[sourceIndex])
             if targetIndex > targetLength or point != target[targetIndex] then
                 matching := False
@@ -198,7 +198,7 @@ let foldedEnd(source: String, sourceLength: Int, target: Vector(String), start: 
                 sourceIndex := sourceIndex + 1
     result
 
-// A text and its codepoint count, so that a scan asks `length` once.
+-- A text and its codepoint count, so that a scan asks `length` once.
 record Counted = { text: String, size: Int }
 
 let counted(text: String): Counted = Counted({ text = text, size = length(text) })
@@ -304,11 +304,11 @@ let replaceWith(
                         searching := False
         joinChunks(chunks)
 
-(** A vector of the lines of the string, without the line endings. A line ends
+{-- A vector of the lines of the string, without the line endings. A line ends
     at `\n`, at `\r\n` or at `\r`:\
     `"one\ntwo\n".lines()` is `["one", "two"]`.\
     A line ending at the very end of the string does not add an empty last
-    line. *)
+    line. -}
 export let lines(text: String): Vector(String) =
     let source = text
     let sourceLength = length(text)
@@ -325,11 +325,11 @@ export let lines(text: String): Vector(String) =
         index := index + 1
     if start <= sourceLength then result.append(slicePoints(text, start, sourceLength)) else result
 
-(** A vector of the words of the string, which are the runs of codepoints
+{-- A vector of the words of the string, which are the runs of codepoints
     between whitespace:\
     `"  the quick  fox ".words()` is `["the", "quick", "fox"]`.\
     Spaces, tabs, line endings and every other Unicode whitespace codepoint
-    separate words, and none of them is kept. *)
+    separate words, and none of them is kept. -}
 export let words(text: String): Vector(String) =
     let source = text
     let sourceLength = length(text)
@@ -344,42 +344,42 @@ export let words(text: String): Vector(String) =
         if start < index then result := result.append(slicePoints(text, start, index - 1))
     result
 
-(** A vector of the pieces of the string that lie between the occurrences of
+{-- A vector of the pieces of the string that lie between the occurrences of
     `delimiter`:\
     `"a,b,,c".split(",")` is `["a", "b", "", "c"]`.\
     Two occurrences side by side give an empty piece, and a string that does not
     contain `delimiter` gives one piece, the whole string. An empty `delimiter`
     splits between every two codepoints and adds an empty piece at each end. To
-    split at whitespace, use `words`. *)
+    split at whitespace, use `words`. -}
 export let split(text: String, delimiter: String): Vector(String) = splitWith(text, delimiter, False)
 
-(** A vector of the pieces of the string that lie between the occurrences of
+{-- A vector of the pieces of the string that lie between the occurrences of
     `delimiter`, as `split` gives, except that upper and lower case are treated
     as the same:\
-    `"oneXtwoxthree".splitCi("x")` is `["one", "two", "three"]`. *)
+    `"oneXtwoxthree".splitCi("x")` is `["one", "two", "three"]`. -}
 export let splitCi(text: String, delimiter: String): Vector(String) = splitWith(text, delimiter, True)
 
-(** The string without its first `count` codepoints:\
+{-- The string without its first `count` codepoints:\
     `"hello".dropFirstN(2)` is `"llo"`.\
     A `count` of zero or less gives the whole string, and a `count` greater than
-    the length gives an empty one. *)
+    the length gives an empty one. -}
 export let dropFirstN(text: String, count: Int): String =
     if count <= 0 then text else slicePoints(text, count + 1, length(text))
 
-(** The string without its last `count` codepoints:\
+{-- The string without its last `count` codepoints:\
     `"hello".dropLastN(2)` is `"hel"`.\
     A `count` of zero or less gives the whole string, and a `count` greater than
-    the length gives an empty one. *)
+    the length gives an empty one. -}
 export let dropLastN(text: String, count: Int): String =
     if count <= 0 then text else slicePoints(text, 1, length(text) - count)
 
-(** The string without its first codepoint. An empty string stays empty. *)
+{-- The string without its first codepoint. An empty string stays empty. -}
 export let dropFirst(text: String): String = dropFirstN(text, 1)
-(** The string without its last codepoint. An empty string stays empty. *)
+{-- The string without its last codepoint. An empty string stays empty. -}
 export let dropLast(text: String): String = dropLastN(text, 1)
 
-(** The string without the whitespace at its start. Spaces, tabs, line endings
-    and every other Unicode whitespace codepoint are removed. *)
+{-- The string without the whitespace at its start. Spaces, tabs, line endings
+    and every other Unicode whitespace codepoint are removed. -}
 export let trimStart(text: String): String =
     let sourceLength = length(text)
     var start = 1
@@ -387,32 +387,32 @@ export let trimStart(text: String): String =
         start := start + 1
     slicePoints(text, start, sourceLength)
 
-(** The string without the whitespace at its end. Spaces, tabs, line endings and
-    every other Unicode whitespace codepoint are removed. *)
+{-- The string without the whitespace at its end. Spaces, tabs, line endings and
+    every other Unicode whitespace codepoint are removed. -}
 export let trimEnd(text: String): String =
     var end = length(text)
     while end >= 1 and nativeIsWhitespace(text[end])
         end := end - 1
     slicePoints(text, 1, end)
 
-(** The string without the whitespace at its start and at its end:\
+{-- The string without the whitespace at its start and at its end:\
     `"  hi  ".trim()` is `"hi"`.\
     Spaces, tabs, line endings and every other Unicode whitespace codepoint are
-    removed. *)
+    removed. -}
 export let trim(text: String): String = trimEnd(trimStart(text))
 
-(** The position where `targetText` first appears in the string, counting
+{-- The position where `targetText` first appears in the string, counting
     codepoints from 1, or `None` when it does not appear:\
-    `"banana".indexOf("an")` is `Some(2)`. *)
+    `"banana".indexOf("an")` is `Some(2)`. -}
 export let indexOf(text: String, targetText: String): Option(Int) =
     match findMatch(counted(text), points(targetText), [], 1, False)
         None => None
         Some((start, _)) => Some(start)
 
-(** The position where `targetText` first appears in the string when upper and
+{-- The position where `targetText` first appears in the string when upper and
     lower case are treated as the same, counting codepoints from 1, or `None`
     when it does not appear:\
-    `"Banana".indexOfCi("b")` is `Some(1)`. *)
+    `"Banana".indexOfCi("b")` is `Some(1)`. -}
 export let indexOfCi(text: String, targetText: String): Option(Int) =
     match findMatch(counted(text), points(targetText), points(foldedText(targetText)), 1, True)
         None => None
@@ -434,42 +434,42 @@ let lastIndexWith(text: String, targetText: String, insensitive: Bool): Option(I
             position := position + 1
         result
 
-(** The position where `targetText` last appears in the string, counting
+{-- The position where `targetText` last appears in the string, counting
     codepoints from 1, or `None` when it does not appear. The position is where
     that last appearance begins:\
-    `"banana".lastIndexOf("an")` is `Some(4)`. *)
+    `"banana".lastIndexOf("an")` is `Some(4)`. -}
 export let lastIndexOf(text: String, targetText: String): Option(Int) = lastIndexWith(text, targetText, False)
-(** The position where `targetText` last appears in the string when upper and
+{-- The position where `targetText` last appears in the string when upper and
     lower case are treated as the same, counting codepoints from 1, or `None`
     when it does not appear. The position is where that last appearance
-    begins. *)
+    begins. -}
 export let lastIndexOfCi(text: String, targetText: String): Option(Int) = lastIndexWith(text, targetText, True)
 
-(** Whether `targetText` appears anywhere in the string. *)
+{-- Whether `targetText` appears anywhere in the string. -}
 export let contains(text: String, targetText: String): Bool = match indexOf(text, targetText)
     Some(_) => True
     None => False
 
-(** Whether `targetText` appears anywhere in the string when upper and lower
+{-- Whether `targetText` appears anywhere in the string when upper and lower
     case are treated as the same:\
-    `"Hello".containsCi("HELL")` is `True`. *)
+    `"Hello".containsCi("HELL")` is `True`. -}
 export let containsCi(text: String, targetText: String): Bool = match indexOfCi(text, targetText)
     Some(_) => True
     None => False
 
-(** Whether the string begins with `prefix`. *)
+{-- Whether the string begins with `prefix`. -}
 export let startsWith(text: String, prefix: String): Bool = match exactEnd(text, length(text), points(prefix), 1)
     Some(_) => True
     None => False
 
-(** Whether the string begins with `prefix` when upper and lower case are
-    treated as the same. *)
+{-- Whether the string begins with `prefix` when upper and lower case are
+    treated as the same. -}
 export let startsWithCi(text: String, prefix: String): Bool =
     if prefix == "" then True else match foldedEnd(text, length(text), points(foldedText(prefix)), 1)
         Some(_) => True
         None => False
 
-(** Whether the string ends with `suffix`. *)
+{-- Whether the string ends with `suffix`. -}
 export let endsWith(text: String, suffix: String): Bool =
     let textLength = length(text)
     let target = points(suffix)
@@ -478,8 +478,8 @@ export let endsWith(text: String, suffix: String): Bool =
         Some(end) => end == textLength
         None => False
 
-(** Whether the string ends with `suffix` when upper and lower case are treated
-    as the same. *)
+{-- Whether the string ends with `suffix` when upper and lower case are treated
+    as the same. -}
 export let endsWithCi(text: String, suffix: String): Bool =
     if suffix == "" then
         True
@@ -495,32 +495,32 @@ export let endsWithCi(text: String, suffix: String): Bool =
             position := position + 1
         found
 
-(** The string with every occurrence of `target` replaced by `replacement`:\
+{-- The string with every occurrence of `target` replaced by `replacement`:\
     `"banana".replace("an", "AN")` is `"bANANa"`.\
     Occurrences are found from left to right and do not overlap:\
     `"aaa".replace("aa", "b")` is `"ba"`.\
-    To replace only the first one, use `replaceFirst`. *)
+    To replace only the first one, use `replaceFirst`. -}
 export let replace(text: String, target: String, replacement: String): String =
     replaceWith(text, target, replacement, False, False)
-(** The string with the first occurrence of `target` replaced by `replacement`.
-    A string that does not contain `target` is returned as it is. *)
+{-- The string with the first occurrence of `target` replaced by `replacement`.
+    A string that does not contain `target` is returned as it is. -}
 export let replaceFirst(text: String, target: String, replacement: String): String =
     replaceWith(text, target, replacement, False, True)
-(** The string with every occurrence of `target` replaced by `replacement`,
+{-- The string with every occurrence of `target` replaced by `replacement`,
     where upper and lower case are treated as the same in finding `target`:\
-    `"Banana BANANA".replaceCi("banana", "apple")` is `"apple apple"`. *)
+    `"Banana BANANA".replaceCi("banana", "apple")` is `"apple apple"`. -}
 export let replaceCi(text: String, target: String, replacement: String): String =
     replaceWith(text, target, replacement, True, False)
-(** The string with the first occurrence of `target` replaced by `replacement`,
-    where upper and lower case are treated as the same in finding `target`. *)
+{-- The string with the first occurrence of `target` replaced by `replacement`,
+    where upper and lower case are treated as the same in finding `target`. -}
 export let replaceFirstCi(text: String, target: String, replacement: String): String =
     replaceWith(text, target, replacement, True, True)
 
-(** One string made from the strings that the sequence `parts` produces, with
+{-- One string made from the strings that the sequence `parts` produces, with
     `separator` between each one and the next:\
     `String.join(["a", "b", "c"], ", ")` is `"a, b, c"`.\
     A vector may be given where a sequence is asked for, as here. To join with
-    nothing between, use `fromSeq`. *)
+    nothing between, use `fromSeq`. -}
 export let join(parts: Seq(String), separator: String): String =
     var chunks: Vector(String) = []
     var current = parts
@@ -536,9 +536,9 @@ export let join(parts: Seq(String), separator: String): String =
                 current := rest
     joinChunks(chunks)
 
-(** The Unicode number of the codepoint in a string that has exactly one, or
+{-- The Unicode number of the codepoint in a string that has exactly one, or
     `None` for any other string:\
-    `"a".toCodepoint()` is `Some(97)`. *)
+    `"a".toCodepoint()` is `Some(97)`. -}
 export let toCodepoint(text: String): Option(Int) =
     if length(text) != 1 then
         None
@@ -546,34 +546,34 @@ export let toCodepoint(text: String): Option(Int) =
         let value = codepointUnchecked(text)
         if value >= 55_296 and value <= 57_343 then None else Some(value)
 
-(** A string of one codepoint, the one whose Unicode number is `value`, or
+{-- A string of one codepoint, the one whose Unicode number is `value`, or
     `None` when no codepoint has that number:\
-    `String.fromCodepoint(97)` is `Some("a")`. *)
+    `String.fromCodepoint(97)` is `Some("a")`. -}
 export let fromCodepoint(value: Int): Option(String) =
     if value < 0 or value > 1_114_111 or (value >= 55_296 and value <= 57_343) then
         None
     else
         Some(fromCodepointUnchecked(value))
 
-(** The string with every letter in upper case. One letter may become two:\
+{-- The string with every letter in upper case. One letter may become two:\
     `"straße".toUpper()` is `"STRASSE"`.\
-    The result is the same whatever language the computer is set to. *)
+    The result is the same whatever language the computer is set to. -}
 export let toUpper(text: String): String =
     var chunks: Vector(String) = []
     for point in text
         chunks := chunks.append(nativeUppercaseMapping(point))
     joinChunks(chunks)
 
-(** The string in a form made for comparing text without regard to upper and
+{-- The string in a form made for comparing text without regard to upper and
     lower case. Two strings that differ only in case give the same result:\
     `"Straße".caseFold()` and `"STRASSE".caseFold()` are both `"strasse"`.\
     The functions whose names end in `Ci` compare this way. The result is for
-    comparing and not for showing to a person: for that, use `toLower`. *)
+    comparing and not for showing to a person: for that, use `toLower`. -}
 export let caseFold(text: String): String =
     foldedText(text)
 
-(** The string with every letter in lower case. The result is the same whatever
-    language the computer is set to. *)
+{-- The string with every letter in lower case. The result is the same whatever
+    language the computer is set to. -}
 export let toLower(text: String): String =
     let source = text
     let sourceLength = length(text)

@@ -953,7 +953,7 @@ export class AnalysisSession {
    *
    * Two sources feed it. A diagnostic may carry its own `fixes`, written where
    * the problem was found — the lexer's redirect from a JavaScript-spelled block
-   * comment to `(* … *)` is one — and those are decided already, so they pass
+   * comment to `{- … -}` is one — and those are decided already, so they pass
    * straight through. The rest are computed here, needing the whole project.
    *
    * The refactorings answer none: the variance an opaque type could claim, and

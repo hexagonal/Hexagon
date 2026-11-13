@@ -44,8 +44,8 @@ export interface Documentation {
 
 /**
  * Extracts one doc comment's content (§3.1), in the spec's order: drop one
- * leading space after `(**`, drop a blank remainder of the opener's line, drop
- * trailing whitespace before `*)`, then dedent by the longest common literal
+ * leading space after `{--`, drop a blank remainder of the opener's line, drop
+ * trailing whitespace before `-}`, then dedent by the longest common literal
  * whitespace prefix.
  *
  * The opener-line fragment is exempt from the dedent because it begins mid-line
@@ -58,7 +58,7 @@ export function extractDocContent(comment: Source.Comment): string {
   // diagnostic (Comments §5); there is no closer to strip.
   let body = comment.text.slice(3, comment.terminated ? -2 : undefined);
 
-  // 1a. one leading space after `(**`.
+  // 1a. one leading space after `{--`.
   if (body.startsWith(" ")) body = body.slice(1);
 
   // 1b. a blank remainder of the opener's line goes entirely, newline included;
@@ -75,7 +75,7 @@ export function extractDocContent(comment: Source.Comment): string {
     fragment = false;
   }
 
-  // 2. trailing whitespace, the final newline included, before `*)`. Only the
+  // 2. trailing whitespace, the final newline included, before `-}`. Only the
   //    body's end: whitespace at the end of an interior line is content (two
   //    trailing spaces are a Markdown hard break).
   body = body.replace(/\s+$/u, "");

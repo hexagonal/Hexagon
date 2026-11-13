@@ -1,24 +1,24 @@
 module Iterable
 
-// The constraint, and one instance: `Seq`'s. Every other standard type honors
-// `Iterable` in its own companion, but `Seq.hex` seats before this file and so
-// cannot name the constraint, which makes this, the constraint's home, the row's
-// one legal home (Collections Part 5 section 4). The row is the identity, and it
-// is lawful because a `Seq` is pure and persistent: traversing it again replays
-// the same elements, so the sequence view of a sequence is itself.
+-- The constraint, and one instance: `Seq`'s. Every other standard type honors
+-- `Iterable` in its own companion, but `Seq.hex` seats before this file and so
+-- cannot name the constraint, which makes this, the constraint's home, the row's
+-- one legal home (Collections Part 5 section 4). The row is the identity, and it
+-- is lawful because a `Seq` is pure and persistent: traversing it again replays
+-- the same elements, so the sequence view of a sequence is itself.
 
-(** The constraint for types whose elements can be visited one at a time. A
+{-- The constraint for types whose elements can be visited one at a time. A
     `for` loop works on a value of any type that honors `Iterable`, and `toSeq`
     gives the same elements as a sequence. Vectors, strings, ranges, maps and
-    sets all honor it. *)
+    sets all honor it. -}
 export constraint Iterable<c> =
-    (** The type of one element. Each type that honors `Iterable` says what it
-        is: for `Vector(a)` it is `a`, and for `String` it is `String`. *)
+    {-- The type of one element. Each type that honors `Iterable` says what it
+        is: for `Vector(a)` it is `a`, and for `String` it is `String`. -}
     type Item
-    (** The elements as a sequence, in the order a `for` loop visits them. Use
+    {-- The elements as a sequence, in the order a `for` loop visits them. Use
         it to reach the functions of `Seq`, which work an element out only when
         it is read:\
-        `items.toSeq().filter(n => n > 0).take(3)` *)
+        `items.toSeq().filter(n => n > 0).take(3)` -}
     toSeq(xs: c) -> Seq(Item)
 
 honor Iterable<Seq(a)> =

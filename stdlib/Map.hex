@@ -1,98 +1,98 @@
 module Map
 
-// The public Map companion over the runtime's hash array mapped trie.
+-- The public Map companion over the runtime's hash array mapped trie.
 
-(** Raised when `map[key]` is read at a key the map does not bind. `Map.get` is
-    the total sibling that answers `None` instead. *)
+{-- Raised when `map[key]` is read at a key the map does not bind. `Map.get` is
+    the total sibling that answers `None` instead. -}
 export fault KeyFault
 
-(** Raised when two entries passed through `Map.map` come back with equal
-    keys. *)
+{-- Raised when two entries passed through `Map.map` come back with equal
+    keys. -}
 export fault DuplicateKeyFault
 
-// The whole boundary Collections Part 4 section 6.1 pins: construction, the
-// maintained size, the keyed trio, and the one traversal. After those seven come
-// the four eager walks `collection-combinators.md` section 8 sends through the
-// door, because each is a loop over the trie's own nodes: `fold`, `find`,
-// `filter`, which keeps each entry's stored hash rather than hashing its key
-// again, and the unexported `remap` beneath `map`, which keeps the slot of every
-// key handed back unchanged. Everything below is ordinary Hexagon over these
-// eleven, which is what makes the keys/values/entries correspondence
-// (section 7.3) free rather than arranged.
-//
-// The type row declares `Map` itself (`spec/intrinsics.md` section 3.3): the
-// type is this module's own, its values are the runtime's `HashTrie` records,
-// and both `+`s are checked against that record's variance here, at the row.
+-- The whole boundary Collections Part 4 section 6.1 pins: construction, the
+-- maintained size, the keyed trio, and the one traversal. After those seven come
+-- the four eager walks `collection-combinators.md` section 8 sends through the
+-- door, because each is a loop over the trie's own nodes: `fold`, `find`,
+-- `filter`, which keeps each entry's stored hash rather than hashing its key
+-- again, and the unexported `remap` beneath `map`, which keeps the slot of every
+-- key handed back unchanged. Everything below is ordinary Hexagon over these
+-- eleven, which is what makes the keys/values/entries correspondence
+-- (section 7.3) free rather than arranged.
+--
+-- The type row declares `Map` itself (`spec/intrinsics.md` section 3.3): the
+-- type is this module's own, its values are the runtime's `HashTrie` records,
+-- and both `+`s are checked against that record's variance here, at the row.
 extern from "hex:intrinsic"
-    (** An immutable map from keys to values, each key bound at most once. Every
-        update answers a new map and leaves the one it was given as it was. *)
+    {-- An immutable map from keys to values, each key bound at most once. Every
+        update answers a new map and leaves the one it was given as it was. -}
     export type map as Map(+k, +v)
 
-    // Unexported, beneath `empty` below: the block admits no `let` and an
-    // empty map is a value, so the door row is the thunk and the wrapper is what
-    // the language sees (`spec/intrinsics.md` section 3.2).
+    -- Unexported, beneath `empty` below: the block admits no `let` and an
+    -- empty map is a value, so the door row is the thunk and the wrapper is what
+    -- the language sees (`spec/intrinsics.md` section 3.2).
     fun mapEmpty as emptyMap() -> Map(k, v)
 
-    (** A map binding `key` to `value` and nothing else. Takes no `Hash`: a
+    {-- A map binding `key` to `value` and nothing else. Takes no `Hash`: a
         one-entry map holds its pair unplaced, so nothing is hashed until the
-        first keyed operation. *)
+        first keyed operation. -}
     export fun mapSingleton as singleton(key: k, value: v) -> Map(k, v)
 
-    (** How many entries `map` holds, in constant time. *)
+    {-- How many entries `map` holds, in constant time. -}
     export fun mapSize as size(map: Map(k, v)) -> Int
 
-    (** The value `map` binds `key` to, or `None` when it binds none. The total
-        accessor: an absent key is an answer, not a fault. *)
+    {-- The value `map` binds `key` to, or `None` when it binds none. The total
+        accessor: an absent key is an answer, not a fault. -}
     export fun mapGet as get<k: Hash>(map: Map(k, v), key: k) -> Option(v)
 
-    (** `map` with `key` bound to `value`, inserting or replacing. It never
+    {-- `map` with `key` bound to `value`, inserting or replacing. It never
         throws, and a key already present keeps the representative the map
-        already holds while its value is replaced. *)
+        already holds while its value is replaced. -}
     export fun mapSet as set<k: Hash>(map: Map(k, v), key: k, value: v) -> Map(k, v)
 
-    (** `map` with `key` unbound. Forgiving: a key that is not there yields the
-        map unchanged rather than an error. *)
+    {-- `map` with `key` unbound. Forgiving: a key that is not there yields the
+        map unchanged rather than an error. -}
     export fun mapRemove as remove<k: Hash>(map: Map(k, v), key: k) -> Map(k, v)
 
-    (** Every key/value pair in `map`, lazily. The order is the same for two
+    {-- Every key/value pair in `map`, lazily. The order is the same for two
         traversals of one map within one execution, and is promised for nothing
-        else — not insertion, not sorted, not stable across runs. *)
+        else — not insertion, not sorted, not stable across runs. -}
     export fun mapEntries as entries(map: Map(k, v)) -> Seq((k, v))
 
-    (** `initial` combined with every entry of `m`, in the order `entries` yields
+    {-- `initial` combined with every entry of `m`, in the order `entries` yields
         them: `Seq.fold` over the entries, run at once, whose `combine` may be
-        impure or fail. *)
+        impure or fail. -}
     export fun mapFold as fold(m: Map(k, v), initial: b, combine: (b, (k, v)) ->! b) >-> b
 
-    (** The first entry of `m`, in the order `entries` yields them, that `matches`
+    {-- The first entry of `m`, in the order `entries` yields them, that `matches`
         accepts, or `None`. It stops there: no later entry is handed to
-        `matches`. *)
+        `matches`. -}
     export fun mapFind as find(m: Map(k, v), matches: ((k, v)) ->! Bool) >-> Option((k, v))
 
-    (** The entries of `m` that `keep` accepts, each key the representative `m`
-        holds. No key is hashed again. *)
+    {-- The entries of `m` that `keep` accepts, each key the representative `m`
+        holds. No key is hashed again. -}
     export fun mapFilter as filter(m: Map(k, v), keep: ((k, v)) ->! Bool) >-> Map(k, v)
 
-    // Unexported, beneath `map` below: the entries `transform` returns, as a map,
-    // or `None` when two of their keys are equal. The fault is thrown in this
-    // file because the runtime module is seated before it.
+    -- Unexported, beneath `map` below: the entries `transform` returns, as a map,
+    -- or `None` when two of their keys are equal. The fault is thrown in this
+    -- file because the runtime module is seated before it.
     fun mapRemap as remap<j: Hash>(m: Map(k, v), transform: ((k, v)) ->! (j, w)) >-> Option(Map(j, w))
 
-(** The empty map. *)
+{-- The empty map. -}
 export let empty: Map(k, v) = emptyMap()
 
-(** Whether `map` holds no entries. *)
+{-- Whether `map` holds no entries. -}
 export let isEmpty(map: Map(k, v)): Bool = size(map) == 0
 
-(** Whether `map` binds `key`. *)
+{-- Whether `map` binds `key`. -}
 export let containsKey<k: Hash>(map: Map(k, v), key: k): Bool =
     match get(map, key)
         None => False
         Some(_) => True
 
-// The two projections `keys` and `values` are each one `Seq.map` of. Named
-// rather than written as lambdas because a pair is taken apart with a `let`,
-// which wants a body.
+-- The two projections `keys` and `values` are each one `Seq.map` of. Named
+-- rather than written as lambdas because a pair is taken apart with a `let`,
+-- which wants a body.
 let entryKey(pair: (k, v)): k =
     let (key, _) = pair
     key
@@ -101,78 +101,78 @@ let entryValue(pair: (k, v)): v =
     let (_, value) = pair
     value
 
-(** The keys of `map`, in the order `entries` yields their pairs. *)
+{-- The keys of `map`, in the order `entries` yields their pairs. -}
 export let keys(map: Map(k, v)): Seq(k) = entries(map).map(entryKey)
 
-(** The values of `map`, positionally matching `keys`. *)
+{-- The values of `map`, positionally matching `keys`. -}
 export let values(map: Map(k, v)): Seq(v) = entries(map).map(entryValue)
 
-// `toSeq` is not bound here, and cannot be: it is the member of this file's
-// `Iterable<Map(k, v)>` at the end, whose body *is* `entries`, and a
-// module-level binding of a member's spelling beside the instance is the
-// Constraints section 4.6 rebinding error. `entries` keeps its own name — it is
-// entrenched domain vocabulary with `keys`/`values` siblings (Part 5
-// section 13.1) — and the suite spelling reaches the same walk through the
-// member, as the dot call `map.toSeq()` or qualified as `Map.toSeq(map)`.
+-- `toSeq` is not bound here, and cannot be: it is the member of this file's
+-- `Iterable<Map(k, v)>` at the end, whose body *is* `entries`, and a
+-- module-level binding of a member's spelling beside the instance is the
+-- Constraints section 4.6 rebinding error. `entries` keeps its own name — it is
+-- entrenched domain vocabulary with `keys`/`values` siblings (Part 5
+-- section 13.1) — and the suite spelling reaches the same walk through the
+-- member, as the dot call `map.toSeq()` or qualified as `Map.toSeq(map)`.
 
-// One insertion of a pair, which is the fold `fromEntries` is. `set` is where
-// both duplicate rules come from and neither is arranged here: the later value
-// replaces the earlier, and the key representative the map already holds
-// survives.
+-- One insertion of a pair, which is the fold `fromEntries` is. `set` is where
+-- both duplicate rules come from and neither is arranged here: the later value
+-- replaces the earlier, and the key representative the map already holds
+-- survives.
 let insertEntry<k: Hash>(map: Map(k, v), pair: (k, v)): Map(k, v) =
     let (key, value) = pair
     set(map, key, value)
 
-(** The pairs of `pairs` collected into a map. A duplicated key keeps the last
+{-- The pairs of `pairs` collected into a map. A duplicated key keeps the last
     value and the first key it was inserted under. It forces the whole sequence,
-    so it does not terminate on an infinite one. *)
+    so it does not terminate on an infinite one. -}
 export let fromEntries<k: Hash>(pairs: Seq((k, v))): Map(k, v) =
     pairs.fold(empty, insertEntry)
 
-(** The pairs of `pairs` collected into a map — `fromEntries` under the
-    conversion suite's name. *)
+{-- The pairs of `pairs` collected into a map — `fromEntries` under the
+    conversion suite's name. -}
 export let fromSeq<k: Hash>(pairs: Seq((k, v))): Map(k, v) = fromEntries(pairs)
 
-(** The pairs of `pairs` collected into a map, left to right. *)
+{-- The pairs of `pairs` collected into a map, left to right. -}
 export let fromVector<k: Hash>(pairs: Vector((k, v))): Map(k, v) =
     fromEntries(pairs.toSeq())
 
-(** The entries `transform` returns for the entries of `m`, as a map: entries in,
+{-- The entries `transform` returns for the entries of `m`, as a map: entries in,
     entries out. Throws `DuplicateKeyFault`, once every callback has run, when two
-    returned keys are equal. *)
+    returned keys are equal. -}
 export let map<j: Hash>(m: Map(k, v), transform: ((k, v)) ->! (j, w)): Map(j, w) =
     match remap!(m, transform)
         None => throw(DuplicateKeyFault)
         Some(remapped) => remapped
 
-(** Whether some entry of `m` satisfies `matches`. It stops at the first that
-    does. *)
+{-- Whether some entry of `m` satisfies `matches`. It stops at the first that
+    does. -}
 export let any(m: Map(k, v), matches: ((k, v)) ->! Bool): Bool =
     match find!(m, matches)
         None => False
         Some(_) => True
 
-(** Whether every entry of `m` satisfies `matches`, which the empty map does. It
-    stops at the first that does not. *)
+{-- Whether every entry of `m` satisfies `matches`, which the empty map does. It
+    stops at the first that does not. -}
 export let all(m: Map(k, v), matches: ((k, v)) ->! Bool): Bool =
     match find!(m, (entry) => not matches!(entry))
         None => True
         Some(_) => False
 
-// Extremes (`collection-combinators.md` section 13) over the entries, each one
-// walk of `fold`, so in the order `entries` yields them. `max` and `min` order
-// whole entries, key first, and never meet a tie because the keys are
-// distinct; the `By` and `Using` forms can, and of entries that tie they keep
-// the last for `max` and the first for `min`. A map has no `sum` or `product`:
-// `m.values().sum()` says which half is meant.
-//
-// The `Using` forms write their steps' parameter types: a match on the
-// comparator's answer is not decided without them (#1433). Each arm names
-// its constructor bare, `Greater`, which a pattern reads against the matched
-// value's own `Ordering` (Pattern Matching section 2.2).
+-- Extremes (`collection-combinators.md` section 13) over the entries, each one
+-- walk of `fold`, so in the order `entries` yields them. `max` and `min` order
+-- whole entries, key first, and never meet a tie because the keys are
+-- distinct; the `By` and `Using` forms can, and of entries that tie they keep
+-- the last for `max` and the first for `min`. A map has no `sum` or `product`:
+-- `m.values().sum()` says which half is meant.
+--
+-- The `Using` forms write their steps' parameter types: a match on the
+-- comparator's answer is not decided without them (#1433). Each arm names
+-- its constructor bare, `Greater`, which a pattern reads against the matched
+-- value's own `Ordering` (Pattern Matching section 2.2).
 
-// One step of `maxBy`: the ranked entry replaces the best unless the best's
-// key is greater.
+-- One step of `maxBy`: the ranked entry replaces the best unless the best's
+-- key is greater.
 let laterBy<c: Ord>(best: Option((c, (k, v))), ranked: (c, (k, v))): Option((c, (k, v))) =
     match (best, ranked)
         (Some((keptKey, _)), (rankedKey, _)) =>
@@ -181,8 +181,8 @@ let laterBy<c: Ord>(best: Option((c, (k, v))), ranked: (c, (k, v))): Option((c, 
                 _ => Some(ranked)
         _ => Some(ranked)
 
-// One step of `minBy`: the ranked entry replaces the best only when the best's
-// key is greater.
+-- One step of `minBy`: the ranked entry replaces the best only when the best's
+-- key is greater.
 let earlierBy<c: Ord>(best: Option((c, (k, v))), ranked: (c, (k, v))): Option((c, (k, v))) =
     match (best, ranked)
         (Some((keptKey, _)), (rankedKey, _)) =>
@@ -195,9 +195,9 @@ let unranked(best: Option((c, (k, v)))): Option((k, v)) = match best
     Some((_, entry)) => Some(entry)
     None => None
 
-(** The entry of `m` that `compare` ranks greatest, or `None` when `m` is empty,
+{-- The entry of `m` that `compare` ranks greatest, or `None` when `m` is empty,
     and of entries it ranks equal, the last in traversal order. `compare` runs
-    once for each entry after the first, as `compare(best, entry)`. *)
+    once for each entry after the first, as `compare(best, entry)`. -}
 export let maxUsing(m: Map(k, v), compare: ((k, v), (k, v)) ->! Ordering): Option((k, v)) =
     fold!(m, None, (best: Option((k, v)), entry: (k, v)) => match best
         Some(kept) => match compare!(kept, entry)
@@ -205,9 +205,9 @@ export let maxUsing(m: Map(k, v), compare: ((k, v), (k, v)) ->! Ordering): Optio
             _ => Some(entry)
         None => Some(entry))
 
-(** The entry of `m` that `compare` ranks least, or `None` when `m` is empty,
+{-- The entry of `m` that `compare` ranks least, or `None` when `m` is empty,
     and of entries it ranks equal, the first in traversal order. `compare` runs
-    once for each entry after the first, as `compare(best, entry)`. *)
+    once for each entry after the first, as `compare(best, entry)`. -}
 export let minUsing(m: Map(k, v), compare: ((k, v), (k, v)) ->! Ordering): Option((k, v)) =
     fold!(m, None, (best: Option((k, v)), entry: (k, v)) => match best
         Some(kept) => match compare!(kept, entry)
@@ -215,25 +215,25 @@ export let minUsing(m: Map(k, v), compare: ((k, v), (k, v)) ->! Ordering): Optio
             _ => best
         None => Some(entry))
 
-(** The greatest entry of `m`, ordering entries by key and then by value, which
-    is the entry with the greatest key, or `None` when `m` is empty. *)
+{-- The greatest entry of `m`, ordering entries by key and then by value, which
+    is the entry with the greatest key, or `None` when `m` is empty. -}
 export let max<k: Ord, v: Ord>(m: Map(k, v)): Option((k, v)) = maxUsing(m, Ord.compare)
 
-(** The least entry of `m`, ordering entries by key and then by value, which is
-    the entry with the least key, or `None` when `m` is empty. *)
+{-- The least entry of `m`, ordering entries by key and then by value, which is
+    the entry with the least key, or `None` when `m` is empty. -}
 export let min<k: Ord, v: Ord>(m: Map(k, v)): Option((k, v)) = minUsing(m, Ord.compare)
 
-(** The entry of `m` whose key, as `key` computes it from the entry, is
+{-- The entry of `m` whose key, as `key` computes it from the entry, is
     greatest, or `None` when `m` is empty, and of entries whose computed keys
     are equal, the last in traversal order. `key` runs once per entry, in
-    traversal order. *)
+    traversal order. -}
 export let maxBy<c: Ord>(m: Map(k, v), key: ((k, v)) ->! c): Option((k, v)) =
     unranked(fold!(m, None, (best, entry) => laterBy(best, (key!(entry), entry))))
 
-(** The entry of `m` whose key, as `key` computes it from the entry, is least,
+{-- The entry of `m` whose key, as `key` computes it from the entry, is least,
     or `None` when `m` is empty, and of entries whose computed keys are equal,
     the first in traversal order. `key` runs once per entry, in traversal
-    order. *)
+    order. -}
 export let minBy<c: Ord>(m: Map(k, v), key: ((k, v)) ->! c): Option((k, v)) =
     unranked(fold!(m, None, (best, entry) => earlierBy(best, (key!(entry), entry))))
 

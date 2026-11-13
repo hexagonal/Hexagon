@@ -1,9 +1,9 @@
 module Bool
 
-// The boolean type. Constructor order `False | True` is normative: it is what makes
-// the derived `Ord` order `False < True`.
-(** A value that is either `True` or `False`, as a condition is. When two are
-    compared, `False` comes before `True`. *)
+-- The boolean type. Constructor order `False | True` is normative: it is what makes
+-- the derived `Ord` order `False < True`.
+{-- A value that is either `True` or `False`, as a condition is. When two are
+    compared, `False` comes before `True`. -}
 export union Bool derives (Eq, Ord, Show, Hash) =
     | False
     | True

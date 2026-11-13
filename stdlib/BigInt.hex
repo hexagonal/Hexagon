@@ -1,15 +1,15 @@
 module BigInt
 
-// The public `BigInt` companion. A primitive's home module is its fixed prelude
-// companion (Constraints §5.3), so this file is where `BigInt`'s instances are
-// declared and where the orphan rule lets them be declared.
+-- The public `BigInt` companion. A primitive's home module is its fixed prelude
+-- companion (Constraints §5.3), so this file is where `BigInt`'s instances are
+-- declared and where the orphan rule lets them be declared.
 
-// The natives, and only the natives. An own-operation member body cannot be
-// written in operators or interpolation — that sugar selects the very slot being
-// defined (Constraints §6.1) — so every such member is a one-line delegation to
-// one of the declarations below. Everything expressible over strictly simpler
-// operations is ordinary Hexagon further down: the Euclidean pair over the
-// truncated one, `gcd`'s loop over `rem`, `lcm` over `gcd`, and every guard.
+-- The natives, and only the natives. An own-operation member body cannot be
+-- written in operators or interpolation — that sugar selects the very slot being
+-- defined (Constraints §6.1) — so every such member is a one-line delegation to
+-- one of the declarations below. Everything expressible over strictly simpler
+-- operations is ordinary Hexagon further down: the Euclidean pair over the
+-- truncated one, `gcd`'s loop over `rem`, `lcm` over `gcd`, and every guard.
 extern from "hex:intrinsic"
     fun bigIntAdd as nativeAdd(left: BigInt, right: BigInt) -> BigInt
     fun bigIntMultiply as nativeMultiply(left: BigInt, right: BigInt) -> BigInt
@@ -33,51 +33,51 @@ extern from "hex:intrinsic"
     fun bigIntShiftRight as nativeShiftRight(value: BigInt, count: Int) -> BigInt
 
 honor Num<BigInt> =
-    (** `left` plus `right`. A `BigInt` has no largest value, so the result is
-        always exact. *)
+    {-- `left` plus `right`. A `BigInt` has no largest value, so the result is
+        always exact. -}
     add(left, right) = nativeAdd(left, right)
-    (** `left` times `right`, always exact. *)
+    {-- `left` times `right`, always exact. -}
     multiply(left, right) = nativeMultiply(left, right)
-    (** `value` as a `BigInt`. It never fails, because every `Nat` is also a
-        `BigInt`. *)
+    {-- `value` as a `BigInt`. It never fails, because every `Nat` is also a
+        `BigInt`. -}
     fromNat(value) = nativeFromNat(value)
 
 honor Signed<BigInt> =
-    (** `left` minus `right`, always exact. *)
+    {-- `left` minus `right`, always exact. -}
     subtract(left, right) = nativeSubtract(left, right)
-    (** The integer with its sign changed, so `5n` gives `-5n` and `-5n` gives
-        `5n`. *)
+    {-- The integer with its sign changed, so `5n` gives `-5n` and `-5n` gives
+        `5n`. -}
     negate(value) = nativeNegate(value)
-    (** `value` as a `BigInt`. It never fails, because every `Int` is also a
-        `BigInt`. *)
+    {-- `value` as a `BigInt`. It never fails, because every `Int` is also a
+        `BigInt`. -}
     fromInt(value) = nativeFromInt(value)
 
 honor FromBigInt<BigInt> =
-    (** The integer itself, since a `BigInt` is already a `BigInt`. *)
+    {-- The integer itself, since a `BigInt` is already a `BigInt`. -}
     fromBigInt(value) = value
 
 honor Eq<BigInt> =
-    (** Whether `left` and `right` are the same integer. *)
+    {-- Whether `left` and `right` are the same integer. -}
     equals(left, right) = nativeEquals(left, right)
 
 honor Ord<BigInt> =
-    (** Which of `left` and `right` is smaller: `Less` when `left` is smaller,
+    {-- Which of `left` and `right` is smaller: `Less` when `left` is smaller,
         `Greater` when `left` is larger, and `Equal` when they are the same
-        integer. *)
+        integer. -}
     compare(left, right) = nativeCompare(left, right)
 
 honor Show<BigInt> =
-    (** The integer as text, in decimal digits, with a `-` in front when it is
+    {-- The integer as text, in decimal digits, with a `-` in front when it is
         negative and no `n` at the end:\
-        `12n.show()` is `"12"`. *)
+        `12n.show()` is `"12"`. -}
     show(value) = nativeShow(value)
 
-(** The integer raised to the power `exponent`, always exact:\
+{-- The integer raised to the power `exponent`, always exact:\
     `2n.pow(10n)` is `1024n`.\
     The operator `**` takes an `Int` as its exponent, which is nearly always
     enough. `pow` takes a `BigInt`, for an exponent too large to be an `Int`.
     Throws `NegativeExponentFault` when `exponent` is negative, because the
-    result would be a fraction and not an integer. *)
+    result would be a fraction and not an integer. -}
 widens Pow.pow(value: BigInt, exponent: BigInt): BigInt =
     if exponent < 0 then
         throw(NegativeExponentFault("an integer exponent cannot be negative"))
@@ -88,8 +88,8 @@ honor Pow<BigInt> =
     pow = widened
 
 honor Hash<BigInt> =
-    (** A number worked out from the integer, which `Map` and `Set` use to find
-        a key quickly. Integers that are equal have the same hash. *)
+    {-- A number worked out from the integer, which `Map` and `Set` use to find
+        a key quickly. Integers that are equal have the same hash. -}
     hash(value) = nativeHash(value)
 
 honor Real<BigInt> =
@@ -104,32 +104,32 @@ honor Real<BigInt> =
             Sign.Positive
 
 honor Integral<BigInt> =
-    (** `left` divided by `right`, with the fraction dropped, which rounds
+    {-- `left` divided by `right`, with the fraction dropped, which rounds
         toward zero:\
         `(-7n).quot(2n)` is `-3n`.\
         What is left over is `rem`. To round so that what is left over is never
-        negative, use `div`. Throws `DivideByZeroFault` when `right` is zero. *)
+        negative, use `div`. Throws `DivideByZeroFault` when `right` is zero. -}
     quot(left, right) =
         if right == 0 then
             throw(DivideByZeroFault("BigInt.quot: divisor is zero"))
         else
             nativeQuot(left, right)
 
-    (** What is left over when `left` is divided by `right` with `quot`. It is
+    {-- What is left over when `left` is divided by `right` with `quot`. It is
         negative when `left` is negative:\
         `(-7n).rem(2n)` is `-1n`.\
         For a result that is never negative, use `mod`. Throws
-        `DivideByZeroFault` when `right` is zero. *)
+        `DivideByZeroFault` when `right` is zero. -}
     rem(left, right) =
         if right == 0 then
             throw(DivideByZeroFault("BigInt.rem: divisor is zero"))
         else
             nativeRem(left, right)
 
-    (** What is left over when `left` is divided by `right`, never negative
+    {-- What is left over when `left` is divided by `right`, never negative
         whichever of them is negative:\
         `(-7n).mod(2n)` is `1n`.\
-        Throws `DivideByZeroFault` when `right` is zero. *)
+        Throws `DivideByZeroFault` when `right` is zero. -}
     mod(left, right) =
         if right == 0 then
             throw(DivideByZeroFault("BigInt.mod: divisor is zero"))
@@ -140,69 +140,69 @@ honor Integral<BigInt> =
             else
                 remainder
 
-    (** `left` divided by `right` as a whole number, rounded so that what is
+    {-- `left` divided by `right` as a whole number, rounded so that what is
         left over, which is `mod`, is never negative:\
         `(-7n).div(2n)` is `-4n`, and what is left over is `1n`.\
-        Throws `DivideByZeroFault` when `right` is zero. *)
+        Throws `DivideByZeroFault` when `right` is zero. -}
     div(left, right) =
         if right == 0 then
             throw(DivideByZeroFault("BigInt.div: divisor is zero"))
         else
             (left - left.mod(right)).quot(right)
 
-    (** The largest integer that divides both `left` and `right` with nothing
+    {-- The largest integer that divides both `left` and `right` with nothing
         left over, never negative:\
         `(-4n).gcd(6n)` is `2n`.\
         When one of them is zero the result is the other without its sign, so
-        two zeros give zero. *)
+        two zeros give zero. -}
     gcd(left, right) =
         var larger = left.abs()
         var smaller = right.abs()
-        // Both operands are non-negative from here, so the loop's `rem` never
-        // sees a zero divisor: a zero `smaller` is the exit condition.
+        -- Both operands are non-negative from here, so the loop's `rem` never
+        -- sees a zero divisor: a zero `smaller` is the exit condition.
         while smaller != 0
             let next = larger.rem(smaller)
             larger := smaller
             smaller := next
         larger
 
-// `bitwise.md` §4.4: BigInt's native operators already compute the true
-// integer answer, so every member lowers to one of them.
+-- `bitwise.md` §4.4: BigInt's native operators already compute the true
+-- integer answer, so every member lowers to one of them.
 honor Bitwise<BigInt> =
-    (** The integer that has a bit set wherever both `left` and `right` have it
+    {-- The integer that has a bit set wherever both `left` and `right` have it
         set. The operator `band` does the same:\
-        `6n.bitAnd(3n)` is `2n`. *)
+        `6n.bitAnd(3n)` is `2n`. -}
     bitAnd(left, right) = nativeBitAnd(left, right)
-    (** The integer that has a bit set wherever `left` or `right`, or both,
+    {-- The integer that has a bit set wherever `left` or `right`, or both,
         have it set. The operator `bor` does the same:\
-        `6n.bitOr(3n)` is `7n`. *)
+        `6n.bitOr(3n)` is `7n`. -}
     bitOr(left, right) = nativeBitOr(left, right)
-    (** The integer that has a bit set wherever exactly one of `left` and
+    {-- The integer that has a bit set wherever exactly one of `left` and
         `right` has it set. The operator `bxor` does the same:\
-        `6n.bitXor(3n)` is `5n`. *)
+        `6n.bitXor(3n)` is `5n`. -}
     bitXor(left, right) = nativeBitXor(left, right)
-    (** The integer with every bit flipped, which comes to the integer with its
+    {-- The integer with every bit flipped, which comes to the integer with its
         sign changed, less 1:\
-        `5n.bitNot()` is `-6n`. *)
+        `5n.bitNot()` is `-6n`. -}
     bitNot(value) = -value - 1
-    (** The integer with its bits moved `count` places to the left, which
+    {-- The integer with its bits moved `count` places to the left, which
         doubles it `count` times:\
         `3n.shiftLeft(4)` is `48n`.\
-        A negative `count` moves the bits to the right instead. *)
+        A negative `count` moves the bits to the right instead. -}
     shiftLeft(value, count) = nativeShiftLeft(value, count)
-    (** The integer with its bits moved `count` places to the right, which
+    {-- The integer with its bits moved `count` places to the right, which
         halves it `count` times and rounds down each time:\
         `48n.shiftRight(4)` is `3n`, and `(-5n).shiftRight(1)` is `-3n`.\
-        A negative `count` moves the bits to the left instead. *)
+        A negative `count` moves the bits to the left instead. -}
     shiftRight(value, count) = nativeShiftRight(value, count)
 
-// The largest magnitude an `Int` holds exactly: 2^53 - 1.
+-- The largest magnitude an `Int` holds exactly: 2^53 - 1.
 let intLimit: BigInt = 9_007_199_254_740_991n
 
-(** The smallest number that both `left` and `right` divide with nothing left
+{-- The smallest number that both `left` and `right` divide with nothing left
     over, never negative:\
     `4n.lcm(6n)` is `12n`.\
-    It is zero when either of them is zero. *)
+    It is zero when either of them is zero. -}
 export let lcm(left: BigInt, right: BigInt): BigInt =
     if left == 0 or right == 0 then
         0
@@ -210,24 +210,24 @@ export let lcm(left: BigInt, right: BigInt): BigInt =
         let multiple = left.quot(left.gcd(right)) * right
         multiple.abs()
 
-(** The integer as an `Int`, or `None` when it is too large or too small for an
+{-- The integer as an `Int`, or `None` when it is too large or too small for an
     `Int` to hold exactly, which is anything past 9,007,199,254,740,991 either
     side of zero. To go the other way, use `BigInt.fromInt`, which never
-    fails. *)
+    fails. -}
 export let toInt(value: BigInt): Option(Int) =
     if value < -intLimit or value > intLimit then
         None
     else
         Some(toIntUnchecked(value))
 
-// `FloatRangeFault` is `Float.hex`'s, in scope through the prelude: the range
-// that fails belongs to `Float`, not to any one door into it. Throwing it is
-// what seats this companion after `Float.hex` in the prelude order.
-(** The integer as a `Float`. A `Float` holds every integer exactly only up to
+-- `FloatRangeFault` is `Float.hex`'s, in scope through the prelude: the range
+-- that fails belongs to `Float`, not to any one door into it. Throwing it is
+-- what seats this companion after `Float.hex` in the prelude order.
+{-- The integer as a `Float`. A `Float` holds every integer exactly only up to
     9,007,199,254,740,992 either side of zero, and a larger one becomes the
     closest number a `Float` can hold:\
     `9_007_199_254_740_993n.toFloat()` is `9007199254740992.0`.\
-    Throws `FloatRangeFault` when the integer is too large for any `Float`. *)
+    Throws `FloatRangeFault` when the integer is too large for any `Float`. -}
 export let toFloat(value: BigInt): Float =
     let approx = toFloatUnchecked(value)
     if approx.isFinite() then
@@ -235,14 +235,14 @@ export let toFloat(value: BigInt): Float =
     else
         throw(FloatRangeFault("BigInt.toFloat: value does not fit in Float"))
 
-// `parse`'s two crossings (`spec/numeric-parsing.md`): the scan of the text,
-// which is the host's conversion and cannot be Hexagon at this seat, before
-// `String.hex`; and the message, which quotes the text, cut short.
+-- `parse`'s two crossings (`spec/numeric-parsing.md`): the scan of the text,
+-- which is the host's conversion and cannot be Hexagon at this seat, before
+-- `String.hex`; and the message, which quotes the text, cut short.
 extern from "hex:intrinsic"
     fun numberParseBigInt as scanText(text: String) -> Option(BigInt)
     fun numberFormatMessage as formatMessage(text: String, phrase: String) -> String
 
-(** Reads `text` as a `BigInt`:\
+{-- Reads `text` as a `BigInt`:\
     `BigInt.parse^("123456789012345678901234567890")` is
     `123456789012345678901234567890n`.\
     The text is written as `Int.parse` reads it: an optional `+` or `-`, then
@@ -251,7 +251,7 @@ extern from "hex:intrinsic"
     writes none, and it may be any length. Throws `NumberFormatError` when
     `text` is not written that way. A call that may throw carries a mark:
     `BigInt.parse?(text)` gives `None` in place of throwing, and
-    `assume BigInt.parse^(text)` is for text that is known to be good. *)
+    `assume BigInt.parse^(text)` is for text that is known to be good. -}
 export let parse(text: String): BigInt = match scanText(text)
     Some(value) => value
     None => throw^(NumberFormatError(formatMessage(text, "is not a BigInt")))
