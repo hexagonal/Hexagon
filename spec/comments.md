@@ -17,7 +17,7 @@
 
 No other comment syntax exists. `//`, `/* */` and `(* *)`, with their documentation forms, are not comments: they are **detected and refused**, each with Hexagon's spelling named (§3.1). `#` is not a comment (§7).
 
-Hexagon takes its spellings from the ML family, where Haskell and Elm sit beside OCaml and F#, and among the family's spellings it picks the set that is consistent with itself. For comments that set is Haskell's and Elm's: one character, the dash, marks every form — `--`, `{-` and `-}`, and the documentation opener `{--`. Haskell, Elm, PureScript, Idris and Agda all pair `--` with a nesting `{- -}`.
+Hexagon is an ML dialect, and classic ML has one comment, the nesting block `(* *)`, and no line comment. Hexagon has a line comment, and the ML dialect that added one, F#, spells it `//`, which is the C family's spelling. So Hexagon takes its comments as a set from the neighbouring languages that have both forms, Haskell and Elm, where one character, the dash, marks the line comment `--` and the nesting `{- -}`; the documentation opener `{--` follows the same rule (Doc Comments §1). Taking the set whole keeps the forms consistent with one another, which keeping `(* *)` beside `--` would not (§7). Haskell, Elm, PureScript, Idris and Agda all pair `--` with a nesting `{- -}`.
 
 ## 2. Line comments
 
@@ -100,7 +100,7 @@ There are two further comment-adjacent hard errors — a doc comment that docume
 
 ## 7. Rejected alternatives (do not relitigate)
 
-- **`//` line comments and `(* ... *)` block comments** (F#; OCaml writes the second alone). Two spellings with no character in common, and neither is the family's set that is consistent with itself (§1). Both are refused with redirects (§3.1).
+- **`//` line comments and `(* ... *)` block comments** (F#; OCaml writes the second alone). `//` is the C family's spelling, and the pair shares no character (§1). Both are refused with redirects (§3.1).
 - **`--` with `(* *)` and `(** *)` kept.** A pairing no colleague language has: dashes would mark one form, and parentheses with stars the others. Haskell, Elm, PureScript, Idris and Agda pair `--` with `{- -}`, and Lean 4 with `/- -/`.
 - **`/* ... */`** (JavaScript). The C family's spelling, which does not nest in JavaScript where Hexagon's block comment does, and which shares nothing with the line comment. Refused with a redirect (§3.1).
 - **A spacing rule beside `--`**: a space, the end of the line or more dashes required after `--`, or a space before it as well when code precedes it, with anything else refused. Each catches some of the double-minus spellings §2 lists, none can catch `x -- 1` without guessing what was meant, and no colleague language has one: Elm and Lean begin the comment at the dashes whatever stands beside them, and so do Haskell and PureScript wherever the dashes are not part of an operator symbol, which Hexagon has none of. Hexagon keeps the family's rule. Its cost, a double minus written together read as a comment without a report, is named in §2 with each rewrite.
@@ -150,7 +150,7 @@ Each row is its own source file with its own expectation; `x` is an `Int` bound 
 
 | Decision | Where |
 |---|---|
-| `--` line, `{- -}` nested block, `{-- -}` doc; only comment forms; Hexagon takes the ML family's set that is consistent with itself | §1 |
+| `--` line, `{- -}` nested block, `{-- -}` doc; only comment forms; classic ML has no line comment and F#'s `//` is the C family's, so the set comes whole from Haskell and Elm | §1 |
 | `--` begins a comment wherever a token may begin, whatever stands beside it (Elm's rule); two minus signs are written apart, and the spellings whose meaning changes are named with their rewrites | §2 |
 | Block comments nest; inside one, only `{-` and `-}` count — `--` and strings are text (Haskell's rule, a chosen divergence from OCaml); comments are not lexed inside strings, and the `{` of `${` is the string's | §3 |
 | `{-` opens a comment ahead of the record brace and steals no record; `{--}` empty; `{-}` unterminated | §3 |
@@ -225,7 +225,7 @@ The prior text is preserved in git history; per house rule, nothing was silently
 
 Ruled on issue #1538: the comment forms are `--`, `{- -}` and `{-- -}`; `--` begins a comment wherever it stands outside a string, with no refusals; the documentation opener is `{--` followed by a character that is neither `-` nor `}`, and `{-|` is an ordinary comment; `//`, `/* */`, `(* *)` and `(** *)` are refused, each naming Hexagon's spelling. §§1–9 are restated in place. Every rule of §§3–5 about nesting, strings, layout and the unterminated and unmatched errors holds of `{- -}` as it held of `(* *)`. Beyond that substitution, the deltas are exactly these:
 
-1. **§1** states the ground: the ML family's set of comment spellings that is consistent with itself.
+1. **§1** states the ground: classic ML has no line comment, and F#'s `//` is the C family's, so Hexagon takes its comments as a set from Haskell and Elm, which have both forms.
 2. **§2's promise that `//` is never an operator is withdrawn**, with nothing promised in its place: `//` is a refused spelling (§3.1). The sentence that spent `//` for integer division goes with it.
 3. **§2 names the double-minus spellings whose meaning changes**, with their rewrites; §8's `x --1` row now expects a comment.
 4. **§3 adds** that `--` is text inside a block comment, that `{-` opens a comment ahead of the record brace, that the `{` of `${` is the string's, and that `{-}` is unterminated.
