@@ -497,9 +497,9 @@ export let endsWithCi(text: String, suffix: String): Bool =
 
 (** The string with every occurrence of `target` replaced by `replacement`:\
     `"banana".replace("an", "AN")` is `"bANANa"`.\
-    Occurrences are found from left to right and do not overlap, so
-    `"aaa".replace("aa", "b")` is `"ba"`. To replace only the first one, use
-    `replaceFirst`. *)
+    Occurrences are found from left to right and do not overlap:\
+    `"aaa".replace("aa", "b")` is `"ba"`.\
+    To replace only the first one, use `replaceFirst`. *)
 export let replace(text: String, target: String, replacement: String): String =
     replaceWith(text, target, replacement, False, False)
 (** The string with the first occurrence of `target` replaced by `replacement`.
@@ -555,9 +555,9 @@ export let fromCodepoint(value: Int): Option(String) =
     else
         Some(fromCodepointUnchecked(value))
 
-(** The string with every letter in upper case. One letter may become two, as in
-    `"straße".toUpper()`, which is `"STRASSE"`. The result is the same whatever
-    language the computer is set to. *)
+(** The string with every letter in upper case. One letter may become two:\
+    `"straße".toUpper()` is `"STRASSE"`.\
+    The result is the same whatever language the computer is set to. *)
 export let toUpper(text: String): String =
     var chunks: Vector(String) = []
     for point in text
@@ -565,9 +565,9 @@ export let toUpper(text: String): String =
     joinChunks(chunks)
 
 (** The string in a form made for comparing text without regard to upper and
-    lower case. Two strings that differ only in case give the same result:
-    `"Straße".caseFold()` and `"STRASSE".caseFold()` are both `"strasse"`. The
-    functions whose names end in `Ci` compare this way. The result is for
+    lower case. Two strings that differ only in case give the same result:\
+    `"Straße".caseFold()` and `"STRASSE".caseFold()` are both `"strasse"`.\
+    The functions whose names end in `Ci` compare this way. The result is for
     comparing and not for showing to a person: for that, use `toLower`. *)
 export let caseFold(text: String): String =
     foldedText(text)

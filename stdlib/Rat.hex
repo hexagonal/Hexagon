@@ -70,7 +70,8 @@ honor Ord<Rat> =
 
 honor Show<Rat> =
     (** The fraction as text: its top, then `/`, then its bottom. A whole number
-        keeps its bottom, so `Rat.create(4, 2).show()` is `"2/1"`. *)
+        keeps its bottom:\
+        `Rat.create(4, 2).show()` is `"2/1"`. *)
     show(value) = "${value.top}/${value.bottom}"
 
 // A whole number as a `Rat`, over one. `fromNat`, `fromInt` and `fromBigInt` all

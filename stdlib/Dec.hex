@@ -425,10 +425,11 @@ let fromFloatRounded(value: Float, requested: Int, even: Bool, operation: String
     rounded to the nearest, with a half rounded away from zero:\
     `Dec.fromFloat(0.1 + 0.2, 2)` is `0.30d`.\
     What is rounded is the number the float really holds, which can be a little
-    off the number that was written: `Dec.fromFloat(2.675, 2)` is `2.67d`,
-    because the float is slightly less than 2.675. Throws `DecRangeFault` when
-    `value` is NaN or infinite. Throws `NegativeDecimalPlacesFault` when
-    `places` is negative. *)
+    off the number that was written. The float written `2.675` holds slightly
+    less than 2.675:\
+    `Dec.fromFloat(2.675, 2)` is `2.67d`.\
+    Throws `DecRangeFault` when `value` is NaN or infinite. Throws
+    `NegativeDecimalPlacesFault` when `places` is negative. *)
 export let fromFloat(value: Float, places: Int): Dec =
     fromFloatRounded(value, places, False, "Dec.fromFloat")
 

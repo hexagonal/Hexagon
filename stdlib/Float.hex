@@ -74,9 +74,10 @@ honor Ord<Float> =
     compare(left, right) = nativeCompare(left, right)
 
 honor Show<Float> =
-    (** The float as text. A whole number is shown without a decimal point, so
-        `4.0.show()` is `"4"`, and `-0.0` shows as `"0"`. The three special
-        floats show as `"NaN"`, `"Infinity"` and `"-Infinity"`. *)
+    (** The float as text. A whole number is shown without a decimal point:\
+        `4.0.show()` is `"4"`.\
+        `-0.0` shows as `"0"`, and the three special floats show as `"NaN"`,
+        `"Infinity"` and `"-Infinity"`. *)
     show(value) = nativeShow(value)
 
 honor Hash<Float> =
@@ -173,8 +174,9 @@ export let isFinite(value: Float): Bool =
     `IntRangeFault` when it is `False`. It is `True` from
     -9,007,199,254,740,991 to 9,007,199,254,740,991, and `False` outside that
     range and for NaN and the infinities. It asks how large the float is, not
-    whether it is whole, so `2.5.roundsToInt()` is `True`. Test a float that
-    comes from outside the program before rounding it:\
+    whether it is whole:\
+    `2.5.roundsToInt()` is `True`.\
+    Test a float that comes from outside the program before rounding it:\
     `if x.roundsToInt() then Some(x.floor()) else None` *)
 export let roundsToInt(value: Float): Bool =
     value >= -9_007_199_254_740_991.0 and value <= 9_007_199_254_740_991.0
@@ -243,10 +245,11 @@ export let round(value: Float): Int =
 (** The nearest `Int` to the float. A float exactly halfway between two
     integers goes to the one further from zero:\
     `2.5.roundAway()` is `3`, and `(-2.5).roundAway()` is `-3`.\
-    Only a half is affected: `2.1.roundAway()` is `2`. To send a half to the
-    even integer, use `round`. Throws `IntRangeFault` when the result is too
-    large or too small for an `Int`. To test for that first, use
-    `roundsToInt`. *)
+    Only a half is affected:\
+    `2.1.roundAway()` is `2`.\
+    To send a half to the even integer, use `round`. Throws `IntRangeFault` when
+    the result is too large or too small for an `Int`. To test for that first,
+    use `roundsToInt`. *)
 export let roundAway(value: Float): Int =
     let truncated = nativeTrunc(value)
     let fraction = value - truncated
