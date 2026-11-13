@@ -31,7 +31,7 @@ Hexagon takes its spellings from the ML family, where Haskell and Elm sit beside
   | `f(--1)` | `f(`, then a comment | `f(- -1)` |
   | a continuation line beginning `--1` | a comment line | a continuation line beginning `- -1` |
 
-  None of these is refused (§7). Where what remains is still a program, its meaning changes without a report: `let y = x --1` binds `x` to `y`. Where it is not, as `f(` is not, the parser reports what is missing.
+  None of these is refused (§7). Where what remains is still a program, its meaning changes without a report: `let y = x --1` binds `y` to the value of `x`. Where it is not, as `f(` is not, the parser reports what is missing.
 - A line comment is never documentation, whatever its text begins with: `--- note` and `-- | note` are ordinary comments (Doc Comments §2.3).
 
 ## 3. Block comments nest
@@ -76,7 +76,7 @@ Comments are **whitespace to the layout pass**. Precisely:
 |---|---|
 | EOF inside block comment | "unterminated block comment; opened at line L, column C" — L,C of the **innermost** unclosed `{-`; if depth > 1, append " (nested N levels deep; each `{-` needs its own `-}`)". |
 | `-}` at depth zero | "unmatched `-}` — no open block comment" |
-| `{-` apparently intended to *end* at a `-}` that instead closed an inner comment (heuristic: unterminated-comment error where the comment body itself contains balanced `{- -}` pairs) | append hint: "block comments nest in Hexagon; a `{-` inside a comment must be matched before the comment ends." Optional but recommended — commented-out code containing `{-` is the standing hazard this row addresses. |
+| `{-` apparently intended to *end* at a `-}` that instead closed an inner comment (heuristic: unterminated-comment error where the comment body itself contains balanced `{- -}` pairs) | append hint: "block comments nest in Hexagon; a `{-` inside a comment must be matched before the comment ends" Optional but recommended — commented-out code containing `{-` is the standing hazard this row addresses. |
 | `//` where a token may begin (§3.1), and any longer run of `/` | "JavaScript line comment syntax — Hexagon line comments are `-- ...`" |
 | `/*` where a token may begin (§3.1) — including `/**` | "JavaScript block comment syntax — Hexagon block comments are `{- ... -}`"; when the opener is `/**`, append " (documentation form: `{-- ... -}`)". |
 | Stray `*/` where a token may begin (§3.1) | "`*/` is JavaScript's block comment closer — Hexagon spells it `-}`; no block comment is open here" |
@@ -103,9 +103,9 @@ There are two further comment-adjacent hard errors — a doc comment that docume
 - **`//` line comments and `(* ... *)` block comments** (F#; OCaml writes the second alone). Two spellings with no character in common, and neither is the family's set that is consistent with itself (§1). Both are refused with redirects (§3.1).
 - **`--` with `(* *)` and `(** *)` kept.** A pairing no colleague language has: dashes would mark one form, and parentheses with stars the others. Haskell, Elm, PureScript, Idris and Agda pair `--` with `{- -}`, and Lean 4 with `/- -/`.
 - **`/* ... */`** (JavaScript). The C family's spelling, which does not nest in JavaScript where Hexagon's block comment does, and which shares nothing with the line comment. Refused with a redirect (§3.1).
-- **A spacing rule beside `--`**: a space, the end of the line or more dashes required after `--`, or a space before it as well when code precedes it, with anything else refused. Each catches some of the double-minus spellings §2 lists, none can catch `x -- 1` without guessing what was meant, and no colleague language has one: Haskell, Elm, PureScript and Lean begin the comment at the dashes whatever stands beside them. Hexagon keeps the family's rule. Its cost, a double minus written together read as a comment without a report, is named in §2 with each rewrite.
+- **A spacing rule beside `--`**: a space, the end of the line or more dashes required after `--`, or a space before it as well when code precedes it, with anything else refused. Each catches some of the double-minus spellings §2 lists, none can catch `x -- 1` without guessing what was meant, and no colleague language has one: Elm and Lean begin the comment at the dashes whatever stands beside them, and so do Haskell and PureScript wherever the dashes are not part of an operator symbol, which Hexagon has none of. Hexagon keeps the family's rule. Its cost, a double minus written together read as a comment without a report, is named in §2 with each rewrite.
 - **Accepting another language's spelling alongside Hexagon's, as an alias**: two spellings for one form, against the corpus's one-spelling doctrine (Operators §1.2 is its sharpest statement); and `/* */` would keep JavaScript's non-nesting expectation alive under a form that nests.
-- **Refusing only the JavaScript spellings**, leaving `(*` to an ordinary parse error: abandons the OCaml, F# and SML programmer, from the family Hexagon belongs to, at the first comment they write, for a redirect that costs nothing (§3.1).
+- **Refusing only the JavaScript spellings**, leaving `(*` to an ordinary parse error: abandons the OCaml, F# and SML programmer, from the family Hexagon belongs to, at the first comment they write, for a redirect that costs nothing: `(*` is never part of a legal program (§3.1), so the redirect only improves an error that fires anyway.
 - **No detection of other languages' spellings** (lex `//` as `/` then `/`, `(*` as `(` then `*`): abandons the newcomer at the highest-traffic muscle-memory site in the language for a bewildered parse error one token later; the adjacencies are never legal, so detection is free and the Rewrite Rule demands it.
 - **A deprecation window** (accept the old spellings with a redirect for a release): nothing to deprecate — the language is pre-1.0, every Hexagon source is converted in one change, and no warning tier exists.
 - **OCaml's string-aware comment lexing** (a `"` inside a comment opens a string that must balance): imports escape rules into dead text and makes unpaired quotes in ordinary prose a lexing hazard; what it buys — commenting out code containing `-}` inside a string — is bought more cheaply by accepting that the comment ends there, with a local error.
@@ -238,13 +238,14 @@ Applied elsewhere in the same change:
 
 | Target | Edit |
 |---|---|
-| `doc-comments.md` | The doc form respelled throughout; §1's lineage sentence; §2.1's predicate; §2.2 gains `{---`, `{-|` and the leading-`-` idiom; §2.3 states that there is no line form; §10's line-form and opener entries; §11's snippets |
+| `doc-comments.md` | The doc form respelled throughout; §1's lineage sentence; §2.1's predicate; §2.2 gains `{---`, `{-\|` and the leading-`-` idiom; §2.3 states that there is no line form; §10's line-form and opener entries; §11's snippets |
 | `lexer.md` | §7, §8.2, §8.3, §10 and §11 |
 | `lexer-layout.md` | §1 and §4: a `{` token always begins a record, and `{-` is a comment opener before the parser sees a brace; §6's log |
 | `operators-logic-precedence.md` | §6.2: two minus signs are written apart |
 | `decisions-ml-dialect-comments-2026-07.md` | Marked superseded; its sentence calling `(* *)` the last piece of ML syntax Hexagon needed is withdrawn |
 | `README.md` | Rule 3's list and the closure-document row mark the #171 document superseded |
 | Examples in other specs | Hexagon examples respelled: comments become `--`, doc comments `{-- -}` |
+| `notes/` | The two notes that still look forward, the v2 Money proposal and the Vector follow-ups, respelled as the specs are; promoted, adopted and superseded proposals are records of their day and keep the spellings they were written in |
 
 Implementation is #1538's: one change flips the lexer and converts every Hexagon source together — the standard library, the playground, the Book and the Hexagon quoted in tests — because the standard library cannot compile half-converted. Its acceptance test is that the emitted JavaScript and `.d.ts` of the whole standard library come out byte-for-byte the same, since comments are emitted in JavaScript's spelling either way. The editor grammar, VS Code's comment settings, and the Book's comments section change with it; the Book warns readers from Haskell and Elm that `{-|` is an ordinary comment in Hexagon and that documentation is `{-- ... -}`.
 
