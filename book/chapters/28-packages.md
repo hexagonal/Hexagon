@@ -93,7 +93,7 @@ provides one too, the bare import means yours, silently, and the dependency's st
 reachable by its full name:
 
 ```hexagon
-import Geometry              // the project's own
+import Geometry              -- the project's own
 import Acme.Geometry as AcmeGeo
 ```
 

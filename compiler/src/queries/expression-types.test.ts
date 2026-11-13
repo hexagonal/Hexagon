@@ -149,7 +149,7 @@ describe("the type of a selection", () => {
   });
 
   test("spaces, line breaks and comments at the selection's ends are not part of it", () => {
-    expect(shown(`${HEAD}let h = 1 +«  (* two *) 2 »* 3\n`)).toBe("`Int` @ 2");
+    expect(shown(`${HEAD}let h = 1 +«  {- two -} 2 »* 3\n`)).toBe("`Int` @ 2");
   });
 
   test("a selection that is not one expression names the smallest one holding it", () => {
@@ -245,7 +245,7 @@ describe("the type of a selection", () => {
     expect(shown(`${light}honor Eq<Light> =\n    equals(left, right) = 1 ‸< 2\n`)).toBe("`Bool` @ <");
     expect(shown(`${light}honor Eq<Light> =\n    equals(left, right) = «left» == right\n`)).toBe("`Light` @ left");
     // A caret just after the member's documented name is on the name.
-    expect(shown(`${light}honor Eq<Light> =\n    (** Same light. *)\n    equals‸(left, right) = left == right\n`))
+    expect(shown(`${light}honor Eq<Light> =\n    {-- Same light. -}\n    equals‸(left, right) = left == right\n`))
       .toBe("`equals`\n\nSame light. @ equals");
     // Its header is the member's function, as a `let` function's is.
     expect(shown(`${light}honor Eq<Light> =\n    equals(left, right) ‸= left == right\n`)).toBe("`(Light, Light) -> Bool` @ =");
@@ -376,7 +376,7 @@ describe("the type at an operator, a bracket, a literal or a keyword", () => {
 
   test("what is not an expression's own text answers nothing", () => {
     // A comment inside an expression.
-    expect(shown(`${HEAD}let n = 1 + (* tw‸o *) 2\n`)).toBe("none");
+    expect(shown(`${HEAD}let n = 1 + {- tw‸o -} 2\n`)).toBe("none");
     // A pattern's bracket.
     expect(shown(`${HEAD}let p: (Int, Int) = (1, 2)\nlet k = match p\n    ‸(a, b) => a\n`)).toBe("none");
     // A type's arrow, and an ascription's.
@@ -405,7 +405,7 @@ describe("hoverSpans with expressions", () => {
     "let s: Seq(Int) = [1, 2]",
     "let n: Int = 1 + 2 * (3 - 1)",
     "let k = match o",
-    "    Some(x) => x + n (* a comment *)",
+    "    Some(x) => x + n {- a comment -}",
     "    None => 0",
     'let t = "a${n}b"',
     "let f = (v: Int) => if v > 0 then v else -v",
@@ -493,12 +493,12 @@ describe("selection ranges", () => {
 
   test("a caret just after a word starts at the word; one in a comment starts at the comment", () => {
     expect(grown(`${HEAD}let total‸ = 1\n`)[0]).toBe("total");
-    expect(grown(`${HEAD}let n = 1 + (* tw‸o *) 2\n`).slice(0, 2)).toEqual(["(* two *)", "1 + (* two *) 2"]);
+    expect(grown(`${HEAD}let n = 1 + {- tw‸o -} 2\n`).slice(0, 2)).toEqual(["{- two -}", "1 + {- two -} 2"]);
     // At a comment's first character, and just after it, as just after a word.
-    expect(grown(`${HEAD}let n = 1 + ‸(* two *) 2\n`)[0]).toBe("(* two *)");
-    expect(grown(`${HEAD}let n = 1 + (* two *)‸ 2\n`)[0]).toBe("(* two *)");
+    expect(grown(`${HEAD}let n = 1 + ‸{- two -} 2\n`)[0]).toBe("{- two -}");
+    expect(grown(`${HEAD}let n = 1 + {- two -}‸ 2\n`)[0]).toBe("{- two -}");
     // A character just after a comment is that character's.
-    expect(grown(`${HEAD}let n = 1 + (* two *)‸2\n`)[0]).toBe("2");
+    expect(grown(`${HEAD}let n = 1 + {- two -}‸2\n`)[0]).toBe("2");
     // A caret on a space where one piece ends and the next begins is on the one it is just after.
     expect(grown(`${HEAD}let n = 1\nlet s = "\${n}‸ y"\n`)[0]).toBe("${n}");
   });
@@ -512,7 +512,7 @@ describe("selection ranges", () => {
       "module Main",
       "let k = match Some(1)",
       "    Some(x) => [x, x * 2] |> Vector.length",
-      "    None => 0 (* none *)",
+      "    None => 0 {- none -}",
       "let g(b: Bool): Unit =",
       "    var n = 0",
       "    if b then n := 1",

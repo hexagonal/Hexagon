@@ -4007,7 +4007,9 @@ class JavaScriptEmitter {
       const comments = trailing.get(item) ?? [];
       if (comments.length > 0 && lines.length > 0) {
         const last = lines.length - 1;
-        lines[last] = `${lines[last]} ${comments.map(({ text }) => text).join(" ")}`;
+        // Only line comments trail an item (`trailingComments`), and each is
+        // emitted in JavaScript's spelling.
+        lines[last] = `${lines[last]} ${comments.map(({ text }) => `//${text.slice(2)}`).join(" ")}`;
       }
       // An item that emits nothing has nothing to precede, and one whose
       // emitted forms are its members' rather than its own has no seat for the
@@ -14393,12 +14395,18 @@ function sourceEntries(
 // so it is re-presented as a run of `//` comments on whole lines.
 function commentLines(comment: Source.Comment): string[] {
   const split = (text: string) => text.split(/\r\n|\r|\n/u);
-  if (comment.kind === "Line") return split(comment.text);
+  // A line comment's `--` becomes JavaScript's `//`; the text after it is kept.
+  if (comment.kind === "Line") return split(`//${comment.text.slice(2)}`);
 
   // An unterminated comment still reaches here — it is recorded alongside its
   // diagnostic — and its text has no closer to strip. Taking one off regardless
   // would delete the last two characters of the file.
-  const body = comment.text.slice(2, comment.terminated ? -2 : undefined);
+  // A documentation comment's `{--` opener is JavaScript's `/**`, so that a doc
+  // comment emitted as a comment rather than as JSDoc still reads as JSDoc does.
+  // An ordinary comment whose text begins with `*` would otherwise open with
+  // `/**` and read as JSDoc on what follows, so it takes a space first.
+  const text = comment.text.slice(comment.documentation ? 3 : 2, comment.terminated ? -2 : undefined);
+  const body = comment.documentation ? `*${text}` : text.startsWith("*") ? ` ${text}` : text;
   return body.includes("*/")
     ? split(body).map((line) => `//${line}`.trimEnd())
     : split(`/*${body}*/`);

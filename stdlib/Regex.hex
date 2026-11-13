@@ -1,25 +1,25 @@
 module Regex
 
-// Regular expressions (`spec/regex.md`): the dialect of §2, matched as §3 says,
-// through the surface of §4. A pattern is parsed by `Regex.Syntax` and compiled
-// by the engine `Hex.Runtime.Regex`, which this module reaches through two
-// sealed rows (§7): everything here is ordinary pure Hexagon over them.
+-- Regular expressions (`spec/regex.md`): the dialect of §2, matched as §3 says,
+-- through the surface of §4. A pattern is parsed by `Regex.Syntax` and compiled
+-- by the engine `Hex.Runtime.Regex`, which this module reaches through two
+-- sealed rows (§7): everything here is ordinary pure Hexagon over them.
 
 import Regex.Syntax as Syntax
 
 extern from "hex:intrinsic"
-    // The engine's compiled program, confined to this module (Intrinsics §3.3):
-    // it travels only inside the opaque `Regex`.
+    -- The engine's compiled program, confined to this module (Intrinsics §3.3):
+    -- it travels only inside the opaque `Regex`.
     type regexProgram as Program
 
-    // The program for a parsed pattern. A value function of its argument: the
-    // storage it fills it freezes before it returns (Effects §6.2, species (d)).
+    -- The program for a parsed pattern. A value function of its argument: the
+    -- storage it fills it freezes before it returns (Effects §6.2, species (d)).
     fun regexCompile as compileProgram(syntax: Syntax.Pattern) -> Program
 
-    // The leftmost-first match at or after `start`: each group's span and text
-    // with `spans` set, only whether there is one with it clear, and the cursor
-    // the next search resumes from (§6.2). The cursor is `(1, 0)` or one this
-    // row answered for the same text; anything else is a defect of this module.
+    -- The leftmost-first match at or after `start`: each group's span and text
+    -- with `spans` set, only whether there is one with it clear, and the cursor
+    -- the next search resumes from (§6.2). The cursor is `(1, 0)` or one this
+    -- row answered for the same text; anything else is a defect of this module.
     fun regexSearch as searchProgram(
         program: Program,
         text: String,
@@ -28,38 +28,38 @@ extern from "hex:intrinsic"
         spans: Bool,
     ) -> Option((Vector(Option((Int, Int, String))), (Int, Int)))
 
-(** A compiled pattern: a value, immutable and sharable. Two regexes are compared
-    by their `source`. *)
+{-- A compiled pattern: a value, immutable and sharable. Two regexes are compared
+    by their `source`. -}
 opaque record Regex = { source: String, groupCount: Int, names: Vector((String, Int)), program: Program }
 
-(** One match against one subject: the whole match, every capturing group, and
+{-- One match against one subject: the whole match, every capturing group, and
     the group names. Read it with `start`, `length`, `text`, `group`, `named`
-    and `groups`. *)
+    and `groups`. -}
 opaque record Match = { whole: Group, groups: Vector(Option(Group)), names: Vector((String, Int)) }
 
-(** A captured span: its 1-based codepoint start, its length in codepoints, and
-    its text. *)
+{-- A captured span: its 1-based codepoint start, its length in codepoints, and
+    its text. -}
 export record Group derives (Eq, Show) = { start: Int, length: Int, text: String }
 
 honor Show<Regex> =
-    (** The pattern the regex was compiled from. *)
+    {-- The pattern the regex was compiled from. -}
     show(regex) = regex.source
 
-// ---------------------------------------------------------------------------
-// Compilation (§4.2)
+-- ---------------------------------------------------------------------------
+-- Compilation (§4.2)
 
-(** Thrown by `compile` for a pattern that does not parse: the 1-based position
+{-- Thrown by `compile` for a pattern that does not parse: the 1-based position
     of the first defect, §2.9's message with that position after it, so that an
     uncaught one says where, and the rewrites the message names, as edits. A
     fault, because a pattern handed to `compile` is the programmer's own, and a
-    bad one is the programmer's mistake. *)
+    bad one is the programmer's mistake. -}
 export fault RegexCompileFault(message: String, position: Int, rewrites: Vector(Syntax.Rewrite))
 
-// The group number in one entry of a regex's table of names.
+-- The group number in one entry of a regex's table of names.
 let numberIn(entry: (String, Int)): Int = match entry
     (_, number) => number
 
-// The number `name` names in a regex's table of names, which is in group order.
+-- The number `name` names in a regex's table of names, which is in group order.
 let numberOf(names: Vector((String, Int)), name: String): Option(Int) =
     let named(entry: (String, Int)): Bool = match entry
         (candidate, _) => candidate == name
@@ -74,97 +74,97 @@ let compiled(pattern: String, parsed: Syntax.Pattern): Regex = Regex({
     program = compileProgram(parsed),
 })
 
-(** `pattern` compiled, for a pattern the programmer wrote. It takes no mark:
+{-- `pattern` compiled, for a pattern the programmer wrote. It takes no mark:
     a pattern that does not parse throws the fault `RegexCompileFault`, and one
     written as a literal is refused when the program is compiled. A pattern
-    that arrives as data goes through `parse` instead. *)
+    that arrives as data goes through `parse` instead. -}
 export let compile(pattern: String): Regex =
     try
         compiled(pattern, Syntax.parse^(pattern))
     catch
         Syntax.RegexError(message, position, rewrites) =>
             throw(RegexCompileFault("${message} (position: ${position})", position, rewrites))
-        // `Syntax.parse` throws nothing else, so this arm is the writer's word
-        // that nothing else arrives: an exception or a foreign throw that did
-        // would become an `AssumptionFault`, and a fault passes the arm as it
-        // passes every catch-all. Without it, `compile` would be marked `^`.
+        -- `Syntax.parse` throws nothing else, so this arm is the writer's word
+        -- that nothing else arrives: an exception or a foreign throw that did
+        -- would become an `AssumptionFault`, and a fault passes the arm as it
+        -- passes every catch-all. Without it, `compile` would be marked `^`.
         other => assume throw^(other)
 
-(** `pattern` compiled, for a pattern that arrives as data: typed by a user, or
+{-- `pattern` compiled, for a pattern that arrives as data: typed by a user, or
     read from a file. A pattern that does not parse throws `Syntax.RegexError`,
-    so every call wears `^`; read it with `?` for an `Option(Regex)`. *)
+    so every call wears `^`; read it with `?` for an `Option(Regex)`. -}
 export let parse(pattern: String): Regex = compiled(pattern, Syntax.parse^(pattern))
 
-// Whether a codepoint is one `escape` writes behind a backslash: a
-// metacharacter in any position, or White_Space.
+-- Whether a codepoint is one `escape` writes behind a backslash: a
+-- metacharacter in any position, or White_Space.
 let needsEscape(point: String): Bool =
     point == "\\" or point == "." or point == "+" or point == "*" or point == "?" or point == "(" or
         point == ")" or point == "|" or point == "[" or point == "]" or point == "{" or point == "}" or
         point == "^" or point == "$" or point == "#" or point == "-" or String.trim(point) == ""
 
-(** `text` as a pattern matching exactly `text`, under every flag: a backslash
+{-- `text` as a pattern matching exactly `text`, under every flag: a backslash
     before every metacharacter and every White_Space codepoint. The sanctioned
-    way to put untrusted text in a pattern. *)
+    way to put untrusted text in a pattern. -}
 export let escape(text: String): String =
     var chunks: Vector(String) = []
     for point in text
         chunks := chunks.append(if needsEscape(point) then "\\" ++ point else point)
     String.join(Iterable.toSeq(chunks), "")
 
-(** The pattern `regex` was compiled from. *)
+{-- The pattern `regex` was compiled from. -}
 export let source(regex: Regex): String = regex.source
 
-(** The number of capturing groups, group 0 not counted. *)
+{-- The number of capturing groups, group 0 not counted. -}
 export let groupCount(regex: Regex): Int = regex.groupCount
 
-(** The number of the group `name` names, or `None` if the pattern names none. *)
+{-- The number of the group `name` names, or `None` if the pattern names none. -}
 export let groupIndex(regex: Regex, name: String): Option(Int) = numberOf(regex.names, name)
 
-// ---------------------------------------------------------------------------
-// Searching (§4.3)
+-- ---------------------------------------------------------------------------
+-- Searching (§4.3)
 
 let groupOf(span: Option((Int, Int, String))): Option(Group) = match span
     Some((start, length, text)) => Some(Group({ start = start, length = length, text = text }))
     None => None
 
-// The `Match` the search row answered: group 0 first, then each group.
+-- The `Match` the search row answered: group 0 first, then each group.
 let matchOf(regex: Regex, spans: Vector(Option((Int, Int, String)))): Match =
     var groups: Vector(Option(Group)) = []
     var index = 2
     while index <= Vector.length(spans)
         groups := groups.append(groupOf(spans[index]))
         index := index + 1
-    // Group 0 is always present in an answer with spans (§3.3), so the
-    // fallback is unreachable; it is there because `Option` must be matched.
+    -- Group 0 is always present in an answer with spans (§3.3), so the
+    -- fallback is unreachable; it is there because `Option` must be matched.
     let whole = match groupOf(spans[1])
         Some(group) => group
         None => Group({ start = 1, length = 0, text = "" })
     Match({ whole = whole, groups = groups, names = regex.names })
 
-(** Whether `regex` matches anywhere in `text`. *)
+{-- Whether `regex` matches anywhere in `text`. -}
 export let isMatch(regex: Regex, text: String): Bool = match searchProgram(regex.program, text, 1, (1, 0), False)
     Some(_) => True
     None => False
 
-(** The leftmost match starting at position `start` or later. The whole text is
+{-- The leftmost match starting at position `start` or later. The whole text is
     still the subject: `^`, `\b` and `$` see the codepoints before `start`. A
-    `start` below 1 acts as 1. *)
+    `start` below 1 acts as 1. -}
 export let findFrom(regex: Regex, text: String, start: Int): Option(Match) =
     let from = if start < 1 then 1 else start
     match searchProgram(regex.program, text, from, (1, 0), True)
         Some((spans, _)) => Some(matchOf(regex, spans))
         None => None
 
-(** The leftmost match in `text`, or `None` (§3.2). *)
+{-- The leftmost match in `text`, or `None` (§3.2). -}
 export let find(regex: Regex, text: String): Option(Match) = findFrom(regex, text, 1)
 
-// The enumeration's state: where the next search starts, the cursor it starts
-// from, and where the previous match ended (-1 before the first).
+-- The enumeration's state: where the next search starts, the cursor it starts
+-- from, and where the previous match ended (-1 before the first).
 record Enumeration = { start: Int, cursor: (Int, Int), previousEnd: Int }
 
-// The next match of §3.5's enumeration and the state after it: an empty match
-// abutting the previous match is skipped, and after any empty match the search
-// resumes one codepoint past it.
+-- The next match of §3.5's enumeration and the state after it: an empty match
+-- abutting the previous match is skipped, and after any empty match the search
+-- resumes one codepoint past it.
 let nextMatch(regex: Regex, text: String, state: Enumeration): Option((Match, Enumeration)) =
     var current = state
     var answer = None
@@ -184,20 +184,20 @@ let nextMatch(regex: Regex, text: String, state: Enumeration): Option((Match, En
                     searching := False
     answer
 
-(** Every match in `text`, left to right, without overlapping (§3.5): lazy, and
-    re-derived on each traversal. *)
+{-- Every match in `text`, left to right, without overlapping (§3.5): lazy, and
+    re-derived on each traversal. -}
 export let findAll(regex: Regex, text: String): Seq(Match) =
     Seq.unfold(Enumeration({ start = 1, cursor = (1, 0), previousEnd = -1 }), (state) => nextMatch(regex, text, state))
 
-// ---------------------------------------------------------------------------
-// Replacement and splitting (§4.4)
+-- ---------------------------------------------------------------------------
+-- Replacement and splitting (§4.4)
 
-// The matches of the enumeration, all of them or the first.
+-- The matches of the enumeration, all of them or the first.
 let matchesOf(regex: Regex, text: String, all: Bool): Vector(Match) =
     if all then Vector.fromSeq(findAll(regex, text)) else Vector.fromSeq(Seq.take(findAll(regex, text), 1))
 
-// The text between the matches, in one pass over the subject's codepoints:
-// one more run than there are matches.
+-- The text between the matches, in one pass over the subject's codepoints:
+-- one more run than there are matches.
 let runsBetween(text: String, matches: Vector(Match)): Vector(String) =
     var runs: Vector(String) = []
     var chunks: Vector(String) = []
@@ -205,8 +205,8 @@ let runsBetween(text: String, matches: Vector(Match)): Vector(String) =
     var index = 1
     let count = Vector.length(matches)
     for point in text
-        // Close every run that ends here: a match starting at this position,
-        // empty ones included, then skip what the match covers.
+        -- Close every run that ends here: a match starting at this position,
+        -- empty ones included, then skip what the match covers.
         while index <= count and matches[index].whole.start == position
             runs := runs.append(String.join(Iterable.toSeq(chunks), ""))
             chunks := []
@@ -220,7 +220,7 @@ let runsBetween(text: String, matches: Vector(Match)): Vector(String) =
         index := index + 1
     runs.append(String.join(Iterable.toSeq(chunks), ""))
 
-// The runs with each match's replacement between them.
+-- The runs with each match's replacement between them.
 let interleaved(runs: Vector(String), replacements: Vector(String)): String =
     var chunks: Vector(String) = [runs[1]]
     var index = 1
@@ -236,12 +236,12 @@ let replaceLiteral(regex: Regex, text: String, replacement: String, all: Bool): 
         replacements := replacements.append(replacement)
     interleaved(runsBetween(text, matches), replacements)
 
-(** `text` with every match replaced by `replacement`, unchanged: there is no
-    `$1` or `\1` in it (§4.4). *)
+{-- `text` with every match replaced by `replacement`, unchanged: there is no
+    `$1` or `\1` in it (§4.4). -}
 export let replace(regex: Regex, text: String, replacement: String): String =
     replaceLiteral(regex, text, replacement, True)
 
-(** `text` with its first match replaced by `replacement`, unchanged. *)
+{-- `text` with its first match replaced by `replacement`, unchanged. -}
 export let replaceFirst(regex: Regex, text: String, replacement: String): String =
     replaceLiteral(regex, text, replacement, False)
 
@@ -252,33 +252,33 @@ let replaceComputed(regex: Regex, text: String, replacement: Match ->! String, a
         replacements := replacements.append(replacement!(found))
     interleaved(runsBetween(text, matches), replacements)
 
-(** `text` with every match replaced by what `replacement` makes of it, called
-    once per match, in order. *)
+{-- `text` with every match replaced by what `replacement` makes of it, called
+    once per match, in order. -}
 export let replaceWith(regex: Regex, text: String, replacement: Match ->! String): String =
     replaceComputed!(regex, text, replacement, True)
 
-(** `text` with its first match replaced by what `replacement` makes of it. *)
+{-- `text` with its first match replaced by what `replacement` makes of it. -}
 export let replaceFirstWith(regex: Regex, text: String, replacement: Match ->! String): String =
     replaceComputed!(regex, text, replacement, False)
 
-(** The pieces of `text` between the matches, empty pieces kept at both ends and
-    between adjacent matches. *)
+{-- The pieces of `text` between the matches, empty pieces kept at both ends and
+    between adjacent matches. -}
 export let split(regex: Regex, text: String): Vector(String) = runsBetween(text, matchesOf(regex, text, True))
 
-// ---------------------------------------------------------------------------
-// `Match` accessors (§4.5)
+-- ---------------------------------------------------------------------------
+-- `Match` accessors (§4.5)
 
-(** Where the whole match starts: a 1-based codepoint position. *)
+{-- Where the whole match starts: a 1-based codepoint position. -}
 export let start(found: Match): Int = found.whole.start
 
-(** The whole match's length in codepoints. *)
+{-- The whole match's length in codepoints. -}
 export let length(found: Match): Int = found.whole.length
 
-(** The whole match's text. *)
+{-- The whole match's text. -}
 export let text(found: Match): String = found.whole.text
 
-(** Group `index`: 0 the whole match, `1` to `groupCount` a capture, `None` where
-    the group took no part or the index is out of range. *)
+{-- Group `index`: 0 the whole match, `1` to `groupCount` a capture, `None` where
+    the group took no part or the index is out of range. -}
 export let group(found: Match, index: Int): Option(Group) =
     if index == 0 then
         Some(found.whole)
@@ -287,11 +287,11 @@ export let group(found: Match, index: Int): Option(Group) =
     else
         None
 
-(** The group `name` names, as `group` answers it; `None` for a name the
-    pattern does not define. *)
+{-- The group `name` names, as `group` answers it; `None` for a name the
+    pattern does not define. -}
 export let named(found: Match, name: String): Option(Group) = match numberOf(found.names, name)
     Some(index) => group(found, index)
     None => None
 
-(** Groups 1 to `groupCount`, in order. *)
+{-- Groups 1 to `groupCount`, in order. -}
 export let groups(found: Match): Vector(Option(Group)) = found.groups

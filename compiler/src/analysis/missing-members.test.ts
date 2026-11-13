@@ -280,15 +280,15 @@ describe("where the members go", () => {
   });
 
   test("an empty honor keeps the comments that end its head's line, at the end of the file too", () => {
-    expect(filled(program("honor Shape<Line> = (* soon *)", "", "export let unit: Unit = ()")).text).toBe(program(
-      "honor Shape<Line> = (* soon *)",
+    expect(filled(program("honor Shape<Line> = {- soon -}", "", "export let unit: Unit = ()")).text).toBe(program(
+      "honor Shape<Line> = {- soon -}",
       "    area(s) = Debug.todo(\"area\")",
       "    name(s) = Debug.todo(\"name\")",
       "    scaled(s, by) = Debug.todo(\"scaled\")",
       "",
       "export let unit: Unit = ()",
     ));
-    const text = ["module Main", ...SHAPE, "honor Shape<Line> = // soon"].join("\n");
+    const text = ["module Main", ...SHAPE, "honor Shape<Line> = -- soon"].join("\n");
     expect(filled(text)).toEqual({
       text: text + [
         "",
@@ -303,17 +303,17 @@ describe("where the members go", () => {
   test("below the comments that end the last member's line, and below a nested `match`, above what follows it", () => {
     expect(filled(program(
       "honor Shape<Point> =",
-      "    area(p) = 1.0 // for now",
-      "    name(p) = \"p\" (* (* nested *) still *)",
-    )).text).toContain("    name(p) = \"p\" (* (* nested *) still *)\n    scaled(s, by) = Debug.todo(\"scaled\")\n");
+      "    area(p) = 1.0 -- for now",
+      "    name(p) = \"p\" {- {- nested -} still -}",
+    )).text).toContain("    name(p) = \"p\" {- {- nested -} still -}\n    scaled(s, by) = Debug.todo(\"scaled\")\n");
     const text = program(
       "honor Shape<Point> =",
       "    area(p) = match p.x",
       "        0 => 0.0",
       "        _ => 1.0",
       "",
-      "// The other shapes.",
-      "(** A line. *)",
+      "-- The other shapes.",
+      "{-- A line. -}",
       "export let line: Line = Line({ length = 1 })",
     );
     expect(filled(text)).toEqual({
@@ -325,8 +325,8 @@ describe("where the members go", () => {
         "    name(s) = Debug.todo(\"name\")",
         "    scaled(s, by) = Debug.todo(\"scaled\")",
         "",
-        "// The other shapes.",
-        "(** A line. *)",
+        "-- The other shapes.",
+        "{-- A line. -}",
         "export let line: Line = Line({ length = 1 })",
       ),
       diagnostics: [],
@@ -404,26 +404,26 @@ describe("where the members go", () => {
 
   test("beside a doc comment's error, which is about the comment: the parser read the code as written", () => {
     const trailing = "documentation comments precede what they document — move this above the declaration on its " +
-      "own line, or make it an ordinary comment (`(* ... *)`)";
-    const head = filled(program("honor Shape<Point> = (** points *)", "    area(p) = 1.0", "    name(p) = \"p\""));
+      "own line, or make it an ordinary comment (`{- ... -}`)";
+    const head = filled(program("honor Shape<Point> = {-- points -}", "    area(p) = 1.0", "    name(p) = \"p\""));
     expect(head.text).toBe(program(
-      "honor Shape<Point> = (** points *)",
+      "honor Shape<Point> = {-- points -}",
       "    area(p) = 1.0",
       "    name(p) = \"p\"",
       "    scaled(s, by) = Debug.todo(\"scaled\")",
     ));
     expect(head.diagnostics).toEqual([trailing]);
-    const member = filled(program("honor Shape<Point> =", "    area(p) = 1.0 (** the area *)", "    name(p) = \"p\""));
+    const member = filled(program("honor Shape<Point> =", "    area(p) = 1.0 {-- the area -}", "    name(p) = \"p\""));
     expect(member.text).toBe(program(
       "honor Shape<Point> =",
-      "    area(p) = 1.0 (** the area *)",
+      "    area(p) = 1.0 {-- the area -}",
       "    name(p) = \"p\"",
       "    scaled(s, by) = Debug.todo(\"scaled\")",
     ));
     expect(member.diagnostics).toEqual([trailing]);
-    const empty = filled(program("honor Shape<Point> = (** points *)"));
+    const empty = filled(program("honor Shape<Point> = {-- points -}"));
     expect(empty.text).toBe(program(
-      "honor Shape<Point> = (** points *)",
+      "honor Shape<Point> = {-- points -}",
       "    area(s) = Debug.todo(\"area\")",
       "    name(s) = Debug.todo(\"name\")",
       "    scaled(s, by) = Debug.todo(\"scaled\")",
@@ -460,12 +460,12 @@ describe("where it is not offered", () => {
   });
 
   test("where the first member does not begin its line, whose column the new members could not match", () => {
-    const text = program("honor Shape<Point> =", "    (* first *) area(p) = 1.0", "                name(p) = \"p\"");
+    const text = program("honor Shape<Point> =", "    {- first -} area(p) = 1.0", "                name(p) = \"p\"");
     expect(session({ "/main.hex": text }).diagnostics("/main.hex").map(({ message }) => message))
       .toEqual(["instance is missing required member `scaled`"]);
     expect(repairs(text)).toEqual([]);
     // Nor an empty honor's head, whose column the members are one step past.
-    const empty = program("honor", "    (* note *) Shape<Point> =", "export let unit: Unit = ()");
+    const empty = program("honor", "    {- note -} Shape<Point> =", "export let unit: Unit = ()");
     expect(session({ "/main.hex": empty }).diagnostics("/main.hex").map(({ message }) => message))
       .toContain("instance is missing required member `area`");
     expect(repairs(empty, empty.indexOf("Shape<Point>"))).toEqual([]);
@@ -507,7 +507,7 @@ describe("where it is not offered", () => {
   test("where a comment before the head sets the column its block must pass, which the members don't", () => {
     // Layout reads a line's column from its first token, so the group's block
     // stands at `Shape`, and `area` there opens nothing.
-    const text = program("honor", "    (* note *) Shape<Point> =", "               area(p) = 1.0");
+    const text = program("honor", "    {- note -} Shape<Point> =", "               area(p) = 1.0");
     expect(session({ "/main.hex": text }).diagnostics("/main.hex").map(({ message }) => message))
       .toContain("instance is missing required member `name`");
     expect(repairs(text, text.indexOf("Shape<Point>"))).toEqual([]);
@@ -567,7 +567,7 @@ describe("where it is not offered", () => {
       .map(({ title }) => title)).toEqual(["Add the missing arm"]);
     // A block comment the head's line leaves open: the `=` does not end a line
     // the members could follow.
-    expect(repairs(program("honor Shape<Point> = (* a", "   b *)", "export let unit: Unit = ()"))).toEqual([]);
+    expect(repairs(program("honor Shape<Point> = {- a", "   b -}", "export let unit: Unit = ()"))).toEqual([]);
   });
 
   test("where something follows the head's `=` before its block", () => {

@@ -134,40 +134,60 @@ let greet = name =>
 Semicolons are occasionally convenient for tiny neighboring bindings. Newlines are
 usually easier to scan.
 
-## Comments: one familiar spelling, one ML spelling
+## Comments: every form is spelled with a dash
 
-A line comment begins with `//` and continues to the newline, exactly as in
-JavaScript:
+A line comment begins with `--` and continues to the newline:
 
 ```hexagon
-let retries = 3 // enough for a transient failure
+let retries = 3 -- enough for a transient failure
 ```
 
-A block comment uses the ML family's `(* ... *)` and may span lines. Unlike
-JavaScript block comments, Hexagon block comments nest:
+The comment begins at the dashes wherever a token could begin, whatever stands beside
+them. So two minus signs that both mean minus must be written apart: `x - -1`
+subtracts negative one, while `x --1` is `x` followed by a comment. The compiler does
+not object to the second spelling, because it is a legal comment.
+
+A block comment is written `{- ... -}` and may span lines. Unlike JavaScript block
+comments, Hexagon block comments nest:
 
 ```hexagon
-(* outer explanation
-   (* temporarily disabled detail *)
+{- outer explanation
+   {- temporarily disabled detail -}
    back in the outer explanation
-*)
+-}
 ```
 
 Nesting makes it safe to comment out a region that already contains block comments.
-Every opening `(*` still needs its own closing `*)`.
+Every opening `{-` still needs its own closing `-}`, and a `-}` with no comment open
+is an error. A brace followed directly by a dash always opens a comment, never a
+record: no record begins with a minus sign.
 
-If JavaScript muscle memory produces `/*` or `*/`, the compiler recognizes the
-attempt and answers with the rewrite: Hexagon block comments are `(* ... *)`. The
-slash spellings are never silently accepted and never mean division and
-multiplication side by side.
-
-The form `(** ... *)` is the documentation comment. Placed directly above a
+The form `{-- ... -}` is the documentation comment. Placed directly above a
 declaration, its content — Markdown — becomes that declaration's documentation:
-editors show it on hover, and the compiler carries it into the generated JavaScript
-and `.d.ts` as JSDoc, where every TypeScript consumer's tooling reads it. A
+
+```hexagon
+{-- How many times a failed request is tried again. -}
+let retries = 3
+```
+
+Editors show the text on hover, and the compiler carries it into the generated
+JavaScript and `.d.ts` as JSDoc, where every TypeScript consumer's tooling reads it. A
 documentation comment that does not sit above a declaration is an error, not a
 silently ignored note — if you wrote documentation, Hexagon makes sure something
-shows it. (Banner lines are safe: `(***……` stays an ordinary comment.)
+shows it. Only this form documents: a line comment never does, however it begins.
+(Banner lines are safe: `{---……` stays an ordinary comment.)
+
+Hexagon takes these spellings as a set from Haskell and Elm, so that one character
+marks all three forms. If JavaScript muscle memory produces `//`, `/*`, or `/**`, or
+an OCaml habit produces `(*`, the compiler recognizes the attempt and answers with the
+rewrite: `--`, `{- ... -}`, or `{-- ... -}`. Those spellings are never silently
+accepted, and the slashes never mean two divisions side by side. In the JavaScript
+that Hexagon generates, your comments reappear in JavaScript's own spelling.
+
+Readers arriving from Haskell or Elm need the opposite warning, because their habit
+is *not* caught. In those languages `{-|` opens documentation. In Hexagon it opens an
+ordinary comment, so the compiler accepts it and it documents nothing. Documentation
+is `{-- ... -}`.
 
 ## Comments do not reshape a block
 
@@ -176,19 +196,20 @@ separates two items:
 
 ```hexagon
 let prepare(order: Order): Order =
-    // Keep the effect close to the work it announces.
+    -- Keep the effect close to the work it announces.
     Debug.log("Preparing order")
 
-            // Comment-only indentation is ignored.
+            -- Comment-only indentation is ignored.
     order
 ```
 
 The body still contains the call followed by the final `order` expression. A trailing
 comment likewise does not change the line's indentation or block membership.
 
-Strings and comments remain separate lexical worlds. The string `"not // a comment"`
-contains slashes; it does not end at them. Conversely, quotes inside a block comment do
-not start string parsing.
+Strings and comments remain separate lexical worlds. The string `"not -- a comment"`
+contains dashes; it does not end at them. Conversely, quotes inside a block comment do
+not start string parsing, and neither does `--` start a line comment there: inside
+`{- ... -}`, only `{-` and `-}` count.
 
 ## Summary
 
@@ -201,7 +222,8 @@ not start string parsing.
 - semicolons separate items at the same block level but never terminate statements or
   open blocks;
 - leading indentation uses spaces, not tabs; and
-- `//` comments are line comments while `(* ... *)` comments can nest.
+- `--` comments are line comments, `{- ... -}` comments can nest, and `{-- ... -}`
+  documents the declaration below it.
 
 The earlier chapters' blocks were already following these rules. Naming them now gives
 us a stable source shape for the more substantial types and declarations ahead.

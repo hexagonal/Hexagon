@@ -1,6 +1,6 @@
 module Ord
 
-(** The polymorphic face of ordering. Honoring `Ord` gives a type the `<`, `<=`,
+{-- The polymorphic face of ordering. Honoring `Ord` gives a type the `<`, `<=`,
     `>`, and `>=` operators, and the members `max` and `min`.
 
     The members below state the laws an instance is reviewed against
@@ -8,23 +8,23 @@ module Ord
     with every `NaN` after `Float.infinity` and equal to every other, and `0.0`
     equal to `-0.0`. The compiler relies on no such law: operands are evaluated
     in the rewritten form's source order, and no expression is rewritten by an
-    algebraic law. *)
+    algebraic law. -}
 export constraint Ord<a: Eq> =
-    (** How `left` orders against `right`. An instance's `compare` is a total
+    {-- How `left` orders against `right`. An instance's `compare` is a total
         order agreeing with `equals`: `Equal` exactly when the two are equal,
-        and antisymmetric and transitive otherwise. *)
+        and antisymmetric and transitive otherwise. -}
     compare(left: a, right: a) -> Ordering
-    (** The greater of `left` and `right`, and `right` when the two are equal,
+    {-- The greater of `left` and `right`, and `right` when the two are equal,
         so `min` and `max` of a pair are always the pair in some order. An
         instance may write its own `max`, which must return the same argument
-        as this one. *)
+        as this one. -}
     max(left: a, right: a) -> a =
         match compare(left, right)
             Greater => left
             _ => right
-    (** The lesser of `left` and `right`, and `left` when the two are equal. An
+    {-- The lesser of `left` and `right`, and `left` when the two are equal. An
         instance may write its own `min`, which must return the same argument
-        as this one. *)
+        as this one. -}
     min(left: a, right: a) -> a =
         match compare(left, right)
             Greater => right

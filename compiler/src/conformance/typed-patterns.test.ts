@@ -1181,7 +1181,7 @@ describe("§12 a claim the part does not fit (#1510)", () => {
     }
     // A comment ends at its line break, so a pattern holding one is not
     // quoted on one line: the conversion written out.
-    expect(messages('let g(n: Int): Unit =\n    let (\n        x: Float, // x\n        s\n    ) = (n, "s")\n    ()\n' + OUT))
+    expect(messages('let g(n: Int): Unit =\n    let (\n        x: Float, -- x\n        s\n    ) = (n, "s")\n    ()\n' + OUT))
       .toEqual([
         "`x` is an `Int` here: a type in a pattern says what the part is and converts nothing; remove the type and " +
         "convert `x` where it is used: `Float.fromInt(x)`",

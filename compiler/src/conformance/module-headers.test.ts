@@ -110,7 +110,7 @@ describe("a file may begin with a byte-order mark (Lexer §2.1, #844)", () => {
     );
     expect(messages([["/main.hex", "\uFEFFmodule Main\n export let n: Int = 1\n"]])).not.toEqual([]);
     // A comment at the top of the file is a top-level comment, emitted as one.
-    const main = compileFiles([["/main.hex", "\uFEFF(* top comment *)\nmodule Main\n\nexport let n: Int = 1\n"]])
+    const main = compileFiles([["/main.hex", "\uFEFF{- top comment -}\nmodule Main\n\nexport let n: Int = 1\n"]])
       .modules.find(({ name }) => name === "Main");
     expect(main?.javascript.text.startsWith("/* top comment */\n")).toBe(true);
   });
@@ -223,10 +223,10 @@ describe("§13 (o) — every file declares its module", () => {
     // attaches to what immediately follows it (`spec/doc-comments.md` §2.1), so
     // the edit goes above the comment rather than between the two. The top of
     // the file is above every comment there is, which is why it is the seat.
-    const text = "(** The stray. *)\nlet stray: Int = 1\n\nmodule Geometry\n\n" + POINT;
+    const text = "{-- The stray. -}\nlet stray: Int = 1\n\nmodule Geometry\n\n" + POINT;
     const [diagnostic] = reports([["/f.hex", text]]);
     expect(applied(text, diagnostic)).toBe(
-      "module Geometry\n\n(** The stray. *)\nlet stray: Int = 1\n\n" + POINT,
+      "module Geometry\n\n{-- The stray. -}\nlet stray: Int = 1\n\n" + POINT,
     );
     expect(messages([["/f.hex", applied(text, diagnostic)]])).toEqual([]);
   });
@@ -565,8 +565,8 @@ describe("§13 (o) — every file declares its module", () => {
   test("a `module` header inside a string is a string, and a commented-out import is a comment", () => {
     const text = "module Main\n\n" +
       'export let banner: String = "module Helper\\nend module Helper\\n"\n' +
-      "// import Geometry\n" +
-      "(* import Geometry *)\n" +
+      "-- import Geometry\n" +
+      "{- import Geometry -}\n" +
       "export let n: Int = 1\n";
     // One module, not three: the file declares exactly the header it wrote.
     const project = compileFiles([["/f.hex", text]]);
@@ -579,7 +579,7 @@ describe("§13 (o) — every file declares its module", () => {
       "module Geometry\n\nexport let scale: Float = 1.0\n",
     ], [
       "/f.hex",
-      "module Main\n\n// import Geometry\n" +
+      "module Main\n\n-- import Geometry\n" +
       "export let n: Float = Geometry.scale\n",
     ]])).toEqual(["no module alias `Geometry`; `import Geometry`"]);
   });
@@ -771,18 +771,18 @@ describe("§2.2 / Comments §6 — a file's comments are cut with its modules", 
    */
   test("each module's emitted JavaScript carries its own comments and no others", () => {
     const project = compileFiles([["/f.hex",
-      "// above the first header\n" +
+      "-- above the first header\n" +
       "module Numbers\n" +
       "\n" +
-      "// Numbers own line\n" +
+      "-- Numbers own line\n" +
       "export let answer: Int = 21\n" +
       "\n" +
       "end module Numbers\n" +
       "\n" +
-      "// written above the second header\n" +
+      "-- written above the second header\n" +
       "module Main\n" +
       "\n" +
-      "// Main own line\n" +
+      "-- Main own line\n" +
       "export let doubled: Int = 42\n",
     ]]);
     expect(project.diagnostics).toEqual([]);

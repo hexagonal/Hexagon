@@ -246,8 +246,8 @@ describe("a `fun` block is one group (Functions §7.3, #700)", () => {
     const main = await runProject([["/main.hex",
       "module Main\n\n" + "fun\n" +
       "    even(n: Int): Bool = if n == 0 then True else odd(n - 1)\n" +
-      "    // the parity pair\n" +
-      "    (** Answers whether `n` is odd. *)\n" +
+      "    -- the parity pair\n" +
+      "    {-- Answers whether `n` is odd. -}\n" +
       "    odd(n: Int): Bool = if n == 0 then False else even(n - 1)\n" +
       "export let fourIsEven: Bool = even(4)\n",
     ]]);

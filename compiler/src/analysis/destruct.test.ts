@@ -93,10 +93,10 @@ describe("destruct on a `match` with no arms", () => {
   });
 
   test("one step in from where the `match`'s line begins, below its comments", () => {
-    const text = program("export let area(s: Shape): Float = match s // to do", "export let one: Int = 1");
+    const text = program("export let area(s: Shape): Float = match s -- to do", "export let one: Int = 1");
     expect(destructed(text)).toEqual({
       text: program(
-        "export let area(s: Shape): Float = match s // to do",
+        "export let area(s: Shape): Float = match s -- to do",
         "    Circle(_) => Debug.todo(\"Circle(_)\")",
         "    Square(_) => Debug.todo(\"Square(_)\")",
         "    Tri(_, _) => Debug.todo(\"Tri(_, _)\")",
@@ -262,7 +262,7 @@ describe("destruct on a `match` with no arms", () => {
     expect(repairs(program("module Debug", "export let area(s: Shape): Float =", "    match s"))).toEqual([]);
     // A block comment opened after the subject runs onto the next line, and
     // would hold arms written at the end of the `match`'s line.
-    const comment = program("export let area(s: Shape): Float =", "    match s (* to do:", "       later *)");
+    const comment = program("export let area(s: Shape): Float =", "    match s {- to do:", "       later -}");
     expect(reports(comment)).toEqual(["3:4 expected an indented block of match arms"]);
     expect(repairs(comment)).toEqual([]);
   });
@@ -548,7 +548,7 @@ describe("destruct on a variable or `_` in an arm's pattern", () => {
       "export record Tile = { shape: Shape, n: Int }",
       "export let f(t: Tile, o: Option(Int)): Int =",
       "    match t",
-      "        Tile({ shape = s, n }) => // the rest",
+      "        Tile({ shape = s, n }) => -- the rest",
       "            match o",
       "                Some(k) => k + n",
       "                None => n",
@@ -562,15 +562,15 @@ describe("destruct on a variable or `_` in an arm's pattern", () => {
         "export record Tile = { shape: Shape, n: Int }",
         "export let f(t: Tile, o: Option(Int)): Int =",
         "    match t",
-        "        Tile({ shape = Circle(_), n }) => // the rest",
+        "        Tile({ shape = Circle(_), n }) => -- the rest",
         "            match o",
         "                Some(k) => k + n",
         "                None => n",
-        "        Tile({ shape = Square(_), n }) => // the rest",
+        "        Tile({ shape = Square(_), n }) => -- the rest",
         "            match o",
         "                Some(k) => k + n",
         "                None => n",
-        "        Tile({ shape = Tri(_, _), n }) => // the rest",
+        "        Tile({ shape = Tri(_, _), n }) => -- the rest",
         "            match o",
         "                Some(k) => k + n",
         "                None => n",
@@ -630,7 +630,7 @@ describe("destruct on a variable or `_` in an arm's pattern", () => {
     const shared = program("export let f(o: Option(Bool)): Int =", "    match o", "        None => 0; Some(b) => 1");
     expect(reports(shared)).toEqual([]);
     expect(splits(shared, "b)")).toEqual([]);
-    expect(splits(program("export let f(o: Option(Bool)): Int =", "    match o", "        None => 0", "        (* b *) Some(b) => 1"), "b)"))
+    expect(splits(program("export let f(o: Option(Bool)): Int =", "    match o", "        None => 0", "        {- b -} Some(b) => 1"), "b)"))
       .toEqual([]);
   });
 

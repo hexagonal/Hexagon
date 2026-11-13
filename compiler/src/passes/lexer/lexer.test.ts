@@ -379,7 +379,7 @@ describe("lex", () => {
 
   test("treats nested comments as trivia and records physical newlines", () => {
     const result = lexSource(
-      "(* outer\n (* inner *) still outer *) let x = 1 // note\n\tlet y = 2",
+      "{- outer\n {- inner -} still outer -} let x = 1 -- note\n\tlet y = 2",
     );
 
     expect(kinds(result.tokens)).toEqual([
@@ -397,8 +397,8 @@ describe("lex", () => {
     ]);
     expect(result.newlines).toHaveLength(4);
     expect(result.comments.map(({ kind, text }) => [kind, text])).toEqual([
-      ["Block", "(* outer\n (* inner *) still outer *)"],
-      ["Line", "// note"],
+      ["Block", "{- outer\n {- inner -} still outer -}"],
+      ["Line", "-- note"],
     ]);
     expect(result.diagnostics.map(({ message }) => message)).toEqual([
       "indentation uses spaces; tabs are not allowed here",
@@ -406,37 +406,108 @@ describe("lex", () => {
     expect(result.diagnostics[0]?.fixes?.[0]?.edits[0]?.replacement).toBe("    ");
   });
 
+  test("lexes the line-comment acceptance tests of spec/comments.md §8", () => {
+    const trailing = lexSource("let x = 1 -- trailing comment");
+    expect(kinds(trailing.tokens)).toEqual([
+      "NonUpperName", "UpperName", "Let", "NonUpperName", "Equal", "Integer", "Eof",
+    ]);
+    expect(trailing.comments.map(({ text }) => text)).toEqual(["-- trailing comment"]);
+    expect(trailing.diagnostics).toEqual([]);
+
+    // A banner is one comment, however many dashes it holds.
+    const banner = lexSource("-------- banner --------");
+    expect(banner.comments.map(({ kind, text }) => [kind, text])).toEqual([
+      ["Line", "-------- banner --------"],
+    ]);
+
+    // The comment begins at the dashes, whatever stands beside them (§2): `x --1`
+    // is `x` and a comment, and a double minus is written apart.
+    const kept = lexSource("let y = x --1");
+    expect(kinds(kept.tokens)).toEqual([
+      "NonUpperName", "UpperName", "Let", "NonUpperName", "Equal", "NonUpperName", "Eof",
+    ]);
+    expect(kept.comments.map(({ text }) => text)).toEqual(["--1"]);
+    expect(kept.diagnostics).toEqual([]);
+    expect(kinds(lexSource("let y = x - -1").tokens)).toEqual([
+      "NonUpperName", "UpperName", "Let", "NonUpperName", "Equal",
+      "NonUpperName", "Minus", "Minus", "Integer", "Eof",
+    ]);
+    expect(lexSource("--x").comments.map(({ text }) => text)).toEqual(["--x"]);
+    expect(lexSource("x--").comments.map(({ text }) => text)).toEqual(["--"]);
+
+    // `--` is matched ahead of every token that begins with `-`, `->` included,
+    // and ahead of the unmatched closer: `--}` is a line comment.
+    expect(kinds(lexSource("a --> b").tokens)).toEqual(["NonUpperName", "UpperName", "NonUpperName", "Eof"]);
+    const closerComment = lexSource("--}");
+    expect(closerComment.comments.map(({ text }) => text)).toEqual(["--}"]);
+    expect(closerComment.diagnostics).toEqual([]);
+
+    // A line comment is never documentation, whatever its text begins with.
+    const lines = lexSource("--- Doubles.\n-- | Doubles.\nlet a = 1\n");
+    expect(lines.comments.map(({ kind, documentation }) => [kind, documentation])).toEqual([
+      ["Line", false],
+      ["Line", false],
+    ]);
+    expect(lines.diagnostics).toEqual([]);
+  });
+
   test("lexes the block-comment acceptance tests of spec/comments.md §8", () => {
-    const empty = lexSource("(**)");
-    expect(empty.comments.map(({ text }) => text)).toEqual(["(**)"]);
+    const empty = lexSource("{--}");
+    expect(empty.comments.map(({ text, documentation }) => [text, documentation])).toEqual([
+      ["{--}", false],
+    ]);
     expect(empty.diagnostics).toEqual([]);
 
-    const inline = lexSource("let y = (* inline *) 2");
+    const inline = lexSource("let y = {- inline -} 2");
     expect(kinds(inline.tokens)).toEqual([
       "NonUpperName", "UpperName", "Let", "NonUpperName", "Equal", "Integer", "Eof",
     ]);
     expect(inline.diagnostics).toEqual([]);
 
-    // `(*` opens and the `)` is comment text, so the file ends inside the comment.
-    expect(lexSource("(*)").diagnostics.map(({ message }) => message)).toEqual([
+    // `--` is comment text inside a block comment, so this one ends at its `-}`.
+    const dashes = lexSource("{- a -- b -} let z = 1");
+    expect(kinds(dashes.tokens)).toEqual([
+      "NonUpperName", "UpperName", "Let", "NonUpperName", "Equal", "Integer", "Eof",
+    ]);
+    expect(dashes.comments.map(({ text }) => text)).toEqual(["{- a -- b -}"]);
+
+    // `{-` opens and the `}` is comment text, so the file ends inside the comment.
+    expect(lexSource("{-}").diagnostics.map(({ message }) => message)).toEqual([
       "unterminated block comment; opened at line 3, column 1",
     ]);
 
-    expect(lexSource("(* a (* b").diagnostics.map(({ message }) => message)).toEqual([
-      "unterminated block comment; opened at line 3, column 6 (nested 2 levels deep; each `(*` needs its own `*)`)",
+    // `{-` opens a comment ahead of the record brace: no record begins with `-`.
+    const record = lexSource("let r = {-1}");
+    expect(kinds(record.tokens)).toEqual([
+      "NonUpperName", "UpperName", "Let", "NonUpperName", "Equal", "Eof",
+    ]);
+    expect(record.diagnostics.map(({ message }) => message)).toEqual([
+      "unterminated block comment; opened at line 3, column 9",
+    ]);
+    // With a space between, it is a brace and a minus.
+    expect(kinds(lexSource("{ -").tokens)).toEqual(["NonUpperName", "UpperName", "LeftBrace", "Minus", "Eof"]);
+
+    expect(lexSource("{- a {- b").diagnostics.map(({ message }) => message)).toEqual([
+      "unterminated block comment; opened at line 3, column 6 (nested 2 levels deep; each `{-` needs its own `-}`)",
     ]);
 
-    // Strings are not lexed inside comments: the comment ends at the `*)` in the quotes.
-    const quoted = lexSource('(* "unclosed string with *) let z = 1');
+    // Strings are not lexed inside comments: the comment ends at the `-}` in the quotes.
+    const quoted = lexSource('{- "unclosed string with -} let z = 1');
     expect(kinds(quoted.tokens)).toEqual([
       "NonUpperName", "UpperName", "Let", "NonUpperName", "Equal", "Integer", "Eof",
     ]);
     expect(quoted.diagnostics).toEqual([]);
 
     // ...and comments are not lexed inside strings.
-    const string = lexSource('let s = "not a // comment, not a (* one"');
+    const string = lexSource('let s = "not a -- comment, not a {- one"');
     expect(string.comments).toEqual([]);
     expect(string.diagnostics).toEqual([]);
+
+    // The `{` of `${` belongs to the string, so `-x` is interpolated and no
+    // comment opens.
+    const negated = lexSource('let t = "${-x}"');
+    expect(negated.comments).toEqual([]);
+    expect(negated.diagnostics).toEqual([]);
 
     // `**` munches positionally, so `**)` never reaches the comment machinery.
     const power = lexSource("let b = a **) 2");
@@ -455,26 +526,42 @@ describe("lex", () => {
     expect(power.diagnostics).toEqual([]);
 
     // An interpolation hole is expression territory, so a comment there is trivia.
-    const hole = lexSource('"${ (* why *) x }"');
-    expect(hole.comments.map(({ text }) => text)).toEqual(["(* why *)"]);
+    const hole = lexSource('"${ {- why -} x }"');
+    expect(hole.comments.map(({ text }) => text)).toEqual(["{- why -}"]);
     expect(hole.diagnostics).toEqual([]);
 
-    // `--` is not a comment spelling: `x --1` is `x - (-1)`.
-    expect(kinds(lexSource("x --1").tokens)).toEqual([
-      "NonUpperName",
-      "UpperName",
-      "NonUpperName",
-      "Minus",
-      "Minus",
-      "Integer",
-      "Eof",
+    // A closer with no comment open is its own error, never a minus and a brace.
+    const unmatched = lexSource("-}");
+    expect(unmatched.diagnostics.map(({ message }) => message)).toEqual([
+      "unmatched `-}` — no open block comment",
     ]);
+    expect(kinds(unmatched.tokens)).toEqual(["NonUpperName", "UpperName", "Eof"]);
   });
 
-  test("redirects the JavaScript block-comment spellings", () => {
+  test("redirects the JavaScript comment spellings", () => {
+    const line = lexSource("let a = 1 // note\nlet b = 2");
+    expect(line.diagnostics.map(({ message }) => message)).toEqual([
+      "JavaScript line comment syntax — Hexagon line comments are `-- ...`",
+    ]);
+    // Recovery takes the rest of the line as the comment it was meant to be.
+    expect(kinds(line.tokens)).toEqual([
+      "NonUpperName", "UpperName",
+      "Let", "NonUpperName", "Equal", "Integer",
+      "Let", "NonUpperName", "Equal", "Integer", "Eof",
+    ]);
+    expect(line.comments).toEqual([]);
+    expect(line.diagnostics[0]?.fixes?.[0]?.edits.map(({ replacement }) => replacement)).toEqual(["--"]);
+
+    // A run of slashes is refused as `//` is, and each slash becomes a dash.
+    const run = lexSource("/// note");
+    expect(run.diagnostics.map(({ message }) => message)).toEqual([
+      "JavaScript line comment syntax — Hexagon line comments are `-- ...`",
+    ]);
+    expect(run.diagnostics[0]?.fixes?.[0]?.edits.map(({ replacement }) => replacement)).toEqual(["---"]);
+
     const opener = lexSource("/* JS habit */\nlet x = 1");
     expect(opener.diagnostics.map(({ message }) => message)).toEqual([
-      "JavaScript block comment syntax — Hexagon block comments are `(* ... *)`",
+      "JavaScript block comment syntax — Hexagon block comments are `{- ... -}`",
     ]);
     // Recovery resumes after JavaScript's own closer, so the pasted comment costs
     // one diagnostic and the code after it still lexes.
@@ -483,27 +570,37 @@ describe("lex", () => {
     ]);
     expect(opener.comments).toEqual([]);
     expect(opener.diagnostics[0]?.fixes?.[0]?.edits.map(({ replacement }) => replacement)).toEqual([
-      "(*",
-      "*)",
+      "{-",
+      "-}",
     ]);
 
     const documentation = lexSource("/** doc */");
     expect(documentation.diagnostics.map(({ message }) => message)).toEqual([
-      "JavaScript block comment syntax — Hexagon block comments are `(* ... *)` (documentation form: `(** ... *)`)",
+      "JavaScript block comment syntax — Hexagon block comments are `{- ... -}` (documentation form: `{-- ... -}`)",
     ]);
     expect(
       documentation.diagnostics[0]?.fixes?.[0]?.edits.map(({ replacement }) => replacement),
-    ).toEqual(["(**", "*)"]);
+    ).toEqual(["{--", "-}"]);
 
-    // `/**/` is JavaScript's empty comment, not its documentation opener.
+    // `/**/` is JavaScript's empty comment, not its documentation opener, and
+    // its fix is the empty Hexagon comment.
     expect(lexSource("/**/").diagnostics.map(({ message }) => message)).toEqual([
-      "JavaScript block comment syntax — Hexagon block comments are `(* ... *)`",
+      "JavaScript block comment syntax — Hexagon block comments are `{- ... -}`",
     ]);
+    expect(lexSource("/**/").diagnostics[0]?.fixes?.[0]?.edits.map(({ replacement }) => replacement))
+      .toEqual(["{-", "-}"]);
 
     // With no closer to pair with, the single error at the opener stands on its
     // message: rewriting the opener alone would only trade this error for an
-    // unterminated Hexagon comment.
-    for (const source of ["/* never closed", "/** doc, never closed"]) {
+    // unterminated Hexagon comment. So too where the body holds `{-` or `-}`
+    // text, which would change the comment's extent once it nests.
+    // A rewrite is judged by what it reads as: a body character beside a new
+    // delimiter must not make another (`{*/` becomes `{-}`), and one after the
+    // opener must not change the comment's kind (`/*-` becomes `{--`).
+    for (const source of [
+      "/* never closed", "/** doc, never closed", "/* a -} b */",
+      "/* x {*/", "/**} x */", "/*- note */", "/**- item */",
+    ]) {
       const unclosed = lexSource(source);
       expect(unclosed.diagnostics, source).toHaveLength(1);
       expect(unclosed.diagnostics[0]?.fixes, source).toBeUndefined();
@@ -513,14 +610,68 @@ describe("lex", () => {
     // recorded for layout and the tab below is comment text, not indentation.
     const spanning = lexSource("/* one\n\ttwo */\n\tlet y = 2");
     expect(spanning.diagnostics.map(({ message }) => message)).toEqual([
-      "JavaScript block comment syntax — Hexagon block comments are `(* ... *)`",
+      "JavaScript block comment syntax — Hexagon block comments are `{- ... -}`",
       "indentation uses spaces; tabs are not allowed here",
     ]);
     expect(spanning.newlines).toHaveLength(4);
 
     const closer = lexSource("*/");
     expect(closer.diagnostics.map(({ message }) => message)).toEqual([
-      "`*/` is JavaScript's block comment closer — Hexagon spells it `*)`; no block comment is open here",
+      "`*/` is JavaScript's block comment closer — Hexagon spells it `-}`; no block comment is open here",
+    ]);
+    expect(closer.diagnostics[0]?.fixes).toBeUndefined();
+  });
+
+  test("redirects the OCaml comment spellings", () => {
+    const block = lexSource("(* OCaml habit *)\nlet x = 1");
+    expect(block.diagnostics.map(({ message }) => message)).toEqual([
+      "OCaml block comment syntax — Hexagon block comments are `{- ... -}`",
+    ]);
+    expect(kinds(block.tokens)).toEqual([
+      "NonUpperName", "UpperName", "Let", "NonUpperName", "Equal", "Integer", "Eof",
+    ]);
+    expect(block.comments).toEqual([]);
+
+    // Recovery nests as OCaml does, and the fix rewrites every delimiter it found,
+    // so the comment keeps its extent under the new spelling.
+    const nested = lexSource("(* a (* b *) c *) let z = 1");
+    expect(nested.diagnostics).toHaveLength(1);
+    expect(kinds(nested.tokens)).toEqual([
+      "NonUpperName", "UpperName", "Let", "NonUpperName", "Equal", "Integer", "Eof",
+    ]);
+    expect(nested.diagnostics[0]?.fixes?.[0]?.edits.map(({ replacement }) => replacement)).toEqual([
+      "{-", "{-", "-}", "-}",
+    ]);
+
+    const documentation = lexSource("(** Doubles. *)\nlet x = 1");
+    expect(documentation.diagnostics.map(({ message }) => message)).toEqual([
+      "OCaml block comment syntax — Hexagon block comments are `{- ... -}` (documentation form: `{-- ... -}`)",
+    ]);
+    expect(
+      documentation.diagnostics[0]?.fixes?.[0]?.edits.map(({ replacement }) => replacement),
+    ).toEqual(["{--", "-}"]);
+
+    // OCaml's own carve-outs are not its documentation opener: `(**)` is empty and
+    // `(***` a banner, and the fix keeps them ordinary.
+    for (const source of ["(**)", "(*** banner *)"]) {
+      const ordinary = lexSource(source);
+      expect(ordinary.diagnostics.map(({ message }) => message), source).toEqual([
+        "OCaml block comment syntax — Hexagon block comments are `{- ... -}`",
+      ]);
+    }
+    expect(lexSource("(**)").diagnostics[0]?.fixes?.[0]?.edits.map(({ replacement }) => replacement))
+      .toEqual(["{-", "-}"]);
+
+    // Unterminated, or holding text the new spelling would read, it takes no fix.
+    for (const source of ["(* never closed", "(* a {- b *)", "(* x {*)", "(**} x *)", "(*- note *)", "(**- item *)"]) {
+      const unfixed = lexSource(source);
+      expect(unfixed.diagnostics, source).toHaveLength(1);
+      expect(unfixed.diagnostics[0]?.fixes, source).toBeUndefined();
+    }
+
+    const closer = lexSource("*)");
+    expect(closer.diagnostics.map(({ message }) => message)).toEqual([
+      "`*)` is OCaml's block comment closer — Hexagon spells it `-}`; no block comment is open here",
     ]);
     expect(closer.diagnostics[0]?.fixes).toBeUndefined();
   });
@@ -553,12 +704,12 @@ describe("lex", () => {
   });
 
   test("diagnoses reserved string text, unknown escapes, and comment boundaries", () => {
-    const result = lexSource('"#{x} \\q" *) (* unclosed');
+    const result = lexSource('"#{x} \\q" -} {- unclosed');
 
     expect(result.diagnostics.map(({ message }) => message)).toEqual([
       "`#{` is reserved for future use; write `\\#{` for a literal `#{`",
       "unknown string escape",
-      "unmatched `*)` — no open block comment",
+      "unmatched `-}` — no open block comment",
       "unterminated block comment; opened at line 3, column 14",
     ]);
   });
@@ -590,12 +741,12 @@ describe("lex", () => {
  * Documentation trivia (`spec/doc-comments.md` §2). The lexer's whole share of
  * the feature is the classification at the opener; everything downstream of it
  * reads `documentation`, so what these pin is the predicate — and, just as
- * hard, that `///` acquires nothing.
+ * hard, that no line comment acquires anything.
  */
 describe("documentation trivia", () => {
-  test("recognizes `(**` followed by a character that is neither `)` nor `*`", () => {
+  test("recognizes `{--` followed by a character that is neither `-` nor `}`", () => {
     const result = lexSource(
-      "(** doc *)\n(**x*)\n(**\n  newline first\n*)\n(** *bold* *)\n",
+      "{-- doc -}\n{--x-}\n{--\n  newline first\n-}\n{-- - first item -}\n",
     );
 
     expect(result.diagnostics).toEqual([]);
@@ -607,9 +758,9 @@ describe("documentation trivia", () => {
     ]);
   });
 
-  test("`(**)`, `(***`, and plain `(*` stay ordinary comments (§2.2)", () => {
+  test("`{--}`, `{---`, `{-|`, and plain `{-` stay ordinary comments (§2.2)", () => {
     const result = lexSource(
-      "(**)\n(***)\n(**********)\n(*** doc? *)\n(* plain *)\n(*! not special *)\n",
+      "{--}\n{---}\n{----------}\n{--- doc? -}\n{- plain -}\n{-| Haskell's opener -}\n{-! not special -}\n",
     );
 
     expect(result.diagnostics).toEqual([]);
@@ -620,14 +771,14 @@ describe("documentation trivia", () => {
       false,
       false,
       false,
+      false,
     ]);
   });
 
-  test("`///` is nothing: the lexer does not count slashes (§2.3)", () => {
-    // The revocation, pinned. `///` is a `//` line comment whose text begins
-    // with `/`, and so is `////`; no line documentation form exists or is
-    // reserved, so this must survive every future edit to trivia scanning.
-    const result = lexSource("/// doc?\n//// more?\n// plain\nlet a = 1\n");
+  test("a line comment is never documentation (§2.3)", () => {
+    // No line documentation form exists or is reserved, so this must survive
+    // every future edit to trivia scanning.
+    const result = lexSource("--- doc?\n---- more?\n-- | Haskell's form\n-- plain\nlet a = 1\n");
 
     expect(result.diagnostics).toEqual([]);
     expect(result.comments.map(({ kind, documentation, text }) => ({
@@ -635,14 +786,15 @@ describe("documentation trivia", () => {
       documentation,
       text,
     }))).toEqual([
-      { kind: "Line", documentation: false, text: "/// doc?" },
-      { kind: "Line", documentation: false, text: "//// more?" },
-      { kind: "Line", documentation: false, text: "// plain" },
+      { kind: "Line", documentation: false, text: "--- doc?" },
+      { kind: "Line", documentation: false, text: "---- more?" },
+      { kind: "Line", documentation: false, text: "-- | Haskell's form" },
+      { kind: "Line", documentation: false, text: "-- plain" },
     ]);
   });
 
   test("an unterminated doc comment keeps its classification and its own error", () => {
-    const result = lexSource("(** never closed\n");
+    const result = lexSource("{-- never closed\n");
 
     expect(result.diagnostics.map(({ message }) => message)).toEqual([
       "unterminated block comment; opened at line 3, column 1",
@@ -650,14 +802,14 @@ describe("documentation trivia", () => {
     expect(result.comments.map(({ documentation }) => documentation)).toEqual([true]);
   });
 
-  test("`(**` at end of file has no character after the opener, so it is ordinary", () => {
-    const result = lexSource("(**");
+  test("`{--` at end of file has no character after the opener, so it is ordinary", () => {
+    const result = lexSource("{--");
 
     expect(result.comments.map(({ documentation }) => documentation)).toEqual([false]);
   });
 
-  test("nesting is the ordinary block rule; an inner `(**` is not its own comment", () => {
-    const result = lexSource("(** outer (** inner *) still outer *)\n");
+  test("nesting is the ordinary block rule; an inner `{--` is not its own comment", () => {
+    const result = lexSource("{-- outer {-- inner -} still outer -}\n");
 
     expect(result.diagnostics).toEqual([]);
     expect(result.comments).toHaveLength(1);

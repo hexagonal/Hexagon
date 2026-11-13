@@ -371,9 +371,9 @@ describe("the throws manifest (#479, Doc Comments §6.1/§7.4)", () => {
   // Doc Comments §11's manifest block, snippet for snippet.
   test("a recognized sentence rides verbatim and derives its tag", () => {
     const source =
-      "(** Parses. Throws `ParseError` when the input is malformed. *)\n" +
+      "{-- Parses. Throws `ParseError` when the input is malformed. -}\n" +
       "export exception ParseError(line: Int)\n" +
-      "(** Parses. Throws `ParseError` when the input is malformed. *)\n" +
+      "{-- Parses. Throws `ParseError` when the input is malformed. -}\n" +
       "export fun parse(text: String): Int = throw^(ParseError(1))\n";
     const files = [["/main.hex", "module Main\n\n" + source]] as const;
 
@@ -386,7 +386,7 @@ describe("the throws manifest (#479, Doc Comments §6.1/§7.4)", () => {
   test("a manifest head inside the condition refuses the sentence entirely", () => {
     // Not one mangled tag: none. One sentence per exception is the grammar.
     const declarations = derived(
-      "(** Throws `ParseError` when a, and `IndexFault` when b. *)\n" +
+      "{-- Throws `ParseError` when a, and `IndexFault` when b. -}\n" +
       "export fun bad(text: String): Int = 0\n",
     );
 
@@ -396,7 +396,7 @@ describe("the throws manifest (#479, Doc Comments §6.1/§7.4)", () => {
 
   test("a lowercase name is ordinary prose", () => {
     const declarations = derived(
-      "(** Throws `parseError` when lowercase. *)\n" +
+      "{-- Throws `parseError` when lowercase. -}\n" +
       "export fun odd(text: String): Int = 0\n",
     );
 
@@ -409,7 +409,7 @@ describe("the throws manifest (#479, Doc Comments §6.1/§7.4)", () => {
     // binding of an unexported term is not a consumer surface.
     const javascript = javascriptOf([
       ["/main.hex",
-        "module Main\n\n" + "(** Throws `ParseError` when the input is malformed. *)\n" +
+        "module Main\n\n" + "{-- Throws `ParseError` when the input is malformed. -}\n" +
         "fun helper(text: String): Int = 0\n" +
         "export let seed: Int = helper(\"\")\n"],
     ], "/main.hex");
@@ -423,7 +423,7 @@ describe("the throws manifest (#479, Doc Comments §6.1/§7.4)", () => {
     // not one. Stopping at the first dot emitted `@throws {IndexFault} when
     // `Vector` — a tag truncated mid-span, with a dangling backtick in it.
     const declarations = derived(
-      "(** Reads. Throws `IndexFault` when `Vector.at` receives an index out of range. *)\n" +
+      "{-- Reads. Throws `IndexFault` when `Vector.at` receives an index out of range. -}\n" +
       "export fun read(index: Int): Int = index\n",
     );
 
@@ -438,7 +438,7 @@ describe("the throws manifest (#479, Doc Comments §6.1/§7.4)", () => {
     // anything else after it is interior. Without that edge the decimal ended
     // the sentence and the tag read "when the timeout exceeds 1".
     const declarations = derived(
-      "(** Waits. Throws `IndexFault` when the timeout exceeds 1.5 seconds. *)\n" +
+      "{-- Waits. Throws `IndexFault` when the timeout exceeds 1.5 seconds. -}\n" +
       "export fun wait(index: Int): Int = index\n",
     );
 
@@ -452,7 +452,7 @@ describe("the throws manifest (#479, Doc Comments §6.1/§7.4)", () => {
     // Same rule, no code span to lean on: what disqualifies the interior dot is
     // the letter after it, not the span the pin above happens to sit inside.
     const declarations = derived(
-      "(** Reads. Throws `IndexFault` when Vector.at receives a bad index. *)\n" +
+      "{-- Reads. Throws `IndexFault` when Vector.at receives a bad index. -}\n" +
       "export fun read(index: Int): Int = index\n",
     );
 
@@ -471,7 +471,7 @@ describe("the throws manifest (#479, Doc Comments §6.1/§7.4)", () => {
     // when nothing else in the *paragraph* qualifies, and otherwise reads on to
     // the next dot that does (the two pins below hold both halves).
     const declarations = derived(
-      "(** Waits. Throws `IndexFault` when the timeout exceeds 1.5 seconds *)\n" +
+      "{-- Waits. Throws `IndexFault` when the timeout exceeds 1.5 seconds -}\n" +
       "export fun wait(index: Int): Int = index\n",
     );
 
@@ -485,9 +485,9 @@ describe("the throws manifest (#479, Doc Comments §6.1/§7.4)", () => {
     // never the manifest — the next paragraph's own sentence supplying the
     // terminator.
     const declarations = derived(
-      "(** Throws `IndexFault` when the timeout exceeds 1.5 seconds\n" +
+      "{-- Throws `IndexFault` when the timeout exceeds 1.5 seconds\n" +
       "\n" +
-      "    See the manual for details. More. *)\n" +
+      "    See the manual for details. More. -}\n" +
       "export fun wait(index: Int): Int = index\n",
     );
 
@@ -503,8 +503,8 @@ describe("the throws manifest (#479, Doc Comments §6.1/§7.4)", () => {
     // condition is longer than the author's own sentence — which is what makes
     // the blank-line bound above matter, and is as far as the deviation reaches.
     const declarations = derived(
-      "(** Throws `IndexFault` when the timeout exceeds 1.5 seconds\n" +
-      "    See the manual for details. More. *)\n" +
+      "{-- Throws `IndexFault` when the timeout exceeds 1.5 seconds\n" +
+      "    See the manual for details. More. -}\n" +
       "export fun wait(index: Int): Int = index\n",
     );
 
@@ -522,7 +522,7 @@ describe("the throws manifest (#479, Doc Comments §6.1/§7.4)", () => {
     // condition. Reading the dot as interior lost the tag in silence — the
     // sentence emitted exactly as written, and only the `.d.ts` was poorer.
     const declarations = derived(
-      "(** **Throws `IndexFault` when the index is bad.** The caller must check first. *)\n" +
+      "{-- **Throws `IndexFault` when the index is bad.** The caller must check first. -}\n" +
       "export fun read(index: Int): Int = index\n",
     );
 
@@ -534,9 +534,9 @@ describe("the throws manifest (#479, Doc Comments §6.1/§7.4)", () => {
     // The silent loss doubled: a block documenting two exceptions in the
     // paragraph style lost both, and each half of the pin fails on its own.
     const declarations = derived(
-      "(** **Throws `IndexFault` when the index is out of range.**\n" +
+      "{-- **Throws `IndexFault` when the index is out of range.**\n" +
       "\n" +
-      "    **Throws `SliceFault` when the window descends.** *)\n" +
+      "    **Throws `SliceFault` when the window descends.** -}\n" +
       "export fun slice(index: Int): Int = index\n",
     );
 
@@ -549,7 +549,7 @@ describe("the throws manifest (#479, Doc Comments §6.1/§7.4)", () => {
     // the skipped marks is nothing at all, which is the other half of the
     // whitespace condition.
     const declarations = derived(
-      "(** Reads. (Throws `IndexFault` when the index is bad.) *)\n" +
+      "{-- Reads. (Throws `IndexFault` when the index is bad.) -}\n" +
       "export fun read(index: Int): Int = index\n",
     );
 
@@ -562,7 +562,7 @@ describe("the throws manifest (#479, Doc Comments §6.1/§7.4)", () => {
     // last dot before the closer skip could rescue it, so `...)` is interior and
     // the sentence still ends at the later qualifying dot.
     const declarations = derived(
-      "(** Throws `IndexFault` when the index is bad (bad...) and more. Done. *)\n" +
+      "{-- Throws `IndexFault` when the index is bad (bad...) and more. Done. -}\n" +
       "export fun read(index: Int): Int = index\n",
     );
 
@@ -578,7 +578,7 @@ describe("the throws manifest (#479, Doc Comments §6.1/§7.4)", () => {
     // qualify on its own, carrying the leading two into the tag as `bad..` —
     // a malformed tag line in the shipped `.d.ts`.
     const declarations = derived(
-      "(** Throws `IndexFault` when the index is bad... and more. Done. *)\n" +
+      "{-- Throws `IndexFault` when the index is bad... and more. Done. -}\n" +
       "export fun read(index: Int): Int = index\n",
     );
 
@@ -597,7 +597,7 @@ describe("the throws manifest (#479, Doc Comments §6.1/§7.4)", () => {
     // like a space in the source it came from.
     const nbsp = "\u{00A0}";
     const declarations = derived(
-      `(** Throws \`IndexFault\` when the index is bad.${nbsp}And more *)\n` +
+      `{-- Throws \`IndexFault\` when the index is bad.${nbsp}And more -}\n` +
       "export fun read(index: Int): Int = index\n",
     );
 
@@ -609,7 +609,7 @@ describe("the throws manifest (#479, Doc Comments §6.1/§7.4)", () => {
     // The truncation was not only cosmetic: the refusal was run over the
     // shortened span, so an early dot carried a second head past the check.
     const declarations = derived(
-      "(** Throws `IndexFault` when `Vector.at` is bad, and `SliceFault` when the window descends. *)\n" +
+      "{-- Throws `IndexFault` when `Vector.at` is bad, and `SliceFault` when the window descends. -}\n" +
       "export fun read(index: Int): Int = index\n",
     );
 
@@ -621,7 +621,7 @@ describe("the throws manifest (#479, Doc Comments §6.1/§7.4)", () => {
     // The deriver never guesses: backticks that do not pair leave the sentence
     // with no terminator this rule can trust, so no tag is derived at all.
     const declarations = derived(
-      "(** Throws `IndexFault` when `index is out of range. *)\n" +
+      "{-- Throws `IndexFault` when `index is out of range. -}\n" +
       "export fun read(index: Int): Int = index\n",
     );
 
@@ -631,19 +631,19 @@ describe("the throws manifest (#479, Doc Comments §6.1/§7.4)", () => {
 
   test("a sentence without a period fires nothing", () => {
     expect(derived(
-      "(** Throws `ParseError` when the input is malformed *)\n" +
+      "{-- Throws `ParseError` when the input is malformed -}\n" +
       "export fun odd(text: String): Int = 0\n",
     )).not.toContain("@throws");
   });
 
   test("a manifest inside a fenced code block is code, not prose", () => {
     const declarations = derived(
-      "(** How to document a throwing function:\n" +
+      "{-- How to document a throwing function:\n" +
       "\n" +
       "    ```\n" +
       "    Throws `ParseError` when the input is malformed.\n" +
       "    ```\n" +
-      "*)\n" +
+      "-}\n" +
       "export fun explain(text: String): Int = 0\n",
     );
 
@@ -653,10 +653,10 @@ describe("the throws manifest (#479, Doc Comments §6.1/§7.4)", () => {
 
   test("several exceptions take several sentences, and each derives a tag", () => {
     const declarations = derived(
-      "(** Reads a slice.\n" +
+      "{-- Reads a slice.\n" +
       "\n" +
       "    Throws `IndexFault` when the index is out of range. Throws\n" +
-      "    `SliceFault` when the window descends. *)\n" +
+      "    `SliceFault` when the window descends. -}\n" +
       "export fun slice(text: String): Int = 0\n",
     );
 
@@ -675,7 +675,7 @@ describe("the throws manifest (#479, Doc Comments §6.1/§7.4)", () => {
     const declarations = derived(
       "export exception Boom\n" +
       "extern from \"node:fs\"\n" +
-      "    (** Reads a file. Throws `Boom` when the path is bad. *)\n" +
+      "    {-- Reads a file. Throws `Boom` when the path is bad. -}\n" +
       "    export fun readFileSync(path: String) ->! String\n",
     );
 

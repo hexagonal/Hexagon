@@ -127,7 +127,7 @@ describe("toCodeAction", () => {
       kind: "quickfix",
       edits: [
         { startOffset: 39, endOffset: 39, replacement: "\n    B => Debug.todo(\"B\")", snippet },
-        { startOffset: 0, endOffset: 0, replacement: "(* *)" },
+        { startOffset: 0, endOffset: 0, replacement: "{- -}" },
       ],
     });
     expect(several.command).toBeUndefined();

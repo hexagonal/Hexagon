@@ -1,28 +1,28 @@
 module Stdio
 
-// Writing text to standard output and standard error, and reading all of
-// standard input, under Node (`spec/program-io.md` section 4). The module is
-// outside the prelude, reached by `import Stdio`.
-//
-// **The writers are `->~`.** A write either hands every byte of its text to
-// the descriptor, or ends the program (section 4.3): a reader that has gone
-// (`EPIPE`) ends it quietly with status 141, and any other failure with one
-// line on stderr and status 1. A descriptor that would block (`EAGAIN`) is not
-// a failure: Node makes a piped stdout non-blocking once it sets up
-// `process.stdout`, which importing `node:process` does, as this module does,
-// so the writer waits a little and writes the rest. No `catch` sees an
-// ending, as none sees Ctrl-C.
-//
-// **The writes are `writeSync`'s,** never `console.log`'s or
-// `process.stdout.write`'s, which Node makes asynchronous on pipes (section
-// 4.2). Node is reached through ordinary `extern` blocks, so the playground can
-// link its own `node:fs` and `node:process` beneath this module (section 6);
-// the intrinsic door does only the encoding, the check, the wait, the reader's
-// array and the decoding (section 9).
-//
-// **The reads are `->~` too.** A read either answers all of the input, or ends
-// the program with one line on stderr and status 1 (section 4.5): the input is
-// consumed, so a caller would have nothing to retry.
+-- Writing text to standard output and standard error, and reading all of
+-- standard input, under Node (`spec/program-io.md` section 4). The module is
+-- outside the prelude, reached by `import Stdio`.
+--
+-- **The writers are `->~`.** A write either hands every byte of its text to
+-- the descriptor, or ends the program (section 4.3): a reader that has gone
+-- (`EPIPE`) ends it quietly with status 141, and any other failure with one
+-- line on stderr and status 1. A descriptor that would block (`EAGAIN`) is not
+-- a failure: Node makes a piped stdout non-blocking once it sets up
+-- `process.stdout`, which importing `node:process` does, as this module does,
+-- so the writer waits a little and writes the rest. No `catch` sees an
+-- ending, as none sees Ctrl-C.
+--
+-- **The writes are `writeSync`'s,** never `console.log`'s or
+-- `process.stdout.write`'s, which Node makes asynchronous on pipes (section
+-- 4.2). Node is reached through ordinary `extern` blocks, so the playground can
+-- link its own `node:fs` and `node:process` beneath this module (section 6);
+-- the intrinsic door does only the encoding, the check, the wait, the reader's
+-- array and the decoding (section 9).
+--
+-- **The reads are `->~` too.** A read either answers all of the input, or ends
+-- the program with one line on stderr and status 1 (section 4.5): the input is
+-- consumed, so a caller would have nothing to retry.
 
 extern from "node:fs"
     fun writeSync as writeBytes(descriptor: Int, bytes: JsValue, offset: Int, length: Int) ->! Int
@@ -45,8 +45,8 @@ extern from "hex:intrinsic"
     fun fileDecodeLossy as decodeLossy(bytes: JsValue) ->! String
     fun fileFirstBadByte as firstBadByte(bytes: JsValue) ->~ Int
 
-// The codepoint position of the first lone surrogate, counted from 1, asked
-// only once `isWellFormed` has said there is one (section 7).
+-- The codepoint position of the first lone surrogate, counted from 1, asked
+-- only once `isWellFormed` has said there is one (section 7).
 let firstLoneSurrogate(text: String): Int =
     var position = 0
     var found = 0
@@ -64,21 +64,21 @@ let refuseLoneSurrogate(text: String): Unit =
         let message = "the text holds a lone surrogate at codepoint ${position}, which UTF-8 cannot write; repair it with String.toWellFormed first"
         throw(LoneSurrogateFault(message, position))
 
-// Ends the program with `status`. Node's `exit` doesn't return, and it throws
-// nothing for a status in range.
+-- Ends the program with `status`. Node's `exit` doesn't return, and it throws
+-- nothing for a status in range.
 let end(status: Int): Unit =
     assume exit!(process, status)
 
-// The error's code, or "" where it has none.
+-- The error's code, or "" where it has none.
 let codeOf(error: JsValue): String =
     match readCode~(error).toString?()
         Some(text) => text
         None => ""
 
-// The system's description of a failure, as Node gives it without its code:
-// `ENOSPC: no space left on device, write` becomes `no space left on device`,
-// and `EISDIR: illegal operation on a directory, read` becomes
-// `illegal operation on a directory`.
+-- The system's description of a failure, as Node gives it without its code:
+-- `ENOSPC: no space left on device, write` becomes `no space left on device`,
+-- and `EISDIR: illegal operation on a directory, read` becomes
+-- `illegal operation on a directory`.
 let described(error: JsValue): String =
     let code = codeOf~(error)
     let message = JsError.message(error)
@@ -90,22 +90,22 @@ let described(error: JsValue): String =
     else
         withoutCode
 
-// One line on stderr, then status 1 (sections 4.3 and 4.5). The line's own
-// write may fail too, and the status is 1 all the same.
+-- One line on stderr, then status 1 (sections 4.3 and 4.5). The line's own
+-- write may fail too, and the status is 1 all the same.
 let endWithLine(line: String): Unit =
     let count = encode~("${line}\n")
     let _ = try writeBytes!(2, buffer~(), 0, count) catch
         _ => 0
     end~(1)
 
-// Section 4.3's other failure.
+-- Section 4.3's other failure.
 let failed(descriptor: Int, error: JsValue): Unit =
     let stream = if descriptor == 1 then "standard output" else "standard error"
     endWithLine~("cannot write to ${stream}: ${described~(error)}")
 
-// Every byte of `text` to `descriptor`, or the program ends (section 4.3).
-// A write may take fewer bytes than it was offered, so the loop carries on
-// from the byte the last one stopped at.
+-- Every byte of `text` to `descriptor`, or the program ends (section 4.3).
+-- A write may take fewer bytes than it was offered, so the loop carries on
+-- from the byte the last one stopped at.
 let writeAll(descriptor: Int, text: String): Unit =
     refuseLoneSurrogate(text)
     let count = encode~(text)
@@ -123,43 +123,43 @@ let writeAll(descriptor: Int, text: String): Unit =
             other =>
                 assume throw^(other)
 
-(** Writes `text` to standard output as UTF-8, adding nothing. If the output
+{-- Writes `text` to standard output as UTF-8, adding nothing. If the output
     can't take it, the program ends: quietly with status 141 when the reader
-    has gone, otherwise with one line on standard error and status 1. *)
+    has gone, otherwise with one line on standard error and status 1. -}
 export let write(text: String): Unit =
     writeAll~(1, text)
 
-(** Writes `text` and one line feed to standard output, as `write` does. The
-    line feed is added even when `text` already ends with a newline. *)
+{-- Writes `text` and one line feed to standard output, as `write` does. The
+    line feed is added even when `text` already ends with a newline. -}
 export let writeLine(text: String): Unit =
     writeAll~(1, "${text}\n")
 
-(** Writes `text` to standard error as UTF-8, adding nothing. If standard error
-    can't take it, the program ends, as `write` says. *)
+{-- Writes `text` to standard error as UTF-8, adding nothing. If standard error
+    can't take it, the program ends, as `write` says. -}
 export let writeError(text: String): Unit =
     writeAll~(2, text)
 
-(** Writes `text` and one line feed to standard error, as `writeError` does. *)
+{-- Writes `text` and one line feed to standard error, as `writeError` does. -}
 export let writeErrorLine(text: String): Unit =
     writeAll~(2, "${text}\n")
 
-// Section 4.5's failure: one line on stderr, then status 1. The program ends
-// inside the call, under Node and in the playground alike, so the "" is never
-// seen; it is there because the caller's type needs a value.
+-- Section 4.5's failure: one line on stderr, then status 1. The program ends
+-- inside the call, under Node and in the playground alike, so the "" is never
+-- seen; it is there because the caller's type needs a value.
 let unreadable(description: String): String =
     endWithLine~("cannot read standard input: ${description}")
     ""
 
-// All of standard input's bytes, read until the input ends, or the program
-// ends (section 4.5). A read may answer fewer bytes than there is room for, so
-// the loop carries on until one answers none.
-//
-// A descriptor that would block (`EAGAIN`) is not a failure, and it is the
-// usual case on a pipe: importing `node:process` makes Node set up
-// `process.stdin`, which makes a piped stdin non-blocking. So the loop waits
-// and reads again, starting at 10 microseconds and doubling, but never
-// waiting more than 16 milliseconds, and starts again from 10 after a read
-// that answered bytes.
+-- All of standard input's bytes, read until the input ends, or the program
+-- ends (section 4.5). A read may answer fewer bytes than there is room for, so
+-- the loop carries on until one answers none.
+--
+-- A descriptor that would block (`EAGAIN`) is not a failure, and it is the
+-- usual case on a pipe: importing `node:process` makes Node set up
+-- `process.stdin`, which makes a piped stdin non-blocking. So the loop waits
+-- and reads again, starting at 10 microseconds and doubling, but never
+-- waiting more than 16 milliseconds, and starts again from 10 after a read
+-- that answered bytes.
 let inputBytes(): JsValue =
     var used = 0
     var reading = True
@@ -184,9 +184,9 @@ let inputBytes(): JsValue =
                 assume throw^(other)
     input~(used)
 
-// The text of the input's bytes, or `None` where they aren't UTF-8. A
-// decoding's one other throw, a text longer than the host's longest string
-// (`ERR_STRING_TOO_LONG`), ends the program as a failed read does.
+-- The text of the input's bytes, or `None` where they aren't UTF-8. A
+-- decoding's one other throw, a text longer than the host's longest string
+-- (`ERR_STRING_TOO_LONG`), ends the program as a failed read does.
 let strictText(bytes: JsValue): Option(String) =
     try
         decodeStrict!(bytes).toString?()
@@ -204,18 +204,18 @@ let lossyText(bytes: JsValue): String =
         JsError(error) => unreadable~(described~(error))
         other => assume throw^(other)
 
-(** All of standard input, read until it ends (Ctrl-D at a terminal), as
+{-- All of standard input, read until it ends (Ctrl-D at a terminal), as
     UTF-8 text with one leading byte-order mark dropped. Input that isn't
     well-formed UTF-8, or that can't be read, ends the program with one line
-    on standard error and status 1. *)
+    on standard error and status 1. -}
 export let readText(): String =
     let bytes = inputBytes~()
     match strictText~(bytes)
         Some(text) => text
         None => unreadable~("not UTF-8 at byte ${firstBadByte~(bytes)}")
 
-(** All of standard input, as `readText` reads it, except that each ill-formed
+{-- All of standard input, as `readText` reads it, except that each ill-formed
     sequence becomes U+FFFD instead of ending the program. For input that may
-    hold stray bytes a program would rather see than stop at. *)
+    hold stray bytes a program would rather see than stop at. -}
 export let readTextLossy(): String =
     lossyText~(inputBytes~())

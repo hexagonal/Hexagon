@@ -4,8 +4,8 @@ export const internationalIdentifiers: PlaygroundExample = {
   id: "international-identifiers",
   title: "International Names: T · C · M",
   description: "A later showcase of Hindi and Mandarin names using the optional T/C/M cultural convention.",
-  source: `// A module name is uppercase-start (Modules §2.1), which a caseless script
-// cannot be, so the M prefix here is doing real work as well as cultural.
+  source: `-- A module name is uppercase-start (Modules §2.1), which a caseless script
+-- cannot be, so the M prefix here is doing real work as well as cultural.
 module Mगणित
 
 export fun जोड़(left: Int, right: Int): Int = left + right
@@ -16,13 +16,13 @@ module International
 
 import Mगणित
 
-// Caseless scripts are ordinary term names. Uppercase Latin prefixes
-// are a readable cultural convention for Hexagon's uppercase-start roles.
+-- Caseless scripts are ordinary term names. Uppercase Latin prefixes
+-- are a readable cultural convention for Hexagon's uppercase-start roles.
 
-// T = type or constructor. The type name is Hindi; its fields mix Hindi and Chinese.
+-- T = type or constructor. The type name is Hindi; its fields mix Hindi and Chinese.
 record Tउपयोगकर्ता = {नाम: String, 城市: String}
 
-// C = constraint. The constraint and member names are Mandarin Chinese.
+-- C = constraint. The constraint and member names are Mandarin Chinese.
 constraint C可显示<a> =
     显示(value: a) -> String
 
@@ -32,11 +32,11 @@ honor C可显示<Tउपयोगकर्ता> =
 let 展示(value: a) = 显示(value)
 let 用户 = Tउपयोगकर्ता({नाम = "अनाया", 城市 = "上海"})
 
-// JavaScript's $ and _ identifier starts are ordinary term bindings too.
+-- JavaScript's $ and _ identifier starts are ordinary term bindings too.
 let $税率 = 0.10
 let _折扣 = 5
 
-// M = module alias. The import above binds it.
+-- M = module alias. The import above binds it.
 Debug.log("\${展示(用户)} · \${Mगणित.जोड़(20, 22)} · \${$税率} · \${_折扣}")
 `,
   specificationReferences: [

@@ -406,7 +406,7 @@ describe("faces (Part 7 §7 occasion 2)", () => {
 
 extern from "boxes"
     export type Box
-    (** Adds \`n\` to the box. *)
+    {-- Adds \`n\` to the box. -}
     export method bump(box: Box, n: Int) ->! Int
 `]] as const;
     expect(emitted(files, "/boxes.hex", "declarations")).toContain("Adds `n` to the box.");

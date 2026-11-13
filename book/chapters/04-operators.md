@@ -55,7 +55,7 @@ no `/` operator: use `divide` or `divideEven` with the required decimal places.
 Exponentiation uses `**`, not `^`, and associates to the right:
 
 ```hexagon
-2 ** 3 ** 2       // 2 ** (3 ** 2), which is 512
+2 ** 3 ** 2       -- 2 ** (3 ** 2), which is 512
 ```
 
 The exponent is always an `Int`. `**` is the algebraist's power — repeated
@@ -71,7 +71,7 @@ a named function rather than an operator, because it belongs only where
 approximation is the contract:
 
 ```hexagon
-Float.pow(2.0, 0.5)     // the nearest float to the square root of two
+Float.pow(2.0, 0.5)     -- the nearest float to the square root of two
 ```
 
 Writing `x ** 0.5` is a type error, and the message points here. `BigInt.pow`
@@ -80,7 +80,7 @@ is the matching door for an exponent too large to be an `Int`.
 One precedence rule follows mathematics where JavaScript refuses the expression:
 
 ```hexagon
--2 ** 2           // -(2 ** 2), which is -4
+-2 ** 2           -- -(2 ** 2), which is -4
 ```
 
 Hexagon emits the necessary JavaScript parentheses:
@@ -99,24 +99,24 @@ means for negative values, and one anonymous symbol conceals the disagreement. H
 uses names that state the convention:
 
 ```hexagon
-Int.div(a, b)      // Euclidean quotient
-Int.mod(a, b)      // Euclidean remainder
-Int.quot(a, b)     // quotient rounded toward zero
-Int.rem(a, b)      // truncated remainder: JavaScript's % convention
+Int.div(a, b)      -- Euclidean quotient
+Int.mod(a, b)      -- Euclidean remainder
+Int.quot(a, b)     -- quotient rounded toward zero
+Int.rem(a, b)      -- truncated remainder: JavaScript's % convention
 ```
 
 `mod` is the mathematical default. Its result is always non-negative and smaller than
 the absolute value of the divisor:
 
 ```hexagon
-Int.mod(-7, 3)     // 2
-Int.mod(7, -3)     // 1
+Int.mod(-7, 3)     -- 2
+Int.mod(7, -3)     -- 1
 ```
 
 `rem` is the interoperation and porting form:
 
 ```hexagon
-Int.rem(-7, 3)     // -1, as in JavaScript
+Int.rem(-7, 3)     -- -1, as in JavaScript
 ```
 
 `BigInt` provides the same four operations. A zero divisor at either integer type
@@ -243,17 +243,17 @@ confused:
 let readable = 0b100
 let writable = 0b010
 
-let permissions = readable bor writable        // 6
-let canWrite = permissions band writable != 0  // True
-let withoutWrite = permissions band bnot writable  // 4, readable alone again
+let permissions = readable bor writable        -- 6
+let canWrite = permissions band writable != 0  -- True
+let withoutWrite = permissions band bnot writable  -- 4, readable alone again
 ```
 
 `band`, `bor`, and `bxor` are bitwise and, or, and exclusive or; `bnot` flips every
 bit. Shifts are named operations rather than operators:
 
 ```hexagon
-let packed = 0x12.shiftLeft(8) bor 0x34  // 0x1234, which displays as 4660
-let high = packed.shiftRight(8)          // 0x12, which displays as 18
+let packed = 0x12.shiftLeft(8) bor 0x34  -- 0x1234, which displays as 4660
+let high = packed.shiftRight(8)          -- 0x12, which displays as 18
 ```
 
 A shift by a negative count shifts the other way, and a right shift rounds toward
@@ -264,8 +264,8 @@ both. That is the main difference from JavaScript, whose operators first cut eve
 number down to 32 bits:
 
 ```hexagon
-let big = 1.shiftLeft(31)                 // 2147483648
-let wrapped = 1.shiftLeft(31).toInt32()   // -2147483648, what JavaScript's 1 << 31 gives
+let big = 1.shiftLeft(31)                 -- 2147483648
+let wrapped = 1.shiftLeft(31).toInt32()   -- -2147483648, what JavaScript's 1 << 31 gives
 ```
 
 When code really does mean 32-bit arithmetic, such as a hash ported from JavaScript, it
@@ -281,7 +281,7 @@ At `BigInt` the words compile to JavaScript's own operators, because JavaScript'
 
 ```hexagon
 let id = 0x1234_5678_9ABCn
-let lowByte = id band 0xFFn    // 0xBCn
+let lowByte = id band 0xFFn    -- 0xBCn
 ```
 
 ```js
@@ -299,7 +299,7 @@ type lets them run on natural numbers anyway; the same annotation is also how tw
 
 ```hexagon
 let count: Nat = 23
-let bits: Int = count band 0xF   // 7
+let bits: Int = count band 0xF   -- 7
 ```
 
 `band`, `bor`, and `bxor` are operators only directly after an operand. Anywhere else

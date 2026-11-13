@@ -664,11 +664,16 @@ late pedagogy pass, not a commitment to the current order.
 - Braces always begin records and never delimit blocks.
 - Semicolons separate items at the same block level; they are not statement
   terminators and never open a body.
-- Leading indentation contains spaces only. Line comments use `//`; block comments use
-  nestable `(* ... *)` (#171 — the ML spelling; the JS spellings `/*` and `*/` are
-  detected and redirected). `(** ... *)` is the documentation comment (#191): it
-  attaches Markdown docs to the following declaration and flows to JSDoc; a doc
-  comment that documents nothing is an error; `///` has no special meaning.
+- Leading indentation contains spaces only. Line comments use `--`; block comments use
+  nestable `{- ... -}` (#1538 — the set Haskell and Elm share, which are not to be
+  called ML languages; the JavaScript spellings `//`, `/*`, `*/` and OCaml's `(*`,
+  `*)` are detected and redirected). `{-- ... -}` is the documentation comment
+  (#191, respelled #1538): it attaches Markdown docs to the following declaration
+  and flows to JSDoc; a doc comment that documents nothing is an error; there is no
+  line doc form (`--- note` and `-- | note` are ordinary), and `{-|` is an ordinary
+  comment, which Chapter 5 warns Haskell and Elm readers about. Two minus signs are
+  written apart (`x - -1`): `x --1` is `x` and a comment. Emitted JavaScript keeps
+  `//`, `/* */` and `/** */`.
 
 ### Polymorphism
 
@@ -679,7 +684,7 @@ late pedagogy pass, not a commitment to the current order.
   of the returned function's arrow, so the binding holds one function of one type and
   a use fixes which. Written with an explicit signature (`let makeIdentity(): (a -> a)`)
   so the reader can see both occurrences.
-- **Do not put `// error` on the second call.** The compiler currently reports the
+- **Do not put `-- error` on the second call.** The compiler currently reports the
   conflict against the *first* use, which #206 owns; the prose says the pair is
   rejected rather than naming a line the reader would not find it on.
 - `Seq.empty` bound as `nothing` and reused at two element types is the canonical

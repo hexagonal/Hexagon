@@ -421,10 +421,10 @@ describe("a declaration that emits nothing shapes none of the page", () => {
     // what keeps `previousSpan` on a line the output contains.
     expect(emitted([[
       "/main.hex",
-      "module Main\n\n" + "// first block, about the declaration below\n" +
+      "module Main\n\n" + "-- first block, about the declaration below\n" +
       "union Shape = Circle(radius: Float) | Rect(width: Float, height: Float)\n" +
       "\n" +
-      "// second block, about something else entirely\n" +
+      "-- second block, about something else entirely\n" +
       "export fun area(): Float =\n" +
       "    match Circle(2.0)\n" +
       "        Circle(r) => r\n" +

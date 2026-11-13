@@ -2093,7 +2093,7 @@ describe("parse", () => {
      * retired `from "./geometry"` clause.
      */
     test("the head is tokens, not a line", () => {
-      expect(messages('import (* why *) Geometry as Geo\n')).toEqual([]);
+      expect(messages('import {- why -} Geometry as Geo\n')).toEqual([]);
       expect(messages('import\n    Geometry as Geo\n')).toEqual([]);
     });
 
@@ -2322,7 +2322,7 @@ describe("a `match` with no arms below it", () => {
     ["the end of the file", ""],
     ["a line at its own column", "    let z = 1\n"],
     ["a dedent", "let z = 1\n"],
-    ["a comment line, then a dedent", "    // note\nlet z = 1\n"],
+    ["a comment line, then a dedent", "    -- note\nlet z = 1\n"],
   ])("ended by %s", (_, after) => {
     for (const [head, end] of [["let f(s: Int): Int =\n    match s\n", 11], ["let f: Int -> Int =\n    match\n", 9]] as const) {
       const module = parseSource(head + after);

@@ -126,7 +126,7 @@ Source maps, the conditional generic constrained edition, public dictionaries, r
 finalized portable target profile remain later emission slices.
 
 Documentation comments (`spec/doc-comments.md`, ruling #191) run the length of the
-pipeline as metadata. The lexer classifies `(** ... *)` trivia at the opener; the
+pipeline as metadata. The lexer classifies `{-- ... -}` trivia at the opener; the
 parser groups the comments into blocks, attaches each to the declaration its next
 physical code token begins, and reports the hard errors for the ones that document
 nothing; the module carries what attached, keyed by the documented declaration's
@@ -134,7 +134,7 @@ span, so no pass between them can branch on documentation. Emission turns it int
 JSDoc at the seats that correspond — the emitted binding in the `.js`, the
 `export declare`, type declaration, materialized constructor, or record property in
 the `.d.ts` — escaping JavaScript's block closer and inventing no seat where none
-exists. `///` has no status of any kind and receives no handling. The attachment
+exists. A line comment is never documentation, and `///` is refused as `//` is. The attachment
 also records the *names* a reader would point at to ask what each block says —
 the one name most forms introduce, every binder of a destructuring `let`, and
 for an `honor` block the constraint in its head, the only name it writes. Those

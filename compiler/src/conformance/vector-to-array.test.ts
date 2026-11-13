@@ -54,39 +54,39 @@ import { typeScriptErrors } from "../support/typescript-check.js";
  * (`vector-trie.test.ts`'s `buildTo`/`buildDown` split), and a window, a `set`
  * and a `++` each leave the spine in a shape an index walk would get wrong.
  */
-const PROGRAM = "// The two spellings Modules section 5.5 leaves for a two-homed name,\n" +
-  "// over one door row.\n" +
+const PROGRAM = "-- The two spellings Modules section 5.5 leaves for a two-homed name,\n" +
+  "-- over one door row.\n" +
   "export let convert(values: Vector(Int)): Array(Int) = Vector.toArray(values)\n" +
   "\n" +
   "export let convertDot(values: Vector(Int)): Array(Int) = values.toArray()\n" +
   "\n" +
-  "// The empty vector, converted where it is written: `Array(a)` has no Hexagon\n" +
-  "// literal, so emptiness has to be asked of the answer rather than supplied.\n" +
+  "-- The empty vector, converted where it is written: `Array(a)` has no Hexagon\n" +
+  "-- literal, so emptiness has to be asked of the answer rather than supplied.\n" +
   "export let ofNothing(): Array(Int) = Vector.toArray([])\n" +
   "\n" +
-  "// `[1, ..., count]` grown from the back — the tail-then-spine path.\n" +
+  "-- `[1, ..., count]` grown from the back — the tail-then-spine path.\n" +
   "export let appended(count: Int): Vector(Int) =\n" +
   "    var built: Vector(Int) = []\n" +
   "    for index in 1..count\n" +
   "        built := Vector.append(built, index)\n" +
   "    built\n" +
   "\n" +
-  "// The same elements grown from the front, so the origin path runs instead.\n" +
+  "-- The same elements grown from the front, so the origin path runs instead.\n" +
   "export let prepended(count: Int): Vector(Int) =\n" +
   "    var built: Vector(Int) = []\n" +
   "    for index in 1..count\n" +
   "        built := Vector.prepend(built, count - index + 1)\n" +
   "    built\n" +
   "\n" +
-  "// A window over a built vector: a slice is a vector whose elements start\n" +
-  "// somewhere other than the spine's origin, which is exactly the shape an\n" +
-  "// order-losing walk gets wrong.\n" +
+  "-- A window over a built vector: a slice is a vector whose elements start\n" +
+  "-- somewhere other than the spine's origin, which is exactly the shape an\n" +
+  "-- order-losing walk gets wrong.\n" +
   "export let window(values: Vector(Int), lo: Int, hi: Int): Vector(Int) =\n" +
   "    values[lo..hi]\n" +
   "\n" +
-  "// The other three shapes a spine can be left in. `++` joins two vectors\n" +
-  "// whose own shapes differ; `set` rewrites a path through the spine without\n" +
-  "// moving its ends; `fromSeq` rebuilds the whole thing from a traversal.\n" +
+  "-- The other three shapes a spine can be left in. `++` joins two vectors\n" +
+  "-- whose own shapes differ; `set` rewrites a path through the spine without\n" +
+  "-- moving its ends; `fromSeq` rebuilds the whole thing from a traversal.\n" +
   "export let joined(left: Vector(Int), right: Vector(Int)): Vector(Int) = left ++ right\n" +
   "\n" +
   "export let replaced(values: Vector(Int), index: Int, value: Int): Vector(Int) =\n" +
@@ -95,14 +95,14 @@ const PROGRAM = "// The two spellings Modules section 5.5 leaves for a two-homed
   "export let roundTripped(values: Vector(Int)): Vector(Int) =\n" +
   "    Vector.fromSeq(values.toSeq())\n" +
   "\n" +
-  "// The shallow case. The elements are vectors going in and vectors coming out.\n" +
+  "-- The shallow case. The elements are vectors going in and vectors coming out.\n" +
   "export let nested(): Vector(Vector(Int)) = [[1, 2], [3], []]\n" +
   "\n" +
   "export let convertNested(values: Vector(Vector(Int))): Array(Vector(Int)) =\n" +
   "    Vector.toArray(values)\n" +
   "\n" +
-  "// Reading a vector back without naming its representation, so a test can ask\n" +
-  "// whether a write to the returned array was seen on this side.\n" +
+  "-- Reading a vector back without naming its representation, so a test can ask\n" +
+  "-- whether a write to the returned array was seen on this side.\n" +
   "export let size(values: Vector(Int)): Int = Vector.length(values)\n" +
   "\n" +
   "export let elementAt(values: Vector(Int), index: Int): Int = values[index]\n";
@@ -463,7 +463,7 @@ describe("the `.d.ts` face is the `Array(a)` row (Part 1 §4.1, §9.1 obligation
    * **The row's own face, in the prelude's `Vector.d.ts`.** This is the surface
    * a TypeScript consumer imports — `import { toArray } from ".../Vector.js"` —
    * and it is generic, so the monomorphic pin below cannot catch a regression in
-   * it. The doc comment travels with it: a manual-voice `(** … *)` becomes the
+   * it. The doc comment travels with it: a manual-voice `{-- … -}` becomes the
    * JSDoc block a consumer's editor shows, and a declaration that lost it would
    * still typecheck.
    */

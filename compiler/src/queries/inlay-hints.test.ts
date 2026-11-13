@@ -168,7 +168,7 @@ describe("inlay hints: a declaration's face, piece by piece", () => {
   });
 
   test("a comment between the name and the parameters leaves a header a header", () => {
-    expect(hinted("let f (* c *) (x) = x + 1\n")).toBe("let f⟦<a: Num>⟧ (* c *) (x⟦: a⟧)⟦: a⟧ = x + 1\n");
+    expect(hinted("let f {- c -} (x) = x + 1\n")).toBe("let f⟦<a: Num>⟧ {- c -} (x⟦: a⟧)⟦: a⟧ = x + 1\n");
   });
 
   test("a pattern parameter takes no hint: it has no name to stand after", () => {
@@ -242,8 +242,8 @@ describe("inlay hints: a function's colour in words", () => {
   });
 
   test("on a one-line function, after its body; after a comment on that line; before a carriage return", () => {
-    expect(hinted(`${SAVE}let save1() = save!("x") // once\n`))
-      .toBe(`${SAVE}let save1()⟦: Unit⟧ = save!("x") // once  ⟪impure; may fail⟫\n`);
+    expect(hinted(`${SAVE}let save1() = save!("x") -- once\n`))
+      .toBe(`${SAVE}let save1()⟦: Unit⟧ = save!("x") -- once  ⟪impure; may fail⟫\n`);
     expect(hinted(`${SAVE}let save1() = save!("x")`))
       .toBe(`${SAVE}let save1()⟦: Unit⟧ = save!("x")  ⟪impure; may fail⟫`);
     const text = `module Main\r\n\r\n${SAVE.replace(/\n/g, "\r\n")}let save1() = save!("x")\r\n`;
@@ -627,8 +627,8 @@ describe("inlay hints: what the host asks for", () => {
     const head = block.indexOf("fun") + 3;
     expect(sessionWith(block).inlayHints("/main.hex", { start: head, end: head }).map(({ label }) => label))
       .toEqual(["<a: Num>"]);
-    const line = `module Main\n\n${SAVE}let save1() = save!("x") // once\nlet two(y) = y\n`;
-    const end = line.indexOf(" // once") + " // once".length;
+    const line = `module Main\n\n${SAVE}let save1() = save!("x") -- once\nlet two(y) = y\n`;
+    const end = line.indexOf(" -- once") + " -- once".length;
     expect(sessionWith(line).inlayHints("/main.hex", { start: end, end }).map(({ label }) => label))
       .toEqual(["impure; may fail"]);
   });

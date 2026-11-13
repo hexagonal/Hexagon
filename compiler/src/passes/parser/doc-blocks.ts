@@ -18,7 +18,7 @@ import {
 import type * as LaidOut from "../../syntax/laid-out/index.js";
 
 const REWRITE = "move it directly above the declaration it describes, or make " +
-  "it an ordinary comment (`(* ... *)`)";
+  "it an ordinary comment (`{- ... -}`)";
 
 const DANGLING =
   "documentation comment does not document anything — the next code is not a " +
@@ -30,11 +30,11 @@ const IMPORTS = `${DANGLING}; imports are not documentable; module-level ` +
 const EXTERN_HEADER =
   "documentation attaches to the items an `extern from` block introduces, not " +
   "to the block — move it above the first item inside the block, or make it an " +
-  "ordinary comment (`(* ... *)`)";
+  "ordinary comment (`{- ... -}`)";
 
 const LEADING_ONLY =
   "documentation comments precede what they document — move this above the " +
-  "declaration on its own line, or make it an ordinary comment (`(* ... *)`)";
+  "declaration on its own line, or make it an ordinary comment (`{- ... -}`)";
 
 /**
  * `spec/constraints.md` §4.7's "one operation, one doc": a member supplied by a
@@ -45,7 +45,7 @@ const LEADING_ONLY =
 export function widenedLineTakesNoDoc(member: string): string {
   return `the \`${member} = widened\` line takes no documentation — one ` +
     "operation, one doc: document it at its `widens` declaration, or make " +
-    "this an ordinary comment (`(* ... *)`)";
+    "this an ordinary comment (`{- ... -}`)";
 }
 
 /**

@@ -23,8 +23,8 @@ const SOURCE = `module Main
 
 export let vec(values: Array(Int)): Vector(Int) = Array.toVector(values)
 
-// The same elements built by prepending, so the trie's origin is not zero and
-// its leaves do not start at a multiple of 32.
+-- The same elements built by prepending, so the trie's origin is not zero and
+-- its leaves do not start at a multiple of 32.
 export let prepended(values: Array(Int)): Vector(Int) =
     let forward = Array.toVector(values)
     var result: Vector(Int) = []
@@ -88,8 +88,8 @@ export let fmMap(m: Map(Float, Int), f: ((Float, Int)) ->! (Float, Int)): Map(Fl
 export let fmFilter(m: Map(Float, Int), f: ((Float, Int)) ->! Bool): Map(Float, Int) = m.filter!(f)
 export let fmKeys(m: Map(Float, Int)): Vector(Float) = Vector.fromSeq(m.keys())
 
-// A change of key type: an \`Int\` and its decimal \`String\` hash alike, so every
-// key keeps its slot although every key changes type.
+-- A change of key type: an \`Int\` and its decimal \`String\` hash alike, so every
+-- key keeps its slot although every key changes type.
 export let shown(m: Map(Int, Int)): Map(String, Int) = m.map(((key, value)) => (show(key), value))
 `;
 

@@ -44,10 +44,10 @@ Both are `(String, Int)`. Reversing one to `(3, "Mira")` produces the distinct t
 A tuple never has exactly one position:
 
 ```hexagon
-(x, y)       // tuple
-(x, y, z)    // tuple
-(x)          // grouped expression: just x
-()           // the empty tuple: Unit
+(x, y)       -- tuple
+(x, y, z)    -- tuple
+(x)          -- grouped expression: just x
+()           -- the empty tuple: Unit
 ```
 
 There is no one-element tuple. This keeps `(value)` as ordinary grouping, matching the
@@ -72,7 +72,7 @@ compiler that `guest` is `String` and `seats` is `Int`.
 An access outside the tuple's arity is a compile error:
 
 ```hexagon
-reservation.item3 // error: this tuple has 2 positions
+reservation.item3 -- error: this tuple has 2 positions
 ```
 
 For a quick access, `itemN` is direct. When several positions are needed, destructuring
@@ -132,8 +132,8 @@ a function call:
 let move(x: Float, y: Float): String = "Move to ${x}, ${y}"
 let coordinates = (3.0, 4.0)
 
-move(3.0, 4.0)       // two arguments
-move(coordinates)     // one tuple argument: arity error
+move(3.0, 4.0)       -- two arguments
+move(coordinates)     -- one tuple argument: arity error
 ```
 
 `move` declares two parameters, so every call supplies two arguments. A tuple containing

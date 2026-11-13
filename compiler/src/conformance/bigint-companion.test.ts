@@ -442,7 +442,7 @@ describe("the conversions (Primitive Types §6)", () => {
     const exports = await runMain([
       "module Main",
       "",
-      "// the boundary pair\n" +
+      "-- the boundary pair\n" +
       "export let largest: Float = BigInt.toFloat(2n ** 1024 - 2n ** 971)",
       "export let boom(): Float = BigInt.toFloat(2n ** 1024 - 2n ** 970)",
       "export let negativeBoom(): Float = BigInt.toFloat(-(2n ** 1024 - 2n ** 970))",

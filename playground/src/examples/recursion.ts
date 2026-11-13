@@ -6,7 +6,7 @@ export const recursion: PlaygroundExample = {
   description: "An annotated recursive function evaluated at module top level.",
   source: `module Recursion
 
-// fun introduces a directly recursive binding.
+-- fun introduces a directly recursive binding.
 fun factorial(n: Int) =
     if n <= 1 then
         1

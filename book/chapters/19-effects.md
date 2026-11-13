@@ -72,9 +72,9 @@ of three states, and the mark is written **glued** between the callee and its ar
 list:
 
 ```hexagon
-firstOrZero(readings)          // bare: this call is pure
-save!(document)                // this call performs effects
-combine?(total, value)         // as effectful as my caller makes it
+firstOrZero(readings)          -- bare: this call is pure
+save!(document)                -- this call performs effects
+combine?(total, value)         -- as effectful as my caller makes it
 ```
 
 The marks answer the same question the arrows do, about the same thing: `save!(…)` says
@@ -241,7 +241,7 @@ A pure function already packed inside a value keeps the type the value was built
 
 ```hexagon
 let quiet = Some(() => ())
-let handler = if verbose then Some(() => save!("x")) else quiet    // refused
+let handler = if verbose then Some(() => save!("x")) else quiet    -- refused
 ```
 
 `quiet` was built as an `Option(() -> Unit)`, and that type is fixed. Write
@@ -411,8 +411,8 @@ companion `Debug.trace` writes `label: value` and then hands the value straight 
 can be watched without taking the surrounding expression apart:
 
 ```hexagon
-Debug.log("Preparing order")            // a String is written as itself
-Debug.log(order.total)                  // any showable value, rendered by its own `Show`
+Debug.log("Preparing order")            -- a String is written as itself
+Debug.log(order.total)                  -- any showable value, rendered by its own `Show`
 
 let scaled = 2 * Debug.trace("subtotal", subtotal)
 ```

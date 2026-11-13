@@ -1,40 +1,40 @@
 module Int
 
-(** Thrown when a result that must be an `Int` is too large or too small for an
+{-- Thrown when a result that must be an `Int` is too large or too small for an
     `Int` to hold exactly, as when `Float.floor` is given `1e300`. The functions
     that round a `Float` throw it, and `Float.roundsToInt` tests for it
-    beforehand. `message` says which function threw. *)
+    beforehand. `message` says which function threw. -}
 export fault IntRangeFault(message: String)
 
-(** Thrown by `parse` in `Int`, `Nat`, `BigInt`, `Float`, `Dec` and `Rat` when
+{-- Thrown by `parse` in `Int`, `Nat`, `BigInt`, `Float`, `Dec` and `Rat` when
     the text is not a number of that type, or is a number the type cannot hold.
     `message` quotes the text, as in `"12x" is not an Int`, and shortens it when
     it is long. A call that may throw it carries a mark: `Int.parse?(text)`
     gives `None` in place of throwing, `Int.parse^(text)` passes the failure on
     to the caller, and `assume Int.parse^(text)` is for text that is known to be
-    good. *)
+    good. -}
 export exception NumberFormatError(message: String)
 
-// The public `Int` companion. A primitive's home module is its fixed prelude
-// companion (Constraints §5.3), so this file is where `Int`'s instances are
-// declared and where the orphan rule lets them be declared.
+-- The public `Int` companion. A primitive's home module is its fixed prelude
+-- companion (Constraints §5.3), so this file is where `Int`'s instances are
+-- declared and where the orphan rule lets them be declared.
 
-// The natives, and only the natives. An own-operation member body cannot be
-// written in operators or interpolation — that sugar selects the very slot being
-// defined (Constraints §6.1) — so every such member is a one-line delegation to
-// one of the declarations below. Everything expressible over strictly simpler
-// operations is ordinary Hexagon further down: the Euclidean pair over the
-// truncated one, `gcd`'s loop over `rem`, the checked family's pre-checks, and
-// every guard.
-//
-// Two members are absent from this block on purpose. `Signed<Int>`'s `fromInt`
-// converts `Int` to itself, so its body is the plain binding `value` — no
-// operator, no interpolation, no widening, nothing that selects its own slot —
-// and the strictly-simpler doctrine sends such a body to ordinary Hexagon
-// (`spec/intrinsics.md` §3.2). `intFromNat` does cross: any Hexagon body for
-// `Nat` -> `Int` typechecks only through Numeric Literals §5.1's contextual
-// widening, which elaborates through `Num<Int>.fromNat`, the very slot being
-// defined.
+-- The natives, and only the natives. An own-operation member body cannot be
+-- written in operators or interpolation — that sugar selects the very slot being
+-- defined (Constraints §6.1) — so every such member is a one-line delegation to
+-- one of the declarations below. Everything expressible over strictly simpler
+-- operations is ordinary Hexagon further down: the Euclidean pair over the
+-- truncated one, `gcd`'s loop over `rem`, the checked family's pre-checks, and
+-- every guard.
+--
+-- Two members are absent from this block on purpose. `Signed<Int>`'s `fromInt`
+-- converts `Int` to itself, so its body is the plain binding `value` — no
+-- operator, no interpolation, no widening, nothing that selects its own slot —
+-- and the strictly-simpler doctrine sends such a body to ordinary Hexagon
+-- (`spec/intrinsics.md` §3.2). `intFromNat` does cross: any Hexagon body for
+-- `Nat` -> `Int` typechecks only through Numeric Literals §5.1's contextual
+-- widening, which elaborates through `Num<Int>.fromNat`, the very slot being
+-- defined.
 extern from "hex:intrinsic"
     fun intAdd as nativeAdd(left: Int, right: Int) -> Int
     fun intMultiply as nativeMultiply(left: Int, right: Int) -> Int
@@ -54,65 +54,65 @@ extern from "hex:intrinsic"
     fun intShiftLeft as nativeShiftLeft(value: Int, count: Int) -> Int
     fun intShiftRight as nativeShiftRight(value: Int, count: Int) -> Int
 
-    (** The lowest 32 bits of the integer, read as a number that may be
+    {-- The lowest 32 bits of the integer, read as a number that may be
         negative, so the result is from -2,147,483,648 to 2,147,483,647:\
         `4_294_967_301.toInt32()` is `5`, and `2_147_483_648.toInt32()` is
         `-2_147_483_648`.\
         JavaScript code that works on 32-bit integers expects numbers in this
-        form. *)
+        form. -}
     export fun intToInt32 as toInt32(value: Int) -> Int
 
-    (** The lowest 32 bits of the integer, read as a number that is never
+    {-- The lowest 32 bits of the integer, read as a number that is never
         negative, so the result is from 0 to 4,294,967,295:\
         `(-1).toUint32()` is `4_294_967_295`.\
         JavaScript code that works on 32-bit integers without a sign expects
-        numbers in this form. *)
+        numbers in this form. -}
     export fun intToUint32 as toUint32(value: Int) -> Int
 
 honor Num<Int> =
-    (** `left` plus `right`. An `Int` holds every integer from
+    {-- `left` plus `right`. An `Int` holds every integer from
         -9,007,199,254,740,991 to 9,007,199,254,740,991 exactly, and a result
         outside that range is rounded. To get `None` instead of a rounded
-        result, use `checkedAdd`. *)
+        result, use `checkedAdd`. -}
     add(left, right) = nativeAdd(left, right)
-    (** `left` times `right`. A result outside the range an `Int` holds exactly
+    {-- `left` times `right`. A result outside the range an `Int` holds exactly
         is rounded. To get `None` instead of a rounded result, use
-        `checkedMul`. *)
+        `checkedMul`. -}
     multiply(left, right) = nativeMultiply(left, right)
-    (** `value` as an `Int`. It never fails, because every `Nat` is also an
-        `Int`. *)
+    {-- `value` as an `Int`. It never fails, because every `Nat` is also an
+        `Int`. -}
     fromNat(value) = nativeFromNat(value)
 
 honor Signed<Int> =
-    (** `left` minus `right`. A result outside the range an `Int` holds exactly
+    {-- `left` minus `right`. A result outside the range an `Int` holds exactly
         is rounded. To get `None` instead of a rounded result, use
-        `checkedSub`. *)
+        `checkedSub`. -}
     subtract(left, right) = nativeSubtract(left, right)
-    (** The integer with its sign changed, so 5 gives -5 and -5 gives 5. *)
+    {-- The integer with its sign changed, so 5 gives -5 and -5 gives 5. -}
     negate(value) = nativeNegate(value)
-    (** The integer itself, since an `Int` is already an `Int`. *)
+    {-- The integer itself, since an `Int` is already an `Int`. -}
     fromInt(value) = value
 
 honor Eq<Int> =
-    (** Whether `left` and `right` are the same integer. *)
+    {-- Whether `left` and `right` are the same integer. -}
     equals(left, right) = nativeEquals(left, right)
 
 honor Ord<Int> =
-    (** Which of `left` and `right` is smaller: `Less` when `left` is smaller,
+    {-- Which of `left` and `right` is smaller: `Less` when `left` is smaller,
         `Greater` when `left` is larger, and `Equal` when they are the same
-        integer. *)
+        integer. -}
     compare(left, right) = nativeCompare(left, right)
 
 honor Show<Int> =
-    (** The integer as text, in decimal digits, with a `-` in front when it is
-        negative. *)
+    {-- The integer as text, in decimal digits, with a `-` in front when it is
+        negative. -}
     show(value) = nativeShow(value)
 
 honor Pow<Int> =
-    (** The integer raised to the power `exponent`, which is what `**` gives:\
+    {-- The integer raised to the power `exponent`, which is what `**` gives:\
         `2.pow(10)` is `1024`.\
         Throws `NegativeExponentFault` when `exponent` is negative, because the
-        result would be a fraction and not an integer. *)
+        result would be a fraction and not an integer. -}
     pow(value, exponent) =
         if exponent < 0 then
             throw(NegativeExponentFault("an integer exponent cannot be negative"))
@@ -120,38 +120,38 @@ honor Pow<Int> =
             nativePow(value, exponent)
 
 honor Hash<Int> =
-    (** A number worked out from the integer, which `Map` and `Set` use to find
-        a key quickly. Integers that are equal have the same hash. *)
+    {-- A number worked out from the integer, which `Map` and `Set` use to find
+        a key quickly. Integers that are equal have the same hash. -}
     hash(value) = nativeHash(value)
 
 honor Integral<Int> =
-    (** `left` divided by `right`, with the fraction dropped, which rounds
+    {-- `left` divided by `right`, with the fraction dropped, which rounds
         toward zero:\
         `(-7).quot(2)` is `-3`.\
         What is left over is `rem`. To round so that what is left over is never
-        negative, use `div`. Throws `DivideByZeroFault` when `right` is zero. *)
+        negative, use `div`. Throws `DivideByZeroFault` when `right` is zero. -}
     quot(left, right) =
         if right == 0 then
             throw(DivideByZeroFault("Int.quot: divisor is zero"))
         else
             nativeQuot(left, right)
 
-    (** What is left over when `left` is divided by `right` with `quot`. It is
+    {-- What is left over when `left` is divided by `right` with `quot`. It is
         negative when `left` is negative:\
         `(-7).rem(2)` is `-1`.\
         For a result that is never negative, use `mod`. Throws
-        `DivideByZeroFault` when `right` is zero. *)
+        `DivideByZeroFault` when `right` is zero. -}
     rem(left, right) =
         if right == 0 then
             throw(DivideByZeroFault("Int.rem: divisor is zero"))
         else
             nativeRem(left, right)
 
-    (** What is left over when `left` is divided by `right`, never negative
+    {-- What is left over when `left` is divided by `right`, never negative
         whichever of them is negative:\
         `(-7).mod(2)` is `1`.\
         Use it to wrap a number around, as in `(hour + 5).mod(24)`. Throws
-        `DivideByZeroFault` when `right` is zero. *)
+        `DivideByZeroFault` when `right` is zero. -}
     mod(left, right) =
         if right == 0 then
             throw(DivideByZeroFault("Int.mod: divisor is zero"))
@@ -162,26 +162,26 @@ honor Integral<Int> =
             else
                 remainder
 
-    (** `left` divided by `right` as a whole number, rounded so that what is
+    {-- `left` divided by `right` as a whole number, rounded so that what is
         left over, which is `mod`, is never negative:\
         `(-7).div(2)` is `-4`, and what is left over is `1`.\
-        Throws `DivideByZeroFault` when `right` is zero. *)
+        Throws `DivideByZeroFault` when `right` is zero. -}
     div(left, right) =
         if right == 0 then
             throw(DivideByZeroFault("Int.div: divisor is zero"))
         else
             (left - left.mod(right)).quot(right)
 
-    (** The largest integer that divides both `left` and `right` with nothing
+    {-- The largest integer that divides both `left` and `right` with nothing
         left over, never negative:\
         `(-4).gcd(6)` is `2`.\
         When one of them is zero the result is the other without its sign, so
-        two zeros give zero. *)
+        two zeros give zero. -}
     gcd(left, right) =
         var larger = if left < 0 then -left else left
         var smaller = if right < 0 then -right else right
-        // Both operands are non-negative from here, so the loop's `rem` never
-        // sees a zero divisor: a zero `smaller` is the exit condition.
+        -- Both operands are non-negative from here, so the loop's `rem` never
+        -- sees a zero divisor: a zero `smaller` is the exit condition.
         while smaller != 0
             let next = larger.rem(smaller)
             larger := smaller
@@ -199,52 +199,52 @@ honor Real<Int> =
         else
             Sign.Positive
 
-// `bitwise.md` §4.2. The natives compute the true integer answer on the plain
-// `number`: JavaScript's own operator where both operands fit in 32 bits, the
-// high and low halves otherwise. `bitNot` is ordinary Hexagon, over `Signed`'s
-// members — a strictly simpler operation than the one being defined.
+-- `bitwise.md` §4.2. The natives compute the true integer answer on the plain
+-- `number`: JavaScript's own operator where both operands fit in 32 bits, the
+-- high and low halves otherwise. `bitNot` is ordinary Hexagon, over `Signed`'s
+-- members — a strictly simpler operation than the one being defined.
 honor Bitwise<Int> =
-    (** The integer that has a bit set wherever both `left` and `right` have it
+    {-- The integer that has a bit set wherever both `left` and `right` have it
         set. The operator `band` does the same:\
         `6.bitAnd(3)` is `2`.\
-        Every bit of the integer takes part, not only the lowest 32. *)
+        Every bit of the integer takes part, not only the lowest 32. -}
     bitAnd(left, right) = nativeBitAnd(left, right)
-    (** The integer that has a bit set wherever `left` or `right`, or both,
+    {-- The integer that has a bit set wherever `left` or `right`, or both,
         have it set. The operator `bor` does the same:\
         `6.bitOr(3)` is `7`.\
-        Every bit of the integer takes part, not only the lowest 32. *)
+        Every bit of the integer takes part, not only the lowest 32. -}
     bitOr(left, right) = nativeBitOr(left, right)
-    (** The integer that has a bit set wherever exactly one of `left` and
+    {-- The integer that has a bit set wherever exactly one of `left` and
         `right` has it set. The operator `bxor` does the same:\
         `6.bitXor(3)` is `5`.\
-        Every bit of the integer takes part, not only the lowest 32. *)
+        Every bit of the integer takes part, not only the lowest 32. -}
     bitXor(left, right) = nativeBitXor(left, right)
-    (** The integer with every bit flipped, which comes to the integer with its
+    {-- The integer with every bit flipped, which comes to the integer with its
         sign changed, less 1:\
-        `5.bitNot()` is `-6`. *)
+        `5.bitNot()` is `-6`. -}
     bitNot(value) = -value - 1
-    (** The integer with its bits moved `count` places to the left, which
+    {-- The integer with its bits moved `count` places to the left, which
         doubles it `count` times:\
         `3.shiftLeft(4)` is `48`.\
         A negative `count` moves the bits to the right instead. A result outside
-        the range an `Int` holds exactly is rounded. *)
+        the range an `Int` holds exactly is rounded. -}
     shiftLeft(value, count) = nativeShiftLeft(value, count)
-    (** The integer with its bits moved `count` places to the right, which
+    {-- The integer with its bits moved `count` places to the right, which
         halves it `count` times and rounds down each time:\
         `48.shiftRight(4)` is `3`, and `(-5).shiftRight(1)` is `-3`.\
-        A negative `count` moves the bits to the left instead. *)
+        A negative `count` moves the bits to the left instead. -}
     shiftRight(value, count) = nativeShiftRight(value, count)
 
-// The largest magnitude an `Int` holds exactly, in either direction: 2^53 - 1.
-// The range being symmetric is what lets `checkedSub` negate its right operand
-// and hand the result to `checkedAdd`.
+-- The largest magnitude an `Int` holds exactly, in either direction: 2^53 - 1.
+-- The range being symmetric is what lets `checkedSub` negate its right operand
+-- and hand the result to `checkedAdd`.
 let intLimit: Int = 9_007_199_254_740_991
 
-(** `left` plus `right`, or `None` when the result is one an `Int` cannot hold
+{-- `left` plus `right`, or `None` when the result is one an `Int` cannot hold
     exactly. An `Int` holds every integer from -9,007,199,254,740,991 to
     9,007,199,254,740,991 exactly, and `+` rounds a result outside that range
     without saying so. Use `checkedAdd` where that must not go unnoticed, or use
-    `BigInt`, which has no limit. *)
+    `BigInt`, which has no limit. -}
 export let checkedAdd(left: Int, right: Int): Option(Int) =
     if right > 0 and left > intLimit - right then
         None
@@ -253,13 +253,13 @@ export let checkedAdd(left: Int, right: Int): Option(Int) =
     else
         Some(left + right)
 
-(** `left` minus `right`, or `None` when the result is one an `Int` cannot hold
-    exactly, where `-` would round it without saying so. *)
+{-- `left` minus `right`, or `None` when the result is one an `Int` cannot hold
+    exactly, where `-` would round it without saying so. -}
 export let checkedSub(left: Int, right: Int): Option(Int) =
     checkedAdd(left, -right)
 
-(** `left` times `right`, or `None` when the result is one an `Int` cannot hold
-    exactly, where `*` would round it without saying so. *)
+{-- `left` times `right`, or `None` when the result is one an `Int` cannot hold
+    exactly, where `*` would round it without saying so. -}
 export let checkedMul(left: Int, right: Int): Option(Int) =
     if left == 0 or right == 0 then
         Some(0)
@@ -271,14 +271,14 @@ export let checkedMul(left: Int, right: Int): Option(Int) =
         else
             Some(left * right)
 
-// `parse`'s two crossings (`spec/numeric-parsing.md`): the scan of the text,
-// which is the host's conversion and cannot be Hexagon at this seat, before
-// `String.hex`; and the message, which quotes the text, cut short.
+-- `parse`'s two crossings (`spec/numeric-parsing.md`): the scan of the text,
+-- which is the host's conversion and cannot be Hexagon at this seat, before
+-- `String.hex`; and the message, which quotes the text, cut short.
 extern from "hex:intrinsic"
     fun numberParseInt as scanText(text: String) -> Option(Option(Int))
     fun numberFormatMessage as formatMessage(text: String, phrase: String) -> String
 
-(** Reads `text` as an `Int`:\
+{-- Reads `text` as an `Int`:\
     `Int.parse^("-42")` is `-42`.\
     The text is written as an integer is written in Hexagon code: an optional
     `+` or `-`, then decimal digits, or `0x`, `0o` or `0b` followed by digits in
@@ -288,7 +288,7 @@ extern from "hex:intrinsic"
     `NumberFormatError` when `text` is not written that way, or when the integer
     is outside the range an `Int` holds exactly. A call that may throw carries a
     mark: `Int.parse?(text)` gives `None` in place of throwing, and
-    `assume Int.parse^(text)` is for text that is known to be good. *)
+    `assume Int.parse^(text)` is for text that is known to be good. -}
 export let parse(text: String): Int = match scanText(text)
     Some(Some(value)) => value
     Some(None) => throw^(NumberFormatError(formatMessage(text, "is out of range for Int")))

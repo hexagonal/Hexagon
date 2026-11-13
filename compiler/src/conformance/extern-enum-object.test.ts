@@ -426,11 +426,11 @@ describe("the foreign contract (§3, §9 tests 1–4)", () => {
   test("doc blocks attach to the head and to each member", () => {
     const face = declarations(
       'extern from "keyboard"\n' +
-        "    (** Which way. *)\n" +
+        "    {-- Which way. -}\n" +
         "    export enum Key as Direction =\n" +
-        "        (** Upwards. *)\n" +
+        "        {-- Upwards. -}\n" +
         "        | ARROW_UP as Up\n" +
-        "        (** Downwards. *)\n" +
+        "        {-- Downwards. -}\n" +
         "        | ARROW_DOWN as Down\n",
     );
     expect(face).toContain("Which way.");

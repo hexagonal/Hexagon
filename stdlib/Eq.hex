@@ -1,16 +1,16 @@
 module Eq
 
-(** The constraint for types whose values can be compared with `==` and `!=`.
+{-- The constraint for types whose values can be compared with `==` and `!=`.
     Most types get it by writing `derives (Eq)` on their declaration, which
     compares two values part by part. A type that needs its own idea of equal
-    writes an `honor Eq<T>` block instead. *)
+    writes an `honor Eq<T>` block instead. -}
 export constraint Eq<a> =
-    (** Whether `left` and `right` are equal. This is what `==` calls. A type
+    {-- Whether `left` and `right` are equal. This is what `==` calls. A type
         that writes its own `equals` must keep three promises: every value
         equals itself, `left` equals `right` whenever `right` equals `left`, and
-        two values that both equal a third equal each other. *)
+        two values that both equal a third equal each other. -}
     equals(left: a, right: a) -> Bool
-    (** Whether `left` and `right` are different. This is what `!=` calls. It is
+    {-- Whether `left` and `right` are different. This is what `!=` calls. It is
         already written as the opposite of `equals`, so a type rarely writes its
-        own. One that does must give the opposite of `equals` every time. *)
+        own. One that does must give the opposite of `equals` every time. -}
     notEquals(left: a, right: a) -> Bool = not equals(left, right)

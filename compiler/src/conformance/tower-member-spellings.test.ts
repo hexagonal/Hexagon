@@ -144,7 +144,7 @@ describe("§14(t): the five spellings of a tower member are one call", () => {
     // other three did not, so the silent overflow had three spellings to hide
     // in. All four now run at `BigInt`.
     const exports = await runProject([["/main.hex",
-      "module Main\n\n" + "// the lift, spelled four ways\n" +
+      "module Main\n\n" + "-- the lift, spelled four ways\n" +
       "let large: Int = 9007199254740991\n" +
       "let two: Int = 2\n" +
       "export let operator: BigInt = large + two\n" +
@@ -166,7 +166,7 @@ describe("§14(t): the five spellings of a tower member are one call", () => {
     // and injected the quotient; the shape is the pin, and the run is here to
     // say the shape is a program.
     const exports = await runProject([["/main.hex",
-      "module Main\n\n" + "// Integral under the lift\n" +
+      "module Main\n\n" + "-- Integral under the lift\n" +
       "let large: Int = 9007199254740991\n" +
       "let two: Int = 2\n" +
       "export let qualified: BigInt = Integral.div(large, two)\n" +
@@ -366,7 +366,7 @@ describe("§14(v): the receiver seat, and §5.1's stand-down", () => {
 
   test("the dot chain lifts as the operator chain and the pipe do", async () => {
     const exports = await runProject([["/main.hex",
-      "module Main\n\n" + "// the receiver seat\n" +
+      "module Main\n\n" + "-- the receiver seat\n" +
       "let x: Int = 9007199254740991\n" +
       "let y: Int = 2\n" +
       "let z: Int = 3\n" +
@@ -398,7 +398,7 @@ describe("§14(v): the receiver seat, and §5.1's stand-down", () => {
     // reciprocal power where `Pow<Int>`'s guard used to throw — the dot
     // converging on `let x: Float = 2 ** negOne`.
     const exports = await runProject([["/main.hex",
-      "module Main\n\n" + "// the guard flip\n" +
+      "module Main\n\n" + "-- the guard flip\n" +
       "let i: Int = 1\n" +
       "let j: Int = 1\n" +
       "let negOne: Int = -1\n" +
@@ -418,7 +418,7 @@ describe("§14(v): the receiver seat, and §5.1's stand-down", () => {
     // erases: `Integral<Int>`'s `rem` throws on a zero divisor where
     // `Float.hex`'s answers `NaN`.
     const exports = await runProject([["/main.hex",
-      "module Main\n\n" + "// the rung gate\n" +
+      "module Main\n\n" + "-- the rung gate\n" +
       "let i: Int = 7\n" +
       "let j: Int = 1\n" +
       "let k: Int = 3\n" +
@@ -1535,7 +1535,7 @@ describe("§4.2's ownership clause and §9 row 15's rider", () => {
     // lifted `n.subtract(m)` would have no dot spelling at all. The value is the
     // pin — a difference that leaves `Nat`.
     const exports = await runProject([["/main.hex",
-      "module Main\n\n" + "// ownership at Nat\n" +
+      "module Main\n\n" + "-- ownership at Nat\n" +
       "let small: Nat = 2\n" +
       "let large: Nat = 7\n" +
       "export let dotted: Int = small.subtract(large)\n" +
@@ -1690,7 +1690,7 @@ describe("§14(u): the operator's lowering, verbatim, in every spelling", () => 
   test("one text per operation across its spellings, and one value", async () => {
     // The check §8.1 asks for, run as a check rather than asserted.
     const exports = await runProject([["/main.hex",
-      "module Main\n\n" + "// one operation, five spellings\n" +
+      "module Main\n\n" + "-- one operation, five spellings\n" +
       "let left: Int = 6\n" +
       "let right: Int = 4\n" +
       "export let operator: Int = left + right\n" +

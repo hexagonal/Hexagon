@@ -2,110 +2,110 @@ module Runtime.Regex
 
 import Regex.Syntax as Syntax
 
-// The regular-expression engine (`spec/regex.md` §6) — the RE2-shaped matcher
-// that `Hex.Regex`'s two sealed rows reach through the intrinsic door. This is a
-// runtime-internal module in `Hex.Runtime.HashTrie`'s exact sense: it is
-// compiled only as a privileged runtime module, it exports nothing at the
-// Hexagon level, and the emitted JavaScript is what carries anything out, under
-// an export list the emitter writes. No Hexagon module can import this one, by
-// name or by accident, however the compiler happens to place the file.
-//
-// **What is here now** (#927, implementation arcs 1 and 3): the storage, the
-// Unicode tables and the subject reads, program construction (§6.1), and the
-// search — the lazy DFA forward and reverse, and the Pike VM for captures and as
-// the fallback (§6.2). The sealed rows that hand a `Compiled` back and forth
-// land with the surface.
-//
-// **The seat.** This module has no `precedes`: no prelude member names it, and
-// it imports a library member, `Regex.Syntax`, for the tree it compiles and the
-// `PropertyKind` its table row is keyed by (§6.1, §7). So it is ordered with the
-// library members, after the one it imports (`runtime-modules.ts`), with the
-// whole prelude's arithmetic and collections beneath it. The emitted `Regex.js`
-// is reached only from `Regex.hex`'s own emitted door rows, which sit later
-// still.
-//
-// **The storage is confined.** A `Buffer(a)` is addressable from this module and
-// nowhere else (`spec/intrinsics.md` §3.3): it may not appear in an exported
-// signature, in an exported pattern's parameter types, in an exception payload,
-// in the representation of a non-`opaque` exported type, or in an `export` of
-// its own, and the checker verifies all of that. It is the half of Effects §6.2
-// species (d) the compiler can check — the other half being the engine's own
-// obligation never to write a program it has frozen.
+-- The regular-expression engine (`spec/regex.md` §6) — the RE2-shaped matcher
+-- that `Hex.Regex`'s two sealed rows reach through the intrinsic door. This is a
+-- runtime-internal module in `Hex.Runtime.HashTrie`'s exact sense: it is
+-- compiled only as a privileged runtime module, it exports nothing at the
+-- Hexagon level, and the emitted JavaScript is what carries anything out, under
+-- an export list the emitter writes. No Hexagon module can import this one, by
+-- name or by accident, however the compiler happens to place the file.
+--
+-- **What is here now** (#927, implementation arcs 1 and 3): the storage, the
+-- Unicode tables and the subject reads, program construction (§6.1), and the
+-- search — the lazy DFA forward and reverse, and the Pike VM for captures and as
+-- the fallback (§6.2). The sealed rows that hand a `Compiled` back and forth
+-- land with the surface.
+--
+-- **The seat.** This module has no `precedes`: no prelude member names it, and
+-- it imports a library member, `Regex.Syntax`, for the tree it compiles and the
+-- `PropertyKind` its table row is keyed by (§6.1, §7). So it is ordered with the
+-- library members, after the one it imports (`runtime-modules.ts`), with the
+-- whole prelude's arithmetic and collections beneath it. The emitted `Regex.js`
+-- is reached only from `Regex.hex`'s own emitted door rows, which sit later
+-- still.
+--
+-- **The storage is confined.** A `Buffer(a)` is addressable from this module and
+-- nowhere else (`spec/intrinsics.md` §3.3): it may not appear in an exported
+-- signature, in an exported pattern's parameter types, in an exception payload,
+-- in the representation of a non-`opaque` exported type, or in an `export` of
+-- its own, and the checker verifies all of that. It is the half of Effects §6.2
+-- species (d) the compiler can check — the other half being the engine's own
+-- obligation never to write a program it has frozen.
 
-// The mutable storage every structure in the engine is built over (§6.3): DFA
-// state tables, the alphabet map, the VM's thread lists, the capture vectors.
-//
-// It is a `type` row rather than a declared form because no declared form can
-// spell it honestly — a Hexagon record is immutable whatever its fields
-// (Statements §6.4), so none can carry the mutation, and an empty `opaque
-// record` would leave the compiler nothing to own.
-//
-// **The arrows are the honest ones** (§3.3, `regex.md` §7). `create`, `read` and
-// `write` are `->~`, impure and unable to fail: a fresh buffer's identity is
-// observable through the other two, a write to one and a read of the other
-// telling two buffers apart, and none of them throws anything but a fault.
-// `length` is `->`, because a buffer's size is fixed at creation and no row
-// changes it, so that read is a read of a value.
-//
-// **Bounds are unchecked.** The engine never reads or writes outside a buffer it
-// sized, and that is a conformance obligation on the engine, not a check — which
-// is what keeps the scan step's cost where §6.4's bounds put it.
+-- The mutable storage every structure in the engine is built over (§6.3): DFA
+-- state tables, the alphabet map, the VM's thread lists, the capture vectors.
+--
+-- It is a `type` row rather than a declared form because no declared form can
+-- spell it honestly — a Hexagon record is immutable whatever its fields
+-- (Statements §6.4), so none can carry the mutation, and an empty `opaque
+-- record` would leave the compiler nothing to own.
+--
+-- **The arrows are the honest ones** (§3.3, `regex.md` §7). `create`, `read` and
+-- `write` are `->~`, impure and unable to fail: a fresh buffer's identity is
+-- observable through the other two, a write to one and a read of the other
+-- telling two buffers apart, and none of them throws anything but a fault.
+-- `length` is `->`, because a buffer's size is fixed at creation and no row
+-- changes it, so that read is a read of a value.
+--
+-- **Bounds are unchecked.** The engine never reads or writes outside a buffer it
+-- sized, and that is a conformance obligation on the engine, not a check — which
+-- is what keeps the scan step's cost where §6.4's bounds put it.
 extern from "hex:intrinsic"
     type buffer as Buffer(a)
 
-    // A fresh buffer of `size` slots, every one holding `fill`. The fill is
-    // required: there is no hole to read back, so every index of a buffer this
-    // row answered is a value from the moment it exists.
+    -- A fresh buffer of `size` slots, every one holding `fill`. The fill is
+    -- required: there is no hole to read back, so every index of a buffer this
+    -- row answered is a value from the moment it exists.
     fun bufferCreate as create(size: Int, fill: a) ->~ Buffer(a)
 
-    // The slot at `index`, zero-based.
+    -- The slot at `index`, zero-based.
     fun bufferRead as read(buffer: Buffer(a), index: Int) ->~ a
 
-    // Stores `value` at `index`, zero-based.
+    -- Stores `value` at `index`, zero-based.
     fun bufferWrite as write(buffer: Buffer(a), index: Int, value: a) ->~ Unit
 
-    // The slot count the buffer was created with.
+    -- The slot count the buffer was created with.
     fun bufferLength as length(buffer: Buffer(a)) -> Int
 
-    // A property's codepoints as sorted, disjoint, inclusive ranges, keyed by
-    // the tree's own kind and canonical value (§7). The tables are Unicode
-    // 17.0.0's, kept in one place and referenced by name, never inlined into an
-    // emitted program. Every property's ranges exclude U+D800–U+DFFF, so no
-    // `\p{…}` naming a property matches a lone surrogate; `Any` alone answers
-    // U+0000–U+10FFFF whole. An unknown name is unreachable, the parser having
-    // closed the set, and answers the empty vector rather than a fault. A `->`
-    // read of a fixed table.
+    -- A property's codepoints as sorted, disjoint, inclusive ranges, keyed by
+    -- the tree's own kind and canonical value (§7). The tables are Unicode
+    -- 17.0.0's, kept in one place and referenced by name, never inlined into an
+    -- emitted program. Every property's ranges exclude U+D800–U+DFFF, so no
+    -- `\p{…}` naming a property matches a lone surrogate; `Any` alone answers
+    -- U+0000–U+10FFFF whole. An unknown name is unreachable, the parser having
+    -- closed the set, and answers the empty vector rather than a fault. A `->`
+    -- read of a fixed table.
     fun regexPropertyRanges as propertyRanges(kind: Syntax.PropertyKind, value: String) -> Vector((Int, Int))
 
-    // Every codepoint whose simple case folding equals `point`'s, `point`
-    // included, ascending: the closure a folded class needs (§3.4). A `->` read
-    // of a fixed table.
+    -- Every codepoint whose simple case folding equals `point`'s, `point`
+    -- included, ascending: the closure a folded class needs (§3.4). A `->` read
+    -- of a fixed table.
     fun regexFoldOrbit as foldOrbit(point: Int) -> Vector(Int)
 
-    // The subject, read by code unit (§6.2, §6.4). The public `String` surface
-    // reads by codepoint position and gives no value for a lone surrogate; the
-    // engine reads the subject forward, and cuts each group's text from the
-    // offsets the scan has in hand. All three are `->` reads of a value.
-    //
-    // The codepoint whose first code unit is at `offset`, zero-based: a
-    // well-formed pair is one codepoint, a lone surrogate is itself (§3.6).
+    -- The subject, read by code unit (§6.2, §6.4). The public `String` surface
+    -- reads by codepoint position and gives no value for a lone surrogate; the
+    -- engine reads the subject forward, and cuts each group's text from the
+    -- offsets the scan has in hand. All three are `->` reads of a value.
+    --
+    -- The codepoint whose first code unit is at `offset`, zero-based: a
+    -- well-formed pair is one codepoint, a lone surrogate is itself (§3.6).
     fun regexCodepointAt as codepointAt(text: String, offset: Int) -> Int
 
-    // The subject's length in code units.
+    -- The subject's length in code units.
     fun regexCodeUnits as codeUnits(text: String) -> Int
 
-    // The text between two code-unit offsets, `from` included, `to` not.
+    -- The text between two code-unit offsets, `from` included, `to` not.
     fun regexCut as cut(text: String, from: Int, to: Int) -> String
 
-// ---------------------------------------------------------------------------
-// Codepoint sets (§6.1)
-//
-// A set is a vector of sorted, disjoint, inclusive ranges, never adjacent: the
-// shape the property row answers and every operation below keeps.
+-- ---------------------------------------------------------------------------
+-- Codepoint sets (§6.1)
+--
+-- A set is a vector of sorted, disjoint, inclusive ranges, never adjacent: the
+-- shape the property row answers and every operation below keeps.
 
 let lastPoint: Int = 1_114_111
 
-// The union of two sets, in one pass over both.
+-- The union of two sets, in one pass over both.
 let unionOf(left: Vector((Int, Int)), right: Vector((Int, Int))): Vector((Int, Int)) =
     let leftSize = Vector.length(left)
     let rightSize = Vector.length(right)
@@ -123,7 +123,7 @@ let unionOf(left: Vector((Int, Int)), right: Vector((Int, Int))): Vector((Int, I
             result := result.append((low, high))
     result
 
-// Every codepoint not in `set`, over U+0000–U+10FFFF.
+-- Every codepoint not in `set`, over U+0000–U+10FFFF.
 let complementOf(set: Vector((Int, Int))): Vector((Int, Int)) =
     var result: Vector((Int, Int)) = []
     var next = 0
@@ -132,7 +132,7 @@ let complementOf(set: Vector((Int, Int))): Vector((Int, Int)) =
         next := high + 1
     if next <= lastPoint then result.append((next, lastPoint)) else result
 
-// Whether `point` is in `set`, by binary search.
+-- Whether `point` is in `set`, by binary search.
 let contains(set: Vector((Int, Int)), point: Int): Bool =
     var low = 1
     var high = Vector.length(set)
@@ -148,7 +148,7 @@ let contains(set: Vector((Int, Int)), point: Int): Bool =
             found := True
     found
 
-// `points` in ascending order, by merge sort.
+-- `points` in ascending order, by merge sort.
 fun sortedPoints(points: Vector(Int)): Vector(Int) =
     let count = Vector.length(points)
     if count <= 1 then
@@ -169,7 +169,7 @@ fun sortedPoints(points: Vector(Int)): Vector(Int) =
                 rightAt := rightAt + 1
         merged
 
-// `points`, in any order, as a set.
+-- `points`, in any order, as a set.
 let setOfPoints(points: Vector(Int)): Vector((Int, Int)) =
     var result: Vector((Int, Int)) = []
     for point in sortedPoints(points)
@@ -180,9 +180,9 @@ let setOfPoints(points: Vector(Int)): Vector((Int, Int)) =
             result := result.append((point, point))
     result
 
-// `set` closed under simple case folding (§3.4): every codepoint whose folding
-// equals a member's. The points a member's orbit adds are few beside the set,
-// so they are gathered first and merged once.
+-- `set` closed under simple case folding (§3.4): every codepoint whose folding
+-- equals a member's. The points a member's orbit adds are few beside the set,
+-- so they are gathered first and merged once.
 let foldedSet(set: Vector((Int, Int))): Vector((Int, Int)) =
     var added: Vector(Int) = []
     for (low, high) in set
@@ -195,17 +195,17 @@ let foldedSet(set: Vector((Int, Int))): Vector((Int, Int)) =
             point := point + 1
     unionOf(set, setOfPoints(added))
 
-// The codepoints one class item stands for.
+-- The codepoints one class item stands for.
 let itemSet(item: Syntax.ClassItem): Vector((Int, Int)) = match item
     Syntax.Range(low, high) => [(low, high)]
     Syntax.Property(kind, value, negated) =>
         let ranges = propertyRanges(kind, value)
         if negated then complementOf(ranges) else ranges
 
-// A class's codepoints, in §6.1's order: each item resolved and complemented
-// where it is negated, the union taken, folded where the class is folded, and
-// complemented where the class is negated. Fold before complement is what makes
-// `(?i)[^a]` not match `A`.
+-- A class's codepoints, in §6.1's order: each item resolved and complemented
+-- where it is negated, the union taken, folded where the class is folded, and
+-- complemented where the class is negated. Fold before complement is what makes
+-- `(?i)[^a]` not match `A`.
 let classSet(items: Vector(Syntax.ClassItem), negated: Bool, folded: Bool): Vector((Int, Int)) =
     var set: Vector((Int, Int)) = []
     for item in items
@@ -213,22 +213,22 @@ let classSet(items: Vector(Syntax.ClassItem), negated: Bool, folded: Bool): Vect
     let closed = if folded then foldedSet(set) else set
     if negated then complementOf(closed) else closed
 
-// ---------------------------------------------------------------------------
-// The NFA (§6.1)
-//
-// One Thompson construction over the tree. An instruction is an operation and
-// two operands, at a zero-based program counter:
-//
-//  - `consume c`: one codepoint in class `c`, then the next instruction;
-//  - `split x y`: both, `x` first in priority (§3.2);
-//  - `jump x`;
-//  - `save s`: the position into capture slot `s` (group `g` is slots `2g`
-//    and `2g + 1`);
-//  - `assert a`: an assertion (`anchorCode`), consuming nothing;
-//  - `match`.
-//
-// The construction is pure: it builds vectors, which `compile` then freezes
-// into buffers.
+-- ---------------------------------------------------------------------------
+-- The NFA (§6.1)
+--
+-- One Thompson construction over the tree. An instruction is an operation and
+-- two operands, at a zero-based program counter:
+--
+--  - `consume c`: one codepoint in class `c`, then the next instruction;
+--  - `split x y`: both, `x` first in priority (§3.2);
+--  - `jump x`;
+--  - `save s`: the position into capture slot `s` (group `g` is slots `2g`
+--    and `2g + 1`);
+--  - `assert a`: an assertion (`anchorCode`), consuming nothing;
+--  - `match`.
+--
+-- The construction is pure: it builds vectors, which `compile` then freezes
+-- into buffers.
 
 let opMatch: Int = 0
 let opConsume: Int = 1
@@ -288,9 +288,9 @@ let sameSpec(left: ClassSpec, right: ClassSpec): Bool =
         index := index + 1
     same
 
-// A `consume` of `spec`'s class. A class the program already holds is reused,
-// so that a counted repetition's copies, and every repeated literal, resolve
-// once (§6.4: a folded `\p{L}` costs its membership once).
+-- A `consume` of `spec`'s class. A class the program already holds is reused,
+-- so that a counted repetition's copies, and every repeated literal, resolve
+-- once (§6.4: a folded `\p{L}` costs its membership once).
 let emitClass(code: Code, spec: ClassSpec): Code =
     var found = -1
     var index = 1
@@ -304,12 +304,12 @@ let emitClass(code: Code, spec: ClassSpec): Code =
 
 let singleClass(point: Int): ClassSpec = ClassSpec({ items = [Syntax.Range(point, point)], negated = False, folded = False })
 
-// A `split` at `at` whose preferred branch is the next instruction and whose
-// other is `out` — or the other way round where the repetition is lazy.
+-- A `split` at `at` whose preferred branch is the next instruction and whose
+-- other is `out` — or the other way round where the repetition is lazy.
 let setSplit(code: Code, at: Int, out: Int, greedy: Bool): Code =
     if greedy then setSecond(setFirst(code, at, at + 1), at, out) else setSecond(setFirst(code, at, out), at, at + 1)
 
-// Whether `expr` can match the empty string.
+-- Whether `expr` can match the empty string.
 fun nullable(expr: Syntax.Expr): Bool = match expr
     Syntax.Empty => True
     Syntax.Literal(_) => False
@@ -329,9 +329,9 @@ fun nullable(expr: Syntax.Expr): Bool = match expr
     Syntax.Repeat(body, min, _, _) => min == 0 or nullable(body)
     Syntax.Capture(body, _, _) => nullable(body)
 
-// `expr`'s instructions after `code`'s. `backward` builds the program for the
-// reverse scan (§6.2): a sequence's parts in reverse order and no capture
-// slots, since that scan locates a match's start and assigns no captures.
+-- `expr`'s instructions after `code`'s. `backward` builds the program for the
+-- reverse scan (§6.2): a sequence's parts in reverse order and no capture
+-- slots, since that scan locates a match's start and assigns no captures.
 fun emitExpr(code: Code, expr: Syntax.Expr, backward: Bool): Code = match expr
     Syntax.Empty => code
     Syntax.Literal(point) => emitClass(code, singleClass(point))
@@ -352,8 +352,8 @@ fun emitExpr(code: Code, expr: Syntax.Expr, backward: Bool): Code = match expr
             index := index + 1
         current
     Syntax.Alternate(branches) =>
-        // Each branch but the last behind a split preferring it, each ending
-        // in a jump past the rest.
+        -- Each branch but the last behind a split preferring it, each ending
+        -- in a jump past the rest.
         var current = code
         var jumps: Vector(Int) = []
         let count = Vector.length(branches)
@@ -379,13 +379,13 @@ fun emitExpr(code: Code, expr: Syntax.Expr, backward: Bool): Code = match expr
         match max
             None =>
                 if nullable(body) then
-                    // `x*` over a body that can match empty is `(?:x+)?`, as
-                    // RE2 and Go compile it (Go issue 46123): one optional
-                    // entry, then a loop back that the body must reach. Read
-                    // as a plain loop, the program-counter dedupe would end
-                    // every path through an empty iteration, and `(|a)*` on
-                    // `aa` would match `aa` where `(?:|a){0,5}` matches the
-                    // empty string (§3.2).
+                    -- `x*` over a body that can match empty is `(?:x+)?`, as
+                    -- RE2 and Go compile it (Go issue 46123): one optional
+                    -- entry, then a loop back that the body must reach. Read
+                    -- as a plain loop, the program-counter dedupe would end
+                    -- every path through an empty iteration, and `(|a)*` on
+                    -- `aa` would match `aa` where `(?:|a){0,5}` matches the
+                    -- empty string (§3.2).
                     let entry = counter(current)
                     let start = entry + 1
                     current := emitExpr(emit(current, opSplit, 0, 0), body, backward)
@@ -396,14 +396,14 @@ fun emitExpr(code: Code, expr: Syntax.Expr, backward: Bool): Code = match expr
                         else setSecond(setFirst(current, back, end), back, start)
                     setSplit(looped, entry, end, greedy)
                 else
-                    // `x*` after the required copies: a split back over the body.
+                    -- `x*` after the required copies: a split back over the body.
                     let loop = counter(current)
                     current := emitExpr(emit(current, opSplit, 0, 0), body, backward)
                     current := emit(current, opJump, loop, 0)
                     setSplit(current, loop, counter(current), greedy)
             Some(most) =>
-                // The optional copies nest, each split's way out the end:
-                // `x{1,3}` is `x(x(x)?)?`.
+                -- The optional copies nest, each split's way out the end:
+                -- `x{1,3}` is `x(x(x)?)?`.
                 var splits: Vector(Int) = []
                 while copies < most
                     splits := splits.append(counter(current))
@@ -420,34 +420,34 @@ fun emitExpr(code: Code, expr: Syntax.Expr, backward: Bool): Code = match expr
             let opened = emitExpr(emit(code, opSave, 2 * index, 0), body, backward)
             emit(opened, opSave, 2 * index + 1, 0)
 
-// The whole pattern's program: group 0 saved around the tree, then `match`.
+-- The whole pattern's program: group 0 saved around the tree, then `match`.
 let codeOf(pattern: Syntax.Pattern): Code =
     let empty = Code({ ops = [], first = [], second = [], classes = [] })
     let body = emitExpr(emit(empty, opSave, 0, 0), pattern.root, False)
     emit(emit(body, opSave, 1, 0), opMatch, 0, 0)
 
-// A new program after `code`'s, sharing its classes.
+-- A new program after `code`'s, sharing its classes.
 let after(code: Code): Code = { code with ops = [], first = [], second = [] }
 
-// The forward scan's program (§6.2): the pattern behind a lazy `(?s:.)*?`, so
-// that every start is tried at the lowest priority and the first match found
-// cuts the rest, as leftmost-first wants.
+-- The forward scan's program (§6.2): the pattern behind a lazy `(?s:.)*?`, so
+-- that every start is tried at the lowest priority and the first match found
+-- cuts the rest, as leftmost-first wants.
 let forwardOf(code: Code, pattern: Syntax.Pattern): Code =
     let any = ClassSpec({ items = [Syntax.Range(0, lastPoint)], negated = False, folded = False })
     let seeded = emitClass(emit(after(code), opSplit, 3, 1), any)
     let looped = emit(seeded, opJump, 0, 0)
     emit(emitExpr(looped, pattern.root, False), opMatch, 0, 0)
 
-// The reverse scan's program: the pattern read backwards, anchored.
+-- The reverse scan's program: the pattern read backwards, anchored.
 let backwardOf(code: Code, pattern: Syntax.Pattern): Code =
     emit(emitExpr(after(code), pattern.root, True), opMatch, 0, 0)
 
-// ---------------------------------------------------------------------------
-// The compiled program (§6.1, §6.3)
-//
-// The program a `Regex` carries: the instructions, frozen into buffers that no
-// row writes after `compile` returns, and the classes by their tree items, with
-// the one memo resolution fills on first use (§6.2's second transparent memo).
+-- ---------------------------------------------------------------------------
+-- The compiled program (§6.1, §6.3)
+--
+-- The program a `Regex` carries: the instructions, frozen into buffers that no
+-- row writes after `compile` returns, and the classes by their tree items, with
+-- the one memo resolution fills on first use (§6.2's second transparent memo).
 record Compiled = {
     ops: Buffer(Int),
     first: Buffer(Int),
@@ -465,7 +465,7 @@ record Compiled = {
     stamps: Buffer(Int),
 }
 
-// One program of instructions, frozen: the forward and reverse scans' own.
+-- One program of instructions, frozen: the forward and reverse scans' own.
 record Machine = { ops: Buffer(Int), first: Buffer(Int), second: Buffer(Int), size: Int }
 
 let frozen(values: Vector(Int)): Buffer(Int) =
@@ -479,16 +479,16 @@ let frozen(values: Vector(Int)): Buffer(Int) =
 let machineOf(code: Code): Machine =
     Machine({ ops = frozen~(code.ops), first = frozen~(code.first), second = frozen~(code.second), size = Vector.length(code.ops) })
 
-// The program for `pattern`. It reads no table: class resolution waits for the
-// program's first use (§6.1), so a program emitted as a constant carries its
-// properties by name.
+-- The program for `pattern`. It reads no table: class resolution waits for the
+-- program's first use (§6.1), so a program emitted as a constant carries its
+-- properties by name.
 let compile(pattern: Syntax.Pattern): Compiled =
     let code = codeOf(pattern)
     let forward = forwardOf(code, pattern)
     let backward = backwardOf(forward, pattern)
-    // The three programs' scratch marks, owned by the program and reused by
-    // every search: a mark holds the stamp of the last use that reached it, and
-    // stamps only grow (`stamps`), so no search reads another's marks as its own.
+    -- The three programs' scratch marks, owned by the program and reused by
+    -- every search: a mark holds the stamp of the last use that reached it, and
+    -- stamps only grow (`stamps`), so no search reads another's marks as its own.
     let marks = create~(3, create~(0, 0))
     write~(marks, 0, create~(Vector.length(code.ops), -1))
     write~(marks, 1, create~(Vector.length(forward.ops), -1))
@@ -514,7 +514,7 @@ let compile(pattern: Syntax.Pattern): Compiled =
     })
 
 
-// Class `index`'s codepoints, resolved once and kept in the program.
+-- Class `index`'s codepoints, resolved once and kept in the program.
 let classOf(program: Compiled, index: Int): Vector((Int, Int)) =
     match read~(program.resolved, index)
         Some(set) => set
@@ -524,22 +524,22 @@ let classOf(program: Compiled, index: Int): Vector((Int, Int)) =
             write~(program.resolved, index, Some(set))
             set
 
-// ---------------------------------------------------------------------------
-// The search: a Pike VM (§6.2)
-//
-// The NFA simulated over the subject one codepoint at a time, each thread
-// carrying its own capture slots, the threads kept in priority order so that
-// the first to reach `match` is the leftmost-first match (§3.2). Linear in the
-// subject times the program, whatever the pattern. The lazy DFA of §6.2 runs in
-// front of it in a later step and answers the same matches.
-//
-// A thread's slots hold, for each capture slot, the codepoint position and the
-// code-unit offset it saved, both -1 until saved.
+-- ---------------------------------------------------------------------------
+-- The search: a Pike VM (§6.2)
+--
+-- The NFA simulated over the subject one codepoint at a time, each thread
+-- carrying its own capture slots, the threads kept in priority order so that
+-- the first to reach `match` is the leftmost-first match (§3.2). Linear in the
+-- subject times the program, whatever the pattern. The lazy DFA of §6.2 runs in
+-- front of it in a later step and answers the same matches.
+--
+-- A thread's slots hold, for each capture slot, the codepoint position and the
+-- code-unit offset it saved, both -1 until saved.
 
 record Thread = { pc: Int, slots: Vector(Int) }
 
-// Where the scan stands: the position and code-unit offset of the next
-// codepoint, and the codepoints on either side, -1 at the text's edges.
+-- Where the scan stands: the position and code-unit offset of the next
+-- codepoint, and the codepoints on either side, -1 at the text's edges.
 record Place = { position: Int, offset: Int, before: Int, after: Int }
 
 let width(point: Int): Int = if point > 65_535 then 2 else 1
@@ -563,11 +563,11 @@ let holds(kind: Int, place: Place): Bool =
 let saved(slots: Vector(Int), slot: Int, place: Place): Vector(Int) =
     Vector.set(Vector.set(slots, 2 * slot + 1, place.position), 2 * slot + 2, place.offset)
 
-// `list` with the threads `start` reaches through the instructions that consume
-// nothing, in priority order: a `split`'s first branch is followed before its
-// second. A program counter already reached at this place (`mark` holding
-// `stamp`) is not reached again, which is what keeps an empty iteration from
-// being taken twice and the list no longer than the program.
+-- `list` with the threads `start` reaches through the instructions that consume
+-- nothing, in priority order: a `split`'s first branch is followed before its
+-- second. A program counter already reached at this place (`mark` holding
+-- `stamp`) is not reached again, which is what keeps an empty iteration from
+-- being taken twice and the list no longer than the program.
 let follow(program: Compiled, mark: Buffer(Int), stamp: Int, start: Thread, list: Vector(Thread), place: Place): Vector(Thread) =
     var pending: Vector(Thread) = [start]
     var reached = list
@@ -592,8 +592,8 @@ let follow(program: Compiled, mark: Buffer(Int), stamp: Int, start: Thread, list
                 reached := reached.append(thread)
     reached
 
-// The codepoint before `offset`, -1 at the start: one code unit back, or two
-// where those two are a well-formed pair.
+-- The codepoint before `offset`, -1 at the start: one code unit back, or two
+-- where those two are a well-formed pair.
 let pointBefore(text: String, offset: Int): Int =
     if offset == 0 then
         -1
@@ -616,15 +616,15 @@ let isNone(value: Option(a)): Bool = match value
 
 let isSome(value: Option(a)): Bool = not isNone(value)
 
-// Every capture slot unsaved: a position and an offset of -1 for each.
+-- Every capture slot unsaved: a position and an offset of -1 for each.
 let unsaved(groupCount: Int): Vector(Int) =
     var slots: Vector(Int) = []
     while Vector.length(slots) < 4 * (groupCount + 1)
         slots := slots.append(-1)
     slots
 
-// Each group's span and text from a match's slots: `None` for a group the match
-// never entered (§3.3).
+-- Each group's span and text from a match's slots: `None` for a group the match
+-- never entered (§3.3).
 let groupsOf(text: String, groupCount: Int, slots: Vector(Int)): Vector(Option((Int, Int, String))) =
     var groups: Vector(Option((Int, Int, String))) = []
     var group = 0
@@ -640,12 +640,12 @@ let groupsOf(text: String, groupCount: Int, slots: Vector(Int)): Vector(Option((
         group := group + 1
     groups
 
-// The Pike VM's search from a place already walked to: the slots of the
-// leftmost-first match there or after, or, `anchored`, of the leftmost-first
-// match starting exactly there. With `spans` clear it stops at the first match.
-// A known end `stop` (-1 for none) ends the run there: the DFAs have proved the
-// match ends at it, so no thread is stepped past it (§6.4: the VM runs over the
-// span alone).
+-- The Pike VM's search from a place already walked to: the slots of the
+-- leftmost-first match there or after, or, `anchored`, of the leftmost-first
+-- match starting exactly there. With `spans` clear it stops at the first match.
+-- A known end `stop` (-1 for none) ends the run there: the DFAs have proved the
+-- match ends at it, so no thread is stepped past it (§6.4: the VM runs over the
+-- span alone).
 let pike(
     program: Compiled,
     text: String,
@@ -692,25 +692,25 @@ let pike(
     write~(program.stamps, 0, stamp)
     found
 
-// ---------------------------------------------------------------------------
-// The lazy DFA (§6.2)
-//
-// Built on demand from the forward and reverse programs. A state is the
-// priority-ordered list of instructions threads wait at, before the
-// instructions that consume nothing are followed, together with what the
-// codepoint behind the scan was — the text's edge, a `\n`, a word codepoint, or
-// another — which is all an assertion reads of it. A transition reads the
-// alphabet class of the codepoint ahead (or the text's edge) and answers the
-// next state and whether a match ends here, before that codepoint. Every state
-// is a value function of the list it names, so the cache is a transparent memo
-// (Effects §6.2 species (d)); it is bounded, and discarded when it fills.
-//
-// The forward scan runs the forward program, whose lazy `(?s:.)*?` seeds a
-// start at every position below every thread already running, and stops at the
-// leftmost-first match's end. The reverse scan runs the pattern backwards from
-// that end, anchored there, and the last place it matches is the start. Where
-// the program has capturing groups, the Pike VM then runs over that span alone
-// to assign them.
+-- ---------------------------------------------------------------------------
+-- The lazy DFA (§6.2)
+--
+-- Built on demand from the forward and reverse programs. A state is the
+-- priority-ordered list of instructions threads wait at, before the
+-- instructions that consume nothing are followed, together with what the
+-- codepoint behind the scan was — the text's edge, a `\n`, a word codepoint, or
+-- another — which is all an assertion reads of it. A transition reads the
+-- alphabet class of the codepoint ahead (or the text's edge) and answers the
+-- next state and whether a match ends here, before that codepoint. Every state
+-- is a value function of the list it names, so the cache is a transparent memo
+-- (Effects §6.2 species (d)); it is bounded, and discarded when it fills.
+--
+-- The forward scan runs the forward program, whose lazy `(?s:.)*?` seeds a
+-- start at every position below every thread already running, and stops at the
+-- leftmost-first match's end. The reverse scan runs the pattern backwards from
+-- that end, anchored there, and the last place it matches is the start. Where
+-- the program has capturing groups, the Pike VM then runs over that span alone
+-- to assign them.
 
 record Dfa = {
     ids: Map(String, Int),
@@ -719,26 +719,26 @@ record Dfa = {
     moves: Map(Int, Int),
 }
 
-// States a cache may hold before it is discarded and rebuilt.
+-- States a cache may hold before it is discarded and rebuilt.
 let dfaBudget: Int = 4096
 
 let emptyDfa: Dfa = Dfa({ ids = Map.empty, lists = [], edges = [], moves = Map.empty })
 
-// What a codepoint is to an assertion: 0 the text's edge, 1 a `\n`, 2 a word
-// codepoint, 3 another; and a codepoint standing for each.
+-- What a codepoint is to an assertion: 0 the text's edge, 1 a `\n`, 2 a word
+-- codepoint, 3 another; and a codepoint standing for each.
 let edgeOf(point: Int): Int =
     if point < 0 then 0 else if point == 10 then 1 else if isWord(point) then 2 else 3
 
-// The edge a state records: none where the program holds no assertion, which
-// reads no edge, so that the edge does not multiply its states.
+-- The edge a state records: none where the program holds no assertion, which
+-- reads no edge, so that the edge does not multiply its states.
 let edgeIn(program: Compiled, point: Int): Int = if program.assertive then edgeOf(point) else 0
 
 let standIn(edge: Int): Int =
     if edge == 0 then -1 else if edge == 1 then 10 else if edge == 2 then 97 else 32
 
-// The partition of the codepoint space the DFA reads (§6.1): the boundaries of
-// every class, of the word class, and of `\n`, as the ascending first codepoint
-// of each part. Built on the program's first use and kept.
+-- The partition of the codepoint space the DFA reads (§6.1): the boundaries of
+-- every class, of the word class, and of `\n`, as the ascending first codepoint
+-- of each part. Built on the program's first use and kept.
 let alphabetOf(program: Compiled): Vector(Int) =
     match read~(program.alphabet, 0)
         Some(starts) => starts
@@ -759,8 +759,8 @@ let alphabetOf(program: Compiled): Vector(Int) =
             write~(program.alphabet, 0, Some(starts))
             starts
 
-// The alphabet class of `point`, by binary search; the class count for the
-// text's edge.
+-- The alphabet class of `point`, by binary search; the class count for the
+-- text's edge.
 let letterOf(starts: Vector(Int), point: Int): Int =
     if point < 0 then
         Vector.length(starts)
@@ -772,10 +772,10 @@ let letterOf(starts: Vector(Int), point: Int): Int =
             if starts[middle] <= point then low := middle else high := middle - 1
         low - 1
 
-// From the instructions in `waiting`, in priority order, the consuming
-// instructions threads reach without consuming, and whether a `match` is
-// reached. Under `cut` a `match` ends the list, as leftmost-first wants; the
-// reverse scan keeps going, since it wants every start.
+-- From the instructions in `waiting`, in priority order, the consuming
+-- instructions threads reach without consuming, and whether a `match` is
+-- reached. Under `cut` a `match` ends the list, as leftmost-first wants; the
+-- reverse scan keeps going, since it wants every start.
 let reach(machine: Machine, mark: Buffer(Int), stamp: Int, waiting: Vector(Int), place: Place, cut: Bool): (Vector(Int), Bool) =
     var consuming: Vector(Int) = []
     var matched = False
@@ -809,7 +809,7 @@ let keyOf(list: Vector(Int), edge: Int): String =
         parts := parts.append(show(pc))
     String.join(Iterable.toSeq(parts), ",")
 
-// The id of the state for `list` and `edge` in `dfa`, added where it is new.
+-- The id of the state for `list` and `edge` in `dfa`, added where it is new.
 let stateIn(dfa: Dfa, list: Vector(Int), edge: Int): (Dfa, Int) =
     let key = keyOf(list, edge)
     match Map.get(dfa.ids, key)
@@ -818,10 +818,10 @@ let stateIn(dfa: Dfa, list: Vector(Int), edge: Int): (Dfa, Int) =
             let id = Vector.length(dfa.lists)
             ({ dfa with ids = Map.set(dfa.ids, key, id), lists = dfa.lists.append(list), edges = dfa.edges.append(edge) }, id)
 
-// One transition: from state `id` over the codepoint class `letter` (whose
-// first codepoint is `point`, -1 for the text's edge), the next state and
-// whether a match ends before it. Forward, the state's edge is the codepoint
-// behind and `point` the one ahead; backward, the other way round.
+-- One transition: from state `id` over the codepoint class `letter` (whose
+-- first codepoint is `point`, -1 for the text's edge), the next state and
+-- whether a match ends before it. Forward, the state's edge is the codepoint
+-- behind and `point` the one ahead; backward, the other way round.
 let move(
     program: Compiled,
     machine: Machine,
@@ -850,16 +850,16 @@ let move(
             let encoded = target * 2 + (if matched then 1 else 0)
             ({ grown with moves = Map.set(grown.moves, key, encoded) }, target, matched)
 
-// A scan's cache, or a fresh one.
+-- A scan's cache, or a fresh one.
 let cacheOf(program: Compiled, which: Int): Dfa = match read~(program.caches, which)
     Some(dfa) => dfa
     None => emptyDfa
 
-// The leftmost-first match's end from `start`, forward: `Some(Some(end))`, or
-// `Some(None)` where there is none; `None` where the caches filled twice in this
-// search, counted in `flushes` across both scans, and the VM must finish it
-// (§6.2). With `first` set it stops at the first
-// match end, which is all `isMatch` asks.
+-- The leftmost-first match's end from `start`, forward: `Some(Some(end))`, or
+-- `Some(None)` where there is none; `None` where the caches filled twice in this
+-- search, counted in `flushes` across both scans, and the VM must finish it
+-- (§6.2). With `first` set it stops at the first
+-- match end, which is all `isMatch` asks.
 let scanForward(
     program: Compiled,
     text: String,
@@ -906,9 +906,9 @@ let scanForward(
     write~(program.caches, 0, Some(if Vector.length(dfa.lists) > dfaBudget then emptyDfa else dfa))
     if exhausted then None else Some(last)
 
-// The match's start, scanning backward from its end `(position, offset)` no
-// further than position `floor`: the leftmost place the pattern matches there.
-// `None` where the caches filled twice in this search.
+-- The match's start, scanning backward from its end `(position, offset)` no
+-- further than position `floor`: the leftmost place the pattern matches there.
+-- `None` where the caches filled twice in this search.
 let scanBackward(program: Compiled, text: String, end: (Int, Int), floor: Int, flushes: Buffer(Int)): Option((Int, Int)) =
     let starts = alphabetOf~(program)
     let mark = read~(program.marks, 2)
@@ -950,11 +950,11 @@ let scanBackward(program: Compiled, text: String, end: (Int, Int), floor: Int, f
     write~(program.caches, 1, Some(if Vector.length(dfa.lists) > dfaBudget then emptyDfa else dfa))
     if exhausted then None else Some(best)
 
-// The match `pike` found, as the row answers it.
+-- The match `pike` found, as the row answers it.
 let answerOf(program: Compiled, text: String, slots: Vector(Int)): (Vector(Option((Int, Int, String))), (Int, Int)) =
     (groupsOf(text, program.groupCount, slots), (slots[3], slots[4]))
 
-// The whole search on the VM, from a place already walked to.
+-- The whole search on the VM, from a place already walked to.
 let viaVm(
     program: Compiled,
     text: String,
@@ -967,11 +967,11 @@ let viaVm(
         None => None
         Some(slots) => if spans then Some(answerOf(program, text, slots)) else Some(([], cursor))
 
-// The leftmost-first match at or after position `start`, with the cursor the
-// next search resumes from (§6.2): every group when `spans` is set, and with it
-// clear only whether there is one, the given cursor echoed. The DFAs find the
-// match and the VM assigns its captures; where a cache fills twice in one scan
-// the VM runs the whole search. Every route answers the same match.
+-- The leftmost-first match at or after position `start`, with the cursor the
+-- next search resumes from (§6.2): every group when `spans` is set, and with it
+-- clear only whether there is one, the given cursor echoed. The DFAs find the
+-- match and the VM assigns its captures; where a cache fills twice in one scan
+-- the VM runs the whole search. Every route answers the same match.
 let search(
     program: Compiled,
     text: String,
@@ -981,14 +981,14 @@ let search(
 ): Option((Vector(Option((Int, Int, String))), (Int, Int))) =
     let units = codeUnits(text)
     let (cursorPosition, cursorOffset) = cursor
-    // Walk on to `start` from the cursor when `start` is at most 64 codepoints
-    // past it, so an enumeration, whose cursor is the last match's end, or a
-    // start near the subject's beginning never brackets the subject.
-    // Otherwise, for a `start` above 1: when position `start - 1` exists,
-    // `start`'s offset is the code-unit length of the text before it, read
-    // through Collections Part 3 §9's positions (§6.2); when it does not,
-    // `start` is past `length + 1` and there is no match to find. A `start` at
-    // or below 1 is searched from position 1.
+    -- Walk on to `start` from the cursor when `start` is at most 64 codepoints
+    -- past it, so an enumeration, whose cursor is the last match's end, or a
+    -- start near the subject's beginning never brackets the subject.
+    -- Otherwise, for a `start` above 1: when position `start - 1` exists,
+    -- `start`'s offset is the code-unit length of the text before it, read
+    -- through Collections Part 3 §9's positions (§6.2); when it does not,
+    -- `start` is past `length + 1` and there is no match to find. A `start` at
+    -- or below 1 is searched from position 1.
     let fromCursor = cursorPosition >= 1 and cursorPosition <= start and start - cursorPosition <= 64
     let located = not fromCursor and start > 1 and text[(start - 1)..(start - 1)] != ""
     let beyond = not fromCursor and not located and start > 1
@@ -1020,8 +1020,8 @@ let search(
                                     Some(slots) => Some(answerOf(program, text, slots))
                                     None => viaVm~(program, text, units, place, spans, cursor)
 
-// The search on the VM alone, every time: the route the DFA must agree with,
-// kept for the tests that check it does.
+-- The search on the VM alone, every time: the route the DFA must agree with,
+-- kept for the tests that check it does.
 let searchByVm(
     program: Compiled,
     text: String,

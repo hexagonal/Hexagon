@@ -671,13 +671,13 @@ describe("the diagnostics family (§12.6)", () => {
 
   test("a doc comment on the block head documents nothing", () => {
     expect(
-      projectDiagnostics("module Main\n\n" + "(** The pair. *)\n" +
+      projectDiagnostics("module Main\n\n" + "{-- The pair. -}\n" +
           "fun\n" +
           "    up(n: Int): Int = n\n",
       ),
     ).toContain(
       "documentation attaches to a `fun` block's members, not to the block — move it " +
-        "above the member it describes, or make it an ordinary comment (`(* ... *)`)",
+        "above the member it describes, or make it an ordinary comment (`{- ... -}`)",
     );
   });
 
@@ -686,9 +686,9 @@ describe("the diagnostics family (§12.6)", () => {
     // exactly as through a declaration's — and it reaches both emitted seats.
     const module = compiled(
       "fun\n" +
-        "    (** Doubles. *)\n" +
+        "    {-- Doubles. -}\n" +
         "    export up(n: Int): Int = n * 2\n" +
-        "    (** Halves. *)\n" +
+        "    {-- Halves. -}\n" +
         "    export down(n: Int): Int = n + 2\n",
     );
     expect(module.javascript.text).toContain("/** Doubles. */\nfunction up(n) {");

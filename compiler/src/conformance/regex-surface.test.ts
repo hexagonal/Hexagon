@@ -21,12 +21,12 @@ let groupShown(group: Option(Regex.Group)): String = match group
     Some(g) => show(g.start) ++ "+" ++ show(g.length) ++ "'" ++ g.text ++ "'"
     None => "-"
 
-// Every pattern below compiles; a refused one would show as its fallback.
+-- Every pattern below compiles; a refused one would show as its fallback.
 let using(pattern: String, fallback: b, answer: Regex.Regex -> b): b = match Regex.parse?(pattern)
     Some(regex) => answer(regex)
     None => fallback
 
-// A pattern that arrives as data: parse's exception, caught by name.
+-- A pattern that arrives as data: parse's exception, caught by name.
 export let parseError(pattern: String): String =
     try
         "ok " ++ show(Regex.parse^(pattern))
@@ -34,7 +34,7 @@ export let parseError(pattern: String): String =
         Syntax.RegexError(message, position, _) => show(position) ++ ": " ++ message
         other => "other " ++ show(other)
 
-// A pattern the programmer wrote: compile's fault, caught by name.
+-- A pattern the programmer wrote: compile's fault, caught by name.
 export let compileFault(pattern: String): String =
     try
         "ok " ++ show(Regex.compile(pattern))
@@ -102,7 +102,7 @@ export let source(pattern: String): String = using(pattern, "refused", (regex) =
 
 export let escape(text: String): String = Regex.escape(text)
 
-// An escaped text is always a pattern, so compile vouches for it.
+-- An escaped text is always a pattern, so compile vouches for it.
 export let escapedFinds(text: String, subject: String): String =
     let regex = Regex.compile(Regex.escape(text))
     var starts: Vector(String) = []
@@ -113,7 +113,7 @@ export let escapedFinds(text: String, subject: String): String =
 export let reconstructs(pattern: String, text: String, separator: String): Bool =
     using(pattern, False, (regex) => String.join(Iterable.toSeq(regex.split(text)), separator) == text)
 
-// A literal pattern, and the same pattern built at run time (§8).
+-- A literal pattern, and the same pattern built at run time (§8).
 export let literal(): Regex.Regex = Regex.compile("a+b")
 export let parsedLiteral(): Regex.Regex = assume Regex.parse^("a+b")
 export let readLiteral(): Option(Regex.Regex) = Regex.parse?("c+d")
@@ -132,11 +132,11 @@ export let refusedParsedLiteral(): String =
 
 exception Boom(text: String)
 
-// A callback that fails on the letter b: the call propagates its failure.
+-- A callback that fails on the letter b: the call propagates its failure.
 export let failing(text: String): String =
     Regex.compile("[a-z]").replaceWith^(text, (m) => if m.text() == "b" then throw^(Boom(m.text())) else m.text())
 
-// The callback sees each replaced match, in order: each replacement names its match.
+-- The callback sees each replaced match, in order: each replacement names its match.
 export let calls(pattern: String, text: String): String =
     using(pattern, "refused", (regex) => regex.replaceWith(text, (m) => "<" ++ show(m.start()) ++ m.text() ++ ">"))
 `;
