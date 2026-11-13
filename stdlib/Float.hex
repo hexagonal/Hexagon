@@ -9,9 +9,11 @@ module Float
 // because the range that fails is `Float`'s, stated once where every such door
 // can share it (the `DivideByZeroFault`-in-`Integral.hex` pattern), and because
 // the brand follows the declaring module, so this home never has to move.
-(** Raised when an exact value has no `Float` that approximates it: past
-    `Float`'s finite range, or nonzero yet small enough to erase to zero.
-    `message` names the operation that threw. *)
+(** Thrown when an exact number is turned into a `Float` and no `Float` is
+    anywhere near it: the number is too large for a `Float`, or it is so close
+    to zero that the result would be zero when the number is not.
+    `BigInt.toFloat`, `Dec.toFloat` and `Rat.toFloat` throw it. `message` says
+    which function threw. *)
 export fault FloatRangeFault(message: String)
 
 // The natives, and only the natives. An own-operation member body cannot be
@@ -50,78 +52,86 @@ extern from "hex:intrinsic"
     fun floatIsSafeInteger as nativeIsSafeInteger(value: Float) -> Bool
     fun floatToIntUnchecked as nativeToIntUnchecked(value: Float) -> Int
 
-    (** The truncated remainder of `left` divided by `right`, taking the sign of
-        `left` — this is JS's `%`, and C's `fmod`. It is exact: the true
-        remainder of two floats is always a float, so nothing rounds. It never
-        throws; a zero divisor or a non-finite operand answers `NaN`, exactly as
-        float division does. *)
+    (** What is left over when `left` is divided by `right` and the result is
+        rounded toward zero. It has the same sign as `left`:\
+        `(-7.5).rem(2.0)` is `-1.5`.\
+        It never throws: when `right` is zero, when `left` is infinite, or when
+        either of them is NaN, the result is NaN. For a result that is never
+        negative, use `mod`. *)
     export fun floatRem as rem(left: Float, right: Float) -> Float
 
 honor Eq<Float> =
-    (** Whether `left` and `right` are the same float, by SameValueZero: `NaN`
-        equals itself and `-0.0` equals `0.0`. This is deliberately not the
-        host's `===`, so that a float can key a hash table. *)
+    (** Whether `left` and `right` are the same number. NaN equals itself, and
+        `-0.0` equals `0.0`, so a `Float` can safely be a key in a `Map` or a
+        member of a `Set`. *)
     equals(left, right) = nativeEquals(left, right)
 
 honor Ord<Float> =
-    (** How `left` orders against `right`: a total order, so every float has a
-        place. `NaN` sorts last, after `+Infinity`, and `-0.0` compares equal to
-        `0.0`. *)
+    (** Which of `left` and `right` is smaller: `Less` when `left` is smaller,
+        `Greater` when `left` is larger, and `Equal` when they are the same
+        number. Every `Float` has a place in the order: NaN comes last, after
+        `Float.infinity`, and `-0.0` and `0.0` are equal. *)
     compare(left, right) = nativeCompare(left, right)
 
 honor Show<Float> =
-    (** The host's decimal form of `value`, warts and all: `4.0` shows as `4`,
-        `-0.0` as `0`, and the non-finite floats as `NaN`, `Infinity`, and
-        `-Infinity`. *)
+    (** The float as text. A whole number is shown without a decimal point, so
+        `4.0.show()` is `"4"`, and `-0.0` shows as `"0"`. The three special
+        floats show as `"NaN"`, `"Infinity"` and `"-Infinity"`. *)
     show(value) = nativeShow(value)
 
 honor Hash<Float> =
-    (** A hash of `value`, normalized to agree with `Eq` above: every `NaN`
-        hashes alike, and `-0.0` hashes as `0.0`. *)
+    (** A number worked out from the float, which `Map` and `Set` use to find a
+        key quickly. Floats that are equal have the same hash, so NaN always has
+        the same one, and `-0.0` has the same one as `0.0`. *)
     hash(value) = nativeHash(value)
 
 honor Num<Float> =
-    (** The sum of `left` and `right`, rounded to the nearest float. *)
+    (** `left` plus `right`, rounded to the closest number a `Float` can hold. A
+        `Float` keeps about 16 digits, which is why `0.1 + 0.2` is
+        `0.30000000000000004`. *)
     add(left, right) = nativeAdd(left, right)
-    (** The product of `left` and `right`, rounded to the nearest float. *)
+    (** `left` times `right`, rounded to the closest number a `Float` can
+        hold. *)
     multiply(left, right) = nativeMultiply(left, right)
-    (** The natural number `value` as a `Float`, through the two conversions
-        beneath it: every `Nat` is an `Int`, and every `Int` is a `Float`. *)
+    (** `value` as a `Float`, exactly. It never fails, because a `Float` holds
+        every `Nat` exactly. *)
     fromNat(value) = nativeFromInt(Int.fromNat(value))
 
 honor Signed<Float> =
-    (** The difference of `left` and `right`, rounded to the nearest float. *)
+    (** `left` minus `right`, rounded to the closest number a `Float` can
+        hold. *)
     subtract(left, right) = nativeSubtract(left, right)
-    (** The additive inverse of `value`. Total, and it does distinguish the
-        zeroes: negating `0.0` gives `-0.0`. *)
+    (** The float with its sign changed. Zero has a sign as well, so `0.0` gives
+        `-0.0`. *)
     negate(value) = nativeNegate(value)
-    (** The integer `value` as a `Float`. Total and exact: the range an `Int`
-        holds is exactly the range a float holds without rounding. *)
+    (** `value` as a `Float`, exactly. It never fails, because a `Float` holds
+        every `Int` exactly. *)
     fromInt(value) = nativeFromInt(value)
 
 honor Frac<Float> =
-    (** `left` divided by `right`, following IEEE 754. It never throws: a zero
-        divisor answers an infinity, or `NaN` when the dividend is zero too. *)
+    (** `left` divided by `right`, rounded to the closest number a `Float` can
+        hold, which is what `/` gives. It never throws: dividing by zero gives
+        `Float.infinity` or `-Float.infinity`, and zero divided by zero gives
+        NaN. *)
     divide(left, right) = nativeDivide(left, right)
 
-(** `value` raised to the power `exponent` — the analytic power, `exp(exponent *
-    ln value)`. Total and honestly IEEE, `NaN` edges and all: `Float.pow(2.0,
-    0.5)` is the nearest float to the square root of two, and every `Int`
-    exponent has an answer too, negative ones included, so the guard the integer
-    types carry does not exist here. The operator `**` takes an `Int` exponent;
-    this door is where a fractional one belongs. *)
+(** The float raised to the power `exponent`, which may have a fraction:\
+    `2.0.pow(0.5)` is the square root of 2, `1.4142135623730951`.\
+    The operator `**` takes only an `Int` as its exponent, so use `pow` for a
+    fractional one. It never throws: where there is no answer, as for a negative
+    float raised to the power `0.5`, the result is NaN. *)
 widens Pow.pow(value: Float, exponent: Float): Float = nativePow(value, exponent)
 
 honor Pow<Float> =
     pow = widened
 
-(** The Euclidean remainder of `left` divided by `right`: never negative,
-    whatever the signs — which is what angle wrapping, phase accumulation, and
-    hue rotation want. It never throws, answering `NaN` wherever `rem` does. One
-    honest caveat at this type: the adjustment that lifts a negative remainder
-    can round up to the magnitude of `right` itself when the remainder is tiny
-    and the divisor is large, so the bound is `0.0 <= result <= abs(right)`
-    rather than the strict one `Int.mod` keeps. *)
+(** What is left over when `left` is divided by `right`, never negative
+    whichever of them is negative:\
+    `(-10.0).mod(360.0)` is `350.0`.\
+    Use it to wrap a number around, as here, where it keeps an angle between 0
+    and 360. It never throws, and gives NaN wherever `rem` does. Because a
+    `Float` rounds, a negative `left` very close to zero can give a result equal
+    to the size of `right`, where it would otherwise always be less. *)
 export let mod(left: Float, right: Float): Float =
     // Bare, not `left.rem(right)`: `rem` is this module's own export, and a
     // prelude module cannot see itself — the dot would look for `Float`'s
@@ -133,24 +143,23 @@ export let mod(left: Float, right: Float): Float =
     else
         remainder
 
-(** Positive infinity — what every overflow saturates to, and what a positive
-    float divided by zero answers. There is no literal for it, so this is the
-    spelling: negate it for the other one, `-Float.infinity`. *)
+(** Positive infinity, a `Float` that is larger than every other. A calculation
+    whose result is too large for a `Float` gives it, and so does dividing a
+    positive float by zero. For negative infinity, write `-Float.infinity`. *)
 export let infinity: Float = 1 / 0
 
-(** The not-a-number float — the answer partial float-valued arithmetic gives
-    in place of throwing. Test for it with
-    `Float.isNan` and never with `x != x`: `Eq<Float>` is SameValueZero, so a
-    `NaN` here equals itself and the C idiom is uniformly `False`. *)
+(** NaN, short for "not a number": the `Float` that a calculation gives when it
+    has no answer, as zero divided by zero has none. To test for it, use
+    `isNan`. In Hexagon NaN equals itself, so `x == Float.nan` works as well,
+    and `x != x` is never `True`. *)
 export let nan: Float = 0 / 0
 
-(** Whether `value` is the not-a-number float. This is `value == Float.nan`,
-    which works for exactly the reason the imported `x != x` idiom does not:
-    `Eq<Float>` is SameValueZero, so `NaN` compares equal to itself. *)
+(** Whether the float is NaN, the `Float` that a calculation gives when it has
+    no answer. *)
 export let isNan(value: Float): Bool = value == nan
 
-(** Whether `value` is an ordinary float — neither infinite nor `NaN`. Both
-    zeroes and every subnormal are finite. *)
+(** Whether the float is an ordinary number: not `Float.infinity`, not
+    `-Float.infinity` and not NaN. *)
 export let isFinite(value: Float): Bool =
     value != infinity and value != -infinity and not isNan(value)
 
@@ -159,14 +168,14 @@ export let isFinite(value: Float): Bool =
 // rounds to at most 2^52 in magnitude, so no rule carries a value across the
 // safe range's edge (Primitive Types §3). `NaN` sorts above every number in
 // `Ord<Float>`, so the upper comparison refuses it.
-(** Whether every rounding of `value` is an `Int`: whether `floor`, `ceil`,
-    `trunc`, `round` and `roundAway` all succeed on it. That is exactly when
-    `value` lies within the safe range, from `-(2^53 - 1)` to `2^53 - 1`;
-    `NaN` and both infinities lie outside it. It asks about range, not
-    wholeness: `roundsToInt(2.5)` is `True`, though `2.5` is not an `Int`.
-
-    Test a value from outside the program with it before rounding:
-    `if x.roundsToInt() then Some(x.floor()) else None`. *)
+(** Whether the float can be rounded to an `Int`. `floor`, `ceil`, `trunc`,
+    `round` and `roundAway` all work when it is `True` and all throw
+    `IntRangeFault` when it is `False`. It is `True` from
+    -9,007,199,254,740,991 to 9,007,199,254,740,991, and `False` outside that
+    range and for NaN and the infinities. It asks how large the float is, not
+    whether it is whole, so `2.5.roundsToInt()` is `True`. Test a float that
+    comes from outside the program before rounding it:\
+    `if x.roundsToInt() then Some(x.floor()) else None` *)
 export let roundsToInt(value: Float): Bool =
     value >= -9_007_199_254_740_991.0 and value <= 9_007_199_254_740_991.0
 
@@ -182,33 +191,39 @@ let checkedRoundedInt(message: String, value: Float): Int =
     else
         throw(IntRangeFault(message))
 
-(** The greatest integer no greater than `value`. Throws `IntRangeFault` when
-    the result does not fit in `Int`, which is exactly when
-    `roundsToInt(value)` is `False`. *)
+(** The float rounded down to an `Int`, which is the nearest integer that is
+    not greater:\
+    `(-1.5).floor()` is `-2`.\
+    Throws `IntRangeFault` when the result is too large or too small for an
+    `Int`. To test for that first, use `roundsToInt`. *)
 export let floor(value: Float): Int =
     let truncated = nativeTrunc(value)
     let rounded = if value < truncated then truncated - 1 else truncated
     checkedRoundedInt("Float.floor: result does not fit in Int", rounded)
 
-(** The least integer no less than `value`. Throws `IntRangeFault` when the
-    result does not fit in `Int`, which is exactly when `roundsToInt(value)`
-    is `False`. *)
+(** The float rounded up to an `Int`, which is the nearest integer that is not
+    smaller:\
+    `(-1.5).ceil()` is `-1`.\
+    Throws `IntRangeFault` when the result is too large or too small for an
+    `Int`. To test for that first, use `roundsToInt`. *)
 export let ceil(value: Float): Int =
     let truncated = nativeTrunc(value)
     let rounded = if value > truncated then truncated + 1 else truncated
     checkedRoundedInt("Float.ceil: result does not fit in Int", rounded)
 
-(** `value` rounded toward zero. Throws `IntRangeFault` when the result does
-    not fit in `Int`, which is exactly when `roundsToInt(value)` is `False`. *)
+(** The float as an `Int` with its fraction dropped, which rounds toward zero:\
+    `(-1.7).trunc()` is `-1`.\
+    Throws `IntRangeFault` when the result is too large or too small for an
+    `Int`. To test for that first, use `roundsToInt`. *)
 export let trunc(value: Float): Int =
     checkedRoundedInt("Float.trunc: result does not fit in Int", nativeTrunc(value))
 
-(** The nearest integer to `value`, with exact halfway values rounded to the
-    even integer: `round(2.5) == 2`, `round(3.5) == 4`, and
-    `round(-2.5) == -2`. Only exact halfway values distinguish this from
-    `roundAway`. This tie rule intentionally differs from `Dec.round`, which
-    rounds ties away from zero. Throws `IntRangeFault` when the result does not
-    fit in `Int`, which is exactly when `roundsToInt(value)` is `False`. *)
+(** The nearest `Int` to the float. A float exactly halfway between two
+    integers goes to the even one:\
+    `2.5.round()` is `2`, and `3.5.round()` is `4`.\
+    To send a half away from zero, as `Dec.round` does, use `roundAway`. Throws
+    `IntRangeFault` when the result is too large or too small for an `Int`. To
+    test for that first, use `roundsToInt`. *)
 export let round(value: Float): Int =
     let truncated = nativeTrunc(value)
     let fraction = value - truncated
@@ -225,12 +240,13 @@ export let round(value: Float): Int =
             truncated
     checkedRoundedInt("Float.round: result does not fit in Int", rounded)
 
-(** The nearest integer to `value`, with exact halfway values rounded away
-    from zero: `roundAway(2.5) == 3` and `roundAway(-2.5) == -3`. The name
-    describes the tie rule, not a direction for every value: for example,
-    `roundAway(2.1) == 2`. Only exact halfway values distinguish this from
-    `round`. Throws `IntRangeFault` when the result does not fit in `Int`,
-    which is exactly when `roundsToInt(value)` is `False`. *)
+(** The nearest `Int` to the float. A float exactly halfway between two
+    integers goes to the one further from zero:\
+    `2.5.roundAway()` is `3`, and `(-2.5).roundAway()` is `-3`.\
+    Only a half is affected: `2.1.roundAway()` is `2`. To send a half to the
+    even integer, use `round`. Throws `IntRangeFault` when the result is too
+    large or too small for an `Int`. To test for that first, use
+    `roundsToInt`. *)
 export let roundAway(value: Float): Int =
     let truncated = nativeTrunc(value)
     let fraction = value - truncated
@@ -243,6 +259,8 @@ export let roundAway(value: Float): Int =
             truncated
     checkedRoundedInt("Float.roundAway: result does not fit in Int", rounded)
 
+(** Thrown when `sign` is asked for the sign of NaN, which has none. To avoid
+    it, test with `isNan` first. `message` says what went wrong. *)
 export fault UndefinedSignFault(message: String)
 
 honor Real<Float> =
@@ -271,19 +289,20 @@ extern from "hex:intrinsic"
     fun numberParseFloat as scanText(text: String) -> Option(Float)
     fun numberFormatMessage as formatMessage(text: String, phrase: String) -> String
 
-(** `text` read as a `Float`: decimal digits, an optional `.` and fraction
-    digits, and an optional exponent (`e` or `E`, then an optional sign and
-    digits), with `_` allowed between two digits and an optional `+` or `-` in
-    front — Lexer section 5's float literal, or a bare integer, since `show`
-    writes `4.0` as `4`. `NaN`, `Infinity` and `-Infinity` are read exactly as
-    `show` writes them. There must be digits on both sides of a point, so `.5`
-    and `5.` are refused, as in source. The value is correctly rounded, and text
-    past the range rounds to `Infinity` or to zero, as the hardware does.
-    `Float.parse(show(x))` is `x` for every `x` but `NaN`, whose text reads
-    back as `NaN` too.
-
-    Throws `NumberFormatError` for any other text. Read it with `?` for an
-    `Option`, or with `assume` where the text is known to be good. *)
+(** Reads `text` as a `Float`:\
+    `Float.parse^("-2.5")` is `-2.5`.\
+    The text is written as a float is written in Hexagon code: an optional `+`
+    or `-`, digits, then optionally a point with digits after it, then
+    optionally `e` or `E` and an exponent, as in `1.5e3`. A point needs a digit
+    on each side, so `.5` and `5.` are not accepted, and `_` is allowed between
+    two digits. A whole number such as `4` is accepted as well, and so are
+    `NaN`, `Infinity` and `-Infinity`, so text made by `show` always reads back.
+    The result is the closest `Float` to the number written: one too large for a
+    `Float` reads as infinity, and one too close to zero reads as zero. Throws
+    `NumberFormatError` when `text` is not written that way. A call that may
+    throw carries a mark: `Float.parse?(text)` gives `None` in place of
+    throwing, and `assume Float.parse^(text)` is for text that is known to be
+    good. *)
 export let parse(text: String): Float = match scanText(text)
     Some(value) => value
     None => throw^(NumberFormatError(formatMessage(text, "is not a Float")))

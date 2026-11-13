@@ -1,17 +1,16 @@
 module Eq
 
-(** The polymorphic face of equality. Honoring `Eq` gives a type the `==` and
-    `!=` operators, and admits it as a component of a derived equality elsewhere.
-
-    The members below state the law an instance is reviewed against
-    (`spec/constraints.md` section 7). `Float` keeps it, `NaN` and the signed
-    zeros included. The compiler relies on no such law: operands are evaluated
-    in the rewritten form's source order, and no expression is rewritten by an
-    algebraic law. *)
+(** The constraint for types whose values can be compared with `==` and `!=`.
+    Most types get it by writing `derives (Eq)` on their declaration, which
+    compares two values part by part. A type that needs its own idea of equal
+    writes an `honor Eq<T>` block instead. *)
 export constraint Eq<a> =
-    (** Whether `left` and `right` are equal. An instance's `equals` is an
-        equivalence: reflexive, symmetric, and transitive. *)
+    (** Whether `left` and `right` are equal. This is what `==` calls. A type
+        that writes its own `equals` must keep three promises: every value
+        equals itself, `left` equals `right` whenever `right` equals `left`, and
+        two values that both equal a third equal each other. *)
     equals(left: a, right: a) -> Bool
-    (** Whether `left` and `right` differ. An instance may override this for
-        efficiency, but the override must equal the negation of `equals`. *)
+    (** Whether `left` and `right` are different. This is what `!=` calls. It is
+        already written as the opposite of `equals`, so a type rarely writes its
+        own. One that does must give the opposite of `equals` every time. *)
     notEquals(left: a, right: a) -> Bool = not equals(left, right)

@@ -125,7 +125,7 @@ describe("a §2.3-pinned type's seat is the pin's alias (§14.5)", () => {
     // somewhere else in the file would not be this declaration's.
     expect(seat[at - 1]).toBe(" */");
     expect(seat.slice(0, at).join("\n")).toContain(
-      "A lazy, immutable, possibly infinite sequence of `a`s.",
+      "A sequence of elements that are worked out one at a time",
     );
   });
 

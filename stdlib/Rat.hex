@@ -1,7 +1,10 @@
 module Rat
 
-(** An exact rational number: a canonical pair of `BigInt` top and bottom,
-    always reduced, the bottom always positive. *)
+(** An exact fraction, such as two thirds, kept as two integers: a top and a
+    bottom. Where a `Float` rounds a third to `0.3333333333333333`, a `Rat`
+    holds it exactly. A fraction is always kept in its simplest form with a
+    positive bottom, so six over four is kept as three over two, and a negative
+    fraction has its sign on the top. *)
 opaque record Rat derives (Eq, Hash) = {
     top: BigInt,
     bottom: BigInt,
@@ -11,8 +14,10 @@ opaque record Rat derives (Eq, Hash) = {
 // declaration for every type whose division is partial, rather than one per
 // honoring module (#344).
 
-(** The rational `top`/`bottom`, reduced to canonical form with any sign carried
-    by the top. Throws `DivideByZeroFault` when `bottom` is zero. *)
+(** The fraction `top` over `bottom`, in its simplest form:\
+    `Rat.create(6, 4)` is three over two, and shows as `"3/2"`.\
+    A negative `bottom` moves its sign to the top. Throws `DivideByZeroFault`
+    when `bottom` is zero. *)
 export let create(top: BigInt, bottom: BigInt): Rat =
     if bottom == 0 then
         throw(DivideByZeroFault("Rat.create: bottom is zero"))
@@ -26,27 +31,33 @@ export let create(top: BigInt, bottom: BigInt): Rat =
         else
             Rat({top = reducedTop, bottom = reducedBottom})
 
-(** The canonical numerator of `value` — reduced, and carrying the sign. *)
+(** The top of the fraction in its simplest form. The top carries the sign:\
+    `Rat.create(6, -4).top()` is `-3n`. *)
 export let top(value: Rat): BigInt = value.top
 
-(** The canonical denominator of `value` — reduced, always positive. *)
+(** The bottom of the fraction in its simplest form. It is always positive:\
+    `Rat.create(6, -4).bottom()` is `2n`. *)
 export let bottom(value: Rat): BigInt = value.bottom
 
-(** The canonical numerator and denominator of a rational. Building through
-    this pattern reduces the pair and keeps the denominator positive.
-    Rebuilding a rational from these components preserves its value. Throws
-    `DivideByZeroFault` when the bottom is zero. *)
+(** A pattern that takes a fraction apart into its top and its bottom, for an
+    arm of a `match`:\
+    `(top, bottom)rat => ...`\
+    The two are those of the simplest form, as the functions `top` and `bottom`
+    give them. Written as a value, `(6, 4)rat` makes a fraction as `Rat.create`
+    does. Throws `DivideByZeroFault` when it is given a bottom of zero. *)
 export pattern rat(top: BigInt, bottom: BigInt): Rat
     view(value) = (top(value), bottom(value))
     build = create
 
-(** The reciprocal of `value`, exactly. Throws `DivideByZeroFault` when `value`
-    is zero. *)
+(** The fraction turned upside down, so two thirds gives three over two:\
+    `Rat.create(2, 3).reciprocal()` is `Rat.create(3, 2)`.\
+    Throws `DivideByZeroFault` when the fraction is zero. *)
 export let reciprocal(value: Rat): Rat = create(value.bottom, value.top)
 
 honor Ord<Rat> =
-    (** How `left` orders against `right`, by exact cross-multiplication —
-        nothing converts to `Float`, even internally. *)
+    (** Which of `left` and `right` is smaller: `Less` when `left` is smaller,
+        `Greater` when `left` is larger, and `Equal` when they are the same
+        number. The comparison is exact. *)
     compare(left, right) =
         let leftProduct = left.top * right.bottom
         let rightProduct = right.top * left.bottom
@@ -58,8 +69,8 @@ honor Ord<Rat> =
             Ordering.Equal
 
 honor Show<Rat> =
-    (** `value` as `top/bottom`, the `/1` included, so the representation stays
-        visible. *)
+    (** The fraction as text: its top, then `/`, then its bottom. A whole number
+        keeps its bottom, so `Rat.create(4, 2).show()` is `"2/1"`. *)
     show(value) = "${value.top}/${value.bottom}"
 
 // A whole number as a `Rat`, over one. `fromNat`, `fromInt` and `fromBigInt` all
@@ -67,38 +78,37 @@ honor Show<Rat> =
 let fromWhole(value: BigInt): Rat = create(value, 1n)
 
 honor Num<Rat> =
-    (** The sum of `left` and `right`, exactly. *)
+    (** `left` plus `right`, always exact. *)
     add(left, right) =
         create(
             left.top * right.bottom + right.top * left.bottom,
             left.bottom * right.bottom
         )
-    (** The product of `left` and `right`, exactly. *)
+    (** `left` times `right`, always exact. *)
     multiply(left, right) =
         create(left.top * right.top, left.bottom * right.bottom)
-    (** The natural number `value` as a `Rat` — `value` over `1`. Total and
-        exact. *)
+    (** `value` as a fraction, which is `value` over 1. It never fails. *)
     fromNat(value) = fromWhole(BigInt.fromNat(value))
 
 honor Signed<Rat> =
-    (** The difference of `left` and `right`, exactly. *)
+    (** `left` minus `right`, always exact. *)
     subtract(left, right) =
         create(
             left.top * right.bottom - right.top * left.bottom,
             left.bottom * right.bottom
         )
-    (** The additive inverse of `value`. *)
+    (** The fraction with its sign changed. *)
     negate(value) = Rat({top = -value.top, bottom = value.bottom})
-    (** The integer `value` as a `Rat` — `value` over `1`. Total and exact. *)
+    (** `value` as a fraction, which is `value` over 1. It never fails. *)
     fromInt(value) = fromWhole(BigInt.fromInt(value))
 
 honor FromBigInt<Rat> =
-    (** The integer `value` as a rational over one. *)
+    (** `value` as a fraction, which is `value` over 1. It never fails. *)
     fromBigInt(value) = fromWhole(value)
 
 honor Frac<Rat> =
-    (** The quotient of `left` and `right`, exactly. Throws `DivideByZeroFault`
-        when `right` is zero. *)
+    (** `left` divided by `right`, always exact, which is what `/` gives. Throws
+        `DivideByZeroFault` when `right` is zero. *)
     divide(left, right) =
         if right.top == 0 then
             throw(DivideByZeroFault("Rat.divide: divisor is zero"))
@@ -109,10 +119,12 @@ honor Frac<Rat> =
 // so the only partiality left is the zero base a negative exponent inverts, and
 // that one belongs to `create`.
 honor Pow<Rat> =
-    (** `value` raised to the power `exponent`, exactly, at either sign. A
-        negative exponent inverts the base first, so `pow(2/3, -2)` is exactly
-        `9/4`; a zero base inverted that way reaches `DivideByZeroFault` through
-        `create`, minting no message of its own. *)
+    (** The fraction raised to the power `exponent`, always exact, which is
+        what `**` gives. A negative `exponent` turns the fraction upside down
+        first:\
+        `Rat.create(2, 3).pow(-2)` is `Rat.create(9, 4)`.\
+        Throws `DivideByZeroFault` when the fraction is zero and `exponent` is
+        negative. *)
     pow(value, exponent) =
         // `reciprocal` routes through `create`, which is where a zero base
         // reports.
@@ -136,8 +148,10 @@ honor Real<Rat> =
         else
             Sign.Positive
 
-(** The exact numerical value of `decimal` as a reduced rational. Retained
-    decimal places are presentation and do not survive this conversion. *)
+(** `decimal` as a fraction, exactly:\
+    `Rat.fromDec(1.50d)` is `Rat.create(3, 2)`.\
+    A fraction has no decimal places, so the number of places `decimal` had is
+    not kept. *)
 export let fromDec(decimal: Dec): Rat =
     if decimal.unscaled() == 0 then
         create(0n, 1n)
@@ -158,11 +172,18 @@ let roundedDecimal(value: Rat, requested: Int, even: Bool, operation: String): D
         else
             Dec.divide(dividend, divisor, requested)
 
-(** `value` rounded once to exactly `places`, ties away from zero. *)
+(** The fraction as a decimal with `places` digits after the point, rounded to
+    the nearest, with a half rounded away from zero:\
+    `Rat.create(1, 3).toDec(4)` is `0.3333d`.\
+    To round a half to the even digit, use `toDecEven`. Throws
+    `NegativeDecimalPlacesFault` when `places` is negative. *)
 export let toDec(value: Rat, places: Int): Dec =
     roundedDecimal(value, places, False, "Rat.toDec")
 
-(** `value` rounded once to exactly `places`, ties to even. *)
+(** The fraction as a decimal with `places` digits after the point, rounded to
+    the nearest, with a half rounded so that its last digit is even:\
+    `Rat.create(1, 8).toDecEven(2)` is `0.12d`, where `toDec` gives `0.13d`.\
+    Throws `NegativeDecimalPlacesFault` when `places` is negative. *)
 export let toDecEven(value: Rat, places: Int): Dec =
     roundedDecimal(value, places, True, "Rat.toDecEven")
 
@@ -253,10 +274,10 @@ let assemble(significand: BigInt, scale: Int): Float =
         let half = magnitude.quot(2)
         value * powerOfTwo(half) * powerOfTwo(magnitude - half)
 
-(** `value` as the nearest `Float` — correctly rounded, ties to even, and
-    rounded exactly once. Throws `FloatRangeFault` when the honest answer would
-    not be an approximation at all: past `Float`'s finite range, or a nonzero
-    rational that would erase to zero. *)
+(** The fraction as a `Float`, the closest one to it:\
+    `Rat.create(1, 3).toFloat()` is `0.3333333333333333`.\
+    Throws `FloatRangeFault` when the fraction is too large for a `Float`, or is
+    not zero but too close to zero for one. *)
 export let toFloat(value: Rat): Float =
     if value.top == 0 then
         0.0
@@ -320,15 +341,15 @@ let notRat(text: String): Exn = NumberFormatError(quoted(text) ++ " is not a Rat
 let unsignedPart(part: String): Option(BigInt) =
     if part.startsWith("+") or part.startsWith("-") then None else BigInt.parse?(part)
 
-(** `text` read as a `Rat`: a top and a bottom, `top/bottom`, as `show` writes
-    them, or an integer alone, which is that integer over one. Each part is an
-    integer literal as `BigInt.parse` reads one; the sign, if any, is the
-    top's, and the bottom is not zero. The value is reduced, so `"6/4"` reads as
-    `3/2`, and `Rat.parse(show(r))` is `r` for every `r`.
-
-    Throws `NumberFormatError` for any other text, a zero bottom included. Read
-    it with `?` for an `Option`, or with `assume` where the text is known to be
-    good. *)
+(** Reads `text` as a fraction:\
+    `Rat.parse^("6/4")` is `Rat.create(3, 2)`.\
+    The text is a top and a bottom with `/` between them, as `show` writes them,
+    or an integer alone, which reads as that integer over 1. Each part is
+    written as `BigInt.parse` reads an integer. Only the top may have a sign,
+    and the bottom may not be zero. Throws `NumberFormatError` when `text` is
+    not written that way. A call that may throw carries a mark:
+    `Rat.parse?(text)` gives `None` in place of throwing, and
+    `assume Rat.parse^(text)` is for text that is known to be good. *)
 export let parse(text: String): Rat = match text.split("/")
     [whole] => match BigInt.parse?(whole)
         Some(value) => create(value, 1n)
