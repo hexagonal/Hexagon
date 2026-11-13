@@ -76,7 +76,7 @@ Comments are **whitespace to the layout pass**. Precisely:
 |---|---|
 | EOF inside block comment | "unterminated block comment; opened at line L, column C" — L,C of the **innermost** unclosed `{-`; if depth > 1, append " (nested N levels deep; each `{-` needs its own `-}`)". |
 | `-}` at depth zero | "unmatched `-}` — no open block comment" |
-| `{-` apparently intended to *end* at a `-}` that instead closed an inner comment (heuristic: unterminated-comment error where the comment body itself contains balanced `{- -}` pairs) | append hint: "block comments nest in Hexagon; a `{-` inside a comment must be matched before the comment ends" Optional but recommended — commented-out code containing `{-` is the standing hazard this row addresses. |
+| `{-` apparently intended to *end* at a `-}` that instead closed an inner comment (heuristic: unterminated-comment error where the comment body itself contains balanced `{- -}` pairs) | append hint: "block comments nest in Hexagon; a `{-` inside a comment must be matched before the comment ends". Optional but recommended — commented-out code containing `{-` is the standing hazard this row addresses. |
 | `//` where a token may begin (§3.1), and any longer run of `/` | "JavaScript line comment syntax — Hexagon line comments are `-- ...`" |
 | `/*` where a token may begin (§3.1) — including `/**` | "JavaScript block comment syntax — Hexagon block comments are `{- ... -}`"; when the opener is `/**`, append " (documentation form: `{-- ... -}`)". |
 | Stray `*/` where a token may begin (§3.1) | "`*/` is JavaScript's block comment closer — Hexagon spells it `-}`; no block comment is open here" |
