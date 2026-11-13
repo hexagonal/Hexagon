@@ -1,6 +1,6 @@
 # Hexagon Spec: Lexer & Layout
 
-**Status:** Decided (July 2026); compiler pass implemented. This document owns layout, blocks, `;`, and
+**Status:** Decided (July 2026); compiler pass implemented. Revised 2026-11-13 (#1538): §1 and §4 say that `{-` opens a comment, not a brace. This document owns layout, blocks, `;`, and
 brace disambiguation. The companion [Physical Lexer](lexer.md) specification owns
 the complete physical token and keyword inventory, source coordinates, literals,
 whitespace, comments-as-trivia, and lexical diagnostics.
@@ -16,7 +16,7 @@ Hexagon's layout pass inserts virtual tokens — internally **VOPEN**, **VSEP**,
 Consequences:
 
 - **Indentation is the only block form.** The body of a lambda, an `if`/`then`/`else` branch, or any construct taking a block is either a single expression on the same line, or an indented block on following lines. An **expression block's** value is its final expression, and its final item must be an expression — a block-final binding is a compile error (Statements §3.1); a member block has no value (§2.1's kinds). Canonical Hexagon style uses four spaces for each indentation level; the layout grammar accepts any consistent deeper column.
-- **`{` in source always begins a record** (type or literal), in every position. The parser has one rule, no context-dependence.
+- **A `{` token always begins a record** (type or literal), in every position. The parser has one rule, no context-dependence. `{` followed directly by `-` is not a `{` token: the lexer reads it as a block comment's opener (Comments §3), which costs no record, since after `{` a record begins with a field name, `...` or `}`, and an update with its head, a name or a dotted path (Products §3.1, §3.3).
 - **`{}` is the empty record**, never an empty block.
 
 ## 2. Layout algorithm (shape, for the implementer)
@@ -253,7 +253,7 @@ None. Block structure is explicit in the AST before codegen; emitted JS uses ord
 
 ## 4. Brace disambiguation: there is none (by design)
 
-Because block delimiters are unspellable, the parser needs **no** brace disambiguation logic. Every `{` is a record. The cost is paid instead in diagnostics for JS muscle memory (§5), which is the right place to pay it: one good error message versus permanent grammar ambiguity.
+Because block delimiters are unspellable, the parser needs **no** brace disambiguation logic. Every `{` token is a record. The one lexical neighbour, `{-`, is decided by its two characters before any token reaches the parser: it opens a comment, and `{ -`, with a space, is a brace followed by a minus. The cost is paid instead in diagnostics for JS muscle memory (§5), which is the right place to pay it: one good error message versus permanent grammar ambiguity.
 
 ## 5. Required diagnostics
 
@@ -275,6 +275,7 @@ These are binding on the implementation, same status as the Functions spec's dia
 |---|---|
 | Block delimiters virtual and unspellable (VOPEN/VSEP/VCLOSE); indentation is the only block form | §1–2 |
 | Braces always records; `{}` = empty record; no parser disambiguation | §1, §4; Products spec §3.1 |
+| *(#1538)* `{-` opens a comment, not a brace, and costs no record | §1, §4; Comments §3 |
 | `;` real token, ≡ VSEP; "compressed newline" principle | §3 |
 | `;` never opens a block | §3.1 |
 | Separator not terminator: no leading/trailing/doubled `;`; illegal inside brackets; top level is a block | §3.2 |

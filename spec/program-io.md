@@ -48,22 +48,22 @@ export union FileErrorReason =
 
 export exception FileError(reason: FileErrorReason, path: String, message: String)
 
-export let readText(path: String): String                  // ->!
-export let readTextLossy(path: String): String             // ->!
-export let writeText(path: String, text: String): Unit     // ->!
-export let writeTextBom(path: String, text: String): Unit  // ->!
+export let readText(path: String): String                  -- ->!
+export let readTextLossy(path: String): String             -- ->!
+export let writeText(path: String, text: String): Unit     -- ->!
+export let writeTextBom(path: String, text: String): Unit  -- ->!
 ```
 
 ```hexagon
 module Stdio
 
-export let write(text: String): Unit           // ->~
-export let writeLine(text: String): Unit       // ->~
-export let writeError(text: String): Unit      // ->~
-export let writeErrorLine(text: String): Unit  // ->~
+export let write(text: String): Unit           -- ->~
+export let writeLine(text: String): Unit       -- ->~
+export let writeError(text: String): Unit      -- ->~
+export let writeErrorLine(text: String): Unit  -- ->~
 
-export let readText(): String                  // ->~
-export let readTextLossy(): String             // ->~
+export let readText(): String                  -- ->~
+export let readTextLossy(): String             -- ->~
 ```
 
 ```hexagon
@@ -71,8 +71,8 @@ module Process
 
 export fault ExitStatusFault(status: Int)
 
-export let arguments(): Vector(String)          // ->~
-export let setExitStatus(status: Int): Unit     // ->~
+export let arguments(): Vector(String)          -- ->~
+export let setExitStatus(status: Int): Unit     -- ->~
 ```
 
 The colours in the comments are the inferred ones; each body's foreign calls carry them. A typical program:
@@ -275,7 +275,7 @@ So the six writers write only well-formed UTF-8, and text they can't encode writ
 
 ## 9. Implementation requirements
 
-- **The three modules,** with a `(** *)` doc on every export, purpose first. Each export's body carries its colour; the `node:fs` and `node:process` bindings are private.
+- **The three modules,** with a `{-- -}` doc on every export, purpose first. Each export's body carries its colour; the `node:fs` and `node:process` bindings are private.
 - **`FileError`'s reason** comes from the thrown error's `code`, through one guarded read beside the one `JsError.message` makes.
 - **The strict read** decodes with `TextDecoder("utf-8", { fatal: true })`, which drops exactly one leading BOM. The lossy read decodes without `fatal`.
 - **The `Stdio` writer** writes with `writeSync`, carries on after a partial write, waits and retries on `EAGAIN`, and ends the program on any other error as §4.3 says. It catches every throw, which keeps `->~` true.
@@ -311,7 +311,7 @@ So the six writers write only well-formed UTF-8, and text they can't encode writ
 
 - **The arrows.** The string pair are value functions of a `String`, so they are `->`. The decoders are `->!`: a text longer than the host's longest string throws `ERR_STRING_TOO_LONG` from either, which `File` refuses as `Other(code)`, as it does a read's failure (§3.4), and on which `Stdio` ends the program (§4.5). The rest are `->~`: the encoder fills an array the next call may overwrite, and `stdioBuffer` answers whichever array the last call filled; `stdioReserve` may replace the reader's array, and `stdioInput` answers a view of whichever array is current; the pause waits; and the `.code` read is not among FFI Part 11 §7's kept reads. Every caller is impure already, so `->~` costs nothing.
 - **The encoder keeps one array for short text,** made at the first short write, and gives larger text an array of its own. Measured on Node 24.18.0 over 200,000 short lines, encoding each line into a fresh array took more than twice as long as handing Node the string to encode (`writeFileSync(descriptor, text, "utf8")`), and the kept array takes about a fifth longer than that.
-- **`toWellFormed` is the door row itself,** exported from `String` with its `(** *)` doc, since a wrapper whose body is exactly the door call collapses to its declaration (intrinsics §3.2).
+- **`toWellFormed` is the door row itself,** exported from `String` with its `{-- -}` doc, since a wrapper whose body is exactly the door call collapses to its declaration (intrinsics §3.2).
 - **`stringIsWellFormed` and the three decoding keys are declared twice,** in `File` and in `Stdio`, and each key's two rows bind one lowering (intrinsics §3.3), as `Regex.Syntax` and `String` both declare `stringCodepointUnchecked`.
 - **`stdioPause` makes its waiting cell at its first call,** not when the module loads, so the module loads in a browser that has no `SharedArrayBuffer`, as the playground's may not. The playground's stand-ins never meet `EAGAIN`.
 - **The lowerings write `TextDecoder`, `TextEncoder`, `Atomics`, `Int32Array`, `SharedArrayBuffer` and `Uint8Array`,** which join the runtime vocabulary (FFI Part 7 §1.2).

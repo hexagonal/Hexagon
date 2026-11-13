@@ -16,9 +16,9 @@ Every ML in Hexagon's ancestry has felt the desire behind this sentence and stop
 The doctrine's diagnostic specimen is the program that has trapped C learners for fifty years:
 
 ```hexagon
-let toCelsius(f: Int): Float = (f - 32) * 5 / 9   // real division, correct for every input
-let exact(f: Int): Rat = (f - 32) * 5 / 9         // the same expression, exact
-let broken(f: Int) = (f - 32) * 5 / 9             // compile error: no algebra was named
+let toCelsius(f: Int): Float = (f - 32) * 5 / 9   -- real division, correct for every input
+let exact(f: Int): Rat = (f - 32) * 5 / 9         -- the same expression, exact
+let broken(f: Int) = (f - 32) * 5 / 9             -- compile error: no algebra was named
 ```
 
 Correct, exact, or refused. Never a silent `0`.

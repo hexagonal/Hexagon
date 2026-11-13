@@ -81,7 +81,7 @@ let cheap = Function.memoize(expensive)
 ### 2.1 `identity`
 
 ```hexagon
-(** Returns `value` unchanged. *)
+{-- Returns `value` unchanged. -}
 export let identity(value: a): a = value
 ```
 

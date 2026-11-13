@@ -368,21 +368,21 @@ let n: Int = 3
 let m: Nat = 2
 let price: Dec = 2.50d
 
-n * 1.5 * price                       // Dec: the tree's values are n, 1.5, and price
-(n + 0.5) * price                     // Dec
-(if c then n else 0.5) * price        // Dec: both branches are parts
-price < n * 1.5                       // a Dec comparison: <'s operands are siblings
-[m, n, price]                         // Vector(Dec), in any element order
-let fees: Vector(Dec) = [n, 0.5]      // Dec: the written element type is the home
-let due: Option(Dec) = Some(n * 1.5)  // Dec: the face reaches a constructor's argument
-let fee: Dec = if c then n else 0.5   // Dec: the seat's type is the home
-n * 1.5                               // Float: nothing in the tree is exact
-let y = n * 1.5                       // y : Float, for good — the binding ends the tree
-y * price                             // refused: y is an established Float (tenet 7)
-id(n * 1.5) * price                   // refused: id's result is a value, already Float
-let w: Option(Dec) = wrap(n)          // refused: no face travels through wrap's result
-(n * 1.5).multiply(price)             // refused: the receiver closed at Float before the dot
-price.multiply(n * 1.5)               // Dec: the argument is the receiver's sibling
+n * 1.5 * price                       -- Dec: the tree's values are n, 1.5, and price
+(n + 0.5) * price                     -- Dec
+(if c then n else 0.5) * price        -- Dec: both branches are parts
+price < n * 1.5                       -- a Dec comparison: <'s operands are siblings
+[m, n, price]                         -- Vector(Dec), in any element order
+let fees: Vector(Dec) = [n, 0.5]      -- Dec: the written element type is the home
+let due: Option(Dec) = Some(n * 1.5)  -- Dec: the face reaches a constructor's argument
+let fee: Dec = if c then n else 0.5   -- Dec: the seat's type is the home
+n * 1.5                               -- Float: nothing in the tree is exact
+let y = n * 1.5                       -- y : Float, for good — the binding ends the tree
+y * price                             -- refused: y is an established Float (tenet 7)
+id(n * 1.5) * price                   -- refused: id's result is a value, already Float
+let w: Option(Dec) = wrap(n)          -- refused: no face travels through wrap's result
+(n * 1.5).multiply(price)             -- refused: the receiver closed at Float before the dot
+price.multiply(n * 1.5)               -- Dec: the argument is the receiver's sibling
 ```
 
 The reason is the order it removes. Typed from the inside out, an operation settles its
@@ -575,13 +575,13 @@ is always exact, but which *algebra an operation runs in* decides what the value
 the lift decides it for the written face.
 
 ```hexagon
-let r: Rat = count + count    // Rat addition of two injected Ints — exact at any magnitude
-let r: Rat = 1 + 2            // Rat addition already — literals are polymorphic, nothing to lift
-let x: Int = n - m            // n, m : Nat — both widen; Signed<Int> subtraction, possibly negative
-let mean: Float = sum / size  // sum, size : Int — Frac<Float> division; Int has no Frac and needs none here
-let s = count + count         // no written face: Int addition, as ever
-let whole: BigInt = count.add(count)    // the same lift, spelled by the dot — BigInt addition
-let next: BigInt = count |> Num.add(1)  // and as a pipe stage — never Int addition injected after
+let r: Rat = count + count    -- Rat addition of two injected Ints — exact at any magnitude
+let r: Rat = 1 + 2            -- Rat addition already — literals are polymorphic, nothing to lift
+let x: Int = n - m            -- n, m : Nat — both widen; Signed<Int> subtraction, possibly negative
+let mean: Float = sum / size  -- sum, size : Int — Frac<Float> division; Int has no Frac and needs none here
+let s = count + count         -- no written face: Int addition, as ever
+let whole: BigInt = count.add(count)    -- the same lift, spelled by the dot — BigInt addition
+let next: BigInt = count |> Num.add(1)  -- and as a pipe stage — never Int addition injected after
 ```
 
 A **companion**-qualified spelling of a member (`Float.multiply`, `Int.multiply`) is not a
@@ -622,19 +622,19 @@ at carry the instance, so under a `Float`, `Rat`, or `Dec` face the operation ru
 operands' home and the finished value injects, as at any gate. Consequences:
 
 ```hexagon
-count + count       // Int; no written face, exact match, no widening
-count * cost        // Float when cost : Float — the operand establishes the target
-plus(count, 1.5)    // Float; selects the Float instantiation of plus
-let value: Rat = count        // value widening at the annotation — exact for any Int
+count + count       -- Int; no written face, exact match, no widening
+count * cost        -- Float when cost : Float — the operand establishes the target
+plus(count, 1.5)    -- Float; selects the Float instantiation of plus
+let value: Rat = count        -- value widening at the annotation — exact for any Int
 
 let scale<a: Signed>(count: Int, value: a): a = count * value
-// generic body: num.multiply(fromInt(count), value), using one Signed<a> dictionary
+-- generic body: num.multiply(fromInt(count), value), using one Signed<a> dictionary
 
 let repeat<a: Num>(count: Nat, value: a): a = count * value
-// generic body: multiply(fromNat(count), value), using Num<a> evidence
+-- generic body: multiply(fromNat(count), value), using Num<a> evidence
 
 let addCount = (count: Int, value) => count + value
-// inferred (Int, Int) -> Int; widening does not manufacture Num<a>
+-- inferred (Int, Int) -> Int; widening does not manufacture Num<a>
 ```
 
 The source must be exactly `Nat`, `Int`, or `BigInt`, and the matching rule above is fixed. In

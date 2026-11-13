@@ -170,10 +170,10 @@ Pattern Matching §7's usefulness matrix treats a total view as a **one-construc
 - **Matching** hoists the view before the arm tests, once per pattern per position (§5), and destructures its result as a tuple's array (Products §2.6) — at arity one, the value itself:
 
   ```
-  match r                                   //  const [n, d] = __patt_rat.view(r);
-      (0, _)rat => Zero                     //  if (n === 0n) return Zero;
-      (n, 1)rat => Integer(n)               //  if (d === 1n) return Integer(n);
-      (n, d)rat => Fraction(n, d)           //  return Fraction(n, d);
+  match r                                   --  const [n, d] = __patt_rat.view(r);
+      (0, _)rat => Zero                     --  if (n === 0n) return Zero;
+      (n, 1)rat => Integer(n)               --  if (d === 1n) return Integer(n);
+      (n, d)rat => Fraction(n, d)           --  return Fraction(n, d);
   ```
 
   Binder names follow Pattern Matching's emission as for tuples; the illustration names the array slots for legibility only.
@@ -560,10 +560,10 @@ effect of its `build` at the call's instantiation, exactly as an ordinary call
 does (Effects §3). The mark is attached to the end of the pattern name:
 
 ```hexagon
-(x)name     // a build that is pure and cannot fail
-(x)name^    // a build that may fail
-(x)name~    // a build that is impure, and cannot fail
-(x)name!    // a build that is impure, and may fail
+(x)name     -- a build that is pure and cannot fail
+(x)name^    -- a build that may fail
+(x)name~    -- a build that is impure, and cannot fail
+(x)name!    -- a build that is impure, and may fail
 ```
 
 Each form corresponds to the same mark on `build(x)`, and a reading,
@@ -594,8 +594,8 @@ following call on its result is bare. To mark the call on the result, group the
 constructed value, as with other compound callees:
 
 ```hexagon
-((x)factory)!(y)     // pure construction, effectful call on the result
-((x)factory!)!(y)   // both the construction and the call on the result is impure
+((x)factory)!(y)     -- pure construction, effectful call on the result
+((x)factory!)!(y)   -- both the construction and the call on the result is impure
 ```
 
 Each mark is checked against its own call. Argument evaluation is still once,

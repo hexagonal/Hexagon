@@ -1,6 +1,6 @@
 # Hexagon Spec — Operators, Logic & Precedence
 
-**Status:** Decided (v1), except items explicitly marked deferred.
+**Status:** Decided (v1), except items explicitly marked deferred. Amended 2026-11-13 (#1538): §6.2 says that two minus signs are written apart.
 **Scope:** The complete v1 operator inventory; the precedence and associativity table; word-based logical operators (`not`, `and`, `or`, `implies`, `iff`) and their desugarings; comparison operators, chaining, and the single-evaluation rule; arithmetic operators including `**`; the concatenation operator `++`; the pipe operator `|>`; the `if … then … else` expression (mandatory `then`; `else` omissible as `Unit` sugar, §11.2); the grammatical placement of `..`, `:=`, `=>`, `[]`, `.`, and call syntax.
 **Not in scope:** Semantics of indexing/slicing (`xs[i]`, `xs[lo..hi]`) beyond precedence — owed to the collections/indexing spec. Semantics of `Range` construction — Loops, Ranges & Iteration spec is authoritative; this spec only fixes `..`'s precedence. `match` — pattern-matching spec; referenced here only as a member of the eats-to-the-right family. Constraint mechanics (dictionary passing, coherence) — Constraints spec.
 **Companions:** Constraints (operator→member elaboration targets, prelude constraint listing), Primitive Types (per-type instance inventories, `Ord String`), Numeric Literals (literal elaboration under operators), Loops/Ranges/Iteration (`..` semantics, `while`/`for` condition grammar by reference), Statements/Blocks/Mutability (`:=` semantics, discard rule), Exceptions (edit note §14.2), Functions (`=>`, header sugar).
@@ -254,6 +254,7 @@ Level 4, elaborates to `negate`. Interactions, all decided:
 - `**` binds tighter on its left: `-2 ** 2` is `-(2 ** 2)` = `-4` — the mathematical reading of −2². JS refuses to parse this (`SyntaxError`, demanding parens); Hexagon follows math, not JS, per §1.3. **Emission must therefore parenthesize:** `-(2 ** 2)`, which is legal JS.
 - The *right* operand of `**` may begin with unary minus: `2 ** -3` is `2 ** (-3)` (Python's rule; the right operand of a right-associative level-3 operator parses at a level that admits prefixes).
 - Adjacent to a numeric literal, `-42` is still negation applied to the literal `42` — there are no negative literals; `negate(fromNat(42))` folds at compile time for the monomorphic cases, emitting `-42`.
+- **Two minus signs are written apart.** `--` begins a comment (Comments §2), so a negation of a negation, or a subtraction of a negative, puts a space or a parenthesis between the signs: `- -x` or `-(-x)`, and `x - -1`. Written together, `x --1` is `x` followed by a comment.
 
 ### 6.3 `**` — exponentiation and the `Pow` constraint
 
