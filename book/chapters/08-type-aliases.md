@@ -42,7 +42,7 @@ type UserId = Int
 type OrderId = Int
 
 let userId: UserId = 42
-let orderId: OrderId = userId // allowed: both are Int
+let orderId: OrderId = userId -- allowed: both are Int
 ```
 
 If accidentally mixing `UserId` and `OrderId` must be rejected, an alias is the wrong
@@ -76,7 +76,7 @@ explicit.
 Every declared alias parameter must appear in its body:
 
 ```hexagon
-type Broken(a) = String // error: a is unused
+type Broken(a) = String -- error: a is unused
 ```
 
 An unused parameter suggests that the declaration says it varies when its actual shape
@@ -88,10 +88,10 @@ An alias must eventually expand to an existing non-alias type shape. It cannot d
 itself directly or through a cycle:
 
 ```hexagon
-type Loop = Loop // error
+type Loop = Loop -- error
 
 type Left = Right
-type Right = Left // error
+type Right = Left -- error
 ```
 
 Blindly expanding either example would never reach a type. Recursive data instead needs

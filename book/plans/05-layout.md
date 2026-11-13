@@ -35,8 +35,8 @@ block comments without disturbing layout.
 - `shippingLabel` returns as the nested-layout example.
 - `dishes |> rinse |> wash |> dry` appears in a nested function body as a continuity
   callback, not as a new pipe lesson.
-- A nested `(* outer (* inner *) outer *)` comment shows both differences from JS at
-  once: the ML spelling and the nesting (#171).
+- A nested `{- outer {- inner -} outer -}` comment shows both differences from JS at
+  once: the dash spelling and the nesting (#1538).
 
 ## Audit notes
 
@@ -44,6 +44,10 @@ block comments without disturbing layout.
 - `;` is a separator, never a terminator; no leading, trailing, or doubled form.
 - `;` never opens a lambda body.
 - `{}` is the empty record, never an empty block.
-- `(** *)` is the documentation comment (#191): leading-only, attaches to the
-  next declaration, flows to JSDoc; misplaced docs are errors; `(***…` banners
-  stay ordinary. `///` is nothing special — just a `//` comment.
+- `{-- -}` is the documentation comment (#191, respelled #1538): leading-only,
+  attaches to the next declaration, flows to JSDoc; misplaced docs are errors;
+  `{---…` banners stay ordinary. There is no line doc form.
+- `--` begins a comment wherever a token may begin; two minus signs are written
+  apart (`x - -1`).
+- `//`, `/* */`, `/** */`, `(* *)` and `(** *)` are refused with Hexagon's spelling
+  named. `{-|` is an ordinary comment: warn readers from Haskell and Elm.

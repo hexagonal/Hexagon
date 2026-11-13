@@ -171,7 +171,7 @@ compares field by field, or constructor and payload, using each part's own `same
 
 ```hexagon
 let a = ProductCode({department = 3, item = 7})
-a.same(ProductCode({department = 3, item = 7}))   // True
+a.same(ProductCode({department = 3, item = 7}))   -- True
 ```
 
 `same` is what `Function.memoize` uses to decide whether a remembered answer fits a new
@@ -230,7 +230,7 @@ record Label = {text: String}
 honor Show<Label> =
     show(label) = "«${label.text}»"
 
-record Badge derives Show = {label: Label, rank: Int}   // below `Show<Label>`: fine
+record Badge derives Show = {label: Label, rank: Int}   -- below `Show<Label>`: fine
 ```
 
 The instances of one clause see each other, so `derives (Eq, Ord)` works whichever

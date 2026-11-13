@@ -97,7 +97,7 @@ Without `...`, the annotation is exact:
 let exactGuest(reservation: {guest: String}): String =
     reservation.guest
 
-exactGuest({guest = "Mira", seats = 3}) // error: extra field seats
+exactGuest({guest = "Mira", seats = 3}) -- error: extra field seats
 ```
 
 The compiler can suggest `...` when the extra fields were probably intentional.
@@ -137,8 +137,8 @@ let confirmedReservation = {reservation with confirmed = True}
 Every overridden field must already exist and keep its field type:
 
 ```hexagon
-{reservation with seats = 4}         // same record type
-{reservation with table = "window"} // error: update cannot add a field
+{reservation with seats = 4}         -- same record type
+{reservation with table = "window"} -- error: update cannot add a field
 ```
 
 That last error is the point of the spelling. This is deliberately an update
@@ -180,8 +180,8 @@ update instead. Writing the JavaScript shape gets you a compile error pointing a
 `with`:
 
 ```hexagon
-{...reservation, seats = 4} // error: records update with `with`
-{...a, ...b}                // error: Hexagon has no record merge
+{...reservation, seats = 4} -- error: records update with `with`
+{...a, ...b}                -- error: Hexagon has no record merge
 ```
 
 The emitted JavaScript is unaffected either way. An update compiles to the same spread
@@ -318,8 +318,8 @@ record Point = {x: Float, y: Float}
 let xCoordinate(point: {x: Float, ...}): Float = point.x
 let point = Point({x = 3.0, y = 4.0})
 
-xCoordinate(point)      // error: Point is nominal
-xCoordinate({...point}) // accepted
+xCoordinate(point)      -- error: Point is nominal
+xCoordinate({...point}) -- accepted
 ```
 
 The copy `{...point}` deliberately crosses from `Point` to its structural definition,

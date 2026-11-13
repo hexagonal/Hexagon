@@ -137,7 +137,7 @@ otherwise land on one.
 Module aliases are namespaces, not values:
 
 ```hexagon
-let saved = Geo // error: modules are not values
+let saved = Geo -- error: modules are not values
 ```
 
 They cannot be passed to a function, returned, or stored in a record. Functions and
@@ -332,7 +332,7 @@ see through.
 The compiler checks the claim against the representation, at the declaration:
 
 ```hexagon
-opaque record Sink(+a) = {accept: a -> Unit}   // error
+opaque record Sink(+a) = {accept: a -> Unit}   -- error
 ```
 
 > `a` cannot be declared covariant in `Sink`: field `accept` uses `a` in argument
@@ -386,7 +386,7 @@ An exported function cannot mention a private nominal type:
 ```hexagon
 record Token = {text: String}
 
-export let parse(source: String): Token = ... // error
+export let parse(source: String): Token = ... -- error
 ```
 
 The caller could neither name nor use the result. Export `Token`, perhaps opaquely, or
@@ -400,7 +400,7 @@ as easily as in a signature:
 ```hexagon
 record Token = {text: String}
 
-export record Cursor = {at: Int, token: Token} // error, at the field
+export record Cursor = {at: Int, token: Token} -- error, at the field
 ```
 
 The compiler points at the mention itself — here the `token` field — and, here as in

@@ -132,7 +132,7 @@ Every required member must appear exactly once. A misspelling is not a new helpe
 ```hexagon
 honor Area<Rectangle> =
     arrea(rectangle) = rectangle.width * rectangle.height
-// error: Area has no member arrea; the instance is missing area
+-- error: Area has no member arrea; the instance is missing area
 ```
 
 ## Equality provides a default inequality
@@ -286,13 +286,13 @@ cannot:
 record Point = {x: Int, y: Int}
 
 let early(point: Point): String = "${point}"
-// error: `Show<Point>` is used here, and its honor is declared below it;
-//        declarations are read top-down — move the honor above this use
+-- error: `Show<Point>` is used here, and its honor is declared below it;
+--        declarations are read top-down — move the honor above this use
 
 honor Show<Point> =
     show(point) = "(${point.x}, ${point.y})"
 
-let late(point: Point): String = "${point}"   // fine
+let late(point: Point): String = "${point}"   -- fine
 ```
 
 Every way of relying on an instance counts as a use: interpolation, an operator, a

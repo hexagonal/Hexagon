@@ -196,13 +196,13 @@ Nor can an unknown type variable be constrained by a constraint that declares an
 implied type, whether the binder is written:
 
 ```hexagon
-let collect<c: Iterable>(source: c) = ... // error
+let collect<c: Iterable>(source: c) = ... -- error
 ```
 
 or inference would build it for a function left unannotated:
 
 ```hexagon
-let items(xs) = Iterable.toSeq(xs) // error: `items` leaves the type of `xs` open
+let items(xs) = Iterable.toSeq(xs) -- error: `items` leaves the type of `xs` open
 ```
 
 If `c` is still unknown, determining and carrying its `Item` would require a more
@@ -238,7 +238,7 @@ The restriction does not prevent the operations that motivated the feature:
 - `for` may use the statically known `Iterable` instance for its source.
 
 ```hexagon
-let next = bag.toSeq()               // Seq(Int), when bag: Bag(Int)
+let next = bag.toSeq()               -- Seq(Int), when bag: Bag(Int)
 let converted = convert(parser, "8080")
 ```
 
