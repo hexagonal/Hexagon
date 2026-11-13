@@ -78,21 +78,21 @@ both ends. `splitCi` uses section 5's matching rule and preserves the original
 spelling of each returned piece.
 
 ```hexagon
-"a,,b".split(",")                  // ["a", "", "b"]
-",a,".split(",")                   // ["", "a", ""]
-"".split(",")                      // [""]
-"OneENDTwoendThree".splitCi("end")  // ["One", "Two", "Three"]
-"aßb".splitCi("SS")                // ["a", "b"]
-"aßb".splitCi("s")                 // ["aßb"]
+"a,,b".split(",")                  -- ["a", "", "b"]
+",a,".split(",")                   -- ["", "a", ""]
+"".split(",")                      -- [""]
+"OneENDTwoendThree".splitCi("end")  -- ["One", "Two", "Three"]
+"aßb".splitCi("SS")                -- ["a", "b"]
+"aßb".splitCi("s")                 -- ["aßb"]
 ```
 
 An empty delimiter matches each original codepoint boundary, including the
 initial and final boundaries. Both split functions therefore behave as follows:
 
 ```hexagon
-"abc".split("")  // ["", "a", "b", "c", ""]
-"😀a".split("")  // ["", "😀", "a", ""]
-"".split("")     // ["", ""]
+"abc".split("")  -- ["", "a", "b", "c", ""]
+"😀a".split("")  -- ["", "😀", "a", ""]
+"".split("")     -- ["", ""]
 ```
 
 This follows Rust's empty-separator convention. It deliberately differs from
@@ -109,11 +109,11 @@ remain content. Terminators are removed. Interior blank lines survive, but a
 final terminator does not create an additional line; empty input gives `[]`.
 
 ```hexagon
-"a\r\nb\rc\nd".lines()  // ["a", "b", "c", "d"]
-"a\nb\n".lines()        // ["a", "b"]
-"a\n\n".lines()         // ["a", ""]
-"\n".lines()            // [""]
-"".lines()               // []
+"a\r\nb\rc\nd".lines()  -- ["a", "b", "c", "d"]
+"a\nb\n".lines()        -- ["a", "b"]
+"a\n\n".lines()         -- ["a", ""]
+"\n".lines()            -- [""]
+"".lines()               -- []
 ```
 
 ## 3. Dropping codepoints
@@ -131,11 +131,11 @@ as large as its length give `""`. Empty input stays empty. The single-codepoint
 functions delegate to their counted counterparts with `1`.
 
 ```hexagon
-"😀abc".dropFirstN(2)  // "bc"
-"abc😀".dropLastN(2)   // "ab"
-"abc".dropFirstN(0)   // "abc"
-"abc".dropLastN(-3)   // "abc"
-"abc".dropFirstN(20)  // ""
+"😀abc".dropFirstN(2)  -- "bc"
+"abc😀".dropLastN(2)   -- "ab"
+"abc".dropFirstN(0)   -- "abc"
+"abc".dropLastN(-3)   -- "abc"
+"abc".dropFirstN(20)  -- ""
 ```
 
 Slicing selects a window by positions; dropping expresses removal from an end.
@@ -177,12 +177,12 @@ original-text endpoint. Matches cannot begin or end inside a codepoint's folded
 expansion. This follows ICU's full-fold literal regex matching precedent.
 
 ```hexagon
-"Straße".containsCi("STRASSE")  // True
-"ß".containsCi("ss")           // True
-"ss".containsCi("ß")           // True
-"ß".containsCi("s")            // False
-"ß".startsWithCi("s")          // False
-"ß".endsWithCi("s")            // False
+"Straße".containsCi("STRASSE")  -- True
+"ß".containsCi("ss")           -- True
+"ss".containsCi("ß")           -- True
+"ß".containsCi("s")            -- False
+"ß".startsWithCi("s")          -- False
+"ß".endsWithCi("s")            -- False
 ```
 
 Consequently, blindly folding both complete inputs and invoking ordinary
@@ -215,12 +215,12 @@ inserts at all those boundaries; first-match replacement inserts only at the
 beginning. This follows Rust's `replace` / `replacen` behaviour.
 
 ```hexagon
-"aaa".replace("aa", "x")     // "xa"
-"a".replace("a", "aa")      // "aa"
-"😀a".replace("", "-")      // "-😀-a-"
-"".replace("", "-")         // "-"
-"ab".replaceFirst("", "-")  // "-ab"
-"ß".replaceCi("", "-")      // "-ß-"
+"aaa".replace("aa", "x")     -- "xa"
+"a".replace("a", "aa")      -- "aa"
+"😀a".replace("", "-")      -- "-😀-a-"
+"".replace("", "-")         -- "-"
+"ab".replaceFirst("", "-")  -- "-ab"
+"ß".replaceCi("", "-")      -- "-ß-"
 ```
 
 ## 7. Joining and laws
@@ -297,9 +297,9 @@ Unicode default full case folding. Results may change codepoint length. No
 normalization is implicit. Their distinct purposes are visible in:
 
 ```hexagon
-"Straße".toUpper()   // "STRASSE"
-"Straße".toLower()   // "straße"
-"Straße".caseFold()  // "strasse"
+"Straße".toUpper()   -- "STRASSE"
+"Straße".toLower()   -- "straße"
+"Straße".caseFold()  -- "strasse"
 ```
 
 ## 10. BOM handling at text input
@@ -399,7 +399,7 @@ normative. It is declared here, beside the repair, and as a prelude fault it is
 bare by category (Modules §5.5).
 
 ```hexagon
-let text = foreignText()                       // holds a lone surrogate
-File.writeText!("out.txt", text)               // LoneSurrogateFault
-File.writeText!("out.txt", text.toWellFormed()) // writes U+FFFD in its place
+let text = foreignText()                       -- holds a lone surrogate
+File.writeText!("out.txt", text)               -- LoneSurrogateFault
+File.writeText!("out.txt", text.toWellFormed()) -- writes U+FFFD in its place
 ```

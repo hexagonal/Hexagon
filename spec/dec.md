@@ -232,11 +232,11 @@ The following are Hexagon expressions, with their ordinary display in comments.
 Later tables and `text` blocks use mathematical/display notation without suffixes:
 
 ```hexagon
-1.50d + 2.005d  // 3.505
-1.50d - 1.50d   // 0.00
-1.50d * 2.00d   // 3.0000
-3 * 1.50d      // 4.50
-1.50d * 3      // 4.50
+1.50d + 2.005d  -- 3.505
+1.50d - 1.50d   -- 0.00
+1.50d * 2.00d   -- 3.0000
+3 * 1.50d      -- 4.50
+1.50d * 3      -- 4.50
 ```
 
 Coefficients multiply and decimal places **add**: powers of ten combine by
@@ -302,8 +302,8 @@ The binary value is what rounds, not the digits a programmer wrote:
 ```text
 fromFloat(0.1 + 0.2, 2) = 0.30
 fromFloat(12.34, 2)     = 12.34
-fromFloat(2.675, 2)     = 2.67   // the double nearest 2.675 lies below it
-fromFloat(0.125, 2)     = 0.13   // an exact binary tie
+fromFloat(2.675, 2)     = 2.67   -- the double nearest 2.675 lies below it
+fromFloat(0.125, 2)     = 0.13   -- an exact binary tie
 fromFloatEven(0.125, 2) = 0.12
 fromFloat(-0.0, 2)      = 0.00
 ```
@@ -452,10 +452,10 @@ object identity: separately constructed values with the same two parts are the
 same. It does not normalize, round, or change either value.
 
 ```hexagon
-2.0d == 2.00d                  // True
-2.0d.same(2.00d)               // False
-2.00d.same(Dec.create(200n, 2)) // True
-0d.same(0.00d)                 // False
+2.0d == 2.00d                  -- True
+2.0d.same(2.00d)               -- False
+2.00d.same(Dec.create(200n, 2)) -- True
+0d.same(0.00d)                 -- False
 ```
 
 It is no operator, and `equals`, `compare` and `hash` remain numerical: map and

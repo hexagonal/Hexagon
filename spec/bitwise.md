@@ -133,15 +133,15 @@ and `when`, `with`, and `as` already occupy that infix seat. `band` is an
 English word, and a local named `band` stays usable:
 
 ```hex
-let x = flags band mask      // operator: follows an operand
-let band = Band("Pixies")    // name
-play(band)                   // name
+let x = flags band mask      -- operator: follows an operand
+let band = Band("Pixies")    -- name
+play(band)                   -- name
 
 let y =
-    flags band               // operator at line end: y continues
+    flags band               -- operator at line end: y continues
         mask
 let z = flags
-band.play()                  // new item: a leading band at the item's column never continues
+band.play()                  -- new item: a leading band at the item's column never continues
 ```
 
 Because a contextual `band`, `bor`, or `bxor` can begin an expression, none of them is
