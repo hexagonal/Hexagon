@@ -16,6 +16,10 @@
  * - the result does not lex cleanly, or does not hold the same number of
  *   comments and documentation comments as the original held.
  *
+ * A file with no old spelling left is taken as converted and passed over, so a
+ * file that never had an old comment is not checked for a double minus written
+ * together (`x --1`): the check above runs only beside an old spelling.
+ *
  * Run it after `npm run build`, from `compiler/`:
  *
  *     node scripts/convert-comments.mjs [--check] [--markdown] [path...]

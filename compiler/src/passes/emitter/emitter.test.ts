@@ -1262,6 +1262,11 @@ describe("emitJavaScript", () => {
     );
     expect(unsafe.diagnostics).toEqual([]);
 
+    // An ordinary comment whose text begins with `*` is not JSDoc in the output.
+    expect(emitJavaScript(coreSource("{-* note -}\nlet x = 1")).text).toBe(
+      "/* * note */\nconst x = 1;\n",
+    );
+
     // An unterminated comment is recorded alongside its lexical error, so the
     // translation has no closer to strip and must not take one anyway.
     expect(emitJavaScript(coreSource("{- opened, never closed\nlet x = 1")).text).toBe(

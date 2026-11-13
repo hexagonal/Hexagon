@@ -134,7 +134,7 @@ span, so no pass between them can branch on documentation. Emission turns it int
 JSDoc at the seats that correspond — the emitted binding in the `.js`, the
 `export declare`, type declaration, materialized constructor, or record property in
 the `.d.ts` — escaping JavaScript's block closer and inventing no seat where none
-exists. `///` has no status of any kind and receives no handling. The attachment
+exists. A line comment is never documentation, and `///` is refused as `//` is. The attachment
 also records the *names* a reader would point at to ask what each block says —
 the one name most forms introduce, every binder of a destructuring `let`, and
 for an `honor` block the constraint in its head, the only name it writes. Those

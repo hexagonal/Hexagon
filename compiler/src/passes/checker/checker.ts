@@ -33067,7 +33067,7 @@ class Checker {
       const text = this.#sourceText?.slice(written.start.offset, written.end.offset);
       if (text === undefined || text.length === 0) return undefined;
       if (!/[\r\n]/u.test(text)) return text;
-      return /--|\{-|["'`]/u.test(text) ? undefined : text.replace(/\s*[\r\n]\s*/gu, " ");
+      return /--|\{-|\/\/|\(\*|\/\*|["'`]/u.test(text) ? undefined : text.replace(/\s*[\r\n]\s*/gu, " ");
     });
     if (
       lambda !== undefined && spellings !== undefined &&
@@ -47127,7 +47127,7 @@ function acceptance(marks: Readonly<Record<Axis, boolean>>): string {
  */
 function oneLine(text: string): string | undefined {
   if (!text.includes("\n")) return text;
-  if (text.includes("--") || text.includes("{-") || text.includes('"')) return undefined;
+  if (/--|\{-|\/\/|\(\*|\/\*|"/u.test(text)) return undefined;
   return text
     .replace(/([([{])\s*\n\s*/g, "$1")
     .replace(/\s*\n\s*([)\]},:])/g, "$1")

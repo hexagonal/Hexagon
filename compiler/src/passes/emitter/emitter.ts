@@ -14403,8 +14403,10 @@ function commentLines(comment: Source.Comment): string[] {
   // would delete the last two characters of the file.
   // A documentation comment's `{--` opener is JavaScript's `/**`, so that a doc
   // comment emitted as a comment rather than as JSDoc still reads as JSDoc does.
-  const body = (comment.documentation ? "*" : "") +
-    comment.text.slice(comment.documentation ? 3 : 2, comment.terminated ? -2 : undefined);
+  // An ordinary comment whose text begins with `*` would otherwise open with
+  // `/**` and read as JSDoc on what follows, so it takes a space first.
+  const text = comment.text.slice(comment.documentation ? 3 : 2, comment.terminated ? -2 : undefined);
+  const body = comment.documentation ? `*${text}` : text.startsWith("*") ? ` ${text}` : text;
   return body.includes("*/")
     ? split(body).map((line) => `//${line}`.trimEnd())
     : split(`/*${body}*/`);

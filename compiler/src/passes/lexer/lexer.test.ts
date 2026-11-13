@@ -591,7 +591,13 @@ describe("lex", () => {
     // message: rewriting the opener alone would only trade this error for an
     // unterminated Hexagon comment. So too where the body holds `{-` or `-}`
     // text, which would change the comment's extent once it nests.
-    for (const source of ["/* never closed", "/** doc, never closed", "/* a -} b */"]) {
+    // A rewrite is judged by what it reads as: a body character beside a new
+    // delimiter must not make another (`{*/` becomes `{-}`), and one after the
+    // opener must not change the comment's kind (`/*-` becomes `{--`).
+    for (const source of [
+      "/* never closed", "/** doc, never closed", "/* a -} b */",
+      "/* x {*/", "/**} x */", "/*- note */", "/**- item */",
+    ]) {
       const unclosed = lexSource(source);
       expect(unclosed.diagnostics, source).toHaveLength(1);
       expect(unclosed.diagnostics[0]?.fixes, source).toBeUndefined();
@@ -654,7 +660,7 @@ describe("lex", () => {
       .toEqual(["{-", "-}"]);
 
     // Unterminated, or holding text the new spelling would read, it takes no fix.
-    for (const source of ["(* never closed", "(* a {- b *)"]) {
+    for (const source of ["(* never closed", "(* a {- b *)", "(* x {*)", "(**} x *)", "(*- note *)", "(**- item *)"]) {
       const unfixed = lexSource(source);
       expect(unfixed.diagnostics, source).toHaveLength(1);
       expect(unfixed.diagnostics[0]?.fixes, source).toBeUndefined();

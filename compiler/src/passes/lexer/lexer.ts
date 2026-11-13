@@ -527,11 +527,17 @@ class Scanner {
       documentation ? " (documentation form: `{-- ... -}`)" : ""
     }`;
 
-    // Every delimiter is rewritten together, or none is: the comment must keep
-    // its extent under the new spelling. So an unterminated comment, or a body
-    // that already holds `{-` or `-}` text, takes the redirect on its message.
-    const body = this.#source.text.slice(start + 2, this.#offset - (depth === 0 ? 2 : 0));
-    if (depth > 0 || body.includes("{-") || body.includes("-}")) {
+    // Every delimiter is rewritten together, or none is, and the fix is offered
+    // only where the rewritten comment reads back as one comment of the same
+    // extent and the same kind. So an unterminated comment, or one whose body
+    // would join a new delimiter (`(* x {*)`) or change its kind (`(*- x *)`),
+    // takes the redirect on its message.
+    const edits = delimiters.map(({ offset, replacement }, index) =>
+      index === 0 && documentation
+        ? { span: opener, replacement: "{--" }
+        : { span: this.#source.span(offset, offset + 2), replacement }
+    );
+    if (depth > 0 || !this.#rewritesWhole(start, this.#offset, edits, documentation)) {
       this.#diagnostics.add({ severity: "error", message, primary: opener });
       return;
     }
@@ -540,16 +546,7 @@ class Scanner {
       severity: "error",
       message,
       primary: opener,
-      fixes: [
-        {
-          message: "use the Hexagon block comment spelling",
-          edits: delimiters.map(({ offset, replacement }, index) =>
-            index === 0 && documentation
-              ? { span: opener, replacement: "{--" }
-              : { span: this.#source.span(offset, offset + 2), replacement }
-          ),
-        },
-      ],
+      fixes: [{ message: "use the Hexagon block comment spelling", edits }],
     });
   }
 
@@ -589,8 +586,15 @@ class Scanner {
     // would leave the JavaScript closer inside an unterminated Hexagon comment.
     // With no closer to pair with, or a body whose `{-` or `-}` text would change
     // the comment's extent once it nests, the redirect stands on its message.
-    const body = this.#source.text.slice(openerEnd, closerStart ?? this.#offset);
-    if (closerStart === undefined || body.includes("{-") || body.includes("-}")) {
+    if (closerStart === undefined) {
+      this.#diagnostics.add({ severity: "error", message, primary: opener });
+      return;
+    }
+    const edits = [
+      { span: opener, replacement: documentation ? "{--" : "{-" },
+      { span: this.#source.span(closerStart, closerStart + 2), replacement: "-}" },
+    ];
+    if (!this.#rewritesWhole(start, closerStart + 2, edits, documentation)) {
       this.#diagnostics.add({ severity: "error", message, primary: opener });
       return;
     }
@@ -599,16 +603,50 @@ class Scanner {
       severity: "error",
       message,
       primary: opener,
-      fixes: [
-        {
-          message: "use the Hexagon block comment spelling",
-          edits: [
-            { span: opener, replacement: documentation ? "{--" : "{-" },
-            { span: this.#source.span(closerStart, closerStart + 2), replacement: "-}" },
-          ],
-        },
-      ],
+      fixes: [{ message: "use the Hexagon block comment spelling", edits }],
     });
+  }
+
+  /**
+   * Whether rewriting the delimiters of the refused comment at `[start, end)`
+   * gives one Hexagon block comment over exactly the rewritten text, of the
+   * same kind. The rewrite is judged by what it reads as, not by what the body
+   * holds: a body character beside a new delimiter can make another one
+   * (`{*)` becomes `{-}`), and one after the opener can change its kind
+   * (`(*- x *)` becomes `{-- x -}`).
+   */
+  #rewritesWhole(
+    start: number,
+    end: number,
+    edits: readonly { readonly span: Source.Span; readonly replacement: string }[],
+    documentation: boolean,
+  ): boolean {
+    let text = "";
+    let at = start;
+    for (const { span, replacement } of edits) {
+      text += this.#source.text.slice(at, span.start.offset) + replacement;
+      at = span.end.offset;
+    }
+    text += this.#source.text.slice(at, end);
+
+    const after = text[3];
+    const readsAsDocumentation = text.startsWith("{--") &&
+      after !== undefined && after !== "-" && after !== "}";
+    if (readsAsDocumentation !== documentation) return false;
+    let depth = 0;
+    for (let index = 0; index < text.length;) {
+      if (text.startsWith("{-", index)) {
+        depth += 1;
+        index += 2;
+      } else if (text.startsWith("-}", index)) {
+        depth -= 1;
+        index += 2;
+        if (depth === 0) return index === text.length;
+      } else {
+        index += 1;
+      }
+    }
+    return false;
   }
 
   #recordComment(
