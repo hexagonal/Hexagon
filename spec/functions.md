@@ -480,7 +480,7 @@ Because the pipe operator inserts its left operand as the **first argument** of 
 
 Inside the RHS of `let x = ...`, any reference to `x` — at any nesting depth, **including inside lambdas** — is a compile error:
 
-> `x` is not in scope in its own `let` definition; `let` is non-recursive — use `fun`.
+> `x` is not in scope in its own `let` definition; `let` is non-recursive — use `fun`
 
 **One right-hand side takes other advice.** Where the RHS is a call that resolves to `Function.memoize` or `Function.memoizeRecursive` (a pipe stage included), "use `fun`" would lead to a memo table rebuilt on every call, so the advice is the open-recursion rewrite instead (`memoization.md` §6). At `memoize`, it repeats the lambda's own parameters, as written, after a new first parameter:
 

@@ -1,7 +1,7 @@
 # Hexagon Spec: Declarations Preamble
 
-**Status:** Decided (July 2026); amended 2026-11-06 (#1468): §1.1's named limitations gain the regex dialect's rewrite-less refusals. **Permanent host of two corpus-wide doctrines: the Rewrite Rule (§1.1) and the Deferred-Goals Doctrine (§1.2).**
-**Scope:** Corpus doctrine: the Rewrite Rule and the Deferred-Goals Doctrine (§1.1–§1.2). The shared header grammar for the type-introducing declarations (`record`, `union`, `type`): parameter form, the `derives` clause's header position, layout continuation for multi-line declarations. The `type` alias declaration in full: transparency, parameterization, the recursion ban, the no-instances rule, display stickiness, `.d.ts` emission. Consolidation: the module-level declaration inventory and site rule, order-insensitivity and mutual recursion among declarations, the type-namespace duplicate rule.
+**Status:** Decided (July 2026); amended 2026-11-06 (#1468): §1.1's named limitations gain the regex dialect's rewrite-less refusals. Amended 2026-11-13 (#ISSUE): §1.3, the form of shown text. **Permanent host of three corpus-wide doctrines: the Rewrite Rule (§1.1), the Deferred-Goals Doctrine (§1.2) and the form of shown text (§1.3).**
+**Scope:** Corpus doctrine: the Rewrite Rule, the Deferred-Goals Doctrine and the form of shown text (§1.1–§1.3). The shared header grammar for the type-introducing declarations (`record`, `union`, `type`): parameter form, the `derives` clause's header position, layout continuation for multi-line declarations. The `type` alias declaration in full: transparency, parameterization, the recursion ban, the no-instances rule, display stickiness, `.d.ts` emission. Consolidation: the module-level declaration inventory and site rule, order-insensitivity and mutual recursion among declarations, the type-namespace duplicate rule.
 **Not in scope:** `derives` *semantics* — the derivable set, base constraint checks, coherence, per-constraint generated code (Decisions Batch §2, unchanged; this doc fixes only the clause's position), the constraint mechanism and `honor` (Constraints spec), constructor semantics and payload grammar (Unions §2, Products §5 — this doc fixes only their shared header), cross-module name management, imports, qualification (Modules), implied `type` members in `constraint`/`honor` bodies (Collections Part 2 §§5–8 owns their v1 grammar and rules).
 **Companions:** Products §5 (nominal `record` semantics; the header was deferred here), Unions §2 (union semantics; header and layout-continuation note deferred here), Constraints (angle-brackets-vs-parens kind distinction §1; instance machinery), Decisions Batch 2026-07 §2 (derivation mechanism; placement superseded), Exceptions §2 (module-level-only rule, generalized here), Lexer & Layout (offside continuation), `method-syntax.md` §10 (the Deferred-Goals Doctrine's first citing feature).
 
@@ -46,6 +46,20 @@ Any feature that wants the inferencer to postpone a decision cites this doctrine
 It also sets the bar any v2 implied-type projection inference must clear before it exists. A dot call is not an instance: it is decided where it is written, from the program's text (`method-syntax.md` §3, §10).
 
 **The waiting sequence source's compliance, itemised** (`collections-part5-iterable.md` §3.5): one source variable per demand, the subject's one `Iterable` demand, made at the seat's or loop head's turn with its `Item` linked there; one member; resolution by the coherence-keyed instance table when the head arrives, never a search; a finite, deterministic rule — at its owner's close, a source whose head is still unknown takes the `Seq` reading, a step the `Int` default never meets (the waiting source's `Iterable` demand is not defaultable); no survival past the owner's finalisation (the default, then ordinary unification). Principal types are preserved in this doctrine's sense: the unresolved form's defined meaning, the `Seq` reading, is the pre-feature language's — the seat's plain unification — and resolution when the head arrives agrees with resolution at the deadline, head-knownness being monotone under unification. One clause is stated rather than claimed away: at a loop head the deferral reclassifies only programs that were errors, the pre-feature language having refused a source it could not yet see, while at a `Seq` seat it also refuses programs the pre-feature language accepted — those whose judgment needs the source's head before the close, a `match` on it (`collections-part5-iterable.md` §3.5) — repaired by annotating the source. A dot call on such a source is refused at the dot whatever the close decides (`method-syntax.md` §3.5).
+
+### 1.3 The form of shown text (corpus doctrine; permanent home) *(#ISSUE)*
+
+> **Text that stands on a line of its own is a sentence. Text attached to something else is a phrase. A menu item is a title.**
+
+Everything the compiler, the language server, the command line and the playground show a programmer takes one of three forms, and which one is decided by where the text stands, never by what produces it.
+
+- **A sentence** begins with a capital letter and ends with a period, and says one fact. Text read as prose on a line of its own is written so: the gloss beside a face in hover and in signature help (Effects §10), the reason a refactoring is not offered, a line of the command line's or the playground's own status, and the description of a setting. Where the line begins with code, the code stands as written and the period still closes it.
+- **A phrase** begins in lower case and has no closing period. Text attached to something else is written so: a diagnostic's message, which follows `error:` on its line; a note, which follows `note:`; a label beside a caret; the gloss where it stands inside a line of code or after a type, as an inlay hint and a completion's detail do; and the kind word before a hover's face. A phrase's clauses are joined by a semicolon, and the rewrite it names (§1.1) follows a dash. A name that is written with a capital keeps it.
+- **A title** begins with a capital letter and has no closing period. A menu item and a button are written so: a refactoring, a quick fix, a command, and a control in the playground.
+
+The message a running program's own fault or exception carries is not shown text in this sense: its wording is the program's to read (FFI Part 11).
+
+**Rejected.** *Sentences throughout.* A diagnostic's message is attached to the word before it, and a capital after `error:` reads as a second start; the attached form is also the one a programmer has met in every compiler that prints `file:line: error:`. *Phrases throughout.* The gloss in hover stands directly above a doc comment, which is prose (`doc-comments.md` §6.2), and a phrase there reads as a fragment of compiler output beside it.
 
 ---
 
@@ -256,6 +270,7 @@ Two type-namespace declarations of the same name in one module — any mix of `r
 |---|---|
 | **Rewrite Rule hosted permanently**: restrictive hard errors carry named local rewrites; no warning tier; rewrite-less restrictions return to design | §1.1 |
 | **Deferred-Goals Doctrine hosted permanently**: finite deterministic resolution, no global search, no surviving generalisation, principal types preserved; four owned instances cited | §1.2 |
+| **The form of shown text**: a sentence on a line of its own, a phrase where attached, a title for a menu item (#ISSUE) | §1.3 |
 | One header grammar: `keyword Name [(params)] [derives List] = body`, three keywords | §2 |
 | Parameters: parens, matching use sites; distinct; fixed arity; no empty list | §2.1 |
 | No constrained header parameters, permanently (datatype-contexts rejection); `<>` never in data headers | §2.2 |
