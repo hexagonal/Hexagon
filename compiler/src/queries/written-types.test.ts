@@ -348,9 +348,9 @@ describe("remove the written type", () => {
   });
 
   test("a comment beside it stays", () => {
-    expect(rewritten(program("let ‸x (* c *) : Int = 1"), removeTitle("binding", "x"))).toBe(program("let x (* c *) = 1"));
-    expect(rewritten(program("let h(n: Int) // c", "    ‸: Int = n + 1"), removeTitle("result", "h")))
-      .toBe(program("let h(n: Int) // c", "    = n + 1"));
+    expect(rewritten(program("let ‸x {- c -} : Int = 1"), removeTitle("binding", "x"))).toBe(program("let x {- c -} = 1"));
+    expect(rewritten(program("let h(n: Int) -- c", "    ‸: Int = n + 1"), removeTitle("result", "h")))
+      .toBe(program("let h(n: Int) -- c", "    = n + 1"));
   });
 
   test("a binding's binder list, beside its written type", () => {

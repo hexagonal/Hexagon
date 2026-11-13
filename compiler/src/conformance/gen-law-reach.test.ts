@@ -36,12 +36,12 @@ function scaleModule(tag: string): string {
   return [
     "module Scale",
     "",
-    `// scale ${tag}`,
+    `-- scale ${tag}`,
     "export constraint Scale<a> =",
     "    scale(value: a, factor: Int) -> a",
     "",
-    "// The genuinely polymorphic face, written on the declaring side: bare",
-    "// `scale` here is the member's forwarder, and the evidence rides the call.",
+    "-- The genuinely polymorphic face, written on the declaring side: bare",
+    "-- `scale` here is the member's forwarder, and the evidence rides the call.",
     "export let scaledTwice<a: Scale>(value: a): a = scale(scale(value, 2), 2)",
     "",
   ].join("\n");
@@ -64,12 +64,12 @@ function matrixModule(
   return [
     "module Matrix",
     "",
-    `// matrix ${tag}`,
+    `-- matrix ${tag}`,
     "import Scale",
     "",
     "export record Matrix = {n: Float}",
     "",
-    "// The one body. The member is this, restricted.",
+    "-- The one body. The member is this, restricted.",
     door,
     "",
     "honor Scale.Scale<Matrix> =",
@@ -117,7 +117,7 @@ describe("the law at a namespace-imported user constraint (Modules §5.3)", () =
       ["/scale.hex", scaleModule("three faces")],
       ["/matrix.hex", matrixModule("three faces", DOOR)],
       ["/main.hex", "module Main\n\n" + [
-        "// consumer, three faces",
+        "-- consumer, three faces",
         "import Matrix",
         "import Scale",
         "",
@@ -143,7 +143,7 @@ describe("the law at a namespace-imported user constraint (Modules §5.3)", () =
       ["/scale.hex", scaleModule("routes")],
       ["/matrix.hex", matrixModule("routes", DOOR)],
       ["/main.hex", "module Main\n\n" + [
-        "// consumer, routes",
+        "-- consumer, routes",
         "import Matrix",
         "import Scale",
         "",
@@ -170,7 +170,7 @@ describe("`honor` may not stand above the declaration it accounts for (§4.8)", 
    */
   function blockFirst(tag: string): string {
     return [
-      `// matrix ${tag}`,
+      `-- matrix ${tag}`,
       "import Scale",
       "",
       "export record Matrix = {n: Float}",
@@ -204,7 +204,7 @@ describe("`honor` may not stand above the declaration it accounts for (§4.8)", 
     const exports = await runProject([
       ["/scale.hex", scaleModule("door first")],
       ["/matrix.hex", "module Matrix\n\n" + [
-        "// matrix door first",
+        "-- matrix door first",
         "import Scale",
         "",
         "export record Matrix = {n: Float}",
@@ -299,7 +299,7 @@ describe("what the law refuses at the same reach (Constraints §4.7)", () => {
     expect(compileFiles([
       ["/scale.hex", scaleModule("export rewrite")],
       ["/matrix.hex", "module Matrix\n\n" + [
-        "// export rewrite",
+        "-- export rewrite",
         "import Scale",
         "",
         "export record Matrix = {n: Float}",
@@ -338,7 +338,7 @@ describe("where the law is never consulted (Modules §5.3)", () => {
     // binding — the declaration's exported bare face — so the prior refusal
     // stands unamended, in the plain rebinding form with no law named.
     const diagnostics = compileFiles([["/main.hex", "module Main\n\n" + [
-      "// declaring module carve",
+      "-- declaring module carve",
       "export constraint Scale<a> =",
       "    scale(value: a, factor: Int) -> a",
       "",
@@ -366,7 +366,7 @@ describe("where the law is never consulted (Modules §5.3)", () => {
     const diagnostics = compileFiles([
       ["/scale.hex", scaleModule("ordinary import")],
       ["/matrix.hex", "module Matrix\n\n" + [
-        "// ordinary import",
+        "-- ordinary import",
         "import Scale",
         "",
         "let scaledTwice = Scale.scaledTwice",

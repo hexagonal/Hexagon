@@ -193,19 +193,19 @@ describe("the missing arms, written as `Debug.todo`", () => {
 
 describe("where the arms go", () => {
   test("below a comment that ends the last arm's line", () => {
-    expect(filled(program("export let f(s: Shape): Int =", "    match s", "        Circle(_) => 1 // round")).text)
-      .toContain("        Circle(_) => 1 // round\n        Square(_) => Debug.todo(\"Square(_)\")\n");
+    expect(filled(program("export let f(s: Shape): Int =", "    match s", "        Circle(_) => 1 -- round")).text)
+      .toContain("        Circle(_) => 1 -- round\n        Square(_) => Debug.todo(\"Square(_)\")\n");
   });
 
   test("below a comment that ends the last arm's line, which stays with its arm", () => {
     expect(filled(program(
       "export let f(s: Shape): Int =",
       "    match s",
-      "        Circle(_) => 1 // round",
-      "        Square(_) => match s // again",
+      "        Circle(_) => 1 -- round",
+      "        Square(_) => match s -- again",
       "            Circle(_) => 3",
-      "            _ => 4 // inner",
-    )).text).toContain("            _ => 4 // inner\n        Tri(_, _) => Debug.todo(\"Tri(_, _)\")\n");
+      "            _ => 4 -- inner",
+    )).text).toContain("            _ => 4 -- inner\n        Tri(_, _) => Debug.todo(\"Tri(_, _)\")\n");
   });
 
   test("above the comments and declarations after a `match` nested in the last arm", () => {
@@ -217,7 +217,7 @@ describe("where the arms go", () => {
       "            Circle(_) => 3",
       "            _ => 4",
       "",
-      "(** Doubles `n`. *)",
+      "{-- Doubles `n`. -}",
       "export let g(n: Int): Int = n * 2",
     ))).toEqual({
       text: program(
@@ -229,7 +229,7 @@ describe("where the arms go", () => {
         "            _ => 4",
         "        Tri(_, _) => Debug.todo(\"Tri(_, _)\")",
         "",
-        "(** Doubles `n`. *)",
+        "{-- Doubles `n`. -}",
         "export let g(n: Int): Int = n * 2",
       ),
       diagnostics: [],
@@ -237,21 +237,21 @@ describe("where the arms go", () => {
   });
 
   test("below block comments that end the last arm's line, nested ones too", () => {
-    expect(filled(program("export let f(s: Shape): Int =", "    match s", "        Circle(_) => 1 (* round *) // and whole")).text)
-      .toContain("        Circle(_) => 1 (* round *) // and whole\n        Square(_) => Debug.todo(\"Square(_)\")\n");
-    expect(filled(program("export let f(s: Shape): Int =", "    match s", "        Circle(_) => 1 (* a (* b *) c *)")).text)
-      .toContain("        Circle(_) => 1 (* a (* b *) c *)\n        Square(_) => Debug.todo(\"Square(_)\")\n");
-    expect(filled(program("export let f(s: Shape): Int =", "    match s", "        Circle(_) => 1\t// round")).text)
-      .toContain("        Circle(_) => 1\t// round\n        Square(_) => Debug.todo(\"Square(_)\")\n");
+    expect(filled(program("export let f(s: Shape): Int =", "    match s", "        Circle(_) => 1 {- round -} -- and whole")).text)
+      .toContain("        Circle(_) => 1 {- round -} -- and whole\n        Square(_) => Debug.todo(\"Square(_)\")\n");
+    expect(filled(program("export let f(s: Shape): Int =", "    match s", "        Circle(_) => 1 {- a {- b -} c -}")).text)
+      .toContain("        Circle(_) => 1 {- a {- b -} c -}\n        Square(_) => Debug.todo(\"Square(_)\")\n");
+    expect(filled(program("export let f(s: Shape): Int =", "    match s", "        Circle(_) => 1\t-- round")).text)
+      .toContain("        Circle(_) => 1\t-- round\n        Square(_) => Debug.todo(\"Square(_)\")\n");
   });
 
   test("before a block comment that the last arm's line leaves open", () => {
-    // Block comments nest (Comments §3), so the `//` is inside one still open.
+    // Block comments nest (Comments §3), so the `--` is inside one still open.
     expect(filled(program(
       "export let f(s: Shape): Int =",
       "    match s",
-      "        Circle(_) => 1 (* (* x *) // y",
-      "           more *)",
+      "        Circle(_) => 1 {- {- x -} -- y",
+      "           more -}",
       "export let g: Int = 2",
     ))).toEqual({
       text: program(
@@ -259,8 +259,8 @@ describe("where the arms go", () => {
         "    match s",
         "        Circle(_) => 1",
         "        Square(_) => Debug.todo(\"Square(_)\")",
-        "        Tri(_, _) => Debug.todo(\"Tri(_, _)\") (* (* x *) // y",
-        "           more *)",
+        "        Tri(_, _) => Debug.todo(\"Tri(_, _)\") {- {- x -} -- y",
+        "           more -}",
         "export let g: Int = 2",
       ),
       diagnostics: [],
@@ -304,9 +304,9 @@ describe("where the arms go", () => {
       ).replaceAll("\n", "\r\n"),
       diagnostics: [],
     });
-    const commented = program("export let f(s: Shape): Int =", "    match s", "        Circle(_) => 1 // round")
+    const commented = program("export let f(s: Shape): Int =", "    match s", "        Circle(_) => 1 -- round")
       .replaceAll("\n", "\r\n");
-    expect(filled(commented).text).toContain("        Circle(_) => 1 // round\r\n        Square(_) => Debug.todo(\"Square(_)\")\r\n");
+    expect(filled(commented).text).toContain("        Circle(_) => 1 -- round\r\n        Square(_) => Debug.todo(\"Square(_)\")\r\n");
     const unended = program("export let f(s: Shape): Int =", "    match s", "        Circle(_) => 1").replaceAll("\n", "\r\n")
       .replace(/\r\n$/, "");
     expect(filled(unended).text).toBe(unended + "\r\n        Square(_) => Debug.todo(\"Square(_)\")\r\n        Tri(_, _) => Debug.todo(\"Tri(_, _)\")");
@@ -336,7 +336,7 @@ describe("not offered where the arms would not be the whole of what is missing, 
     expect(repairs(program(...lines, "        fun g() =", "            Square(_) => 2"))).toEqual([]);
     // A doc comment's error is about the comment, and leaves the code read as
     // written.
-    expect(repairs(program(...lines, "(** nothing *)")).map(({ title }) => title)).toEqual(["Add the 2 missing arms"]);
+    expect(repairs(program(...lines, "{-- nothing -}")).map(({ title }) => title)).toEqual(["Add the 2 missing arms"]);
   });
 
   test("a vector's missing length, one of unboundedly many", () => {
@@ -358,7 +358,7 @@ describe("not offered where the arms would not be the whole of what is missing, 
   });
 
   test("a first arm that does not begin its line, whose column the new arms could not match", () => {
-    expect(repairs(program("export let f(s: Shape): Int =", "    match s", "        (* round *) Circle(_) => 1"))).toEqual([]);
+    expect(repairs(program("export let f(s: Shape): Int =", "    match s", "        {- round -} Circle(_) => 1"))).toEqual([]);
   });
 
   test("an `import Debug` below the `match`, which the arms could not yet read (Modules §3)", () => {

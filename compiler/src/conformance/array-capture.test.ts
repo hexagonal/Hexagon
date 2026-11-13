@@ -60,15 +60,15 @@ const PROGRAM = "export let size(xs: Array(Int)): Int = Array.length(xs)\n" +
   "export let read(xs: Array(Int), index: Int): Int = xs[index]\n" +
   "export let peek(xs: Array(Int), index: Int): Option(Int) = Array.get(xs, index)\n" +
   "\n" +
-  "// The `Option` projection, so a test can read `get`'s answer without naming\n" +
-  "// `Option`'s representation.\n" +
+  "-- The `Option` projection, so a test can read `get`'s answer without naming\n" +
+  "-- `Option`'s representation.\n" +
   "export let peeked(xs: Array(Int), index: Int): Int = match Array.get(xs, index)\n" +
   "    None => -1\n" +
   "    Some(value) => value\n" +
   "\n" +
-  "// The throw, caught by the *bare* spelling of Collections Part 3's one\n" +
-  "// declaration — which is the whole claim: the array bracket raises `Vector`'s\n" +
-  "// `IndexFault`, not one of its own.\n" +
+  "-- The throw, caught by the *bare* spelling of Collections Part 3's one\n" +
+  "-- declaration — which is the whole claim: the array bracket raises `Vector`'s\n" +
+  "-- `IndexFault`, not one of its own.\n" +
   "export fun guarded(xs: Array(Int), index: Int): Int =\n" +
   "    try\n" +
   "        xs[index]\n" +

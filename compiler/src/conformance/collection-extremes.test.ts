@@ -34,7 +34,7 @@ export let intSet(values: Array(Int)): Set(Int) = Set.fromVector(Array.toVector(
 export let floats(values: Array(Float)): Vector(Float) = Array.toVector(values)
 export let floatSet(values: Array(Float)): Set(Float) = Set.fromVector(Array.toVector(values))
 
-// The traversal orders the oracle walks.
+-- The traversal orders the oracle walks.
 export let setOrder(s: Set((Int, Int))): Vector((Int, Int)) = Vector.fromSeq(s.toSeq())
 export let mapOrder(m: Map(Int, Int)): Vector((Int, Int)) = Vector.fromSeq(m.toSeq())
 export let floatSetOrder(s: Set(Float)): Vector(Float) = Vector.fromSeq(s.toSeq())
@@ -75,7 +75,7 @@ export let mMaxUsing(c: Map(Int, Int), compare: ((Int, Int), (Int, Int)) ->! Ord
 export let mMinUsing(c: Map(Int, Int), compare: ((Int, Int), (Int, Int)) ->! Ordering): Option((Int, Int)) =
     c.minUsing!(compare)
 
-// The sort, for agreement (§13.2).
+-- The sort, for agreement (§13.2).
 export let vSort(c: Vector((Int, Int))): Vector((Int, Int)) = c.sort()
 export let vSortBy(c: Vector((Int, Int)), key: ((Int, Int)) ->! Int): Vector((Int, Int)) = c.sortBy!(key)
 export let vSortUsing(c: Vector((Int, Int)), compare: ((Int, Int), (Int, Int)) ->! Ordering): Vector((Int, Int)) =
@@ -100,7 +100,7 @@ export let fProduct(c: Vector(Float)): Float = c.product()
 export let fSetSum(c: Set(Float)): Float = c.sum()
 export let intSeq(values: Array(Int)): Seq(Int) = Array.toVector(values).toSeq()
 
-// Through the \`Seq\` seats (Collections Part 5 section 3.4).
+-- Through the \`Seq\` seats (Collections Part 5 section 3.4).
 export let rangeSum: Int = Seq.sum(1..100)
 export let rangeProduct: Int = Seq.product(1..10)
 export let longMax: Option(Int) = Seq.max(1..200000)

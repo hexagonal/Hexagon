@@ -126,7 +126,7 @@ Source maps, the conditional generic constrained edition, public dictionaries, r
 finalized portable target profile remain later emission slices.
 
 Documentation comments (`spec/doc-comments.md`, ruling #191) run the length of the
-pipeline as metadata. The lexer classifies `(** ... *)` trivia at the opener; the
+pipeline as metadata. The lexer classifies `{-- ... -}` trivia at the opener; the
 parser groups the comments into blocks, attaches each to the declaration its next
 physical code token begins, and reports the hard errors for the ones that document
 nothing; the module carries what attached, keyed by the documented declaration's

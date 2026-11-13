@@ -361,12 +361,12 @@ describe("`.d.ts` byte accounting (§10)", () => {
     // is why face-only accounting looked right until a documented one was
     // measured.
     const module = main([
-      "(** Hashes a value with a salt mixed in.",
+      "{-- Hashes a value with a salt mixed in.",
       "",
-      "    The salt keeps two structurally equal values apart. *)",
+      "    The salt keeps two structurally equal values apart. -}",
       "export fun stamp<a: Hash>(x: a, salt: Int): Int = x.hash() + salt",
       "",
-      "(** Adds two numbers of the same type. *)",
+      "{-- Adds two numbers of the same type. -}",
       "export fun sum<a: Num>(x: a, y: a): a = x + y",
       "",
     ].join("\n"));

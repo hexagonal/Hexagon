@@ -78,23 +78,23 @@ import { typeScriptErrors } from "../support/typescript-check.js";
  * are all `Vector` operations, because "the result is a genuine vector" is a
  * claim about what the value answers, not about what it holds.
  */
-const PROGRAM = "// The two spellings Modules section 5.5 leaves a prelude function,\n" +
-  "// over one exported body.\n" +
+const PROGRAM = "-- The two spellings Modules section 5.5 leaves a prelude function,\n" +
+  "-- over one exported body.\n" +
   "export let convert(values: Array(Int)): Vector(Int) = Array.toVector(values)\n" +
   "\n" +
   "export let convertDot(values: Array(Int)): Vector(Int) = values.toVector()\n" +
   "\n" +
-  "// The vector surface the result has to answer to. A lazy view over the borrow\n" +
-  "// would carry the same elements and fail these.\n" +
+  "-- The vector surface the result has to answer to. A lazy view over the borrow\n" +
+  "-- would carry the same elements and fail these.\n" +
   "export let size(values: Vector(Int)): Int = Vector.length(values)\n" +
   "\n" +
   "export let elementAt(values: Vector(Int), index: Int): Int = values[index]\n" +
   "\n" +
   "export let vacant(values: Vector(Int)): Bool = Vector.isEmpty(values)\n" +
   "\n" +
-  "// `first` and `last` reach the trie's two ends, which is where a conversion\n" +
-  "// that built the spine backwards or off by one shows. `-1` stands for `None`,\n" +
-  "// so a test reads an `Int` rather than `Option`'s representation.\n" +
+  "-- `first` and `last` reach the trie's two ends, which is where a conversion\n" +
+  "-- that built the spine backwards or off by one shows. `-1` stands for `None`,\n" +
+  "-- so a test reads an `Int` rather than `Option`'s representation.\n" +
   "export let firstOf(values: Vector(Int)): Int = match Vector.first(values)\n" +
   "    None => -1\n" +
   "    Some(value) => value\n" +
@@ -103,8 +103,8 @@ const PROGRAM = "// The two spellings Modules section 5.5 leaves a prelude funct
   "    None => -1\n" +
   "    Some(value) => value\n" +
   "\n" +
-  "// The iteration order, summed positionally: a walk that visited the right\n" +
-  "// elements in the wrong order gets a plain sum right and this wrong.\n" +
+  "-- The iteration order, summed positionally: a walk that visited the right\n" +
+  "-- elements in the wrong order gets a plain sum right and this wrong.\n" +
   "export let weighted(values: Vector(Int)): Int =\n" +
   "    var total = 0\n" +
   "    var position = 1\n" +
@@ -113,13 +113,13 @@ const PROGRAM = "// The two spellings Modules section 5.5 leaves a prelude funct
   "        position := position + 1\n" +
   "    total\n" +
   "\n" +
-  "// The way back out, for the round trip and for reading a converted vector's\n" +
-  "// elements without naming the trie.\n" +
+  "-- The way back out, for the round trip and for reading a converted vector's\n" +
+  "-- elements without naming the trie.\n" +
   "export let back(values: Vector(Int)): Array(Int) = Vector.toArray(values)\n" +
   "\n" +
-  "// The shallow case, twice: elements that are themselves vectors, and elements\n" +
-  "// that are records. Both come back out through `Vector.toArray` so a test can\n" +
-  "// compare identities on the JavaScript side.\n" +
+  "-- The shallow case, twice: elements that are themselves vectors, and elements\n" +
+  "-- that are records. Both come back out through `Vector.toArray` so a test can\n" +
+  "-- compare identities on the JavaScript side.\n" +
   "export let convertNested(values: Array(Vector(Int))): Vector(Vector(Int)) =\n" +
   "    Array.toVector(values)\n" +
   "\n" +
@@ -132,9 +132,9 @@ const PROGRAM = "// The two spellings Modules section 5.5 leaves a prelude funct
   "\n" +
   "export let backBoxed(values: Vector(Boxed)): Array(Boxed) = Vector.toArray(values)\n" +
   "\n" +
-  "// Section 6.4's holes. `Nullable(Int)` is the element type that admits them,\n" +
-  "// and the bracket read hands the raw representation straight back to\n" +
-  "// JavaScript, so a hole arrives at the test as the `undefined` it is.\n" +
+  "-- Section 6.4's holes. `Nullable(Int)` is the element type that admits them,\n" +
+  "-- and the bracket read hands the raw representation straight back to\n" +
+  "-- JavaScript, so a hole arrives at the test as the `undefined` it is.\n" +
   "export let convertHoley(values: Array(Nullable(Int))): Vector(Nullable(Int)) =\n" +
   "    Array.toVector(values)\n" +
   "\n" +
@@ -146,8 +146,8 @@ const PROGRAM = "// The two spellings Modules section 5.5 leaves a prelude funct
   "export let holeIsUndefined(values: Vector(Nullable(Int)), index: Int): Bool =\n" +
   "    Nullable.isUndefined(values[index])\n" +
   "\n" +
-  "// A vector built on this side, so the round trip has a source that never was\n" +
-  "// an array.\n" +
+  "-- A vector built on this side, so the round trip has a source that never was\n" +
+  "-- an array.\n" +
   "export let built(count: Int): Vector(Int) =\n" +
   "    var values: Vector(Int) = []\n" +
   "    for index in 1..count\n" +
@@ -618,7 +618,7 @@ describe("the `.d.ts` face is `ReadonlyArray<a>` in, `Vector<a>` out", () => {
    * **The row's own face, in the prelude's `Array.d.ts`.** This is the surface a
    * TypeScript consumer imports — `import { toVector } from ".../Array.js"` —
    * and it is generic, so the monomorphic pin below cannot catch a regression in
-   * it. The doc comment travels with it: a manual-voice `(** … *)` becomes the
+   * it. The doc comment travels with it: a manual-voice `{-- … -}` becomes the
    * JSDoc block a consumer's editor shows, and a declaration that lost it would
    * still typecheck.
    */

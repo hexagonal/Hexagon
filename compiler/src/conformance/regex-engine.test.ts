@@ -20,7 +20,7 @@ const TOUCH: readonly [string, string] = [
 ];
 
 const PROBE = `
-// The parse a probe reads, as data: the pattern, or the refusal's message.
+-- The parse a probe reads, as data: the pattern, or the refusal's message.
 union Parsed = Good(pattern: Syntax.Pattern) | Bad(message: String)
 
 let parsedOf(pattern: String): Parsed =
@@ -80,8 +80,8 @@ export let findVm(pattern: String, text: String, start: Int, spans: Bool): Strin
     Good(parsed) => rendered(searchByVm~(compile~(parsed), text, start, spans))
     Bad(message) => "error " ++ message
 
-// How the forward scan over the text from its start went: how many times its
-// cache filled, and whether it finished ("dfa") or handed over ("vm").
+-- How the forward scan over the text from its start went: how many times its
+-- cache filled, and whether it finished ("dfa") or handed over ("vm").
 export let forwardRoute(pattern: String, text: String): String = match parsedOf(pattern)
     Good(parsed) =>
         let compiled = compile~(parsed)
@@ -93,9 +93,9 @@ export let forwardRoute(pattern: String, text: String): String = match parsedOf(
         finished ++ " " ++ show(read~(flushes, 0))
     Bad(message) => message
 
-// One compiled program searched over two subjects at every start, so that its
-// caches and alphabet carry from search to search: every answer, joined; and the
-// same through the VM alone.
+-- One compiled program searched over two subjects at every start, so that its
+-- caches and alphabet carry from search to search: every answer, joined; and the
+-- same through the VM alone.
 export let everyStart(pattern: String, first: String, second: String, viaVm: Bool): String = match parsedOf(pattern)
     Good(parsed) =>
         let compiled = compile~(parsed)

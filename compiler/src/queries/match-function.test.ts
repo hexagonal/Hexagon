@@ -103,12 +103,12 @@ describe("a lambda written as a match function", () => {
   });
 
   test("keeping a comment on the `match` line", () => {
-    expect(asMatchFunction(lines("let size = (sh‸ape) => match shape // by kind", ...ARMS)))
-      .toBe(lines("let size = match // by kind", ...ARMS));
+    expect(asMatchFunction(lines("let size = (sh‸ape) => match shape -- by kind", ...ARMS)))
+      .toBe(lines("let size = match -- by kind", ...ARMS));
   });
 
   test("refused where a comment would be lost", () => {
-    expect(asMatchFunction(lines("let size = (sh‸ape) => // by kind", "    match shape", "        Circle(r) => r", "        Square(s) => s")))
+    expect(asMatchFunction(lines("let size = (sh‸ape) => -- by kind", "    match shape", "        Circle(r) => r", "        Square(s) => s")))
       .toBe("refused: A comment inside it would be lost. Move the comment out first.");
   });
 
@@ -183,8 +183,8 @@ describe("a match function written as a lambda", () => {
   });
 
   test("keeping its comments", () => {
-    expect(asLambda(lines("let size = ma‸tch // by kind", "    Circle(r) => r // round", ARMS[1]!)))
-      .toBe(lines("let size = (value) => match value // by kind", "    Circle(r) => r // round", ARMS[1]!));
+    expect(asLambda(lines("let size = ma‸tch -- by kind", "    Circle(r) => r -- round", ARMS[1]!)))
+      .toBe(lines("let size = (value) => match value -- by kind", "    Circle(r) => r -- round", ARMS[1]!));
   });
 });
 

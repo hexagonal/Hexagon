@@ -75,7 +75,7 @@ describe("the control: the harness reports a failure rather than passing it", ()
 describe("exact at either sign of the `Int` exponent (rat.md §9)", () => {
   test("a positive exponent: `pow(2/1, 10)` is exactly `1024/1`", async () => {
     const exports = await runRat(
-      "// positive exponent\n" +
+      "-- positive exponent\n" +
       "let base: Rat.Rat = Rat.create(2, 1)\n" +
       "let raised: Rat.Rat = Rat.pow(base, 10)\n" +
       "export let top: BigInt = Rat.top(raised)\n" +
@@ -93,7 +93,7 @@ describe("exact at either sign of the `Int` exponent (rat.md §9)", () => {
     // serves exactly. `9/4` also pins the inversion's *direction*: the wrong
     // one is `4/9`.
     const exports = await runRat(
-      "// negative exponent\n" +
+      "-- negative exponent\n" +
       "let base: Rat.Rat = Rat.create(2, 3)\n" +
       "let exponent: Int = -2\n" +
       "let raised: Rat.Rat = Rat.pow(base, exponent)\n" +
@@ -111,7 +111,7 @@ describe("exact at either sign of the `Int` exponent (rat.md §9)", () => {
     // canonical pair is the whole claim of `rat.md` §4's "nothing converts to
     // `Float`, even internally".
     const exports = await runRat(
-      "// bigint exactness\n" +
+      "-- bigint exactness\n" +
       "let base: Rat.Rat = Rat.create(3, 1)\n" +
       "let raised: Rat.Rat = Rat.pow(base, 40)\n" +
       "export let top: BigInt = Rat.top(raised)\n",
@@ -124,7 +124,7 @@ describe("exact at either sign of the `Int` exponent (rat.md §9)", () => {
     // Consistent with every other instance in the tower, where the zeroth
     // power is the unit and the zero base is not special-cased.
     const exports = await runRat(
-      "// zeroth power\n" +
+      "-- zeroth power\n" +
       "let zero: Rat.Rat = Rat.create(0, 1)\n" +
       "let seven: Rat.Rat = Rat.create(7, 2)\n" +
       "export let unit: String = \"${seven ** 0}\"\n" +
@@ -143,7 +143,7 @@ describe("exact at either sign of the `Int` exponent (rat.md §9)", () => {
     // spellings (`Rat.pow`, `**`, the lifted `**`). In every one of them the
     // exponent stays an `Int`: the lift moves the base alone.
     const exports = await runRat(
-      "// operator spelling\n" +
+      "-- operator spelling\n" +
       "let a: Int = 4\n" +
       "let negOne: Int = -1\n" +
       "let quarter: Rat.Rat = a ** negOne\n" +
@@ -195,7 +195,7 @@ describe("the one partiality left, and where it reports", () => {
     // Through the smart-construction boundary — `reciprocal` is `create` on the
     // swapped pair — so no `Rat.pow`-specific message is minted for it.
     const exports = await runRat(
-      "// zero base, negative exponent\n" +
+      "-- zero base, negative exponent\n" +
       "export let boom(): Rat.Rat = Rat.pow(Rat.create(0, 1), -1)\n",
     );
 
@@ -210,7 +210,7 @@ describe("the one partiality left, and where it reports", () => {
     // owns is `NegativeExponentFault` — which `Rat` never throws, its algebra
     // being total at both signs. The zero-base error is `Integral.hex`'s.
     const files = withRat(
-      "// runtime guards\n" +
+      "-- runtime guards\n" +
       "export let boom(): Rat.Rat = Rat.pow(Rat.create(0, 1), -1)\n",
     );
     const main = await runProject(files);

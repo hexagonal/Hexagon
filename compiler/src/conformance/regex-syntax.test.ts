@@ -83,7 +83,7 @@ export let describe(pattern: String): String =
         Syntax.RegexError(message, position, _) => "error " ++ show(position) ++ ": " ++ message
         other => "other " ++ show(other)
 
-// Each rewrite a refusal names: its words, and its edits as start-end=text.
+-- Each rewrite a refusal names: its words, and its edits as start-end=text.
 export let rewritesOf(pattern: String): String =
     match Syntax.parse^(pattern)
         _ => "parsed"
@@ -98,7 +98,7 @@ export let rewritesOf(pattern: String): String =
             joined(texts, " | ")
         other => "other " ++ show(other)
 
-// The pattern with each rewrite's edits applied, one pattern per rewrite.
+-- The pattern with each rewrite's edits applied, one pattern per rewrite.
 export let rewritten(pattern: String): Vector(String) =
     match Syntax.parse^(pattern)
         _ => []
@@ -122,7 +122,7 @@ export let rewritten(pattern: String): Vector(String) =
             results
         _ => []
 
-// Each group's span, as start+length, in group order.
+-- Each group's span, as start+length, in group order.
 export let spansOf(pattern: String): String = match Syntax.parse?(pattern)
     Some(parsed) =>
         var out: Vector(String) = []

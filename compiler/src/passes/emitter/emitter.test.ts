@@ -1226,10 +1226,10 @@ describe("emitJavaScript", () => {
   test("preserves top-level comments and their vertical spacing", () => {
     const output = emitJavaScript(
       coreSource(
-        "// Card suits are a closed set.\n" +
+        "-- Card suits are a closed set.\n" +
           "union Suit = Clubs | Diamonds | Hearts | Spades\n\n" +
-          "(* A card combines ordinary product and sum types. *)\n" +
-          "let card = (10, Hearts) // the ten of hearts",
+          "{- A card combines ordinary product and sum types. -}\n" +
+          "let card = (10, Hearts) -- the ten of hearts",
       ),
     );
 
@@ -1247,15 +1247,15 @@ describe("emitJavaScript", () => {
 
   test("translates block comments into a valid JavaScript spelling", () => {
     // spec/comments.md §6: JavaScript block comments do not nest, so an interior
-    // `(*`/`*)` pair rides along as inert text while a body containing `*/` — which
+    // `{-`/`-}` pair rides along as inert text while a body containing `*/` — which
     // would close the emitted comment early — becomes whole lines of `//`.
     const nested = emitJavaScript(
-      coreSource("(* outer (* inner *) still outer *)\nlet x = 1"),
+      coreSource("{- outer {- inner -} still outer -}\nlet x = 1"),
     );
-    expect(nested.text).toBe("/* outer (* inner *) still outer */\nconst x = 1;\n");
+    expect(nested.text).toBe("/* outer {- inner -} still outer */\nconst x = 1;\n");
 
     const unsafe = emitJavaScript(
-      coreSource("(* the JavaScript closer */ inside\n   a second line *)\nlet x = 1"),
+      coreSource("{- the JavaScript closer */ inside\n   a second line -}\nlet x = 1"),
     );
     expect(unsafe.text).toBe(
       "// the JavaScript closer */ inside\n//   a second line\nconst x = 1;\n",
@@ -1264,7 +1264,7 @@ describe("emitJavaScript", () => {
 
     // An unterminated comment is recorded alongside its lexical error, so the
     // translation has no closer to strip and must not take one anyway.
-    expect(emitJavaScript(coreSource("(* opened, never closed\nlet x = 1")).text).toBe(
+    expect(emitJavaScript(coreSource("{- opened, never closed\nlet x = 1")).text).toBe(
       "/* opened, never closed\nlet x = 1*/\n",
     );
   });

@@ -33067,7 +33067,7 @@ class Checker {
       const text = this.#sourceText?.slice(written.start.offset, written.end.offset);
       if (text === undefined || text.length === 0) return undefined;
       if (!/[\r\n]/u.test(text)) return text;
-      return /\/\/|\(\*|\/\*|["'`]/u.test(text) ? undefined : text.replace(/\s*[\r\n]\s*/gu, " ");
+      return /--|\{-|["'`]/u.test(text) ? undefined : text.replace(/\s*[\r\n]\s*/gu, " ");
     });
     if (
       lambda !== undefined && spellings !== undefined &&

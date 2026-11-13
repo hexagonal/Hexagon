@@ -185,11 +185,11 @@ describe("documentation", () => {
    * extern-header message — and the two heads share their first word.
    */
   test("the declaration and its members take doc blocks", () => {
-    const source = "(** Which way the cursor moves. *)\n" +
+    const source = "{-- Which way the cursor moves. -}\n" +
       "export extern enum Direction =\n" +
-      "    (** Toward the top of the document. *)\n" +
+      "    {-- Toward the top of the document. -}\n" +
       "    | \"up\" as Up\n" +
-      "    (** Toward the bottom. *)\n" +
+      "    {-- Toward the bottom. -}\n" +
       "    | \"down\" as Down\n";
     const emitted = javascript(source);
     expect(emitted).toContain("Toward the top of the document.");

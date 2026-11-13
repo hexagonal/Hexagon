@@ -147,8 +147,8 @@ describe("an alias written out at a use", () => {
   });
 
   test("its arguments' comments kept with them", () => {
-    expect(rewritten(program("type Sink(a) = (a) -> Unit", "export let run(h: Si‸nk(Int (* id *))): Unit = ()"), WRITE_OUT_TITLE))
-      .toBe(program("type Sink(a) = (a) -> Unit", "export let run(h: (Int (* id *)) -> Unit): Unit = ()"));
+    expect(rewritten(program("type Sink(a) = (a) -> Unit", "export let run(h: Si‸nk(Int {- id -})): Unit = ()"), WRITE_OUT_TITLE))
+      .toBe(program("type Sink(a) = (a) -> Unit", "export let run(h: (Int {- id -}) -> Unit): Unit = ()"));
   });
 
   test("a `_` given for a parameter the body writes once", () => {
@@ -246,7 +246,7 @@ describe("an alias written out at a use", () => {
 
 describe("an alias written out, refused", () => {
   test("where its body holds a comment", () => {
-    expect(rewritten(program("type Point = (Float, (* y *) Float)", "export let area(s: Po‸int): Float = 1.0"), WRITE_OUT_TITLE))
+    expect(rewritten(program("type Point = (Float, {- y -} Float)", "export let area(s: Po‸int): Float = 1.0"), WRITE_OUT_TITLE))
       .toBe("refused: The alias's body holds a comment, which writing it out would copy. Move the comment out first.");
   });
 
@@ -259,7 +259,7 @@ describe("an alias written out, refused", () => {
   });
 
   test("where a comment would be copied", () => {
-    expect(rewritten(program("type Pair(a) = (a, a)", "export let p: Pa‸ir(Int (* n *)) = (1, 2)"), WRITE_OUT_TITLE))
+    expect(rewritten(program("type Pair(a) = (a, a)", "export let p: Pa‸ir(Int {- n -}) = (1, 2)"), WRITE_OUT_TITLE))
       .toBe("refused: A comment inside it would be copied to each place `Pair` writes `a`. Move the comment out first.");
   });
 
@@ -406,7 +406,7 @@ describe("an alias written out, refused", () => {
   });
 
   test("where a comment between its name and its arguments would be lost", () => {
-    expect(rewritten(program("type Sink(a) = (a) -> Unit", "export let run(h: Si‸nk (* of ints *) (Int)): Unit = ()"), WRITE_OUT_TITLE))
+    expect(rewritten(program("type Sink(a) = (a) -> Unit", "export let run(h: Si‸nk {- of ints -} (Int)): Unit = ()"), WRITE_OUT_TITLE))
       .toBe("refused: A comment inside it would be lost. Move the comment out first.");
   });
 });
@@ -776,7 +776,7 @@ describe("another module's alias written out, refused", () => {
   });
 
   test("where its body, or the body of an alias it writes out, holds a comment", () => {
-    const geo = beside("Geo", "export type Pair = (Int, (* the second *) Int)", "type Inner = (Int, (* the second *) Int)", "export type Outer = Option(Inner)");
+    const geo = beside("Geo", "export type Pair = (Int, {- the second -} Int)", "type Inner = (Int, {- the second -} Int)", "export type Outer = Option(Inner)");
     expect(rewritten(program("import Geo", "export let run(p: Geo.Pa‸ir): Unit = ()"), WRITE_OUT_TITLE, geo))
       .toBe("refused: The alias's body holds a comment, which writing it out would copy. Move the comment out first.");
     expect(rewritten(program("import Geo", "export let run(p: Geo.Out‸er): Unit = ()"), WRITE_OUT_TITLE, geo))
@@ -911,11 +911,11 @@ describe("an alias written out everywhere", () => {
     expect(rewritten(program("let a: Int = 1; type Po‸int = (Float, Float);  export let b: Int = a", uses), WRITE_OUT_EVERYWHERE_TITLE))
       .toBe(program("let a: Int = 1; export let b: Int = a", written));
     // A comment before the `;` is the other item's, and stays.
-    expect(rewritten(program("export let n: Int = 1 (* n *); type Po‸int = (Float, Float)", uses), WRITE_OUT_EVERYWHERE_TITLE))
-      .toBe(program("export let n: Int = 1 (* n *)", written));
+    expect(rewritten(program("export let n: Int = 1 {- n -}; type Po‸int = (Float, Float)", uses), WRITE_OUT_EVERYWHERE_TITLE))
+      .toBe(program("export let n: Int = 1 {- n -}", written));
     // A comment after the other item is that item's, and stays.
-    expect(rewritten(program("type Po‸int = (Float, Float); export let n: Int = 1 // n", uses), WRITE_OUT_EVERYWHERE_TITLE))
-      .toBe(program("export let n: Int = 1 // n", written));
+    expect(rewritten(program("type Po‸int = (Float, Float); export let n: Int = 1 -- n", uses), WRITE_OUT_EVERYWHERE_TITLE))
+      .toBe(program("export let n: Int = 1 -- n", written));
   });
 
   test("the declaration kept where an honor's subject names it", () => {
@@ -971,43 +971,43 @@ describe("an alias written out everywhere", () => {
     const uses = "export let area(s: Point): Float = 1.0";
     const everywhere = (...lines: readonly string[]): string => rewritten(program(...lines, uses), WRITE_OUT_EVERYWHERE_TITLE);
     // On it, gone with it.
-    expect(everywhere("type Po‸int = (Float, Float) // A point.")).toBe(lost);
-    expect(everywhere("export let n: Int = 1; type Po‸int = (Float, Float) // A point.")).toBe(lost);
-    expect(everywhere("let a: Int = 1; type Po‸int = (* a point *) (Float, Float); export let b: Int = a")).toBe(lost);
-    expect(everywhere("let a: Int = 1; type Po‸int = (Float, Float) (* a point *); export let b: Int = a")).toBe(lost);
+    expect(everywhere("type Po‸int = (Float, Float) -- A point.")).toBe(lost);
+    expect(everywhere("export let n: Int = 1; type Po‸int = (Float, Float) -- A point.")).toBe(lost);
+    expect(everywhere("let a: Int = 1; type Po‸int = {- a point -} (Float, Float); export let b: Int = a")).toBe(lost);
+    expect(everywhere("let a: Int = 1; type Po‸int = (Float, Float) {- a point -}; export let b: Int = a")).toBe(lost);
     // Beside it, left on what follows or dangling where it stood.
-    expect(everywhere("(** A point. *)", "type Po‸int = (Float, Float)")).toBe(left);
-    expect(everywhere("// A point.", "type Po‸int = (Float, Float)")).toBe(left);
-    expect(everywhere("(** A point. *)", "type Po‸int = (Float, Float); export let n: Int = 1")).toBe(left);
-    expect(everywhere("export let a: Int = 1; (* a point *) type Po‸int = (Float, Float)")).toBe(left);
-    expect(everywhere("export let a: Int = 1; (* a point *)type Po‸int = (Float, Float)")).toBe(left);
-    expect(everywhere("let a: Int = 1; (* a point *) type Po‸int = (Float, Float); export let b: Int = a")).toBe(left);
+    expect(everywhere("{-- A point. -}", "type Po‸int = (Float, Float)")).toBe(left);
+    expect(everywhere("-- A point.", "type Po‸int = (Float, Float)")).toBe(left);
+    expect(everywhere("{-- A point. -}", "type Po‸int = (Float, Float); export let n: Int = 1")).toBe(left);
+    expect(everywhere("export let a: Int = 1; {- a point -} type Po‸int = (Float, Float)")).toBe(left);
+    expect(everywhere("export let a: Int = 1; {- a point -}type Po‸int = (Float, Float)")).toBe(left);
+    expect(everywhere("let a: Int = 1; {- a point -} type Po‸int = (Float, Float); export let b: Int = a")).toBe(left);
     // After the `;` it is the next item's, which keeps it, but not at a line's
     // start, where the item would read as part of the line above.
-    expect(everywhere("let a: Int = 1; type Po‸int = (Float, Float); (* b *) export let b: Int = a"))
-      .toBe(program("let a: Int = 1; (* b *) export let b: Int = a", "export let area(s: (Float, Float)): Float = 1.0"));
-    expect(everywhere("type Po‸int = (Float, Float); (* b *) export let b: Int = 1")).toBe(left);
+    expect(everywhere("let a: Int = 1; type Po‸int = (Float, Float); {- b -} export let b: Int = a"))
+      .toBe(program("let a: Int = 1; {- b -} export let b: Int = a", "export let area(s: (Float, Float)): Float = 1.0"));
+    expect(everywhere("type Po‸int = (Float, Float); {- b -} export let b: Int = 1")).toBe(left);
     // A documentation comment above another item is that item's.
-    expect(everywhere("(** About n. *)", "export let n: Int = 1", "type Po‸int = (Float, Float)"))
-      .toBe(program("(** About n. *)", "export let n: Int = 1", "export let area(s: (Float, Float)): Float = 1.0"));
+    expect(everywhere("{-- About n. -}", "export let n: Int = 1", "type Po‸int = (Float, Float)"))
+      .toBe(program("{-- About n. -}", "export let n: Int = 1", "export let area(s: (Float, Float)): Float = 1.0"));
     // A comment that ends the line above is that line's.
-    expect(everywhere("export let n: Int = 1 // one", "type Po‸int = (Float, Float)"))
-      .toBe(program("export let n: Int = 1 // one", "export let area(s: (Float, Float)): Float = 1.0"));
-    expect(everywhere("// About n.", "export let n: Int = 1; type Po‸int = (Float, Float)"))
-      .toBe(program("// About n.", "export let n: Int = 1", "export let area(s: (Float, Float)): Float = 1.0"));
-    expect(everywhere("// About a.", "let a: Int = 1; type Po‸int = (Float, Float); export let b: Int = a"))
-      .toBe(program("// About a.", "let a: Int = 1; export let b: Int = a", "export let area(s: (Float, Float)): Float = 1.0"));
+    expect(everywhere("export let n: Int = 1 -- one", "type Po‸int = (Float, Float)"))
+      .toBe(program("export let n: Int = 1 -- one", "export let area(s: (Float, Float)): Float = 1.0"));
+    expect(everywhere("-- About n.", "export let n: Int = 1; type Po‸int = (Float, Float)"))
+      .toBe(program("-- About n.", "export let n: Int = 1", "export let area(s: (Float, Float)): Float = 1.0"));
+    expect(everywhere("-- About a.", "let a: Int = 1; type Po‸int = (Float, Float); export let b: Int = a"))
+      .toBe(program("-- About a.", "let a: Int = 1; export let b: Int = a", "export let area(s: (Float, Float)): Float = 1.0"));
     // A comment with a blank line between is not the declaration's, and stays,
     // but a documentation comment documents it across blank lines.
-    expect(everywhere("// Shapes.", "", "type Po‸int = (Float, Float)", ""))
-      .toBe(program("// Shapes.", "", "export let area(s: (Float, Float)): Float = 1.0"));
-    expect(everywhere("(** A point. *)", "", "type Po‸int = (Float, Float)", "")).toBe(left);
-    expect(everywhere("(** A point. *)", "export type Po‸int = (Float, Float)"))
-      .toBe(program("(** A point. *)", "export type Point = (Float, Float)", "export let area(s: (Float, Float)): Float = 1.0"));
+    expect(everywhere("-- Shapes.", "", "type Po‸int = (Float, Float)", ""))
+      .toBe(program("-- Shapes.", "", "export let area(s: (Float, Float)): Float = 1.0"));
+    expect(everywhere("{-- A point. -}", "", "type Po‸int = (Float, Float)", "")).toBe(left);
+    expect(everywhere("{-- A point. -}", "export type Po‸int = (Float, Float)"))
+      .toBe(program("{-- A point. -}", "export type Point = (Float, Float)", "export let area(s: (Float, Float)): Float = 1.0"));
   });
 
   test("refused where its body holds a comment, or a use cannot be written out", () => {
-    expect(rewritten(program("type Po‸int = (Float, (* y *) Float)", "export let area(s: Point): Float = 1.0"), WRITE_OUT_EVERYWHERE_TITLE))
+    expect(rewritten(program("type Po‸int = (Float, {- y -} Float)", "export let area(s: Point): Float = 1.0"), WRITE_OUT_EVERYWHERE_TITLE))
       .toBe("refused: The alias's body holds a comment, which writing it out would copy. Move the comment out first.");
     expect(rewritten(
       program("type Pa‸ir(a) = (a, a)", "export let p: Pair(Int) = (1, 2)", "export let f(): Int =", "    let q: Pair(_) = (1, 2)", "    1"),
@@ -1080,8 +1080,8 @@ describe("an alias introduced", () => {
   });
 
   test("below a comment that ends the line above, which is that line's", () => {
-    expect(rewritten(program("let n: Int = 1 // one", "export let area(s: (Float, Fl‸oat)): Float = 1.0"), INTRODUCE_TITLE))
-      .toBe(program("let n: Int = 1 // one", "type NewType = (Float, Float)", "", "export let area(s: NewType): Float = 1.0"));
+    expect(rewritten(program("let n: Int = 1 -- one", "export let area(s: (Float, Fl‸oat)): Float = 1.0"), INTRODUCE_TITLE))
+      .toBe(program("let n: Int = 1 -- one", "type NewType = (Float, Float)", "", "export let area(s: NewType): Float = 1.0"));
   });
 
   test("from the start of a line another item shares", () => {
@@ -1134,8 +1134,8 @@ describe("an alias introduced", () => {
       .toBe(program("type NewType = (Float, Float)", "", "export let f(): Int =", "    let q: NewType = (1.0, 2.0)", "    1"));
     expect(rewritten(program("fun", "    a(p: Float): Float = p", "    b(p: (Float, Fl‸oat)): Float = a(1.0)"), INTRODUCE_TITLE))
       .toBe(program("type NewType = (Float, Float)", "", "fun", "    a(p: Float): Float = p", "    b(p: NewType): Float = a(1.0)"));
-    expect(rewritten(program("", "// Shapes.", "(** The area. *)", "export let area(s: (Float, Fl‸oat)): Float = 1.0"), INTRODUCE_TITLE))
-      .toBe(program("", "type NewType = (Float, Float)", "", "// Shapes.", "(** The area. *)", "export let area(s: NewType): Float = 1.0"));
+    expect(rewritten(program("", "-- Shapes.", "{-- The area. -}", "export let area(s: (Float, Fl‸oat)): Float = 1.0"), INTRODUCE_TITLE))
+      .toBe(program("", "type NewType = (Float, Float)", "", "-- Shapes.", "{-- The area. -}", "export let area(s: NewType): Float = 1.0"));
   });
 
   test("above a constraint, for a type in a member's signature", () => {
@@ -1188,7 +1188,7 @@ describe("an alias introduced", () => {
       "refused: A `type` alias's row tail is fresh at each use, so it cannot be named, and this type names `...r`. " +
         "Introduce the alias for a part of the type without it.",
     );
-    expect(rewritten(program("export let area(s: (Float, (* y *) Fl‸oat)): Float = 1.0"), INTRODUCE_TITLE))
+    expect(rewritten(program("export let area(s: (Float, {- y -} Fl‸oat)): Float = 1.0"), INTRODUCE_TITLE))
       .toBe("refused: A comment inside the type would move into the alias. Move the comment out first.");
   });
 
@@ -1266,14 +1266,14 @@ describe("an alias introduced for every place its type is written", () => {
 
   test("declared above the first place, from whichever place it is asked on", () => {
     expect(rewritten(program(
-      "(** The area. *)",
+      "{-- The area. -}",
       "export let area(s: (Float, Float)): Float = 1.0",
       "",
       "export let move(s: (Float, Fl‸oat)): Float = 1.0",
     ), introduceEverywhereTitle(2))).toBe(program(
       "type NewType = (Float, Float)",
       "",
-      "(** The area. *)",
+      "{-- The area. -}",
       "export let area(s: NewType): Float = 1.0",
       "",
       "export let move(s: NewType): Float = 1.0",
@@ -1401,7 +1401,7 @@ describe("an alias introduced for every place its type is written", () => {
   test("refused where a comment inside the type in another place would be lost", () => {
     const source = program(
       "export let area(s: (Float, Fl‸oat)): Float = 1.0",
-      "export let move(s: (Float, (* y *) Float)): Float = 1.0",
+      "export let move(s: (Float, {- y -} Float)): Float = 1.0",
     );
     expect(rewritten(source, introduceEverywhereTitle(2)))
       .toBe("refused: A comment inside the type in another of its places would be lost. Move the comment out first.");
@@ -1409,7 +1409,7 @@ describe("an alias introduced for every place its type is written", () => {
       "type NewType = (Float, Float)",
       "",
       "export let area(s: NewType): Float = 1.0",
-      "export let move(s: (Float, (* y *) Float)): Float = 1.0",
+      "export let move(s: (Float, {- y -} Float)): Float = 1.0",
     ));
   });
 });
@@ -1436,8 +1436,8 @@ describe("the check of what an introduced alias leaves", () => {
     expect(reads("type Other = (Float, Float)", "NewType")).toBe(false);
     expect(reads("let NewType = 1", "Float")).toBe(false);
     expect(reads("type NewType = (Float, Float)", "Float")).toBe(false);
-    expect(reads("type NewType = (Float, Float)\n// note", "NewType")).toBe(false);
-    expect(reads("type NewType = (Float, Float)\n(** note *)", "NewType")).toBe(false);
+    expect(reads("type NewType = (Float, Float)\n-- note", "NewType")).toBe(false);
+    expect(reads("type NewType = (Float, Float)\n{-- note -}", "NewType")).toBe(false);
   });
 
   test("nor an alias not written where the type was", () => {
@@ -1447,25 +1447,25 @@ describe("the check of what an introduced alias leaves", () => {
   });
 
   test("nor a documentation comment moved onto the alias", () => {
-    const documented = "module Main\n(** The area. *)\nexport let area(s: (Float, Float)): Float = 1.0\n";
-    const at = documented.indexOf("(**");
-    const replacement = "(** The area. *)\ntype NewType = (Float, Float)\nexport let area(s: NewType";
+    const documented = "module Main\n{-- The area. -}\nexport let area(s: (Float, Float)): Float = 1.0\n";
+    const at = documented.indexOf("{--");
+    const replacement = "{-- The area. -}\ntype NewType = (Float, Float)\nexport let area(s: NewType";
     const edit = { start: at, end: documented.indexOf("): Float"), replacement };
     const placed = new Source.File(Source.fileId(1), "/main.hex", documented);
     expect(readsIntroduced(placed, edit, documented.length - 1, "NewType", [[replacement.length - "NewType".length, replacement.length]])).toBe(false);
   });
 
   test("nor a documentation comment written otherwise", () => {
-    const documented = "module Main\n(** The area. *)\nexport let area(s: (Float, Float)): Float = 1.0\n";
-    const at = documented.indexOf("(**");
+    const documented = "module Main\n{-- The area. -}\nexport let area(s: (Float, Float)): Float = 1.0\n";
+    const at = documented.indexOf("{--");
     const placed = new Source.File(Source.fileId(1), "/main.hex", documented);
     const reads = (doc: string): boolean => {
       const replacement = `type NewType = (Float, Float)\n\n${doc}\nexport let area(s: NewType`;
       const edit = { start: at, end: documented.indexOf("): Float"), replacement };
       return readsIntroduced(placed, edit, documented.length - 1, "NewType", [[replacement.length - "NewType".length, replacement.length]]);
     };
-    expect(reads("(** The area. *)")).toBe(true);
-    expect(reads("(** The size. *)")).toBe(false);
+    expect(reads("{-- The area. -}")).toBe(true);
+    expect(reads("{-- The size. -}")).toBe(false);
   });
 });
 

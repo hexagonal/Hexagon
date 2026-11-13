@@ -4007,7 +4007,9 @@ class JavaScriptEmitter {
       const comments = trailing.get(item) ?? [];
       if (comments.length > 0 && lines.length > 0) {
         const last = lines.length - 1;
-        lines[last] = `${lines[last]} ${comments.map(({ text }) => text).join(" ")}`;
+        // Only line comments trail an item (`trailingComments`), and each is
+        // emitted in JavaScript's spelling.
+        lines[last] = `${lines[last]} ${comments.map(({ text }) => `//${text.slice(2)}`).join(" ")}`;
       }
       // An item that emits nothing has nothing to precede, and one whose
       // emitted forms are its members' rather than its own has no seat for the

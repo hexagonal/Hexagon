@@ -132,16 +132,16 @@ describe("a dot call written as its qualified call", () => {
       .toBe(main("export let go(s: Geo.Shape): Unit = Geo.draw!(s)"));
     expect(rewritten(main("export let a(s: Geo.Shape): Geo.Shape = s.sc‸ale(", "    2.0)"), as("Geo.scale")))
       .toBe(main("export let a(s: Geo.Shape): Geo.Shape = Geo.scale(s,", "    2.0)"));
-    expect(rewritten(main("export let a(s: Geo.Shape): Geo.Shape = s.sc‸ale(2.0 (* twice *))"), as("Geo.scale")))
-      .toBe(main("export let a(s: Geo.Shape): Geo.Shape = Geo.scale(s, 2.0 (* twice *))"));
-    expect(rewritten(main("export let a(s: Geo.Shape): Float = s.ar‸ea((* none *))"), as("Geo.area")))
-      .toBe(main("export let a(s: Geo.Shape): Float = Geo.area(s (* none *))"));
-    expect(rewritten(prelude("export let n: Int = [1, (* two *) 2].len‸gth()"), as("Vector.length")))
-      .toBe(prelude("export let n: Int = Vector.length([1, (* two *) 2])"));
+    expect(rewritten(main("export let a(s: Geo.Shape): Geo.Shape = s.sc‸ale(2.0 {- twice -})"), as("Geo.scale")))
+      .toBe(main("export let a(s: Geo.Shape): Geo.Shape = Geo.scale(s, 2.0 {- twice -})"));
+    expect(rewritten(main("export let a(s: Geo.Shape): Float = s.ar‸ea({- none -})"), as("Geo.area")))
+      .toBe(main("export let a(s: Geo.Shape): Float = Geo.area(s {- none -})"));
+    expect(rewritten(prelude("export let n: Int = [1, {- two -} 2].len‸gth()"), as("Vector.length")))
+      .toBe(prelude("export let n: Int = Vector.length([1, {- two -} 2])"));
     expect(rewritten(main("export let a(s: Geo.Shape): Float = (s).ar‸ea()"), as("Geo.area")))
       .toBe(main("export let a(s: Geo.Shape): Float = Geo.area(s)"));
-    expect(rewritten(main("export let a(s: Geo.Shape): Float = s.ar‸ea() // the area"), as("Geo.area")))
-      .toBe(main("export let a(s: Geo.Shape): Float = Geo.area(s) // the area"));
+    expect(rewritten(main("export let a(s: Geo.Shape): Float = s.ar‸ea() -- the area"), as("Geo.area")))
+      .toBe(main("export let a(s: Geo.Shape): Float = Geo.area(s) -- the area"));
   });
 
   test("with space or a line break between its name and its arguments", () => {
@@ -272,13 +272,13 @@ describe("where it is refused", () => {
     // Written over two lines, quoted on one, without its comments.
     expect(rewritten(["module Main", "export let a(s: G.Shape): Float = s.ar‸ea()", "import Geo", "    as G", ""].join("\n"), as("G.area")))
       .toBe(below("import Geo as G"));
-    expect(rewritten(["module Main // the app", "export let a(s: G.Shape): Float = s.ar‸ea()", "import Geo // geometry", "    as G", ""].join("\n"), as("G.area")))
+    expect(rewritten(["module Main -- the app", "export let a(s: G.Shape): Float = s.ar‸ea()", "import Geo -- geometry", "    as G", ""].join("\n"), as("G.area")))
       .toBe(below("import Geo as G"));
-    expect(rewritten(["module Main", "export let a(s: G.Shape): Float = s.ar‸ea()", "import Geo(* shapes *)as G", ""].join("\n"), as("G.area")))
+    expect(rewritten(["module Main", "export let a(s: G.Shape): Float = s.ar‸ea()", "import Geo{- shapes -}as G", ""].join("\n"), as("G.area")))
       .toBe(below("import Geo as G"));
     // Not a comment after it.
     expect(rewritten(
-      ["module Main", "export let a(s: G.Shape): Float = s.ar‸ea()", "import Geo as G", "export let b: Int = 1 // one", ""].join("\n"),
+      ["module Main", "export let a(s: G.Shape): Float = s.ar‸ea()", "import Geo as G", "export let b: Int = 1 -- one", ""].join("\n"),
       as("G.area"),
     )).toBe(below("import Geo as G"));
   });
@@ -309,9 +309,9 @@ describe("where it is refused", () => {
 
   test("a comment before the dot or before the arguments, which would be lost", () => {
     const lost = "refused: A comment inside it would be lost. Move the comment out first.";
-    expect(rewritten(main("export let a(s: Geo.Shape): Float = s // the shape", "    .ar‸ea()"), as("Geo.area"))).toBe(lost);
-    expect(rewritten(main("export let a(s: Geo.Shape): Geo.Shape = s.sc‸ale(* by *)(2.0)"), as("Geo.scale"))).toBe(lost);
-    expect(rewritten(main("export let a(s: Geo.Shape): Geo.Shape = s.sc‸ale // by", "    (2.0)"), as("Geo.scale"))).toBe(lost);
+    expect(rewritten(main("export let a(s: Geo.Shape): Float = s -- the shape", "    .ar‸ea()"), as("Geo.area"))).toBe(lost);
+    expect(rewritten(main("export let a(s: Geo.Shape): Geo.Shape = s.sc‸ale{- by -}(2.0)"), as("Geo.scale"))).toBe(lost);
+    expect(rewritten(main("export let a(s: Geo.Shape): Geo.Shape = s.sc‸ale -- by", "    (2.0)"), as("Geo.scale"))).toBe(lost);
   });
 });
 
