@@ -116,7 +116,7 @@ export function planReturnAnnotation(
   if (writeEdits === undefined) {
     return {
       ...subject,
-      refused: `\`${item.binding.name}\` has no closed parameter list to write a return type after`,
+      refused: `\`${item.binding.name}\` has no closed parameter list to write a return type after.`,
     };
   }
 
@@ -152,7 +152,7 @@ export function planReturnAnnotation(
     return {
       ...subject,
       refused:
-        `the return type of \`${item.binding.name}\` cannot be written here: ${spelled.unspellable}`,
+        `The return type of \`${item.binding.name}\` cannot be written here: ${spelled.unspellable}.`,
     };
   }
 
@@ -246,9 +246,9 @@ function unsettledByABareParameter(
     // an empty vector, say. The sentence stays general rather than blaming a
     // parameter that is not the reason.
     return owner === undefined
-      ? `the signature of \`${name}\` is not complete yet, so its result type is not settled`
+      ? `The signature of \`${name}\` is not complete yet, so its result type is not settled.`
       : `\`${displayParameterName(owner.name)}\` has no type yet, ` +
-        `so the result type of \`${name}\` is not settled`;
+        `so the result type of \`${name}\` is not settled.`;
   }
   return undefined;
 }
@@ -438,7 +438,7 @@ export function unsettledDeclaration(
       // sentences say the same thing about the same error — and worth knowing
       // before trusting the word to point at a region.
       const where = start.offset >= body ? "body" : "signature";
-      return `the ${where} of ${name} has an error to fix first: ${diagnostic.message}`;
+      return `The ${where} of ${name} has an error to fix first: ${diagnostic.message}.`;
     }
   }
   // Over the body alone. Widening it to the whole declaration changes no answer
@@ -447,12 +447,12 @@ export function unsettledDeclaration(
   // — so the narrower region is the one that matches what the sentence says.
   const unclosed = unclosedGroupIn(lexed, body, to);
   if (unclosed !== undefined) {
-    return `the body of ${name} has an unclosed \`${unclosed}\`, ` +
-      "so its type is not settled yet";
+    return `The body of ${name} has an unclosed \`${unclosed}\`, ` +
+      "so its type is not settled yet.";
   }
   return separated(laidOut, to)
     ? undefined
-    : `the parser could not carry on past ${name}, so its type is not settled yet`;
+    : `The parser could not carry on past ${name}, so its type is not settled yet.`;
 }
 
 /**

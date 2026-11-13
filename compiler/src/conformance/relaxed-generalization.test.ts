@@ -308,7 +308,7 @@ describe("§6 declared variance on `opaque`", () => {
     );
     expect(messages).toContain(
       "`a` cannot be declared covariant in `Sink`: field `accept` uses `a` in argument " +
-        "position. Remove the `+`, or change the field",
+        "position; remove the `+`, or change the field",
     );
   });
 
@@ -346,7 +346,7 @@ describe("§6 declared variance on `opaque`", () => {
     const compiled = compileFiles([["/main.hex", "module Main\n\n" + text]]);
     expect(compiled.diagnostics.map(({ message }) => message)).toEqual([
       "`a` cannot be declared covariant in `Sink`: field `first` uses `a` in " +
-      "argument position. Remove the `+`, or change the field",
+      "argument position; remove the `+`, or change the field",
     ]);
     // ...and the label follows the message, rather than pointing somewhere else.
     const label = compiled.diagnostics[0]!.labels![0]!;
@@ -667,7 +667,7 @@ describe("§5.3 the compiler-side claim table", () => {
       ),
     ).toEqual([
       "`a` cannot be declared covariant in `W`: field `v` uses `a` in an " +
-        "invariant position. Remove the `+`, or change the field",
+        "invariant position; remove the `+`, or change the field",
     ]);
   });
 });

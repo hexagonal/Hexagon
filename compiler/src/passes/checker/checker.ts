@@ -9605,13 +9605,13 @@ class Checker {
         return this.#unsupported(
           callee.field.span,
           `\`${name}\` after a dot is ambiguous at \`${this.#display(actual)}\`: ` +
-            `${claimants.join(", ")}. Write ` +
+            `${claimants.join(", ")}; write ` +
             `${members.map((member) => this.#memberSpelling(member)).join(" or ")}` +
             `${
               operation === undefined
                 ? ""
                 : `, or \`${this.#display(actual)}.${name}(…)\` for the companion operation`
-            }${recordHasField ? `, or \`(…​.${name})\` for the field` : ""}.`,
+            }${recordHasField ? `, or \`(…​.${name})\` for the field` : ""}`,
         );
       }
       this.#settleDeferredReceiver(callee.receiver, receiver);
@@ -9644,7 +9644,7 @@ class Checker {
               // Constraints §8: a door's body reaches its own binding in no
               // spelling, the dot included (§4.8).
               ? "a `widens` door cannot call itself — let a function recurse by itself, and call it from the door"
-              : `\`${name}\` is not in scope in its own \`let\` definition; \`let\` is non-recursive — use \`fun\`.`
+              : `\`${name}\` is not in scope in its own \`let\` definition; \`let\` is non-recursive — use \`fun\``
             : this.#noSuchOperation(actual, name, claimed)),
       );
     }
@@ -10115,8 +10115,8 @@ class Checker {
         callee.field.span,
         `\`${name}\` after a dot is ambiguous on \`${variable.rigidName}\`: ` +
           `${members.map(({ constraint }) => `\`${constraint}\``).join(" and ")} each ` +
-          `declare a member \`${name}\`. Write ` +
-          `${members.map((member) => this.#memberSpelling(member)).join(" or ")}.`,
+          `declare a member \`${name}\`; write ` +
+          `${members.map((member) => this.#memberSpelling(member)).join(" or ")}`,
       );
     }
     // §9 row 7. The bounds are the entire candidate set, so the message says so
@@ -20359,12 +20359,12 @@ class Checker {
         `\`${this.#display(face)}\` honors \`${rung}\`, so the ` +
         `\`${this.#display(face)}\` here reached the receiver` +
         `${receiver_ === undefined ? "" : ` \`${receiver_}\``}; ` +
-        `${this.#standDownSentence(note, named)}.` +
+        `${this.#standDownSentence(note, named)}` +
         // A repair is offered only where it compiles: the stood-down call has to
         // follow to the type it kept (`(p ** i: Foo)` needs `Pow<Foo>`), and a
         // binding runs the same operation there (Modules §7.6).
         (this.#followsAtType(found.at, undefined, note.ranType)
-          ? ` ${this.#boundaryRepair(found.at, note.ranType, true)}`
+          ? `; ${this.#boundaryRepair(found.at, note.ranType, true)}`
           : ""),
     };
   }
@@ -20438,7 +20438,7 @@ class Checker {
       // disagreed once the face had entered one of them.
       if (!follows(kept)) return mismatch;
       const repair = this.#boundaryRepair(enclosing.callee.receiver, kept, false);
-      return repair === undefined ? mismatch : `${mismatch}. ${repair}`;
+      return repair === undefined ? mismatch : `${mismatch}; ${repair}`;
     };
   }
 
@@ -20542,9 +20542,9 @@ class Checker {
     const written = this.#typeSpellingAtSite(kept);
     const ran = this.#display(kept);
     if (spelling === undefined || written === undefined) {
-      return binding ? `To keep it at \`${ran}\`, bind it first` : undefined;
+      return binding ? `to keep it at \`${ran}\`, bind it first` : undefined;
     }
-    return `To keep \`${spelling}\` at \`${ran}\`, ascribe it — ` +
+    return `to keep \`${spelling}\` at \`${ran}\`, ascribe it — ` +
       `\`(${spelling}: ${written})\`${binding ? " — or bind it first" : ""}`;
   }
 
@@ -42060,8 +42060,8 @@ class Checker {
             this.#generalises(door.binding.symbol, candidate, subject, item.span)
           ? "a member's wider face is declared, not exported — write " +
             `\`widens ${moduleAlias(item.constraint)}.${candidate.member}(…)\` ` +
-            `and account for the member with \`${candidate.member} = widened\`.`
-          : "Hexagon does not allow rebinding — choose a different name.";
+            `and account for the member with \`${candidate.member} = widened\``
+          : "Hexagon does not allow rebinding — choose a different name";
         const claimFirst = item.span.start.offset < bound.start.offset;
         this.#diagnostics.add({
           severity: "error",
@@ -44305,8 +44305,8 @@ class Checker {
             ? `\`${declared.name}\` cannot be declared ${claimed} in \`${item.name}\`; ` +
               `remove the \`${sigil}\`, or change the representation`
             : `\`${declared.name}\` cannot be declared ${claimed} in \`${item.name}\`: ` +
-              `${slot} \`${witness.field}\` uses \`${declared.name}\` ${positionPhrase(witness.variance)}. ` +
-              `Remove the \`${sigil}\`, or change the ${slot}`,
+              `${slot} \`${witness.field}\` uses \`${declared.name}\` ${positionPhrase(witness.variance)}; ` +
+              `remove the \`${sigil}\`, or change the ${slot}`,
           primary: declared.span,
           ...(witness === undefined ? {} : {
             labels: [{
@@ -44363,8 +44363,8 @@ class Checker {
                 `\`${declaration.localName}\`; remove the \`${sigil}\`, or change its ${through}`
               : `\`${declared.name}\` cannot be declared ${claimed} in ` +
                 `\`${declaration.localName}\`: field \`${witness.field}\` of its ${through} ` +
-                `uses the parameter ${positionPhrase(witness.variance)}. ` +
-                `Remove the \`${sigil}\`, or change the field`,
+                `uses the parameter ${positionPhrase(witness.variance)}; ` +
+                `remove the \`${sigil}\`, or change the field`,
             primary: declared.span,
           });
         }
@@ -47832,8 +47832,8 @@ function receiverSpelling(receiver: Resolved.Expr): string {
 function arrayLengthReadMessage(receiver: string): string {
   return "`Array(a)` is a captured foreign collection, not a record: it has no fields, " +
     "and a property read does not cross the boundary — the companion call is the " +
-    `read. Write \`Array.length(${receiver})\`, or \`${receiver}.length()\` for the ` +
-    "smallest edit.";
+    `read; write \`Array.length(${receiver})\`, or \`${receiver}.length()\` for the ` +
+    "smallest edit";
 }
 
 /**

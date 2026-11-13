@@ -219,7 +219,7 @@ describe("toRenameEdits", () => {
     const rejected = toRenameEdits(target, undefined);
 
     expect(rejected.edits).toEqual([]);
-    expect(rejected.rejectReason).toBe("Hexagon has no rename for this position");
+    expect(rejected.rejectReason).toBe("Hexagon has no rename for this position.");
   });
 });
 

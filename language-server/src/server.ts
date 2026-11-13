@@ -781,7 +781,7 @@ function manifestActions(
     if (edit === undefined) continue;
     const uri = buffer?.uri ?? workspace.uris.toUri(manifest.path);
     offered.set(entry, {
-      title: `add \`"${entry}"\` to \`dependencies\` in ${MANIFEST_NAME}`,
+      title: `Add \`"${entry}"\` to \`dependencies\` in ${MANIFEST_NAME}`,
       kind: CodeActionKind.QuickFix,
       ...(current === undefined
         ? {

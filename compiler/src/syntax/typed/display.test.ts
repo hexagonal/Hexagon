@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import * as Source from "../../support/source.js";
-import { displayCallFace, displayFace, displayScheme } from "./display.js";
+import { displayCallFace, displayFace, displayScheme, glossSentences } from "./display.js";
 import { type Effect, typeVariableId, type Scheme, type Type } from "./tree.js";
 import { unionId } from "../resolved/tree.js";
 
@@ -617,5 +617,26 @@ describe("displayFace: the gloss names a face's own callbacks (Effects §10, #15
   test("a scheme with no list of its own is named by its module's", () => {
     expect(displayFace(run(), elsewhere).owners)
       .toEqual(["impure only if `theirs` is impure; may fail only if `theirs` may fail"]);
+  });
+});
+
+describe("glossSentences", () => {
+  test("each clause is a sentence, capitalised and closed, one space between", () => {
+    expect(glossSentences("impure only if `f` is impure; may fail only if `f` may fail"))
+      .toBe("Impure only if `f` is impure. May fail only if `f` may fail.");
+    expect(glossSentences("impure; may fail")).toBe("Impure. May fail.");
+    expect(glossSentences("pure; may fail only if `validate` or `onEvent` may fail"))
+      .toBe("Pure. May fail only if `validate` or `onEvent` may fail.");
+    expect(glossSentences("impure; cannot fail")).toBe("Impure. Cannot fail.");
+  });
+
+  test("a clause that opens with code keeps it as written and is still closed", () => {
+    expect(glossSentences("`outer`'s `action` decides; may fail")).toBe("`outer`'s `action` decides. May fail.");
+  });
+
+  test("it splits on the join, never on a `;` inside code", () => {
+    expect(glossSentences("impure only if `a; b` is impure; may fail"))
+      .toBe("Impure only if `a; b` is impure. May fail.");
+    expect(glossSentences("impure only if `a;b` is impure")).toBe("Impure only if `a;b` is impure.");
   });
 });

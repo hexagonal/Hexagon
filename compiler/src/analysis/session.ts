@@ -1203,7 +1203,10 @@ export class AnalysisSession {
         });
       }
     }
-    return answered;
+    // Every action is a menu item, so its title is a title (Declarations
+    // Preamble §1.3), whatever wrote it: a fix's message is a phrase where it
+    // was written, and only here does it become one.
+    return answered.map((action) => ({ ...action, title: menuTitle(action.title) }));
   }
 
   /**
@@ -1309,7 +1312,7 @@ export class AnalysisSession {
           exporters
             .map((exporter) => `\`${displayModuleName(exporter.name, requesting)}\``)
             .join(", ") +
-          " — write the import for the one you mean",
+          " — write the import for the one you mean.",
       };
     }
     // #829: a module import names a module and carries no path, so the line is
@@ -1435,7 +1438,7 @@ export class AnalysisSession {
     for (const [owner, text] of this.#texts) {
       probe.setFile(owner, owner === path ? applyEdits(text, plan.edits) : text);
     }
-    const written = `writing \`: ${plan.annotation}\``;
+    const written = `Writing \`: ${plan.annotation}\``;
 
     const declaration = plan.binding.start.offset;
     // Both halves matter, though only one of them can be reached today: an
@@ -1462,12 +1465,12 @@ export class AnalysisSession {
     const was = diagnosticTally(before.elsewhere, []);
     for (const [key, appearance] of diagnosticTally(after.elsewhere, [])) {
       if ((was.get(key)?.count ?? 0) >= appearance.count) continue;
-      return `${written} would break \`${appearance.path}\`: ${appearance.message}`;
+      return `${written} would break \`${appearance.path}\`: ${appearance.message}.`;
     }
     if (after.here.length > before.here.length) {
       const fresh = after.here.find((message) => !before.here.includes(message));
       return `${written} would report a new problem with \`${plan.name}\`` +
-        (fresh === undefined ? "" : `: ${fresh}`);
+        (fresh === undefined ? "" : `: ${fresh}`) + ".";
     }
 
     const now = probe.#analyze().schemeAt(path, declaration);
@@ -1478,10 +1481,10 @@ export class AnalysisSession {
       // add an annotation to a signature that already parsed. It is the answer
       // to "compare the two types" when there is no second type, and guessing
       // that no news is good news is the wrong default for that question.
-      return `${written} would leave \`${plan.name}\` without a type at all`;
+      return `${written} would leave \`${plan.name}\` without a type at all.`;
     }
     if (meant !== undefined && now !== meant) {
-      return `${written} would change the type of \`${plan.name}\` from \`${meant}\` to \`${now}\``;
+      return `${written} would change the type of \`${plan.name}\` from \`${meant}\` to \`${now}\`.`;
     }
     return undefined;
   }
@@ -1539,12 +1542,12 @@ export class AnalysisSession {
     for (const [key, appearance] of diagnosticTally(after.others, [])) {
       if ((was.get(key)?.count ?? 0) >= appearance.count) continue;
       return appearance.path === path
-        ? `${doing} would report a new problem: ${appearance.message}`
-        : `${doing} would break \`${appearance.path}\`: ${appearance.message}`;
+        ? `${doing} would report a new problem: ${appearance.message}.`
+        : `${doing} would break \`${appearance.path}\`: ${appearance.message}.`;
     }
     if (after.incomplete.length > before.incomplete.length) {
       const fresh = after.incomplete.find((message) => !before.incomplete.includes(message)) ?? after.incomplete[0]!;
-      return `${doing} would report a new problem: ${fresh}`;
+      return `${doing} would report a new problem: ${fresh}.`;
     }
 
     // Where the edit moved each name: past every edit that ends at or before it.
@@ -1562,7 +1565,7 @@ export class AnalysisSession {
         // A name the edit took away would have been reported: the edits write
         // and remove types, never names.
         if (is[at] !== was[at]) {
-          return `${doing} would change the type of \`${symbol.name}\` from \`${was[at]}\` to \`${is[at] ?? "nothing"}\``;
+          return `${doing} would change the type of \`${symbol.name}\` from \`${was[at]}\` to \`${is[at] ?? "nothing"}\`.`;
         }
       }
     }
@@ -1654,7 +1657,7 @@ export class AnalysisSession {
         refused:
           `\`${name}\` is generated from \`extern enum ${generated}\` ` +
           "(Foreign Enums §5.2), so its spelling is not chosen — rename the " +
-          `type \`${generated}\`, and every use of this name follows`,
+          `type \`${generated}\`, and every use of this name follows.`,
       };
     }
     // One offset can carry more than one identity — a record's name is its type
@@ -1692,7 +1695,7 @@ export class AnalysisSession {
     const definition = this.#definitionOf(analysis, targets);
     if (definition === undefined) {
       return {
-        refused: `\`${name}\` is built into the compiler, so it has no declaration to rename`,
+        refused: `\`${name}\` is built into the compiler, so it has no declaration to rename.`,
       };
     }
     // The declaring module, worked out **here** rather than at the seat that
@@ -1749,7 +1752,7 @@ export class AnalysisSession {
           // program this slice compiles could tell the difference.
           return {
             refused: `\`${name}\` is declared in module \`${declaring ?? owner}\`, ` +
-              "which this project does not own",
+              "which this project does not own.",
           };
         }
         const key = `${owner}@${occurrence.span.start.offset}:${occurrence.span.end.offset}`;
@@ -1916,8 +1919,8 @@ export class AnalysisSession {
       if ((before.get(key)?.count ?? 0) >= appearance.count) continue;
       return {
         refused:
-          `renaming \`${name}\` to \`${newName}\` would break \`${appearance.path}\`: ` +
-          appearance.message,
+          `Renaming \`${name}\` to \`${newName}\` would break \`${appearance.path}\`: ` +
+          `${appearance.message}.`,
       };
     }
 
@@ -1949,8 +1952,8 @@ export class AnalysisSession {
       const [owner, line] = readSite(site);
       return {
         refused:
-          `renaming \`${name}\` to \`${newName}\` would change what the code means: ` +
-          `the name at \`${owner}\` line ${line} would stop meaning what it means now`,
+          `Renaming \`${name}\` to \`${newName}\` would change what the code means: ` +
+          `the name at \`${owner}\` line ${line} would stop meaning what it means now.`,
       };
     }
     for (const site of isMeant.keys()) {
@@ -1958,9 +1961,9 @@ export class AnalysisSession {
       const [owner, line] = readSite(site);
       return {
         refused:
-          `renaming \`${name}\` to \`${newName}\` would change what the code means: ` +
+          `Renaming \`${name}\` to \`${newName}\` would change what the code means: ` +
           `\`${owner}\` line ${line} would become a name the compiler resolves, ` +
-          "where today it resolves to nothing",
+          "where today it resolves to nothing.",
       };
     }
     return undefined;
@@ -2516,14 +2519,14 @@ function checkNewName(current: string, proposed: string): RenameRefusal | undefi
     return {
       refused:
         `\`${proposed}\` is not a name Hexagon can read: it has to be one identifier, ` +
-        "and not a keyword",
+        "and not a keyword.",
     };
   }
   if (token.text.startsWith("__")) {
     return {
       refused:
         `\`${proposed}\` begins with \`__\`, which is reserved for compiler-generated ` +
-        "names — a binding spelled that way could collide with one the compiler writes",
+        "names — a binding spelled that way could collide with one the compiler writes.",
     };
   }
   const existing = soleNameToken(current);
@@ -2535,7 +2538,7 @@ function checkNewName(current: string, proposed: string): RenameRefusal | undefi
     refused:
       `\`${capitalized}\` starts with a capital letter and \`${plain}\` does not. ` +
       "Hexagon reads those as two different kinds of name, so this would not be " +
-      "a rename but a different declaration",
+      "a rename but a different declaration.",
   };
 }
 
@@ -2551,6 +2554,16 @@ function soleNameToken(candidate: string): Lexed.NameToken | undefined {
   // lexed — `a b`, `a.b` — leaves a token behind after the name.
   if (token.text !== candidate) return undefined;
   return rest.every(({ kind }) => kind === "Eof") ? token : undefined;
+}
+
+/**
+ * Text as a menu shows it (Declarations Preamble §1.3): a capital first letter,
+ * and no closing period. A title that opens with code, or with a capital
+ * already, keeps its opening as written.
+ */
+export function menuTitle(text: string): string {
+  const opened = /^[a-z]/.test(text) ? text.charAt(0).toUpperCase() + text.slice(1) : text;
+  return opened.endsWith(".") && !opened.endsWith("...") ? opened.slice(0, -1) : opened;
 }
 
 /**

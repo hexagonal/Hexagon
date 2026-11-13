@@ -27,7 +27,7 @@ describe("the pending clause under a full compile", () => {
         "    y\n",
     )).toEqual([
       "`y` is already being defined by the enclosing `let` (line 3); " +
-        "Hexagon does not allow rebinding — choose a different name.",
+        "Hexagon does not allow rebinding — choose a different name",
     ]);
   });
 
@@ -45,7 +45,7 @@ describe("the pending clause under a full compile", () => {
         "        equals\n",
     )).toEqual([
       "`equals` is already being defined by the enclosing member definition " +
-        "(line 5); Hexagon does not allow rebinding — choose a different name.",
+        "(line 5); Hexagon does not allow rebinding — choose a different name",
     ]);
   });
 
@@ -63,7 +63,7 @@ describe("the pending clause under a full compile", () => {
         "    show\n",
     )).toEqual([
       "`show` is already being defined by the enclosing `let` (line 3); " +
-        "Hexagon does not allow rebinding — choose a different name.",
+        "Hexagon does not allow rebinding — choose a different name",
     ]);
 
     // The `fun` claimant gets the identical treatment — the diagnostic must
@@ -74,7 +74,7 @@ describe("the pending clause under a full compile", () => {
         "    show(1)\n",
     )).toEqual([
       "`show` is already being defined by the enclosing `let` (line 3); " +
-        "Hexagon does not allow rebinding — choose a different name.",
+        "Hexagon does not allow rebinding — choose a different name",
     ]);
   });
 
@@ -90,7 +90,7 @@ describe("the pending clause under a full compile", () => {
         "        equals\n",
     )).toEqual([
       "`equals` is already being defined by the enclosing member definition " +
-        "(line 5); Hexagon does not allow rebinding — choose a different name.",
+        "(line 5); Hexagon does not allow rebinding — choose a different name",
     ]);
   });
 
@@ -104,7 +104,7 @@ describe("the pending clause under a full compile", () => {
         "    show + z\n",
     )).toEqual([
       "`show` is already being defined by the enclosing `let` (line 3); " +
-        "Hexagon does not allow rebinding — choose a different name.",
+        "Hexagon does not allow rebinding — choose a different name",
     ]);
   });
 
@@ -119,9 +119,9 @@ describe("the pending clause under a full compile", () => {
         "    y\n",
     )).toEqual([
       "`y` is already being defined by the enclosing `let` (line 3); " +
-        "Hexagon does not allow rebinding — choose a different name.",
+        "Hexagon does not allow rebinding — choose a different name",
       "`y` is already being defined by the enclosing `let` (line 4); " +
-        "Hexagon does not allow rebinding — choose a different name.",
+        "Hexagon does not allow rebinding — choose a different name",
     ]);
   });
 
@@ -137,7 +137,7 @@ describe("the pending clause under a full compile", () => {
         "    map\n",
     )).toEqual([
       "`map` is already being defined by the enclosing `let` (line 3); " +
-        "Hexagon does not allow rebinding — choose a different name.",
+        "Hexagon does not allow rebinding — choose a different name",
     ]);
   });
 
@@ -155,7 +155,7 @@ describe("the pending clause under a full compile", () => {
         "        describe\n",
     )).toEqual([
       "`describe` is already being defined by the enclosing member definition " +
-        "(line 7); Hexagon does not allow rebinding — choose a different name.",
+        "(line 7); Hexagon does not allow rebinding — choose a different name",
     ]);
   });
 
@@ -176,7 +176,7 @@ describe("the pending clause under a full compile", () => {
         "        \"z\"\n",
     )).toEqual([
       "`first` is already bound (line 4); Hexagon does not allow rebinding " +
-        "— choose a different name.",
+        "— choose a different name",
     ]);
   });
 
@@ -207,7 +207,7 @@ describe("the pending clause under a full compile", () => {
         "        pick == pick\n",
     )).toEqual([
       "`equals` is already bound (line 6); Hexagon does not allow rebinding " +
-        "— choose a different name.",
+        "— choose a different name",
     ]);
   });
 });

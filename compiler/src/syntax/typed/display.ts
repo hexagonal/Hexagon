@@ -210,7 +210,40 @@ function ownerLines(scheme: Typed.Scheme, context: ColourContext | undefined): r
     : typeof arrow.fail === "object"
     ? `may fail only if ${followed(arrow.fail)} may fail`
     : "may fail";
-  return [`${world}; ${fail}`];
+  return [`${world}${glossJoin}${fail}`];
+}
+
+/** What joins the gloss's two clauses where it is a phrase (Effects §10). */
+const glossJoin = "; ";
+
+/**
+ * The gloss as it reads on a line of its own, in hover and in signature help:
+ * each clause a sentence, "Impure only if `f` is impure. May fail." The gloss
+ * is a phrase wherever it is attached, as an inlay hint, a completion's detail
+ * and a report's note are, and is stored so; this is the one place it becomes
+ * sentences (Declarations Preamble §1.3). It splits on the join `ownerLines`
+ * writes and on nothing inside code, so a `;` a quoted name might hold stays in
+ * its clause; a clause that opens with code keeps the code as written.
+ */
+export function glossSentences(gloss: string): string {
+  const clauses: string[] = [];
+  let start = 0;
+  let inCode = false;
+  for (let index = 0; index < gloss.length; index += 1) {
+    if (gloss[index] === "`") inCode = !inCode;
+    else if (!inCode && gloss.startsWith(glossJoin, index)) {
+      clauses.push(gloss.slice(start, index));
+      start = index + glossJoin.length;
+      index = start - 1;
+    }
+  }
+  clauses.push(gloss.slice(start));
+  return clauses
+    .map((clause) => {
+      const capital = clause.startsWith("`") ? clause : clause.charAt(0).toUpperCase() + clause.slice(1);
+      return capital.endsWith(".") ? capital : `${capital}.`;
+    })
+    .join(" ");
 }
 
 /**

@@ -35,7 +35,7 @@ describe("what the claim reaches", () => {
       "",
     ].join("\n"))).toEqual([
       "the `Show<Box>` instance binds `show`, which is already bound (line 5); " +
-        "Hexagon does not allow rebinding — choose a different name.",
+        "Hexagon does not allow rebinding — choose a different name",
     ]);
   });
 
@@ -66,11 +66,11 @@ describe("what the claim reaches", () => {
 
     expect(asFun).toContain(
       "the `Show<Box>` instance binds `show`, which is already bound (line 3); " +
-        "Hexagon does not allow rebinding — choose a different name.",
+        "Hexagon does not allow rebinding — choose a different name",
     );
     expect(asPattern).toContain(
       "the `Ord<Box>` instance binds `compare`, which is already bound (line 3); " +
-        "Hexagon does not allow rebinding — choose a different name.",
+        "Hexagon does not allow rebinding — choose a different name",
     );
   });
 
@@ -93,7 +93,7 @@ describe("what the claim reaches", () => {
       "",
     ].join("\n"))).toEqual([
       "the `Eq<Odd>` instance binds `notEquals`, which is already bound (line 5); " +
-        "Hexagon does not allow rebinding — choose a different name.",
+        "Hexagon does not allow rebinding — choose a different name",
     ]);
   });
 
@@ -114,7 +114,7 @@ describe("what the claim reaches", () => {
       "",
     ].join("\n"))).toEqual([
       "`equals` is already bound: the `Eq<Colour>` instance binds it as a member " +
-        "(line 3); Hexagon does not allow rebinding — choose a different name.",
+        "(line 3); Hexagon does not allow rebinding — choose a different name",
     ]);
   });
 
@@ -132,7 +132,7 @@ describe("what the claim reaches", () => {
       "",
     ].join("\n"))).toEqual([
       "`show` is already bound: the `Show<Point>` instance binds it as a member " +
-        "(line 3); Hexagon does not allow rebinding — choose a different name.",
+        "(line 3); Hexagon does not allow rebinding — choose a different name",
     ]);
   });
 });

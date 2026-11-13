@@ -89,7 +89,7 @@ function compile(
       diagnostics: [
         {
           severity: "error",
-          message: `Internal compiler error: ${describeError(error)}`,
+          message: `internal compiler error: ${describeError(error)}`,
           startOffset: 0,
           endOffset: 0,
         },

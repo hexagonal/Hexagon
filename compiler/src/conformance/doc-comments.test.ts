@@ -47,12 +47,12 @@ function diagnostics(source: string): readonly string[] {
 
 const DANGLING =
   "documentation comment does not document anything — the next code is not a " +
-  "declaration. Move it directly above the declaration it describes, or make " +
-  "it an ordinary comment (`(* ... *)`).";
+  "declaration; move it directly above the declaration it describes, or make " +
+  "it an ordinary comment (`(* ... *)`)";
 
 const LEADING_ONLY =
   "documentation comments precede what they document — move this above the " +
-  "declaration on its own line, or make it an ordinary comment (`(* ... *)`).";
+  "declaration on its own line, or make it an ordinary comment (`(* ... *)`)";
 
 describe("§11: attachment", () => {
   test("a doc block attaches to the declaration its next code token begins", () => {
@@ -264,7 +264,7 @@ describe("§5: the hard errors", () => {
     const source = '(** Module header? *)\nimport Other\n';
 
     expect(diagnostics(source)[0]).toBe(
-      `${DANGLING} imports are not documentable; module-level documentation is not in v1.`,
+      `${DANGLING}; imports are not documentable; module-level documentation is not in v1`,
     );
   });
 
@@ -272,7 +272,7 @@ describe("§5: the hard errors", () => {
     const source = '(** Module header? *)\nextern import "./side.js"\n';
 
     expect(diagnostics(source)).toEqual([
-      `${DANGLING} imports are not documentable; module-level documentation is not in v1.`,
+      `${DANGLING}; imports are not documentable; module-level documentation is not in v1`,
     ]);
   });
 
@@ -283,7 +283,7 @@ describe("§5: the hard errors", () => {
     expect(diagnostics(source)).toEqual([
       "documentation attaches to the items an `extern from` block introduces, " +
       "not to the block — move it above the first item inside the block, or " +
-      "make it an ordinary comment (`(* ... *)`).",
+      "make it an ordinary comment (`(* ... *)`)",
     ]);
   });
 

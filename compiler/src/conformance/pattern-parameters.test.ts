@@ -391,13 +391,13 @@ describe("pattern parameters are head binders", () => {
 describe("pattern parameters are still binders you cannot collide with", () => {
   test("§5.2 a later `let` in the body may not rebind a pattern parameter", () => {
     expect(diagnostics("fun f({x}) =\n    let x = 2\n    x\n")).toContain(
-      "`x` is already bound (line 3); Hexagon does not allow rebinding — choose a different name.",
+      "`x` is already bound (line 3); Hexagon does not allow rebinding — choose a different name",
     );
   });
 
   test("§5.2 exactly as it may not rebind a plain one", () => {
     expect(diagnostics("fun f(x) =\n    let x = 2\n    x\n")).toContain(
-      "`x` is already bound (line 3); Hexagon does not allow rebinding — choose a different name.",
+      "`x` is already bound (line 3); Hexagon does not allow rebinding — choose a different name",
     );
   });
 

@@ -753,7 +753,7 @@ describe("completions after a value's dot", () => {
     expect(completionsIn(cursorAt(source, 1))).toEqual(["first:operation", "x:field"]);
     // The call it would complete is refused in the same words as the bare one.
     expect(diagnosticsOf(source.replace("p.‸x", "p.first()"))).toEqual([
-      "`first` is not in scope in its own `let` definition; `let` is non-recursive — use `fun`.",
+      "`first` is not in scope in its own `let` definition; `let` is non-recursive — use `fun`",
     ]);
   });
 

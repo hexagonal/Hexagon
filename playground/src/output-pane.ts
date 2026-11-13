@@ -41,5 +41,5 @@ export function outputSegments(chunks: readonly OutputChunk[]): readonly OutputS
 
 /** The note a finished run adds: its status, when it isn't 0. */
 export function exitStatusNote(status: number): OutputChunk | undefined {
-  return status === 0 ? undefined : { stream: "note", text: `exit status ${status}` };
+  return status === 0 ? undefined : { stream: "note", text: `Exit status ${status}.` };
 }

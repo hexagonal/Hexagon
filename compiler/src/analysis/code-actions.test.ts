@@ -60,7 +60,7 @@ describe("code actions: the diagnostic's own fixes", () => {
     const source = "module Main\n\n" + ["/* a note */", "let value: Int = 1", ""].join("\n");
     const { session } = sessionOf({ "/main.hex": source });
     const action = sole(actionsOn(session, "/main.hex", source, "/*"));
-    expect(action.title).toBe("use the Hexagon block comment spelling");
+    expect(action.title).toBe("Use the Hexagon block comment spelling");
     expect(applied(source, action)).toBe("module Main\n\n" + 
       ["(* a note *)", "let value: Int = 1", ""].join("\n"),
     );
@@ -71,7 +71,7 @@ describe("code actions: the diagnostic's own fixes", () => {
     const single = "module Main\n\n" + 'console.log("hello")\n';
     const { session } = sessionOf({ "/main.hex": single });
     const action = sole(actionsOn(session, "/main.hex", single, "console"));
-    expect(action.title).toBe("write `Debug.log`");
+    expect(action.title).toBe("Write `Debug.log`");
     expect(applied(single, action)).toBe("module Main\n\n" + 'Debug.log("hello")\n');
 
     // Two arguments have no mechanical rewrite — `log` takes one rendered
@@ -95,7 +95,7 @@ describe("code actions: the diagnostic's own fixes", () => {
     const action = sole(actionsOn(session, "/main.hex", source, "*"));
     // #829: the fix names the derived rewrite directly, as every seat in the
     // applied-edit family now does, rather than the generic "write `import`".
-    expect(action.title).toBe("write `import Geometry as Geo`");
+    expect(action.title).toBe("Write `import Geometry as Geo`");
     // The alias and the path are the user's own text and are never retyped;
     // the head's own tokens, and the whitespace they spent, are what the edit
     // deletes — so the file it produces is the sentence the message printed.
@@ -120,7 +120,7 @@ describe("code actions: the diagnostic's own fixes", () => {
     const source = "module Main\n\n" + "export opaque record Point = {x: Float, y: Float}\n";
     const { session } = sessionOf({ "/main.hex": source });
     const action = sole(actionsOn(session, "/main.hex", source, "opaque"));
-    expect(action.title).toBe("write `opaque`");
+    expect(action.title).toBe("Write `opaque`");
     expect(applied(source, action)).toBe("module Main\n\n" + 
       "opaque record Point = {x: Float, y: Float}\n",
     );
@@ -452,7 +452,7 @@ describe("code actions: infer return type", () => {
     const action = sole(actionsOn(session, "/main.hex", source, "identity"));
     expect(action.edits).toEqual([]);
     expect(action.disabled).toBe(
-      "`value` has no type yet, so the result type of `identity` is not settled",
+      "`value` has no type yet, so the result type of `identity` is not settled.",
     );
 
     // What refusing buys. `: a` reads as right until the parameter is written,
@@ -495,7 +495,7 @@ describe("code actions: infer return type", () => {
     for (const [source, wrapping] of wrappings) {
       const { session } = sessionOf({ "/main.hex": source });
       expect(sole(actionsOn(session, "/main.hex", source, "m(")).disabled, wrapping)
-        .toBe("`x` has no type yet, so the result type of `m` is not settled");
+        .toBe("`x` has no type yet, so the result type of `m` is not settled.");
     }
   });
 
@@ -505,7 +505,7 @@ describe("code actions: infer return type", () => {
     const source = "module Main\n\n" + "export fun m(x, y) = [y]\n";
     const { session } = sessionOf({ "/main.hex": source });
     expect(sole(actionsOn(session, "/main.hex", source, "m(")).disabled)
-      .toBe("`y` has no type yet, so the result type of `m` is not settled");
+      .toBe("`y` has no type yet, so the result type of `m` is not settled.");
   });
 
   test("a nullable result is walked like any other wrapper", () => {
@@ -516,7 +516,7 @@ describe("code actions: infer return type", () => {
       .join("\n");
     const { session } = sessionOf({ "/main.hex": source });
     expect(sole(actionsOn(session, "/main.hex", source, "m(")).disabled)
-      .toBe("`x` has no type yet, so the result type of `m` is not settled");
+      .toBe("`x` has no type yet, so the result type of `m` is not settled.");
 
     // Written on the parameter, it is the user's own and is offered.
     const annotated = "module Main\n\n" + "export fun m(x: Nullable(a), y) = x\n";
@@ -540,7 +540,7 @@ describe("code actions: infer return type", () => {
     const other = "module Main\n\n" + "export fun m(x: a, y) = [y]\n";
     const { session: waits } = sessionOf({ "/main.hex": other });
     expect(sole(actionsOn(waits, "/main.hex", other, "m(")).disabled)
-      .toBe("`y` has no type yet, so the result type of `m` is not settled");
+      .toBe("`y` has no type yet, so the result type of `m` is not settled.");
   });
 
   test("an implied type a binding leaves open turns the action off at the refusal (#190)", () => {
@@ -568,16 +568,16 @@ describe("code actions: infer return type", () => {
     const { session } = sessionOf({ "/main.hex": source });
     expect(sole(actionsOn(session, "/main.hex", source, "peek")).disabled)
       .toBe(
-        "the body of `peek` has an error to fix first: `Source` declares an implied type and " +
-          "cannot constrain a type variable in v1, but `peek` leaves the type of `x` open; annotate `x`",
+        "The body of `peek` has an error to fix first: `Source` declares an implied type and " +
+          "cannot constrain a type variable in v1, but `peek` leaves the type of `x` open; annotate `x`.",
       );
 
     const declared = source.replace("export fun peek(x) = get(x)", "export fun peek(x: a) = get(x)");
     const { session: generic } = sessionOf({ "/main.hex": declared });
     expect(sole(actionsOn(generic, "/main.hex", declared, "peek")).disabled)
       .toBe(
-        "the body of `peek` has an error to fix first: `x` has the generic type `a`, and `Source` " +
-          "declares an implied type and cannot constrain a type variable in v1",
+        "The body of `peek` has an error to fix first: `x` has the generic type `a`, and `Source` " +
+          "declares an implied type and cannot constrain a type variable in v1.",
       );
 
     // A concrete subject settles the implied type at `Int`, so a result the
@@ -627,7 +627,7 @@ describe("code actions: infer return type", () => {
     const action = sole(actionsOn(session, "/main.hex", source, "bad"));
     expect(action.edits).toEqual([]);
     expect(action.disabled).toBe(
-      "the body of `bad` has an error to fix first: unknown name `missingName`",
+      "The body of `bad` has an error to fix first: unknown name `missingName`.",
     );
 
     // The same error at the body's last character, where it ends exactly where
@@ -636,7 +636,7 @@ describe("code actions: infer return type", () => {
     const ending = "module Main\n\n" + "export fun bad(x: Int) = missingName\n";
     const { session: other } = sessionOf({ "/main.hex": ending });
     expect(sole(actionsOn(other, "/main.hex", ending, "bad")).disabled)
-      .toBe("the body of `bad` has an error to fix first: unknown name `missingName`");
+      .toBe("The body of `bad` has an error to fix first: unknown name `missingName`.");
   });
 
   test("waits while the signature has an error, because a half-typed type is a variable", () => {
@@ -649,7 +649,7 @@ describe("code actions: infer return type", () => {
     const action = sole(actionsOn(session, "/main.hex", source, "m("));
     expect(action.edits).toEqual([]);
     expect(action.disabled).toBe(
-      "the signature of `m` has an error to fix first: unknown type `I`",
+      "The signature of `m` has an error to fix first: unknown type `I`.",
     );
 
     // What refusing buys, stated as the thing that would otherwise happen: had
@@ -666,7 +666,7 @@ describe("code actions: infer return type", () => {
     const source = "module Main\n\n" + "export fun m(x: Int, y: Bogus) = x\n";
     const { session } = sessionOf({ "/main.hex": source });
     expect(sole(actionsOn(session, "/main.hex", source, "m(")).disabled)
-      .toMatch(/^the signature of `m` has an error to fix first: unknown type `Bogus`/);
+      .toMatch(/^The signature of `m` has an error to fix first: unknown type `Bogus`/);
   });
 
   test("an error caret-ing the name is not thereby about the missing signature", () => {
@@ -683,7 +683,7 @@ describe("code actions: infer return type", () => {
     expect(conflict?.primary.start.offset).toBe(second);
     const action = sole(session.codeActions("/main.hex", { start: second, end: second }));
     expect(action.edits).toEqual([]);
-    expect(action.disabled).toMatch(/^the signature of `m` has an error to fix first: /);
+    expect(action.disabled).toMatch(/^The signature of `m` has an error to fix first: /);
   });
 
   test("the two errors that caret the name are not reasons to refuse", () => {
@@ -728,8 +728,8 @@ describe("code actions: infer return type", () => {
     const source = "module Main\n\n" + "let helper(x: Int) = missingName\nexport fun size(v: Int) = helper(v)\n";
     const { session } = sessionOf({ "/main.hex": source });
     expect(sole(actionsOn(session, "/main.hex", source, "size")).disabled).toBe(
-      "the return type of `size` cannot be written here: " +
-        "part of the inferred type is unknown, because the definition has an error",
+      "The return type of `size` cannot be written here: " +
+        "part of the inferred type is unknown, because the definition has an error.",
     );
   });
 
@@ -740,8 +740,8 @@ describe("code actions: infer return type", () => {
     const source = "module Main\n\n" + "let user(): Unit = nope!()\nexport let mk(x: Int) = user\n";
     const { session } = sessionOf({ "/main.hex": source });
     expect(sole(actionsOn(session, "/main.hex", source, "mk")).disabled).toBe(
-      "the return type of `mk` cannot be written here: " +
-        "part of the inferred type is unknown, because the definition has an error",
+      "The return type of `mk` cannot be written here: " +
+        "part of the inferred type is unknown, because the definition has an error.",
     );
   });
 
@@ -754,7 +754,7 @@ describe("code actions: infer return type", () => {
     const { session } = sessionOf({ "/main.hex": source });
     const actions = actionsOn(session, "/main.hex", source, "m(");
     expect(actions.map(({ title }) => title)).toEqual(["Infer return type"]);
-    expect(actions[0]!.disabled).toMatch(/^the body of `m` has an error to fix first: /);
+    expect(actions[0]!.disabled).toMatch(/^The body of `m` has an error to fix first: /);
   });
 
   // Fourteen sessions, each a full project compile. Given an explicit budget
@@ -806,7 +806,7 @@ describe("code actions: infer return type", () => {
       const action = sole(actionsOn(session, "/main.hex", source, "m("));
       expect(action.edits, source).toEqual([]);
       expect(action.disabled, source).toBe(
-        "the parser could not carry on past `m`, so its type is not settled yet",
+        "The parser could not carry on past `m`, so its type is not settled yet.",
       );
     }
   }, 30_000);
@@ -869,7 +869,7 @@ describe("code actions: infer return type", () => {
       const action = sole(actionsOn(session, "/main.hex", source, "m("));
       expect(action.edits, source).toEqual([]);
       expect(action.disabled, source).toBe(
-        `the body of \`m\` has an unclosed \`${named}\`, so its type is not settled yet`,
+        `The body of \`m\` has an unclosed \`${named}\`, so its type is not settled yet.`,
       );
     }
   });
@@ -884,7 +884,7 @@ describe("code actions: infer return type", () => {
     const action = sole(actionsOn(session, "/main.hex", source, "f("));
     expect(action.edits).toEqual([]);
     expect(action.disabled).toBe(
-      "`f` has no closed parameter list to write a return type after",
+      "`f` has no closed parameter list to write a return type after.",
     );
   });
 
@@ -955,7 +955,7 @@ describe("code actions: infer return type", () => {
     const action = sole(actionsOn(session, "/main.hex", source, "keep"));
     expect(action.edits).toEqual([]);
     expect(action.disabled).toBe(
-      "`value` has no type yet, so the result type of `keep` is not settled",
+      "`value` has no type yet, so the result type of `keep` is not settled.",
     );
 
     // Written, it pairs, and the repair is the user's own spelling.
@@ -993,7 +993,7 @@ describe("code actions: infer return type", () => {
     const action = sole(actionsOn(session, "/main.hex", source, "copy"));
     expect(action.edits).toEqual([]);
     expect(action.disabled).toBe(
-      "`r` has no type yet, so the result type of `copy` is not settled",
+      "`r` has no type yet, so the result type of `copy` is not settled.",
     );
 
     // Annotated, the row is the user's own and writing it closes nothing.
@@ -1026,8 +1026,8 @@ describe("code actions: infer return type", () => {
     const action = sole(actionsOn(session, "/main.hex", source, "m("));
     expect(action.edits).toEqual([]);
     expect(action.disabled).toBe(
-      "writing `: {...a} -> {...a}` would change the type of `m` " +
-        "from `() -> {...a} -> {...a}` to `() -> {} -> {}`",
+      "Writing `: {...a} -> {...a}` would change the type of `m` " +
+        "from `() -> {...a} -> {...a}` to `() -> {} -> {}`.",
     );
   });
 
@@ -1176,7 +1176,7 @@ describe("code actions: the module-import repair family (#577)", () => {
       "export fun go(s: Shape): Float = Shape.area(s)\n";
     const { session } = sessionOf({ "/shape.hex": SHAPE, "/main.hex": main });
     const action = sole(actionsOn(session, "/main.hex", main, "Shape.area"));
-    expect(action.title).toBe("import `Shape`");
+    expect(action.title).toBe("Import `Shape`");
     expect(action.kind).toBe("quickfix");
     expect(action.disabled).toBeUndefined();
     expect(applied(main, action)).toBe("module Main\n\n" + 
@@ -1249,7 +1249,7 @@ describe("code actions: the module-import repair family (#577)", () => {
     const action = sole(actionsOn(session, "/main.hex", main, "Scale>"));
     expect(action.disabled).toBe(
       "2 modules export a constraint `Scale`: `Metric`, `Scale` — " +
-        "write the import for the one you mean",
+        "write the import for the one you mean.",
     );
   });
 
@@ -1259,7 +1259,7 @@ describe("code actions: the module-import repair family (#577)", () => {
     const binder = "module Main\n\n" + "export fun go<a: Scale>(x: a): a = x\n";
     const { session } = sessionOf({ "/scale.hex": SCALE, "/main.hex": binder });
     const first = sole(actionsOn(session, "/main.hex", binder, "Scale>"));
-    expect(first.title).toBe("import `Scale`");
+    expect(first.title).toBe("Import `Scale`");
     expect(applied(binder, first)).toBe("module Main\n\n" + 
       'import Scale\n' +
         "export fun go<a: Scale>(x: a): a = x\n",
@@ -1322,7 +1322,7 @@ describe("code actions: the module-import repair family (#577)", () => {
       'import Shape as S\ntype Shape = S.Shape\n';
     const { session } = sessionOf({ "/shape.hex": SHAPE, "/main.hex": main });
     const actions = actionsOn(session, "/main.hex", main, "Shape.area");
-    const action = actions.find(({ title }) => title === "import `Shape`")!;
+    const action = actions.find(({ title }) => title === "Import `Shape`")!;
     // So the line takes the fallback placement — the top of the *module*, which
     // since #829 is the line below the header rather than offset zero.
     expect(applied(main, action).startsWith("module Main\n\nimport Shape\n"))
@@ -1349,7 +1349,7 @@ describe("code actions: the module-import repair family (#577)", () => {
     expect(action.edits).toEqual([]);
     expect(action.disabled).toBe(
       "2 modules export a constraint `Scale`: `Imperial`, `Metric` " +
-        "— write the import for the one you mean",
+        "— write the import for the one you mean.",
     );
   });
 
@@ -1430,7 +1430,7 @@ describe("code actions: the module-import repair family (#577)", () => {
     const main = "module Main\n\n" + "export fun go<a: Scale, b: Scale>(x: a, y: b): a = x\n";
     const { session } = sessionOf({ "/scale.hex": SCALE, "/main.hex": main });
     expect(session.codeActions("/main.hex", { start: 0, end: main.length })
-      .filter(({ title }) => title === "import `Scale`")).toHaveLength(1);
+      .filter(({ title }) => title === "Import `Scale`")).toHaveLength(1);
   });
 
   /**
@@ -1475,7 +1475,7 @@ describe("code actions: the module-import repair family (#577)", () => {
     // keeps the first refusal, and the second wanted the identical line anyway.
     session.setFile("/main.hex", main);
     const both = session.codeActions("/main.hex", { start: 0, end: main.length })
-      .filter(({ title }) => title === "import `Shape`");
+      .filter(({ title }) => title === "Import `Shape`");
     expect(both).toHaveLength(1);
     session.setFile("/main.hex", applied(main, both[0]!));
     expect(session.allDiagnostics().get("/main.hex") ?? []).toEqual([]);
@@ -1518,7 +1518,7 @@ describe("code actions: a refusal whose repair is a rename (`renameRepair`)", ()
     const { session } = sessionOf({ "/errors.hex": errors, "/main.hex": main });
     const actions = actionsOn(session, "/errors.hex", errors, "TimeoutFault");
     expect(actions.map(({ title, disabled }) => `${title}${disabled === undefined ? "" : " (off)"}`))
-      .toEqual(["declare it with `fault`", "rename to `TimeoutError`"]);
+      .toEqual(["Declare it with `fault`", "Rename to `TimeoutError`"]);
     const rename = actions[1]!;
     const byFile = (path: string, text: string): string =>
       applied(text, { ...rename, edits: rename.edits.filter((edit) => edit.path === path) });
@@ -1532,7 +1532,7 @@ describe("code actions: a refusal whose repair is a rename (`renameRepair`)", ()
     const source = "module Main\n\nfault Bad\nfault BadFault\n";
     const { session } = sessionOf({ "/main.hex": source });
     const action = sole(actionsOn(session, "/main.hex", source, "Bad\n"));
-    expect(action.title).toBe("rename to `BadFault`");
+    expect(action.title).toBe("Rename to `BadFault`");
     expect(action.edits).toEqual([]);
     expect(action.disabled).toContain("BadFault");
   });
@@ -1544,7 +1544,7 @@ describe("code actions: the repair an editor applies on its own, and every repai
     "    export fun save(s: String) ->! Unit\n" +
     "    export fun load(key: String) ->! String\n" +
     "let noop(): Unit = ()\nlet log0(): Unit = log~(\"x\")\nlet save0(): Unit = save!(\"x\")\n";
-  const FIX_ALL = "correct the marks in this file";
+  const FIX_ALL = "Correct the marks in this file";
 
   function open(source: string, more: Record<string, string> = {}) {
     return sessionOf({ "/world.js": "", "/main.hex": source, ...more }).session;
@@ -1559,21 +1559,21 @@ describe("code actions: the repair an editor applies on its own, and every repai
 
   test("a compiler's plain fix is the preferred repair", () => {
     const source = world + "export let p(): Unit = save0()\n";
-    expect(offered(open(source), source, "save0()\n")).toEqual([["mark the call `!`", true]]);
+    expect(offered(open(source), source, "save0()\n")).toEqual([["Mark the call `!`", true]]);
   });
 
   test("a suggestion never is, and the part a call certainly wants beside it still is", () => {
     const source = world + "export let p(): Unit = noop!()\nexport let q(): Unit = log0^()\n";
     const session = open(source);
-    expect(offered(session, source, "!()")).toEqual([["perhaps remove the mark", false]]);
-    expect(offered(session, source, "^()")).toEqual([["mark the call `!`", true], ["perhaps mark the call `~`", false]]);
+    expect(offered(session, source, "!()")).toEqual([["Perhaps remove the mark", false]]);
+    expect(offered(session, source, "^()")).toEqual([["Mark the call `!`", true], ["Perhaps mark the call `~`", false]]);
   });
 
   test("a repair for each side of a contradiction are both preferred, so the editor asks which (doctrine 8)", () => {
     const errors = "module Errors\n\nexport exception TimeoutFault(millis: Int)\n";
     const { session } = sessionOf({ "/errors.hex": errors });
     expect(actionsOn(session, "/errors.hex", errors, "TimeoutFault").map(({ title, preferred }) => [title, preferred === true]))
-      .toEqual([["declare it with `fault`", true], ["rename to `TimeoutError`", true]]);
+      .toEqual([["Declare it with `fault`", true], ["Rename to `TimeoutError`", true]]);
   });
 
   test("an action offered disabled is not preferred, and an enabled one of its kind is", () => {
@@ -1599,8 +1599,8 @@ describe("code actions: the repair an editor applies on its own, and every repai
   test("two reports whose one repair is a call's own mark each offer both at once, after their own", () => {
     const source = world + "export let p(): Unit =\n    save0()\n    log0()\n";
     const session = open(source);
-    expect(offered(session, source, "save0()\n")).toEqual([["mark the call `!`", true], [FIX_ALL, false]]);
-    expect(offered(session, source, "log0()\n")).toEqual([["mark the call `~`", true], [FIX_ALL, false]]);
+    expect(offered(session, source, "save0()\n")).toEqual([["Mark the call `!`", true], [FIX_ALL, false]]);
+    expect(offered(session, source, "log0()\n")).toEqual([["Mark the call `~`", true], [FIX_ALL, false]]);
     const all = fixAll(session, source, "log0()\n")!;
     // Grouped under the report it was asked at, as a quick fix.
     expect([all.kind, all.diagnostic?.message]).toEqual(["quickfix", "this call is impure, so `log0` wants `~`, not no mark"]);
@@ -1619,8 +1619,8 @@ describe("code actions: the repair an editor applies on its own, and every repai
     const source = world + "let z2(g) =\n    g()\n    g()\n    g!()\nexport let p(): Unit = save0()\n";
     const session = open(source);
     expect(offered(session, source, "!()")).toEqual([
-      ["remove the mark", true],
-      ["mark every call that makes `g` pure and unable to fail", true],
+      ["Remove the mark", true],
+      ["Mark every call that makes `g` pure and unable to fail", true],
     ]);
     expect(fixAll(session, source, "save0()\n")).toBeUndefined();
   });
@@ -1640,7 +1640,7 @@ describe("code actions: the repair an editor applies on its own, and every repai
     // which is not the refused call's own mark.
     const source = world + "let tw(f) =\n    f()\n    0\nexport let p(): Int = tw!(save0)\nexport let q(): Unit = save0()\n";
     const session = open(source);
-    expect(offered(session, source, "!(save0)")).toEqual([["mark the call of `f` `!`", true]]);
+    expect(offered(session, source, "!(save0)")).toEqual([["Mark the call of `f` `!`", true]]);
     expect(fixAll(session, source, "save0()\n")).toBeUndefined();
   });
 

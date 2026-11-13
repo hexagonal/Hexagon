@@ -126,6 +126,6 @@ describe("hoverMarkdown", () => {
         convertedTo: "Seq(Int)",
         documentation: "Docs.",
       }),
-    ).toBe("`() >-> Unit`\n\nimpure only if `cb` is impure\n\nconverted to `Seq(Int)` here\n\nDocs.");
+    ).toBe("`() >-> Unit`\n\nImpure only if `cb` is impure.\n\nConverted to `Seq(Int)` here.\n\nDocs.");
   });
 });

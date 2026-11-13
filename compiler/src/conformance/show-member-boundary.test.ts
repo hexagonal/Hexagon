@@ -140,7 +140,7 @@ describe("the split-spelling defect is now refused (consequence 3)", () => {
       "",
     ].join("\n"))).toEqual([
       "`show` is already bound: the `Show<Box>` instance binds it as a member " +
-        "(line 5); Hexagon does not allow rebinding — choose a different name.",
+        "(line 5); Hexagon does not allow rebinding — choose a different name",
     ]);
   });
 
@@ -157,7 +157,7 @@ describe("the split-spelling defect is now refused (consequence 3)", () => {
       "",
     ].join("\n"))).toEqual([
       "the `Show<Box>` instance binds `show`, which is already bound (line 5); " +
-        "Hexagon does not allow rebinding — choose a different name.",
+        "Hexagon does not allow rebinding — choose a different name",
     ]);
   });
 

@@ -372,8 +372,8 @@ describe("variance sigils read the `opaque` head (Preamble §2.1, §4.2.1)", () 
   test("the claim is still verified against the representation", () => {
     expect(projectDiagnostics("module Main\n\n" + "opaque record Drain(+a) = { accept: a -> Unit }\n",
     )).toContain(
-      "`a` cannot be declared covariant in `Drain`: field `accept` uses `a` in argument position. " +
-        "Remove the `+`, or change the field",
+      "`a` cannot be declared covariant in `Drain`: field `accept` uses `a` in argument position; " +
+        "remove the `+`, or change the field",
     );
   });
 

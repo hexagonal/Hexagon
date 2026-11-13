@@ -133,7 +133,7 @@ describe("write down the inferred type, at one place", () => {
 
   test("a `fun` block's binder list, refused where any member does not check", () => {
     const members = ["    twice(n: a): a = n + n", "    say(x: b): String = \"${x}\" ++ nope"];
-    const refused = "refused: the body of `say` has an error to fix first: unknown name `nope`";
+    const refused = "refused: The body of `say` has an error to fix first: unknown name `nope`.";
     expect(applied(program("f‸un", ...members), writeTitle("binder", undefined))).toBe(refused);
     expect(applied(program("f‸un<a: Num>", ...members), writeTitle("binder", undefined))).toBe(refused);
     expect(applied(program("f‸un<a: Num>", ...members), removeTitle("binder", undefined))).toBe(refused);
@@ -142,7 +142,7 @@ describe("write down the inferred type, at one place", () => {
   test("a member of a `fun` block, refused where another member does not check", () => {
     // Checked together, a member's types wait on its siblings': `g`'s would be
     // `<a: (Eq, Signed)> a -> Int` once `f` checks.
-    const refused = "refused: the body of `f` has an error to fix first: unknown name `nope`";
+    const refused = "refused: The body of `f` has an error to fix first: unknown name `nope`.";
     const knot = (head: string): string =>
       program("fun", `    ${head} = f(m)`, "    f(n) = if n == 0 then nope else g(n - 1)");
     expect(applied(knot("‸g(m)"), HEADER_TITLE)).toBe(refused);
@@ -158,7 +158,7 @@ describe("write down the inferred type, at one place", () => {
       .toBe(program("fun<a: Num, b: Show>", "    twice(n: a): a = n + n", "    say(x: b): String = \"${x}\""));
     // Its members are the declarations that must check.
     expect(applied(program("f‸un", "    twice(n: a): a = n + nope", "    say(x: b): String = \"${x}\""), writeTitle("binder", undefined)))
-      .toBe("refused: the body of `twice` has an error to fix first: unknown name `nope`");
+      .toBe("refused: The body of `twice` has an error to fix first: unknown name `nope`.");
   });
 
   test("an exported function's piece, its report of an incomplete signature changed but not added to", () => {
@@ -189,14 +189,14 @@ describe("write down the inferred type, at one place", () => {
   test("a `let` pattern's variable is not offered yet, and the refusal names the typed pattern to write by hand", () => {
     expect(applied(program("let (a, ‸b) = (1, \"x\")"), writeTitle("pattern", "b"))).toBe(`refused: ${patternRefusal("b", "String")}`);
     expect(patternRefusal("b", "String")).toBe(
-      "writing a type into a pattern is not offered yet; write it by hand, in parentheses: `(b: String)`",
+      "Writing a type into a pattern is not offered yet; write it by hand, in parentheses: `(b: String)`.",
     );
     // What the refusal names compiles.
     const written = program("let (a, (b: String)) = (1, \"x\")");
     expect(reports(written)).toEqual([]);
     // An `as` binder's type is written around the whole `as`, so none is spelled at its name.
     expect(applied(program("let (a, b) as ‸p = (1, \"x\")"), writeTitle("pattern", "p"))).toBe(
-      "refused: writing a type into a pattern is not offered yet; write it by hand, in parentheses",
+      "refused: Writing a type into a pattern is not offered yet; write it by hand, in parentheses.",
     );
   });
 });
@@ -250,9 +250,9 @@ describe("a constraint, spelled as this module names it", () => {
       "/mid.hex": ["module Mid", "import Metric", "export let tw<a: Metric.Scale>(x: a): a = Metric.scale(x, 2)", ""].join("\n"),
     };
     expect(applied(["module Main", "import Mid", "let ‸t2 = Mid.tw", ""].join("\n"), writeTitle("binding", "t2"), files))
-      .toBe("refused: the type of `t2` cannot be written here: `Scale` is declared in another module and this one has no name for it");
+      .toBe("refused: The type of `t2` cannot be written here: `Scale` is declared in another module and this one has no name for it.");
     expect(applied(["module Main", "import Mid", "let ‸t3(x) = Mid.tw(x)", ""].join("\n"), HEADER_TITLE, files))
-      .toBe("refused: the binder list of `t3` cannot be written here: `Scale` is declared in another module and this one has no name for it");
+      .toBe("refused: The binder list of `t3` cannot be written here: `Scale` is declared in another module and this one has no name for it.");
   });
 });
 
@@ -274,10 +274,10 @@ describe("write down this header's types", () => {
     expect(rewritten(source, HEADER_TITLE)).toBe(program("fun copy(r: {...a}): {...a} = {...r}"));
     expect(faceOf(program("fun copy(r: {...a}): {...a} = {...r}"), "copy")).toBe(faceOf(marked(source).text, "copy"));
     expect(applied(program("fun copy(r) =‸ {...r}"), writeTitle("result", "copy")))
-      .toBe("refused: writing `: {...a}` would change the type of `copy` from `{...a} -> {...a}` to `{} -> {}`");
+      .toBe("refused: Writing `: {...a}` would change the type of `copy` from `{...a} -> {...a}` to `{} -> {}`.");
     // A local, whose face is no module's: its own type is compared.
     expect(applied(program("let outer() =", "    let copy(r) =‸ {...r}", "    copy({})"), writeTitle("result", "copy")))
-      .toBe("refused: writing `: {...a}` would change the type of `copy` from `{...a} -> {...a}` to `{} -> {}`");
+      .toBe("refused: Writing `: {...a}` would change the type of `copy` from `{...a} -> {...a}` to `{} -> {}`.");
   });
 
   test("an exported function's whole signature, which ends its report", () => {
@@ -293,7 +293,7 @@ describe("write down this header's types", () => {
 
   test("refused, naming the header", () => {
     expect(applied(program("let keep(f) = f", "fun ‸m(z) = keep((r) => {...r})"), HEADER_TITLE))
-      .toBe("refused: writing the types of `m`'s header would change the type of `m` from `a -> {...b} -> {...b}` to `a -> {} -> {}`");
+      .toBe("refused: Writing the types of `m`'s header would change the type of `m` from `a -> {...b} -> {...b}` to `a -> {} -> {}`.");
   });
 
   test("an exported `fun` block member's, whose binder list goes on the block's head", () => {
@@ -358,9 +358,9 @@ describe("remove the written type", () => {
     const source = program(SHOW, "let shown<a: Show>‸: a -> String = show2");
     expect(rewritten(source, removeTitle("binder", "shown"))).toBe(program(SHOW, "let shown: a -> String = show2"));
     expect(applied(source, removeTitle("binding", "shown"))).toBe(
-      "refused: removing `: a -> String` would report a new problem: `a` is a declared type variable, but this declaration's " +
+      "refused: Removing `: a -> String` would report a new problem: `a` is a declared type variable, but this declaration's " +
         "type does not mention it, so no call can choose it or supply its `Show` evidence; use `a` in the binding's type, or " +
-        "remove `a` from the binder list",
+        "remove `a` from the binder list.",
     );
   });
 
@@ -383,7 +383,7 @@ describe("remove the written type", () => {
     const source = program("export let g(n: Int): Float =", "    let m‸: Float = n", "    m / 2");
     expect(reports(program("export let g(n: Int): Float =", "    let m = n", "    m / 2"))).toEqual([]);
     expect(applied(source, removeTitle("binding", "m")))
-      .toBe("refused: removing `: Float` would change the type of `m` from `Float` to `Int`");
+      .toBe("refused: Removing `: Float` would change the type of `m` from `Float` to `Int`.");
   });
 });
 
@@ -393,26 +393,26 @@ describe("every name the module declares keeps its type", () => {
     expect(applied(
       program("let apply2(f, p, q) = f(p, q)", "let outer() =", "    let g(n, m) = apply2((x: a, ‸y: a) => x, n, m)", "    \"${g(1, 2)}\""),
       removeTitle("parameter", "y"),
-    )).toBe("refused: removing `: a` would change the type of `g` from `(a, a) -> a` to `(a, b) -> a`");
+    )).toBe("refused: Removing `: a` would change the type of `g` from `(a, a) -> a` to `(a, b) -> a`.");
     expect(applied(program("let outer() =", "    let pick(x: a, ‸y: a) = x", "    \"${pick(1, 2)}\""), removeTitle("parameter", "y")))
-      .toBe("refused: removing `: a` would change the type of `pick` from `(a, a) -> a` to `(a, b) -> a`");
+      .toBe("refused: Removing `: a` would change the type of `pick` from `(a, a) -> a` to `(a, b) -> a`.");
   });
 
   test("a lambda no name holds, whose parameters are each `a` on their own either way", () => {
     expect(applied(program("let ignore(f) = ()", "let outer() = ignore((x: a, ‸y: a) => x)"), removeTitle("parameter", "y")))
-      .toBe("refused: removing `: a` would change the type of `y` from `a` to `b`");
+      .toBe("refused: Removing `: a` would change the type of `y` from `a` to `b`.");
   });
 
   test("a row's tail, tied or not", () => {
     expect(applied(program("let ignore(f) = ()", "let outer() = ignore((r: {...a}, ‸s: {...a}) => {...s})"), removeTitle("parameter", "s")))
-      .toBe("refused: removing `: {...a}` would change the type of `s` from `{...a}` to `{...b}`");
+      .toBe("refused: Removing `: {...a}` would change the type of `s` from `{...a}` to `{...b}`.");
   });
 
   test("a face, and a pattern's variable's", () => {
     expect(applied(program("let apply2(f, p, q) = f(p, q)", "let outer(n, m) = apply2((x: a, ‸y: a) => x, n, m)"), removeTitle("parameter", "y")))
-      .toBe("refused: removing `: a` would change the type of `outer` from `(a, a) -> a` to `(a, b) -> a`");
+      .toBe("refused: Removing `: a` would change the type of `outer` from `(a, a) -> a` to `(a, b) -> a`.");
     expect(applied(program("let (f, k) = ((x: a, ‸y: a) => x, 1)"), removeTitle("parameter", "y")))
-      .toBe("refused: removing `: a` would change the type of `f` from `(a, a) -> a` to `(a, b) -> a`");
+      .toBe("refused: Removing `: a` would change the type of `f` from `(a, a) -> a` to `(a, b) -> a`.");
   });
 
   test("a parameter's callback, whose colour is the constant it accepts whether written or inferred", () => {
@@ -424,11 +424,11 @@ describe("every name the module declares keeps its type", () => {
 describe("refused, with the reason", () => {
   test("a declaration that does not check", () => {
     expect(applied(program("let ‸bad(x) = x + nope"), HEADER_TITLE))
-      .toBe("refused: the body of `bad` has an error to fix first: unknown name `nope`");
+      .toBe("refused: The body of `bad` has an error to fix first: unknown name `nope`.");
     expect(applied(program("let bad(x‸: Int): Int = x + nope"), removeTitle("parameter", "x")))
-      .toBe("refused: the body of `bad` has an error to fix first: unknown name `nope`");
+      .toBe("refused: The body of `bad` has an error to fix first: unknown name `nope`.");
     expect(applied(program("let bad(x: Nope)‸ = x"), writeTitle("result", "bad")))
-      .toBe("refused: the signature of `bad` has an error to fix first: unknown type `Nope`");
+      .toBe("refused: The signature of `bad` has an error to fix first: unknown type `Nope`.");
     // A report elsewhere stays as it was, and is no reason to refuse.
     expect(applied(program("let other = nope", "let ‸apply(f, x) = f(x)"), HEADER_TITLE))
       .toBe(program("let other = nope", "let apply(f: a -> b, x: a): b = f(x)"));
@@ -436,7 +436,7 @@ describe("refused, with the reason", () => {
 
   test("a type with an error in it, from a declaration elsewhere", () => {
     expect(applied(program("let broken = nope", "let ‸y = broken"), writeTitle("binding", "y")))
-      .toBe("refused: the type of `y` cannot be written here: part of the inferred type is unknown, because the definition has an error");
+      .toBe("refused: The type of `y` cannot be written here: part of the inferred type is unknown, because the definition has an error.");
   });
 
   test("a type this module cannot spell", () => {
@@ -445,7 +445,7 @@ describe("refused, with the reason", () => {
     });
     const source = ["module Main", "import Shapes", "let ‸area(s) = Shapes.size(s)", ""].join("\n");
     expect(applied(source, HEADER_TITLE, shapes("")))
-      .toBe("refused: the type of `s` cannot be written here: `Shape` is declared in another module and this one has no name for it");
+      .toBe("refused: The type of `s` cannot be written here: `Shape` is declared in another module and this one has no name for it.");
     expect(applied(source, HEADER_TITLE, shapes("export ")))
       .toBe(["module Main", "import Shapes", "let area(s: Shapes.Shape): Float = Shapes.size(s)", ""].join("\n"));
   });
@@ -454,26 +454,26 @@ describe("refused, with the reason", () => {
     expect(rewritten(program("let ‸run(f) = f!()"), HEADER_TITLE)).toBe(program("let run(f: () ->! a): a = f!()"));
     expect(rewritten(program("let ‸apply(f, x) = f^(x)"), HEADER_TITLE)).toBe(program("let apply(f: a ->^ b, x: a): b = f^(x)"));
     expect(applied(program("let run(f) = f!()", "let ‸r = run"), writeTitle("binding", "r"))).toBe(
-      "refused: the type of `r` cannot be written here: this function type's arrow is an effect variable, " +
-        "and writing a following arrow here would link it to the rest of the signature's colour",
+      "refused: The type of `r` cannot be written here: this function type's arrow is an effect variable, " +
+        "and writing a following arrow here would link it to the rest of the signature's colour.",
     );
   });
 
   test("an edit that reports a new problem", () => {
     // The binder list alone declares a variable no written type mentions yet.
     expect(applied(program("let ‸double(x) = x * 2"), writeTitle("binder", "double"))).toBe(
-      "refused: writing `<a: Num>` would report a new problem: `a` is a declared type variable, but this declaration's type " +
+      "refused: Writing `<a: Num>` would report a new problem: `a` is a declared type variable, but this declaration's type " +
         "does not mention it, so no call can choose it or supply its `Num` evidence; use `a` in a parameter or result type, " +
-        "or remove `a` from the binder list",
+        "or remove `a` from the binder list.",
     );
   });
 
   test("an edit that changes a face another module reads", () => {
     const use = { "/use.hex": ["module Use", "import Main", "export let use(): Int = Main.m()({x = 1}).x", ""].join("\n") };
     expect(applied(program("let keep(f) = f", "export fun m()‸ = keep((r) => {...r})"), writeTitle("result", "m"), use))
-      .toBe("refused: writing `: {...a} -> {...a}` would break `/use.hex`: record fields do not match; unexpected `x`");
+      .toBe("refused: Writing `: {...a} -> {...a}` would break `/use.hex`: record fields do not match; unexpected `x`.");
     expect(applied(program("let keep(f) = f", "export fun m()‸ = keep((r) => {...r})"), writeTitle("result", "m")))
-      .toBe("refused: writing `: {...a} -> {...a}` would change the type of `m` from `() -> {...a} -> {...a}` to `() -> {} -> {}`");
+      .toBe("refused: Writing `: {...a} -> {...a}` would change the type of `m` from `() -> {...a} -> {...a}` to `() -> {} -> {}`.");
   });
 });
 

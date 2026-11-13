@@ -6223,7 +6223,7 @@ class Resolver {
         message: pending.door === true
           ? "a `widens` door cannot call itself — let a function recurse by itself, and call it from the door"
           : pending.kind === "let"
-          ? `\`${expression.name.text}\` is not in scope in its own \`let\` definition; \`let\` is non-recursive — use \`fun\`.`
+          ? `\`${expression.name.text}\` is not in scope in its own \`let\` definition; \`let\` is non-recursive — use \`fun\``
           : `\`${expression.name.text}\` is not in scope in its own \`var\` definition; initialize it from an earlier binding`,
         primary: expression.span,
         labels: [{ span: pending.name.span, message: "binding declared here" }],
@@ -7636,7 +7636,7 @@ class Resolver {
       severity: "error",
       message: `\`${name.text}\` is already being defined by ${collision.form} ` +
         `(line ${collision.span.start.line + 1}); Hexagon does not allow ` +
-        "rebinding — choose a different name.",
+        "rebinding — choose a different name",
       primary: name.span,
       labels: [{ span: collision.span, message: "definition in progress" }],
     });
@@ -7794,8 +7794,8 @@ class Resolver {
       this.#diagnostics.add({
         severity: "error",
         message: `\`${name.text}\` is ambiguous here: this module binds it as a ` +
-          `member of ${constraints.map((constraint) => `\`${constraint}\``).join(" and ")}. ` +
-          "Write the dot call on a value, or qualify the instance you mean.",
+          `member of ${constraints.map((constraint) => `\`${constraint}\``).join(" and ")}; ` +
+          "write the dot call on a value, or qualify the instance you mean",
         primary: name.span,
       });
       return true;
@@ -7908,9 +7908,9 @@ class Resolver {
       this.#diagnostics.add({
         severity: "error",
         message: `\`${alias}.${field.text}\` is ambiguous: \`${alias}\` honors a ` +
-          `constraint with a member \`${field.text}\` at ${types.join(" and ")}. ` +
-          `Write the dot call on a value of the type you mean, the bare ` +
-          `\`${field.text}(…)\`, or the declaring module's qualified spelling.`,
+          `constraint with a member \`${field.text}\` at ${types.join(" and ")}; ` +
+          `write the dot call on a value of the type you mean, the bare ` +
+          `\`${field.text}(…)\`, or the declaring module's qualified spelling`,
         primary: field.span,
       });
       return { kind: "ErrorExpr", span: field.span };
@@ -8014,7 +8014,7 @@ class Resolver {
         const previous = this.#symbol(existing);
         if (previous.kind === "constraint-member") continue;
         const bound = previous.bindingSpan;
-        const rebinding = "Hexagon does not allow rebinding — choose a different name.";
+        const rebinding = "Hexagon does not allow rebinding — choose a different name";
         const claimFirst = item.span.start.offset < bound.start.offset;
         this.#diagnostics.add({
           severity: "error",
@@ -8443,10 +8443,10 @@ class Resolver {
           (previous.widens === true
             ? "one operation has one written body, and a `widens` declaration's " +
               "name is derived from the member it names — there is no other " +
-              "name for either to take, so one of the two declarations must go."
+              "name for either to take, so one of the two declarations must go"
             : "a `widens` declaration's name is derived from the member it " +
               `names and cannot be chosen — rename the binding on line ${line}, ` +
-              "or drop this declaration."),
+              "or drop this declaration"),
         primary: name.span,
         labels: [{ span: previous.bindingSpan, message: "previous binding" }],
       });
@@ -8467,7 +8467,7 @@ class Resolver {
         message:
           `\`${name.text}\` is already bound (line ${line}); ` +
           `\`extern enum ${generated}\` generates it (Foreign Enums §5.2) — ` +
-          "rename the enum type, or the other declaration.",
+          "rename the enum type, or the other declaration",
         primary: name.span,
         labels: [{
           span: previous.bindingSpan,
@@ -8482,7 +8482,7 @@ class Resolver {
       severity: "error",
       message:
         `\`${name.text}\` is already bound (line ${line}); Hexagon does not ` +
-        "allow rebinding — choose a different name.",
+        "allow rebinding — choose a different name",
       primary: name.span,
       labels: [{ span: previous.bindingSpan, message: "previous binding" }],
     });

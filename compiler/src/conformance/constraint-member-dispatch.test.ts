@@ -430,8 +430,8 @@ describe("qualified access reaches the members a module honors (Modules §5.3)",
       ].join("\n")],
     ])).toEqual([
       "`Shapes.show` is ambiguous: `Shapes` honors a constraint with a member " +
-      "`show` at `Disc` and `Bar`. Write the dot call on a value of the type you " +
-      "mean, the bare `show(…)`, or the declaring module's qualified spelling.",
+      "`show` at `Disc` and `Bar`; write the dot call on a value of the type you " +
+      "mean, the bare `show(…)`, or the declaring module's qualified spelling",
     ]);
   });
 
@@ -484,7 +484,7 @@ describe("duplicate claimants refuse, and never rank (§6, §9 row 6)", () => {
       ].join("\n")],
     ])).toEqual([
       "`volume` after a dot is ambiguous at `Gauge`: `Loud`'s member `volume`, " +
-      "`Soft`'s member `volume`. Write `Loud.volume(…)` or `Soft.volume(…)`.",
+      "`Soft`'s member `volume`; write `Loud.volume(…)` or `Soft.volume(…)`",
     ]);
   });
 
@@ -509,7 +509,7 @@ describe("duplicate claimants refuse, and never rank (§6, §9 row 6)", () => {
       ].join("\n")],
     ])).toEqual([
       "`reach` after a dot is ambiguous on `a`: `Near` and `Far` each declare a " +
-      "member `reach`. Write `Near.reach(…)` or `Far.reach(…)`.",
+      "member `reach`; write `Near.reach(…)` or `Far.reach(…)`",
     ]);
   });
 
@@ -546,7 +546,7 @@ describe("duplicate claimants refuse, and never rank (§6, §9 row 6)", () => {
       ].join("\n")],
     ])).toEqual([
       "`level` after a dot is ambiguous at `Meter`: `Brash`'s member `level`, " +
-      "`Quiet`'s member `level`. Write `level(…)` or `Quiet.level(…)`.",
+      "`Quiet`'s member `level`; write `level(…)` or `Quiet.level(…)`",
     ]);
   });
 
@@ -586,7 +586,7 @@ describe("duplicate claimants refuse, and never rank (§6, §9 row 6)", () => {
       ].join("\n")],
     ])).toEqual([
       "`show` is ambiguous here: this module binds it as a member of `Warm` " +
-      "and `Show`. Write the dot call on a value, or qualify the instance you mean.",
+      "and `Show`; write the dot call on a value, or qualify the instance you mean",
     ]);
   });
 
@@ -631,7 +631,7 @@ describe("duplicate claimants refuse, and never rank (§6, §9 row 6)", () => {
       "",
     ].join("\n"))).toEqual([
       "`show` after a dot is ambiguous at `Label`: a field `show`, `Show`'s " +
-      "member `show`. Write `Show.show(…)`, or `(…​.show)` for the field.",
+      "member `show`; write `Show.show(…)`, or `(…​.show)` for the field",
     ]);
   });
 });

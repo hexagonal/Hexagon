@@ -9219,8 +9219,8 @@ class JavaScriptEmitter {
     this.#diagnostics.add({
       severity: "error",
       message:
-        `internal compiler error: ${detail}, on a module the checker accepted. ` +
-        "This is a defect in the compiler, not in your program; please report it",
+        `internal compiler error: ${detail}, on a module the checker accepted; ` +
+        "this is a defect in the compiler, not in your program; please report it",
       primary: span,
     });
   }
