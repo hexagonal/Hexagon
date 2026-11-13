@@ -1311,17 +1311,17 @@ describe("§12 a claim the part does not fit (#1510)", () => {
   });
 
   test("over an arrow met as it was decided, the rewrite unmarks the colours the part does not do", () => {
-    // A payload's arrow its declaration wrote, met as it was decided where nothing re-opens it (#1518): the claim's
-    // extra marks are what cannot hold there, so the report stands at the arrow in the effect report's own words,
-    // and its rewrite unmarks them, as every claim's rewrite changes exactly the colours its report names. The
-    // call's mark is left to its own report.
+    // An arrow another line fixed, met as it was decided where nothing re-opens it: the claim's extra marks are
+    // what cannot hold there, so the report stands at the arrow in the effect report's own words, and its rewrite
+    // unmarks them, as every claim's rewrite changes exactly the colours its report names. The call's mark is left
+    // to its own report.
     for (
       const [declaration, matched] of [
-        ["exception A(f: () -> Unit)\nlet g(): Unit = try throw^(A(() => ()))\n    catch\n", "        A((f: () ->! Unit)) => f!()\n        _ => ()\n"],
-        ["union U =\n    | A(f: () -> Unit)\n    | B\nlet g(u) = match u\n", "    A((f: () ->! Unit)) => f!()\n    _ => ()\n"],
+        ["let g(o) =\n    let p: Option(() -> Unit) = o\n    match o\n", "        Some((f: () ->! Unit)) => f!()\n        _ => ()\n"],
+        ["let g(t) =\n    let p: (() -> Unit, Int) = t\n    match t\n", "        ((f: () ->! Unit), _) => f!()\n"],
       ] as const
     ) {
-      const source = declaration + matched + (declaration.includes("g(u)") ? "export let h: Unit = g(B)\n" : "") + OUT;
+      const source = declaration + matched + OUT;
       const refused = diagnostic(source);
       expect(refused.message).toMatch(/^this position's arrow says the function is impure and may fail, and the pure arrow/);
       const text = HEADER + source;
@@ -1334,31 +1334,32 @@ describe("§12 a claim the part does not fit (#1510)", () => {
       ]);
     }
     // An arrow that marks one colour, where that is the one the report names.
-    const thrown = (payload: string, handed: string, claim: string): string =>
-      `exception A(f: ${payload})\nlet g(): Unit = try throw^(A(${handed}))\n    catch\n        A((f: ${claim})) => ()\n` +
+    // An arrow a parameter's type fixed, met in the data it holds.
+    const fixed = (payload: string, claim: string): string =>
+      `let pin(x: Option(${payload})): Unit = ()\nlet g(o) =\n    pin(o)\n    match o\n        Some((f: ${claim})) => ()\n` +
       "        _ => ()\n" + OUT;
     for (const arrow of ["->~", "->^"]) {
-      const source = thrown("() -> Unit", "() => ()", `() ${arrow} Unit`);
+      const source = fixed("() -> Unit", `() ${arrow} Unit`);
       const refused = diagnostic(source);
       expect(refused.fixes!.map(({ message }) => message)).toEqual(["write `(f: () -> Unit)`"]);
       expect(messages(applied(source, refused))).toEqual([]);
     }
     // Handed a function at a parameter, an arrow already silent on each colour the report names: the effect
     // report's words, since the claim's arrow accepts no more than the part's.
-    const supplied = thrown("(() ->! Unit) -> Unit", "(h) => ()", "(() -> Unit) -> Unit");
+    const supplied = fixed("(() ->! Unit) -> Unit", "(() -> Unit) -> Unit");
     const supply = diagnostic(supplied);
     expect(supply.message).toMatch(/^this position's arrow says the function is impure and may fail, and the pure arrow/);
     expect((HEADER + supplied).slice(supply.primary.start.offset, supply.primary.end.offset)).toBe("->");
     expect(supply.fixes!.map(({ message }) => message)).toEqual(["write `(f: (() ->! Unit) -> Unit)`"]);
     expect(messages(applied(supplied, supply))).toEqual([]);
     // So too where an alias spells that arrow: the alias's words would say its arrow accepts more.
-    const aliased = "type Pure = () -> Unit\n" + thrown("(() ->! Unit) -> Unit", "(h) => ()", "(Pure) -> Unit");
+    const aliased = "type Pure = () -> Unit\n" + fixed("(() ->! Unit) -> Unit", "(Pure) -> Unit");
     const alias = diagnostic(aliased);
     expect(alias.message).toMatch(/^this position's arrow says the function is impure and may fail, and the pure arrow/);
     expect(alias.fixes!.map(({ message }) => message)).toEqual(["write `(f: (() ->! Unit) -> Unit)`"]);
     expect(messages(applied(aliased, alias))).toEqual([]);
     // Two such arrows: a report at each, each rewriting its own arrow and nothing else, so the two together compile.
-    const twice = thrown("() -> () -> Unit", "() => () => ()", "() ->! () ->! Unit");
+    const twice = fixed("() -> () -> Unit", "() ->! () ->! Unit");
     const both = compiled(twice).diagnostics;
     expect(both.map(({ primary }) => (HEADER + twice).slice(primary.start.offset, primary.end.offset))).toEqual(["->!", "->!"]);
     expect(new Set(both.map(({ primary }) => primary.start.offset)).size).toBe(2);
@@ -1370,7 +1371,7 @@ describe("§12 a claim the part does not fit (#1510)", () => {
     expect(messages(applied(applied(twice, both[1]!), both[0]!))).toEqual([]);
     // A mixed colour over such an arrow draws a report for each colour, each changing its own colour alone, and
     // either rewrite applied leaves the other report, whose rewrite then writes the part's arrow.
-    const mixed = thrown("() ->~ Unit", "() => ()", "() ->^ Unit");
+    const mixed = fixed("() ->~ Unit", "() ->^ Unit");
     const reports = compiled(mixed).diagnostics;
     expect(reports.map((report) => report.fixes!.map(({ message }) => message))).toEqual([
       ["write `(f: () ->! Unit)`"],
@@ -1391,27 +1392,20 @@ describe("§12 a claim the part does not fit (#1510)", () => {
     expect(handed.fixes!.map(({ message }) => message)).toEqual(["write `(f: (() ->! Unit) -> Unit)`"]);
     expect(messages(applied(handedFixed, handed))).toEqual([]);
     // A hole the claim left stays a hole: only the colours that cannot hold change.
-    const holed = thrown("(Int) -> Unit", "(n) => ()", "(_) ->! Unit");
+    const holed = fixed("(Int) -> Unit", "(_) ->! Unit");
     expect(diagnostic(holed).fixes!.map(({ message }) => message)).toEqual(["write `(f: (_) -> Unit)`"]);
     expect(messages(applied(holed, diagnostic(holed)))).toEqual([]);
-    // Over a value the text does not decide, the same: its arrow was fixed by another use.
-    const undecided = "let g(o) =\n    let p: Option(() -> Unit) = o\n    match o\n        Some((f: () ->! Unit)) => ()\n" +
-      "        _ => ()\n" + OUT;
-    const fixedElsewhere = diagnostic(undecided);
-    expect(fixedElsewhere.message).toMatch(/^this position's arrow says the function is impure and may fail, and the pure arrow/);
-    expect(fixedElsewhere.fixes!.map(({ message }) => message)).toEqual(["write `(f: () -> Unit)`"]);
-    expect(messages(applied(undecided, fixedElsewhere))).toEqual([]);
     // A part this module cannot spell: the rewrite is the arrow's alone, so it needs no spelling and removes nothing.
-    const unspelledSource = thrown("({a: Int}) -> Unit", "(r) => ()", "({a: Int}) ->! Unit");
+    const unspelledSource = fixed("({a: Int}) -> Unit", "({a: Int}) ->! Unit");
     const unspelled = refusal(unspelledSource);
     expect(unspelled.message).toMatch(/; write the arrow where it was fixed$/);
     expect(unspelled.fixed).toEqual([unspelledSource.replace("({a: Int}) ->! Unit", "({a: Int}) -> Unit")]);
     expect(messages(unspelled.fixed[0]!)).toEqual([]);
     // An alias's arrow, which the claim does not write: the type the part has, or removed where it cannot be spelled.
-    const aliasUnspelledSource = "type Cb = ({a: Int}) ->! Unit\n" + thrown("({a: Int}) -> Unit", "(r) => ()", "Cb");
+    const aliasUnspelledSource = "type Cb = ({a: Int}) ->! Unit\n" + fixed("({a: Int}) -> Unit", "Cb");
     const aliasUnspelled = refusal(aliasUnspelledSource);
     expect(aliasUnspelled.message).toMatch(/; write the arrow where it was fixed; remove the type$/);
-    expect(aliasUnspelled.fixed).toEqual([aliasUnspelledSource.replace("A((f: Cb))", "A((f))")]);
+    expect(aliasUnspelled.fixed).toEqual([aliasUnspelledSource.replace("Some((f: Cb))", "Some((f))")]);
     expect(messages(aliasUnspelled.fixed[0]!)).toEqual([]);
   });
 
