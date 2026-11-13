@@ -293,7 +293,7 @@ The home module sees the full definition ("derivation happens in the home module
 
 An unsupportable claim is a **hard error at the declaration, naming a witness occurrence**:
 
-> `a` cannot be declared covariant in `Seq`: field `consume` uses `a` in argument position; remove the `+`, or change the field
+> `a` cannot be declared covariant in `Seq`: field `consume` uses `a` in argument position. Remove the `+`, or change the field
 >
 > *(Message form revised 2026-08-01, §13.1: the witness's location rides a required secondary diagnostic label at the occurrence's span — never the message text.)*
 
