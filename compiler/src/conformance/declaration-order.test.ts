@@ -185,7 +185,7 @@ describe("a dot call cannot make a `let` recursive (Functions §6)", () => {
   // right-hand side the call sits in. Reporting that as a missing operation
   // would be false — the companion declares it.
   const SELF =
-    "`dup` is not in scope in its own `let` definition; `let` is non-recursive — use `fun`.";
+    "`dup` is not in scope in its own `let` definition; `let` is non-recursive — use `fun`";
 
   test("a self dot call takes the non-recursive-`let` report", () => {
     expect(projectDiagnostics(

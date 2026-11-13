@@ -50,8 +50,8 @@ export const HEADER_TITLE = "Write down this header's types";
  * and writing one there is not this action's edit yet.
  */
 export function patternRefusal(name: string | undefined, type: string | undefined): string {
-  return "writing a type into a pattern is not offered yet; write it by hand, in parentheses" +
-    (name === undefined || type === undefined ? "" : `: \`(${name}: ${type})\``);
+  return "Writing a type into a pattern is not offered yet; write it by hand, in parentheses" +
+    (name === undefined || type === undefined ? "" : `: \`(${name}: ${type})\``) + ".";
 }
 
 /** "Write down the inferred …" for one place, by what it is. */
@@ -101,7 +101,7 @@ export type WrittenTypeRefactoring =
     readonly title: string;
     /** In this file's offsets, none overlapping. */
     readonly edits: readonly { readonly start: number; readonly end: number; readonly replacement: string }[];
-    /** What the check's refusal says it was doing: "writing `: Int`". */
+    /** What the check's refusal says it was doing: "Writing `: Int`". */
     readonly doing: string;
     readonly disabled?: undefined;
   }
@@ -139,7 +139,7 @@ export function writtenTypeRefactorings(input: WrittenTypesInput): readonly Writ
     for (const piece of pieces) {
       const text = spelled(piece, spelling);
       if ("refused" in text) {
-        found.push({ title, disabled: `the ${what(piece.role, piece.name)} cannot be written here: ${text.refused}` });
+        found.push({ title, disabled: `The ${what(piece.role, piece.name)} cannot be written here: ${text.refused}.` });
         return;
       }
       texts.push(text.written);
@@ -151,7 +151,7 @@ export function writtenTypeRefactorings(input: WrittenTypesInput): readonly Writ
     found.push({
       title,
       edits: edits.sort((left, right) => left.start - right.start),
-      doing: doing ?? `writing \`${texts.join("")}\``,
+      doing: doing ?? `Writing \`${texts.join("")}\``,
     });
   };
 
@@ -179,7 +179,7 @@ export function writtenTypeRefactorings(input: WrittenTypesInput): readonly Writ
   for (const pieces of headers.values()) {
     const { start, end } = pieces[0]!.header!;
     const name = lexed.text.slice(start.offset, end.offset);
-    if (pieces.length >= 2) write(HEADER_TITLE, pieces, `writing the types of \`${name}\`'s header`);
+    if (pieces.length >= 2) write(HEADER_TITLE, pieces, `Writing the types of \`${name}\`'s header`);
   }
 
   for (const piece of written) {
@@ -194,7 +194,7 @@ export function writtenTypeRefactorings(input: WrittenTypesInput): readonly Writ
     found.push({
       title,
       edits: [{ start, end, replacement: "" }],
-      doing: `removing \`${lexed.text.slice(start, end).trim()}\``,
+      doing: `Removing \`${lexed.text.slice(start, end).trim()}\``,
     });
   }
   return found;

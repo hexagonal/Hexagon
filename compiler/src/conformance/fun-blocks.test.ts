@@ -677,7 +677,7 @@ describe("the diagnostics family (§12.6)", () => {
       ),
     ).toContain(
       "documentation attaches to a `fun` block's members, not to the block — move it " +
-        "above the member it describes, or make it an ordinary comment (`(* ... *)`).",
+        "above the member it describes, or make it an ordinary comment (`(* ... *)`)",
     );
   });
 

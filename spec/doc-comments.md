@@ -88,11 +88,11 @@ A doc comment must be **leading trivia**: on its physical line, nothing but whit
 
 | Situation | Message (shape) |
 |---|---|
-| Doc block not followed by a documentable declaration (§4.1) — includes EOF, expression positions, mid-declaration positions | "documentation comment does not document anything — the next code is not a declaration. Move it directly above the declaration it describes, or make it an ordinary comment (`(* ... *)`)." |
-| Doc block before an `import` (including `extern import`) | as above, appending: "imports are not documentable; module-level documentation is not in v1." |
-| Doc block before an `extern from` block header | "documentation attaches to the items an `extern from` block introduces, not to the block — move it above the first item inside the block, or make it an ordinary comment (`(* ... *)`)." (The generic message would be false here — the header *does* begin a declaration form — so the Rewrite Rule gets its own row.) |
-| Doc block before a `fun` block head (#700) | the same family: "documentation attaches to a `fun` block's members, not to the block — move it above the member it describes, or make it an ordinary comment (`(* ... *)`)." |
-| Doc comment preceded by code on its line (§4.3) | "documentation comments precede what they document — move this above the declaration on its own line, or make it an ordinary comment (`(* ... *)`)." |
+| Doc block not followed by a documentable declaration (§4.1) — includes EOF, expression positions, mid-declaration positions | "documentation comment does not document anything — the next code is not a declaration; move it directly above the declaration it describes, or make it an ordinary comment (`(* ... *)`)" |
+| Doc block before an `import` (including `extern import`) | as above, appending: "; imports are not documentable; module-level documentation is not in v1" |
+| Doc block before an `extern from` block header | "documentation attaches to the items an `extern from` block introduces, not to the block — move it above the first item inside the block, or make it an ordinary comment (`(* ... *)`)" (The generic message would be false here — the header *does* begin a declaration form — so the Rewrite Rule gets its own row.) |
+| Doc block before a `fun` block head (#700) | the same family: "documentation attaches to a `fun` block's members, not to the block — move it above the member it describes, or make it an ordinary comment (`(* ... *)`)" |
+| Doc comment preceded by code on its line (§4.3) | "documentation comments precede what they document — move this above the declaration on its own line, or make it an ordinary comment (`(* ... *)`)" |
 | Unterminated `(**` at EOF | Comments §5's unterminated-block-comment error, unchanged (the doc form is a block comment) |
 
 Hard errors, per house rule — there is no warning tier, so the choice is error or silence, and silence loses: a doc comment that silently attaches to nothing is documentation the author wrote and no reader will ever see. Every message names the local rewrite (the Rewrite Rule, Declarations Preamble §1.1): move it, or demote it to an ordinary comment.

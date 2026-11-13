@@ -201,7 +201,7 @@ Prefer small test helpers that speak in compiler concepts:
 
 ```ts
 expectDiagnostic(source, {
-  message: "`;` separates statements; Hexagon lines don't end with one.",
+  message: "`;` separates statements; Hexagon lines don't end with one",
 });
 ```
 

@@ -12,6 +12,7 @@
  */
 
 import type { Target } from "../queries/occurrences.js";
+import { glossSentences } from "../syntax/typed/display.js";
 import type { Hover } from "./session.js";
 
 /**
@@ -41,14 +42,14 @@ export function hoverMarkdown(hover: Hover): string {
   const named = hover.target === undefined
     ? signature
     : `${describeTarget(hover.target)} ${signature}`;
-  // Effects §10's owner line (#873): a captured colour the type had to number
-  // is named beside it, one line each.
+  // Effects §10's gloss (#873), on a line of its own and so in sentences
+  // (Declarations Preamble §1.3).
   const glossed = hover.colourOwners === undefined
     ? named
-    : [named, ...hover.colourOwners].join("\n\n");
+    : [named, ...hover.colourOwners.map(glossSentences)].join("\n\n");
   const heading = hover.convertedTo === undefined
     ? glossed
-    : `${glossed}\n\nconverted to \`${hover.convertedTo}\` here`;
+    : `${glossed}\n\nConverted to \`${hover.convertedTo}\` here.`;
   return hover.documentation === undefined
     ? heading
     : `${heading}\n\n${hover.documentation}`;

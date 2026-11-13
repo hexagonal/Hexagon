@@ -6400,9 +6400,9 @@ export let hold(f: (() -> String) ->! Int): Int =
     const offset = source.indexOf("pick");
     const actions = session.codeActions("/main.hex", { start: offset, end: offset });
     expect(actions.map(({ title, disabled }) => `${title}: ${disabled ?? "offered"}`)).toEqual([
-      "Infer return type: the return type of `pick` cannot be written here: " +
+      "Infer return type: The return type of `pick` cannot be written here: " +
       "this function type's arrow is an effect variable, and writing a following arrow here " +
-      "would link it to the rest of the signature's colour",
+      "would link it to the rest of the signature's colour.",
     ]);
   });
 
@@ -7161,7 +7161,7 @@ describe("captured colours, pins, and owners (Effects §3.4, §4.2, §10)", () =
         expect(shown?.displayedType).toBe("() >-> Unit");
         expect(shown?.colourOwners).toEqual([owner]);
       }
-      expect(hoverMarkdown(hovered(inMid, "g =")!)).toBe(`value \`g: () >-> Unit\`\n\n${owner}`);
+      expect(hoverMarkdown(hovered(inMid, "g =")!)).toBe(`value \`g: () >-> Unit\`\n\nImpure only if \`outer\`'s \`action\` is impure. May fail only if \`outer\`'s \`action\` may fail.`);
       // `mid`'s own face is its own callback's, named by its parameter.
       expect(hovered(inMid, "mid(cb")?.displayedType).toBe("(() ->! Int) >-> Int");
       expect(hovered(inMid, "mid(cb")?.colourOwners).toEqual(["impure only if `cb` is impure; may fail only if `cb` may fail"]);

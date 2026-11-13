@@ -216,7 +216,7 @@ describe("the rewrite a refusal names is a fix on the literal (§2.9, §8)", () 
     const at = text.indexOf("i)a");
     expect(session.codeActions("/main.hex", { start: at, end: at }).map(({ title, edits }) =>
       [title, edits.map(({ replacement }) => replacement)]
-    )).toEqual([["drop the second `i`", [""]]]);
+    )).toEqual([["Drop the second `i`", [""]]]);
   });
 });
 

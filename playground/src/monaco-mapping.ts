@@ -368,7 +368,7 @@ export function toRenameEdits<Uri, Range>(
   result: PlaygroundRenamePlan | PlaygroundRenameRefusal | undefined,
 ): MappedWorkspaceEdit<Uri, Range> & { readonly rejectReason?: string } {
   if (result === undefined) {
-    return { edits: [], rejectReason: "Hexagon has no rename for this position" };
+    return { edits: [], rejectReason: "Hexagon has no rename for this position." };
   }
   if ("refused" in result) return { edits: [], rejectReason: result.refused };
   return toWorkspaceEdit(target, result.edits);

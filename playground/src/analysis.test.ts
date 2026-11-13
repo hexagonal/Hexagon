@@ -110,8 +110,8 @@ describe("code actions", () => {
     const actions = analysis.codeActions(source, { startOffset: caret, endOffset: caret });
 
     expect(actions.map(({ title, preferred }) => [title, preferred])).toEqual([
-      ["mark the call `~`", true],
-      ["correct the marks in this file", undefined],
+      ["Mark the call `~`", true],
+      ["Correct the marks in this file", undefined],
     ]);
     const repaired = applied(source, actions[1]!.edits);
     expect(repaired).toBe(source.replaceAll("writeLine(", "writeLine~("));
@@ -126,7 +126,7 @@ describe("code actions", () => {
 
     const fix = analysis
       .codeActions(source, { startOffset: caret, endOffset: caret })
-      .find(({ title }) => title === "write the run as a sequence");
+      .find(({ title }) => title === "Write the run as a sequence");
     expect(fix?.kind).toBe("quickfix");
     const repaired = applied(source, fix?.edits ?? []);
 
@@ -168,7 +168,7 @@ describe("code actions", () => {
     // Modules §2.1's applied fixit, reaching the buffer through the ordinary
     // path — the Playground mints nothing and the user is offered the line.
     expect(rest).toEqual([]);
-    expect(action?.title).toBe("write `module Main`");
+    expect(action?.title).toBe("Write `module Main`");
     expect(applied(source, action?.edits ?? [])).toBe(
       "module Main\n\nDebug.log(\"hi\")\n",
     );
@@ -308,7 +308,7 @@ describe("the type of an expression", () => {
     const analysis = new PlaygroundAnalysis();
     const start = at(source, "[1, 2]");
     const hover = analysis.hover(source, start, start + "[1, 2]".length);
-    expect(hover?.markdown).toBe("`Vector(Int)`\n\nconverted to `Seq(Int)` here");
+    expect(hover?.markdown).toBe("`Vector(Int)`\n\nConverted to `Seq(Int)` here.");
     expect(text(source, hover?.range ?? { startOffset: 0, endOffset: 0 })).toBe("[1, 2]");
   });
 
@@ -714,7 +714,7 @@ describe("rename", () => {
     // whole answer, and the not-owned sentence is pinned where a declaration
     // really is found (`session.test.ts`'s `None`).
     expect(analysis.prepareRename(source, at(source, "Show"))).toEqual({
-      refused: "`Show` is built into the compiler, so it has no declaration to rename",
+      refused: "`Show` is built into the compiler, so it has no declaration to rename.",
     });
   });
 
@@ -748,7 +748,7 @@ describe("rename", () => {
     // own, which is a fact about the program, and #838's refusal names the
     // declaring module. Both seats give it, which is what this test is about.
     const refused = {
-      refused: "`length` is declared in module `Hex.Vector`, which this project does not own",
+      refused: "`length` is declared in module `Hex.Vector`, which this project does not own.",
     };
     expect(analysis.prepareRename(source, caret)).toEqual(refused);
     expect(analysis.rename(source, caret, "size")).toEqual(refused);

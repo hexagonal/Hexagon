@@ -327,7 +327,7 @@ compilerWorker.addEventListener("message", (event: MessageEvent<CompilerMessage>
     state.diagnostics = response.diagnostics.map((diagnostic) =>
       locateDiagnostic(sourceEditor.getSource(), diagnostic)
     );
-    compileStatus.textContent = `Compiled version ${response.version}`;
+    compileStatus.textContent = `Compiled version ${response.version}.`;
     runButton.disabled = false;
   } else {
     state.lastSuccessfulVersion = undefined;
@@ -343,7 +343,7 @@ compilerWorker.addEventListener("message", (event: MessageEvent<CompilerMessage>
     state.diagnostics = response.diagnostics.map((diagnostic) =>
       locateDiagnostic(sourceEditor.getSource(), diagnostic)
     );
-    compileStatus.textContent = `${state.diagnostics.length} compiler message${state.diagnostics.length === 1 ? "" : "s"}`;
+    compileStatus.textContent = `${state.diagnostics.length} compiler message${state.diagnostics.length === 1 ? "" : "s"}.`;
     runButton.disabled = true;
   }
 
@@ -470,15 +470,15 @@ function runCurrentProgram(): void {
       state.output = [...state.output, { stream: "note", text: `Runtime error: ${response.message}` }];
     }
     compileStatus.textContent = response.kind === "execute-success"
-      ? `Ran version ${version}`
-      : `Version ${version} failed at runtime`;
+      ? `Ran version ${version}.`
+      : `Version ${version} failed at runtime.`;
     finishExecution();
     renderResult();
   });
   executionWorker.addEventListener("error", (event) => {
     if (version !== state.sourceVersion) return;
     state.output = [...state.output, { stream: "note", text: `Execution worker failed: ${event.message}` }];
-    compileStatus.textContent = `Version ${version} failed at runtime`;
+    compileStatus.textContent = `Version ${version} failed at runtime.`;
     finishExecution();
     renderResult();
   });
@@ -492,7 +492,7 @@ function runCurrentProgram(): void {
   executionTimer = setTimeout(() => {
     if (version !== state.sourceVersion) return;
     state.output = [...state.output, { stream: "note", text: "Execution stopped after 2 seconds." }];
-    compileStatus.textContent = `Version ${version} timed out`;
+    compileStatus.textContent = `Version ${version} timed out.`;
     finishExecution();
     renderResult();
   }, 2_000);

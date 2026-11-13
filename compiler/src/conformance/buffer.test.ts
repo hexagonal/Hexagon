@@ -205,7 +205,7 @@ describe("`Buffer(a)` is invariant (§3.3)", () => {
   test("a field holding a `Buffer(a)` uses `a` invariantly", () => {
     expect(diagnostics("opaque record Box(+a) = {slots: Buffer(a)}\n")).toEqual([
       "`a` cannot be declared covariant in `Box`: field `slots` uses `a` in an " +
-      "invariant position. Remove the `+`, or change the field",
+      "invariant position; remove the `+`, or change the field",
     ]);
     expect(diagnostics("opaque record Box(+a) = {slots: Seq(a)}\n")).toEqual([]);
   });

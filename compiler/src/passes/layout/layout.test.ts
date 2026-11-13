@@ -321,7 +321,7 @@ describe("applyLayout", () => {
     const dedented = layout("let m =\n    id(match p\n        True => 1\n        False => 0;\n    )");
 
     expect(trailing.diagnostics.map(({ message }) => message)).toEqual([
-      "`;` separates statements; Hexagon lines don't end with one.",
+      "`;` separates statements; Hexagon lines don't end with one",
     ]);
     expect(trailing.diagnostics.map(({ message }) => message))
       .toEqual(dedented.diagnostics.map(({ message }) => message));
@@ -359,11 +359,11 @@ describe("applyLayout", () => {
     const result = layout("; let x = 1;; let y = (1; 2)\nlet z = 3;");
 
     expect(result.diagnostics.map(({ message }) => message)).toEqual([
-      "`;` must have a statement on both sides.",
-      "`;` must have a statement on both sides.",
-      "`;` must have a statement on both sides.",
-      "did you mean `,`? `;` only separates statements.",
-      "`;` separates statements; Hexagon lines don't end with one.",
+      "`;` must have a statement on both sides",
+      "`;` must have a statement on both sides",
+      "`;` must have a statement on both sides",
+      "did you mean `,`? `;` only separates statements",
+      "`;` separates statements; Hexagon lines don't end with one",
     ]);
   });
 

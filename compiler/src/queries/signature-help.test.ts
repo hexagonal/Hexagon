@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { AnalysisSession } from "../analysis/session.js";
+import { signatureMarkdown } from "../analysis/signature-text.js";
 import type { SignatureHelp } from "./signature-help.js";
 
 /** The cursor is `‸`, removed before compiling (`completions.test.ts` says why not `|`). */
@@ -64,6 +65,15 @@ describe("signature help", () => {
     expect(hover?.signature).toBe("(values: Vector(a), initial: b, combine: (b, a) ->! b) >-> b");
     expect(help?.colourOwners).toEqual(hover?.colourOwners);
     expect(help?.colourOwners).toHaveLength(1);
+  });
+
+  test("the text under the signature: the gloss in sentences, then the documentation", () => {
+    const help = helpIn("fun t(v: Vector(Int)): Int = v.fold(0, ‸)\n");
+    // The gloss is stored as a phrase and shown on a line of its own as
+    // sentences (Declarations Preamble §1.3).
+    expect(help?.colourOwners).toEqual(["impure only if `combine` is impure; may fail only if `combine` may fail"]);
+    expect(signatureMarkdown(help!)?.split("\n\n")[0])
+      .toBe("Impure only if `combine` is impure. May fail only if `combine` may fail.");
   });
 
   test("which parameter: the commas behind the caret", () => {

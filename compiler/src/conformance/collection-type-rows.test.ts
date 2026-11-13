@@ -284,9 +284,9 @@ describe("the companion is the type's home (Constraints §4.4, §5.3)", () => {
   test("the companion's own head binds its variables, as any head does", () => {
     const claimed = [
       "the `Ord<Map(k, v)>` instance binds `max`, which is already bound (line 220); " +
-      "Hexagon does not allow rebinding — choose a different name.",
+      "Hexagon does not allow rebinding — choose a different name",
       "the `Ord<Map(k, v)>` instance binds `min`, which is already bound (line 224); " +
-      "Hexagon does not allow rebinding — choose a different name.",
+      "Hexagon does not allow rebinding — choose a different name",
     ];
     expect(inCompanion("Map", "\nhonor Ord<Map(k, v)> =\n    compare(l, r) = Ordering.Equal\n"))
       .toEqual([

@@ -61,7 +61,7 @@ import {
  * A sentence rather than a code, because every host that shows a refusal shows
  * it as prose.
  */
-const OUTSIDE_DOCUMENT = "this would edit code the Playground does not show";
+const OUTSIDE_DOCUMENT = "This would edit code the Playground does not show.";
 
 export class PlaygroundAnalysis {
   readonly #session = new AnalysisSession();

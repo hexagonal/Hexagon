@@ -950,7 +950,7 @@ describe("the Hexagon language server", () => {
         position: rangeOf("[1, 2]"),
       }) as Hover | null;
       expect(hover).toEqual({
-        contents: { kind: "markdown", value: "`Vector(Int)`\n\nconverted to `Seq(Int)` here" },
+        contents: { kind: "markdown", value: "`Vector(Int)`\n\nConverted to `Seq(Int)` here." },
         range: rangeOf("[1, 2]"),
       });
     });
@@ -961,7 +961,7 @@ describe("the Hexagon language server", () => {
         textDocument: { uri: typed.uriOf("main.hex") },
         position: { start: end, end: start },
       }) as Hover | null;
-      expect(hover?.contents).toEqual({ kind: "markdown", value: "`Vector(Int)`\n\nconverted to `Seq(Int)` here" });
+      expect(hover?.contents).toEqual({ kind: "markdown", value: "`Vector(Int)`\n\nConverted to `Seq(Int)` here." });
     });
 
     test("an empty selection is a caret, and answers as a position does", async () => {
@@ -1868,9 +1868,9 @@ describe("the Hexagon language server", () => {
         context: { diagnostics: reported },
       }) as CodeAction[] | null;
       expect(actions!.map(({ title, kind, isPreferred }) => [title, kind, isPreferred])).toEqual([
-        ["mark the call `!`", "quickfix", true],
+        ["Mark the call `!`", "quickfix", true],
         ["Write the calls as a pipeline", "refactor", undefined],
-        ["correct the marks in this file", "quickfix", undefined],
+        ["Correct the marks in this file", "quickfix", undefined],
       ]);
       const edits = actions![2]!.edit!.changes![solo.uriOf("main.hex")]!;
       expect(applyEdits(source, edits)).toBe(source.replaceAll("save(\"", "save!(\""));
@@ -2118,7 +2118,7 @@ describe("hover renders the arrow trio", () => {
     // termination, and the sentence says what does.
     expect(await hovered("fold")).toBe(
       "value `fold: (source: Stream(a), initial: b, combine: (b, a) ->! b) ->! b`\n\n" +
-      "impure; may fail\n\n" +
+      "Impure. May fail.\n\n" +
       "Reduces the whole stream to one value, left to right, starting from\n" +
       "`initial`. It pulls to exhaustion, so it does not return on an ambient\n" +
       "source.",
@@ -2152,7 +2152,7 @@ describe("hover renders the arrow trio", () => {
     // the one face in the language whose colour is *written* rather than
     // inferred from a body.
     expect(await hovered("runner")).toBe(
-      "value `runner: (step: () ->! String) >-> Int`\n\nimpure only if `step` is impure; may fail only if `step` may fail",
+      "value `runner: (step: () ->! String) >-> Int`\n\nImpure only if `step` is impure. May fail only if `step` may fail.",
     );
   });
 });
@@ -2398,7 +2398,7 @@ describe("packages and programs", () => {
         context: { diagnostics: reported },
       }) as CodeAction[] | null;
       const repair = actions?.find(({ title }) => title.includes("dependencies"));
-      expect(repair?.title).toBe("add `\"Bolt\"` to `dependencies` in hexagon.json");
+      expect(repair?.title).toBe("Add `\"Bolt\"` to `dependencies` in hexagon.json");
       const edits = manifestEditsOf(repair!, workspace.uriOf("hexagon.json"));
       expect(applyEdits(manifest({ dependencies: ["Acme"] }), edits)).toBe(
         manifest({ dependencies: ["Acme", "Bolt"] }),

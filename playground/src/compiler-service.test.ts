@@ -143,7 +143,7 @@ describe("createCompilerService", () => {
       version: 6,
       diagnostics: [{
         severity: "error",
-        message: "Internal compiler error: the elaborator fell over",
+        message: "internal compiler error: the elaborator fell over",
         startOffset: 0,
         endOffset: 0,
       }],

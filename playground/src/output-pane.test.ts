@@ -19,10 +19,10 @@ describe("the output pane", () => {
   test("starts a note on a line of its own", () => {
     expect(outputSegments([
       { stream: "stdout", text: "no newline" },
-      { stream: "note", text: "exit status 3" },
+      { stream: "note", text: "Exit status 3." },
     ])).toEqual([
       { stream: "stdout", text: "no newline" },
-      { stream: "note", text: "\nexit status 3\n" },
+      { stream: "note", text: "\nExit status 3.\n" },
     ]);
     expect(outputSegments([{ stream: "note", text: "Program completed." }]))
       .toEqual([{ stream: "note", text: "Program completed.\n" }]);
@@ -30,6 +30,6 @@ describe("the output pane", () => {
 
   test("shows a status only when it isn't 0", () => {
     expect(exitStatusNote(0)).toBeUndefined();
-    expect(exitStatusNote(141)).toEqual({ stream: "note", text: "exit status 141" });
+    expect(exitStatusNote(141)).toEqual({ stream: "note", text: "Exit status 141." });
   });
 });

@@ -755,7 +755,7 @@ describe("check", () => {
     );
 
     expect(module.diagnostics.map(({ message }) => message)).toEqual([
-      "`existing` is already bound (line 3); Hexagon does not allow rebinding — choose a different name.",
+      "`existing` is already bound (line 3); Hexagon does not allow rebinding — choose a different name",
       "`duplicate` is bound twice in this pattern",
     ]);
   });

@@ -1131,7 +1131,7 @@ describe("diagnostics (§2.1, §2.2, §9 test 11)", () => {
         "let fromJsDirection(v: Int): Int = v\n",
     )).toEqual([
       "`fromJsDirection` is already bound (line 4); `extern enum Direction` generates " +
-      "it (Foreign Enums §5.2) — rename the enum type, or the other declaration.",
+      "it (Foreign Enums §5.2) — rename the enum type, or the other declaration",
     ]);
   });
 

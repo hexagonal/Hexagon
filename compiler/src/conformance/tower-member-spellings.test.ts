@@ -329,10 +329,10 @@ describe("§14(v): the receiver seat, and §5.1's stand-down", () => {
       parts.receiver === "" ? "" : ` \`${parts.receiver}\``
     }; ${parts.declined} cannot enter \`BigInt\`, so the ${
       parts.operation ?? "addition"
-    } could not run at \`BigInt\`.` +
+    } could not run at \`BigInt\`` +
     (parts.repair === false
       ? ""
-      : ` To keep \`${parts.ascribe}\` at \`${parts.kept}\`, ascribe it — ` +
+      : `; to keep \`${parts.ascribe}\` at \`${parts.kept}\`, ascribe it — ` +
         `\`(${parts.ascribe}: ${parts.written ?? parts.kept})\` — or bind it first`);
 
   /**
@@ -351,7 +351,7 @@ describe("§14(v): the receiver seat, and §5.1's stand-down", () => {
     mismatch = "expected BigInt, found Foo",
     kept = "Foo",
   ): string =>
-    `type mismatch: ${mismatch}. To keep \`${ascribed}\` at \`${kept}\`, ` +
+    `type mismatch: ${mismatch}; to keep \`${ascribed}\` at \`${kept}\`, ` +
     `ascribe it — \`(${ascribed}: ${kept})\``;
 
   /** One standalone program's `probe` line, with the project asserted clean. */

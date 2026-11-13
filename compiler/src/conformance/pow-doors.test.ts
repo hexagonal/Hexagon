@@ -308,8 +308,8 @@ describe("the dot call reaches the door as one claimant (Method Syntax §6.1)", 
 
     expect(diagnostics).toContain(
       "`describe` after a dot is ambiguous at `Gauge`: a companion operation " +
-        "`Gauge.describe`, `Quiet`'s member `describe`. Write `Quiet.describe(…)`, " +
-        "or `Gauge.describe(…)` for the companion operation.",
+        "`Gauge.describe`, `Quiet`'s member `describe`; write `Quiet.describe(…)`, " +
+        "or `Gauge.describe(…)` for the companion operation",
     );
   });
 });
@@ -487,7 +487,7 @@ describe("the `widens` declaration at a user nominal (Constraints §4.7)", () =>
     )).toEqual([
       "the `Pow<Box>` instance binds `pow`, which is already bound (line 10); a " +
         "member's wider face is declared, not exported — write `widens " +
-        "Pow.pow(…)` and account for the member with `pow = widened`.",
+        "Pow.pow(…)` and account for the member with `pow = widened`",
       "`pow = widened` accounts for a `widens Pow.pow` declaration this module " +
         "does not contain",
     ]);
@@ -499,7 +499,7 @@ describe("the `widens` declaration at a user nominal (Constraints §4.7)", () =>
       "",
     )).toEqual([
       "the `Pow<Box>` instance binds `pow`, which is already bound (line 10); " +
-        "Hexagon does not allow rebinding — choose a different name.",
+        "Hexagon does not allow rebinding — choose a different name",
       "`pow = widened` accounts for a `widens Pow.pow` declaration this module " +
         "does not contain",
     ]);
@@ -511,7 +511,7 @@ describe("the `widens` declaration at a user nominal (Constraints §4.7)", () =>
       "",
     )).toEqual([
       "the `Pow<Box>` instance binds `pow`, which is already bound (line 10); " +
-        "Hexagon does not allow rebinding — choose a different name.",
+        "Hexagon does not allow rebinding — choose a different name",
       "`pow = widened` accounts for a `widens Pow.pow` declaration this module " +
         "does not contain",
     ]);
@@ -618,7 +618,7 @@ describe("the manifest and the head (Constraints §4.7)", () => {
       "`pow` is already bound (line 10); one operation has one written body, " +
         "and a `widens` declaration's name is derived from the member it names " +
         "— there is no other name for either to take, so one of the two " +
-        "declarations must go.",
+        "declarations must go",
     ]);
   });
 
@@ -640,7 +640,7 @@ describe("the manifest and the head (Constraints §4.7)", () => {
     ].join("\n"))).toContain(
       "`pow` is already bound (line 10); a `widens` declaration's name is " +
         "derived from the member it names and cannot be chosen — rename the " +
-        "binding on line 10, or drop this declaration.",
+        "binding on line 10, or drop this declaration",
     );
   });
 
@@ -718,7 +718,7 @@ describe("the manifest and the head (Constraints §4.7)", () => {
     ].join("\n"))).toEqual([
       "the `pow = widened` line takes no documentation — one operation, one " +
         "doc: document it at its `widens` declaration, or make this an " +
-        "ordinary comment (`(* ... *)`).",
+        "ordinary comment (`(* ... *)`)",
     ]);
 
     // The same refusal at a member that is not `pow`, which is the half that
@@ -748,7 +748,7 @@ describe("the manifest and the head (Constraints §4.7)", () => {
     ]).diagnostics.map(({ message }) => message)).toEqual([
       "the `scale = widened` line takes no documentation — one operation, one " +
         "doc: document it at its `widens` declaration, or make this an " +
-        "ordinary comment (`(* ... *)`).",
+        "ordinary comment (`(* ... *)`)",
     ]);
   });
 

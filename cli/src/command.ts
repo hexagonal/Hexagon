@@ -116,7 +116,7 @@ export async function runCommand(
     const entries = emittedRootPaths(compiled, outputDirectory);
     context.stdout(
       entries.length === 0
-        ? `Built ${compiled.modules.length} modules in ${outputDirectory}\n`
+        ? `Built ${compiled.modules.length} modules in ${outputDirectory}.\n`
         : `Built ${compiled.modules.length} modules. Emitted roots:\n${entries.map((path) => `  ${path}`).join("\n")}\n`,
     );
     return 0;

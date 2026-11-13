@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import {
   AnalysisSession,
+  menuTitle,
   refused,
   type RenamePlan,
   type RenameResult,
@@ -523,7 +524,7 @@ describe("AnalysisSession", () => {
     const expected =
       "`fromJsDirection` is generated from `extern enum Direction` " +
       "(Foreign Enums §5.2), so its spelling is not chosen — rename the type " +
-      "`Direction`, and every use of this name follows";
+      "`Direction`, and every use of this name follows.";
     expect(session.prepareRename("/main.hex", use)).toEqual({ refused: expected });
     expect(session.rename("/main.hex", use, "grab")).toEqual({ refused: expected });
   });
@@ -553,7 +554,7 @@ describe("AnalysisSession", () => {
     expect(session.diagnostics("/main.hex")).toEqual([]);
     expect(session.rename("/main.hex", at(source, "Direction"), "Way")).toEqual({
       refused:
-        "renaming `Direction` to `Way` would break `/main.hex`: " +
+        "Renaming `Direction` to `Way` would break `/main.hex`: " +
         "`fromJsWay` is already bound (line 3); `extern enum Way` generates it " +
         "(Foreign Enums §5.2) — rename the enum type, or the other declaration.",
     });
@@ -579,7 +580,7 @@ describe("AnalysisSession", () => {
       refused:
         "`fromJsDirection` is generated from `extern enum Direction` " +
         "(Foreign Enums §5.2), so its spelling is not chosen — rename the type " +
-        "`Direction`, and every use of this name follows",
+        "`Direction`, and every use of this name follows.",
     });
     // And hovering it abroad still answers with the signature: only the
     // *definition* was withheld, never the references.
@@ -1307,7 +1308,7 @@ describe("AnalysisSession.rename", () => {
     // module is not the project's, and the package segment is what says whose
     // it is (Modules §10's rename row, #838).
     expect(refusal(session.rename("/main.hex", at(source, "None"), "Nothing")))
-      .toBe("`None` is declared in module `Hex.Option`, which this project does not own");
+      .toBe("`None` is declared in module `Hex.Option`, which this project does not own.");
   });
 
   test("a name with no declaration anywhere takes the built-in refusal, not a mentioner's", () => {
@@ -1317,7 +1318,7 @@ describe("AnalysisSession.rename", () => {
     const source = "module Main\n\n" + "export let word: String = show(1)\n";
     const { session } = sessionOf({ "/main.hex": source });
     expect(refusal(session.rename("/main.hex", at(source, "show"), "display")))
-      .toBe("`show` is built into the compiler, so it has no declaration to rename");
+      .toBe("`show` is built into the compiler, so it has no declaration to rename.");
 
     // The **constraint** at an `honor` head, which is where the two refusals
     // used to race: whichever fired first won, and the not-owned one names a
@@ -1328,7 +1329,7 @@ describe("AnalysisSession.rename", () => {
       "honor Show<Person> =\n    show(person) = person.name\n";
     const { session: honoring } = sessionOf({ "/main.hex": honored });
     expect(refusal(honoring.rename("/main.hex", at(honored, "Show"), "Display")))
-      .toBe("`Show` is built into the compiler, so it has no declaration to rename");
+      .toBe("`Show` is built into the compiler, so it has no declaration to rename.");
 
     // **The arrangement, not only the answer.** The two fixtures above give the
     // built-in refusal whichever order the checks run in, because no `Show`
@@ -1350,11 +1351,11 @@ describe("AnalysisSession.rename", () => {
       "let ordering: Ordering = Ordering.Less\n";
     const { session: reachingSession } = sessionOf({ "/main.hex": reaching });
     expect(refusal(reachingSession.rename("/main.hex", at(reaching, "Show"), "Display")))
-      .toBe("`Show` is built into the compiler, so it has no declaration to rename");
+      .toBe("`Show` is built into the compiler, so it has no declaration to rename.");
     // The same caret through `prepareRename`, the query an editor asks first:
     // one arrangement answers both, and the refusal a user reads is this one.
     expect(refusal(reachingSession.prepareRename("/main.hex", at(reaching, "Show"))))
-      .toBe("`Show` is built into the compiler, so it has no declaration to rename");
+      .toBe("`Show` is built into the compiler, so it has no declaration to rename.");
   });
 
   test("a not-owned name is its declaring module's, with a mentioner in the set", () => {
@@ -1382,7 +1383,7 @@ describe("AnalysisSession.rename", () => {
       "let missing: Option(Int) = None\n";
     const { session } = sessionOf({ "/main.hex": source });
     expect(refusal(session.rename("/main.hex", at(source, "None"), "Nothing")))
-      .toBe("`None` is declared in module `Hex.Option`, which this project does not own");
+      .toBe("`None` is declared in module `Hex.Option`, which this project does not own.");
   });
 
   test("rewrites a dot call, which only the checker knows the meaning of", () => {
@@ -2035,5 +2036,24 @@ describe("a file declaring several modules (Modules §2.2)", () => {
     expect(actions.map(({ title }) => title.slice(0, 20)))
       .toEqual(["Declare `Box(+a)` — "]);
     expect(actions[0]?.kind).toBe("refactor");
+  });
+});
+
+describe("menuTitle (Declarations Preamble §1.3)", () => {
+  test("capitalises a lower-case first letter, Unicode-aware", () => {
+    expect(menuTitle("import `Rat`")).toBe("Import `Rat`");
+    expect(menuTitle("write `->!`")).toBe("Write `->!`");
+    expect(menuTitle("écrire")).toBe("Écrire");
+  });
+
+  test("leaves a title that opens with code or a capital as written", () => {
+    expect(menuTitle("`x` as a pun")).toBe("`x` as a pun");
+    expect(menuTitle("Infer return type")).toBe("Infer return type");
+  });
+
+  test("strips one closing period and keeps a closing ellipsis", () => {
+    expect(menuTitle("rename `x`.")).toBe("Rename `x`");
+    expect(menuTitle("extract to function...")).toBe("Extract to function...");
+    expect(menuTitle("extract to function…")).toBe("Extract to function…");
   });
 });
