@@ -584,8 +584,9 @@ class Scanner {
 
     // Both delimiters are rewritten together, or neither: fixing the opener alone
     // would leave the JavaScript closer inside an unterminated Hexagon comment.
-    // With no closer to pair with, or a body whose `{-` or `-}` text would change
-    // the comment's extent once it nests, the redirect stands on its message.
+    // With no closer to pair with, or a rewrite that would not read back as one
+    // comment of the same extent and kind (`#rewritesWhole`), the redirect stands
+    // on its message.
     if (closerStart === undefined) {
       this.#diagnostics.add({ severity: "error", message, primary: opener });
       return;

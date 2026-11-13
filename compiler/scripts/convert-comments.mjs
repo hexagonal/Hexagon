@@ -11,8 +11,8 @@
  * - the old text already holds a `--`, `{-` or `-}` that would read differently
  *   once the new forms exist (a double minus written together, say), or holds
  *   new comments beside old ones;
- * - a refusal carries no fix, because the comment is unterminated or its body
- *   holds `{-` or `-}` text that would change its extent once it nests;
+ * - a refusal carries no fix, because the comment is unterminated or its
+ *   rewrite would not read back as one comment of the same extent and kind;
  * - the result does not lex cleanly, or does not hold the same number of
  *   comments and documentation comments as the original held.
  *

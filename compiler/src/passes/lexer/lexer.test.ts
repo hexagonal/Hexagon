@@ -582,10 +582,13 @@ describe("lex", () => {
       documentation.diagnostics[0]?.fixes?.[0]?.edits.map(({ replacement }) => replacement),
     ).toEqual(["{--", "-}"]);
 
-    // `/**/` is JavaScript's empty comment, not its documentation opener.
+    // `/**/` is JavaScript's empty comment, not its documentation opener, and
+    // its fix is the empty Hexagon comment.
     expect(lexSource("/**/").diagnostics.map(({ message }) => message)).toEqual([
       "JavaScript block comment syntax — Hexagon block comments are `{- ... -}`",
     ]);
+    expect(lexSource("/**/").diagnostics[0]?.fixes?.[0]?.edits.map(({ replacement }) => replacement))
+      .toEqual(["{-", "-}"]);
 
     // With no closer to pair with, the single error at the opener stands on its
     // message: rewriting the opener alone would only trade this error for an
