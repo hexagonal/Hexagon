@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import {
   AnalysisSession,
+  menuTitle,
   refused,
   type RenamePlan,
   type RenameResult,
@@ -2035,5 +2036,24 @@ describe("a file declaring several modules (Modules §2.2)", () => {
     expect(actions.map(({ title }) => title.slice(0, 20)))
       .toEqual(["Declare `Box(+a)` — "]);
     expect(actions[0]?.kind).toBe("refactor");
+  });
+});
+
+describe("menuTitle (Declarations Preamble §1.3)", () => {
+  test("capitalises a lower-case first letter, Unicode-aware", () => {
+    expect(menuTitle("import `Rat`")).toBe("Import `Rat`");
+    expect(menuTitle("write `->!`")).toBe("Write `->!`");
+    expect(menuTitle("écrire")).toBe("Écrire");
+  });
+
+  test("leaves a title that opens with code or a capital as written", () => {
+    expect(menuTitle("`x` as a pun")).toBe("`x` as a pun");
+    expect(menuTitle("Infer return type")).toBe("Infer return type");
+  });
+
+  test("strips one closing period and keeps a closing ellipsis", () => {
+    expect(menuTitle("rename `x`.")).toBe("Rename `x`");
+    expect(menuTitle("extract to function...")).toBe("Extract to function...");
+    expect(menuTitle("extract to function…")).toBe("Extract to function…");
   });
 });

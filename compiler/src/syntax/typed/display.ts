@@ -240,7 +240,7 @@ export function glossSentences(gloss: string): string {
   clauses.push(gloss.slice(start));
   return clauses
     .map((clause) => {
-      const capital = clause.startsWith("`") ? clause : clause.charAt(0).toUpperCase() + clause.slice(1);
+      const capital = clause.charAt(0).toUpperCase() + clause.slice(1);
       return capital.endsWith(".") ? capital : `${capital}.`;
     })
     .join(" ");

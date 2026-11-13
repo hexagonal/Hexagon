@@ -1465,12 +1465,13 @@ export class AnalysisSession {
     const was = diagnosticTally(before.elsewhere, []);
     for (const [key, appearance] of diagnosticTally(after.elsewhere, [])) {
       if ((was.get(key)?.count ?? 0) >= appearance.count) continue;
-      return `${written} would break \`${appearance.path}\`: ${appearance.message}.`;
+      return Diagnostics.closeSentence(`${written} would break \`${appearance.path}\`: ${appearance.message}`);
     }
     if (after.here.length > before.here.length) {
       const fresh = after.here.find((message) => !before.here.includes(message));
-      return `${written} would report a new problem with \`${plan.name}\`` +
-        (fresh === undefined ? "" : `: ${fresh}`) + ".";
+      return Diagnostics.closeSentence(
+        `${written} would report a new problem with \`${plan.name}\`` + (fresh === undefined ? "" : `: ${fresh}`),
+      );
     }
 
     const now = probe.#analyze().schemeAt(path, declaration);
@@ -1541,13 +1542,15 @@ export class AnalysisSession {
     const was = diagnosticTally(before.others, []);
     for (const [key, appearance] of diagnosticTally(after.others, [])) {
       if ((was.get(key)?.count ?? 0) >= appearance.count) continue;
-      return appearance.path === path
-        ? `${doing} would report a new problem: ${appearance.message}.`
-        : `${doing} would break \`${appearance.path}\`: ${appearance.message}.`;
+      return Diagnostics.closeSentence(
+        appearance.path === path
+          ? `${doing} would report a new problem: ${appearance.message}`
+          : `${doing} would break \`${appearance.path}\`: ${appearance.message}`,
+      );
     }
     if (after.incomplete.length > before.incomplete.length) {
       const fresh = after.incomplete.find((message) => !before.incomplete.includes(message)) ?? after.incomplete[0]!;
-      return `${doing} would report a new problem: ${fresh}.`;
+      return Diagnostics.closeSentence(`${doing} would report a new problem: ${fresh}`);
     }
 
     // Where the edit moved each name: past every edit that ends at or before it.
@@ -1918,9 +1921,10 @@ export class AnalysisSession {
     for (const [key, appearance] of diagnosticTally(probe.allDiagnostics(), spellings)) {
       if ((before.get(key)?.count ?? 0) >= appearance.count) continue;
       return {
-        refused:
+        refused: Diagnostics.closeSentence(
           `Renaming \`${name}\` to \`${newName}\` would break \`${appearance.path}\`: ` +
-          `${appearance.message}.`,
+            appearance.message,
+        ),
       };
     }
 
@@ -2562,7 +2566,7 @@ function soleNameToken(candidate: string): Lexed.NameToken | undefined {
  * already, keeps its opening as written.
  */
 export function menuTitle(text: string): string {
-  const opened = /^[a-z]/.test(text) ? text.charAt(0).toUpperCase() + text.slice(1) : text;
+  const opened = text.replace(/^\p{Ll}/u, (letter) => letter.toUpperCase());
   return opened.endsWith(".") && !opened.endsWith("...") ? opened.slice(0, -1) : opened;
 }
 

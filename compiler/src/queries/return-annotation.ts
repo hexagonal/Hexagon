@@ -14,7 +14,7 @@
  * edited project — which this query, reading one finished tree, cannot do.
  */
 
-import type * as Diagnostics from "../support/diagnostics.js";
+import * as Diagnostics from "../support/diagnostics.js";
 import type * as LaidOut from "../syntax/laid-out/index.js";
 import type * as Lexed from "../syntax/lexed/index.js";
 import type * as Resolved from "../syntax/resolved/index.js";
@@ -438,7 +438,7 @@ export function unsettledDeclaration(
       // sentences say the same thing about the same error — and worth knowing
       // before trusting the word to point at a region.
       const where = start.offset >= body ? "body" : "signature";
-      return `The ${where} of ${name} has an error to fix first: ${diagnostic.message}.`;
+      return Diagnostics.closeSentence(`The ${where} of ${name} has an error to fix first: ${diagnostic.message}`);
     }
   }
   // Over the body alone. Widening it to the whole declaration changes no answer

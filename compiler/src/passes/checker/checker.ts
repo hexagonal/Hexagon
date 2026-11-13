@@ -34169,13 +34169,13 @@ class Checker {
       if (operation === undefined && member === undefined) continue;
       return `this value's type was inferred as a record with a \`${name}\` field ` +
         `because its type was unknown where it was written; \`${display}\` is not a ` +
-        `record. Annotate it to use dispatch, or call ${
+        `record; annotate it to use dispatch, or call ${
           member === undefined
             // The companion is named by the type's head, never by its display:
             // `Vector.length`, not `Vector(Int).length`, which resolves nowhere.
             ? `\`${companionHeadName(nominal) ?? display}.${name}(…)\` directly`
             : `${this.#memberSpelling(member)} directly`
-        }.`;
+        }`;
     }
     return undefined;
   }

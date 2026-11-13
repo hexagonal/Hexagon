@@ -340,7 +340,7 @@ checker folded a piece into the one around it, so that it has no type of its own
 answers nothing rather than borrowing its parent's type. Where the checker
 converted the expression in place, the answer is the type the text has and the
 type it became: `[1, 2]` where a `Seq(Int)` is wanted reads `Vector(Int)`,
-"converted to `Seq(Int)` here" (Rust's "coerced to"). A decimal-point literal
+"Converted to `Seq(Int)` here." (Rust's "coerced to"). A decimal-point literal
 at a `Frac` type (`1.5e1` at `Rat`) is that type's own literal, though the
 checker builds it from a `BigInt`.
 

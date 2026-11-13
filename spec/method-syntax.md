@@ -346,7 +346,7 @@ Completion after `receiver.` must be driven by **the same resolution model**, at
 | 5 | Companion op exists but first parameter is not `T`-headed; or a member exists but is not subject-first | treated as row 4 (neither is in the operation set) — but hint at the near-miss: "`Vector.empty` does not take a `Vector` as its first argument; call it as `Vector.empty(…)`" / "`fromNat` does not take its constraint's subject first; call it as `Num.fromNat(…)`" |
 | 6 | Dot call resolves to two claimants (field/export/member, member/member — head-known or declared-variable receiver) | the §6-family refusal: name every claimant with its disambiguating spelling — `Box.size(box)`, the field spellings, the member's declaring-module home (`Show.show(box)`), or the unqualified spelling where a claimant is declared in the current module (§6) *(row repurposed by #304/#335 — the old row-6 redirect died with §3.4's amended row: that case now dispatches)* |
 | 7 | Dot call on declared type variable, no subject-first member in its bounds | "`a` is a declared type variable, so `.process` can only be one of its constraints' members, and none of `a`'s constraints has a subject-first member `process`; add the constraint to the parameter's binder, use a concrete nominal type, or call a qualified function" (§3.4, §7) |
-| 8 | A row the record spelling imposed (§3.6) meeting a nominal type at a use — same module or across the program — where the field's name matches an exported companion operation of, or a subject-first member honored at, the nominal type | the enriched message: "this value's type was inferred as a record with a `length` field because its type was unknown where it was written; `Vector(Int)` is not a record. Annotate it to use dispatch, or call `Vector.length(…)` directly" — the companion named by the type's head, never its display; a member by its qualified home |
+| 8 | A row the record spelling imposed (§3.6) meeting a nominal type at a use — same module or across the program — where the field's name matches an exported companion operation of, or a subject-first member honored at, the nominal type | the enriched message: "this value's type was inferred as a record with a `length` field because its type was unknown where it was written; `Vector(Int)` is not a record; annotate it to use dispatch, or call `Vector.length(…)` directly" — the companion named by the type's head, never its display; a member by its qualified home |
 | 9 | Tuple receiver, non-`itemN` name | existing tuple-dot errors (Products §2.3), unchanged |
 | 10 | Function-typed receiver | "functions have no fields or companion operations" |
 | 11 | Uppercase name after dot with an argument list where left side is not a module alias | existing Modules §5.1 resolution/errors, unchanged — not this feature |
@@ -480,7 +480,7 @@ fun first(v) = (v.at)(1)           -- OK : {at: Int -> a, ...} -> a, the row typ
 first(Vector.of(9))                -- ERROR (row 8): this value's type was inferred as a
                                    --   record with a `at` field because its type was
                                    --   unknown where it was written; `Vector(Int)` is
-                                   --   not a record. Annotate it to use dispatch, or
+                                   --   not a record; annotate it to use dispatch, or
                                    --   call `Vector.at(…)` directly
 
 -- (h) Collision, use-site, both fixits

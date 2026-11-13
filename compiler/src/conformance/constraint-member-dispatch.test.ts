@@ -782,8 +782,8 @@ describe("§9 row 8: a field call's row meeting a nominal names the operation", 
       "",
     ].join("\n"))).toEqual([
       "this value's type was inferred as a record with a `show` field because " +
-      "its type was unknown where it was written; `Int` is not a record. " +
-      "Annotate it to use dispatch, or call `Show.show(…)` directly.",
+      "its type was unknown where it was written; `Int` is not a record; " +
+      "annotate it to use dispatch, or call `Show.show(…)` directly",
     ]);
   });
 
@@ -797,8 +797,8 @@ describe("§9 row 8: a field call's row meeting a nominal names the operation", 
       "",
     ].join("\n"))).toEqual([
       "this value's type was inferred as a record with a `length` field because " +
-      "its type was unknown where it was written; `Vector(Int)` is not a record. " +
-      "Annotate it to use dispatch, or call `Vector.length(…)` directly.",
+      "its type was unknown where it was written; `Vector(Int)` is not a record; " +
+      "annotate it to use dispatch, or call `Vector.length(…)` directly",
     ]);
   });
 });

@@ -943,8 +943,8 @@ describe("`toSeq` is reachable at every iterable", () => {
         "export let n: Int = f(1..10)\n"),
     ).toEqual([
       "this value's type was inferred as a record with a `toSeq` field because " +
-      "its type was unknown where it was written; `Range` is not a record. " +
-      "Annotate it to use dispatch, or call `Iterable.toSeq(…)` directly.",
+      "its type was unknown where it was written; `Range` is not a record; " +
+      "annotate it to use dispatch, or call `Iterable.toSeq(…)` directly",
     ]);
   });
 
