@@ -15,7 +15,7 @@ describe("createCompilerService", () => {
       kind: "hover",
       id: 9,
       version: 4,
-      hover: { markdown: "value `twice: Int -> Int`" },
+      hover: { markdown: "value `twice: (n: Int) -> Int`" },
     });
     // A selection: the type of the expression it names, `twice(3)`.
     const call = source.indexOf("twice(3)");
@@ -143,7 +143,7 @@ describe("createCompilerService", () => {
       version: 6,
       diagnostics: [{
         severity: "error",
-        message: "Internal compiler error: the elaborator fell over",
+        message: "internal compiler error: the elaborator fell over",
         startOffset: 0,
         endOffset: 0,
       }],

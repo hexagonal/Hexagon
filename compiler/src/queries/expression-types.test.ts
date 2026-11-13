@@ -166,29 +166,29 @@ describe("the type of a selection", () => {
     expect(shown(`${rat}let r: Rat = «1.5»\n`)).toBe("`Rat` @ 1.5");
     expect(shown(`${rat}let r: Rat = «-1.5e1»\n`)).toBe("`Rat` @ -1.5e1");
     // A `BigInt` the text wrote is one, converted, a literal or a name.
-    expect(shown(`${rat}let r: Rat = «15n»\n`)).toBe("`BigInt`\n\nconverted to `Rat` here @ 15n");
-    expect(shown(`${rat}let b: BigInt = 15\nlet r: Rat = «b»\n`)).toBe("`BigInt`\n\nconverted to `Rat` here @ b");
+    expect(shown(`${rat}let r: Rat = «15n»\n`)).toBe("`BigInt`\n\nConverted to `Rat` here. @ 15n");
+    expect(shown(`${rat}let b: BigInt = 15\nlet r: Rat = «b»\n`)).toBe("`BigInt`\n\nConverted to `Rat` here. @ b");
     // A negated one is converted, then negated where it stands.
-    expect(shown(`${rat}let r: Rat = -«15n»\n`)).toBe("`BigInt`\n\nconverted to `Rat` here @ 15n");
+    expect(shown(`${rat}let r: Rat = -«15n»\n`)).toBe("`BigInt`\n\nConverted to `Rat` here. @ 15n");
     expect(shown(`${rat}let r: Rat = «-15n»\n`)).toBe("`Rat` @ -15n");
-    expect(shown(`${rat}let r: Rat = ‸(15n)\n`)).toBe("`BigInt`\n\nconverted to `Rat` here @ (");
+    expect(shown(`${rat}let r: Rat = ‸(15n)\n`)).toBe("`BigInt`\n\nConverted to `Rat` here. @ (");
   });
 
   test("a reading whose value was widened inside its `Some`: the reading as written, and the one it became", () => {
     const risky = `${HEAD}exception Oops(code: Int)\nlet risky(n: Int): Nat = if n > 0 then 1 else throw^(Oops(n))\n`;
     expect(shown(`${risky}let o: Option(Int) = «risky?(1)»\n`))
-      .toBe("`Option(Nat)`\n\nconverted to `Option(Int)` here @ risky?(1)");
+      .toBe("`Option(Nat)`\n\nConverted to `Option(Int)` here. @ risky?(1)");
     expect(shown(`${risky}let o = «risky?(1)»\n`)).toBe("`Option(Nat)` @ risky?(1)");
   });
 
   test("an expression the checker converted in place: the type it has, and the one it became", () => {
     expect(shown(`${HEAD}let s: Seq(Int) = «[1, 2]»\n`))
-      .toBe("`Vector(Int)`\n\nconverted to `Seq(Int)` here @ [1, 2]");
+      .toBe("`Vector(Int)`\n\nConverted to `Seq(Int)` here. @ [1, 2]");
     expect(shown(`${HEAD}let m: Nat = 2\nlet w: Int = «m»\n`))
-      .toBe("`Nat`\n\nconverted to `Int` here @ m");
+      .toBe("`Nat`\n\nConverted to `Int` here. @ m");
     // What a converted expression holds keeps its own types.
     const call = `${HEAD}let m: Nat = 2\nlet f(k: Nat): Nat = k\nlet w: Int = «f(m)»\n`;
-    expect(shown(call)).toBe("`Nat`\n\nconverted to `Int` here @ f(m)");
+    expect(shown(call)).toBe("`Nat`\n\nConverted to `Int` here. @ f(m)");
     expect(shown(call.replace("«f(m)»", "f(«m»)"))).toBe("`Nat` @ m");
     expect(shown(`${HEAD}let s: Seq(Int) = [1 ‸+ 2]\n`)).toBe("`Int` @ +");
   });
@@ -255,7 +255,7 @@ describe("the type of a selection", () => {
   test("a captured colour is glossed as hover glosses it (Effects §10)", () => {
     const source = `${HEAD}export let outer(action: () ->! Unit): Unit =\n    let g = «action»\n    g!()\n`;
     expect(shown(source)).toBe(
-      "`() >-> Unit`\n\nimpure only if `outer`'s `action` is; may fail only if `outer`'s `action` may @ action",
+      "`() >-> Unit`\n\nImpure only if `outer`'s `action` is impure. May fail only if `outer`'s `action` may fail. @ action",
     );
   });
 
@@ -323,7 +323,7 @@ describe("the type at an operator, a bracket, a literal or a keyword", () => {
   });
 
   test("a `(` just after a callee is the callee's, as a caret just after a name is on it", () => {
-    expect(shown(`${HEAD}let twice(n: Int): Int = n * 2\nlet t = twice‸(1)\n`)).toBe("value `twice: Int -> Int` @ twice");
+    expect(shown(`${HEAD}let twice(n: Int): Int = n * 2\nlet t = twice‸(1)\n`)).toBe("value `twice: (n: Int) -> Int` @ twice");
     expect(shown(`${HEAD}let twice(n: Int): Int = n * 2\nlet t = twice(1‸)\n`)).toBe("`Int` @ )");
   });
 
@@ -356,7 +356,7 @@ describe("the type at an operator, a bracket, a literal or a keyword", () => {
   });
 
   test("a converted expression shows the conversion at its brackets too", () => {
-    expect(shown(`${HEAD}let s: Seq(Int) = [1‸, 2]\n`)).toBe("`Vector(Int)`\n\nconverted to `Seq(Int)` here @ ,");
+    expect(shown(`${HEAD}let s: Seq(Int) = [1‸, 2]\n`)).toBe("`Vector(Int)`\n\nConverted to `Seq(Int)` here. @ ,");
   });
 
   test("a caret just after a bracket is on it; one in spaces is on nothing", () => {

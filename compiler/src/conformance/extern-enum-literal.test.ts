@@ -431,14 +431,14 @@ describe("the generated conversions (§5.2)", () => {
     )).toEqual([
       "`fromJsDirection` is already bound (line 3); `extern enum Direction` " +
       "generates it (Foreign Enums §5.2) — rename the enum type, or the other " +
-      "declaration.",
+      "declaration",
     ]);
     expect(projectDiagnostics("module Main\n\n" + "export let toJsDirection(v: Int): Int = v\n" +
         "extern enum Direction = \"up\" as Up\n",
     )).toEqual([
       "`toJsDirection` is already bound (line 3); `extern enum Direction` " +
       "generates it (Foreign Enums §5.2) — rename the enum type, or the other " +
-      "declaration.",
+      "declaration",
     ]);
     // Two enums whose derived names would collide is the same fault, and §5.2
     // names it in the same breath as the explicit one.
@@ -447,7 +447,7 @@ describe("the generated conversions (§5.2)", () => {
     )).toContain(
       "`fromJsDirection` is already bound (line 3); `extern enum Direction` " +
       "generates it (Foreign Enums §5.2) — rename the enum type, or the other " +
-      "declaration.",
+      "declaration",
     );
   });
 

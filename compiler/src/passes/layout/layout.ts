@@ -539,7 +539,7 @@ function validateSemicolon(
   if (delimiterDepth > blockDelimiterDepth) {
     diagnostics.add({
       severity: "error",
-      message: "did you mean `,`? `;` only separates statements.",
+      message: "did you mean `,`? `;` only separates statements",
       primary: token.span,
     });
     return;
@@ -563,13 +563,13 @@ function validateSemicolon(
   if (touchesSemicolon || !hasLeft) {
     diagnostics.add({
       severity: "error",
-      message: "`;` must have a statement on both sides.",
+      message: "`;` must have a statement on both sides",
       primary: token.span,
     });
   } else if (!hasRight) {
     diagnostics.add({
       severity: "error",
-      message: "`;` separates statements; Hexagon lines don't end with one.",
+      message: "`;` separates statements; Hexagon lines don't end with one",
       primary: token.span,
     });
   }

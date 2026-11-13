@@ -219,7 +219,7 @@ describe("toRenameEdits", () => {
     const rejected = toRenameEdits(target, undefined);
 
     expect(rejected.edits).toEqual([]);
-    expect(rejected.rejectReason).toBe("Hexagon has no rename for this position");
+    expect(rejected.rejectReason).toBe("Hexagon has no rename for this position.");
   });
 });
 
@@ -336,7 +336,7 @@ describe("toSignatureHelp", () => {
       toSignatureHelp({
         label: "add: (Int, Int) -> Int",
         documentation: "Adds two numbers.",
-        parameters: [{ range: [6, 9], documentation: "`a`" }, { range: [11, 14] }],
+        parameters: [{ range: [6, 9] }, { range: [11, 14] }],
         activeParameter: 1,
       }),
     ).toEqual({
@@ -344,10 +344,7 @@ describe("toSignatureHelp", () => {
         label: "add: (Int, Int) -> Int",
         documentation: { value: "Adds two numbers.", isTrusted: false },
         // A place, never the text: both parameters read `Int`.
-        parameters: [
-          { label: [6, 9], documentation: { value: "`a`", isTrusted: false } },
-          { label: [11, 14] },
-        ],
+        parameters: [{ label: [6, 9] }, { label: [11, 14] }],
         activeParameter: 1,
       }],
       activeSignature: 0,

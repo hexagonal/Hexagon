@@ -278,7 +278,7 @@ describe("resolve", () => {
     const specimen = resolveSource("let y =\n    let y = 5\n    y");
     expect(specimen.diagnostics.map(({ message }) => message)).toEqual([
       "`y` is already being defined by the enclosing `let` (line 3); " +
-        "Hexagon does not allow rebinding — choose a different name.",
+        "Hexagon does not allow rebinding — choose a different name",
     ]);
 
     const varOuter = resolveSource(
@@ -286,7 +286,7 @@ describe("resolve", () => {
     );
     expect(varOuter.diagnostics.map(({ message }) => message)).toEqual([
       "`y` is already being defined by the enclosing `var` (line 4); " +
-        "Hexagon does not allow rebinding — choose a different name.",
+        "Hexagon does not allow rebinding — choose a different name",
     ]);
 
     const varInner = resolveSource(
@@ -294,14 +294,14 @@ describe("resolve", () => {
     );
     expect(varInner.diagnostics.map(({ message }) => message)).toEqual([
       "`y` is already being defined by the enclosing `let` (line 4); " +
-        "Hexagon does not allow rebinding — choose a different name.",
+        "Hexagon does not allow rebinding — choose a different name",
     ]);
 
     // A destructuring LHS reserves every name it binds...
     const patternOuter = resolveSource("let (a, b) =\n    let a = 5\n    (a, 6)");
     expect(patternOuter.diagnostics.map(({ message }) => message)).toEqual([
       "`a` is already being defined by the enclosing `let` (line 3); " +
-        "Hexagon does not allow rebinding — choose a different name.",
+        "Hexagon does not allow rebinding — choose a different name",
     ]);
 
     // ...and a destructuring pattern's own names are refused as claimants too.
@@ -310,14 +310,14 @@ describe("resolve", () => {
     );
     expect(patternInner.diagnostics.map(({ message }) => message)).toEqual([
       "`y` is already being defined by the enclosing `let` (line 3); " +
-        "Hexagon does not allow rebinding — choose a different name.",
+        "Hexagon does not allow rebinding — choose a different name",
     ]);
 
     // `fun` is a sequential binder; a pending name refuses it like any other.
     const funInner = resolveSource("let y =\n    fun y(n) = n\n    y(5)");
     expect(funInner.diagnostics.map(({ message }) => message)).toEqual([
       "`y` is already being defined by the enclosing `let` (line 3); " +
-        "Hexagon does not allow rebinding — choose a different name.",
+        "Hexagon does not allow rebinding — choose a different name",
     ]);
 
     // The reservation reaches any nesting depth, lambdas included.
@@ -326,7 +326,7 @@ describe("resolve", () => {
     );
     expect(insideLambda.diagnostics.map(({ message }) => message)).toEqual([
       "`y` is already being defined by the enclosing `let` (line 3); " +
-        "Hexagon does not allow rebinding — choose a different name.",
+        "Hexagon does not allow rebinding — choose a different name",
     ]);
 
     // A member is a `let` header (Constraints §4.6): its body reserves the
@@ -340,7 +340,7 @@ describe("resolve", () => {
     );
     expect(memberBody.diagnostics.map(({ message }) => message)).toEqual([
       "`equals` is already being defined by the enclosing member definition " +
-        "(line 5); Hexagon does not allow rebinding — choose a different name.",
+        "(line 5); Hexagon does not allow rebinding — choose a different name",
     ]);
   });
 
@@ -374,7 +374,7 @@ describe("resolve", () => {
     );
     expect(nested.diagnostics.map(({ message }) => message)).toEqual([
       "`x` is already bound (line 4); Hexagon does not allow rebinding — " +
-        "choose a different name.",
+        "choose a different name",
     ]);
 
     const parameter = resolveSource(
@@ -382,7 +382,7 @@ describe("resolve", () => {
     );
     expect(parameter.diagnostics.map(({ message }) => message)).toEqual([
       "`x` is already bound (line 3); Hexagon does not allow rebinding — " +
-        "choose a different name.",
+        "choose a different name",
     ]);
 
     const varOuter = resolveSource(
@@ -395,7 +395,7 @@ describe("resolve", () => {
     );
     expect(varOuter.diagnostics.map(({ message }) => message)).toEqual([
       "`x` is already bound (line 4); Hexagon does not allow rebinding — " +
-        "choose a different name.",
+        "choose a different name",
     ]);
   });
 
@@ -416,7 +416,7 @@ describe("resolve", () => {
       },
     });
     expect(module.diagnostics.map(({ message }) => message)).toEqual([
-      "`loop` is not in scope in its own `let` definition; `let` is non-recursive — use `fun`.",
+      "`loop` is not in scope in its own `let` definition; `let` is non-recursive — use `fun`",
     ]);
   });
 
@@ -626,7 +626,7 @@ describe("resolve", () => {
     );
 
     expect(module.diagnostics.map(({ message }) => message)).toEqual([
-      "`x` is already bound (line 3); Hexagon does not allow rebinding — choose a different name.",
+      "`x` is already bound (line 3); Hexagon does not allow rebinding — choose a different name",
     ]);
     expect(module.items[0]).toMatchObject({
       kind: "Let",
@@ -741,7 +741,7 @@ describe("resolve", () => {
 
     expect(module.diagnostics.map(({ message }) => message)).toContain(
       "the `Eq<Odd>` instance binds `notEquals`, which is already bound (line 4); " +
-        "Hexagon does not allow rebinding — choose a different name.",
+        "Hexagon does not allow rebinding — choose a different name",
     );
   });
 

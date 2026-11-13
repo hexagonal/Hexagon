@@ -357,7 +357,7 @@ apply   : (String -> String) -> String
 ```
 
 - A zero-parameter function uses `()` as its domain.
-- A one-parameter function uses the parameter type directly: `A -> B`, never `(A) -> B`. There is no one-item tuple or one-item parameter-list type.
+- A one-parameter function uses the parameter type directly: `A -> B`, never `(A) -> B`. There is no one-item tuple or one-item parameter-list type. A parameter shown under its name is parenthesized, as below.
 - When that one parameter is itself a tuple, its tuple parentheses are grouped once
   more so arity remains visible: `((A, B)) -> C`. Without the outer grouping,
   `(A, B) -> C` is the distinct type of a two-parameter function.
@@ -388,6 +388,18 @@ apply   : (String -> String) -> String
   The display is a **canonical** face, so it shows the head's binder order no more than it shows the accumulation order: `<b: Show, a: Show>(x: a, y: b)` and `<a: Show, b: Show>(x: b, y: a)` both display `<a: Show, b: Show> (a, b) -> String`, as does the binder-less spelling (§4.2.1). Across variables it therefore does not track the suffix, whose ordinal is a **declared** position (Part 9 §6.2, §6.2.1) — the two faces answer different questions, and coincide exactly when a head is spelled in the order its variables occur in the type. Nothing depends on the coincidence: the ABI is read off the declaration, never off a display.
 
   Unconstrained variables are unmentioned (bare `<a>` is never canonical, §4.2), and a constraint-free scheme shows no bracket. In source the bracket glues to what follows, because what follows is the parameter list it binds into; a display has no parameter list — the bracket is a quantifier prefix on a complete type — and the space is what marks the difference. The honor head exhibits both spellings in one line: `honor<a: Show> Show<Vector(a)>`. The bracketed face *as a whole* is machine-written notation, since an annotation cannot carry a binder list (§4.2's position restriction), under a display-only licence (Effects §10): a display marks what the grammar cannot express. Every *piece* of it is nonetheless a verbatim source spelling, and the bracket pastes onto a declaration head unchanged.
+- **Hover and signature help name the parameters a declaration writes.** Those two displays describe one declaration, beside its documentation, so they show its face with each parameter under the name the declaration's text gives it:
+
+  ```text
+  map     : (values: Vector(a), transform: a ->! b) >-> Vector(b)
+  twice   : (n: Int) -> Int
+  Rect    : (w: Int, h: Int) -> Shape
+  pair    : ((Int, Int), c: Int) -> Int
+  ```
+
+  A named parameter list is always parenthesized, a sole parameter's included, because `n: Int -> Int` would read as a name for the whole arrow. The names come from a `let` or `fun` header, a `let` or `var` bound to a lambda literal, an `extern fun`, a constraint member, and a named constructor or exception slot. A parameter written as a pattern has no name, and shows its type alone beside its named siblings. Anything else shows its type alone, because a function type carries no names and nothing in its text writes one: a name bound to another function (`let g = f`), a parameter or field that holds a function, a value a call returned, the type of a selected expression.
+
+  The names are the declaration's, not the type's. The type grammar writes none, so the named line is not a type an annotation can carry; without its names it is the face. Every other display shows the face alone: diagnostics, inlay hints, completion detail, inferred-type views, and every machine-written annotation and rewrite. *Rejected:* admitting parameter names in function types so that the named line stays writable, a language change bought for a display; and the face bare with its names on a line of their own, which leaves the reader matching names to parameters by position.
 - This notation describes Hexagon types. TypeScript declaration output separately follows TypeScript grammar and therefore retains `(name: A) => B`; the colour crosses as a generated documentation line carrying the Hexagon face (Effects §10).
 
 The internal representation remains genuinely n-ary: `TFun([], R)`, `TFun([A], R)`, and `TFun([A, B], R)`. This display rule does not encode unary functions as a special semantic form.
@@ -468,7 +480,7 @@ Because the pipe operator inserts its left operand as the **first argument** of 
 
 Inside the RHS of `let x = ...`, any reference to `x` — at any nesting depth, **including inside lambdas** — is a compile error:
 
-> `x` is not in scope in its own `let` definition; `let` is non-recursive — use `fun`.
+> `x` is not in scope in its own `let` definition; `let` is non-recursive — use `fun`
 
 **One right-hand side takes other advice.** Where the RHS is a call that resolves to `Function.memoize` or `Function.memoizeRecursive` (a pipe stage included), "use `fun`" would lead to a memo table rebuilt on every call, so the advice is the open-recursion rewrite instead (`memoization.md` §6). At `memoize`, it repeats the lambda's own parameters, as written, after a new first parameter:
 

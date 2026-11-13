@@ -485,7 +485,7 @@ describe("§5.3 the `Map(k, v)` claim, verified against the representation", () 
     // The row goes red at the row, and only in the slot the field broke.
     expect(broken.diagnostics).toContain(
       "`v` cannot be declared covariant in `Map`: field `consume` of its representation " +
-        "`HashTrie` uses the parameter in argument position. Remove the `+`, or change the field",
+        "`HashTrie` uses the parameter in argument position; remove the `+`, or change the field",
     );
     expect(broken.diagnostics.join("\n")).not.toContain("`k` cannot be declared");
     expect(baseline.diagnostics.join("\n")).not.toContain("cannot be declared covariant");
@@ -596,7 +596,7 @@ describe("§5.3 the `Set(a)` claim, verified against the representation", () => 
     expect(broken.diagnostics.join("\n")).toContain("occurs in an invariant position");
     expect(broken.diagnostics).toContain(
       "`a` cannot be declared covariant in `Set`: field `consume` of its representation " +
-        "`HashSet` uses the parameter in argument position. Remove the `+`, or change the field",
+        "`HashSet` uses the parameter in argument position; remove the `+`, or change the field",
     );
   });
 });

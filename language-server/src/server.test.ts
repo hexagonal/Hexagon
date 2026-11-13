@@ -390,7 +390,7 @@ describe("the Hexagon language server", () => {
     // One shape for every hover — what it is, then its type when it has one —
     // so the layout is not itself something to parse before the content.
     expect((hover!.contents as { value: string }).value).toBe(
-      "value `brighten: Colour -> Colour`",
+      "value `brighten: (colour: Colour) -> Colour`",
     );
     // The range is what the editor underlines; it must cover the name and no more.
     expect(hover!.range).toEqual({
@@ -438,17 +438,17 @@ describe("the Hexagon language server", () => {
       }) as Hover | null;
 
       expect((qualifiedRound?.contents as { value: string }).value).toMatch(
-        /^value `round: Float -> Int`/,
+        /^value `round: \(value: Float\) -> Int`/,
       );
       expect((qualifiedRound?.contents as { value: string }).value).toMatch(
-        /exact halfway values rounded to the\s+even integer/u,
+        /halfway between two\s+integers goes to the even one/u,
       );
       expect(dottedRound?.contents).toEqual(qualifiedRound?.contents);
       expect((qualifiedAway?.contents as { value: string }).value).toMatch(
-        /^value `roundAway: Float -> Int`/,
+        /^value `roundAway: \(value: Float\) -> Int`/,
       );
       expect((qualifiedAway?.contents as { value: string }).value).toMatch(
-        /The name\s+describes the tie rule, not a direction for every value/u,
+        /Only a half is affected/u,
       );
       expect(dottedAway?.contents).toEqual(qualifiedAway?.contents);
       expect(dottedAway?.range).toEqual({
@@ -484,14 +484,14 @@ describe("the Hexagon language server", () => {
         position: positionOf(source, "withPlacesEven"),
       }) as Hover | null;
       expect((operation?.contents as { value: string }).value).toMatch(
-        /^value `withPlacesEven: \(Dec, Int\) -> Dec`/,
+        /^value `withPlacesEven: \(decimal: Dec, places: Int\) -> Dec`/,
       );
       const representation = await solo.client.sendRequest("textDocument/hover", {
         textDocument: { uri: solo.uriOf("main.hex") },
         position: positionOf(source, "same", 2),
       }) as Hover | null;
       expect((representation?.contents as { value: string }).value).toMatch(
-        /^value `same: \(Dec, Dec\) -> Bool`/,
+        /^value `same: \(left: Dec, right: Dec\) -> Bool`/,
       );
 
       const probing = `${source}let probe = Dec.\n`;
@@ -629,7 +629,7 @@ describe("the Hexagon language server", () => {
         // Verbatim under the signature: the fence and the blank lines are the
         // author's Markdown, and the separator is a blank line rather than a
         // `---`, which after a line of text is a heading marker.
-        value: "value `brighten: Int -> Int`\n\n" +
+        value: "value `brighten: (colour: Int) -> Int`\n\n" +
           "Brightens a colour.\n\nFenced, even:\n\n```\nbrighten(Red)\n```",
       });
     });
@@ -699,7 +699,7 @@ describe("the Hexagon language server", () => {
       });
     });
 
-    test("signature help carries hover's line, the parameter's name and the documentation", async () => {
+    test("signature help carries hover's line, its parameter named, and the documentation", async () => {
       const call = positionOf(DOCUMENTED, "brighten(probe)");
       const help = await documented.client.sendRequest("textDocument/signatureHelp", {
         textDocument: { uri: documented.uriOf("main.hex") },
@@ -707,14 +707,14 @@ describe("the Hexagon language server", () => {
       }) as SignatureHelp | null;
       expect(help).toEqual({
         signatures: [{
-          label: "brighten: Int -> Int",
+          label: "brighten: (colour: Int) -> Int",
           documentation: {
             kind: "markdown",
             value: "Brightens a colour.\n\nFenced, even:\n\n```\nbrighten(Red)\n```",
           },
           // This client declared no `labelOffsetSupport`, so the parameter is
           // named by its text, the protocol's fallback.
-          parameters: [{ label: "Int", documentation: { kind: "markdown", value: "`colour`" } }],
+          parameters: [{ label: "colour: Int" }],
           activeParameter: 0,
         }],
         activeSignature: 0,
@@ -886,7 +886,8 @@ describe("the Hexagon language server", () => {
   });
 
   test("signature help names each parameter by its place in the label, for a client that reads that", async () => {
-    const SOURCE = "module Main\n\nlet add(a: Int, b: Int): Int = a + b\n\nlet sum: Int = add(1, 2)\n";
+    // A constructor's unnamed slots, so that the two parameters read alike.
+    const SOURCE = "module Main\n\nunion Pair =\n    | Pair(Int, Int)\n\nlet both: Pair = Pair(1, 2)\n";
     const offsets = await harness({ "main.hex": SOURCE }, {
       textDocument: { signatureHelp: { signatureInformation: { parameterInformation: { labelOffsetSupport: true } } } },
     });
@@ -903,11 +904,8 @@ describe("the Hexagon language server", () => {
       // second `Int` is the one highlighted.
       expect(help).toEqual({
         signatures: [{
-          label: "add: (Int, Int) -> Int",
-          parameters: [
-            { label: [6, 9], documentation: { kind: "markdown", value: "`a`" } },
-            { label: [11, 14], documentation: { kind: "markdown", value: "`b`" } },
-          ],
+          label: "Pair: (Int, Int) -> Pair",
+          parameters: [{ label: [7, 10] }, { label: [12, 15] }],
           activeParameter: 1,
         }],
         activeSignature: 0,
@@ -952,7 +950,7 @@ describe("the Hexagon language server", () => {
         position: rangeOf("[1, 2]"),
       }) as Hover | null;
       expect(hover).toEqual({
-        contents: { kind: "markdown", value: "`Vector(Int)`\n\nconverted to `Seq(Int)` here" },
+        contents: { kind: "markdown", value: "`Vector(Int)`\n\nConverted to `Seq(Int)` here." },
         range: rangeOf("[1, 2]"),
       });
     });
@@ -963,7 +961,7 @@ describe("the Hexagon language server", () => {
         textDocument: { uri: typed.uriOf("main.hex") },
         position: { start: end, end: start },
       }) as Hover | null;
-      expect(hover?.contents).toEqual({ kind: "markdown", value: "`Vector(Int)`\n\nconverted to `Seq(Int)` here" });
+      expect(hover?.contents).toEqual({ kind: "markdown", value: "`Vector(Int)`\n\nConverted to `Seq(Int)` here." });
     });
 
     test("an empty selection is a caret, and answers as a position does", async () => {
@@ -1870,9 +1868,9 @@ describe("the Hexagon language server", () => {
         context: { diagnostics: reported },
       }) as CodeAction[] | null;
       expect(actions!.map(({ title, kind, isPreferred }) => [title, kind, isPreferred])).toEqual([
-        ["mark the call `!`", "quickfix", true],
+        ["Mark the call `!`", "quickfix", true],
         ["Write the calls as a pipeline", "refactor", undefined],
-        ["correct the marks in this file", "quickfix", undefined],
+        ["Correct the marks in this file", "quickfix", undefined],
       ]);
       const edits = actions![2]!.edit!.changes![solo.uriOf("main.hex")]!;
       expect(applyEdits(source, edits)).toBe(source.replaceAll("save(\"", "save!(\""));
@@ -2111,15 +2109,16 @@ describe("hover renders the arrow trio", () => {
 
   test("`->!` reaches the editor, on the face the ruling names", async () => {
     // `stream.md` §4.4's canonical worked example: a callback beside a
-    // constant-impure self. The face writes back unchanged.
+    // constant-impure self. The face, its names dropped (Functions §5.1),
+    // writes back unchanged.
     //
     // The gloss reads the face's colours in words (Effects §10), and the
     // module's own doc comment rides along, which is the second half of what a
     // reader needs: the face says the callback decides nothing about
     // termination, and the sentence says what does.
     expect(await hovered("fold")).toBe(
-      "value `fold: (Stream(a), b, (b, a) ->! b) ->! b`\n\n" +
-      "impure; may fail\n\n" +
+      "value `fold: (source: Stream(a), initial: b, combine: (b, a) ->! b) ->! b`\n\n" +
+      "Impure. May fail.\n\n" +
       "Reduces the whole stream to one value, left to right, starting from\n" +
       "`initial`. It pulls to exhaustion, so it does not return on an ambient\n" +
       "source.",
@@ -2132,18 +2131,18 @@ describe("hover renders the arrow trio", () => {
     // returned function's `>->` follows the callback it is handed (Effects
     // §10): a face the grammar can write, with no display-only decoration.
     expect(await hovered("staged")).toBe(
-      "value `staged: (String ->! String) -> (String ->! String) >-> String`",
+      "value `staged: (first: String ->! String) -> (String ->! String) >-> String`",
     );
   });
 
   test("a closure builder's own arrow is pure, its one colour plain (#868)", async () => {
     expect(await hovered("compose")).toBe(
-      "value `compose: (String ->! String, String ->! String) -> String >-> String`",
+      "value `compose: (first: String ->! String, second: String ->! String) -> String >-> String`",
     );
   });
 
   test("a pure face says nothing about colour", async () => {
-    expect(await hovered("twice")).toBe("value `twice: (Int -> Int, Int) -> Int`");
+    expect(await hovered("twice")).toBe("value `twice: (step: Int -> Int, value: Int) -> Int`");
   });
 
   test("a `>->` boundary row reaches the editor as the face it writes", async () => {
@@ -2153,7 +2152,7 @@ describe("hover renders the arrow trio", () => {
     // the one face in the language whose colour is *written* rather than
     // inferred from a body.
     expect(await hovered("runner")).toBe(
-      "value `runner: (() ->! String) >-> Int`\n\nimpure only if `step` is; may fail only if `step` may",
+      "value `runner: (step: () ->! String) >-> Int`\n\nImpure only if `step` is impure. May fail only if `step` may fail.",
     );
   });
 });
@@ -2399,7 +2398,7 @@ describe("packages and programs", () => {
         context: { diagnostics: reported },
       }) as CodeAction[] | null;
       const repair = actions?.find(({ title }) => title.includes("dependencies"));
-      expect(repair?.title).toBe("add `\"Bolt\"` to `dependencies` in hexagon.json");
+      expect(repair?.title).toBe("Add `\"Bolt\"` to `dependencies` in hexagon.json");
       const edits = manifestEditsOf(repair!, workspace.uriOf("hexagon.json"));
       expect(applyEdits(manifest({ dependencies: ["Acme"] }), edits)).toBe(
         manifest({ dependencies: ["Acme", "Bolt"] }),

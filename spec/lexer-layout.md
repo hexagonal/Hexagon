@@ -262,9 +262,9 @@ These are binding on the implementation, same status as the Functions spec's dia
 | Situation | Message (shape) |
 |---|---|
 | `x => { print(x) }` — brace-block habit; body parses as a record literal and fails (entries aren't `field = value`) | "Braces are record literals in Hexagon, not blocks. Write the block body on an indented line:" + a two-line fixit. (Mirror image of JS's own `=> ({})` wart; one good encounter defuses it.) |
-| Trailing `;` at end of line/statement | "`;` separates statements; Hexagon lines don't end with one." |
-| `;;` / leading `;` / empty statement | same family: "`;` must have a statement on both sides." |
-| `;` inside `()`/`{}`/`<>` argument, tuple, record, or type-parameter context | "did you mean `,`? `;` only separates statements." |
+| Trailing `;` at end of line/statement | "`;` separates statements; Hexagon lines don't end with one" |
+| `;;` / leading `;` / empty statement | same family: "`;` must have a statement on both sides" |
+| `;` inside `()`/`{}`/`<>` argument, tuple, record, or type-parameter context | "did you mean `,`? `;` only separates statements" |
 | A `;`-sequence where a multi-statement lambda body was plausibly intended (lambda immediately preceding the `;` on the line) | append hint: "to give the lambda a multi-statement body, indent it on the following lines; `;` separates the *enclosing* block." |
 | Inconsistent dedent (line at a column matching no open block) | standard offside error, naming the candidate columns. |
 | A line beginning with an expression-continuation token (§2.3) that dedents past the item it would continue | append hint: "a leading operator continues the previous item only at that item's own indentation; indent it to the item's column, or end the previous line with the operator." (The bare "expected a newline or `;` between block items" is loud but unhelpful here.) |

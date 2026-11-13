@@ -57,11 +57,21 @@ export function displayFace(
  * With `letters`, the face is lettered as one display among several of one
  * declaration (`Letters`), which is how inlay hints show a declaration piece by
  * piece without letting two of its pieces disagree.
+ *
+ * With `names`, the outer arrow's parameters are shown under the names their
+ * declaration gives them, one entry per parameter, `undefined` for one it does
+ * not name: `map: (values: Vector(a), transform: a ->! b) >-> Vector(b)`. That
+ * is hover's line and signature help's (Functions §5.1), a signature for the
+ * reader rather than a type the grammar writes, so nothing that writes a type
+ * back into source asks for it. A named parameter list is always
+ * parenthesized, a sole parameter included, and each parameter's position
+ * covers its name.
  */
 export function displayCallFace(
   scheme: Typed.Scheme,
   context?: ColourContext,
   letters?: Letters,
+  names?: readonly (string | undefined)[],
 ): {
   readonly type: string;
   readonly owners: readonly string[];
@@ -88,7 +98,7 @@ export function displayCallFace(
       parameters: [],
     };
   }
-  const shown = displayFunction(scheme.type, variables, "spine", chosen);
+  const shown = displayFunction(scheme.type, variables, "spine", chosen, names);
   return {
     type: `${constraints}${shown.text}`,
     owners,
@@ -150,9 +160,11 @@ export class Letters {
 
 /**
  * The gloss (Effects §10): the outer arrow's world colour and fail colour in
- * words, one clause each — "pure", "impure" or "impure only if `f` is"; then
- * "cannot fail", "may fail" or "may fail only if `f` may" — for every face
- * whose outer arrow is not `->`, since silence is the strong claim (§1).
+ * words, one clause each — "pure", "impure" or "impure only if `f` is impure";
+ * then "cannot fail", "may fail" or "may fail only if `f` may fail" — for every
+ * face whose outer arrow is not `->`, since silence is the strong claim (§1).
+ * A clause says its condition whole: it repeats the word it turns on, so the
+ * reader is never left to finish "only if `f` is".
  */
 function ownerLines(scheme: Typed.Scheme, context: ColourContext | undefined): readonly string[] {
   if (scheme.type.kind !== "Function") return [];
@@ -160,14 +172,23 @@ function ownerLines(scheme: Typed.Scheme, context: ColourContext | undefined): r
   if (arrow.effect === undefined && arrow.fail === undefined) return [];
   const parts = (effect: Typed.Effect): readonly Typed.TypeVariableId[] =>
     typeof effect !== "object" ? [] : "join" in effect ? effect.join : [effect.variable];
+  // A face's own callback is named by the scheme where it carries its names,
+  // as a module's symbols do (#1523), and by nothing else there: those are
+  // this scheme's variables, which the context's are only where the scheme is
+  // displayed in the module that made it.
+  const own = (part: Typed.TypeVariableId): string | undefined =>
+    scheme.colourNames === undefined
+      ? context?.names?.get(part)
+      : scheme.colourNames.find(([variable]) => variable === part)?.[1];
   // The callbacks a colour passes through: the face's own by name, a captured
-  // one by its owner, and "what it is handed" for those with no name to quote.
+  // one by its owner, and "a callback" for those with no name to quote —
+  // "another callback" beside one that is named.
   const followed = (effect: Typed.Effect): string => {
     const names: string[] = [];
     let unnamed = false;
     for (const part of parts(effect)) {
       const name = scheme.variables.includes(part)
-        ? context?.names?.get(part)
+        ? own(part)
         : context?.owners.get(part);
       if (name === undefined) {
         unnamed = true;
@@ -176,20 +197,53 @@ function ownerLines(scheme: Typed.Scheme, context: ColourContext | undefined): r
       const quoted = scheme.variables.includes(part) ? `\`${name}\`` : name;
       if (!names.includes(quoted)) names.push(quoted);
     }
-    if (unnamed || names.length === 0) names.push("what it is handed");
+    if (unnamed || names.length === 0) names.push(names.length === 0 ? "a callback" : "another callback");
     return names.join(" or ");
   };
   const world = arrow.effect === undefined
     ? "pure"
     : typeof arrow.effect === "object"
-    ? `impure only if ${followed(arrow.effect)} is`
+    ? `impure only if ${followed(arrow.effect)} is impure`
     : "impure";
   const fail = arrow.fail === undefined
     ? "cannot fail"
     : typeof arrow.fail === "object"
-    ? `may fail only if ${followed(arrow.fail)} may`
+    ? `may fail only if ${followed(arrow.fail)} may fail`
     : "may fail";
-  return [`${world}; ${fail}`];
+  return [`${world}${glossJoin}${fail}`];
+}
+
+/** What joins the gloss's two clauses where it is a phrase (Effects §10). */
+const glossJoin = "; ";
+
+/**
+ * The gloss as it reads on a line of its own, in hover and in signature help:
+ * each clause a sentence, "Impure only if `f` is impure. May fail." The gloss
+ * is a phrase wherever it is attached, as an inlay hint, a completion's detail
+ * and a report's note are, and is stored so; this is the one place it becomes
+ * sentences (Declarations Preamble §1.3). It splits on the join `ownerLines`
+ * writes and on nothing inside code, so a `;` a quoted name might hold stays in
+ * its clause; a clause that opens with code keeps the code as written.
+ */
+export function glossSentences(gloss: string): string {
+  const clauses: string[] = [];
+  let start = 0;
+  let inCode = false;
+  for (let index = 0; index < gloss.length; index += 1) {
+    if (gloss[index] === "`") inCode = !inCode;
+    else if (!inCode && gloss.startsWith(glossJoin, index)) {
+      clauses.push(gloss.slice(start, index));
+      start = index + glossJoin.length;
+      index = start - 1;
+    }
+  }
+  clauses.push(gloss.slice(start));
+  return clauses
+    .map((clause) => {
+      const capital = clause.charAt(0).toUpperCase() + clause.slice(1);
+      return capital.endsWith(".") ? capital : `${capital}.`;
+    })
+    .join(" ");
 }
 
 /**
@@ -411,23 +465,36 @@ function displayFunction(
   variables: ReadonlyMap<Typed.TypeVariableId, string>,
   place: ArrowPlace,
   chosen: ReadonlySet<Typed.TypeVariableId>,
+  names?: readonly (string | undefined)[],
 ): {
   readonly text: string;
   readonly parameters: readonly (readonly [number, number])[];
   /** Where the result starts in `text`; it runs to the end. */
   readonly result: number;
 } {
+  // Names are the declaration's, one per parameter; a list of another length
+  // is not this face's, and names nothing.
+  const named = names !== undefined && names.length === type.parameters.length &&
+    names.some((name) => name !== undefined);
   // A spine arrow's function-typed parameters are callbacks, whose own
   // arrows — and those of the functions they return — carry their colours;
   // everything else in a parameter means what it says (Effects §2.4).
-  const parameters = type.parameters.map((parameter) =>
-    displayType(parameter, variables, place === "spine" && parameter.kind === "Function" ? "callback" : "inside", chosen),
-  );
+  const parameters = type.parameters.map((parameter, index) => {
+    const shown = displayType(
+      parameter,
+      variables,
+      place === "spine" && parameter.kind === "Function" ? "callback" : "inside",
+      chosen,
+    );
+    const name = named ? names?.[index] : undefined;
+    return name === undefined ? shown : `${name}: ${shown}`;
+  });
   const soleParameter = type.parameters[0];
   // A sole `Unit` parameter displays bare — it renders as a name, so the
   // parens that keep `((a, b)) -> c` from reading as two parameters have
-  // nothing to disambiguate.
-  const bare = parameters.length === 1 &&
+  // nothing to disambiguate. A named one never does: `values: Vector(a) ->
+  // Bool` would read as a name for the whole arrow.
+  const bare = !named && parameters.length === 1 &&
     !(soleParameter?.kind === "Function" ||
       (soleParameter?.kind === "Tuple" && soleParameter.elements.length > 0));
   const domain = parameters.length === 0

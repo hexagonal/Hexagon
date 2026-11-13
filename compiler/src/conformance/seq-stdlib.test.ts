@@ -191,10 +191,10 @@ describe("each doc block sits at the declaration it describes", () => {
     // `?? "(undocumented)"` so the failure names the defect rather than the
     // shape of `undefined`: an unattached type doc leaves the record bare.
     expect(docAbove(seq.declarations.text, "export type Seq<a> = ") ?? "(undocumented)")
-      .toContain("A lazy, immutable, possibly infinite sequence");
+      .toContain("A sequence of elements that are worked out one at a time");
     expect(seq.javascript.text).not.toContain("const Seq = ");
     expect(seq.javascript.text).not.toContain(
-      "A lazy, immutable, possibly infinite sequence",
+      "A sequence of elements that are worked out one at a time",
     );
 
     for (const [emitted, exception] of [
@@ -202,9 +202,12 @@ describe("each doc block sits at the declaration it describes", () => {
       [seq.declarations.text, "export type ReentrancyFault = "],
     ] as const) {
       expect(docAbove(emitted, exception)).toBe(
-        "Raised when a sequence position is forced while it is already being\n" +
-        "forced, or when `JsValue.toArray` is asked for a value whose copy it is\n" +
-        "making (FFI Part 3 section 7.3-7.4).",
+        "Thrown when working out a value needs that same value before it is ready. A\n" +
+        "sequence that remembers its elements, such as one made by `memoize`, throws\n" +
+        "it when working out an element asks the sequence for that same element.\n" +
+        "`JsValue.toArray` throws it when it is asked again for a value it is still\n" +
+        "copying. It marks a mistake in the program, of the same kind as a function\n" +
+        "that calls itself without end.",
       );
     }
   });

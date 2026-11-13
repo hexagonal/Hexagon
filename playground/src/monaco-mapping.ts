@@ -286,10 +286,7 @@ export interface MappedSignatureHelp {
   readonly signatures: readonly {
     readonly label: string;
     readonly documentation?: UntrustedMarkdown;
-    readonly parameters: readonly {
-      readonly label: [number, number];
-      readonly documentation?: UntrustedMarkdown;
-    }[];
+    readonly parameters: readonly { readonly label: [number, number] }[];
     readonly activeParameter: number;
   }[];
   readonly activeSignature: number;
@@ -305,15 +302,14 @@ export interface MappedSignatureHelp {
  * apart.
  */
 export function toSignatureHelp(help: PlaygroundSignatureHelp): MappedSignatureHelp {
-  const markdown = (value: string | undefined): { documentation?: UntrustedMarkdown } =>
-    value === undefined ? {} : { documentation: { value, isTrusted: false } };
   return {
     signatures: [{
       label: help.label,
-      ...markdown(help.documentation),
+      ...(help.documentation === undefined
+        ? {}
+        : { documentation: { value: help.documentation, isTrusted: false as const } }),
       parameters: help.parameters.map((parameter) => ({
         label: [parameter.range[0], parameter.range[1]],
-        ...markdown(parameter.documentation),
       })),
       activeParameter: help.activeParameter,
     }],
@@ -372,7 +368,7 @@ export function toRenameEdits<Uri, Range>(
   result: PlaygroundRenamePlan | PlaygroundRenameRefusal | undefined,
 ): MappedWorkspaceEdit<Uri, Range> & { readonly rejectReason?: string } {
   if (result === undefined) {
-    return { edits: [], rejectReason: "Hexagon has no rename for this position" };
+    return { edits: [], rejectReason: "Hexagon has no rename for this position." };
   }
   if ("refused" in result) return { edits: [], rejectReason: result.refused };
   return toWorkspaceEdit(target, result.edits);

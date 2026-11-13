@@ -7,14 +7,18 @@ module Iterable
 // is lawful because a `Seq` is pure and persistent: traversing it again replays
 // the same elements, so the sequence view of a sequence is itself.
 
-(** The iteration capability: `for..in` steps through the values of any type
-    honoring `Iterable`, and `toSeq` is that type's conversion to the common
-    `Seq` currency. *)
+(** The constraint for types whose elements can be visited one at a time. A
+    `for` loop works on a value of any type that honors `Iterable`, and `toSeq`
+    gives the same elements as a sequence. Vectors, strings, ranges, maps and
+    sets all honor it. *)
 export constraint Iterable<c> =
-    (** The type of one element, implied by the subject: each instance binds it,
-        so `Iterable<Vector(a)>` implies `Item = a`. *)
+    (** The type of one element. Each type that honors `Iterable` says what it
+        is: for `Vector(a)` it is `a`, and for `String` it is `String`. *)
     type Item
-    (** The elements of `xs` as a sequence, in the type's traversal order. *)
+    (** The elements as a sequence, in the order a `for` loop visits them. Use
+        it to reach the functions of `Seq`, which work an element out only when
+        it is read:\
+        `items.toSeq().filter(n => n > 0).take(3)` *)
     toSeq(xs: c) -> Seq(Item)
 
 honor Iterable<Seq(a)> =

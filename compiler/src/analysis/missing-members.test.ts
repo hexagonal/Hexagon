@@ -404,7 +404,7 @@ describe("where the members go", () => {
 
   test("beside a doc comment's error, which is about the comment: the parser read the code as written", () => {
     const trailing = "documentation comments precede what they document — move this above the declaration on its " +
-      "own line, or make it an ordinary comment (`(* ... *)`).";
+      "own line, or make it an ordinary comment (`(* ... *)`)";
     const head = filled(program("honor Shape<Point> = (** points *)", "    area(p) = 1.0", "    name(p) = \"p\""));
     expect(head.text).toBe(program(
       "honor Shape<Point> = (** points *)",

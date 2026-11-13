@@ -473,7 +473,7 @@ describe("the conversions (Primitive Types §6)", () => {
       .find(({ source }) => source.path.endsWith("BigInt.hex"))!.declarations.text;
 
     expect(declarations).toContain(
-      "@throws {FloatRangeFault} when the correctly rounded answer would be an infinity\n",
+      "@throws {FloatRangeFault} when the integer is too large for any `Float`\n",
     );
   });
 });

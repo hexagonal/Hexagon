@@ -300,7 +300,7 @@ describe("the dot form is companion dispatch, and the bare read is not (§13.1)"
     expect(messages).toEqual([
       "`Array(a)` is a captured foreign collection, not a record: it has no " +
       "fields, and a property read does not cross the boundary — the companion call is the " +
-      "read. Write `Array.length(xs)`, or `xs.length()` for the smallest edit.",
+      "read; write `Array.length(xs)`, or `xs.length()` for the smallest edit",
     ]);
   });
 
@@ -347,7 +347,7 @@ describe("the dot form is companion dispatch, and the bare read is not (§13.1)"
     expect(messages).toEqual([
       "`Array(a)` is a captured foreign collection, not a record: it has no " +
       "fields, and a property read does not cross the boundary — the companion call is the " +
-      "read. Write `Array.length(…)`, or `….length()` for the smallest edit.",
+      "read; write `Array.length(…)`, or `….length()` for the smallest edit",
     ]);
     // The measured failure, asserted directly: no rewrite in this message names
     // the `xs` that happens to be in scope.

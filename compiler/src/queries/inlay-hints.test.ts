@@ -187,7 +187,7 @@ describe("inlay hints: a declaration's face, piece by piece", () => {
     // parameter type a following arrow is refused (Effects §2.2.1), and the face
     // spells the callback `() ->! a`.
     expect(hinted("let run(f) = f!()\n"))
-      .toBe("let run(f⟦: () ->! a⟧)⟦: a⟧ = f!()  ⟪impure only if `f` is; may fail only if `f` may⟫\n");
+      .toBe("let run(f⟦: () ->! a⟧)⟦: a⟧ = f!()  ⟪impure only if `f` is impure; may fail only if `f` may fail⟫\n");
   });
 
   test("written out, the type hints compile to the same faces", () => {
@@ -263,7 +263,7 @@ describe("inlay hints: a function's colour in words", () => {
 
   test("on an exported function, whose types are all written, the colour is its only hint", () => {
     expect(hinted("export let apply2(f: () ->! Unit, g: () ->! Unit): Unit =\n    f!()\n    g!()\n"))
-      .toBe("export let apply2(f: () ->! Unit, g: () ->! Unit): Unit =  ⟪impure only if `f` or `g` is; may fail only if `f` or `g` may⟫\n    f!()\n    g!()\n");
+      .toBe("export let apply2(f: () ->! Unit, g: () ->! Unit): Unit =  ⟪impure only if `f` or `g` is impure; may fail only if `f` or `g` may fail⟫\n    f!()\n    g!()\n");
   });
 
   test("a function value bound by `let` shows its colour in its arrow, and takes no words", () => {
@@ -277,8 +277,8 @@ describe("inlay hints: a function's colour in words", () => {
       "    quiet!()",
       "",
     ].join("\n"))).toBe([
-      "let outer(action: () ->! Unit)⟦: Unit⟧ =  ⟪impure only if `action` is; may fail only if `action` may⟫",
-      "    let quiet()⟦: Unit⟧ = action!()  ⟪impure only if `outer`'s `action` is; may fail only if `outer`'s `action` may⟫",
+      "let outer(action: () ->! Unit)⟦: Unit⟧ =  ⟪impure only if `action` is impure; may fail only if `action` may fail⟫",
+      "    let quiet()⟦: Unit⟧ = action!()  ⟪impure only if `outer`'s `action` is impure; may fail only if `outer`'s `action` may fail⟫",
       "    quiet!()",
       "",
     ].join("\n"));
@@ -425,7 +425,7 @@ describe("inlay hints: bindings, lambdas and patterns", () => {
   test("an instance member's callbacks are its own, named by its parameters in the words", () => {
     const tooltip = sessionWith("module Main\n\nconstraint Runs<a> =\n    run(x: a, f: (a) ->! Unit) >-> Unit\nhonor Runs<Int> =\n    run(x, f) =\n        f!(x)\n")
       .inlayHints("/main.hex").find(({ kind }) => kind === "colour");
-    expect(tooltip?.label).toBe("impure only if `f` is; may fail only if `f` may");
+    expect(tooltip?.label).toBe("impure only if `f` is impure; may fail only if `f` may fail");
     const two = sessionWith([
       "module Main",
       "",
@@ -437,7 +437,7 @@ describe("inlay hints: bindings, lambdas and patterns", () => {
       "        g!(x)",
       "",
     ].join("\n")).inlayHints("/main.hex").find(({ kind }) => kind === "colour");
-    expect(two?.label).toBe("impure only if `f` or `g` is; may fail only if `f` or `g` may");
+    expect(two?.label).toBe("impure only if `f` or `g` is impure; may fail only if `f` or `g` may fail");
   });
 
   test("an instance's own letters are the honor head's", () => {

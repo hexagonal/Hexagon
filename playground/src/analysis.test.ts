@@ -110,8 +110,8 @@ describe("code actions", () => {
     const actions = analysis.codeActions(source, { startOffset: caret, endOffset: caret });
 
     expect(actions.map(({ title, preferred }) => [title, preferred])).toEqual([
-      ["mark the call `~`", true],
-      ["correct the marks in this file", undefined],
+      ["Mark the call `~`", true],
+      ["Correct the marks in this file", undefined],
     ]);
     const repaired = applied(source, actions[1]!.edits);
     expect(repaired).toBe(source.replaceAll("writeLine(", "writeLine~("));
@@ -126,7 +126,7 @@ describe("code actions", () => {
 
     const fix = analysis
       .codeActions(source, { startOffset: caret, endOffset: caret })
-      .find(({ title }) => title === "write the run as a sequence");
+      .find(({ title }) => title === "Write the run as a sequence");
     expect(fix?.kind).toBe("quickfix");
     const repaired = applied(source, fix?.edits ?? []);
 
@@ -168,7 +168,7 @@ describe("code actions", () => {
     // Modules §2.1's applied fixit, reaching the buffer through the ordinary
     // path — the Playground mints nothing and the user is offered the line.
     expect(rest).toEqual([]);
-    expect(action?.title).toBe("write `module Main`");
+    expect(action?.title).toBe("Write `module Main`");
     expect(applied(source, action?.edits ?? [])).toBe(
       "module Main\n\nDebug.log(\"hi\")\n",
     );
@@ -276,7 +276,7 @@ describe("hover", () => {
     const hover = analysis.hover(source, at(source, "twice", 1));
 
     expect(hover?.markdown).toBe(
-      "value `twice: Int -> Int`\n\nDoubles what it is given.",
+      "value `twice: (n: Int) -> Int`\n\nDoubles what it is given.",
     );
   });
 
@@ -296,7 +296,7 @@ describe("hover", () => {
 
     const hover = analysis.hover(source, at(source, "twice"));
 
-    expect(hover?.markdown).toBe("value `twice: Int -> Int`");
+    expect(hover?.markdown).toBe("value `twice: (n: Int) -> Int`");
     expect(text(source, hover?.range ?? { startOffset: 0, endOffset: 0 })).toBe("twice");
   });
 });
@@ -308,7 +308,7 @@ describe("the type of an expression", () => {
     const analysis = new PlaygroundAnalysis();
     const start = at(source, "[1, 2]");
     const hover = analysis.hover(source, start, start + "[1, 2]".length);
-    expect(hover?.markdown).toBe("`Vector(Int)`\n\nconverted to `Seq(Int)` here");
+    expect(hover?.markdown).toBe("`Vector(Int)`\n\nConverted to `Seq(Int)` here.");
     expect(text(source, hover?.range ?? { startOffset: 0, endOffset: 0 })).toBe("[1, 2]");
   });
 
@@ -714,7 +714,7 @@ describe("rename", () => {
     // whole answer, and the not-owned sentence is pinned where a declaration
     // really is found (`session.test.ts`'s `None`).
     expect(analysis.prepareRename(source, at(source, "Show"))).toEqual({
-      refused: "`Show` is built into the compiler, so it has no declaration to rename",
+      refused: "`Show` is built into the compiler, so it has no declaration to rename.",
     });
   });
 
@@ -748,7 +748,7 @@ describe("rename", () => {
     // own, which is a fact about the program, and #838's refusal names the
     // declaring module. Both seats give it, which is what this test is about.
     const refused = {
-      refused: "`length` is declared in module `Hex.Vector`, which this project does not own",
+      refused: "`length` is declared in module `Hex.Vector`, which this project does not own.",
     };
     expect(analysis.prepareRename(source, caret)).toEqual(refused);
     expect(analysis.rename(source, caret, "size")).toEqual(refused);
@@ -825,7 +825,7 @@ describe("completion", () => {
 });
 
 describe("signature help", () => {
-  test("while a call is unclosed: hover's line, the parameter the caret is on, its name", () => {
+  test("while a call is unclosed: hover's line, its parameters named, the one the caret is on", () => {
     const source = MAIN +
       "(** Adds two numbers. *)\n" +
       "fun add(a: Int, b: Int): Int = a + b\n" +
@@ -833,12 +833,9 @@ describe("signature help", () => {
     const help = new PlaygroundAnalysis().signatureHelp(source, source.length);
 
     expect(help).toEqual({
-      label: "add: (Int, Int) -> Int",
+      label: "add: (a: Int, b: Int) -> Int",
       documentation: "Adds two numbers.",
-      parameters: [
-        { range: [6, 9], documentation: "`a`" },
-        { range: [11, 14], documentation: "`b`" },
-      ],
+      parameters: [{ range: [6, 12] }, { range: [14, 20] }],
       activeParameter: 1,
     });
   });
@@ -847,9 +844,9 @@ describe("signature help", () => {
     const source = MAIN + "fun probe(v: Vector(Int)): Vector(Int) = v.map(";
     const help = new PlaygroundAnalysis().signatureHelp(source, source.length);
 
-    expect(help?.label).toBe("map: (Vector(a), a ->! b) >-> Vector(b)");
+    expect(help?.label).toBe("map: (values: Vector(a), transform: a ->! b) >-> Vector(b)");
     expect(help?.activeParameter).toBe(1);
-    expect(help?.parameters[1]?.documentation).toBe("`transform`");
+    expect(help?.parameters[1]?.range).toEqual([25, 43]);
   });
 
   test("answers outside any call, and outside the buffer, with nothing", () => {
@@ -912,15 +909,15 @@ describe("the session across requests", () => {
     const after = MAIN + "fun thrice(n: Int): Int = n * 3\nDebug.log(\"${thrice(3)}\")\n";
 
     expect(analysis.hover(before, at(before, "twice"))?.markdown).toBe(
-      "value `twice: Int -> Int`",
+      "value `twice: (n: Int) -> Int`",
     );
     expect(analysis.hover(after, at(after, "thrice"))?.markdown).toBe(
-      "value `thrice: Int -> Int`",
+      "value `thrice: (n: Int) -> Int`",
     );
     // Back again: the session is not a one-way ratchet, and the second answer
     // did not come from a cache keyed on anything but the text.
     expect(analysis.hover(before, at(before, "twice"))?.markdown).toBe(
-      "value `twice: Int -> Int`",
+      "value `twice: (n: Int) -> Int`",
     );
   });
 
@@ -940,7 +937,7 @@ describe("the session across requests", () => {
 
     const both = `${helper}${caller}`;
     expect(analysis.hover(both, at(both, "twice", 1))?.markdown).toBe(
-      "value `twice: Int -> Int`",
+      "value `twice: (n: Int) -> Int`",
     );
     // The session is re-seated from the buffer on every request, so a module
     // the user deleted is gone the moment the text is. Answering from the last

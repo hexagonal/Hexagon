@@ -1,7 +1,16 @@
 import { describe, expect, test } from "vitest";
 
-import { Bag, type Diagnostic } from "./diagnostics.js";
+import { Bag, closeSentence, type Diagnostic } from "./diagnostics.js";
 import { File, fileId } from "./source.js";
+
+describe("closeSentence", () => {
+  test("closes a phrase with a period, and never doubles a closing mark", () => {
+    expect(closeSentence("x would break `a.hex`: expected `Int`")).toBe("x would break `a.hex`: expected `Int`.");
+    expect(closeSentence("x would break `a.hex`: did you mean `,`?")).toBe("x would break `a.hex`: did you mean `,`?");
+    expect(closeSentence("stop!")).toBe("stop!");
+    expect(closeSentence("done.")).toBe("done.");
+  });
+});
 
 describe("Diagnostics.Bag", () => {
   test("returns diagnostics in stable source order", () => {

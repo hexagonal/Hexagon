@@ -10,7 +10,8 @@
  *   any other (`add(q, ` is a call with an error for its second argument), so
  *   the moment the user is typing is the moment there is one to read.
  * - **The callee's face,** exactly as hover shows it at that name: the same type
- *   occurrence, the same scheme, the same display (`Typed.displayCallFace`).
+ *   occurrence, the same scheme, the same display (`Typed.displayCallFace`),
+ *   its parameters under their declared names.
  *   That is the declaration's face, not this call's instance of it, since the
  *   call's own arguments are still being written. Where hover shows something
  *   narrower, so does this: a constraint member whose colour waits on its
@@ -23,11 +24,11 @@
  *   argument without being written inside the parentheses, and counts first, so
  *   the highlight lands on the parameter the text in front of the caret fills.
  *
- * The parameter's name comes from the declaration where it has one: a `fun`, a
- * `let` bound to a lambda, an `extern fun`, a constraint member, a constructor
- * or an exception whose slots are named. A pattern parameter's binder is the
- * compiler's own, and an unnamed slot's field is only its place, so neither is
- * named.
+ * The parameter's name comes from the declaration where it has one
+ * (`collectParameterNames`): a `fun`, a `let` bound to a lambda, an
+ * `extern fun`, a constraint member, a constructor or an exception whose slots
+ * are named. A pattern parameter's binder is the compiler's own, and an unnamed
+ * slot's field is only its place, so neither is named.
  *
  * It does not answer for a prelude member that stands behind an operator
  * (`add`, `concat`, `shiftLeft`, …) called by name, whether bare, through its
@@ -40,15 +41,14 @@
 
 import { lex } from "../passes/lexer/lexer.js";
 import * as Source from "../support/source.js";
-import { isCompilerMinted } from "../support/synthetic.js";
 import * as Typed from "../syntax/typed/index.js";
 import { occurrenceSpanOf, type TypeOccurrence } from "./type-occurrences.js";
-import { forEachTypedExpression, forEachTypedItem } from "./typed-walk.js";
+import { forEachTypedExpression } from "./typed-walk.js";
 
 export interface SignatureHelp {
   /** The callee as the call names it: its last identifier. */
   readonly name: string;
-  /** `name: face`, the line hover shows for the callee. */
+  /** `name: face`, the line hover shows for the callee, parameters named. */
   readonly label: string;
   /** The face's parameters, in order. */
   readonly parameters: readonly SignatureParameter[];
@@ -64,7 +64,7 @@ export interface SignatureHelp {
 }
 
 export interface SignatureParameter {
-  /** Where the parameter's type stands in `label`, as `[start, end)`. */
+  /** Where the parameter stands in `label`, its name included, as `[start, end)`. */
   readonly range: readonly [number, number];
   /** The parameter's name in the declaration, when it has one. */
   readonly name?: string;
@@ -74,12 +74,12 @@ export interface SignatureHelpInput {
   readonly text: string;
   readonly offset: number;
   readonly typed: Typed.Module;
-  /** Every checked tree, for the declaration that names the parameters. */
-  readonly trees: readonly Typed.Module[];
   /** Hover's own lookup: the type occurrence at exactly this span. */
   readonly typeOccurrenceAt: (span: Source.Span) => TypeOccurrence | undefined;
   /** The declaration's documentation, by symbol. */
   readonly documentationOf: (symbol: Typed.Symbol["id"]) => string | undefined;
+  /** The names the declaration gives its parameters, by symbol. */
+  readonly parameterNamesOf: (symbol: Typed.Symbol["id"]) => readonly (string | undefined)[] | undefined;
 }
 
 export function signatureHelpAt(input: SignatureHelpInput): SignatureHelp | undefined {
@@ -88,12 +88,10 @@ export function signatureHelpAt(input: SignatureHelpInput): SignatureHelp | unde
   if (call === undefined) return undefined;
   const occurrence = input.typeOccurrenceAt(call.calleeName);
   if (occurrence?.scheme === undefined || occurrence.scheme.type.kind !== "Function") return undefined;
-  const face = Typed.displayCallFace(occurrence.scheme, Typed.colourContextAt(typed));
+  const names = occurrence.symbol === undefined ? undefined : input.parameterNamesOf(occurrence.symbol);
+  const face = Typed.displayCallFace(occurrence.scheme, Typed.colourContextAt(typed), undefined, names);
   const name = text.slice(call.calleeName.start.offset, call.calleeName.end.offset);
   const prefix = `${name}: `;
-  const names = occurrence.symbol === undefined
-    ? undefined
-    : parameterNames(occurrence.symbol, typed, input.trees);
   const documentation = occurrence.symbol === undefined ? undefined : input.documentationOf(occurrence.symbol);
   return {
     name,
@@ -226,70 +224,4 @@ function activeArgument(call: CallAround, text: string, offset: number, fileId: 
 function commasIn(text: string, from: number, to: number, fileId: Source.FileId): number {
   const gap = new Source.File(fileId, "<gap>", text.slice(from, to));
   return lex(gap).tokens.filter(({ kind }) => kind === "Comma").length;
-}
-
-/**
- * The declared names of a function's parameters, by its symbol, or nothing for
- * a symbol no declaration with a parameter list binds.
- *
- * Looked for in the module the asking call is in first, then in every other
- * checked tree: a symbol's identity is unique across the project.
- */
-function parameterNames(
-  symbol: Typed.Symbol["id"],
-  asking: Typed.Module,
-  trees: readonly Typed.Module[],
-): readonly (string | undefined)[] | undefined {
-  const named = (bindings: readonly Typed.Binding[]): readonly (string | undefined)[] =>
-    bindings.map(({ name }) => (isCompilerMinted(name) ? undefined : name));
-  for (const tree of [asking, ...trees.filter((tree) => tree !== asking)]) {
-    let found: readonly (string | undefined)[] | undefined;
-    const visitItem = (item: Typed.Item): void => {
-      if (found !== undefined) return;
-      switch (item.kind) {
-        case "Fun":
-          if (item.binding.symbol === symbol) found = named(item.value.parameters);
-          return;
-        case "Let":
-        case "Var":
-          if (item.binding.symbol === symbol && item.value.kind === "Lambda") found = named(item.value.parameters);
-          return;
-        case "ExternBlock":
-          for (const declaration of item.declarations) {
-            if (declaration.kind === "ExternFun" && declaration.binding.symbol === symbol) {
-              found = named(declaration.parameters);
-            }
-          }
-          return;
-        case "ConstraintDeclaration":
-          for (const member of item.members) {
-            if (member.binding.symbol === symbol) found = named(member.parameters);
-          }
-          return;
-        case "Union":
-          for (const constructor of item.constructors) {
-            if (constructor.symbol === symbol) found = slotNames(constructor.slots);
-          }
-          return;
-        case "Exception":
-          if (item.binding.symbol === symbol) found = slotNames(item.slots);
-          return;
-        default:
-          return;
-      }
-    };
-    forEachTypedItem(tree, visitItem);
-    if (found !== undefined) return found;
-  }
-  return undefined;
-}
-
-/**
- * A constructor's slot names, none for an unnamed slot. An unnamed slot is kept
- * under its place's field, `item1` to `itemN` (Unions §6), which no program
- * reads by that name (§5). So a field that is exactly its place says nothing a
- * name would, and a slot named that way by hand loses nothing.
- */
-function slotNames(slots: readonly Typed.ConstructorSlot[]): readonly (string | undefined)[] {
-  return slots.map(({ field }, index) => (field === `item${index + 1}` ? undefined : field));
 }

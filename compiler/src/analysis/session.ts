@@ -73,6 +73,7 @@ import {
 import { collectTypeOccurrences, type TypeOccurrence } from "../queries/type-occurrences.js";
 import { DocumentationIndex } from "../queries/documentation.js";
 import { collectSemanticTokens, type SemanticToken } from "../queries/semantic-tokens.js";
+import { collectParameterNames, type ParameterNames } from "../queries/parameter-names.js";
 import { collectSymbolFacts, type SymbolFacts } from "../queries/symbol-facts.js";
 import {
   parameterSites,
@@ -145,6 +146,13 @@ export interface Hover {
   readonly target?: Target;
   /** Present for values the checker gave a scheme; absent for types themselves. */
   readonly displayedType?: string;
+  /**
+   * `displayedType` with its parameters under the names the declaration gives
+   * them, the line hover shows (Functions §5.1): `(n: Int) -> Int` beside
+   * `Int -> Int`. Absent where the declaration names none, or where nothing
+   * declares a parameter list — `let g = f`, a parameter that holds a function.
+   */
+  readonly signature?: string;
   /**
    * The gloss (Effects §10): the outer arrow's two colours in words, naming
    * the callbacks a colour passes through, captured ones by their owners;
@@ -579,6 +587,7 @@ export class AnalysisSession {
         return {
           occurrence,
           displayedType: shown?.displayedType,
+          signature: shown === undefined ? undefined : signatureOf(analysis, occurrence.target, shown),
           colourOwners: shown?.colourOwners,
         };
       })
@@ -591,6 +600,7 @@ export class AnalysisSession {
       target: best.occurrence.target,
       span: best.occurrence.span,
       ...(best.displayedType === undefined ? {} : { displayedType: best.displayedType }),
+      ...(best.signature === undefined ? {} : { signature: best.signature }),
       ...(best.colourOwners === undefined ? {} : { colourOwners: best.colourOwners }),
       ...(documentation === undefined ? {} : { documentation }),
     };
@@ -899,9 +909,9 @@ export class AnalysisSession {
       text,
       offset,
       typed,
-      trees: analysis.trees,
       typeOccurrenceAt: (span) => analysis.typeOccurrenceAt(normalized, span),
       documentationOf: (symbol) => analysis.symbolFacts.get(Number(symbol))?.documentation,
+      parameterNamesOf: (symbol) => analysis.parameterNamesOf(symbol),
     });
   }
 
@@ -1193,7 +1203,10 @@ export class AnalysisSession {
         });
       }
     }
-    return answered;
+    // Every action is a menu item, so its title is a title (Declarations
+    // Preamble §1.3), whatever wrote it: a fix's message is a phrase where it
+    // was written, and only here does it become one.
+    return answered.map((action) => ({ ...action, title: menuTitle(action.title) }));
   }
 
   /**
@@ -1299,7 +1312,7 @@ export class AnalysisSession {
           exporters
             .map((exporter) => `\`${displayModuleName(exporter.name, requesting)}\``)
             .join(", ") +
-          " — write the import for the one you mean",
+          " — write the import for the one you mean.",
       };
     }
     // #829: a module import names a module and carries no path, so the line is
@@ -1425,7 +1438,7 @@ export class AnalysisSession {
     for (const [owner, text] of this.#texts) {
       probe.setFile(owner, owner === path ? applyEdits(text, plan.edits) : text);
     }
-    const written = `writing \`: ${plan.annotation}\``;
+    const written = `Writing \`: ${plan.annotation}\``;
 
     const declaration = plan.binding.start.offset;
     // Both halves matter, though only one of them can be reached today: an
@@ -1452,12 +1465,13 @@ export class AnalysisSession {
     const was = diagnosticTally(before.elsewhere, []);
     for (const [key, appearance] of diagnosticTally(after.elsewhere, [])) {
       if ((was.get(key)?.count ?? 0) >= appearance.count) continue;
-      return `${written} would break \`${appearance.path}\`: ${appearance.message}`;
+      return Diagnostics.closeSentence(`${written} would break \`${appearance.path}\`: ${appearance.message}`);
     }
     if (after.here.length > before.here.length) {
       const fresh = after.here.find((message) => !before.here.includes(message));
-      return `${written} would report a new problem with \`${plan.name}\`` +
-        (fresh === undefined ? "" : `: ${fresh}`);
+      return Diagnostics.closeSentence(
+        `${written} would report a new problem with \`${plan.name}\`` + (fresh === undefined ? "" : `: ${fresh}`),
+      );
     }
 
     const now = probe.#analyze().schemeAt(path, declaration);
@@ -1468,10 +1482,10 @@ export class AnalysisSession {
       // add an annotation to a signature that already parsed. It is the answer
       // to "compare the two types" when there is no second type, and guessing
       // that no news is good news is the wrong default for that question.
-      return `${written} would leave \`${plan.name}\` without a type at all`;
+      return `${written} would leave \`${plan.name}\` without a type at all.`;
     }
     if (meant !== undefined && now !== meant) {
-      return `${written} would change the type of \`${plan.name}\` from \`${meant}\` to \`${now}\``;
+      return `${written} would change the type of \`${plan.name}\` from \`${meant}\` to \`${now}\`.`;
     }
     return undefined;
   }
@@ -1528,13 +1542,15 @@ export class AnalysisSession {
     const was = diagnosticTally(before.others, []);
     for (const [key, appearance] of diagnosticTally(after.others, [])) {
       if ((was.get(key)?.count ?? 0) >= appearance.count) continue;
-      return appearance.path === path
-        ? `${doing} would report a new problem: ${appearance.message}`
-        : `${doing} would break \`${appearance.path}\`: ${appearance.message}`;
+      return Diagnostics.closeSentence(
+        appearance.path === path
+          ? `${doing} would report a new problem: ${appearance.message}`
+          : `${doing} would break \`${appearance.path}\`: ${appearance.message}`,
+      );
     }
     if (after.incomplete.length > before.incomplete.length) {
       const fresh = after.incomplete.find((message) => !before.incomplete.includes(message)) ?? after.incomplete[0]!;
-      return `${doing} would report a new problem: ${fresh}`;
+      return Diagnostics.closeSentence(`${doing} would report a new problem: ${fresh}`);
     }
 
     // Where the edit moved each name: past every edit that ends at or before it.
@@ -1552,7 +1568,7 @@ export class AnalysisSession {
         // A name the edit took away would have been reported: the edits write
         // and remove types, never names.
         if (is[at] !== was[at]) {
-          return `${doing} would change the type of \`${symbol.name}\` from \`${was[at]}\` to \`${is[at] ?? "nothing"}\``;
+          return `${doing} would change the type of \`${symbol.name}\` from \`${was[at]}\` to \`${is[at] ?? "nothing"}\`.`;
         }
       }
     }
@@ -1644,7 +1660,7 @@ export class AnalysisSession {
         refused:
           `\`${name}\` is generated from \`extern enum ${generated}\` ` +
           "(Foreign Enums §5.2), so its spelling is not chosen — rename the " +
-          `type \`${generated}\`, and every use of this name follows`,
+          `type \`${generated}\`, and every use of this name follows.`,
       };
     }
     // One offset can carry more than one identity — a record's name is its type
@@ -1682,7 +1698,7 @@ export class AnalysisSession {
     const definition = this.#definitionOf(analysis, targets);
     if (definition === undefined) {
       return {
-        refused: `\`${name}\` is built into the compiler, so it has no declaration to rename`,
+        refused: `\`${name}\` is built into the compiler, so it has no declaration to rename.`,
       };
     }
     // The declaring module, worked out **here** rather than at the seat that
@@ -1739,7 +1755,7 @@ export class AnalysisSession {
           // program this slice compiles could tell the difference.
           return {
             refused: `\`${name}\` is declared in module \`${declaring ?? owner}\`, ` +
-              "which this project does not own",
+              "which this project does not own.",
           };
         }
         const key = `${owner}@${occurrence.span.start.offset}:${occurrence.span.end.offset}`;
@@ -1905,9 +1921,10 @@ export class AnalysisSession {
     for (const [key, appearance] of diagnosticTally(probe.allDiagnostics(), spellings)) {
       if ((before.get(key)?.count ?? 0) >= appearance.count) continue;
       return {
-        refused:
-          `renaming \`${name}\` to \`${newName}\` would break \`${appearance.path}\`: ` +
-          appearance.message,
+        refused: Diagnostics.closeSentence(
+          `Renaming \`${name}\` to \`${newName}\` would break \`${appearance.path}\`: ` +
+            appearance.message,
+        ),
       };
     }
 
@@ -1939,8 +1956,8 @@ export class AnalysisSession {
       const [owner, line] = readSite(site);
       return {
         refused:
-          `renaming \`${name}\` to \`${newName}\` would change what the code means: ` +
-          `the name at \`${owner}\` line ${line} would stop meaning what it means now`,
+          `Renaming \`${name}\` to \`${newName}\` would change what the code means: ` +
+          `the name at \`${owner}\` line ${line} would stop meaning what it means now.`,
       };
     }
     for (const site of isMeant.keys()) {
@@ -1948,9 +1965,9 @@ export class AnalysisSession {
       const [owner, line] = readSite(site);
       return {
         refused:
-          `renaming \`${name}\` to \`${newName}\` would change what the code means: ` +
+          `Renaming \`${name}\` to \`${newName}\` would change what the code means: ` +
           `\`${owner}\` line ${line} would become a name the compiler resolves, ` +
-          "where today it resolves to nothing",
+          "where today it resolves to nothing.",
       };
     }
     return undefined;
@@ -2094,15 +2111,13 @@ class Analysis {
   /** The project's modules, for the export inventory built on demand below. */
   readonly #modules: readonly CompiledModule[];
   #exporters: Map<string, readonly ModuleExporter[]> | undefined;
+  /** Every tree the compile checked, for the parameter names built on demand below. */
+  readonly #trees: readonly Typed.Module[];
+  #parameterNames: ReadonlyMap<number, ParameterNames> | undefined;
   /** Gathered once for the whole project — see `collectSymbolFacts`. */
   readonly symbolFacts: ReadonlyMap<number, SymbolFacts>;
   /** Attached documentation, indexed for lookup by name and by position. */
   readonly documentation: DocumentationIndex;
-  /**
-   * Every tree the compile checked, emitted or not (`CompiledProject.typedModules`):
-   * where signature help finds the declaration that names a callee's parameters.
-   */
-  readonly trees: readonly Typed.Module[];
   /** The program's own reading of a `compile` literal's groups (`CompiledProject.regexGroups`). */
   readonly regexGroups: (pattern: string) => readonly RegexGroup[] | undefined;
 
@@ -2153,7 +2168,7 @@ class Analysis {
         ...(project.typedModules ?? []),
       ]),
     ];
-    this.trees = trees;
+    this.#trees = trees;
     this.regexGroups = project.regexGroups ?? (() => undefined);
     this.documentation = DocumentationIndex.of(trees);
     this.symbolFacts = collectSymbolFacts(trees.map((typed) => ({ typed })), this.documentation);
@@ -2336,6 +2351,17 @@ class Analysis {
   }
 
   /**
+   * The names a symbol's declaration gives its parameters, for hover and
+   * signature help, or nothing for one no declaration with a parameter list
+   * binds. Built for the whole project the first time a reader asks, so a
+   * recheck nobody hovers after pays nothing for it.
+   */
+  parameterNamesOf(symbol: Typed.Symbol["id"]): ParameterNames | undefined {
+    this.#parameterNames ??= collectParameterNames(this.#trees);
+    return this.#parameterNames.get(Number(symbol));
+  }
+
+  /**
    * Which of the project's modules **export** a type or constraint of this
    * spelling, in path order (#577's workspace tier).
    *
@@ -2432,6 +2458,20 @@ class Analysis {
   }
 }
 
+/**
+ * A name's face with its parameters under the names the declaration of what it
+ * denotes gives them (Functions §5.1), or nothing where that declaration names
+ * none, or where no declaration writes a parameter list for it — `let g = f`,
+ * a parameter that holds a function, a value a call returned.
+ */
+function signatureOf(analysis: Analysis, target: Target, shown: TypeOccurrence): string | undefined {
+  if (target.kind !== "value" || shown.scheme === undefined) return undefined;
+  const names = analysis.parameterNamesOf(target.symbol);
+  if (names === undefined) return undefined;
+  const signature = Typed.displayCallFace(shown.scheme, undefined, undefined, names).type;
+  return signature === shown.displayedType ? undefined : signature;
+}
+
 function spanKey(span: Source.Span): string {
   return `${Number(span.fileId)}:${span.start.offset}:${span.end.offset}`;
 }
@@ -2483,14 +2523,14 @@ function checkNewName(current: string, proposed: string): RenameRefusal | undefi
     return {
       refused:
         `\`${proposed}\` is not a name Hexagon can read: it has to be one identifier, ` +
-        "and not a keyword",
+        "and not a keyword.",
     };
   }
   if (token.text.startsWith("__")) {
     return {
       refused:
         `\`${proposed}\` begins with \`__\`, which is reserved for compiler-generated ` +
-        "names — a binding spelled that way could collide with one the compiler writes",
+        "names — a binding spelled that way could collide with one the compiler writes.",
     };
   }
   const existing = soleNameToken(current);
@@ -2502,7 +2542,7 @@ function checkNewName(current: string, proposed: string): RenameRefusal | undefi
     refused:
       `\`${capitalized}\` starts with a capital letter and \`${plain}\` does not. ` +
       "Hexagon reads those as two different kinds of name, so this would not be " +
-      "a rename but a different declaration",
+      "a rename but a different declaration.",
   };
 }
 
@@ -2518,6 +2558,16 @@ function soleNameToken(candidate: string): Lexed.NameToken | undefined {
   // lexed — `a b`, `a.b` — leaves a token behind after the name.
   if (token.text !== candidate) return undefined;
   return rest.every(({ kind }) => kind === "Eof") ? token : undefined;
+}
+
+/**
+ * Text as a menu shows it (Declarations Preamble §1.3): a capital first letter,
+ * and no closing period. A title that opens with code, or with a capital
+ * already, keeps its opening as written.
+ */
+export function menuTitle(text: string): string {
+  const opened = text.replace(/^\p{Ll}/u, (letter) => letter.toUpperCase());
+  return opened.endsWith(".") && !opened.endsWith("...") ? opened.slice(0, -1) : opened;
 }
 
 /**

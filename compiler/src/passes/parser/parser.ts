@@ -367,12 +367,12 @@ const EMPTY_HONOR_GROUP = "an honor group needs at least one honor";
 const HONOR_GROUP_HEAD_DOC =
   "documentation attaches to an honor group's instances, not to the group — move " +
   "it above the instance it describes, or make it an ordinary comment " +
-  "(`(* ... *)`).";
+  "(`(* ... *)`)";
 
 const FUN_BLOCK_HEAD_DOC =
   "documentation attaches to a `fun` block's members, not to the block — move " +
   "it above the member it describes, or make it an ordinary comment " +
-  "(`(* ... *)`).";
+  "(`(* ... *)`)";
 
 /** A written binder as its author spelled it, for the member-binder advice. */
 function writtenTypeParameter(parameter: Parsed.TypeParameter): string {

@@ -5410,6 +5410,13 @@ class Checker {
    * names the colour.
    */
   readonly #namedColours: { readonly colour: Variable; readonly name: string; readonly owner: string | undefined }[] = [];
+  /**
+   * The callbacks of the faces this module imports, by the names their home
+   * gave them (Effects §10, #1523): each is a quantified colour of an imported
+   * scheme's copy, so it is a name for that face's own gloss and nobody's
+   * captured colour.
+   */
+  readonly #importedColourNames: (readonly [Variable, string])[] = [];
   /** `#colourScopes` by the colour's representative, for the tie test's lookups. */
   readonly #scopesByColour = new ByRepresentative<ColourScope>((colour) => this.#prune(colour));
   /**
@@ -8363,12 +8370,15 @@ class Checker {
     this.#settleColourNotes();
 
     const listed = new Set(module.symbols.map(({ id }) => id));
+    // Settled before the symbols are published, which carry the names of
+    // their own callbacks out to an importer (#1523).
+    const colours = this.#materializeColourScopes();
     const symbols = [
       ...module.symbols,
       ...[...this.#reachedReceiverMembers.values()].filter(({ id }) => !listed.has(id)),
     ].map((symbol) => ({
       ...symbol,
-      scheme: this.#publicScheme(this.#scheme(symbol.id)),
+      scheme: this.#namedScheme(this.#publicScheme(this.#scheme(symbol.id)), colours.colourNames),
     }));
 
     const typed: Typed.Module = {
@@ -8417,7 +8427,7 @@ class Checker {
       typeHoles: this.#materializeTypeHoles(),
       dotSites: this.#materializeDotSites(),
       destructs: [...this.#destructs],
-      ...this.#materializeColourScopes(),
+      ...colours,
       instanceColours: this.#publishedInstanceColours(),
       companionImports: [...this.#companionImports.values()],
       ...(this.#modulePath === undefined ? {} : { modulePath: this.#modulePath }),
@@ -9683,13 +9693,13 @@ class Checker {
         return this.#unsupported(
           callee.field.span,
           `\`${name}\` after a dot is ambiguous at \`${this.#display(actual)}\`: ` +
-            `${claimants.join(", ")}. Write ` +
+            `${claimants.join(", ")}; write ` +
             `${members.map((member) => this.#memberSpelling(member)).join(" or ")}` +
             `${
               operation === undefined
                 ? ""
                 : `, or \`${this.#display(actual)}.${name}(…)\` for the companion operation`
-            }${recordHasField ? `, or \`(…​.${name})\` for the field` : ""}.`,
+            }${recordHasField ? `, or \`(…​.${name})\` for the field` : ""}`,
         );
       }
       this.#settleDeferredReceiver(callee.receiver, receiver);
@@ -9722,7 +9732,7 @@ class Checker {
               // Constraints §8: a door's body reaches its own binding in no
               // spelling, the dot included (§4.8).
               ? "a `widens` door cannot call itself — let a function recurse by itself, and call it from the door"
-              : `\`${name}\` is not in scope in its own \`let\` definition; \`let\` is non-recursive — use \`fun\`.`
+              : `\`${name}\` is not in scope in its own \`let\` definition; \`let\` is non-recursive — use \`fun\``
             : this.#noSuchOperation(actual, name, claimed)),
       );
     }
@@ -10193,8 +10203,8 @@ class Checker {
         callee.field.span,
         `\`${name}\` after a dot is ambiguous on \`${variable.rigidName}\`: ` +
           `${members.map(({ constraint }) => `\`${constraint}\``).join(" and ")} each ` +
-          `declare a member \`${name}\`. Write ` +
-          `${members.map((member) => this.#memberSpelling(member)).join(" or ")}.`,
+          `declare a member \`${name}\`; write ` +
+          `${members.map((member) => this.#memberSpelling(member)).join(" or ")}`,
       );
     }
     // §9 row 7. The bounds are the entire candidate set, so the message says so
@@ -20633,12 +20643,12 @@ class Checker {
         `\`${this.#display(face)}\` honors \`${rung}\`, so the ` +
         `\`${this.#display(face)}\` here reached the receiver` +
         `${receiver_ === undefined ? "" : ` \`${receiver_}\``}; ` +
-        `${this.#standDownSentence(note, named)}.` +
+        `${this.#standDownSentence(note, named)}` +
         // A repair is offered only where it compiles: the stood-down call has to
         // follow to the type it kept (`(p ** i: Foo)` needs `Pow<Foo>`), and a
         // binding runs the same operation there (Modules §7.6).
         (this.#followsAtType(found.at, undefined, note.ranType)
-          ? ` ${this.#boundaryRepair(found.at, note.ranType, true)}`
+          ? `; ${this.#boundaryRepair(found.at, note.ranType, true)}`
           : ""),
     };
   }
@@ -20712,7 +20722,7 @@ class Checker {
       // disagreed once the face had entered one of them.
       if (!follows(kept)) return mismatch;
       const repair = this.#boundaryRepair(enclosing.callee.receiver, kept, false);
-      return repair === undefined ? mismatch : `${mismatch}. ${repair}`;
+      return repair === undefined ? mismatch : `${mismatch}; ${repair}`;
     };
   }
 
@@ -20816,9 +20826,9 @@ class Checker {
     const written = this.#typeSpellingAtSite(kept);
     const ran = this.#display(kept);
     if (spelling === undefined || written === undefined) {
-      return binding ? `To keep it at \`${ran}\`, bind it first` : undefined;
+      return binding ? `to keep it at \`${ran}\`, bind it first` : undefined;
     }
-    return `To keep \`${spelling}\` at \`${ran}\`, ascribe it — ` +
+    return `to keep \`${spelling}\` at \`${ran}\`, ascribe it — ` +
       `\`(${spelling}: ${written})\`${binding ? " — or bind it first" : ""}`;
   }
 
@@ -34447,13 +34457,13 @@ class Checker {
       if (operation === undefined && member === undefined) continue;
       return `this value's type was inferred as a record with a \`${name}\` field ` +
         `because its type was unknown where it was written; \`${display}\` is not a ` +
-        `record. Annotate it to use dispatch, or call ${
+        `record; annotate it to use dispatch, or call ${
           member === undefined
             // The companion is named by the type's head, never by its display:
             // `Vector.length`, not `Vector(Int).length`, which resolves nowhere.
             ? `\`${companionHeadName(nominal) ?? display}.${name}(…)\` directly`
             : `${this.#memberSpelling(member)} directly`
-        }.`;
+        }`;
     }
     return undefined;
   }
@@ -41827,6 +41837,12 @@ class Checker {
         case "Error": return ERROR;
       }
     };
+    // Its callbacks keep their names for the gloss (Effects §10, #1523). A
+    // quantified variable is never bound, so the copy is the colour as shown.
+    for (const [id, name] of scheme.colourNames ?? []) {
+      const variable = minted.get(id);
+      if (variable !== undefined) this.#importedColourNames.push([variable, name]);
+    }
     for (const constraint of scheme.constraints) {
       // The identity travels with the imported constraint: this module may not
       // be able to spell the name at all, and if it can, the spelling may be
@@ -42332,8 +42348,8 @@ class Checker {
             this.#generalises(door.binding.symbol, candidate, subject, item.span)
           ? "a member's wider face is declared, not exported — write " +
             `\`widens ${moduleAlias(item.constraint)}.${candidate.member}(…)\` ` +
-            `and account for the member with \`${candidate.member} = widened\`.`
-          : "Hexagon does not allow rebinding — choose a different name.";
+            `and account for the member with \`${candidate.member} = widened\``
+          : "Hexagon does not allow rebinding — choose a different name";
         const claimFirst = item.span.start.offset < bound.start.offset;
         this.#diagnostics.add({
           severity: "error",
@@ -44577,8 +44593,8 @@ class Checker {
             ? `\`${declared.name}\` cannot be declared ${claimed} in \`${item.name}\`; ` +
               `remove the \`${sigil}\`, or change the representation`
             : `\`${declared.name}\` cannot be declared ${claimed} in \`${item.name}\`: ` +
-              `${slot} \`${witness.field}\` uses \`${declared.name}\` ${positionPhrase(witness.variance)}. ` +
-              `Remove the \`${sigil}\`, or change the ${slot}`,
+              `${slot} \`${witness.field}\` uses \`${declared.name}\` ${positionPhrase(witness.variance)}; ` +
+              `remove the \`${sigil}\`, or change the ${slot}`,
           primary: declared.span,
           ...(witness === undefined ? {} : {
             labels: [{
@@ -44635,8 +44651,8 @@ class Checker {
                 `\`${declaration.localName}\`; remove the \`${sigil}\`, or change its ${through}`
               : `\`${declared.name}\` cannot be declared ${claimed} in ` +
                 `\`${declaration.localName}\`: field \`${witness.field}\` of its ${through} ` +
-                `uses the parameter ${positionPhrase(witness.variance)}. ` +
-                `Remove the \`${sigil}\`, or change the field`,
+                `uses the parameter ${positionPhrase(witness.variance)}; ` +
+                `remove the \`${sigil}\`, or change the field`,
             primary: declared.span,
           });
         }
@@ -45177,12 +45193,38 @@ class Checker {
       if (known === undefined) owners.set(variable, { owner: words, name, level: Number.POSITIVE_INFINITY });
       else if (known.name === undefined) owners.set(variable, { ...known, name });
     }
+    const colourNames = new Map(
+      [...owners].flatMap(([variable, { name }]) => name === undefined ? [] : [[variable, name] as const]),
+    );
+    // An imported face's own callbacks keep the names their home gave them
+    // (#1523). They own nothing here: no face of this module captures one.
+    for (const [colour, name] of this.#importedColourNames) {
+      const variable = Typed.typeVariableId(colour.id);
+      if (!colourNames.has(variable)) colourNames.set(variable, name);
+    }
     return {
       colourOwners: new Map([...owners].map(([variable, { owner }]) => [variable, owner])),
-      colourNames: new Map(
-        [...owners].flatMap(([variable, { name }]) => name === undefined ? [] : [[variable, name] as const]),
-      ),
+      colourNames,
     };
+  }
+
+  /**
+   * A published scheme with the names of its own callbacks on it, for the
+   * gloss wherever the scheme is shown (Effects §10, #1523): `colourNames` is
+   * keyed by this module's variables, and an importer mints its own. Only a
+   * face whose outer arrow passes a colour through has a gloss that reads
+   * them, and it carries the list even where it is empty, which says that no
+   * other module's names are its.
+   */
+  #namedScheme(scheme: Typed.Scheme, names: ReadonlyMap<Typed.TypeVariableId, string>): Typed.Scheme {
+    if (scheme.type.kind !== "Function") return scheme;
+    if (typeof scheme.type.effect !== "object" && typeof scheme.type.fail !== "object") return scheme;
+    const named: (readonly [Typed.TypeVariableId, string])[] = [];
+    for (const variable of scheme.variables) {
+      const name = names.get(variable);
+      if (name !== undefined) named.push([variable, name]);
+    }
+    return { ...scheme, colourNames: named };
   }
 
   #publicScheme(scheme: Scheme): Typed.Scheme {
@@ -46555,8 +46597,8 @@ class Checker {
    * Effects §10 in a report, once every colour has settled: a callback's colour
    * a report showed where the displayed type does not own it — a captured one —
    * names its owner in a note, in the gloss's words: "impure only if `outer`'s
-   * `action` is", or "may fail only if … may". Every mark is then removed, so a
-   * report no captured colour reaches reads as rendered.
+   * `action` is impure", or "may fail only if … may fail". Every mark is then
+   * removed, so a report no captured colour reaches reads as rendered.
    */
   #settleColourNotes(): void {
     this.#diagnostics.rewrite((diagnostic) => {
@@ -46580,7 +46622,7 @@ class Checker {
           const words = scope.owner === undefined
             ? scope.parameter === undefined ? "an enclosing lambda's callback" : `an enclosing lambda's \`${scope.parameter}\``
             : scope.parameter === undefined ? `\`${scope.owner}\`'s callback` : `\`${scope.owner}\`'s \`${scope.parameter}\``;
-          const note = followed === "f" ? `may fail only if ${words} may` : `impure only if ${words} is`;
+          const note = followed === "f" ? `may fail only if ${words} may fail` : `impure only if ${words} is impure`;
           if (!owners.includes(note)) owners.push(note);
           return "";
         });
@@ -48078,8 +48120,8 @@ function receiverSpelling(receiver: Resolved.Expr): string {
 function arrayLengthReadMessage(receiver: string): string {
   return "`Array(a)` is a captured foreign collection, not a record: it has no fields, " +
     "and a property read does not cross the boundary — the companion call is the " +
-    `read. Write \`Array.length(${receiver})\`, or \`${receiver}.length()\` for the ` +
-    "smallest edit.";
+    `read; write \`Array.length(${receiver})\`, or \`${receiver}.length()\` for the ` +
+    "smallest edit";
 }
 
 /**

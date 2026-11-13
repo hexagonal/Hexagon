@@ -206,7 +206,7 @@ describe("the spellings the members claim (Constraints §4.6)", () => {
       "",
     ].join("\n"))).toEqual([
       "`max` is already bound: the `Ord<Card>` instance binds it as a member (line 3); " +
-      "Hexagon does not allow rebinding — choose a different name.",
+      "Hexagon does not allow rebinding — choose a different name",
     ]);
   });
 

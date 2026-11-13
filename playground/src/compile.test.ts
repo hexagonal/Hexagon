@@ -1067,7 +1067,7 @@ describe("compileSource", () => {
       startOffset: source.indexOf("Rat"),
       endOffset: source.indexOf("Rat") + "Rat".length,
     });
-    const fix = actions.find(({ title }) => title === "import `Rat`");
+    const fix = actions.find(({ title }) => title === "Import `Rat`");
     expect(fix?.edits).toEqual([{
       startOffset: MAIN.length,
       endOffset: MAIN.length,

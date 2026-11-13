@@ -988,7 +988,7 @@ describe("the qualified and dot spellings (Part 10 §3, §6.1)", () => {
     )).toEqual([
       "this value's type was inferred as a record with a `size` field because " +
       "its type was unknown where it was written; `JsMap(String, Int)` is not " +
-      "a record. Annotate it to use dispatch, or call `JsMap.size(…)` directly.",
+      "a record; annotate it to use dispatch, or call `JsMap.size(…)` directly",
     ]);
   });
 
@@ -1000,8 +1000,8 @@ describe("the qualified and dot spellings (Part 10 §3, §6.1)", () => {
     )).toEqual([
       "this value's type was inferred as a record with a `contains` field " +
       "because its type was unknown where it was written; `JsSet(Int)` is not " +
-      "a record. Annotate it to use dispatch, or call `JsSet.contains(…)` " +
-      "directly.",
+      "a record; annotate it to use dispatch, or call `JsSet.contains(…)` " +
+      "directly",
     ]);
   });
 

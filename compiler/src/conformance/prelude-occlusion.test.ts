@@ -251,7 +251,7 @@ describe("the module's own layers stay under the full ban", () => {
       "    show\n",
     )).toContain(
       "`show` is already bound (line 3); Hexagon does not allow rebinding — " +
-        "choose a different name.",
+        "choose a different name",
     );
   });
 
@@ -273,7 +273,7 @@ describe("the module's own layers stay under the full ban", () => {
       "    nan\n",
     )).toEqual([
       "`nan` is already bound (line 4); Hexagon does not allow rebinding — " +
-        "choose a different name.",
+        "choose a different name",
     ]);
   });
 
@@ -581,7 +581,7 @@ describe("a declaration's constructor names occlude too (#466)", () => {
       "union B = Dup | Y\n",
     )).toEqual([
       "`Dup` is already bound (line 3); Hexagon does not allow rebinding — " +
-        "choose a different name.",
+        "choose a different name",
     ]);
   });
 

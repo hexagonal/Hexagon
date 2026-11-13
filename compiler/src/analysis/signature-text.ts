@@ -4,19 +4,16 @@
  * is (`hover-text.ts`), so the two cannot drift.
  */
 
-import type { SignatureHelp, SignatureParameter } from "../queries/signature-help.js";
+import type { SignatureHelp } from "../queries/signature-help.js";
+import { glossSentences } from "../syntax/typed/display.js";
 
 /**
- * The text under the signature: the gloss, one line each (Effects §10), then
+ * The text under the signature: the gloss, one line each and in sentences
+ * (Effects §10, Declarations Preamble §1.3), then
  * the declaration's documentation — hover's own order — or nothing when there
  * is neither.
  */
 export function signatureMarkdown(help: SignatureHelp): string | undefined {
-  const parts = [...help.colourOwners ?? [], ...help.documentation === undefined ? [] : [help.documentation]];
+  const parts = [...(help.colourOwners ?? []).map(glossSentences), ...help.documentation === undefined ? [] : [help.documentation]];
   return parts.length === 0 ? undefined : parts.join("\n\n");
-}
-
-/** The text under the highlighted parameter: its declared name, or nothing. */
-export function parameterMarkdown(parameter: SignatureParameter): string | undefined {
-  return parameter.name === undefined ? undefined : `\`${parameter.name}\``;
 }

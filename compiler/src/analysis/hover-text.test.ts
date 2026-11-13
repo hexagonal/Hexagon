@@ -10,6 +10,7 @@ const hover = (fields: {
   readonly name: string;
   readonly target?: Target;
   readonly displayedType?: string;
+  readonly signature?: string;
   readonly documentation?: string;
 }) => ({ span, ...fields });
 
@@ -76,6 +77,18 @@ describe("hoverMarkdown", () => {
     expect(rendered).not.toContain("---");
   });
 
+  test("shows the parameters under their declared names where the declaration gives them", () => {
+    // Functions §5.1: the signature is the face with its names, and stands in
+    // its place on the first line.
+    expect(hoverMarkdown(hover({
+      name: "twice",
+      target: targets.value,
+      displayedType: "Int -> Int",
+      signature: "(n: Int) -> Int",
+      documentation: "Doubles `n`.",
+    }))).toBe("value `twice: (n: Int) -> Int`\n\nDoubles `n`.");
+  });
+
   test("carries a numbered arrow face through unchanged", () => {
     // The one sentence every host draws (#364): the arrow trio and its
     // display-only indices are ordinary characters in the code span, so nothing
@@ -109,10 +122,10 @@ describe("hoverMarkdown", () => {
       hoverMarkdown({
         span,
         displayedType: "() >-> Unit",
-        colourOwners: ["impure only if `cb` is"],
+        colourOwners: ["impure only if `cb` is impure"],
         convertedTo: "Seq(Int)",
         documentation: "Docs.",
       }),
-    ).toBe("`() >-> Unit`\n\nimpure only if `cb` is\n\nconverted to `Seq(Int)` here\n\nDocs.");
+    ).toBe("`() >-> Unit`\n\nImpure only if `cb` is impure.\n\nConverted to `Seq(Int)` here.\n\nDocs.");
   });
 });

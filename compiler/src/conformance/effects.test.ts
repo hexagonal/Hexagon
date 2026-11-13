@@ -6400,9 +6400,9 @@ export let hold(f: (() -> String) ->! Int): Int =
     const offset = source.indexOf("pick");
     const actions = session.codeActions("/main.hex", { start: offset, end: offset });
     expect(actions.map(({ title, disabled }) => `${title}: ${disabled ?? "offered"}`)).toEqual([
-      "Infer return type: the return type of `pick` cannot be written here: " +
+      "Infer return type: The return type of `pick` cannot be written here: " +
       "this function type's arrow is an effect variable, and writing a following arrow here " +
-      "would link it to the rest of the signature's colour",
+      "would link it to the rest of the signature's colour.",
     ]);
   });
 
@@ -7141,9 +7141,9 @@ describe("captured colours, pins, and owners (Effects §3.4, §4.2, §10)", () =
     };
     const hovered = (source: string, needle: string) =>
       session(source).hover("/main.hex", prefix.length + source.indexOf(needle));
-    const owner = "impure only if `outer`'s `action` is; may fail only if `outer`'s `action` may";
+    const owner = "impure only if `outer`'s `action` is impure; may fail only if `outer`'s `action` may fail";
     // A report notes each colour a captured callback passes through on its own line.
-    const notes = ["impure only if `outer`'s `action` is", "may fail only if `outer`'s `action` may"];
+    const notes = ["impure only if `outer`'s `action` is impure", "may fail only if `outer`'s `action` may fail"];
     const inMid = `export let outer(action: () ->! Unit): Int =
     fun mid(cb: () ->! Int): Int =
         let g = action
@@ -7161,10 +7161,10 @@ describe("captured colours, pins, and owners (Effects §3.4, §4.2, §10)", () =
         expect(shown?.displayedType).toBe("() >-> Unit");
         expect(shown?.colourOwners).toEqual([owner]);
       }
-      expect(hoverMarkdown(hovered(inMid, "g =")!)).toBe(`value \`g: () >-> Unit\`\n\n${owner}`);
+      expect(hoverMarkdown(hovered(inMid, "g =")!)).toBe(`value \`g: () >-> Unit\`\n\nImpure only if \`outer\`'s \`action\` is impure. May fail only if \`outer\`'s \`action\` may fail.`);
       // `mid`'s own face is its own callback's, named by its parameter.
       expect(hovered(inMid, "mid(cb")?.displayedType).toBe("(() ->! Int) >-> Int");
-      expect(hovered(inMid, "mid(cb")?.colourOwners).toEqual(["impure only if `cb` is; may fail only if `cb` may"]);
+      expect(hovered(inMid, "mid(cb")?.colourOwners).toEqual(["impure only if `cb` is impure; may fail only if `cb` may fail"]);
     });
 
     it("displays a hole where it stands", () => {
@@ -7199,10 +7199,10 @@ describe("captured colours, pins, and owners (Effects §3.4, §4.2, §10)", () =
     n
 `;
       expect(hovered(inside("let run = "), "g =")?.colourOwners).toEqual([
-        "impure only if `run`'s `act` is; may fail only if `run`'s `act` may",
+        "impure only if `run`'s `act` is impure; may fail only if `run`'s `act` may fail",
       ]);
       expect(hovered(inside("let pair = (1, "), "g =")?.colourOwners).toEqual([
-        "impure only if an enclosing lambda's `act` is; may fail only if an enclosing lambda's `act` may",
+        "impure only if an enclosing lambda's `act` is impure; may fail only if an enclosing lambda's `act` may fail",
       ]);
     });
 
@@ -7210,7 +7210,7 @@ describe("captured colours, pins, and owners (Effects §3.4, §4.2, §10)", () =
       const source = inMid.replace("        cb!()\n", "        let z = g\n        cb!()\n");
       const cursor = prefix.length + source.indexOf("let z = g") + "let z = g".length;
       const g = session(source).completions("/main.hex", cursor).find(({ name }) => name === "g");
-      expect(g?.detail).toBe("() >-> Unit — impure only if outer's action is; may fail only if outer's action may");
+      expect(g?.detail).toBe("() >-> Unit — impure only if outer's action is impure; may fail only if outer's action may fail");
     });
 
     it("decorates a diagnostic that shows a captured colour, over settled colours", () => {

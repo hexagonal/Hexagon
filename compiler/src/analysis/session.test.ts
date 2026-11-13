@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import {
   AnalysisSession,
+  menuTitle,
   refused,
   type RenamePlan,
   type RenameResult,
@@ -523,7 +524,7 @@ describe("AnalysisSession", () => {
     const expected =
       "`fromJsDirection` is generated from `extern enum Direction` " +
       "(Foreign Enums §5.2), so its spelling is not chosen — rename the type " +
-      "`Direction`, and every use of this name follows";
+      "`Direction`, and every use of this name follows.";
     expect(session.prepareRename("/main.hex", use)).toEqual({ refused: expected });
     expect(session.rename("/main.hex", use, "grab")).toEqual({ refused: expected });
   });
@@ -553,7 +554,7 @@ describe("AnalysisSession", () => {
     expect(session.diagnostics("/main.hex")).toEqual([]);
     expect(session.rename("/main.hex", at(source, "Direction"), "Way")).toEqual({
       refused:
-        "renaming `Direction` to `Way` would break `/main.hex`: " +
+        "Renaming `Direction` to `Way` would break `/main.hex`: " +
         "`fromJsWay` is already bound (line 3); `extern enum Way` generates it " +
         "(Foreign Enums §5.2) — rename the enum type, or the other declaration.",
     });
@@ -579,7 +580,7 @@ describe("AnalysisSession", () => {
       refused:
         "`fromJsDirection` is generated from `extern enum Direction` " +
         "(Foreign Enums §5.2), so its spelling is not chosen — rename the type " +
-        "`Direction`, and every use of this name follows",
+        "`Direction`, and every use of this name follows.",
     });
     // And hovering it abroad still answers with the signature: only the
     // *definition* was withheld, never the references.
@@ -814,6 +815,102 @@ describe("AnalysisSession", () => {
  * documentable position — including the ones that reach neither emitted
  * artifact, which is the whole reason the attachment exists for them.
  */
+/**
+ * Hover's first line names a function's parameters as its declaration does
+ * (Functions §5.1, Effects §10). Names belong to a declaration that writes a
+ * parameter list; anything else is the type alone, since a function type
+ * carries no names and its text writes none. The face itself stays the face.
+ */
+describe("AnalysisSession.hover: parameters under their declared names", () => {
+  /** The line hover shows: the signature where there is one, the face otherwise. */
+  const hovered = (text: string, needle: string, nth = 1): string | undefined => {
+    const { session } = sessionOf({ "/main.hex": text });
+    const hover = session.hover("/main.hex", at(text, needle, nth));
+    return hover?.signature ?? hover?.displayedType;
+  };
+
+  test("a function from another module, called qualified or by the dot", () => {
+    const text = [
+      "module Main",
+      "",
+      "let a = Vector.map([1], n => n + 1)",
+      "let b = [1].map(n => n + 1)",
+      "let c = IndexFault(1, 2)",
+      "",
+    ].join("\n");
+    expect(hovered(text, "map", 1)).toBe("(values: Vector(a), transform: a ->! b) >-> Vector(b)");
+    expect(hovered(text, "map", 2)).toBe("(values: Vector(a), transform: a ->! b) >-> Vector(b)");
+    expect(hovered(text, "IndexFault")).toBe("(index: Int, size: Int) -> Exn");
+  });
+
+  test("at its declaration and at a use, a sole parameter in parentheses; the face stays the face", () => {
+    const text = "module Main\n\nlet twice(n: Int): Int = n * 2\nlet four = twice(2)\n";
+    expect(hovered(text, "twice", 1)).toBe("(n: Int) -> Int");
+    expect(hovered(text, "twice", 2)).toBe("(n: Int) -> Int");
+    const { session } = sessionOf({ "/main.hex": text });
+    expect(session.hover("/main.hex", at(text, "twice", 2))).toMatchObject({
+      displayedType: "Int -> Int",
+      signature: "(n: Int) -> Int",
+    });
+  });
+
+  test("a `let` bound to a lambda writes its names where it is written", () => {
+    const text = "module Main\n\nlet double = n => n * 2\nlet add = (left: Int, right: Int) => left + right\n";
+    expect(hovered(text, "double")).toBe("<a: Num> (n: a) -> a");
+    expect(hovered(text, "add")).toBe("(left: Int, right: Int) -> Int");
+  });
+
+  test("constructors and exceptions with named slots; an unnamed slot is its type alone", () => {
+    const text = [
+      "module Main",
+      "",
+      "union Shape =",
+      "    | Rect(w: Int, h: Int)",
+      "    | Dot(Int, Int)",
+      "exception Oops(code: Int)",
+      "let r = Rect(1, 2)",
+      "let d = Dot(1, 2)",
+      "let o = Oops(1)",
+      "",
+    ].join("\n");
+    expect(hovered(text, "Rect", 2)).toBe("(w: Int, h: Int) -> Shape");
+    expect(hovered(text, "Oops", 2)).toBe("(code: Int) -> Exn");
+    // Nothing named, so no signature beside the face.
+    const { session } = sessionOf({ "/main.hex": text });
+    const dot = session.hover("/main.hex", at(text, "Dot", 2));
+    expect([dot?.displayedType, dot?.signature]).toEqual(["(Int, Int) -> Shape", undefined]);
+  });
+
+  test("a pattern parameter has no name, and its named siblings keep theirs", () => {
+    const text = "module Main\n\nlet pair((x, y): (Int, Int), c: Int): Int = x + y + c\n";
+    expect(hovered(text, "pair")).toBe("((Int, Int), c: Int) -> Int");
+    // A sole pattern parameter leaves nothing named.
+    const sole = "module Main\n\nlet sum((x, y): (Int, Int)): Int = x + y\n";
+    const { session } = sessionOf({ "/main.hex": sole });
+    const hover = session.hover("/main.hex", at(sole, "sum"));
+    expect([hover?.displayedType, hover?.signature]).toEqual(["((Int, Int)) -> Int", undefined]);
+  });
+
+  test("no declared names, no names: another name, a parameter, a call's result", () => {
+    const text = [
+      "module Main",
+      "",
+      "let twice(n: Int): Int = n * 2",
+      "let again = twice",
+      "let apply(f: (Int) -> Int): Int = f(1)",
+      "let pick(k: Int): (Int) -> Int = twice",
+      "let picked = pick(1)",
+      "",
+    ].join("\n");
+    expect(hovered(text, "twice", 2)).toBe("(n: Int) -> Int");
+    for (const [needle, nth] of [["again", 1], ["f(1)", 1], ["picked", 1]] as const) {
+      const { session } = sessionOf({ "/main.hex": text });
+      const hover = session.hover("/main.hex", at(text, needle, nth));
+      expect([needle, hover?.displayedType, hover?.signature]).toEqual([needle, "Int -> Int", undefined]);
+    }
+  });
+});
+
 describe("AnalysisSession.hover documentation", () => {
   const DOCUMENTED = "module Helper\n\n" + [
     "(** A colour, as the light leaves it. *)",
@@ -1211,7 +1308,7 @@ describe("AnalysisSession.rename", () => {
     // module is not the project's, and the package segment is what says whose
     // it is (Modules §10's rename row, #838).
     expect(refusal(session.rename("/main.hex", at(source, "None"), "Nothing")))
-      .toBe("`None` is declared in module `Hex.Option`, which this project does not own");
+      .toBe("`None` is declared in module `Hex.Option`, which this project does not own.");
   });
 
   test("a name with no declaration anywhere takes the built-in refusal, not a mentioner's", () => {
@@ -1221,7 +1318,7 @@ describe("AnalysisSession.rename", () => {
     const source = "module Main\n\n" + "export let word: String = show(1)\n";
     const { session } = sessionOf({ "/main.hex": source });
     expect(refusal(session.rename("/main.hex", at(source, "show"), "display")))
-      .toBe("`show` is built into the compiler, so it has no declaration to rename");
+      .toBe("`show` is built into the compiler, so it has no declaration to rename.");
 
     // The **constraint** at an `honor` head, which is where the two refusals
     // used to race: whichever fired first won, and the not-owned one names a
@@ -1232,7 +1329,7 @@ describe("AnalysisSession.rename", () => {
       "honor Show<Person> =\n    show(person) = person.name\n";
     const { session: honoring } = sessionOf({ "/main.hex": honored });
     expect(refusal(honoring.rename("/main.hex", at(honored, "Show"), "Display")))
-      .toBe("`Show` is built into the compiler, so it has no declaration to rename");
+      .toBe("`Show` is built into the compiler, so it has no declaration to rename.");
 
     // **The arrangement, not only the answer.** The two fixtures above give the
     // built-in refusal whichever order the checks run in, because no `Show`
@@ -1254,11 +1351,11 @@ describe("AnalysisSession.rename", () => {
       "let ordering: Ordering = Ordering.Less\n";
     const { session: reachingSession } = sessionOf({ "/main.hex": reaching });
     expect(refusal(reachingSession.rename("/main.hex", at(reaching, "Show"), "Display")))
-      .toBe("`Show` is built into the compiler, so it has no declaration to rename");
+      .toBe("`Show` is built into the compiler, so it has no declaration to rename.");
     // The same caret through `prepareRename`, the query an editor asks first:
     // one arrangement answers both, and the refusal a user reads is this one.
     expect(refusal(reachingSession.prepareRename("/main.hex", at(reaching, "Show"))))
-      .toBe("`Show` is built into the compiler, so it has no declaration to rename");
+      .toBe("`Show` is built into the compiler, so it has no declaration to rename.");
   });
 
   test("a not-owned name is its declaring module's, with a mentioner in the set", () => {
@@ -1286,7 +1383,7 @@ describe("AnalysisSession.rename", () => {
       "let missing: Option(Int) = None\n";
     const { session } = sessionOf({ "/main.hex": source });
     expect(refusal(session.rename("/main.hex", at(source, "None"), "Nothing")))
-      .toBe("`None` is declared in module `Hex.Option`, which this project does not own");
+      .toBe("`None` is declared in module `Hex.Option`, which this project does not own.");
   });
 
   test("rewrites a dot call, which only the checker knows the meaning of", () => {
@@ -1939,5 +2036,24 @@ describe("a file declaring several modules (Modules §2.2)", () => {
     expect(actions.map(({ title }) => title.slice(0, 20)))
       .toEqual(["Declare `Box(+a)` — "]);
     expect(actions[0]?.kind).toBe("refactor");
+  });
+});
+
+describe("menuTitle (Declarations Preamble §1.3)", () => {
+  test("capitalises a lower-case first letter, Unicode-aware", () => {
+    expect(menuTitle("import `Rat`")).toBe("Import `Rat`");
+    expect(menuTitle("write `->!`")).toBe("Write `->!`");
+    expect(menuTitle("écrire")).toBe("Écrire");
+  });
+
+  test("leaves a title that opens with code or a capital as written", () => {
+    expect(menuTitle("`x` as a pun")).toBe("`x` as a pun");
+    expect(menuTitle("Infer return type")).toBe("Infer return type");
+  });
+
+  test("strips one closing period and keeps a closing ellipsis", () => {
+    expect(menuTitle("rename `x`.")).toBe("Rename `x`");
+    expect(menuTitle("extract to function...")).toBe("Extract to function...");
+    expect(menuTitle("extract to function…")).toBe("Extract to function…");
   });
 });

@@ -29,29 +29,33 @@ extern from "hex:intrinsic"
     fun natFromIntUnchecked as fromIntUnchecked(value: Int) -> Nat
 
 honor Num<Nat> =
-    (** The sum of `left` and `right`, exact within the safe range. *)
+    (** `left` plus `right`. The largest number a `Nat` holds exactly is
+        9,007,199,254,740,991, and a result past that is rounded. *)
     add(left, right) = nativeAdd(left, right)
-    (** The product of `left` and `right`, exact within the safe range. *)
+    (** `left` times `right`. A result too large for a `Nat` to hold exactly is
+        rounded. *)
     multiply(left, right) = nativeMultiply(left, right)
-    (** The natural number `value` as a `Nat`, which is `value` itself. *)
+    (** The number itself, since a `Nat` is already a `Nat`. *)
     fromNat(value) = value
 
 honor Eq<Nat> =
-    (** Whether `left` and `right` are the same natural number. *)
+    (** Whether `left` and `right` are the same number. *)
     equals(left, right) = nativeEquals(left, right)
 
 honor Ord<Nat> =
-    (** How `left` orders against `right`, by numeric value. *)
+    (** Which of `left` and `right` is smaller: `Less` when `left` is smaller,
+        `Greater` when `left` is larger, and `Equal` when they are the same
+        number. *)
     compare(left, right) = nativeCompare(left, right)
 
 honor Show<Nat> =
-    (** The decimal form of `value`, which never carries a sign. *)
+    (** The number as text, in decimal digits. *)
     show(value) = nativeShow(value)
 
 honor Pow<Nat> =
-    (** `value` raised to the power `exponent`. Throws `NegativeExponentFault`
-        when `exponent` is negative: a negative power of a natural number is not
-        a natural number. *)
+    (** The number raised to the power `exponent`, which is what `**` gives.
+        Throws `NegativeExponentFault` when `exponent` is negative, because the
+        result would be a fraction and a `Nat` is always whole. *)
     pow(value, exponent) =
         if exponent < 0 then
             throw(NegativeExponentFault("an integer exponent cannot be negative"))
@@ -59,48 +63,50 @@ honor Pow<Nat> =
             nativePow(value, exponent)
 
 honor Hash<Nat> =
-    (** A hash of `value`. Equal `Nat`s hash equally, which is what `Eq` above
-        is checked against. *)
+    (** A number worked out from this one, which `Map` and `Set` use to find a
+        key quickly. Numbers that are equal have the same hash. *)
     hash(value) = nativeHash(value)
 
 honor Integral<Nat> =
-    (** The truncated quotient of `left` divided by `right`, which at `Nat` is
-        the Euclidean one. Throws `DivideByZeroFault` when `right` is zero. *)
+    (** `left` divided by `right`, with what is left over dropped, so 7 and 2
+        give 3. A `Nat` is never negative, so `quot` and `div` give the same
+        result. Throws `DivideByZeroFault` when `right` is zero. *)
     quot(left, right) =
         if right == 0 then
             throw(DivideByZeroFault("Nat.quot: divisor is zero"))
         else
             nativeQuot(left, right)
 
-    (** The truncated remainder of `left` divided by `right`, which at `Nat` is
-        the Euclidean one. Throws `DivideByZeroFault` when `right` is zero. *)
+    (** What is left over when `left` is divided by `right`, so 7 and 2 give 1.
+        A `Nat` is never negative, so `rem` and `mod` give the same result.
+        Throws `DivideByZeroFault` when `right` is zero. *)
     rem(left, right) =
         if right == 0 then
             throw(DivideByZeroFault("Nat.rem: divisor is zero"))
         else
             nativeRem(left, right)
 
-    (** The Euclidean remainder of `left` divided by `right`. Neither operand
-        can be negative, so it is the truncated remainder value for value, and
-        it carries its own guard so a zero divisor names this member. Throws
-        `DivideByZeroFault` when `right` is zero. *)
+    (** What is left over when `left` is divided by `right`, so 7 and 2 give 1.
+        A `Nat` is never negative, so `mod` and `rem` give the same result.
+        Throws `DivideByZeroFault` when `right` is zero. *)
     mod(left, right) =
         if right == 0 then
             throw(DivideByZeroFault("Nat.mod: divisor is zero"))
         else
             nativeRem(left, right)
 
-    (** The Euclidean quotient of `left` divided by `right`, equal to the
-        truncated quotient at this type and guarded in its own name. Throws
-        `DivideByZeroFault` when `right` is zero. *)
+    (** `left` divided by `right`, with what is left over dropped, so 7 and 2
+        give 3. A `Nat` is never negative, so `div` and `quot` give the same
+        result. Throws `DivideByZeroFault` when `right` is zero. *)
     div(left, right) =
         if right == 0 then
             throw(DivideByZeroFault("Nat.div: divisor is zero"))
         else
             nativeQuot(left, right)
 
-    (** The greatest common divisor of `left` and `right`. `gcd(value, 0)` is
-        `value`, so `gcd(0, 0)` is zero; it never throws. *)
+    (** The largest number that divides both `left` and `right` with nothing
+        left over, so 12 and 18 give 6. When one of them is zero the result is
+        the other, so two zeros give zero. *)
     gcd(left, right) =
         var larger = left
         var smaller = right
@@ -117,9 +123,11 @@ honor Real<Nat> =
 
     sign(x) = if x == 0 then Sign.Zero else Sign.Positive
 
-(** The integer `value` as a `Nat`, or `None` when it is negative. The total
-    direction is `Num.fromNat`, which widens an established `Nat` into any
-    numeric type. *)
+(** The integer `value` as a `Nat`, or `None` when `value` is negative, since a
+    `Nat` is never negative:\
+    `Nat.fromInt(5)` is `Some(5)`.\
+    No function is needed to go the other way: a `Nat` can be used wherever an
+    `Int` is wanted. *)
 export let fromInt(value: Int): Option(Nat) =
     if value < 0 then
         None
@@ -133,14 +141,16 @@ extern from "hex:intrinsic"
     fun numberParseNat as scanText(text: String) -> Option(Option(Nat))
     fun numberFormatMessage as formatMessage(text: String, phrase: String) -> String
 
-(** `text` read as a `Nat`: an integer literal as Hexagon writes one (Lexer
-    section 5), decimal or `0x`, `0o` or `0b`, with `_` allowed between two
-    digits. A `Nat` takes no sign, so `+5` and `-0` are not `Nat`s.
-    `Nat.parse(show(n))` is `n` for every `n`.
-
-    Throws `NumberFormatError` for any other text, and for a natural number
-    outside `Nat`'s range. Read it with `?` for an `Option`, or with `assume`
-    where the text is known to be good. *)
+(** Reads `text` as a `Nat`:\
+    `Nat.parse^("42")` is `42`.\
+    The text is written as a whole number is written in Hexagon code: decimal
+    digits, or `0x`, `0o` or `0b` followed by digits in base 16, 8 or 2, with
+    `_` allowed between two digits. No sign is allowed, not even `+`, and no
+    spaces. Text made by `show` always reads back as the same number. Throws
+    `NumberFormatError` when `text` is not written that way, or when the number
+    is too large for a `Nat` to hold exactly. A call that may throw carries a
+    mark: `Nat.parse?(text)` gives `None` in place of throwing, and
+    `assume Nat.parse^(text)` is for text that is known to be good. *)
 export let parse(text: String): Nat = match scanText(text)
     Some(Some(value)) => value
     Some(None) => throw^(NumberFormatError(formatMessage(text, "is out of range for Nat")))

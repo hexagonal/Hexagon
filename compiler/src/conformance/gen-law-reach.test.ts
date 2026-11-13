@@ -315,7 +315,7 @@ describe("what the law refuses at the same reach (Constraints §4.7)", () => {
       "the `Scale.Scale<Matrix>` instance binds `scale`, which is already bound " +
         "(line 8); a member's wider face is declared, not exported — write " +
         "`widens Scale.scale(…)` and account for the member with " +
-        "`scale = widened`.",
+        "`scale = widened`",
     ]);
   });
 });
@@ -354,7 +354,7 @@ describe("where the law is never consulted (Modules §5.3)", () => {
 
     expect(diagnostics).toEqual([
       "`scale` is already bound (line 5); Hexagon does not allow rebinding — " +
-        "choose a different name.",
+        "choose a different name",
     ]);
   });
 
@@ -378,7 +378,7 @@ describe("where the law is never consulted (Modules §5.3)", () => {
 
     expect(diagnostics).toEqual([
       "`scaledTwice` is already bound (line 6); Hexagon does not allow " +
-        "rebinding — choose a different name.",
+        "rebinding — choose a different name",
     ]);
   });
 });

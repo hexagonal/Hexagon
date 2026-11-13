@@ -159,6 +159,15 @@ export interface Diagnostic {
   readonly supersedes?: Source.Span;
 }
 
+/**
+ * A sentence that ends with a phrase, such as a report's message quoted in a
+ * refusal, closed with a period unless the phrase already ends in `.`, `?` or
+ * `!` (Declarations Preamble §1.3).
+ */
+export function closeSentence(text: string): string {
+  return /[.?!]$/.test(text) ? text : `${text}.`;
+}
+
 export class Bag {
   readonly #diagnostics: Diagnostic[] = [];
   /**

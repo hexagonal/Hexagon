@@ -780,7 +780,7 @@ describe("§5.3 the `Vector(+a)` claim, verified against the representation", ()
     // against the record, named by the field that breaks it.
     expect(broken.diagnostics).toContain(
       "`a` cannot be declared covariant in `Vector`: field `consume` of its representation " +
-        "`TrieVector` uses the parameter in argument position. Remove the `+`, or change the field",
+        "`TrieVector` uses the parameter in argument position; remove the `+`, or change the field",
     );
     expect(baseline.diagnostics.join("\n")).not.toContain("cannot be declared covariant");
   });
