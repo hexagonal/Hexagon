@@ -441,14 +441,14 @@ describe("the Hexagon language server", () => {
         /^value `round: \(value: Float\) -> Int`/,
       );
       expect((qualifiedRound?.contents as { value: string }).value).toMatch(
-        /exact halfway values rounded to the\s+even integer/u,
+        /halfway between two\s+integers goes to the even one/u,
       );
       expect(dottedRound?.contents).toEqual(qualifiedRound?.contents);
       expect((qualifiedAway?.contents as { value: string }).value).toMatch(
         /^value `roundAway: \(value: Float\) -> Int`/,
       );
       expect((qualifiedAway?.contents as { value: string }).value).toMatch(
-        /The name\s+describes the tie rule, not a direction for every value/u,
+        /Only a half is affected/u,
       );
       expect(dottedAway?.contents).toEqual(qualifiedAway?.contents);
       expect(dottedAway?.range).toEqual({

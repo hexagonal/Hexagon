@@ -46,15 +46,18 @@ let describe(value: JsValue): String = match value.kind()
     _ => JsError.message(value)
 
 honor Show<Exn> =
-    (** JavaScript's one line for `error`: `ParseError: unexpected token` for an
-        exception with a `message` slot, `NotFoundError` for one without, and
-        for a foreign throw its own `name` and `message`, read once and kept, so
-        `TypeError: x is not a function`. A thrown string shows as itself, and a
-        thrown object with neither a `name` nor a `message` as `""`. The payload
-        of an exception without a `message` slot is not shown: give it one. *)
+    (** The error as one line of text: its name, then a colon and its message
+        when it has one. An exception declared with a `message` shows as
+        `ParseError: unexpected token`, and one declared without shows as its
+        name alone, `NotFoundError`. Nothing else the exception carries is
+        shown, so declare a `message` for anything a reader of the line needs.
+        An error thrown by JavaScript code shows its own name and message, as in
+        `TypeError: x is not a function`, and a string thrown by JavaScript code
+        shows as itself. *)
     show(error) = describe(view(error))
 
-(** `error`'s stack trace when it has one, `None` otherwise: a Hexagon
-    exception's, captured where it was built (section 4), or a foreign throw's,
-    read once and kept. A thrown string or `null` has none. *)
+(** The stack trace of the error, which is text listing the calls that were
+    running when the error was created, or `None` when it has none. Something
+    thrown by JavaScript code that is not an error object, such as a string, has
+    none. *)
 export let stack(error: Exn): Option(String) = JsError.stack(view(error))

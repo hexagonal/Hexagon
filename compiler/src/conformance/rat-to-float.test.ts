@@ -486,8 +486,8 @@ describe("the guard: finite, and nonzero when the input is (rat.md §6/§8)", ()
       .find(({ source }) => source.path === "/Rat.hex")!.declarations.text;
 
     expect(declarations).toContain(
-      "@throws {FloatRangeFault} when the honest answer would not be an approximation at all:" +
-        " past `Float`'s finite range, or a nonzero rational that would erase to zero\n",
+      "@throws {FloatRangeFault} when the fraction is too large for a `Float`," +
+        " or is not zero but too close to zero for one\n",
     );
   });
 });
