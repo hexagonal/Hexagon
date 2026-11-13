@@ -418,7 +418,7 @@ describe("compileSource", () => {
   test("a module's body is laid out at its own margin, comments and all", () => {
     const source = "module Geo\n" +
       "\n" +
-      "(* a note *)\n" +
+      "{- a note -}\n" +
       "export let a: Int = 1\n" +
       "\n" +
       "end module Geo\n" +
@@ -641,7 +641,7 @@ describe("compileSource", () => {
     test("measures every edition in UTF-8 bytes, whichever artefact holds the prose", () => {
       const documented = compileSource(
         43,
-        `${MAIN}(** Mélange un sel — «précision» — pour séparer deux valeurs égales. *)\n${stamp}`,
+        `${MAIN}{-- Mélange un sel — «précision» — pour séparer deux valeurs égales. -}\n${stamp}`,
       );
       // No doc block at all, and the accents inside the body's own literal.
       const accentedBody = compileSource(
@@ -1085,7 +1085,7 @@ describe("compileSource", () => {
     // across lines: all of these bind `Rat` exactly as the plain spelling does.
     const heads = [
       "import Rat\n",
-      "import (* the exact one *) Rat\n",
+      "import {- the exact one -} Rat\n",
       "import\n    Rat\n",
     ];
 

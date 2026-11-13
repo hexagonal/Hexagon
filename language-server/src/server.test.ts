@@ -573,17 +573,17 @@ describe("the Hexagon language server", () => {
     const DOCUMENTED = [
       "module Main",
       "",
-      "(** Brightens a colour.",
+      "{-- Brightens a colour.",
       "",
       "    Fenced, even:",
       "",
       "    ```",
       "    brighten(Red)",
-      "    ``` *)",
+      "    ``` -}",
       "export let brighten(colour: Int): Int = colour",
       "",
       "export record Box = {",
-      "    (** How wide it is. *)",
+      "    {-- How wide it is. -}",
       "    width: Int,",
       "}",
       "",
@@ -1881,7 +1881,7 @@ describe("the Hexagon language server", () => {
 
   test("a match's missing arms are written as `Debug.todo`, never as the repair applied on its own", async () => {
     const source = "module Main\n\nexport union Shape = Circle(r: Float) | Square(s: Float)\n" +
-      "export let area(shape: Shape): Float =\n    match shape\n        Circle(r) => r * r // round\n";
+      "export let area(shape: Shape): Float =\n    match shape\n        Circle(r) => r * r -- round\n";
     const solo = await opened(source, MODERN);
     try {
       const reported = await solo.diagnosticsFor(solo.uriOf("main.hex"));
@@ -1903,7 +1903,7 @@ describe("the Hexagon language server", () => {
 
   test("a client that takes snippet edits gets each `Debug.todo` selected, beginning the line below", async () => {
     const source = "module Main\n\nexport union Shape = Circle(r: Float) | Square(s: Float) | Tri(a: Float)\n" +
-      "export let area(shape: Shape): Float =\n    match shape\n        Circle(r) => r * r // round\nexport let one = 1\n";
+      "export let area(shape: Shape): Float =\n    match shape\n        Circle(r) => r * r -- round\nexport let one = 1\n";
     const solo = await opened(source, {
       ...MODERN,
       workspace: { workspaceEdit: { documentChanges: true, snippetEditSupport: true } as never },

@@ -6,14 +6,14 @@ export const constraints: PlaygroundExample = {
   description: "Honor the prelude Show constraint for a type and use it from generic code.",
   source: `module Constraints
 
-// Show is a prelude constraint used by string interpolation.
+-- Show is a prelude constraint used by string interpolation.
 record Person = {name: String, age: Int}
 
-// A local type can honor Show by supplying its display operation.
+-- A local type can honor Show by supplying its display operation.
 honor Show<Person> =
     show(person) = "\${person.name}, age \${person.age}"
 
-// Interpolation infers Show for this private helper.
+-- Interpolation infers Show for this private helper.
 let describe(thing: a) =
     "Description: \${thing}"
 

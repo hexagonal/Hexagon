@@ -17,7 +17,11 @@ interface LanguageConfiguration {
     decreaseIndentPattern: string;
   };
   readonly autoClosingPairs: readonly { open: string; close: string }[];
-  readonly onEnterRules: readonly { beforeText: string; afterText?: string }[];
+  readonly onEnterRules: readonly {
+    beforeText: string;
+    afterText?: string;
+    action?: { indent?: string; appendText?: string };
+  }[];
 }
 
 const configuration = JSON.parse(
@@ -93,56 +97,100 @@ describe("indentation rules", () => {
 
 describe("comment configuration", () => {
   it("matches the forms spec/comments.md §1 defines", () => {
-    expect(configuration.comments.lineComment).toBe("//");
-    expect(configuration.comments.blockComment).toEqual(["(*", "*)"]);
+    expect(configuration.comments.lineComment).toBe("--");
+    expect(configuration.comments.blockComment).toEqual(["{-", "-}"]);
   });
 
-  it("leaves block-comment auto-closing to the `(` pair", () => {
-    // A `(*` pair fires only after `(` has already auto-closed, which would strand
-    // that pair's `)` after the inserted ` *)`.
-    expect(configuration.autoClosingPairs.map(({ open }) => open)).not.toContain("(*");
+  /**
+   * The editor's choice of pair, as VS Code and Monaco make it when a character is typed:
+   * the longest `open` that ends in the character and whose earlier characters are
+   * already there; and, when a shorter pair that `open` contains has its `close` right
+   * after the caret, only the part of the longer `close` that is not that one. Modelled
+   * so the cases below say what an author sees, not only what the file holds.
+   */
+  function typeInto(before: string, after: string, typed: string): string {
+    const pairs = configuration.autoClosingPairs;
+    const text = before + typed;
+    const pair = pairs
+      .filter(({ open }) => text.endsWith(open))
+      .sort((a, b) => b.open.length - a.open.length)[0];
+    if (pair === undefined) return `${text}|${after}`;
+    const contained = pairs
+      .filter(
+        (candidate) =>
+          candidate.open !== pair.open &&
+          pair.open.includes(candidate.open) &&
+          pair.close.endsWith(candidate.close),
+      )
+      .sort((a, b) => b.open.length - a.open.length)[0];
+    const close =
+      contained !== undefined && after.startsWith(contained.close)
+        ? pair.close.slice(0, pair.close.length - contained.close.length)
+        : pair.close;
+    return `${text}|${close}${after}`;
+  }
+
+  it("closes a typed `{-` as a comment, never leaving the unterminated `{-}`", () => {
+    // `{` auto-closes to `{}` first; the `-` then completes the comment pair inside it.
+    expect(typeInto("let x = ", "", "{")).toBe("let x = {|}");
+    expect(typeInto("let x = {", "}", "-")).toBe("let x = {-| -}");
+    // A third character makes the doc opener, and no pair fires on it.
+    expect(typeInto("{-", " -}", "-")).toBe("{--| -}");
+    // A brace and a minus written apart are a brace and a minus (spec/comments.md §3).
+    expect(typeInto("let r = { ", "}", "-")).toBe("let r = { -|}");
   });
 
-  it("continues a doc comment, but not spec/doc-comments.md §2.2's carve-outs", () => {
+  it("leaves the `{` of `${` to the string (spec/comments.md §3)", () => {
+    // `"${-x}"` interpolates `-x`: the shim pair wins at `${` and adds nothing.
+    expect(typeInto('let t = "$', '"', "{")).toBe('let t = "${|}"');
+    expect(typeInto('let t = "${', '}"', "-")).toBe('let t = "${-|}"');
+  });
+
+  it("lays out a doc comment, but not spec/doc-comments.md §2.2's carve-outs", () => {
     const openers = configuration.onEnterRules.filter(({ beforeText }) =>
-      beforeText.includes("\\(\\*\\*")
+      beforeText.includes("\\{--")
     );
     expect(openers).toHaveLength(2);
 
     for (const { beforeText } of openers) {
       const opener = new RegExp(beforeText);
-      expect(opener.test("(** doc")).toBe(true);
-      expect(opener.test("    (** doc")).toBe(true);
-      // A bare `(**` opens a newline-first body (spec/doc-comments.md §3.1), which is a
-      // doc comment, so Enter continues it.
-      expect(opener.test("(**")).toBe(true);
-      // §2.2: `(**)` is the empty block comment and `(***`, `(****…` are banners and
-      // rulers. None is a doc opener, so Enter must not offer to continue one.
-      expect(opener.test("(**)")).toBe(false);
-      expect(opener.test("(*** banner")).toBe(false);
-      expect(opener.test("(**********")).toBe(false);
-      // Already closed on its own line, so there is nothing to continue.
-      expect(opener.test("(** doc *)")).toBe(false);
+      expect(opener.test("{-- doc")).toBe(true);
+      expect(opener.test("    {-- doc")).toBe(true);
+      expect(opener.test("{-- - first item")).toBe(true);
+      // A bare `{--` opens a newline-first body (spec/doc-comments.md §3.1), which is a
+      // doc comment, so Enter lays it out.
+      expect(opener.test("{--")).toBe(true);
+      // §2.2: `{--}` is the empty block comment and `{---`, `{----…` are banners and
+      // rulers; `{-|` is an ordinary comment. None is a doc opener.
+      expect(opener.test("{--}")).toBe(false);
+      expect(opener.test("{--- banner")).toBe(false);
+      expect(opener.test("{----------")).toBe(false);
+      expect(opener.test("{-| haddock")).toBe(false);
+      expect(opener.test("{- note")).toBe(false);
+      // Already closed on its own line, so there is nothing to lay out.
+      expect(opener.test("{-- doc -}")).toBe(false);
     }
 
     const closer = openers.find(({ afterText }) => afterText !== undefined)?.afterText;
-    expect(new RegExp(closer ?? "").test("*)")).toBe(true);
-
-    const continuation = configuration.onEnterRules.find(({ beforeText }) =>
-      beforeText.startsWith("^(\\t|[ ])*[ ]\\*")
-    );
-    expect(continuation).toBeDefined();
-    const inside = new RegExp(continuation?.beforeText ?? "");
-    expect(inside.test(" * more")).toBe(true);
-    expect(inside.test(" * more *)")).toBe(false);
+    expect(new RegExp(closer ?? "").test(" -}")).toBe(true);
+    expect(new RegExp(closer ?? "").test("-}")).toBe(true);
   });
 
-  it("continues no `///` run (spec/doc-comments.md §2.3)", () => {
-    // The line-doc reservation was revoked unspent, so `///` is an ordinary comment
-    // and an editor that appends `/// ` on Enter would be teaching a form that does
-    // not exist. Ordinary `//` runs are not continued either, and never were.
+  it("adds no continuation prefix inside a doc body", () => {
+    // spec/doc-comments.md §3.1 dedents the body and keeps everything else, so a ` * `
+    // gutter — OCaml's and JSDoc's habit — would be content, a stray list marker.
+    for (const rule of configuration.onEnterRules) {
+      expect(rule.action?.appendText).toBeUndefined();
+    }
+  });
+
+  it("continues no line comment (spec/doc-comments.md §2.3)", () => {
+    // There is no line documentation form: `---` and `-- |` are ordinary comments, and an
+    // editor that continued them would be teaching a form that does not exist.
     for (const { beforeText } of configuration.onEnterRules) {
-      expect(new RegExp(beforeText).test("/// doc"), beforeText).toBe(false);
+      for (const line of ["--- doc", "-- | doc", "-- note", "/// doc"]) {
+        expect(new RegExp(beforeText).test(line), `${beforeText} on ${line}`).toBe(false);
+      }
     }
   });
 });

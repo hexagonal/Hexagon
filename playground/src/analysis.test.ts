@@ -269,7 +269,7 @@ describe("hover", () => {
   test("carries documentation, which the occurrence table never could", () => {
     const analysis = new PlaygroundAnalysis();
     const source = MAIN +
-      "(** Doubles what it is given. *)\n" +
+      "{-- Doubles what it is given. -}\n" +
       "fun twice(n: Int): Int = n * 2\n" +
       "Debug.log(\"${twice(3)}\")\n";
 
@@ -355,7 +355,7 @@ describe("hoverSpans", () => {
   const source = [
     "module Shapes",
     "",
-    "(** What a shape is called. *)",
+    "{-- What a shape is called. -}",
     "export record P = {",
     "    name: String,",
     "    tag: String,",
@@ -775,7 +775,7 @@ describe("completion", () => {
 
   test("carries a declaration's type and documentation, in buffer coordinates", () => {
     const source = MAIN +
-      "(** Doubles a number. *)\n" +
+      "{-- Doubles a number. -}\n" +
       "fun twice(n: Int): Int = n * 2\n" +
       "let v = twi";
     const completions = new PlaygroundAnalysis().completions(source, source.length);
@@ -827,7 +827,7 @@ describe("completion", () => {
 describe("signature help", () => {
   test("while a call is unclosed: hover's line, its parameters named, the one the caret is on", () => {
     const source = MAIN +
-      "(** Adds two numbers. *)\n" +
+      "{-- Adds two numbers. -}\n" +
       "fun add(a: Int, b: Int): Int = a + b\n" +
       "let sum = add(1, ";
     const help = new PlaygroundAnalysis().signatureHelp(source, source.length);

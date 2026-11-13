@@ -91,7 +91,7 @@ export const hexagonFamilies: Readonly<Record<string, HexagonFamily>> = {
     scopes: [
       "comment.block.documentation.hexagon",
       "comment.block.hexagon",
-      "comment.line.double-slash.hexagon",
+      "comment.line.double-dash.hexagon",
       "punctuation.definition.comment.hexagon",
       "punctuation.definition.comment.begin.hexagon",
       "punctuation.definition.comment.end.hexagon",
@@ -167,6 +167,7 @@ export const hexagonFamilies: Readonly<Record<string, HexagonFamily>> = {
       "invalid.illegal.reserved-interpolation.hexagon",
       "invalid.illegal.unmatched-comment-close.hexagon",
       "invalid.illegal.javascript-comment.hexagon",
+      "invalid.illegal.ocaml-comment.hexagon",
       "invalid.illegal.operator.hexagon",
       "invalid.illegal.character.hexagon",
       "invalid.illegal.whitespace.hexagon",
@@ -249,7 +250,7 @@ export const generatedFamilies: Readonly<Record<string, HexagonFamily>> = {
       "punctuation.definition.comment",
       "punctuation.whitespace.comment",
       // The emitter translates a source comment into JavaScript's spelling
-      // (spec/comments.md §6), so a Hexagon `(** … *)` arrives in the generated pane
+      // (spec/comments.md §6), so a Hexagon `{-- … -}` arrives in the generated pane
       // as a JavaScript doc comment, and VS Code's grammar reads the JSDoc inside
       // it: `@param` is a storage type,
       // `{Vector}` a type name, the `@` and the braces punctuation. Hexagon's own

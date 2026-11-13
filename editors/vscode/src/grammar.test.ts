@@ -20,7 +20,7 @@ const scope = (source: string, text: string) => scopeOf(source, text);
  * grammar rather than its text so the `//` notes — which quote patterns in prose —
  * cannot be mistaken for rules.
  */
-function patternsUnder(key: "begin" | "end", node: unknown, found: string[] = []): string[] {
+function patternsUnder(key: "begin" | "end" | "match", node: unknown, found: string[] = []): string[] {
   if (Array.isArray(node)) {
     for (const child of node) patternsUnder(key, child, found);
   } else if (node !== null && typeof node === "object") {
@@ -978,26 +978,29 @@ describe("an unterminated bracket group stays on its line (#162)", () => {
     await expectContained("let xs = [1, 2", "let after = 1");
     const spanning = await scopePairs('let s = "one\ntwo"\nlet after = 1');
     expect(spanning).toContainEqual(["two", "string.quoted.double.hexagon"]);
-    const commented = await scopePairs("(* one\ntwo *)\nlet after = 1");
+    const commented = await scopePairs("{- one\ntwo -}\nlet after = 1");
     expect(commented).toContainEqual(["two ", "comment.block.hexagon"]);
   });
 
-  it("guards every type-context bracket against a comment opener", async () => {
-    // The #171 companion to the guard below: same reason for writing it out at every
-    // site, same reason for pinning the copies. Only the two bounded rules change any
-    // paint; the rest are uniformity, and the behavioural cases above are what hold
-    // the line for the ones that matter.
+  it("guards every brace rule against a comment opener", async () => {
+    // The #1538 companion to the guard below: spec/comments.md §3 reads `{` followed by
+    // `-` as a comment ahead of the record brace, so no `\{`-based rule may claim it.
+    // Same reason for writing it out at every site, same reason for pinning the copies.
     const grammar = JSON.parse(await readFile(grammarPath, "utf8"));
-    const guarded = beginPatterns(grammar).filter((begin) => begin.includes("(?!\\*)"));
+    const braces = [...beginPatterns(grammar), ...patternsUnder("match", grammar)].filter(
+      // The comment openers themselves, `{-` and `{--`, are the rules being guarded for.
+      (pattern) => pattern.startsWith("\\{") && !pattern.startsWith("\\{-"),
+    );
 
-    // Three hanging groups and five bounded ones, across the type-declaration,
-    // type-expression, binder-bound, `derives`, and constrained-hole rules — the
-    // last being the conjunction `_ : (Eq, Show)`, the binder bound's twin.
-    expect(guarded).toHaveLength(8);
-    for (const begin of guarded) {
-      // The guard sits immediately after the `(` the rule consumes, captured or not.
-      expect(begin.includes("\\((?!\\*)") || begin.includes("(\\()(?!\\*)"), begin).toBe(true);
+    // #brace-group, the hanging and bounded type-expression groups, and #punctuation.
+    expect(braces).toHaveLength(4);
+    for (const pattern of braces) {
+      expect(pattern.startsWith("\\{(?!-)"), pattern).toBe(true);
     }
+
+    // #171's `(?!\*)` guard went with the `(* *)` spelling (see the //line-bail-guard
+    // note): `(*` is refused now, and no bracket rule keeps a lookahead for it.
+    expect(beginPatterns(grammar).filter((begin) => begin.includes("(?!\\*)"))).toEqual([]);
   });
 
   it("spells the bail-out guard identically wherever it appears", async () => {
@@ -1008,9 +1011,10 @@ describe("an unterminated bracket group stays on its line (#162)", () => {
       .filter((end) => end.includes("(?=^\\S"))
       .map((end) => end.slice(end.indexOf("(?=^\\S")));
 
-    // Five hanging groups, seven bounded ones, the two contexts that enclose them, and
-    // the JavaScript-comment region, which is a half-typed `/*` away from the same leak.
-    expect(guards).toHaveLength(16);
+    // Five hanging groups, seven bounded ones, the two contexts that enclose them, the
+    // JavaScript-comment region, which is a half-typed `/*` away from the same leak, and
+    // the OCaml-comment region with its nested twin, a half-typed `(*` away from it.
+    expect(guards).toHaveLength(18);
     expect(new Set(guards).size).toBe(1);
   });
 
@@ -1032,7 +1036,7 @@ describe("an unterminated bracket group stays on its line (#162)", () => {
   it("admits `union` and `fault` to the guard only ahead of a type name", async () => {
     const guards = endPatterns(JSON.parse(await readFile(grammarPath, "utf8")))
       .filter((end) => end.includes("(?=^\\S"));
-    expect(guards).toHaveLength(16);
+    expect(guards).toHaveLength(18);
     for (const guard of guards) {
       expect(guard, guard).toContain(
         "|union(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]" +
@@ -1058,7 +1062,7 @@ describe("an unterminated bracket group stays on its line (#162)", () => {
   it("admits `widens` to the guard only ahead of a module alias", async () => {
     const guards = endPatterns(JSON.parse(await readFile(grammarPath, "utf8")))
       .filter((end) => end.includes("(?=^\\S"));
-    expect(guards).toHaveLength(16);
+    expect(guards).toHaveLength(18);
     for (const guard of guards) {
       expect(guard, guard).toContain(
         "|widens(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|union",
@@ -1087,7 +1091,7 @@ describe("an unterminated bracket group stays on its line (#162)", () => {
   it("admits `opaque` to the guard only ahead of `record`/`union`", async () => {
     const guards = endPatterns(JSON.parse(await readFile(grammarPath, "utf8")))
       .filter((end) => end.includes("(?=^\\S"));
-    expect(guards).toHaveLength(16);
+    expect(guards).toHaveLength(18);
     for (const guard of guards) {
       expect(guard, guard).toContain(
         "|opaque(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+(?:record|union)" +
@@ -1099,7 +1103,7 @@ describe("an unterminated bracket group stays on its line (#162)", () => {
   it("admits `pattern` to the guard only for a declaration head", async () => {
     const guards = endPatterns(JSON.parse(await readFile(grammarPath, "utf8")))
       .filter((end) => end.includes("(?=^\\S"));
-    expect(guards).toHaveLength(16);
+    expect(guards).toHaveLength(18);
     for (const guard of guards) {
       expect(guard, guard).toContain(
         "|pattern(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+" +
@@ -1154,7 +1158,7 @@ describe("an unterminated bracket group stays on its line (#162)", () => {
   it("admits `module` and `end module` to the guard, keyed on the follower", async () => {
     const guards = endPatterns(JSON.parse(await readFile(grammarPath, "utf8")))
       .filter((end) => end.includes("(?=^\\S"));
-    expect(guards).toHaveLength(16);
+    expect(guards).toHaveLength(18);
     for (const guard of guards) {
       expect(guard, guard).toContain("|import|");
       expect(guard, guard).toContain(
@@ -1444,29 +1448,29 @@ describe("strings and interpolation (spec/lexer.md §6)", () => {
 
 describe("comments (spec/comments.md)", () => {
   it("distinguishes the doc form from the ordinary forms", async () => {
-    expect(await scope("// note", " note")).toBe("comment.line.double-slash.hexagon");
-    expect(await scope("(** doc *)", " doc ")).toBe("comment.block.documentation.hexagon");
-    expect(await scope("(* note *)", " note ")).toBe("comment.block.hexagon");
+    expect(await scope("-- note", " note")).toBe("comment.line.double-dash.hexagon");
+    expect(await scope("{-- doc -}", " doc ")).toBe("comment.block.documentation.hexagon");
+    expect(await scope("{- note -}", " note ")).toBe("comment.block.hexagon");
   });
 
   it("recognizes a doc comment by spec/doc-comments.md §2.1's predicate", async () => {
-    // `(**` followed by a character that is neither `)` nor `*`.
-    expect(await scope("(**doc*)", "doc")).toBe("comment.block.documentation.hexagon");
-    // The space-first idiom for content that begins with `*` (§2.2).
-    expect(await scope("(** *bold* *)", " *bold* ")).toBe("comment.block.documentation.hexagon");
+    // `{--` followed by a character that is neither `-` nor `}`.
+    expect(await scope("{--doc-}", "doc")).toBe("comment.block.documentation.hexagon");
+    // The space-first idiom for content that begins with `-` (§2.2).
+    expect(await scope("{-- - item -}", " - item ")).toBe("comment.block.documentation.hexagon");
 
-    // The character after `(**` may be the newline — the newline-first body (§3.1) is a
+    // The character after `{--` may be the newline — the newline-first body (§3.1) is a
     // doc comment, so the predicate must hold at end of line rather than demand a
     // character on the same one.
-    const newlineFirst = await scopePairs("(**\n    A body.\n*)\nlet x = 1");
+    const newlineFirst = await scopePairs("{--\n    A body.\n-}\nlet x = 1");
     expect(newlineFirst).toContainEqual(["    A body.", "comment.block.documentation.hexagon"]);
     expect(newlineFirst).toContainEqual(["let", "storage.type.hexagon"]);
   });
 
   it("keeps spec/doc-comments.md §2.2's carve-outs ordinary", async () => {
-    // `(**)` is the empty block comment, and `(***`, `(****…` are banners and rulers:
-    // the predicate excludes `)` and `*` so neither spelling ever becomes documentation.
-    for (const opener of ["(**)", "(***)", "(*** x ***)", "(**********)", "(*** doc-like *)"]) {
+    // `{--}` is the empty block comment, and `{---`, `{----…` are banners and rulers:
+    // the predicate excludes `-` and `}` so neither spelling ever becomes documentation.
+    for (const opener of ["{--}", "{---}", "{--- x ---}", "{----------}", "{--- doc-like -}"]) {
       const pairs = await scopePairs(`${opener}\nlet x = 1`);
       expect(pairs.some(([, name]) => name.includes(".documentation.")), opener).toBe(false);
       expect(pairs.some(([, name]) => name.startsWith("invalid.")), opener).toBe(false);
@@ -1474,47 +1478,105 @@ describe("comments (spec/comments.md)", () => {
       expect(pairs, opener).toContainEqual(["let", "storage.type.hexagon"]);
     }
 
-    // No inner-doc spelling exists or is reserved (§9.1), and a doc opener nested inside
-    // an ordinary comment is body text — the block rules do not include #comments, and
-    // an edit that made them would light up the inside of every commented-out region.
-    expect(await scope("(*! not special *)", "! not special ")).toBe("comment.block.hexagon");
-    expect(await scope("(* a (** b *) *)", "* b ")).toBe("comment.block.hexagon");
+    // `{-|` is Haskell's documentation opener and not Hexagon's (§10): an ordinary
+    // comment whose text begins with `|`. A doc opener nested inside an ordinary comment
+    // is body text — the block rules do not include #comments, and an edit that made
+    // them would light up the inside of every commented-out region.
+    expect(await scope("{-| not special -}", "| not special ")).toBe("comment.block.hexagon");
+    expect(await scope("{- a {-- b -} -}", "- b ")).toBe("comment.block.hexagon");
   });
 
-  it("gives `///` no status of its own (spec/doc-comments.md §2.3)", async () => {
-    // The line-doc reservation was revoked unspent, so the grammar does not count
-    // slashes: `///` is a `//` comment whose text begins with `/`, and so is `////`.
-    for (const source of ["/// not documentation", "//// not documentation"]) {
+  it("gives a run of dashes no status of its own (spec/doc-comments.md §2.3)", async () => {
+    // There is no line doc form, so the grammar does not count dashes: `---` is a `--`
+    // comment whose text begins with `-`, and a `--------` banner is one comment.
+    for (const source of ["--- not documentation", "-------- banner --------"]) {
       const pairs = await scopePairs(`${source}\nlet x = 1`);
       expect(pairs.some(([, name]) => name.includes(".documentation.")), source).toBe(false);
-      expect(pairs, source).toContainEqual(["//", "punctuation.definition.comment.hexagon"]);
+      expect(pairs, source).toContainEqual(["--", "punctuation.definition.comment.hexagon"]);
       expect(pairs, source).toContainEqual(["let", "storage.type.hexagon"]);
     }
-    expect(await scope("/// not documentation", "/ not documentation")).toBe(
-      "comment.line.double-slash.hexagon",
+    expect(await scope("--- not documentation", "- not documentation")).toBe(
+      "comment.line.double-dash.hexagon",
     );
   });
 
+  it("begins a line comment at the dashes, whatever stands beside them (§2)", async () => {
+    // Two minus signs written together are a comment, and the rest of the line with them.
+    for (const [source, text] of <[string, string][]>[
+      ["let y = x --1", "1"],
+      ["let y = x-- 1", " 1"],
+      ["let y = --x", "x"],
+      ["let y = f(--1)", "1)"],
+    ]) {
+      expect(await scope(source, text), source).toBe("comment.line.double-dash.hexagon");
+    }
+    // `-->` and `--}` are comments too: the arrow and the stray closer never see the dashes.
+    expect(await scope("let y = x --> z", "> z")).toBe("comment.line.double-dash.hexagon");
+    const closer = await scopePairs("let y = x --}");
+    expect(closer.some(([, name]) => name.startsWith("invalid.")), "--}").toBe(false);
+    // Written apart, they are two minus signs.
+    const apart = await scopePairs("let y = x - -1");
+    expect(apart.filter(([text]) => text === "-")).toHaveLength(2);
+    expect(apart.some(([, name]) => name.startsWith("comment."))).toBe(false);
+  });
+
   it("nests block comments and resumes code after the outer close", async () => {
-    const pairs = await scopePairs("(* outer (* inner *) still outer *)\nlet x = 1");
-    for (const text of [" outer ", "(*", " inner ", "*)", " still outer "]) {
+    const pairs = await scopePairs("{- outer {- inner -} still outer -}\nlet x = 1");
+    for (const text of [" outer ", "{-", " inner ", "-}", " still outer "]) {
       expect(pairs).toContainEqual([text, "comment.block.hexagon"]);
     }
     expect(pairs).toContainEqual(["let", "storage.type.hexagon"]);
   });
 
-  it("treats `//` inside a block comment and `(*` inside a line comment as text", async () => {
-    expect(await scope("(* a // b *)", " a // b ")).toBe("comment.block.hexagon");
-    expect(await scope("// a (* b", " a (* b")).toBe("comment.line.double-slash.hexagon");
+  it("treats `--` inside a block comment and `{-` inside a line comment as text", async () => {
+    // §3: inside a block comment only `{-` and `-}` count, so `{- a -- b -}` ends at its `-}`.
+    const inside = await scopePairs("{- a -- b -} let z = 1");
+    expect(inside).toContainEqual([" a -- b ", "comment.block.hexagon"]);
+    expect(inside).toContainEqual(["z", "variable.other.definition.hexagon"]);
+    expect(await scope("-- a {- b", " a {- b")).toBe("comment.line.double-dash.hexagon");
   });
 
-  it("rejects `*)` at depth zero", async () => {
-    expect(await scope("let x = 1\n*)", "*)")).toBe(
+  it("reads `{` followed by `-` as a comment, ahead of the record brace (§3)", async () => {
+    // `let r = {-1}` is an unterminated comment, not a record: no record begins with `-`.
+    expect(await scope("let r = {-1}", "1}")).toBe("comment.block.hexagon");
+    // `{-}` is unterminated too: the `-` of the opener cannot also begin the closer.
+    const unterminated = await scopePairs("{-}\nlet x = 1");
+    expect(unterminated).toContainEqual(["let x = 1", "comment.block.hexagon"]);
+    // In every brace context the grammar has: a type expression and an interpolation
+    // hole, whose #brace-group is tried ahead of $self.
+    expect(await scope("let p: {- note -} Int = 1", " note ")).toBe("comment.block.hexagon");
+    expect(await scope("let p: {a: Int, {- note -} b: Int} = q", " note ")).toBe(
+      "comment.block.hexagon",
+    );
+    expect(await scope('let s = "${ {- note -} x }"', " note ")).toBe("comment.block.hexagon");
+    // With a space between, it is a brace and a minus (Lexer & Layout §4).
+    expect(await scope("let r = { -1}", "{")).toBe("punctuation.section.braces.begin.hexagon");
+  });
+
+  it("keeps the `{` of `${` the string's, so `\"${-x}\"` opens no comment", async () => {
+    const pairs = await scopePairs('let t = "${-x}"\nlet after = 1');
+    expect(pairs).toContainEqual(["${", "punctuation.section.interpolation.begin.hexagon"]);
+    expect(pairs).toContainEqual(["x", "variable.other.hexagon"]);
+    expect(pairs.some(([, name]) => name.startsWith("comment."))).toBe(false);
+    expect(pairs).toContainEqual(["let", "storage.type.hexagon"]);
+  });
+
+  it("rejects `-}` at depth zero", async () => {
+    expect(await scope("let x = 1\n-}", "-}")).toBe(
       "invalid.illegal.unmatched-comment-close.hexagon",
     );
   });
 
   it("redirects the JavaScript spellings (§3.1)", async () => {
+    // `//` and every longer run of slashes, with the rest of the line, as the compiler
+    // takes it for recovery.
+    for (const source of ["let a = 1 // note", "/// note", "//// note"]) {
+      const pairs = await scopePairs(`${source}\nlet x = 1`);
+      expect(pairs, source).toContainEqual([" note", "invalid.illegal.javascript-comment.hexagon"]);
+      expect(pairs.some(([, name]) => name.startsWith("comment.")), source).toBe(false);
+      expect(pairs, source).toContainEqual(["let", "storage.type.hexagon"]);
+    }
+
     // Painted as one region, mirroring the compiler's scan-to-`*/` recovery, so the
     // body of a pasted JS comment does not also light up as code.
     const pasted = await scopePairs("/* JS habit */\nlet x = 1");
@@ -1553,63 +1615,93 @@ describe("comments (spec/comments.md)", () => {
     );
   });
 
-  it("does not lex comments inside strings", async () => {
-    expect(await scope('let s = "// not a comment"', "// not a comment")).toBe(
-      "string.quoted.double.hexagon",
+  it("redirects the OCaml spellings (§3.1)", async () => {
+    // One region to the matching `*)`, nesting as OCaml does and as the compiler's
+    // recovery scans, so a pasted OCaml comment is one error and code resumes after it.
+    const pasted = await scopePairs("(* outer (* inner *) still outer *)\nlet x = 1");
+    for (const text of ["(*", " outer ", " inner ", " still outer ", "*)"]) {
+      expect(pasted, text).toContainEqual([text, "invalid.illegal.ocaml-comment.hexagon"]);
+    }
+    expect(pasted.some(([, name]) => name.startsWith("comment."))).toBe(false);
+    expect(pasted).toContainEqual(["let", "storage.type.hexagon"]);
+
+    // The documentation opener is the same region.
+    expect(await scope("(** Doubles. *)", "* Doubles. ")).toBe(
+      "invalid.illegal.ocaml-comment.hexagon",
     );
-    expect(await scope('let s = "(* not a comment *)"', "(* not a comment *)")).toBe(
-      "string.quoted.double.hexagon",
+    // A stray closer.
+    expect(await scope("let x = 1\n*)", "*)")).toBe("invalid.illegal.ocaml-comment.hexagon");
+    // `**)` is `**` then `)`: maximal munch, never comment machinery.
+    const power = await scopePairs("let b = x **) 2");
+    expect(power).toContainEqual(["**", "keyword.operator.arithmetic.hexagon"]);
+    expect(power.some(([, name]) => name.startsWith("invalid."))).toBe(false);
+
+    // A half-typed `(*` is contained by the bail-out guard, as `/*` is — at depth one
+    // and nested, since only the innermost open rule's `end` is ever tried.
+    for (const source of ["(* still typing\nlet after = 1", "(* a (* b\nlet after = 1"]) {
+      expect(await scopePairs(source), source).toContainEqual(["let", "storage.type.hexagon"]);
+    }
+    // A tab inside the body is comment text here too.
+    const tabbed = await scopePairs("(* one\n\ttwo *)\nlet y = 2");
+    expect(tabbed).toContainEqual(["\ttwo ", "invalid.illegal.ocaml-comment.hexagon"]);
+    expect(tabbed.some(([, name]) => name === "invalid.illegal.tab-indentation.hexagon")).toBe(
+      false,
     );
   });
 
+  it("does not lex comments inside strings", async () => {
+    for (const text of ["-- not a comment", "{- not a comment -}", "// not a comment"]) {
+      expect(await scope(`let s = "${text}"`, text), text).toBe("string.quoted.double.hexagon");
+    }
+  });
+
   it("keeps a comment opener out of the type-context bracket rules", async () => {
-    // Without `(?!\*)` on those `begin`s, #type-declaration-parameters and the
-    // `derives` rules claim the `(` of a `(*` opener before #comments is reached.
     for (const source of [
-      "record Pair (* note *) = {a: Int}",
-      "record Pair(a) derives (* note *) Eq = {a: a}",
-      "let x: (* note *) Int = 1",
-      "fun f<a: (* note *) Ord>(v: a) = v",
+      "record Pair {- note -} = {a: Int}",
+      "record Pair(a) derives {- note -} Eq = {a: a}",
+      "let x: {- note -} Int = 1",
+      "fun f<a: {- note -} Ord>(v: a) = v",
     ]) {
       expect(await scope(source, " note "), source).toBe("comment.block.hexagon");
     }
 
-    // #function-call reads the `(` through a lookahead, so it needs the guard too or
-    // a name followed by a comment paints as a call.
-    expect(await scope("let y = compute (* note *) (x)", "compute")).toBe(
+    // #function-call reads the `(` through a lookahead, so a comment between the name
+    // and the bracket keeps it from painting as a call.
+    expect(await scope("let y = compute {- note -} (x)", "compute")).toBe(
       "variable.other.hexagon",
     );
-    // Its second alternative, the type-argument form, reads a `(` of its own.
-    expect(await scope("let y = isEmpty<a> (* note *) (v)", "isEmpty")).toBe(
+    expect(await scope("let y = isEmpty<a> {- note -} (v)", "isEmpty")).toBe(
       "variable.other.hexagon",
     );
   });
 
   it("keeps a comment inside a bracket group from closing it", async () => {
-    // The other half of the guard: a group's own patterns are the only ones tried
-    // inside it, so a `(*` that gets past the `begin` still needs #comments in the
-    // body — otherwise `*)` ends the group at its `)` and the rest of the list
-    // loses the colour the group exists to give.
-    const parameters = await scopePairs("record Pair(\n    (* note *)\n    a\n) = {a: a}");
+    // A group's own patterns are the only ones tried inside it, so each body needs
+    // #comments — otherwise a `{-` comment's body paints as code inside the group.
+    const parameters = await scopePairs("record Pair(\n    {- note -}\n    a\n) = {a: a}");
     expect(parameters).toContainEqual([" note ", "comment.block.hexagon"]);
     expect(parameters).toContainEqual(["a", "entity.name.type.parameter.hexagon"]);
 
-    const derived = await scopePairs("record P(a) derives (\n    (* note *)\n    Eq\n) = {a: a}");
-    expect(derived).toContainEqual([" note ", "comment.block.hexagon"]);
+    const derived = await scopePairs("record P(a) derives (\n    -- note\n    Eq\n) = {a: a}");
+    expect(derived).toContainEqual([" note", "comment.line.double-dash.hexagon"]);
     expect(derived).toContainEqual(["Eq", "entity.name.type.constraint.hexagon"]);
 
-    const bound = await scopePairs("fun f<a: (Ord, (* note *) Show)>(v: a) = v");
+    const bound = await scopePairs("fun f<a: (Ord, {- note -} Show)>(v: a) = v");
     expect(bound).toContainEqual([" note ", "comment.block.hexagon"]);
     expect(bound).toContainEqual(["Show", "entity.name.type.constraint.hexagon"]);
 
     // The single-line `derives` clause is the common shape, and it goes through the
     // bounded rule rather than the hanging one.
-    const inline = await scopePairs("record P(a) derives (Eq, (* note *) Show) = {a: a}");
+    const inline = await scopePairs("record P(a) derives (Eq, {- note -} Show) = {a: a}");
     expect(inline).toContainEqual([" note ", "comment.block.hexagon"]);
     expect(inline).toContainEqual(["Show", "entity.name.type.constraint.hexagon"]);
 
+    // A variance-marked parameter list: the `-` sigil must not take the comment's dashes.
+    const variance = await scopePairs("opaque record Sink(-a, -- note\n    +b) = {a: a}");
+    expect(variance).toContainEqual([" note", "comment.line.double-dash.hexagon"]);
+
     // A binder list is a context of its own, with no group between it and the comment.
-    expect(await scope("fun f<a (* note *)>(v: a) = v", " note ")).toBe(
+    expect(await scope("fun f<a {- note -}>(v: a) = v", " note ")).toBe(
       "comment.block.hexagon",
     );
   });
@@ -1644,8 +1736,9 @@ describe("operators and forbidden runs (spec/lexer.md §8)", () => {
     }
   });
 
-  it("reads `x --1` as two minus tokens, never a comment", async () => {
-    const pairs = await scopePairs("let subtract = x --1");
+  it("reads `x --1` as a comment, and `x - -1` as two minus tokens (spec/comments.md §2)", async () => {
+    expect(await scope("let subtract = x --1", "1")).toBe("comment.line.double-dash.hexagon");
+    const pairs = await scopePairs("let subtract = x - -1");
     expect(pairs.filter(([text]) => text === "-")).toHaveLength(2);
     expect(pairs).toContainEqual(["1", "constant.numeric.integer.hexagon"]);
   });
@@ -1815,10 +1908,10 @@ describe("characters with no token (spec/lexer.md §2.2, §3.2, §8.3, §10)", (
     expect(await scope(`let s = "a${bidi}b"`, bidi)).toBe(
       "invalid.illegal.bidirectional-control.hexagon",
     );
-    expect(await scope(`// a${bidi}b`, bidi)).toBe(
+    expect(await scope(`-- a${bidi}b`, bidi)).toBe(
       "invalid.illegal.bidirectional-control.hexagon",
     );
-    expect(await scope(`(* a${bidi}b *)`, bidi)).toBe(
+    expect(await scope(`{- a${bidi}b -}`, bidi)).toBe(
       "invalid.illegal.bidirectional-control.hexagon",
     );
   });
@@ -1860,12 +1953,11 @@ describe("regressions found in review", () => {
     }
   });
 
-  it("treats `(*** x ***)` and `(**)` as ordinary block comments", async () => {
-    // `(*** x ***)` painted as documentation under the reservation-era predicate, which
-    // asked only for a non-`)` character; spec/doc-comments.md §2.2 excludes `*` as well
-    // (issue #194), so a banner is a comment again. `(**)` was ordinary either way.
-    expect(await scope("(*** x ***)", "** x **")).toBe("comment.block.hexagon");
-    const pairs = await scopePairs("(**)\nlet x = 1");
+  it("treats `{--- x ---}` and `{--}` as ordinary block comments", async () => {
+    // spec/doc-comments.md §2.2 excludes `-` and `}` after `{--`, so a banner and the
+    // empty comment are never documentation.
+    expect(await scope("{--- x ---}", "-- x --")).toBe("comment.block.hexagon");
+    const pairs = await scopePairs("{--}\nlet x = 1");
     expect(pairs).toContainEqual(["let", "storage.type.hexagon"]);
     expect(pairs.some(([, s]) => s.startsWith("invalid."))).toBe(false);
   });

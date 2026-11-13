@@ -60,7 +60,7 @@
           "scope": [
             "comment.block.documentation.hexagon",
             "comment.block.hexagon",
-            "comment.line.double-slash.hexagon",
+            "comment.line.double-dash.hexagon",
             "punctuation.definition.comment.hexagon",
             "punctuation.definition.comment.begin.hexagon",
             "punctuation.definition.comment.end.hexagon"
@@ -154,6 +154,7 @@
             "invalid.illegal.reserved-interpolation.hexagon",
             "invalid.illegal.unmatched-comment-close.hexagon",
             "invalid.illegal.javascript-comment.hexagon",
+            "invalid.illegal.ocaml-comment.hexagon",
             "invalid.illegal.operator.hexagon",
             "invalid.illegal.character.hexagon",
             "invalid.illegal.whitespace.hexagon",
@@ -200,7 +201,7 @@
           "scope": [
             "comment.block.documentation.hexagon",
             "comment.block.hexagon",
-            "comment.line.double-slash.hexagon",
+            "comment.line.double-dash.hexagon",
             "punctuation.definition.comment.hexagon",
             "punctuation.definition.comment.begin.hexagon",
             "punctuation.definition.comment.end.hexagon"
@@ -294,6 +295,7 @@
             "invalid.illegal.reserved-interpolation.hexagon",
             "invalid.illegal.unmatched-comment-close.hexagon",
             "invalid.illegal.javascript-comment.hexagon",
+            "invalid.illegal.ocaml-comment.hexagon",
             "invalid.illegal.operator.hexagon",
             "invalid.illegal.character.hexagon",
             "invalid.illegal.whitespace.hexagon",

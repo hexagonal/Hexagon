@@ -173,12 +173,12 @@ describe("converting one action", () => {
     // Beside a snippet, an edit without one travels as a plain edit.
     const mixed = convert({ literals: true, disabled: false, snippets: true } as never, {
       ...arms,
-      edits: [...arms.edits, { path: "/main.hex", span: below, replacement: "(* *)" }],
+      edits: [...arms.edits, { path: "/main.hex", span: below, replacement: "{- -}" }],
     });
     expect(mixed?.edit?.documentChanges?.[0]).toMatchObject({
       edits: [
         { snippet: { value: "    B => ${1:Debug.todo(\"B\")}\n" } },
-        { range: { start: { line: 1, character: 0 }, end: { line: 1, character: 0 } }, newText: "(* *)" },
+        { range: { start: { line: 1, character: 0 }, end: { line: 1, character: 0 } }, newText: "{- -}" },
       ],
     });
   });

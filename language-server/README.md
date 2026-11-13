@@ -260,10 +260,10 @@ costs a glance — where guessing from a broken parse would drop the right answe
 It says nothing inside a comment, which cannot hold code, and does answer inside
 a string, which can hold an interpolation where names belong. Where a comment
 *ends* turns on whether it was closed rather than on whether it is a block: a
-closed block's span runs one past its `*)`, so a caret there is already outside
+closed block's span runs one past its `-}`, so a caret there is already outside
 it, while an unterminated one runs to the end of the file and that last offset is
 exactly where the caret sits as it is being typed. Closure is counted, since
-block comments nest and a text ending in `*)` is not proof of it.
+block comments nest and a text ending in `-}` is not proof of it.
 
 ## Signature help
 
@@ -464,9 +464,10 @@ rare and deliberate. A refactoring could apply on nearly every line, which is wh
 those are offered only when the dev asks (below).
 
 Two sources feed the same request. A compiler diagnostic may carry its own
-`fixes`, written at the point the problem was found — the lexer's redirect from
-a JavaScript-spelled block comment to `(* … *)` is one, and it has existed
-unreachable since #171, because nothing but a code action can offer it. Those
+`fixes`, written at the point the problem was found — the lexer's redirects from
+the JavaScript and OCaml comment spellings to `--` and `{- … -}` are some (#1538;
+the block-comment one has existed since #171), and nothing but a code action can
+offer them. Those
 pass through unchanged. Everything else is computed on demand, because it needs
 the whole project rather than the pass that found the fault.
 
@@ -723,7 +724,7 @@ layout. It asks no type, so it is no second solver.
 
 **A rewrite that would lose something is refused.** The rewrite keeps the text
 of each argument, callee, mark and arm, so a comment between them has nowhere
-to go. A `//` comment it would keep inside the new form would run over what the
+to go. A `--` comment it would keep inside the new form would run over what the
 rewrite writes after it on its line. A mark after a stage's own argument list
 (`x |> g(2)!`) marks nothing today (#1491) and would be dropped. A refused
 rewrite shows greyed out with its reason in the `Refactor…` menu; an editor's
@@ -1111,7 +1112,7 @@ less than it looks.
   constraint's — but a reader who documented both and expected the constraint's
   text at the head will see the other one.
 - **A pattern that binds nothing documents nothing anyone can read.**
-  `(** … *) let (_, _) = pair` attaches without error, per §5, and has no name to
+  `{-- … -} let (_, _) = pair` attaches without error, per §5, and has no name to
   file the content under. It is the one documentable position where hover is
   silent by construction rather than by a missing identity.
 - **Completion does not know what kind of thing belongs at the cursor.** Value
@@ -1131,9 +1132,9 @@ less than it looks.
 - **Completion answers inside a string literal.** A string can hold an
   interpolation, where names genuinely belong, and telling the two apart needs
   the token stream rather than the text. Comments are suppressed, since a comment
-  cannot hold code — except a JavaScript-spelled `/* … */`, which the lexer
-  redirects rather than records, so nothing marks it as a comment to suppress
-  inside. While a `(*` is still unclosed its comment runs to the end of the file,
+  cannot hold code — except the other languages' spellings, `//`, `/* … */` and
+  `(* … *)`, which the lexer redirects rather than records, so nothing marks them
+  as comments to suppress inside. While a `{-` is still unclosed its comment runs to the end of the file,
   and completion is silent for the rest of it; that is the same shape as the
   highlighting bail-out in #162 and #174.
 - **A module alias cannot be renamed.** `import module H` binds `H` in a namespace
