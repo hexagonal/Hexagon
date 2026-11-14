@@ -261,15 +261,34 @@ export type DeclarationFileView =
 export const EXPORTS_NOTHING_NOTE = "This module exports nothing, so its `.d.ts` is empty.";
 
 /**
- * The `.d.ts` pane's content: the module's shipped declaration file, unless the
- * module exports nothing. That file is then `export {};` alone, and the pane
- * says why in a note, which is the Playground's words and not the file's.
+ * The `.d.ts` pane's note for a module that exports, but whose exports publish
+ * no TypeScript declaration — a constraint, or an export of Zero-Cost
+ * Fundamental Exports §3.4 — so its file is the bare module marker.
+ */
+export const EXPORTS_UNDECLARED_NOTE =
+  "This module's exports have no TypeScript declarations, so its `.d.ts` is empty.";
+
+/**
+ * The whole `.d.ts` the emitter writes when nothing else made the file a
+ * module. The compiler exports no constant or flag for it, so this is the
+ * emitter's text, compared exactly.
+ */
+const BARE_DECLARATION_FILE = "export {};\n";
+
+/**
+ * The `.d.ts` pane's content: the module's shipped declaration file, unless
+ * that file is empty in effect. A module that exports nothing ships
+ * `export {};` alone; so does a module whose exports publish no declaration.
+ * Either way the pane says why in a note, which is the Playground's words and
+ * not the file's. A file that declares anything is always shown.
  */
 export function declarationFileView(
   declarationFile: string,
   exportsNothing: boolean,
 ): DeclarationFileView {
-  return exportsNothing
-    ? { kind: "note", text: EXPORTS_NOTHING_NOTE }
-    : { kind: "file", text: declarationFile };
+  if (exportsNothing) return { kind: "note", text: EXPORTS_NOTHING_NOTE };
+  if (declarationFile === BARE_DECLARATION_FILE) {
+    return { kind: "note", text: EXPORTS_UNDECLARED_NOTE };
+  }
+  return { kind: "file", text: declarationFile };
 }
