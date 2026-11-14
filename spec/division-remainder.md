@@ -127,7 +127,7 @@ Docs (not compiler) obligations: `rem`'s doc line says "this is JS's `%`"; `mod`
 - **Omitting `Float.mod`/`Float.rem` entirely** (Haskell/Lean position): angle-wrapping is too common to leave to a hand-rolled two-liner that half the audience will write with the negative-result bug; and `Float.rem` costs nothing (it *is* the JS operator).
 - **Reading a name, or folding arithmetic, to find a zero divisor** (#1545): §12.1. Go and C# read a named constant, but each has a `const` declaration that defines one, and Hexagon has none; reading a `let` would also part from Regex §8, where binding a value with `let` is how a program meets a fault on purpose. A fold needs a limit on how far it reaches, and every such limit is an accident of the checker. A `const` declaration, if the language gains one, would revisit this rule and Regex §8 together.
 - **A warning for a written zero divisor** (#1545), as Rust's lint and Java's and Kotlin's warnings are: §12.4. Hexagon has no warning tier (Declarations Preamble §1.1), and a division that faults every time it is reached is either refused or left to fault when it runs.
-- **A door through which a function declares a checked seat** (#1545): §12.2. It would have no customer whose rule the compiler does not already know, as Regex §11 found for running library code while compiling.
+- **A door through which a function declares itself a checked division** (#1545): §12.2. It would have no customer whose rule the compiler does not already know, as Regex §11 found for running library code while compiling.
 - **Checking a zero divisor at `Float`** (#1545): §12.2. `Float` answers `Infinity` and `NaN` there (§5.1), and the entry above keeps that stance for `Float.mod` and `Float.rem`; there is no fault to report early.
 - **Checking `/` only where the text decides that it runs at `Rat`** (#1545; Method Syntax §3.1): §12.3. Some plain `Rat` divisions by a written zero would compile and fault when they run, and a programmer would have to learn which; the check reads a solved type only to know that the division is exact, and chooses nothing by it.
 
@@ -182,7 +182,7 @@ g(1, 0)                   -- throws DivideByZeroFault: a function value is never
 let f = x => x / 0
 f(1.0)                    -- Infinity: a division at a type variable is never checked
 f(1 // 2)                 -- throws DivideByZeroFault, for the same reason
-Rat.reciprocal(0)         -- throws DivideByZeroFault: not a checked seat
+Rat.reciprocal(0)         -- throws DivideByZeroFault: not a checked division
 1.0 / 0.0                 -- Infinity: `Float` is not checked
 ```
 
@@ -221,7 +221,7 @@ A **written zero** is a numeric literal whose value is zero, in any spelling Lex
 
 Nothing else is a written zero. A name is never read: after `let zero = 0`, `1 // zero` compiles and faults when it runs, and that is how a program, a test among them, meets the fault on purpose, as Regex §8 has it for a pattern. Nothing is computed: `1 // (2 - 2)` and `r / (0 // 5)` fault when they run, though their divisors are zero every time. A fraction written with `//` is built, not a literal (Operators §6.4).
 
-### 12.2 The checked seats
+### 12.2 The checked divisions
 
 The check reads the divisor of every exact division the language owns, and nothing else. These are the **checked divisions**, and the list is closed:
 
@@ -239,7 +239,7 @@ These are never checked:
 
 - **`Float`'s division and remainders.** A zero divisor at `Float` is an IEEE answer, not a fault (§5.1): `1.0 / 0.0` and `let r: Float = 1 / 0` answer `Infinity`, and `Float.mod(1.0, 0.0)` and `Float.rem(1.0, 0.0)` answer `NaN`.
 - **`Rat.reciprocal` and `Rat.pow`.** Their zero bottom comes from an operand, not from a divisor the text writes, so `Rat.reciprocal(0)`, `Rat.pow(0, -1)` and `0 ** -1` at `Rat` fault when they run (`rat.md` §4).
-- **Every other function**, in the standard library or in a program, however it divides. No declaration makes a seat checked. The list changes only by an amendment of this section, as when a new exact numeric type brings a division of its own.
+- **Every other function**, in the standard library or in a program, however it divides. No declaration makes a division checked. The list changes only by an amendment of this section, as when a new exact numeric type brings a division of its own.
 
 ### 12.3 The type a division runs at
 
@@ -249,7 +249,7 @@ A division at a type variable is never checked, whatever types its callers bring
 
 ### 12.4 Where it reaches
 
-The report is an error, since Hexagon has no warning tier (Declarations Preamble §1.1). It is made at every checked seat wherever its text stands: in a function nobody calls, in a branch no run takes, and inside a `try` whose `catch` would take the fault. A division by a written zero is wrong text wherever it stands, as a bad pattern is (Regex §8). The dividend is not read: `0 // 0` and `x / 0` are refused as `1 // 0` is. The installed compiler, the language server and the playground refuse the same divisions, since the check is the checker's own.
+The report is an error, since Hexagon has no warning tier (Declarations Preamble §1.1). It is made at every checked division wherever its text stands: in a function nobody calls, in a branch no run takes, and inside a `try` whose `catch` would take the fault. A division by a written zero is wrong text wherever it stands, as a bad pattern is (Regex §8). The dividend is not read: `0 // 0` and `x / 0` are refused as `1 // 0` is. The installed compiler, the language server and the playground refuse the same divisions, since the check is the checker's own.
 
 The report takes the fault's place only for a written zero at a checked division. `DivideByZeroFault` does not change: who throws it, the message it carries, and the guards that throw it stay as §3, §4, §7, `dec.md` §6 and `rat.md` §3 and §4 have them, for every zero divisor this section does not refuse.
 

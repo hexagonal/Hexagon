@@ -552,8 +552,8 @@ classification is unchanged.
   construction, both adjustment/division variants, and both Rat conversions.
 - Repeating division rounds correctly for every combination of operand signs;
   every zero-divisor representation that is not written as a literal throws
-  the existing `DivideByZeroFault`, and one written as a literal (`0d`, `0.00d`) is
-  refused when the program is compiled (Division & Remainder §12). No `/` or
+  the existing `DivideByZeroFault`, and one written as a literal (`0d`, `0.00d`) at a
+  call of `divide` or `divideEven` is refused when the program is compiled (Division & Remainder §12). No `/` or
   `Frac<Dec>` is available.
 - Detect double rounding: rounding `1.249` directly to one place yields `1.2`,
   not the `1.3` obtained by first rounding to two places.
