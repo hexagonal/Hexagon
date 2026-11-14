@@ -50,7 +50,13 @@ import { defineConfig } from "vitest/config";
 const ISOLATED = ["src/standard-library-cache.test.ts"];
 const SHARES = 8;
 
-const shared = globSync("src/**/*.test.ts", { cwd: import.meta.dirname })
+// Vitest's own default pattern, so a test file is found wherever and however a
+// default configuration would have found it. The list is read once, when the
+// configuration loads: watch mode needs a restart to see a new file.
+const shared = globSync("**/*.{test,spec}.?(c|m)[jt]s?(x)", {
+  cwd: import.meta.dirname,
+  exclude: (path) => path === "node_modules" || path === "dist" || path.startsWith("."),
+})
   .map((path) => path.replaceAll("\\", "/"))
   .filter((path) => !ISOLATED.includes(path))
   .sort();
