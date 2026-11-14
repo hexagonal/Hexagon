@@ -34,7 +34,7 @@ export interface PreludeModule {
  *
  * ## The constraint declarations come as early as their signatures allow (#335)
  *
- * A constraint member is an export of its declaring module, so all **fourteen**
+ * A constraint member is an export of its declaring module, so all **fifteen**
  * declarations the compiler holds are `.hex` files here, and their seats are
  * what make `Show.show`, `Eq.equals`, `Ord.compare`, `Num.add`, `Integral.div`
  * and `Iterable.toSeq` spellable everywhere. (Their seats no longer put those
@@ -152,6 +152,15 @@ export interface PreludeModule {
  * `Vector.hex` needs a great deal: `first`/`last`/`get` answer with `Option`,
  * `toSeq`/`fromSeq` name `Seq`, and its `honor Iterable<Vector(a)>` needs
  * `Iterable.hex` (#1141).
+ *
+ * `FromDec.hex` and `Rat.hex` follow `Dec.hex` (#1542). `FromDec`'s member
+ * header names `Dec`, so the declaration cannot sit with the cluster at the
+ * front, and `Dec.hex` cannot name it: `honor FromDec<Dec>` therefore lives
+ * in `FromDec.hex`, the constraint's home (Modules §7.2). `Rat.hex` honors
+ * `FromDec` and owns the conversions between the two types, being seated after
+ * `Dec` (Modules §5.3), and `//` builds and takes apart its fraction by
+ * identity (Operators §6.4), which is why no prelude member before it may
+ * write one.
  *
  * `Map.hex` needs the most of anything before it — `Hash` for its keyed trio,
  * `Option` for `get`, `Seq` for `entries` and the two projections over it,
@@ -367,10 +376,11 @@ export const PRELUDE_DATA_SEATS: readonly {
  *
  * The standard library is `Hex` **in full**. A module here puts nothing in bare
  * scope — #742's bare set is closed, and this list may not grow it — and is
- * reached the way any other package's module is: `import Rat` where the project
- * declares no `Rat` of its own, `import Hex.Rat` always, and occluded silently
- * by a project's own `module Rat` (Packages §3.2, Modules §2.3). Its emitted
- * file, `Hex/Rat.js`, is written only where the program reaches it (§6).
+ * reached the way any other package's module is: `import Regex` where the
+ * project declares no `Regex` of its own, `import Hex.Regex` always, and
+ * occluded silently by a project's own `module Regex` (Packages §3.2, Modules
+ * §2.3). Its emitted file, `Hex/Regex.js`, is written only where the program
+ * reaches it (§6). (`Rat` was the example until #1542 seated it in the prelude.)
  *
  * Derived by subtraction rather than listed, so a new `stdlib/` file is a `Hex`
  * module the moment it lands: the two lists that *are* enumerated are the ones

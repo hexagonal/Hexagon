@@ -1935,8 +1935,9 @@ export function compileProject(
 
   // Emit an injected `Hex` module only when something emitted imports it, so a
   // project that never touches its nominals is unchanged by the standard
-  // library's existence — and a project that never writes `import Rat` writes no
-  // `Hex/Rat.js` (Packages §6).
+  // library's existence — and a project that never writes `import Regex` writes
+  // no `Hex/Regex.js` (Packages §6). A prelude member is the same: a program
+  // that writes no fraction and names no `Rat` writes no `Hex/Rat.js`.
   // Since §5.5 lets prelude modules import each other, this is reachability
   // rather than a single hop: a module imported *only* by another prelude module
   // must still be emitted, or the emitted JavaScript carries an import of a file
@@ -2384,7 +2385,7 @@ function seatOneUnitPerAddress(units: readonly Unit[]): readonly Unit[] {
  * Modules §5.1 rule 1's repair clause, answered from the program's own module
  * set (#829's Ruling A).
  *
- * A refusal of `Rat.create` has to say whether `import Rat` would work, and
+ * A refusal of `Regex.compile` has to say whether `import Regex` would work, and
  * nothing inside a pass can know: a module's `imports` hold what it *wrote*,
  * and this is a question about a line it did not. The resolution is §3's own,
  * run for a spelling rather than for an import head, so a report and an import

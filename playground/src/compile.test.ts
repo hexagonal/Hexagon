@@ -721,15 +721,18 @@ describe("compileSource", () => {
     expect(response.javascript).toContain(
       "const threeHalves = __Frac_Rat.divide(half, third);",
     );
-    expect(response.javascript).toContain("const half = Rat.__patt_rat.build(1n, 2n);");
-    expect(response.javascript).toContain("const third = Rat.__patt_rat.build(1n, 3n);");
+    // `top // bottom` emits the prelude `Rat`'s `create`, as a written call
+    // does, and a `//` pattern reads the top and bottom through its view
+    // (Operators §6.4, Pattern Matching §2.10).
+    expect(response.javascript).toContain("const half = create(1n, 2n);");
+    expect(response.javascript).toContain("const third = create(1n, 3n);");
     expect(response.javascript).toContain(
-      "__Eq_Rat.equals(Rat.__patt_rat.build(10n, 12n), Rat.__patt_rat.build(5n, 6n))",
+      "__Eq_Rat.equals(create(10n, 12n), create(5n, 6n))",
     );
-    expect(response.javascript).toContain("const fraction = Rat.__patt_rat.build(6n, 10n);");
-    expect(response.javascript).toContain("const __ratView = Rat.__patt_rat.view(fraction);");
-    expect(response.javascript).toContain("const top = __ratView[0];");
-    expect(response.javascript).toContain("const bottom = __ratView[1];");
+    expect(response.javascript).toContain("const fraction = create(6n, 10n);");
+    expect(response.javascript).toContain("const __fractionView = Rat.__patt_fraction.view(fraction);");
+    expect(response.javascript).toContain("const top = __fractionView[0];");
+    expect(response.javascript).toContain("const bottom = __fractionView[1];");
     expect(response.javascript).toContain("const describe = fraction => {");
     expect(response.javascript).not.toContain("opaque record Rat");
     expect(response.executionModules.map(({ path }) => path)).toContain(
@@ -738,8 +741,8 @@ describe("compileSource", () => {
     const ratModule = response.executionModules.find(({ path }) =>
       path === "/Hex/Rat.hex"
     );
-    expect(ratModule?.javascript).toContain("const __patt_rat = {");
-    expect(ratModule?.javascript).toContain("export { __patt_rat");
+    expect(ratModule?.javascript).toContain("const __patt_fraction = {");
+    expect(ratModule?.javascript).toContain("export { __patt_fraction");
     expect(ratModule?.javascript).toContain('bottom === 0n');
     expect(ratModule?.javascript).toContain('reducedBottom < 0n');
     // The brand is `Integral.hex`'s `exception` declaration now, reached by
@@ -788,7 +791,9 @@ describe("compileSource", () => {
     expect(printed).toContain("Does 10/12 = 5/6? True");
     expect(printed).toContain("top = 3");
     expect(printed).toContain("bottom = 5");
-    expect(printed).toContain("fraction: 3/5");
+    expect(printed).toContain("fraction: 3 over 5");
+    expect(printed).toContain("1.50d is 3/2, and a third of it is 1/2");
+    expect(printed).toContain("5/2 rounds to 3, and its floor is 2");
   });
 
   test("brands exact Rat division by zero through imported Frac evidence", async () => {
@@ -1035,70 +1040,76 @@ describe("compileSource", () => {
     expect(response.javascript).not.toContain("__Eq_Rat");
   });
 
-  test("refuses a buffer that names `Rat` and imports nothing, and offers the line", () => {
-    const source = `${MAIN}let third = Rat.create(1, 3)\n`;
+  test("refuses a buffer that names `Regex` and imports nothing, and offers the line", () => {
+    const source = `${MAIN}let pattern = Regex.compile("a")\n`;
     const response = compileSource(17, source);
 
     // The seat the equipment stood at (#831), answered by the language since
-    // #829's Ruling A. `Rat` is an ordinary module of the standard library, so
-    // a buffer that never imports it draws Modules §5.1 rule 1's report at the
-    // offset the name is written — the answer any `.hex` file gets, naming the
-    // one line that repairs it. The equipment used to write that line into the
-    // buffer unasked; the compiler names it and leaves the writing to the
+    // #829's Ruling A. `Regex` is an ordinary module of the standard library,
+    // so a buffer that never imports it draws Modules §5.1 rule 1's report at
+    // the offset the name is written — the answer any `.hex` file gets, naming
+    // the one line that repairs it. The equipment used to write that line into
+    // the buffer unasked; the compiler names it and leaves the writing to the
     // reader, or to the quick fix the editor offers over the same diagnostic.
+    // (`Rat` was the example until #1542 seated it in the prelude.)
     expect(response).toMatchObject({
       kind: "compile-failure",
       diagnostics: [{
         severity: "error",
-        message: "no module alias `Rat`; `import Rat`",
-        startOffset: source.indexOf("Rat"),
-        endOffset: source.indexOf("Rat") + "Rat".length,
+        message: "no module alias `Regex`; `import Regex`",
+        startOffset: source.indexOf("Regex"),
+        endOffset: source.indexOf("Regex") + "Regex".length,
       }],
     });
   });
 
-  test("the Playground's own quick fix writes `import Rat` into the buffer", () => {
+  test("a buffer naming the prelude's `Rat` needs no import", () => {
+    expect(compileSource(17, `${MAIN}let third = Rat.create(1, 3)\nDebug.log("\${third}")\n`))
+      .toMatchObject({ kind: "compile-success", diagnostics: [] });
+  });
+
+  test("the Playground's own quick fix writes `import Regex` into the buffer", () => {
     // The applied edit, through the tier the Playground actually calls: the
     // report is the compiler's and so is the repair, so the editor's lightbulb
     // needs nothing of the host's (Modules §5.1's compiler-tier obligation).
     const analysis = new PlaygroundAnalysis();
-    const source = `${MAIN}let third = Rat.create(1, 3)\n`;
+    const source = `${MAIN}let pattern = Regex.compile("a")\n`;
     const actions = analysis.codeActions(source, {
-      startOffset: source.indexOf("Rat"),
-      endOffset: source.indexOf("Rat") + "Rat".length,
+      startOffset: source.indexOf("Regex"),
+      endOffset: source.indexOf("Regex") + "Regex".length,
     });
-    const fix = actions.find(({ title }) => title === "Import `Rat`");
+    const fix = actions.find(({ title }) => title === "Import `Regex`");
     expect(fix?.edits).toEqual([{
       startOffset: MAIN.length,
       endOffset: MAIN.length,
-      replacement: "import Rat\n",
+      replacement: "import Regex\n",
     }]);
-    const repaired = source.slice(0, MAIN.length) + "import Rat\n" + source.slice(MAIN.length);
+    const repaired = source.slice(0, MAIN.length) + "import Regex\n" + source.slice(MAIN.length);
     expect(compileSource(18, repaired)).toMatchObject({
       kind: "compile-success",
       diagnostics: [],
     });
   });
 
-  test("compiles the ordinary `import Rat`, in every shape the grammar allows", () => {
+  test("compiles the ordinary `import Regex`, in every shape the grammar allows", () => {
     // A comment is trivia between an import's tokens, and the head may break
-    // across lines: all of these bind `Rat` exactly as the plain spelling does.
+    // across lines: all of these bind `Regex` exactly as the plain spelling does.
     const heads = [
-      "import Rat\n",
-      "import {- the exact one -} Rat\n",
-      "import\n    Rat\n",
+      "import Regex\n",
+      "import {- the library one -} Regex\n",
+      "import\n    Regex\n",
     ];
 
     for (const head of heads) {
       const response = compileSource(
         17,
-        `${MAIN}${head}\nlet third = Rat.create(1, 3)\nDebug.log("\${Rat.reciprocal(third)}")\n`,
+        `${MAIN}${head}\nlet quoted = Regex.escape("a.b")\nDebug.log(quoted)\n`,
       );
 
       expect(response).toMatchObject({ kind: "compile-success", diagnostics: [] });
       if (response.kind !== "compile-success") continue;
-      expect(response.javascript).toContain('import * as Rat from "./Hex/Rat.js";');
-      expect(response.javascript).toContain("Rat.reciprocal(third)");
+      expect(response.javascript).toContain('import * as Regex from "./Hex/Regex.js";');
+      expect(response.javascript).toContain("Regex.escape(");
     }
   });
 

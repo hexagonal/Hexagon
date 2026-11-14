@@ -4,7 +4,7 @@
  *
  * The standard library is the package `Hex` **in full** — the prelude members
  * in bare scope (Modules §5.5), the runtime modules the emitted program runs
- * on, and the rest reachable by `import Rat` / `import Hex.Rat` (Packages §2.4,
+ * on, and the rest reachable by `import Regex` / `import Hex.Regex` (Packages §2.4,
  * §3.2). All three are embedded here, because `compileProject` is
  * filesystem-free and each module's text has to be real TypeScript: the build
  * is plain `tsc`, with no bundler transform to inline it. Transcribing by hand
@@ -12,7 +12,7 @@
  * `Runtime/VectorTrie.hex`, so the embedding is generated and the conformance
  * drift guard checks the result.
  *
- * The **keys are declared module names**, not file names: `Rat`,
+ * The **keys are declared module names**, not file names: `Regex`,
  * `Runtime.VectorTrie`. A module's identity is the name its header declares
  * (Modules §1) and the directory under `stdlib/` is our filing convention
  * (§9.2), so the one place the two could disagree is checked here rather than
