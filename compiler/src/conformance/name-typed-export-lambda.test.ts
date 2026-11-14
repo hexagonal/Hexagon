@@ -127,11 +127,23 @@ describe("holes stay fenced in both places", () => {
     expect(reports("export let u: (Int) -> Int = (x): _ => x\n")).toEqual([["_", FENCE]]);
   });
 
-  test("a name type with a hole is not whole, so a bare lambda still owes its signature", () => {
-    expect(reports("export let u: (_) -> Int = (x) => x\n")).toEqual([
-      ["u", INCOMPLETE_U],
-      ["(_)", FENCE],
-    ]);
+  test("a hole in the name type is the fence's one report; the bare lambda owes nothing", () => {
+    // Replacing `_` is the whole repair, so the lambda's unwritten annotations
+    // are not reported beside it (Modules §4.1.1): one fact is one report.
+    expect(reports("export let u: (_) -> Int = (x) => x\n")).toEqual([["(_)", FENCE]]);
+    expect(reports("export let u: (Int) -> _ = (x) => x\n")).toEqual([["_", FENCE]]);
+  });
+
+  test("a bare `_` as the whole name type is the fence's one report", () => {
+    expect(reports("export let u: _ = (x) => x\n")).toEqual([["_", FENCE]]);
+  });
+
+  test("a hole in the name type over a fully annotated lambda is the same one report", () => {
+    expect(reports("export let u: (_) -> Int = (x: Int): Int => x\n")).toEqual([["(_)", FENCE]]);
+  });
+
+  test("with no name type at all, the bare lambda still owes its signature", () => {
+    expect(reports("export let u = (x) => x\n")).toEqual([["u", INCOMPLETE_U]]);
   });
 });
 

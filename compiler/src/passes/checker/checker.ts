@@ -44777,14 +44777,14 @@ class Checker {
     // on its name as a function writes it on its header (Modules §4.1.1).
     const form = lambda === undefined ? "value" : "function";
 
-    // *(#1402.)* A `let` whose name carries its whole type completes the
+    // *(#1402.)* A `let` whose name carries a type annotation writes its
     // signature there, and the lambda's own annotations are then optional
     // (Modules §4.1.1): the type an importer relies on is written either way,
-    // and the lambda is checked against it as a private binding's is. A name
-    // type holding a `_` is not whole — the fence refuses the hole, and the
-    // lambda still owes what it leaves unwritten.
-    const nameTyped = item.kind === "Let" && item.annotation !== undefined &&
-      typeAnnotationHoles(item.annotation).length === 0;
+    // and the lambda is checked against it as a private binding's is. A `_` in
+    // the name's type is reported by the hole fence (`#rejectTypeHoles`) alone,
+    // whose rewrite is the whole repair, so the lambda's unwritten annotations
+    // are never reported beside it: one fact is one report (Effects §3.4).
+    const nameTyped = item.kind === "Let" && item.annotation !== undefined;
     const signatureLambda = nameTyped ? undefined : lambda;
     const missingParameters = (signatureLambda?.parameters ?? [])
       .filter((parameter) => parameter.annotation === undefined)
