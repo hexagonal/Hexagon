@@ -1567,15 +1567,16 @@ describe("a term's spelling in pattern position (§2.5, §12)", BUDGET, () => {
   });
 
   test("an unbound qualifier is Modules §5.1 rule 1's report, before any of these", () => {
-    // §12's row: rule 1's report leads, carrying its repair where `import Rat`
+    // §12's row: rule 1's report leads, carrying its repair where `import Regex`
     // would resolve — the spelling names a real module here, just an unimported
-    // one, and the selection above is never reached.
+    // one, and the selection above is never reached. (`Rat` was the example
+    // until #1542 seated it in the prelude.)
     expect(projectDiagnostics(main(
       "export fun f(t: Float): String =\n" +
         "    match t\n" +
-        "        Rat.zilch => \"never\"\n" +
+        "        Regex.zilch => \"never\"\n" +
         "        _ => \"ok\"\n",
-    ))).toEqual(["no module alias `Rat`; `import Rat`"]);
+    ))).toEqual(["no module alias `Regex`; `import Regex`"]);
     // And without a module of the name, the same report with no repair invented.
     expect(projectDiagnostics(main(
       "export fun f(t: Float): String =\n" +

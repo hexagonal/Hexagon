@@ -6328,7 +6328,7 @@ export let hold(step: () ->! Int, value: a): a = value
     // and the author's own documentation shares the block.
     const emitted = declarationsOf(
       [["/world.js", ""], ["/main.hex", "module Main\n\n" + `${world}
-(** Runs both, in order. *)
+{-- Runs both, in order. -}
 export let compose(first: String ->! String, second: String ->! String): (String >-> String) =
     (document) => second!(first!(document))
 `]],

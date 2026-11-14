@@ -189,7 +189,7 @@ describe("the control: the harness reports a failure rather than passing it", ()
 describe("within range: the correctly rounded nearest double (rat.md §9)", () => {
   test("the §9 lines: `1/2`, `1/3`, `-7/4`", async () => {
     const exports = await runRat(
-      "// the acceptance lines\n" +
+      "-- the acceptance lines\n" +
       "export let half: Float = Rat.toFloat(Rat.create(1, 2))\n" +
       "export let third: Float = Rat.toFloat(Rat.create(1, 3))\n" +
       "export let negative: Float = Rat.toFloat(Rat.create(-7, 4))\n" +
@@ -207,7 +207,7 @@ describe("within range: the correctly rounded nearest double (rat.md §9)", () =
     // The guard's second half is conditioned on a *nonzero* input; the canonical
     // zero is `0n / 1n`, and every spelling of it reduces to that.
     const exports = await runRat(
-      "// zero\n" +
+      "-- zero\n" +
       "export let zero: Float = Rat.toFloat(Rat.create(0, 1))\n" +
       "export let alsoZero: Float = Rat.toFloat(Rat.create(0, 99))\n" +
       "export let negatedZero: Float = Rat.toFloat(Rat.create(0, -7))\n",
@@ -222,7 +222,7 @@ describe("within range: the correctly rounded nearest double (rat.md §9)", () =
     // Nothing rounds at these, so a mis-assembled `significand * 2 ** -scale`
     // shows up as an exact mismatch rather than a last-bit one.
     const exports = await runRat(
-      "// powers of two\n" +
+      "-- powers of two\n" +
       "export let up: Float = Rat.toFloat(Rat.create(2n ** 200, 1n))\n" +
       "export let down: Float = Rat.toFloat(Rat.create(1n, 2n ** 200))\n" +
       "export let unit: Float = Rat.toFloat(Rat.create(1, 1))\n" +
@@ -237,7 +237,7 @@ describe("within range: the correctly rounded nearest double (rat.md §9)", () =
 
   test("the sign is carried, not recomputed", async () => {
     const exports = await runRat(
-      "// signs\n" +
+      "-- signs\n" +
       "export let positive: Float = Rat.toFloat(Rat.create(1, 3))\n" +
       "export let negative: Float = Rat.toFloat(Rat.create(-1, 3))\n" +
       "export let normalized: Float = Rat.toFloat(Rat.create(1, -3))\n",
@@ -249,7 +249,7 @@ describe("within range: the correctly rounded nearest double (rat.md §9)", () =
 
   test("`x.toFloat()` reaches the same function (Method Syntax companion dispatch)", async () => {
     const exports = await runRat(
-      "// dot call\n" +
+      "-- dot call\n" +
       "let value: Rat.Rat = Rat.create(-7, 4)\n" +
       "export let dotted: Float = value.toFloat()\n" +
       "export let qualified: Float = Rat.toFloat(value)\n",
@@ -302,7 +302,7 @@ describe("one rounding: the double-rounding traps rat.md §7 asks for", () => {
       expect(naive(top, bottom)).not.toBe(expected);
 
       const exports = await runRat(
-        `// trap: ${what}\n` +
+        `-- trap: ${what}\n` +
         `export let converted: Float = Rat.toFloat(${spelling})\n`,
       );
 
@@ -342,7 +342,7 @@ describe("the subnormal range: the rounding grid narrows before the rounding", (
     // `2 ** -1060` is exactly a subnormal. The naive route answers `0` here,
     // because `Number(2n ** 1060n)` is an infinity.
     const exports = await runRat(
-      "// subnormal, exact\n" +
+      "-- subnormal, exact\n" +
       "export let tiny: Float = Rat.toFloat(Rat.create(1n, 2n ** 1060))\n" +
       "export let smallest: Float = Rat.toFloat(Rat.create(1n, 2n ** 1074))\n",
     );
@@ -356,7 +356,7 @@ describe("the subnormal range: the rounding grid narrows before the rounding", (
     // `3 / 2^1076` is `1.5 * 2^-1075`, above the halfway point, so it rounds to
     // the smallest subnormal rather than erasing.
     const exports = await runRat(
-      "// subnormal, just above half\n" +
+      "-- subnormal, just above half\n" +
       "export let survives: Float = Rat.toFloat(Rat.create(3n, 2n ** 1076))\n",
     );
 
@@ -385,7 +385,7 @@ describe("the subnormal range: the rounding grid narrows before the rounding", (
     expect(correct).not.toBe(wrong);
 
     const exports = await runRat(
-      "// subnormal straddle\n" +
+      "-- subnormal straddle\n" +
       "export let straddle: Float =\n" +
       "    Rat.toFloat(Rat.create(2n ** 171 + 3n * (2n ** 125) - 1n, 2n ** 1200))\n",
     );
@@ -400,7 +400,7 @@ describe("the guard: finite, and nonzero when the input is (rat.md §6/§8)", ()
     // The spelling is §9's own; the bare digits ride Numeric Literals §5.1's
     // argument-seat lift onto `BigInt`.
     const exports = await runRat(
-      "// overflow\n" +
+      "-- overflow\n" +
       "export let boom(): Float = Rat.toFloat(Rat.create(2 ** 1100, 1))\n",
     );
 
@@ -415,7 +415,7 @@ describe("the guard: finite, and nonzero when the input is (rat.md §6/§8)", ()
     // The symmetric end: nonzero, but it would erase to `0`. One message for
     // both ends — which end failed is evident from the value.
     const exports = await runRat(
-      "// erasure\n" +
+      "-- erasure\n" +
       "export let boom(): Float = Rat.toFloat(Rat.create(1, 2 ** 1100))\n",
     );
 
@@ -431,7 +431,7 @@ describe("the guard: finite, and nonzero when the input is (rat.md §6/§8)", ()
     // total-error case the guard refuses.
     expect(nearestDouble(1n, 1n << 1075n)).toBe("erasure");
     const exports = await runRat(
-      "// half the smallest subnormal\n" +
+      "-- half the smallest subnormal\n" +
       "export let boom(): Float = Rat.toFloat(Rat.create(1n, 2n ** 1075))\n",
     );
 
@@ -453,7 +453,7 @@ describe("the guard: finite, and nonzero when the input is (rat.md §6/§8)", ()
     expect(nearestDouble(throws, 1n)).toBe("overflow");
 
     const exports = await runRat(
-      "// the finite boundary\n" +
+      "-- the finite boundary\n" +
       "export let largest: Float = Rat.toFloat(Rat.create((2n ** 53 - 1n) * 2n ** 971, 1n))\n" +
       "export let lastGood: Float =\n" +
       "    Rat.toFloat(Rat.create(2n ** 1024 - 2n ** 970 - 1n, 1n))\n" +
@@ -486,8 +486,8 @@ describe("the guard: finite, and nonzero when the input is (rat.md §6/§8)", ()
       .find(({ source }) => source.path === "/Rat.hex")!.declarations.text;
 
     expect(declarations).toContain(
-      "@throws {FloatRangeFault} when the honest answer would not be an approximation at all:" +
-        " past `Float`'s finite range, or a nonzero rational that would erase to zero\n",
+      "@throws {FloatRangeFault} when the fraction is too large for a `Float`," +
+        " or is not zero but too close to zero for one\n",
     );
   });
 });
@@ -497,7 +497,7 @@ describe("the exception's identity", () => {
     // The catch arm certifies the (module, name) pair, so a sibling prelude
     // exception's arm does not answer for it.
     const exports = await runRat(
-      "// catch arms\n" +
+      "-- catch arms\n" +
       "export fun bare(): String =\n" +
       "    try\n" +
       "        show(Rat.toFloat(Rat.create(2 ** 1100, 1)))\n" +
@@ -530,7 +530,7 @@ describe("the exception's identity", () => {
     // emitted text is byte-identical across the two entries, so the `data:`
     // cache hands back the same instance and `.is` is the declaration's own.
     const files = withRat(
-      "// runtime guards\n" +
+      "-- runtime guards\n" +
       "export let boom(): Float = Rat.toFloat(Rat.create(1, 2 ** 1400))\n",
     );
     const main = await runProject(files);
@@ -552,7 +552,7 @@ describe("the exception's identity", () => {
     // The other direction of the same certification, from JavaScript: `Pow.hex`
     // and `Integral.hex` declare their own, and neither claims this one.
     const files = withRat(
-      "// sibling guards\n" +
+      "-- sibling guards\n" +
       "export let boom(): Float = Rat.toFloat(Rat.create(1, 2 ** 1500))\n",
     );
     const main = await runProject(files);

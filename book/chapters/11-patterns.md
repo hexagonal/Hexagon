@@ -22,7 +22,7 @@ A non-uppercase-start name binds the value at that position. `_` matches the sam
 giving it a name. Each name may be bound only once in a whole pattern:
 
 ```hexagon
-Rectangle(width, width) // error: width is bound twice
+Rectangle(width, width) -- error: width is bound twice
 ```
 
 Use two names and compare them in a guard when their values must be equal. Repeating a
@@ -296,7 +296,7 @@ let {guest, seats} = reservation
 `Some(value)` is refutable for `Option(a)` because the value might be `None`:
 
 ```hexagon
-let Some(value) = possibleValue // error: this pattern can fail: `None`; use `match`
+let Some(value) = possibleValue -- error: this pattern can fail: `None`; use `match`
 ```
 
 A constructor pattern for a single-constructor nominal record is irrefutable:
@@ -309,9 +309,9 @@ The same rule applies to function parameters. Top-level commas still separate
 parameters, preserving ordinary n-ary functions:
 
 ```hexagon
-(x, y) => x + y       // two parameters
-((x, y)) => x + y     // one tuple-destructured parameter
-{guest, seats} => "${guest}: ${seats}" // one record-destructured parameter
+(x, y) => x + y       -- two parameters
+((x, y)) => x + y     -- one tuple-destructured parameter
+{guest, seats} => "${guest}: ${seats}" -- one record-destructured parameter
 ```
 
 The extra parentheses in `((x, y))` matter: the outer pair is the parameter list, and
@@ -324,7 +324,7 @@ The rule above leaves a gap that callbacks fall into constantly. Mapping over a
 the natural spelling is refused:
 
 ```hexagon
-Vector.map(options, Some(value) => value)   // error: this pattern can fail: `None`
+Vector.map(options, Some(value) => value)   -- error: this pattern can fail: `None`
 ```
 
 A parameter must be irrefutable, and `Some(value)` is not. The honest expansion is a
@@ -390,16 +390,16 @@ because a type written around a function reaches its parameters before the arms 
 checked:
 
 ```hexagon
-let sign: (Int) -> String = match      // the annotation says it
+let sign: (Int) -> String = match      -- the annotation says it
     n when n < 0 => "negative"
     _ => "other"
 
-let labels = Seq.map(counts, match     // the callee's signature says it
+let labels = Seq.map(counts, match     -- the callee's signature says it
     n when n < 0 => "negative"
     _ => "other"
 )
 
-let labels = counts.map(match          // the receiver's type says it
+let labels = counts.map(match          -- the receiver's type says it
     n when n < 0 => "negative"
     _ => "other"
 )
@@ -459,7 +459,7 @@ code for `p` alone, `const [width, height] = size;` above. Where nothing has
 settled a number yet, the claim settles it, as `let ratio: Float = 1` does:
 
 ```hexagon
-let (ratio: Float, label) = (1, "full")    // ratio : Float
+let (ratio: Float, label) = (1, "full")    -- ratio : Float
 ```
 
 A type that disagrees with what the part already is, though, is an error, and a
@@ -469,28 +469,77 @@ and a `let` pattern takes a type after it just as a named binding does:
 
 ```hexagon
 let count: Int = 3
-let (share, label): (Float, String) = (count, "seats")    // share : Float
+let (share, label): (Float, String) = (count, "seats")    -- share : Float
 ```
 
 The binding's type faces the value and converts it, as `let share: Float = count`
 would. The pattern then takes apart a `(Float, String)`. The binding faces the
 whole value; a pattern faces its parts.
 
+## A fraction comes apart with `//`
+
+The operators chapter wrote an exact fraction as `top // bottom`. The same spelling
+is a pattern that takes a `Rat` apart:
+
+```hexagon
+let fraction = 6 // 10
+let top // bottom = fraction
+```
+
+In the expression, `6 // 10` writes a fraction. In the binding, `top // bottom` reads
+its top and bottom, each a `BigInt`. They are `3n` and `5n`: a fraction is always held
+in lowest terms with a positive bottom, and that is the only form a pattern sees.
+
+Each side is itself a pattern, so a match can ask about either one:
+
+```hexagon
+let describe(value: Rat): String =
+    match value
+        0 // _ => "zero"
+        n // 1 => "the whole number ${n}"
+        n // d => "${n} over ${d}"
+```
+
+The bare integer patterns are checked at `BigInt`. Every `Rat` has one top and one
+bottom, so `n // d` is irrefutable, which permits the `let` binding above and a lambda
+head such as `n // d => d // n`. Like the operator, the pattern does not chain.
+
+Because the pattern sees lowest terms only, some fraction patterns can never match,
+and the compiler refuses them as dead cases:
+
+```hexagon
+match value
+    2 // 6 => "a third"   -- error
+    _ => "something else"
+```
+
+> this case is unreachable; a fraction comes apart in lowest terms with a positive
+> bottom, so `2 // 6` never matches — write `1 // 3`
+
+A negative literal bottom is refused the same way, with the sign moved to the top in
+the suggested spelling, and so is a zero bottom, which no fraction has.
+
+`//` is part of the language, tied to the standard `Rat` type. The next section shows
+how a module of your own offers the same service for its types.
+
 ## Declared patterns expose a view
 
 An opaque type can offer a useful way to take its values apart without exposing
-its storage. `Rat` does this with the declared pattern `rat`:
+its storage. Suppose a module `Time` keeps a time of day as an opaque type. It exports
+`create(hours, minutes)`, which wraps round the day, the accessors `hours` and
+`minutes`, and a **declared pattern** named `clock`:
 
 ```hexagon
-import Rat
+import Time
 
-let fraction = (6, 10)rat
-let (numerator, denominator)rat = fraction
+let departure = (9, 90)clock
+let (hour, minute)clock = departure
 ```
 
-In the expression, `(6, 10)rat` constructs a rational number. In the binding,
-`(numerator, denominator)rat` reads its canonical numerator and denominator.
-They are `3n` and `5n`: construction reduces the fraction.
+In the expression, `(9, 90)clock` constructs a time. In the binding,
+`(hour, minute)clock` reads its hours and minutes. They are `10` and `30`:
+construction wrapped ninety minutes into the next hour, and the view reports the
+time that was actually built.
 
 The suffix belongs directly against the closing parenthesis. Its parentheses
 contain a component list, so a one-component pattern is written `(value)name`;
@@ -500,28 +549,28 @@ gets its own parentheses, as in `((x, y))name`.
 Declared patterns accept the same sub-patterns as other shapes:
 
 ```hexagon
-let describe(value: Rat.Rat): String =
-    match value
-        (0, _)rat => "zero"
-        (_, 1)rat => "an integer"
-        (n, d)rat => "${n}/${d}"
+let describe(time: Time.Time): String =
+    match time
+        (0, 0)clock => "midnight"
+        (_, 0)clock => "on the hour"
+        (h, m)clock => "${h}:${m}"
 ```
 
-The components here are `BigInt`, so the bare integer patterns are checked at
-`BigInt`. A view exposing `Float` components can likewise contain Float
+The components here are `Int`, so the bare integer patterns are checked at
+`Int`. A view exposing `Float` components can likewise contain Float
 literal patterns, with the same equality and signed-zero behavior explained
 earlier. An as-pattern keeps the original subject:
-`(n, d)rat as fraction` binds `fraction` to the Rat, not to a tuple. The list before
-`rat` is a list of components, like a constructor's slots, so a component's type takes
-its own parentheses: `((n: BigInt), d)rat`.
+`(h, m)clock as time` binds `time` to the `Time`, not to a tuple. The list before
+`clock` is a list of components, like a constructor's slots, so a component's type
+takes its own parentheses: `((h: Int), m)clock`.
 
 A pattern declaration supplies a required `view` function and an optional
-`build` function. Inside the Rat module, after its accessors and `create`
+`build` function. Inside the `Time` module, after its accessors and `create`
 function, the declaration is:
 
 ```hexagon
-export pattern rat(top: BigInt, bottom: BigInt): Rat
-    view(value) = (top(value), bottom(value))
+export pattern clock(hours: Int, minutes: Int): Time
+    view(time) = (hours(time), minutes(time))
     build = create
 ```
 
@@ -541,23 +590,24 @@ Purity is checked; the promise to return is the author's responsibility.
 Thus a declared pattern is irrefutable when its components are irrefutable,
 which permits the `let` binding above. For a pattern with both directions,
 building the components obtained from a view should recover the original
-value. Going in the other direction may normalize the components, as Rat does.
+value. Going in the other direction may normalize the components, as `clock`
+does with its ninety minutes.
 
-Rat construction and matching are both pure. A zero denominator can still
-throw; the effects chapter explains that distinction and how construction
-follows the ordinary function-call effect rules.
+Constructing and matching a `clock` are both pure. A `build` that can throw or
+perform effects is still an ordinary function; the effects chapter explains how
+construction follows the ordinary function-call effect rules.
 
-`import Rat` makes the suffix `rat` available in both positions. Pattern
-names occupy their own namespace; an ordinary binding named `rat` does not
+`import Time` makes the suffix `clock` available in both positions. Pattern
+names occupy their own namespace; an ordinary binding named `clock` does not
 hide the pattern. A pattern itself is not a function value. To pass its building
-direction, write a lambda such as `(n, d) => (n, d)rat`.
+direction, write a lambda such as `(h, m) => (h, m)clock`.
 
 An alias gives the same pattern another spelling:
 
 ```hexagon
-pattern ratio = Rat.rat
-let third = (1, 3)ratio
-let (n, d)ratio = third
+pattern hm = Time.clock
+let noon = (12, 0)hm
+let (h, m)hm = noon
 ```
 
 If imported patterns compete for a suffix, choose a declaration explicitly.
@@ -587,9 +637,10 @@ A declared pattern emits an ordinary object holding its `view` and optional
 `build` functions, named `__patt_` followed by the pattern name. A module can
 export both a function `map` and a pattern `map`: their JavaScript names are
 `map` and `__patt_map`. Pattern uses call the view or build function directly:
-Rat construction emits
-`Rat.__patt_rat.build(6n, 10n)`, and matching reads `Rat.__patt_rat.view(fraction)`. The view
-result is shared for that pattern at that position within one match.
+constructing a time emits
+`Time.__patt_clock.build(9, 90)`, and matching reads `Time.__patt_clock.view(departure)`.
+The view result is shared for that pattern at that position within one match. A
+fraction pattern reads a `Rat`'s top and bottom through a view in the same way.
 
 The scrutinee is evaluated once, and arms retain their written order. Structural
 patterns add no hidden user-defined dispatch; literal patterns use the same equality
@@ -606,7 +657,9 @@ dialects.
 ## Summary
 
 - patterns describe static shapes and may bind names to their pieces;
-- constructor, tuple, record, and declared patterns can nest;
+- constructor, tuple, record, fraction, and declared patterns can nest;
+- `top // bottom` takes a `Rat` apart in lowest terms, and a case that could never
+  match is refused;
 - a declared pattern exposes a pure view and optionally supplies construction;
 - record patterns are open and support punning and renaming;
 - bare integer, `BigInt`, `Float`, `Dec`, and `String` literals may be patterns, matching

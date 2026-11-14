@@ -118,13 +118,13 @@ zero and gives an `Even` sibling for ties to even. Money does the same: `of` and
 **Two ways in.** The marker door names the currency at the call:
 
 ```hexagon
-let price = Money.of(19.999, Money.USD)       // 20.00 USD
+let price = Money.of(19.999, Money.USD)       -- 20.00 USD
 ```
 
 The annotation door lets the declared type choose it:
 
 ```hexagon
-let fee: Money.Money(Money.EUR) = Money.fromDec(9.995)   // 10.00 EUR
+let fee: Money.Money(Money.EUR) = Money.fromDec(9.995)   -- 10.00 EUR
 ```
 
 Without the annotation, `Money.fromDec(1)` is refused: "`Currency` is not a
@@ -135,7 +135,7 @@ defaultable constraint; add a type annotation to pin it". The literals in both a
 
 ```hexagon
 let total = Money.of(21.50, Money.USD)
-let taxDue = Money.of(total.times(0.0825), Money.USD)   // times: 1.773750; of: 1.77 USD
+let taxDue = Money.of(total.times(0.0825), Money.USD)   -- times: 1.773750; of: 1.77 USD
 ```
 
 The only rounding is the `of`, written where the reader can see it.
@@ -150,8 +150,8 @@ cent. The prototype works in minor units:
    gets exactly zero, and weights that sum to zero throw `DivideByZeroError`.
 
 ```hexagon
-Money.of(100, Money.USD).allocate([1, 1, 1])     // 33.34, 33.33, 33.33
-Money.of(-0.05, Money.USD).allocate([3, 0, 7])   // -0.02, 0.00, -0.03
+Money.of(100, Money.USD).allocate([1, 1, 1])     -- 33.34, 33.33, 33.33
+Money.of(-0.05, Money.USD).allocate([3, 0, 7])   -- -0.02, 0.00, -0.03
 ```
 
 This is Fowler's `allocate` from the Money pattern. Which share gets the leftover
@@ -162,8 +162,8 @@ applied to its own source currency:
 
 ```hexagon
 let usdToJpy = Money.rate(151.2345, Money.USD, Money.JPY)
-total.convert(usdToJpy)    // 3252 JPY
-yen.convert(usdToJpy)      // refused: expected USD, found JPY
+total.convert(usdToJpy)    -- 3252 JPY
+yen.convert(usdToJpy)      -- refused: expected USD, found JPY
 ```
 
 ## 4. No `Num`, and what that costs
@@ -205,7 +205,7 @@ check that the currencies match and return a `Result`. A door from it into typed
 Money would check once, at the edge:
 
 ```hexagon
-Money.expect(tagged, Money.USD)   // Result(Money(USD), CurrencyMismatch)
+Money.expect(tagged, Money.USD)   -- Result(Money(USD), CurrencyMismatch)
 ```
 
 Not prototyped. Q8.
@@ -239,7 +239,7 @@ honor Money.Currency<BTC> =
     code(currency) = "BTC"
     minorUnits(currency) = 8
 
-// Money.of(0.123456789, BTC) shows as 0.12345679 BTC
+-- Money.of(0.123456789, BTC) shows as 0.12345679 BTC
 ```
 
 The honor lives beside the marker, so this is not an orphan instance (Constraints

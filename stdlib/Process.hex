@@ -1,16 +1,16 @@
 module Process
 
-// The program's arguments and the status it reports when it finishes, under
-// Node (`spec/program-io.md` section 5). The module is outside the prelude,
-// reached by `import Process`.
-//
-// Node is reached through an ordinary `extern` block over `node:process`'s
-// default export, the `process` object, so the playground can link its own
-// stand-in beneath this module (section 6). Nothing here needs the intrinsic
-// door.
+-- The program's arguments and the status it reports when it finishes, under
+-- Node (`spec/program-io.md` section 5). The module is outside the prelude,
+-- reached by `import Process`.
+--
+-- Node is reached through an ordinary `extern` block over `node:process`'s
+-- default export, the `process` object, so the playground can link its own
+-- stand-in beneath this module (section 6). Nothing here needs the intrinsic
+-- door.
 
-(** Thrown by `setExitStatus` for a status outside 0 to 255, which Node would
-    wrap: 256 would report success, and -1 would report 255. *)
+{-- Thrown by `setExitStatus` for a status outside 0 to 255, which Node would
+    wrap: 256 would report success, and -1 would report 255. -}
 export fault ExitStatusFault(status: Int)
 
 extern from "node:process"
@@ -20,15 +20,15 @@ extern from "node:process"
     get execArgv(process: NodeProcess) ->~ Array(String)
     set exitCode(process: NodeProcess, status: Int) ->! Unit
 
-// Short options run together, such as `-pe`.
+-- Short options run together, such as `-pe`.
 let isShortOptions(option: String): Bool =
     option.startsWith("-") and not option.startsWith("--")
 
-// Whether Node ran code given on its command line, so that `argv`'s second
-// element is the user's first argument rather than a script's path. Node keeps
-// each option as it was typed: `-e`, `--eval`, `-p` and `--print` alone, or
-// joined to their value (`--eval=…`), or among short options run together
-// (`-pe`).
+-- Whether Node ran code given on its command line, so that `argv`'s second
+-- element is the user's first argument rather than a script's path. Node keeps
+-- each option as it was typed: `-e`, `--eval`, `-p` and `--print` alone, or
+-- joined to their value (`--eval=…`), or among short options run together
+-- (`-pe`).
 let ranCommandLineCode(options: Array(String)): Bool =
     var found = False
     for option in options
@@ -40,9 +40,9 @@ let ranCommandLineCode(options: Array(String)): Bool =
             found := True
     found
 
-(** The arguments the user gave the program, in order, without Node's own
+{-- The arguments the user gave the program, in order, without Node's own
     options or the script's path: `node main.js input.txt` gives
-    `["input.txt"]`. They are read from Node each time. *)
+    `["input.txt"]`. They are read from Node each time. -}
 export let arguments(): Vector(String) =
     let skipped = if ranCommandLineCode(execArgv~(process)) then 1 else 2
     var result: Vector(String) = []
@@ -52,9 +52,9 @@ export let arguments(): Vector(String) =
         if position > skipped then result := result.append(argument)
     result
 
-(** Sets the status the program reports when it finishes, from 0 to 255; it
+{-- Sets the status the program reports when it finishes, from 0 to 255; it
     doesn't end the program, and the last setting wins. Any other status
-    throws `ExitStatusFault`. *)
+    throws `ExitStatusFault`. -}
 export let setExitStatus(status: Int): Unit =
     if status < 0 or status > 255 then throw(ExitStatusFault(status))
     assume exitCode!(process, status)

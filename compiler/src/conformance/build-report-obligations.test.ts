@@ -214,10 +214,11 @@ describe("the zero-entry-point list (§3.4)", () => {
     const module = main(source);
 
     expect(module.declarations.zeroEntryPointExports).toEqual([]);
-    // The inspection preview's `includePrivate` widens which *editions* are
-    // planned and must not widen the list: the report is about the module's real
-    // foreign surface, and a private declaration is never on it however a host
-    // asks to look at the module.
+    // `includePrivate`, which plans the private editions an inspection tool's
+    // JavaScript shows, widens which *editions* are planned and must not widen
+    // the list: the report is about the module's real foreign surface, and a
+    // private declaration is never on it however a host asks to look at the
+    // module.
     expect(
       planFundamentalSpecializations(module.core, undefined, true).zeroEntryPointExports,
     ).toEqual([]);
@@ -361,12 +362,12 @@ describe("`.d.ts` byte accounting (§10)", () => {
     // is why face-only accounting looked right until a documented one was
     // measured.
     const module = main([
-      "(** Hashes a value with a salt mixed in.",
+      "{-- Hashes a value with a salt mixed in.",
       "",
-      "    The salt keeps two structurally equal values apart. *)",
+      "    The salt keeps two structurally equal values apart. -}",
       "export fun stamp<a: Hash>(x: a, salt: Int): Int = x.hash() + salt",
       "",
-      "(** Adds two numbers of the same type. *)",
+      "{-- Adds two numbers of the same type. -}",
       "export fun sum<a: Num>(x: a, y: a): a = x + y",
       "",
     ].join("\n"));

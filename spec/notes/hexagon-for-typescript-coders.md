@@ -88,10 +88,10 @@ Hexagon uses Hindley–Milner type inference — the ML-family algorithm that Ty
 
 ```hexagon
 let firstWord(s) = split(s, " ")[1]
-// inferred: firstWord : String -> String
+-- inferred: firstWord : String -> String
 
-let pair(x, y) = (x, y)  // tuple
-// inferred: pair : (a, b) -> (a, b)   — generic over both, automatically
+let pair(x, y) = (x, y)  -- tuple
+-- inferred: pair : (a, b) -> (a, b)   — generic over both, automatically
 ```
 
 No annotation on `s`. No `<A, B>` declaration. The compiler works out that `pair` is generic in both arguments and *generalizes* it for you — the lowercase `a` and `b` in the inferred type are type variables, Hexagon's equivalent of `<A, B>`, except you never have to write them.
@@ -109,9 +109,9 @@ let getX(r) = r.x
 What's the type of `r`? TypeScript would need `r: { x: number }` or a generic with a constraint. Hexagon *infers* the requirement:
 
 ```hexagon
-getX({x = 1.0, y = 2.0})    // fine: has an x
-getX({x = 1.0})            // fine: has an x
-getX({y = 2.0})            // compile error: no field x
+getX({x = 1.0, y = 2.0})    -- fine: has an x
+getX({x = 1.0})            -- fine: has an x
+getX({y = 2.0})            -- compile error: no field x
 ```
 
 The inferred type says, in effect, "any record that has at least a field `x`" — and the compiler figured that out from the body alone. (The machinery behind this is called row polymorphism; you will never need to know that, and Hexagon's error messages are forbidden from using the word.)
@@ -149,11 +149,11 @@ A short chapter to make the rest of the examples readable.
 ### 3.1 Bindings: `let` does everything
 
 ```hexagon
-let name = "Ada"              // immutable binding (your beloved const)
+let name = "Ada"              -- immutable binding (your beloved const)
 let year = 1815
 
-let greet(who) =              // functions too: this is header sugar for
-    "Hello, ${who}!"            // let greet = (who) => "Hello, ${who}!"
+let greet(who) =              -- functions too: this is header sugar for
+    "Hello, ${who}!"            -- let greet = (who) => "Hello, ${who}!"
 ```
 
 `let` is `const`: immutable, block-scoped, and it binds *everything* — numbers, strings, records, and functions alike, because a function is just another value. The header form `let greet(who) = ...` and the lambda form `let greet = (who) => ...` are the same declaration; use whichever reads better.
@@ -183,7 +183,7 @@ Blocks are indentation-based (think Python, or the F#/Haskell layout tradition),
 let describe(n) =
     let sign = if n < 0 then "negative" else "non-negative"
     let parity = if isEven(n) then "even" else "odd"
-    "${n} is ${sign} and ${parity}"    // this is the return value; no `return` keyword
+    "${n} is ${sign} and ${parity}"    -- this is the return value; no `return` keyword
 ```
 
 Braces are never blocks in Hexagon — braces always mean records (Chapter 8).
@@ -206,8 +206,8 @@ Two more differences from JS that remove entire bug classes:
 **Comparison chaining.** This works, and means what it says:
 
 ```hexagon
-if 0 <= x and x <= 10 then ... else ...     // fine, but also:
-if 0 <= x <= 10 then ... else ...           // legal Hexagon: chained comparison, math semantics
+if 0 <= x and x <= 10 then ... else ...     -- fine, but also:
+if 0 <= x <= 10 then ... else ...           -- legal Hexagon: chained comparison, math semantics
 ```
 
 In JS, `0 <= x <= 10` silently evaluates to nonsense via boolean coercion. Hexagon gives it the meaning your math teacher intended.
@@ -244,9 +244,9 @@ That emits `Rat.create(1n, 3n)`. Integer division by zero throws
 `==` in Hexagon is *structural* equality, and it's defined for tuples, records, and unions automatically:
 
 ```hexagon
-{x = 1, y = 2} == {x = 1, y = 2}      // True
-(1, "a") == (1, "a")              // True
-Some(3) == Some(3)                // True
+{x = 1, y = 2} == {x = 1, y = 2}      -- True
+(1, "a") == (1, "a")              -- True
+Some(3) == Some(3)                -- True
 ```
 
 Every TypeScript developer has written a `deepEqual` helper or reached for lodash because `{a: 1} === {a: 1}` is `false`. In Hexagon, `==` on compound data compares contents, the compiler generates the comparison code, and it's a *type error* to `==` two things of different types. (On primitives it compiles straight to `===`.)
@@ -290,8 +290,8 @@ xs |> map(x => x + 1) |> filter(p) |> take(3)
 This is defined as a purely mechanical rewrite:
 
 ```hexagon
-a |> f(b, c)     // becomes  f(a, b, c)
-x |> negate      // becomes  negate(x)      (bare form: no parens needed)
+a |> f(b, c)     -- becomes  f(a, b, c)
+x |> negate      -- becomes  negate(x)      (bare form: no parens needed)
 ```
 
 So the pipeline above *is* `take(filter(map(xs, x => x + 1), p), 3)` — the same nested call you'd have written, but spelled in reading order: start with `xs`, add one to each, filter, take three. Data flows left to right, the way the steps happen.
@@ -323,7 +323,7 @@ That's it. Unpacking the two halves:
 ```hexagon
 let process(order) =
     let total = subtotal(order)
-    let total = total + tax(order)     // ERROR: `total` is already bound
+    let total = total + tax(order)     -- ERROR: `total` is already bound
     total
 ```
 
@@ -341,10 +341,10 @@ let process(order) =
 ```hexagon
 let x = 99
 
-let addOne(x) = x + 1        // fine: parameter x shadows the outer x
+let addOne(x) = x + 1        -- fine: parameter x shadows the outer x
 
-for x in 1..3                // fine: loop variable x shadows too
-    print(show(x))             // 1, 2, 3 — the loop's x
+for x in 1..3                -- fine: loop variable x shadows too
+    print(show(x))             -- 1, 2, 3 — the loop's x
 ```
 
 ### 5.2 Why the split?
@@ -413,7 +413,7 @@ Here's what makes Hexagon's `var` different from TypeScript's `let`: **a `var` c
 ```hexagon
 let makeCounter() =
     var count = 0
-    () => count := count + 1     // ERROR: lambda cannot capture the `var` count
+    () => count := count + 1     -- ERROR: lambda cannot capture the `var` count
 ```
 
 In JavaScript, that closure-over-mutable pattern is idiomatic — and it's also the source of every "why is my callback seeing a stale value" bug, every loop-variable-capture surprise, every action-at-a-distance state mutation. Hexagon draws the line differently: mutation is a *local implementation detail*. Inside a function, mutate freely; from the outside, every Hexagon function looks pure. If a value crosses a function boundary, it's immutable data.
@@ -536,13 +536,13 @@ You met records in Chapter 2. The short version:
 **The separator is the one thing to relearn.** A record *type* classifies its fields with `:`; a record *term* — literal, update, or pattern — binds them with `=`. Both false friends are worth meeting deliberately: `{x: 1}` is the JavaScript literal habit and is a parse error here (the compiler's fixit points at `=`), while `{x = 1}` is JavaScript *destructuring-default* syntax and must be read as a plain binding instead. The emitted JavaScript is still `{x: 1}` — the emitter translates that one token, and nothing else about the shape changes.
 
 ```hexagon
-{x = 1.0, y = 2.0}            // a record; compiles to the same object literal
-let p2 = {p with x = 3.0}     // non-destructive update; compiles to {...p, x: 3.0}
-let p3 = {...p}               // a shallow copy — the one place `...` survives
-p.x                          // field access
+{x = 1.0, y = 2.0}            -- a record; compiles to the same object literal
+let p2 = {p with x = 3.0}     -- non-destructive update; compiles to {...p, x: 3.0}
+let p3 = {...p}               -- a shallow copy — the one place `...` survives
+p.x                          -- field access
 
-(1, "a")                     // a tuple; compiles to [1, "a"]
-let (lo, hi) = bounds        // destructuring
+(1, "a")                     -- a tuple; compiles to [1, "a"]
+let (lo, hi) = bounds        -- destructuring
 ```
 
 **Update is `with`, not spread — and here is the rule behind that.** Hexagon borrows a JavaScript spelling only where JavaScript's semantics hold exactly. `{...p}` on its own stays, because in JS that *is* a shallow copy: an honest borrow. But `{...p, x: 3.0}` in JS means unrestricted merge — later wins, new fields welcome — and Hexagon's update is neither of those things. So update takes OCaml's and F#'s spelling instead, `{p with x = 3.0}`, and the spread-with-overrides shape is a parse error with a fixit pointing at `with`. (`{...a, ...b}`, the merge idiom, gets its own fixit: Hexagon has no record merge.)

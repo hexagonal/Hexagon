@@ -7,25 +7,25 @@ export const sequences: PlaygroundExample = {
     "Build an interruptible Seq(Int), then map, filter, and take from its JavaScript generator.",
   source: `module Sequences
 
-// Seq.iterate is infinite unless a consumer such as Seq.take stops it.
+-- Seq.iterate is infinite unless a consumer such as Seq.take stops it.
 let numbers = Seq.iterate(1, number => number + 1)
 
-// Method syntax reads naturally for subject-first Seq companion functions.
+-- Method syntax reads naturally for subject-first Seq companion functions.
 let selected =
     numbers
     .filter(number => number > 3)
     .map(number => number * 10)
     .take(5)
 
-// The same independent functions can be called explicitly and piped.
+-- The same independent functions can be called explicitly and piped.
 let selected2 =
     numbers
     |> Seq.filter(number => number > 3)
     |> Seq.map(number => number * 10)
     |> Seq.take(5)
 
-// Open the complete JS view: Seq is an ordinary Hexagon record of a pull thunk,
-// declared in stdlib/Seq.hex — the combinators above are plain Hexagon functions.
+-- Open the complete JS view: Seq is an ordinary Hexagon record of a pull thunk,
+-- declared in stdlib/Seq.hex — the combinators above are plain Hexagon functions.
 for number in selected
     Debug.log("\${number}")
 `,

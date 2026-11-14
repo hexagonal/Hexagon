@@ -153,9 +153,9 @@ describe("arms with one body combined into one", () => {
     expect(rewritten(program(
       "export let g(s: Shape): Float =",
       "    match s",
-      "        Circle(_) (* round *) ‸=>",
+      "        Circle(_) {- round -} ‸=>",
       "            let r = 1.0",
-      "            r // the first",
+      "            r -- the first",
       "        Square(_) =>",
       "            let r =   1.0",
       "            r",
@@ -163,9 +163,9 @@ describe("arms with one body combined into one", () => {
     ), combineTitle(2))).toBe(program(
       "export let g(s: Shape): Float =",
       "    match s",
-      "        Circle(_) | Square(_) (* round *) =>",
+      "        Circle(_) | Square(_) {- round -} =>",
       "            let r = 1.0",
-      "            r // the first",
+      "            r -- the first",
       "        Dot => 0.0",
     ));
   });
@@ -286,7 +286,7 @@ describe("arms with one body combined into one", () => {
       "    match s",
       "        Circle(_) => 0",
       "        ‸Square(_) => 0",
-      "        Dot => 0 (* dots *) // too‸",
+      "        Dot => 0 {- dots -} -- too‸",
       "export let h: Int = 1",
     ), combineTitle(2))).toBe("refused: A comment inside it would be lost. Move the comment out first.");
     // Past the arms, into the next item, the selection is not the arms'.
@@ -405,13 +405,13 @@ describe("arms with one body combined into one", () => {
     expect(rewritten(program(
       "export let g(s: Shape): Int =",
       "    match s",
-      "        Circle((* any *) _) ‸=> 0\t// round",
-      "        Square((* side *) _) => 0",
+      "        Circle({- any -} _) ‸=> 0\t-- round",
+      "        Square({- side -} _) => 0",
       "        Dot => 1",
     ), combineTitle(2))).toBe(program(
       "export let g(s: Shape): Int =",
       "    match s",
-      "        Circle((* any *) _) | Square((* side *) _) => 0\t// round",
+      "        Circle({- any -} _) | Square({- side -} _) => 0\t-- round",
       "        Dot => 1",
     ));
   });
@@ -699,14 +699,14 @@ describe("arms combined, refused", () => {
       "export let g(s: Shape): Int =",
       "    match s",
       "        Circle(_) ‸=> 0",
-      "        Square(_) => (* squares too *) 0",
+      "        Square(_) => {- squares too -} 0",
       "        Dot => 1",
     ), combineTitle(2))).toBe("refused: A comment inside it would be lost. Move the comment out first.");
     expect(rewritten(program(
       "export let g(s: Shape): Int =",
       "    match s",
       "        Circle(_) ‸=> 0",
-      "        // and squares",
+      "        -- and squares",
       "        Square(_) => 0",
       "        Dot => 1",
     ), combineTitle(2))).toBe("refused: A comment inside it would be lost. Move the comment out first.");
@@ -717,7 +717,7 @@ describe("arms combined, refused", () => {
       "export let g(s: Shape): Int =",
       "    match s",
       "        Circle(_) ‸=> 0",
-      "        Square(_) => 0 // squares too",
+      "        Square(_) => 0 -- squares too",
       "        Dot => 1",
     ), combineTitle(2))).toBe("refused: A comment inside it would be lost. Move the comment out first.");
   });
@@ -726,27 +726,27 @@ describe("arms combined, refused", () => {
     expect(rewritten(program(
       "export let g(s: Shape): Int =",
       "    match s",
-      "        Circle(_) ‸=> 0 (* a *) // b",
+      "        Circle(_) ‸=> 0 {- a -} -- b",
       "        Square(_) => 0",
       "        Dot => 1",
     ), combineTitle(2))).toBe(program(
       "export let g(s: Shape): Int =",
       "    match s",
-      "        Circle(_) | Square(_) => 0 (* a *) // b",
+      "        Circle(_) | Square(_) => 0 {- a -} -- b",
       "        Dot => 1",
     ));
     expect(rewritten(program(
       "export let g(s: Shape): Int =",
       "    match s",
-      "        Circle(_) ‸=> 0 // round ones",
+      "        Circle(_) ‸=> 0 -- round ones",
       "        Square(_) => 0",
-      "        // the rest",
+      "        -- the rest",
       "        Dot => 1",
     ), combineTitle(2))).toBe(program(
       "export let g(s: Shape): Int =",
       "    match s",
-      "        Circle(_) | Square(_) => 0 // round ones",
-      "        // the rest",
+      "        Circle(_) | Square(_) => 0 -- round ones",
+      "        -- the rest",
       "        Dot => 1",
     ));
   });
@@ -954,15 +954,15 @@ describe("an or-pattern's arm split", () => {
     const split = program(
       "export let g(s: Shape): Float =",
       "    match s",
-      "        Circle(_) as t => f(t) // either",
-      "        Square(_) as t => f(t) // either",
+      "        Circle(_) as t => f(t) -- either",
+      "        Square(_) as t => f(t) -- either",
       "        Dot => 0.0",
     );
     for (const pattern of ["(Circle(_) | Square(_) as t)", "((Circle(_) | Square(_)) as t)", "(Circle(_) | Square(_)) as t"]) {
       expect(rewritten(program(
         "export let g(s: Shape): Float =",
         "    match s",
-        `        ${pattern} ‸=> f(t) // either`,
+        `        ${pattern} ‸=> f(t) -- either`,
         "        Dot => 0.0",
       ), SPLIT_TITLE)).toBe(split);
     }
@@ -970,13 +970,13 @@ describe("an or-pattern's arm split", () => {
     expect(rewritten(program(
       "export let g(s: Shape): Float =",
       "    match s",
-      "        Circle(_) | Square(_) (* either *) as t (* the shape *) ‸=> f(t)",
+      "        Circle(_) | Square(_) {- either -} as t {- the shape -} ‸=> f(t)",
       "        Dot => 0.0",
     ), SPLIT_TITLE)).toBe(program(
       "export let g(s: Shape): Float =",
       "    match s",
-      "        Circle(_) (* either *) as t (* the shape *) => f(t)",
-      "        Square(_) (* either *) as t (* the shape *) => f(t)",
+      "        Circle(_) {- either -} as t {- the shape -} => f(t)",
+      "        Square(_) {- either -} as t {- the shape -} => f(t)",
       "        Dot => 0.0",
     ));
   });
@@ -1069,14 +1069,14 @@ describe("an or-pattern's arm split", () => {
     const split = program(
       "export let g(s: Shape): Int =",
       "    match s",
-      "        Circle(_) => 0 // or",
-      "        Square(_) => 0 // or",
+      "        Circle(_) => 0 -- or",
+      "        Square(_) => 0 -- or",
       "        Dot => 1",
     );
     expect(rewritten(program(
       "export let g(s: Shape): Int =",
       "    match s",
-      "        ‸Circle(_) | Square(_) => 0‸ // or",
+      "        ‸Circle(_) | Square(_) => 0‸ -- or",
       "        Dot => 1",
     ), SPLIT_TITLE)).toBe(split);
     // And no combine, though a neighbour shares its body: the selection touches one arm.
@@ -1089,11 +1089,11 @@ describe("an or-pattern's arm split", () => {
     expect(rewritten(program(
       "export let g(s: Shape): Int =",
       "    match s",
-      "‸        Circle(_) | Square(_) => 0 // or",
+      "‸        Circle(_) | Square(_) => 0 -- or",
       "‸        Dot => 1",
     ), SPLIT_TITLE)).toBe(split);
     // Not part of one, past its start or short of its end.
-    for (const arm of ["Circle(_) | ‸Square(_) => 0 // or‸", "‸Circle(_) | Square(_) => 0 // o‸r"]) {
+    for (const arm of ["Circle(_) | ‸Square(_) => 0 -- or‸", "‸Circle(_) | Square(_) => 0 -- o‸r"]) {
       expect(titles(program(
         "export let g(s: Shape): Int =",
         "    match s",
@@ -1107,18 +1107,18 @@ describe("an or-pattern's arm split", () => {
     expect(rewritten(program(
       "export let g(s: Shape): Float =",
       "    match s",
-      "        Circle(x) | Square(x) (* either *) ‸=>",
-      "            let y = x // the size",
+      "        Circle(x) | Square(x) {- either -} ‸=>",
+      "            let y = x -- the size",
       "            y",
       "        Dot => 0.0",
     ), SPLIT_TITLE)).toBe(program(
       "export let g(s: Shape): Float =",
       "    match s",
-      "        Circle(x) (* either *) =>",
-      "            let y = x // the size",
+      "        Circle(x) {- either -} =>",
+      "            let y = x -- the size",
       "            y",
-      "        Square(x) (* either *) =>",
-      "            let y = x // the size",
+      "        Square(x) {- either -} =>",
+      "            let y = x -- the size",
       "            y",
       "        Dot => 0.0",
     ));
@@ -1128,13 +1128,13 @@ describe("an or-pattern's arm split", () => {
     expect(rewritten(program(
       "export let g(s: Shape): Int =",
       "    match s",
-      "        Circle(_) | Square(_) ‸=> 0 // round or square",
+      "        Circle(_) | Square(_) ‸=> 0 -- round or square",
       "        Dot => 1",
     ), SPLIT_TITLE)).toBe(program(
       "export let g(s: Shape): Int =",
       "    match s",
-      "        Circle(_) => 0 // round or square",
-      "        Square(_) => 0 // round or square",
+      "        Circle(_) => 0 -- round or square",
+      "        Square(_) => 0 -- round or square",
       "        Dot => 1",
     ));
   });
@@ -1175,7 +1175,7 @@ describe("an arm split, refused or not offered", () => {
     expect(rewritten(program(
       "export let g(s: Shape): Int =",
       "    match s",
-      "        Circle(_) | (* or *) Square(_) ‸=> 0",
+      "        Circle(_) | {- or -} Square(_) ‸=> 0",
       "        Dot => 1",
     ), SPLIT_TITLE)).toBe("refused: A comment inside it would be lost. Move the comment out first.");
   });

@@ -264,10 +264,11 @@ describe("the zero-divisor guards moved with their bodies (§7)", () => {
     const exports = await runMain([
       "module Main",
       "",
-      "export let byDiv(): BigInt = BigInt.div(1n, 0n)",
-      "export let byMod(): BigInt = BigInt.mod(1n, 0n)",
-      "export let byQuot(): BigInt = BigInt.quot(1n, 0n)",
-      "export let byRem(): BigInt = BigInt.rem(1n, 0n)",
+      "let zero = 0n",
+      "export let byDiv(): BigInt = BigInt.div(1n, zero)",
+      "export let byMod(): BigInt = BigInt.mod(1n, zero)",
+      "export let byQuot(): BigInt = BigInt.quot(1n, zero)",
+      "export let byRem(): BigInt = BigInt.rem(1n, zero)",
       "",
     ].join("\n"));
 
@@ -306,7 +307,8 @@ describe("the zero-divisor guards moved with their bodies (§7)", () => {
     const exports = await runMain([
       "module Main",
       "",
-      "export let boom(): BigInt = BigInt.mod(9n, 0n)",
+      "let zero = 0n",
+      "export let boom(): BigInt = BigInt.mod(9n, zero)",
       "",
     ].join("\n"));
 
@@ -442,7 +444,7 @@ describe("the conversions (Primitive Types §6)", () => {
     const exports = await runMain([
       "module Main",
       "",
-      "// the boundary pair\n" +
+      "-- the boundary pair\n" +
       "export let largest: Float = BigInt.toFloat(2n ** 1024 - 2n ** 971)",
       "export let boom(): Float = BigInt.toFloat(2n ** 1024 - 2n ** 970)",
       "export let negativeBoom(): Float = BigInt.toFloat(-(2n ** 1024 - 2n ** 970))",
@@ -473,7 +475,7 @@ describe("the conversions (Primitive Types §6)", () => {
       .find(({ source }) => source.path.endsWith("BigInt.hex"))!.declarations.text;
 
     expect(declarations).toContain(
-      "@throws {FloatRangeFault} when the correctly rounded answer would be an infinity\n",
+      "@throws {FloatRangeFault} when the integer is too large for any `Float`\n",
     );
   });
 });

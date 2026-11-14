@@ -14,12 +14,12 @@ export function forEachTypedItem(module: Typed.Module, visit: (item: Typed.Item)
 }
 
 /** Every expression of a module, in every item, nested ones included. */
-export function forEachTypedExpression(module: Typed.Module, visit: (expression: Typed.Expr) => void): void {
+export function forEachTypedExpression(module: Pick<Typed.Module, "items">, visit: (expression: Typed.Expr) => void): void {
   walk(module, () => {}, visit);
 }
 
 function walk(
-  module: Typed.Module,
+  module: Pick<Typed.Module, "items">,
   onItem: (item: Typed.Item) => void,
   onExpression: (expression: Typed.Expr) => void,
 ): void {
@@ -72,6 +72,7 @@ function walk(
       case "WidenNat":
       case "WidenInt":
       case "WidenBigInt":
+      case "WidenDec":
       case "Hash":
         visitExpression(expression.value);
         return;

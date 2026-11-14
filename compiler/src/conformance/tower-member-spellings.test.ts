@@ -32,8 +32,9 @@
  *    value, every other spelling produces that lowering *verbatim*. The check is
  *    one text per operation across its spellings, and one value.
  *
- * `Rat` is not a prelude module, so every `Rat` fixture is a two-file project —
- * which is also the object-representation control for part 4.
+ * `Rat` is the object-representation control for part 4. It is a prelude
+ * module since #1542, and its fixtures still write `import Rat`, which binds
+ * nothing new.
  *
  * Every graph that executes here is byte-distinct: emitted modules mount as
  * `data:` URLs cached by their full text, so two tests compiling the same
@@ -43,19 +44,6 @@
 import { describe, expect, test } from "vitest";
 
 import { compileFiles, projectDiagnostics, runProject } from "../support/test-project.js";
-
-const STDLIB = import.meta.glob("../../../stdlib/*.hex", {
-  eager: true,
-  query: "?raw",
-  import: "default",
-}) as Record<string, string>;
-
-/** `stdlib/Rat.hex`, the nominal home §14(t)'s and §14(u)'s `Rat` rows name. */
-const RAT = (() => {
-  const entry = Object.entries(STDLIB).find(([path]) => path.endsWith("/Rat.hex"));
-  if (entry === undefined) throw new Error("no stdlib/Rat.hex");
-  return entry[1];
-})();
 
 /** §14(t)'s and §14(u)'s fixtures, and Numeric Literals §5.1's. */
 const fixtures = "let i: Int = 6\n" +
@@ -97,10 +85,14 @@ function probeLine(source: string): string {
   return line.trim();
 }
 
+/**
+ * `Rat` is the prelude's since #1542, so `import Rat` reaches it and binds
+ * nothing new: the project needs no copy of `stdlib/Rat.hex`, whose module of
+ * the same name would be a second `Rat` beside the prelude's.
+ */
 function withRat(source: string): readonly (readonly [string, string])[] {
   return [
     ["/main.hex", "module Main\n\n" + `import Rat\n${fixtures}${source}`],
-    ["/Rat.hex", RAT],
   ];
 }
 
@@ -144,7 +136,7 @@ describe("§14(t): the five spellings of a tower member are one call", () => {
     // other three did not, so the silent overflow had three spellings to hide
     // in. All four now run at `BigInt`.
     const exports = await runProject([["/main.hex",
-      "module Main\n\n" + "// the lift, spelled four ways\n" +
+      "module Main\n\n" + "-- the lift, spelled four ways\n" +
       "let large: Int = 9007199254740991\n" +
       "let two: Int = 2\n" +
       "export let operator: BigInt = large + two\n" +
@@ -166,7 +158,7 @@ describe("§14(t): the five spellings of a tower member are one call", () => {
     // and injected the quotient; the shape is the pin, and the run is here to
     // say the shape is a program.
     const exports = await runProject([["/main.hex",
-      "module Main\n\n" + "// Integral under the lift\n" +
+      "module Main\n\n" + "-- Integral under the lift\n" +
       "let large: Int = 9007199254740991\n" +
       "let two: Int = 2\n" +
       "export let qualified: BigInt = Integral.div(large, two)\n" +
@@ -366,7 +358,7 @@ describe("§14(v): the receiver seat, and §5.1's stand-down", () => {
 
   test("the dot chain lifts as the operator chain and the pipe do", async () => {
     const exports = await runProject([["/main.hex",
-      "module Main\n\n" + "// the receiver seat\n" +
+      "module Main\n\n" + "-- the receiver seat\n" +
       "let x: Int = 9007199254740991\n" +
       "let y: Int = 2\n" +
       "let z: Int = 3\n" +
@@ -398,7 +390,7 @@ describe("§14(v): the receiver seat, and §5.1's stand-down", () => {
     // reciprocal power where `Pow<Int>`'s guard used to throw — the dot
     // converging on `let x: Float = 2 ** negOne`.
     const exports = await runProject([["/main.hex",
-      "module Main\n\n" + "// the guard flip\n" +
+      "module Main\n\n" + "-- the guard flip\n" +
       "let i: Int = 1\n" +
       "let j: Int = 1\n" +
       "let negOne: Int = -1\n" +
@@ -418,7 +410,7 @@ describe("§14(v): the receiver seat, and §5.1's stand-down", () => {
     // erases: `Integral<Int>`'s `rem` throws on a zero divisor where
     // `Float.hex`'s answers `NaN`.
     const exports = await runProject([["/main.hex",
-      "module Main\n\n" + "// the rung gate\n" +
+      "module Main\n\n" + "-- the rung gate\n" +
       "let i: Int = 7\n" +
       "let j: Int = 1\n" +
       "let k: Int = 3\n" +
@@ -1535,7 +1527,7 @@ describe("§4.2's ownership clause and §9 row 15's rider", () => {
     // lifted `n.subtract(m)` would have no dot spelling at all. The value is the
     // pin — a difference that leaves `Nat`.
     const exports = await runProject([["/main.hex",
-      "module Main\n\n" + "// ownership at Nat\n" +
+      "module Main\n\n" + "-- ownership at Nat\n" +
       "let small: Nat = 2\n" +
       "let large: Nat = 7\n" +
       "export let dotted: Int = small.subtract(large)\n" +
@@ -1690,7 +1682,7 @@ describe("§14(u): the operator's lowering, verbatim, in every spelling", () => 
   test("one text per operation across its spellings, and one value", async () => {
     // The check §8.1 asks for, run as a check rather than asserted.
     const exports = await runProject([["/main.hex",
-      "module Main\n\n" + "// one operation, five spellings\n" +
+      "module Main\n\n" + "-- one operation, five spellings\n" +
       "let left: Int = 6\n" +
       "let right: Int = 4\n" +
       "export let operator: Int = left + right\n" +

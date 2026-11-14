@@ -57,8 +57,8 @@ Bare literals still default to Int, because ordinary application arithmetic ofte
 needs subtraction:
 
 ```hexagon
-let ordinary = 3        // Int
-let counted: Nat = 3    // Nat
+let ordinary = 3        -- Int
+let counted: Nat = 3    -- Nat
 ```
 
 ## `Int`: the ordinary whole number
@@ -157,9 +157,9 @@ TypeScript type cannot preserve that distinction; both appear as `number`.
 When you deliberately want a whole-number `Int`, use a named rounding operation:
 
 ```hexagon
-3.7.floor()       // 3
-2.5.round()       // 2: an exact halfway value goes to the even integer
-3.5.round()       // 4
+3.7.floor()       -- 3
+2.5.round()       -- 2: an exact halfway value goes to the even integer
+3.5.round()       -- 4
 ```
 
 The result must fit in `Int`'s safe range; otherwise the operation throws
@@ -173,7 +173,7 @@ Suppose an order uses decimal prices. Start with exact decimal inputs:
 let price = 1.50d
 let quantity = 3
 let total = price * quantity
-let receipt = "Total: ${total}"  // "Total: 4.50"
+let receipt = "Total: ${total}"  -- "Total: 4.50"
 ```
 
 The `d` suffix chooses `Dec`. Its digits are read exactly, and it remembers how
@@ -189,9 +189,9 @@ Where the type is already known to be Dec, you can leave the suffix off. The dig
 are still read exactly:
 
 ```hexagon
-let price: Dec = 2.50                 // 2.50, two places
-let total = price * 1.15              // 2.8750: price is a Dec, so 1.15 is too
-let refund = price * -0.5             // -1.000
+let price: Dec = 2.50                 -- 2.50, two places
+let total = price * 1.15              -- 2.8750: price is a Dec, so 1.15 is too
+let refund = price * -0.5             -- -1.000
 ```
 
 The Dec type can be known from anywhere in the same expression, not only from the
@@ -201,8 +201,8 @@ operands does not matter:
 
 ```hexagon
 let quantity: Int = 3
-let owed = quantity * 1.5 * price     // 11.250: price makes the whole expression Dec
-let early = (quantity + 0.5) * price  // 8.750
+let owed = quantity * 1.5 * price     -- 11.250: price makes the whole expression Dec
+let early = (quantity + 0.5) * price  -- 8.750
 ```
 
 With no Dec anywhere in the expression, a decimal literal is a Float, as `surprising`
@@ -216,9 +216,9 @@ is read this way; a Float value never quietly becomes a Dec.
 Addition and subtraction retain the larger operand's decimal-place count:
 
 ```hexagon
-1.50d + 2.005d  // 3.505
-1.50d - 1.50d   // 0.00
-0.1d + 0.2d    // 0.3, exactly
+1.50d + 2.005d  -- 3.505
+1.50d - 1.50d   -- 0.00
+0.1d + 0.2d    -- 0.3, exactly
 ```
 
 Multiplication adds the counts. Internally, a Dec stores an arbitrary-precision
@@ -227,8 +227,8 @@ and `2.00d` is `200` divided by `100`. Multiplying the coefficients gives `30000
 multiplying the denominators gives `10000`. The result therefore has four places:
 
 ```hexagon
-1.50d * 2.00d  // 3.0000
-1.50d * 2     // 3.00
+1.50d * 2.00d  -- 3.0000
+1.50d * 2     -- 3.00
 ```
 
 An established `Nat`, `Int`, or `BigInt` can enter Dec exactly at zero decimal
@@ -238,8 +238,8 @@ rounds the float's stored binary value once, so it cannot recover digits the flo
 never held:
 
 ```hexagon
-Dec.fromFloat(0.1 + 0.2, 2)   // 0.30
-Dec.fromFloat(2.675, 2)       // 2.67: the nearest double is just below 2.675
+Dec.fromFloat(0.1 + 0.2, 2)   -- 0.30
+Dec.fromFloat(2.675, 2)       -- 2.67: the nearest double is just below 2.675
 ```
 
 Prefer exact inputs where you have them, and use this door for results that were
@@ -248,9 +248,9 @@ honestly approximate, such as a rate computed in `Float`.
 Retained places affect display, while equality and ordering compare numbers:
 
 ```hexagon
-1.50d == 1.500d          // True
-1.50d.show()             // "1.50"
-1.500d.show()            // "1.500"
+1.50d == 1.500d          -- True
+1.50d.show()             -- "1.50"
+1.500d.show()            -- "1.500"
 ```
 
 When retained places matter too, use `same`: `1.50d.same(1.500d)` is `False`,
@@ -267,11 +267,11 @@ finite exact decimal expansion. Dec has no `/` operator. Choose the result's
 places explicitly:
 
 ```hexagon
-1d.divide(3d, 2)                 // 0.33
-1d.divide(8d, 2)                 // 0.13
-1d.divideEven(8d, 2)             // 0.12
-(4.50d * 0.15d).withPlaces(2)    // 0.68
-1.245d.withPlaces(2)              // 1.25
+1d.divide(3d, 2)                 -- 0.33
+1d.divide(8d, 2)                 -- 0.13
+1d.divideEven(8d, 2)             -- 0.12
+(4.50d * 0.15d).withPlaces(2)    -- 0.68
+1.245d.withPlaces(2)              -- 1.25
 ```
 
 These operations round once from the exact answer and retain exactly the requested
@@ -288,8 +288,8 @@ rounding most invoices and tax rules use. Finance does not agree on one rule, so
 check which one your calculation calls for:
 
 ```hexagon
-2.5.round()       // 2
-2.5d.round()      // 3n
+2.5.round()       -- 2
+2.5d.round()      -- 3n
 ```
 
 Dec returns a `BigInt`, so large whole-number results stay exact. When a calculation
@@ -485,8 +485,10 @@ let oneThird = Rat.create(1, 3)
 ```
 
 Both arguments are pinned by `Rat.create`'s BigInt parameters, so the emitted JavaScript
-is `Rat.create(1n, 3n)`. The suffix communicates a type decision; it need not repeat one
-the surrounding program has already made.
+passes `1n` and `3n`. The suffix communicates a type decision; it need not repeat one
+the surrounding program has already made. (`Rat` is the exact fraction type, and
+`Rat.create` is the function underneath the fraction operator: the next chapter
+writes this value as `1 // 3`.)
 
 The suffix is a visible decision. `BigInt` is valuable, but it is not a drop-in
 replacement for JavaScript's ordinary numbers: many web APIs expect `number`, JSON
@@ -496,18 +498,17 @@ serialization does not accept `bigint` by default, and JavaScript itself rejects
 ```hexagon
 let small = 3
 let large = 3n
-let total = small + large  // 6n: small enters BigInt exactly
+let total = small + large  -- 6n: small enters BigInt exactly
 ```
 
 An established `Rat` destination can likewise accept a BigInt without losing any
 integer digits:
 
 ```hexagon
-import Rat
 let count = 9_007_199_254_740_993n
 let exact: Rat = count
-let half = count * Rat.create(1, 2)
-let tenth: Rat = 0.1  // exactly 1/10, read from the written digits
+let half = count * 1 // 2
+let tenth: Rat = 0.1  -- exactly 1/10, read from the written digits
 ```
 
 This friendliness has a boundary. BigInt does not implicitly enter Float, and

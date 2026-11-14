@@ -38,13 +38,13 @@ export let dropLast(values: Vector(a)): Vector(a) =
 Examples of the proposed behaviour:
 
 ```hexagon
-[10, 20, 30, 40].dropFirstN(2) // [30, 40]
-[10, 20, 30, 40].dropLastN(2)  // [10, 20]
-[10, 20].dropFirstN(0)        // [10, 20]
-[10, 20].dropLastN(-3)        // [10, 20]
-[10, 20].dropFirstN(2)        // []
-[10, 20].dropLastN(20)        // []
-[].dropFirstN(3)             // []
+[10, 20, 30, 40].dropFirstN(2) -- [30, 40]
+[10, 20, 30, 40].dropLastN(2)  -- [10, 20]
+[10, 20].dropFirstN(0)        -- [10, 20]
+[10, 20].dropLastN(-3)        -- [10, 20]
+[10, 20].dropFirstN(2)        -- []
+[10, 20].dropLastN(20)        -- []
+[].dropFirstN(3)             -- []
 ```
 
 Slicing remains the operation for selecting a window between positions. Named

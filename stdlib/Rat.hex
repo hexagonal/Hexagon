@@ -1,23 +1,28 @@
 module Rat
 
-(** An exact rational number: a canonical pair of `BigInt` top and bottom,
-    always reduced, the bottom always positive. *)
+{-- An exact fraction, such as two thirds, kept as two integers: a top and a
+    bottom. Where a `Float` rounds a third to `0.3333333333333333`, a `Rat`
+    holds it exactly. A fraction is always kept in its simplest form with a
+    positive bottom, so six over four is kept as three over two, and a negative
+    fraction has its sign on the top. -}
 opaque record Rat derives (Eq, Hash) = {
     top: BigInt,
     bottom: BigInt,
 }
 
-// `DivideByZeroFault` is `Integral.hex`'s, in scope through the prelude: one
-// declaration for every type whose division is partial, rather than one per
-// honoring module (#344).
+-- `DivideByZeroFault` is `Integral.hex`'s, in scope through the prelude: one
+-- declaration for every type whose division is partial, rather than one per
+-- honoring module (#344).
 
-(** The rational `top`/`bottom`, reduced to canonical form with any sign carried
-    by the top. Throws `DivideByZeroFault` when `bottom` is zero. *)
+{-- The fraction `top` over `bottom`, in its simplest form:\
+    `Rat.create(6, 4)` is three over two, and shows as `"3/2"`.\
+    A negative `bottom` moves its sign to the top. Throws `DivideByZeroFault`
+    when `bottom` is zero. -}
 export let create(top: BigInt, bottom: BigInt): Rat =
     if bottom == 0 then
         throw(DivideByZeroFault("Rat.create: bottom is zero"))
     else
-        // gcd uses Euclidean modulus internally after normalizing both operands.
+        -- gcd uses Euclidean modulus internally after normalizing both operands.
         let divisor = top.gcd(bottom)
         let reducedTop = top.quot(divisor)
         let reducedBottom = bottom.quot(divisor)
@@ -26,27 +31,31 @@ export let create(top: BigInt, bottom: BigInt): Rat =
         else
             Rat({top = reducedTop, bottom = reducedBottom})
 
-(** The canonical numerator of `value` — reduced, and carrying the sign. *)
+{-- The top of the fraction in its simplest form. The top carries the sign:\
+    `Rat.create(6, -4).top()` is `-3n`. -}
 export let top(value: Rat): BigInt = value.top
 
-(** The canonical denominator of `value` — reduced, always positive. *)
+{-- The bottom of the fraction in its simplest form. It is always positive:\
+    `Rat.create(6, -4).bottom()` is `2n`. -}
 export let bottom(value: Rat): BigInt = value.bottom
 
-(** The canonical numerator and denominator of a rational. Building through
-    this pattern reduces the pair and keeps the denominator positive.
-    Rebuilding a rational from these components preserves its value. Throws
-    `DivideByZeroFault` when the bottom is zero. *)
-export pattern rat(top: BigInt, bottom: BigInt): Rat
+-- The pattern `//` builds and takes a fraction apart with (Operators §6.4,
+-- Pattern Matching §2.10). It is no export, and no spelling names it: the
+-- compiler reaches it by identity, which is how `1 // 3` is the prelude's
+-- fraction in every module. A side of a `//` pattern sees the simplest form.
+pattern fraction(top: BigInt, bottom: BigInt): Rat
     view(value) = (top(value), bottom(value))
     build = create
 
-(** The reciprocal of `value`, exactly. Throws `DivideByZeroFault` when `value`
-    is zero. *)
+{-- The fraction turned upside down, so two thirds gives three over two:\
+    `Rat.create(2, 3).reciprocal()` is `Rat.create(3, 2)`.\
+    Throws `DivideByZeroFault` when the fraction is zero. -}
 export let reciprocal(value: Rat): Rat = create(value.bottom, value.top)
 
 honor Ord<Rat> =
-    (** How `left` orders against `right`, by exact cross-multiplication —
-        nothing converts to `Float`, even internally. *)
+    {-- Which of `left` and `right` is smaller: `Less` when `left` is smaller,
+        `Greater` when `left` is larger, and `Equal` when they are the same
+        number. The comparison is exact. -}
     compare(left, right) =
         let leftProduct = left.top * right.bottom
         let rightProduct = right.top * left.bottom
@@ -58,68 +67,81 @@ honor Ord<Rat> =
             Ordering.Equal
 
 honor Show<Rat> =
-    (** `value` as `top/bottom`, the `/1` included, so the representation stays
-        visible. *)
+    {-- The fraction as text: its top, then `/`, then its bottom. A whole number
+        keeps its bottom:\
+        `Rat.create(4, 2).show()` is `"2/1"`. -}
     show(value) = "${value.top}/${value.bottom}"
 
-// A whole number as a `Rat`, over one. `fromNat`, `fromInt` and `fromBigInt` all
-// start here, so no rung of the tower borrows from the rung above it.
+-- A whole number as a `Rat`, over one. `fromNat`, `fromInt` and `fromBigInt` all
+-- start here, so no rung of the tower borrows from the rung above it.
 let fromWhole(value: BigInt): Rat = create(value, 1n)
 
 honor Num<Rat> =
-    (** The sum of `left` and `right`, exactly. *)
+    {-- `left` plus `right`, always exact. -}
     add(left, right) =
         create(
             left.top * right.bottom + right.top * left.bottom,
             left.bottom * right.bottom
         )
-    (** The product of `left` and `right`, exactly. *)
+    {-- `left` times `right`, always exact. -}
     multiply(left, right) =
         create(left.top * right.top, left.bottom * right.bottom)
-    (** The natural number `value` as a `Rat` — `value` over `1`. Total and
-        exact. *)
+    {-- `value` as a fraction, which is `value` over 1. It never fails. -}
     fromNat(value) = fromWhole(BigInt.fromNat(value))
 
 honor Signed<Rat> =
-    (** The difference of `left` and `right`, exactly. *)
+    {-- `left` minus `right`, always exact. -}
     subtract(left, right) =
         create(
             left.top * right.bottom - right.top * left.bottom,
             left.bottom * right.bottom
         )
-    (** The additive inverse of `value`. *)
+    {-- The fraction with its sign changed. -}
     negate(value) = Rat({top = -value.top, bottom = value.bottom})
-    (** The integer `value` as a `Rat` — `value` over `1`. Total and exact. *)
+    {-- `value` as a fraction, which is `value` over 1. It never fails. -}
     fromInt(value) = fromWhole(BigInt.fromInt(value))
 
 honor FromBigInt<Rat> =
-    (** The integer `value` as a rational over one. *)
+    {-- `value` as a fraction, which is `value` over 1. It never fails. -}
     fromBigInt(value) = fromWhole(value)
 
+honor FromDec<Rat> =
+    {-- `value` as a fraction, exactly:\
+        `Rat.fromDec(1.50d)` is `3 // 2`.\
+        A fraction has no decimal places, so the number of places `value` had
+        is not kept. It never fails. -}
+    fromDec(value) =
+        if value.unscaled() == 0 then
+            create(0n, 1n)
+        else
+            create(value.unscaled(), 10n ** value.places())
+
 honor Frac<Rat> =
-    (** The quotient of `left` and `right`, exactly. Throws `DivideByZeroFault`
-        when `right` is zero. *)
+    {-- `left` divided by `right`, always exact, which is what `/` gives. Throws
+        `DivideByZeroFault` when `right` is zero. -}
     divide(left, right) =
         if right.top == 0 then
             throw(DivideByZeroFault("Rat.divide: divisor is zero"))
         else
             create(left.top * right.bottom, left.bottom * right.top)
 
-// Nothing guards here. The exponent's integrality is the seat's *type* (#541),
-// so the only partiality left is the zero base a negative exponent inverts, and
-// that one belongs to `create`.
+-- Nothing guards here. The exponent's integrality is the seat's *type* (#541),
+-- so the only partiality left is the zero base a negative exponent inverts, and
+-- that one belongs to `create`.
 honor Pow<Rat> =
-    (** `value` raised to the power `exponent`, exactly, at either sign. A
-        negative exponent inverts the base first, so `pow(2/3, -2)` is exactly
-        `9/4`; a zero base inverted that way reaches `DivideByZeroFault` through
-        `create`, minting no message of its own. *)
+    {-- The fraction raised to the power `exponent`, always exact, which is
+        what `**` gives. A negative `exponent` turns the fraction upside down
+        first:\
+        `Rat.create(2, 3).pow(-2)` is `Rat.create(9, 4)`.\
+        Throws `DivideByZeroFault` when the fraction is zero and `exponent` is
+        negative. -}
     pow(value, exponent) =
-        // `reciprocal` routes through `create`, which is where a zero base
-        // reports.
+        -- `reciprocal` routes through `create`, which is where a zero base
+        -- reports.
         let base = if exponent < 0 then reciprocal(value) else value
         let magnitude = exponent.abs()
-        // A reduced pair stays reduced under powers and a canonical bottom
-        // is positive, so the invariant survives the raw constructor.
+        -- A reduced pair stays reduced under powers and a canonical bottom
+        -- is positive, so the invariant survives the raw constructor.
         Rat({
             top = base.top.pow(magnitude),
             bottom = base.bottom.pow(magnitude),
@@ -136,17 +158,9 @@ honor Real<Rat> =
         else
             Sign.Positive
 
-(** The exact numerical value of `decimal` as a reduced rational. Retained
-    decimal places are presentation and do not survive this conversion. *)
-export let fromDec(decimal: Dec): Rat =
-    if decimal.unscaled() == 0 then
-        create(0n, 1n)
-    else
-        create(decimal.unscaled(), 10n ** decimal.places())
-
-// `Dec`'s own division already rounds an exact quotient once to requested
-// places; a rational is that quotient. Only the places check stays here, so its
-// message names this door.
+-- `Dec`'s own division already rounds an exact quotient once to requested
+-- places; a rational is that quotient. Only the places check stays here, so its
+-- message names this door.
 let roundedDecimal(value: Rat, requested: Int, even: Bool, operation: String): Dec =
     if requested < 0 then
         throw(Dec.NegativeDecimalPlacesFault("${operation}: decimal places cannot be negative"))
@@ -158,31 +172,86 @@ let roundedDecimal(value: Rat, requested: Int, even: Bool, operation: String): D
         else
             Dec.divide(dividend, divisor, requested)
 
-(** `value` rounded once to exactly `places`, ties away from zero. *)
+{-- The fraction as a decimal with `places` digits after the point, rounded to
+    the nearest, with a half rounded away from zero:\
+    `Rat.create(1, 3).toDec(4)` is `0.3333d`.\
+    To round a half to the even digit, use `toDecEven`. Throws
+    `NegativeDecimalPlacesFault` when `places` is negative. -}
 export let toDec(value: Rat, places: Int): Dec =
     roundedDecimal(value, places, False, "Rat.toDec")
 
-(** `value` rounded once to exactly `places`, ties to even. *)
+{-- The fraction as a decimal with `places` digits after the point, rounded to
+    the nearest, with a half rounded so that its last digit is even:\
+    `Rat.create(1, 8).toDecEven(2)` is `0.12d`, where `toDec` gives `0.13d`.\
+    Throws `NegativeDecimalPlacesFault` when `places` is negative. -}
 export let toDecEven(value: Rat, places: Int): Dec =
     roundedDecimal(value, places, True, "Rat.toDecEven")
 
-// -- `toFloat`, and the exact integer arithmetic the single rounding needs. --
-//
-// `FloatRangeFault` is `Float.hex`'s, in scope through the prelude: the range
-// that fails belongs to `Float`, not to any one door into it.
-//
-// The language has no shift operator, so every shift below is `2 ** k` at
-// `BigInt`, exact by `Pow<BigInt>` — a `BigInt` base under an `Int` exponent,
-// which is the shape the member has (#541). Every exponent and scale here is an
-// `Int` counter for that reason: the magnitudes stay under about 1100, far
-// inside the safe range, and the only thing that ever needs to be a `BigInt` is
-// the value being shifted. Nothing crosses into `Float` until the final
-// assembly, which is why the rounding happens once.
+-- The nearest integer to `top / bottom`, for a positive `bottom`: a half goes
+-- away from zero, or to the even integer when `even` is set.
+let roundedWhole(value: Rat, even: Bool): BigInt =
+    let magnitude = value.top.abs()
+    let quotient = magnitude.quot(value.bottom)
+    let twiceRemainder = magnitude.rem(value.bottom) * 2
+    let rounded =
+        if twiceRemainder > value.bottom then
+            quotient + 1
+        else if twiceRemainder < value.bottom then
+            quotient
+        else if even and quotient.rem(2) == 0 then
+            quotient
+        else
+            quotient + 1
+    if value.top < 0 then -rounded else rounded
 
-// The number of binary digits in a positive `value`: the unique `n` with
-// `2 ** (n - 1) <= value < 2 ** n`. A doubling search finds a bound and a
-// bisection closes on it, so the cost is logarithmic in the answer rather than
-// linear in it — the exponents here reach into the thousands.
+{-- The nearest integer to the fraction, as a `BigInt`. A fraction exactly
+    halfway between two integers goes to the one further from zero:\
+    `(5 // 2).round()` is `3n`, and `(-5 // 2).round()` is `-3n`.\
+    To send a half to the even integer, use `roundEven`. To keep some decimal
+    places, use `toDec`. -}
+export let round(value: Rat): BigInt = roundedWhole(value, False)
+
+{-- The nearest integer to the fraction, as a `BigInt`. A fraction exactly
+    halfway between two integers goes to the even one:\
+    `(5 // 2).roundEven()` is `2n`, and `(7 // 2).roundEven()` is `4n`. -}
+export let roundEven(value: Rat): BigInt = roundedWhole(value, True)
+
+{-- The fraction as a `BigInt` with its fractional part dropped, which rounds
+    toward zero:\
+    `(-8 // 3).trunc()` is `-2n`. -}
+export let trunc(value: Rat): BigInt = value.top.quot(value.bottom)
+
+{-- The fraction rounded down to a `BigInt`, which is the nearest integer that
+    is not greater:\
+    `(-5 // 2).floor()` is `-3n`. -}
+export let floor(value: Rat): BigInt =
+    let truncated = value.top.quot(value.bottom)
+    if value.top < 0 and value.top.rem(value.bottom) != 0 then truncated - 1 else truncated
+
+{-- The fraction rounded up to a `BigInt`, which is the nearest integer that is
+    not smaller:\
+    `(-5 // 2).ceil()` is `-2n`. -}
+export let ceil(value: Rat): BigInt =
+    let truncated = value.top.quot(value.bottom)
+    if value.top > 0 and value.top.rem(value.bottom) != 0 then truncated + 1 else truncated
+
+-- -- `toFloat`, and the exact integer arithmetic the single rounding needs. --
+--
+-- `FloatRangeFault` is `Float.hex`'s, in scope through the prelude: the range
+-- that fails belongs to `Float`, not to any one door into it.
+--
+-- The language has no shift operator, so every shift below is `2 ** k` at
+-- `BigInt`, exact by `Pow<BigInt>` — a `BigInt` base under an `Int` exponent,
+-- which is the shape the member has (#541). Every exponent and scale here is an
+-- `Int` counter for that reason: the magnitudes stay under about 1100, far
+-- inside the safe range, and the only thing that ever needs to be a `BigInt` is
+-- the value being shifted. Nothing crosses into `Float` until the final
+-- assembly, which is why the rounding happens once.
+
+-- The number of binary digits in a positive `value`: the unique `n` with
+-- `2 ** (n - 1) <= value < 2 ** n`. A doubling search finds a bound and a
+-- bisection closes on it, so the cost is logarithmic in the answer rather than
+-- linear in it — the exponents here reach into the thousands.
 let bitLength(value: BigInt): Int =
     var high: Int = 1
     while (2 ** high) <= value
@@ -196,27 +265,27 @@ let bitLength(value: BigInt): Int =
             high := middle
     high
 
-// The two halves of `numerator * 2 ** scale / denominator` kept as an exact
-// integer pair: a positive `scale` scales the top and a negative one the
-// bottom, so no shift is ever undone and no quotient is ever taken twice.
+-- The two halves of `numerator * 2 ** scale / denominator` kept as an exact
+-- integer pair: a positive `scale` scales the top and a negative one the
+-- bottom, so no shift is ever undone and no quotient is ever taken twice.
 let scaledTop(value: BigInt, scale: Int): BigInt =
     if scale > 0 then value * (2 ** scale) else value
 
 let scaledBottom(value: BigInt, scale: Int): BigInt =
     if scale < 0 then value * (2 ** (-scale)) else value
 
-// The `scale` at which `floor(numerator * 2 ** scale / denominator)` holds
-// exactly 53 binary digits — the width of a double's significand. The two digit
-// counts place the quotient within a factor of two, so the first guess is right
-// or exactly one too high, and one comparison settles which.
+-- The `scale` at which `floor(numerator * 2 ** scale / denominator)` holds
+-- exactly 53 binary digits — the width of a double's significand. The two digit
+-- counts place the quotient within a factor of two, so the first guess is right
+-- or exactly one too high, and one comparison settles which.
 let alignedScale(numerator: BigInt, denominator: BigInt): Int =
     let guess = 53 - (bitLength(numerator) - bitLength(denominator))
     let raw = scaledTop(numerator, guess).quot(scaledBottom(denominator, guess))
     if raw >= (2 ** 53) then guess - 1 else guess
 
-// The one rounding: the scaled quotient, carried up when the discarded
-// remainder is past half, and on an exact half only when carrying is what
-// leaves the significand even.
+-- The one rounding: the scaled quotient, carried up when the discarded
+-- remainder is past half, and on an exact half only when carrying is what
+-- leaves the significand even.
 let roundedSignificand(
     numerator: BigInt,
     denominator: BigInt,
@@ -234,15 +303,15 @@ let roundedSignificand(
         else
             quotient
 
-// `2 ** exponent` as a `Float`, exactly: a power of two inside the range is
-// among the values `BigInt.toFloat` never rounds.
+-- `2 ** exponent` as a `Float`, exactly: a power of two inside the range is
+-- among the values `BigInt.toFloat` never rounds.
 let powerOfTwo(exponent: Int): Float = (2n ** exponent).toFloat()
 
-// `significand * 2 ** -scale` as a `Float`, exactly. The significand holds at
-// most 53 bits, so it crosses exactly; the power is applied in two halves
-// because one whole factor would leave the range at either end — `2 ** 1074`
-// overflows and `2 ** -1074` is the smallest subnormal, whose product would
-// round a second time — while both halved intermediates stay normal.
+-- `significand * 2 ** -scale` as a `Float`, exactly. The significand holds at
+-- most 53 bits, so it crosses exactly; the power is applied in two halves
+-- because one whole factor would leave the range at either end — `2 ** 1074`
+-- overflows and `2 ** -1074` is the smallest subnormal, whose product would
+-- round a second time — while both halved intermediates stay normal.
 let assemble(significand: BigInt, scale: Int): Float =
     let value = significand.toFloat()
     if scale >= 0 then
@@ -253,10 +322,10 @@ let assemble(significand: BigInt, scale: Int): Float =
         let half = magnitude.quot(2)
         value * powerOfTwo(half) * powerOfTwo(magnitude - half)
 
-(** `value` as the nearest `Float` — correctly rounded, ties to even, and
-    rounded exactly once. Throws `FloatRangeFault` when the honest answer would
-    not be an approximation at all: past `Float`'s finite range, or a nonzero
-    rational that would erase to zero. *)
+{-- The fraction as a `Float`, the closest one to it:\
+    `Rat.create(1, 3).toFloat()` is `0.3333333333333333`.\
+    Throws `FloatRangeFault` when the fraction is too large for a `Float`, or is
+    not zero but too close to zero for one. -}
 export let toFloat(value: Rat): Float =
     if value.top == 0 then
         0.0
@@ -265,30 +334,30 @@ export let toFloat(value: Rat): Float =
         let numerator = if negative then -value.top else value.top
         let denominator = value.bottom
         let aligned = alignedScale(numerator, denominator)
-        // Below `2 ** -1022` a double keeps fewer than 53 bits, on a grid fixed
-        // at `2 ** -1074`. Rounding to 53 bits and scaling down afterwards would
-        // round a second time on that coarser grid, so the retained width is cut
-        // *before* the single rounding rather than after it.
+        -- Below `2 ** -1022` a double keeps fewer than 53 bits, on a grid fixed
+        -- at `2 ** -1074`. Rounding to 53 bits and scaling down afterwards would
+        -- round a second time on that coarser grid, so the retained width is cut
+        -- *before* the single rounding rather than after it.
         let scale = if aligned > 1074 then 1074 else aligned
         let significand = roundedSignificand(numerator, denominator, scale)
-        // A carry out of the 53rd bit renormalizes; the value is unchanged.
+        -- A carry out of the 53rd bit renormalizes; the value is unchanged.
         let carried = significand == (2 ** 53)
         let bits = if carried then 2 ** 52 else significand
         let exponent = if carried then scale - 1 else scale
-        // The guard, one line and one message for both of its ends: the result
-        // must be finite, and nonzero when the input is nonzero. A `scale` below
-        // -971 puts a 53-bit significand at or past `2 ** 1024`.
+        -- The guard, one line and one message for both of its ends: the result
+        -- must be finite, and nonzero when the input is nonzero. A `scale` below
+        -- -971 puts a 53-bit significand at or past `2 ** 1024`.
         if bits == 0 or exponent < -971 then
             throw(FloatRangeFault("Rat.toFloat: value does not fit in Float"))
         else
             let assembled = assemble(bits, exponent)
             if negative then -assembled else assembled
 
-// `parse`'s message, worded, cut short and escaped as every numeric type's is
-// (`spec/numeric-parsing.md` §4). The prelude's parsers key the formatter, and
-// this module, ordinary source that the intrinsic door does not reach, writes
-// the same rule in Hexagon: past 40 code points the first 37 and `…`, and a
-// quote, a backslash or a control character (C0, DEL or C1) escaped.
+-- `parse`'s message, worded, cut short and escaped as every numeric type's is
+-- (`spec/numeric-parsing.md` §4). The prelude's parsers key the formatter, and
+-- this module, ordinary source that the intrinsic door does not reach, writes
+-- the same rule in Hexagon: past 40 code points the first 37 and `…`, and a
+-- quote, a backslash or a control character (C0, DEL or C1) escaped.
 let hexDigit(value: Int): String = "0123456789abcdef".dropFirstN(value).dropLastN(15 - value)
 
 let escaped(point: String): String =
@@ -301,8 +370,8 @@ let escaped(point: String): String =
         None => point
 
 let quoted(text: String): String =
-    // One pass that keeps only the first 37 code points, so a long text costs a
-    // count and never a copy.
+    -- One pass that keeps only the first 37 code points, so a long text costs a
+    -- count and never a copy.
     var count = 0
     var head = ""
     for point in text
@@ -316,19 +385,19 @@ let quoted(text: String): String =
 
 let notRat(text: String): Exn = NumberFormatError(quoted(text) ++ " is not a Rat")
 
-// A bottom is an integer without a sign: the sign is the top's.
+-- A bottom is an integer without a sign: the sign is the top's.
 let unsignedPart(part: String): Option(BigInt) =
     if part.startsWith("+") or part.startsWith("-") then None else BigInt.parse?(part)
 
-(** `text` read as a `Rat`: a top and a bottom, `top/bottom`, as `show` writes
-    them, or an integer alone, which is that integer over one. Each part is an
-    integer literal as `BigInt.parse` reads one; the sign, if any, is the
-    top's, and the bottom is not zero. The value is reduced, so `"6/4"` reads as
-    `3/2`, and `Rat.parse(show(r))` is `r` for every `r`.
-
-    Throws `NumberFormatError` for any other text, a zero bottom included. Read
-    it with `?` for an `Option`, or with `assume` where the text is known to be
-    good. *)
+{-- Reads `text` as a fraction:\
+    `Rat.parse^("6/4")` is `Rat.create(3, 2)`.\
+    The text is a top and a bottom with `/` between them, as `show` writes them,
+    or an integer alone, which reads as that integer over 1. Each part is
+    written as `BigInt.parse` reads an integer. Only the top may have a sign,
+    and the bottom may not be zero. Throws `NumberFormatError` when `text` is
+    not written that way. A call that may throw carries a mark:
+    `Rat.parse?(text)` gives `None` in place of throwing, and
+    `assume Rat.parse^(text)` is for text that is known to be good. -}
 export let parse(text: String): Rat = match text.split("/")
     [whole] => match BigInt.parse?(whole)
         Some(value) => create(value, 1n)

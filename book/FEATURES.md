@@ -27,7 +27,7 @@ open specification work does not make the book outline provisional.
 
 2. **Layout** — Indentation defines blocks; braces are records,
    not block delimiters. Semicolons can separate statements explicitly. Hexagon has
-   `//` line comments and nestable `(* ... *)` block comments, plus `(** ... *)`
+   `--` line comments and nestable `{- ... -}` block comments, plus `{-- ... -}`
    documentation comments that attach Markdown docs to declarations and flow to
    JSDoc in the generated JavaScript and `.d.ts`.
 

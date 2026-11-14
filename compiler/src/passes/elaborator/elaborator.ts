@@ -263,6 +263,14 @@ function elaborateExpr(expression: Typed.Expr): Core.Expr {
         type: expression.type,
         span: expression.span,
       };
+    case "WidenDec":
+      return {
+        kind: "WidenDec",
+        value: elaborateExpr(expression.value),
+        evidence: evidence(expression.requirement),
+        type: expression.type,
+        span: expression.span,
+      };
     case "String":
       return {
         ...expression,

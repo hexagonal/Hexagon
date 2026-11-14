@@ -7,16 +7,16 @@ export const specializations: PlaygroundExample = {
     "Inspect direct Num editions, then use contextual Int widening to buy some bananas.",
   source: `module Specializations
 
-// The typed parameters anchor the generic boundary; Num is inferred.
+-- The typed parameters anchor the generic boundary; Num is inferred.
 let plus(x: a, y: a) = x + y
 
-// Open the JS View menu to inspect each generated edition.
+-- Open the JS View menu to inspect each generated edition.
 Debug.log("\${plus(20, 22)}")
-// The integer literal 20 is instantiated as Float by the other argument.
+-- The integer literal 20 is instantiated as Float by the other argument.
 Debug.log("\${plus(20, 1.5)}")
 Debug.log("\${plus(10n, 20n)}")
 
-// Defaulting establishes Int; the decimal establishes Float.
+-- Defaulting establishes Int; the decimal establishes Float.
 let count = 3
 let cost = 1.50
 let total = count * cost

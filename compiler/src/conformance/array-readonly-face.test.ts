@@ -2,7 +2,6 @@ import { describe, expect, test } from "vitest";
 
 import {
   compileProject,
-  emitTypeScriptPreview,
   Source,
   type CompiledProject,
 } from "../index";
@@ -44,11 +43,6 @@ function module(source: string): CompiledProject["modules"][number] {
 /** The generated `.d.ts` text of a one-module program. */
 function declarations(source: string): string {
   return module(source).declarations.text;
-}
-
-/** The inspection-only preview text — the Playground's declarations pane. */
-function preview(source: string): string {
-  return emitTypeScriptPreview(module(source).core).text;
 }
 
 /** Every diagnostic of a single-module compile, as messages. */
@@ -229,14 +223,5 @@ describe("nothing but declaration text changes", () => {
     // outbound walk, and two each for `head` and `pass`, whose signatures name
     // `Array` at a parameter *and* at the result.
     expect(javascript.match(/__capture\(__capturePlans/gu)).toHaveLength(6);
-  });
-});
-
-describe("the inspection preview renders the same face", () => {
-  test("the Playground's declarations pane shows `ReadonlyArray<number>`", () => {
-    const text = preview(BORROWED);
-    expect(text).toContain("declare function rows(): ReadonlyArray<number>;");
-    expect(text).toContain("export declare const first: () => ReadonlyArray<number>;");
-    expect(text).not.toMatch(/(?<!Readonly)Array</);
   });
 });

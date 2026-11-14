@@ -110,9 +110,9 @@ describe("a field written as a pun", () => {
     expect(rewritten("let p = { x = x, y = y }‸", PUNS)).toBe("let p = { x, y }");
     expect(rewritten("let p = { r w‸ith x = x, y = y }", PUNS)).toBe("let p = { r with x, y }");
     expect(rewritten("let p = { ‸r with x = x, y = y }", PUNS)).toBe("let p = { r with x, y }");
-    expect(rewritten("let p = ‸{ x = x, (* keep *) y = y }", PUNS)).toBe("let p = { x, (* keep *) y }");
-    expect(rewritten(lines("let p = ‸{", "    x = x, // first", "    y = y", "}"), PUNS))
-      .toBe(lines("let p = {", "    x, // first", "    y", "}"));
+    expect(rewritten("let p = ‸{ x = x, {- keep -} y = y }", PUNS)).toBe("let p = { x, {- keep -} y }");
+    expect(rewritten(lines("let p = ‸{", "    x = x, -- first", "    y = y", "}"), PUNS))
+      .toBe(lines("let p = {", "    x, -- first", "    y", "}"));
   });
 
   test("from a caret at a field's first character, that field", () => {
@@ -146,7 +146,7 @@ describe("a field written as a pun", () => {
   });
 
   test("refused where a comment would be lost", () => {
-    expect(rewritten("let p = { x = (* the x *) x‸ }", pun("x")))
+    expect(rewritten("let p = { x = {- the x -} x‸ }", pun("x")))
       .toBe("refused: A comment inside it would be lost. Move the comment out first.");
   });
 

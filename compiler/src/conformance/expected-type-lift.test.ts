@@ -33,19 +33,6 @@ import { describe, expect, test } from "vitest";
 
 import { compileFiles, projectDiagnostics, runProject } from "../support/test-project.js";
 
-const STDLIB = import.meta.glob("../../../stdlib/*.hex", {
-  eager: true,
-  query: "?raw",
-  import: "default",
-}) as Record<string, string>;
-
-/** `stdlib/Rat.hex`, the nominal home §5.1 names throughout. */
-const RAT = (() => {
-  const entry = Object.entries(STDLIB).find(([path]) => path.endsWith("/Rat.hex"));
-  if (entry === undefined) throw new Error("no stdlib/Rat.hex");
-  return entry[1];
-})();
-
 /** §5.1's fixtures. */
 const fixtures = "let n: Nat = 7\n" +
   "let m: Nat = 2\n" +
@@ -61,8 +48,9 @@ function verdict(source: string): readonly string[] {
   return projectDiagnostics("module Main\n\n" + fixtures + source);
 }
 
+/** `Rat` is the prelude's since #1542; `import Rat` reaches it and binds nothing new. */
 function withRat(source: string): readonly (readonly [string, string])[] {
-  return [["/main.hex", "module Main\n\n" + `import Rat\n${fixtures}${source}`], ["/Rat.hex", RAT]];
+  return [["/main.hex", "module Main\n\n" + `import Rat\n${fixtures}${source}`]];
 }
 
 function ratVerdict(source: string): readonly string[] {
@@ -132,7 +120,7 @@ describe("observable exactness at a wider-than-f64 home", () => {
     // folds it to 2^53, and only then injects. The lift runs the addition at
     // `BigInt` and the value survives. This *is* the rule's reason.
     const exports = await runProject([["/main.hex",
-      "module Main\n\n" + "// exactness at BigInt\n" +
+      "module Main\n\n" + "-- exactness at BigInt\n" +
       "let large: Int = 9007199254740991\n" +
       "let two: Int = 2\n" +
       "export let lifted: BigInt = large + two\n" +
@@ -145,7 +133,7 @@ describe("observable exactness at a wider-than-f64 home", () => {
 
   test("a `Rat` sum is the home type's addition of injected operands", async () => {
     const exports = await runProject(withRat(
-      "// Rat home\n" +
+      "-- Rat home\n" +
       "export let r: String = \"${(count + count : Rat.Rat)}\"\n",
     ));
     expect(exports["r"]).toBe("6/1");
@@ -166,7 +154,7 @@ describe("the `Pow` home selection — the base seat alone (#541)", () => {
     // selection would have taken `Pow<Int>` and thrown. The exponent itself is
     // an `Int` in both readings — the member's seat is concrete.
     const exports = await runProject([["/main.hex",
-      "module Main\n\n" + "// Pow home\n" +
+      "module Main\n\n" + "-- Pow home\n" +
       "let negOne: Int = -1\n" +
       "export let x: Float = 2 ** negOne\n",
     ]]);
@@ -198,7 +186,7 @@ describe("the `Pow` home selection — the base seat alone (#541)", () => {
     // The whole right spine is `Int` arithmetic over one typed base, which is
     // what a tower of exponents means. `2 ** 3 ** 2` is 512, not 64.
     const exports = await runProject(withRat(
-      "// exponent tower\n" +
+      "-- exponent tower\n" +
       "let two: Int = 2\n" +
       "let three: Int = 3\n" +
       "export let tower: Int = two ** three ** two\n" +
@@ -227,7 +215,7 @@ describe("the `Pow` home selection — the base seat alone (#541)", () => {
     // the retired decline ran the power at `Int` and threw
     // `NegativeExponentFault`; a `Pow<Float>` leak would answer `0.25`.
     const exports = await runProject(withRat(
-      "// Rat power\n" +
+      "-- Rat power\n" +
       "let quarter: Rat.Rat = b ** negOne\n" +
       "export let top: BigInt = Rat.top(quarter)\n" +
       "export let bottom: BigInt = Rat.bottom(quarter)\n" +
@@ -243,7 +231,7 @@ describe("the `Pow` home selection — the base seat alone (#541)", () => {
     // a boundary, and it is what keeps every gated decline identical to the
     // ungated elaboration — the power runs at `Int` and the finished value
     // injects, exactly as §5.1 always read.
-    const nominal = "// gated decline\n" +
+    const nominal = "-- gated decline\n" +
       "opaque record Boxed = { inner: Int }\n" +
       "honor Num<Boxed> =\n" +
       "    add(left, right) = Boxed({inner = left.inner + right.inner})\n" +
@@ -305,7 +293,7 @@ describe("the recursion", () => {
     // An operand seat of a lifted operation expects the same type, so a whole
     // arithmetic expression runs at its written type.
     const exports = await runProject(withRat(
-      "// nested Rat\n" +
+      "-- nested Rat\n" +
       "export let r: String = \"${((a + b) * c : Rat.Rat)}\"\n",
     ));
     expect(exports["r"]).toBe("30/1");
@@ -321,7 +309,7 @@ describe("the recursion", () => {
     // outermost operation, the inner sum would elaborate at `Int` and the
     // finished, already-folded value would inject.
     const exports = await runProject([["/main.hex",
-      "module Main\n\n" + "// nested exactness\n" +
+      "module Main\n\n" + "-- nested exactness\n" +
       "let large: Int = 9007199254740991\n" +
       "let two: Int = 2\n" +
       "let unit: Int = 1\n" +

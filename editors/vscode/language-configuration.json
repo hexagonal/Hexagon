@@ -1,7 +1,7 @@
 {
   "comments": {
-    "lineComment": "//",
-    "blockComment": ["(*", "*)"]
+    "lineComment": "--",
+    "blockComment": ["{-", "-}"]
   },
   "brackets": [
     ["{", "}"],
@@ -12,17 +12,30 @@
     { "open": "{", "close": "}" },
     { "open": "[", "close": "]" },
     { "open": "(", "close": ")" },
-    { "open": "\"", "close": "\"", "notIn": ["string", "comment"] }
+    { "open": "\"", "close": "\"", "notIn": ["string", "comment"] },
+    { "open": "{-", "close": " -}", "notIn": ["string", "comment"] },
+    { "open": "${-", "close": "}" }
   ],
   "//autoClosingPairs": [
-    "No `(*` pair, unlike the JS spelling it replaced: `(` already auto-closes, so",
-    "typing `(` then `*` would leave `(* *))` with the first pair's `)` stranded.",
-    "Without it the same keystrokes work — `(` gives `()`, `*` gives `(*)`, and the",
-    "closing `)` types over the auto-inserted one — and Toggle Block Comment still",
-    "inserts the pair from `comments.blockComment` above.",
-    "The cost, stated rather than hidden: the old pair inserted ` */` immediately, so a",
-    "block comment was closed the moment it was opened. Now an author who opens one",
-    "leaves the file painted as a comment until they type the closer."
+    "Typing `{-` gives `{- | -}`, the caret before the space. `{` auto-closes first, to",
+    "`{|}`; at the `-`, VS Code (and Monaco) find the longer `{-` pair, see that the `}`",
+    "already after the caret is the close of the `{` pair it contains, and insert only",
+    "the rest of ` -}` (`_findContainedAutoClosingPair` in the editor's",
+    "cursorTypeEditOperations), so nothing is stranded. Leaving the pair out would be",
+    "worse than in the `(* *)` era this note used to defend: `{` then `-` would leave",
+    "`{-}`, which spec/comments.md §3 reads as an *unterminated* comment, and the rest",
+    "of the file would paint as one. One more `-` gives `{--| -}`, the doc opener, since",
+    "no pair ends in `-` after `{-`. The space in the close is the `{- note -}` house",
+    "spelling, as JavaScript's `/**` pair closes with ` */`. Not in strings or comments:",
+    "inside a block comment a nested `{-` is legal but usually commented-out code being",
+    "typed over, and in a line comment it is prose.",
+    "",
+    "The `${-` pair is a shim for the one place `{-` is not a comment: spec/comments.md",
+    "§3 gives the `{` of an interpolation's `${` to the string, so `\"${-x}\"` interpolates",
+    "`-x`. The editor takes the longest matching open, so at `${` the shim wins over",
+    "`{-`; its close is exactly the `{` pair's `}`, which the containment rule above",
+    "then subtracts, so typing the `-` inserts nothing else — `\"${-|}\"`, as if neither",
+    "pair existed. Without it the hole would gain ` -}` mid-expression."
   ],
   "surroundingPairs": [
     ["{", "}"],
@@ -59,25 +72,28 @@
   "onEnterRules": [
     {
       "//": [
-        "Keep doc comments aligned and closed. These fire on a line that *opens* a doc",
-        "comment and leaves it open — a closed one has nothing to continue — and the opener",
-        "they recognize is spec/doc-comments.md §2.1's, the same `(?![)*])` predicate the",
-        "grammar uses: §2.2's two carve-outs, the empty block comment `(**)` and the banner",
-        "openers `(***`, `(****…`, are not doc comments and are not continued as ones.",
-        "There is no `///` rule: §2.3 revoked that reservation unspent, so a `///` line is an",
-        "ordinary comment and Enter continues nothing."
+        "Lay out a doc comment the way spec/doc-comments.md §3.1 writes its multi-line",
+        "body: Enter on a line that *opens* a doc comment and leaves it open indents the",
+        "next line one level under the opener, and when the auto-closed ` -}` is right",
+        "after the caret it goes to a line of its own at the opener's column — so `{--|",
+        "-}` becomes the newline-first idiom, `{--` / indented body / `-}`. Lines inside",
+        "the body keep their indentation by VS Code's default, which is all the body needs;",
+        "the old rules' ` * ` continuation was OCaml's and JSDoc's convention, and §3.1's",
+        "dedent would keep a typed star as content, a stray Markdown list marker.",
+        "",
+        "The opener they recognize is spec/doc-comments.md §2.1's, the same `(?![-}])`",
+        "predicate the grammar uses: §2.2's carve-outs, the empty block comment `{--}` and",
+        "the banner openers `{---`, `{----…`, are not doc comments and are not laid out as",
+        "ones, and neither is `{-|`. A line comment is never documentation (§2.3), so no",
+        "rule continues a `--` or `---` run."
       ],
-      "beforeText": "^\\s*\\(\\*\\*(?![)*])([^*]|\\*(?!\\)))*$",
-      "afterText": "^\\s*\\*\\)$",
-      "action": { "indent": "indentOutdent", "appendText": " * " }
+      "beforeText": "^\\s*\\{--(?![-}])([^-]|-(?!\\}))*$",
+      "afterText": "^\\s*-\\}\\s*$",
+      "action": { "indent": "indentOutdent" }
     },
     {
-      "beforeText": "^\\s*\\(\\*\\*(?![)*])([^*]|\\*(?!\\)))*$",
-      "action": { "indent": "none", "appendText": " * " }
-    },
-    {
-      "beforeText": "^(\\t|[ ])*[ ]\\*([ ]([^*]|\\*(?!\\)))*)?$",
-      "action": { "indent": "none", "appendText": "* " }
+      "beforeText": "^\\s*\\{--(?![-}])([^-]|-(?!\\}))*$",
+      "action": { "indent": "indent" }
     }
   ]
 }

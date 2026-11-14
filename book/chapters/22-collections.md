@@ -44,8 +44,8 @@ Common operations follow the subject-first convention:
 
 ```hexagon
 let withCompass = Vector.append(supplies, "compass")
-let firstSupply = Vector.first(supplies)       // Option(String)
-let supplyCount = Vector.length(supplies)      // Int
+let firstSupply = Vector.first(supplies)       -- Option(String)
+let supplyCount = Vector.length(supplies)      -- Int
 ```
 
 The same calls may use the pipe or dot-call spellings already established:
@@ -157,8 +157,8 @@ returns the map it was given.
 Map access follows the same assertion-versus-possibility distinction as vectors:
 
 ```hexagon
-let miraScore = scores["Mira"]             // Int; may throw KeyError
-let visitorScore = Map.get(scores, "Ivo")  // Option(Int)
+let miraScore = scores["Mira"]             -- Int; may throw KeyError
+let visitorScore = Map.get(scores, "Ivo")  -- Option(Int)
 ```
 
 Brackets retrieve associated values. They never ask membership questions, and a `Set`

@@ -20,7 +20,7 @@ const SOURCE = `module Main
 
 export let vec(values: Array(Int)): Vector(Int) = Array.toVector(values)
 
-// The same elements built by prepending, so the trie's origin is not zero.
+-- The same elements built by prepending, so the trie's origin is not zero.
 export let prepended(values: Array(Int)): Vector(Int) =
     let forward = Array.toVector(values)
     var result: Vector(Int) = []
@@ -53,10 +53,10 @@ export let pSortUsing(values: Vector((Int, Int)), compare: ((Int, Int), (Int, In
 export let nSortUsing(values: Vector(Nullable(Int)), compare: (Nullable(Int), Nullable(Int)) ->! Ordering): Vector(Nullable(Int)) =
     values.sortUsing!(compare)
 
-// Descending, by swapping the comparator's arguments (§12.2).
+-- Descending, by swapping the comparator's arguments (§12.2).
 export let descending(values: Vector(Int)): Vector(Int) = values.sortUsing((a, b) => Ord.compare(b, a))
 
-// A comparator that sorts again (§12.5: each call has arrays of its own).
+-- A comparator that sorts again (§12.5: each call has arrays of its own).
 export let reentrant(values: Vector(Int)): Vector(Int) =
     values.sortUsing((a, b) => Ord.compare([a, 0].sort()[2], [b, 0].sort()[2]))
 `;

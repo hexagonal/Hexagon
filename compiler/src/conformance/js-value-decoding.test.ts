@@ -35,18 +35,18 @@ import { compileFiles, projectDiagnostics, runMain } from "../support/test-proje
  * a test that walked it would pin one.
  */
 const PROGRAM = "export let kindOf(v: JsValue): JsKind = JsValue.kind(v)\n" +
-  "// Each decoder throws a `JsConversionError` (#1427); `attempt` keeps its\n" +
-  "// outcome as a `Result`, which is what the JavaScript side reads.\n" +
+  "-- Each decoder throws a `JsConversionError` (#1427); `attempt` keeps its\n" +
+  "-- outcome as a `Result`, which is what the JavaScript side reads.\n" +
   "export let asInt(v: JsValue): Result(Int) = attempt JsValue.toInt^(v)\n" +
   "export let asFloat(v: JsValue): Result(Float) = attempt JsValue.toFloat^(v)\n" +
   "export let asBigInt(v: JsValue): Result(BigInt) = attempt JsValue.toBigInt^(v)\n" +
   "export let asBool(v: JsValue): Result(Bool) = attempt JsValue.toBool^(v)\n" +
   "export let asString(v: JsValue): Result(String) = attempt JsValue.toString^(v)\n" +
   "\n" +
-  "// The two projections of a failure a caller can make without naming a\n" +
-  "// representation: which reason, and how long the path is.\n" +
-  "// The reasons are matched qualified because `spec/ffi.md` §12's extension\n" +
-  "// (#511) makes them qualified-only; the arms are the same arms.\n" +
+  "-- The two projections of a failure a caller can make without naming a\n" +
+  "-- representation: which reason, and how long the path is.\n" +
+  "-- The reasons are matched qualified because `spec/ffi.md` §12's extension\n" +
+  "-- (#511) makes them qualified-only; the arms are the same arms.\n" +
   "let reasonOf(reason: JsConversionReason): String = match reason\n" +
   "    JsConversionReason.Shape => \"Shape\"\n" +
   "    JsConversionReason.Range => \"Range\"\n" +
@@ -573,7 +573,7 @@ describe("the bare namespace this slice narrows (Modules §5.5)", () => {
     ]);
     expect(projectDiagnostics("module Main\n\n" + "export let f(b: BigInt): Float = toFloat(b)\n")).toEqual([
       "no bare `toFloat`; write `b.toFloat()`, `BigInt.toFloat(b)`, `Dec.toFloat(b)`, " +
-      "or `JsValue.toFloat(b)`",
+      "`Rat.toFloat(b)`, or `JsValue.toFloat(b)`",
     ]);
   });
 

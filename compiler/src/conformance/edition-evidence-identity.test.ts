@@ -300,7 +300,7 @@ describe("the face emitters resolve nothing", () => {
       faceOnlyEditionInstances,
     );
 
-    // What the `.d.ts` and preview emitters read is the substituted scheme and
+    // What the `.d.ts` emitter reads is the substituted scheme and
     // the lambda's parameters; nothing under them is rendered, so nothing under
     // them is resolved — and nothing is invented in place of what was not.
     expect(replacedDictionaries(item.value, specialized.value, variable))

@@ -137,7 +137,7 @@ otherwise land on one.
 Module aliases are namespaces, not values:
 
 ```hexagon
-let saved = Geo // error: modules are not values
+let saved = Geo -- error: modules are not values
 ```
 
 They cannot be passed to a function, returned, or stored in a record. Functions and
@@ -332,7 +332,7 @@ see through.
 The compiler checks the claim against the representation, at the declaration:
 
 ```hexagon
-opaque record Sink(+a) = {accept: a -> Unit}   // error
+opaque record Sink(+a) = {accept: a -> Unit}   -- error
 ```
 
 > `a` cannot be declared covariant in `Sink`: field `accept` uses `a` in argument
@@ -363,6 +363,13 @@ export let smaller<a: Ord>(left: a, right: a): a =
     if left < right then left else right
 ```
 
+A function bound as a value may write its whole type on its name instead, and
+then the lambda needs no annotations of its own:
+
+```hexagon
+export let double: (Int) -> Int = (n) => n * 2
+```
+
 A value that *is* a constrained function writes its constraints too. An alias of
 one has no parameter list to hang a binder on, so the list goes on its name:
 
@@ -386,7 +393,7 @@ An exported function cannot mention a private nominal type:
 ```hexagon
 record Token = {text: String}
 
-export let parse(source: String): Token = ... // error
+export let parse(source: String): Token = ... -- error
 ```
 
 The caller could neither name nor use the result. Export `Token`, perhaps opaquely, or
@@ -400,7 +407,7 @@ as easily as in a signature:
 ```hexagon
 record Token = {text: String}
 
-export record Cursor = {at: Int, token: Token} // error, at the field
+export record Cursor = {at: Int, token: Token} -- error, at the field
 ```
 
 The compiler points at the mention itself — here the `token` field — and, here as in

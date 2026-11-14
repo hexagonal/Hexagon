@@ -263,8 +263,8 @@ describe("completions", () => {
   test("says nothing inside a block comment, and answers again after it", () => {
     // A closed block comment's span runs one past its `*)`, unlike a line
     // comment's, which stops at the newline. One bound cannot serve both.
-        expect(namesIn(["let value: Int = (* here ‸*)1", ""].join("\n"))).toEqual([]);
-    expect(namesIn(["let value: Int = (* here *)‸1", ""].join("\n"))).not.toEqual([]);
+        expect(namesIn(["let value: Int = {- here ‸-}1", ""].join("\n"))).toEqual([]);
+    expect(namesIn(["let value: Int = {- here -}‸1", ""].join("\n"))).not.toEqual([]);
   });
 
   test("stays quiet inside a block comment that has not been closed yet", () => {
@@ -272,16 +272,16 @@ describe("completions", () => {
     // because an unterminated comment runs to the end of the file. Bounding
     // every block exclusively pops the completion list on each keystroke — and
     // "is it a block?" is the wrong question: "was it closed?" is the right one.
-    expect(namesIn(["let value: Int = 1", "(* still typing‸", ""].join("\n"))).toEqual([]);
-    expect(namesIn(["let value: Int = 1", "(** doc in progress‸"].join("\n"))).toEqual([]);
-    // Block comments nest, so a text ending in `*)` is not proof of closure.
-    expect(namesIn(["let value: Int = 1", "(* outer (* inner *)‸"].join("\n"))).toEqual([]);
+    expect(namesIn(["let value: Int = 1", "{- still typing‸", ""].join("\n"))).toEqual([]);
+    expect(namesIn(["let value: Int = 1", "{-- doc in progress‸"].join("\n"))).toEqual([]);
+    // Block comments nest, so a text ending in `-}` is not proof of closure.
+    expect(namesIn(["let value: Int = 1", "{- outer {- inner -}‸"].join("\n"))).toEqual([]);
   });
 
   test("says nothing inside a comment", () => {
     // A comment cannot hold code. Strings are deliberately left alone: one can
     // hold an interpolation, where names do belong.
-    expect(namesIn(["let value: Int = 1", "// tint ‸", ""].join("\n"))).toEqual([]);
+    expect(namesIn(["let value: Int = 1", "-- tint ‸", ""].join("\n"))).toEqual([]);
   });
 
   test("the loop binder is not in scope inside the thing being iterated", () => {
@@ -324,23 +324,23 @@ describe("completions", () => {
    */
   describe("documentation", () => {
     const DOCUMENTED = [
-      "(** A colour. *)",
+      "{-- A colour. -}",
       "export union Colour =",
-      "    (** The warm one. *)",
+      "    {-- The warm one. -}",
       "    | Red",
       "",
-      "(** Brightens it. *)",
+      "{-- Brightens it. -}",
       "export let brighten(colour: Colour): Colour = colour",
       "",
       "export let plain(colour: Colour): Colour = colour",
       "",
-      "(** A box, sealed. *)",
+      "{-- A box, sealed. -}",
       "opaque record Box = { width: Int }",
       "",
       'extern from "node:fs"',
-      "    (** What the filesystem knows. *)",
+      "    {-- What the filesystem knows. -}",
       "    type Stats",
-      "    (** Reads the whole file. *)",
+      "    {-- Reads the whole file. -}",
       "    fun readFileSync as readFile(path: String) ->! String",
       "",
     ].join("\n");
@@ -389,7 +389,7 @@ describe("completions", () => {
       // carries the name any more. The declaring module's own documentation is
       // reached through the qualified offer below.
       const offered = documented(
-        'import Helper as H\n(** The local one. *)\nlet brighten = H.brighten\n\n' +
+        'import Helper as H\n{-- The local one. -}\nlet brighten = H.brighten\n\n' +
           "let probe: Int = ‸\n",
         { "/helper.hex": DOCUMENTED },
       );
@@ -434,12 +434,12 @@ function diagnosticsOf(marked: string): readonly string[] {
 describe("completions after a value's dot", () => {
   const POINT = [
     "export record Point derives (Eq, Show) = {",
-    "    (** How far across. *)",
+    "    {-- How far across. -}",
     "    x: Int,",
     "    y: Int,",
     "}",
     "",
-    "(** The sum of the two coordinates. *)",
+    "{-- The sum of the two coordinates. -}",
     "export fun norm(p: Point): Int = p.x + p.y",
     "",
     "export fun make(x: Int, y: Int): Point = Point({x, y})",

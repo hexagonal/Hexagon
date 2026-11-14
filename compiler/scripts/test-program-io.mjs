@@ -38,8 +38,8 @@ export let lines(count: Int): Unit =
     for n in 1..count
         Stdio.writeLine~("line \${n}")
 
-// A probe first, which makes Node switch a piped stdout to non-blocking, then
-// more than a pipe holds.
+-- A probe first, which makes Node switch a piped stdout to non-blocking, then
+-- more than a pipe holds.
 export let probeThenWrite(size: Int): Unit =
     Debug.log("probe")
     var text = "abcdefgh\\n"
@@ -57,7 +57,7 @@ export let setStatus(status: Int): Unit = Process.setExitStatus~(status)
 
 export let read(path: String): String = File.readText!(path)
 
-// One of the four writers, by number, refusing text with a lone surrogate.
+-- One of the four writers, by number, refusing text with a lone surrogate.
 export let guardedWrite(writer: Int, text: String): String =
     try
         match writer
@@ -69,7 +69,7 @@ export let guardedWrite(writer: Int, text: String): String =
     catch
         LoneSurrogateFault(_, position) => "refused at \${position}"
 
-// Standard input, written back as it was read (section 4.5).
+-- Standard input, written back as it was read (section 4.5).
 export let readAll(): Unit = Stdio.write~(Stdio.readText~())
 export let readAllLossy(): Unit = Stdio.write~(Stdio.readTextLossy~())
 export let readTwice(): Unit =

@@ -1,231 +1,231 @@
 module Set
 
-// The public Set companion over the runtime's hash array mapped trie.
+-- The public Set companion over the runtime's hash array mapped trie.
 
-// Eleven rows: the seven Collections Part 4 section 6.2 pins — construction,
-// the maintained size, the keyed trio, and the one traversal — one unexported
-// eighth the algebra needs, and the combinators' three walks, each documented at
-// its own lines. Everything below is ordinary Hexagon over them.
-//
-// Section 5.4's left-representative retention does **not** fall out of the
-// traversal side, and section 5.4 says so itself: the rule is deliberately
-// independent of which side section 2.2 lets an implementation walk. Here it is
-// free in one direction and arranged in the other, and the algebra block below
-// says which is which at each site.
-//
-// What these lower onto is one step further along than Map's. A `Set(a)` is not
-// the trie itself but a one-field wrapper record over it (#373): a trie value's
-// iterator yields key/value pairs, which is Map's published face, and a set's
-// published face is its elements. The wrapper also absorbs the unit value each
-// element is stored against, which no Hexagon source here ever has to mention.
-//
-// The type row declares `Set` itself (`spec/intrinsics.md` section 3.3): the
-// type is this module's own, its values are the wrapper records, and the `+` is
-// checked against `HashSet`'s variance here, at the row.
+-- Eleven rows: the seven Collections Part 4 section 6.2 pins — construction,
+-- the maintained size, the keyed trio, and the one traversal — one unexported
+-- eighth the algebra needs, and the combinators' three walks, each documented at
+-- its own lines. Everything below is ordinary Hexagon over them.
+--
+-- Section 5.4's left-representative retention does **not** fall out of the
+-- traversal side, and section 5.4 says so itself: the rule is deliberately
+-- independent of which side section 2.2 lets an implementation walk. Here it is
+-- free in one direction and arranged in the other, and the algebra block below
+-- says which is which at each site.
+--
+-- What these lower onto is one step further along than Map's. A `Set(a)` is not
+-- the trie itself but a one-field wrapper record over it (#373): a trie value's
+-- iterator yields key/value pairs, which is Map's published face, and a set's
+-- published face is its elements. The wrapper also absorbs the unit value each
+-- element is stored against, which no Hexagon source here ever has to mention.
+--
+-- The type row declares `Set` itself (`spec/intrinsics.md` section 3.3): the
+-- type is this module's own, its values are the wrapper records, and the `+` is
+-- checked against `HashSet`'s variance here, at the row.
 extern from "hex:intrinsic"
-    (** An immutable set of elements, each held at most once. Every update
-        answers a new set and leaves the one it was given as it was. *)
+    {-- An immutable set of elements, each held at most once. Every update
+        answers a new set and leaves the one it was given as it was. -}
     export type set as Set(+a)
 
-    // Unexported, beneath `empty` below: the block admits no `let` and an
-    // empty set is a value, so the door row is the thunk and the wrapper is what
-    // the language sees (`spec/intrinsics.md` section 3.2).
+    -- Unexported, beneath `empty` below: the block admits no `let` and an
+    -- empty set is a value, so the door row is the thunk and the wrapper is what
+    -- the language sees (`spec/intrinsics.md` section 3.2).
     fun setEmpty as emptySet() -> Set(a)
 
-    (** A set holding `element` and nothing else. Takes no `Hash`: a one-element
+    {-- A set holding `element` and nothing else. Takes no `Hash`: a one-element
         set holds its element unplaced, so nothing is hashed until the first
-        keyed operation. *)
+        keyed operation. -}
     export fun setSingleton as singleton(element: a) -> Set(a)
 
-    (** How many elements `s` holds, in constant time. *)
+    {-- How many elements `s` holds, in constant time. -}
     export fun setSize as size(s: Set(a)) -> Int
 
-    (** Whether `s` holds `element`. The only Boolean read a set has. *)
+    {-- Whether `s` holds `element`. The only Boolean read a set has. -}
     export fun setContains as contains<a: Hash>(s: Set(a), element: a) -> Bool
 
-    (** `s` with `element` in it. Idempotent, and never throws: adding an element
+    {-- `s` with `element` in it. Idempotent, and never throws: adding an element
         the set already holds returns the set unchanged, keeping the
         representative already stored rather than the newcomer (Collections
-        Part 4 section 5.1, section 5.4). *)
+        Part 4 section 5.1, section 5.4). -}
     export fun setAdd as add<a: Hash>(s: Set(a), element: a) -> Set(a)
 
-    (** `s` with `element` gone. Forgiving: an element that is not there yields
-        the set unchanged rather than an error. *)
+    {-- `s` with `element` gone. Forgiving: an element that is not there yields
+        the set unchanged rather than an error. -}
     export fun setRemove as remove<a: Hash>(s: Set(a), element: a) -> Set(a)
 
-    // Every element of `s`, lazily. The order is the same for two traversals of
-    // one set within one execution, and is promised for nothing else — not
-    // insertion, not sorted, not stable across runs.
-    //
-    // Unexported under this name, beneath the `Iterable` instance at the end of
-    // the file: `toSeq` at a set is that instance's member, and a module-level
-    // binding of a member's spelling beside the instance is the Constraints
-    // section 4.6 rebinding error. The Part 4 section 6.2 traversal is
-    // published as the member — the dot call `s.toSeq()`, or `Set.toSeq(s)`
-    // qualified. The algebra below calls this row directly rather than the
-    // member, which is the same walk one indirection shorter.
+    -- Every element of `s`, lazily. The order is the same for two traversals of
+    -- one set within one execution, and is promised for nothing else — not
+    -- insertion, not sorted, not stable across runs.
+    --
+    -- Unexported under this name, beneath the `Iterable` instance at the end of
+    -- the file: `toSeq` at a set is that instance's member, and a module-level
+    -- binding of a member's spelling beside the instance is the Constraints
+    -- section 4.6 rebinding error. The Part 4 section 6.2 traversal is
+    -- published as the member — the dot call `s.toSeq()`, or `Set.toSeq(s)`
+    -- qualified. The algebra below calls this row directly rather than the
+    -- member, which is the same walk one indirection shorter.
     fun setElements as elements(s: Set(a)) -> Seq(a)
 
-    // Unexported, and the one row here that is not Collections Part 4
-    // section 6.2 surface. It answers the element `s` physically stores, not
-    // whether it stores one — `contains` remains the only membership read a set
-    // publishes (section 4.4). `intersect` below is the only caller, and it
-    // needs this because section 2.2 pins the traversal to the smaller side
-    // while section 5.4 pins the result's representatives to the left side: when
-    // the smaller side is the right one, the left's representative has to be
-    // looked up rather than taken from the element in hand.
+    -- Unexported, and the one row here that is not Collections Part 4
+    -- section 6.2 surface. It answers the element `s` physically stores, not
+    -- whether it stores one — `contains` remains the only membership read a set
+    -- publishes (section 4.4). `intersect` below is the only caller, and it
+    -- needs this because section 2.2 pins the traversal to the smaller side
+    -- while section 5.4 pins the result's representatives to the left side: when
+    -- the smaller side is the right one, the left's representative has to be
+    -- looked up rather than taken from the element in hand.
     fun setLookup as storedMember<a: Hash>(s: Set(a), element: a) -> Option(a)
 
-    // The three eager walks `collection-combinators.md` section 8 sends through
-    // the door, because each is a loop over the trie's own nodes. `map`, `any`
-    // and `all` are ordinary Hexagon over them, below.
+    -- The three eager walks `collection-combinators.md` section 8 sends through
+    -- the door, because each is a loop over the trie's own nodes. `map`, `any`
+    -- and `all` are ordinary Hexagon over them, below.
 
-    (** `initial` combined with every element of `s`, in the order `toSeq` yields
+    {-- `initial` combined with every element of `s`, in the order `toSeq` yields
         them: `Seq.fold` over the elements, run at once, whose `combine` may be
-        impure or fail. *)
+        impure or fail. -}
     export fun setFold as fold(s: Set(a), initial: b, combine: (b, a) ->! b) >-> b
 
-    (** The first element of `s`, in the order `toSeq` yields them, that `matches`
+    {-- The first element of `s`, in the order `toSeq` yields them, that `matches`
         accepts, or `None`. It stops there: no later element is handed to
-        `matches`. *)
+        `matches`. -}
     export fun setFind as find(s: Set(a), matches: a ->! Bool) >-> Option(a)
 
-    (** The elements of `s` that `keep` accepts, each the representative `s`
-        holds. No element is hashed again. *)
+    {-- The elements of `s` that `keep` accepts, each the representative `s`
+        holds. No element is hashed again. -}
     export fun setFilter as filter(s: Set(a), keep: a ->! Bool) >-> Set(a)
 
-(** The empty set. *)
+{-- The empty set. -}
 export let empty: Set(a) = emptySet()
 
-(** Whether `s` holds no elements. *)
+{-- Whether `s` holds no elements. -}
 export let isEmpty(s: Set(a)): Bool = size(s) == 0
 
-// The algebra, all four of it, as Collections Part 4 section 5.3's
-// iterate-one-side-and-modify. Two pins govern every line of it and they pull
-// against each other, so it is worth saying where each one lands.
-//
-// Section 2.2 fixes **which side is traversed**, and for `union` and `intersect`
-// that is the *smaller* side, whichever operand it happens to be — the bounds
-// are expected O(min(m, n) · log of the other), and a fixed-side implementation
-// would breach them whenever the caller passed the big set first. So both of
-// those operations dispatch on `size`, which section 2.2 itself makes O(1).
-//
-// Section 5.4 fixes **whose representative survives**: the left operand's, for
-// elements present in both. That is free in the direction that traverses the
-// right side into the left — `add` is insert-if-absent, so the accumulator's
-// element wins and the accumulator is the left. In the mirrored direction it
-// costs something, and each site below says what it pays.
-//
-// `difference` and `isSubsetOf` do not dispatch: section 2.2 pins both to the
-// left side, which is also the only side their definitions could traverse.
+-- The algebra, all four of it, as Collections Part 4 section 5.3's
+-- iterate-one-side-and-modify. Two pins govern every line of it and they pull
+-- against each other, so it is worth saying where each one lands.
+--
+-- Section 2.2 fixes **which side is traversed**, and for `union` and `intersect`
+-- that is the *smaller* side, whichever operand it happens to be — the bounds
+-- are expected O(min(m, n) · log of the other), and a fixed-side implementation
+-- would breach them whenever the caller passed the big set first. So both of
+-- those operations dispatch on `size`, which section 2.2 itself makes O(1).
+--
+-- Section 5.4 fixes **whose representative survives**: the left operand's, for
+-- elements present in both. That is free in the direction that traverses the
+-- right side into the left — `add` is insert-if-absent, so the accumulator's
+-- element wins and the accumulator is the left. In the mirrored direction it
+-- costs something, and each site below says what it pays.
+--
+-- `difference` and `isSubsetOf` do not dispatch: section 2.2 pins both to the
+-- left side, which is also the only side their definitions could traverse.
 
-// One element inserted so that it **displaces** any equal element already there
-// — section 5.4's insert-with-replace direction, spelled from the public surface
-// because a set has no replacing insert of its own (and needs none: `add` is
-// idempotent precisely so that the common direction is the cheap one). The
-// removal is what evicts the resident representative; the add installs this one.
+-- One element inserted so that it **displaces** any equal element already there
+-- — section 5.4's insert-with-replace direction, spelled from the public surface
+-- because a set has no replacing insert of its own (and needs none: `add` is
+-- idempotent precisely so that the common direction is the cheap one). The
+-- removal is what evicts the resident representative; the add installs this one.
 let replaceMember<a: Hash>(s: Set(a), element: a): Set(a) =
     add(remove(s, element), element)
 
-// `union` is a **contextual** keyword rather than a reserved one (#373): it
-// introduces a declaration only where a type name follows it, and is an
-// ordinary name everywhere else. The `with` and `when` precedent settled the
-// shape, and this declaration is what asked for it.
-(** Every element of `left` together with every element of `right`. Elements in
-    both keep the representative `left` holds. *)
+-- `union` is a **contextual** keyword rather than a reserved one (#373): it
+-- introduces a declaration only where a type name follows it, and is an
+-- ordinary name everywhere else. The `with` and `when` precedent settled the
+-- shape, and this declaration is what asked for it.
+{-- Every element of `left` together with every element of `right`. Elements in
+    both keep the representative `left` holds. -}
 export let union<a: Hash>(left: Set(a), right: Set(a)): Set(a) =
     if size(right) <= size(left) then
-        // Right is the smaller side. Insert-if-absent into the left: an element
-        // in both keeps the accumulator's, which is the left's, and section 5.4
-        // is satisfied with nothing done about it.
+        -- Right is the smaller side. Insert-if-absent into the left: an element
+        -- in both keeps the accumulator's, which is the left's, and section 5.4
+        -- is satisfied with nothing done about it.
         elements(right).fold(left, add)
     else
-        // Left is the smaller side, so the accumulator has to be the right one —
-        // and now every element in both must have the *right's* representative
-        // thrown out and the left's put in its place. Insert-with-replace, the
-        // other arm of section 5.4, and the reason `replaceMember` exists.
+        -- Left is the smaller side, so the accumulator has to be the right one —
+        -- and now every element in both must have the *right's* representative
+        -- thrown out and the left's put in its place. Insert-with-replace, the
+        -- other arm of section 5.4, and the reason `replaceMember` exists.
         elements(left).fold(right, replaceMember)
 
-// One element of the traversed side kept only if `source` holds an equal one,
-// and kept **as `source` holds it**. Named rather than written as the fold's
-// lambda because the body is a `match`, which wants a block — the same reason
-// `Map.hex`'s `entryKey` and `insertEntry` are named. The lambda that remains at
-// the call site is the one closing over `source`.
+-- One element of the traversed side kept only if `source` holds an equal one,
+-- and kept **as `source` holds it**. Named rather than written as the fold's
+-- lambda because the body is a `match`, which wants a block — the same reason
+-- `Map.hex`'s `entryKey` and `insertEntry` are named. The lambda that remains at
+-- the call site is the one closing over `source`.
 let keptRepresentative<a: Hash>(source: Set(a), accumulated: Set(a), element: a): Set(a) =
     match storedMember(source, element)
         None => accumulated
         Some(stored) => add(accumulated, stored)
 
-(** The elements held by both `left` and `right`, as `left` holds them. *)
+{-- The elements held by both `left` and `right`, as `left` holds them. -}
 export let intersect<a: Hash>(left: Set(a), right: Set(a)): Set(a) =
     if size(left) <= size(right) then
-        // Left is the smaller side: traverse it, probe the right, and every
-        // element collected is the left's own by construction (section 5.4).
+        -- Left is the smaller side: traverse it, probe the right, and every
+        -- element collected is the left's own by construction (section 5.4).
         elements(left)
         .filter((element) => contains(right, element))
         .fold(empty, add)
     else
-        // Right is the smaller side, so the elements in hand are the right's and
-        // section 5.4 wants the left's. Probing with `contains` would answer the
-        // question and discard the answer needed, which is what the unexported
-        // `storedMember` row is for.
+        -- Right is the smaller side, so the elements in hand are the right's and
+        -- section 5.4 wants the left's. Probing with `contains` would answer the
+        -- question and discard the answer needed, which is what the unexported
+        -- `storedMember` row is for.
         elements(right).fold(empty, (accumulated, element) =>
             keptRepresentative(left, accumulated, element))
 
-(** The elements of `left` that `right` does not hold. *)
+{-- The elements of `left` that `right` does not hold. -}
 export let difference<a: Hash>(left: Set(a), right: Set(a)): Set(a) =
     elements(left)
     .filter((element) => not contains(right, element))
     .fold(empty, add)
 
-(** Whether `right` holds every element of `left`. The empty set is a subset of
-    everything, and every set is a subset of itself. *)
+{-- Whether `right` holds every element of `left`. The empty set is a subset of
+    everything, and every set is a subset of itself. -}
 export let isSubsetOf<a: Hash>(left: Set(a), right: Set(a)): Bool =
     elements(left).all((element) => contains(right, element))
 
-(** The elements of `elements` collected into a set. A duplicated element keeps
+{-- The elements of `elements` collected into a set. A duplicated element keeps
     the first representative it was inserted under. It forces the whole
-    sequence, so it does not terminate on an infinite one. *)
+    sequence, so it does not terminate on an infinite one. -}
 export let fromSeq<a: Hash>(elements: Seq(a)): Set(a) =
     elements.fold(empty, add)
 
-(** The elements of `values` collected into a set, left to right. *)
+{-- The elements of `values` collected into a set, left to right. -}
 export let fromVector<a: Hash>(values: Vector(a)): Set(a) =
     fromSeq(values.toSeq())
 
-(** The images of the elements of `s` under `transform`, as a set. Equal images
+{-- The images of the elements of `s` under `transform`, as a set. Equal images
     are one element, and of two that are distinguishable, such as `0.0` and
-    `-0.0`, the first produced in traversal order is kept. *)
+    `-0.0`, the first produced in traversal order is kept. -}
 export let map<b: Hash>(s: Set(a), transform: a ->! b): Set(b) =
     fold!(s, empty, (images, element) => add(images, transform!(element)))
 
-(** Whether some element of `s` satisfies `matches`. It stops at the first that
-    does. *)
+{-- Whether some element of `s` satisfies `matches`. It stops at the first that
+    does. -}
 export let any(s: Set(a), matches: a ->! Bool): Bool =
     match find!(s, matches)
         None => False
         Some(_) => True
 
-(** Whether every element of `s` satisfies `matches`, which the empty set does.
-    It stops at the first that does not. *)
+{-- Whether every element of `s` satisfies `matches`, which the empty set does.
+    It stops at the first that does not. -}
 export let all(s: Set(a), matches: a ->! Bool): Bool =
     match find!(s, (element) => not matches!(element))
         None => True
         Some(_) => False
 
-// Extremes and totals (`collection-combinators.md` section 13), each one walk
-// of `fold`, so in the order `toSeq` yields the elements. A set's elements are
-// distinct and `Ord` agrees with `equals`, so `max` and `min` never meet a tie.
-// The `By` and `Using` forms can, and of elements that tie they keep the last
-// for `max` and the first for `min`.
-//
-// The `Using` forms write their steps' parameter types: a match on the
-// comparator's answer is not decided without them (#1433). Each arm names
-// its constructor bare, `Greater`, which a pattern reads against the matched
-// value's own `Ordering` (Pattern Matching section 2.2).
+-- Extremes and totals (`collection-combinators.md` section 13), each one walk
+-- of `fold`, so in the order `toSeq` yields the elements. A set's elements are
+-- distinct and `Ord` agrees with `equals`, so `max` and `min` never meet a tie.
+-- The `By` and `Using` forms can, and of elements that tie they keep the last
+-- for `max` and the first for `min`.
+--
+-- The `Using` forms write their steps' parameter types: a match on the
+-- comparator's answer is not decided without them (#1433). Each arm names
+-- its constructor bare, `Greater`, which a pattern reads against the matched
+-- value's own `Ordering` (Pattern Matching section 2.2).
 
-// One step of `maxBy`: the ranked element replaces the best unless the best's
-// key is greater.
+-- One step of `maxBy`: the ranked element replaces the best unless the best's
+-- key is greater.
 let laterBy<b: Ord>(best: Option((b, a)), ranked: (b, a)): Option((b, a)) =
     match (best, ranked)
         (Some((keptKey, _)), (rankedKey, _)) =>
@@ -234,8 +234,8 @@ let laterBy<b: Ord>(best: Option((b, a)), ranked: (b, a)): Option((b, a)) =
                 _ => Some(ranked)
         _ => Some(ranked)
 
-// One step of `minBy`: the ranked element replaces the best only when the
-// best's key is greater.
+-- One step of `minBy`: the ranked element replaces the best only when the
+-- best's key is greater.
 let earlierBy<b: Ord>(best: Option((b, a)), ranked: (b, a)): Option((b, a)) =
     match (best, ranked)
         (Some((keptKey, _)), (rankedKey, _)) =>
@@ -248,10 +248,10 @@ let unranked(best: Option((b, a))): Option(a) = match best
     Some((_, element)) => Some(element)
     None => None
 
-(** The element of `s` that `compare` ranks greatest, or `None` when `s` is
+{-- The element of `s` that `compare` ranks greatest, or `None` when `s` is
     empty, and of elements it ranks equal, the last in traversal order.
     `compare` runs once for each element after the first, as
-    `compare(best, element)`. *)
+    `compare(best, element)`. -}
 export let maxUsing(s: Set(a), compare: (a, a) ->! Ordering): Option(a) =
     fold!(s, None, (best: Option(a), element: a) => match best
         Some(kept) => match compare!(kept, element)
@@ -259,9 +259,9 @@ export let maxUsing(s: Set(a), compare: (a, a) ->! Ordering): Option(a) =
             _ => Some(element)
         None => Some(element))
 
-(** The element of `s` that `compare` ranks least, or `None` when `s` is empty,
+{-- The element of `s` that `compare` ranks least, or `None` when `s` is empty,
     and of elements it ranks equal, the first in traversal order. `compare`
-    runs once for each element after the first, as `compare(best, element)`. *)
+    runs once for each element after the first, as `compare(best, element)`. -}
 export let minUsing(s: Set(a), compare: (a, a) ->! Ordering): Option(a) =
     fold!(s, None, (best: Option(a), element: a) => match best
         Some(kept) => match compare!(kept, element)
@@ -269,30 +269,30 @@ export let minUsing(s: Set(a), compare: (a, a) ->! Ordering): Option(a) =
             _ => best
         None => Some(element))
 
-(** The greatest element of `s` under its `Ord`, or `None` when `s` is empty. *)
+{-- The greatest element of `s` under its `Ord`, or `None` when `s` is empty. -}
 export let max<a: Ord>(s: Set(a)): Option(a) = maxUsing(s, Ord.compare)
 
-(** The least element of `s` under its `Ord`, or `None` when `s` is empty. *)
+{-- The least element of `s` under its `Ord`, or `None` when `s` is empty. -}
 export let min<a: Ord>(s: Set(a)): Option(a) = minUsing(s, Ord.compare)
 
-(** The element of `s` whose key is greatest, or `None` when `s` is empty, and
+{-- The element of `s` whose key is greatest, or `None` when `s` is empty, and
     of elements whose keys are equal, the last in traversal order. `key` runs
-    once per element, in traversal order. *)
+    once per element, in traversal order. -}
 export let maxBy<b: Ord>(s: Set(a), key: a ->! b): Option(a) =
     unranked(fold!(s, None, (best, element) => laterBy(best, (key!(element), element))))
 
-(** The element of `s` whose key is least, or `None` when `s` is empty, and of
+{-- The element of `s` whose key is least, or `None` when `s` is empty, and of
     elements whose keys are equal, the first in traversal order. `key` runs
-    once per element, in traversal order. *)
+    once per element, in traversal order. -}
 export let minBy<b: Ord>(s: Set(a), key: a ->! b): Option(a) =
     unranked(fold!(s, None, (best, element) => earlierBy(best, (key!(element), element))))
 
-(** The elements of `s` added in traversal order, starting from zero, so the
-    empty set's sum is zero. *)
+{-- The elements of `s` added in traversal order, starting from zero, so the
+    empty set's sum is zero. -}
 export let sum<a: Num>(s: Set(a)): a = fold(s, 0, Num.add)
 
-(** The elements of `s` multiplied in traversal order, starting from one, so the
-    empty set's product is one. *)
+{-- The elements of `s` multiplied in traversal order, starting from one, so the
+    empty set's product is one. -}
 export let product<a: Num>(s: Set(a)): a = fold(s, 1, Num.multiply)
 
 honor Iterable<Set(a)> =

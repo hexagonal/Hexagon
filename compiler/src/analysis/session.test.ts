@@ -913,15 +913,15 @@ describe("AnalysisSession.hover: parameters under their declared names", () => {
 
 describe("AnalysisSession.hover documentation", () => {
   const DOCUMENTED = "module Helper\n\n" + [
-    "(** A colour, as the light leaves it. *)",
+    "{-- A colour, as the light leaves it. -}",
     "export union Colour =",
-    "    (** The warm one. *)",
+    "    {-- The warm one. -}",
     "    | Red",
     "    | Green",
     "",
-    "(** Brightens a colour.",
+    "{-- Brightens a colour.",
     "",
-    "    Twice, if you ask twice. *)",
+    "    Twice, if you ask twice. -}",
     "export let brighten(colour: Colour): Colour = colour",
     "",
   ].join("\n");
@@ -967,7 +967,7 @@ describe("AnalysisSession.hover documentation", () => {
   test("an empty doc block is documentation nobody shows", () => {
     // §3.2: an empty block attaches and contributes empty content, which
     // tooling treats as absent — not as an empty hover section.
-    const source = "module Main\n\n" + "(** *)\nlet value: Int = 1\n";
+    const source = "module Main\n\n" + "{-- -}\nlet value: Int = 1\n";
     const { session } = sessionOf({ "/main.hex": source });
     expect(session.diagnostics("/main.hex")).toEqual([]);
     expect(session.hover("/main.hex", at(source, "value"))?.documentation).toBeUndefined();
@@ -981,19 +981,19 @@ describe("AnalysisSession.hover documentation", () => {
     // three is the only thing anything can say about them.
     const source = "module Main\n\n" + [
       "constraint Sized<a> =",
-      "    (** How big it is. *)",
+      "    {-- How big it is. -}",
       "    size(value: a) -> Int",
       "",
       "export record Box = {",
-      "    (** How wide. *)",
+      "    {-- How wide. -}",
       "    width: Int,",
       "}",
       "",
-      "(** A width, named. *)",
+      "{-- A width, named. -}",
       "export type Width = Int",
       "",
       "honor Sized<Box> =",
-      "    (** A box is one wide. *)",
+      "    {-- A box is one wide. -}",
       "    size(value) = 1",
       "",
     ].join("\n");
@@ -1033,7 +1033,7 @@ describe("AnalysisSession.hover documentation", () => {
     // The same §3.2 rule as above, at the position that has nothing *but* the
     // documentation: empty content must leave the field as silent as an
     // undocumented one, not answer with an empty hover.
-    const source = "module Main\n\n" + ["export record Box = {", "    (** *)", "    width: Int,", "}", ""].join("\n");
+    const source = "module Main\n\n" + ["export record Box = {", "    {-- -}", "    width: Int,", "}", ""].join("\n");
     const { session } = sessionOf({ "/main.hex": source });
     expect(session.diagnostics("/main.hex")).toEqual([]);
     expect(session.hover("/main.hex", at(source, "width"))).toBeUndefined();
@@ -1045,7 +1045,7 @@ describe("AnalysisSession.hover documentation", () => {
     // declares one each — so each is reachable by name; what only the
     // attachment knows is which names one block covers.
     const source = "module Main\n\n" + [
-      "(** Both halves. *)",
+      "{-- Both halves. -}",
       "let (first, second) = (1, 2)",
       "",
       "export let use(): Int = first + second",
@@ -1067,7 +1067,7 @@ describe("AnalysisSession.hover documentation", () => {
     // §5 does not fire — the block is followed by a declaration — and there is
     // no name to file the content under, so it reaches no reader. Pinned so the
     // silence stays a decision rather than becoming a surprise.
-    const source = "module Main\n\n" + ["(** Nothing to point at. *)", "let (_, _) = (1, 2)", ""].join("\n");
+    const source = "module Main\n\n" + ["{-- Nothing to point at. -}", "let (_, _) = (1, 2)", ""].join("\n");
     const { session } = sessionOf({ "/main.hex": source });
     expect(session.diagnostics("/main.hex")).toEqual([]);
     expect(session.hover("/main.hex", at(source, "let"))).toBeUndefined();
@@ -1081,13 +1081,13 @@ describe("AnalysisSession.hover documentation", () => {
     // constraint, whose own documentation is the other answer, and the block the
     // cursor is inside wins.
     const source = "module Main\n\n" + [
-      "(** Things with a size. *)",
+      "{-- Things with a size. -}",
       "constraint Sized<a> =",
       "    size(value: a) -> Int",
       "",
       "export record Box = { width: Int }",
       "",
-      "(** A box sizes by its width. *)",
+      "{-- A box sizes by its width. -}",
       "honor Sized<Box> =",
       "    size(value) = value.width",
       "",
@@ -1109,13 +1109,13 @@ describe("AnalysisSession.hover documentation", () => {
     // so `covering` is the whole of what hover can say about them.
     const source = "module Main\n\n" + [
       "export constraint Keyed<c> =",
-      "    (** The type of one key, chosen by each instance. *)",
+      "    {-- The type of one key, chosen by each instance. -}",
       "    type Key",
-      "    (** The key of `x`. *)",
+      "    {-- The key of `x`. -}",
       "    keyOf(x: c) -> Key",
       "",
       "honor Keyed<Int> =",
-      "    (** An `Int` keys itself. *)",
+      "    {-- An `Int` keys itself. -}",
       "    type Key = Int",
       "    keyOf(x) = x",
       "",
@@ -1140,7 +1140,7 @@ describe("AnalysisSession.hover documentation", () => {
     // declarations. Answering with whichever is documented would put one
     // module's prose on another module's undocumented declaration.
     const documented = "module Alpha\n\n" + [
-      "(** ALPHA doc. *)",
+      "{-- ALPHA doc. -}",
       "constraint Shown<a> =",
       "    render(value: a) -> Int",
       "",
@@ -1764,7 +1764,7 @@ describe("hoverSpans (#254)", () => {
     "    show(value: a) -> String",
     "",
     "record P = {",
-    "    (** The one it answers to. *)",
+    "    {-- The one it answers to. -}",
     "    name: String,",
     "    tag: String,",
     "}",

@@ -2,8 +2,8 @@
 
 This folder will contain the browser-based Hexagon playground: an interactive place to write Hexagon, inspect what the compiler understood and emitted, and run the resulting JavaScript.
 
-The current slices compile live, run the latest successful compilation, and expose errors, emitted JavaScript, an
-inspection-only TypeScript preview, and inferred top-level types. Primitive
+The current slices compile live, run the latest successful compilation, and expose errors, emitted JavaScript, the
+module's shipped `.d.ts`, and inferred top-level types. Primitive
 parameter and result annotations, directly recursive `fun`, and first-argument
 pipes are accepted, including partially annotated parameter lists. The debugging
 probe, `log(...)`, takes one rendered `String`, returns `Unit`, and writes to both
@@ -13,11 +13,11 @@ read-only generated-code models; the textarea remains live until Monaco succeeds
 
 **The Playground hosts nothing.** The standard library is the package `Hex` in
 full and the compiler embeds it (`spec/packages.md` §2.4), so a program reaches
-`Rat` by writing `import Rat` — or `import Hex.Rat` — exactly as it would in any
-other project, and the prelude's `Option` and `Vector` are in scope with no
-import at all. Playground programs use the real opaque types and their globally
+`Regex` by writing `import Regex` — or `import Hex.Regex` — exactly as it would in
+any other project, and the prelude's `Option`, `Vector` and `Rat` are in scope with
+no import at all. Playground programs use the real opaque types and their globally
 coherent instances, not an example-local reimplementation. A buffer declaring its
-own `module Rat` occludes `Hex.Rat` silently (§3.2) and is the program's own.
+own `module Regex` occludes `Hex.Regex` silently (§3.2) and is the program's own.
 
 ## Try it
 
@@ -29,9 +29,10 @@ npm run dev
 
 Open the local address printed by Vite. Edit the buffer, inspect **Errors**,
 **JS**, **.d.ts**, and **Types**, then choose **Run**. The **Output** tab receives
-`log(...)` output. Top-level bindings do not need `export`: the
-`.d.ts` tab uses the compiler's inspection-only TypeScript preview while preserving
-ordinary Hexagon visibility. This path calls the compiler directly in a Web Worker;
+`log(...)` output. Top-level bindings do not need `export` to be run or to appear
+in **JS**, but the `.d.ts` tab shows the module's shipped declaration file, which
+declares exported bindings only: write `export` to see a binding there, as in a
+real file. This path calls the compiler directly in a Web Worker;
 it does not use the language server or LSP.
 
 The playground opens on **JS** and begins with a commented tour of the supported
@@ -115,7 +116,7 @@ uses `npm run build:pages`, which sets the project-site base to `/Hexagon/`.
 The experience is inspired by the TypeScript Playground without attempting to copy
 its interface exactly. The primary view is a Hexagon editor beside a result panel
 with user-facing tabs for runtime output, compiler errors, emitted JavaScript, the
-TypeScript preview, and inferred top-level types.
+shipped declaration file, and inferred top-level types.
 
 ## Product shape
 
@@ -155,9 +156,13 @@ The hints and the input box are off until the dev turns them on (`src/settings.t
   model on supported desktop browsers. Generated specialization families are
   summarized in the default source-shaped view; the view selector exposes the
   complete module or any individual edition with its concrete types and byte size.
-- **.d.ts** shows an inspection-only TypeScript preview for representable top-level
-  bindings, also in a read-only Monaco model. It does not promote private Hexagon
-  bindings into public exports.
+- **.d.ts** shows the module's shipped declaration file: the text the compiler
+  emits for it, byte for byte, import lines included, also in a read-only Monaco
+  model. Unexported bindings do not appear there; **JS** shows all emitted code.
+  When the module exports nothing, the tab shows a note saying so in place of
+  the file. When the module exports but its exports publish no TypeScript
+  declaration (a constraint, for instance), the file is `export {};` alone and
+  the tab shows a second note saying that instead.
 - **Types** shows a compact list of inferred top-level binding types.
 
 Compiler-development views such as Tokens, Parsed, Resolved, Typed, and Core may be added behind an **Internals** control. They are useful for teaching and implementation but must not crowd the normal language experience.
@@ -285,8 +290,9 @@ Where practical, example source should be derived from or shared with conformanc
 The curated set contains the initial `hello-world` tour plus focused recursion,
 union/match, and exact `Rat` programs. Every example is compiler-tested and
 demonstrates a top-level `log(...)` effect without requiring public exports.
-The `Rat` example writes `import Rat` and exercises the canonical stdlib module
-through `half + third`, selecting its imported `Signed<Rat>` evidence.
+The `Rat` example writes fractions with `//` and takes them apart in patterns,
+exercising the prelude's `Rat` through `half + third`, and lets a `Dec` enter a
+`Rat` through `FromDec` (#1542).
 
 ## Testing
 

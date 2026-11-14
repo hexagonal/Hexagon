@@ -1,6 +1,6 @@
 # Hexagon Spec: Functions
 
-**Status:** Decided (July 2026)
+**Status:** Decided (July 2026); amended 2026-11-14 (#1542): a written type admits the four widenings, `Dec` among the sources.
 **Scope:** Function definition, lambdas, `let`/`fun` binding of functions, application, arity, generalization, naming, and JS emission.
 **Not in scope:** modules (Modules), operators including `|>` (Operators §8), constraint semantics (Constraints — this doc fixes only the `<a: C>` syntax, §4.2), tuples and records (Products), the pattern grammar and irrefutability (Pattern Matching — §3.1 here takes the lambda-parameter rule by reference), blocks and `var` (Statements, Blocks & Mutability), FFI (ffi.md).
 **Companions:** Statements spec (blocks as lambda bodies; `var` in full, §8.4 here; joint diagnostics §10), Pattern Matching §6.5 (lambda parameters as patterns; the depth rule), Operators §8 (pipe; subject-first convention made normative), Method Syntax §4.2 (subject-first determines dot-callability) and §4.4 (dot calls obey §7.2's declaration order), Primitive Types §9 (`Unit`), Declarations Preamble §1.1 (the Rewrite Rule, which §10's diagnostics obey).
@@ -77,7 +77,7 @@ fun fact(n) = if n <= 1 then 1 else n * fact(n - 1)
 
 ## 4. Typed forms
 
-Annotations serve comprehension and constraint-attachment. They never change what inference *could* derive except by restricting it — or by being a seat. A written type is a seat's expected type, and a value meets it exactly as it would meet that type at any other seat: where the language specifies a conversion into that type at that seat — Numeric Literals §5.1's three widenings, an iterable's adaptation to `Seq` (Collections Part 5 §3.4) — the written type elaborates that **specified conversion** into the value it faces, and no other conversion ever happens. The specified conversions are a closed list, the language's own; an annotation never licenses conversion in general. Where a written type elaborates a specified conversion, the program stays typable with the type deleted and the conversion written out; and no annotation ever supplies a scheme.
+Annotations serve comprehension and constraint-attachment. They never change what inference *could* derive except by restricting it — or by being a seat. A written type is a seat's expected type, and a value meets it exactly as it would meet that type at any other seat: where the language specifies a conversion into that type at that seat — Numeric Literals §5.1's four widenings, an iterable's adaptation to `Seq` (Collections Part 5 §3.4) — the written type elaborates that **specified conversion** into the value it faces, and no other conversion ever happens. The specified conversions are a closed list, the language's own; an annotation never licenses conversion in general. Where a written type elaborates a specified conversion, the program stays typable with the type deleted and the conversion written out; and no annotation ever supplies a scheme.
 
 "At that seat" is load-bearing: the specified conversions are not uniform across seats. `var s: Seq(String) = words` does not adapt (Collections Part 5 §3.4), though numeric widening reaches the assignment boundary. An annotated binding is one supplying seat among several (§4.3), and each specified conversion is the same at every seat that specifies it: `let view: Seq(String) = words` converts `words` as `String.fromSeq(words)` does, and `let x: Float = n` as `useFloat(n)` does (`useFloat : (Float) -> Float`), where `let view = words` and `let x = n` bind the unconverted value (`decisions-ml-dialect-annotations-2026-08.md` §2.4).
 
@@ -95,7 +95,8 @@ let plus = (x: Int, y: Int): Int => x + y
 - *(#405.)* **A return annotation needs no parentheses around a function type.** The type arrows are `->`, `->^`, `->~`, `->!` and the five following arrows, and the lambda's own arrow is `=>` — different tokens, so the annotation grammar may be right-associative and greedy without ever swallowing the body: in `(x): A ->! B => body` the annotation is `A ->! B` and the body is `body`, and the legal curried lambda `(x): a => y => x` still annotates `a` and takes `y => x` as its body. Parentheses remain available for grouping and mean what they always meant. *(This replaces #355's rule, which gave an unparenthesized `=>` in this slot to the body and required `(x): (A => B) => body`; both of that rule's causes were the type and term levels sharing the `=>` token, and Effects §2 no longer lets them.)*
 - Any subset of annotations may be given on private functions; inference fills
   the rest. An exported function is the module-boundary exception: Modules
-  §4.1.1 requires every parameter and the result to be annotated.
+  §4.1.1 requires every parameter and the result to be annotated, on the
+  lambda or by the whole type written on the binding's name.
 - **No standalone signature lines.** Types are written only on definitions.
 - **A type variable written in an annotation is rigid while that definition is
   checked.** Repeated `a` occurrences name the same type, but `a` cannot quietly

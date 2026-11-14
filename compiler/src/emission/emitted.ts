@@ -276,11 +276,6 @@ export interface Declarations extends Output {
   readonly mintedTypeImports: readonly string[];
 }
 
-/** Inspection-only declarations for every representable top-level binding. */
-export interface TypeScriptPreview extends Output {
-  readonly kind: "TypeScriptPreview";
-}
-
 /**
  * The program-scoped runtime declaration module (FFI Part 1 §8.3): one
  * `hex.d.ts` per compiled program, declaring the `Hex.*` collection faces.

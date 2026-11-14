@@ -261,7 +261,7 @@ It is not silently pushed inside a direct aggregate:
 
 ```hexagon
 extern from "stream-groups"
-    fun groups() ->! Array(Seq(Int)) // error: nested Seq adaptation would be hidden
+    fun groups() ->! Array(Seq(Int)) -- error: nested Seq adaptation would be hidden
 ```
 
 The outer `Array` is captured as it crosses, while each arbitrary iterable inside

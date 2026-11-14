@@ -39,8 +39,8 @@ describe("layOutWorkspace", () => {
     // #829's Ruling B. The Playground used to hand the compiler three canonical
     // `stdlib/` files so a program could reach `Option`, `Vector` and `Rat`;
     // the standard library is the package `Hex` in full and the compiler embeds
-    // it, so `import Rat` and `import Hex.Rat` both resolve with nothing
-    // supplied here (Packages §2.4, §3.2).
+    // it, so `import Regex` and `import Hex.Regex` both resolve with nothing
+    // supplied here (Packages §2.4, §3.2), and `Rat` is a prelude member.
     const { files } = layOutWorkspace("module Main\n\nDebug.log(\"hello\")\n");
 
     expect(files).toHaveLength(1);

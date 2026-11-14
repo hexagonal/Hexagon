@@ -1,7 +1,7 @@
 # Hexagon Spec — Operators, Logic & Precedence
 
-**Status:** Decided (v1), except items explicitly marked deferred.
-**Scope:** The complete v1 operator inventory; the precedence and associativity table; word-based logical operators (`not`, `and`, `or`, `implies`, `iff`) and their desugarings; comparison operators, chaining, and the single-evaluation rule; arithmetic operators including `**`; the concatenation operator `++`; the pipe operator `|>`; the `if … then … else` expression (mandatory `then`; `else` omissible as `Unit` sugar, §11.2); the grammatical placement of `..`, `:=`, `=>`, `[]`, `.`, and call syntax.
+**Status:** Decided (v1), except items explicitly marked deferred. Amended 2026-11-13 (#1538): §6.2 says that two minus signs are written apart. Amended 2026-11-14 (#1542): `//` writes a fraction, at its own level 5 (§3, §6.4). Amended 2026-11-14 (#1545): a divisor or bottom written as a literal zero is refused when the program is compiled (§6.1, §6.4, §15; Division & Remainder §12).
+**Scope:** The complete v1 operator inventory; the precedence and associativity table; word-based logical operators (`not`, `and`, `or`, `implies`, `iff`) and their desugarings; comparison operators, chaining, and the single-evaluation rule; arithmetic operators including `**`; the concatenation operator `++`; the pipe operator `|>`; the fraction form `//`; the `if … then … else` expression (mandatory `then`; `else` omissible as `Unit` sugar, §11.2); the grammatical placement of `..`, `:=`, `=>`, `[]`, `.`, and call syntax.
 **Not in scope:** Semantics of indexing/slicing (`xs[i]`, `xs[lo..hi]`) beyond precedence — owed to the collections/indexing spec. Semantics of `Range` construction — Loops, Ranges & Iteration spec is authoritative; this spec only fixes `..`'s precedence. `match` — pattern-matching spec; referenced here only as a member of the eats-to-the-right family. Constraint mechanics (dictionary passing, coherence) — Constraints spec.
 **Companions:** Constraints (operator→member elaboration targets, prelude constraint listing), Primitive Types (per-type instance inventories, `Ord String`), Numeric Literals (literal elaboration under operators), Loops/Ranges/Iteration (`..` semantics, `while`/`for` condition grammar by reference), Statements/Blocks/Mutability (`:=` semantics, discard rule), Exceptions (edit note §14.2), Functions (`=>`, header sugar).
 
@@ -27,7 +27,7 @@ Hexagon has **no user-defined operators and no operator overloading**, permanent
 | `band` `bor` `bxor` | `bitAnd`, `bitOr`, `bitXor` | `Bitwise` (`bitwise.md`) |
 | `bnot` | `bitNot` | `Bitwise` |
 
-Everything else in the operator inventory is a **structural form** owned by the language, not by any type: `not`/`and`/`or`/`implies`/`iff` (primitive on `Bool`, §4), `..` (builds a `Range`, Loops spec), `|>` (pre-inference syntactic rewrite, §8), `=>` (lambda), `:=` (assignment statement-expression), `.` (field access), `()` (call), `[]` (index/slice), `if/then/else` (§11). None of these consult an instance table and none can be redefined.
+Everything else in the operator inventory is a **structural form** owned by the language, not by any type: `not`/`and`/`or`/`implies`/`iff` (primitive on `Bool`, §4), `..` (builds a `Range`, Loops spec), `//` (writes and takes apart a `Rat`, §6.4), `|>` (pre-inference syntactic rewrite, §8), `=>` (lambda), `:=` (assignment statement-expression), `.` (field access), `()` (call), `[]` (index/slice), `if/then/else` (§11). None of these consult an instance table and none can be redefined.
 
 Consequence for the implementer: after elaboration, the type checker sees only ordinary calls (`add(x, y)`, `equals(a, b)`, `notEquals(a, b)`) plus the handful of structural node kinds. Operators do not exist in the typed AST.
 
@@ -54,7 +54,7 @@ Levels are numbered **1 = tightest** with no gaps and no reserved slots. Since o
 
 **Value-level (constraint-backed):** `+` `-` `*` `/` `**` `++` `==` `!=` `<` `>` `<=` `>=` unary `-`; the bitwise words `band` `bor` `bxor` `bnot` (`bitwise.md`).
 **Logical:** `not` `and` `or` `implies` `iff`.
-**Structural:** `.` `()` `[]` `..` `|>` `:=` `=>` `if/then/else` (`match` joins from the pattern-matching spec).
+**Structural:** `.` `()` `[]` `..` `//` `|>` `:=` `=>` `if/then/else` (`match` joins from the pattern-matching spec).
 
 Deliberately absent (see §13 for reasoning): `%`, `^`, `&&`, `||`, `!` (bare), symbolic bitwise operators and shift operators, compound assignment (`+=` etc.), any Elvis/coalescing operator, any user-definable operator.
 
@@ -68,23 +68,24 @@ Deliberately absent (see §13 for reasoning): `%`, `^`, `&&`, `||`, `!` (bare), 
 | **2** | `bnot` | prefix | Bitwise complement |
 | **3** | `**` | right | Exponentiation |
 | **4** | `-` (unary) | prefix | Numeric negation |
-| **5** | `*`  `/` | left | Multiplicative |
-| **6** | `+`  `-`  `++` | left | Additive / concatenation |
-| **7** | `band` | left | Bitwise conjunction |
-| **8** | `bxor` | left | Bitwise exclusive or |
-| **9** | `bor` | left | Bitwise disjunction |
-| **10** | `..` | none (non-associative, non-chaining) | Range |
-| **11** | `==` `!=` `<` `>` `<=` `>=` | chaining (§5) | Comparison |
-| **12** | `not` | prefix | Logical negation |
-| **13** | `and` | left | Conjunction |
-| **14** | `or` | left | Disjunction |
-| **15** | `implies` | right | Implication |
-| **16** (loosest infix) | `iff` | left | Biconditional |
-| **17** | `\|>` | left | Pipe |
+| **5** | `//` | none (non-associative, non-chaining) | Fraction (§6.4) |
+| **6** | `*`  `/` | left | Multiplicative |
+| **7** | `+`  `-`  `++` | left | Additive / concatenation |
+| **8** | `band` | left | Bitwise conjunction |
+| **9** | `bxor` | left | Bitwise exclusive or |
+| **10** | `bor` | left | Bitwise disjunction |
+| **11** | `..` | none (non-associative, non-chaining) | Range |
+| **12** | `==` `!=` `<` `>` `<=` `>=` | chaining (§5) | Comparison |
+| **13** | `not` | prefix | Logical negation |
+| **14** | `and` | left | Conjunction |
+| **15** | `or` | left | Disjunction |
+| **16** | `implies` | right | Implication |
+| **17** (loosest infix) | `iff` | left | Biconditional |
+| **18** | `\|>` | left | Pipe |
 | — | `=>`, `if/then/else`, `match`, `attempt`, `assume` | eats-to-the-right (§3.2) | Prefix expression forms |
 | — | `:=` | non-associative, statement-level | Assignment (§12) |
 
-The bitwise levels (2, 7–9) take Lean 4's `~~~`, `&&&`, `^^^`, `|||` positions (`bitwise.md` §3.2). The logic tail (11–16) mirrors Lean 4's ordering exactly: comparisons above `¬` above `∧` above `∨` above `→` (right-associative) above `↔`. `implies` right-associativity is the logic convention (`a → b → c` ≡ `a → (b → c)`); `iff` left-associativity matches Lean's `↔`.
+The bitwise levels (2, 8–10) take Lean 4's `~~~`, `&&&`, `^^^`, `|||` positions (`bitwise.md` §3.2). The logic tail (12–17) mirrors Lean 4's ordering exactly: comparisons above `¬` above `∧` above `∨` above `→` (right-associative) above `↔`. `implies` right-associativity is the logic convention (`a → b → c` ≡ `a → (b → c)`); `iff` left-associativity matches Lean's `↔`.
 
 ### 3.1 The `not` position (change from the early draft — do not resurrect)
 
@@ -204,7 +205,7 @@ Types without the instance simply cannot use the operator: `==` on functions is 
 
 ### 5.2 Chaining
 
-A run of comparison operators at level 11 is parsed as a **chain**, desugaring to a conjunction of pairwise comparisons with shared middle operands bound once (§5.4):
+A run of comparison operators at level 12 is parsed as a **chain**, desugaring to a conjunction of pairwise comparisons with shared middle operands bound once (§5.4):
 
 ```
 a < b < c          -- a < b and b < c
@@ -244,7 +245,9 @@ a < f() < c
 
 `Float` and `Rat` both honor `Frac`, with type-owned failure and precision semantics:
 Float division is native IEEE 754 division, while Rat division is exact and throws
-`DivideByZeroFault` for a zero divisor. `Int` and `BigInt` do not honor `Frac`; their
+`DivideByZeroFault` for a zero divisor. A divisor written as a literal zero at `Rat` is
+refused when the program is compiled, in every spelling of the member's call (Division &
+Remainder §12); at `Float` it answers as IEEE 754 does. `Int` and `BigInt` do not honor `Frac`; their
 named division families state the quotient and remainder convention explicitly.
 
 ### 6.2 Unary minus
@@ -254,6 +257,7 @@ Level 4, elaborates to `negate`. Interactions, all decided:
 - `**` binds tighter on its left: `-2 ** 2` is `-(2 ** 2)` = `-4` — the mathematical reading of −2². JS refuses to parse this (`SyntaxError`, demanding parens); Hexagon follows math, not JS, per §1.3. **Emission must therefore parenthesize:** `-(2 ** 2)`, which is legal JS.
 - The *right* operand of `**` may begin with unary minus: `2 ** -3` is `2 ** (-3)` (Python's rule; the right operand of a right-associative level-3 operator parses at a level that admits prefixes).
 - Adjacent to a numeric literal, `-42` is still negation applied to the literal `42` — there are no negative literals; `negate(fromNat(42))` folds at compile time for the monomorphic cases, emitting `-42`.
+- **Two minus signs are written apart.** `--` begins a comment (Comments §2), so a negation of a negation, or a subtraction of a negative, puts a space or a parenthesis between the signs: `- -x` or `-(-x)`, and `x - -1`. Written together, `x --1` is `x` followed by a comment.
 
 ### 6.3 `**` — exponentiation and the `Pow` constraint
 
@@ -296,11 +300,24 @@ Two companions declare a wider face of their own `Pow` member — `widens` decla
 
 The qualified spellings `Float.pow`/`BigInt.pow` and the dot calls `x.pow(y)` denote the doors — the widest face of the one operation (Modules §5.3, Method Syntax §6.1). The operator `**` always elaborates to the member. Companions without a wider power (`Int.hex`, `Nat.hex`, `Rat.hex`) declare no door, and their qualified `pow` spellings denote the members, as uniform access always read.
 
+### 6.4 `//` — writing a fraction
+
+`top // bottom` is the fraction whose top is `top` and whose bottom is `bottom`: a `Rat`, built as `Rat.create(top, bottom)` builds it, in lowest terms with a positive bottom (`rat.md` §3). It is not division — `/` divides (§6.1) — and it is a structural form, not a constraint member (§1.1): no type honors anything to take part, and nothing redefines it. The same spelling takes a fraction apart in a pattern (Pattern Matching §2, `rat.md` §3).
+
+- **Level 5, between unary minus and `*` `/`.** A fraction is written whole before arithmetic reaches it: `half * 1 // 2` is `half * (1 // 2)`, `x / 2 // 3` is `x / (2 // 3)`, and `1 // 2 * 3 // 4` is `(1 // 2) * (3 // 4)`. A sign belongs to its side: `-1 // 3` is `(-1) // 3`, and `1 // -3` is `1 // (-3)`, the right side admitting a prefix as every infix right operand does. `**` binds tighter: `2 ** 3 // 4` is `(2 ** 3) // 4`. Postfix forms bind tighter still, so a dot call on a fraction groups it: `(5 // 2).round()`.
+- **Non-associative and non-chaining.** `1 // 2 // 3` is a parse error: "`//` does not chain; a fraction has one top and one bottom — to divide one, write `(1 // 2) / 3`".
+- **The sides are integers.** Each side is a `BigInt` seat, as `Rat.create`'s parameters are: an integer literal there is a `BigInt`, and a `Nat`, `Int` or `BigInt` enters through Numeric Literals §5.1's widening. Each side is its own expression, ending at its seat, and the fraction is one `Rat` value in the expression around it. A side whose type the text decides as `Rat`, `Dec` or `Float` — a decimal literal among them — is refused at that side with the division that was meant: "a fraction's top and bottom are integers, and `r` is a `Rat` — to divide, write `r / 2`"; at a `Dec` side the division is written at `Rat`, `Rat.fromDec(d) / 2`, since `Dec` alone has no exact `/` (Exact Integer Widening §9). A side of any other type is the ordinary seat error.
+- **Evaluation.** The top is evaluated, then the bottom, each once, and the fraction is built as `Rat.create` builds it. A zero bottom throws `DivideByZeroFault` when it runs, as `Rat.create` does. A bottom written as a literal zero is refused when the program is compiled (Division & Remainder §12): `1 // 0` does not compile, and `1 // zero` faults when it runs. Nothing else about `//` can fail, and it takes no mark (Effects §3): `Rat.create` is pure, and its fault is no colour.
+- **One `Rat`, by identity.** `//` builds and takes apart the prelude's `Rat`, named by identity and never by spelling (Intrinsics §7): a module that declares its own `Rat` hides the name (Modules §5.4), and `1 // 3` there is still the prelude's fraction. `//` is written only where that `Rat` is seated: not in a prelude module seated before it (Modules §5.5), and not in `Rat.hex`, which builds with its own `create` and reads its own fields, as no machinery needs `Seq` while checking `Seq.hex` (Intrinsics §7).
+- **Emission.** A fraction emits the build call a person would write, `Rat.create(1n, 3n)`, reaching the `Rat` module as any prelude companion's call does (Modules §11); a `//` pattern reads the top and bottom as `Rat.top` and `Rat.bottom` return them.
+
+Colleagues. Julia writes a fraction `1//3`, an operator of its own between the bit shifts and multiplication (the manual's precedence table: "Fraction `//` Left"); Hexagon takes Julia's spelling and level, and refuses the chain Julia associates. OCaml's Zarith writes `1 // 3` for "a rational from two `int`s" (`Q.( // )`), at OCaml's multiplicative level. Lean 4 writes `/.` for `Rat.divInt`, at multiplication's own level 70 (§13 records why that level was not taken). Haskell's `%` (`Data.Ratio`) sits at multiplication's level too.
+
 ---
 
 ## 7. `++` — concatenation and the `Concat` constraint
 
-Binary, level 6 (additive), left-associative. Elaborates to a new prelude constraint (edit note to Constraints §7):
+Binary, level 7 (additive), left-associative. Elaborates to a new prelude constraint (edit note to Constraints §7):
 
 ```
 constraint Concat<a> =
@@ -313,7 +330,7 @@ constraint Concat<a> =
 
 Lineage: Haskell, Elm, PureScript, and (as `<>`/append) the broader ML family. Overloading `+` for strings was rejected: `+` is `Num.add` and `String` is not `Num`; keeping algebra and joining as separate operators is both the FP tradition and a genuine diagnostic improvement (`"a" + "b"` errors with "did you mean `++`?" — mandatory fixit, see §14.1).
 
-`++` and `+`/`-` sharing level 6 is harmless in practice — mixing them in one expression is invariably a type error anyway — and saves a table row.
+`++` and `+`/`-` sharing level 7 is harmless in practice — mixing them in one expression is invariably a type error anyway — and saves a table row.
 
 ---
 
@@ -330,7 +347,7 @@ xs |> Seq.map(x => x + 1) |> Seq.filter(p) |> Seq.take(3)
                   -- Seq.take(Seq.filter(Seq.map(xs, x => x + 1), p), 3)
 ```
 
-- Left-associative, level 17 (loosest infix — §3.3 covers the two `=>` interaction cases).
+- Left-associative, level 18 (loosest infix — §3.3 covers the two `=>` interaction cases).
 - **Desugar shape:** if the right operand is syntactically a call `E(args…)`, rewrite to `E(a, args…)`; otherwise treat the whole right operand as a callee and rewrite to `RHS(a)` (this is what makes the bare form and `a |> (x => x + 1)` work). Because the rewrite precedes inference, the type checker, constraint resolution, and dictionary insertion never know pipes exist.
 - **Typing rides the rewritten application** (Functions §4.3): when the bare-form rewrite makes the callee a lambda literal — `a |> (x => …)`, `a |> match …` — that application elaborates its argument before its callee, so the lambda's parameter reads its type off `a`. This is the elaboration schedule only; the evaluation-order footnote below is unchanged.
 - *(#355.)* **A pipe stage is a call, so it takes a call mark** (Effects §3). A stage with its own argument list marks that list as any call does: `x |> take!(3)` rewrites to `take!(x, 3)`. The bare form's mark stands at the end of the stage — `x |> save!` — and the rewrite carries it onto the call it builds: `save!(x)`. Every mark and reading rides the same way: `text |> Int.parse^`, `text |> Int.parse?`, `line |> log~`. The stage end is one of the mark's two grammatical seats (Effects §3.2; Lexer §8.1); the checker still never knows pipes exist — it sees the rewritten, marked call.
@@ -344,9 +361,9 @@ xs |> Seq.map(x => x + 1) |> Seq.filter(p) |> Seq.take(3)
 
 The Loops spec deferred `..`'s precedence here with recorded intent; that intent is now **decided as recorded**:
 
-- **Level 10: looser than arithmetic and the bitwise operators, tighter than comparison.** `1..n+1` is `1..(n+1)`; `a*2..b*2` is `(a*2)..(b*2)`; `0..n band mask` is `0..(n band mask)` (`bitwise.md` §3.2).
+- **Level 11: looser than arithmetic and the bitwise operators, tighter than comparison.** `1..n+1` is `1..(n+1)`; `a*2..b*2` is `(a*2)..(b*2)`; `0..n band mask` is `0..(n band mask)` (`bitwise.md` §3.2).
 - **Non-associative and non-chaining:** `1..2..3` is a parse error — final phrasing (owed to Loops §10.2): "`..` does not chain; a range has exactly two endpoints."
-- Comparisons apply to a `Range` value only via whatever instances `Range` has (`Ord` it has not — Loops §3.6), so the level-10/level-11 boundary almost never matters; it exists so `x in 1..10` reads unambiguously in any future syntax that combines them.
+- Comparisons apply to a `Range` value only via whatever instances `Range` has (`Ord` it has not — Loops §3.6), so the level-11/level-12 boundary almost never matters; it exists so `x in 1..10` reads unambiguously in any future syntax that combines them.
 
 Everything else about ranges — inclusivity, emptiness, `Int`-onlyness, laziness, `Range.up`/`Range.down` — lives in the Loops spec and is not restated.
 
@@ -490,6 +507,8 @@ Semantics live in Statements/Blocks/Mutability (`var`-only target, `Unit`-typed,
 | Perfect-power extraction for rational power (succeed when an exact root exists) | Rejected permanently, in any spelling — the operator's typing now forecloses the fractional exponent, and the rejection equally forecloses any **named** door (`Rat`-exponent `pow`, `root`, `sqrt` over `Rat`). Success would be a number-theoretic property of the base's prime factorization, so meaning-preserving rewrites would move the throw boundary: a perfect-power product succeeds where its refactored factors throw twice. Algebra must commute with definedness (friendly-numerics tenet 5); an exponent's integrality is a statable operand predicate — now a type — a factorization is not (§6.3). |
 | Symbolic bitwise and shift operators (`&`, `\|`, `^`, `~`, `<<`, `>>`, `>>>`) | The bitwise operations are the words of `bitwise.md` §3; shifts are named calls; `^` and `~` are marks, never operators (Effects §1), and `\|` stays with unions and patterns (`bitwise.md` §10). |
 | Comparison operators as four primitive members | Superseded by single `Ord.compare` (§5.1): one obligation, derived totality, no double evaluation. |
+| `//` at Lean's level, with `*` and `/` (`/.` is `infixl:70` in Lean 4 core, as `*` and `/` are) | At multiplication's level `half * 1 // 2` would group as `(half * 1) // 2`, and `x / 2 // 3` as `(x / 2) // 3`, whose top is a division; the level between unary minus and `*` reads both as written (§6.4). Wherever the text decides the operands' types, every program Lean's level accepts, this level accepts with the same value: the grouping moves only a whole-number factor between the top and the outside, and `(a * b) // c` equals `a * (b // c)`. They part where only inference gives an operand its type: `fun half(x) = x * 1 // 2` takes a `BigInt` at Lean's level and a `Rat` at this one, so a call such as `Vector.map(bigs, half)` with `bigs : Vector(BigInt)` compiles under the first and is refused under the second. Julia's level was ruled for the reading (#1542). |
+| Julia's left-associative `//` | Julia reads `1//2//3` as `(1//2)//3`, its `//` also dividing a fraction. Here both sides are integers, so a chain would put a fraction where a top must be an integer; it is refused as a chain, `/` named, as `..` refuses a range of three endpoints (§6.4, §9). |
 
 *(A certain two-character coalescing operator from the early draft was also considered and does not exist.)*
 
@@ -533,6 +552,13 @@ The floored convention recorded as decided in Primitive Types §2 is **downgrade
 | `==` on functions | "functions have no `Eq` instance" |
 | `"a" + "b"` | type error + fixit "did you mean `++`?" (mandatory) |
 | `intA / intB` | type error + fixit pointing at `Int.div` / `Int.mod`, and at a written `Float` or `Rat` face for real division (Numeric Literals §5.1's lift; the same rider on the member's other spellings — Method Syntax §9 row 15, #808) |
+| `decA / decB` with no `Rat` home | "type `Dec` has no `Frac` instance; write a `Rat` type, or use `Dec.divide` with a place count" (Exact Integer Widening §9) |
+| `1 // 2 // 3` | "`//` does not chain; a fraction has one top and one bottom — to divide one, write `(1 // 2) / 3`" (§6.4) |
+| A `//` side that is a `Rat`, `Dec`, or `Float` (a decimal literal among them) | "a fraction's top and bottom are integers, and `r` is a `Rat` — to divide, write `r / 2`"; at a `Dec` side the division is written at `Rat`, `Rat.fromDec(d) / 2` (§6.4) |
+| `//` with nothing to its left; a syntax error after a `//` on its line | the parser's two comment refusals, Comments §3.1: "a fraction needs a top; for a comment, write `--`", and the note "for a comment, write `--`" added to the syntax error |
+| `1 // 0`: a bottom written as a literal zero | "a fraction's bottom is never zero, so `1 // 0` has no value; write the bottom that was meant", with the note "a fraction's bottom written as a literal is checked when the program is compiled" (§6.4; Division & Remainder §12.5) |
+| `r / 0` at `Rat`, in any spelling: a divisor written as a literal zero | "division by zero: `r / 0` has no value; write the divisor that was meant", with the note "a divisor written as a literal is checked when the program is compiled" (§6.1; Division & Remainder §12.5) |
+| A zero bottom or `Rat` divisor not written as a literal | runtime `DivideByZeroFault`, "Rat.create: bottom is zero" or "Rat.divide: divisor is zero" (§6.1, §6.4) |
 | `1..2..3` | "`..` does not chain; a range has exactly two endpoints" |
 | Eats-right form in non-final operand position | parse error + "parenthesize the `if` / lambda / `match`" |
 | `if` without `then` | parse error + "`if` requires `then`; write `if condition then` before the indented true branch" |
@@ -562,15 +588,17 @@ The floored convention recorded as decided in Primitive Types §2 is **downgrade
 | Single-evaluation rule: duplicated operands bound once, left-to-right, invisible temporaries | §5.4 |
 | `**` level 3, right-assoc (math); tighter than unary minus on its left, admits it on its right; JS's `-2**2` SyntaxError not adopted, emission parenthesizes | §6.2–6.3 |
 | `Pow<a: Num>` member is `pow(value: a, exponent: Int)` — the algebraic power; `Nat`/`Int`/`BigInt`/`Dec` throw `NegativeExponentFault` on a negative exponent, `Float` is total over it, `Rat` exact at either sign (a zero base with a negative exponent excepted — `DivideByZeroFault`, `rat.md` §4); a fractional exponent is a type error; analytic power = the `Float.pow` door, `BigInt` exponents = the `BigInt.pow` door (both `widens` declarations, their members the derived restrictions, qualifiable-not-bare — Constraints §4.7) | §6.3, §6.3.1 |
-| `++` = `Concat.concat`; level 6 with `+`; `String` in v1, `List` owed; `+` on strings rejected with fixit | §7 |
+| `++` = `Concat.concat`; level 7 with `+`; `String` in v1, `List` owed; `+` on strings rejected with fixit | §7 |
 | Pipe: F# token, ReScript first-arg semantics, pre-inference rewrite; bare `a \|> f` = `f(a)`; subject-first stdlib convention normative | §8 |
-| `..` level 10 (looser than arithmetic and the bitwise operators, tighter than comparison), non-assoc, non-chaining | §9 |
+| `..` level 11 (looser than arithmetic and the bitwise operators, tighter than comparison), non-assoc, non-chaining | §9 |
 | Postfix `.`/call/`[]` level 1; indexing/slicing semantics deferred to collections spec | §10 |
 | Every `if` requires `then`; else-less `if` = sugar for `else ()` (forces `Unit` `then` branch; F# rule, adopted July 2026 reversing the original strict decision); canonical for effect conditionals; canonical multiline form keeps `then` on the condition line and indents branches; condition = bare `Bool` expr, inherited by `while` by reference | §11 |
 | `:=` loosest, non-associative, does not chain | §12 |
 | `Bool` is a prelude union (#147): §4's operands are union values, `True`/`False` the only spellings; the native logic/condition emissions are licensed by the Unions §6.2 representation pin; `Bool` is the sole exception to Unions §1's match-only elimination | §4.5, §11.1 |
 | *(#808)* At a primitive representation every spelling of an operator-backed member emits the operator's lowering verbatim; `**` at the guarded instances and `compare` keep the call | §1.1, §5.1; Constraints §6.1 |
-| Bitwise words `band`/`bor`/`bxor` (contextual) and `bnot` (hard) elaborate to `Bitwise`; Lean levels — `bnot` 2 above `**`, `band` 7 > `bxor` 8 > `bor` 9 between additive and `..`; the table is 17 levels; `Bitwise` is a tower rung, so `Nat`/`Int`/`BigInt` operands meet at the wider home and a written face lifts (`bitwise.md` §5.1) | §1.1, §3; `bitwise.md` |
+| *(#1542)* `//` writes a fraction: a structural form that builds and takes apart the prelude's `Rat`, by identity, through `Rat.create`, `top` and `bottom`; level 5, between unary minus and `*` `/` (Julia's level, ruled over Lean's); non-associative and non-chaining; both sides integers at `BigInt` seats, a `Rat`, `Dec` or `Float` side refused with `/` named; a zero bottom faults at run time; the table is 18 levels | §3, §6.4, §13 |
+| Bitwise words `band`/`bor`/`bxor` (contextual) and `bnot` (hard) elaborate to `Bitwise`; Lean levels — `bnot` 2 above `**`, `band` 8 > `bxor` 9 > `bor` 10 between additive and `..`; the table is 18 levels; `Bitwise` is a tower rung, so `Nat`/`Int`/`BigInt` operands meet at the wider home and a written face lifts (`bitwise.md` §5.1) | §1.1, §3; `bitwise.md` |
+| *(#1545)* A bottom of `//`, or a divisor of `/` at `Rat`, written as a literal zero is refused when the program is compiled, as at every exact division (Division & Remainder §12); a zero the text does not write faults at run time | §6.1, §6.4, §15 |
 
 ---
 
@@ -642,4 +670,21 @@ x := y := z                    -- ERROR: `:=` does not chain
 flags band mask == 0           -- (flags band mask) == 0
 a bor b bxor c band d          -- a bor (b bxor (c band d))
 bnot x ** 2                    -- (bnot x) ** 2;  -x ** 2 stays -(x ** 2)
+
+-- (n) Fractions (§6.4)
+half * 1 // 2                  -- half * (1 // 2), at half : Rat
+x / 2 // 3                     -- x / (2 // 3)
+1 // 2 * 3 // 4                -- (1 // 2) * (3 // 4) = 3/8
+-1 // 3                        -- (-1) // 3
+1 // -3                        -- 1 // (-3) = -1/3
+2 ** 3 // 4                    -- (2 ** 3) // 4 = 2/1
+(5 // 2).round()               -- 3n; the dot call needs the parentheses
+let third = 1 // 3             -- Rat → emits Rat.create(1n, 3n)
+1 // 2 // 3                    -- ERROR: `//` does not chain
+r // 2                         -- ERROR at r : Rat: to divide, write `r / 2`
+1.5 // 2                       -- ERROR: a fraction's top and bottom are integers — write `1.5 / 2`
+1 // 0                         -- ERROR: a fraction's bottom is never zero, so `1 // 0` has no value
+1 // zero                      -- DivideByZeroFault when it runs, after `let zero = 0`
+let q: Rat = 1 / 0             -- ERROR: division by zero: `1 / 0` has no value
+let x: Float = 1 / 0           -- Infinity: `Float` is not checked
 ```

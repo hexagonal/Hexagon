@@ -1,23 +1,23 @@
 module File
 
-// Whole-file text reads and writes under Node (`spec/program-io.md` section 3).
-// The module is outside the prelude, reached by `import File`, so a program
-// that never imports it carries no `node:fs` import at all (section 8).
-//
-// **Node is reached through an ordinary `extern` block,** never through the
-// intrinsic door, so the playground can link its own small `node:fs` beneath
-// this module and run the same bytes (section 6). The door is used only for
-// what JavaScript itself must do: decode bytes, read an error's `code`, and
-// check that text can be written as UTF-8 (section 9).
-//
-// **Every failure leaves as `FileError`.** Node's error code chooses the reason
-// (section 3.4), and the path is always the one the caller passed. No `JsError`
-// leaves the module, and the one fault a write throws is `LoneSurrogateFault`,
-// before anything is written (section 7).
+-- Whole-file text reads and writes under Node (`spec/program-io.md` section 3).
+-- The module is outside the prelude, reached by `import File`, so a program
+-- that never imports it carries no `node:fs` import at all (section 8).
+--
+-- **Node is reached through an ordinary `extern` block,** never through the
+-- intrinsic door, so the playground can link its own small `node:fs` beneath
+-- this module and run the same bytes (section 6). The door is used only for
+-- what JavaScript itself must do: decode bytes, read an error's `code`, and
+-- check that text can be written as UTF-8 (section 9).
+--
+-- **Every failure leaves as `FileError`.** Node's error code chooses the reason
+-- (section 3.4), and the path is always the one the caller passed. No `JsError`
+-- leaves the module, and the one fault a write throws is `LoneSurrogateFault`,
+-- before anything is written (section 7).
 
-(** Why a `File` operation failed, from Node's error code. The set is closed:
+{-- Why a `File` operation failed, from Node's error code. The set is closed:
     `Other` carries any code the five named reasons don't cover, such as
-    `ENAMETOOLONG` or `EROFS`. *)
+    `ENAMETOOLONG` or `EROFS`. -}
 export union FileErrorReason =
     | NotFound
     | PermissionDenied
@@ -26,9 +26,9 @@ export union FileErrorReason =
     | NotUtf8
     | Other(code: String)
 
-(** What every `File` operation throws when the file system refuses it, or when
+{-- What every `File` operation throws when the file system refuses it, or when
     a file `readText` reads isn't UTF-8. `path` is the one the call was given;
-    `message` is one line for a reader, and a program reads `reason` instead. *)
+    `message` is one line for a reader, and a program reads `reason` instead. -}
 export exception FileError(reason: FileErrorReason, path: String, message: String)
 
 extern from "node:fs"
@@ -42,9 +42,9 @@ extern from "hex:intrinsic"
     fun fileDecodeLossy as decodeLossy(bytes: JsValue) ->! String
     fun fileFirstBadByte as firstBadByte(bytes: JsValue) ->~ Int
 
-// Section 3.4's two tables. A message names the path. For `Other`, Node's own
-// message says more than a code would, and the path follows it where it
-// doesn't name the path itself.
+-- Section 3.4's two tables. A message names the path. For `Other`, Node's own
+-- message says more than a code would, and the path follows it where it
+-- doesn't name the path itself.
 let reasonOf(code: String): FileErrorReason = match code
     "ENOENT" => NotFound
     "EACCES" => PermissionDenied
@@ -69,16 +69,16 @@ let refusal(path: String, error: JsValue): Exn =
             if described.contains(path) then described else "${described}: ${path}"
     FileError(reason, path, message)
 
-// The whole file's bytes, as the `Buffer` Node read them into.
+-- The whole file's bytes, as the `Buffer` Node read them into.
 let bytesOf(path: String): JsValue =
     try
         readBytes!(path)
     catch
         JsError(error) => throw^(refusal~(path, error))
 
-// The file's text, or `undefined` where its bytes aren't UTF-8. A decoding has
-// one other throw, a text longer than the host's longest string
-// (`ERR_STRING_TOO_LONG`), and it is refused as a read's failure is.
+-- The file's text, or `undefined` where its bytes aren't UTF-8. A decoding has
+-- one other throw, a text longer than the host's longest string
+-- (`ERR_STRING_TOO_LONG`), and it is refused as a read's failure is.
 let strictText(path: String, bytes: JsValue): JsValue =
     try
         decodeStrict!(bytes)
@@ -91,9 +91,9 @@ let lossyText(path: String, bytes: JsValue): String =
     catch
         JsError(error) => throw^(refusal~(path, error))
 
-// The codepoint position of the first lone surrogate, counted from 1, asked
-// only once `isWellFormed` has said there is one. `toCodepoint` answers `None`
-// for exactly that codepoint.
+-- The codepoint position of the first lone surrogate, counted from 1, asked
+-- only once `isWellFormed` has said there is one. `toCodepoint` answers `None`
+-- for exactly that codepoint.
 let firstLoneSurrogate(text: String): Int =
     var position = 0
     var found = 0
@@ -105,33 +105,33 @@ let firstLoneSurrogate(text: String): Int =
                 None => found := position
     found
 
-// Section 7: the check comes before anything is written, so a refused write
-// leaves the file as it was.
+-- Section 7: the check comes before anything is written, so a refused write
+-- leaves the file as it was.
 let refuseLoneSurrogate(text: String): Unit =
     if not isWellFormed(text) then
         let position = firstLoneSurrogate(text)
         let message = "the text holds a lone surrogate at codepoint ${position}, which UTF-8 cannot write; repair it with String.toWellFormed first"
         throw(LoneSurrogateFault(message, position))
 
-(** The whole file at `path` as text, read as UTF-8. One leading byte-order
+{-- The whole file at `path` as text, read as UTF-8. One leading byte-order
     mark is dropped and everything else is kept as it is, line endings
     included. A file that isn't well-formed UTF-8 throws
-    `FileError(NotUtf8, path, _)`, whose message names the first bad byte. *)
+    `FileError(NotUtf8, path, _)`, whose message names the first bad byte. -}
 export let readText(path: String): String =
     let bytes = bytesOf!(path)
     match strictText!(path, bytes).toString?()
         Some(text) => text
         None => throw^(FileError(NotUtf8, path, "not UTF-8 at byte ${firstBadByte~(bytes)}: ${path}"))
 
-(** The whole file at `path` as text, as `readText` reads it, except that each
+{-- The whole file at `path` as text, as `readText` reads it, except that each
     ill-formed sequence becomes U+FFFD instead of refusing the file. For a file
-    that may hold stray bytes a program would rather see than stop at. *)
+    that may hold stray bytes a program would rather see than stop at. -}
 export let readTextLossy(path: String): String =
     lossyText!(path, bytesOf!(path))
 
-(** Writes `text` to the file at `path` as UTF-8, creating the file or
+{-- Writes `text` to the file at `path` as UTF-8, creating the file or
     replacing what it held. It adds no byte-order mark and no newline, and it
-    creates no missing directory. *)
+    creates no missing directory. -}
 export let writeText(path: String, text: String): Unit =
     refuseLoneSurrogate(text)
     try
@@ -139,9 +139,9 @@ export let writeText(path: String, text: String): Unit =
     catch
         JsError(error) => throw^(refusal~(path, error))
 
-(** Writes one byte-order mark, U+FEFF, then `text` as `writeText` would, for a
+{-- Writes one byte-order mark, U+FEFF, then `text` as `writeText` would, for a
     reader that wants one, such as a spreadsheet opening a CSV file. `readText`
-    gives `text` back. *)
+    gives `text` back. -}
 export let writeTextBom(path: String, text: String): Unit =
     refuseLoneSurrogate(text)
     try

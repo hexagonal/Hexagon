@@ -308,22 +308,22 @@ describe("what Playground gains by inheriting the grammar (#145)", () => {
   });
 
   test("block comments nest", async () => {
-    const source = "(* outer (* inner *) still comment *)\nlet after = 1";
+    const source = "{- outer {- inner -} still comment -}\nlet after = 1";
     expect(await tokenOf(source, "still comment")).toBe("comment.block.hexagon");
     expect(await tokenOf(source, "after")).toBe(binder);
   });
 
   test("doc comments have their own scope", async () => {
-    expect(await tokenOf("(** doc *)\nlet x = 1", "doc")).toBe(
+    expect(await tokenOf("{-- doc -}\nlet x = 1", "doc")).toBe(
       "comment.block.documentation.hexagon",
     );
     // The one doc form, and only it: spec/doc-comments.md §2.2 keeps banners ordinary
-    // and §2.3 gives `///` no status, so both reach the ordinary comment scopes.
-    expect(await tokenOf("(*** banner ***)\nlet x = 1", "** banner **")).toBe(
+    // and §2.3 gives `---` no status, so both reach the ordinary comment scopes.
+    expect(await tokenOf("{--- banner ---}\nlet x = 1", "-- banner --")).toBe(
       "comment.block.hexagon",
     );
-    expect(await tokenOf("/// doc\nlet x = 1", "/ doc")).toBe(
-      "comment.line.double-slash.hexagon",
+    expect(await tokenOf("--- doc\nlet x = 1", "- doc")).toBe(
+      "comment.line.double-dash.hexagon",
     );
   });
 

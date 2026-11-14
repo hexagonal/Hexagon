@@ -46,35 +46,47 @@
     "comments": {
       "patterns": [
         {
-          "//": "spec/doc-comments.md §2.1: a block comment is a doc comment when `(**` is followed by a character that is neither `)` nor `*`. §2.2's two carve-outs are exactly the lookahead's two characters: `(**)` stays an ordinary empty block comment, and `(***`, `(****…` stay ordinary so rulers and banners never become documentation. A line-ending `(**` is a doc opener too — the character after it is the newline — which is §3.1's newline-first body idiom; vscode-textmate appends that newline to every line before matching, so the lookahead sees it. Written negatively rather than as `(?=[^)*])` because language-configuration.json's `onEnterRules` need the same predicate against lines that carry no newline, and one spelling for one rule is worth more than the one case the two forms differ on: a `(**` with nothing after it at all, which hexc reads as ordinary (`#scanBlockComment` requires a character) and this rule would read as documentation. Unreachable here — the appended newline is always that character — and both scopes are one colour anyway.",
+          "//": "spec/doc-comments.md §2.1: a block comment is a doc comment when `{--` is followed by a character that is neither `-` nor `}`. §2.2's two carve-outs are exactly the lookahead's two characters: `{--}` stays an ordinary empty block comment, and `{---`, `{----…` stay ordinary so rulers and banners never become documentation. `{-|` is not a doc opener either (§10): it is the ordinary rule below with `|` as its first character of text. A line-ending `{--` is a doc opener too — the character after it is the newline — which is §3.1's newline-first body idiom; vscode-textmate appends that newline to every line before matching, so the lookahead sees it. Written negatively rather than as `(?=[^-}])` because language-configuration.json's `onEnterRules` need the same predicate against lines that carry no newline, and one spelling for one rule is worth more than the one case the two forms differ on: a `{--` with nothing after it at all, which hexc reads as ordinary (`#scanBlockComment` requires a character) and this rule would read as documentation. Unreachable here — the appended newline is always that character — and both scopes are one colour anyway.",
           "name": "comment.block.documentation.hexagon",
-          "begin": "\\(\\*\\*(?![)*])",
-          "end": "\\*\\)",
+          "begin": "\\{--(?![-}])",
+          "end": "-\\}",
           "beginCaptures": { "0": { "name": "punctuation.definition.comment.begin.hexagon" } },
           "endCaptures": { "0": { "name": "punctuation.definition.comment.end.hexagon" } },
           "patterns": [{ "include": "#bidirectional-control" }, { "include": "#block-comment-inner" }]
         },
         {
-          "//": "spec/comments.md §3: block comments nest.",
+          "//": "spec/comments.md §3: block comments nest, and only `{-` and `-}` count inside one. `{` followed directly by `-` is this rule wherever a token may begin, ahead of the record brace — every `\\{`-based rule elsewhere carries `(?!-)` so it can never claim the `{` first. `{-}` is unterminated, as hexc reads it: the `-` of the opener cannot also begin the closer, and TextMate tries `end` only after the `begin` it matched.",
           "name": "comment.block.hexagon",
-          "begin": "\\(\\*",
-          "end": "\\*\\)",
+          "begin": "\\{-",
+          "end": "-\\}",
           "beginCaptures": { "0": { "name": "punctuation.definition.comment.begin.hexagon" } },
           "endCaptures": { "0": { "name": "punctuation.definition.comment.end.hexagon" } },
           "patterns": [{ "include": "#bidirectional-control" }, { "include": "#block-comment-inner" }]
         },
         {
-          "//": "begin/end rather than match, so a bidirectional control inside the comment body still gets its own scope (§3.2 prohibits them in comments too). There is no line doc form to match ahead of this one: spec/doc-comments.md §2.3 revoked the `///` reservation unspent, so `///` is this rule with a `/` as its first character of text — the grammar does not count slashes.",
-          "name": "comment.line.double-slash.hexagon",
-          "begin": "//",
+          "//": "spec/comments.md §2: `--` begins a comment wherever a token may begin, whatever stands beside it, so `x --1` is `x` and a comment. Ahead of #operators in every context that lists both, which is what keeps `-` and `->` from claiming the first dash: at one position the earlier rule wins. A run of dashes is this one rule, and `--- note` is not documentation (spec/doc-comments.md §2.3). Ahead of the unmatched-`-}` rule below, so `--}` is a line comment, as §3 requires. begin/end rather than match, so a bidirectional control inside the comment body still gets its own scope (§3.2 prohibits them in comments too).",
+          "name": "comment.line.double-dash.hexagon",
+          "begin": "--",
           "end": "$",
           "beginCaptures": { "0": { "name": "punctuation.definition.comment.hexagon" } },
           "patterns": [{ "include": "#bidirectional-control" }]
         },
         {
-          "//": "spec/comments.md §3: `*)` at depth zero is a hard error, not `*` then `)`.",
+          "//": "spec/comments.md §3: `-}` at depth zero is a hard error, not `-` then `}`.",
           "name": "invalid.illegal.unmatched-comment-close.hexagon",
-          "match": "\\*\\)"
+          "match": "-\\}"
+        },
+        {
+          "//": "spec/operators-logic-precedence.md §6.4: `//` writes a fraction, one token munched ahead of `/` (spec/lexer.md §8.2), and so ahead of the `/*` rule, as in hexc: `//*` is `//` then `*`. A `//` meant as a comment is the parser's to refuse (spec/comments.md §3.1), which reads where an operand stands, so the grammar paints every `//` as the operator it lexes as.",
+          "name": "keyword.operator.arithmetic.hexagon",
+          "match": "//"
+        },
+        {
+          "//": "spec/comments.md §3.1: `(*`, `(**` included, is OCaml's opener and is detected, never lexed as `(` then `*`. The region nests to its matching `*)`, mirroring the compiler's recovery, so a pasted OCaml comment is one region of error, as the `/*` rule below makes a pasted JavaScript one. The bail-out guard is what stops a half-typed `(*` from repainting the file; see the //line-bail-guard note. Because this rule claims the opener, no `\\(`-based rule elsewhere needs a guard against it: a bracket rule that claimed the `(` first would turn an error into a different error, which is not worth seven copies of a lookahead.",
+          "name": "invalid.illegal.ocaml-comment.hexagon",
+          "begin": "\\(\\*",
+          "end": "\\*\\)|(?=^\\S|^[ \\t]*(?:(?:(?:let|var|fun|record|type|constraint|honor|derive|exception|import|export|extern)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])|pattern(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+(?![\\p{Uppercase}\\p{Lt}])(?!__)(?!(?:catch|else|finally|for|if|in|match|then|try|while|attempt|assume|import|export|extern|constraint|derive|exception|fun|honor|let|record|type|var|and|bnot|iff|implies|not|or|true|false)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}]))[\\p{ID_Start}$_][\\p{ID_Continue}$_\\x{200C}\\x{200D}]*[ \\t]*(?=[(<:=]|$)|opaque(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+(?:record|union)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])|widens(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|union(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|fault(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|module(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|end[ \\t]+module(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}]))|\\|(?!>)))",
+          "patterns": [{ "include": "#bidirectional-control" }, { "include": "#ocaml-comment-inner" }]
         },
         {
           "//": "spec/comments.md §3.1: `/*` is JavaScript's opener and is detected, never lexed as `/` then `*`. The region it opens is painted as one error, mirroring the compiler's scan-to-`*/` recovery — a pasted JSDoc block is one region, not a line of error followed by `@param` painted as an invalid character. Ending at `$` instead would say that, and would also let #tab-indentation fire on a tab inside the comment body, which the compiler explicitly does not diagnose. The bail-out guard is what stops a half-typed `/*` from repainting the file; see the //line-bail-guard note.",
@@ -84,17 +96,29 @@
           "patterns": [{ "include": "#bidirectional-control" }]
         },
         {
-          "//": "spec/comments.md §3.1: a stray `*/` where a token may begin, which Hexagon spells `*)`.",
+          "//": "spec/comments.md §3.1: a stray `*/` where a token may begin, which Hexagon spells `-}`. `**` is matched ahead of it by #operators wherever the two start together, so `a **/ b` is not this.",
           "name": "invalid.illegal.javascript-comment.hexagon",
           "match": "\\*/"
+        },
+        {
+          "//": "spec/comments.md §3.1: a stray `*)` where a token may begin, which Hexagon spells `-}`. `**)` is `**` then `)`: #operators' `**` starts one character earlier, and the leftmost match wins.",
+          "name": "invalid.illegal.ocaml-comment.hexagon",
+          "match": "\\*\\)"
         }
       ]
     },
 
     "block-comment-inner": {
-      "begin": "\\(\\*",
-      "end": "\\*\\)",
+      "begin": "\\{-",
+      "end": "-\\}",
       "patterns": [{ "include": "#bidirectional-control" }, { "include": "#block-comment-inner" }]
+    },
+
+    "ocaml-comment-inner": {
+      "//": "OCaml's nesting, for the recovery region above: each `(*` inside needs its own `*)`, as the compiler's scan counts them. The same bail-out guard, because only the innermost open rule's `end` is ever tried.",
+      "begin": "\\(\\*",
+      "end": "\\*\\)|(?=^\\S|^[ \\t]*(?:(?:(?:let|var|fun|record|type|constraint|honor|derive|exception|import|export|extern)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])|pattern(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+(?![\\p{Uppercase}\\p{Lt}])(?!__)(?!(?:catch|else|finally|for|if|in|match|then|try|while|attempt|assume|import|export|extern|constraint|derive|exception|fun|honor|let|record|type|var|and|bnot|iff|implies|not|or|true|false)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}]))[\\p{ID_Start}$_][\\p{ID_Continue}$_\\x{200C}\\x{200D}]*[ \\t]*(?=[(<:=]|$)|opaque(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+(?:record|union)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])|widens(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|union(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|fault(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|module(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|end[ \\t]+module(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}]))|\\|(?!>)))",
+      "patterns": [{ "include": "#bidirectional-control" }, { "include": "#ocaml-comment-inner" }]
     },
 
     "strings": {
@@ -185,7 +209,7 @@
 
     "brace-group": {
       "//": "Keeps a record literal's `}` inside a hole from closing the interpolation.",
-      "begin": "\\{",
+      "begin": "\\{(?!-)",
       "end": "\\}",
       "beginCaptures": { "0": { "name": "punctuation.section.braces.begin.hexagon" } },
       "endCaptures": { "0": { "name": "punctuation.section.braces.end.hexagon" } },
@@ -464,30 +488,28 @@
       "What this costs: a group with content on its opening line that then wraps.",
       "`record P derives (Eq,` / `    Show)` still paints `Show`, in the nominal family",
       "rather than the constraint family. Writing it in the hanging form restores it.",
-      "A trailing comment counts as content — `record Pair( (* note *)` classifies as",
+      "A trailing comment counts as content — `record Pair( -- note` classifies as",
       "bounded, so its parameters on the next line paint as terms. Same trade, same fix.",
       "",
-      "Second guard, from #171: every `\\(`-based `begin` here also carries `(?!\\*)`, so",
-      "a `(*` comment opener is never eaten as a bracket. Include order cannot substitute",
-      "for it, because #type-declaration-parameters and the `derives` rules start matching",
-      "before their `(` and would claim the `(` of `record Pair (* note *)` ahead of",
-      "#comments. Exactly two of the seven change any paint — the *bounded*",
-      "#type-declaration-parameters rule and the *bounded* `derives` rule. The hanging",
-      "variants cannot read a `(*` opener as end of line, #type-expression lists #comments",
-      "first, and #type-parameter-bound's nested group is reached only from a context that",
-      "now does too. The guard is written out at all seven so every site reads the same;",
-      "grammar.test.ts pins those copies too.",
+      "Second guard, from #1538: every `\\{`-based `begin` and `match` here carries",
+      "`(?!-)`, so the `{` of a `{-` comment opener is never eaten as a brace — spec/",
+      "comments.md §3 reads `{` followed directly by `-` as a comment wherever a token",
+      "may begin, ahead of the record brace. Include order covers the contexts that list",
+      "#comments first, but not #brace-group, which an interpolation hole tries ahead of",
+      "$self, so the guard is written out at all four sites and grammar.test.ts pins",
+      "them. (#171's `(?!\\*)` guard on the `\\(`-based rules is gone with the `(* *)`",
+      "spelling: `(*` is now a refused spelling, and which rule paints an error is not",
+      "worth a lookahead at seven sites.)",
       "",
       "Keeping the opener out of a group's `begin` is only half of it. A group's own",
       "`patterns` are the only rules tried inside it, so each of these bodies also",
-      "includes #comments — without that, `(*` inside the group falls through to",
-      "#punctuation and the `*)` closes the group at its `)`, which loses the colour the",
-      "group exists to give and paints the closer as a stray bracket.",
+      "includes #comments — without that, `{-` inside the group falls through to",
+      "#operators and #punctuation, and its body is painted as code, closer and all.",
       "",
       "One consequence, recorded so it is not read later as a regression: in illegal",
-      "source like `record Pair(a *)`, the `*)` is now the unmatched-closer error §3",
-      "requires rather than a bracket that closes the group, so the rest of that line",
-      "stays type context."
+      "source like `record Pair(a *)`, the `*)` is the stray-closer error spec/",
+      "comments.md §3.1 requires rather than a bracket that closes the group, so the",
+      "rest of that line stays type context."
     ],
 
     "type-alias-declaration": {
@@ -528,7 +550,7 @@
       "patterns": [
         {
           "//": "Hanging: `record P(` with the bracket last on its line, so the list continues.",
-          "begin": "(?<![\\p{ID_Continue}$_\\x{200C}\\x{200D}])(record|union|type)[ \\t]+([\\p{Uppercase}\\p{Lt}][\\p{ID_Continue}$_\\x{200C}\\x{200D}]*)[ \\t]*(\\()(?!\\*)(?=[ \\t]*$)",
+          "begin": "(?<![\\p{ID_Continue}$_\\x{200C}\\x{200D}])(record|union|type)[ \\t]+([\\p{Uppercase}\\p{Lt}][\\p{ID_Continue}$_\\x{200C}\\x{200D}]*)[ \\t]*(\\()(?=[ \\t]*$)",
           "beginCaptures": {
             "1": { "name": "storage.type.hexagon" },
             "2": { "name": "entity.name.type.hexagon" },
@@ -542,7 +564,7 @@
         },
         {
           "//": "Bounded: content after the bracket, so an unclosed list stops at end of line.",
-          "begin": "(?<![\\p{ID_Continue}$_\\x{200C}\\x{200D}])(record|union|type)[ \\t]+([\\p{Uppercase}\\p{Lt}][\\p{ID_Continue}$_\\x{200C}\\x{200D}]*)[ \\t]*(\\()(?!\\*)",
+          "begin": "(?<![\\p{ID_Continue}$_\\x{200C}\\x{200D}])(record|union|type)[ \\t]+([\\p{Uppercase}\\p{Lt}][\\p{ID_Continue}$_\\x{200C}\\x{200D}]*)[ \\t]*(\\()",
           "beginCaptures": {
             "1": { "name": "storage.type.hexagon" },
             "2": { "name": "entity.name.type.hexagon" },
@@ -558,7 +580,7 @@
     },
 
     "type-declaration-parameter-list": {
-      "//": "#comments first: a group's own patterns are the only ones tried inside it, so without this a `(*` opener reaches #punctuation and the `*)` closes the group.",
+      "//": "#comments first: a group's own patterns are the only ones tried inside it, so without this a `{-` opener reaches #operators and #punctuation and its body paints as code.",
       "patterns": [
         { "include": "#comments" },
         {
@@ -662,7 +684,7 @@
       "patterns": [
         { "include": "#comments" },
         {
-          "begin": "\\((?!\\*)",
+          "begin": "\\(",
           "beginCaptures": {
             "0": { "name": "punctuation.section.parens.begin.hexagon" }
           },
@@ -704,7 +726,7 @@
       ],
       "patterns": [
         {
-          "begin": "(_)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]*(:)(?!=)[ \\t]*(\\()(?!\\*)",
+          "begin": "(_)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]*(:)(?!=)[ \\t]*(\\()",
           "beginCaptures": {
             "1": { "name": "entity.name.type.parameter.hexagon" },
             "2": { "name": "punctuation.separator.colon.hexagon" },
@@ -810,7 +832,7 @@
           "match": "(?![\\p{Uppercase}\\p{Lt}])[\\p{ID_Start}$_][\\p{ID_Continue}$_\\x{200C}\\x{200D}]*"
         },
         {
-          "begin": "\\((?!\\*)(?=[ \\t]*$)",
+          "begin": "\\((?=[ \\t]*$)",
           "beginCaptures": {
             "0": { "name": "punctuation.section.parens.begin.hexagon" }
           },
@@ -823,7 +845,7 @@
           ]
         },
         {
-          "begin": "\\((?!\\*)",
+          "begin": "\\(",
           "beginCaptures": {
             "0": { "name": "punctuation.section.parens.begin.hexagon" }
           },
@@ -836,7 +858,7 @@
           ]
         },
         {
-          "begin": "\\{(?=[ \\t]*$)",
+          "begin": "\\{(?!-)(?=[ \\t]*$)",
           "beginCaptures": {
             "0": { "name": "punctuation.section.braces.begin.hexagon" }
           },
@@ -849,7 +871,7 @@
           ]
         },
         {
-          "begin": "\\{",
+          "begin": "\\{(?!-)",
           "beginCaptures": {
             "0": { "name": "punctuation.section.braces.begin.hexagon" }
           },
@@ -1034,7 +1056,7 @@
             "",
             "Split hanging/bounded, hanging first — see the //line-bail-guard note."
           ],
-          "begin": "(?:(?<=[\\p{ID_Continue}$_)\\]}])[ \\t]+|^[ \\t]+)(derives)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]*(\\()(?!\\*)(?=[ \\t]*$)",
+          "begin": "(?:(?<=[\\p{ID_Continue}$_)\\]}])[ \\t]+|^[ \\t]+)(derives)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]*(\\()(?=[ \\t]*$)",
           "beginCaptures": {
             "1": { "name": "keyword.other.derives.hexagon" },
             "2": { "name": "punctuation.section.parens.begin.hexagon" }
@@ -1051,7 +1073,7 @@
         },
         {
           "//": "The same clause with content after its `(`, bounded to its line.",
-          "begin": "(?:(?<=[\\p{ID_Continue}$_)\\]}])[ \\t]+|^[ \\t]+)(derives)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]*(\\()(?!\\*)",
+          "begin": "(?:(?<=[\\p{ID_Continue}$_)\\]}])[ \\t]+|^[ \\t]+)(derives)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]*(\\()",
           "beginCaptures": {
             "1": { "name": "keyword.other.derives.hexagon" },
             "2": { "name": "punctuation.section.parens.begin.hexagon" }
@@ -1248,7 +1270,7 @@
         "it (`isEmpty<a>(values)`), because spec/lexer.md §8.1 makes `<` the very same",
         "token in a comparison — `count <= 0` must keep reading as a comparison."
       ],
-      "match": "(?![\\p{Uppercase}\\p{Lt}])([\\p{ID_Start}$_][\\p{ID_Continue}$_\\x{200C}\\x{200D}]*)(?=[ \\t]*\\((?!\\*)|<[^<>()\\n]*>[ \\t]*\\((?!\\*))",
+      "match": "(?![\\p{Uppercase}\\p{Lt}])([\\p{ID_Start}$_][\\p{ID_Continue}$_\\x{200C}\\x{200D}]*)(?=[ \\t]*\\(|<[^<>()\\n]*>[ \\t]*\\()",
       "captures": { "1": { "name": "entity.name.function.hexagon" } }
     },
 
@@ -1310,7 +1332,7 @@
         { "name": "punctuation.section.parens.end.hexagon", "match": "\\)" },
         { "name": "punctuation.section.brackets.begin.hexagon", "match": "\\[" },
         { "name": "punctuation.section.brackets.end.hexagon", "match": "\\]" },
-        { "name": "punctuation.section.braces.begin.hexagon", "match": "\\{" },
+        { "name": "punctuation.section.braces.begin.hexagon", "match": "\\{(?!-)" },
         { "name": "punctuation.section.braces.end.hexagon", "match": "\\}" },
         { "name": "punctuation.separator.comma.hexagon", "match": "," },
         { "name": "punctuation.separator.colon.hexagon", "match": ":" },

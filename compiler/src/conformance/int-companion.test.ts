@@ -140,10 +140,11 @@ describe("the guards moved into source and kept their names", () => {
     const exports = await runMain([
       "module Main",
       "",
-      "export let byDiv(): Int = Int.div(1, 0)",
-      "export let byMod(): Int = Int.mod(2, 0)",
-      "export let byQuot(): Int = Int.quot(3, 0)",
-      "export let byRem(): Int = Int.rem(4, 0)",
+      "let zero = 0",
+      "export let byDiv(): Int = Int.div(1, zero)",
+      "export let byMod(): Int = Int.mod(2, zero)",
+      "export let byQuot(): Int = Int.quot(3, zero)",
+      "export let byRem(): Int = Int.rem(4, zero)",
       "",
     ].join("\n"));
 
@@ -177,7 +178,8 @@ describe("the guards moved into source and kept their names", () => {
     const exports = await runMain([
       "module Main",
       "",
-      "export let branded(): Int = Int.quot(5, 0)",
+      "let zero = 0",
+      "export let branded(): Int = Int.quot(5, zero)",
       "",
     ].join("\n"));
 
@@ -260,8 +262,8 @@ describe("Primitive Types §2.1's checked family", () => {
       "    match result",
       "        Some(_) => True",
       "        None => False",
-      "// Each pair asks the checked member and the exact `BigInt` computation the",
-      "// same question, so a disagreement is a failure whichever one is wrong.",
+      "-- Each pair asks the checked member and the exact `BigInt` computation the",
+      "-- same question, so a disagreement is a failure whichever one is wrong.",
       "export let products: Vector(Bool) = [",
       "    answered(Int.checkedMul(0, limit)) == exactlyFits(0, limit),",
       "    answered(Int.checkedMul(limit, 1)) == exactlyFits(limit, 1),",
@@ -307,9 +309,9 @@ describe("Primitive Types §2.1's checked family", () => {
       "    overflowed(Int.checkedMul(67108864, 134217728)),",
       "    overflowed(Int.checkedAdd(limit, 1)),",
       "    overflowed(Int.checkedAdd(limit, 0)),",
-      "// A zero *right* operand answers through the zero arm, never through the",
-      "// magnitude compare — `quot(limit, 0)` would throw, and a left-zero case",
-      "// cannot prove the arm exists because the compare also answers it.",
+      "-- A zero *right* operand answers through the zero arm, never through the",
+      "-- magnitude compare — `quot(limit, 0)` would throw, and a left-zero case",
+      "-- cannot prove the arm exists because the compare also answers it.",
       "    overflowed(Int.checkedMul(limit, 0)),",
       "    overflowed(Int.checkedMul(0, 0))]",
       "export let values: Vector(Int) = [",

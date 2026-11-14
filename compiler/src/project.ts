@@ -102,7 +102,7 @@ export interface CompiledModule {
   readonly declarations: Emitted.Declarations;
   /**
    * Where this module's emission found each runtime module, so a host that
-   * re-emits it (the Playground, for its private-specialization preview) gets
+   * re-emits it (the Playground, for the JavaScript pane's private editions) gets
    * the same answer rather than the same-directory default.
    *
    * Carried rather than recomputed because only `compileProject` knows where
@@ -260,7 +260,8 @@ export interface CompiledProject {
    * this program's prelude (#679, `fundamentalInstancesOf`).
    *
    * Carried out for the reason `CompiledModule.runtimes` is: a host that
-   * re-emits a module — the Playground, for its inspection preview — has to
+   * re-emits a module — the Playground, for its JavaScript pane's private
+   * editions — has to
    * plan the same editions the shipped emission planned, and only the compile
    * that ran the prelude can say which those are.
    */
@@ -1543,7 +1544,7 @@ export function compileProject(
     const patternHomes: ModuleImport[] = [];
     for (const [homePath, home] of resolvedModules) {
       const interface_ = moduleInterface(home);
-      if (interface_.patterns.size === 0) continue;
+      if (interface_.patterns.size === 0 && interface_.fraction === undefined) continue;
       patternHomes.push({
         interface: interface_,
         specifier: relativeSpecifier(path, homePath),
@@ -1728,7 +1729,10 @@ export function compileProject(
     for (const home of checked.values()) {
       const interface_ = moduleInterface(home.resolved);
       const published = new Map(home.typed.symbols.map((symbol) => [symbol.id, symbol.scheme]));
-      for (const reference of interface_.patterns.values()) {
+      const references = interface_.fraction === undefined
+        ? [...interface_.patterns.values()]
+        : [...interface_.patterns.values(), interface_.fraction];
+      for (const reference of references) {
         for (const symbol of [reference.view, reference.build]) {
           if (symbol === undefined) continue;
           const scheme = published.get(symbol);
@@ -1932,8 +1936,9 @@ export function compileProject(
 
   // Emit an injected `Hex` module only when something emitted imports it, so a
   // project that never touches its nominals is unchanged by the standard
-  // library's existence — and a project that never writes `import Rat` writes no
-  // `Hex/Rat.js` (Packages §6).
+  // library's existence — and a project that never writes `import Regex` writes
+  // no `Hex/Regex.js` (Packages §6). A prelude member is the same: a program
+  // that writes no fraction and names no `Rat` writes no `Hex/Rat.js`.
   // Since §5.5 lets prelude modules import each other, this is reachability
   // rather than a single hop: a module imported *only* by another prelude module
   // must still be emitted, or the emitted JavaScript carries an import of a file
@@ -2381,7 +2386,7 @@ function seatOneUnitPerAddress(units: readonly Unit[]): readonly Unit[] {
  * Modules §5.1 rule 1's repair clause, answered from the program's own module
  * set (#829's Ruling A).
  *
- * A refusal of `Rat.create` has to say whether `import Rat` would work, and
+ * A refusal of `Regex.compile` has to say whether `import Regex` would work, and
  * nothing inside a pass can know: a module's `imports` hold what it *wrote*,
  * and this is a question about a line it did not. The resolution is §3's own,
  * run for a spelling rather than for an import head, so a report and an import

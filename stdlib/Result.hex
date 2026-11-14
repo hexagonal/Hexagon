@@ -1,65 +1,65 @@
 module Result
 
-// The value that holds a caught exception (`spec/option-result-convenience.md`
-// section 1): `attempt` gives one, and `orThrow` throws it again. A program
-// whose failures are data of its own declares a union for them.
+-- The value that holds a caught exception (`spec/option-result-convenience.md`
+-- section 1): `attempt` gives one, and `orThrow` throws it again. A program
+-- whose failures are data of its own declares a union for them.
 export union Result(a) =
     | Ok(value: a)
     | Err(error: Exn)
 
-(** Transforms a successful value. `Err` stays unchanged. *)
+{-- Transforms a successful value. `Err` stays unchanged. -}
 export let map(source: Result(a), transform: a ->! b): Result(b) =
     match source
         Ok(value) => Ok(transform!(value))
         Err(error) => Err(error)
 
-(** Transforms a successful value without adding another `Result` layer. *)
+{-- Transforms a successful value without adding another `Result` layer. -}
 export let flatMap(source: Result(a), transform: a ->! Result(b)): Result(b) =
     match source
         Ok(value) => transform!(value)
         Err(error) => Err(error)
 
-(** Returns the successful value, or the already-evaluated `fallback`. *)
+{-- Returns the successful value, or the already-evaluated `fallback`. -}
 export let defaultValue(source: Result(a), fallback: a): a =
     match source
         Ok(value) => value
         Err(_) => fallback
 
-(** Returns the successful value, or makes one from the caught exception. *)
+{-- Returns the successful value, or makes one from the caught exception. -}
 export let defaultWith(source: Result(a), fallback: Exn ->! a): a =
     match source
         Ok(value) => value
         Err(error) => fallback!(error)
 
-(** Returns the successful value, or throws the caught exception, with the
+{-- Returns the successful value, or throws the caught exception, with the
     stack it was built with. It may fail on its own account, so every call wears
-    `^`; it is the way back from `attempt`. *)
+    `^`; it is the way back from `attempt`. -}
 export let orThrow(source: Result(a)): a =
     match source
         Ok(value) => value
         Err(failure) => throw^(failure)
 
-(** `Some` of the successful value, or `None` for a caught exception, which is
-    dropped. *)
+{-- `Some` of the successful value, or `None` for a caught exception, which is
+    dropped. -}
 export let toOption(source: Result(a)): Option(a) =
     match source
         Ok(value) => Some(value)
         Err(_) => None
 
-(** The inner result of an `Ok`, or `source`'s own `Err`: one `Result` layer
-    removed. *)
+{-- The inner result of an `Ok`, or `source`'s own `Err`: one `Result` layer
+    removed. -}
 export let flatten(source: Result(Result(a))): Result(a) =
     match source
         Ok(inner) => inner
         Err(error) => Err(error)
 
-(** Whether `source` is `Ok`. *)
+{-- Whether `source` is `Ok`. -}
 export let isOk(source: Result(a)): Bool =
     match source
         Ok(_) => True
         Err(_) => False
 
-(** Whether `source` is `Err`. *)
+{-- Whether `source` is `Err`. -}
 export let isErr(source: Result(a)): Bool =
     match source
         Ok(_) => False

@@ -72,6 +72,7 @@ import { lex } from "../lexer/lexer.js";
 import { displayParameterName, isCompilerMinted, isSyntheticParameterName } from "../../support/synthetic.js";
 import * as Resolved from "../../syntax/resolved/index.js";
 import { preludeExportSymbol } from "../../support/prelude-symbol.js";
+import { forEachTypedExpression } from "../../queries/typed-walk.js";
 import * as Typed from "../../syntax/typed/index.js";
 
 export interface CheckOptions {
@@ -1039,7 +1040,7 @@ interface ClaimArrow {
 /** A claim being met (`#claimPatternType`), for the reports its unification makes. */
 interface ClaimAt {
   readonly pattern: Resolved.TypedPattern;
-  readonly subject: ClaimSubject | undefined;
+  readonly subject: ClaimSubject;
   /** The written type and the part it meets, whole. */
   readonly written: Mono;
   readonly part: Mono;
@@ -1079,6 +1080,11 @@ export interface WrittenView {
 interface SpelledPart {
   readonly written: Resolved.TypeAnnotation;
   readonly role: WrittenRole;
+}
+
+/** A declared part as the view a use reads *(#1518)*: data, as a declared field is. */
+function declaredView(written: Resolved.TypeAnnotation | undefined): SpelledPart | undefined {
+  return written === undefined ? undefined : { written, role: "data" };
 }
 
 /** A lambda's written face (`WrittenView`). */
@@ -3441,17 +3447,31 @@ function spanKey(span: Source.Span): string {
 /**
  * A name's spelling as written, without the trivia a dotted path may hold
  * between its segments: whitespace, line comments, and block comments, which
- * nest (Comments §2, §3), and the JavaScript block spelling the lexer detects
- * and refuses. `Frac.\n    divide` and `Frac. // why\n    divide` are both
- * `Frac.divide`.
+ * nest (Comments §2, §3), and the other languages' spellings the lexer detects
+ * and refuses (§3.1). `Frac.\n    divide` and `Frac. -- why\n    divide` are
+ * both `Frac.divide`.
  */
 function writtenName(text: string): string {
   let written = "";
   let index = 0;
   while (index < text.length) {
-    if (text.startsWith("//", index)) {
+    if (text.startsWith("--", index) || text.startsWith("//", index)) {
       const end = text.indexOf("\n", index);
       index = end === -1 ? text.length : end;
+    } else if (text.startsWith("{-", index)) {
+      let depth = 0;
+      while (index < text.length) {
+        if (text.startsWith("{-", index)) {
+          depth += 1;
+          index += 2;
+        } else if (text.startsWith("-}", index)) {
+          depth -= 1;
+          index += 2;
+          if (depth === 0) break;
+        } else {
+          index += 1;
+        }
+      }
     } else if (text.startsWith("(*", index)) {
       let depth = 0;
       while (index < text.length) {
@@ -4036,48 +4056,108 @@ function headWritten(annotation: Resolved.TypeAnnotation | undefined): annotatio
 }
 
 /**
- * A declaration's written slot as a written type reads it: each of the
- * declaration's type parameters replaced by the annotation the written type
- * gives it, so `Some`'s slot `a` under `Option((Vector(_)) -> Int)` reads
- * `(Vector(_)) -> Int`, and a hole given there stays a hole.
+ * An annotation with each type written directly beneath it read by `read`, in
+ * the order it is written (a function's parameters before its result); one
+ * with nothing beneath it is itself.
  */
-function givenSlot(
-  slot: Resolved.TypeAnnotation,
-  given: ReadonlyMap<string, Resolved.TypeAnnotation>,
+function readBeneath(
+  annotation: Resolved.TypeAnnotation,
+  read: (inner: Resolved.TypeAnnotation) => Resolved.TypeAnnotation,
 ): Resolved.TypeAnnotation {
-  const read = (inner: Resolved.TypeAnnotation): Resolved.TypeAnnotation => givenSlot(inner, given);
-  switch (slot.kind) {
-    case "TypeVariable":
-      return given.get(slot.name) ?? slot;
+  switch (annotation.kind) {
     case "Function":
-      return { ...slot, parameters: slot.parameters.map(read), result: read(slot.result) };
+      return { ...annotation, parameters: annotation.parameters.map(read), result: read(annotation.result) };
     case "Vector":
     case "Set":
     case "Array":
     case "JsSet":
     case "Node":
-      return { ...slot, element: read(slot.element) };
+      return { ...annotation, element: read(annotation.element) };
     case "Nullable":
-      return { ...slot, value: read(slot.value) };
+      return { ...annotation, value: read(annotation.value) };
     case "Map":
     case "JsMap":
-      return { ...slot, key: read(slot.key), value: read(slot.value) };
+      return { ...annotation, key: read(annotation.key), value: read(annotation.value) };
     case "Tuple":
-      return { ...slot, elements: slot.elements.map(read) };
+      return { ...annotation, elements: annotation.elements.map(read) };
     case "Record":
-      return { ...slot, fields: slot.fields.map((field) => ({ ...field, annotation: read(field.annotation) })) };
+      return {
+        ...annotation,
+        fields: annotation.fields.map((field) => ({ ...field, annotation: read(field.annotation) })),
+      };
     case "Union":
     case "RecordDeclaration":
     case "ExternType":
-      return { ...slot, arguments: slot.arguments.map(read) };
+      return { ...annotation, arguments: annotation.arguments.map(read) };
+    case "TypeVariable":
     case "Hole":
     case "ImpliedType":
     case "ErrorType":
     case "Primitive":
     case "Range":
     case "JsValue":
-      return slot;
+      return annotation;
   }
+}
+
+/**
+ * `annotation` with its fields in the order `order` writes them, where both
+ * are record types writing the same field names: a record type's fields are
+ * paired by name. `undefined` where the names differ; any other type itself.
+ */
+function fieldsPaired(
+  annotation: Resolved.TypeAnnotation,
+  order: Resolved.TypeAnnotation,
+): Resolved.TypeAnnotation | undefined {
+  if (annotation.kind !== "Record" || order.kind !== "Record") return annotation;
+  const fields = order.fields.map((field) => annotation.fields.find((own) => own.name === field.name));
+  return fields.length === annotation.fields.length && fields.every((field) => field !== undefined)
+    ? { ...annotation, fields }
+    : undefined;
+}
+
+/** The types written directly beneath an annotation, in `readBeneath`'s order. */
+function writtenBeneath(annotation: Resolved.TypeAnnotation): readonly Resolved.TypeAnnotation[] {
+  const beneath: Resolved.TypeAnnotation[] = [];
+  readBeneath(annotation, (inner) => {
+    beneath.push(inner);
+    return inner;
+  });
+  return beneath;
+}
+
+/**
+ * Types a reading built whose span does not spell them: a slot read with a
+ * type argument beneath it, whose span spells the parameter, or a nominal
+ * record's fields, whose span spells the pattern or the record's name. A
+ * rewrite never copies their text (`#writtenSpelling`).
+ */
+const unspelled = new WeakSet<Resolved.TypeAnnotation>();
+
+/**
+ * A declaration's written slot as a written type reads it: each of the
+ * declaration's type parameters replaced by the annotation the written type
+ * gives it, so `Some`'s slot `a` under `Option((Vector(_)) -> Int)` reads
+ * `(Vector(_)) -> Int`, and a hole given there stays a hole. `made` meets
+ * each type the slot itself writes, as read, and none the given types are.
+ * A type with a parameter beneath it is `unspelled`: given a type, its text
+ * spells the parameter, and left a variable, it is not ground.
+ */
+function givenSlot(
+  slot: Resolved.TypeAnnotation,
+  given: ReadonlyMap<string, Resolved.TypeAnnotation>,
+  made?: (written: Resolved.TypeAnnotation) => void,
+): Resolved.TypeAnnotation {
+  if (slot.kind === "TypeVariable") return given.get(slot.name) ?? slot;
+  let replaced = false;
+  const read = readBeneath(slot, (inner) => {
+    const built = givenSlot(inner, given, made);
+    if (inner.kind === "TypeVariable" || unspelled.has(built)) replaced = true;
+    return built;
+  });
+  if (replaced) unspelled.add(read);
+  made?.(read);
+  return read;
 }
 
 /**
@@ -5091,10 +5171,23 @@ class Checker {
   readonly #madeViews = new Map<Resolved.SymbolId, WrittenView | undefined>();
   /** The pattern each pattern-bound name is part of, for the part a written type spells (`#spelledResult`). */
   readonly #partPatterns = new Map<Resolved.SymbolId, Resolved.Pattern>();
+  /** The value each pattern takes apart, by the pattern, as its parts' sources note it (`#partsDecided`). */
+  readonly #partRoots = new Map<Resolved.Pattern, Resolved.Expr | undefined>();
+  /** The arms whose parts a `match` left open (`#settleArms`), by their patterns (`#partsDecided`). */
+  readonly #openRoots = new Set<Resolved.Pattern>();
   /** A `let` pattern's binding annotation, by the pattern it types (Pattern Matching §6.3). */
   readonly #patternAnnotations = new Map<Resolved.Pattern, Resolved.TypeAnnotation>();
   /** The record declaration each constructor builds, across the program, for `#sourceItem`. */
   readonly #constructedRecords = new Map<Resolved.SymbolId, Resolved.RecordDeclaration>();
+  /**
+   * The types a union's or an exception's slot writes, as the declarations a
+   * pattern names give a part (`#patternSlot`) *(#1518)*: a slot is no
+   * value's own written type, so a `->!` among them stays the impure constant
+   * where a use hands something, wherever the slot hands it on, a record's
+   * type argument included (Effects §3.4). Each arrow among them is a node
+   * the walk built, so no other reading meets it.
+   */
+  readonly #slotTypes = new WeakSet<Resolved.TypeAnnotation>();
   /**
    * The colours `#lowerWritten` minted *(#1174 review)*: a written `->!` read
    * as any function where one use hands something. Such a colour belongs to
@@ -5611,6 +5704,12 @@ class Checker {
 
   readonly #expressionTypes = new WeakMap<Resolved.Expr, Mono>();
   /** Suffix constructions are ordinary build calls after pattern selection. */
+  /**
+   * The calls a fraction `top // bottom` stands for (Operators §6.4), so a side
+   * that is not an integer is refused with the division that was meant.
+   */
+  readonly #fractionCalls = new Set<Resolved.CallExpr>();
+  readonly #fractionConstructions: Resolved.PatternConstructionExpr[] = [];
   readonly #patternConstructionCalls = new WeakMap<Resolved.PatternConstructionExpr, Resolved.CallExpr>();
   /** The declaration selected for a checked suffix pattern. */
   readonly #declaredPatternReferences = new WeakMap<Resolved.DeclaredPattern, Resolved.PatternReference>();
@@ -5990,6 +6089,8 @@ class Checker {
   readonly #intWidenings = new WeakMap<Resolved.Expr, Requirement>();
   /** Exact BigInt expressions injected into an independently known FromBigInt target. */
   readonly #bigIntWidenings = new WeakMap<Resolved.Expr, Requirement>();
+  /** `Dec` expressions injected into an independently known `FromDec` target (§9). */
+  readonly #decWidenings = new WeakMap<Resolved.Expr, Requirement>();
   /**
    * Decimal-point literals promoted to an independently known exact target
    * (Numeric Literals §5.1, #525): the canonical `Dec`, carrying the written
@@ -7366,8 +7467,8 @@ class Checker {
   #claimAt: ClaimAt | undefined;
   /**
    * The value the pattern being checked takes apart, for the claims its typed
-   * patterns make (`#claimSubject`); `undefined` at a `catch` arm, whose `Exn`
-   * holds no function.
+   * patterns make (`#claimPatternType`). Set where a pattern's walk starts
+   * (`#atBinders`).
    */
   #claimSubject: ClaimSubject | undefined;
   /**
@@ -8303,10 +8404,17 @@ class Checker {
       scheme: this.#namedScheme(this.#publicScheme(this.#scheme(symbol.id)), colours.colourNames),
     }));
 
+    // A side's mismatch may settle as late as the module's end, so the
+    // fraction's own report replaces it once everything is in.
+    for (const fraction of this.#fractionConstructions) this.#refuseFractionSides(fraction);
+    const items = module.items.map((item) => this.#materializeItem(item));
+    // Division & Remainder §12: read once the types are solved, from the
+    // checked tree, where each division stands once at the type it runs at.
+    this.#refuseWrittenZeroDivisors(module, items);
     const typed: Typed.Module = {
       kind: "Module",
       fileId: module.fileId,
-      items: module.items.map((item) => this.#materializeItem(item)),
+      items,
       symbols,
       // The reached ones ride out beside the listed ones, and after them: the
       // emitter builds its constructor table from this list and its derived
@@ -9312,12 +9420,18 @@ class Checker {
         remember(false);
         return remember(this.#typeDecided(source.value, deep));
       case "part": {
-        // A caught exception's parts: the exception's declaration writes them.
+        // A caught exception's parts: `Exn`, and the exceptions' declarations
+        // beneath it, write them.
         if (source.source === undefined) return true;
         // A type written over the name's part decides it, as a parameter's
-        // annotation does (Pattern Matching §2.9).
+        // annotation does (Pattern Matching §2.9), and so does the slot a
+        // constructor's declaration writes for it, whatever the value it is
+        // taken from (#1518): its head where the slot writes one, the whole
+        // where it writes all.
         const written = this.#writtenOverPart(symbol);
         if (written === "whole" || written === "head" && !deep) return true;
+        const declared = this.#declaredPart(symbol);
+        if (declared !== undefined && (deep ? annotationWhole(declared) : headWritten(declared))) return true;
         if (this.#shapeOpen.get(symbol) === true) return false;
         remember(false);
         return remember(this.#typeDecided(source.source, true));
@@ -9413,12 +9527,13 @@ class Checker {
    * The type a written annotation gives a constructor pattern's slot: a
    * union's constructor's declared slot, or a nominal record's fields, read
    * with the declaration's parameters given the annotation's arguments
-   * (`givenSlot`).
+   * (`givenSlot`). `made` meets each type a union's slot itself writes.
    */
   #writtenSlot(
     pattern: Resolved.ConstructorPattern,
     index: number,
     annotation: Resolved.TypeAnnotation,
+    made?: (written: Resolved.TypeAnnotation) => void,
   ): Resolved.TypeAnnotation | undefined {
     if (pattern.symbol === undefined) return undefined;
     if (annotation.kind === "Union") {
@@ -9426,18 +9541,21 @@ class Checker {
       const slot = union?.constructors.find((constructor) => constructor.binding.symbol === pattern.symbol)
         ?.slots[index]?.annotation;
       if (union === undefined || slot === undefined) return undefined;
-      return givenSlot(slot, new Map(union.parameters.map((name, at) => [name, annotation.arguments[at]!] as const)));
+      const given = new Map(union.parameters.map((name, at) => [name, annotation.arguments[at]!] as const));
+      return givenSlot(slot, given, made);
     }
     if (annotation.kind === "RecordDeclaration" && index === 0) {
       const declaration = this.#constructedRecords.get(pattern.symbol);
       if (declaration === undefined || declaration.id !== annotation.record) return undefined;
       const given = new Map(declaration.parameters.map((name, at) => [name, annotation.arguments[at]!] as const));
-      return {
+      const fields: Resolved.TypeAnnotation = {
         kind: "Record",
         fields: declaration.fields.map((field) => ({ ...field, annotation: givenSlot(field.annotation, given) })),
         open: false,
         span: annotation.span,
       };
+      unspelled.add(fields);
+      return fields;
     }
     return undefined;
   }
@@ -12785,6 +12903,26 @@ class Checker {
     const firstUse = this.#nextInstanceUse;
     switch (expression.kind) {
       case "PatternConstruction": {
+        if (expression.fraction === true && expression.fractionCreate !== undefined) {
+          // Operators §6.4: `top // bottom` is the prelude `Rat`'s `create`
+          // applied to the two sides, each a `BigInt` seat.
+          const call: Resolved.CallExpr = {
+            kind: "Call",
+            callee: {
+              kind: "Name",
+              symbol: expression.fractionCreate,
+              text: "//",
+              span: expression.nameSpan,
+            },
+            arguments: expression.components,
+            span: expression.span,
+          };
+          this.#patternConstructionCalls.set(expression, call);
+          this.#fractionCalls.add(call);
+          this.#fractionConstructions.push(expression);
+          type = this.#inferExpr(call, level, expected);
+          break;
+        }
         const namespace = expression.candidates.filter(({ source }) => source !== "door");
         const contestants = this.#withDeclaredSubjectHomes(namespace, expression.candidates, level);
         let reference = namespace.length === 1
@@ -14299,7 +14437,7 @@ class Checker {
           //
           // The fixit is offered only where the deletion is exactly the two
           // characters it names. A gap holding anything more — an argument
-          // expression, a comment (`None((* why *))`), a glued effect mark
+          // expression, a comment (`None({- why -})`), a glued effect mark
           // (`None!()`) — is the writer's text, and "delete the `()`" must not
           // delete it.
           if (expression.mark === "caret") {
@@ -14895,52 +15033,17 @@ class Checker {
   }
 
   /**
-   * A part a pattern takes out of a value the text decides, through a declared
-   * record's field *(#1207)*: the field's declared type, which is data, as a
-   * field read of the same value gives it (`Access` above). Read through the
-   * patterns around the part to the record's, a record nested in another's
-   * field included (`#patternWritten`).
+   * A part a pattern takes out of a value the text decides: what the
+   * declarations of the constructors around it write, as for any value
+   * (`#partDeclared`, #1518), a declared record's field included, which is
+   * data, as a field read of the same value gives it (#1207, `Access`
+   * above). The value's type is the text's at every position, so a
+   * constructor the door named is read too.
    */
   #partWritten(symbol: Resolved.SymbolId): WrittenView | undefined {
     const pattern = this.#partPatterns.get(symbol);
     if (pattern === undefined || !this.#decidedBinding(symbol)) return undefined;
-    const first = (patterns: readonly Resolved.Pattern[]): SpelledPart | undefined => {
-      for (const inner of patterns) {
-        const found = within(inner);
-        if (found !== undefined) return found;
-      }
-      return undefined;
-    };
-    const within = (inner: Resolved.Pattern): SpelledPart | undefined => {
-      switch (inner.kind) {
-        case "As":
-        case "Typed":
-          return within(inner.pattern);
-        case "Tuple":
-          return first(inner.elements);
-        case "Vector":
-          return first([...inner.elements, ...(inner.rest?.pattern === undefined ? [] : [inner.rest.pattern])]);
-        case "Record":
-          return first(inner.fields.map((field) => field.pattern));
-        case "Constructor": {
-          const declaration = inner.symbol === undefined ? undefined : this.#constructedRecords.get(inner.symbol);
-          const fields = inner.arguments.length === 1 ? inner.arguments[0] : undefined;
-          if (declaration !== undefined && fields?.kind === "Record") {
-            for (const field of fields.fields) {
-              const declared = declaration.fields.find((candidate) => candidate.name === field.name)?.annotation;
-              const found = declared === undefined
-                ? undefined
-                : this.#patternWritten(field.pattern, { written: declared, role: "data" }, symbol);
-              if (found !== undefined) return found;
-            }
-          }
-          return first(inner.arguments);
-        }
-        default:
-          return undefined;
-      }
-    };
-    return within(pattern);
+    return declaredView(this.#partDeclared(pattern, symbol, undefined, true));
   }
 
   /**
@@ -14981,17 +15084,23 @@ class Checker {
     if (expression.kind === "Name") {
       const symbol = expression.symbol;
       const source = this.#bindingSources.get(symbol);
-      if (seen.has(symbol) || (source?.kind !== "value" && source?.kind !== "part") || source.outerOpen === true) {
-        return undefined;
-      }
+      if (seen.has(symbol) || (source?.kind !== "value" && source?.kind !== "part")) return undefined;
       seen.add(symbol);
-      if (source.kind === "value") return this.#spelledType(this.#givenValue(source.value), seen, ground);
+      if (source.kind === "value") {
+        return source.outerOpen === true ? undefined : this.#spelledType(this.#givenValue(source.value), seen, ground);
+      }
       // A value a `match` or a `for` reads in place is taken apart where it is
       // read (Effects §3.4), and its parts are read as that says.
       const pattern = this.#partPatterns.get(symbol);
-      if (source.source === undefined || pattern === undefined || this.#readInPlace.has(source.source)) return undefined;
-      const whole = this.#spelledType(this.#givenValue(source.source), seen, true);
-      return whole === undefined ? undefined : this.#patternWritten(pattern, whole, symbol);
+      if (pattern === undefined) return undefined;
+      const whole = source.source === undefined || source.outerOpen === true || this.#readInPlace.has(source.source)
+        ? undefined
+        : this.#spelledType(this.#givenValue(source.source), seen, true);
+      const spelled = whole === undefined ? undefined : this.#patternWritten(pattern, whole, symbol);
+      if (spelled !== undefined) return spelled;
+      // The slot a constructor's declaration writes, whatever the value it is
+      // taken from (#1518).
+      return this.#declaredView(symbol);
     }
     if (expression.kind !== "Call" || expression.callee.kind !== "Name") return undefined;
     // A member of a knot still open included (`#groundResult`).
@@ -15189,9 +15298,10 @@ class Checker {
           }
           if (!receives) {
             // Where the use hands something, a `->!` the value's own written
-            // type spells as the impure constant accepts any function (#1174).
+            // type spells as the impure constant accepts any function (#1174);
+            // one a union's or an exception's slot wrote is no value's own.
             return written?.kind === "Function" && written.effect !== undefined && !isFollowing(written.effect) &&
-                role === "data"
+                role === "data" && !this.#slotTypes.has(written)
               ? this.#lowerWritten(rebuilt, level)
               : rebuilt;
           }
@@ -15721,11 +15831,17 @@ class Checker {
     const path = this.#declaredPatternHomePath(type);
     const key = this.#declaredPatternNominalKey(type);
     if (path === undefined || key === undefined) return [];
-    return (this.#patternHomes.get(path)?.patterns ?? []).flatMap((reference) =>
+    const home = this.#patternHomes.get(path);
+    // Pattern Matching §2.10: the prelude `Rat` is taken apart with `//`.
+    const fraction = home?.fraction !== undefined &&
+        this.#declaredPatternNominalKey(this.#declaredPatternSubject(home.fraction, 0)) === key
+      ? ["top // bottom"]
+      : [];
+    return [...fraction, ...(home?.patterns ?? []).flatMap((reference) =>
       this.#declaredPatternNominalKey(this.#declaredPatternSubject(reference, 0)) === key
         ? [`(${reference.componentNames.join(", ")})${reference.declaredName}`]
         : []
-    ).slice(0, 3);
+    )].slice(0, 3);
   }
 
   /** Selects a suffix-pattern declaration before its subject is unified. */
@@ -15862,8 +15978,7 @@ class Checker {
       this.#diagnostics.add({
         severity: "error",
         message: opaque && names.length === 0
-          ? `cannot destructure opaque ${expectedType.kind === "Union" ? "union" : "record"} ` +
-            `\`${this.#display(expectedType)}\`; use an operation exported by its home module`
+          ? this.#opaquePatternRefusal(expectedType.kind === "Union" ? "union" : "record", expectedType)
           : `\`${this.#display(expectedType)}\` has no pattern \`${pattern.name}\`` +
             nearMiss(pattern.name, names),
         primary: pattern.nameSpan,
@@ -16886,6 +17001,109 @@ class Checker {
     this.#matchSlotTypes.clear();
   }
 
+  /**
+   * Division & Remainder §12: a **checked division** whose divisor is a
+   * **written zero** is refused when the program is compiled.
+   *
+   * The list is closed (§12.2): `top // bottom` and `Rat.create`; `Frac`'s
+   * `divide` where it runs at `Rat`, as `a / b` or as a call; `Integral`'s
+   * `div`, `mod`, `quot` and `rem` where they run at `Nat`, `Int` or `BigInt`;
+   * and `Dec.divide` and `Dec.divideEven`. Each is recognised by the symbol its
+   * call names, so every spelling of the call is read — through the companion,
+   * an alias of it, the constraint, the dot, or a `|>` stage — since each calls
+   * the one operation. A call of anything else names another symbol and is not
+   * read: a function value (`let g = Int.div` then `g(7, 0)`) is a call of `g`.
+   *
+   * It reads the checked tree, so the type a division runs at is the one the
+   * checker solved for it (§12.3). A division at a type variable carries its
+   * evidence at that variable and is never read, nor is an `Integral` member
+   * at an instance a program declares. Nothing here changes a type or what is
+   * emitted: the run-time guards stay, and this is their earliest form.
+   */
+  #refuseWrittenZeroDivisors(module: Resolved.Module, items: readonly Typed.Item[]): void {
+    const members = (identity: string, names: readonly string[]): Set<Resolved.SymbolId> =>
+      new Set(
+        (this.#constraintsByIdentity.get(identity)?.members ?? [])
+          .filter(({ binding }) => names.includes(binding.name))
+          .map(({ binding }) => binding.symbol),
+      );
+    const integral = members(preRegisteredConstraintIdentity("Integral"), ["div", "mod", "quot", "rem"]);
+    const fracDivide = members(preRegisteredConstraintIdentity("Frac"), ["divide"]);
+    const decDivisions = new Set<Resolved.SymbolId>();
+    const ratCreate = new Set<Resolved.SymbolId>();
+    for (const item of module.items) {
+      if (item.kind !== "Import") continue;
+      const into = item.moduleName === "Hex.Dec"
+        ? decDivisions
+        : item.moduleName === "Hex.Rat"
+        ? ratCreate
+        : undefined;
+      if (into === undefined) continue;
+      const wanted = into === decDivisions ? ["divide", "divideEven"] : ["create"];
+      for (const name of item.form.names) {
+        if (name.symbol !== undefined && name.typeOnly !== true && wanted.includes(name.imported)) {
+          into.add(name.symbol);
+        }
+      }
+    }
+    const ratRecord = module.preludeRecords.get("Rat");
+    const atRat = (type: Typed.Type): boolean =>
+      type.kind === "NominalRecord" && type.record === ratRecord;
+    const atInteger = (type: Typed.Type): boolean =>
+      type.kind === "Primitive" && (type.name === "Nat" || type.name === "Int" || type.name === "BigInt");
+    // A division the checker has already refused inside is one fault, said
+    // once: the earlier report names what to change first.
+    const earlier = this.#diagnostics.toArray().filter(({ severity }) => severity === "error");
+    const refusedWithin = ({ span }: Typed.Expr): boolean =>
+      earlier.some(({ primary }) =>
+        primary.fileId === span.fileId &&
+        primary.start.offset >= span.start.offset && primary.end.offset <= span.end.offset
+      );
+    const refuse = (division: Typed.Expr, divisor: Typed.Expr, fraction: boolean): void => {
+      if (!writtenZero(divisor) || refusedWithin(division)) return;
+      const text = this.#sourceText?.slice(division.span.start.offset, division.span.end.offset);
+      const quoted = text === undefined ? (fraction ? "this fraction" : "this division") : `\`${text}\``;
+      this.#diagnostics.add({
+        severity: "error",
+        message: fraction
+          ? `a fraction's bottom is never zero, so ${quoted} has no value; write the bottom that was meant`
+          : `division by zero: ${quoted} has no value; write the divisor that was meant`,
+        primary: divisor.span,
+        notes: [
+          fraction
+            ? "a fraction's bottom written as a literal is checked when the program is compiled"
+            : "a divisor written as a literal is checked when the program is compiled",
+        ],
+      });
+    };
+    const visit = (expression: Typed.Expr): void => {
+      if (expression.kind === "ConstraintCall") {
+        if (
+          expression.constraint === "Frac" && expression.member === "divide" &&
+          expression.arguments.length === 2 && !isDecimalPromotion(expression) &&
+          atRat(expression.requirement.type)
+        ) refuse(expression, expression.arguments[1]!, false);
+        return;
+      }
+      if (expression.kind !== "Call" || expression.callee.kind !== "Name") return;
+      const divisor = expression.arguments[1];
+      if (divisor === undefined) return;
+      const symbol = expression.callee.symbol;
+      if (ratCreate.has(symbol)) {
+        refuse(expression, divisor, true);
+      } else if (decDivisions.has(symbol)) {
+        refuse(expression, divisor, false);
+      } else if (integral.has(symbol)) {
+        const requirement = expression.requirements.find(({ name }) => name === "Integral");
+        if (requirement !== undefined && atInteger(requirement.type)) refuse(expression, divisor, false);
+      } else if (fracDivide.has(symbol)) {
+        const requirement = expression.requirements.find(({ name }) => name === "Frac");
+        if (requirement !== undefined && atRat(requirement.type)) refuse(expression, divisor, false);
+      }
+    };
+    forEachTypedExpression({ items }, visit);
+  }
+
   /** Selects an oversized bare pattern's repair after inference and defaulting. */
   #checkPendingOversizedIntegerPatterns(): void {
     for (const { pattern, type } of this.#pendingOversizedIntegerPatterns) {
@@ -17015,9 +17233,18 @@ class Checker {
     for (const variable of this.#collectVariables(written)) {
       if (variable.ascribedAt === pattern.annotation.span) this.#patternDeclared.set(variable, pattern);
     }
-    const subject = this.#claimSubject;
-    const view = subject === undefined ? undefined : this.#claimView(subject, pattern);
-    const part = subject?.decided === true ? this.#openReceived(expected, level, true, view) : expected;
+    // Every walk that reaches a claim starts at `#atBinders`, which sets it.
+    const subject = this.#claimSubject!;
+    const view = this.#claimView(subject, pattern);
+    // A constructor's declaration decides the part it writes, whatever the
+    // value it is taken from (#1518): each arrow it spells, every one where it
+    // writes the part ground.
+    const declared = this.#claimDeclared(subject, pattern);
+    const part = subject.decided
+      ? this.#openReceived(expected, level, true, view ?? declared)
+      : declared === undefined
+      ? expected
+      : this.#openReceived(expected, level, true, declared, true, "spelled");
     const before = this.#reportCount;
     const enclosingClaim = this.#claimAt;
     // The type the part has, before the claim meets it: a refusal's first
@@ -17027,7 +17254,7 @@ class Checker {
       subject,
       written,
       part,
-      spelling: this.#writtenSpelling(view) ?? this.#claimSpelling(expected),
+      spelling: this.#writtenSpelling(view ?? declared) ?? this.#claimSpelling(expected),
     };
     this.#patternChecks += 1;
     try {
@@ -17073,16 +17300,19 @@ class Checker {
     const binder = pattern.pattern.kind === "Binding" ? pattern.pattern.binding.name : undefined;
     if (
       binder === undefined || source !== this.#prune(claim.part) || target !== this.#prune(claim.written) ||
-      source.kind !== "Constructor"
+      (source.kind !== "Constructor" && !this.#isDec(source))
     ) {
       return { message: undefined, fix };
     }
-    const evidence = source.name === "Nat"
+    const sourceName = source.kind === "Constructor" ? source.name : "Dec";
+    const evidence = sourceName === "Nat"
       ? "Num"
-      : source.name === "Int"
+      : sourceName === "Int"
       ? "Signed"
-      : source.name === "BigInt"
+      : sourceName === "BigInt"
       ? "FromBigInt"
+      : this.#isDec(source)
+      ? "FromDec"
       : undefined;
     if (evidence === undefined || this.#sameSeat(source, target) || !this.#supportsTarget(target, evidence)) {
       return { message: undefined, fix };
@@ -17098,7 +17328,7 @@ class Checker {
     if (companion === undefined) return { message: undefined, fix };
     return {
       message: `${lead}; remove the type and convert \`${binder}\` where it is used: ` +
-        `\`${companion}.from${source.name}(${binder})\``,
+        `\`${companion}.from${sourceName}(${binder})\``,
       fix,
     };
   }
@@ -17131,9 +17361,9 @@ class Checker {
    * not widened (#1195), so anywhere else `undefined`.
    */
   #claimBindingRewrite(claim: ClaimAt, target: Mono): string | undefined {
-    const built = claim.subject?.built;
+    const built = claim.subject.built;
     if (built === undefined) return undefined;
-    const root = claim.subject!.root;
+    const root = claim.subject.root;
     const value = this.#builtPart(root, built.value, claim.pattern);
     if (value === undefined || !this.#widensFrom(value)) return undefined;
     const written = this.#typeSpellingAtSite(target);
@@ -17245,12 +17475,15 @@ class Checker {
 
   /**
    * The type a part's written view spells, as this module wrote it: ground,
-   * so it names no other declaration's variable, and in this file, so its
-   * names resolve here. `undefined` otherwise.
+   * so it names no other declaration's variable, in this file, so its names
+   * resolve here, and spelled by its own span (`unspelled`). `undefined`
+   * otherwise.
    */
   #writtenSpelling(view: WrittenView | undefined): string | undefined {
     const written = view?.written;
-    if (written === undefined || written.kind === "Face" || !annotationGround(written)) return undefined;
+    if (written === undefined || written.kind === "Face" || !annotationGround(written) || unspelled.has(written)) {
+      return undefined;
+    }
     return this.#sourceSlice(written.span);
   }
 
@@ -17435,13 +17668,222 @@ class Checker {
   }
 
   /**
+   * The view the declarations a pattern names give the part a claim stands on
+   * *(#1518; Pattern Matching §2.9)*, as they give a part a name binds
+   * (`#declaredView`, and `#partWritten` over a value the text decides): a
+   * claim is a use of its part, so it reads the value as decided where a use
+   * of a part does (`#partsDecided`).
+   */
+  #claimDeclared(subject: ClaimSubject, claim: Resolved.TypedPattern): SpelledPart | undefined {
+    return declaredView(this.#partDeclared(subject.root, claim, undefined, this.#partsDecided(subject.root)));
+  }
+
+  /**
+   * Whether the value a pattern takes apart is one the text decides, as a use
+   * of a part it takes out reads it (`#decidedBinding`; Effects §3.4): made
+   * from the text, or a call whose written result type is ground, and not left
+   * open by the `match` it is an arm of (`#settleArms`). It is the pattern's,
+   * so a claim reads it whether or not the pattern binds a name. A caught
+   * exception is no value the text makes.
+   */
+  #partsDecided(root: Resolved.Pattern): boolean {
+    const source = this.#partRoots.get(root);
+    return !this.#openRoots.has(root) && source !== undefined &&
+      (this.#madeFromText(source) || this.#groundResult(source));
+  }
+
+  /**
+   * The type the declarations a pattern names write for the part a name binds
+   * *(#1518; Method Syntax §3.1, Effects §3.4)*: a constructor's payload is
+   * its slot as the declaration writes it, whatever the value it is taken
+   * from, read down the pattern's steps. `undefined` where they write none.
+   */
+  #declaredPart(symbol: Resolved.SymbolId): Resolved.TypeAnnotation | undefined {
+    const root = this.#partPatterns.get(symbol);
+    return root === undefined ? undefined : this.#partDeclared(root, symbol, undefined);
+  }
+
+  /**
+   * The declared part (`#declaredPart`) as a view a use reads: data, as a
+   * declared field is. A `->!` a record's field writes in a parameter accepts
+   * any function, as a field read of the record gives it; one a union's or an
+   * exception's slot writes does not (`#slotTypes`, Effects §3.4).
+   * `undefined` where the declarations write no type for it.
+   */
+  #declaredView(symbol: Resolved.SymbolId): SpelledPart | undefined {
+    const root = this.#partPatterns.get(symbol);
+    return root === undefined ? undefined : declaredView(this.#partDeclared(root, symbol, undefined));
+  }
+
+  /**
+   * Whether the declarations a pattern names decide every arrow of the part a
+   * name binds (`#declaredPart`): its type is then the text's, whatever the
+   * value it is taken from, so no use of another name holds a colour of it.
+   */
+  #declaredGround(symbol: Resolved.SymbolId): boolean {
+    const written = this.#declaredPart(symbol);
+    return written !== undefined && annotationGround(written);
+  }
+
+  /**
+   * The type the text gives a part of what `pattern` takes apart, from
+   * `written`, the type it gives `pattern`'s position, read down each tuple,
+   * record, vector and constructor pattern to `target`, a claim or the name a
+   * binding pattern binds. A constructor's slot is the declaration's
+   * (`#patternSlot`); a declared pattern's components are read only for the
+   * constructors written in them, its declaration being chosen with the type
+   * it meets. `decided` where the value `pattern` takes apart is one the
+   * text decides. `undefined` where the text gives the part no type.
+   */
+  #partDeclared(
+    pattern: Resolved.Pattern,
+    target: Resolved.TypedPattern | Resolved.SymbolId,
+    written: Resolved.TypeAnnotation | undefined,
+    decided = false,
+  ): Resolved.TypeAnnotation | undefined {
+    const first = (pairs: readonly (readonly [Resolved.Pattern, Resolved.TypeAnnotation | undefined])[]) => {
+      for (const [inner, annotation] of pairs) {
+        const found = this.#partDeclared(inner, target, annotation, decided);
+        if (found !== undefined) return found;
+      }
+      return undefined;
+    };
+    switch (pattern.kind) {
+      case "Binding":
+        return pattern.binding.symbol === target ? written : undefined;
+      case "As":
+        return pattern.binding.symbol === target
+          ? written
+          : this.#partDeclared(pattern.pattern, target, written, decided);
+      case "Typed":
+        return pattern === target ? written : this.#partDeclared(pattern.pattern, target, written, decided);
+      case "Or": {
+        // A claim is one node, found in the alternative that holds it. A name
+        // the alternatives each bind holds what any of them gave it: the text
+        // writes what every alternative writes (`#declaredMeet`).
+        if (typeof target === "object") return first(pattern.alternatives.map((inner) => [inner, written] as const));
+        const parts = pattern.alternatives.map((inner) => this.#partDeclared(inner, target, written, decided));
+        return parts.every((part) => part !== undefined) ? this.#declaredMeet(parts) : undefined;
+      }
+      case "Tuple":
+        return first(pattern.elements.map((element, index) =>
+          [
+            element,
+            written?.kind === "Tuple" ? written.elements[index] : undefined,
+          ] as const
+        ));
+      case "Record":
+        return first(pattern.fields.map((entry) =>
+          [
+            entry.pattern,
+            written === undefined ? undefined : this.#fieldWritten({ written, role: "data" }, entry.name)?.written,
+          ] as const
+        ));
+      case "Vector": {
+        const element = written?.kind === "Vector" ? written.element : undefined;
+        return first([
+          ...pattern.elements.map((inner) => [inner, element] as const),
+          ...(pattern.rest?.pattern === undefined ? [] : [[pattern.rest.pattern, written] as const]),
+        ]);
+      }
+      case "Constructor":
+        return first(
+          pattern.arguments.map((argument, index) =>
+            [argument, this.#patternSlot(pattern, index, written, decided)] as const
+          ),
+        );
+      case "Declared":
+        return first(pattern.components.map((component) => [component, undefined] as const));
+      default:
+        return undefined;
+    }
+  }
+
+  /**
+   * What every one of `parts` writes *(#1518)*, the types an or-pattern's
+   * alternatives write for a name each binds: a hole where one of them writes
+   * none, and elsewhere the head they write, over what they all write beneath
+   * it, a record type's fields paired by name. They agree on the name's
+   * type, or the or-pattern is refused and the first stands, so the refusal
+   * is the one report. An arrow one of them reads from a union's or an
+   * exception's slot is read so (`#slotTypes`). Every node it builds is its
+   * own.
+   */
+  #declaredMeet(parts: readonly Resolved.TypeAnnotation[]): Resolved.TypeAnnotation {
+    const part = parts[0]!;
+    if (!parts.every(headWritten)) return { kind: "Hole", id: -1, constraints: [], span: part.span };
+    const paired = parts.map((other) => other.kind === part.kind ? fieldsPaired(other, part) : undefined);
+    if (!paired.every((other) => other !== undefined)) return part;
+    const beneath = paired.map(writtenBeneath);
+    const count = beneath[0]!.length;
+    if (beneath.some((inner) => inner.length !== count)) return part;
+    let index = 0;
+    const built = readBeneath(part, () => {
+      const at = index++;
+      return this.#declaredMeet(beneath.map((inner) => inner[at]!));
+    });
+    if (parts.some((other) => this.#slotTypes.has(other))) this.#slotTypes.add(built);
+    if (unspelled.has(part)) unspelled.add(built);
+    return built;
+  }
+
+  /**
+   * A constructor pattern's slot as the text writes it: as the written type
+   * around the pattern gives it (`#writtenSlot`), or else as the
+   * constructor's declaration writes it, an exception's, a union's or a
+   * nominal record's, its type parameters given holes, since only what they
+   * become is the value's (Method Syntax §3.1). A head the door resolved
+   * (Pattern Matching §2.2) was chosen by the type its position met, so its
+   * declaration is read only where a written type gives that position, or
+   * where the value is `decided`, its type being the text's. What
+   * a union's or an exception's slot writes is noted as the slot's
+   * (`#slotTypes`).
+   */
+  #patternSlot(
+    pattern: Resolved.ConstructorPattern,
+    index: number,
+    written: Resolved.TypeAnnotation | undefined,
+    decided: boolean,
+  ): Resolved.TypeAnnotation | undefined {
+    const made = (read: Resolved.TypeAnnotation): void => void this.#slotTypes.add(read);
+    const given = written === undefined ? undefined : this.#writtenSlot(pattern, index, written, made);
+    const symbol = pattern.symbol;
+    if (given !== undefined || symbol === undefined || pattern.open === true && !decided) return given;
+    const holes = (parameters: readonly string[]): ReadonlyMap<string, Resolved.TypeAnnotation> =>
+      new Map(parameters.map((name) => [name, { kind: "Hole", id: -1, constraints: [], span: pattern.span }] as const));
+    const exception = this.#exceptions.get(symbol);
+    if (exception !== undefined) {
+      const slot = exception.slots[index]?.annotation;
+      return slot === undefined ? undefined : givenSlot(slot, new Map(), made);
+    }
+    const unionId = this.#constructorUnions.get(symbol) ?? this.#programConstructorUnion(symbol);
+    if (unionId !== undefined) {
+      const union = this.#declaredUnions.get(unionId) ?? this.#programUnion(unionId);
+      const slot = union?.constructors.find((constructor) => constructor.binding.symbol === symbol)?.slots[index]
+        ?.annotation;
+      return union === undefined || slot === undefined ? undefined : givenSlot(slot, holes(union.parameters), made);
+    }
+    const record = this.#constructedRecords.get(symbol);
+    if (record === undefined) return undefined;
+    const parameters = holes(record.parameters);
+    const fields: Resolved.TypeAnnotation = {
+      kind: "Record",
+      fields: record.fields.map((field) => ({ ...field, annotation: givenSlot(field.annotation, parameters) })),
+      open: false,
+      span: pattern.span,
+    };
+    unspelled.add(fields);
+    return fields;
+  }
+
+  /**
    * Runs a pattern's walk with its binders' class and the value it takes
-   * apart, if any (`#patternBinders`, `#claimSubject`). Every walk
+   * apart (`#patternBinders`, `#claimSubject`). Every walk
    * that reaches a claim starts here, so neither the fields' defaults nor the
    * restore can be told apart from source today (equivalent mutants); the save
    * is kept as the other pattern seats keep theirs.
    */
-  #atBinders<T>(binders: PatternBinders, subject: ClaimSubject | undefined, walk: () => T): T {
+  #atBinders<T>(binders: PatternBinders, subject: ClaimSubject, walk: () => T): T {
     const enclosingBinders = this.#patternBinders;
     const enclosingSubject = this.#claimSubject;
     this.#patternBinders = binders;
@@ -17868,7 +18310,10 @@ class Checker {
       const outerCatchPattern = this.#catchPattern;
       this.#catchPattern = true;
       try {
-        this.#atBinders("arm", undefined, () => this.#inferExceptionPattern(arm.pattern, level));
+        // `Exn` is open, so the text decides no part of what is thrown but the
+        // payloads its constructors' declarations write.
+        const subject: ClaimSubject = { decided: false, view: undefined, root: arm.pattern };
+        this.#atBinders("arm", subject, () => this.#inferExceptionPattern(arm.pattern, level));
       } finally {
         this.#armGuardSeat = outerGuardSeat;
         this.#armHasGuard = outerHasGuard;
@@ -18675,7 +19120,10 @@ class Checker {
       heads.set(reference.identity, {
         key: `pattern:${reference.identity}`,
         slots,
-        print: (witnesses) => `(${witnesses.join(", ")})${pattern.name}`,
+        // Pattern Matching §2.10: a fraction's witness prints with `//`.
+        print: (witnesses) => pattern.fraction === true
+          ? `${witnesses[0] ?? "_"} // ${witnesses[1] ?? "_"}`
+          : `(${witnesses.join(", ")})${pattern.name}`,
       });
     }
     const basePatterns = patterns.filter(({ kind }) => kind !== "Declared");
@@ -19755,6 +20203,13 @@ class Checker {
     for (const arm of arms) {
       const reached: (readonly Resolved.Pattern[])[] = [];
       for (const alternative of coverageAlternatives(arm.pattern)) {
+        // Pattern Matching §7.2: a fraction its literals show can never match
+        // is dead whatever is above it, and its report names the spelling.
+        const deadFraction = this.#deadFraction(alternative);
+        if (deadFraction !== undefined) {
+          this.#diagnostics.add(deadFraction);
+          continue;
+        }
         const above = [...covering, ...reached];
         if (!this.#coverageUseful([type], above, [alternative])) {
           this.#reportUnreachableArm(arm, alternative, shadowed, above, type, reports);
@@ -19816,6 +20271,135 @@ class Checker {
     const local = this.#bareSpellings.get(symbol);
     if (local !== undefined) return local;
     return this.#aliasQualifications.get(symbol) ?? pattern.text;
+  }
+
+  /**
+   * Pattern Matching §7.2's dead fraction. A fraction comes apart in lowest
+   * terms with a positive bottom, so `p // q` matches nothing where `q` is a
+   * literal zero or negative, or where `p` and `q` are both literals whose
+   * greatest common divisor is not one. A side counts as a literal where its
+   * test is one: a literal pattern, alone or under `as` or a written type.
+   * Those two rules are the whole judgment; nothing else about a side is read.
+   */
+  #deadFraction(pattern: Resolved.Pattern): Diagnostics.Diagnostic | undefined {
+    const literal = (side: Resolved.Pattern): bigint | undefined => {
+      if (side.kind === "As" || side.kind === "Typed") return literal(side.pattern);
+      if (side.kind !== "Integer") return undefined;
+      try {
+        return BigInt(side.decimal);
+      } catch {
+        return undefined;
+      }
+    };
+    const text = (span: Source.Span): string | undefined =>
+      this.#sourceText?.slice(span.start.offset, span.end.offset);
+    for (const node of resolvedPatternNodes(pattern)) {
+      if (node.kind !== "Declared" || node.fraction !== true || node.components.length !== 2) continue;
+      const [topPattern, bottomPattern] = node.components as [Resolved.Pattern, Resolved.Pattern];
+      const top = literal(topPattern);
+      const bottom = literal(bottomPattern);
+      const written = text(node.span) ?? "this fraction";
+      if (bottom === 0n) {
+        return {
+          severity: "error",
+          message: "this case is unreachable; a fraction's bottom is never zero — remove the case",
+          primary: node.span,
+        };
+      }
+      const lead = "this case is unreachable; a fraction comes apart in lowest terms with a positive bottom, " +
+        `so \`${written}\` never matches`;
+      if (top !== undefined && bottom !== undefined) {
+        const divisor = greatestCommonDivisor(top, bottom);
+        if (divisor === 1n && bottom > 0n) continue;
+        const sign = bottom < 0n ? -1n : 1n;
+        const rewrite = `${(top / divisor) * sign} // ${(bottom / divisor) * sign}`;
+        // The fix rewrites bare literals only: a side under `as` or a type keeps
+        // what it binds or says, which the rewrite would delete.
+        const bare = topPattern.kind === "Integer" && bottomPattern.kind === "Integer";
+        return {
+          severity: "error",
+          message: `${lead} — write \`${rewrite}\``,
+          primary: node.span,
+          ...(bare
+            ? { fixes: [{ message: `write \`${rewrite}\``, edits: [{ span: node.span, replacement: rewrite }] }] }
+            : {}),
+        };
+      }
+      if (bottom === undefined || bottom > 0n) continue;
+      const topText = text(topPattern.span);
+      const simple = topPattern.kind === "Binding" || topPattern.kind === "Wildcard";
+      if (!simple || topText === undefined) {
+        return { severity: "error", message: lead, primary: node.span };
+      }
+      const rewrite = `${topText} // ${-bottom}`;
+      return {
+        severity: "error",
+        message: `${lead} — write \`${rewrite}\`` +
+          (topPattern.kind === "Binding" ? ", which binds the negated top" : ""),
+        primary: node.span,
+        fixes: [{ message: `write \`${rewrite}\``, edits: [{ span: node.span, replacement: rewrite }] }],
+      };
+    }
+    return undefined;
+  }
+
+  /**
+   * Operators §6.4: a side of `//` the text decides as `Rat`, `Dec` or `Float`
+   * is refused at that side with the division that was meant, in place of the
+   * plain mismatch at `BigInt` the call drew. At a `Dec` side the division is
+   * written at `Rat`, since `Dec` alone has no exact `/`. A side of any other
+   * type keeps the ordinary seat error.
+   */
+  #refuseFractionSides(expression: Resolved.PatternConstructionExpr): void {
+    const text = (span: Source.Span): string | undefined =>
+      this.#sourceText?.slice(span.start.offset, span.end.offset);
+    const sides = expression.components.map(({ span }) => text(span));
+    if (sides.length !== 2 || sides.some((side) => side === undefined)) return;
+    const named = (component: Resolved.Expr): string | undefined => {
+      const type = this.#expressionTypes.get(component);
+      const actual = type === undefined ? undefined : this.#prune(type);
+      if (actual === undefined) return undefined;
+      const display = this.#display(actual);
+      return ["Rat", "Dec", "Float"].includes(display) ? display : undefined;
+    };
+    const within = (span: Source.Span, outer: Source.Span): boolean =>
+      span.start.offset >= outer.start.offset && span.end.offset <= outer.end.offset;
+    const refused = new Set<number>();
+    for (let index = 0; index < this.#diagnostics.count; index += 1) {
+      const diagnostic = this.#diagnostics.at(index)!;
+      if (!within(diagnostic.primary, expression.span)) continue;
+      // The plain seat mismatch, reported at the call or at the side, and the
+      // home reports a compound side draws: `(r + 1) // 2` reports `r`
+      // entering no `BigInt` home.
+      const plain = /^type mismatch: expected BigInt, found (Rat|Dec|Float)$/u.exec(diagnostic.message)?.[1];
+      const entry = /^`[^`]*` is an? `(Rat|Dec|Float)` and cannot enter `BigInt`/u.exec(diagnostic.message)?.[1];
+      const found = plain ?? entry;
+      if (found === undefined) continue;
+      const holding = expression.components.findIndex(({ span }) =>
+        within(diagnostic.primary, span) && !(span.start.offset === expression.span.start.offset &&
+          span.end.offset === expression.span.end.offset)
+      );
+      const at = holding >= 0 && !refused.has(holding)
+        ? holding
+        : expression.components.findIndex((component, position) =>
+          !refused.has(position) && named(component) === found
+        );
+      if (at < 0) continue;
+      refused.add(at);
+      const grouped = (written: string): string =>
+        /^-?[\p{L}\p{N}_.]+$/u.test(written) || /^\(.*\)$/su.test(written) ? written : `(${written})`;
+      const unwrapped = (written: string): string =>
+        /^\(.*\)$/su.test(written) ? written.slice(1, -1) : written;
+      const written = sides.map((other, position) =>
+        position === at && found === "Dec" ? `Rat.fromDec(${unwrapped(other!)})` : grouped(other!)
+      );
+      this.#diagnostics.replace(index, {
+        ...diagnostic,
+        message: `a fraction's top and bottom are integers, and \`${sides[at]}\` is ${article(found)} ` +
+          `\`${found}\` — to divide, write \`${written[0]} / ${written[1]}\``,
+        primary: expression.components[at]!.span,
+      });
+    }
   }
 
   /** Whether anything inside this pattern failed to type (§7.3's obligation). */
@@ -20579,6 +21163,7 @@ class Checker {
     if (expression !== undefined && this.#decimalHome(expression, source, target) !== undefined) {
       return true;
     }
+    if (this.#isDec(source)) return this.#supportsTarget(target, "FromDec");
     if (source.kind !== "Constructor") return false;
     if (source.name === "Nat") return this.#supportsNumericTarget(target);
     if (source.name === "Int") return this.#supportsSignedTarget(target);
@@ -21227,9 +21812,13 @@ class Checker {
       // exactly as every form always joined, and report as they always did.
       return undefined;
     }
+    // The fixed sources, widest first (Exact Integer Widening §9): a `Dec`
+    // enters every home a `BigInt` does that also honors `FromDec`, so it
+    // ranks above the integers and below every other home.
     const fixed = (type: Mono): number => {
+      if (this.#isDec(type)) return 0;
       if (type.kind !== "Constructor") return -1;
-      return type.name === "BigInt" ? 0 : type.name === "Int" ? 1 : type.name === "Nat" ? 2 : -1;
+      return type.name === "BigInt" ? 1 : type.name === "Int" ? 2 : type.name === "Nat" ? 3 : -1;
     };
     const exact = established.find(({ type }) => fixed(type) < 0);
     if (exact !== undefined) return { home: exact.type, source: exact.expression };
@@ -21246,12 +21835,18 @@ class Checker {
           ? "Num"
           : type.kind === "Constructor" && type.name === "Int"
             ? "Signed"
+            : this.#isDec(type)
+            ? "FromDec"
             : "FromBigInt";
       const carrier = constrained.find((candidate) =>
         established.every(({ type }) => this.#supportsTarget(candidate.type, evidence(type), true))
       );
       if (carrier !== undefined) return { home: carrier.type, source: carrier.expression };
     }
+    // A decimal-point literal beside a `Dec` takes the `Dec` home (§9): the
+    // ranking's `Dec` step comes before the literal's `Float`.
+    const dec = established.find(({ type }) => this.#isDec(type));
+    if (decimal !== undefined && dec !== undefined) return { home: dec.type, source: dec.expression };
     if (decimal !== undefined) return { home: primitive("Float"), source: decimal };
     const widest = [...established].sort((left, right) => fixed(left.type) - fixed(right.type))[0]!;
     return { home: widest.type, source: widest.expression };
@@ -21605,6 +22200,9 @@ class Checker {
     const exact = (type: Mono): boolean =>
       type.kind !== "Variable" && type.kind !== "Error" &&
       !(type.kind === "Constructor" && ["Nat", "Int", "BigInt"].includes(type.name)) &&
+      // A `Dec` is a source too (Exact Integer Widening §9): it enters a home
+      // honoring `FromDec`, and is reported as entering none other.
+      !this.#isDec(type) &&
       this.#supportsTarget(type, "Num");
     return exact(left) && exact(right) && !this.#sameSeat(left, right);
   }
@@ -23173,6 +23771,7 @@ class Checker {
   #reachesSeat(source: Mono, destination: Mono): boolean {
     if (this.#acceptsExactly(source, destination)) return true;
     const actual = this.#prune(source);
+    if (this.#isDec(actual)) return this.#supportsTarget(destination, "FromDec");
     if (actual.kind !== "Constructor") return false;
     if (actual.name === "Nat") return this.#supportsNumericTarget(destination);
     if (actual.name === "Int") return this.#supportsSignedTarget(destination);
@@ -24013,6 +24612,8 @@ class Checker {
       case "inferred":
         return false;
       case "part":
+        // The declarations a pattern names write it whole (#1518).
+        if (this.#declaredGround(symbol)) return true;
         if (source.source === undefined || source.open === true) return false;
         if (this.#groundResult(source.source)) return true;
         break;
@@ -24170,6 +24771,7 @@ class Checker {
     }
     if (this.#unsettledVariables(scrutinee).length === 0) return;
     for (const arm of arms) {
+      this.#openRoots.add(arm.pattern);
       for (const symbol of patternSymbols(arm.pattern)) {
         const source = this.#bindingSources.get(symbol);
         if (source?.kind === "part") this.#resource(symbol, { ...source, open: true, outerOpen: true });
@@ -24509,6 +25111,7 @@ class Checker {
         for (const symbol of patternSymbols(pattern)) this.#typeSources.set(symbol, { kind: "part", source });
         for (const symbol of patternSymbols(pattern)) this.#bindingSources.set(symbol, { kind: "part", source });
         for (const symbol of patternSymbols(pattern)) this.#partPatterns.set(symbol, pattern);
+        this.#partRoots.set(pattern, source);
       },
     });
     if (item.kind === "Honor") for (const member of item.members) contractTyped(member.value);
@@ -32765,7 +33368,7 @@ class Checker {
       const text = this.#sourceText?.slice(written.start.offset, written.end.offset);
       if (text === undefined || text.length === 0) return undefined;
       if (!/[\r\n]/u.test(text)) return text;
-      return /\/\/|\(\*|\/\*|["'`]/u.test(text) ? undefined : text.replace(/\s*[\r\n]\s*/gu, " ");
+      return /--|\{-|\/\/|\(\*|\/\*|["'`]/u.test(text) ? undefined : text.replace(/\s*[\r\n]\s*/gu, " ");
     });
     if (
       lambda !== undefined && spellings !== undefined &&
@@ -35097,13 +35700,19 @@ class Checker {
   #inferredConversionRefusal(expression: Resolved.Expr, actual: Mono, expected: Mono): string | undefined {
     const source = this.#prune(actual);
     const target = this.#prune(expected);
-    if (source.kind !== "Constructor" || target.kind === "Variable" || target.kind === "Error") return undefined;
-    const evidence = source.name === "Nat"
+    if (
+      (source.kind !== "Constructor" && !this.#isDec(source)) || target.kind === "Variable" ||
+      target.kind === "Error"
+    ) return undefined;
+    const sourceName = source.kind === "Constructor" ? source.name : "Dec";
+    const evidence = sourceName === "Nat"
       ? "Num"
-      : source.name === "Int"
+      : sourceName === "Int"
       ? "Signed"
-      : source.name === "BigInt"
+      : sourceName === "BigInt"
       ? "FromBigInt"
+      : this.#isDec(source)
+      ? "FromDec"
       : undefined;
     if (evidence === undefined || this.#sameSeat(source, target) || !this.#supportsTarget(target, evidence)) {
       return undefined;
@@ -35115,7 +35724,7 @@ class Checker {
     const from = this.#display(source);
     const to = this.#display(target);
     const companion = this.#typeSpellingAtSite(target);
-    const door = companion === undefined ? "" : `, or convert it — \`${companion}.from${source.name}(${spelled})\``;
+    const door = companion === undefined ? "" : `, or convert it — \`${companion}.from${sourceName}(${spelled})\``;
     if (plain !== undefined) {
       return `\`${spelled}\` is not widened into ${plain.seat}, ${article(to)} \`${to}\` only by inference: ` +
         `write ${plain.owner}'s type where it is made${door}`;
@@ -35256,6 +35865,33 @@ class Checker {
     return true;
   }
 
+  /**
+   * Exact Integer Widening §9: a `Dec` enters a target honoring `FromDec`, as a
+   * `BigInt` enters one honoring `FromBigInt`.
+   */
+  #tryWidenDec(
+    expression: Resolved.Expr,
+    actual: Mono,
+    target: Mono,
+    span: Source.Span,
+    allowVariableTarget = false,
+  ): boolean {
+    const source = this.#prune(actual);
+    const destination = this.#prune(target);
+    if (!this.#isDec(source) || this.#isDec(destination)) return false;
+    if (!this.#supportsTarget(destination, "FromDec", allowVariableTarget)) return false;
+    if (!this.#widensFrom(expression)) return false;
+    const requirement = this.#require("FromDec", destination, span);
+    this.#decWidenings.set(expression, requirement);
+    return true;
+  }
+
+  /** Whether `type` is the prelude's `Dec`. */
+  #isDec(type: Mono): boolean {
+    const actual = this.#prune(type);
+    return actual.kind === "NominalRecord" && this.#decRecord !== undefined && actual.record === this.#decRecord;
+  }
+
   #tryWidenNumeric(
     expression: Resolved.Expr,
     actual: Mono,
@@ -35268,12 +35904,14 @@ class Checker {
     return this.#tryWidenInt(expression, actual, target, span, allowVariableTarget) ||
       this.#tryWidenNat(expression, actual, target, span, allowVariableTarget) ||
       this.#tryWidenBigInt(expression, actual, target, span, allowVariableTarget) ||
+      this.#tryWidenDec(expression, actual, target, span, allowVariableTarget) ||
       this.#tryPromoteDecimal(expression, actual, target, span);
   }
 
   #hasNumericWidening(expression: Resolved.Expr): boolean {
     return this.#natWidenings.has(expression) || this.#intWidenings.has(expression) ||
-      this.#bigIntWidenings.has(expression) || this.#decimalPromotions.has(expression);
+      this.#bigIntWidenings.has(expression) || this.#decWidenings.has(expression) ||
+      this.#decimalPromotions.has(expression);
   }
 
   /**
@@ -37130,6 +37768,11 @@ class Checker {
     if (constraintSeat !== undefined) {
       return `; it could only be declared in module \`${constraintSeat}\` (declares ` +
         `\`${constraintHome.name}\`) or ${subjectHome.statedHome}`;
+    }
+    // Modules §7.6's one closed pair that names its routes, because Exact
+    // Integer Widening §9 fixes them: `Dec` divides at `Rat`, or with places.
+    if (requirement.identity === "hex:Frac" && this.#isDec(type)) {
+      return "; write a `Rat` type, or use `Dec.divide` with a place count";
     }
     return `; its only legal homes are ${constraintHome.statedHome} and ` +
       `${subjectHome.statedHome}, both outside project source, so this pair's ` +
@@ -42212,6 +42855,7 @@ class Checker {
   #acceptsExactly(from: Mono, to: Mono): boolean {
     if (this.#sameSeat(from, to)) return true;
     const source = this.#prune(from);
+    if (this.#isDec(source)) return this.#supportsTarget(to, "FromDec");
     if (source.kind !== "Constructor") return false;
     if (source.name === "Nat") return this.#supportsNumericTarget(to);
     if (source.name === "Int") return this.#supportsSignedTarget(to);
@@ -44133,10 +44777,20 @@ class Checker {
     // on its name as a function writes it on its header (Modules §4.1.1).
     const form = lambda === undefined ? "value" : "function";
 
-    const missingParameters = (lambda?.parameters ?? [])
+    // *(#1402.)* A `let` whose name carries a type annotation writes its
+    // signature there, and the lambda's own annotations are then optional
+    // (Modules §4.1.1): the type an importer relies on is written either way,
+    // and the lambda is checked against it as a private binding's is. A `_` in
+    // the name's type is reported by the hole fence (`#rejectTypeHoles`) alone,
+    // whose rewrite is the whole repair, so the lambda's unwritten annotations
+    // are never reported beside it: one fact is one report (Effects §3.4).
+    const nameTyped = item.kind === "Let" && item.annotation !== undefined;
+    const signatureLambda = nameTyped ? undefined : lambda;
+    const missingParameters = (signatureLambda?.parameters ?? [])
       .filter((parameter) => parameter.annotation === undefined)
       .map((parameter) => `\`${displayParameterName(parameter.name)}\``);
-    const missingReturn = lambda !== undefined && lambda.returnAnnotation === undefined;
+    const missingReturn = signatureLambda !== undefined &&
+      signatureLambda.returnAnnotation === undefined;
     if (missingParameters.length > 0 || missingReturn) {
       const missing = [
         ...(missingParameters.length === 0
@@ -45036,6 +45690,7 @@ class Checker {
       return {
         kind: "PatternDeclaration",
         exported: item.exported,
+        ...(item.fraction === true ? { fraction: true as const } : {}),
         identity: item.identity,
         name: item.name,
         componentNames: item.head?.components.map(({ name }) => name) ?? [],
@@ -45683,6 +46338,8 @@ class Checker {
         ? { kind: "WidenInt" as const, requirement: this.#intWidenings.get(expression)! }
         : this.#bigIntWidenings.has(expression)
         ? { kind: "WidenBigInt" as const, requirement: this.#bigIntWidenings.get(expression)! }
+        : this.#decWidenings.has(expression)
+        ? { kind: "WidenDec" as const, requirement: this.#decWidenings.get(expression)! }
         : undefined;
       if (widening === undefined) return value;
       const requirement = this.#publicRequirement(widening.requirement);
@@ -45709,6 +46366,17 @@ class Checker {
       const requirement = this.#publicRequirement(widening);
       return {
         kind: "WidenInt",
+        value,
+        requirement,
+        type: requirement.type,
+        span: expression.span,
+      };
+    }
+    const decWidening = this.#decWidenings.get(expression);
+    if (decWidening !== undefined) {
+      const requirement = this.#publicRequirement(decWidening);
+      return {
+        kind: "WidenDec",
         value,
         requirement,
         type: requirement.type,
@@ -46825,7 +47493,7 @@ function acceptance(marks: Readonly<Record<Axis, boolean>>): string {
  */
 function oneLine(text: string): string | undefined {
   if (!text.includes("\n")) return text;
-  if (text.includes("//") || text.includes("(*") || text.includes('"')) return undefined;
+  if (/--|\{-|\/\/|\(\*|\/\*|"/u.test(text)) return undefined;
   return text
     .replace(/([([{])\s*\n\s*/g, "$1")
     .replace(/\s*\n\s*([)\]},:])/g, "$1")
@@ -47666,6 +48334,14 @@ function nestedAdapterType(
  * Every pattern node inside `pattern`, itself included — the walk §7.2's dual
  * needs: a row is a shadower only if *nothing* in it failed to type.
  */
+/** The greatest common divisor of two integers, never negative. */
+function greatestCommonDivisor(left: bigint, right: bigint): bigint {
+  let a = left < 0n ? -left : left;
+  let b = right < 0n ? -right : right;
+  while (b !== 0n) [a, b] = [b, a % b];
+  return a;
+}
+
 function resolvedPatternNodes(
   pattern: Resolved.Pattern,
 ): readonly Resolved.Pattern[] {
@@ -48027,7 +48703,9 @@ function renderPattern(
         pattern.elements.map((element) => render(element)).join(", ")
       })`;
     case "Declared":
-      return `(${pattern.components.map((component) => render(component)).join(", ")})${pattern.name}`;
+      return pattern.fraction === true
+        ? pattern.components.map((component) => render(component)).join(" // ")
+        : `(${pattern.components.map((component) => render(component)).join(", ")})${pattern.name}`;
     case "Vector": {
       const elements = pattern.elements.map((element) => render(element));
       if (pattern.rest !== undefined) {
@@ -48253,4 +48931,58 @@ function publicKindKey(kind: PublicTypeKind): string {
 function dataSeatRefusal(provider: string): string {
   return `needs \`${provider}\`'s full implementation, which is seated after this module; ` +
     `only \`${provider}\`'s data is visible here (Modules §5.5)`;
+}
+
+/**
+ * A **written zero** (Division & Remainder §12.1): a numeric literal whose value
+ * is zero, alone or under signs, parentheses, written types and the exact
+ * widening a seat applies to it. A name is never read and nothing is computed.
+ */
+function writtenZero(expression: Typed.Expr): boolean {
+  switch (expression.kind) {
+    case "Group":
+    case "Ascription":
+      return writtenZero(expression.expression);
+    case "WidenNat":
+    case "WidenInt":
+    case "WidenBigInt":
+    case "WidenDec":
+      return writtenZero(expression.value);
+    case "ConstraintCall":
+      if (expression.constraint === "Signed" && expression.member === "negate") {
+        return expression.arguments.length === 1 && writtenZero(expression.arguments[0]!);
+      }
+      // A decimal-point literal promoted at a `Frac` seat is built as its digits
+      // over a power of ten; its value is its digits'.
+      return isDecimalPromotion(expression) && writtenZero(expression.arguments[0]!);
+    case "FromNat":
+    case "BigInt":
+      return isZeroDigits(expression.decimal);
+    case "Dec":
+      return isZeroDigits(expression.coefficient);
+    case "Float":
+      return expression.value === 0;
+    default:
+      return false;
+  }
+}
+
+function isZeroDigits(digits: string): boolean {
+  try {
+    return BigInt(digits) === 0n;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The division a promoted decimal-point literal is built as (#525): every part of
+ * it carries the literal's own span, which no division a program writes can,
+ * since a written operand is narrower than the division it stands in.
+ */
+function isDecimalPromotion(expression: Typed.ConstraintCallExpr): boolean {
+  if (expression.constraint !== "Frac" || expression.member !== "divide") return false;
+  const same = (span: Source.Span): boolean =>
+    span.start.offset === expression.span.start.offset && span.end.offset === expression.span.end.offset;
+  return expression.arguments.length === 2 && expression.arguments.every(({ span }) => same(span));
 }

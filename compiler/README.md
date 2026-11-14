@@ -126,7 +126,7 @@ Source maps, the conditional generic constrained edition, public dictionaries, r
 finalized portable target profile remain later emission slices.
 
 Documentation comments (`spec/doc-comments.md`, ruling #191) run the length of the
-pipeline as metadata. The lexer classifies `(** ... *)` trivia at the opener; the
+pipeline as metadata. The lexer classifies `{-- ... -}` trivia at the opener; the
 parser groups the comments into blocks, attaches each to the declaration its next
 physical code token begins, and reports the hard errors for the ones that document
 nothing; the module carries what attached, keyed by the documented declaration's
@@ -134,7 +134,7 @@ span, so no pass between them can branch on documentation. Emission turns it int
 JSDoc at the seats that correspond — the emitted binding in the `.js`, the
 `export declare`, type declaration, materialized constructor, or record property in
 the `.d.ts` — escaping JavaScript's block closer and inventing no seat where none
-exists. `///` has no status of any kind and receives no handling. The attachment
+exists. A line comment is never documentation, and `///` is refused as `//` is. The attachment
 also records the *names* a reader would point at to ask what each block says —
 the one name most forms introduce, every binder of a destructuring `let`, and
 for an `honor` block the constraint in its head, the only name it writes. Those
@@ -142,11 +142,11 @@ are the key `queries/documentation.ts` gives the editor services: hover and
 completion show doc content at every documentable position (§8), including the
 local binders and `honor` members that reach neither emitted artifact.
 
-Interactive tools may additionally call `emitTypeScriptPreview` to inspect every
-representable top-level binding without promoting private bindings into the public
-module contract. Constrained bindings remain in the typed analysis without exposing
-their generic dictionary surface; lawful fundamental editions appear as ordinary
-non-exported preview declarations.
+A tool that shows a module's TypeScript faces for inspection shows its
+`Emitted.Declarations` text, the shipped `.d.ts` itself (FFI Part 1 §8.3
+obligation 6). Private bindings reach no declaration file; a tool that shows them
+shows the JavaScript, which `emitJavaScript` writes with private fundamental
+editions included when `previewPrivateSpecializations` asks for them.
 
 The compiler API supports explicit source-file roots through
 `compileProject(files, { roots: [file.id] })`. It checks the selected modules and

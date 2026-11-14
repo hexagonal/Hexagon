@@ -8,6 +8,9 @@ import { rat } from "./examples/rat";
 import { runModules } from "./examples/run-modules";
 import { vectors } from "./examples/vectors";
 import { compileSource } from "./compile";
+import { declarationFileView } from "./generated-code";
+import { Source, compileProject } from "../../compiler/src/index";
+import { layOutWorkspace } from "./workspace";
 import { PlaygroundAnalysis } from "./analysis";
 import { linkModule } from "./module-execution";
 import type { GeneratedSection } from "./protocol";
@@ -60,7 +63,7 @@ describe("compileSource", () => {
     expect(response).toMatchObject({ kind: "compile-success", diagnostics: [] });
     if (response.kind !== "compile-success") return;
     expect(response.javascript).toContain("unscaled: 150n, places: 2");
-    expect(response.typeScriptPreview).toContain("Dec");
+    expect(response.declarationFile).toContain("export declare const amount: Dec;");
     expect(response.executionModules.some(({ path }) => path === "/Hex/Dec.hex")).toBe(true);
 
     const moduleUrls = new Map<string, string>();
@@ -418,7 +421,7 @@ describe("compileSource", () => {
   test("a module's body is laid out at its own margin, comments and all", () => {
     const source = "module Geo\n" +
       "\n" +
-      "(* a note *)\n" +
+      "{- a note -}\n" +
       "export let a: Int = 1\n" +
       "\n" +
       "end module Geo\n" +
@@ -432,7 +435,7 @@ describe("compileSource", () => {
     expect(compileSource(7, source)).toMatchObject({ kind: "compile-success", diagnostics: [] });
   });
 
-  test("previews private bindings through JavaScript and TypeScript emission", () => {
+  test("shows private bindings in the JavaScript and none in the `.d.ts`", () => {
     const response = compileSource(7, helloWorld.source);
 
     expect(response.kind).toBe("compile-success");
@@ -454,11 +457,10 @@ describe("compileSource", () => {
     // really about is `greet`.
     expect(response.javascript).toContain('logString(greet("Hexagon"));');
     expect(response.javascript).not.toContain("export { greet }");
-    expect(response.typeScriptPreview).toContain("declare const greet");
-    expect(response.typeScriptPreview).toContain("declare function factorial");
-    expect(response.typeScriptPreview).not.toContain(
-      "export declare const greet",
-    );
+    // The `.d.ts` pane is the shipped file (FFI Part 1 §8.3 obligation 6), and
+    // a private binding reaches no shipped file.
+    expect(response.declarationFile).not.toContain("greet");
+    expect(response.declarationFile).not.toContain("factorial");
     expect(response.types.map(({ name, displayedType }) => ({ name, displayedType }))).toEqual([
       { name: "card", displayedType: "(Int, Suit)" },
       { name: "rank", displayedType: "Int" },
@@ -487,9 +489,6 @@ describe("compileSource", () => {
 
     expect(response.diagnostics).toEqual([]);
     expect(response.javascript).toContain("function fact(n)");
-    expect(response.typeScriptPreview).toContain(
-      "declare function fact(n: number): number",
-    );
     expect(response.types.map(({ name, displayedType }) => ({ name, displayedType }))).toEqual([
       { name: "fact", displayedType: "Int -> Int" },
     ]);
@@ -536,9 +535,8 @@ describe("compileSource", () => {
       );
       expect(section.bytes).toBeGreaterThan(0);
     }
-    expect(response.typeScriptPreview).toContain(
-      "declare function plusInt(x: number, y: number): number;",
-    );
+    expect(response.declarationFile).not.toContain("plusInt");
+    expect(response.exportsNothing).toBe(true);
     // The private half of §10's two-artefact accounting: `plus` is not
     // exported, so the ordinary emission's declarations carry no face for any of
     // these four bodies. The pane previews the bodies anyway, and the report
@@ -611,7 +609,11 @@ describe("compileSource", () => {
       // The ESM still carries the evidence-taking form as plumbing, which is
       // what keeps the export callable from another Hexagon module.
       expect(response.javascript).toContain("heaviest");
-      expect(response.typeScriptPreview).not.toContain("heaviest");
+      expect(response.declarationFile).not.toContain("heaviest");
+      // The module does export, so the pane shows its file rather than the
+      // note for a module that exports nothing, though the file declares nothing.
+      expect(response.declarationFile).toBe("export {};\n");
+      expect(response.exportsNothing).toBe(false);
     });
 
     test("reports nothing at all for a module whose exports are unconstrained", () => {
@@ -641,7 +643,7 @@ describe("compileSource", () => {
     test("measures every edition in UTF-8 bytes, whichever artefact holds the prose", () => {
       const documented = compileSource(
         43,
-        `${MAIN}(** Mélange un sel — «précision» — pour séparer deux valeurs égales. *)\n${stamp}`,
+        `${MAIN}{-- Mélange un sel — «précision» — pour séparer deux valeurs égales. -}\n${stamp}`,
       );
       // No doc block at all, and the accents inside the body's own literal.
       const accentedBody = compileSource(
@@ -721,15 +723,18 @@ describe("compileSource", () => {
     expect(response.javascript).toContain(
       "const threeHalves = __Frac_Rat.divide(half, third);",
     );
-    expect(response.javascript).toContain("const half = Rat.__patt_rat.build(1n, 2n);");
-    expect(response.javascript).toContain("const third = Rat.__patt_rat.build(1n, 3n);");
+    // `top // bottom` emits the prelude `Rat`'s `create`, as a written call
+    // does, and a `//` pattern reads the top and bottom through its view
+    // (Operators §6.4, Pattern Matching §2.10).
+    expect(response.javascript).toContain("const half = create(1n, 2n);");
+    expect(response.javascript).toContain("const third = create(1n, 3n);");
     expect(response.javascript).toContain(
-      "__Eq_Rat.equals(Rat.__patt_rat.build(10n, 12n), Rat.__patt_rat.build(5n, 6n))",
+      "__Eq_Rat.equals(create(10n, 12n), create(5n, 6n))",
     );
-    expect(response.javascript).toContain("const fraction = Rat.__patt_rat.build(6n, 10n);");
-    expect(response.javascript).toContain("const __ratView = Rat.__patt_rat.view(fraction);");
-    expect(response.javascript).toContain("const top = __ratView[0];");
-    expect(response.javascript).toContain("const bottom = __ratView[1];");
+    expect(response.javascript).toContain("const fraction = create(6n, 10n);");
+    expect(response.javascript).toContain("const __fractionView = Rat.__patt_fraction.view(fraction);");
+    expect(response.javascript).toContain("const top = __fractionView[0];");
+    expect(response.javascript).toContain("const bottom = __fractionView[1];");
     expect(response.javascript).toContain("const describe = fraction => {");
     expect(response.javascript).not.toContain("opaque record Rat");
     expect(response.executionModules.map(({ path }) => path)).toContain(
@@ -738,8 +743,8 @@ describe("compileSource", () => {
     const ratModule = response.executionModules.find(({ path }) =>
       path === "/Hex/Rat.hex"
     );
-    expect(ratModule?.javascript).toContain("const __patt_rat = {");
-    expect(ratModule?.javascript).toContain("export { __patt_rat");
+    expect(ratModule?.javascript).toContain("const __patt_fraction = {");
+    expect(ratModule?.javascript).toContain("export { __patt_fraction");
     expect(ratModule?.javascript).toContain('bottom === 0n');
     expect(ratModule?.javascript).toContain('reducedBottom < 0n');
     // The brand is `Integral.hex`'s `exception` declaration now, reached by
@@ -788,7 +793,9 @@ describe("compileSource", () => {
     expect(printed).toContain("Does 10/12 = 5/6? True");
     expect(printed).toContain("top = 3");
     expect(printed).toContain("bottom = 5");
-    expect(printed).toContain("fraction: 3/5");
+    expect(printed).toContain("fraction: 3 over 5");
+    expect(printed).toContain("1.50d is 3/2, and a third of it is 1/2");
+    expect(printed).toContain("5/2 rounds to 3, and its floor is 2");
   });
 
   test("brands exact Rat division by zero through imported Frac evidence", async () => {
@@ -1035,70 +1042,76 @@ describe("compileSource", () => {
     expect(response.javascript).not.toContain("__Eq_Rat");
   });
 
-  test("refuses a buffer that names `Rat` and imports nothing, and offers the line", () => {
-    const source = `${MAIN}let third = Rat.create(1, 3)\n`;
+  test("refuses a buffer that names `Regex` and imports nothing, and offers the line", () => {
+    const source = `${MAIN}let pattern = Regex.compile("a")\n`;
     const response = compileSource(17, source);
 
     // The seat the equipment stood at (#831), answered by the language since
-    // #829's Ruling A. `Rat` is an ordinary module of the standard library, so
-    // a buffer that never imports it draws Modules §5.1 rule 1's report at the
-    // offset the name is written — the answer any `.hex` file gets, naming the
-    // one line that repairs it. The equipment used to write that line into the
-    // buffer unasked; the compiler names it and leaves the writing to the
+    // #829's Ruling A. `Regex` is an ordinary module of the standard library,
+    // so a buffer that never imports it draws Modules §5.1 rule 1's report at
+    // the offset the name is written — the answer any `.hex` file gets, naming
+    // the one line that repairs it. The equipment used to write that line into
+    // the buffer unasked; the compiler names it and leaves the writing to the
     // reader, or to the quick fix the editor offers over the same diagnostic.
+    // (`Rat` was the example until #1542 seated it in the prelude.)
     expect(response).toMatchObject({
       kind: "compile-failure",
       diagnostics: [{
         severity: "error",
-        message: "no module alias `Rat`; `import Rat`",
-        startOffset: source.indexOf("Rat"),
-        endOffset: source.indexOf("Rat") + "Rat".length,
+        message: "no module alias `Regex`; `import Regex`",
+        startOffset: source.indexOf("Regex"),
+        endOffset: source.indexOf("Regex") + "Regex".length,
       }],
     });
   });
 
-  test("the Playground's own quick fix writes `import Rat` into the buffer", () => {
+  test("a buffer naming the prelude's `Rat` needs no import", () => {
+    expect(compileSource(17, `${MAIN}let third = Rat.create(1, 3)\nDebug.log("\${third}")\n`))
+      .toMatchObject({ kind: "compile-success", diagnostics: [] });
+  });
+
+  test("the Playground's own quick fix writes `import Regex` into the buffer", () => {
     // The applied edit, through the tier the Playground actually calls: the
     // report is the compiler's and so is the repair, so the editor's lightbulb
     // needs nothing of the host's (Modules §5.1's compiler-tier obligation).
     const analysis = new PlaygroundAnalysis();
-    const source = `${MAIN}let third = Rat.create(1, 3)\n`;
+    const source = `${MAIN}let pattern = Regex.compile("a")\n`;
     const actions = analysis.codeActions(source, {
-      startOffset: source.indexOf("Rat"),
-      endOffset: source.indexOf("Rat") + "Rat".length,
+      startOffset: source.indexOf("Regex"),
+      endOffset: source.indexOf("Regex") + "Regex".length,
     });
-    const fix = actions.find(({ title }) => title === "Import `Rat`");
+    const fix = actions.find(({ title }) => title === "Import `Regex`");
     expect(fix?.edits).toEqual([{
       startOffset: MAIN.length,
       endOffset: MAIN.length,
-      replacement: "import Rat\n",
+      replacement: "import Regex\n",
     }]);
-    const repaired = source.slice(0, MAIN.length) + "import Rat\n" + source.slice(MAIN.length);
+    const repaired = source.slice(0, MAIN.length) + "import Regex\n" + source.slice(MAIN.length);
     expect(compileSource(18, repaired)).toMatchObject({
       kind: "compile-success",
       diagnostics: [],
     });
   });
 
-  test("compiles the ordinary `import Rat`, in every shape the grammar allows", () => {
+  test("compiles the ordinary `import Regex`, in every shape the grammar allows", () => {
     // A comment is trivia between an import's tokens, and the head may break
-    // across lines: all of these bind `Rat` exactly as the plain spelling does.
+    // across lines: all of these bind `Regex` exactly as the plain spelling does.
     const heads = [
-      "import Rat\n",
-      "import (* the exact one *) Rat\n",
-      "import\n    Rat\n",
+      "import Regex\n",
+      "import {- the library one -} Regex\n",
+      "import\n    Regex\n",
     ];
 
     for (const head of heads) {
       const response = compileSource(
         17,
-        `${MAIN}${head}\nlet third = Rat.create(1, 3)\nDebug.log("\${Rat.reciprocal(third)}")\n`,
+        `${MAIN}${head}\nlet quoted = Regex.escape("a.b")\nDebug.log(quoted)\n`,
       );
 
       expect(response).toMatchObject({ kind: "compile-success", diagnostics: [] });
       if (response.kind !== "compile-success") continue;
-      expect(response.javascript).toContain('import * as Rat from "./Hex/Rat.js";');
-      expect(response.javascript).toContain("Rat.reciprocal(third)");
+      expect(response.javascript).toContain('import * as Regex from "./Hex/Regex.js";');
+      expect(response.javascript).toContain("Regex.escape(");
     }
   });
 
@@ -1319,5 +1332,202 @@ describe("compileSource", () => {
     });
     expect(response.diagnostics[0]?.startOffset).toBeGreaterThanOrEqual(0);
     expect(response.diagnostics[0]?.endOffset).toBeLessThanOrEqual(source.length);
+  });
+});
+
+/**
+ * The text `compileProject` ships as one module's `.d.ts`, asked of the project
+ * directly rather than of `compileSource`, so the pane is compared with the
+ * compiler's own file and not with itself.
+ */
+function shippedDeclarations(buffer: string, moduleName: string): string {
+  const project = compileProject(
+    layOutWorkspace(buffer).files.map(({ path, source }, index) =>
+      new Source.File(Source.fileId(index), path, source)
+    ),
+  );
+  const module = project.modules.find(({ name }) => name === moduleName);
+  if (module === undefined) throw new Error(`no module ${moduleName} in the project`);
+  return module.declarations.text;
+}
+
+/** FFI Part 1 §8.3 obligation 6: the `.d.ts` pane is the shipped file itself. */
+describe("the `.d.ts` pane shows the shipped declaration file", () => {
+  test("byte for byte, import lines included, and no private binding", () => {
+    // The program's own `Option` takes the name, so the shipped file imports the
+    // prelude's under a probed local, and the pane shows that local.
+    const buffer = MAIN +
+      "record Option = { a: Int }\n" +
+      "export let o: Option.Option(Int) = Option.None\n" +
+      "let secret: Int = 2\n";
+    const response = compileSource(60, buffer);
+
+    expect(response).toMatchObject({ kind: "compile-success", diagnostics: [] });
+    if (response.kind !== "compile-success") return;
+    expect(response.declarationFile).toBe(shippedDeclarations(buffer, "Main"));
+    expect(response.declarationFile).toBe(
+      'import type { Option as Option_1 } from "./Hex/Option.js";\n' +
+        "export declare const o: Option_1<number>;\n",
+    );
+    expect(response.declarationFile).not.toContain("secret");
+    expect(response.exportsNothing).toBe(false);
+  });
+
+  test("in a buffer of several modules, the root module's file, importing its sibling", () => {
+    const buffer = "module Shapes\n" +
+      "\n" +
+      "export record Box = { size: Int }\n" +
+      "\n" +
+      "end module Shapes\n" +
+      "\n" +
+      "module Main\n" +
+      "\n" +
+      "import Shapes\n" +
+      "\n" +
+      "export let box: Shapes.Box = Shapes.Box({size = 3})\n" +
+      "let hidden: Int = 1\n";
+    const response = compileSource(61, buffer);
+
+    expect(response).toMatchObject({ kind: "compile-success", diagnostics: [] });
+    if (response.kind !== "compile-success") return;
+    expect(response.entryPath).toBe("/Main.hex");
+    expect(response.declarationFile).toBe(shippedDeclarations(buffer, "Main"));
+    expect(response.declarationFile).not.toBe(shippedDeclarations(buffer, "Shapes"));
+    expect(response.declarationFile).toContain('from "./Shapes.js";');
+    expect(response.declarationFile).not.toContain("hidden");
+    expect(response.exportsNothing).toBe(false);
+  });
+
+  test("a module that exports nothing ships `export {};`, and the pane takes the note", () => {
+    const buffer = `${MAIN}let x: Int = 1\nDebug.log("\${x}")\n`;
+    const response = compileSource(62, buffer);
+
+    expect(response).toMatchObject({ kind: "compile-success", diagnostics: [] });
+    if (response.kind !== "compile-success") return;
+    expect(response.declarationFile).toBe(shippedDeclarations(buffer, "Main"));
+    expect(response.declarationFile).toBe("export {};\n");
+    expect(response.exportsNothing).toBe(true);
+  });
+
+  test("a type reaching the root through a transit module keeps its import line", () => {
+    // `Main` names `Bb.U`, an alias of `Cc.T`: the shipped file imports `T`
+    // from `Cc`, which only the project's own emission knows to write.
+    const buffer = "module Cc\n" +
+      "\n" +
+      "export record T = { n: Int }\n" +
+      "\n" +
+      "end module Cc\n" +
+      "\n" +
+      "module Bb\n" +
+      "\n" +
+      "import Cc\n" +
+      "\n" +
+      "export type U = Cc.T\n" +
+      "export let c: U = Cc.T({n = 1})\n" +
+      "\n" +
+      "end module Bb\n" +
+      "\n" +
+      "module Main\n" +
+      "\n" +
+      "import Bb\n" +
+      "\n" +
+      "export let x: Bb.U = Bb.c\n";
+    const response = compileSource(65, buffer);
+
+    expect(response).toMatchObject({ kind: "compile-success", diagnostics: [] });
+    if (response.kind !== "compile-success") return;
+    expect(response.declarationFile).toBe(shippedDeclarations(buffer, "Main"));
+    expect(response.declarationFile).toBe(
+      'import type { T } from "./Cc.js";\n' +
+        "export declare const x: T;\n",
+    );
+  });
+
+  test("an extern block's exported row is an export", () => {
+    const response = compileSource(
+      66,
+      `${MAIN}extern from "./text.js"\n    export fun parse(text: String) -> String\n`,
+    );
+
+    expect(response).toMatchObject({ kind: "compile-success", diagnostics: [] });
+    if (response.kind !== "compile-success") return;
+    expect(response.declarationFile).toContain("parse");
+    expect(response.exportsNothing).toBe(false);
+  });
+
+  test("an extern block with only private rows exports nothing", () => {
+    const response = compileSource(
+      67,
+      `${MAIN}extern from "./text.js"\n    fun parse(text: String) -> String\n\n` +
+        'Debug.log(parse("a"))\n',
+    );
+
+    expect(response).toMatchObject({ kind: "compile-success", diagnostics: [] });
+    if (response.kind !== "compile-success") return;
+    expect(response.declarationFile).toBe("export {};\n");
+    expect(response.exportsNothing).toBe(true);
+  });
+
+  test.each([
+    ["a record", "export record Point = { x: Int }\n"],
+    ["a type alias", "export type Count = Int\n"],
+    ["a union", "export union Coin = Heads | Tails\n"],
+    ["an opaque record", "opaque record Box = { value: Int }\n"],
+    [
+      "a pattern",
+      "export pattern doubled(half: Int): Int\n" +
+        "    view(n) = Int.div(n, 2)\n" +
+        "    build(half) = half * 2\n",
+    ],
+    ["an exception", "export exception Boom(value: Int)\n"],
+    ["a constraint", "export constraint Sized<a> =\n    size(x: a) -> Int\n"],
+  ])("a module whose only export is %s does not export nothing", (_, source) => {
+    const response = compileSource(68, MAIN + source);
+
+    expect(response).toMatchObject({ kind: "compile-success", diagnostics: [] });
+    if (response.kind !== "compile-success") return;
+    expect(response.exportsNothing).toBe(false);
+  });
+
+  test("a module whose only export is a constraint ships `export {};`, and the pane says why", () => {
+    // A constraint publishes no TypeScript declaration, so the module exports
+    // and its file is still the bare module marker.
+    const buffer = `${MAIN}export constraint Sized<a> =\n    size(x: a) -> Int\n`;
+    const response = compileSource(69, buffer);
+
+    expect(response).toMatchObject({ kind: "compile-success", diagnostics: [] });
+    if (response.kind !== "compile-success") return;
+    expect(response.declarationFile).toBe(shippedDeclarations(buffer, "Main"));
+    expect(response.declarationFile).toBe("export {};\n");
+    expect(response.exportsNothing).toBe(false);
+    expect(declarationFileView(response.declarationFile, response.exportsNothing)).toEqual({
+      kind: "note",
+      text: "This module's exports have no TypeScript declarations, so its `.d.ts` is empty.",
+    });
+  });
+
+  test("a module with an export takes no note", () => {
+    const response = compileSource(63, `${MAIN}export let x: Int = 1\n`);
+
+    expect(response).toMatchObject({ kind: "compile-success", diagnostics: [] });
+    if (response.kind !== "compile-success") return;
+    expect(response.declarationFile).toBe("export declare const x: number;\n");
+    expect(response.exportsNothing).toBe(false);
+  });
+
+  test("a private edition's collision is reported, by the JavaScript pane's emission", () => {
+    // The warning comes from planning private editions, which only the JS
+    // pane's re-emission does; the shipped file plans exported ones alone.
+    const response = compileSource(
+      64,
+      `${MAIN}let show2<a: Show>(x: a): String = x.show()\nlet show2Int: Int = 1\n`,
+    );
+
+    expect(response.kind).toBe("compile-success");
+    expect(response.diagnostics).toMatchObject([{
+      severity: "warning",
+      message: "generated specialization `show2Int` conflicts with binding `show2Int`; " +
+        "rename one of the declarations",
+    }]);
   });
 });

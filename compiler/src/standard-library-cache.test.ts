@@ -647,7 +647,7 @@ describe("nothing downstream writes to the cached prefix", () => {
    * Programs that **refuse**, with the message each one owes.
    *
    * A refusal reads inputs a clean compile never asks for, and both of these
-   * walk the shared module set: the first asks whether `import Rat` would
+   * walk the shared module set: the first asks whether `import Regex` would
    * resolve here (Modules §5.1 rule 1's repair clause), the second asks which
    * modules export a pattern of this name and which of those the program could
    * import. The third refuses with a "choose `…`" fix, which
@@ -658,7 +658,7 @@ describe("nothing downstream writes to the cached prefix", () => {
     readonly (readonly [string, string])[],
     readonly string[],
   ])[] = [
-    [[main("export let n: Int = Rat.zero\n")], ["no module alias `Rat`; `import Rat`"]],
+    [[main("export let n: Int = Regex.zero\n")], ["no module alias `Regex`; `import Regex`"]],
     [[
       ["/box.hex",
         "module Box\n\n" +

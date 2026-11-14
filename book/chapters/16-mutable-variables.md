@@ -33,7 +33,7 @@ The annotation is optional when inference already determines the type. Unlike `l
 `var` binds exactly one name. It does not destructure:
 
 ```hexagon
-var (left, right) = pair // error: var binds one name
+var (left, right) = pair -- error: var binds one name
 ```
 
 Destructure immutably first, then copy the particular value that must change:
@@ -61,7 +61,7 @@ another way to rebind an existing `let`:
 
 ```hexagon
 let total = calculateTotal()
-var total = 0 // error: total is already bound
+var total = 0 -- error: total is already bound
 ```
 
 ## Assignment produces `Unit`
@@ -100,7 +100,7 @@ later assignment must agree:
 ```hexagon
 var count = 0
 count := count + 1
-count := "many" // error: count has type Int
+count := "many" -- error: count has type Int
 ```
 
 This remains true when the initializer's type is not immediately known. Later uses may
@@ -117,14 +117,14 @@ Only a `var` name is assignable. Parameters, loop variables, pattern binders, an
 
 ```hexagon
 let answer = 42
-answer := 43 // error: answer was bound with let
+answer := 43 -- error: answer was bound with let
 ```
 
 Fields and tuple positions are not assignment targets either:
 
 ```hexagon
-point.x := 10       // error: records are immutable
-pair.item1 := "new" // error: tuples are immutable
+point.x := 10       -- error: records are immutable
+pair.item1 := "new" -- error: tuples are immutable
 ```
 
 Build an updated record value, and assign that whole value only when its local binding
@@ -147,7 +147,7 @@ A lambda may not read or assign a `var` declared outside that lambda:
 let shifted(value: Int): Int =
     var shift = calculateShift()
     let applyShift = number => number + shift
-    // error: shift is a var and cannot be used inside a lambda
+    -- error: shift is a var and cannot be used inside a lambda
     applyShift(value)
 ```
 

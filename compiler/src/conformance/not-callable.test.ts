@@ -432,7 +432,7 @@ fun
     // "delete the `()`" must delete exactly the two characters it names. A gap
     // holding anything more — whitespace, a comment, a glued effect mark — is
     // the writer's text, so the sentence stands alone there.
-    for (const call of ["None ()", "None((* why *))", "None!()"]) {
+    for (const call of ["None ()", "None({- why -})", "None!()"]) {
       const [diagnostic, ...rest] = compileFiles([
         ["/main.hex", "module Main\n\n" + `export let bad: Option(Int) = ${call}\n`],
       ]).diagnostics;

@@ -2,7 +2,6 @@ import { describe, expect, test } from "vitest";
 
 import {
   compileProject,
-  emitTypeScriptPreview,
   Source,
   type CompiledProject,
 } from "../index";
@@ -109,12 +108,6 @@ function moduleOf(compiled: CompiledProject, path: string) {
 /** The shipped `.d.ts` text of a one-module program. */
 function declarations(source: string): string {
   return moduleOf(project({ "/src/main.hex": source }), "/src/main.hex").declarations.text;
-}
-
-/** The inspection-only preview text — the Playground's declarations pane. */
-function preview(source: string): string {
-  return emitTypeScriptPreview(moduleOf(project({ "/src/main.hex": source }), "/src/main.hex").core)
-    .text;
 }
 
 /**
@@ -897,25 +890,6 @@ describe("the shipped `.d.ts` carries no private type, in any form", () => {
     // two files, none of them ever referenced by an exported face.
     expect(moduleOf(compiled, "/Hex/Runtime/HashTrie.hex").declarations.text).toBe("export {};\n");
     expect(moduleOf(compiled, "/Hex/Runtime/VectorTrie.hex").declarations.text).toBe("export {};\n");
-  });
-
-  test("the **preview** still renders the private union, unprefixed", () => {
-    // The inspection preview is out of scope and unchanged (§14.3's scope note):
-    // it renders private declarations by design, and the union renderer's second
-    // caller keeps its behavior. Pinned so it cannot regress silently along with
-    // the shipped file.
-    const rendered = preview("union Hidden = A | B\nexport let n: Int = 1\n");
-    expect(rendered).toBe(
-      'type Hidden = { tag: "A" } | { tag: "B" };\n' +
-        "declare const A: Hidden;\n" +
-        "declare const B: Hidden;\n" +
-        "export declare const n: number;\n",
-    );
-  });
-
-  test("the preview renders a private *payload-carrying* union too", () => {
-    expect(preview("record Hidden = {n: Int}\nunion Held = Wrap(h: Hidden)\n" +
-      "export let n: Int = 1\n")).toContain('type Held = { tag: "Wrap"; h: Hidden };');
   });
 });
 

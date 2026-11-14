@@ -55,14 +55,14 @@ function sole(actions: readonly CodeAction[]): CodeAction {
 
 describe("code actions: the diagnostic's own fixes", () => {
   test("a compiler-authored fix is offered where the diagnostic is", () => {
-    // The lexer redirects JavaScript's comment spelling to Hexagon's (#171) and
+    // The lexer redirects JavaScript's comment spelling to Hexagon's (#1538) and
     // carries the repair on the diagnostic. Nothing but this could reach it.
     const source = "module Main\n\n" + ["/* a note */", "let value: Int = 1", ""].join("\n");
     const { session } = sessionOf({ "/main.hex": source });
     const action = sole(actionsOn(session, "/main.hex", source, "/*"));
     expect(action.title).toBe("Use the Hexagon block comment spelling");
     expect(applied(source, action)).toBe("module Main\n\n" + 
-      ["(* a note *)", "let value: Int = 1", ""].join("\n"),
+      ["{- a note -}", "let value: Int = 1", ""].join("\n"),
     );
     expect(action.disabled).toBeUndefined();
   });
@@ -132,7 +132,7 @@ describe("code actions: the diagnostic's own fixes", () => {
   });
 
   test("nothing is offered away from the diagnostic", () => {
-    const source = "module Main\n\n" + ["/* a note */", "let value: Int = 1", ""].join("\n");
+    const source = "module Main\n\n" + ["{- a note -}", "let value: Int = 1", ""].join("\n");
     const { session } = sessionOf({ "/main.hex": source });
     expect(actionsOn(session, "/main.hex", source, "value")).toEqual([]);
   });
@@ -179,6 +179,30 @@ describe("code actions: infer return type", () => {
     // The repair is gone from the diagnostics of the file it edits.
     session.setFile("/main.hex", applied(source, action));
     expect(session.diagnostics("/main.hex")).toEqual([]);
+  });
+
+  test("offers nothing for a lambda whose binding's name carries the type (#1402)", () => {
+    // The name writes the result (Modules §4.1.1), so the constraint report at
+    // the name is not answered by a `: String` after the lambda's parameters.
+    const source = "module Main\n\n" + "export let s: (a) -> String = (x) => show(x)\n";
+    const { session } = sessionOf({ "/main.hex": source });
+    expect(session.diagnostics("/main.hex").map(({ message }) => message)).toEqual([
+      "exported function `s` must declare every constraint in its signature; write `<a: Show>`",
+    ]);
+    expect(actionsOn(session, "/main.hex", source, "s:")).toEqual([]);
+  });
+
+  test("offers nothing for a lambda under a name type holding a hole (#1402)", () => {
+    // The fence's report is the only one, and its repair is the name's `_`:
+    // a return type written on the lambda would answer nothing.
+    const source = "module Main\n\n" + "export let u: (_) -> Int = (x) => x\n";
+    const { session } = sessionOf({ "/main.hex": source });
+    expect(session.diagnostics("/main.hex").map(({ message }) => message)).toEqual([
+      "an exported signature is complete (Modules §4.1.1); replace `_` with the intended type",
+    ]);
+    expect(session.codeActions("/main.hex", { start: 0, end: source.length })
+      .filter(({ title }) => title === "Infer return type")).toEqual([]);
+    expect(actionsOn(session, "/main.hex", source, "u:")).toEqual([]);
   });
 
   test("writes a function a caller hands in as the constant, as hover shows it (#1184)", () => {
@@ -259,10 +283,10 @@ describe("code actions: infer return type", () => {
   });
 
   test("leaves a comment between the parameters and the body where it was", () => {
-    const source = "module Main\n\n" + "export fun zero() (* why *) = 0\n";
+    const source = "module Main\n\n" + "export fun zero() {- why -} = 0\n";
     const { session } = sessionOf({ "/main.hex": source });
     const action = sole(actionsOn(session, "/main.hex", source, "zero"));
-    expect(applied(source, action)).toBe("module Main\n\n" + "export fun zero(): Int (* why *) = 0\n");
+    expect(applied(source, action)).toBe("module Main\n\n" + "export fun zero(): Int {- why -} = 0\n");
   });
 
   test("writes a function type with the parentheses that keep its arity", () => {
@@ -799,7 +823,7 @@ describe("code actions: infer return type", () => {
       // tell this from the line above, since they differ only in what follows
       // the token the parser stopped at.
       "export fun m(x: Int) = 1\n}\n",
-      "export fun m(x: Int) = 1\n\n\n(* note *)\n)\n",
+      "export fun m(x: Int) = 1\n\n\n{- note -}\n)\n",
       "export fun m(x: Int) =\n    1\n}\n",
     ].map((body) => "module Main\n\n" + body)) {
       const { session } = sessionOf({ "/main.hex": source });
@@ -972,7 +996,7 @@ describe("code actions: infer return type", () => {
     // inserting five characters earlier on the line moves that column. Compared
     // by message, the same pre-existing error would look like one the edit
     // caused, and the repair would be refused for breaking nothing.
-    const source = "module Main\n\n" + "export fun m(x: Int) = 1; export let y: Int = 2 (* oops\n";
+    const source = "module Main\n\n" + "export fun m(x: Int) = 1; export let y: Int = 2 {- oops\n";
     const { session } = sessionOf({ "/main.hex": source });
     expect(session.diagnostics("/main.hex").map(({ message }) => message))
       .toContain("unterminated block comment; opened at line 3, column 49");
@@ -1295,7 +1319,7 @@ describe("code actions: the module-import repair family (#577)", () => {
     // (`spec/doc-comments.md` §2.1), so an insert between the two would silently
     // unfile the documentation. With no import line to sit under, the top of the
     // file is above the comment and above everything else.
-    const main = "module Main\n\n" + "(** The metre, and nothing else. *)\n" +
+    const main = "module Main\n\n" + "{-- The metre, and nothing else. -}\n" +
       "export record Metre = {m: Float}\n" +
       "\n" +
       "export fun go<a: Scale>(x: a): a = x\n";
@@ -1303,7 +1327,7 @@ describe("code actions: the module-import repair family (#577)", () => {
     const action = sole(actionsOn(session, "/main.hex", main, "Scale>"));
     expect(applied(main, action)).toBe("module Main\n\n" + 
       'import Scale\n' +
-        "(** The metre, and nothing else. *)\n" +
+        "{-- The metre, and nothing else. -}\n" +
         "export record Metre = {m: Float}\n" +
         "\n" +
         "export fun go<a: Scale>(x: a): a = x\n",

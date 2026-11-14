@@ -12,7 +12,7 @@ function at(marked: string): { readonly text: string; readonly offset: number } 
 
 const HEAD = [
   "module Main",
-  "(** Adds two numbers. *)",
+  "{-- Adds two numbers. -}",
   "fun add(a: Int, b: Int): Int = a + b",
   "fun negate(n: Int): Int = 0 - n",
   "fun pair((x, y): (Int, Int), c: Int): Int = x + y + c",
@@ -90,8 +90,8 @@ describe("signature help", () => {
   });
 
   test("a comma in a comment or a string is not one", () => {
-    expect(shown(helpIn("fun t(q: Int): Int = add(q (* a, b *)‸\n"))).toBe(`${ADD} @0`);
-    expect(shown(helpIn("fun t(q: Int): Int = add(q, (* a, b *)‸\n"))).toBe(`${ADD} @1`);
+    expect(shown(helpIn("fun t(q: Int): Int = add(q {- a, b -}‸\n"))).toBe(`${ADD} @0`);
+    expect(shown(helpIn("fun t(q: Int): Int = add(q, {- a, b -}‸\n"))).toBe(`${ADD} @1`);
     expect(shown(helpIn("fun t(q: String): Int = add(q.length(), \"a, b‸\".length())\n"))).toBe(`${ADD} @1`);
   });
 
@@ -115,13 +115,13 @@ describe("signature help", () => {
   });
 
   test("an unclosed call reaches over the spaces, line breaks and comments after it, to the next token", () => {
-    expect(shown(helpIn("fun t(q: Int): Int = add(q, (* a *)\n    // b\n    (* c *) ‸"))).toBe(`${ADD} @1`);
+    expect(shown(helpIn("fun t(q: Int): Int = add(q, {- a -}\n    -- b\n    {- c -} ‸"))).toBe(`${ADD} @1`);
     // Past the last argument kept, with no comma after it yet: a tab and a
     // carriage return are spaces and line breaks too.
     expect(shown(helpIn("fun t(q: Int): Int = add(q\t‸"))).toBe(`${ADD} @0`);
     expect(shown(helpIn("fun t(q: Int): Int = add(q\r\n‸"))).toBe(`${ADD} @0`);
     // An unterminated comment runs to the end of the text, and so does the call.
-    expect(shown(helpIn("fun t(q: Int): Int = add(q, (* a ‸"))).toBe(`${ADD} @1`);
+    expect(shown(helpIn("fun t(q: Int): Int = add(q, {- a ‸"))).toBe(`${ADD} @1`);
     // The next token is not the call's to reach past.
     expect(helpIn("fun t(q: Int): Int = add(q, \nfun u(): Int = ‸1\n")).toBeUndefined();
   });
@@ -138,10 +138,10 @@ describe("signature help", () => {
   });
 
   test("a `(` on the next line, after a comment, is the call's own", () => {
-    expect(shown(helpIn("fun t(q: Int): Int = add // note\n    (q, ‸1)\n"))).toBe(`${ADD} @1`);
+    expect(shown(helpIn("fun t(q: Int): Int = add -- note\n    (q, ‸1)\n"))).toBe(`${ADD} @1`);
     // Not inside yet: in the comment, and in the indentation before the `(`.
-    expect(helpIn("fun t(q: Int): Int = add // no‸te\n    (q, 1)\n")).toBeUndefined();
-    expect(helpIn("fun t(q: Int): Int = add // note\n  ‸  (q, 1)\n")).toBeUndefined();
+    expect(helpIn("fun t(q: Int): Int = add -- no‸te\n    (q, 1)\n")).toBeUndefined();
+    expect(helpIn("fun t(q: Int): Int = add -- note\n  ‸  (q, 1)\n")).toBeUndefined();
   });
 
   test("a receiver is the first argument, so the highlight counts it", () => {

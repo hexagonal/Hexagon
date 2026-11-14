@@ -36,26 +36,86 @@ types. Division `/` belongs to types honoring `Frac`, including `Float` and exac
 `Rat` values:
 
 ```hexagon
-import Rat
-
 let average = 7.5 / 3.0
-let threeHalves = (1, 2)rat / (1, 3)rat
+let threeHalves = (1 // 2) / (1 // 3)
 ```
 
-The `rat` suffix constructs an exact fraction; `import Rat` makes that suffix
-available. The patterns chapter explains how the same spelling takes a fraction
-apart.
-
 If both values are `Float`, this is IEEE 754 division and follows the same infinity and
-`NaN` behavior as JavaScript. Rat division is exact and throws `DivideByZeroError` for
+`NaN` behavior as JavaScript. Rat division is exact and throws `DivideByZeroFault` for
 a zero divisor. `Int` and `BigInt` deliberately do not support `/`: whole-number
 division must say which rounding and remainder convention it intends. Dec also has
 no `/` operator: use `divide` or `divideEven` with the required decimal places.
 
+## A fraction is written with `//`
+
+The second line above wrote two fractions before dividing them. `top // bottom`
+writes an exact fraction, a `Rat`:
+
+```hexagon
+let half = 1 // 2
+let share = seats // guests
+```
+
+Both sides are integers: `Nat`, `Int`, and `BigInt` values all serve. The result is
+always in lowest terms with a positive bottom, so `6 // 10` and `3 // 5` are the same
+value, and so are `1 // -3` and `-1 // 3`. A fraction shows itself with a single
+slash: `"${6 // 10}"` is `3/5`.
+
+`//` is not division. It does not compute a quotient and round it. It writes down the
+number that the two integers name, exactly. Dividing is `/`, and the compiler keeps
+the two apart. A side that is already a fraction is refused:
+
+```hexagon
+let quarter = half // 2   -- error
+```
+
+> a fraction's top and bottom are integers, and `half` is a `Rat` — to divide, write
+> `half / 2`
+
+The one thing a fraction cannot be written with is a zero bottom. A bottom that turns
+out to be zero when the program runs throws `DivideByZeroFault`.
+
+Because `//` writes a number rather than performing a step of arithmetic, it binds
+tighter than `*` and `/`. A fraction in the middle of a product reads as one operand:
+
+```hexagon
+half * 1 // 2         -- half * (1 // 2), which is 1/4
+1 // 2 * 3 // 4       -- (1 // 2) * (3 // 4), which is 3/8
+half / 2 // 3         -- half / (2 // 3), which is 3/4
+```
+
+Unary minus and `**` bind tighter still, so each side can carry a sign or a power:
+`-1 // 3` is `(-1) // 3`, and `2 ** 3 // 4` is `(2 ** 3) // 4`, which is `2/1`. For
+anything larger, parenthesize the side: `(a + b) // 2`.
+
+A fraction has one top and one bottom, so `//` does not chain:
+
+```hexagon
+let sixth = 1 // 2 // 3   -- error
+```
+
+> `//` does not chain; a fraction has one top and one bottom — to divide one, write
+> `(1 // 2) / 3`
+
+Fractions are also where exact decimals go when arithmetic leaves the decimal world.
+A `Dec` enters a `Rat` silently wherever a `Rat` is the expression's home, because
+every decimal is a fraction and nothing is lost:
+
+```hexagon
+let price: Dec = 1.50d
+let third = price * 1 // 3            -- 1/2
+let ratio: Rat = price / 0.25d        -- 6/1
+```
+
+Without a `Rat` home, `price / 0.25d` is still refused, and the message names both
+ways forward: write a `Rat` type, or use `Dec.divide` with a place count. The return
+trip is never silent. Turning a fraction into a decimal means choosing how many places
+to keep and how to round, so it uses a named conversion such as `toDec`.
+
 Exponentiation uses `**`, not `^`, and associates to the right:
 
 ```hexagon
-2 ** 3 ** 2       // 2 ** (3 ** 2), which is 512
+2 ** 3 ** 2       -- 2 ** (3 ** 2), which is 512
 ```
 
 The exponent is always an `Int`. `**` is the algebraist's power — repeated
@@ -71,7 +131,7 @@ a named function rather than an operator, because it belongs only where
 approximation is the contract:
 
 ```hexagon
-Float.pow(2.0, 0.5)     // the nearest float to the square root of two
+Float.pow(2.0, 0.5)     -- the nearest float to the square root of two
 ```
 
 Writing `x ** 0.5` is a type error, and the message points here. `BigInt.pow`
@@ -80,7 +140,7 @@ is the matching door for an exponent too large to be an `Int`.
 One precedence rule follows mathematics where JavaScript refuses the expression:
 
 ```hexagon
--2 ** 2           // -(2 ** 2), which is -4
+-2 ** 2           -- -(2 ** 2), which is -4
 ```
 
 Hexagon emits the necessary JavaScript parentheses:
@@ -99,28 +159,28 @@ means for negative values, and one anonymous symbol conceals the disagreement. H
 uses names that state the convention:
 
 ```hexagon
-Int.div(a, b)      // Euclidean quotient
-Int.mod(a, b)      // Euclidean remainder
-Int.quot(a, b)     // quotient rounded toward zero
-Int.rem(a, b)      // truncated remainder: JavaScript's % convention
+Int.div(a, b)      -- Euclidean quotient
+Int.mod(a, b)      -- Euclidean remainder
+Int.quot(a, b)     -- quotient rounded toward zero
+Int.rem(a, b)      -- truncated remainder: JavaScript's % convention
 ```
 
 `mod` is the mathematical default. Its result is always non-negative and smaller than
 the absolute value of the divisor:
 
 ```hexagon
-Int.mod(-7, 3)     // 2
-Int.mod(7, -3)     // 1
+Int.mod(-7, 3)     -- 2
+Int.mod(7, -3)     -- 1
 ```
 
 `rem` is the interoperation and porting form:
 
 ```hexagon
-Int.rem(-7, 3)     // -1, as in JavaScript
+Int.rem(-7, 3)     -- -1, as in JavaScript
 ```
 
 `BigInt` provides the same four operations. A zero divisor at either integer type
-throws `DivideByZeroError`. Floating point already has true division, so it provides
+throws `DivideByZeroFault`. Floating point already has true division, so it provides
 only `Float.mod` and `Float.rem`; invalid floating operations produce `NaN` rather than
 throwing.
 
@@ -243,17 +303,17 @@ confused:
 let readable = 0b100
 let writable = 0b010
 
-let permissions = readable bor writable        // 6
-let canWrite = permissions band writable != 0  // True
-let withoutWrite = permissions band bnot writable  // 4, readable alone again
+let permissions = readable bor writable        -- 6
+let canWrite = permissions band writable != 0  -- True
+let withoutWrite = permissions band bnot writable  -- 4, readable alone again
 ```
 
 `band`, `bor`, and `bxor` are bitwise and, or, and exclusive or; `bnot` flips every
 bit. Shifts are named operations rather than operators:
 
 ```hexagon
-let packed = 0x12.shiftLeft(8) bor 0x34  // 0x1234, which displays as 4660
-let high = packed.shiftRight(8)          // 0x12, which displays as 18
+let packed = 0x12.shiftLeft(8) bor 0x34  -- 0x1234, which displays as 4660
+let high = packed.shiftRight(8)          -- 0x12, which displays as 18
 ```
 
 A shift by a negative count shifts the other way, and a right shift rounds toward
@@ -264,8 +324,8 @@ both. That is the main difference from JavaScript, whose operators first cut eve
 number down to 32 bits:
 
 ```hexagon
-let big = 1.shiftLeft(31)                 // 2147483648
-let wrapped = 1.shiftLeft(31).toInt32()   // -2147483648, what JavaScript's 1 << 31 gives
+let big = 1.shiftLeft(31)                 -- 2147483648
+let wrapped = 1.shiftLeft(31).toInt32()   -- -2147483648, what JavaScript's 1 << 31 gives
 ```
 
 When code really does mean 32-bit arithmetic, such as a hash ported from JavaScript, it
@@ -281,7 +341,7 @@ At `BigInt` the words compile to JavaScript's own operators, because JavaScript'
 
 ```hexagon
 let id = 0x1234_5678_9ABCn
-let lowByte = id band 0xFFn    // 0xBCn
+let lowByte = id band 0xFFn    -- 0xBCn
 ```
 
 ```js
@@ -299,7 +359,7 @@ type lets them run on natural numbers anyway; the same annotation is also how tw
 
 ```hexagon
 let count: Nat = 23
-let bits: Int = count band 0xF   // 7
+let bits: Int = count band 0xF   -- 7
 ```
 
 `band`, `bor`, and `bxor` are operators only directly after an operand. Anywhere else
@@ -410,6 +470,7 @@ From tightest to loosest, the operator groups are:
 | | `bnot` |
 | | exponentiation `**` |
 | | unary `-` |
+| | fraction `//` |
 | | `*`, `/` |
 | | `+`, `-`, `++` |
 | | `band` |
@@ -426,7 +487,9 @@ From tightest to loosest, the operator groups are:
 
 Most of this is the familiar mathematical order. The two rules most worth remembering
 are that exponentiation binds inside unary minus on its left, and `not` applies to a
-comparison before it applies to surrounding logic. The binary bitwise words sit between
+comparison before it applies to surrounding logic. `//` sits just above multiplication
+because a fraction is a number being written, not a step of arithmetic: `x * 1 // 2`
+multiplies by a half. The binary bitwise words sit between
 arithmetic and comparison, `band` tightest, so `flags band mask == 0` compares the
 masked value with zero, as it reads. `bnot`, like a call, binds tighter than everything
 else: `bnot x ** 2` is `(bnot x) ** 2`, unlike `-x ** 2`.
@@ -447,6 +510,8 @@ The entire pipe is the lambda body, and the entire conditional is the right oper
   the algebraic and comparison operators.
 - `/` is fractional division. Integer division and remainder use named operations whose
   names distinguish Euclidean `div`/`mod` from truncated `quot`/`rem`.
+- `top // bottom` writes an exact fraction from two integers. It is not division, it
+  binds tighter than `*` and `/`, and it does not chain.
 - Strings concatenate with `++`, not numeric `+`.
 - Comparison chains are directional, short-circuiting, and single-evaluation.
 - Logic uses words, requires `Bool`, and has explicit short-circuit rules.

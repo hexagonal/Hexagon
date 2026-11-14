@@ -14,7 +14,6 @@ import { compileFiles, runProject } from "../../support/test-project.js";
 import {
   emitDeclarations,
   emitJavaScript,
-  emitTypeScriptPreview,
 } from "./emitter.js";
 
 describe("emitJavaScript", () => {
@@ -972,13 +971,6 @@ describe("emitJavaScript", () => {
       'const [name, , [x, y]] = ["point", true, [3, 4]];\n' +
         "const total = x + y;\n",
     );
-    expect(emitTypeScriptPreview(module).text).toBe(
-      "declare const name: string;\n" +
-        "declare const x: number;\n" +
-        "declare const y: number;\n" +
-        "declare const total: number;\n" +
-        "export {};\n",
-    );
   });
 
   test("emits nullary unions, exhaustive matches, and declaration surfaces", () => {
@@ -1226,10 +1218,10 @@ describe("emitJavaScript", () => {
   test("preserves top-level comments and their vertical spacing", () => {
     const output = emitJavaScript(
       coreSource(
-        "// Card suits are a closed set.\n" +
+        "-- Card suits are a closed set.\n" +
           "union Suit = Clubs | Diamonds | Hearts | Spades\n\n" +
-          "(* A card combines ordinary product and sum types. *)\n" +
-          "let card = (10, Hearts) // the ten of hearts",
+          "{- A card combines ordinary product and sum types. -}\n" +
+          "let card = (10, Hearts) -- the ten of hearts",
       ),
     );
 
@@ -1247,24 +1239,29 @@ describe("emitJavaScript", () => {
 
   test("translates block comments into a valid JavaScript spelling", () => {
     // spec/comments.md §6: JavaScript block comments do not nest, so an interior
-    // `(*`/`*)` pair rides along as inert text while a body containing `*/` — which
+    // `{-`/`-}` pair rides along as inert text while a body containing `*/` — which
     // would close the emitted comment early — becomes whole lines of `//`.
     const nested = emitJavaScript(
-      coreSource("(* outer (* inner *) still outer *)\nlet x = 1"),
+      coreSource("{- outer {- inner -} still outer -}\nlet x = 1"),
     );
-    expect(nested.text).toBe("/* outer (* inner *) still outer */\nconst x = 1;\n");
+    expect(nested.text).toBe("/* outer {- inner -} still outer */\nconst x = 1;\n");
 
     const unsafe = emitJavaScript(
-      coreSource("(* the JavaScript closer */ inside\n   a second line *)\nlet x = 1"),
+      coreSource("{- the JavaScript closer */ inside\n   a second line -}\nlet x = 1"),
     );
     expect(unsafe.text).toBe(
       "// the JavaScript closer */ inside\n//   a second line\nconst x = 1;\n",
     );
     expect(unsafe.diagnostics).toEqual([]);
 
+    // An ordinary comment whose text begins with `*` is not JSDoc in the output.
+    expect(emitJavaScript(coreSource("{-* note -}\nlet x = 1")).text).toBe(
+      "/* * note */\nconst x = 1;\n",
+    );
+
     // An unterminated comment is recorded alongside its lexical error, so the
     // translation has no closer to strip and must not take one anyway.
-    expect(emitJavaScript(coreSource("(* opened, never closed\nlet x = 1")).text).toBe(
+    expect(emitJavaScript(coreSource("{- opened, never closed\nlet x = 1")).text).toBe(
       "/* opened, never closed\nlet x = 1*/\n",
     );
   });
@@ -1528,7 +1525,7 @@ describe("emitJavaScript", () => {
     // that is the raw `%` (#344), so the module is linked and run rather than
     // evaluated as one text — and the error is `$hex`-branded because it is an
     // ordinary `Integral.hex` exception rather than a helper's hand-built one.
-    const files = [["/main.hex", "module Main\n\n" + "export let boom(): Int = Int.mod(1, 0)\n"]] as const;
+    const files = [["/main.hex", "module Main\n\n" + "let zero = 0\n" + "export let boom(): Int = Int.mod(1, zero)\n"]] as const;
     const boom = (await runProject(files))["boom"] as () => unknown;
     let thrown: unknown;
     try {
@@ -2473,58 +2470,6 @@ describe("emitDeclarations", () => {
     }
     expect(increment.diagnostics).toEqual([]);
     expect(equal.diagnostics).toEqual([]);
-  });
-});
-
-describe("emitTypeScriptPreview", () => {
-  test("describes private top-level bindings without exporting them", () => {
-    const output = emitTypeScriptPreview(
-      coreSource(
-        'let greet(name) = "Hello, " ++ name\n' +
-          "let plus(x: Int, y) = x + y\n" +
-          "let answer = 42",
-      ),
-    );
-
-    expect(output).toMatchObject({
-      kind: "TypeScriptPreview",
-      text:
-        "declare const greet: (name: string) => string;\n" +
-        "declare const plus: (x: number, y: number) => number;\n" +
-        "declare const answer: number;\n" +
-        "export {};\n",
-      diagnostics: [],
-    });
-  });
-
-  test("includes private recursive functions without exporting them", () => {
-    const output = emitTypeScriptPreview(
-      coreSource(
-        "fun fact(n: Int): Int = if n <= 1 then 1 else n * fact(n - 1)",
-      ),
-    );
-
-    expect(output.text).toBe(
-      "declare function fact(n: number): number;\n" +
-        "export {};\n",
-    );
-    expect(output.diagnostics).toEqual([]);
-  });
-
-  test("previews private fundamental editions without exporting them", () => {
-    const output = emitTypeScriptPreview(
-      coreSource("let plus(x, y) = x + y\nlet answer = 42"),
-    );
-
-    expect(output.text).toBe(
-      "declare function plusNat(x: number, y: number): number;\n" +
-        "declare function plusInt(x: number, y: number): number;\n" +
-        "declare function plusFloat(x: number, y: number): number;\n" +
-        "declare function plusBigInt(x: bigint, y: bigint): bigint;\n" +
-        "declare const answer: number;\n" +
-        "export {};\n",
-    );
-    expect(output.diagnostics).toEqual([]);
   });
 });
 

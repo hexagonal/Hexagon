@@ -1,26 +1,26 @@
 module JsValue
 
-// The public companion of `JsValue` — the type of a JavaScript value about
-// which Hexagon asserts nothing (FFI Part 11 section 2).
-//
-// `JsValue` is compiler-owned: no `.hex` file declares it, because it has no
-// instance to home and no parameter to claim, which is all a declaration would
-// give it (`spec/intrinsics.md` section 3.3). This module is its companion by
-// being the module addressable under the name (Method Syntax section 4.1).
-//
-// `JsPathSegment` and `JsConversionReason` are declared next door, in modules
-// named for themselves, because section 12's extension makes their constructors
-// qualified-only too and a qualified constructor needs the module addressable
-// under the union's name. `JsConversionError` stays here: it is an exception,
-// and a prelude throwable is bare by category (`spec/exceptions.md` section
-// 2.1), so it needs no module of its own to be spelled.
-//
-// Everything here is strict and non-coercing (section 1): a decoder succeeds if
-// and only if the value already *is* the target representation. Nothing is
-// parsed, truncated, rounded, `String()`-ed or `Number()`-ed. Coercion is a
-// foreign-side decision made in foreign code, never a Hexagon default.
+-- The public companion of `JsValue` — the type of a JavaScript value about
+-- which Hexagon asserts nothing (FFI Part 11 section 2).
+--
+-- `JsValue` is compiler-owned: no `.hex` file declares it, because it has no
+-- instance to home and no parameter to claim, which is all a declaration would
+-- give it (`spec/intrinsics.md` section 3.3). This module is its companion by
+-- being the module addressable under the name (Method Syntax section 4.1).
+--
+-- `JsPathSegment` and `JsConversionReason` are declared next door, in modules
+-- named for themselves, because section 12's extension makes their constructors
+-- qualified-only too and a qualified constructor needs the module addressable
+-- under the union's name. `JsConversionError` stays here: it is an exception,
+-- and a prelude throwable is bare by category (`spec/exceptions.md` section
+-- 2.1), so it needs no module of its own to be spelled.
+--
+-- Everything here is strict and non-coercing (section 1): a decoder succeeds if
+-- and only if the value already *is* the target representation. Nothing is
+-- parsed, truncated, rounded, `String()`-ed or `Number()`-ed. Coercion is a
+-- foreign-side decision made in foreign code, never a Hexagon default.
 
-(** Thrown by a checked conversion for a value that is not what was asked
+{-- Thrown by a checked conversion for a value that is not what was asked
     for: wrong in kind (`Shape`), out of the target's range (`Range`), or
     cyclic where the conversion must terminate (`Cycle`). `path` locates the
     failure, and is empty for the decoded value itself, which is every decoder
@@ -30,53 +30,53 @@ module JsValue
     with `?` for an `Option` (`value.toInt?()`), or catch
     `JsConversionError(reason, path, _)` to take it apart. A foreign operation
     that throws while a value is inspected is not one of these: it travels as
-    the foreign throw it is, through `JsError`. *)
+    the foreign throw it is, through `JsError`. -}
 export exception JsConversionError(reason: JsConversionReason, path: Vector(JsPathSegment), message: String)
 
-// The two failures every decoder below throws. Both have the empty path
-// (section 5.1): a decoder here inspects the value itself and descends into
-// nothing, so there is no segment to name. Each is built where it is thrown, as
-// every exception is, so that its stack is the throw's.
-//
-// The reasons are spelled qualified because that is the only way they can be
-// spelled: `spec/ffi.md` section 12's extension makes `JsConversionReason`'s
-// constructors qualified-only, and this module is an ordinary consumer of that
-// rule rather than an exception to it.
+-- The two failures every decoder below throws. Both have the empty path
+-- (section 5.1): a decoder here inspects the value itself and descends into
+-- nothing, so there is no segment to name. Each is built where it is thrown, as
+-- every exception is, so that its stack is the throw's.
+--
+-- The reasons are spelled qualified because that is the only way they can be
+-- spelled: `spec/ffi.md` section 12's extension makes `JsConversionReason`'s
+-- constructors qualified-only, and this module is an ordinary consumer of that
+-- rule rather than an exception to it.
 let shapeFailure(target: String): Exn =
     JsConversionError(JsConversionReason.Shape, [], "not " ++ target)
 
 let rangeFailure(target: String): Exn =
     JsConversionError(JsConversionReason.Range, [], "not " ++ target)
 
-// The whole of this part's crossing. `kind` is the one operation with any
-// JavaScript to it; the rest are the representation-honest identity, and each
-// is unexported and unchecked precisely so that the check above it is ordinary
-// Hexagon in this file (`spec/intrinsics.md` section 3.2).
+-- The whole of this part's crossing. `kind` is the one operation with any
+-- JavaScript to it; the rest are the representation-honest identity, and each
+-- is unexported and unchecked precisely so that the check above it is ordinary
+-- Hexagon in this file (`spec/intrinsics.md` section 3.2).
 extern from "hex:intrinsic"
-    (** What JavaScript says `value` is (section 3). It reads no property and
+    {-- What JavaScript says `value` is (section 3). It reads no property and
         never throws, and an object once found to be an array, here or by
         `toArray`, stays `JsKind.Array`: a proxy revoked after that is still
-        one, and any other revoked proxy is `JsKind.Object`. *)
+        one, and any other revoked proxy is `JsKind.Object`. -}
     export fun jsValueKind as kind(value: JsValue) -> JsKind
 
-    // The total injection (section 2). Every Hexagon value already *is* a
-    // JavaScript value, so this is the representation-honest identity — and it
-    // is **erased in emission**: `JsValue.from(x)` compiles to `x`, with no
-    // wrapper and no call. There is no checked path into `JsValue` because none
-    // is needed.
-    (** `value` seen as the JavaScript value it already is. *)
+    -- The total injection (section 2). Every Hexagon value already *is* a
+    -- JavaScript value, so this is the representation-honest identity — and it
+    -- is **erased in emission**: `JsValue.from(x)` compiles to `x`, with no
+    -- wrapper and no call. There is no checked path into `JsValue` because none
+    -- is needed.
+    {-- `value` seen as the JavaScript value it already is. -}
     export fun jsValueFrom as from(value: a) -> JsValue
 
-    // `Number.isSafeInteger`, which is what separates `Shape` from `Range` at
-    // `toInt`. Asked only of a value `kind` has already called `JsKind.Number`,
-    // so it is a question about the number and never about the shape.
+    -- `Number.isSafeInteger`, which is what separates `Shape` from `Range` at
+    -- `toInt`. Asked only of a value `kind` has already called `JsKind.Number`,
+    -- so it is a question about the number and never about the shape.
     fun jsValueIsSafeInteger as isSafeInteger(value: JsValue) -> Bool
 
-    // The five representation crossings, each the identity over one shared
-    // representation: a JavaScript `number` *is* an `Int` and a `Float`, a
-    // `bigint` *is* a `BigInt`, a `boolean` *is* a `Bool`, a `string` *is* a
-    // `String`. Unexported and unchecked: the guard that earns each one is the
-    // exported decoder written over it below.
+    -- The five representation crossings, each the identity over one shared
+    -- representation: a JavaScript `number` *is* an `Int` and a `Float`, a
+    -- `bigint` *is* a `BigInt`, a `boolean` *is* a `Bool`, a `string` *is* a
+    -- `String`. Unexported and unchecked: the guard that earns each one is the
+    -- exported decoder written over it below.
     fun jsValueAsIntUnchecked as asIntUnchecked(value: JsValue) -> Int
 
     fun jsValueAsFloatUnchecked as asFloatUnchecked(value: JsValue) -> Float
@@ -87,40 +87,40 @@ extern from "hex:intrinsic"
 
     fun jsValueAsStringUnchecked as asStringUnchecked(value: JsValue) -> String
 
-    // `Array.isArray`, raw — and raw is the point. `kind` guards this probe so
-    // that a revoked proxy classifies as `JsKind.Object` and nothing makes the
-    // classification throw; `toArray` must not, because section 4.2 rules that a
-    // throwing probe is foreign control flow rather than a verdict about the
-    // data. Two callers, two promises, so two rows: this one is asked only by
-    // `toArray` below. It is the first half of `toArray`'s look, which is
-    // kept beside the value (section 4.2): a later call answers from what was
-    // kept, rethrowing a kept throw, and an object already found to be an
-    // array is not probed again. Asked while that value's copy is being made,
-    // it refuses with `Seq.ReentrancyFault`.
+    -- `Array.isArray`, raw — and raw is the point. `kind` guards this probe so
+    -- that a revoked proxy classifies as `JsKind.Object` and nothing makes the
+    -- classification throw; `toArray` must not, because section 4.2 rules that a
+    -- throwing probe is foreign control flow rather than a verdict about the
+    -- data. Two callers, two promises, so two rows: this one is asked only by
+    -- `toArray` below. It is the first half of `toArray`'s look, which is
+    -- kept beside the value (section 4.2): a later call answers from what was
+    -- kept, rethrowing a kept throw, and an object already found to be an
+    -- array is not probed again. Asked while that value's copy is being made,
+    -- it refuses with `Seq.ReentrancyFault`.
     fun jsValueIsArray as isArray(value: JsValue) -> Bool
 
-    // The sixth crossing, and the one that is not an identity: a JavaScript
-    // array becomes an `Array(JsValue)` by being copied — FFI Part 1 section
-    // 5.4's walk at `Array(JsValue)`, each index read once in order, each
-    // element carried as the uncertain `JsValue` it is — so the result is
-    // Hexagon's own dense copy, and the foreign array is not looked at again
-    // (section 4.2). The copy, or the foreign throw that ended it, is kept
-    // beside the value, so a later call answers the same copy or throws the
-    // same value again, and the copy is made once.
+    -- The sixth crossing, and the one that is not an identity: a JavaScript
+    -- array becomes an `Array(JsValue)` by being copied — FFI Part 1 section
+    -- 5.4's walk at `Array(JsValue)`, each index read once in order, each
+    -- element carried as the uncertain `JsValue` it is — so the result is
+    -- Hexagon's own dense copy, and the foreign array is not looked at again
+    -- (section 4.2). The copy, or the foreign throw that ended it, is kept
+    -- beside the value, so a later call answers the same copy or throws the
+    -- same value again, and the copy is made once.
     fun jsValueAsArrayUnchecked as asArrayUnchecked(value: JsValue) -> Array(JsValue)
 
-(** `value` as a `Float`. A value that is not a JavaScript number throws
+{-- `value` as a `Float`. A value that is not a JavaScript number throws
     `JsConversionError` with reason `Shape`. Every number succeeds — `NaN`, both
-    infinities and `-0` included — because every one of them is a `Float`. *)
+    infinities and `-0` included — because every one of them is a `Float`. -}
 export let toFloat(value: JsValue): Float = match kind(value)
     JsKind.Number => asFloatUnchecked(value)
     _ => throw^(shapeFailure("a Float"))
 
-(** `value` as an `Int`. A value that is not one throws `JsConversionError`, and
+{-- `value` as an `Int`. A value that is not one throws `JsConversionError`, and
     the two failures are different mistakes with different repairs, so they
     carry different reasons: a value that is not a number at all fails with
     `Shape`, and a number outside the safe-integer range — `1.5`, `2^53`, `NaN`
-    — fails with `Range`. Nothing is rounded, truncated or parsed. *)
+    — fails with `Range`. Nothing is rounded, truncated or parsed. -}
 export let toInt(value: JsValue): Int = match kind(value)
     JsKind.Number =>
         if isSafeInteger(value) then
@@ -129,28 +129,28 @@ export let toInt(value: JsValue): Int = match kind(value)
             throw^(rangeFailure("a whole number in Int's range"))
     _ => throw^(shapeFailure("an Int"))
 
-(** `value` as a `BigInt`. A value that is not a JavaScript bigint throws
+{-- `value` as a `BigInt`. A value that is not a JavaScript bigint throws
     `JsConversionError` with reason `Shape`; a number is not a bigint here,
-    however whole it is. *)
+    however whole it is. -}
 export let toBigInt(value: JsValue): BigInt = match kind(value)
     JsKind.BigInt => asBigIntUnchecked(value)
     _ => throw^(shapeFailure("a BigInt"))
 
-(** `value` as a `Bool`. A value that is not a JavaScript boolean throws
+{-- `value` as a `Bool`. A value that is not a JavaScript boolean throws
     `JsConversionError` with reason `Shape`; `1` is not `true`: truthiness is a
-    foreign-side decision, made in foreign code. *)
+    foreign-side decision, made in foreign code. -}
 export let toBool(value: JsValue): Bool = match kind(value)
     JsKind.Bool => asBoolUnchecked(value)
     _ => throw^(shapeFailure("a Bool"))
 
-(** `value` as a `String`. A value that is not a JavaScript string throws
+{-- `value` as a `String`. A value that is not a JavaScript string throws
     `JsConversionError` with reason `Shape`; `42` is not `"42"`: nothing here
-    calls `String()`, and no `toString` of the value's is ever invoked. *)
+    calls `String()`, and no `toString` of the value's is ever invoked. -}
 export let toString(value: JsValue): String = match kind(value)
     JsKind.String => asStringUnchecked(value)
     _ => throw^(shapeFailure("a String"))
 
-(** `value` as a captured `Array` of the values it holds, each still a
+{-- `value` as a captured `Array` of the values it holds, each still a
     `JsValue` (a hole is `undefined`); a value that is not a JavaScript array
     throws `JsConversionError` with reason `Shape`. The array is copied once,
     at the first call with it, and every later call answers from that first
@@ -161,7 +161,7 @@ export let toString(value: JsValue): String = match kind(value)
     array. A throw from the `Array.isArray` probe (a revoked proxy) or from a
     getter during the copy travels as the foreign throw it is, and a getter
     that asks for this value's copy while it is being made gets
-    `Seq.ReentrancyFault`, as does every later call with that value. *)
+    `Seq.ReentrancyFault`, as does every later call with that value. -}
 export let toArray(value: JsValue): Array(JsValue) =
     if isArray(value) then
         asArrayUnchecked(value)

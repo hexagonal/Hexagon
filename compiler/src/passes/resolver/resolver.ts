@@ -100,6 +100,13 @@ export interface ModuleInterface {
    * signature question and no name collision decides visibility.
    */
   readonly widensBindings: ReadonlySet<string>;
+  /**
+   * The pattern `//` builds and takes a fraction apart with (Operators §6.4,
+   * Pattern Matching §2.10), published by the prelude's `Rat` alone. It is no
+   * export — `Rat` exports no pattern, and no spelling names it — so it is
+   * reached by identity, through this field, and never through `patterns`.
+   */
+  readonly fraction?: Resolved.PatternReference;
 }
 
 export interface InstanceInterface {
@@ -1194,6 +1201,22 @@ function computeModuleInterface(module: Resolved.Module): ModuleInterface {
       item.kind === "Let" && item.widens !== undefined ? [item.binding.name] : []
     ),
   );
+  let fraction: Resolved.PatternReference | undefined;
+  for (const item of module.items) {
+    if (item.kind !== "PatternDeclaration" || item.fraction !== true) continue;
+    fraction = {
+      identity: item.identity,
+      declaredName: item.name,
+      emitted: patternExportName(item.name),
+      view: item.view.binding.symbol,
+      ...(item.build === undefined ? {} : { build: item.build.binding.symbol }),
+      componentNames: item.head?.components.map(({ name }) => name) ?? [],
+      declaringModule: module.path ?? "",
+      ...(module.path === undefined ? {} : { declaringPath: module.path }),
+      exported: true,
+      declarationSpan: item.span,
+    };
+  }
   for (const item of module.items) {
     if (item.kind !== "PatternDeclaration" || !item.exported) continue;
     patterns.set(item.name, {
@@ -1223,6 +1246,7 @@ function computeModuleInterface(module: Resolved.Module): ModuleInterface {
     constraintMembers,
     visibleConstraints: [...visible.values()],
     widensBindings,
+    ...(fraction === undefined ? {} : { fraction }),
   };
 }
 
@@ -1395,6 +1419,13 @@ class Resolver {
   readonly #ownPatterns = new Map<string, Resolved.PatternReference>();
   readonly #importedPatterns = new Map<string, Resolved.PatternCandidate[]>();
   readonly #doorPatterns = new Map<string, Resolved.PatternCandidate[]>();
+  /**
+   * The fraction `//` builds and takes apart (Operators §6.4): the prelude
+   * `Rat`'s private pattern and its `create`, reached by identity through the
+   * prelude members seated before this module. Absent in a prelude module
+   * seated before `Rat`, in `Rat.hex` itself, and in a compile with no prelude.
+   */
+  #fraction: { readonly candidate: Resolved.PatternCandidate; readonly create: Resolved.Symbol } | undefined;
   readonly #patternHomes: readonly ModuleImport[];
   readonly #laterPatterns = new Map<string, { readonly name: Parsed.Name; readonly span: Source.Span }>();
   readonly #unionNames = new Map<string, Resolved.UnionId>();
@@ -1766,6 +1797,26 @@ class Resolver {
       for (const name of NON_REDECLARABLE_CONSTRAINTS) this.#constraintNames.add(name);
     }
     for (const preludeImport of options.prelude ?? []) {
+      const fraction = preludeImport.interface.fraction;
+      const create = preludeImport.interface.terms.get("create");
+      if (fraction !== undefined && create !== undefined) {
+        this.#fraction = {
+          candidate: {
+            ...fraction,
+            declaringModule: preludeImport.name,
+            // A namespace candidate, so the pattern unifies its subject with
+            // `Rat` whatever the expected type; its `emitted` has no alias, so
+            // emission reaches the module by path, as a door does.
+            source: "import",
+          },
+          create,
+        };
+        for (const symbol of [fraction.view, fraction.build]) {
+          if (symbol === undefined) continue;
+          const found = preludeImport.interface.module.symbols.find(({ id }) => id === symbol);
+          if (found !== undefined) this.#importedSymbols.set(symbol, found);
+        }
+      }
       this.#preludeFileIds.add(Number(preludeImport.interface.module.fileId));
       this.#preludeNameBySpecifier.set(preludeImport.specifier, preludeImport.name);
       this.#seedPrelude(preludeImport.interface, preludeImport.specifier, preludeImport.name);
@@ -2653,6 +2704,7 @@ class Resolver {
           path,
           module: home.name,
           patterns: [...home.interface.patterns.values()],
+          ...(home.interface.fraction === undefined ? {} : { fraction: home.interface.fraction }),
         }];
       }),
       unions: this.#unions,
@@ -3585,6 +3637,11 @@ class Resolver {
           ...(head === undefined ? {} : { head }),
           view,
           ...(build === undefined ? {} : { build }),
+          // The pattern `//` reaches by identity (Operators §6.4): the
+          // prelude `Rat`'s private `fraction`, which no spelling names.
+          ...(this.#identity === "Hex.Rat" && item.name.text === "fraction" && !item.exported
+            ? { fraction: true as const }
+            : {}),
           span: item.span,
         };
         return declaration;
@@ -4457,6 +4514,7 @@ class Resolver {
           ),
         };
       case "PatternConstruction": {
+        if (expression.fraction === true) return this.#resolveFraction(expression, scope);
         const own = this.#ownPatterns.get(expression.name.text);
         const namespaceCandidates: readonly Resolved.PatternCandidate[] = own !== undefined
           ? [{ ...own, source: own.emitted.includes(".") ? "alias" : "own" }]
@@ -5084,6 +5142,24 @@ class Resolver {
       pattern.kind === "String"
     ) return pattern;
     if (pattern.kind === "Error") return pattern;
+    if (pattern.kind === "Declared" && pattern.fraction === true) {
+      const components = pattern.components.map((component) =>
+        this.#resolvePattern(component, scope, seen, binderClass, sharedBindings)
+      );
+      if (this.#fraction === undefined) {
+        this.#reportFractionUnseated(pattern.name.span);
+        return { kind: "Error", span: pattern.span } as Resolved.Pattern;
+      }
+      return {
+        kind: "Declared",
+        components,
+        name: "//",
+        candidates: [this.#fraction.candidate],
+        fraction: true,
+        nameSpan: pattern.name.span,
+        span: pattern.span,
+      };
+    }
     if (pattern.kind === "Declared") {
       const own = this.#ownPatterns.get(pattern.name.text);
       const namespaceCandidates: readonly Resolved.PatternCandidate[] = own !== undefined
@@ -6090,6 +6166,45 @@ class Resolver {
         ? annotation.qualifier?.text
         : undefined;
     return qualifier === undefined ? undefined : this.#moduleAliasModules.get(qualifier)?.name;
+  }
+
+  /**
+   * `top // bottom` (Operators §6.4): the prelude `Rat`'s `create` applied to
+   * the two sides, named by identity and never by spelling, so a module that
+   * declares a `Rat` of its own still writes the prelude's fraction. The node
+   * stays a construction, marked, for the checker's reports; `fractionCreate`
+   * is the function it calls, imported as any prelude companion's call is.
+   */
+  #resolveFraction(expression: Parsed.PatternConstructionExpr, scope: Scope): Resolved.Expr {
+    const components = expression.components.map((component) => this.#resolveExpr(component, scope));
+    if (this.#fraction === undefined) {
+      this.#reportFractionUnseated(expression.name.span);
+      return { kind: "ErrorExpr", span: expression.span };
+    }
+    const create = this.#fraction.create;
+    if (this.#preludeTerms.has(create.id)) this.#usedPreludeSymbols.add(create.id);
+    return {
+      kind: "PatternConstruction",
+      components,
+      name: "//",
+      candidates: [this.#fraction.candidate],
+      fraction: true,
+      fractionCreate: create.id,
+      nameSpan: expression.name.span,
+      span: expression.span,
+    };
+  }
+
+  /**
+   * `//` written where the prelude's `Rat` is not seated (Operators §6.4): a
+   * prelude module seated before it, `Rat.hex`, or a compile with no prelude.
+   */
+  #reportFractionUnseated(span: Source.Span): void {
+    this.#diagnostics.add({
+      severity: "error",
+      message: "`//` writes the prelude's `Rat`, which is not seated here; build the fraction with `create`",
+      primary: span,
+    });
   }
 
   /**

@@ -161,14 +161,14 @@ export function collectCompletions(input: CompletionInput): readonly Completion[
  * Exclusive at the start, since a cursor at the opening delimiter is in front of
  * the comment. At the end it turns on whether the comment was *closed*, which is
  * not the same as whether it is a block. A closed block's span runs one past its
- * `*)`, so an offset there is already outside it — but an unterminated one runs
+ * `-}`, so an offset there is already outside it — but an unterminated one runs
  * to the end of the file, and that last offset is exactly where the caret sits
  * while the comment is still being typed. A line comment is never closed by a
  * delimiter; its span stops at the newline, and the offset before that newline
  * is still inside it.
  *
- * Closure is counted rather than read off the last two characters, because block
- * comments nest: `(* outer (* inner *)` ends in `*)` and is not closed.
+ * Closure is the lexer's record rather than the last two characters, because
+ * block comments nest: `{- outer {- inner -}` ends in `-}` and is not closed.
  */
 function inComment(offset: number, comment: Source.Comment): boolean {
   if (offset <= comment.span.start.offset) return false;
@@ -178,16 +178,7 @@ function inComment(offset: number, comment: Source.Comment): boolean {
 }
 
 function closed(comment: Source.Comment): boolean {
-  if (comment.kind !== "Block") return false;
-  let depth = 0;
-  for (let at = 0; at < comment.text.length - 1; at += 1) {
-    const pair = comment.text.slice(at, at + 2);
-    if (pair === "(*") depth += 1;
-    else if (pair === "*)") depth -= 1;
-    else continue;
-    at += 1;
-  }
-  return depth === 0;
+  return comment.kind === "Block" && comment.terminated;
 }
 
 /**

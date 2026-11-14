@@ -579,7 +579,7 @@ export let lazyFailure(o: Option(Int)): Result(Int) = o.toResult(() => throw(Ind
     const main = await runMain(`module Main
 
 exception Missing
-// A function has no Eq, so only the predicates can ask about it.
+-- A function has no Eq, so only the predicates can ask about it.
 let present: Option(Int -> Int) = Some((n) => n)
 let absent: Option(Int -> Int) = None
 let ok: Result(Int -> Int) = Ok((n) => n)

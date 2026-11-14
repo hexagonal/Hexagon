@@ -130,7 +130,7 @@ look like.
 | Contextual keywords, in position only | `keyword.other.*` | §4.2 |
 | Integer / Float / BigInt | `constant.numeric.*` | §5 |
 | String, escapes, interpolation hole | `string.quoted.double`, `constant.character.escape`, `meta.embedded` | §6 |
-| Line, block, and doc comments | `comment.*` | Comments §1; doc-comments §2 |
+| Line (`--`), block (`{- -}`), and doc (`{-- -}`) comments | `comment.*` | Comments §1; doc-comments §2 |
 | Operators and punctuation | `keyword.operator.*` / `punctuation.*` | §8.1 |
 | Everything §10 requires a diagnostic for | `invalid.illegal.*` | §10 |
 
@@ -185,9 +185,14 @@ legitimately begin `union(`.
 
 **Lexical errors are painted.** §10 has no warning tier: every row is either
 accepted source or a hard error. `__hex_` names, `0xFF`, `.5`, `1.`, `1__0`,
-`12cats`, unknown string escapes, a bare `#{`, an unmatched `*)`, the JavaScript
-comment spellings `/*` and `*/`, and `&&`/`||`/`!`
-all get `invalid.illegal.*`, so the editor shows them before the compiler does.
+`12cats`, unknown string escapes, a bare `#{`, an unmatched `-}`, the JavaScript
+comment spellings `/*` and `*/`, the OCaml ones `(*` and `*)`, and `&&`/`||`/`!`
+all get `invalid.illegal.*`, so the editor shows them before the compiler does. A
+pasted `/* … */` or `(* … *)` comment is painted as one region, as the compiler skips
+it as one, and `x --1` is painted as `x` and a comment, because that is what it is
+(spec/comments.md §2). `//` is the fraction operator (#1542) and is painted as
+one; a `//` meant as a comment is the compiler's parser to refuse, since only
+the parser knows where an operand stands.
 
 `true` and `false` in **value position** are on that list (#147). `Bool` is the
 prelude union `False | True`, so the two words are reserved spellings with no value
@@ -263,7 +268,7 @@ to be exact.
   content shape — in `record P derives (Eq,` / `    Show)`, `Show` is painted in the
   nominal family rather than as a constraint. Rewriting it with the bracket hanging
   restores the finer colour; a trailing comment counts as content, so
-  `record Pair( (* note *)` is bounded too. A hanging group that is never closed bails out at the next
+  `record Pair( -- note` is bounded too. A hanging group that is never closed bails out at the next
   line that starts a declaration, starts a union alternative, or begins in column one;
   until such a line, an indented body under a half-typed signature is still painted as
   type context, because no lexical rule can tell it from a legitimate multi-line type.

@@ -1,44 +1,59 @@
 module Seq
 
-(** Raised when a sequence position is forced while it is already being
-    forced, or when `JsValue.toArray` is asked for a value whose copy it is
-    making (FFI Part 3 section 7.3-7.4). *)
+{-- Thrown when working out a value needs that same value before it is ready. A
+    sequence that remembers its elements, such as one made by `memoize`, throws
+    it when working out an element asks the sequence for that same element.
+    `JsValue.toArray` throws it when it is asked again for a value it is still
+    copying. It marks a mistake in the program, of the same kind as a function
+    that calls itself without end. -}
 export fault ReentrancyFault
 
-(** A lazy, immutable, possibly infinite sequence of `a`s. Constructing a
-    combinator computes nothing; each element is produced on demand by `next`,
-    and produced again on every later traversal unless the sequence is
-    `memoize`d. *)
+{-- A sequence of elements that are worked out one at a time, each only when it
+    is asked for. So a sequence can go on without end, as
+    `Seq.iterate(1, n => n * 2)` does, and functions such as `map` and `filter`
+    do no work until their result is read. A sequence never changes. Each time
+    it is read from the start its elements are worked out again, unless it was
+    made with `memoize`. To read a sequence, use a `for` loop, or
+    `Vector.fromSeq` to get every element at once. -}
 opaque record Seq(+a) = { pull: () -> Option((a, Seq(a))) }
 
 extern from "hex:intrinsic"
-    (** Computes each element of `source` at most once however often the result
-        is traversed, at the cost of retaining what has been produced. *)
+    {-- A new sequence that works out each element only once and remembers it,
+        however many times it is read. Use it when the elements are costly to
+        work out and the sequence is read more than once. Every element that has
+        been read stays in memory for as long as the new sequence is in use. -}
     export fun seqMemoize as memoize(source: Seq(a)) -> Seq(a)
 
-(** Drives one step: the head element and the successor sequence, or `None` when
-    exhausted. `source` itself is unchanged. *)
+{-- The first element together with a sequence of the rest, or `None` when the
+    sequence is empty. The sequence itself is not changed, so calling `next` on
+    it again gives the same answer. Most code reads a sequence with a `for` loop
+    instead. -}
 export let next(source: Seq(a)): Option((a, Seq(a))) = (source.pull)()
 
-// Producers, and combinators whose step yields at most one element per pull.
+-- Producers, and combinators whose step yields at most one element per pull.
 
-(** The empty sequence. *)
+{-- A sequence with no elements. -}
 export let empty: Seq(a) = Seq({ pull = () => None })
 
-(** A sequence with a single value. *)
+{-- A sequence with one element, `value`. -}
 export let singleton(value: a): Seq(a) = Seq({ pull = () => Some((value, empty)) })
 
-(** The sequence that yields `value`, then everything in `rest`. *)
+{-- A new sequence with `value` added before the first element. -}
 export let prepend(rest: Seq(a), value: a): Seq(a) = Seq({ pull = () => Some((value, rest)) })
 
-(** The infinite sequence `seed`, `step(seed)`, `step(step(seed))`, and so on.
-    Bound it with `take` or `takeWhile` before consuming it. *)
+{-- A sequence without end that starts with the value `seed` and gets each next
+    element by calling the function `step` on the one before:\
+    `Seq.iterate(1, n => n * 2)` produces 1, 2, 4, 8 and so on.\
+    Cut it short with `take` or `takeWhile` before reading all of it, because a
+    loop over the whole of it never ends. -}
 export fun iterate(seed: a, step: a -> a): Seq(a) =
     Seq({ pull = () => Some((seed, iterate(step(seed), step))) })
 
-(** Applies `transform` to each element as that element is pulled. A traversal
-    calls `transform` once per element, so two traversals call it twice —
-    `memoize` the result when it is expensive. *)
+{-- A new sequence made by calling the function `transform` on each element:\
+    `[1, 2, 3].toSeq().map(n => n * 2)` produces 2, 4, 6.\
+    `transform` is called when an element is read, and called again each time
+    the new sequence is read from the start. Where `transform` is costly, use
+    `memoize` on the result. -}
 export fun map(source: Seq(a), transform: a -> b): Seq(b) =
     Seq({ pull = () =>
         match next(source)
@@ -46,8 +61,8 @@ export fun map(source: Seq(a), transform: a -> b): Seq(b) =
             Some((value, rest)) => Some((transform(value), map(rest, transform)))
     })
 
-(** The first `count` elements of `source`, or all of them if it is shorter. A
-    `count` of zero or less gives the empty sequence. *)
+{-- A new sequence with only the first `count` elements, or all of them when
+    there are fewer. A `count` of zero or less gives an empty sequence. -}
 export fun take(source: Seq(a), count: Int): Seq(a) =
     if count <= 0 then
         empty
@@ -58,8 +73,10 @@ export fun take(source: Seq(a), count: Int): Seq(a) =
                 Some((value, rest)) => Some((value, take(rest, count - 1)))
         })
 
-(** The longest leading run of elements satisfying `keep`. The first element
-    that fails ends the sequence and is not part of it. *)
+{-- A new sequence with the elements from the start for as long as the function
+    `keep` returns `True`. It ends at the first element for which `keep`
+    returns `False`, and that element is left out:\
+    `[1, 2, 3, 1].toSeq().takeWhile(n => n < 3)` produces 1, 2. -}
 export fun takeWhile(source: Seq(a), keep: a -> Bool): Seq(a) =
     Seq({ pull = () =>
         match next(source)
@@ -71,8 +88,14 @@ export fun takeWhile(source: Seq(a), keep: a -> Bool): Seq(a) =
                     None
     })
 
-(** Grows a sequence from `seed`: each step produces one element and the seed
-    for the next, and `None` ends it. The mirror of `fold`, which consumes one. *)
+{-- A sequence built up from the starting value `seed`. The function `produce`
+    is called with `seed` and returns either `Some` of a pair, which is the
+    next element and the value to call `produce` with next time, or `None` to
+    end the sequence:\
+    `Seq.unfold(1, n => if n > 3 then None else Some((n * 10, n + 1)))`
+    produces 10, 20, 30.\
+    Where each element depends only on the element before it, `iterate` is
+    simpler. -}
 export fun unfold(seed: b, produce: b -> Option((a, b))): Seq(a) =
     Seq({ pull = () =>
         match produce(seed)
@@ -80,8 +103,10 @@ export fun unfold(seed: b, produce: b -> Option((a, b))): Seq(a) =
             Some((value, nextSeed)) => Some((value, unfold(nextSeed, produce)))
     })
 
-(** Combines elements pairwise with `combine`, ending as soon as either side
-    runs out. *)
+{-- A new sequence made by calling the function `combine` on each element and
+    the element at the same position in the sequence `right`:\
+    `[1, 2, 3].toSeq().zipWith([10, 20], (a, b) => a + b)` produces 11, 22.\
+    The result ends as soon as either of the two runs out. -}
 export fun zipWith(left: Seq(a), right: Seq(b), combine: (a, b) -> c): Seq(c) =
     Seq({ pull = () =>
         match next(left)
@@ -93,12 +118,16 @@ export fun zipWith(left: Seq(a), right: Seq(b), combine: (a, b) -> c): Seq(c) =
                         Some((combine(leftValue, rightValue), zipWith(leftRest, rightRest, combine)))
     })
 
-(** Pairs elements positionally, ending as soon as either side runs out. *)
+{-- A new sequence that pairs each element with the element at the same
+    position in the sequence `right`:\
+    `[1, 2, 3].toSeq().zip(["a", "b"])` produces `(1, "a")`, `(2, "b")`.\
+    The result ends as soon as either of the two runs out. -}
 export let zip(left: Seq(a), right: Seq(b)): Seq((a, b)) =
     zipWith(left, right, (leftValue, rightValue) => (leftValue, rightValue))
 
-(** The elements of `first`, then those of `second`. `second` is not pulled
-    until `first` is exhausted, so an infinite `first` never reaches it. *)
+{-- A new sequence with the elements of the sequence followed by the elements of
+    the sequence `second`. Where the first has no end, the elements of `second`
+    are never reached. -}
 export fun concat(first: Seq(a), second: Seq(a)): Seq(a) =
     Seq({ pull = () =>
         match next(first)
@@ -106,11 +135,12 @@ export fun concat(first: Seq(a), second: Seq(a)): Seq(a) =
             Some((value, rest)) => Some((value, concat(rest, second)))
     })
 
-// Combinators whose step may consume many source elements to yield one.
+-- Combinators whose step may consume many source elements to yield one.
 
-(** The elements of `source` satisfying `keep`. One pull consumes source
-    elements until it finds one, so pulling past the last match runs the source
-    to exhaustion — and does not return at all if the source is infinite. *)
+{-- A new sequence with only the elements for which the function `keep` returns
+    `True`. Reading the next element skips ahead until `keep` accepts one. On a
+    sequence that has no end, that never returns if `keep` accepts none of the
+    elements still to come. -}
 export fun filter(source: Seq(a), keep: a -> Bool): Seq(a) =
     Seq({ pull = () =>
         var current = source
@@ -128,8 +158,8 @@ export fun filter(source: Seq(a), keep: a -> Bool): Seq(a) =
         result
     })
 
-(** `source` without its first `count` elements. They are skipped on the first
-    pull of the result, not when `drop` is called. *)
+{-- A new sequence without the first `count` elements. A sequence with fewer
+    elements than that gives an empty one. -}
 export let drop(source: Seq(a), count: Int): Seq(a) =
     Seq({ pull = () =>
         var current = source
@@ -149,8 +179,10 @@ export let drop(source: Seq(a), count: Int): Seq(a) =
         result
     })
 
-(** `source` from its first element that fails `discard` onward. Like `drop`,
-    the skipping happens on the first pull of the result. *)
+{-- A new sequence that leaves out the elements from the start for as long as
+    the function `discard` returns `True`. It begins with the first element for
+    which `discard` returns `False` and keeps everything after it:\
+    `[1, 2, 3, 1].toSeq().dropWhile(n => n < 3)` produces 3, 1. -}
 export let dropWhile(source: Seq(a), discard: a -> Bool): Seq(a) =
     Seq({ pull = () =>
         var current = source
@@ -168,7 +200,7 @@ export let dropWhile(source: Seq(a), discard: a -> Bool): Seq(a) =
         result
     })
 
-// `flatMap` with the partially consumed inner sequence carried between pulls.
+-- `flatMap` with the partially consumed inner sequence carried between pulls.
 fun flatMapWith(source: Seq(a), transform: a -> Seq(b), pending: Seq(b)): Seq(b) =
     Seq({ pull = () =>
         var outer = source
@@ -189,17 +221,24 @@ fun flatMapWith(source: Seq(a), transform: a -> Seq(b), pending: Seq(b)): Seq(b)
         result
     })
 
-(** The sequences `transform` produces, concatenated in order. Each is pulled to
-    exhaustion before the next source element is read. To flatten a sequence of
-    vectors or of sequences, write `Seq.flatMap(rows, row => row)`. *)
+{-- A new sequence made by calling the function `transform` on each element and
+    joining the sequences it returns end to end:\
+    `[1, 2].toSeq().flatMap(n => [n, n * 10])` produces 1, 10, 2, 20.\
+    `transform` may return vectors as well. To join a sequence of vectors or of
+    sequences into one, write:\
+    `rows.flatMap(row => row)` -}
 export let flatMap(source: Seq(a), transform: a -> Seq(b)): Seq(b) =
     flatMapWith(source, transform, empty)
 
-// Consumers: drive a `Seq` to a value.
+-- Consumers: drive a `Seq` to a value.
 
-(** Reduces the whole sequence to one value, left to right, starting from
-    `initial`. It pulls every element, so it does not return on an infinite
-    sequence. *)
+{-- Combines the elements into one result. It starts with the value `initial`.
+    For each element, from first to last, it calls the function `combine` with
+    the result so far and that element, and what `combine` returns becomes the
+    result:\
+    `[1, 2, 3].toSeq().fold(0, (total, n) => total + n)` is `6`.\
+    It reads every element, so it never returns for a sequence that has no
+    end. -}
 export let fold(source: Seq(a), initial: b, combine: (b, a) ->! b): b =
     var accumulator = initial
     var current = source
@@ -212,8 +251,8 @@ export let fold(source: Seq(a), initial: b, combine: (b, a) ->! b): b =
                 current := rest
     accumulator
 
-(** How many elements `source` yields. It pulls all of them, so it does not
-    return on an infinite sequence. *)
+{-- The number of elements. It reads every element to count them, so it never
+    returns for a sequence that has no end. -}
 export let length(source: Seq(a)): Int =
     var total = 0
     var current = source
@@ -226,8 +265,9 @@ export let length(source: Seq(a)): Int =
                 current := rest
     total
 
-(** Runs `action` on each element in order, for its effect. It pulls the whole
-    sequence, so it does not return on an infinite one. *)
+{-- Calls the function `action` on each element, from first to last. It is for
+    what `action` does, such as printing, since nothing is returned. It never
+    returns for a sequence that has no end. -}
 export let forEach(source: Seq(a), action: a ->! Unit): Unit =
     var current = source
     var running = True
@@ -238,8 +278,10 @@ export let forEach(source: Seq(a), action: a ->! Unit): Unit =
                 action!(value)
                 current := rest
 
-(** The first element satisfying `matches`, or `None` if none does. It stops at
-    that element, so it is safe on an infinite sequence that contains one. *)
+{-- The first element for which the function `matches` returns `True`, or `None`
+    when there is none. It stops at that element and does not read the rest, so
+    it returns even for a sequence without end, as long as such an element
+    exists. -}
 export let find(source: Seq(a), matches: a ->! Bool): Option(a) =
     var current = source
     var result = None
@@ -255,28 +297,29 @@ export let find(source: Seq(a), matches: a ->! Bool): Option(a) =
                     current := rest
     result
 
-(** Whether any element satisfies `matches`, stopping at the first that does. *)
+{-- Whether the function `matches` returns `True` for at least one element. It
+    stops at the first one that does. -}
 export let any(source: Seq(a), matches: a ->! Bool): Bool =
     match find!(source, matches)
         None => False
         Some(_) => True
 
-(** Whether every element satisfies `matches`, stopping at the first that does
-    not. *)
+{-- Whether the function `matches` returns `True` for every element. It stops at
+    the first one that does not. An empty sequence gives `True`. -}
 export let all(source: Seq(a), matches: a ->! Bool): Bool =
     not any!(source, value => not matches!(value))
 
-// Extremes and totals (`collection-combinators.md` section 13), each one pass
-// of `fold`, so each pulls the whole sequence and does not return on an
-// infinite one. Of items that tie, `min` keeps the first and `max` the last.
-//
-// The `Using` forms write their steps' parameter types: a match on the
-// comparator's answer is not decided without them (#1433). Each arm names
-// its constructor bare, `Greater`, which a pattern reads against the matched
-// value's own `Ordering` (Pattern Matching section 2.2).
+-- Extremes and totals (`collection-combinators.md` section 13), each one pass
+-- of `fold`, so each pulls the whole sequence and does not return on an
+-- infinite one. Of items that tie, `min` keeps the first and `max` the last.
+--
+-- The `Using` forms write their steps' parameter types: a match on the
+-- comparator's answer is not decided without them (#1433). Each arm names
+-- its constructor bare, `Greater`, which a pattern reads against the matched
+-- value's own `Ordering` (Pattern Matching section 2.2).
 
-// One step of `maxBy`: the ranked item replaces the best unless the best's key
-// is greater.
+-- One step of `maxBy`: the ranked item replaces the best unless the best's key
+-- is greater.
 let laterBy<b: Ord>(best: Option((b, a)), ranked: (b, a)): Option((b, a)) =
     match (best, ranked)
         (Some((keptKey, _)), (rankedKey, _)) =>
@@ -285,8 +328,8 @@ let laterBy<b: Ord>(best: Option((b, a)), ranked: (b, a)): Option((b, a)) =
                 _ => Some(ranked)
         _ => Some(ranked)
 
-// One step of `minBy`: the ranked item replaces the best only when the best's
-// key is greater.
+-- One step of `minBy`: the ranked item replaces the best only when the best's
+-- key is greater.
 let earlierBy<b: Ord>(best: Option((b, a)), ranked: (b, a)): Option((b, a)) =
     match (best, ranked)
         (Some((keptKey, _)), (rankedKey, _)) =>
@@ -299,9 +342,11 @@ let unranked(best: Option((b, a))): Option(a) = match best
     Some((_, value)) => Some(value)
     None => None
 
-(** The element of `source` that `compare` ranks greatest, or `None` when
-    `source` is empty, and of elements it ranks equal, the last. `compare` runs
-    once for each element after the first, as `compare(best, element)`. *)
+{-- The largest element, or `None` when the sequence is empty. The function
+    `compare` decides which of two elements is larger: it is given two elements
+    and returns `Greater` when the first is larger, `Less` when it is smaller,
+    and `Equal` when neither is. If several elements are equally large, the
+    result is the last of them. -}
 export let maxUsing(source: Seq(a), compare: (a, a) ->! Ordering): Option(a) =
     fold!(source, None, (best: Option(a), value: a) => match best
         Some(kept) => match compare!(kept, value)
@@ -309,9 +354,11 @@ export let maxUsing(source: Seq(a), compare: (a, a) ->! Ordering): Option(a) =
             _ => Some(value)
         None => Some(value))
 
-(** The element of `source` that `compare` ranks least, or `None` when `source`
-    is empty, and of elements it ranks equal, the first. `compare` runs once for
-    each element after the first, as `compare(best, element)`. *)
+{-- The smallest element, or `None` when the sequence is empty. The function
+    `compare` decides which of two elements is smaller: it is given two elements
+    and returns `Less` when the first is smaller, `Greater` when it is larger,
+    and `Equal` when neither is. If several elements are equally small, the
+    result is the first of them. -}
 export let minUsing(source: Seq(a), compare: (a, a) ->! Ordering): Option(a) =
     fold!(source, None, (best: Option(a), value: a) => match best
         Some(kept) => match compare!(kept, value)
@@ -319,30 +366,30 @@ export let minUsing(source: Seq(a), compare: (a, a) ->! Ordering): Option(a) =
             _ => best
         None => Some(value))
 
-(** The greatest element of `source` under its `Ord`, or `None` when `source` is
-    empty, and of equal greatest elements, the last. *)
+{-- The largest element, or `None` when the sequence is empty. -}
 export let max<a: Ord>(source: Seq(a)): Option(a) = maxUsing(source, Ord.compare)
 
-(** The least element of `source` under its `Ord`, or `None` when `source` is
-    empty, and of equal least elements, the first. *)
+{-- The smallest element, or `None` when the sequence is empty. -}
 export let min<a: Ord>(source: Seq(a)): Option(a) = minUsing(source, Ord.compare)
 
-(** The element of `source` whose key is greatest, or `None` when `source` is
-    empty, and of elements whose keys are equal, the last. `key` runs once per
-    element, in order. *)
+{-- The element for which the function `key` returns the largest value, or
+    `None` when the sequence is empty:\
+    `words.maxBy(word => word.length())` finds the longest word.\
+    If `key` returns the largest value for several elements, the result is the
+    last of them. -}
 export let maxBy<b: Ord>(source: Seq(a), key: a ->! b): Option(a) =
     unranked(fold!(source, None, (best, value) => laterBy(best, (key!(value), value))))
 
-(** The element of `source` whose key is least, or `None` when `source` is
-    empty, and of elements whose keys are equal, the first. `key` runs once per
-    element, in order. *)
+{-- The element for which the function `key` returns the smallest value, or
+    `None` when the sequence is empty:\
+    `words.minBy(word => word.length())` finds the shortest word.\
+    If `key` returns the smallest value for several elements, the result is the
+    first of them. -}
 export let minBy<b: Ord>(source: Seq(a), key: a ->! b): Option(a) =
     unranked(fold!(source, None, (best, value) => earlierBy(best, (key!(value), value))))
 
-(** The elements of `source` added in order, starting from zero, so the empty
-    sequence's sum is zero. *)
+{-- The elements added together. -}
 export let sum<a: Num>(source: Seq(a)): a = fold(source, 0, Num.add)
 
-(** The elements of `source` multiplied in order, starting from one, so the
-    empty sequence's product is one. *)
+{-- The elements multiplied together. An empty sequence gives 1. -}
 export let product<a: Num>(source: Seq(a)): a = fold(source, 1, Num.multiply)

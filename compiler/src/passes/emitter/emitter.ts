@@ -958,14 +958,6 @@ export function emitDeclarations(
   return new DeclarationEmitter(module, options).emit();
 }
 
-/** Emits a module-local TypeScript view of top-level bindings for interactive tools. */
-export function emitTypeScriptPreview(
-  module: Core.Module,
-  fundamentalInstances?: FundamentalInstances,
-): Emitted.TypeScriptPreview {
-  return new TypeScriptPreviewEmitter(module, fundamentalInstances).emit();
-}
-
 type EvidenceNames = ReadonlyMap<string, string>;
 
 /** One binder an evidence parameter is minted for; see `#evidenceParameters`. */
@@ -2548,25 +2540,15 @@ class NominalFaces {
 }
 
 /**
- * What a declaration or preview emitter needs in order to render a type: the
- * prelude identities that pin two faces, the runtime-face sink, and §2.4's sink.
+ * What the declaration emitter needs in order to render a type: the prelude
+ * identities that pin two faces, the runtime-face sink, and §2.4's sink.
  */
 interface DeclarationFaces {
   readonly prelude: PreludeIds;
   readonly runtime: RuntimeFaces;
-  /**
-   * §2.4's five rungs. The preview is out of scope and keeps bare names — it is
-   * one pane of text with nothing to import from — so it holds an inert sink,
-   * whose every rung declines and whose answer is the declared name.
-   */
+  /** §2.4's five rungs. */
   readonly nominals: NominalFaces;
-  /**
-   * §1.1's contested vocabulary, per file. **The preview is not out of scope
-   * here**, and the two readings do not conflict: §2.4's Scope note keeps the
-   * preview on bare *names* because the pane has nothing to import from, and
-   * qualification imports nothing — so the preview shows what would ship, which
-   * is the #622 precedent (§14.6).
-   */
+  /** §1.1's contested vocabulary, per file. */
   readonly vocabulary: VocabularyFaces;
 }
 
@@ -2574,8 +2556,7 @@ interface DeclarationFaces {
  * The brands this module's `.d.ts` really declares, out of the map's entries.
  *
  * `opaqueBrandNames` mints one for **every** extern type in an extern block,
- * because the preview declares them all; `emit` writes the `declare const` only
- * for an exported one. Feeding the map's whole range into the collision universe
+ * exported or not; `emit` writes the `declare const` only for an exported one. Feeding the map's whole range into the collision universe
  * therefore claimed a name the declaration file does not contain — the same
  * over-claim the gated-alias rule exists to prevent, one condition over — and a
  * namespace alias spelled `HandleBrand` moved to `HandleBrand_1` for a brand
@@ -2613,20 +2594,6 @@ function emittedBrandNames(
         ? [brands.get(declaration.localName)!]
         : []
     );
-  });
-}
-
-/** The inert sink the preview holds; see `DeclarationFaces.nominals`. */
-function bareNominalFaces(fileId: Source.FileId): NominalFaces {
-  return new NominalFaces({
-    fileId,
-    own: new Map(),
-    imported: new Map(),
-    aliasLocals: new Map(),
-    prelude: new PreludeTypeFaces([], new Set()),
-    homes: undefined,
-    path: undefined,
-    taken: new Set(),
   });
 }
 
@@ -3025,9 +2992,7 @@ function declarationAliasPlan(
  * one member of this universe that is not over-claimed (§2.4). An alias reaches
  * the `.d.ts` only where some occurrence qualifies through it, and one that does
  * not contests nothing there. The declaration
- * emitter passes the qualifying aliases under their *emitted* spellings; the
- * preview, which writes every alias line unconditionally and is out of §2.4's
- * scope, passes them all.
+ * emitter passes the qualifying aliases under their *emitted* spellings.
  *
  * The set is deliberately a superset of the *source-derived* names a file can
  * emit. Whether a declaration reaches the file depends on its being exported
@@ -3078,7 +3043,7 @@ function declarationAliasPlan(
  */
 function declarationTopLevelNames(
   module: Core.Module,
-  namespaceAliases: readonly string[] = allNamespaceAliases(module),
+  namespaceAliases: readonly string[],
 ): ReadonlySet<string> {
   const names = new Set<string>(namespaceAliases);
   for (const item of module.items) {
@@ -3115,13 +3080,6 @@ function declarationTopLevelNames(
     }
   }
   return names;
-}
-
-/** Every namespace alias the source wrote, gated or not; see the caller above. */
-function allNamespaceAliases(module: Core.Module): readonly string[] {
-  return module.items.flatMap((item) =>
-    item.kind === "Import" && item.form.kind === "Namespace" ? [item.form.alias] : []
-  );
 }
 
 class JavaScriptEmitter {
@@ -4007,7 +3965,9 @@ class JavaScriptEmitter {
       const comments = trailing.get(item) ?? [];
       if (comments.length > 0 && lines.length > 0) {
         const last = lines.length - 1;
-        lines[last] = `${lines[last]} ${comments.map(({ text }) => text).join(" ")}`;
+        // Only line comments trail an item (`trailingComments`), and each is
+        // emitted in JavaScript's spelling.
+        lines[last] = `${lines[last]} ${comments.map(({ text }) => `//${text.slice(2)}`).join(" ")}`;
       }
       // An item that emits nothing has nothing to precede, and one whose
       // emitted forms are its members' rather than its own has no seat for the
@@ -4362,7 +4322,9 @@ class JavaScriptEmitter {
       const build = item.build === undefined
         ? undefined
         : this.#emitExpr(item.build.value, depth + 1, evidenceNames);
-      if (item.exported && depth === 0) {
+      // The prelude `Rat`'s `fraction` is no export, and every module's `//`
+      // reaches it by path all the same (Operators §6.4).
+      if ((item.exported || item.fraction === true) && depth === 0) {
         this.#exports.push(`export { ${name} };`);
       }
       const viewDoc = this.#docs.lines(item.view.span, indent(depth + 1), [], false);
@@ -6002,6 +5964,8 @@ class JavaScriptEmitter {
         return this.#emitWidenInt(expression, depth, evidenceNames);
       case "WidenBigInt":
         return this.#emitWidenBigInt(expression, depth, evidenceNames);
+      case "WidenDec":
+        return this.#emitWidenDec(expression, depth, evidenceNames);
       case "String":
         return this.#emitString(expression, depth, evidenceNames);
       case "Tuple":
@@ -8784,6 +8748,36 @@ class JavaScriptEmitter {
         expression.evidence,
         "Signed",
         "fromInt",
+        [value],
+        expression.span,
+        evidenceNames,
+      );
+    }
+    return this.#unit;
+  }
+
+  /** `FromDec<a>`'s member applied to the decimal (Exact Integer Widening §9). */
+  #emitWidenDec(
+    expression: Core.WidenDecExpr,
+    depth: number,
+    evidenceNames: EvidenceNames,
+  ): string {
+    const value = this.#emitExpr(expression.value, depth, evidenceNames);
+    if (expression.evidence.kind === "Dictionary") {
+      const dictionary = this.#dictionary(
+        expression.evidence.variable,
+        dictionarySeat(expression.evidence, "FromDec"),
+        expression.span,
+        evidenceNames,
+        expression.evidence.path,
+      );
+      return `${dictionary}.fromDec(${value})`;
+    }
+    if (expression.evidence.kind === "Instance" || expression.evidence.kind === "Structural") {
+      return this.#emitMemberCall(
+        expression.evidence,
+        "FromDec",
+        "fromDec",
         [value],
         expression.span,
         evidenceNames,
@@ -13561,358 +13555,6 @@ class DeclarationEmitter {
   }
 }
 
-class TypeScriptPreviewEmitter {
-  readonly #diagnostics = new Diagnostics.Bag();
-  readonly #module: Core.Module;
-  readonly #specializations: readonly FundamentalSpecialization[];
-  readonly #opaqueBrands: ReadonlyMap<string, string>;
-  /** The prelude identities and runtime faces this preview renders through. */
-  readonly #faces: DeclarationFaces;
-  readonly #docs: DocIndex;
-  readonly #unsafeModuleLocals: ReadonlyMap<Resolved.SymbolId, string>;
-
-  constructor(module: Core.Module, fundamentalInstances?: FundamentalInstances) {
-    this.#module = module;
-    this.#unsafeModuleLocals = unsafeModuleLocalPlan(module);
-    this.#opaqueBrands = opaqueBrandNames(module);
-    // The preview writes every namespace alias line unconditionally and is out
-    // of §2.4's gated-alias scope, so its universe carries them all — the
-    // default `declarationTopLevelNames` reading, which is also the one the
-    // runtime-alias probe here has always used.
-    const universe = declarationTopLevelNames(module);
-    this.#faces = {
-      prelude: preludeIds(module),
-      runtime: new RuntimeFaces(),
-      // §1.1 qualifies here too.
-      vocabulary: new VocabularyFaces(universe),
-      // Inert: §2.4's Scope keeps the preview on bare names. It is one pane of
-      // text with nothing to import from, so every rung declines and the sink
-      // answers with the declared name — which is what the preview has always
-      // printed, and what §14.3 leaves unchanged.
-      nominals: bareNominalFaces(module.fileId),
-    };
-    this.#docs = new DocIndex(module.docs);
-    for (const diagnostic of module.diagnostics) this.#diagnostics.add(diagnostic);
-    const plan = planFundamentalSpecializations(module, fundamentalInstances, true);
-    this.#specializations = plan.specializations;
-    addSpecializationCollisionDiagnostics(this.#diagnostics, module, plan.collisions);
-  }
-
-  emit(): Emitted.TypeScriptPreview {
-    const declarations: string[] = [];
-    let isExternalModule = false;
-
-    for (const item of this.#module.items) {
-      if (item.kind === "Import") {
-        const specifier = JSON.stringify(emittedModuleSpecifier(item.specifier));
-        if (item.form.kind === "Namespace") {
-          declarations.push(`import type * as ${item.form.alias} from ${specifier};`);
-          isExternalModule = true;
-        } else if (item.form.kind === "Named") {
-          const names = item.form.names.filter(({ typeOnly }) => typeOnly === true)
-            .map(({ imported, local }) => imported === local ? imported : `${imported} as ${local}`);
-          if (names.length > 0) {
-            declarations.push(`import type { ${names.join(", ")} } from ${specifier};`);
-            isExternalModule = true;
-          }
-        }
-        continue;
-      }
-      if (item.kind === "ExternBlock") {
-        for (const declaration of item.declarations) {
-          // `then` previews as the `.d.ts` has it: unpublished (FFI Part 7 §7).
-          const published = declaration.exported && declaration.localName !== WITHHELD_EXPORT;
-          const prefix = published ? "export " : "";
-          const doc = this.#docs.lines(declaration.span, "", [], published);
-          if (declaration.kind === "ExternType" && isPublicRow(declaration)) {
-            declarations.push(...doc);
-            declarations.push(publicRowSeat(declaration, prefix, this.#faces));
-          } else if (declaration.kind === "ExternType") {
-            const brand = this.#opaqueBrands.get(declaration.localName)!;
-            declarations.push(`declare const ${brand}: unique symbol;`);
-            declarations.push(...doc);
-            declarations.push(`${prefix}type ${declaration.localName} = { readonly [${brand}]: never };`);
-          } else if (declaration.kind === "ExternFun") {
-            // #370: a **constrained** row has no `.d.ts` face, exactly as a
-            // constrained `.hex` binding has none. Its ESM export is the
-            // internal constrained name and its real arity carries the trailing
-            // evidence, so rendering the declared signature here would publish
-            // an export the module does not have under that name *and* promise
-            // it one argument short — a clean compile that fails at the first
-            // JavaScript call. The face is the specializations (Constraints
-            // §6.4), and `Hash` has none, so the rows are simply absent from the
-            // face: correct, and no worse than the surface they replaced, which
-            // had no face either.
-            if (declaration.binding.scheme.constraints.length > 0) continue;
-            declarations.push(...doc);
-            declarations.push(...renderExternFunctionDeclaration(
-              declaration,
-              published,
-              this.#faces,
-              emittedBindingName(
-                declaration.binding.symbol,
-                declaration.localName,
-                this.#unsafeModuleLocals,
-              ),
-            ));
-          } else {
-            declarations.push(...doc);
-            const local = emittedBindingName(
-              declaration.binding.symbol,
-              declaration.localName,
-              this.#unsafeModuleLocals,
-            );
-            const type = renderType(declaration.type, new Map(), this.#faces, false);
-            if (isSafeIdentifier(declaration.localName)) {
-              declarations.push(`${prefix}declare const ${local}: ${type};`);
-            } else {
-              declarations.push(`declare const ${local}: ${type};`);
-            }
-            if (published && !isSafeIdentifier(declaration.localName)) {
-              declarations.push(`export { ${local} as ${declaration.localName} };`);
-            }
-          }
-          isExternalModule ||= published;
-        }
-        continue;
-      }
-      if (item.kind === "ExternImport") continue;
-      if (item.kind === "TypeAlias") {
-        const prefix = item.exported ? "export " : "";
-        const variables = typeVariableNames(item.parameters);
-        const names = item.parameters.map((parameter) => variables.get(parameter)!);
-        const generics = names.length === 0 ? "" : `<${names.join(", ")}>`;
-        declarations.push(...this.#docs.lines(item.span, "", [], item.exported));
-        declarations.push(`${prefix}type ${item.name}${generics} = ${renderType(item.type, variables, this.#faces, false)};`);
-        isExternalModule ||= item.exported;
-        continue;
-      }
-      if (item.kind === "Union") {
-        if (item.opaque) {
-          const prefix = item.exported ? "export " : "";
-          const brand = this.#opaqueBrands.get(item.name)!;
-          const variables = typeVariableNames(item.parameters);
-          const names = item.parameters.map((parameter) => variables.get(parameter)!);
-          const generics = names.length === 0 ? "" : `<${names.join(", ")}>`;
-          declarations.push(`declare const ${brand}: unique symbol;`);
-          declarations.push(...this.#docs.lines(item.span, "", [], item.exported));
-          declarations.push(`${prefix}type ${item.name}${generics} = { readonly [${brand}]: ${names.length === 0 ? "never" : names.join(" | ")} };`);
-          isExternalModule ||= item.exported;
-          continue;
-        }
-        if (item.foreign !== undefined) {
-          declarations.push(`declare const ${this.#opaqueBrands.get(item.name)!}: unique symbol;`);
-        }
-        declarations.push(...this.#docs.lines(item.span, "", [], item.exported));
-        declarations.push(
-          renderUnionDeclaration(item, item.exported, this.#faces, this.#opaqueBrands.get(item.name)),
-        );
-        const variables = typeVariableNames(item.parameters);
-        const genericNames = item.parameters.map((parameter) => variables.get(parameter)!);
-        const generics = genericNames.length === 0 ? "" : `<${genericNames.join(", ")}>`;
-        const result = item.parameters.length === 0
-          ? item.name
-          : `${item.name}<${genericNames.join(", ")}>`;
-        for (const constructor of item.constructors) {
-          const prefix = item.exported ? "export " : "";
-          const type = constructor.slots.length === 0
-            ? item.parameters.length === 0
-              ? item.name
-              : `${item.name}<${item.parameters.map(() => "never").join(", ")}>`
-            : `${generics}(${constructor.slots.map((slot, index) => `${slot.field ? slotParameter(slot.field) : `arg${index}`}: ${renderType(slot.type, variables, this.#faces, false)}`).join(", ")}) => ${result}`;
-          declarations.push(...this.#docs.lines(constructor.span, "", [], item.exported));
-          declarations.push(
-            `${prefix}declare const ${constructor.name}: ${type};`,
-          );
-        }
-        declarations.push(...renderEnumConversions(
-          item,
-          item.exported ? "export " : "",
-          this.#faces,
-        ));
-        isExternalModule ||= item.exported;
-        continue;
-      }
-      if (item.kind === "RecordDeclaration") {
-        const prefix = item.exported ? "export " : "";
-        const variables = typeVariableNames(item.parameters);
-        const names = item.parameters.map((parameter) => variables.get(parameter)!);
-        const generics = names.length === 0 ? "" : `<${names.join(", ")}>`;
-        if (item.opaque) {
-          // The pin governs the preview's seat too (#622). The preview already
-          // renders a pinned *face* as the notion — `renderType` is the same
-          // function here — so a brand at the seat would be the same divergence
-          // in one pane of text that it was across a program's files. The
-          // preview reaches it only in a module that declares the prelude's
-          // `Seq`, which is the point: what it shows is what would ship.
-          const pinned = pinnedDeclarationFace(item, variables, this.#faces);
-          if (pinned !== undefined) {
-            declarations.push(...this.#docs.lines(item.span, "", [], item.exported));
-            declarations.push(`${prefix}type ${item.name}${generics} = ${pinned};`);
-            isExternalModule ||= item.exported;
-            continue;
-          }
-          const brand = this.#opaqueBrands.get(item.name)!;
-          declarations.push(`declare const ${brand}: unique symbol;`);
-          declarations.push(...this.#docs.lines(item.span, "", [], item.exported));
-          declarations.push(`${prefix}type ${item.name}${generics} = { readonly [${brand}]: ${names.length === 0 ? "never" : names.join(" | ")} };`);
-          isExternalModule ||= item.exported;
-          continue;
-        }
-        const recordType = `{ ${item.fields.map((field) =>
-          `${field.name}: ${renderType(field.type, variables, this.#faces, false)}`
-        ).join("; ")} }`;
-        const result = names.length === 0 ? item.name : `${item.name}<${names.join(", ")}>`;
-        declarations.push(...this.#docs.lines(item.span, "", [], item.exported));
-        declarations.push(
-          ...this.#renderRecordType(item, variables, `${prefix}type ${item.name}${generics} = `),
-        );
-        declarations.push(`${prefix}declare const ${item.name}: ${generics}(record: ${recordType}) => ${result};`);
-        isExternalModule ||= item.exported;
-        continue;
-      }
-      if (item.kind === "Exception") {
-        declarations.push(...this.#docs.lines(item.span, "", [], item.exported));
-        declarations.push(
-          ...renderExceptionDeclarations(
-            item,
-            item.exported ? "export " : "",
-            this.#faces,
-            !isVirtualJsError(item),
-          ),
-        );
-        isExternalModule ||= item.exported;
-        continue;
-      }
-      if (item.kind === "LetPattern") {
-        for (const binding of patternBindings(item.pattern)) {
-          const name = emittedBindingName(
-            binding.symbol,
-            binding.name,
-            this.#unsafeModuleLocals,
-          );
-          declarations.push(
-            `declare const ${name}: ${renderScheme(binding.scheme, this.#faces)};`,
-          );
-        }
-        continue;
-      }
-      if (item.kind !== "Let" && item.kind !== "Fun") continue;
-      if (item.binding.scheme.constraints.length > 0) {
-        const specializations = this.#specializations.filter(
-          ({ sourceSymbol }) => sourceSymbol === item.binding.symbol,
-        );
-        for (const specialization of specializations) {
-          if (item.value.kind !== "Lambda") continue;
-          const specialized = specializeItem(
-            item as SpecializableItem,
-            specialization,
-            this.#faces.prelude.bool,
-            faceOnlyEditionInstances,
-          );
-          // A constrained binding has no single `.d.ts` declaration — its face
-          // is one per specialization — so its documentation rides each.
-          declarations.push(...this.#docs.lines(item.span, "", [], item.exported));
-          declarations.push(
-            renderFunctionDeclaration(
-              specialization.name,
-              specialized.binding.scheme,
-              specialized.value as Core.LambdaExpr,
-              item.exported,
-              this.#faces,
-            ),
-          );
-        }
-        isExternalModule ||= item.exported && specializations.length > 0;
-        continue;
-      }
-
-      const name = emittedBindingName(
-        item.binding.symbol,
-        item.binding.name,
-        this.#unsafeModuleLocals,
-      );
-      const published = item.exported && item.binding.name !== WITHHELD_EXPORT;
-      declarations.push(...this.#docs.lines(item.span, "", [], published));
-      if (published) {
-        if (item.kind === "Fun") {
-          declarations.push(
-            renderFunctionDeclaration(
-              name,
-              item.binding.scheme,
-              item.value,
-              isSafeIdentifier(item.binding.name),
-              this.#faces,
-            ),
-          );
-          if (!isSafeIdentifier(item.binding.name)) {
-            declarations.push(`export { ${name} as ${item.binding.name} };`);
-          }
-        } else if (isSafeIdentifier(item.binding.name)) {
-          declarations.push(
-            `export declare const ${name}: ${renderScheme(item.binding.scheme, this.#faces, item.value)};`,
-          );
-        } else {
-          declarations.push(
-            `declare const ${name}: ${renderScheme(item.binding.scheme, this.#faces, item.value)};`,
-          );
-          declarations.push(`export { ${name} as ${item.binding.name} };`);
-        }
-        isExternalModule = true;
-      } else if (item.kind === "Fun") {
-        declarations.push(
-          renderFunctionDeclaration(name, item.binding.scheme, item.value, false, this.#faces),
-        );
-      } else {
-        declarations.push(
-          `declare const ${name}: ${renderScheme(item.binding.scheme, this.#faces, item.value)};`,
-        );
-      }
-    }
-
-    // The stage-1 guard's face (Exceptions §7.6), on the same condition the
-    // `.d.ts` emits it on: at least one *exported* exception.
-    if (this.#module.items.some((item) => item.kind === "Exception" && item.exported)) {
-      declarations.push(renderIsHexErrorDeclaration(this.#faces));
-      isExternalModule = true;
-    }
-
-    if (!isExternalModule) declarations.push("export {};");
-
-    return {
-      kind: "TypeScriptPreview",
-      fileId: this.#module.fileId,
-      text: `${declarations.join("\n")}\n`,
-      diagnostics: this.#diagnostics.toArray(),
-    };
-  }
-
-  /**
-   * The structural type a `record` declares, as `.d.ts` lines. It stays on one
-   * line — the shape every existing golden expects — unless a field carries
-   * documentation, because a property's JSDoc has to precede it on its own
-   * line to be the property's (spec/doc-comments.md §7.1).
-   */
-  #renderRecordType(
-    item: Core.RecordItem,
-    variables: ReadonlyMap<Typed.TypeVariableId, string>,
-    head: string,
-  ): string[] {
-    const fields = item.fields.map((field) => ({
-      doc: this.#docs.lines(field.span, "  "),
-      text: `${field.name}: ${renderType(field.type, variables, this.#faces, false)}`,
-    }));
-    if (fields.every(({ doc }) => doc.length === 0)) {
-      return [`${head}{ ${fields.map(({ text }) => text).join("; ")} };`];
-    }
-    return [
-      `${head}{`,
-      ...fields.flatMap(({ doc, text }) => [...doc, `  ${text};`]),
-      "};",
-    ];
-  }
-}
-
 type SourceEntry = ItemEntry | CommentEntry;
 
 function opaqueBrandNames(module: Core.Module): ReadonlyMap<string, string> {
@@ -14393,12 +14035,18 @@ function sourceEntries(
 // so it is re-presented as a run of `//` comments on whole lines.
 function commentLines(comment: Source.Comment): string[] {
   const split = (text: string) => text.split(/\r\n|\r|\n/u);
-  if (comment.kind === "Line") return split(comment.text);
+  // A line comment's `--` becomes JavaScript's `//`; the text after it is kept.
+  if (comment.kind === "Line") return split(`//${comment.text.slice(2)}`);
 
   // An unterminated comment still reaches here — it is recorded alongside its
   // diagnostic — and its text has no closer to strip. Taking one off regardless
   // would delete the last two characters of the file.
-  const body = comment.text.slice(2, comment.terminated ? -2 : undefined);
+  // A documentation comment's `{--` opener is JavaScript's `/**`, so that a doc
+  // comment emitted as a comment rather than as JSDoc still reads as JSDoc does.
+  // An ordinary comment whose text begins with `*` would otherwise open with
+  // `/**` and read as JSDoc on what follows, so it takes a space first.
+  const text = comment.text.slice(comment.documentation ? 3 : 2, comment.terminated ? -2 : undefined);
+  const body = comment.documentation ? `*${text}` : text.startsWith("*") ? ` ${text}` : text;
   return body.includes("*/")
     ? split(body).map((line) => `//${line}`.trimEnd())
     : split(`/*${body}*/`);
@@ -14816,6 +14464,8 @@ function expressionPrecedence(expression: Core.Expr): Precedence {
       const widened = silentWidening(expression);
       return widened === undefined ? Precedence.Call : expressionPrecedence(widened);
     }
+    case "WidenDec":
+      return Precedence.Call;
     case "Name":
     case "CollectionOperation":
     case "Unit":

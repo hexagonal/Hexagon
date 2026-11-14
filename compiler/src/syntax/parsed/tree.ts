@@ -698,6 +698,13 @@ export interface DeclaredPattern {
   readonly kind: "Declared";
   readonly components: readonly Pattern[];
   readonly name: Name;
+  /**
+   * The fraction pattern `p1 // p2` (Pattern Matching §2.10): a language form
+   * that takes the prelude's `Rat` apart, carried as a declared pattern whose
+   * two components are the sides and whose `name` is the `//` token. The
+   * resolver ties it to the prelude's `Rat` by identity, never by spelling.
+   */
+  readonly fraction?: true;
   readonly span: Source.Span;
 }
 
@@ -1274,6 +1281,13 @@ export interface PatternConstructionExpr {
   readonly reading?: true;
   /** The mark was written `!?` or `^?`, which the parser reported. */
   readonly markInError?: true;
+  /**
+   * The fraction `top // bottom` (Operators §6.4): built as the prelude `Rat`'s
+   * `create` builds it, carried as a construction whose two components are the
+   * sides and whose `name` is the `//` token. The resolver ties it to the
+   * prelude's `Rat` by identity, never by spelling.
+   */
+  readonly fraction?: true;
   readonly span: Source.Span;
 }
 

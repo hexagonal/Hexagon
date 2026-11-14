@@ -1,6 +1,6 @@
 # Numeric text parsing
 
-**Status:** Decided (#1049, #1253 step 9c, 2026-10-18). One design for every numeric type, so the conventions are set once.
+**Status:** Decided (#1049, #1253 step 9c, 2026-10-18). One design for every numeric type, so the conventions are set once. Amended 2026-11-14 (#1542): `Rat` is a prelude module, so `Rat.parse` needs no import.
 
 **Owns:** each numeric type's `parse`, its grammar, `NumberFormatError`, and the round-trip law. **Companions:** Lexer §5 (the literal grammar this reads), Exceptions §1 and §8 (exceptions and their bridges), Effects §3.1 (the reading, and its widening), Functions §4.3 (where a reading's value meets its seat), `dec.md` (`Dec`'s places), `rat.md`, Primitive Types §3 (the ranges).
 
@@ -23,7 +23,7 @@
 | `BigInt.parse(text: String)` | `String ->^ BigInt` | `stdlib/BigInt.hex` |
 | `Float.parse(text: String)` | `String ->^ Float` | `stdlib/Float.hex` |
 | `Dec.parse(text: String)` | `String ->^ Dec` | `stdlib/Dec.hex` |
-| `Rat.parse(text: String)` | `String ->^ Rat` | `stdlib/Rat.hex` (`import Rat`) |
+| `Rat.parse(text: String)` | `String ->^ Rat` | `stdlib/Rat.hex` |
 
 Each is pure and may fail on its own account, so every call wears `^` or a reading.
 

@@ -35,8 +35,8 @@ import { typeScriptErrors } from "../support/typescript-check.js";
  * `js-value-decoding.test.ts`'s and are not restated.
  */
 
-const PROGRAM = "// A `Shape` refusal kept as data, and a foreign throw left to travel: the\n" +
-  "// arm names `JsConversionError` alone, so a `JsError` passes it (#1427).\n" +
+const PROGRAM = "-- A `Shape` refusal kept as data, and a foreign throw left to travel: the\n" +
+  "-- arm names `JsConversionError` alone, so a `JsError` passes it (#1427).\n" +
   "export let asArray(v: JsValue): Result(Array(JsValue)) =\n" +
   "    try\n" +
   "        Ok(JsValue.toArray^(v))\n" +
@@ -45,9 +45,9 @@ const PROGRAM = "// A `Shape` refusal kept as data, and a foreign throw left to 
   "\n" +
   "export let kindOf(v: JsValue): JsKind = JsValue.kind(v)\n" +
   "\n" +
-  "// The door the unguarded probe's throw travels (Exceptions section 6.2):\n" +
-  "// the arm binds the raw foreign value, so what comes back to a test *is*\n" +
-  "// what was thrown.\n" +
+  "-- The door the unguarded probe's throw travels (Exceptions section 6.2):\n" +
+  "-- the arm binds the raw foreign value, so what comes back to a test *is*\n" +
+  "-- what was thrown.\n" +
   "export let arrayOrThrown(v: JsValue): JsValue =\n" +
   "    try\n" +
   "        ignore(JsValue.toArray^(v))\n" +
@@ -56,15 +56,15 @@ const PROGRAM = "// A `Shape` refusal kept as data, and a foreign throw left to 
   "        JsConversionError(_, _, _) => JsValue.from(\"refused\")\n" +
   "        JsError(e) => e\n" +
   "\n" +
-  "// The captured array, held as a value: these take it itself, so a test can\n" +
-  "// keep one and ask it again (FFI Part 2 section 6.2).\n" +
+  "-- The captured array, held as a value: these take it itself, so a test can\n" +
+  "-- keep one and ask it again (FFI Part 2 section 6.2).\n" +
   "export let capturedLength(xs: Array(JsValue)): Int = Array.length(xs)\n" +
   "\n" +
   "export let elementAsInt(xs: Array(JsValue), index: Int): Result(Int) =\n" +
   "    attempt JsValue.toInt^(xs[index])\n" +
   "\n" +
-  "// The two projections of a failure that name no representation, as in\n" +
-  "// `js-value-decoding.test.ts`: which reason, and how long the path is.\n" +
+  "-- The two projections of a failure that name no representation, as in\n" +
+  "-- `js-value-decoding.test.ts`: which reason, and how long the path is.\n" +
   "let reasonOf(reason: JsConversionReason): String = match reason\n" +
   "    JsConversionReason.Shape => \"Shape\"\n" +
   "    JsConversionReason.Range => \"Range\"\n" +

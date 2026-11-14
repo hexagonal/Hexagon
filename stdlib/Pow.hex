@@ -1,11 +1,11 @@
 module Pow
 
-(** Raised when an integer type is raised to a negative power, which has no
-    answer at that type. `message` names the operation that threw. *)
+{-- Raised when an integer type is raised to a negative power, which has no
+    answer at that type. `message` names the operation that threw. -}
 export fault NegativeExponentFault(message: String)
 
-(** The polymorphic face of exponentiation. Honoring `Pow` gives a type the `**`
-    operator. *)
+{-- The polymorphic face of exponentiation. Honoring `Pow` gives a type the `**`
+    operator. -}
 export constraint Pow<a: Num> =
-    (** `value` raised to the power `exponent`. *)
+    {-- `value` raised to the power `exponent`. -}
     pow(value: a, exponent: Int) -> a

@@ -45,7 +45,7 @@ with a useful value is rejected:
 
 ```hexagon
 for number in 1..5
-    number * number // error: this value would be discarded
+    number * number -- error: this value would be discarded
 ```
 
 Perform an effect, assign an accumulator, or explicitly pipe an intentionally ignored
@@ -57,9 +57,9 @@ result to `ignore`.
 `Int` values:
 
 ```hexagon
-1..4       // 1, 2, 3, 4
+1..4       -- 1, 2, 3, 4
 first..last
-Range.up(1, 4) // the same Range as 1..4
+Range.up(1, 4) -- the same Range as 1..4
 ```
 
 Both endpoints are included. The operator binds more loosely than arithmetic, so
@@ -70,14 +70,14 @@ Each endpoint is an `Int`, exactly as each argument of `Range.up` is, so anythin
 An ascending range whose first value is greater than its last is empty:
 
 ```hexagon
-5..1 // no elements
+5..1 -- no elements
 ```
 
 It does not silently become descending. Use the named function when direction should
 be downward:
 
 ```hexagon
-Range.down(5, 1) // 5, 4, 3, 2, 1
+Range.down(5, 1) -- 5, 4, 3, 2, 1
 ```
 
 The mirror rule applies: `Range.down(1, 5)` is empty. Equal endpoints make a one-element
@@ -128,7 +128,7 @@ A loop pattern must match every possible element. A refutable pattern is an erro
 let logPresent(possibilities: Seq(Option(Int))): Unit =
     for Some(value) in possibilities
         Debug.log("${value}")
-    // error: an element might be None; use match in the body
+    -- error: an element might be None; use match in the body
 ```
 
 Use a simple binder and perform an explicit `match` when some elements need different

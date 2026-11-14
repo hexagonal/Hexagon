@@ -1,18 +1,28 @@
 module Dec
 
-(** Raised when a decimal operation is asked to retain negative decimal places. *)
+{-- Thrown when a function is asked for a negative number of decimal places, as
+    in `price.withPlaces(-1)`. `message` says which function threw. -}
 export fault NegativeDecimalPlacesFault(message: String)
 
-(** Raised when an exact decimal operation would retain more decimal places
-    than `Int` can represent. *)
+{-- Thrown when multiplying two decimals, or raising one to a power, would give
+    a result with more decimal places than an `Int` can count. No decimal met in
+    ordinary code has anywhere near that many. `message` says which operation
+    threw. -}
 export fault DecimalPlacesOverflowFault(message: String)
 
-(** Raised when a value has no `Dec` equivalent: `NaN` and the infinities, which
-    no finite decimal represents. `message` names the operation that threw. *)
+{-- Thrown when a `Float` that is NaN or infinite is turned into a `Dec`, which
+    can hold neither. `Dec.fromFloat` and `Dec.fromFloatEven` throw it.
+    `message` says which function threw. -}
 export fault DecRangeFault(message: String)
 
-(** A finite decimal number, represented exactly by an integer coefficient and
-    a retained count of decimal places. *)
+{-- An exact decimal number, written with a `d` at the end, as in `1.50d`. Where
+    a `Float` rounds, a `Dec` holds every decimal digit exactly, so
+    `0.1d + 0.2d` is exactly `0.3d`, which makes it the type for money. A
+    decimal remembers how many digits it has after the point: `1.50d` has two
+    decimal places and shows as `"1.50"`. Adding and subtracting keep the larger
+    number of places, and multiplying adds the two together. `==` compares the
+    numbers alone, so `1.50d == 1.500d` is `True`. To compare the places as
+    well, use `same`. -}
 opaque record Dec = {
     unscaled: BigInt,
     places: Int,
@@ -26,16 +36,21 @@ let requirePlaces(places: Int, operation: String): Int =
     else
         places
 
-(** Constructs the exact decimal whose unscaled integer is `unscaled` and which
-    retains `places` digits after the decimal point. *)
+{-- A decimal made from the digits of the integer `unscaled`, with the point
+    put `places` digits from the right:\
+    `Dec.create(150n, 2)` is `1.50d`.\
+    Throws `NegativeDecimalPlacesFault` when `places` is negative. -}
 export let create(unscaled: BigInt, places: Int): Dec =
     Dec({unscaled, places = requirePlaces(places, "Dec.create")})
 
-(** The unscaled integer stored by `decimal`. *)
+{-- All the digits of the decimal as one integer, with the point taken out:\
+    `1.50d.unscaled()` is `150n`.\
+    `places` says where the point was. -}
 export let unscaled(decimal: Dec): BigInt = decimal.unscaled
 
-(** Whether `left` and `right` store the same exact unscaled integer and retain
-    the same number of decimal places.*)
+{-- Whether `left` and `right` are the same number with the same number of
+    decimal places:\
+    `1.50d.same(1.500d)` is `False`, where `1.50d == 1.500d` is `True`. -}
 export let same(left: Dec, right: Dec): Bool =
     left.unscaled == right.unscaled and left.places == right.places
 
@@ -81,13 +96,23 @@ let changedPlaces(decimal: Dec, requested: Int, even: Bool, operation: String): 
             checked
         )
 
-(** Returns `decimal` with exactly `places` decimal places, rounding nearest
-    with ties away from zero when places are removed. *)
+{-- The decimal with exactly `places` digits after the point. Places that are
+    added are filled with zeros. When places are removed the decimal is rounded
+    to the nearest, and one exactly halfway is rounded away from zero:\
+    `1.005d.withPlaces(2)` is `1.01d`.\
+    To round a half to the even digit, use `withPlacesEven`. Throws
+    `NegativeDecimalPlacesFault` when `places` is negative. -}
 export let withPlaces(decimal: Dec, places: Int): Dec =
     changedPlaces(decimal, places, False, "Dec.withPlaces")
 
-(** Returns `decimal` with exactly `places` decimal places, rounding nearest
-    with ties to even when places are removed. *)
+{-- The decimal with exactly `places` digits after the point. Places that are
+    added are filled with zeros. When places are removed the decimal is rounded
+    to the nearest, and one exactly halfway is rounded so that its last digit
+    is even:\
+    `1.005d.withPlacesEven(2)` is `1.00d`.\
+    Rounding a half this way keeps a long list of rounded amounts from creeping
+    upward. To round a half away from zero, use `withPlaces`. Throws
+    `NegativeDecimalPlacesFault` when `places` is negative. -}
 export let withPlacesEven(decimal: Dec, places: Int): Dec =
     changedPlaces(decimal, places, True, "Dec.withPlacesEven")
 
@@ -98,8 +123,8 @@ let divided(left: Dec, right: Dec, requested: Int, even: Bool, operation: String
     else if left.unscaled == 0 then
         create(0n, checked)
     else
-        // Cancel the operands' places first. Applying the requested result
-        // scale as a separate exact factor avoids an overflowing scale sum.
+        -- Cancel the operands' places first. Applying the requested result
+        -- scale as a separate exact factor avoids an overflowing scale sum.
         if right.places >= left.places then
             let numerator = left.unscaled * tenTo(right.places - left.places) * tenTo(checked)
             create(roundedRatio(numerator, right.unscaled, even), checked)
@@ -108,30 +133,50 @@ let divided(left: Dec, right: Dec, requested: Int, even: Bool, operation: String
             let denominator = right.unscaled * tenTo(left.places - right.places)
             create(roundedRatio(numerator, denominator, even), checked)
 
-(** The exact quotient rounded to `places` places, ties away from zero. *)
+{-- `left` divided by `right`, rounded to `places` digits after the point, with
+    a result exactly halfway rounded away from zero:\
+    `1d.divide(3d, 4)` is `0.3333d`.\
+    A `Dec` has no `/`, because a division such as this one never ends, so
+    `divide` asks how many places to keep. To round a half to the even digit,
+    use `divideEven`. Throws `DivideByZeroFault` when `right` is zero. Throws
+    `NegativeDecimalPlacesFault` when `places` is negative. -}
 export let divide(left: Dec, right: Dec, places: Int): Dec =
     divided(left, right, places, False, "Dec.divide")
 
-(** The exact quotient rounded to `places` places, ties to even. *)
+{-- `left` divided by `right`, rounded to `places` digits after the point, with
+    a result exactly halfway rounded so that its last digit is even:\
+    `0.125d.divideEven(1d, 2)` is `0.12d`, where `divide` gives `0.13d`.\
+    Throws `DivideByZeroFault` when `right` is zero. Throws
+    `NegativeDecimalPlacesFault` when `places` is negative. -}
 export let divideEven(left: Dec, right: Dec, places: Int): Dec =
     divided(left, right, places, True, "Dec.divideEven")
 
-(** `decimal` rounded to an integer, nearest with ties away from zero. *)
+{-- The nearest integer to the decimal, as a `BigInt`. A decimal exactly
+    halfway between two integers goes to the one further from zero:\
+    `2.5d.round()` is `3n`, and `(-2.5d).round()` is `-3n`.\
+    To send a half to the even integer, use `roundEven`. To keep some decimal
+    places, use `withPlaces`. -}
 export let round(decimal: Dec): BigInt =
     if decimal.unscaled == 0 then 0n
     else roundedRatio(decimal.unscaled, tenTo(decimal.places), False)
 
-(** `decimal` rounded to an integer, nearest with ties to even. *)
+{-- The nearest integer to the decimal, as a `BigInt`. A decimal exactly
+    halfway between two integers goes to the even one:\
+    `2.5d.roundEven()` is `2n`, and `3.5d.roundEven()` is `4n`. -}
 export let roundEven(decimal: Dec): BigInt =
     if decimal.unscaled == 0 then 0n
     else roundedRatio(decimal.unscaled, tenTo(decimal.places), True)
 
-(** `decimal` rounded toward zero. *)
+{-- The decimal as a `BigInt` with the digits after the point dropped, which
+    rounds toward zero:\
+    `(-2.7d).trunc()` is `-2n`. -}
 export let trunc(decimal: Dec): BigInt =
     if decimal.unscaled == 0 then 0n
     else decimal.unscaled.quot(tenTo(decimal.places))
 
-(** The greatest integer no greater than `decimal`. *)
+{-- The decimal rounded down to a `BigInt`, which is the nearest integer that
+    is not greater:\
+    `(-2.5d).floor()` is `-3n`. -}
 export let floor(decimal: Dec): BigInt =
     if decimal.unscaled == 0 then 0n
     else
@@ -142,7 +187,9 @@ export let floor(decimal: Dec): BigInt =
         else
             truncated
 
-(** The least integer no less than `decimal`. *)
+{-- The decimal rounded up to a `BigInt`, which is the nearest integer that is
+    not smaller:\
+    `(-2.5d).ceil()` is `-2n`. -}
 export let ceil(decimal: Dec): BigInt =
     if decimal.unscaled == 0 then 0n
     else
@@ -153,8 +200,8 @@ export let ceil(decimal: Dec): BigInt =
         else
             truncated
 
-// A whole number as a `Dec`, with no places. `fromNat`, `fromInt` and `fromBigInt` all
-// start here, so no rung of the tower borrows from the rung above it.
+-- A whole number as a `Dec`, with no places. `fromNat`, `fromInt` and `fromBigInt` all
+-- start here, so no rung of the tower borrows from the rung above it.
 let fromWhole(value: BigInt): Dec = create(value, 0)
 
 honor Num<Dec> =
@@ -182,17 +229,17 @@ honor Signed<Dec> =
 honor FromBigInt<Dec> =
     fromBigInt(value) = fromWhole(value)
 
-// The one representation of a number: trailing zeros removed while places
-// remain, and every zero at `(0n, 0)`. Numerically equal decimals share this key
-// and unequal ones never do, so `Eq` and `Hash` both read it and agree by
-// construction: `3d` and `3.0d` are both `(3n, 0)`, while `5d` is `(5n, 0)` and
-// `0.5d` is `(5n, 1)`.
+-- The one representation of a number: trailing zeros removed while places
+-- remain, and every zero at `(0n, 0)`. Numerically equal decimals share this key
+-- and unequal ones never do, so `Eq` and `Hash` both read it and agree by
+-- construction: `3d` and `3.0d` are both `(3n, 0)`, while `5d` is `(5n, 0)` and
+-- `0.5d` is `(5n, 1)`.
 let canonical(decimal: Dec): (BigInt, Int) =
     if decimal.unscaled == 0 then (0n, 0)
     else
-        // Strip zeros in doubling strides, halving the stride when it overshoots,
-        // so a long run of zeros costs a few divisions rather than one per zero.
-        // A stride of one always succeeds under the loop's guard.
+        -- Strip zeros in doubling strides, halving the stride when it overshoots,
+        -- so a long run of zeros costs a few divisions rather than one per zero.
+        -- A stride of one always succeeds under the loop's guard.
         var coefficient = decimal.unscaled
         var remainingPlaces = decimal.places
         var stride: Int = 1
@@ -285,8 +332,8 @@ honor Show<Dec> =
                 "0.${zeroes}${digits}"
         if negative and decimal.unscaled != 0 then "-${rendered}" else rendered
 
-// The exact binary64 conversion is shared in shape with `Rat.toFloat`: compute
-// the correctly rounded significand using integers, then assemble one Float.
+-- The exact binary64 conversion is shared in shape with `Rat.toFloat`: compute
+-- the correctly rounded significand using integers, then assemble one Float.
 let bitLength(value: BigInt): Int =
     var high: Int = 1
     while (2 ** high) <= value
@@ -325,7 +372,10 @@ let assemble(significand: BigInt, scale: Int): Float =
         let half = magnitude.quot(2)
         result * powerOfTwo(half) * powerOfTwo(magnitude - half)
 
-(** `decimal` as the nearest `Float`, rounded once with ties to even. *)
+{-- The decimal as a `Float`, the closest one to it. A `Float` cannot hold most
+    decimals exactly, so the result may differ slightly from the decimal. Throws
+    `FloatRangeFault` when the decimal is too large for a `Float`, or is not
+    zero but too close to zero for one. -}
 export let toFloat(decimal: Dec): Float =
     if decimal.unscaled == 0 then
         0.0
@@ -345,10 +395,10 @@ export let toFloat(decimal: Dec): Float =
             let result = assemble(bits, exponent)
             if negative then -result else result
 
-// A finite float is exactly `significand * 2^-shift`, with `significand` a
-// safe integer. Doubling or halving a float changes only its exponent, so
-// scaling its magnitude into [2^52, 2^53) reads both parts exactly; the door then
-// rounds that exact value once to the requested places, as `divide` does.
+-- A finite float is exactly `significand * 2^-shift`, with `significand` a
+-- safe integer. Doubling or halving a float changes only its exponent, so
+-- scaling its magnitude into [2^52, 2^53) reads both parts exactly; the door then
+-- rounds that exact value once to the requested places, as `divide` does.
 let fromFloatRounded(value: Float, requested: Int, even: Bool, operation: String): Dec =
     let checked = requirePlaces(requested, operation)
     if not value.isFinite() then
@@ -371,37 +421,47 @@ let fromFloatRounded(value: Float, requested: Int, even: Bool, operation: String
         else
             create(roundedRatio(signed * tenTo(checked), 2n ** shift, even), checked)
 
-(** The exact value stored by `value`, rounded once to exactly `places` decimal
-    places, ties away from zero. The float's binary value is what rounds, so
-    `fromFloat(0.1 + 0.2, 2)` is `0.30`. Throws `DecRangeFault` for `NaN` and
-    the infinities. *)
+{-- The float `value` as a decimal with `places` digits after the point,
+    rounded to the nearest, with a half rounded away from zero:\
+    `Dec.fromFloat(0.1 + 0.2, 2)` is `0.30d`.\
+    What is rounded is the number the float really holds, which can be a little
+    off the number that was written. The float written `2.675` holds slightly
+    less than 2.675:\
+    `Dec.fromFloat(2.675, 2)` is `2.67d`.\
+    Throws `DecRangeFault` when `value` is NaN or infinite. Throws
+    `NegativeDecimalPlacesFault` when `places` is negative. -}
 export let fromFloat(value: Float, places: Int): Dec =
     fromFloatRounded(value, places, False, "Dec.fromFloat")
 
-(** The exact value stored by `value`, rounded once to exactly `places` decimal
-    places, ties to even. Throws `DecRangeFault` for `NaN` and the infinities. *)
+{-- The float `value` as a decimal with `places` digits after the point,
+    rounded to the nearest, with a half rounded so that its last digit is even:\
+    `Dec.fromFloatEven(0.125, 2)` is `0.12d`, where `fromFloat` gives `0.13d`.\
+    Throws `DecRangeFault` when `value` is NaN or infinite. Throws
+    `NegativeDecimalPlacesFault` when `places` is negative. -}
 export let fromFloatEven(value: Float, places: Int): Dec =
     fromFloatRounded(value, places, True, "Dec.fromFloatEven")
 
-(** The number of decimal places retained by `decimal`. *)
+{-- How many digits the decimal has after the point:\
+    `1.50d.places()` is `2`. -}
 export let places(decimal: Dec): Int = decimal.places
 
-// `parse`'s two crossings (`spec/numeric-parsing.md`): the scan, which answers
-// the unscaled integer and the place count, and the message.
+-- `parse`'s two crossings (`spec/numeric-parsing.md`): the scan, which answers
+-- the unscaled integer and the place count, and the message.
 extern from "hex:intrinsic"
     fun numberParseDec as scanText(text: String) -> Option((BigInt, Int))
     fun numberFormatMessage as formatMessage(text: String, phrase: String) -> String
 
-(** `text` read as a `Dec`: decimal digits and an optional `.` and fraction
-    digits, with `_` allowed between two digits and an optional `+` or `-` in
-    front — Lexer section 5's `Dec` literal without its `d`. The places are the
-    digits after the point, so `"1.50"` keeps two and `Dec.parse(show(d))` is
-    `same` as `d` for every `d`. There is no exponent: it would hide the places,
-    and a short text could ask for a vast number of them. So a value never holds
-    more places or digits than its text has characters.
-
-    Throws `NumberFormatError` for any other text. Read it with `?` for an
-    `Option`, or with `assume` where the text is known to be good. *)
+{-- Reads `text` as a `Dec`:\
+    `Dec.parse^("1.50")` is `1.50d`.\
+    The text is an optional `+` or `-`, then digits, then optionally a point
+    with digits after it, with `_` allowed between two digits. A point needs a
+    digit on each side. There is no `d` at the end and no exponent, so `1e2` is
+    not accepted. The digits after the point are kept as written, so `"1.50"`
+    has two decimal places, and text made by `show` reads back as the same
+    decimal with the same places. Throws `NumberFormatError` when `text` is not
+    written that way. A call that may throw carries a mark: `Dec.parse?(text)`
+    gives `None` in place of throwing, and `assume Dec.parse^(text)` is for text
+    that is known to be good. -}
 export let parse(text: String): Dec = match scanText(text)
     Some((unscaled, places)) => create(unscaled, places)
     None => throw^(NumberFormatError(formatMessage(text, "is not a Dec")))

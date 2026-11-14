@@ -243,6 +243,12 @@ export interface LetPatternItem {
 export interface PatternDeclarationItem {
   readonly kind: "PatternDeclaration";
   readonly exported: boolean;
+  /**
+   * The prelude `Rat`'s private `fraction` pattern, which `//` builds and takes
+   * a fraction apart with (Operators §6.4). Not exported, and emitted as an
+   * export all the same: `//` reaches it from every module by identity.
+   */
+  readonly fraction?: true;
   readonly identity: string;
   readonly name: string;
   readonly componentNames: readonly string[];
@@ -575,6 +581,7 @@ export type Expr =
   | WidenNatExpr
   | WidenIntExpr
   | WidenBigIntExpr
+  | WidenDecExpr
   | BlockExpr
   | LambdaExpr
   | IfExpr
@@ -754,6 +761,13 @@ export interface WidenBigIntExpr extends ExpressionFields {
   readonly evidence: Evidence;
 }
 
+/** An explicit contextual `FromDec.fromDec(value)` selected during checking (Exact Integer Widening §9). */
+export interface WidenDecExpr extends ExpressionFields {
+  readonly kind: "WidenDec";
+  readonly value: Expr;
+  readonly evidence: Evidence;
+}
+
 export interface BlockExpr extends ExpressionFields {
   readonly kind: "Block";
   readonly items: readonly Item[];
@@ -852,7 +866,7 @@ export interface CallExpr extends ExpressionFields {
 
 /** The widening a reading applies to its call's result, with its evidence. */
 export interface ReadingWidening {
-  readonly kind: "WidenNat" | "WidenInt" | "WidenBigInt";
+  readonly kind: "WidenNat" | "WidenInt" | "WidenBigInt" | "WidenDec";
   readonly evidence: Evidence;
   readonly type: Typed.Type;
 }

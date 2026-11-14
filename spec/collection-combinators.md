@@ -216,8 +216,8 @@ fail, `Map.fromSeq(Vector.fromSeq(m).map^(transform))` with the mark its colours
 call for (`~`, `^` or `!`), where the dependence on order is visible.
 
 ```hexagon
-(** Raised when two entries passed through `Map.map` come back with equal
-    keys. *)
+{-- Raised when two entries passed through `Map.map` come back with equal
+    keys. -}
 fault DuplicateKeyFault
 ```
 
@@ -326,7 +326,7 @@ carry `Hash` on the new element or key type, which they place.
   faults, bare by category like `KeyFault` (Exceptions §2.1), and the counts
   of the bare set in Modules §5.5 and `stdlib-roadmap.md`, and the bare-set
   conformance test, include it.
-- Every export carries a one- or two-sentence `(** *)` doc comment, purpose
+- Every export carries a one- or two-sentence `{-- -}` doc comment, purpose
   first.
 - Conformance tests check each function against its §1.1 law (or §3's meaning)
   on random collections, including `Set.map`'s representative rule, `Map.map`'s
