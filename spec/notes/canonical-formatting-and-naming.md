@@ -52,7 +52,8 @@ declarations through this list before considering the segment done.
 ## 2. Signatures and annotations (boundary-first)
 
 - **S1 [enforced]** An exported function annotates every parameter and its
-  result; an exported value binding annotates its type. (Modules §4.1.1)
+  result, or, as a `let` whose value is a lambda, writes its whole type on its
+  name; an exported value binding annotates its type. (Modules §4.1.1)
 - **S2 [enforced]** A constrained exported function writes a binder per
   *constrained* variable; the list is maximal under base-constraint
   entailment — strongest constraints only, no restated bases:

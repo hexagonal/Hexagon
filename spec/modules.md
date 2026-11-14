@@ -162,6 +162,20 @@ writes its type annotation. An exported function annotates every parameter and
 its result. If the function is constrained, it also writes every independent
 constraint in explicit type-parameter binders.
 
+*(#1402.)* **An exported `let` whose value is a lambda completes its signature
+in either place.** It is complete when the binding's name carries the whole
+type, or when the lambda annotates every parameter and its result:
+`export let u: (Int) -> Int = (x) => x` and `export let u = (x: Int): Int => x`
+are both complete, and writing both is legal. Either way the type is in the
+text, whole, so nothing an importer relies on is inferred across the boundary;
+and a binding whose name carries its whole type is complete whatever the shape
+of its right-hand side — a lambda, a named function, or an `if` choosing
+between lambdas. Only when neither place is complete is the export refused, and
+the report names what the lambda leaves unwritten: `export let u = (x) => x`
+draws "exported function `u` requires a complete signature; add type for
+parameter `x` and a return type" (§10). The constraint tier below applies to
+either form unchanged.
+
 *(#1047.)* **The constraint tier is decided by the published scheme, never by
 the form.** An exported value binding whose scheme carries a constraint — a bare
 reference to a constrained function, `export let alias: (a) -> String =
@@ -561,7 +575,7 @@ Library versus application is therefore not a distinction in Hexagon module sema
 | `export honor` | "instances are always visible; `export` does not apply" |
 | `export default` | "Hexagon has named exports only" |
 | Exported value without an annotation | "exported value `answer` requires a type annotation" |
-| Exported function with missing parameter/result annotations | "exported function `f` requires a complete signature; add …" |
+| Exported function with missing parameter/result annotations, its name not carrying its whole type (§4.1.1, #1402) | "exported function `f` requires a complete signature; add …" |
 | Exported function — or value binding whose scheme is constrained (§4.1.1, #1047), the message then reading "exported value" — with inferred but unwritten constraints | "exported function `f` must declare every constraint in its signature; write `<a: C>`" — the list rendered as Functions §5.1 renders a generated binder list (bases removed, alphabetical by declared name, a qualified spelling among its name's letter), each constraint spelled per §4.1.1's advised-spelling paragraph (#715, #716): one the module cannot spell takes the derived-alias qualified form with the route clause appended — "write `<a: (Lib.Heft, Ord)>` — `Heft` is declared in module `Lib`, and this module binds another `Heft`; `import Lib` and spell it `Lib.Heft`" — the route clause rendering the pastable import (Pattern Matching §7.3) — and a same-spelled pair routes each member the module cannot already spell, one clause per declaring module |
 | Exported function requiring a constraint with no spelling and no route (the §4.3 gate; §6.5's private base) | no rewrite advised — Constraints §5.1.1's fourth tier (#715, #716): "exported function `g` requires the constraint `Gate`, declared in module `Lib` and not exported; a complete signature cannot be written here — use the constrained operation at a concrete type, keep `g` private, or export `Gate` from `Lib`" — the first exit names no call: no fact the checker holds attributes the demand to one, and a worked attribution that can name the wrong call is the Rewrite Rule's own failure |
 | Exported function restating an entailed base constraint | "exported function `f` must omit base constraint `Base` from `a`; `C` already provides it" |
