@@ -1,7 +1,7 @@
 # Hexagon Spec: Integer Division & Remainder
 
 **Status:** Decided (July 2026); compiler companion operations and emitted runtime semantics implemented. Closes the reopened question in Operators §14.3a; amended to record `Rat` as a required v1 consumer. Amended 2026-11-14 (#1545): a divisor written as a literal zero is refused when the program is compiled, at every exact division the language owns (§12).
-**Scope:** The division/remainder function families on `Int`, `BigInt`, and `Float`: names, conventions, zero-divisor behaviour, emission, diagnostics. The refusal of a divisor written as a literal zero, when the program is compiled, at every exact division the language owns: these families, `//`, `/` at `Rat`, `Dec.divide` and `Rat.create` (§12).
+**Scope:** The division/remainder function families on `Int`, `BigInt`, and `Float`: names, conventions, zero-divisor behaviour, emission, diagnostics. The refusal, when the program is compiled, of a divisor written as a literal zero at every exact division the language owns (§12).
 **Not in scope:** The `Frac` constraint and `/` (Operators §6.1, unchanged), save the check of a divisor written as a literal zero (§12); the rejection of a `%` operator (Operators §13, unchanged — this doc supplies the semantics that rejection deferred to names); `Num`/`Signed` literal machinery (Numeric Literals spec); checked-overflow variants (Primitive Types §2.1).
 **Companions:** Operators & Precedence spec (§6.1, §13, §14.3a — edit notes §8 here), Primitive Types spec (§2 — edit note), Integral Constraint spec (generic family and v1 `Rat` normalization), Exceptions spec (registry addition), `rat.md` §3–§4 and `dec.md` §6 (the other exact divisions §12 checks), Regex §8 (the same line of sight for a literal), `hexagon-for-typescript-coders` Ch. 3.4 (needs no change; it never named the convention).
 
@@ -111,7 +111,7 @@ Inlining latitude (quality-of-implementation, not spec): where the divisor is a 
 |---|---|
 | `intA / intB` (existing, Operators §6.1) | unchanged, but the hint now reads: "`Int` has no `/`; use `Int.div`/`Int.mod` (Euclidean), or `Int.quot`/`Int.rem` for JS's truncating `%` semantics" |
 | A divisor written as a literal zero, at any division §12.2 lists | refused when the program is compiled, with §12.5's report |
-| Zero divisor at runtime, any integer function, where the divisor is not a written zero (§12.1) | `DivideByZeroFault`; message names the function that threw (`Int.rem: divisor is zero`), per the provenance-tagged phrasing rule. *(#344: the fault's declared home is `stdlib/Integral.hex` — the constraint whose members the guards protect — one declaration for every honoring companion; `BigInt`'s, `Int`'s, and `Nat`'s guards throw it from source — a `Nat` division's message now names `Nat`, where the shared wired helper once said `Int` — and `Float` has no integer functions to guard)* |
+| Zero divisor at runtime, any integer function, where §12 does not refuse the division | `DivideByZeroFault`; message names the function that threw (`Int.rem: divisor is zero`), per the provenance-tagged phrasing rule. *(#344: the fault's declared home is `stdlib/Integral.hex` — the constraint whose members the guards protect — one declaration for every honoring companion; `BigInt`'s, `Int`'s, and `Nat`'s guards throw it from source — a `Nat` division's message now names `Nat`, where the shared wired helper once said `Int` — and `Float` has no integer functions to guard)* |
 
 Docs (not compiler) obligations: `rem`'s doc line says "this is JS's `%`"; `mod`'s says "always non-negative"; `Float.mod`'s notes the rounding boundary (§5.1).
 
@@ -164,7 +164,7 @@ isEven = n => Int.mod(n, 2) == 0    -- correct for negative n; with rem it would
 
 -- A divisor written as a literal zero: refused when the program is compiled (§12)
 Int.mod(1, 0)             -- ERROR: division by zero: `Int.mod(1, 0)` has no value; write the divisor that was meant
-1.mod(0)                  -- ERROR, the same report quoting `1.mod(0)`; so are `1 |> Int.mod(0)` and `Integral.mod(1, 0)`
+1.mod(0)                  -- ERROR, the same report quoting `1.mod(0)`; so are `1 |> Int.mod(0)` and `Integral.mod(1, 0)`, each quoting its own text
 BigInt.rem(1n, -0n)       -- ERROR: a sign does not hide a written zero
 Int.div(0, (0: Int))      -- ERROR: nor does a written type; the dividend is not read
 let r: Rat = 1 / 0.0      -- ERROR: division by zero: `1 / 0.0` has no value; write the divisor that was meant
@@ -211,7 +211,7 @@ Rat.reciprocal(0)         -- throws DivideByZeroFault: not a checked seat
 
 ## 12. A divisor written as a literal zero
 
-> **An exact division whose divisor is written as a literal zero is refused when the program is compiled.** Every other zero divisor of an exact division faults when the division runs.
+> **A checked division whose divisor is written as a literal zero is refused when the program is compiled.** The checked divisions are a closed list (§12.2), and every other zero divisor of an exact division faults when the division runs.
 
 A division by zero has no value, and where the divisor is a literal zero the program's text already says so. The compiler reports it there, as an error, and the program does not compile. The check is the compiler's own arithmetic: one comparison of a literal with zero, made once the types are solved. It runs no library code (Regex §11), adds nothing to inference, changes no type, and changes nothing the compiler emits. The run-time guards stay the general rule (§3, §4; `dec.md` §6; `rat.md` §3, §4), and this report is their earliest form, for the one divisor whose zero the compiler can read without running anything (Friendly Numerics, tenet 6).
 
@@ -223,7 +223,7 @@ Nothing else is a written zero. A name is never read: after `let zero = 0`, `1 /
 
 ### 12.2 The checked seats
 
-The check reads the divisor of every exact division the language owns, and nothing else. The list is closed:
+The check reads the divisor of every exact division the language owns, and nothing else. These are the **checked divisions**, and the list is closed:
 
 | Division | The divisor it reads |
 |---|---|
@@ -239,7 +239,7 @@ These are never checked:
 
 - **`Float`'s division and remainders.** A zero divisor at `Float` is an IEEE answer, not a fault (§5.1): `1.0 / 0.0` and `let r: Float = 1 / 0` answer `Infinity`, and `Float.mod(1.0, 0.0)` and `Float.rem(1.0, 0.0)` answer `NaN`.
 - **`Rat.reciprocal` and `Rat.pow`.** Their zero bottom comes from an operand, not from a divisor the text writes, so `Rat.reciprocal(0)`, `Rat.pow(0, -1)` and `0 ** -1` at `Rat` fault when they run (`rat.md` §4).
-- **Every other function**, in the standard library or in a program, however it divides. No declaration makes a seat checked. A new exact numeric type whose division can meet a zero divisor joins the list through its own spec.
+- **Every other function**, in the standard library or in a program, however it divides. No declaration makes a seat checked. The list changes only by an amendment of this section, as when a new exact numeric type brings a division of its own.
 
 ### 12.3 The type a division runs at
 
@@ -251,7 +251,7 @@ A division at a type variable is never checked, whatever types its callers bring
 
 The report is an error, since Hexagon has no warning tier (Declarations Preamble §1.1). It is made at every checked seat wherever its text stands: in a function nobody calls, in a branch no run takes, and inside a `try` whose `catch` would take the fault. A division by a written zero is wrong text wherever it stands, as a bad pattern is (Regex §8). The dividend is not read: `0 // 0` and `x / 0` are refused as `1 // 0` is. The installed compiler, the language server and the playground refuse the same divisions, since the check is the checker's own.
 
-The report takes the fault's place only for a written zero. `DivideByZeroFault` does not change: who throws it, the message it carries, and the guards that throw it stay as §3, §4, §7, `dec.md` §6 and `rat.md` §3 and §4 have them, for every divisor that is not a written zero.
+The report takes the fault's place only for a written zero at a checked division. `DivideByZeroFault` does not change: who throws it, the message it carries, and the guards that throw it stay as §3, §4, §7, `dec.md` §6 and `rat.md` §3 and §4 have them, for every zero divisor this section does not refuse.
 
 A fraction pattern with a zero bottom is a different judgment, on the other side of `=>`: `n // 0 =>` is a dead case, refused as unreachable (Pattern Matching §7.2). This section reads a fraction written as a value.
 

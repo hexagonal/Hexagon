@@ -62,8 +62,9 @@ Rat.top(value: Rat): BigInt
 Rat.bottom(value: Rat): BigInt
 ```
 
-`create` throws `DivideByZeroFault` when the bottom is zero, and a bottom written as a
-literal zero is refused when the program is compiled (Division & Remainder §12).
+`create` throws `DivideByZeroFault` when the bottom is zero, and a call of `create`
+whose bottom is written as a literal zero is refused when the program is compiled
+(Division & Remainder §12).
 Otherwise it:
 
 1. computes `g = top.gcd(bottom)` — `Integral<BigInt>`'s member, spelled as the dot call (Method Syntax §7; the qualified `BigInt.gcd` remains equally legal, #344) — with the Euclidean
@@ -239,7 +240,7 @@ not merely round-trips.
 - Any other zero bottom reports `DivideByZeroFault` when it runs and rewrites toward a
   nonzero bottom or explicit validation before `Rat.create`.
 - A divisor written as a literal zero, at `/` or at `Rat.divide` in any spelling, is
-  refused when the program is compiled: "division by zero: `r / 0` has no value; write
+  refused when the program is compiled (Division & Remainder §12.5): "division by zero: `r / 0` has no value; write
   the divisor that was meant", with the note "a divisor written as a literal is checked
   when the program is compiled".
 - Division by any other zero `Rat` reports `DivideByZeroFault` at `Rat.divide` with
