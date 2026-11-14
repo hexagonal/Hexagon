@@ -10155,15 +10155,18 @@ class JavaScriptEmitter {
       // emptiness test is `memberCount` rather than `Map`'s `.size` field read
       // just below: a `HashSet` holds one field, `trie`, and the maintained
       // count lives inside it. The spread is the representation contract, the
-      // same one `Vector` and `Map` read through.
+      // same one `Vector` and `Map` read through. Parenthesized, as `Bool`'s
+      // is below: a tuple, a record or a payload joins its components with
+      // `+`, which binds tighter than `?:` (#1273).
       const shown = component("element", type.element, "__element");
-      return `${this.#useHashTrieRuntime("memberCount")}(${value}) === 0 ? "Set.empty" : ` +
-        `"Set.fromVector([" + [...${value}].map(__element => ${shown}).join(", ") + "])"`;
+      return `(${this.#useHashTrieRuntime("memberCount")}(${value}) === 0 ? "Set.empty" : ` +
+        `"Set.fromVector([" + [...${value}].map(__element => ${shown}).join(", ") + "])")`;
     }
     if (type.kind === "Map") {
       const key = component("key", type.key, "__entry[0]");
       const item = component("value", type.value, "__entry[1]");
-      return `${value}.size === 0 ? "Map.empty" : "Map.fromVector([" + [...${value}].map(__entry => "(" + ${key} + ", " + ${item} + ")").join(", ") + "])"`;
+      // Parenthesized for `Set`'s reason above (#1273).
+      return `(${value}.size === 0 ? "Map.empty" : "Map.fromVector([" + [...${value}].map(__entry => "(" + ${key} + ", " + ${item} + ")").join(", ") + "])")`;
     }
     if (type.kind === "Record") {
       const fields = [...type.fields].sort((a, b) => a.name.localeCompare(b.name)).map((field) =>
