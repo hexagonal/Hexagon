@@ -2,7 +2,7 @@
 
 **Status:** Decided (July 2026)
 **Scope:** The five primitive types: `Nat`, `Int`, `Float`, `String`, `BigInt`. Their JS representations, literal syntax, string interpolation, and the `Show` connection. *(Originally seven: `Bool` was reclassified as a prelude union 2026-07-29, #147 — §4 is now a pointer, §12 the correction record; `Unit` was reclassified as the empty tuple 2026-07-30, #159 — §9 is now a pointer, §13 the correction record.)*
-**Not in scope:** `Char` (does not exist), `Rat` (stdlib module with a focused v1 spec owed), tuples/records/unions/functions (own specs), the constraint system itself (own spec — this doc only *names* which standard constraints each type supports), 1-based indexing in general (forthcoming spec), equality semantics in depth (constraint spec).
+**Not in scope:** `Char` (does not exist), `Rat` (a prelude module with its own spec, `rat.md`), tuples/records/unions/functions (own specs), the constraint system itself (own spec — this doc only *names* which standard constraints each type supports), 1-based indexing in general (forthcoming spec), equality semantics in depth (constraint spec).
 **Companion:** the Numeric Literals spec (Nat-payload polymorphic integer literals, `fromNat`/`fromInt`, Int defaulting) — cross-referenced, not restated here.
 
 This document is written for a future implementation session and assumes the existing `hexc` architecture: Algorithm J, level-based generalisation, constraints compiled to dictionary passing, `honor` declarations, lexer with UTF-16 column tracking, layout pass, emission of idiomatic readable JS + `.d.ts`.

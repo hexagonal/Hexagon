@@ -1,6 +1,6 @@
 # Hexagon Spec: Bitwise Operations and Non-Decimal Literals
 
-**Status:** Decided (September 2026). Promoted from `notes/bitwise-operators-proposal-2026-09.md`.
+**Status:** Decided (September 2026). Promoted from `notes/bitwise-operators-proposal-2026-09.md`. Amended 2026-11-14 (#1542): §3.2's copy of Operators §3's table gains the `//` level.
 **Scope:** The `Bitwise` prelude constraint, its `Int` and `BigInt` instances, the four
 word operators `band`, `bor`, `bxor`, and `bnot`, the named shifts, the named 32-bit
 conversions `Int.toInt32` and `Int.toUint32`, their emission, and hexadecimal, octal,
@@ -163,13 +163,14 @@ The operators take Lean 4's levels: `&&&` 60, `^^^` 58, `|||` 55, all between ad
 | 2 | `bnot` | prefix |
 | 3 | `**` | right |
 | 4 | `-` (unary) | prefix |
-| 5 | `*` `/` | left |
-| 6 | `+` `-` `++` | left |
-| 7 | `band` | left |
-| 8 | `bxor` | left |
-| 9 | `bor` | left |
-| 10 | `..` | none |
-| 11 | comparisons | chaining |
+| 5 | `//` | none |
+| 6 | `*` `/` | left |
+| 7 | `+` `-` `++` | left |
+| 8 | `band` | left |
+| 9 | `bxor` | left |
+| 10 | `bor` | left |
+| 11 | `..` | none |
+| 12 | comparisons | chaining |
 
 Consequences:
 

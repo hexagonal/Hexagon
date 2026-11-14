@@ -23,7 +23,7 @@
 | `BigInt.parse(text: String)` | `String ->^ BigInt` | `stdlib/BigInt.hex` |
 | `Float.parse(text: String)` | `String ->^ Float` | `stdlib/Float.hex` |
 | `Dec.parse(text: String)` | `String ->^ Dec` | `stdlib/Dec.hex` |
-| `Rat.parse(text: String)` | `String ->^ Rat` | `stdlib/Rat.hex` (`import Rat`) |
+| `Rat.parse(text: String)` | `String ->^ Rat` | `stdlib/Rat.hex` |
 
 Each is pure and may fail on its own account, so every call wears `^` or a reading.
 

@@ -1,10 +1,14 @@
 # Hexagon Spec: `Rat`
 
-**Status:** Decided (July 2026).
-**Scope:** The v1 exact rational type, its representation invariant, construction,
-arithmetic, ordering, display, hashing, JavaScript representation, and acceptance
-tests.
-**Companions:** `integral-constraint.md`, `division-remainder.md`,
+**Status:** Decided (July 2026). Amended 2026-11-14 (#1542): a fraction is written and
+taken apart with `//` (§3); `Rat` is a prelude module and a `Dec` enters it through
+`FromDec` (§5, §10); `Rat` rounds to an integer five ways (§11).
+**Scope:** The v1 exact rational type, its representation invariant, construction and
+the `//` form, arithmetic, ordering, display, hashing, conversions with `Dec`, rounding
+to an integer, JavaScript representation, and acceptance tests.
+**Companions:** `operators-logic-precedence.md` (§6.4, the `//` form),
+`pattern-matching.md` (§2.10, §7.2), `integer-widening.md` (§9, `FromDec`), `dec.md`,
+`modules.md` (§5.3, §5.5), `integral-constraint.md`, `division-remainder.md`,
 `numeric-literals.md`, `constraints.md`, and the future complete stdlib listing.
 
 ---
@@ -20,6 +24,12 @@ An unsuffixed decimal literal is `Float` unless the checker already knows its ta
 `let half: Rat = 0.5` is `1/2` and `let tiny: Rat = 1e-9` is `1/1000000000` (Numeric
 Literals §5.1, #525). The literal's written digits are read, never the parsed double. An
 established `Float` value never becomes a `Rat`.
+
+A fraction is written with `//`: `1 // 3` is one third, and `n // d` takes a fraction
+apart in a pattern (§3). `Rat` is a prelude module, seated after `Dec` (§10), so neither
+needs an import. A `Dec` enters a `Rat` wherever a `Rat` is the home, as an integer does
+(Exact Integer Widening §9); a `Rat` becomes a `Dec` only through a named conversion that
+states its places (§10).
 
 ## 2. Representation and invariant
 
@@ -60,15 +70,33 @@ Rat.bottom(value: Rat): BigInt
 
 The accessors expose the canonical values, never mutable storage.
 
-`Rat` also exports a **pattern** over them (Pattern Declarations):
+**The `//` form** writes a fraction and takes one apart, through `create`, `top`, and
+`bottom` and nothing else (Operators §6.4; Pattern Matching §2.10):
 
 ```hexagon
-export pattern rat(top: BigInt, bottom: BigInt): Rat
-    view(x) = (top(x), bottom(x))
-    build = create
+let third = 1 // 3                  -- Rat.create(1, 3)
+let same = 6 // 10 == 3 // 5        -- True: create reduces
+match r
+    0 // _ => "zero"
+    n // 1 => "the whole number ${n}"
+    n // d => "${n} over ${d}"
+let n // d = 4 // -5                -- n = -4n, d = 5n
 ```
 
-`(n, d)rat` matches any `Rat` and binds its canonical top and bottom — `(0, _)rat` is zero, `(_, 1)rat` an integer — and `(6, 10)rat` builds one through `create`, so `(6, 10)rat == (3, 5)rat`. The pattern is a view of the canonical pair, not of construction history: `let (n, d)rat = (4, -5)rat` binds `-4n` and `5n`. Under `import Rat` the suffix is bare (Pattern Declarations §3.3). `create` remains the canonical constructor name; the pattern is the shape.
+As a value, `top // bottom` is `create(top, bottom)`: both sides are integers, and a
+zero bottom throws `DivideByZeroFault` with `Rat.create: bottom is zero` when it runs.
+As a pattern it matches every `Rat` and binds its canonical top and bottom, so it is
+a view of the canonical pair, not of construction history. `//` is a language form,
+like `..`, and not a declared pattern: `Rat` exports no pattern, nothing is imported
+to write it, and it names the prelude's `Rat` by identity, so a module that declares a
+`Rat` of its own still writes the prelude's fraction with it (Intrinsics §7). `create`
+remains the canonical constructor name; `//` is the spelling a program writes.
+
+A `//` pattern that its literals show can never match is a dead case and is refused
+(Pattern Matching §7.2): a literal bottom of zero or less, or two literal sides not in
+lowest terms. The report gives the spelling that matches: `2 // 6` names `1 // 3`, and
+`1 // -3` names `-1 // 3`. The programmer lowers the terms; the compiler names the
+result.
 
 ## 4. Arithmetic
 
@@ -107,7 +135,8 @@ the `BigInt.pow` door; nothing converts to `Float`, even internally.
 - `Ord<Rat>` compares cross-products exactly with `BigInt`; it never converts to
   `Float`.
 - `Show<Rat>` emits `top/bottom`, including `/1` so the representation
-  remains visible and unsurprising.
+  remains visible and unsurprising. The shown text is not the source spelling:
+  `1 // 3` shows as `1/3`, the text `Rat.parse` reads (Numeric Parsing).
 - `Hash<Rat>` combines the canonical `BigInt` top and bottom hashes.
 - `Num<Rat>`, `Signed<Rat>`, and `Frac<Rat>` are provided. Num owns addition,
   multiplication, and exact `fromNat`; Signed extends it with subtraction, negation,
@@ -118,6 +147,9 @@ the `BigInt.pow` door; nothing converts to `Float`, even internally.
   by comparison with zero (Constraints §7); neither operation converts to `Float`.
 - `FromBigInt<Rat>` accepts arbitrary integers exactly; its ordinary evidence
   permits contextual BigInt-source widening under Numeric Literals §5.1.
+- `FromDec<Rat>` accepts every `Dec` exactly, as the fraction `unscaled / 10^places`
+  (`dec.md` §4); its member is `Rat.fromDec`, and its evidence permits a `Dec` to enter a
+  `Rat` home (Exact Integer Widening §9).
 - `Integral<Rat>` is not provided: a rational is not an integer.
 
 ## 6. Surface
@@ -129,9 +161,9 @@ Rat.create
 Rat.fromNat
 Rat.fromInt
 Rat.fromBigInt
+Rat.fromDec
 Rat.top
 Rat.bottom
-rat            -- the pattern (§3): (n, d)rat under import Rat; a pattern, not an operation, so never r.rat
 Rat.add
 Rat.subtract
 Rat.multiply
@@ -139,8 +171,18 @@ Rat.divide
 Rat.negate
 Rat.reciprocal
 Rat.pow
+Rat.round
+Rat.roundEven
+Rat.trunc
+Rat.floor
+Rat.ceil
+Rat.toDec
+Rat.toDecEven
 Rat.toFloat
 ```
+
+`top // bottom` is the language's spelling of `create` and of matching on `top` and
+`bottom` (§3), not a companion operation.
 
 All binary operations are subject-first and therefore dot-callable.
 
@@ -184,7 +226,16 @@ not merely round-trips.
 - Division by a zero `Rat` reports `DivideByZeroFault` at `Rat.divide` with
   `Rat.divide: divisor is zero`.
 - Attempts to access fields outside Rat's home module receive the standard opaque
-  record diagnostic and point to `Rat.top` / `Rat.bottom`.
+  record diagnostic and point to `Rat.top` / `Rat.bottom`. A constructor or record
+  pattern over `Rat` abroad is refused naming the fraction pattern: "cannot destructure
+  opaque record `Rat`; match it with `top // bottom`".
+- A `//` side that is a `Rat`, `Dec`, or `Float` is refused at that side with the
+  division that was meant (Operators §6.4): "a fraction's top and bottom are integers,
+  and `r` is a `Rat` — to divide, write `r / 2`", and at a `Dec` side
+  `Rat.fromDec(d) / 2`. `1 // 2 // 3` is refused as a chain.
+- A dead `//` pattern is refused as Pattern Matching §7.2 words it, with the spelling
+  that matches: "this case is unreachable; a fraction comes apart in lowest terms with
+  a positive bottom, so `2 // 6` never matches — write `1 // 3`".
 - A non-integer exponent at `**` or `Rat.pow` is a compile-time type error at
   the `Int` exponent seat (Operators §6.3's fixit family), not a runtime report.
 - A zero base with a negative exponent at `Rat.pow` reports `DivideByZeroFault`
@@ -219,6 +270,18 @@ Rat.toFloat(Rat.create(1, 3))                 -- 0.3333333333333333 (nearest dou
 Rat.toFloat(Rat.create(-7, 4))                -- -1.75
 Rat.toFloat(Rat.create(2 ** 1100, 1))         -- FloatRangeFault (would be Infinity)
 Rat.toFloat(Rat.create(1, 2 ** 1100))         -- FloatRangeFault (nonzero would erase to 0)
+1 // 3 == Rat.create(1, 3)                    -- true
+6 // -4                                       -- -3/2
+-1 // 3 == -(1 // 3)                          -- true: the sign belongs to the top
+1 // 0                                        -- DivideByZeroFault: Rat.create: bottom is zero
+let half: Rat = 1.50d - 1                     -- 1/2: the Dec enters the Rat home
+(5 // 2).round()                              -- 3n
+(-5 // 2).round()                             -- -3n
+(5 // 2).roundEven()                          -- 2n
+(7 // 2).roundEven()                          -- 4n
+(-8 // 3).trunc()                             -- -2n
+(-5 // 2).floor()                             -- -3n
+(-5 // 2).ceil()                              -- -2n
 ```
 
 The compiler conformance suite must execute the emitted JavaScript for normalization
@@ -226,7 +289,8 @@ and arithmetic; checking inferred types or snapshots alone is insufficient.
 
 ## 10. Dec conversions
 
-Rat owns all conversions between the two types (`dec.md` §4):
+Rat owns all conversions between the two types, being seated after `Dec` (Modules
+§5.3; `dec.md` §4):
 
 ```text
 Rat.fromDec(value: Dec): Rat
@@ -237,4 +301,41 @@ Rat.toDecEven(value: Rat, places: Int): Dec
 `dec.md` §4 owns their exact conversion and rounding contracts. Rat can use
 prelude Dec's public constructor and accessors; Dec does not depend on Rat.
 Places use `Int`; negative arguments throw `Dec.NegativeDecimalPlacesFault`
-before arithmetic, as specified in `dec.md` §3. Rat remains an imported module.
+before arithmetic, as specified in `dec.md` §3.
+
+`Rat` is a prelude module, seated after `Dec` and `FromDec` (Modules §5.5).
+`Rat.fromDec` is the member of `FromDec<Rat>`, so the conversion is also silent: a
+`Dec` enters a `Rat` wherever a `Rat` is the expression's home, as an integer does
+(Exact Integer Widening §9), and `let share: Rat = 1.50d` is `3/2`. The other direction
+stays named: a `Rat` reaches a `Dec` only through `toDec` or `toDecEven`, which state
+the places and the tie rule, since most fractions have no exact decimal.
+
+## 11. Rounding to an integer
+
+```text
+Rat.round(value: Rat): BigInt
+Rat.roundEven(value: Rat): BigInt
+Rat.trunc(value: Rat): BigInt
+Rat.floor(value: Rat): BigInt
+Rat.ceil(value: Rat): BigInt
+```
+
+Each returns an integer near the fraction, as a `BigInt`, computed exactly from the
+canonical top and bottom with no `Float` intermediate. The five follow `Dec`'s
+integer-rounding operations (`dec.md` §5, §7) rule for rule:
+
+- `round` takes the nearest integer, and a fraction exactly halfway between two goes
+  to the one further from zero: `(5 // 2).round()` is `3n`, and `(-5 // 2).round()`
+  is `-3n`.
+- `roundEven` takes the nearest integer, and a fraction exactly halfway goes to the even
+  one: `(5 // 2).roundEven()` is `2n`, and `(7 // 2).roundEven()` is `4n`.
+- `trunc` drops the fractional part, toward zero: `(-8 // 3).trunc()` is `-2n`.
+- `floor` takes the greatest integer no greater than the fraction: `(-5 // 2).floor()`
+  is `-3n`.
+- `ceil` takes the least integer no less than the fraction: `(-5 // 2).ceil()` is `-2n`.
+
+A whole number rounds to itself under all five. None can fail. They are companion
+operations, not constraint members, for the reason `dec.md` §3 gives: `Float.round`
+breaks ties to even and `Rat.round` and `Dec.round` away from zero, so no one member
+could state the tie rule for every instance. To keep some decimal places instead, use
+`toDec` (§10).
