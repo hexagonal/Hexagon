@@ -94,8 +94,9 @@ remains the canonical constructor name; `//` is the spelling a program writes.
 
 A `//` pattern that its literals show can never match is a dead case and is refused
 (Pattern Matching §7.2): a literal bottom of zero or less, or two literal sides not in
-lowest terms. The report gives the spelling that matches: `2 // 6` names `1 // 3`, and
-`1 // -3` names `-1 // 3`. The programmer lowers the terms; the compiler names the
+lowest terms. The report gives the spelling that matches where one exists: `2 // 6`
+names `1 // 3`, and `1 // -3` names `-1 // 3`; a zero bottom has none, and the report
+says to remove the case. The programmer lowers the terms; the compiler names the
 result.
 
 ## 4. Arithmetic
@@ -234,8 +235,10 @@ not merely round-trips.
   and `r` is a `Rat` — to divide, write `r / 2`", and at a `Dec` side
   `Rat.fromDec(d) / 2`. `1 // 2 // 3` is refused as a chain.
 - A dead `//` pattern is refused as Pattern Matching §7.2 words it, with the spelling
-  that matches: "this case is unreachable; a fraction comes apart in lowest terms with
-  a positive bottom, so `2 // 6` never matches — write `1 // 3`".
+  that matches where one exists: "this case is unreachable; a fraction comes apart in
+  lowest terms with a positive bottom, so `2 // 6` never matches — write `1 // 3`"; at
+  a zero bottom, "this case is unreachable; a fraction's bottom is never zero — remove
+  the case".
 - A non-integer exponent at `**` or `Rat.pow` is a compile-time type error at
   the `Int` exponent seat (Operators §6.3's fixit family), not a runtime report.
 - A zero base with a negative exponent at `Rat.pow` reports `DivideByZeroFault`

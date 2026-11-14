@@ -62,8 +62,10 @@ Recommended recovery: on `/*`, scan to the nearest `*/` — JavaScript's own non
 
 **`//` is an operator, and its comment refusals are the parser's.** `//` writes a fraction (Operators §6.4), so it is a token, and the lexer cannot tell a fraction from a comment. Two places show a `//` meant as a comment, and the parser refuses at each, naming Hexagon's spelling:
 
-- **Nothing to its left.** A `//` where an operand must begin — at the start of a line or an expression, after `=`, `(` or another operator — has no top, so it is never a fraction: "a fraction needs a top; for a comment, write `--`". Recovery takes the rest of the line as the comment it was meant to be. A run of three or more slashes is such a `//` with more after it, refused the same way, with no documentation role (Doc Comments §2.3); its fix turns each `/` into `-`, so `/// note` becomes `--- note`.
+- **Nothing to its left.** A `//` where an operand must begin — at the start of an item, after `=`, `(` or another operator — has no top, so it is never a fraction: "a fraction needs a top; for a comment, write `--`". Recovery takes the rest of the line as the comment it was meant to be. A run of three or more slashes is such a `//` with more after it, refused the same way, with no documentation role (Doc Comments §2.3); its fix turns each `/` into `-`, so `/// note` becomes `--- note`.
 - **A syntax error after it on its line.** `let y = 2 // a note` parses `2 // a` and fails at `note`. A syntax error reported anywhere on a `//`'s line after it — the rest of the line being what a comment would have been — adds "for a comment, write `--`" to the parser's own report. The `//` may be a fraction and the error another mistake, so the note is added, never put in the report's place.
+
+A line that begins with `//` at its block's own indentation begins an item, since Lexer Layout §2.3 keeps `//` out of the continuation tokens, so the first refusal takes it. A deeper-indented line continues the line above (Lexer Layout §2), so a `//` that begins one has a top and is a fraction, and only the second refusal can reach it.
 
 Neither reads a type. A `//` whose right side parses is a fraction, and draws what its sides draw: in `let y = 2 // note` with no `note` in scope, the unknown-name report, with no comment note.
 
@@ -273,4 +275,4 @@ Ruled on issue #1542: `//` writes a fraction (Operators §6.4), so it is a token
 4. **§7** adds the rejected alternative of keeping the lexical refusal.
 5. **§8** replaces its `//` rows with a fraction, the two refusals, and the case the ruling leaves without a note: a `//` whose right side parses is a fraction.
 
-Applied elsewhere in the same change: `lexer.md` §7, §8.1, §8.2, §10 and §11; `operators-logic-precedence.md` §6.4. `doc-comments.md` §2.3's "refused as `//` is" stands: a run of slashes is refused as a `//` with nothing to its left.
+Applied elsewhere in the same change: `lexer.md` §7, §8.1, §8.2, §10 and §11; `lexer-layout.md` §2.3, which keeps `//` out of the continuation tokens so that a line beginning with it begins an item; `operators-logic-precedence.md` §6.4. `doc-comments.md` §2.3's "refused as `//` is" stands: a run of slashes is refused as a `//` with nothing to its left.

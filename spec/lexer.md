@@ -640,7 +640,7 @@ error)*. `||` must not be accepted as two pattern bars. The comment spellings of
 other languages — `/*`, `*/`, `(*` and `*)` — join this family with Comments
 §3.1's redirects. A `//` meant as a comment is the parser's to refuse, as a prefix `!`
 is: with nothing to its left, or with a syntax error after it on its line (Comments
-§3.1); a run of slashes lexes as `//` and then `/`.
+§3.1); a run of slashes lexes as `//` tokens, an odd last slash a `/`.
 
 ### 8.3 Not tokens
 

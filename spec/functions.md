@@ -1,6 +1,6 @@
 # Hexagon Spec: Functions
 
-**Status:** Decided (July 2026)
+**Status:** Decided (July 2026); amended 2026-11-14 (#1542): a written type admits the four widenings, `Dec` among the sources.
 **Scope:** Function definition, lambdas, `let`/`fun` binding of functions, application, arity, generalization, naming, and JS emission.
 **Not in scope:** modules (Modules), operators including `|>` (Operators §8), constraint semantics (Constraints — this doc fixes only the `<a: C>` syntax, §4.2), tuples and records (Products), the pattern grammar and irrefutability (Pattern Matching — §3.1 here takes the lambda-parameter rule by reference), blocks and `var` (Statements, Blocks & Mutability), FFI (ffi.md).
 **Companions:** Statements spec (blocks as lambda bodies; `var` in full, §8.4 here; joint diagnostics §10), Pattern Matching §6.5 (lambda parameters as patterns; the depth rule), Operators §8 (pipe; subject-first convention made normative), Method Syntax §4.2 (subject-first determines dot-callability) and §4.4 (dot calls obey §7.2's declaration order), Primitive Types §9 (`Unit`), Declarations Preamble §1.1 (the Rewrite Rule, which §10's diagnostics obey).

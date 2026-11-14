@@ -1,6 +1,6 @@
 # Hexagon Spec: Lexer & Layout
 
-**Status:** Decided (July 2026); compiler pass implemented. Revised 2026-11-13 (#1538): §1 and §4 say that `{-` opens a comment, not a brace. This document owns layout, blocks, `;`, and
+**Status:** Decided (July 2026); compiler pass implemented. Revised 2026-11-13 (#1538): §1 and §4 say that `{-` opens a comment, not a brace. Amended 2026-11-14 (#1542): §2.3 keeps `//` out of the continuation tokens, and §1's declared-pattern example is `clock`. This document owns layout, blocks, `;`, and
 brace disambiguation. The companion [Physical Lexer](lexer.md) specification owns
 the complete physical token and keyword inventory, source coordinates, literals,
 whitespace, comments-as-trivia, and lexical diagnostics.
@@ -167,6 +167,12 @@ everywhere else (Lexer §4.2), so a line beginning with one can begin an
 expression — `band.play()` is a new item. A continuation wanting one takes the
 same two repairs. `bnot` is a prefix operator and begins an expression, like
 `not`.
+
+**`//` is excluded for another reason**: it cannot begin an expression, but a line
+that begins with it is far more often the C-family comment habit than a fraction
+split across lines. A leading `//` therefore begins a new item, where the parser
+refuses it as a fraction with no top and names `--` (Comments §3.1). A
+continuation wanting a fraction takes the same two repairs as subtraction.
 
 The rule is uniform across every block, **including the module's own**: at column
 0, `let a = 1` followed by a line beginning `+ 2` continues the binding rather

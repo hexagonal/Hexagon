@@ -80,9 +80,9 @@ is the identity, declared in `FromDec.hex`, since `FromDec` is seated after `Dec
 
 `Dec` does **not** honor `Frac`, and has no `/` operator. No division function
 omitting `places` is introduced, even for a quotient that happens to have
-a terminating decimal expansion. Where a written `Rat` is the home, `/` on two
-`Dec`s is `Rat`'s exact division, the `Dec`s entering it (`integer-widening.md` §9);
-without one, `a / c` on two `Dec`s is refused for the missing `Frac<Dec>`, naming both
+a terminating decimal expansion. Where `Rat` is the home, written or given by a
+`Rat` part of the expression, `/` on two `Dec`s is `Rat`'s exact division, the `Dec`s
+entering it (`integer-widening.md` §9); without a `Rat` home, `a / c` on two `Dec`s is refused for the missing `Frac<Dec>`, naming both
 routes: "write a `Rat` type, or use `Dec.divide` with a place count". Further constraint instances are not implied by
 this list.
 
@@ -567,7 +567,7 @@ classification is unchanged.
   target (Numeric Literals §5.1); BigInt-source widening uses the prerequisite
   `FromBigInt` capability rather than a Dec-specific exception.
 - A `Dec` enters a `Rat` home in both operand orders and at every seat
-  (`integer-widening.md` §9), `/` on two `Dec`s divides exactly under a written `Rat`
+  (`integer-widening.md` §9), `/` on two `Dec`s divides exactly at a `Rat` home
   and is refused with both routes named without one, `d + 0.5` stays a `Dec`, and a
   `Dec` beside a `Float` is refused as a `BigInt` is.
 - Display preserves leading fractional zeros and trailing retained zeros;

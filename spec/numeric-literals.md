@@ -421,7 +421,7 @@ residue, and so is a dot receiver's (Method Syntax §2.2).
 
 **Source ordering (exact BigInt extension).** Sibling arguments at one type variable
 are one tree (above), so no leading source argument pins the shared parameter before
-a later argument can establish its target — `Nat`, `Int`, and `BigInt` alike.
+a later argument can establish its target — `Nat`, `Int`, `BigInt`, and `Dec` alike.
 Common-home selection is by rank — an independently established numeric target that is
 none of Nat, Int, BigInt, and Dec, then Dec, then BigInt, then Int, then Nat — and
 preserves an already established
@@ -643,13 +643,14 @@ let addCount = (count: Int, value) => count + value
 -- inferred (Int, Int) -> Int; widening does not manufacture Num<a>
 ```
 
-The source must be exactly `Nat`, `Int`, or `BigInt`, and the matching rule above is fixed. In
+The source must be exactly `Nat`, `Int`, `BigInt`, or `Dec`, and the matching rule above is fixed. In
 particular, `Int * Nat` widens the `Nat` to `Int`; it never attempts the unsafe
 `Int -> Nat` direction. There is no reverse `Float -> Int` conversion, no implicit
 `BigInt -> Float`, and no conversion between two unrelated numeric subjects.
 A nominal target participates only when its home has explicitly supplied a lawful
-`honor Num<T>`, for Int widening `honor Signed<T>`, or for BigInt widening
-`honor FromBigInt<T>` (which implies both); none is derivable. This is
+`honor Num<T>`, for Int widening `honor Signed<T>`, for BigInt widening
+`honor FromBigInt<T>` (which implies both), or for Dec widening `honor FromDec<T>`
+(which implies `FromBigInt`); none is derivable. This is
 an evidence-directed injection, not numeric subtyping or a promotion lattice.
 
 Emission follows the selected instance. `Nat -> Int`, `Nat -> Float`, and `Int -> Float`
@@ -880,7 +881,7 @@ A branch or item whose type is *structured* — `(1, 2)`, `[1, 2]` — can never
 2. **Prelude / constraint defs:** add `fromNat : Nat -> a` to `Num` and `fromInt : Int -> a` to `Signed`; implement the five `Num` and four `Signed` prelude instances (§5 table); document the exact-homomorphism law.
 3. **Inference:** elaborate IntLit per §3 (fresh tyvar, `Num` constraint with `LiteralConstraint` provenance, `fromNat` application node). BigIntLit/FloatLit type directly.
 4. **Generalisation:** insert the defaulting pass per §4, testing membership against the compiler's own `Int` instance table — the closed defaultable set of §4's correction record, not the v1.1 five-name list *(corrected 2026-07-28, #135)*. Assert successful unification with Int. The same test runs where a `var`, a `for`, or a binding `match` arm makes a new name, and before a box is opened (§4, #1192); a type a name holds is marked as the name's and is never defaulted there.
-5. **Codegen:** implement contextual Nat, Int, and BigInt widening and decimal-point literal promotion per §5.1; erase resolved literal `fromNat` per §5.2 (`k` for Nat/Int, readable `k.0` identity folding for Float, `kn` folding for BigInt, constructor call for Rat/others); dictionary slots for polymorphic cases.
+5. **Codegen:** implement contextual Nat, Int, BigInt, and Dec widening and decimal-point literal promotion per §5.1; erase resolved literal `fromNat` per §5.2 (`k` for Nat/Int, readable `k.0` identity folding for Float, `kn` folding for BigInt, constructor call for Rat/others); dictionary slots for polymorphic cases.
 6. **Diagnostics:** literal-aware unification errors, blocked-defaulting error, no `fromNat` leakage (§6).
 7. **LSP:** hover types per §6; signature round-trip consistency (`<a: Num> a -> a -> a` etc.) unchanged.
 8. **Tests:** the eight examples in §2 as golden tests (inferred type + emitted JS), plus the §4 consequence list, plus an error-message snapshot for (g) and the blocked-defaulting case.
