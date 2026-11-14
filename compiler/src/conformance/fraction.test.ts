@@ -101,6 +101,16 @@ describe("`//` writes a fraction (Operators §6.4)", () => {
     expect(messages("let d = 1.5d\nlet x = d // 2\n")).toEqual([
       "a fraction's top and bottom are integers, and `d` is a `Dec` — to divide, write `Rat.fromDec(d) / 2`",
     ]);
+    // A compound side, refused at that side in the same words.
+    expect(messages("let x = (1 // 2) // 3\n")).toEqual([
+      "a fraction's top and bottom are integers, and `(1 // 2)` is a `Rat` — to divide, write `(1 // 2) / 3`",
+    ]);
+    expect(messages("let r = 1 // 2\nlet x = (r + 1) // 2\n")).toEqual([
+      "a fraction's top and bottom are integers, and `(r + 1)` is a `Rat` — to divide, write `(r + 1) / 2`",
+    ]);
+    expect(messages("let d = 1.5d\nlet x = (d * 2) // 3\n")).toEqual([
+      "a fraction's top and bottom are integers, and `(d * 2)` is a `Dec` — to divide, write `Rat.fromDec(d * 2) / 3`",
+    ]);
   });
 });
 
@@ -119,6 +129,19 @@ describe("a `//` meant as a comment (Comments §3.1)", () => {
       "a fraction needs a top; for a comment, write `--`",
     ]);
     expect(project.diagnostics[0]!.fixes?.[0]?.edits.map(({ replacement }) => replacement)).toEqual(["---"]);
+  });
+
+  test("in any block, and wherever no operand has begun, it is refused once and read on", () => {
+    const refusal = "a fraction needs a top; for a comment, write `--`";
+    expect(messages(
+      "let r = 1 // 2\nlet s = match r\n    // the zero case\n    0 // _ => 1\n    _ => 2\n" +
+        "record P = {\n    // the x\n    x: Int,\n}\n",
+    )).toEqual([refusal, refusal]);
+    expect(messages("let v = [\n    1, // one\n    2,\n]\nlet g(x: Int): Int = // doubles\n    x * 2\n"))
+      .toEqual([refusal, refusal]);
+    // The note is not added to the refusal it repeats.
+    expect(compileMain(main("let z = 1 // // 2\n")).diagnostics.map(({ message, notes }) => [message, notes ?? []]))
+      .toEqual([[refusal, []]]);
   });
 
   test("a syntax error after a `//` on its line gains the note", () => {
@@ -190,6 +213,9 @@ describe("`p1 // p2` takes a fraction apart (Pattern Matching §2.10)", () => {
       `${lead}\`n // -3\` never matches — write \`n // 3\`, which binds the negated top`,
     ]);
     expect(dead("n // 0")).toEqual(["this case is unreachable; a fraction's bottom is never zero — remove the case"]);
+    // The fix rewrites bare literals; under `as` it would delete the binder.
+    const fixed = compileMain(main("let r = 1 // 2\nlet s = match r\n    (2 as two) // 6 => 1\n    _ => 2\n"));
+    expect(fixed.diagnostics[0]?.fixes).toBeUndefined();
     // A literal under `as` is a literal; each alternative is judged alone.
     expect(dead("(2 as two) // 6")).toEqual([`${lead}\`(2 as two) // 6\` never matches — write \`1 // 3\``]);
     expect(dead("1 // 3 | 2 // 6")).toEqual([`${lead}\`2 // 6\` never matches — write \`1 // 3\``]);

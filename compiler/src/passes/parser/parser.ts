@@ -586,13 +586,86 @@ export function parseFile(file: LaidOut.File, path = ""): readonly Parsed.Module
     diagnostics.add(diagnostic);
   }
 
+  const tokens = withoutItemComments(file.tokens, diagnostics);
   return new Parser(
-    file.tokens,
+    tokens,
     diagnostics,
-    new DocBlocks(file.tokens, file.comments, diagnostics),
+    new DocBlocks(tokens, file.comments, diagnostics),
     file.text,
     file.diagnostics.map(({ primary }) => primary),
   ).parseFile(file.fileId, file.comments, path);
+}
+
+/** Comments §3.1's first refusal, in the parser's words. */
+const FRACTION_NEEDS_TOP = "a fraction needs a top; for a comment, write `--`";
+
+/**
+ * Comments §3.1's first refusal wherever an item begins, in every block: a line
+ * that begins with `//` at its block's own indentation begins an item (Lexer
+ * Layout §2.3), and a `//` there has no top, so it is never a fraction —
+ * whether the block holds bindings, match arms, record fields or constructors.
+ * The line is reported once, its slashes fixed into dashes, and then read as
+ * the comment it was meant to be: its tokens leave the stream with one of the
+ * separators around it, so the items on either side parse as if it were not
+ * there. The same holds where no operand has begun at all — after an opening
+ * bracket, a comma or an `=` — so `1, // one` and `= // doubles` read on. A
+ * `//` anywhere else is the parser's, which knows where an operand stands.
+ */
+function withoutItemComments(
+  tokens: readonly LaidOut.Token[],
+  diagnostics: Diagnostics.Bag,
+): readonly LaidOut.Token[] {
+  const itemStarts = new Set(["VOpen", "VSep", "Semicolon"]);
+  // Where no operand has begun either: after an opening bracket, a comma, or
+  // an `=` whose body the rest of the line was meant to annotate.
+  const noTop = new Set([...itemStarts, "LeftBrace", "LeftBracket", "LeftParen", "Comma", "Equal"]);
+  const virtual = new Set(["VOpen", "VSep", "VClose", "Eof"]);
+  const kept: LaidOut.Token[] = [];
+  let index = 0;
+  while (index < tokens.length) {
+    const token = tokens[index]!;
+    const previous = kept.at(-1);
+    if (token.kind !== "Fraction" || previous === undefined || !noTop.has(previous.kind)) {
+      kept.push(token);
+      index += 1;
+      continue;
+    }
+    let end = token.span;
+    let next = index + 1;
+    while (
+      (tokens[next]?.kind === "Fraction" || tokens[next]?.kind === "Slash") &&
+      tokens[next]!.span.start.offset === end.end.offset
+    ) {
+      end = tokens[next]!.span;
+      next += 1;
+    }
+    const run = spanFrom(token.span, end);
+    diagnostics.add({
+      severity: "error",
+      message: FRACTION_NEEDS_TOP,
+      primary: run,
+      fixes: [{
+        message: "use the Hexagon line comment spelling",
+        edits: [{ span: run, replacement: "-".repeat(run.end.offset - run.start.offset) }],
+      }],
+    });
+    while (
+      next < tokens.length && !virtual.has(tokens[next]!.kind) &&
+      tokens[next]!.span.start.line === token.span.start.line
+    ) {
+      next += 1;
+    }
+    // One separator goes with the line: the one before it, unless that opened
+    // the block, in which case the one after it.
+    const following = tokens[next];
+    if (previous.kind === "VSep" || previous.kind === "Semicolon") {
+      kept.pop();
+    } else if (previous.kind === "VOpen" && following?.kind === "VSep") {
+      next += 1;
+    }
+    index = next;
+  }
+  return kept;
 }
 
 /**
@@ -8709,7 +8782,7 @@ class Parser {
     for (const token of this.#fractionTokens) {
       this.#diagnostics.noteErrors(
         ({ primary, message }) =>
-          message !== FRACTION_CHAIN &&
+          message !== FRACTION_CHAIN && message !== FRACTION_NEEDS_TOP &&
           primary.start.line === token.start.line && primary.start.offset >= token.end.offset,
         FRACTION_COMMENT_NOTE,
       );
@@ -8735,7 +8808,7 @@ class Parser {
     const run = spanFrom(first.span, end);
     this.#diagnostics.add({
       severity: "error",
-      message: "a fraction needs a top; for a comment, write `--`",
+      message: FRACTION_NEEDS_TOP,
       primary: run,
       fixes: [{
         message: "use the Hexagon line comment spelling",

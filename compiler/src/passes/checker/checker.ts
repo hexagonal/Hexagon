@@ -20205,11 +20205,16 @@ class Checker {
         if (divisor === 1n && bottom > 0n) continue;
         const sign = bottom < 0n ? -1n : 1n;
         const rewrite = `${(top / divisor) * sign} // ${(bottom / divisor) * sign}`;
+        // The fix rewrites bare literals only: a side under `as` or a type keeps
+        // what it binds or says, which the rewrite would delete.
+        const bare = topPattern.kind === "Integer" && bottomPattern.kind === "Integer";
         return {
           severity: "error",
           message: `${lead} — write \`${rewrite}\``,
           primary: node.span,
-          fixes: [{ message: `write \`${rewrite}\``, edits: [{ span: node.span, replacement: rewrite }] }],
+          ...(bare
+            ? { fixes: [{ message: `write \`${rewrite}\``, edits: [{ span: node.span, replacement: rewrite }] }] }
+            : {}),
         };
       }
       if (bottom === undefined || bottom > 0n) continue;
@@ -20249,28 +20254,43 @@ class Checker {
       const display = this.#display(actual);
       return ["Rat", "Dec", "Float"].includes(display) ? display : undefined;
     };
-    const at = expression.components.findIndex((component) => named(component) !== undefined);
-    if (at < 0) return;
-    const found = named(expression.components[at]!)!;
-    const within = (span: Source.Span): boolean =>
-      span.start.offset >= expression.span.start.offset && span.end.offset <= expression.span.end.offset;
+    const within = (span: Source.Span, outer: Source.Span): boolean =>
+      span.start.offset >= outer.start.offset && span.end.offset <= outer.end.offset;
+    const refused = new Set<number>();
     for (let index = 0; index < this.#diagnostics.count; index += 1) {
       const diagnostic = this.#diagnostics.at(index)!;
-      if (!within(diagnostic.primary)) continue;
-      if (!/^type mismatch: expected BigInt, found (Rat|Dec|Float)$/u.test(diagnostic.message)) continue;
-      const grouped = (written: string): string =>
-        /^-?[\p{L}\p{N}_.]+$/u.test(written) ? written : `(${written})`;
-      const written = sides.map((other, position) =>
-        position === at && found === "Dec" ? `Rat.fromDec(${other})` : grouped(other!)
+      if (!within(diagnostic.primary, expression.span)) continue;
+      // The plain seat mismatch, reported at the call or at the side, and the
+      // home reports a compound side draws: `(r + 1) // 2` reports `r`
+      // entering no `BigInt` home.
+      const plain = /^type mismatch: expected BigInt, found (Rat|Dec|Float)$/u.exec(diagnostic.message)?.[1];
+      const entry = /^`[^`]*` is an? `(Rat|Dec|Float)` and cannot enter `BigInt`/u.exec(diagnostic.message)?.[1];
+      const found = plain ?? entry;
+      if (found === undefined) continue;
+      const holding = expression.components.findIndex(({ span }) =>
+        within(diagnostic.primary, span) && !(span.start.offset === expression.span.start.offset &&
+          span.end.offset === expression.span.end.offset)
       );
-      const side = expression.components[at]!;
+      const at = holding >= 0 && !refused.has(holding)
+        ? holding
+        : expression.components.findIndex((component, position) =>
+          !refused.has(position) && named(component) === found
+        );
+      if (at < 0) continue;
+      refused.add(at);
+      const grouped = (written: string): string =>
+        /^-?[\p{L}\p{N}_.]+$/u.test(written) || /^\(.*\)$/su.test(written) ? written : `(${written})`;
+      const unwrapped = (written: string): string =>
+        /^\(.*\)$/su.test(written) ? written.slice(1, -1) : written;
+      const written = sides.map((other, position) =>
+        position === at && found === "Dec" ? `Rat.fromDec(${unwrapped(other!)})` : grouped(other!)
+      );
       this.#diagnostics.replace(index, {
         ...diagnostic,
         message: `a fraction's top and bottom are integers, and \`${sides[at]}\` is ${article(found)} ` +
           `\`${found}\` — to divide, write \`${written[0]} / ${written[1]}\``,
-        primary: side.span,
+        primary: expression.components[at]!.span,
       });
-      return;
     }
   }
 
