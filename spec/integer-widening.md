@@ -422,6 +422,7 @@ document listed `Dec` to `Rat` among the deliberately absent conversions and kep
 
 Applied elsewhere in the same change: `dec.md` §3 and §4, where the exact conversion
 to `Rat` had been a named call only and is now also silent, and where conversions
-involving `Rat` had all belonged to `Rat`; `numeric-literals.md` §5.1 and §6;
-`method-syntax.md` §4.2; `modules.md` §5.3, §5.5 and §7.6; `constraints.md` §5.1.1;
-`friendly-numerics.md` §2 and §3; `rat.md` §10.
+involving `Rat` had all belonged to `Rat`, and §11; `numeric-literals.md` §1, §5.1, §6
+and §8; `method-syntax.md` §4.2; `modules.md` §5.1, §5.3, §5.4, §5.5 and §7.6;
+`constraints.md` §5.1.1, §7 and §8; `friendly-numerics.md` §2 and §3; `rat.md` §1, §5,
+§6 and §10.

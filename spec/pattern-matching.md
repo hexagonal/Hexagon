@@ -441,7 +441,7 @@ Pins that make this airtight:
 
 - **No grouping parens around a parameter list.** `((x, y)) => e` is unambiguously one tuple-destructured parameter, never "two params with stylistic parens." The diagnostic for the person who meant two parameters: "this is one parameter destructuring a tuple; for two parameters remove the outer parentheses."
 - *Inside* a pattern, parens behave as in expressions: `(p)` groups, `(p, q)` is a tuple pattern. So `(((x, y)))` is one tuple-destructured parameter with a redundant grouping paren — legal, same meaning; the formatter normalizes.
-- The zero-param (`() =>`) and single-bare-param (`x =>`) forms are unchanged. A single parameter without parens may be any paren-free pattern (`{a, b} =>`, `UserId(n) =>`, `x as v =>`, `n // d =>`); the arrow after the pattern is what makes it a head, so `n // d => e` takes one `Rat` and is never the fraction `n // (d => e)`, whose bottom could not be an integer; tuple-destructuring a sole parameter requires the parens by construction (`((x, y)) =>`).
+- The zero-param (`() =>`) and single-bare-param (`x =>`) forms are unchanged. A single parameter without parens may be any paren-free pattern (`{a, b} =>`, `UserId(n) =>`, `x as v =>`, `n // d =>`); the arrow after the pattern is what makes it a head, so `n // d => e` takes one `Rat` and is never the fraction `n // (d => e)`, whose bottom could not be an integer. A fraction head is recognised whatever its sides are, a literal or a signed literal included: `1 // d => e` and `n // -3 => e` are one parameter each, refused at the irrefutability gate as any refutable head is. A guard keeps its arm's arrow, so in `x when x > 1 // 2 => a` the `//` is a fraction in the guard; tuple-destructuring a sole parameter requires the parens by construction (`((x, y)) =>`).
 - **Uniform rule:** constructor patterns are legal here exactly as everywhere else, gated only by irrefutability. `UserId(n) => n` is the F# `fun (UserId n) -> n`, adopted as-is. (The rejected carve-out: §10.)
 - Header sugar (`let f(pat) = ...`, `fun f(pat) = ...`) desugars to lambdas and inherits everything above verbatim — parameters are the same head binders whichever spelling introduces them.
 - Row interaction: `{x} => e` on an unannotated parameter constrains it row-polymorphically, exactly like `p => p.x`. `fun getX({x}) = x` infers the same type as `fun getX(p) = p.x`.
@@ -909,6 +909,10 @@ describe(6 // 4)                             -- "3 over 2"
 describe(-8 // 4)                            -- "the whole number -2"
 let n // d = 4 // -5                         -- irrefutable; n = -4n, d = 5n
 let tops = rats.map(n // _ => n)             -- one parameter, a fraction pattern; tops of each
+let f = 1 // d => d                          -- ERROR: this pattern can fail: `_ // _`; use match
+match r
+    x when x > 1 // 2 => a                   -- the guard compares with a fraction; the arrow is the arm's
+    _ => b
 let 1 // d = r                               -- ERROR: this pattern can fail: `_ // _`; use match
 match r
     2 // 6 => a                              -- ERROR: this case is unreachable; a fraction comes apart in

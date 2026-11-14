@@ -1,6 +1,6 @@
 # Hexagon Spec: Lexer & Layout
 
-**Status:** Decided (July 2026); compiler pass implemented. Revised 2026-11-13 (#1538): §1 and §4 say that `{-` opens a comment, not a brace. Amended 2026-11-14 (#1542): §2.3 keeps `//` out of the continuation tokens, and §1's declared-pattern example is `clock`. This document owns layout, blocks, `;`, and
+**Status:** Decided (July 2026); compiler pass implemented. Revised 2026-11-13 (#1538): §1 and §4 say that `{-` opens a comment, not a brace. Amended 2026-11-14 (#1542): §2.3 keeps `//` out of the continuation tokens, and §2.1's declared-pattern example is `clock`. This document owns layout, blocks, `;`, and
 brace disambiguation. The companion [Physical Lexer](lexer.md) specification owns
 the complete physical token and keyword inventory, source coordinates, literals,
 whitespace, comments-as-trivia, and lexical diagnostics.
