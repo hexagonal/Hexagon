@@ -11,59 +11,70 @@ on:
   workflow_dispatch:
 
 # Least privilege by default; each job asks for what it needs. Note that a
-# `permissions:` block is unconditional, so the Check job below holds
-# `pages: write` on pull requests too — GitHub caps the token for pull requests
-# from a fork, but not for one pushed to this repository.
+# `permissions:` block is unconditional, so the job that builds the playground
+# holds `pages: write` on pull requests too — GitHub caps the token for pull
+# requests from a fork, but not for one pushed to this repository.
 permissions:
   contents: read
 
+# Superseded pushes to a pull request are worth cancelling. Pushes to main are
+# not one stream of work being revised, they are separate merges that each need
+# their own build, so they take a group of their own per run and never queue
+# behind one another.
+#
+# `cancel-in-progress: false` would NOT be enough to say that. A group holds one
+# pending run: a third arrival evicts the second while it waits. That is how PR
+# #203 was lost — cancelled 37 seconds in when PR #207 merged behind it, before
+# it could reach the deploy.
+#
+# The group covers the whole run, so a superseded pull-request run stops its
+# test jobs together rather than leaving shards running for nobody; only the
+# final "Check" still runs, to report the run as red (see that job).
+concurrency:
+  group: check-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# The gate is spread over several machines so that it takes about as long as
+# its slowest part rather than the sum of them. The compiler's tests are most of
+# the work, so they run as four jobs side by side; everything else runs as one
+# more beside them. The job named "Check" — the one a pull request must pass —
+# runs last and passes only when every one of them passed. It is the only name
+# branch protection knows, so the parts can be regrouped freely as long as
+# "Check" still waits for all of them.
 jobs:
-  build:
-    name: Check
+  # A pull request that changes only prose skips every job below that tests,
+  # checks or builds, and "Check" reports green, because none of them reads
+  # those files. The allow-list is:
+  #
+  #   spec/**   the language specification
+  #   book/**   the Book
+  #   *.md      Markdown at the top level only (README.md and the like)
+  #
+  # Any other path runs everything as before, and so does a path nobody thought
+  # of: the list says what is safe, never what is not. A change to .github/ is
+  # never prose, so a pull request that edits this workflow always runs it in
+  # full. Pushes to main and workflow_dispatch always run everything, so a skip
+  # can never hide a red main or a lost deploy.
+  #
+  # The skip lives here, inside the workflow, and not in the trigger's `paths:`.
+  # "Check" is a required check; a workflow that a path filter stops from
+  # starting never reports it, and the pull request then waits forever. When a
+  # test or build starts reading spec/, book/ or a top-level Markdown file, that
+  # entry leaves this list.
+  scope:
+    name: Decide what to check
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pages: write
-    # Superseded pushes to a pull request are worth cancelling. Pushes to main
-    # are not one stream of work being revised, they are separate merges that
-    # each need their own build, so they take a group of their own per run and
-    # never queue behind one another.
-    #
-    # `cancel-in-progress: false` would NOT be enough to say that. A group holds
-    # one pending run: a third arrival evicts the second while it waits. That is
-    # how PR #203 was lost — cancelled 37 seconds in when PR #207 merged behind
-    # it, before it could reach the deploy.
-    concurrency:
-      group: check-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
-      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    outputs:
+      code: ${{ steps.scope.outputs.code }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
         with:
           # A pull request checks out GitHub's merge of the branch into its
           # base. Its first parent is the base tip, so a depth of 2 is all the
-          # scope step below needs to see what the pull request changes.
+          # step below needs to see what the pull request changes.
           fetch-depth: 2
 
-      # A pull request that changes only prose skips every step below and
-      # reports green, because no test, check or build reads those files. The
-      # allow-list is:
-      #
-      #   spec/**   the language specification
-      #   book/**   the Book
-      #   *.md      Markdown at the top level only (README.md and the like)
-      #
-      # Any other path runs everything as before, and so does a path nobody
-      # thought of: the list says what is safe, never what is not. A change to
-      # .github/ is never prose, so a pull request that edits this workflow
-      # always runs it in full. Pushes to main and workflow_dispatch always
-      # run everything, so a skip can never hide a red main or a lost deploy.
-      #
-      # The skip lives here, inside the job, and not in the trigger's `paths:`.
-      # "Check" is a required check; a workflow that a path filter stops from
-      # starting never reports it, and the pull request then waits forever.
-      # When a test or build starts reading spec/, book/ or a top-level
-      # Markdown file, that entry leaves this list.
       - name: Decide whether the code needs checking
         id: scope
         env:
@@ -99,8 +110,58 @@ jobs:
             echo "::notice::Only spec/, book/ or top-level Markdown changed; skipping the code checks."
           fi
 
+  # The compiler's suite, split by `vitest.config.ts` into whole projects, so
+  # that the files of a project still share one warm worker (see
+  # `compiler/architecture/testing.md` §5). The shard each job runs comes from
+  # its place in the matrix and the matrix's size, so adding or removing an
+  # entry below re-deals the projects and never leaves one unrun. `fail-fast`
+  # is off so that a red run lists every failing shard, not just the first.
+  compiler-tests:
+    name: Test compiler (${{ matrix.part }})
+    needs: scope
+    if: needs.scope.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        part: [1, 2, 3, 4]
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
       - name: Set up Node.js
-        if: steps.scope.outputs.code == 'true'
+        uses: actions/setup-node@v6
+        with:
+          node-version: lts/*
+          cache: npm
+          cache-dependency-path: compiler/package-lock.json
+
+      - name: Install compiler dependencies
+        run: npm ci
+        working-directory: compiler
+
+      - name: Test compiler
+        env:
+          INDEX: ${{ strategy.job-index }}
+          TOTAL: ${{ strategy.job-total }}
+        run: HEXAGON_TEST_SHARD="$((INDEX + 1))/$TOTAL" npm test
+        working-directory: compiler
+
+  # Everything else the gate runs, in the order it always has, and the build
+  # that becomes the site.
+  packages:
+    name: Check the compiler build and the other packages
+    needs: scope
+    if: needs.scope.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js
         uses: actions/setup-node@v6
         with:
           node-version: lts/*
@@ -113,22 +174,14 @@ jobs:
             playground/package-lock.json
 
       - name: Install compiler dependencies
-        if: steps.scope.outputs.code == 'true'
         run: npm ci
         working-directory: compiler
 
-      - name: Test compiler
-        if: steps.scope.outputs.code == 'true'
-        run: npm test
-        working-directory: compiler
-
       - name: Check compiler
-        if: steps.scope.outputs.code == 'true'
         run: npm run check
         working-directory: compiler
 
       - name: Test emitted root selection and program I/O on Node
-        if: steps.scope.outputs.code == 'true'
         run: |
           npm run build
           node scripts/test-root-selection.mjs
@@ -139,76 +192,62 @@ jobs:
       # answer to what a program is on disk, so it is gated with the compiler
       # rather than with either tool.
       - name: Install host dependencies
-        if: steps.scope.outputs.code == 'true'
         run: npm ci
         working-directory: host
 
       - name: Test host
-        if: steps.scope.outputs.code == 'true'
         run: npm test
         working-directory: host
 
       - name: Check host
-        if: steps.scope.outputs.code == 'true'
         run: npm run check
         working-directory: host
 
       # The language server and the extension are gated here rather than in a
-      # workflow of their own because this is the only job that runs on every
-      # push to main. Neither ships to Pages; they run so that a change to the
-      # compiler cannot break the editor silently.
+      # workflow of their own because this is the only workflow that runs on
+      # every push to main. Neither ships to Pages; they run so that a change to
+      # the compiler cannot break the editor silently.
       - name: Install language server dependencies
-        if: steps.scope.outputs.code == 'true'
         run: npm ci
         working-directory: language-server
 
       - name: Test language server
-        if: steps.scope.outputs.code == 'true'
         run: npm test
         working-directory: language-server
 
       - name: Check language server
-        if: steps.scope.outputs.code == 'true'
         run: npm run check
         working-directory: language-server
 
       - name: Build language server
-        if: steps.scope.outputs.code == 'true'
         run: npm run build
         working-directory: language-server
 
       - name: Install VS Code extension dependencies
-        if: steps.scope.outputs.code == 'true'
         run: npm ci
         working-directory: editors/vscode
 
       - name: Test VS Code extension
-        if: steps.scope.outputs.code == 'true'
         run: npm test
         working-directory: editors/vscode
 
       - name: Check VS Code extension
-        if: steps.scope.outputs.code == 'true'
         run: npm run check
         working-directory: editors/vscode
 
       - name: Build VS Code extension
-        if: steps.scope.outputs.code == 'true'
         run: npm run build
         working-directory: editors/vscode
 
       - name: Install playground dependencies
-        if: steps.scope.outputs.code == 'true'
         run: npm ci
         working-directory: playground
 
       - name: Test playground
-        if: steps.scope.outputs.code == 'true'
         run: npm test
         working-directory: playground
 
       - name: Check playground
-        if: steps.scope.outputs.code == 'true'
         run: npm run check
         working-directory: playground
 
@@ -216,23 +255,71 @@ jobs:
       # pull request, and a dispatch on a branch, both of which have nothing to
       # publish. They still run the real build, because a build that no longer
       # compiles is exactly the breakage this gate exists to catch; only a pull
-      # request that changes nothing but prose skips it (see the scope step).
+      # request that changes nothing but prose skips it (see the scope job).
       # `build:pages` hardcodes its own `--base`, so it reads nothing from
       # configure-pages and skipping that step cannot change what it produces.
       - name: Configure GitHub Pages
-        if: steps.scope.outputs.code == 'true' && github.ref == 'refs/heads/main'
+        if: github.ref == 'refs/heads/main'
         uses: actions/configure-pages@v5
 
       - name: Build playground for GitHub Pages
-        if: steps.scope.outputs.code == 'true'
         run: npm run build:pages
         working-directory: playground
 
       - name: Upload playground
-        if: steps.scope.outputs.code == 'true' && github.ref == 'refs/heads/main'
+        if: github.ref == 'refs/heads/main'
         uses: actions/upload-pages-artifact@v4
         with:
           path: playground/dist
+
+  # The required check. It turns the parts' results into one: success only when
+  # every part succeeded, or when the scope job found nothing but prose and the
+  # parts were skipped for that reason. Any other mix is red, a cancelled or
+  # skipped part included, so no outcome of a part can pass here by accident.
+  # It keeps the job id `build` that the deploy and the red-main report below
+  # depend on.
+  #
+  # Anywhere but main it runs even when the run is cancelled. A job that its
+  # `if:` skips reports as skipped, and branch protection counts a skipped
+  # required check as passed, so a run cancelled before this job started — a
+  # pull request's, or a dispatch on its branch — would otherwise leave the
+  # pull request mergeable with nothing tested. Run, it goes red unless every
+  # part had already passed (or been skipped for prose). A superseded
+  # pull-request run therefore ends red on its old commit rather than
+  # cancelled. On main a cancelled run stays silent, as it always has, so the
+  # red-main report does not fire on it.
+  build:
+    name: Check
+    needs: [scope, compiler-tests, packages]
+    if: ${{ always() && (github.ref != 'refs/heads/main' || !cancelled()) }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every part to have passed
+        env:
+          SCOPE: ${{ needs.scope.result }}
+          CODE: ${{ needs.scope.outputs.code }}
+          COMPILER_TESTS: ${{ needs.compiler-tests.result }}
+          PACKAGES: ${{ needs.packages.result }}
+        run: |
+          set -euo pipefail
+          printf 'scope: %s (code: %s)\ncompiler tests: %s\npackages: %s\n' \
+            "$SCOPE" "$CODE" "$COMPILER_TESTS" "$PACKAGES"
+          if [ "$SCOPE" != success ]; then
+            echo "::error::Deciding what to check did not succeed."
+            exit 1
+          fi
+          if [ "$CODE" = false ]; then
+            expected=skipped
+          elif [ "$CODE" = true ]; then
+            expected=success
+          else
+            echo "::error::The scope job gave no answer."
+            exit 1
+          fi
+          if [ "$COMPILER_TESTS" != "$expected" ] || [ "$PACKAGES" != "$expected" ]; then
+            echo "::error::Every part must be $expected."
+            exit 1
+          fi
 
   deploy:
     name: Deploy

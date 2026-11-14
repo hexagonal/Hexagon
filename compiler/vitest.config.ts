@@ -61,25 +61,45 @@ const shared = globSync("**/*.{test,spec}.?(c|m)[jt]s?(x)", {
   .filter((path) => !ISOLATED.includes(path))
   .sort();
 
+// Continuous integration runs the suite as several jobs on separate machines.
+// `HEXAGON_TEST_SHARD=k/n` keeps every n-th project, starting at the k-th, so
+// the n jobs between them run each project exactly once, whatever SHARES is,
+// and a project is never split across machines: its files still share one
+// warm worker. Unset, every project runs.
+const projects = [
+  ...Array.from({ length: SHARES }, (_, share) => ({
+    extends: true as const,
+    test: {
+      name: `shared-${share + 1}`,
+      isolate: false,
+      execArgv: ["--max-old-space-size=4096"],
+      include: shared.filter((_, index) => index % SHARES === share),
+    },
+  })),
+  {
+    extends: true as const,
+    test: { name: "isolated", include: ISOLATED },
+  },
+];
+
+function selectShard<T>(all: T[], spec: string | undefined): T[] {
+  if (spec === undefined || spec === "") return all;
+  const match = /^([1-9][0-9]*)\/([1-9][0-9]*)$/u.exec(spec);
+  const part = Number(match?.[1]);
+  const parts = Number(match?.[2]);
+  if (match === null || part > parts || parts > all.length) {
+    throw new Error(
+      `HEXAGON_TEST_SHARD must be k/n with 1 <= k <= n <= ${all.length}, not "${spec}"`,
+    );
+  }
+  return all.filter((_, index) => index % parts === part - 1);
+}
+
 export default defineConfig({
   test: {
     setupFiles: ["./vitest.setup.ts"],
     testTimeout: 30_000,
     server: { deps: { external: [/[\\/]hex-run-/u] } },
-    projects: [
-      ...Array.from({ length: SHARES }, (_, share) => ({
-        extends: true,
-        test: {
-          name: `shared-${share + 1}`,
-          isolate: false,
-          execArgv: ["--max-old-space-size=4096"],
-          include: shared.filter((_, index) => index % SHARES === share),
-        },
-      })),
-      {
-        extends: true,
-        test: { name: "isolated", include: ISOLATED },
-      },
-    ],
+    projects: selectShard(projects, process.env.HEXAGON_TEST_SHARD),
   },
 });
