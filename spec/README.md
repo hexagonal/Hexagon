@@ -49,7 +49,7 @@ Every normative owner appears exactly once. The explicitly marked router and gui
 | Control | `exceptions.md` | `exception` and `fault`, `throw`, `try`/`catch` and the `fault` pattern, `attempt` and `assume`, `JsError`, branded representation |
 | Control | `loops-ranges-iteration.md` | `for`/`while`, `Range`, `Seq` semantics, `Iterable` machinery |
 | Control | `method-syntax.md` | dot calls, `CompanionOf`, the subject the program's text decides |
-| Control | `division-remainder.md` | division/remainder/modulo semantics |
+| Control | `division-remainder.md` | division/remainder/modulo semantics; the refusal of a divisor written as a literal zero at every exact division |
 | Effects | `effects.md` | the effect discipline: two colours (impurity, failing), each of two points; the nine arrows; a colour per callback; the four call marks and the reading; handling; enforcement; trusted claims; the `Seq`/`Stream` posture; effect contracts |
 | Effects | `stream.md` | `Stream(a)`, the impure sequence: type, protocol, v1 module surface |
 | Effects | `program-io.md` | program I/O under Node: the `File`, `Stdio` and `Process` modules, `FileError`, strict UTF-8 reads, the writers' endings, the arguments, the exit status, the playground's stand-in terminal |

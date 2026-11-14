@@ -1,6 +1,6 @@
 # Hexagon Spec: `Dec`
 
-**Status:** Decided and implemented. §8's `same` becomes `Hash<Dec>`'s member with `memoization.md` (decided 2026-11-03, implementation #1445). Amended 2026-11-14 (#1542): a `Dec` enters a `Rat` through `FromDec` (§3, §4), `Rat` being a prelude module seated after `Dec`.
+**Status:** Decided and implemented. §8's `same` becomes `Hash<Dec>`'s member with `memoization.md` (decided 2026-11-03, implementation #1445). Amended 2026-11-14 (#1542): a `Dec` enters a `Rat` through `FromDec` (§3, §4), `Rat` being a prelude module seated after `Dec`. Amended 2026-11-14 (#1545): a divisor written as a literal zero is refused when the program is compiled (§6, §11; Division & Remainder §12).
 **Scope:** A fundamental prelude decimal type, exact arithmetic, explicit rounding,
 numerical comparison and hashing, retained decimal places, and display.
 **Companions:** `numeric-literals.md`, `integer-widening.md` (§9, `FromDec`), `rat.md`,
@@ -415,7 +415,9 @@ divideEven(-1, -8, 2) = 0.12
 Division checks for a zero divisor by numerical value, independent of its places,
 and throws the existing `DivideByZeroFault` declared by `Integral.hex`. Messages
 identify the operation (`Dec.divide: divisor is zero` or
-`Dec.divideEven: divisor is zero`). No Java exception type is introduced.
+`Dec.divideEven: divisor is zero`). No Java exception type is introduced. A divisor
+written as a literal zero, `0d` and `0.00d` among them, is refused when the program is
+compiled, in every spelling of the call (Division & Remainder §12).
 
 ## 7. Changing places and rounding to an integer
 
@@ -549,8 +551,10 @@ classification is unchanged.
   Cover inferred `let places = 2`, accessor subtraction, and negative places on
   construction, both adjustment/division variants, and both Rat conversions.
 - Repeating division rounds correctly for every combination of operand signs;
-  every zero-divisor representation throws
-  the existing `DivideByZeroFault`. No `/` or `Frac<Dec>` is available.
+  every zero-divisor representation that is not written as a literal throws
+  the existing `DivideByZeroFault`, and one written as a literal (`0d`, `0.00d`) is
+  refused when the program is compiled (Division & Remainder §12). No `/` or
+  `Frac<Dec>` is available.
 - Detect double rounding: rounding `1.249` directly to one place yields `1.2`,
   not the `1.3` obtained by first rounding to two places.
 - `same` distinguishes equal numerical values with different places, including
