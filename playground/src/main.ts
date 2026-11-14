@@ -16,10 +16,12 @@ import {
   playgroundExamples,
 } from "./examples";
 import {
+  declarationFileView,
   formatEditionLabel,
   formatExportLabel,
   generatedSectionsPanel,
   renderGeneratedCodeView,
+  type DeclarationFileView,
 } from "./generated-code";
 import { helloWorld } from "./examples/hello-world";
 import { readStoredInput, readStoredSource, writeStoredInput, writeStoredSource } from "./persistence";
@@ -58,7 +60,7 @@ type ResultTab =
   | "output"
   | "errors"
   | "javascript"
-  | "typeScriptPreview"
+  | "declarationFile"
   | "types";
 
 interface PlaygroundState {
@@ -74,7 +76,7 @@ interface PlaygroundState {
   generatedDeclarations: readonly GeneratedSection[];
   zeroEntryPointExports: readonly string[];
   javascriptView: string;
-  typeScriptPreview: string;
+  declarationFile: DeclarationFileView;
   types: readonly TypeOccurrence[];
 }
 
@@ -91,7 +93,10 @@ const state: PlaygroundState = {
   generatedDeclarations: [],
   zeroEntryPointExports: [],
   javascriptView: "source",
-  typeScriptPreview: "// The TypeScript preview will appear after compilation.",
+  declarationFile: {
+    kind: "note",
+    text: "The declaration file will appear after compilation.",
+  },
   types: [],
 };
 
@@ -161,7 +166,7 @@ app.innerHTML = `
         <button role="tab" data-tab="output" aria-selected="false">Output</button>
         <button role="tab" data-tab="errors" aria-selected="false">Errors <span class="badge">0</span></button>
         <button role="tab" data-tab="javascript" aria-selected="true">JS</button>
-        <button role="tab" data-tab="typeScriptPreview" aria-selected="false">.d.ts</button>
+        <button role="tab" data-tab="declarationFile" aria-selected="false">.d.ts</button>
         <button role="tab" data-tab="types" aria-selected="false">Types</button>
         <div class="build-report" hidden>
           <span id="zero-entry-points" class="zero-entry-points" hidden></span>
@@ -322,7 +327,10 @@ compilerWorker.addEventListener("message", (event: MessageEvent<CompilerMessage>
     state.generatedJavaScript = response.generatedJavaScript;
     state.generatedDeclarations = response.generatedDeclarations;
     state.zeroEntryPointExports = response.zeroEntryPointExports;
-    state.typeScriptPreview = response.typeScriptPreview;
+    state.declarationFile = declarationFileView(
+      response.declarationFile,
+      response.exportsNothing,
+    );
     state.types = response.types;
     state.diagnostics = response.diagnostics.map((diagnostic) =>
       locateDiagnostic(sourceEditor.getSource(), diagnostic)
@@ -337,8 +345,10 @@ compilerWorker.addEventListener("message", (event: MessageEvent<CompilerMessage>
     state.generatedJavaScript = [];
     state.generatedDeclarations = [];
     state.zeroEntryPointExports = [];
-    state.typeScriptPreview =
-      "// No TypeScript preview emitted for the current source.";
+    state.declarationFile = {
+      kind: "note",
+      text: "No declaration file was emitted for the current source.",
+    };
     state.types = [];
     state.diagnostics = response.diagnostics.map((diagnostic) =>
       locateDiagnostic(sourceEditor.getSource(), diagnostic)
@@ -530,7 +540,7 @@ function renderResult(): void {
   resultView.classList.toggle("diagnostics-view", state.activeTab === "errors");
   const generatedLanguage = state.activeTab === "javascript"
     ? "javascript"
-    : state.activeTab === "typeScriptPreview"
+    : state.activeTab === "declarationFile" && state.declarationFile.kind === "file"
       ? "typescript"
       : undefined;
   if (generatedLanguage !== undefined && generatedCodeEditor !== undefined) {
@@ -539,7 +549,7 @@ function renderResult(): void {
       generatedLanguage,
       generatedLanguage === "javascript"
         ? displayedJavaScript()
-        : state.typeScriptPreview,
+        : state.declarationFile.text,
     );
     return;
   }
@@ -554,6 +564,10 @@ function renderResult(): void {
     renderOutput();
     return;
   }
+  if (state.activeTab === "declarationFile" && state.declarationFile.kind === "note") {
+    renderDeclarationNote(state.declarationFile.text);
+    return;
+  }
 
   const content: Record<ResultTab, string> = {
     output: executionWorker === undefined
@@ -561,7 +575,7 @@ function renderResult(): void {
         : "Program is running…",
     errors: "",
     javascript: displayedJavaScript(),
-    typeScriptPreview: state.typeScriptPreview,
+    declarationFile: state.declarationFile.text,
     types: state.types.length > 0
       ? state.types.map(({ name, displayedType }) => `${name} : ${displayedType}`).join("\n")
       : "Inferred types will appear after compilation.",
@@ -675,6 +689,19 @@ function renderOutput(): void {
     span.textContent = text;
     return span;
   }));
+}
+
+/**
+ * The `.d.ts` pane's note — before a compile, after a failed one, or for a
+ * module that exports nothing — set apart from file text: a sentence in the page's
+ * own type rather than a line in the code view, so it is never read as the
+ * file's content.
+ */
+function renderDeclarationNote(text: string): void {
+  const note = document.createElement("p");
+  note.className = "pane-note";
+  note.append(...withCode(text));
+  resultText.replaceChildren(note);
 }
 
 function renderDiagnostics(): void {

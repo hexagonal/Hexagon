@@ -107,5 +107,4 @@ export { type InlayHint } from "./queries/inlay-hints.js";
 export {
   emitJavaScript,
   emitDeclarations,
-  emitTypeScriptPreview,
 } from "./passes/emitter/emitter.js";

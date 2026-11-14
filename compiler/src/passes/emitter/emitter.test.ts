@@ -14,7 +14,6 @@ import { compileFiles, runProject } from "../../support/test-project.js";
 import {
   emitDeclarations,
   emitJavaScript,
-  emitTypeScriptPreview,
 } from "./emitter.js";
 
 describe("emitJavaScript", () => {
@@ -971,13 +970,6 @@ describe("emitJavaScript", () => {
     expect(emitJavaScript(module).text).toBe(
       'const [name, , [x, y]] = ["point", true, [3, 4]];\n' +
         "const total = x + y;\n",
-    );
-    expect(emitTypeScriptPreview(module).text).toBe(
-      "declare const name: string;\n" +
-        "declare const x: number;\n" +
-        "declare const y: number;\n" +
-        "declare const total: number;\n" +
-        "export {};\n",
     );
   });
 
@@ -2478,58 +2470,6 @@ describe("emitDeclarations", () => {
     }
     expect(increment.diagnostics).toEqual([]);
     expect(equal.diagnostics).toEqual([]);
-  });
-});
-
-describe("emitTypeScriptPreview", () => {
-  test("describes private top-level bindings without exporting them", () => {
-    const output = emitTypeScriptPreview(
-      coreSource(
-        'let greet(name) = "Hello, " ++ name\n' +
-          "let plus(x: Int, y) = x + y\n" +
-          "let answer = 42",
-      ),
-    );
-
-    expect(output).toMatchObject({
-      kind: "TypeScriptPreview",
-      text:
-        "declare const greet: (name: string) => string;\n" +
-        "declare const plus: (x: number, y: number) => number;\n" +
-        "declare const answer: number;\n" +
-        "export {};\n",
-      diagnostics: [],
-    });
-  });
-
-  test("includes private recursive functions without exporting them", () => {
-    const output = emitTypeScriptPreview(
-      coreSource(
-        "fun fact(n: Int): Int = if n <= 1 then 1 else n * fact(n - 1)",
-      ),
-    );
-
-    expect(output.text).toBe(
-      "declare function fact(n: number): number;\n" +
-        "export {};\n",
-    );
-    expect(output.diagnostics).toEqual([]);
-  });
-
-  test("previews private fundamental editions without exporting them", () => {
-    const output = emitTypeScriptPreview(
-      coreSource("let plus(x, y) = x + y\nlet answer = 42"),
-    );
-
-    expect(output.text).toBe(
-      "declare function plusNat(x: number, y: number): number;\n" +
-        "declare function plusInt(x: number, y: number): number;\n" +
-        "declare function plusFloat(x: number, y: number): number;\n" +
-        "declare function plusBigInt(x: bigint, y: bigint): bigint;\n" +
-        "declare const answer: number;\n" +
-        "export {};\n",
-    );
-    expect(output.diagnostics).toEqual([]);
   });
 });
 

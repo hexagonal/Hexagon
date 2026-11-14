@@ -2,8 +2,8 @@
 
 This folder will contain the browser-based Hexagon playground: an interactive place to write Hexagon, inspect what the compiler understood and emitted, and run the resulting JavaScript.
 
-The current slices compile live, run the latest successful compilation, and expose errors, emitted JavaScript, an
-inspection-only TypeScript preview, and inferred top-level types. Primitive
+The current slices compile live, run the latest successful compilation, and expose errors, emitted JavaScript, the
+module's shipped `.d.ts`, and inferred top-level types. Primitive
 parameter and result annotations, directly recursive `fun`, and first-argument
 pipes are accepted, including partially annotated parameter lists. The debugging
 probe, `log(...)`, takes one rendered `String`, returns `Unit`, and writes to both
@@ -29,9 +29,10 @@ npm run dev
 
 Open the local address printed by Vite. Edit the buffer, inspect **Errors**,
 **JS**, **.d.ts**, and **Types**, then choose **Run**. The **Output** tab receives
-`log(...)` output. Top-level bindings do not need `export`: the
-`.d.ts` tab uses the compiler's inspection-only TypeScript preview while preserving
-ordinary Hexagon visibility. This path calls the compiler directly in a Web Worker;
+`log(...)` output. Top-level bindings do not need `export` to be run or to appear
+in **JS**, but the `.d.ts` tab shows the module's shipped declaration file, which
+declares exported bindings only: write `export` to see a binding there, as in a
+real file. This path calls the compiler directly in a Web Worker;
 it does not use the language server or LSP.
 
 The playground opens on **JS** and begins with a commented tour of the supported
@@ -115,7 +116,7 @@ uses `npm run build:pages`, which sets the project-site base to `/Hexagon/`.
 The experience is inspired by the TypeScript Playground without attempting to copy
 its interface exactly. The primary view is a Hexagon editor beside a result panel
 with user-facing tabs for runtime output, compiler errors, emitted JavaScript, the
-TypeScript preview, and inferred top-level types.
+shipped declaration file, and inferred top-level types.
 
 ## Product shape
 
@@ -155,9 +156,11 @@ The hints and the input box are off until the dev turns them on (`src/settings.t
   model on supported desktop browsers. Generated specialization families are
   summarized in the default source-shaped view; the view selector exposes the
   complete module or any individual edition with its concrete types and byte size.
-- **.d.ts** shows an inspection-only TypeScript preview for representable top-level
-  bindings, also in a read-only Monaco model. It does not promote private Hexagon
-  bindings into public exports.
+- **.d.ts** shows the module's shipped declaration file: the text the compiler
+  emits for it, byte for byte, import lines included, also in a read-only Monaco
+  model. Unexported bindings do not appear there; **JS** shows all emitted code.
+  When the module exports nothing, the tab shows a note saying so in place of
+  the file.
 - **Types** shows a compact list of inferred top-level binding types.
 
 Compiler-development views such as Tokens, Parsed, Resolved, Typed, and Core may be added behind an **Internals** control. They are useful for teaching and implementation but must not crowd the normal language experience.

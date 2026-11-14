@@ -214,10 +214,11 @@ describe("the zero-entry-point list (§3.4)", () => {
     const module = main(source);
 
     expect(module.declarations.zeroEntryPointExports).toEqual([]);
-    // The inspection preview's `includePrivate` widens which *editions* are
-    // planned and must not widen the list: the report is about the module's real
-    // foreign surface, and a private declaration is never on it however a host
-    // asks to look at the module.
+    // `includePrivate`, which plans the private editions an inspection tool's
+    // JavaScript shows, widens which *editions* are planned and must not widen
+    // the list: the report is about the module's real foreign surface, and a
+    // private declaration is never on it however a host asks to look at the
+    // module.
     expect(
       planFundamentalSpecializations(module.core, undefined, true).zeroEntryPointExports,
     ).toEqual([]);

@@ -248,3 +248,28 @@ const INTERNAL_CONSTRAINED_EXPORT =
 function escapeRegularExpression(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
 }
+
+/**
+ * What the `.d.ts` pane holds: the shipped file, or a note in its place — the
+ * Playground's own words, never shown as file text.
+ */
+export type DeclarationFileView =
+  | { readonly kind: "file"; readonly text: string }
+  | { readonly kind: "note"; readonly text: string };
+
+/** The `.d.ts` pane's note for a module that exports nothing. */
+export const EXPORTS_NOTHING_NOTE = "This module exports nothing, so its `.d.ts` is empty.";
+
+/**
+ * The `.d.ts` pane's content: the module's shipped declaration file, unless the
+ * module exports nothing. That file is then `export {};` alone, and the pane
+ * says why in a note, which is the Playground's words and not the file's.
+ */
+export function declarationFileView(
+  declarationFile: string,
+  exportsNothing: boolean,
+): DeclarationFileView {
+  return exportsNothing
+    ? { kind: "note", text: EXPORTS_NOTHING_NOTE }
+    : { kind: "file", text: declarationFile };
+}
