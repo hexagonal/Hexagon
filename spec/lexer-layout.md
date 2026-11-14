@@ -1,6 +1,6 @@
 # Hexagon Spec: Lexer & Layout
 
-**Status:** Decided (July 2026); compiler pass implemented. Revised 2026-11-13 (#1538): §1 and §4 say that `{-` opens a comment, not a brace. This document owns layout, blocks, `;`, and
+**Status:** Decided (July 2026); compiler pass implemented. Revised 2026-11-13 (#1538): §1 and §4 say that `{-` opens a comment, not a brace. Amended 2026-11-14 (#1542): §2.3 keeps `//` out of the continuation tokens, and §2.1's declared-pattern example is `clock`. This document owns layout, blocks, `;`, and
 brace disambiguation. The companion [Physical Lexer](lexer.md) specification owns
 the complete physical token and keyword inventory, source coordinates, literals,
 whitespace, comments-as-trivia, and lexical diagnostics.
@@ -68,7 +68,7 @@ refuses it before a `fun` block head (Functions §7.3; layout stays agnostic).
 | A `fun` head ending its logical item — the keyword alone, or with its binder list (`fun<a: Eq>`), no member on the line (Functions §7.3) | `fun` member block |
 | An `honor` head ending its logical item — the keyword alone, or with a binder list (`honor<a: Show>`, which the parser refuses, Constraints §8), no instance on the line (Constraints §4.8) | Honor group (member block) |
 | An honor group's item ending in `=` — `Show<Ping> =`, `<a: Show> Show<Rose(a)> =` (Constraints §4.8) | Member block |
-| A `pattern` head ending its logical item — the name, alone or with its binder list, component list, and result type (`pattern rat(top: BigInt, bottom: BigInt): Rat`, `pattern parts`; Pattern Declarations §2.1). The alias form `pattern rgb = Color.rgb` opens nothing: a deeper-indented following line is a continuation of the item, as everywhere, and the alias rule reads the one name it finds there (Pattern Declarations §3.4) | `pattern` member block |
+| A `pattern` head ending its logical item — the name, alone or with its binder list, component list, and result type (`pattern clock(hours: Int, minutes: Int): Time`, `pattern parts`; Pattern Declarations §2.1). The alias form `pattern rgb = Color.rgb` opens nothing: a deeper-indented following line is a continuation of the item, as everywhere, and the alias rule reads the one name it finds there (Pattern Declarations §3.4) | `pattern` member block |
 | `extern from "specifier"` head (FFI Part 4 §2.2 — one item per line under ordinary layout; the row was owed from that part and is added with the kind taxonomy) | Member block |
 | An `extern class` head — `class` and its name, alias or modifiers, ending its logical item (FFI Part 5 §6.1). **Optional:** a head followed by no deeper-indented line is a class with no members and complete, never "expected an indented block" | Member block |
 | Term binding ending in `=` (`let x =`, `var x =`, `let f(...) =`, `fun f(...) =`, or a member header — a `fun` block's member lines included) | Binding body block |
@@ -167,6 +167,12 @@ everywhere else (Lexer §4.2), so a line beginning with one can begin an
 expression — `band.play()` is a new item. A continuation wanting one takes the
 same two repairs. `bnot` is a prefix operator and begins an expression, like
 `not`.
+
+**`//` is excluded for another reason**: it cannot begin an expression, but a line
+that begins with it is far more often the C-family comment habit than a fraction
+split across lines. A leading `//` therefore begins a new item, where the parser
+refuses it as a fraction with no top and names `--` (Comments §3.1). A
+continuation wanting a fraction takes the same two repairs as subtraction.
 
 The rule is uniform across every block, **including the module's own**: at column
 0, `let a = 1` followed by a line beginning `+ 2` continues the binding rather

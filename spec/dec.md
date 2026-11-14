@@ -1,10 +1,10 @@
 # Hexagon Spec: `Dec`
 
-**Status:** Decided and implemented. §8's `same` becomes `Hash<Dec>`'s member with `memoization.md` (decided 2026-11-03, implementation #1445).
+**Status:** Decided and implemented. §8's `same` becomes `Hash<Dec>`'s member with `memoization.md` (decided 2026-11-03, implementation #1445). Amended 2026-11-14 (#1542): a `Dec` enters a `Rat` through `FromDec` (§3, §4), `Rat` being a prelude module seated after `Dec`.
 **Scope:** A fundamental prelude decimal type, exact arithmetic, explicit rounding,
 numerical comparison and hashing, retained decimal places, and display.
-**Companions:** `numeric-literals.md`, `constraints.md`,
-`collections-part2-hash-and-type-members.md`, `primitive-types.md`,
+**Companions:** `numeric-literals.md`, `integer-widening.md` (§9, `FromDec`), `rat.md`,
+`constraints.md`, `collections-part2-hash-and-type-members.md`, `primitive-types.md`,
 `friendly-numerics.md`, `exceptions.md`, and `stdlib-roadmap.md`.
 
 ## 1. Purpose and place in the language
@@ -71,22 +71,27 @@ number of places, without a minus sign.
 ## 3. Constraints and the public operation names
 
 The instances are `Num<Dec>`, `Signed<Dec>`, `Eq<Dec>`, `Ord<Dec>`,
-`Show<Dec>`, `Hash<Dec>`, `Real<Dec>`, `Pow<Dec>`, and `FromBigInt<Dec>`.
+`Show<Dec>`, `Hash<Dec>`, `Real<Dec>`, `Pow<Dec>`, `FromBigInt<Dec>`, and `FromDec<Dec>`.
 `Num` and `Signed` are implemented explicitly;
 numerical `Eq`, `Ord`, and matching `Hash` are also explicitly implemented.
-`FromBigInt` follows the prerequisite contract in `integer-widening.md`.
+`FromBigInt` follows the prerequisite contract in `integer-widening.md`. `FromDec<Dec>`
+is the identity, declared in `FromDec.hex`, since `FromDec` is seated after `Dec`
+(`integer-widening.md` §9).
 
 `Dec` does **not** honor `Frac`, and has no `/` operator. No division function
 omitting `places` is introduced, even for a quotient that happens to have
-a terminating decimal expansion. Further constraint instances are not implied by
+a terminating decimal expansion. Where `Rat` is the home, written or given by a
+`Rat` part of the expression, `/` on two `Dec`s is `Rat`'s exact division, the `Dec`s
+entering it (`integer-widening.md` §9); without a `Rat` home, `a / c` on two `Dec`s is refused for the missing `Frac<Dec>`, naming both
+routes: "write a `Rat` type, or use `Dec.divide` with a place count". Further constraint instances are not implied by
 this list.
 
 The following table gives semantic signatures, not declaration syntax. The
 binary arithmetic functions are constraint members with their ordinary
 qualified companion faces. Rounded arithmetic, decimal-place adjustments,
 conversions, and integer-rounding functions are ordinary companion operations.
-Conversions involving `Rat` belong to `Rat`; all other listed operations belong
-to `Dec`.
+Conversions involving `Rat` belong to `Rat`, the type seated later (Modules §5.3);
+all other listed operations belong to `Dec`.
 
 | Operation | Parameters | Result |
 |---|---|---|
@@ -113,7 +118,7 @@ to `Dec`.
 | `Dec.floor` | `Dec` | `BigInt`, toward negative infinity |
 | `Dec.ceil` | `Dec` | `BigInt`, toward positive infinity |
 | `Dec.trunc` | `Dec` | `BigInt`, toward zero |
-| `Rat.fromDec` | `Dec` | `Rat`, exact |
+| `Rat.fromDec` | `Dec` | `Rat`, exact; the member of `FromDec<Rat>` |
 | `Rat.toDec` | `Rat, places: Int` | `Dec`, school rounding |
 | `Rat.toDecEven` | `Rat, places: Int` | `Dec`, ties to even |
 | `Dec.fromFloat` | `Float, places: Int` | `Dec`, school rounding |
@@ -252,6 +257,8 @@ Under the prerequisite `integer-widening.md` design, it is the required member
 of `FromBigInt<Dec>` and also serves automatic BigInt-source injection. The
 existing `fromNat` and `fromInt` entries delegate through exact BigInt conversion
 to that member. Ordinary function naming alone never grants implicit widening.
+A `Dec` is itself a source: it enters a `Rat` home through `FromDec<Rat>`, and beside
+a `Float` it is refused as a `BigInt` is (`integer-widening.md` §9).
 
 A decimal-point literal whose target is already `Dec` takes it, carrying its
 written digits (§3; Numeric Literals §5.1). That is a literal's spelling read
@@ -268,11 +275,12 @@ no rounding or intermediate `Float` conversion. For example, `Rat.fromDec(1.50d)
 returns the same rational as `Rat.create(3, 2)`.
 
 Retained decimal places are not preserved: `Rat` represents the numerical value,
-not the decimal presentation. This is a named conversion, not implicit widening.
-Ordinary resource limits still apply. All conversions involving `Rat` are owned
-by `Rat`, an ordinary imported module that can use the prelude `Dec` type and its
-public constructor and accessors. `Dec` does not depend on or import `Rat`.
-`Rat` remains outside the prelude; its public import policy is unchanged.
+not the decimal presentation. It is the member of `FromDec<Rat>`, so the same
+conversion is also silent wherever a `Rat` is an expression's home
+(`integer-widening.md` §9): `let share: Rat = 1.50d` is `3/2`. Ordinary resource limits
+still apply. All conversions involving `Rat` are owned by `Rat`, a prelude module
+seated after `Dec` that uses the `Dec` type and its public constructor and accessors
+(Modules §5.3, §5.5). `Dec` does not depend on or name `Rat`.
 
 ### Conversion from `Rat` to requested decimal places
 
@@ -558,6 +566,10 @@ classification is unchanged.
   Unsuffixed decimal-point literals are `Float` unless promoted at a known `Dec`
   target (Numeric Literals §5.1); BigInt-source widening uses the prerequisite
   `FromBigInt` capability rather than a Dec-specific exception.
+- A `Dec` enters a `Rat` home in both operand orders and at every seat
+  (`integer-widening.md` §9), `/` on two `Dec`s divides exactly at a `Rat` home
+  and is refused with both routes named without one, `d + 0.5` stays a `Dec`, and a
+  `Dec` beside a `Float` is refused as a `BigInt` is.
 - Display preserves leading fractional zeros and trailing retained zeros;
   interpolation agrees. Foreign output remains an ordinary opaque record.
 - Constructors and accessors preserve the unscaled integer and decimal places.

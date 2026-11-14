@@ -3,6 +3,7 @@
 **Status:** Decided (July 2026)
 **Revised 2026-11-04 (#844):** §2.1 says the permitted byte-order mark occupies no column.
 **Revised 2026-11-13 (#1538):** §7, §8.2, §8.3, §10 and §11: comments are `--`, `{- -}` and `{-- -}`; `--` is no longer two minus tokens; `//`, `(*` and a stray `*)` or `-}` join the refused spellings.
+**Revised 2026-11-14 (#1542):** §7, §8.1, §8.2, §10 and §11: `//` is a token, the fraction operator (Operators §6.4); its comment refusals are the parser's (Comments §3.1).
 **Scope:** Source text, line endings and horizontal whitespace; identifiers and
 start-class classification; the complete hard and contextual keyword inventory; numeric
 and string literal lexing; the complete punctuation and operator inventory;
@@ -548,9 +549,11 @@ The Comments spec is authoritative; this section fixes token interaction.
 - `{-` begins a nesting block comment, ahead of the `{` token; `-}` at depth zero is
   one unmatched-comment error, not `-` followed by `}`. Inside a block comment only
   `{-` and `-}` are read.
-- The spellings of other languages — `//`, `/*`, `*/`, `(*`, `*)` — are detected hard
+- The spellings of other languages — `/*`, `*/`, `(*`, `*)` — are detected hard
   errors with Comments §3.1's redirects; they are never lexed as the tokens their
-  characters would otherwise make.
+  characters would otherwise make. `//` is a token, the fraction operator (§8.1); a
+  `//` meant as a comment is refused by the parser, which knows where an operand
+  stands (Comments §3.1).
 - Comments and horizontal whitespace are trivia, not parser tokens. An implementation
   may retain their spans and text for formatting or readable emission, but doing so
   cannot affect the token sequence.
@@ -578,6 +581,7 @@ The Comments spec is authoritative; this section fixes token interaction.
 | Type arrows | `->` `->^` `->~` `->!` `>->` `>~>` `>~>^` `>^>` `>^>~` *(roles: Effects §2 — `->` pure and cannot fail, `->^` may fail, `->~` impure and cannot fail, `->!` impure and may fail; the five following arrows name between their `>`s the colours that are only as effectful as what the signature is handed, `-` both, `~` the world colour, `^` the fail colour, and after them a colour the function does on its own account)* |
 | Call marks and the reading | `!` `^` `~` `?` *(Effects §3.1: `^` may fail, `~` impure and cannot fail, `!` both; `?` reads a call's failure as `Option`, after `~` for a world call, `~?`; grammar — glued on both sides, against the callee and against the argument list's `(`, or glued at a `\|>` stage's end — is the parser's, Effects §3.2)* |
 | Arithmetic and concatenation | `+` `-` `*` `/` `**` `++` |
+| Fraction | `//` *(Operators §6.4; a structural form, not division)* |
 | Comparison | `==` `!=` `<` `>` `<=` `>=` |
 | Range | `..` |
 | Pipe | `\|>` |
@@ -597,6 +601,7 @@ longest valid token. Important cases:
 ```text
 ...  before  ..  before  .
 **   before  *
+//   before  /
 +++  means ++ then +
 |>   before  |
 >~>^ >^>~  before  >~> >^>  before  >
@@ -607,7 +612,7 @@ longest valid token. Important cases:
 --     is handled before every token that begins with -
 {-     is handled before {
 -}     is detected (Comments §3) before -
-//  /*  */  (*  *)  are detected (Comments §3.1) before /, *, and (
+/*  */  (*  *)  are detected (Comments §3.1) before //, /, *, and (
 ```
 
 Maximal munch does not combine adjacent valid tokens into an unlisted one. `--` is
@@ -632,8 +637,10 @@ position points to `not` *(position-selected by the parser since #355 made `!` a
 call-mark token — the same lexer/parser division as §4.1's reserved words; a mark
 anywhere other than its grammatical seats gets Effects §9's mark-position
 error)*. `||` must not be accepted as two pattern bars. The comment spellings of
-other languages — `//`, `/*`, `*/`, `(*` and `*)` — join this family with Comments
-§3.1's redirects.
+other languages — `/*`, `*/`, `(*` and `*)` — join this family with Comments
+§3.1's redirects. A `//` meant as a comment is the parser's to refuse, as a prefix `!`
+is: with nothing to its left, or with a syntax error after it on its line (Comments
+§3.1); a run of slashes lexes as `//` tokens, an odd last slash a `/`.
 
 ### 8.3 Not tokens
 
@@ -723,7 +730,8 @@ token inventory and the lexer must not report the same source code unit twice.
 | Bare `#{` in a string | required future-reservation message + `\#{` fix-it |
 | Unterminated string/interpolation | point at the opener; recover at EOF |
 | Unterminated/unmatched block comment | Comments §5 messages verbatim |
-| Comment spellings of other languages: `//`, `/*`, `*/`, `(*`, `*)` | Comments §5 redirect messages verbatim |
+| Comment spellings of other languages: `/*`, `*/`, `(*`, `*)` | Comments §5 redirect messages verbatim |
+| `//` with nothing to its left, or with a syntax error after it on its line | Comments §5's messages: "a fraction needs a top; for a comment, write `--`", and the note "for a comment, write `--`" on the syntax error — the parser selects both, since `//` is a token *(#1542)* |
 | `&&`, `||` | suggest `and`, `or` respectively |
 | `&` | invalid character, with a redirect: `band` (`bitwise.md` §9) |
 | `^`, `~` where an operator would stand, and `x^(y)` on a callee that is not a function | the redirect: `bxor` (and `**` for a power), `bnot` respectively (`bitwise.md` §9) — the parser selects it, since each is a mark token (§8.3) |
@@ -753,6 +761,7 @@ let big = 0x1F_FFFF_FFFF_FFFFn    -- a BigInt in hexadecimal
 let subtract = x - -1             -- x - (-1); the space keeps the second minus out of a comment
 let kept = x --1                  -- kept is x: the comment begins at the dashes
 let quiet = {- inline -} 2        -- a block comment is trivia
+let third = 1 // 3                -- Integer, Fraction, Integer
 match value
     Some(x) | None as whole when ready => whole
 ```
@@ -770,9 +779,15 @@ let x = 1__0        -- digit required on both sides of `_`
 let x = "\q"        -- unknown escape
 let x = "#{value}"  -- reserved; write "\#{value}" for text
 a && b              -- write `a and b`
-let y = 2 // note   -- JavaScript line comment syntax: write `-- note`
 (* note *)          -- OCaml block comment syntax: write `{- note -}`
 -}                  -- unmatched `-}`: no block comment is open
+```
+
+Rejected by the parser, `//` being a token:
+
+```text
+// note             -- a fraction needs a top; for a comment, write `--`
+let y = 2 // a note -- the syntax error at `note`, with "for a comment, write `--`"
 ```
 
 ## 12. Decisions log
@@ -792,6 +807,7 @@ let y = 2 // note   -- JavaScript line comment syntax: write `-- note`
 | Complete escape set; source newlines normalize to semantic LF | §6.2 |
 | Comments are trivia; nested forms and diagnostics inherited unchanged | §7 |
 | *(#1538)* `--` begins a comment and is never two minus tokens; `{-` begins a block comment ahead of `{`; a stray `-}` is an error; `//`, `/*`, `*/`, `(*` and `*)` are detected redirects | §7, §8.2, §10 |
+| *(#1542)* `//` is a token, the fraction operator, munched before `/`; its comment refusals move to the parser — with nothing to its left, and as a note on a syntax error after it on its line | §7, §8.1, §8.2, §10, §11 |
 | Closed punctuation/operator inventory and maximal-munch rules | §8 |
 | `->` corrected into the inventory (shipped with function-type annotations; Effects §2 names its role); the call mark `!` added for #355 (`?` is no token, #1144); the marked type arrows `->?`/`->!` replace `=>`/`=>!` for #405, leaving `=>` a term-level token only; a mark never begins a token, so `!->` is impossible by munch; prefix-`!` keeps the `not` redirect, parser-selected | §8.1–§8.3, §10 (#355, #405) |
 | The follows arrow is `>->` (#1151, #1145): `?` leaves the arrows and is no token at all, and `>->` stands ahead of `>` by munch | §8.1–§8.3 |

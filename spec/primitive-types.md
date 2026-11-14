@@ -1,8 +1,8 @@
 # Hexagon Spec: Primitive Types
 
-**Status:** Decided (July 2026)
+**Status:** Decided (July 2026); amended 2026-11-14 (#1542): `Rat` is a prelude module, and the deferred narrowing conversion is `Float.toInt` (Modules §5.3).
 **Scope:** The five primitive types: `Nat`, `Int`, `Float`, `String`, `BigInt`. Their JS representations, literal syntax, string interpolation, and the `Show` connection. *(Originally seven: `Bool` was reclassified as a prelude union 2026-07-29, #147 — §4 is now a pointer, §12 the correction record; `Unit` was reclassified as the empty tuple 2026-07-30, #159 — §9 is now a pointer, §13 the correction record.)*
-**Not in scope:** `Char` (does not exist), `Rat` (stdlib module with a focused v1 spec owed), tuples/records/unions/functions (own specs), the constraint system itself (own spec — this doc only *names* which standard constraints each type supports), 1-based indexing in general (forthcoming spec), equality semantics in depth (constraint spec).
+**Not in scope:** `Char` (does not exist), `Rat` (a prelude module with its own spec, `rat.md`), tuples/records/unions/functions (own specs), the constraint system itself (own spec — this doc only *names* which standard constraints each type supports), 1-based indexing in general (forthcoming spec), equality semantics in depth (constraint spec).
 **Companion:** the Numeric Literals spec (Nat-payload polymorphic integer literals, `fromNat`/`fromInt`, Int defaulting) — cross-referenced, not restated here.
 
 This document is written for a future implementation session and assumes the existing `hexc` architecture: Algorithm J, level-based generalisation, constraints compiled to dictionary passing, `honor` declarations, lexer with UTF-16 column tracking, layout pass, emission of idiomatic readable JS + `.d.ts`.
@@ -146,7 +146,7 @@ sign bit of a floating negative zero never crosses into `Int` and cannot
 reappear if that result later widens to `Float`.
 
 These are explicit reinterpretations of the stored binary64 value, not implicit
-numeric conversions and not a deferred `Int.fromFloat`: the latter would, if it
+numeric conversions and not a deferred `Float.toInt`: the latter would, if it
 ships, accept only a `Float` already holding a safe integer and return `Option`,
 where these names state how a fractional value is to be changed and throw when
 the requested `Int` cannot exist. Friendly Numerics §2 tenet 7 licenses exactly

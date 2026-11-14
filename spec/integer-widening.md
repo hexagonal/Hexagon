@@ -6,8 +6,10 @@ conversion routes below and delegated their detailed design. Sol Medium's spec
 review and independent compiler feasibility audit found no remaining material
 issues. This specification owns the capability and exact-integer construction
 laws; Numeric Literals §5.1 owns the contextual widening and target selection.
+Amended 2026-11-14 (#1542): `Dec` is a fourth source, through `FromDec` (§9) — correction record §10.
 **Scope:** A destination capability for exact `BigInt` conversion, its bounded
-contextual-widening rule, and shared integer construction for `Rat` and `Dec`.
+contextual-widening rule, and shared integer construction for `Rat` and `Dec`; the
+decimal source capability `FromDec` (§9).
 **Companions:** `numeric-literals.md`, `constraints.md`, `friendly-numerics.md`,
 `modules.md`, `method-syntax.md`, `rat.md`, and `dec.md`.
 
@@ -27,7 +29,8 @@ over denominator one; `Dec` constructs the integer at zero decimal places.
 The diagram describes the construction path for these exact destinations. It
 does not replace the existing direct `Nat`/`Int` widenings to `Float`, nor permit
 `BigInt` to widen to `Float`. No rounding, value-dependent conversion acceptance,
-or runtime trial of alternative paths is introduced.
+or runtime trial of alternative paths is introduced. A `Dec` enters `Rat` by the
+same shape of rule, through its own capability (§9).
 
 ## 2. The destination capability
 
@@ -124,7 +127,7 @@ operand, or existing constrained type variable can establish the destination.
 Widening does not invent a fresh destination variable or add a `FromBigInt` bound
 to make an otherwise unconstrained expression succeed.
 
-The following are intended examples, with ordinary `import Rat` where needed:
+The following are intended examples:
 
 ```hexagon
 let count: BigInt = 3n
@@ -171,9 +174,9 @@ currently display as BigInt. This remains bounded argument checking, not a
 new unrestricted inference search.
 
 When the expression home's ranking (Numeric Literals §5.1) needs to distinguish
-the fixed integer sources, prefer an independently established non-Nat/Int/BigInt
-numeric destination over those sources; otherwise prefer BigInt, then Int, then
-Nat. Conversions must still be licensed by actual evidence. This neither guesses
+the fixed sources, prefer an independently established numeric destination that is
+none of `Nat`, `Int`, `BigInt`, and `Dec` (§9) over those sources; otherwise prefer
+Dec, then BigInt, then Int, then Nat. Conversions must still be licensed by actual evidence. This neither guesses
 a third destination nor overrides an already established expected home. For
 example, BigInt with Rat selects Rat in either operand order; BigInt with Int
 selects BigInt; BigInt with Float is still rejected. Two unrelated non-source
@@ -240,8 +243,9 @@ own supported pattern form. Dec's `d` literal design remains independent.
 - No `BigInt` to `Float`, `Int`, or `Nat` implicit conversion, even when a
   particular value happens to fit.
 - No `Float` to `Rat` or `Dec` conversion.
-- No implicit `Rat` to `Dec`, `Dec` to `Rat`, or exact-to-Float conversion beyond
-  the existing `Nat`/`Int` rules. Named conversion APIs remain named.
+- No implicit `Rat` to `Dec`, and no exact-to-Float conversion beyond the
+  existing `Nat`/`Int` rules. `Dec` enters `Rat` through `FromDec` (§9) and through
+  nothing else. Named conversion APIs remain named.
 - No general transitive closure over exported functions or instances. In
   particular, `BigInt -> Rat -> Float` is not an implicit route.
 - No new conversion from an arbitrary `Integral` source. Its current contract
@@ -262,8 +266,7 @@ regenerate embedded standard-library sources and check host consumers.
 Use exact primitive Nat/Int-to-BigInt conversions in the delegated entries.
 Migrate any destination's ordinary same-named export to its instance member
 without retaining duplicate declarations. Preserve its qualified companion face.
-Rat remains an ordinary imported module; Dec's planned prelude membership does
-not move Rat into the prelude or create a dependency in the reverse direction.
+`Rat` is a prelude module seated after `Dec` (§9); `Dec` never depends on `Rat`.
 
 Update the owners together before marking the proposal implemented: Numeric
 Literals §5.1 and its literal/rejected-alternative wording, Constraints inventory,
@@ -303,3 +306,123 @@ source-provenance checks for canonical constraint identities.
 The dedicated `integer-widening-arguments.test.ts` checks independent target
 evidence, exact BigInt inference, structural and generic targets, and runtime
 evaluation order.
+
+## 9. The decimal source: `FromDec`
+
+A `Dec` enters a destination that accepts every decimal exactly, as a `BigInt` enters
+one that accepts every integer (§2, §4). The capability is a prelude constraint
+declared in `stdlib/FromDec.hex`:
+
+```hexagon
+module FromDec
+
+export constraint FromDec<a: FromBigInt> =
+    fromDec(value: Dec) -> a
+```
+
+The bound says that a type accepting every decimal accepts every integer, every
+integer being a decimal at zero places. The member preserves the decimal's numerical
+value: it must not round, clamp, or reject a value for its size. A `Dec`'s retained
+places are not part of its numerical value (`dec.md` §4), so `1.5d` and `1.50d` enter
+as one value. For each `BigInt` value `b`:
+
+```text
+fromDec(Dec.create(b, 0)) == FromBigInt.fromBigInt(b)
+```
+
+As in §2, these are author and reviewer obligations, not compiler optimizations.
+
+Initial instances:
+
+| Destination | `fromDec` meaning |
+|---|---|
+| `Dec` | Identity |
+| `Rat` | The exact fraction `unscaled / 10^places` (`dec.md` §4) |
+
+`Nat`, `Int`, `BigInt`, and `Float` do not honor it. A type the programmer declares may, under the
+ordinary instance ownership and coherence rules. As with `FromBigInt`, only evidence
+for the canonical prelude `FromDec` grants widening; an ordinary export named
+`fromDec` grants nothing.
+
+`FromDec` and `Rat` are seated in the prelude after `Dec`, `FromDec` first, since the
+member's signature names `Dec` (Modules §5.5). `Dec.hex` therefore cannot name
+`FromDec`, and `honor FromDec<Dec>` lives in `FromDec.hex`, the constraint's home
+(Modules §7.2); `honor FromDec<Rat>` lives in `Rat.hex`, the type's home. `Dec` names
+neither module.
+
+**The source rule.** A `Dec` is Numeric Literals §5.1's fourth source:
+
+```text
+source expression : Dec
+target is independently established
+FromDec<target> evidence is available
+───────────────────────────────────────────
+source widens to target through fromDec
+```
+
+Everything §4 says of a `BigInt` source holds of a `Dec` source: the same target
+establishment, the same sibling-argument handling, no invented destination, no
+searched chain, and each source evaluated once in order. `FromDec` is a conversion
+capability, not a tower rung (§5); the expected-type lift injects a `Dec` operand into
+a home carrying the operation's instance and `FromDec`, as it injects a `BigInt`
+operand. The member has no subject-receiver dot spelling, for the reason §5 gives for
+`fromBigInt`: spell it `Rat.fromDec(value)` or `FromDec.fromDec(value)` with a
+determined result type.
+
+```hexagon
+let price: Dec = 1.50d
+let share: Rat = price          -- 3/2
+let third = price * 1 // 3      -- Rat: 1/2
+let ratio: Rat = price / 0.25d  -- 6/1: exact division at the written Rat
+let back: Rat = price ** -2     -- 4/9: Rat's power, the exponent staying Int
+```
+
+**The ranking.** The home ranking (§4, Numeric Literals §5.1) counts `Dec` among the
+fixed sources. `Dec` with `Rat` selects `Rat`, in either operand order. `Dec` with
+`Nat`, `Int`, or `BigInt` selects `Dec`. `Dec` with `Float` is refused,
+`Float` honoring no `FromDec`: the report is the one a `BigInt` meeting a `Float` gets,
+"`d` is a `Dec` and cannot enter `Float`, the home `f` gives this expression", with the
+named doors between the two (Numeric Literals §6). A decimal-point literal beside a
+`Dec` takes the `Dec` home: `price + 0.5` is `2.00`.
+
+**Division.** `Dec` honors no `Frac`, and gains none. Where `Rat` is the home, `/` on
+two `Dec`s runs at `Rat`, exactly, the `Dec`s entering it: a written `Rat` gives that
+home, and so does a `Rat` part of the same expression, as in `price / 0.25d * (1 // 3)`
+(Numeric Literals §5.1). Without a `Rat` home, `a / c` on two `Dec`s is refused for the
+missing `Frac<Dec>`, and the refusal names both routes:
+"write a `Rat` type, or use `Dec.divide` with a place count". `Dec` does not join
+Method Syntax's ownership clause for unhonored tower members: `Dec.hex` exports its own
+`divide`, with a place count, which would be a second claimant, so `a.divide(c)` stays
+that function's call under any home — the receiver decides what is called.
+
+**Literal patterns** do not widen (§5): a `1.50d` pattern at a `Rat` subject is
+refused; the fraction's own pattern is `3 // 2` (`rat.md` §3).
+
+Acceptance cases: `Dec` to `Rat` at annotations, argument, return, and assignment
+seats, in both operand orders, at comparison seats, and through every tower call
+spelling; `price / 0.25d` exact under a written `Rat` or beside a `Rat` part and refused without a `Rat` home, and
+`price ** -2` exact under it and throwing `NegativeExponentFault` without it; `price + 0.5` staying `2.00`; `Dec` with `Float`
+refused with the entry report; a generic `a: FromDec` accepting a `Dec` through ordinary
+evidence while `a: FromBigInt` alone does not; `fromDec` agreeing with `fromBigInt` on
+zero-place values; and a `1.50d` pattern at `Rat` refused.
+
+## 10. Correction record — `Dec` enters `Rat` *(added 2026-11-14, #1542)*
+
+Ruled on issue #1542: a `Dec` enters a `Rat` silently, through the new capability
+`FromDec` (§9), and `Rat` joins the prelude after `Dec`. Before the ruling this
+document listed `Dec` to `Rat` among the deliberately absent conversions and kept
+`Rat` an ordinary imported module. The deltas, applied in place:
+
+1. **§6** drops `Dec` to `Rat` from the absent conversions and names `FromDec` as its
+   one route. `Rat` to `Dec` stays absent, and named.
+2. **§7** seats `Rat` in the prelude after `Dec`. `Dec` still depends on nothing of
+   `Rat`'s.
+3. **The Scope, §1 and §4** name the fourth source. §4's examples no longer
+   `import Rat`, and its ranking counts `Dec` among the fixed sources.
+
+Applied elsewhere in the same change: `dec.md` §3 and §4, where the exact conversion
+to `Rat` had been a named call only and is now also silent, and where conversions
+involving `Rat` had all belonged to `Rat`, and §11; `numeric-literals.md` §1, §5.1, §6
+and §8; `method-syntax.md` §4.2; `modules.md` §5.1, §5.3, §5.4, §5.5 and §7.6;
+`constraints.md` §5.1.1, §7 and §8; `friendly-numerics.md` §2 and §3; `rat.md` §1, §5,
+§6 and §10.
