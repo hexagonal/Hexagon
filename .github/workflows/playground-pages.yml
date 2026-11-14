@@ -62,8 +62,8 @@ jobs:
       # The skip lives here, inside the job, and not in the trigger's `paths:`.
       # "Check" is a required check; a workflow that a path filter stops from
       # starting never reports it, and the pull request then waits forever.
-      # When a test or build starts reading spec/ or book/, its folder leaves
-      # this list.
+      # When a test or build starts reading spec/, book/ or a top-level
+      # Markdown file, that entry leaves this list.
       - name: Decide whether the code needs checking
         id: scope
         env:
@@ -75,8 +75,10 @@ jobs:
             exit 0
           fi
           # --no-renames lists both sides of a rename, so moving a file out of
-          # spec/ counts as touching the place it moved to.
-          changed=$(git diff --no-renames --name-only HEAD^1 HEAD)
+          # spec/ counts as touching the place it moved to. core.quotePath off
+          # keeps a non-ASCII name such as spec/café.md unquoted, so it still
+          # matches the patterns below.
+          changed=$(git -c core.quotePath=false diff --no-renames --name-only HEAD^1 HEAD)
           printf 'Changed files:\n%s\n' "$changed"
           # An empty list is not evidence of prose only; run everything.
           if [ -z "$changed" ]; then
@@ -213,7 +215,8 @@ jobs:
       # Anything that is not main stops short of the Pages-specific steps — a
       # pull request, and a dispatch on a branch, both of which have nothing to
       # publish. They still run the real build, because a build that no longer
-      # compiles is exactly the breakage this gate exists to catch.
+      # compiles is exactly the breakage this gate exists to catch; only a pull
+      # request that changes nothing but prose skips it (see the scope step).
       # `build:pages` hardcodes its own `--base`, so it reads nothing from
       # configure-pages and skipping that step cannot change what it produces.
       - name: Configure GitHub Pages
