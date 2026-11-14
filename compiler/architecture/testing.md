@@ -162,6 +162,8 @@ Given the same sources and options, a compiler test must produce byte-for-byte s
 
 Tests may run in parallel only when they do not mutate shared compiler state or shared fixture files. A failure that depends on test order is a correctness defect, not an accepted limitation of the runner.
 
+Test files share processes. `vitest.config.ts` deals every test file but one into eight `shared-` projects with isolation off, so a worker runs several files of its project in turn and keeps one module graph, one checked standard library (#987) and one `globalThis` across them. A test file therefore leaves the process as it found it: whatever it installs on `globalThis`, stubs, or puts into module state, it removes or resets before it ends, and a counter it reads is reset or read as a difference rather than assumed to start at zero. A test that needs a process nobody else has touched — because it resets the standard-library cache, freezes it, or counts its seats — goes in the `isolated` project, which keeps Vitest's process per file. `standard-library-cache.test.ts` is the only one.
+
 ## 6. Diagnostics testing
 
 A diagnostic golden should show the information a Hexagon user sees:
@@ -282,3 +284,11 @@ after restoring the original sources. A cycle must remain diagnosed across
 repeated compiles rather than becoming a reusable, apparently clean dependency
 chain. These checks accompany the existing frozen-structure and reuse-counter
 tests; the fix must preserve the cache's avoided work as well as its answers.
+
+### Test files share a warm standard library
+
+Under Vitest's default every test file had a fresh process, so the standard library was checked again for each of the suite's 278 files: about a third of all the work the suite did, and the bulk of the continuous-integration job that gates every merge. The cache #987 added keeps the checked standard library for the life of a process, so the remedy is to let files share processes rather than to make the compile cheaper.
+
+One shared pool for the whole suite was tried first and does not fit in memory. A worker keeps everything a file leaves behind, and an executed program leaves its whole module graph, since Node's loader never unloads a module; the harnesses that still link through `data:` URLs leave the most. Run that way the suite's files retain several gigabytes between them, and on a four-core, 16 GB machine workers crossed Node's default heap or were killed by the system. So the shared files are dealt round-robin, by sorted path, into eight projects. Vitest runs projects in turn and retires a worker when the next file belongs to another project, so each worker carries about an eighth of the leftovers and the standard library is checked a few dozen times rather than 278. Even an eighth peaked near 1.8 GB of heap, close to Node's default limit on such a machine, so shared workers run with a 4 GB heap; three of them still fit. The projects are dealt from the files Vitest's default pattern finds, read once when the configuration loads, so watch mode needs a restart to see a new test file. Adding or removing a file moves later files to other projects, so a latent order dependence may first show on an unrelated change; §5 says it is fixed in the test. On four cores the full suite took 17m39s isolated and 7m00s–7m18s this way, with every test passing; shuffled file order costs some of the reuse and took 10m41s–11m14s, also passing. A smaller retained graph — the `data:` linkers moving to `runProject` — would let the projects be fewer; it is not needed for this.
+
+`standard-library-cache.test.ts` resets and freezes the cache and counts its seats, and so needs a process nobody else has touched; a ninth project keeps it isolated. Sharing a process makes §5's rule about order a live one rather than a theoretical one: a file that leaves state behind can now change another file's answer. The suite was run repeatedly, including with file order shuffled, before the change landed. A test that turns out to depend on order is fixed in the test, not moved to the isolated project, unless — like the cache test — it needs a fresh process by design.

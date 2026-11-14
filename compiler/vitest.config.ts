@@ -1,6 +1,8 @@
+import { globSync } from "node:fs";
+
 import { defineConfig } from "vitest/config";
 
-// The suite ran on Vitest's defaults until #198. It still does, except in three
+// The suite ran on Vitest's defaults until #198. It still does, except in four
 // places. The first is the thing defaults cannot supply: a fixed fast-check
 // seed, which `architecture/testing.md` §5 places in test infrastructure rather
 // than at each call site — precisely so a property test added later cannot
@@ -23,10 +25,61 @@ import { defineConfig } from "vitest/config";
 // importing a name its dependency never exported would load and fail only
 // where the name was called; Node refuses the graph at link time, as any host
 // does.
+//
+// The fourth is who shares a process. `compileProject` keeps the checked
+// standard library for the life of the process (#987), and Vitest's default
+// gives every test file a fresh one, so the suite checked the standard library
+// once per file — about a third of all its work. With isolation off, Vitest
+// keeps a worker for the next file of the same project, so the cache stays warm
+// across them.
+//
+// A shared worker also keeps what a file leaves behind, and executed programs
+// leave their whole module graph: Node's loader never unloads a module. Run
+// unbroken, the suite's files retain several gigabytes in all, past Node's
+// default heap on a 16 GB runner. So the shared files are dealt round-robin
+// into `SHARES` projects; Vitest runs projects in turn and retires a worker
+// when the next file belongs to another project, so each worker carries about
+// an eighth of the suite's leftovers, and the standard library is checked a few
+// dozen times instead of once per file. Even an eighth peaked near 1.8 GB on a
+// four-core machine, close to Node's default limit there, so the shared
+// workers get 4 GB of heap; three of them still fit a 16 GB runner.
+//
+// `standard-library-cache.test.ts` resets and freezes the cache and counts its
+// seats, so it alone keeps a process of its own. `architecture/testing.md` §5
+// says what a shared process asks of a test.
+const ISOLATED = ["src/standard-library-cache.test.ts"];
+const SHARES = 8;
+
+// Vitest's own default pattern, so a test file is found wherever and however a
+// default configuration would have found it. The list is read once, when the
+// configuration loads: watch mode needs a restart to see a new file.
+const shared = globSync("**/*.{test,spec}.?(c|m)[jt]s?(x)", {
+  cwd: import.meta.dirname,
+  exclude: (path) => path === "node_modules" || path === "dist" || path.startsWith("."),
+})
+  .map((path) => path.replaceAll("\\", "/"))
+  .filter((path) => !ISOLATED.includes(path))
+  .sort();
+
 export default defineConfig({
   test: {
     setupFiles: ["./vitest.setup.ts"],
     testTimeout: 30_000,
     server: { deps: { external: [/[\\/]hex-run-/u] } },
+    projects: [
+      ...Array.from({ length: SHARES }, (_, share) => ({
+        extends: true,
+        test: {
+          name: `shared-${share + 1}`,
+          isolate: false,
+          execArgv: ["--max-old-space-size=4096"],
+          include: shared.filter((_, index) => index % SHARES === share),
+        },
+      })),
+      {
+        extends: true,
+        test: { name: "isolated", include: ISOLATED },
+      },
+    ],
   },
 });
