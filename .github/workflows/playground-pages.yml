@@ -204,8 +204,8 @@ jobs:
 
       # The language server and the extension are gated here rather than in a
       # workflow of their own because this is the only workflow that runs on
-      # every push to main. Neither ships to Pages; they run so that a change to the
-      # compiler cannot break the editor silently.
+      # every push to main. Neither ships to Pages; they run so that a change to
+      # the compiler cannot break the editor silently.
       - name: Install language server dependencies
         run: npm ci
         working-directory: language-server
@@ -271,17 +271,23 @@ jobs:
         with:
           path: playground/dist
 
-  # The required check. It runs whatever happened above, short of the whole run
-  # being cancelled, and turns the parts' results into one: success only when
+  # The required check. It turns the parts' results into one: success only when
   # every part succeeded, or when the scope job found nothing but prose and the
   # parts were skipped for that reason. Any other mix is red, a cancelled or
   # skipped part included, so no outcome of a part can pass here by accident.
   # It keeps the job id `build` that the deploy and the red-main report below
   # depend on.
+  #
+  # On a pull request it runs even when the run is cancelled. A job that its
+  # `if:` skips reports as skipped, and branch protection counts a skipped
+  # required check as passed, so a run cancelled before this job started would
+  # otherwise leave the pull request mergeable with nothing tested. Run, it
+  # sees the cancelled parts and goes red. On main a cancelled run stays
+  # silent, as it always has, so the red-main report does not fire on it.
   build:
     name: Check
     needs: [scope, compiler-tests, packages]
-    if: ${{ !cancelled() }}
+    if: ${{ always() && (github.event_name == 'pull_request' || !cancelled()) }}
     runs-on: ubuntu-latest
     steps:
       - name: Require every part to have passed
