@@ -39,8 +39,66 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
+        with:
+          # A pull request checks out GitHub's merge of the branch into its
+          # base. Its first parent is the base tip, so a depth of 2 is all the
+          # scope step below needs to see what the pull request changes.
+          fetch-depth: 2
+
+      # A pull request that changes only prose skips every step below and
+      # reports green, because no test, check or build reads those files. The
+      # allow-list is:
+      #
+      #   spec/**   the language specification
+      #   book/**   the Book
+      #   *.md      Markdown at the top level only (README.md and the like)
+      #
+      # Any other path runs everything as before, and so does a path nobody
+      # thought of: the list says what is safe, never what is not. A change to
+      # .github/ is never prose, so a pull request that edits this workflow
+      # always runs it in full. Pushes to main and workflow_dispatch always
+      # run everything, so a skip can never hide a red main or a lost deploy.
+      #
+      # The skip lives here, inside the job, and not in the trigger's `paths:`.
+      # "Check" is a required check; a workflow that a path filter stops from
+      # starting never reports it, and the pull request then waits forever.
+      # When a test or build starts reading spec/ or book/, its folder leaves
+      # this list.
+      - name: Decide whether the code needs checking
+        id: scope
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" != pull_request ]; then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # --no-renames lists both sides of a rename, so moving a file out of
+          # spec/ counts as touching the place it moved to.
+          changed=$(git diff --no-renames --name-only HEAD^1 HEAD)
+          printf 'Changed files:\n%s\n' "$changed"
+          # An empty list is not evidence of prose only; run everything.
+          if [ -z "$changed" ]; then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          code=false
+          while IFS= read -r path; do
+            case "$path" in
+              spec/*|book/*) ;;
+              */*) code=true ;;
+              *.md) ;;
+              *) code=true ;;
+            esac
+          done <<< "$changed"
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          if [ "$code" = false ]; then
+            echo "::notice::Only spec/, book/ or top-level Markdown changed; skipping the code checks."
+          fi
 
       - name: Set up Node.js
+        if: steps.scope.outputs.code == 'true'
         uses: actions/setup-node@v6
         with:
           node-version: lts/*
@@ -53,18 +111,22 @@ jobs:
             playground/package-lock.json
 
       - name: Install compiler dependencies
+        if: steps.scope.outputs.code == 'true'
         run: npm ci
         working-directory: compiler
 
       - name: Test compiler
+        if: steps.scope.outputs.code == 'true'
         run: npm test
         working-directory: compiler
 
       - name: Check compiler
+        if: steps.scope.outputs.code == 'true'
         run: npm run check
         working-directory: compiler
 
       - name: Test emitted root selection and program I/O on Node
+        if: steps.scope.outputs.code == 'true'
         run: |
           npm run build
           node scripts/test-root-selection.mjs
@@ -75,14 +137,17 @@ jobs:
       # answer to what a program is on disk, so it is gated with the compiler
       # rather than with either tool.
       - name: Install host dependencies
+        if: steps.scope.outputs.code == 'true'
         run: npm ci
         working-directory: host
 
       - name: Test host
+        if: steps.scope.outputs.code == 'true'
         run: npm test
         working-directory: host
 
       - name: Check host
+        if: steps.scope.outputs.code == 'true'
         run: npm run check
         working-directory: host
 
@@ -91,46 +156,57 @@ jobs:
       # push to main. Neither ships to Pages; they run so that a change to the
       # compiler cannot break the editor silently.
       - name: Install language server dependencies
+        if: steps.scope.outputs.code == 'true'
         run: npm ci
         working-directory: language-server
 
       - name: Test language server
+        if: steps.scope.outputs.code == 'true'
         run: npm test
         working-directory: language-server
 
       - name: Check language server
+        if: steps.scope.outputs.code == 'true'
         run: npm run check
         working-directory: language-server
 
       - name: Build language server
+        if: steps.scope.outputs.code == 'true'
         run: npm run build
         working-directory: language-server
 
       - name: Install VS Code extension dependencies
+        if: steps.scope.outputs.code == 'true'
         run: npm ci
         working-directory: editors/vscode
 
       - name: Test VS Code extension
+        if: steps.scope.outputs.code == 'true'
         run: npm test
         working-directory: editors/vscode
 
       - name: Check VS Code extension
+        if: steps.scope.outputs.code == 'true'
         run: npm run check
         working-directory: editors/vscode
 
       - name: Build VS Code extension
+        if: steps.scope.outputs.code == 'true'
         run: npm run build
         working-directory: editors/vscode
 
       - name: Install playground dependencies
+        if: steps.scope.outputs.code == 'true'
         run: npm ci
         working-directory: playground
 
       - name: Test playground
+        if: steps.scope.outputs.code == 'true'
         run: npm test
         working-directory: playground
 
       - name: Check playground
+        if: steps.scope.outputs.code == 'true'
         run: npm run check
         working-directory: playground
 
@@ -141,15 +217,16 @@ jobs:
       # `build:pages` hardcodes its own `--base`, so it reads nothing from
       # configure-pages and skipping that step cannot change what it produces.
       - name: Configure GitHub Pages
-        if: github.ref == 'refs/heads/main'
+        if: steps.scope.outputs.code == 'true' && github.ref == 'refs/heads/main'
         uses: actions/configure-pages@v5
 
       - name: Build playground for GitHub Pages
+        if: steps.scope.outputs.code == 'true'
         run: npm run build:pages
         working-directory: playground
 
       - name: Upload playground
-        if: github.ref == 'refs/heads/main'
+        if: steps.scope.outputs.code == 'true' && github.ref == 'refs/heads/main'
         uses: actions/upload-pages-artifact@v4
         with:
           path: playground/dist
