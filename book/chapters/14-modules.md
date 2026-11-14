@@ -363,6 +363,13 @@ export let smaller<a: Ord>(left: a, right: a): a =
     if left < right then left else right
 ```
 
+A function bound as a value may write its whole type on its name instead, and
+then the lambda needs no annotations of its own:
+
+```hexagon
+export let double: (Int) -> Int = (n) => n * 2
+```
+
 A value that *is* a constrained function writes its constraints too. An alias of
 one has no parameter list to hang a binder on, so the list goes on its name:
 

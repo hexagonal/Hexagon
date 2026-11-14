@@ -181,6 +181,17 @@ describe("code actions: infer return type", () => {
     expect(session.diagnostics("/main.hex")).toEqual([]);
   });
 
+  test("offers nothing for a lambda whose binding's name carries the type (#1402)", () => {
+    // The name writes the result (Modules §4.1.1), so the constraint report at
+    // the name is not answered by a `: String` after the lambda's parameters.
+    const source = "module Main\n\n" + "export let s: (a) -> String = (x) => show(x)\n";
+    const { session } = sessionOf({ "/main.hex": source });
+    expect(session.diagnostics("/main.hex").map(({ message }) => message)).toEqual([
+      "exported function `s` must declare every constraint in its signature; write `<a: Show>`",
+    ]);
+    expect(actionsOn(session, "/main.hex", source, "s:")).toEqual([]);
+  });
+
   test("writes a function a caller hands in as the constant, as hover shows it (#1184)", () => {
     const source = "module Main\n\n" + "export record Sink(a) = { put: (a) ->! Unit }\n" +
       "export fun mk() = Sink({ put = (h) => h!(() => ()) })\n";
