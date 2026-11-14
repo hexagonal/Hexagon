@@ -164,6 +164,8 @@ Tests may run in parallel only when they do not mutate shared compiler state or 
 
 Test files share processes. `vitest.config.ts` deals every test file but one into eight `shared-` projects with isolation off, so a worker runs several files of its project in turn and keeps one module graph, one checked standard library (#987) and one `globalThis` across them. A test file therefore leaves the process as it found it: whatever it installs on `globalThis`, stubs, or puts into module state, it removes or resets before it ends, and a counter it reads is reset or read as a difference rather than assumed to start at zero. A test that needs a process nobody else has touched — because it resets the standard-library cache, freezes it, or counts its seats — goes in the `isolated` project, which keeps Vitest's process per file. `standard-library-cache.test.ts` is the only one.
 
+Continuous integration runs the suite as four jobs on separate machines. `HEXAGON_TEST_SHARD=k/n`, read only by `vitest.config.ts`, keeps every n-th of those nine projects starting at the k-th, so n jobs between them run each project exactly once and a project's files still share one worker; unset, the whole suite runs. It chooses which tests run, never what a test computes.
+
 ## 6. Diagnostics testing
 
 A diagnostic golden should show the information a Hexagon user sees:
