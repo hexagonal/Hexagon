@@ -557,6 +557,11 @@ function functionAt(
         ? item.value
         : undefined;
     if (lambda === undefined || lambda.returnAnnotation !== undefined) return undefined;
+    // *(#1402.)* A `let` whose name carries its type writes its result there
+    // (Modules §4.1.1), so the lambda's own result has no seat to repair: a
+    // report at the name — an unwritten constraint, say — is not answered by
+    // a `: String` after the lambda's parameters.
+    if (item.kind === "Let" && item.annotation !== undefined) return undefined;
     return { item, lambda };
   }
   return undefined;
