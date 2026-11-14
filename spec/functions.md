@@ -95,7 +95,8 @@ let plus = (x: Int, y: Int): Int => x + y
 - *(#405.)* **A return annotation needs no parentheses around a function type.** The type arrows are `->`, `->^`, `->~`, `->!` and the five following arrows, and the lambda's own arrow is `=>` — different tokens, so the annotation grammar may be right-associative and greedy without ever swallowing the body: in `(x): A ->! B => body` the annotation is `A ->! B` and the body is `body`, and the legal curried lambda `(x): a => y => x` still annotates `a` and takes `y => x` as its body. Parentheses remain available for grouping and mean what they always meant. *(This replaces #355's rule, which gave an unparenthesized `=>` in this slot to the body and required `(x): (A => B) => body`; both of that rule's causes were the type and term levels sharing the `=>` token, and Effects §2 no longer lets them.)*
 - Any subset of annotations may be given on private functions; inference fills
   the rest. An exported function is the module-boundary exception: Modules
-  §4.1.1 requires every parameter and the result to be annotated.
+  §4.1.1 requires every parameter and the result to be annotated, on the
+  lambda or by the whole type written on the binding's name.
 - **No standalone signature lines.** Types are written only on definitions.
 - **A type variable written in an annotation is rigid while that definition is
   checked.** Repeated `a` occurrences name the same type, but `a` cannot quietly
