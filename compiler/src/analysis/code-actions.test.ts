@@ -192,6 +192,19 @@ describe("code actions: infer return type", () => {
     expect(actionsOn(session, "/main.hex", source, "s:")).toEqual([]);
   });
 
+  test("offers nothing for a lambda under a name type holding a hole (#1402)", () => {
+    // The fence's report is the only one, and its repair is the name's `_`:
+    // a return type written on the lambda would answer nothing.
+    const source = "module Main\n\n" + "export let u: (_) -> Int = (x) => x\n";
+    const { session } = sessionOf({ "/main.hex": source });
+    expect(session.diagnostics("/main.hex").map(({ message }) => message)).toEqual([
+      "an exported signature is complete (Modules §4.1.1); replace `_` with the intended type",
+    ]);
+    expect(session.codeActions("/main.hex", { start: 0, end: source.length })
+      .filter(({ title }) => title === "Infer return type")).toEqual([]);
+    expect(actionsOn(session, "/main.hex", source, "u:")).toEqual([]);
+  });
+
   test("writes a function a caller hands in as the constant, as hover shows it (#1184)", () => {
     const source = "module Main\n\n" + "export record Sink(a) = { put: (a) ->! Unit }\n" +
       "export fun mk() = Sink({ put = (h) => h!(() => ()) })\n";
