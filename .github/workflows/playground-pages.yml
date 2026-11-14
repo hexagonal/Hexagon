@@ -27,8 +27,9 @@ permissions:
 # #203 was lost — cancelled 37 seconds in when PR #207 merged behind it, before
 # it could reach the deploy.
 #
-# The group covers the whole run, so a superseded pull-request run stops every
-# job below together rather than leaving test shards running for nobody.
+# The group covers the whole run, so a superseded pull-request run stops its
+# test jobs together rather than leaving shards running for nobody; only the
+# final "Check" still runs, to report the run as red (see that job).
 concurrency:
   group: check-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -278,16 +279,19 @@ jobs:
   # It keeps the job id `build` that the deploy and the red-main report below
   # depend on.
   #
-  # On a pull request it runs even when the run is cancelled. A job that its
+  # Anywhere but main it runs even when the run is cancelled. A job that its
   # `if:` skips reports as skipped, and branch protection counts a skipped
-  # required check as passed, so a run cancelled before this job started would
-  # otherwise leave the pull request mergeable with nothing tested. Run, it
-  # sees the cancelled parts and goes red. On main a cancelled run stays
-  # silent, as it always has, so the red-main report does not fire on it.
+  # required check as passed, so a run cancelled before this job started — a
+  # pull request's, or a dispatch on its branch — would otherwise leave the
+  # pull request mergeable with nothing tested. Run, it goes red unless every
+  # part had already passed (or been skipped for prose). A superseded
+  # pull-request run therefore ends red on its old commit rather than
+  # cancelled. On main a cancelled run stays silent, as it always has, so the
+  # red-main report does not fire on it.
   build:
     name: Check
     needs: [scope, compiler-tests, packages]
-    if: ${{ always() && (github.event_name == 'pull_request' || !cancelled()) }}
+    if: ${{ always() && (github.ref != 'refs/heads/main' || !cancelled()) }}
     runs-on: ubuntu-latest
     steps:
       - name: Require every part to have passed
