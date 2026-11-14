@@ -145,10 +145,11 @@ describe("the guards name `Nat`, which they never did before", () => {
     const exports = await runMain([
       "module Main",
       "",
-      "export let byDiv(): Nat = Nat.div(1, 0)",
-      "export let byMod(): Nat = Nat.mod(2, 0)",
-      "export let byQuot(): Nat = Nat.quot(3, 0)",
-      "export let byRem(): Nat = Nat.rem(4, 0)",
+      "let zero: Nat = 0",
+      "export let byDiv(): Nat = Nat.div(1, zero)",
+      "export let byMod(): Nat = Nat.mod(2, zero)",
+      "export let byQuot(): Nat = Nat.quot(3, zero)",
+      "export let byRem(): Nat = Nat.rem(4, zero)",
       "",
     ].join("\n"));
 
@@ -172,8 +173,10 @@ describe("the guards name `Nat`, which they never did before", () => {
     const exports = await runMain([
       "module Main",
       "",
-      "export let natSide(): Nat = Nat.mod(7, 0)",
-      "export let intSide(): Int = Int.mod(7, 0)",
+      "let natZero: Nat = 0",
+      "let intZero = 0",
+      "export let natSide(): Nat = Nat.mod(7, natZero)",
+      "export let intSide(): Int = Int.mod(7, intZero)",
       "",
     ].join("\n"));
 

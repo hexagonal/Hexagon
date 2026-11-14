@@ -156,11 +156,12 @@ describe("Dec literals and exact decimal arithmetic", () => {
     const exports = await runMain(
       HEADER +
         "import Rat\n\n" +
+        "let zero = 0d\n" +
         "export let createNegative(): Dec = Dec.create(0n, -1)\n" +
         "export let changeNegative(): Dec = 0d.withPlaces(-1)\n" +
         "export let changeEvenNegative(): Dec = 0d.withPlacesEven(-1)\n" +
         "export let divideNegative(): Dec = 0d.divide(1d, -1)\n" +
-        "export let divideEvenBeforeZero(): Dec = 1d.divideEven(0d, -1)\n" +
+        "export let divideEvenBeforeZero(): Dec = 1d.divideEven(zero, -1)\n" +
         "export let ratNegative(): Dec = Rat.toDec(Rat.create(0n, 1n), -1)\n" +
         "export let ratEvenNegative(): Dec = Rat.toDecEven(Rat.create(0n, 1n), -1)\n" +
         "export let floatNegative(): Dec = Dec.fromFloat(Float.nan, -1)\n" +

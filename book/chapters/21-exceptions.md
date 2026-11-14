@@ -77,7 +77,7 @@ Notice what the marks from Chapter 19 are *not* doing here. `requireName` is pur
 the `throw` inside it costs nothing: throwing is not an effect. The effect discipline
 tracks observable interaction with the world, and an exception is failure, not
 interaction, so the two channels stay separate — a pure function may throw, and a pure
-function may catch. `Int.div` divides or throws `DivideByZeroError` and is pure either
+function may catch. `Int.div` divides or throws `DivideByZeroFault` and is pure either
 way. Purity promises that a call cannot touch the world; it has never promised that
 the call must succeed.
 
