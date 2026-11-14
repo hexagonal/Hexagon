@@ -17051,8 +17051,16 @@ class Checker {
       type.kind === "NominalRecord" && type.record === ratRecord;
     const atInteger = (type: Typed.Type): boolean =>
       type.kind === "Primitive" && (type.name === "Nat" || type.name === "Int" || type.name === "BigInt");
+    // A division the checker has already refused inside is one fault, said
+    // once: the earlier report names what to change first.
+    const earlier = this.#diagnostics.toArray().filter(({ severity }) => severity === "error");
+    const refusedWithin = ({ span }: Typed.Expr): boolean =>
+      earlier.some(({ primary }) =>
+        primary.fileId === span.fileId &&
+        primary.start.offset >= span.start.offset && primary.end.offset <= span.end.offset
+      );
     const refuse = (division: Typed.Expr, divisor: Typed.Expr, fraction: boolean): void => {
-      if (!writtenZero(divisor)) return;
+      if (!writtenZero(divisor) || refusedWithin(division)) return;
       const text = this.#sourceText?.slice(division.span.start.offset, division.span.end.offset);
       const quoted = text === undefined ? (fraction ? "this fraction" : "this division") : `\`${text}\``;
       this.#diagnostics.add({

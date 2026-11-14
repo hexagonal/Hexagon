@@ -98,6 +98,18 @@ describe("a divisor written as a literal zero (Division & Remainder §12)", () =
     expect(reports("let a = Int.div(1, 0)\nlet b = 1 // 0\nlet c = r / 0").map(({ at }) => at)).toEqual(["0", "0", "0"]);
   });
 
+  // A division the checker already refused inside is one fault, said once.
+  test.each([
+    ["let a = Int.div(7, 0n)", "Int.div(7, 0n)"],
+    ["let a = Int.div(\"a\", 0)", "Int.div(\"a\", 0)"],
+    ["let a = 1.5 // 0", "1.5"],
+  ])("makes no second report in %j", (line, at) => {
+    const found = reports(line);
+    expect(found).toHaveLength(1);
+    expect(found[0]!.message).not.toContain("has no value");
+    expect(found[0]!.at).toBe(at);
+  });
+
   // Each compiles; each that divides by zero faults when it runs.
   const compiled: readonly string[] = [
     // A name is never read, and nothing is computed (§12.1).
