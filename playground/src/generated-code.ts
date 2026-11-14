@@ -249,7 +249,10 @@ function escapeRegularExpression(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
 }
 
-/** What the `.d.ts` pane holds: the shipped file, or a note in its place. */
+/**
+ * What the `.d.ts` pane holds: the shipped file, or a note in its place — the
+ * Playground's own words, never shown as file text.
+ */
 export type DeclarationFileView =
   | { readonly kind: "file"; readonly text: string }
   | { readonly kind: "note"; readonly text: string };

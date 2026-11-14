@@ -1354,7 +1354,7 @@ function shippedDeclarations(buffer: string, moduleName: string): string {
 describe("the `.d.ts` pane shows the shipped declaration file", () => {
   test("byte for byte, import lines included, and no private binding", () => {
     // The program's own `Option` takes the name, so the shipped file imports the
-    // prelude's under a probed local: the spelling a second rendering got wrong.
+    // prelude's under a probed local, and the pane shows that local.
     const buffer = MAIN +
       "record Option = { a: Int }\n" +
       "export let o: Option.Option(Int) = Option.None\n" +
@@ -1408,6 +1408,86 @@ describe("the `.d.ts` pane shows the shipped declaration file", () => {
     expect(response.exportsNothing).toBe(true);
   });
 
+  test("a type reaching the root through a transit module keeps its import line", () => {
+    // `Main` names `Bb.U`, an alias of `Cc.T`: the shipped file imports `T`
+    // from `Cc`, which only the project's own emission knows to write.
+    const buffer = "module Cc\n" +
+      "\n" +
+      "export record T = { n: Int }\n" +
+      "\n" +
+      "end module Cc\n" +
+      "\n" +
+      "module Bb\n" +
+      "\n" +
+      "import Cc\n" +
+      "\n" +
+      "export type U = Cc.T\n" +
+      "export let c: U = Cc.T({n = 1})\n" +
+      "\n" +
+      "end module Bb\n" +
+      "\n" +
+      "module Main\n" +
+      "\n" +
+      "import Bb\n" +
+      "\n" +
+      "export let x: Bb.U = Bb.c\n";
+    const response = compileSource(65, buffer);
+
+    expect(response).toMatchObject({ kind: "compile-success", diagnostics: [] });
+    if (response.kind !== "compile-success") return;
+    expect(response.declarationFile).toBe(shippedDeclarations(buffer, "Main"));
+    expect(response.declarationFile).toBe(
+      'import type { T } from "./Cc.js";\n' +
+        "export declare const x: T;\n",
+    );
+  });
+
+  test("an extern block's exported row is an export", () => {
+    const response = compileSource(
+      66,
+      `${MAIN}extern from "./text.js"\n    export fun parse(text: String) -> String\n`,
+    );
+
+    expect(response).toMatchObject({ kind: "compile-success", diagnostics: [] });
+    if (response.kind !== "compile-success") return;
+    expect(response.declarationFile).toContain("parse");
+    expect(response.exportsNothing).toBe(false);
+  });
+
+  test("an extern block with only private rows exports nothing", () => {
+    const response = compileSource(
+      67,
+      `${MAIN}extern from "./text.js"\n    fun parse(text: String) -> String\n\n` +
+        'Debug.log(parse("a"))\n',
+    );
+
+    expect(response).toMatchObject({ kind: "compile-success", diagnostics: [] });
+    if (response.kind !== "compile-success") return;
+    expect(response.declarationFile).toBe("export {};\n");
+    expect(response.exportsNothing).toBe(true);
+  });
+
+  test.each([
+    ["a record", "export record Point = { x: Int }\n"],
+    ["a type alias", "export type Count = Int\n"],
+    ["a union", "export union Coin = Heads | Tails\n"],
+    ["an opaque record", "opaque record Box = { value: Int }\n"],
+    [
+      "a pattern",
+      "export pattern doubled(half: Int): Int\n" +
+        "    view(n) = Int.div(n, 2)\n" +
+        "    build(half) = half * 2\n",
+    ],
+    ["an exception", "export exception Boom(value: Int)\n"],
+    ["a constraint", "export constraint Sized<a> =\n    size(x: a) -> Int\n"],
+  ])("a module whose only export is %s takes no note", (_, source) => {
+    const response = compileSource(68, MAIN + source);
+
+    expect(response).toMatchObject({ kind: "compile-success", diagnostics: [] });
+    if (response.kind !== "compile-success") return;
+    expect(response.exportsNothing).toBe(false);
+  });
+
   test("a module with an export takes no note", () => {
     const response = compileSource(63, `${MAIN}export let x: Int = 1\n`);
 
@@ -1417,7 +1497,7 @@ describe("the `.d.ts` pane shows the shipped declaration file", () => {
     expect(response.exportsNothing).toBe(false);
   });
 
-  test("a private edition's collision is still reported, by the JavaScript pane's emission", () => {
+  test("a private edition's collision is reported, by the JavaScript pane's emission", () => {
     // The warning comes from planning private editions, which only the JS
     // pane's re-emission does; the shipped file plans exported ones alone.
     const response = compileSource(

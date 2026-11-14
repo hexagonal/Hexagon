@@ -94,8 +94,8 @@ const state: PlaygroundState = {
   zeroEntryPointExports: [],
   javascriptView: "source",
   declarationFile: {
-    kind: "file",
-    text: "// The declaration file will appear after compilation.",
+    kind: "note",
+    text: "The declaration file will appear after compilation.",
   },
   types: [],
 };
@@ -346,8 +346,8 @@ compilerWorker.addEventListener("message", (event: MessageEvent<CompilerMessage>
     state.generatedDeclarations = [];
     state.zeroEntryPointExports = [];
     state.declarationFile = {
-      kind: "file",
-      text: "// No declaration file emitted for the current source.",
+      kind: "note",
+      text: "No declaration file was emitted for the current source.",
     };
     state.types = [];
     state.diagnostics = response.diagnostics.map((diagnostic) =>
@@ -692,7 +692,8 @@ function renderOutput(): void {
 }
 
 /**
- * The `.d.ts` pane's note, set apart from file text: a sentence in the page's
+ * The `.d.ts` pane's note — before a compile, after a failed one, or for a
+ * module that exports nothing — set apart from file text: a sentence in the page's
  * own type rather than a line in the code view, so it is never read as the
  * file's content.
  */

@@ -235,10 +235,13 @@ function compileWorkspace(
 }
 
 /**
- * Whether a module writes `export` on nothing at all, which is when its shipped
- * `.d.ts` is empty for want of an export. Asked of the module and not of the
- * file's text: an export can publish no face (Zero-Cost Fundamental Exports
- * §3.4), and its module's file is then as empty as one that exports nothing.
+ * Whether a module exports nothing at all, which is when its shipped `.d.ts`
+ * is empty for want of an export. An `opaque record` exports without the
+ * keyword, and its item carries `exported` like any other.
+ *
+ * Asked of the module and not of the file's text: an export can publish no
+ * face (Zero-Cost Fundamental Exports §3.4), and its module's file is then as
+ * empty as one that exports nothing.
  */
 function exportsNothing(module: Core.Module): boolean {
   return !module.items.some((item) =>

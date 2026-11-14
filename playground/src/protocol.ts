@@ -98,7 +98,7 @@ export interface CompileSuccess {
    */
   readonly declarationFile: string;
   /**
-   * The main module writes `export` on nothing, so `declarationFile` declares
+   * The main module exports nothing, so `declarationFile` declares
    * nothing (it is `export {};`). The pane says so in a note of its own rather
    * than show that line as the file.
    */
