@@ -102,7 +102,7 @@ export interface CompiledModule {
   readonly declarations: Emitted.Declarations;
   /**
    * Where this module's emission found each runtime module, so a host that
-   * re-emits it (the Playground, for its private-specialization preview) gets
+   * re-emits it (the Playground, for the JavaScript pane's private editions) gets
    * the same answer rather than the same-directory default.
    *
    * Carried rather than recomputed because only `compileProject` knows where
@@ -260,7 +260,8 @@ export interface CompiledProject {
    * this program's prelude (#679, `fundamentalInstancesOf`).
    *
    * Carried out for the reason `CompiledModule.runtimes` is: a host that
-   * re-emits a module — the Playground, for its inspection preview — has to
+   * re-emits a module — the Playground, for its JavaScript pane's private
+   * editions — has to
    * plan the same editions the shipped emission planned, and only the compile
    * that ran the prelude can say which those are.
    */

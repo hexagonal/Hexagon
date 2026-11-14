@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 
 import type { GeneratedSection } from "./protocol";
 import {
+  declarationFileView,
   formatEditionLabel,
   formatExportLabel,
   generatedSectionsPanel,
@@ -270,5 +271,27 @@ describe("generatedSectionsPanel", () => {
     expect(face.bytes).toBeGreaterThan(face.endOffset - face.startOffset);
     expect(formatExportLabel(panel.exports[0]!)).toContain("148 B .d.ts");
     expect(formatEditionLabel(panel.exports[0]!.editions[0]!)).toContain("148 B .d.ts");
+  });
+});
+
+describe("declarationFileView", () => {
+  test("a module that exports nothing takes the note, not its file's text", () => {
+    expect(declarationFileView("export {};\n", true)).toEqual({
+      kind: "note",
+      text: "This module exports nothing, so its `.d.ts` is empty.",
+    });
+  });
+
+  test("a module that exports shows its shipped file, exactly", () => {
+    const file = 'import type { Option as Option_1 } from "./Hex/Option.js";\n' +
+      "export declare const o: Option_1<number>;\n";
+    expect(declarationFileView(file, false)).toEqual({ kind: "file", text: file });
+  });
+
+  test("an export with no typed entry point shows its file, though it declares nothing", () => {
+    expect(declarationFileView("export {};\n", false)).toEqual({
+      kind: "file",
+      text: "export {};\n",
+    });
   });
 });

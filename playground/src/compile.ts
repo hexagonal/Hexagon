@@ -1,10 +1,10 @@
 import {
+  Core,
   Emitted,
   Source,
   Typed,
   compileProject,
   emitJavaScript,
-  emitTypeScriptPreview,
   type CompiledModule,
   type Diagnostics,
 } from "../../compiler/src/index";
@@ -169,15 +169,9 @@ function compileWorkspace(
     };
   }
 
-  // The program's own candidate rows, not the preview's guess at them (#679):
-  // Algorithm S's answer for a pre-registered constraint is a fact about the
-  // prelude, and re-emitting one module alone would plan a different edition set
-  // than the pane beside it shows.
-  const preview = emitTypeScriptPreview(main.module.core, project.fundamentalInstances);
   const diagnostics = adaptDiagnostics([
     ...project.diagnostics,
     ...outputs.flatMap(({ javascript }) => javascript.diagnostics),
-    ...preview.diagnostics,
   ], mapOffset);
 
   if (diagnostics.some(({ severity }) => severity === "error")) {
@@ -224,7 +218,10 @@ function compileWorkspace(
     // a private edition weighs its bytes in the module and publishes no face.
     generatedDeclarations: main.module.declarations.generatedSections,
     zeroEntryPointExports: main.module.declarations.zeroEntryPointExports,
-    typeScriptPreview: preview.text,
+    // The shipped file itself, byte for byte (FFI Part 1 §8.3 obligation 6):
+    // the text `compileProject` wrote for this module, import lines and all.
+    declarationFile: main.module.declarations.text,
+    exportsNothing: exportsNothing(main.module.core),
     // Type occurrences are for the editor's buffer, so they cover what the user
     // wrote — every module the buffer declares, and nothing else. Asked of the
     // *file* rather than by classifying modules: every injected `Hex` module is
@@ -235,6 +232,20 @@ function compileWorkspace(
     ),
     diagnostics,
   };
+}
+
+/**
+ * Whether a module writes `export` on nothing at all, which is when its shipped
+ * `.d.ts` is empty for want of an export. Asked of the module and not of the
+ * file's text: an export can publish no face (Zero-Cost Fundamental Exports
+ * §3.4), and its module's file is then as empty as one that exports nothing.
+ */
+function exportsNothing(module: Core.Module): boolean {
+  return !module.items.some((item) =>
+    item.kind === "ExternBlock"
+      ? item.declarations.some(({ exported }) => exported)
+      : "exported" in item && item.exported
+  );
 }
 
 /**

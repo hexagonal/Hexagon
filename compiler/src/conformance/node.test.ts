@@ -10,7 +10,7 @@ import { parse } from "../passes/parser/parser.js";
 import { resolve } from "../passes/resolver/resolver.js";
 import { check } from "../passes/checker/checker.js";
 import { elaborate } from "../passes/elaborator/elaborator.js";
-import { emitJavaScript, emitTypeScriptPreview } from "../passes/emitter/emitter.js";
+import { emitJavaScript } from "../passes/emitter/emitter.js";
 
 /**
  * Behavioural conformance for the hidden `Node` trie intrinsic (persistent-
@@ -268,16 +268,13 @@ describe("Node intrinsic contract (leak-proof rejections)", () => {
 });
 
 /**
- * FFI Part 7 §14.1's `Node` bullet. `Array(a)` faces TypeScript as the immutable
- * `ReadonlyArray<a>` (issue #228), but `Node(a)` keeps the mutable `Array<a>`:
- * that is the honest shape of the hidden trie node, and nothing about it is a
- * borrowed foreign view. The face is reachable only through the inspection
- * preview, which renders a module's private declarations too — every export door
- * is shut above, so the shipped `.d.ts` never names it. This is the pin
- * `array-readonly-face.test.ts` defers here for.
+ * FFI Part 7 §14.1's `Node` bullet, and FFI Part 1 §8.3's "`Node` reaches no
+ * shipped `.d.ts`": every export door is shut above, so a runtime module's
+ * `Node`-typed private bindings leave no trace in its declaration file, which is
+ * the only declaration text there is (obligation 6).
  */
-describe("the `Node(a)` face is the mutable `Array<a>` (FFI Part 7 §14.1)", () => {
-  test("Node-typed bindings preview as `Array<…>`, and reach no shipped `.d.ts`", () => {
+describe("a `Node(a)` binding reaches no shipped `.d.ts` (FFI Part 7 §14.1)", () => {
+  test("Node-typed private bindings leave nothing `Node`-shaped in the shipped `.d.ts`", () => {
     const compiled = compileFiles([
       [RUNTIME_PATH, `${trieSource}\n` +
         "let anySlots = Node.empty()\n" +
@@ -288,16 +285,11 @@ describe("the `Node(a)` face is the mutable `Array<a>` (FFI Part 7 §14.1)", () 
     expect(compiled.diagnostics).toEqual([]);
     const module = compiled.modules.find(({ source }) => source.path === RUNTIME_PATH);
     if (module === undefined) throw new Error(`no ${RUNTIME_PATH} in the compiled project`);
-    // `anySlots` is generalized and faces as its `never` instantiation (§14.1's
-    // third row); `intSlots` is the ordinary `Node(Int)`. Both are mutable.
-    const preview = emitTypeScriptPreview(module.core).text;
-    expect(preview).toContain("declare const anySlots: Array<never>;\n");
-    expect(preview).toContain("declare const intSlots: Array<number>;\n");
-    expect(preview).toContain("export declare const firstSlot: number;\n");
     // The shipped face carries the export and nothing `Node`-shaped: every
     // export door above is shut, so no `Array<…>` reaches the `.d.ts` at all.
     expect(module.declarations.text).toContain("export declare const firstSlot: number;\n");
     expect(module.declarations.text).not.toContain("Array<");
+    expect(module.declarations.text).not.toContain("Slots");
   });
 });
 

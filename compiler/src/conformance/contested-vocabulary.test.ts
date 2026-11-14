@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import { compileProject, emitTypeScriptPreview, Source, type CompiledProject } from "../index";
+import { compileProject, Source, type CompiledProject } from "../index";
 import { typeScriptErrors } from "../support/typescript-check.js";
 
 /**
@@ -91,13 +91,6 @@ function javascript(compiled: CompiledProject, path = "/main.hex"): string {
   const module = compiled.modules.find(({ source }) => source.path === path);
   if (module === undefined) throw new Error(`${path} was not emitted`);
   return module.javascript.text;
-}
-
-/** One module's inspection-only TypeScript preview (§2.4 Scope). */
-function preview(compiled: CompiledProject, path = "/main.hex"): string {
-  const module = compiled.modules.find(({ source }) => source.path === path);
-  if (module === undefined) throw new Error(`${path} was not emitted`);
-  return emitTypeScriptPreview(module.core).text;
 }
 
 /** The `Seq` face this file contests, in the one shape every class shares. */
@@ -585,26 +578,5 @@ describe("the negatives — nothing else moves", () => {
         expect(module.javascript.text).not.toContain("globalThis.");
       }
     }
-  });
-});
-
-describe("the preview shows what would ship (§14.6)", () => {
-  test("the preview qualifies identically to the `.d.ts`", () => {
-    // §2.4's Scope note keeps the preview on bare *names* because the pane has
-    // nothing to import from; qualification imports nothing, so it does reach
-    // here — the #622 precedent, stated in §14.6.
-    const compiled = project({ "/main.hex": "export record Iterable = {x: Int}\n" + SEQ_FACE });
-
-    expect(preview(compiled)).toBe(declarations(compiled));
-  });
-
-  test("the contested preview text compiles on its own", async () => {
-    expect(
-      await typeScriptErrors({
-        "preview.ts": preview(project({
-          "/main.hex": "export record Iterable = {x: Int}\n" + SEQ_FACE,
-        })),
-      }),
-    ).toEqual([]);
   });
 });

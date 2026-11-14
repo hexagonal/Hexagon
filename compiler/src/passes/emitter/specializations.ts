@@ -66,7 +66,8 @@ export interface SpecializationPlan {
    *   `SchemePlan.eligible` reports: §3.1's own test, no specializing variable.
    * - A **private** item is turned away by the `item.exported` gate below,
    *   whatever `includePrivate` asks for, because the report is about the
-   *   module's real foreign surface and an inspection preview's extra rows are
+   *   module's real foreign surface and the private editions an inspection
+   *   tool's JavaScript asks for are
    *   not on it.
    * - A **collision-dropped** export is turned away by *ordering*: the row is
    *   written before the collision filter runs, so an export whose every edition
@@ -115,7 +116,11 @@ export function preludeBoolUnion(module: Core.Module): Resolved.UnionId | undefi
       : undefined);
 }
 
-/** Computes Algorithms S and N for exported functions or inspection previews. */
+/**
+ * Computes Algorithms S and N for exported functions, and with `includePrivate`
+ * for private ones too: the editions an inspection tool's JavaScript shows
+ * (`JavaScriptEmissionOptions.previewPrivateSpecializations`).
+ */
 export function planFundamentalSpecializations(
   module: Core.Module,
   instances?: FundamentalInstances,
@@ -133,7 +138,7 @@ export function planFundamentalSpecializations(
     if (!isSpecializable(item) || (!includePrivate && !item.exported)) continue;
     const planned = planItem(item, judgment, bool);
     // §3.4, and the two gates are the whole of `zeroEntryPointExports`' doc: the
-    // export half keeps an `includePrivate` preview's private rows off the
+    // export half keeps an `includePrivate` plan's private rows off the
     // module's reported surface, and reading `planned` before the collision
     // filter below keeps a dropped edition from reading as a legal absence.
     if (planned.eligible && item.exported && planned.specializations.length === 0) {
@@ -236,10 +241,10 @@ export type EditionInstances = (
 /**
  * The answer for a caller that renders an edition's **face** and never its body.
  *
- * The `.d.ts` and preview emitters specialize an item to read the substituted
+ * The `.d.ts` emitter specializes an item to read the substituted
  * scheme and the lambda's parameter list, and nothing under them: no evidence
- * node of theirs is ever rendered. They resolve nothing rather than pretending
- * to, and the `Error` evidence that leaves in their copy of the body is exactly
+ * node of its is ever rendered. It resolves nothing rather than pretending
+ * to, and the `Error` evidence that leaves in its copy of the body is exactly
  * as dead as the body is.
  */
 export const faceOnlyEditionInstances: EditionInstances = () => undefined;

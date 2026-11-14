@@ -2,7 +2,6 @@ import { describe, expect, test } from "vitest";
 
 import {
   compileProject,
-  emitTypeScriptPreview,
   Source,
   type CompiledProject,
 } from "../index";
@@ -37,9 +36,9 @@ import { typeScriptErrors } from "../support/typescript-check.js";
  * *(#1073.)* `Range` joins them, declared by `stdlib/Range.hex`'s row, so no
  * program's own file spells `Hex.*` any more: the four companions' seats are
  * the runtime declaration module's only importers. Their names are fixed, so
- * the import's alias is always `Hex` (obligation 2's probe is retired), and the
- * preview, naming every face by its bare name, declares no namespace
- * (obligation 6's inline header is retired).
+ * the import's alias is always `Hex` (obligation 2's probe is retired). A
+ * program's own file imports each face from its companion and declares no `Hex`
+ * namespace, and that file is what an inspection surface shows (obligation 6).
  */
 
 /**
@@ -74,14 +73,6 @@ function declarationsOf(compiled: CompiledProject, path: string): string {
 /** The generated `.d.ts` of a one-module program at `/src/main.hex`. */
 function declarations(source: string): string {
   return declarationsOf(project({ "/src/main.hex": source }), "/src/main.hex");
-}
-
-/** The inspection-only preview text of a one-module program (§14.1 scope). */
-function preview(source: string): string {
-  const compiled = project({ "/src/main.hex": source });
-  const module = compiled.modules.find(({ source: file }) => file.path === "/src/main.hex");
-  if (module === undefined) throw new Error("no /src/main.hex in the compiled project");
-  return emitTypeScriptPreview(module.core).text;
 }
 
 /**
@@ -443,25 +434,28 @@ describe("what the ruling leaves alone (obligation 4)", () => {
   });
 });
 
-describe("the preview names every face as it ships (obligation 6)", () => {
+describe("a program's own file names every face from its companion (obligation 6)", () => {
   /**
-   * *(#1071, #1073.)* A collection face previews as it ships — `Vector<number>`,
-   * `Range`, by name — and, the pane having nothing to import from, as a bare
-   * name, which is §2.4's Scope note for every module-owned type (#622's
-   * shows-what-ships). No face is spelled through `Hex.*`, so the pane declares
-   * no namespace.
+   * *(#1071, #1073, #1087.)* A collection face ships by name — `Vector<number>`,
+   * `Range` — imported from its companion's declaration file. No face is spelled
+   * through `Hex.*`, so the file declares no namespace and imports no `hex.js`;
+   * this file, import lines and all, is what the Playground's `.d.ts` pane shows.
    */
-  test("a collection face previews by name, as it ships, and owes no header", () => {
-    const text = preview("export let rows: Vector(Int) = [1]\nexport let span: Range = 0..1\n");
-    expect(text).toContain("declare const rows: Vector<number>;");
-    expect(text).toContain("declare const span: Range;");
+  test("a collection face ships by name, imported from its companion, with no header", () => {
+    const text = declarations("export let rows: Vector(Int) = [1]\nexport let span: Range = 0..1\n");
+    expect(text).toBe(
+      'import type { Range } from "./Hex/Range.js";\n' +
+        'import type { Vector } from "./Hex/Vector.js";\n' +
+        "export declare const rows: Vector<number>;\n" +
+        "export declare const span: Range;\n",
+    );
     expect(text).not.toContain("namespace");
     expect(text).not.toContain("hex.js");
   });
 
-  test("a program's own `Hex` previews as written", () => {
-    const text = preview("export record Hex = { digits: String }\nexport let span: Range = 0..1\n");
-    expect(text).toContain("type Hex = { digits: string };");
+  test("a program's own `Hex` ships as written", () => {
+    const text = declarations("export record Hex = { digits: String }\nexport let span: Range = 0..1\n");
+    expect(text).toContain("export type Hex = { digits: string };");
     expect(text).not.toContain("namespace");
   });
 });

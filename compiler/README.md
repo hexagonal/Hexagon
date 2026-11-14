@@ -142,11 +142,11 @@ are the key `queries/documentation.ts` gives the editor services: hover and
 completion show doc content at every documentable position (§8), including the
 local binders and `honor` members that reach neither emitted artifact.
 
-Interactive tools may additionally call `emitTypeScriptPreview` to inspect every
-representable top-level binding without promoting private bindings into the public
-module contract. Constrained bindings remain in the typed analysis without exposing
-their generic dictionary surface; lawful fundamental editions appear as ordinary
-non-exported preview declarations.
+A tool that shows a module's TypeScript faces for inspection shows its
+`Emitted.Declarations` text, the shipped `.d.ts` itself (FFI Part 1 §8.3
+obligation 6). Private bindings reach no declaration file; a tool that shows them
+shows the JavaScript, which `emitJavaScript` writes with private fundamental
+editions included when `previewPrivateSpecializations` asks for them.
 
 The compiler API supports explicit source-file roots through
 `compileProject(files, { roots: [file.id] })`. It checks the selected modules and

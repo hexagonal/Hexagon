@@ -34,7 +34,6 @@ check
 elaborate
 emitJavaScript
 emitDeclarations
-emitTypeScriptPreview
 ```
 
 The pipeline reads:
@@ -82,7 +81,6 @@ check(Resolved.Module) -> Result(Typed.Module)
 elaborate(Typed.Module) -> Core.Module
 emitJavaScript(Core.Module) -> Emitted.JavaScript
 emitDeclarations(Core.Module) -> Emitted.Declarations
-emitTypeScriptPreview(Core.Module) -> Emitted.TypeScriptPreview
 ```
 
 The parser cannot consume `Lexed.File`; layout is not an optional parser mode. The checker cannot consume `Parsed.Module`; resolution is not performed opportunistically during inference.
@@ -212,13 +210,11 @@ than `src/syntax/emitted/`. The transforming algorithms remain under
 unchanged source identity and diagnostics, but none exposes or accepts an earlier
 compiler representation.
 
-`Emitted.TypeScriptPreview` is a separate inspection artefact rather than a
-weakened `Emitted.Declarations`. It may describe non-exported top-level bindings
-for interactive tools, while `Emitted.Declarations` remains the public module
-contract. Its transforming verb is
-`emitTypeScriptPreview(Core.Module) -> Emitted.TypeScriptPreview`.
+`Emitted.Declarations` is the public module contract, and it is also what an
+inspection tool shows as a module's `.d.ts`: there is one declaration artefact,
+with no inspection variant beside it (FFI Part 1 §8.3 obligation 6).
 
-`Emitted.RuntimeDeclarations` (August 2026, #128) is the exception the three
+`Emitted.RuntimeDeclarations` (August 2026, #128) is the exception the two
 above establish the rule for: it is **program-scoped**, belonging to no source
 file, so it carries a `path` where the others carry a `Source.FileId`. It has no
 transforming verb of the `emit*(Core.Module) -> …` shape, because no one module

@@ -639,8 +639,8 @@ describe("the opaque brands are in every universe the file probes", () => {
       ],
     ]);
 
-    // `opaqueBrandNames` mints a brand for *every* extern type, the preview
-    // declaring them all; `emit` writes the `declare const` only for an exported
+    // `opaqueBrandNames` mints a brand for *every* extern type, exported or
+    // not; `emit` writes the `declare const` only for an exported
     // one. Feeding the map's whole range to the universe claimed a name the file
     // does not contain and moved the alias to `HandleBrand_1` for it — the same
     // over-claim the gated-alias rule prevents, one condition over.

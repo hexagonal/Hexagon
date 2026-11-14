@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import { compileProject, emitTypeScriptPreview, Source } from "../index";
+import { compileProject, Source } from "../index";
 import { typeScriptErrors } from "../support/typescript-check.js";
 
 /**
@@ -51,20 +51,6 @@ function declarationSet(source: string): Record<string, string> {
       module.declarations.text;
   }
   return files;
-}
-
-/** Compiles one module and returns the inspection-only preview text (§14.1 scope). */
-function preview(source: string): string {
-  const project = compileProject([
-    new Source.File(Source.fileId(0), "/main.hex", "module Main\n\n" + source),
-  ]);
-  // The preview describes a module whatever its diagnostics say, so without
-  // this a specimen that stopped compiling would still produce text for the
-  // assertions to match.
-  expect(project.diagnostics).toEqual([]);
-  const main = project.modules.find(({ source: file }) => file.path === "/main.hex");
-  if (main === undefined) throw new Error("no /main.hex in the compiled project");
-  return emitTypeScriptPreview(main.core).text;
 }
 
 describe("a polymorphic non-function export faces as its `never` instantiation", () => {
@@ -131,21 +117,27 @@ describe("what the rule does not reach", () => {
   });
 });
 
-describe("a quantified row tail stands at the empty row, not `& never`", () => {
-  // Only the preview meets this: an *exported* value must be annotated, and an
-  // annotation cannot spell an open row. The preview describes un-annotated
-  // private bindings too, and it is a surface a user reads (the Playground's
-  // declarations pane), so it has to be TypeScript as well.
-  test("the tail contributes no fields rather than collapsing the record", () => {
-    const text = preview("let probe = ((r) => r.x, 1)\n");
+/** An exported function whose annotation spells an open row. */
+const ROW_TAIL_FIELD = "export let field(r: {x: a, ...b}): a = r.x\n";
 
-    expect(text).toContain("declare const probe: [(arg0: { x: never }) => never, number];");
+/** The same function inside an exported non-function value. */
+const ROW_TAIL_PAIR = ROW_TAIL_FIELD +
+  "export let pair: (({x: a, ...b}) -> a, Int) = (field, 1)\n";
+
+describe("a quantified row tail stands at the empty row, not `& never`", () => {
+  // A shipped file meets this: an exported annotation can spell an open row
+  // (`{x: a, ...b}`), at a function type, which binds its tail, and inside a
+  // non-function value, which instantiates it.
+  test("the tail contributes no fields rather than collapsing the record", () => {
+    const text = declarations(ROW_TAIL_PAIR);
+
+    expect(text).toContain("export declare const pair: [(arg0: { x: never }) => never, number];");
     expect(text).not.toContain("& never");
   });
 
   test("a named tail in a function-typed scheme is still bound and intersected", () => {
-    expect(preview("let field = (r) => r.x\n")).toContain(
-      "declare const field: <a, b>(r: ({ x: a } & b)) => a;",
+    expect(declarations(ROW_TAIL_FIELD)).toBe(
+      "export declare const field: <a, b>(r: ({ x: a } & b)) => a;\n",
     );
   });
 });
@@ -183,19 +175,16 @@ describe("tsc accepts the emitted declarations", () => {
     expect(errors[0]).toContain("Cannot find name 'a'");
   });
 
-  // §14.1 puts the preview in scope on the argument that a user reads it, so
-  // the preview's own text has to survive the same compiler. Note what this
-  // does *not* buy: `({ x: never } & never)` is valid TypeScript too, so the
-  // empty-row half of the rule is pinned by the text assertion above and by
-  // the mutation that produces it — never by `tsc`.
-  test("the preview's forms compile too, generic and instantiated alike", async () => {
-    const instantiated = preview("let probe = ((r) => r.x, 1)\n");
-    const generic = preview("let field = (r) => r.x\n");
-    expect(instantiated).toContain("{ x: never }");
-    expect(generic).toContain("<a, b>");
+  // The row-tail forms ship, so the shipped file has to survive the same
+  // compiler. Note what this does *not* buy: `({ x: never } & never)` is valid
+  // TypeScript too, so the empty-row half of the rule is pinned by the text
+  // assertion above and by the mutation that produces it — never by `tsc`.
+  test("the row-tail forms compile too, generic and instantiated alike", async () => {
+    const files = declarationSet(ROW_TAIL_PAIR);
+    expect(files["main.d.ts"]).toContain("{ x: never }");
+    expect(files["main.d.ts"]).toContain("<a, b>");
 
-    expect(await typeScriptErrors({ "instantiated.ts": instantiated })).toEqual([]);
-    expect(await typeScriptErrors({ "generic.ts": generic })).toEqual([]);
+    expect(await typeScriptErrors(files)).toEqual([]);
   });
 
   test("`unknown` would not serve the consumer — why §14.1 instantiates at `never`", async () => {
