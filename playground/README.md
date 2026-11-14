@@ -160,7 +160,9 @@ The hints and the input box are off until the dev turns them on (`src/settings.t
   emits for it, byte for byte, import lines included, also in a read-only Monaco
   model. Unexported bindings do not appear there; **JS** shows all emitted code.
   When the module exports nothing, the tab shows a note saying so in place of
-  the file.
+  the file. When the module exports but its exports publish no TypeScript
+  declaration (a constraint, for instance), the file is `export {};` alone and
+  the tab shows a second note saying that instead.
 - **Types** shows a compact list of inferred top-level binding types.
 
 Compiler-development views such as Tokens, Parsed, Resolved, Typed, and Core may be added behind an **Internals** control. They are useful for teaching and implementation but must not crowd the normal language experience.

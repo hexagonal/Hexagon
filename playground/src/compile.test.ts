@@ -8,6 +8,7 @@ import { rat } from "./examples/rat";
 import { runModules } from "./examples/run-modules";
 import { vectors } from "./examples/vectors";
 import { compileSource } from "./compile";
+import { declarationFileView } from "./generated-code";
 import { Source, compileProject } from "../../compiler/src/index";
 import { layOutWorkspace } from "./workspace";
 import { PlaygroundAnalysis } from "./analysis";
@@ -1480,12 +1481,29 @@ describe("the `.d.ts` pane shows the shipped declaration file", () => {
     ],
     ["an exception", "export exception Boom(value: Int)\n"],
     ["a constraint", "export constraint Sized<a> =\n    size(x: a) -> Int\n"],
-  ])("a module whose only export is %s takes no note", (_, source) => {
+  ])("a module whose only export is %s does not export nothing", (_, source) => {
     const response = compileSource(68, MAIN + source);
 
     expect(response).toMatchObject({ kind: "compile-success", diagnostics: [] });
     if (response.kind !== "compile-success") return;
     expect(response.exportsNothing).toBe(false);
+  });
+
+  test("a module whose only export is a constraint ships `export {};`, and the pane says why", () => {
+    // A constraint publishes no TypeScript declaration, so the module exports
+    // and its file is still the bare module marker.
+    const buffer = `${MAIN}export constraint Sized<a> =\n    size(x: a) -> Int\n`;
+    const response = compileSource(69, buffer);
+
+    expect(response).toMatchObject({ kind: "compile-success", diagnostics: [] });
+    if (response.kind !== "compile-success") return;
+    expect(response.declarationFile).toBe(shippedDeclarations(buffer, "Main"));
+    expect(response.declarationFile).toBe("export {};\n");
+    expect(response.exportsNothing).toBe(false);
+    expect(declarationFileView(response.declarationFile, response.exportsNothing)).toEqual({
+      kind: "note",
+      text: "This module's exports have no TypeScript declarations, so its `.d.ts` is empty.",
+    });
   });
 
   test("a module with an export takes no note", () => {

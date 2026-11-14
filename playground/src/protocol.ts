@@ -100,7 +100,9 @@ export interface CompileSuccess {
   /**
    * The main module exports nothing, so `declarationFile` declares
    * nothing (it is `export {};`). The pane says so in a note of its own rather
-   * than show that line as the file.
+   * than show that line as the file. When this is false and the file is still
+   * `export {};` alone, the module's exports publish no declaration, and the
+   * pane says that in a second note.
    */
   readonly exportsNothing: boolean;
   readonly types: readonly TypeOccurrence[];

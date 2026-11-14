@@ -692,10 +692,10 @@ function renderOutput(): void {
 }
 
 /**
- * The `.d.ts` pane's note — before a compile, after a failed one, or for a
- * module that exports nothing — set apart from file text: a sentence in the page's
- * own type rather than a line in the code view, so it is never read as the
- * file's content.
+ * The `.d.ts` pane's note — before a compile, after a failed one, for a module
+ * that exports nothing, or for one whose exports publish no declaration — set
+ * apart from file text: a sentence in the page's own type rather than a line in
+ * the code view, so it is never read as the file's content.
  */
 function renderDeclarationNote(text: string): void {
   const note = document.createElement("p");

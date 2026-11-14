@@ -3,6 +3,8 @@ import { describe, expect, test } from "vitest";
 import type { GeneratedSection } from "./protocol";
 import {
   declarationFileView,
+  EXPORTS_NOTHING_NOTE,
+  EXPORTS_UNDECLARED_NOTE,
   formatEditionLabel,
   formatExportLabel,
   generatedSectionsPanel,
@@ -288,10 +290,28 @@ describe("declarationFileView", () => {
     expect(declarationFileView(file, false)).toEqual({ kind: "file", text: file });
   });
 
-  test("an export with no typed entry point shows its file, though it declares nothing", () => {
-    expect(declarationFileView("export {};\n", false)).toEqual({
-      kind: "file",
-      text: "export {};\n",
+  test("a module that exports nothing takes that note even beside a non-bare file", () => {
+    expect(declarationFileView("export declare const x: number;\n", true)).toEqual({
+      kind: "note",
+      text: EXPORTS_NOTHING_NOTE,
     });
+  });
+
+  test("a module whose exports publish no declaration takes its own note in place of the bare file", () => {
+    expect(declarationFileView("export {};\n", false)).toEqual({
+      kind: "note",
+      text: "This module's exports have no TypeScript declarations, so its `.d.ts` is empty.",
+    });
+    expect(EXPORTS_UNDECLARED_NOTE).not.toBe(EXPORTS_NOTHING_NOTE);
+  });
+
+  test.each([
+    ["a declaration", "export declare const x: number;\n"],
+    ["a declaration after the marker", "export {};\nexport declare const x: number;\n"],
+    ["an import line alone", 'import type { T } from "./Cc.js";\n'],
+    ["the marker without its newline", "export {};"],
+    ["the marker with a trailing blank line", "export {};\n\n"],
+  ])("a module that exports shows a file holding %s, never a note", (_, file) => {
+    expect(declarationFileView(file, false)).toEqual({ kind: "file", text: file });
   });
 });
