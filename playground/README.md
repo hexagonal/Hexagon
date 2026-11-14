@@ -13,11 +13,11 @@ read-only generated-code models; the textarea remains live until Monaco succeeds
 
 **The Playground hosts nothing.** The standard library is the package `Hex` in
 full and the compiler embeds it (`spec/packages.md` §2.4), so a program reaches
-`Rat` by writing `import Rat` — or `import Hex.Rat` — exactly as it would in any
-other project, and the prelude's `Option` and `Vector` are in scope with no
-import at all. Playground programs use the real opaque types and their globally
+`Regex` by writing `import Regex` — or `import Hex.Regex` — exactly as it would in
+any other project, and the prelude's `Option`, `Vector` and `Rat` are in scope with
+no import at all. Playground programs use the real opaque types and their globally
 coherent instances, not an example-local reimplementation. A buffer declaring its
-own `module Rat` occludes `Hex.Rat` silently (§3.2) and is the program's own.
+own `module Regex` occludes `Hex.Regex` silently (§3.2) and is the program's own.
 
 ## Try it
 
@@ -285,8 +285,9 @@ Where practical, example source should be derived from or shared with conformanc
 The curated set contains the initial `hello-world` tour plus focused recursion,
 union/match, and exact `Rat` programs. Every example is compiler-tested and
 demonstrates a top-level `log(...)` effect without requiring public exports.
-The `Rat` example writes `import Rat` and exercises the canonical stdlib module
-through `half + third`, selecting its imported `Signed<Rat>` evidence.
+The `Rat` example writes fractions with `//` and takes them apart in patterns,
+exercising the prelude's `Rat` through `half + third`, and lets a `Dec` enter a
+`Rat` through `FromDec` (#1542).
 
 ## Testing
 

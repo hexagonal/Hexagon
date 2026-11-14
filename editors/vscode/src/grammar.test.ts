@@ -1567,15 +1567,18 @@ describe("comments (spec/comments.md)", () => {
     );
   });
 
+  it("paints `//` as the fraction operator (Operators §6.4)", async () => {
+    // A token since #1542, munched ahead of `/` and of the `/*` rule; a `//`
+    // meant as a comment is the parser's to refuse (Comments §3.1).
+    expect(await scope("let a = 1 // 3", "//")).toBe("keyword.operator.arithmetic.hexagon");
+    const pairs = await scopePairs("let a = 1 // note\nlet x = 1");
+    expect(pairs.some(([, name]) => name.startsWith("comment.") || name.startsWith("invalid.")))
+      .toBe(false);
+    expect(pairs).toContainEqual(["let", "storage.type.hexagon"]);
+    expect(await scope("let a = b //* c", "//")).toBe("keyword.operator.arithmetic.hexagon");
+  });
+
   it("redirects the JavaScript spellings (§3.1)", async () => {
-    // `//` and every longer run of slashes, with the rest of the line, as the compiler
-    // takes it for recovery.
-    for (const source of ["let a = 1 // note", "/// note", "//// note"]) {
-      const pairs = await scopePairs(`${source}\nlet x = 1`);
-      expect(pairs, source).toContainEqual([" note", "invalid.illegal.javascript-comment.hexagon"]);
-      expect(pairs.some(([, name]) => name.startsWith("comment.")), source).toBe(false);
-      expect(pairs, source).toContainEqual(["let", "storage.type.hexagon"]);
-    }
 
     // Painted as one region, mirroring the compiler's scan-to-`*/` recovery, so the
     // body of a pasted JS comment does not also light up as code.

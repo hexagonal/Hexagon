@@ -186,11 +186,13 @@ legitimately begin `union(`.
 **Lexical errors are painted.** §10 has no warning tier: every row is either
 accepted source or a hard error. `__hex_` names, `0xFF`, `.5`, `1.`, `1__0`,
 `12cats`, unknown string escapes, a bare `#{`, an unmatched `-}`, the JavaScript
-comment spellings `//`, `/*` and `*/`, the OCaml ones `(*` and `*)`, and `&&`/`||`/`!`
+comment spellings `/*` and `*/`, the OCaml ones `(*` and `*)`, and `&&`/`||`/`!`
 all get `invalid.illegal.*`, so the editor shows them before the compiler does. A
 pasted `/* … */` or `(* … *)` comment is painted as one region, as the compiler skips
 it as one, and `x --1` is painted as `x` and a comment, because that is what it is
-(spec/comments.md §2).
+(spec/comments.md §2). `//` is the fraction operator (#1542) and is painted as
+one; a `//` meant as a comment is the compiler's parser to refuse, since only
+the parser knows where an operand stands.
 
 `true` and `false` in **value position** are on that list (#147). `Bool` is the
 prelude union `False | True`, so the two words are reserved spellings with no value

@@ -485,8 +485,10 @@ let oneThird = Rat.create(1, 3)
 ```
 
 Both arguments are pinned by `Rat.create`'s BigInt parameters, so the emitted JavaScript
-is `Rat.create(1n, 3n)`. The suffix communicates a type decision; it need not repeat one
-the surrounding program has already made.
+passes `1n` and `3n`. The suffix communicates a type decision; it need not repeat one
+the surrounding program has already made. (`Rat` is the exact fraction type, and
+`Rat.create` is the function underneath the fraction operator: the next chapter
+writes this value as `1 // 3`.)
 
 The suffix is a visible decision. `BigInt` is valuable, but it is not a drop-in
 replacement for JavaScript's ordinary numbers: many web APIs expect `number`, JSON
@@ -503,10 +505,9 @@ An established `Rat` destination can likewise accept a BigInt without losing any
 integer digits:
 
 ```hexagon
-import Rat
 let count = 9_007_199_254_740_993n
 let exact: Rat = count
-let half = count * Rat.create(1, 2)
+let half = count * 1 // 2
 let tenth: Rat = 0.1  -- exactly 1/10, read from the written digits
 ```
 

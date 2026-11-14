@@ -228,6 +228,7 @@ function writtenType(input: ExpressionTypeInput, expression: Typed.Expr): Typed.
     case "WidenBigInt":
       if (expression.value.kind === "BigInt" && !wroteBigInt(input, expression.value.span)) return expression.type;
       return writtenType(input, expression.value);
+    case "WidenDec":
     case "WidenNat":
     case "WidenInt":
       return writtenType(input, expression.value);

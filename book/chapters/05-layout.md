@@ -178,11 +178,21 @@ shows it. Only this form documents: a line comment never does, however it begins
 (Banner lines are safe: `{---……` stays an ordinary comment.)
 
 Hexagon takes these spellings as a set from Haskell and Elm, so that one character
-marks all three forms. If JavaScript muscle memory produces `//`, `/*`, or `/**`, or
-an OCaml habit produces `(*`, the compiler recognizes the attempt and answers with the
-rewrite: `--`, `{- ... -}`, or `{-- ... -}`. Those spellings are never silently
-accepted, and the slashes never mean two divisions side by side. In the JavaScript
-that Hexagon generates, your comments reappear in JavaScript's own spelling.
+marks all three forms. If JavaScript muscle memory produces `/*` or `/**`, or an OCaml
+habit produces `(*`, the compiler recognizes the attempt and answers with the rewrite:
+`{- ... -}` or `{-- ... -}`. Those spellings are never silently accepted.
+
+JavaScript's `//` needs a different answer, because in Hexagon it is the fraction
+operator of the previous chapter. A line that begins with `//` has no top for a
+fraction, so the compiler refuses it and names the comment spelling:
+
+> a fraction needs a top; for a comment, write `--`
+
+After a value, as in `let limit = 10 // seconds`, the same habit writes a fraction
+whose bottom is `seconds`. The usual result is an unknown-name or syntax error on that
+line; where it is a syntax error, the report adds the note "for a comment, write `--`".
+In the JavaScript that Hexagon generates, your comments reappear in JavaScript's own
+spelling.
 
 Readers arriving from Haskell or Elm need the opposite warning, because their habit
 is *not* caught. In those languages `{-|` opens documentation. In Hexagon it opens an

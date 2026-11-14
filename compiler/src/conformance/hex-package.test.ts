@@ -133,25 +133,25 @@ describe("bare scope is the prelude's, and the library adds nothing to it", () =
    *
    * Embedding the whole library puts thirty-odd more modules in every
    * compilation, and the one thing that must not follow is a name arriving in
-   * bare scope from any of them. `Rat.create` is the specimen because `Rat` is
-   * the library module every host used to hand out.
+   * bare scope from any of them. `Regex.escape` is the specimen: `Rat`, the
+   * library module every host used to hand out, joined the prelude at #1542.
    */
   test("a library module's export is not bare", () => {
     const project = compileFiles([[
       "/main.hex",
-      'module Main\n\nDebug.log("${create(1, 2)}")\n',
+      'module Main\n\nDebug.log(escape("a"))\n',
     ]]);
     expect(project.diagnostics.map(({ message }) => message))
-      .toContain("no bare `create`; write `Dec.create(1, 2)`");
+      .toContain("unknown name `escape`");
   });
 
   test("a library module's type is not in scope unimported", () => {
     const project = compileFiles([[
       "/main.hex",
-      "module Main\n\nexport let zero: Rat = 0\n",
+      "module Main\n\nexport let pattern: Regex = Regex.compile(\"a\")\n",
     ]]);
     expect(project.diagnostics.map(({ message }) => message))
-      .toContain("unknown type `Rat`");
+      .toContain("unknown type `Regex`");
   });
 });
 

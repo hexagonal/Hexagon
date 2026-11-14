@@ -216,10 +216,12 @@ describe("a form's value paths meet a concrete expectation each at its own turn 
     expect(reports("let r: String = if c then n + 1 else \"x\"\n")).toEqual(refused);
     expect(reports("let r: String = if c then \"x\" else n + 1\n")).toEqual(refused);
     // One refused on its own says nothing more, at the form or at the seat.
+    // A `Dec` is a source since #1542 (Exact Integer Widening §9): it is the
+    // value refused, entering no `Float` home.
     const conflict = [[
-      "f",
-      "`f` is a `Float` and `price` a `Dec`; an expression's arithmetic runs at one type, and neither " +
-        "enters the other; convert one explicitly — `Dec.fromFloat(f, places)`",
+      "price",
+      "`price` is a `Dec` and cannot enter `Float`, the home `f` gives this expression; " +
+        "convert one explicitly — `price.toFloat()`",
     ]];
     for (const program of [
       "let r: String = if c then price * f else \"x\"\n",

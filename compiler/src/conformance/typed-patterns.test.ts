@@ -429,11 +429,14 @@ describe("§2.9 the parentheses-only rule (§12's rows)", () => {
   });
 
   test("a declared pattern's components in an expression, two of them", () => {
-    const refused = refusal("import Rat\nexport let r: Rat.Rat = (1n: BigInt, 2n)rat\n");
+    const span = "export record Span = {a: BigInt, b: BigInt}\n" +
+      "export pattern span(a: BigInt, b: BigInt): Span\n    view(s) = (s.a, s.b)\n" +
+      "    build(a, b) = Span({a = a, b = b})\n";
+    const refused = refusal(span + "export let r: Span = (1n: BigInt, 2n)span\n");
     expect(refused.message).toBe(
-      "the list is an argument list; ascribe an argument in its own parentheses: `((1n: BigInt), 2n)rat`",
+      "the list is an argument list; ascribe an argument in its own parentheses: `((1n: BigInt), 2n)span`",
     );
-    expect(refused.fixed).toEqual(["import Rat\nexport let r: Rat.Rat = ((1n: BigInt), 2n)rat\n"]);
+    expect(refused.fixed).toEqual([span + "export let r: Span = ((1n: BigInt), 2n)span\n"]);
     expect(messages(refused.fixed[0]!)).toEqual([]);
   });
 
@@ -592,12 +595,14 @@ describe("§2.9 it decides what it writes", () => {
       .toEqual([]);
   });
 
-  test("a declared pattern under a box's claim is read through it, as the label's rewrite says", () => {
-    const untyped = compiled("import Rat\nlet o = Some(1).map((((n, d)rat)) => n.show())\nexport let out: Option(String) = o\n");
+  test("a fraction pattern under a box's claim is read through it, as the label's rewrite says", () => {
+    // `n // d` takes a `Rat` apart (Pattern Matching §2.10), as `(n, d)rat`
+    // did before #1542.
+    const untyped = compiled("let o = Some(1).map((n // d) => n.show())\nexport let out: Option(String) = o\n");
     expect(untyped.diagnostics.flatMap(({ labels }) => labels ?? []).map(({ message }) => message)).toEqual([
-      "a number in `((n, d)rat)` became an `Int` here: the number reached only the lambda's input — write `(((n, d)rat): Rat)`",
+      "a number in `n // d` became an `Int` here: the number reached only the lambda's input — write `(n // d: Rat)`",
     ]);
-    expect(scheme("import Rat\nlet o = Some(1).map(((((n, d)rat): Rat)) => n.show())\nexport let out: Option(String) = o\n", "o"))
+    expect(scheme("let o = Some(1).map(((n // d): Rat) => n.show())\nexport let out: Option(String) = o\n", "o"))
       .toBe("Option(String)");
   });
 

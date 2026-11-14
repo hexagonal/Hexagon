@@ -751,6 +751,8 @@ export interface PatternHome {
   readonly path: string;
   readonly module: string;
   readonly patterns: readonly PatternReference[];
+  /** The prelude `Rat`'s `//` pattern, published by that home alone (Operators §6.4). */
+  readonly fraction?: PatternReference;
 }
 
 export type Item =
@@ -1265,6 +1267,12 @@ export interface LetPatternItem {
 export interface PatternDeclarationItem {
   readonly kind: "PatternDeclaration";
   readonly exported: boolean;
+  /**
+   * The prelude `Rat`'s private `fraction` pattern, which `//` builds and takes
+   * a fraction apart with (Operators §6.4). Not exported, and emitted as an
+   * export all the same: `//` reaches it from every module by identity.
+   */
+  readonly fraction?: true;
   readonly identity: string;
   readonly name: string;
   readonly head?: PatternDeclarationHead;
@@ -1343,6 +1351,8 @@ export interface DeclaredPattern {
   readonly candidates: readonly PatternCandidate[];
   /** True when an empty namespace leaves the expected-type door to answer. */
   readonly open?: true;
+  /** `p1 // p2` (Pattern Matching §2.10): `nameSpan` is the `//` token's. */
+  readonly fraction?: true;
   readonly nameSpan: Source.Span;
   readonly span: Source.Span;
 }
@@ -1972,6 +1982,10 @@ export interface PatternConstructionExpr {
   readonly reading?: true;
   /** The mark was written `!?` or `^?`, which the parser reported. */
   readonly markInError?: true;
+  /** `top // bottom` (Operators §6.4): `nameSpan` is the `//` token's. */
+  readonly fraction?: true;
+  /** The prelude `Rat`'s `create`, which a fraction calls (Operators §6.4). */
+  readonly fractionCreate?: SymbolId;
   readonly nameSpan: Source.Span;
   readonly span: Source.Span;
 }

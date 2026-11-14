@@ -77,11 +77,9 @@
           "match": "-\\}"
         },
         {
-          "//": "spec/comments.md §3.1: `//`, and any longer run of `/`, is JavaScript's line comment and is detected, never lexed as `/` then `/`. The rest of the line is painted with it, mirroring the compiler's recovery, which takes the line as the comment it was meant to be. Ahead of the `/*` rule, as in hexc, so `//*` is a run of slashes.",
-          "name": "invalid.illegal.javascript-comment.hexagon",
-          "begin": "//+",
-          "end": "$",
-          "patterns": [{ "include": "#bidirectional-control" }]
+          "//": "spec/operators-logic-precedence.md §6.4: `//` writes a fraction, one token munched ahead of `/` (spec/lexer.md §8.2), and so ahead of the `/*` rule, as in hexc: `//*` is `//` then `*`. A `//` meant as a comment is the parser's to refuse (spec/comments.md §3.1), which reads where an operand stands, so the grammar paints every `//` as the operator it lexes as.",
+          "name": "keyword.operator.arithmetic.hexagon",
+          "match": "//"
         },
         {
           "//": "spec/comments.md §3.1: `(*`, `(**` included, is OCaml's opener and is detected, never lexed as `(` then `*`. The region nests to its matching `*)`, mirroring the compiler's recovery, so a pasted OCaml comment is one region of error, as the `/*` rule below makes a pasted JavaScript one. The bail-out guard is what stops a half-typed `(*` from repainting the file; see the //line-bail-guard note. Because this rule claims the opener, no `\\(`-based rule elsewhere needs a guard against it: a bracket rule that claimed the `(` first would turn an error into a different error, which is not worth seven copies of a lookahead.",

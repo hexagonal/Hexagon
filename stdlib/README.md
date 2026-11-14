@@ -7,10 +7,10 @@ not compiler intrinsics.
 Together they are the package **`Hex`** (Packages §2.4): every file here declares
 its module (`module Vector`, full name `Hex.Vector`), and the prelude modules are
 in scope everywhere without an import, Modules §5.5's closed set of twenty-eight
-being what they seed in the term namespace. `Rat`, `Regex` with `Regex.Syntax`,
+being what they seed in the term namespace. `Regex` with `Regex.Syntax`,
 `File`, `Stdio` and `Process` are the modules outside the prelude — the spec's
 "rest of `Hex`" — and the compiler embeds the whole directory, so a program
-reaches one by `import Rat` or `import Hex.Rat` (Packages §2.4). `File`, `Stdio`
+reaches one by `import Regex` or `import Hex.Regex` (Packages §2.4). `File`, `Stdio`
 and `Process` call Node's `node:fs` and `node:process`, so a program that imports
 them runs under Node, or in the playground, which stands in for both
 (`spec/program-io.md`). `Runtime/VectorTrie.hex` and `Runtime/HashTrie.hex` are
@@ -49,11 +49,17 @@ emitted one (Packages §6).
   `Ordering.hex` holds the union `Ord.compare` answers with. They are two files
   because `Ordering`'s constructors are qualified-only (`Ordering.Less`), and a
   qualified constructor is spelled through the module that declares it.
-- `Rat.hex` implements exact rational arithmetic over `BigInt`. Its constructor
-  normalizes through Euclidean `BigInt.gcd` and exact quotient operations, and
-  its arithmetic lives in its `honor` blocks — a member definition is a
-  module-level binding, so a module-level `let add` beside `honor Num<Rat>`
-  would be the ordinary rebinding refusal.
+- `FromDec.hex` declares the `FromDec` constraint (#1542), the decimal mirror of
+  `FromBigInt`, and holds `Dec`'s own row, `honor FromDec<Dec>`: it is seated
+  after `Dec.hex`, which therefore cannot name it.
+- `Rat.hex` implements exact rational arithmetic over `BigInt`, and is a prelude
+  module seated after `FromDec.hex` (#1542). Its constructor normalizes through
+  Euclidean `BigInt.gcd` and exact quotient operations, and its arithmetic lives
+  in its `honor` blocks — a member definition is a module-level binding, so a
+  module-level `let add` beside `honor Num<Rat>` would be the ordinary rebinding
+  refusal. Its private `fraction` pattern is what `//` builds and takes a
+  fraction apart with; the compiler reaches it by identity, and no spelling
+  names it.
 - `Option.hex` declares the canonical optional-value union used by total
   standard-library accessors.
 - `Vector.hex`, `Map.hex`, and `Set.hex` own the public collection companions,

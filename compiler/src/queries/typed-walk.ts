@@ -72,6 +72,7 @@ function walk(
       case "WidenNat":
       case "WidenInt":
       case "WidenBigInt":
+      case "WidenDec":
       case "Hash":
         visitExpression(expression.value);
         return;

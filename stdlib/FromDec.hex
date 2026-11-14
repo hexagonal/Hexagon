@@ -1,0 +1,16 @@
+module FromDec
+
+{-- Exact construction from a decimal. Honoring `FromDec` promises that every
+    `Dec` is accepted without rounding, clamping, or a destination-specific
+    range failure, so a `Dec` enters the type silently wherever the type is an
+    expression's home. A decimal's places are not part of its value, so `1.5d`
+    and `1.50d` enter as one value. -}
+export constraint FromDec<a: FromBigInt> =
+    {-- The decimal `value` at this type, preserving its mathematical value. -}
+    fromDec(value: Dec) -> a
+
+-- `Dec.hex` is seated before this file and cannot name it, so `Dec`'s own row
+-- lives here, in the constraint's home (Modules §7.2).
+honor FromDec<Dec> =
+    {-- `value` itself, places and all. -}
+    fromDec(value) = value

@@ -4364,7 +4364,9 @@ class JavaScriptEmitter {
       const build = item.build === undefined
         ? undefined
         : this.#emitExpr(item.build.value, depth + 1, evidenceNames);
-      if (item.exported && depth === 0) {
+      // The prelude `Rat`'s `fraction` is no export, and every module's `//`
+      // reaches it by path all the same (Operators §6.4).
+      if ((item.exported || item.fraction === true) && depth === 0) {
         this.#exports.push(`export { ${name} };`);
       }
       const viewDoc = this.#docs.lines(item.view.span, indent(depth + 1), [], false);
@@ -6004,6 +6006,8 @@ class JavaScriptEmitter {
         return this.#emitWidenInt(expression, depth, evidenceNames);
       case "WidenBigInt":
         return this.#emitWidenBigInt(expression, depth, evidenceNames);
+      case "WidenDec":
+        return this.#emitWidenDec(expression, depth, evidenceNames);
       case "String":
         return this.#emitString(expression, depth, evidenceNames);
       case "Tuple":
@@ -8786,6 +8790,36 @@ class JavaScriptEmitter {
         expression.evidence,
         "Signed",
         "fromInt",
+        [value],
+        expression.span,
+        evidenceNames,
+      );
+    }
+    return this.#unit;
+  }
+
+  /** `FromDec<a>`'s member applied to the decimal (Exact Integer Widening §9). */
+  #emitWidenDec(
+    expression: Core.WidenDecExpr,
+    depth: number,
+    evidenceNames: EvidenceNames,
+  ): string {
+    const value = this.#emitExpr(expression.value, depth, evidenceNames);
+    if (expression.evidence.kind === "Dictionary") {
+      const dictionary = this.#dictionary(
+        expression.evidence.variable,
+        dictionarySeat(expression.evidence, "FromDec"),
+        expression.span,
+        evidenceNames,
+        expression.evidence.path,
+      );
+      return `${dictionary}.fromDec(${value})`;
+    }
+    if (expression.evidence.kind === "Instance" || expression.evidence.kind === "Structural") {
+      return this.#emitMemberCall(
+        expression.evidence,
+        "FromDec",
+        "fromDec",
         [value],
         expression.span,
         evidenceNames,
@@ -14824,6 +14858,8 @@ function expressionPrecedence(expression: Core.Expr): Precedence {
       const widened = silentWidening(expression);
       return widened === undefined ? Precedence.Call : expressionPrecedence(widened);
     }
+    case "WidenDec":
+      return Precedence.Call;
     case "Name":
     case "CollectionOperation":
     case "Unit":
