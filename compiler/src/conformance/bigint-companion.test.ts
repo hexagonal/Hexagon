@@ -264,10 +264,11 @@ describe("the zero-divisor guards moved with their bodies (§7)", () => {
     const exports = await runMain([
       "module Main",
       "",
-      "export let byDiv(): BigInt = BigInt.div(1n, 0n)",
-      "export let byMod(): BigInt = BigInt.mod(1n, 0n)",
-      "export let byQuot(): BigInt = BigInt.quot(1n, 0n)",
-      "export let byRem(): BigInt = BigInt.rem(1n, 0n)",
+      "let zero = 0n",
+      "export let byDiv(): BigInt = BigInt.div(1n, zero)",
+      "export let byMod(): BigInt = BigInt.mod(1n, zero)",
+      "export let byQuot(): BigInt = BigInt.quot(1n, zero)",
+      "export let byRem(): BigInt = BigInt.rem(1n, zero)",
       "",
     ].join("\n"));
 
@@ -306,7 +307,8 @@ describe("the zero-divisor guards moved with their bodies (§7)", () => {
     const exports = await runMain([
       "module Main",
       "",
-      "export let boom(): BigInt = BigInt.mod(9n, 0n)",
+      "let zero = 0n",
+      "export let boom(): BigInt = BigInt.mod(9n, zero)",
       "",
     ].join("\n"));
 

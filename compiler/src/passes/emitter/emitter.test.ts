@@ -1533,7 +1533,7 @@ describe("emitJavaScript", () => {
     // that is the raw `%` (#344), so the module is linked and run rather than
     // evaluated as one text — and the error is `$hex`-branded because it is an
     // ordinary `Integral.hex` exception rather than a helper's hand-built one.
-    const files = [["/main.hex", "module Main\n\n" + "export let boom(): Int = Int.mod(1, 0)\n"]] as const;
+    const files = [["/main.hex", "module Main\n\n" + "let zero = 0\n" + "export let boom(): Int = Int.mod(1, zero)\n"]] as const;
     const boom = (await runProject(files))["boom"] as () => unknown;
     let thrown: unknown;
     try {

@@ -72,6 +72,7 @@ import { lex } from "../lexer/lexer.js";
 import { displayParameterName, isCompilerMinted, isSyntheticParameterName } from "../../support/synthetic.js";
 import * as Resolved from "../../syntax/resolved/index.js";
 import { preludeExportSymbol } from "../../support/prelude-symbol.js";
+import { forEachTypedExpression } from "../../queries/typed-walk.js";
 import * as Typed from "../../syntax/typed/index.js";
 
 export interface CheckOptions {
@@ -8406,10 +8407,14 @@ class Checker {
     // A side's mismatch may settle as late as the module's end, so the
     // fraction's own report replaces it once everything is in.
     for (const fraction of this.#fractionConstructions) this.#refuseFractionSides(fraction);
+    const items = module.items.map((item) => this.#materializeItem(item));
+    // Division & Remainder §12: read once the types are solved, from the
+    // checked tree, where each division stands once at the type it runs at.
+    this.#refuseWrittenZeroDivisors(module, items);
     const typed: Typed.Module = {
       kind: "Module",
       fileId: module.fileId,
-      items: module.items.map((item) => this.#materializeItem(item)),
+      items,
       symbols,
       // The reached ones ride out beside the listed ones, and after them: the
       // emitter builds its constructor table from this list and its derived
@@ -16994,6 +16999,109 @@ class Checker {
     }
     this.#pendingMatchCoverage.length = 0;
     this.#matchSlotTypes.clear();
+  }
+
+  /**
+   * Division & Remainder §12: a **checked division** whose divisor is a
+   * **written zero** is refused when the program is compiled.
+   *
+   * The list is closed (§12.2): `top // bottom` and `Rat.create`; `Frac`'s
+   * `divide` where it runs at `Rat`, as `a / b` or as a call; `Integral`'s
+   * `div`, `mod`, `quot` and `rem` where they run at `Nat`, `Int` or `BigInt`;
+   * and `Dec.divide` and `Dec.divideEven`. Each is recognised by the symbol its
+   * call names, so every spelling of the call is read — through the companion,
+   * an alias of it, the constraint, the dot, or a `|>` stage — since each calls
+   * the one operation. A call of anything else names another symbol and is not
+   * read: a function value (`let g = Int.div` then `g(7, 0)`) is a call of `g`.
+   *
+   * It reads the checked tree, so the type a division runs at is the one the
+   * checker solved for it (§12.3). A division at a type variable carries its
+   * evidence at that variable and is never read, nor is an `Integral` member
+   * at an instance a program declares. Nothing here changes a type or what is
+   * emitted: the run-time guards stay, and this is their earliest form.
+   */
+  #refuseWrittenZeroDivisors(module: Resolved.Module, items: readonly Typed.Item[]): void {
+    const members = (identity: string, names: readonly string[]): Set<Resolved.SymbolId> =>
+      new Set(
+        (this.#constraintsByIdentity.get(identity)?.members ?? [])
+          .filter(({ binding }) => names.includes(binding.name))
+          .map(({ binding }) => binding.symbol),
+      );
+    const integral = members(preRegisteredConstraintIdentity("Integral"), ["div", "mod", "quot", "rem"]);
+    const fracDivide = members(preRegisteredConstraintIdentity("Frac"), ["divide"]);
+    const decDivisions = new Set<Resolved.SymbolId>();
+    const ratCreate = new Set<Resolved.SymbolId>();
+    for (const item of module.items) {
+      if (item.kind !== "Import") continue;
+      const into = item.moduleName === "Hex.Dec"
+        ? decDivisions
+        : item.moduleName === "Hex.Rat"
+        ? ratCreate
+        : undefined;
+      if (into === undefined) continue;
+      const wanted = into === decDivisions ? ["divide", "divideEven"] : ["create"];
+      for (const name of item.form.names) {
+        if (name.symbol !== undefined && name.typeOnly !== true && wanted.includes(name.imported)) {
+          into.add(name.symbol);
+        }
+      }
+    }
+    const ratRecord = module.preludeRecords.get("Rat");
+    const atRat = (type: Typed.Type): boolean =>
+      type.kind === "NominalRecord" && type.record === ratRecord;
+    const atInteger = (type: Typed.Type): boolean =>
+      type.kind === "Primitive" && (type.name === "Nat" || type.name === "Int" || type.name === "BigInt");
+    // A division the checker has already refused inside is one fault, said
+    // once: the earlier report names what to change first.
+    const earlier = this.#diagnostics.toArray().filter(({ severity }) => severity === "error");
+    const refusedWithin = ({ span }: Typed.Expr): boolean =>
+      earlier.some(({ primary }) =>
+        primary.fileId === span.fileId &&
+        primary.start.offset >= span.start.offset && primary.end.offset <= span.end.offset
+      );
+    const refuse = (division: Typed.Expr, divisor: Typed.Expr, fraction: boolean): void => {
+      if (!writtenZero(divisor) || refusedWithin(division)) return;
+      const text = this.#sourceText?.slice(division.span.start.offset, division.span.end.offset);
+      const quoted = text === undefined ? (fraction ? "this fraction" : "this division") : `\`${text}\``;
+      this.#diagnostics.add({
+        severity: "error",
+        message: fraction
+          ? `a fraction's bottom is never zero, so ${quoted} has no value; write the bottom that was meant`
+          : `division by zero: ${quoted} has no value; write the divisor that was meant`,
+        primary: divisor.span,
+        notes: [
+          fraction
+            ? "a fraction's bottom written as a literal is checked when the program is compiled"
+            : "a divisor written as a literal is checked when the program is compiled",
+        ],
+      });
+    };
+    const visit = (expression: Typed.Expr): void => {
+      if (expression.kind === "ConstraintCall") {
+        if (
+          expression.constraint === "Frac" && expression.member === "divide" &&
+          expression.arguments.length === 2 && !isDecimalPromotion(expression) &&
+          atRat(expression.requirement.type)
+        ) refuse(expression, expression.arguments[1]!, false);
+        return;
+      }
+      if (expression.kind !== "Call" || expression.callee.kind !== "Name") return;
+      const divisor = expression.arguments[1];
+      if (divisor === undefined) return;
+      const symbol = expression.callee.symbol;
+      if (ratCreate.has(symbol)) {
+        refuse(expression, divisor, true);
+      } else if (decDivisions.has(symbol)) {
+        refuse(expression, divisor, false);
+      } else if (integral.has(symbol)) {
+        const requirement = expression.requirements.find(({ name }) => name === "Integral");
+        if (requirement !== undefined && atInteger(requirement.type)) refuse(expression, divisor, false);
+      } else if (fracDivide.has(symbol)) {
+        const requirement = expression.requirements.find(({ name }) => name === "Frac");
+        if (requirement !== undefined && atRat(requirement.type)) refuse(expression, divisor, false);
+      }
+    };
+    forEachTypedExpression({ items }, visit);
   }
 
   /** Selects an oversized bare pattern's repair after inference and defaulting. */
@@ -48813,4 +48921,58 @@ function publicKindKey(kind: PublicTypeKind): string {
 function dataSeatRefusal(provider: string): string {
   return `needs \`${provider}\`'s full implementation, which is seated after this module; ` +
     `only \`${provider}\`'s data is visible here (Modules §5.5)`;
+}
+
+/**
+ * A **written zero** (Division & Remainder §12.1): a numeric literal whose value
+ * is zero, alone or under signs, parentheses, written types and the exact
+ * widening a seat applies to it. A name is never read and nothing is computed.
+ */
+function writtenZero(expression: Typed.Expr): boolean {
+  switch (expression.kind) {
+    case "Group":
+    case "Ascription":
+      return writtenZero(expression.expression);
+    case "WidenNat":
+    case "WidenInt":
+    case "WidenBigInt":
+    case "WidenDec":
+      return writtenZero(expression.value);
+    case "ConstraintCall":
+      if (expression.constraint === "Signed" && expression.member === "negate") {
+        return expression.arguments.length === 1 && writtenZero(expression.arguments[0]!);
+      }
+      // A decimal-point literal promoted at a `Frac` seat is built as its digits
+      // over a power of ten; its value is its digits'.
+      return isDecimalPromotion(expression) && writtenZero(expression.arguments[0]!);
+    case "FromNat":
+    case "BigInt":
+      return isZeroDigits(expression.decimal);
+    case "Dec":
+      return isZeroDigits(expression.coefficient);
+    case "Float":
+      return expression.value === 0;
+    default:
+      return false;
+  }
+}
+
+function isZeroDigits(digits: string): boolean {
+  try {
+    return BigInt(digits) === 0n;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The division a promoted decimal-point literal is built as (#525): every part of
+ * it carries the literal's own span, which no division a program writes can,
+ * since a written operand is narrower than the division it stands in.
+ */
+function isDecimalPromotion(expression: Typed.ConstraintCallExpr): boolean {
+  if (expression.constraint !== "Frac" || expression.member !== "divide") return false;
+  const same = (span: Source.Span): boolean =>
+    span.start.offset === expression.span.start.offset && span.end.offset === expression.span.end.offset;
+  return expression.arguments.length === 2 && expression.arguments.every(({ span }) => same(span));
 }

@@ -140,10 +140,11 @@ describe("the guards moved into source and kept their names", () => {
     const exports = await runMain([
       "module Main",
       "",
-      "export let byDiv(): Int = Int.div(1, 0)",
-      "export let byMod(): Int = Int.mod(2, 0)",
-      "export let byQuot(): Int = Int.quot(3, 0)",
-      "export let byRem(): Int = Int.rem(4, 0)",
+      "let zero = 0",
+      "export let byDiv(): Int = Int.div(1, zero)",
+      "export let byMod(): Int = Int.mod(2, zero)",
+      "export let byQuot(): Int = Int.quot(3, zero)",
+      "export let byRem(): Int = Int.rem(4, zero)",
       "",
     ].join("\n"));
 
@@ -177,7 +178,8 @@ describe("the guards moved into source and kept their names", () => {
     const exports = await runMain([
       "module Main",
       "",
-      "export let branded(): Int = Int.quot(5, 0)",
+      "let zero = 0",
+      "export let branded(): Int = Int.quot(5, zero)",
       "",
     ].join("\n"));
 

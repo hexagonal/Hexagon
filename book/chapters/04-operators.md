@@ -72,8 +72,8 @@ let quarter = half // 2   -- error
 > a fraction's top and bottom are integers, and `half` is a `Rat` — to divide, write
 > `half / 2`
 
-The one thing a fraction cannot be written with is a zero bottom. `1 // 0` throws
-`DivideByZeroFault` when it runs.
+The one thing a fraction cannot be written with is a zero bottom. A bottom that turns
+out to be zero when the program runs throws `DivideByZeroFault`.
 
 Because `//` writes a number rather than performing a step of arithmetic, it binds
 tighter than `*` and `/`. A fraction in the middle of a product reads as one operand:
@@ -180,7 +180,7 @@ Int.rem(-7, 3)     -- -1, as in JavaScript
 ```
 
 `BigInt` provides the same four operations. A zero divisor at either integer type
-throws `DivideByZeroError`. Floating point already has true division, so it provides
+throws `DivideByZeroFault`. Floating point already has true division, so it provides
 only `Float.mod` and `Float.rem`; invalid floating operations produce `NaN` rather than
 throwing.
 
