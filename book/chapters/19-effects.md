@@ -325,8 +325,8 @@ point of decorating it. Where the helper in between does conduct the outer colou
 two are one variable and the display is plain again.
 
 A declared pattern's construction follows the same rule, with the mark after
-the suffix: `(x)name!` or `(x)name?`. Pure construction, including
-`(1, 2)rat`, stays bare. Matching invokes the pure view and has no mark.
+the suffix: `(x)name!` or `(x)name?`. Pure construction, such as
+`(9, 30)clock`, stays bare. Matching invokes the pure view and has no mark.
 If construction returns a function, group the constructed value to mark its
 call separately: `((x)factory)!(y)`.
 

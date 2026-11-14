@@ -265,11 +265,15 @@ late pedagogy pass, not a commitment to the current order.
 ### Patterns
 
 - Declared patterns expose a required pure, total view and optional build. The
-  suffix constructs in expressions and destructures in patterns; Rat uses
-  `(n, d)rat` in both directions. Imports activate exported pattern names;
+  suffix constructs in expressions and destructures in patterns; the running
+  example is a user module `Time` with `(h, m)clock` in both directions (#1542:
+  `Rat` has no declared pattern). A fraction comes apart with the language form
+  `top // bottom`, seeing lowest terms and a positive bottom at `BigInt`; a literal
+  case that can never match (`2 // 6`, `n // -3`, `n // 0`) is refused as dead.
+  Imports activate exported pattern names;
   collision repairs add fresh aliases and rewrite the affected uses. Generic
   imports cannot silently replace the expected type's home pattern. Construction
-  marks trail the suffix (`!` or `?`); Rat and all matching remain unmarked.
+  marks trail the suffix (`!` or `?`); `clock` and all matching remain unmarked.
 
 - Assumes tuples, structural and nominal records, unions, Boolean conditions,
   comparison chains, and simple destructuring.
@@ -551,10 +555,10 @@ late pedagogy pass, not a commitment to the current order.
   recording the inferred type for the reader. The exact leg is the face spelling
   `let exactCelsius(f: Int): Rat = (f - 32) * 5 / 9` — the doctrine's own specimen
   (spec/friendly-numerics.md §1) — in both the book and the Playground (#529). `Rat`
-  is outside the prelude by design, so a project reaching for it writes
-  `import Rat` — and since #831 the Playground example writes that line too: the
-  equipment that injected the import is retired, and a buffer imports `Rat` like any
-  other module.
+  is a prelude module (#1542, seated after `Dec`), so no example writes
+  `import Rat`; the line stays legal and binds nothing new. `top // bottom` writes
+  a fraction (Operators), through `Rat.create`; a `Dec` enters a `Rat` silently where
+  a `Rat` is the home, and `Rat` to `Dec` stays named.
 - Primitive boundary table (seven rows, #158): `Nat`/`Int`/`Float` → `number`,
   `Bool` → `boolean` (by the Unions representation pin), `String` → `string`,
   `BigInt` → `bigint`, and `Unit` → `undefined` (`void` in TS return position; the
@@ -639,6 +643,12 @@ late pedagogy pass, not a commitment to the current order.
   the canonical flags example.
 - `/` is fractional. Integer `div`/`mod` are Euclidean; `quot`/`rem` are truncated,
   with `rem` matching JavaScript `%`.
+- `top // bottom` writes an exact fraction (a `Rat`) from two integers, in lowest
+  terms with a positive bottom (#1542). It is not division; it has its own
+  precedence level between unary minus and `*` `/` (`half * 1 // 2` is
+  `half * (1 // 2)`), does not chain, and refuses a `Rat`, `Dec` or `Float` side.
+  `half`, `price: Dec = 1.50d` are the section's names. A fraction shows as `3/5`.
+  Fault names in the fraction passages are `DivideByZeroFault`.
 - `0 <= discount <= 100` is the canonical comparison chain. Chain operands evaluate
   once; directions cannot mix; `!=` does not chain.
 - `and`, `or`, and `implies` short-circuit; `iff` evaluates both operands.
@@ -666,8 +676,10 @@ late pedagogy pass, not a commitment to the current order.
   terminators and never open a body.
 - Leading indentation contains spaces only. Line comments use `--`; block comments use
   nestable `{- ... -}` (#1538 — the set Haskell and Elm share, which are not to be
-  called ML languages; the JavaScript spellings `//`, `/*`, `*/` and OCaml's `(*`,
-  `*)` are detected and redirected). `{-- ... -}` is the documentation comment
+  called ML languages; the JavaScript spellings `/*`, `*/` and OCaml's `(*`,
+  `*)` are detected and redirected; `//` is the fraction operator (#1542), and a
+  `//` with nothing to its left is refused with "a fraction needs a top; for a
+  comment, write `--`"). `{-- ... -}` is the documentation comment
   (#191, respelled #1538): it attaches Markdown docs to the following declaration
   and flows to JSDoc; a doc comment that documents nothing is an error; there is no
   line doc form (`--- note` and `-- | note` are ordinary), and `{-|` is an ordinary
@@ -791,11 +803,15 @@ late pedagogy pass, not a commitment to the current order.
 ### Patterns
 
 - Declared patterns expose a required pure, total view and optional build. The
-  suffix constructs in expressions and destructures in patterns; Rat uses
-  `(n, d)rat` in both directions. Imports activate exported pattern names;
+  suffix constructs in expressions and destructures in patterns; the running
+  example is a user module `Time` with `(h, m)clock` in both directions (#1542:
+  `Rat` has no declared pattern). A fraction comes apart with the language form
+  `top // bottom`, seeing lowest terms and a positive bottom at `BigInt`; a literal
+  case that can never match (`2 // 6`, `n // -3`, `n // 0`) is refused as dead.
+  Imports activate exported pattern names;
   collision repairs add fresh aliases and rewrite the affected uses. Generic
   imports cannot silently replace the expected type's home pattern. Construction
-  marks trail the suffix (`!` or `?`); Rat and all matching remain unmarked.
+  marks trail the suffix (`!` or `?`); `clock` and all matching remain unmarked.
 
 - Core formulation: **a pattern describes a shape and may bind names; a guard performs
   a runtime test**.
