@@ -704,6 +704,8 @@ export interface LetPatternItem {
 export interface PatternDeclarationItem {
   readonly kind: "PatternDeclaration";
   readonly exported: boolean;
+  /** The prelude `Rat`'s private `fraction` pattern (`Resolved.PatternDeclarationItem`). */
+  readonly fraction?: true;
   readonly identity: string;
   readonly name: string;
   readonly componentNames: readonly string[];
@@ -1201,6 +1203,7 @@ export type Expr =
   | WidenNatExpr
   | WidenIntExpr
   | WidenBigIntExpr
+  | WidenDecExpr
   | BigIntExpr
   | DecExpr
   | FloatExpr
@@ -1287,6 +1290,13 @@ export interface WidenIntExpr extends ExpressionFields {
 /** A contextual, exact `BigInt -> a` injection through established `FromBigInt<a>` evidence. */
 export interface WidenBigIntExpr extends ExpressionFields {
   readonly kind: "WidenBigInt";
+  readonly value: Expr;
+  readonly requirement: Constraint;
+}
+
+/** A contextual, exact `Dec -> a` injection through established `FromDec<a>` evidence (Exact Integer Widening §9). */
+export interface WidenDecExpr extends ExpressionFields {
+  readonly kind: "WidenDec";
   readonly value: Expr;
   readonly requirement: Constraint;
 }
@@ -1460,7 +1470,7 @@ export interface CallExpr extends ExpressionFields {
 
 /** The widening a reading applies to its call's result (`CallExpr.readingWidening`). */
 export interface ReadingWidening {
-  readonly kind: "WidenNat" | "WidenInt" | "WidenBigInt";
+  readonly kind: "WidenNat" | "WidenInt" | "WidenBigInt" | "WidenDec";
   readonly requirement: Constraint;
   readonly type: Type;
 }

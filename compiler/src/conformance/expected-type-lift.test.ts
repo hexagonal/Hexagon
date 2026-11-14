@@ -33,19 +33,6 @@ import { describe, expect, test } from "vitest";
 
 import { compileFiles, projectDiagnostics, runProject } from "../support/test-project.js";
 
-const STDLIB = import.meta.glob("../../../stdlib/*.hex", {
-  eager: true,
-  query: "?raw",
-  import: "default",
-}) as Record<string, string>;
-
-/** `stdlib/Rat.hex`, the nominal home §5.1 names throughout. */
-const RAT = (() => {
-  const entry = Object.entries(STDLIB).find(([path]) => path.endsWith("/Rat.hex"));
-  if (entry === undefined) throw new Error("no stdlib/Rat.hex");
-  return entry[1];
-})();
-
 /** §5.1's fixtures. */
 const fixtures = "let n: Nat = 7\n" +
   "let m: Nat = 2\n" +
@@ -61,8 +48,9 @@ function verdict(source: string): readonly string[] {
   return projectDiagnostics("module Main\n\n" + fixtures + source);
 }
 
+/** `Rat` is the prelude's since #1542; `import Rat` reaches it and binds nothing new. */
 function withRat(source: string): readonly (readonly [string, string])[] {
-  return [["/main.hex", "module Main\n\n" + `import Rat\n${fixtures}${source}`], ["/Rat.hex", RAT]];
+  return [["/main.hex", "module Main\n\n" + `import Rat\n${fixtures}${source}`]];
 }
 
 function ratVerdict(source: string): readonly string[] {

@@ -115,6 +115,10 @@ describe("the module", () => {
       // Exact decimal display uses String's companion operations; Dec therefore
       // follows String while remaining available before the keyed collections.
       "Dec",
+      // #1542: `FromDec.hex`'s member names `Dec`, and `Rat.hex` honors it and
+      // owns the conversions between the two, so both follow `Dec`.
+      "FromDec",
+      "Rat",
       // #370 displaced `Vector.hex` from the last seat: `Map.hex` needs `Hash`,
       // `Option`, `Seq` and `Vector` itself, and nothing after it names a `Map`.
       "Map",

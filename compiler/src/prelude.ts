@@ -298,6 +298,8 @@ export const PRELUDE_MODULES: readonly PreludeModule[] = [
   "Vector",
   "String",
   "Dec",
+  "FromDec",
+  "Rat",
   "Map",
   "Set",
   "Stream",

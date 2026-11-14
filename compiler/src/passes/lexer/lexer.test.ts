@@ -538,26 +538,23 @@ describe("lex", () => {
     expect(kinds(unmatched.tokens)).toEqual(["NonUpperName", "UpperName", "Eof"]);
   });
 
-  test("redirects the JavaScript comment spellings", () => {
+  test("redirects the JavaScript block comment spellings, and lexes `//` as the fraction operator", () => {
+    // `//` is the fraction operator (Operators §6.4), so the lexer makes it a
+    // token and refuses nothing: a `//` meant as a comment is the parser's to
+    // refuse (Comments §3.1).
     const line = lexSource("let a = 1 // note\nlet b = 2");
-    expect(line.diagnostics.map(({ message }) => message)).toEqual([
-      "JavaScript line comment syntax — Hexagon line comments are `-- ...`",
-    ]);
-    // Recovery takes the rest of the line as the comment it was meant to be.
+    expect(line.diagnostics).toEqual([]);
     expect(kinds(line.tokens)).toEqual([
       "NonUpperName", "UpperName",
-      "Let", "NonUpperName", "Equal", "Integer",
+      "Let", "NonUpperName", "Equal", "Integer", "Fraction", "NonUpperName",
       "Let", "NonUpperName", "Equal", "Integer", "Eof",
     ]);
     expect(line.comments).toEqual([]);
-    expect(line.diagnostics[0]?.fixes?.[0]?.edits.map(({ replacement }) => replacement)).toEqual(["--"]);
 
-    // A run of slashes is refused as `//` is, and each slash becomes a dash.
+    // A run of slashes lexes as `//` tokens, an odd last slash a `/` (Lexer §8.2).
     const run = lexSource("/// note");
-    expect(run.diagnostics.map(({ message }) => message)).toEqual([
-      "JavaScript line comment syntax — Hexagon line comments are `-- ...`",
-    ]);
-    expect(run.diagnostics[0]?.fixes?.[0]?.edits.map(({ replacement }) => replacement)).toEqual(["---"]);
+    expect(run.diagnostics).toEqual([]);
+    expect(kinds(run.tokens)).toEqual(["NonUpperName", "UpperName", "Fraction", "Slash", "NonUpperName", "Eof"]);
 
     const opener = lexSource("/* JS habit */\nlet x = 1");
     expect(opener.diagnostics.map(({ message }) => message)).toEqual([

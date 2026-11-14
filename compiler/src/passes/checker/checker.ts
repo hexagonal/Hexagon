@@ -5703,6 +5703,12 @@ class Checker {
 
   readonly #expressionTypes = new WeakMap<Resolved.Expr, Mono>();
   /** Suffix constructions are ordinary build calls after pattern selection. */
+  /**
+   * The calls a fraction `top // bottom` stands for (Operators §6.4), so a side
+   * that is not an integer is refused with the division that was meant.
+   */
+  readonly #fractionCalls = new Set<Resolved.CallExpr>();
+  readonly #fractionConstructions: Resolved.PatternConstructionExpr[] = [];
   readonly #patternConstructionCalls = new WeakMap<Resolved.PatternConstructionExpr, Resolved.CallExpr>();
   /** The declaration selected for a checked suffix pattern. */
   readonly #declaredPatternReferences = new WeakMap<Resolved.DeclaredPattern, Resolved.PatternReference>();
@@ -6082,6 +6088,8 @@ class Checker {
   readonly #intWidenings = new WeakMap<Resolved.Expr, Requirement>();
   /** Exact BigInt expressions injected into an independently known FromBigInt target. */
   readonly #bigIntWidenings = new WeakMap<Resolved.Expr, Requirement>();
+  /** `Dec` expressions injected into an independently known `FromDec` target (§9). */
+  readonly #decWidenings = new WeakMap<Resolved.Expr, Requirement>();
   /**
    * Decimal-point literals promoted to an independently known exact target
    * (Numeric Literals §5.1, #525): the canonical `Dec`, carrying the written
@@ -8395,6 +8403,9 @@ class Checker {
       scheme: this.#namedScheme(this.#publicScheme(this.#scheme(symbol.id)), colours.colourNames),
     }));
 
+    // A side's mismatch may settle as late as the module's end, so the
+    // fraction's own report replaces it once everything is in.
+    for (const fraction of this.#fractionConstructions) this.#refuseFractionSides(fraction);
     const typed: Typed.Module = {
       kind: "Module",
       fileId: module.fileId,
@@ -12887,6 +12898,26 @@ class Checker {
     const firstUse = this.#nextInstanceUse;
     switch (expression.kind) {
       case "PatternConstruction": {
+        if (expression.fraction === true && expression.fractionCreate !== undefined) {
+          // Operators §6.4: `top // bottom` is the prelude `Rat`'s `create`
+          // applied to the two sides, each a `BigInt` seat.
+          const call: Resolved.CallExpr = {
+            kind: "Call",
+            callee: {
+              kind: "Name",
+              symbol: expression.fractionCreate,
+              text: "//",
+              span: expression.nameSpan,
+            },
+            arguments: expression.components,
+            span: expression.span,
+          };
+          this.#patternConstructionCalls.set(expression, call);
+          this.#fractionCalls.add(call);
+          this.#fractionConstructions.push(expression);
+          type = this.#inferExpr(call, level, expected);
+          break;
+        }
         const namespace = expression.candidates.filter(({ source }) => source !== "door");
         const contestants = this.#withDeclaredSubjectHomes(namespace, expression.candidates, level);
         let reference = namespace.length === 1
@@ -15795,11 +15826,17 @@ class Checker {
     const path = this.#declaredPatternHomePath(type);
     const key = this.#declaredPatternNominalKey(type);
     if (path === undefined || key === undefined) return [];
-    return (this.#patternHomes.get(path)?.patterns ?? []).flatMap((reference) =>
+    const home = this.#patternHomes.get(path);
+    // Pattern Matching §2.10: the prelude `Rat` is taken apart with `//`.
+    const fraction = home?.fraction !== undefined &&
+        this.#declaredPatternNominalKey(this.#declaredPatternSubject(home.fraction, 0)) === key
+      ? ["top // bottom"]
+      : [];
+    return [...fraction, ...(home?.patterns ?? []).flatMap((reference) =>
       this.#declaredPatternNominalKey(this.#declaredPatternSubject(reference, 0)) === key
         ? [`(${reference.componentNames.join(", ")})${reference.declaredName}`]
         : []
-    ).slice(0, 3);
+    )].slice(0, 3);
   }
 
   /** Selects a suffix-pattern declaration before its subject is unified. */
@@ -15936,8 +15973,7 @@ class Checker {
       this.#diagnostics.add({
         severity: "error",
         message: opaque && names.length === 0
-          ? `cannot destructure opaque ${expectedType.kind === "Union" ? "union" : "record"} ` +
-            `\`${this.#display(expectedType)}\`; use an operation exported by its home module`
+          ? this.#opaquePatternRefusal(expectedType.kind === "Union" ? "union" : "record", expectedType)
           : `\`${this.#display(expectedType)}\` has no pattern \`${pattern.name}\`` +
             nearMiss(pattern.name, names),
         primary: pattern.nameSpan,
@@ -17156,16 +17192,19 @@ class Checker {
     const binder = pattern.pattern.kind === "Binding" ? pattern.pattern.binding.name : undefined;
     if (
       binder === undefined || source !== this.#prune(claim.part) || target !== this.#prune(claim.written) ||
-      source.kind !== "Constructor"
+      (source.kind !== "Constructor" && !this.#isDec(source))
     ) {
       return { message: undefined, fix };
     }
-    const evidence = source.name === "Nat"
+    const sourceName = source.kind === "Constructor" ? source.name : "Dec";
+    const evidence = sourceName === "Nat"
       ? "Num"
-      : source.name === "Int"
+      : sourceName === "Int"
       ? "Signed"
-      : source.name === "BigInt"
+      : sourceName === "BigInt"
       ? "FromBigInt"
+      : this.#isDec(source)
+      ? "FromDec"
       : undefined;
     if (evidence === undefined || this.#sameSeat(source, target) || !this.#supportsTarget(target, evidence)) {
       return { message: undefined, fix };
@@ -17181,7 +17220,7 @@ class Checker {
     if (companion === undefined) return { message: undefined, fix };
     return {
       message: `${lead}; remove the type and convert \`${binder}\` where it is used: ` +
-        `\`${companion}.from${source.name}(${binder})\``,
+        `\`${companion}.from${sourceName}(${binder})\``,
       fix,
     };
   }
@@ -18973,7 +19012,10 @@ class Checker {
       heads.set(reference.identity, {
         key: `pattern:${reference.identity}`,
         slots,
-        print: (witnesses) => `(${witnesses.join(", ")})${pattern.name}`,
+        // Pattern Matching §2.10: a fraction's witness prints with `//`.
+        print: (witnesses) => pattern.fraction === true
+          ? `${witnesses[0] ?? "_"} // ${witnesses[1] ?? "_"}`
+          : `(${witnesses.join(", ")})${pattern.name}`,
       });
     }
     const basePatterns = patterns.filter(({ kind }) => kind !== "Declared");
@@ -20053,6 +20095,13 @@ class Checker {
     for (const arm of arms) {
       const reached: (readonly Resolved.Pattern[])[] = [];
       for (const alternative of coverageAlternatives(arm.pattern)) {
+        // Pattern Matching §7.2: a fraction its literals show can never match
+        // is dead whatever is above it, and its report names the spelling.
+        const deadFraction = this.#deadFraction(alternative);
+        if (deadFraction !== undefined) {
+          this.#diagnostics.add(deadFraction);
+          continue;
+        }
         const above = [...covering, ...reached];
         if (!this.#coverageUseful([type], above, [alternative])) {
           this.#reportUnreachableArm(arm, alternative, shadowed, above, type, reports);
@@ -20114,6 +20163,115 @@ class Checker {
     const local = this.#bareSpellings.get(symbol);
     if (local !== undefined) return local;
     return this.#aliasQualifications.get(symbol) ?? pattern.text;
+  }
+
+  /**
+   * Pattern Matching §7.2's dead fraction. A fraction comes apart in lowest
+   * terms with a positive bottom, so `p // q` matches nothing where `q` is a
+   * literal zero or negative, or where `p` and `q` are both literals whose
+   * greatest common divisor is not one. A side counts as a literal where its
+   * test is one: a literal pattern, alone or under `as` or a written type.
+   * Those two rules are the whole judgment; nothing else about a side is read.
+   */
+  #deadFraction(pattern: Resolved.Pattern): Diagnostics.Diagnostic | undefined {
+    const literal = (side: Resolved.Pattern): bigint | undefined => {
+      if (side.kind === "As" || side.kind === "Typed") return literal(side.pattern);
+      if (side.kind !== "Integer") return undefined;
+      try {
+        return BigInt(side.decimal);
+      } catch {
+        return undefined;
+      }
+    };
+    const text = (span: Source.Span): string | undefined =>
+      this.#sourceText?.slice(span.start.offset, span.end.offset);
+    for (const node of resolvedPatternNodes(pattern)) {
+      if (node.kind !== "Declared" || node.fraction !== true || node.components.length !== 2) continue;
+      const [topPattern, bottomPattern] = node.components as [Resolved.Pattern, Resolved.Pattern];
+      const top = literal(topPattern);
+      const bottom = literal(bottomPattern);
+      const written = text(node.span) ?? "this fraction";
+      if (bottom === 0n) {
+        return {
+          severity: "error",
+          message: "this case is unreachable; a fraction's bottom is never zero — remove the case",
+          primary: node.span,
+        };
+      }
+      const lead = "this case is unreachable; a fraction comes apart in lowest terms with a positive bottom, " +
+        `so \`${written}\` never matches`;
+      if (top !== undefined && bottom !== undefined) {
+        const divisor = greatestCommonDivisor(top, bottom);
+        if (divisor === 1n && bottom > 0n) continue;
+        const sign = bottom < 0n ? -1n : 1n;
+        const rewrite = `${(top / divisor) * sign} // ${(bottom / divisor) * sign}`;
+        return {
+          severity: "error",
+          message: `${lead} — write \`${rewrite}\``,
+          primary: node.span,
+          fixes: [{ message: `write \`${rewrite}\``, edits: [{ span: node.span, replacement: rewrite }] }],
+        };
+      }
+      if (bottom === undefined || bottom > 0n) continue;
+      const topText = text(topPattern.span);
+      const simple = topPattern.kind === "Binding" || topPattern.kind === "Wildcard";
+      if (!simple || topText === undefined) {
+        return { severity: "error", message: lead, primary: node.span };
+      }
+      const rewrite = `${topText} // ${-bottom}`;
+      return {
+        severity: "error",
+        message: `${lead} — write \`${rewrite}\`` +
+          (topPattern.kind === "Binding" ? ", which binds the negated top" : ""),
+        primary: node.span,
+        fixes: [{ message: `write \`${rewrite}\``, edits: [{ span: node.span, replacement: rewrite }] }],
+      };
+    }
+    return undefined;
+  }
+
+  /**
+   * Operators §6.4: a side of `//` the text decides as `Rat`, `Dec` or `Float`
+   * is refused at that side with the division that was meant, in place of the
+   * plain mismatch at `BigInt` the call drew. At a `Dec` side the division is
+   * written at `Rat`, since `Dec` alone has no exact `/`. A side of any other
+   * type keeps the ordinary seat error.
+   */
+  #refuseFractionSides(expression: Resolved.PatternConstructionExpr): void {
+    const text = (span: Source.Span): string | undefined =>
+      this.#sourceText?.slice(span.start.offset, span.end.offset);
+    const sides = expression.components.map(({ span }) => text(span));
+    if (sides.length !== 2 || sides.some((side) => side === undefined)) return;
+    const named = (component: Resolved.Expr): string | undefined => {
+      const type = this.#expressionTypes.get(component);
+      const actual = type === undefined ? undefined : this.#prune(type);
+      if (actual === undefined) return undefined;
+      const display = this.#display(actual);
+      return ["Rat", "Dec", "Float"].includes(display) ? display : undefined;
+    };
+    const at = expression.components.findIndex((component) => named(component) !== undefined);
+    if (at < 0) return;
+    const found = named(expression.components[at]!)!;
+    const within = (span: Source.Span): boolean =>
+      span.start.offset >= expression.span.start.offset && span.end.offset <= expression.span.end.offset;
+    for (let index = 0; index < this.#diagnostics.count; index += 1) {
+      const diagnostic = this.#diagnostics.at(index)!;
+      if (!within(diagnostic.primary)) continue;
+      if (!/^type mismatch: expected BigInt, found (Rat|Dec|Float)$/u.test(diagnostic.message)) continue;
+      const grouped = (written: string): string =>
+        /^-?[\p{L}\p{N}_.]+$/u.test(written) ? written : `(${written})`;
+      const written = sides.map((other, position) =>
+        position === at && found === "Dec" ? `Rat.fromDec(${other})` : grouped(other!)
+      );
+      const side = expression.components[at]!;
+      this.#diagnostics.replace(index, {
+        ...diagnostic,
+        message: `a fraction's top and bottom are integers, and \`${sides[at]}\` is ${article(found)} ` +
+          `\`${found}\` — to divide, write \`${written[0]} / ${written[1]}\``,
+        primary: side.span,
+      });
+      return;
+    }
   }
 
   /** Whether anything inside this pattern failed to type (§7.3's obligation). */
@@ -20877,6 +21035,7 @@ class Checker {
     if (expression !== undefined && this.#decimalHome(expression, source, target) !== undefined) {
       return true;
     }
+    if (this.#isDec(source)) return this.#supportsTarget(target, "FromDec");
     if (source.kind !== "Constructor") return false;
     if (source.name === "Nat") return this.#supportsNumericTarget(target);
     if (source.name === "Int") return this.#supportsSignedTarget(target);
@@ -21525,9 +21684,13 @@ class Checker {
       // exactly as every form always joined, and report as they always did.
       return undefined;
     }
+    // The fixed sources, widest first (Exact Integer Widening §9): a `Dec`
+    // enters every home a `BigInt` does that also honors `FromDec`, so it
+    // ranks above the integers and below every other home.
     const fixed = (type: Mono): number => {
+      if (this.#isDec(type)) return 0;
       if (type.kind !== "Constructor") return -1;
-      return type.name === "BigInt" ? 0 : type.name === "Int" ? 1 : type.name === "Nat" ? 2 : -1;
+      return type.name === "BigInt" ? 1 : type.name === "Int" ? 2 : type.name === "Nat" ? 3 : -1;
     };
     const exact = established.find(({ type }) => fixed(type) < 0);
     if (exact !== undefined) return { home: exact.type, source: exact.expression };
@@ -21544,12 +21707,18 @@ class Checker {
           ? "Num"
           : type.kind === "Constructor" && type.name === "Int"
             ? "Signed"
+            : this.#isDec(type)
+            ? "FromDec"
             : "FromBigInt";
       const carrier = constrained.find((candidate) =>
         established.every(({ type }) => this.#supportsTarget(candidate.type, evidence(type), true))
       );
       if (carrier !== undefined) return { home: carrier.type, source: carrier.expression };
     }
+    // A decimal-point literal beside a `Dec` takes the `Dec` home (§9): the
+    // ranking's `Dec` step comes before the literal's `Float`.
+    const dec = established.find(({ type }) => this.#isDec(type));
+    if (decimal !== undefined && dec !== undefined) return { home: dec.type, source: dec.expression };
     if (decimal !== undefined) return { home: primitive("Float"), source: decimal };
     const widest = [...established].sort((left, right) => fixed(left.type) - fixed(right.type))[0]!;
     return { home: widest.type, source: widest.expression };
@@ -21903,6 +22072,9 @@ class Checker {
     const exact = (type: Mono): boolean =>
       type.kind !== "Variable" && type.kind !== "Error" &&
       !(type.kind === "Constructor" && ["Nat", "Int", "BigInt"].includes(type.name)) &&
+      // A `Dec` is a source too (Exact Integer Widening §9): it enters a home
+      // honoring `FromDec`, and is reported as entering none other.
+      !this.#isDec(type) &&
       this.#supportsTarget(type, "Num");
     return exact(left) && exact(right) && !this.#sameSeat(left, right);
   }
@@ -23471,6 +23643,7 @@ class Checker {
   #reachesSeat(source: Mono, destination: Mono): boolean {
     if (this.#acceptsExactly(source, destination)) return true;
     const actual = this.#prune(source);
+    if (this.#isDec(actual)) return this.#supportsTarget(destination, "FromDec");
     if (actual.kind !== "Constructor") return false;
     if (actual.name === "Nat") return this.#supportsNumericTarget(destination);
     if (actual.name === "Int") return this.#supportsSignedTarget(destination);
@@ -35399,13 +35572,19 @@ class Checker {
   #inferredConversionRefusal(expression: Resolved.Expr, actual: Mono, expected: Mono): string | undefined {
     const source = this.#prune(actual);
     const target = this.#prune(expected);
-    if (source.kind !== "Constructor" || target.kind === "Variable" || target.kind === "Error") return undefined;
-    const evidence = source.name === "Nat"
+    if (
+      (source.kind !== "Constructor" && !this.#isDec(source)) || target.kind === "Variable" ||
+      target.kind === "Error"
+    ) return undefined;
+    const sourceName = source.kind === "Constructor" ? source.name : "Dec";
+    const evidence = sourceName === "Nat"
       ? "Num"
-      : source.name === "Int"
+      : sourceName === "Int"
       ? "Signed"
-      : source.name === "BigInt"
+      : sourceName === "BigInt"
       ? "FromBigInt"
+      : this.#isDec(source)
+      ? "FromDec"
       : undefined;
     if (evidence === undefined || this.#sameSeat(source, target) || !this.#supportsTarget(target, evidence)) {
       return undefined;
@@ -35417,7 +35596,7 @@ class Checker {
     const from = this.#display(source);
     const to = this.#display(target);
     const companion = this.#typeSpellingAtSite(target);
-    const door = companion === undefined ? "" : `, or convert it — \`${companion}.from${source.name}(${spelled})\``;
+    const door = companion === undefined ? "" : `, or convert it — \`${companion}.from${sourceName}(${spelled})\``;
     if (plain !== undefined) {
       return `\`${spelled}\` is not widened into ${plain.seat}, ${article(to)} \`${to}\` only by inference: ` +
         `write ${plain.owner}'s type where it is made${door}`;
@@ -35558,6 +35737,33 @@ class Checker {
     return true;
   }
 
+  /**
+   * Exact Integer Widening §9: a `Dec` enters a target honoring `FromDec`, as a
+   * `BigInt` enters one honoring `FromBigInt`.
+   */
+  #tryWidenDec(
+    expression: Resolved.Expr,
+    actual: Mono,
+    target: Mono,
+    span: Source.Span,
+    allowVariableTarget = false,
+  ): boolean {
+    const source = this.#prune(actual);
+    const destination = this.#prune(target);
+    if (!this.#isDec(source) || this.#isDec(destination)) return false;
+    if (!this.#supportsTarget(destination, "FromDec", allowVariableTarget)) return false;
+    if (!this.#widensFrom(expression)) return false;
+    const requirement = this.#require("FromDec", destination, span);
+    this.#decWidenings.set(expression, requirement);
+    return true;
+  }
+
+  /** Whether `type` is the prelude's `Dec`. */
+  #isDec(type: Mono): boolean {
+    const actual = this.#prune(type);
+    return actual.kind === "NominalRecord" && this.#decRecord !== undefined && actual.record === this.#decRecord;
+  }
+
   #tryWidenNumeric(
     expression: Resolved.Expr,
     actual: Mono,
@@ -35570,12 +35776,14 @@ class Checker {
     return this.#tryWidenInt(expression, actual, target, span, allowVariableTarget) ||
       this.#tryWidenNat(expression, actual, target, span, allowVariableTarget) ||
       this.#tryWidenBigInt(expression, actual, target, span, allowVariableTarget) ||
+      this.#tryWidenDec(expression, actual, target, span, allowVariableTarget) ||
       this.#tryPromoteDecimal(expression, actual, target, span);
   }
 
   #hasNumericWidening(expression: Resolved.Expr): boolean {
     return this.#natWidenings.has(expression) || this.#intWidenings.has(expression) ||
-      this.#bigIntWidenings.has(expression) || this.#decimalPromotions.has(expression);
+      this.#bigIntWidenings.has(expression) || this.#decWidenings.has(expression) ||
+      this.#decimalPromotions.has(expression);
   }
 
   /**
@@ -37432,6 +37640,11 @@ class Checker {
     if (constraintSeat !== undefined) {
       return `; it could only be declared in module \`${constraintSeat}\` (declares ` +
         `\`${constraintHome.name}\`) or ${subjectHome.statedHome}`;
+    }
+    // Modules §7.6's one closed pair that names its routes, because Exact
+    // Integer Widening §9 fixes them: `Dec` divides at `Rat`, or with places.
+    if (requirement.identity === "hex:Frac" && this.#isDec(type)) {
+      return "; write a `Rat` type, or use `Dec.divide` with a place count";
     }
     return `; its only legal homes are ${constraintHome.statedHome} and ` +
       `${subjectHome.statedHome}, both outside project source, so this pair's ` +
@@ -42514,6 +42727,7 @@ class Checker {
   #acceptsExactly(from: Mono, to: Mono): boolean {
     if (this.#sameSeat(from, to)) return true;
     const source = this.#prune(from);
+    if (this.#isDec(source)) return this.#supportsTarget(to, "FromDec");
     if (source.kind !== "Constructor") return false;
     if (source.name === "Nat") return this.#supportsNumericTarget(to);
     if (source.name === "Int") return this.#supportsSignedTarget(to);
@@ -45338,6 +45552,7 @@ class Checker {
       return {
         kind: "PatternDeclaration",
         exported: item.exported,
+        ...(item.fraction === true ? { fraction: true as const } : {}),
         identity: item.identity,
         name: item.name,
         componentNames: item.head?.components.map(({ name }) => name) ?? [],
@@ -45985,6 +46200,8 @@ class Checker {
         ? { kind: "WidenInt" as const, requirement: this.#intWidenings.get(expression)! }
         : this.#bigIntWidenings.has(expression)
         ? { kind: "WidenBigInt" as const, requirement: this.#bigIntWidenings.get(expression)! }
+        : this.#decWidenings.has(expression)
+        ? { kind: "WidenDec" as const, requirement: this.#decWidenings.get(expression)! }
         : undefined;
       if (widening === undefined) return value;
       const requirement = this.#publicRequirement(widening.requirement);
@@ -46011,6 +46228,17 @@ class Checker {
       const requirement = this.#publicRequirement(widening);
       return {
         kind: "WidenInt",
+        value,
+        requirement,
+        type: requirement.type,
+        span: expression.span,
+      };
+    }
+    const decWidening = this.#decWidenings.get(expression);
+    if (decWidening !== undefined) {
+      const requirement = this.#publicRequirement(decWidening);
+      return {
+        kind: "WidenDec",
         value,
         requirement,
         type: requirement.type,
@@ -47968,6 +48196,14 @@ function nestedAdapterType(
  * Every pattern node inside `pattern`, itself included — the walk §7.2's dual
  * needs: a row is a shadower only if *nothing* in it failed to type.
  */
+/** The greatest common divisor of two integers, never negative. */
+function greatestCommonDivisor(left: bigint, right: bigint): bigint {
+  let a = left < 0n ? -left : left;
+  let b = right < 0n ? -right : right;
+  while (b !== 0n) [a, b] = [b, a % b];
+  return a;
+}
+
 function resolvedPatternNodes(
   pattern: Resolved.Pattern,
 ): readonly Resolved.Pattern[] {
@@ -48329,7 +48565,9 @@ function renderPattern(
         pattern.elements.map((element) => render(element)).join(", ")
       })`;
     case "Declared":
-      return `(${pattern.components.map((component) => render(component)).join(", ")})${pattern.name}`;
+      return pattern.fraction === true
+        ? pattern.components.map((component) => render(component)).join(" // ")
+        : `(${pattern.components.map((component) => render(component)).join(", ")})${pattern.name}`;
     case "Vector": {
       const elements = pattern.elements.map((element) => render(element));
       if (pattern.rest !== undefined) {

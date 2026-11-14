@@ -12,21 +12,7 @@ const perhaps = (message: string, claims: string, silent: string): string =>
   `${message} — perhaps the mark is wrong; or, if this call ${claims}, something makes it ${silent} ` +
   "that this report does not name";
 
-const STDLIB = import.meta.glob("../../../stdlib/*.hex", {
-  eager: true,
-  query: "?raw",
-  import: "default",
-}) as Record<string, string>;
-
-const RAT = Object.entries(STDLIB).find(([path]) => path.endsWith("/Rat.hex"))?.[1];
-if (RAT === undefined) throw new Error("no stdlib/Rat.hex");
-
 const main = (source: string): string => `module Main\n\n${source}`;
-const ratProject = (source: string): readonly (readonly [string, string])[] => [
-  ["/main.hex", main(`import Rat\n${source}`)],
-  ["/Rat.hex", RAT],
-];
-
 function messages(source: string): readonly string[] {
   return projectDiagnostics(main(source));
 }
@@ -34,22 +20,6 @@ function messages(source: string): readonly string[] {
 /** Makes Debug's captured sink and every emitted module fresh for this test. */
 const distinct = (label: string) => (_path: string, javascript: string): string =>
   `// ${label}\n${javascript}`;
-
-const host = globalThis as unknown as {
-  console: { log: (...values: unknown[]) => void };
-};
-
-async function written(body: () => Promise<void>): Promise<unknown[][]> {
-  const lines: unknown[][] = [];
-  const original = host.console.log;
-  host.console.log = (...values: unknown[]) => lines.push(values);
-  try {
-    await body();
-  } finally {
-    host.console.log = original;
-  }
-  return lines;
-}
 
 describe("pattern declarations (#834)", () => {
   test("private headed and unheaded patterns have both directions", async () => {
@@ -91,33 +61,6 @@ describe("pattern declarations (#834)", () => {
         "    value\n",
     ));
     expect(exports["answer"]).toBe(1);
-  });
-
-  test("Rat construction, matching, and the exact Playground calculations run", async () => {
-    const source =
-      "let half = (1, 2)rat\n" +
-      "let third = (1, 3)rat\n" +
-      "let fiveSixths = half + third\n" +
-      "let threeHalves = half / third\n" +
-      "\n" +
-      "Debug.log(\"1/2 + 1/3 = ${fiveSixths}\")\n" +
-      "Debug.log(\"1/2 / 1/3 = ${threeHalves}\")\n" +
-      "Debug.log(\"Does 10/12 = 5/6? ${(10, 12)rat == (5, 6)rat}\")\n" +
-      "\n" +
-      "export let parts: (BigInt, BigInt) =\n" +
-      "    let (top, bottom)rat = (10, 12)rat\n" +
-      "    (top, bottom)\n";
-    const lines = await written(async () => {
-      const exports = await runProject(ratProject(source), {
-        transform: distinct("pattern Rat Playground"),
-      });
-      expect(exports["parts"]).toEqual([5n, 6n]);
-    });
-    expect(lines).toEqual([
-      ["1/2 + 1/3 = 5/6"],
-      ["1/2 / 1/3 = 3/2"],
-      ["Does 10/12 = 5/6? True"],
-    ]);
   });
 
   test("Float components use SameValueZero, including signed zero", async () => {

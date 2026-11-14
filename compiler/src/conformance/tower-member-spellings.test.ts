@@ -32,8 +32,9 @@
  *    value, every other spelling produces that lowering *verbatim*. The check is
  *    one text per operation across its spellings, and one value.
  *
- * `Rat` is not a prelude module, so every `Rat` fixture is a two-file project —
- * which is also the object-representation control for part 4.
+ * `Rat` is the object-representation control for part 4. It is a prelude
+ * module since #1542, and its fixtures still write `import Rat`, which binds
+ * nothing new.
  *
  * Every graph that executes here is byte-distinct: emitted modules mount as
  * `data:` URLs cached by their full text, so two tests compiling the same
@@ -43,19 +44,6 @@
 import { describe, expect, test } from "vitest";
 
 import { compileFiles, projectDiagnostics, runProject } from "../support/test-project.js";
-
-const STDLIB = import.meta.glob("../../../stdlib/*.hex", {
-  eager: true,
-  query: "?raw",
-  import: "default",
-}) as Record<string, string>;
-
-/** `stdlib/Rat.hex`, the nominal home §14(t)'s and §14(u)'s `Rat` rows name. */
-const RAT = (() => {
-  const entry = Object.entries(STDLIB).find(([path]) => path.endsWith("/Rat.hex"));
-  if (entry === undefined) throw new Error("no stdlib/Rat.hex");
-  return entry[1];
-})();
 
 /** §14(t)'s and §14(u)'s fixtures, and Numeric Literals §5.1's. */
 const fixtures = "let i: Int = 6\n" +
@@ -97,10 +85,14 @@ function probeLine(source: string): string {
   return line.trim();
 }
 
+/**
+ * `Rat` is the prelude's since #1542, so `import Rat` reaches it and binds
+ * nothing new: the project needs no copy of `stdlib/Rat.hex`, whose module of
+ * the same name would be a second `Rat` beside the prelude's.
+ */
 function withRat(source: string): readonly (readonly [string, string])[] {
   return [
     ["/main.hex", "module Main\n\n" + `import Rat\n${fixtures}${source}`],
-    ["/Rat.hex", RAT],
   ];
 }
 

@@ -166,13 +166,15 @@ describe("what moves", () => {
 
 describe("the boundaries", () => {
   test("a binding, a call's result, and a dot receiver each end the tree", () => {
+    // A `Dec` is a source (Exact Integer Widening §9), so it is reported as
+    // entering no `Float` home rather than as a pair neither enters.
     expect(refusals("let y = n * 1.5\nlet a = y * price\n")).toEqual([
-      "`price` is a `Dec` and `y` a `Float`; an expression's arithmetic runs at one type, " +
-        "and neither enters the other; convert one explicitly — `price.toFloat()`",
+      "`price` is a `Dec` and cannot enter `Float`, the home `y` gives this expression; " +
+        "convert one explicitly — `price.toFloat()`",
     ]);
     expect(refusals("let id<a>(x: a): a = x\nlet a = id(n * 1.5) * price\n")).toEqual([
-      "`price` is a `Dec` and `id(n * 1.5)` a `Float`; an expression's arithmetic runs at one " +
-        "type, and neither enters the other; convert one explicitly — `price.toFloat()`",
+      "`price` is a `Dec` and cannot enter `Float`, the home `id(n * 1.5)` gives this expression; " +
+        "convert one explicitly — `price.toFloat()`",
     ]);
     // A face reaches no argument through a function's result (#1066): the
     // function-result report names the boundary and the ascription across it.
@@ -187,13 +189,17 @@ describe("the boundaries", () => {
   });
 
   test("an established Float meets an exact value, and neither enters the other", () => {
-    expect(refusals("let a = f * 1.5 * price\n")).toEqual([
-      "`price` is a `Dec` and `f` a `Float`; an expression's arithmetic runs at one type, " +
-        "and neither enters the other; convert one explicitly — `price.toFloat()`",
+    // `Rat` and `Float` are the pair neither enters (Numeric Literals §6): a
+    // `Dec` enters a `Rat` home since #1542, so it no longer makes the example.
+    const q = "let q: Rat = 1 // 3\n";
+    expect(refusals(q + "let a = f * 1.5 * q\n")).toEqual([
+      "`q` is a `Rat` and `f` a `Float`; an expression's arithmetic runs at one type, " +
+        "and neither enters the other; convert one explicitly — `q.toFloat()`",
     ]);
     // Refused once for the whole expression, however many values decline.
+    expect(refusals(q + "let a = f + q + q + q\n")).toHaveLength(1);
+    expect(refusals(q + "let a = if c then f else (if c then q else q)\n")).toHaveLength(1);
     expect(refusals("let a = f + price + price + price\n")).toHaveLength(1);
-    expect(refusals("let a = if c then f else (if c then price else price)\n")).toHaveLength(1);
   });
 
   test("a value its home cannot take is named with the home and the door", () => {
@@ -202,8 +208,8 @@ describe("the boundaries", () => {
         "convert one explicitly — `b.toFloat()`",
     ]);
     expect(refusals("let a = f * price\n")).toEqual([
-      "`price` is a `Dec` and `f` a `Float`; an expression's arithmetic runs at one type, " +
-        "and neither enters the other; convert one explicitly — `price.toFloat()`",
+      "`price` is a `Dec` and cannot enter `Float`, the home `f` gives this expression; " +
+        "convert one explicitly — `price.toFloat()`",
     ]);
   });
 
@@ -544,17 +550,16 @@ describe("calls join the tree (#1062, part 2)", () => {
     // A receiver holding an established `Float` would not have entered `Dec`
     // either way: the ordinary conflict.
     expect(refusals("let a = (f * 2).multiply(price)\n")).toEqual([
-      "`price` is a `Dec` and `(f * 2)` a `Float`; an expression's arithmetic runs at one " +
-        "type, and neither enters the other; convert one explicitly — `price.toFloat()`",
+      "`price` is a `Dec` and cannot enter `Float`, the home `(f * 2)` gives this expression; " +
+        "convert one explicitly — `price.toFloat()`",
     ]);
   });
 
   test("the closed-receiver report offers only what compiles", () => {
     // `Dec` honors no `Frac`, so `.divide` could not have run at `Dec` either:
     // the ordinary conflict, and no rewrite.
-    const conflict = "`price` is a `Dec` and `(n + 1.5)` a `Float`; an expression's " +
-      "arithmetic runs at one type, and neither enters the other; convert one explicitly — " +
-      "`price.toFloat()`";
+    const conflict = "`price` is a `Dec` and cannot enter `Float`, the home `(n + 1.5)` " +
+      "gives this expression; convert one explicitly — `price.toFloat()`";
     expect(refusals("let a = (n + 1.5).divide(price * 2)\n")).toEqual([conflict]);
     expect(refusals("let a: Dec = (n + 1.5).divide(price * 2)\n")).toEqual([conflict]);
     // An open member outside the tower: its result is no home, so the
@@ -564,11 +569,21 @@ describe("calls join the tree (#1062, part 2)", () => {
         "is settled on its own; name the home: `(n * 1.5: Dec)`",
     ]);
     // A home this site cannot spell drops that repair and keeps the report:
-    // `Rat` reached only through another module's face has no name here.
-    const lib = "module Lib\n\nimport Rat\n\nexport let third: Rat = Rat.create(1, 3)\n";
+    // `Qty` reached only through another module's face has no name here. (The
+    // example was `Rat` until #1542 seated it in the prelude, where every
+    // module can spell it.)
+    const qty = "module Qty\n\nopaque record Qty = {v: Int}\n\n" +
+      "honor Num<Qty> =\n    add(left, right) = left\n    multiply(left, right) = left\n" +
+      "    fromNat(value) = Qty({v = 0})\n\n" +
+      "honor Signed<Qty> =\n    subtract(left, right) = left\n    negate(value) = value\n" +
+      "    fromInt(value) = Qty({v = 0})\n\n" +
+      "honor FromBigInt<Qty> =\n    fromBigInt(value) = Qty({v = 0})\n\n" +
+      "honor Frac<Qty> =\n    divide(left, right) = left\n";
+    const lib = "module Lib\n\nimport Qty\n\nexport let third: Qty = 1\n";
     expect(compileFiles([
       ["/main.hex", "module Main\n\nimport Lib\n\nlet n: Int = 3\nlet a = (n * 1.5).multiply(Lib.third)\n"],
       ["/Lib.hex", lib],
+      ["/Qty.hex", qty],
     ]).diagnostics.map(({ message }) => message)).toEqual([
       "`n * 1.5` settled at `Float` before `.multiply` saw `Lib.third` — a dot call's receiver " +
         "is settled on its own; write `n * 1.5 * Lib.third`",
@@ -741,21 +756,25 @@ describe("calls join the tree (#1062, part 2)", () => {
     expect(refusals(rat + apply + "let w = apply2(n, (v: Rat) => v * r)\n")).toEqual([]);
     expect(refusals(rat + "let a: Rat = (n * 1.5).multiply(r)\n")).toEqual([]);
     expect(refusals(rat + "let a = (n * 1.5: Rat).compare(r)\n")).toEqual([]);
+    // An alias adds a spelling and takes none away: `Rat` is the prelude's,
+    // bare in every module since #1542, so the repair spells it bare.
     const aliased = (source: string): readonly string[] =>
       projectDiagnostics("module Main\n\nimport Rat as Q\n\nlet n: Int = 3\n" + apply +
         "let r = Q.fromInt(2)\n" + source);
     expect(aliased("let w = apply2(n, (v) => v * r)\n")).toEqual([
-      settled("n", "Rat", "; write `(n: Q.Rat)`, or annotate the callback: `(v: Q.Rat) => …`"),
+      settled("n", "Rat", "; write `(n: Rat)`, or annotate the callback: `(v: Rat) => …`"),
     ]);
     expect(aliased("let w = apply2((n: Q.Rat), (v) => v * r)\n")).toEqual([]);
-    // An implied type of the module's own constraint takes the bare name, and
-    // refuses it outside its constraint.
+    // An implied type of the module's own constraint takes the bare name only
+    // inside its constraint; outside it, a prelude type keeps its bare name, as
+    // `Dec` does below — and `Rat` is the prelude's since #1542.
     const implied = (source: string): readonly string[] =>
       projectDiagnostics("module Main\n\nimport Rat\n\nconstraint Source<a> =\n    type Rat\n" +
         "    peek(supply: a) -> Rat\n\nlet n: Int = 3\n" + apply + "let r = Rat.fromInt(2)\n" + source);
     expect(implied("let w = apply2(n, (v) => v * r)\n")).toEqual([
-      settled("n", "Rat", "; write `(n: Rat.Rat)`, or annotate the callback: `(v: Rat.Rat) => …`"),
+      settled("n", "Rat", "; write `(n: Rat)`, or annotate the callback: `(v: Rat) => …`"),
     ]);
+    expect(implied("let w = apply2((n: Rat), (v) => v * r)\n")).toEqual([]);
     expect(implied("let w = apply2((n: Rat.Rat), (v) => v * r)\n")).toEqual([]);
     // An implied type skips only the companion fallback: outside its
     // constraint the tables and the compiler's own names answer first.

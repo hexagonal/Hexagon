@@ -65,6 +65,21 @@ const infix = new Map<TokenKind, Infix>([
 ]);
 
 /**
+ * `//`, the fraction (Operators §6.4): level 5, between unary minus and `*` `/`,
+ * and non-associative — its right side is read at one power above its left, so
+ * a second `//` returns to the loop, which refuses the chain.
+ */
+const FRACTION_LEFT_POWER = 13;
+const FRACTION_RIGHT_POWER = 14;
+
+/** Comments §3.1: the note a syntax error after a `//` on its line gains. */
+const FRACTION_COMMENT_NOTE = "for a comment, write `--`";
+
+/** Operators §6.4's chain refusal, for the expression and the pattern alike. */
+const FRACTION_CHAIN =
+  "`//` does not chain; a fraction has one top and one bottom — to divide one, write `(1 // 2) / 3`";
+
+/**
  * `bitwise.md` §3: the contextual bitwise words, operators only in the seat
  * straight after a complete operand — which is exactly where this loop asks —
  * between the additive level and `..`, `band` tightest (Lean's levels).
@@ -85,8 +100,11 @@ const operandStarts: ReadonlySet<TokenKind> = new Set<TokenKind>([
   "LeftParen", "LeftBrace", "Not", "Bnot",
 ]);
 
-/** Unary minus's operand: tighter than `*`, looser than `**` (Operators §6.2). */
-const NEGATE_OPERAND_POWER = 13;
+/**
+ * Unary minus's operand: tighter than `*` and `//`, looser than `**` (Operators
+ * §6.2, §6.4), so `-1 // 3` is `(-1) // 3` and `-2 ** 2` is `-(2 ** 2)`.
+ */
+const NEGATE_OPERAND_POWER = 14;
 /** `bnot`'s operand: above `**`, below the postfix forms (`bitwise.md` §3.2). */
 const BNOT_OPERAND_POWER = 15;
 /** The postfix forms — call, access, index — bind at every level up to this. */
@@ -605,6 +623,11 @@ class Parser {
    */
   readonly #emptyBlocks: { readonly offset: number; readonly message: string }[] = [];
   /**
+   * Every `//` read as a fraction, value or pattern: a syntax error after one
+   * on its line gains Comments §3.1's note, added once the module is parsed.
+   */
+  readonly #fractionTokens: Source.Span[] = [];
+  /**
    * Doc-comment bookkeeping (spec/doc-comments.md §4). Declaration parsers claim
    * the block sitting before their first token; the blocks nobody claims are
    * §5's hard errors, reported when the module closes.
@@ -775,6 +798,7 @@ class Parser {
     this.#reportMisplacedTypeParameterLambdas();
     this.#reportReservedNames();
     this.#reportKeywordNames(items);
+    this.#noteFractionComments();
     const first = opening ?? items[0] ?? closing ?? eof ?? this.#current();
     const last = eof ?? closing ?? items.at(-1) ?? first;
     const fileSpan = spanFrom(first.span, last.span);
@@ -1649,7 +1673,10 @@ class Parser {
         // `fault` before a constructor: routed to the pattern reader, which
         // answers each with its own sentence. (`let fault(x) = …` stays the
         // function binding it is.)
-        this.#atFaultPattern(1) || (this.#atFaultSlip(1) && this.#peek(2).kind === "UpperName")
+        this.#atFaultPattern(1) || (this.#atFaultSlip(1) && this.#peek(2).kind === "UpperName") ||
+        // A fraction pattern, `let n // d = r` (Pattern Matching §2.10): its
+        // top may be a name or a literal, signed or not.
+        this.#fractionHeadAt(this.#index + 1)
       ) {
         return this.#parsePatternBinding();
       }
@@ -5571,12 +5598,12 @@ class Parser {
   }
 
   #parsePattern(): Parsed.Pattern | undefined {
-    const first = this.#parseAtomicPattern();
+    const first = this.#parseFractionPattern();
     if (first === undefined) return undefined;
     const alternatives: Parsed.Pattern[] = [first];
     while (this.#at("Bar")) {
       this.#advance();
-      const alternative = this.#parseAtomicPattern();
+      const alternative = this.#parseFractionPattern();
       if (alternative === undefined) return undefined;
       alternatives.push(alternative);
     }
@@ -5852,6 +5879,38 @@ class Parser {
     return this.#lexicalSpans.some(({ start, end }) =>
       end.offset > start.offset && start.offset >= after && end.offset <= before
     );
+  }
+
+  /**
+   * `p1 // p2` (Pattern Matching §2.10): tighter than `|` and `as`, looser than
+   * every other structural form, and non-chaining — `1 // 2 // 3` is refused as
+   * the expression is (Operators §6.4).
+   */
+  #parseFractionPattern(): Parsed.Pattern | undefined {
+    let pattern = this.#parseAtomicPattern();
+    while (pattern !== undefined && this.#at("Fraction")) {
+      const token = this.#advance();
+      const chained = pattern.kind === "Declared" && pattern.fraction === true;
+      if (chained) {
+        this.#errorAt(token.span, FRACTION_CHAIN);
+      } else {
+        this.#fractionTokens.push(token.span);
+      }
+      const bottom = this.#parseAtomicPattern();
+      if (bottom === undefined) return undefined;
+      if (chained) {
+        pattern = { kind: "Error", span: spanFrom(pattern.span, bottom.span) };
+        continue;
+      }
+      pattern = {
+        kind: "Declared",
+        components: [pattern, bottom],
+        name: { text: "//", startClass: "non-upper", span: token.span },
+        fraction: true,
+        span: spanFrom(pattern.span, bottom.span),
+      };
+    }
+    return pattern;
   }
 
   #parseAtomicPattern(): Parsed.Pattern | undefined {
@@ -6377,6 +6436,30 @@ class Parser {
         continue;
       }
 
+      if (this.#at("Fraction") && FRACTION_LEFT_POWER >= minimumBindingPower) {
+        const token = this.#advance();
+        const chained = left.kind === "PatternConstruction" && left.fraction === true;
+        if (chained) {
+          this.#errorAt(token.span, FRACTION_CHAIN);
+        } else {
+          this.#fractionTokens.push(token.span);
+        }
+        const right = this.#parseExpression(FRACTION_RIGHT_POWER, effectiveStops);
+        // A chain is reported once, and its sides draw nothing further.
+        if (chained) {
+          left = { kind: "ErrorExpr", span: spanFrom(left.span, right.span) };
+          continue;
+        }
+        left = {
+          kind: "PatternConstruction",
+          components: [left, right],
+          name: { text: "//", startClass: "non-upper", span: token.span },
+          fraction: true,
+          span: spanFrom(left.span, right.span),
+        };
+        continue;
+      }
+
       const operation = this.#infixAt();
       if (operation === undefined || operation.leftBindingPower < minimumBindingPower) {
         break;
@@ -6501,6 +6584,7 @@ class Parser {
         return this.#parseLambda(stops);
       }
     }
+    if (this.#at("Fraction")) return this.#refuseLeadingFraction();
     if (this.#at("Minus")) {
       const start = this.#advance();
       const operand = this.#parseExpression(NEGATE_OPERAND_POWER, stops);
@@ -7684,11 +7768,10 @@ class Parser {
    * position, which is quadratic on long ones (measured: 60× on a 2000-term sum).
    */
   #atPatternParameterLambda(): boolean {
-    if (!parenFreePatternStarts.has(this.#current().kind)) return false;
-    let index = this.#skipPattern(this.#index);
+    let index = this.#skipFractionHead(this.#index);
     // Or-patterns are paren-free too; refutability, not the grammar, is what rejects them.
     while (index >= 0 && this.#tokens[index]?.kind === "Bar") {
-      index = this.#skipPattern(index + 1);
+      index = this.#skipFractionHead(index + 1);
     }
     if (index < 0) return false;
     if (this.#isAsKeyword(index)) {
@@ -7697,6 +7780,49 @@ class Parser {
       index += 1;
     }
     return this.#tokens[index]?.kind === "FatArrow";
+  }
+
+  /**
+   * Steps over one paren-free pattern, a fraction `p1 // p2` included, or
+   * returns -1. A fraction head is recognised whatever its sides are (Pattern
+   * Matching §6.5): a literal or a signed literal side heads one too, so
+   * `1 // d => e` is one parameter, refused at the irrefutability gate as any
+   * refutable head is, and never the fraction `1 // (d => e)`.
+   */
+  #skipFractionHead(index: number): number {
+    const side = (at: number): number => {
+      const pattern = parenFreePatternStarts.has(this.#tokens[at]?.kind ?? "Eof")
+        ? this.#skipPattern(at)
+        : -1;
+      return pattern >= 0 ? pattern : this.#skipLiteralPattern(at);
+    };
+    const first = side(index);
+    if (first < 0) return -1;
+    if (this.#tokens[first]?.kind !== "Fraction") {
+      // A literal alone heads no lambda.
+      return parenFreePatternStarts.has(this.#tokens[index]?.kind ?? "Eof") ? first : -1;
+    }
+    let next = first;
+    while (this.#tokens[next]?.kind === "Fraction") {
+      next = side(next + 1);
+      if (next < 0) return -1;
+    }
+    return next;
+  }
+
+  /** Whether a fraction pattern `p1 // p2` begins at `index`. */
+  #fractionHeadAt(index: number): boolean {
+    const top = this.#tokens[index]?.kind === "NonUpperName"
+      ? (this.#isAsKeyword(index) ? -1 : index + 1)
+      : this.#skipLiteralPattern(index);
+    return top >= 0 && this.#tokens[top]?.kind === "Fraction";
+  }
+
+  /** Steps over a literal, signed or not, or returns -1. */
+  #skipLiteralPattern(index: number): number {
+    const at = this.#tokens[index]?.kind === "Minus" ? index + 1 : index;
+    const kind = this.#tokens[at]?.kind;
+    return kind === "Integer" || kind === "BigInt" || kind === "Dec" || kind === "Float" ? at + 1 : -1;
   }
 
   /** Steps over one paren-free pattern, or returns -1 if these tokens are not one. */
@@ -8570,6 +8696,57 @@ class Parser {
         `this module's \`${word}\` is reached only through a dot, from an importer or on its home type`,
       );
     }
+  }
+
+  /**
+   * Comments §3.1's second refusal: a syntax error reported on a `//`'s line
+   * after it adds "for a comment, write `--`" to the parser's own report, since
+   * the rest of the line is what a comment would have been. The note is added,
+   * never put in the report's place: the `//` may be a fraction and the error
+   * another mistake.
+   */
+  #noteFractionComments(): void {
+    for (const token of this.#fractionTokens) {
+      this.#diagnostics.noteErrors(
+        ({ primary, message }) =>
+          message !== FRACTION_CHAIN &&
+          primary.start.line === token.start.line && primary.start.offset >= token.end.offset,
+        FRACTION_COMMENT_NOTE,
+      );
+    }
+  }
+
+  /**
+   * Comments §3.1's first refusal: a `//` where an operand must begin has no
+   * top, so it is never a fraction. A run of slashes lexes as `//` tokens and
+   * an odd last `/`; the fix turns each slash into a dash, so `/// note`
+   * becomes `--- note`. The rest of the line is taken as the comment it was
+   * meant to be, so one pasted comment costs one report.
+   */
+  #refuseLeadingFraction(): Parsed.Expr {
+    const first = this.#advance();
+    let end = first.span;
+    while (
+      (this.#at("Fraction") || this.#at("Slash")) &&
+      this.#current().span.start.offset === end.end.offset
+    ) {
+      end = this.#advance().span;
+    }
+    const run = spanFrom(first.span, end);
+    this.#diagnostics.add({
+      severity: "error",
+      message: "a fraction needs a top; for a comment, write `--`",
+      primary: run,
+      fixes: [{
+        message: "use the Hexagon line comment spelling",
+        edits: [{ span: run, replacement: "-".repeat(run.end.offset - run.start.offset) }],
+      }],
+    });
+    let last = run;
+    while (!itemEnds.has(this.#current().kind) && this.#current().span.start.line === first.span.start.line) {
+      last = this.#advance().span;
+    }
+    return { kind: "ErrorExpr", span: spanFrom(first.span, last) };
   }
 
   #skipSeparators(): void {

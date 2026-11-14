@@ -1543,7 +1543,7 @@ export function compileProject(
     const patternHomes: ModuleImport[] = [];
     for (const [homePath, home] of resolvedModules) {
       const interface_ = moduleInterface(home);
-      if (interface_.patterns.size === 0) continue;
+      if (interface_.patterns.size === 0 && interface_.fraction === undefined) continue;
       patternHomes.push({
         interface: interface_,
         specifier: relativeSpecifier(path, homePath),
@@ -1728,7 +1728,10 @@ export function compileProject(
     for (const home of checked.values()) {
       const interface_ = moduleInterface(home.resolved);
       const published = new Map(home.typed.symbols.map((symbol) => [symbol.id, symbol.scheme]));
-      for (const reference of interface_.patterns.values()) {
+      const references = interface_.fraction === undefined
+        ? [...interface_.patterns.values()]
+        : [...interface_.patterns.values(), interface_.fraction];
+      for (const reference of references) {
         for (const symbol of [reference.view, reference.build]) {
           if (symbol === undefined) continue;
           const scheme = published.get(symbol);

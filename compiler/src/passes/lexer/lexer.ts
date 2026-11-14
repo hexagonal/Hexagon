@@ -63,6 +63,9 @@ const keywords: ReadonlyMap<string, Lexed.KeywordKind> = new Map([
 const punctuation: readonly (readonly [string, Lexed.PunctuationKind])[] = [
   ["...", "Spread"],
   ["**", "Power"],
+  // `//` stands ahead of `/` (Lexer §8.2): the fraction operator, Operators
+  // §6.4. A `//` meant as a comment is the parser's to refuse (Comments §3.1).
+  ["//", "Fraction"],
   ["++", "Concat"],
   ["==", "EqualEqual"],
   ["!=", "NotEqual"],
@@ -335,9 +338,6 @@ class Scanner {
         // Ahead of the record brace: no record begins with `-` (Comments §3).
         this.#atLineStart = false;
         this.#scanBlockComment();
-      } else if (this.#startsWith("//")) {
-        this.#atLineStart = false;
-        this.#scanJavaScriptLineComment();
       } else if (this.#startsWith("(*")) {
         this.#atLineStart = false;
         this.#scanOCamlBlockComment();
@@ -458,33 +458,6 @@ class Scanner {
         this.#source.positionAt(innermost).line + 1
       }, column ${this.#source.positionAt(innermost).column + 1}${nested}`,
     );
-  }
-
-  /**
-   * `//` is JavaScript's line comment, never Hexagon's (Comments §3.1), and a
-   * longer run of slashes is refused with it. The rest of the line is taken as
-   * the comment it was meant to be, so one pasted comment costs one diagnostic;
-   * the fix turns each slash into a dash, so `/// note` becomes `--- note`.
-   */
-  #scanJavaScriptLineComment(): void {
-    const start = this.#offset;
-    while (this.#source.text[this.#offset] === "/") {
-      this.#offset += 1;
-    }
-    const slashes = this.#offset - start;
-    this.#skipToLineEnd();
-    const run = this.#source.span(start, start + slashes);
-    this.#diagnostics.add({
-      severity: "error",
-      message: "JavaScript line comment syntax — Hexagon line comments are `-- ...`",
-      primary: run,
-      fixes: [
-        {
-          message: "use the Hexagon line comment spelling",
-          edits: [{ span: run, replacement: "-".repeat(slashes) }],
-        },
-      ],
-    });
   }
 
   /**

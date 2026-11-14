@@ -165,11 +165,18 @@ describe("the judgment over the pre-registered constraints", () => {
     // Derived from the inventory rather than restated: a twelfth pre-registered
     // constraint has to be classified here deliberately, and cannot arrive with
     // no row and no notice — which is the failure mode the hand table had.
+    // `FromDec` is the one that rows nowhere, by its spec rather than by
+    // omission: `Nat`, `Int`, `BigInt` and `Float` do not honor it, and its two
+    // instances are at `Dec` and `Rat`, neither a fundamental (Exact Integer
+    // Widening §9).
+    const rowless = new Set(["FromDec"]);
     expect([...seen].sort()).toEqual(
       PRE_REGISTERED_CONSTRAINTS
+        .filter((name) => !rowless.has(name))
         .map(preRegisteredConstraintIdentity)
         .sort(),
     );
+    expect([...seen].some((identity) => identity === preRegisteredConstraintIdentity("FromDec"))).toBe(false);
   });
 });
 

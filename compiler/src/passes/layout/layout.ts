@@ -68,6 +68,10 @@ const opensDeclaration = new Set<Lexed.Token["kind"]>([
  * while it cannot begin an expression. `Minus` is absent because it is also
  * unary negation, and `Less` is absent for the same reason since the type-parameter
  * lambda form (`<a: Ord>(x) => ...`, Functions §4.2) made `<` expression-initial.
+ * `Fraction` (`//`) is absent for another reason (Lexer Layout §2.3): a line that
+ * begins with it is far more often the C-family comment habit than a fraction
+ * split across lines, so it begins an item, where the parser refuses it naming
+ * `--` (Comments §3.1).
  */
 const expressionContinuations = new Set<Lexed.Token["kind"]>([
   "Dot",

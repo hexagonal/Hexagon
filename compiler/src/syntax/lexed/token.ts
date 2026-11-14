@@ -77,6 +77,8 @@ export const punctuationKinds = [
   "Minus",
   "Star",
   "Slash",
+  // `//` writes a fraction (Operators §6.4); a structural form, not division.
+  "Fraction",
   "Power",
   "Concat",
   "EqualEqual",

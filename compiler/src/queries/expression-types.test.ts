@@ -47,11 +47,10 @@ const HEAD = "module Main\n";
  * The forms the standard library rarely or never writes, each holding names: a
  * `while`, a `for`, an index, an assignment, a record update, a comparison
  * chain, `not` and a minus, `try`, a guard, `attempt` and `assume`, a `match`
- * with a `catch`, a pattern's construction.
+ * with a `catch`, a fraction.
  */
 const FORMS = [
   "module Main",
-  "import Rat",
   "exception Oops(code: Int)",
   "let risky(n: Int): Int = if n > 0 then n else throw^(Oops(n))",
   "let forms(xs: Vector(Int), i: Int, flag: Bool, base: {x: Int, y: Int}): Int =",
@@ -77,7 +76,7 @@ const FORMS = [
   "        catch",
   "            Oops(code) => code",
   "    let top: BigInt = 1",
-  "    let half = (top, top + 1)rat",
+  "    let half = top // (top + 1)",
   "    tried + sure + chosen",
   "",
 ].join("\n");
