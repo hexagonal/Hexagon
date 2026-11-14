@@ -70,6 +70,27 @@ describe("#1272 a grouped constrained callee is called", () => {
     };
     expect(body("(show)")).toBe(body("show"));
   });
+
+  const reading = (argument: string): string =>
+    "exception Boom\n" +
+    "let p<a: Show>(x: a, o: Option(Int)): String = show(x) ++ show(Option.orThrow^(o, () => Boom))\n" +
+    `export let out: Option(String) = (p)?(5, ${argument})\n`;
+
+  test.each([
+    ["None", { tag: "None" }],
+    ["Some(1)", { tag: "Some", value: "51" }],
+  ])("a reading of a grouped constrained function, %s", async (argument, out) => {
+    expect(await run(reading(argument))).toMatchObject({ out });
+  });
+
+  test("a reading emits what the bare spelling emits", () => {
+    const body = (callee: string): string => {
+      const compiled = compileMain("module Main\n\n" + reading("None").replace("(p)?", `${callee}?`));
+      expect(compiled.diagnostics).toEqual([]);
+      return compiled.modules.find(({ source }) => source.path === "/main.hex")!.javascript.text;
+    };
+    expect(body("(p)")).toBe(body("p"));
+  });
 });
 
 describe("#1272 controls", () => {

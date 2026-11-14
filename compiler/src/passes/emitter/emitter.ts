@@ -7866,7 +7866,10 @@ class JavaScriptEmitter {
         // A field's function is called on its record, so the record is what is
         // evaluated outside, and the call inside keeps it as its receiver.
         if (expression.callee.kind === "FieldAccess") hoist(expression.callee.receiver);
-        else hoist(expression.callee);
+        // A grouped constrained callee is read as the bare call
+        // (`#hoistedCalleeEvidence`): its reference is a name, evaluated
+        // nowhere, so there is nothing to hand in (#1272).
+        else if (this.#hoistedCalleeEvidence(expression) === expression) hoist(expression.callee);
         for (const argument of expression.arguments) hoist(argument);
       }
       const error = this.#generatedNames.fresh("error");
