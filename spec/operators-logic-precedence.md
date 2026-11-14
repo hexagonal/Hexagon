@@ -1,6 +1,6 @@
 # Hexagon Spec — Operators, Logic & Precedence
 
-**Status:** Decided (v1), except items explicitly marked deferred. Amended 2026-11-13 (#1538): §6.2 says that two minus signs are written apart. Amended 2026-11-14 (#1542): `//` writes a fraction, at its own level 5 (§3, §6.4).
+**Status:** Decided (v1), except items explicitly marked deferred. Amended 2026-11-13 (#1538): §6.2 says that two minus signs are written apart. Amended 2026-11-14 (#1542): `//` writes a fraction, at its own level 5 (§3, §6.4). Amended 2026-11-14 (#1545): a divisor or bottom written as a literal zero is refused when the program is compiled (§6.1, §6.4, §15; Division & Remainder §12).
 **Scope:** The complete v1 operator inventory; the precedence and associativity table; word-based logical operators (`not`, `and`, `or`, `implies`, `iff`) and their desugarings; comparison operators, chaining, and the single-evaluation rule; arithmetic operators including `**`; the concatenation operator `++`; the pipe operator `|>`; the fraction form `//`; the `if … then … else` expression (mandatory `then`; `else` omissible as `Unit` sugar, §11.2); the grammatical placement of `..`, `:=`, `=>`, `[]`, `.`, and call syntax.
 **Not in scope:** Semantics of indexing/slicing (`xs[i]`, `xs[lo..hi]`) beyond precedence — owed to the collections/indexing spec. Semantics of `Range` construction — Loops, Ranges & Iteration spec is authoritative; this spec only fixes `..`'s precedence. `match` — pattern-matching spec; referenced here only as a member of the eats-to-the-right family. Constraint mechanics (dictionary passing, coherence) — Constraints spec.
 **Companions:** Constraints (operator→member elaboration targets, prelude constraint listing), Primitive Types (per-type instance inventories, `Ord String`), Numeric Literals (literal elaboration under operators), Loops/Ranges/Iteration (`..` semantics, `while`/`for` condition grammar by reference), Statements/Blocks/Mutability (`:=` semantics, discard rule), Exceptions (edit note §14.2), Functions (`=>`, header sugar).
@@ -245,7 +245,9 @@ a < f() < c
 
 `Float` and `Rat` both honor `Frac`, with type-owned failure and precision semantics:
 Float division is native IEEE 754 division, while Rat division is exact and throws
-`DivideByZeroFault` for a zero divisor. `Int` and `BigInt` do not honor `Frac`; their
+`DivideByZeroFault` for a zero divisor. A divisor written as a literal zero at `Rat` is
+refused when the program is compiled, in every spelling of the member's call (Division &
+Remainder §12); at `Float` it answers as IEEE 754 does. `Int` and `BigInt` do not honor `Frac`; their
 named division families state the quotient and remainder convention explicitly.
 
 ### 6.2 Unary minus
@@ -305,7 +307,7 @@ The qualified spellings `Float.pow`/`BigInt.pow` and the dot calls `x.pow(y)` de
 - **Level 5, between unary minus and `*` `/`.** A fraction is written whole before arithmetic reaches it: `half * 1 // 2` is `half * (1 // 2)`, `x / 2 // 3` is `x / (2 // 3)`, and `1 // 2 * 3 // 4` is `(1 // 2) * (3 // 4)`. A sign belongs to its side: `-1 // 3` is `(-1) // 3`, and `1 // -3` is `1 // (-3)`, the right side admitting a prefix as every infix right operand does. `**` binds tighter: `2 ** 3 // 4` is `(2 ** 3) // 4`. Postfix forms bind tighter still, so a dot call on a fraction groups it: `(5 // 2).round()`.
 - **Non-associative and non-chaining.** `1 // 2 // 3` is a parse error: "`//` does not chain; a fraction has one top and one bottom — to divide one, write `(1 // 2) / 3`".
 - **The sides are integers.** Each side is a `BigInt` seat, as `Rat.create`'s parameters are: an integer literal there is a `BigInt`, and a `Nat`, `Int` or `BigInt` enters through Numeric Literals §5.1's widening. Each side is its own expression, ending at its seat, and the fraction is one `Rat` value in the expression around it. A side whose type the text decides as `Rat`, `Dec` or `Float` — a decimal literal among them — is refused at that side with the division that was meant: "a fraction's top and bottom are integers, and `r` is a `Rat` — to divide, write `r / 2`"; at a `Dec` side the division is written at `Rat`, `Rat.fromDec(d) / 2`, since `Dec` alone has no exact `/` (Exact Integer Widening §9). A side of any other type is the ordinary seat error.
-- **Evaluation.** The top is evaluated, then the bottom, each once, and the fraction is built as `Rat.create` builds it. A zero bottom throws `DivideByZeroFault` when it runs, as `Rat.create` does, so `1 // 0` fails at run time. Nothing else about `//` can fail, and it takes no mark (Effects §3): `Rat.create` is pure, and its fault is no colour.
+- **Evaluation.** The top is evaluated, then the bottom, each once, and the fraction is built as `Rat.create` builds it. A zero bottom throws `DivideByZeroFault` when it runs, as `Rat.create` does. A bottom written as a literal zero is refused when the program is compiled (Division & Remainder §12): `1 // 0` does not compile, and `1 // zero` faults when it runs. Nothing else about `//` can fail, and it takes no mark (Effects §3): `Rat.create` is pure, and its fault is no colour.
 - **One `Rat`, by identity.** `//` builds and takes apart the prelude's `Rat`, named by identity and never by spelling (Intrinsics §7): a module that declares its own `Rat` hides the name (Modules §5.4), and `1 // 3` there is still the prelude's fraction. `//` is written only where that `Rat` is seated: not in a prelude module seated before it (Modules §5.5), and not in `Rat.hex`, which builds with its own `create` and reads its own fields, as no machinery needs `Seq` while checking `Seq.hex` (Intrinsics §7).
 - **Emission.** A fraction emits the build call a person would write, `Rat.create(1n, 3n)`, reaching the `Rat` module as any prelude companion's call does (Modules §11); a `//` pattern reads the top and bottom as `Rat.top` and `Rat.bottom` return them.
 
@@ -554,7 +556,9 @@ The floored convention recorded as decided in Primitive Types §2 is **downgrade
 | `1 // 2 // 3` | "`//` does not chain; a fraction has one top and one bottom — to divide one, write `(1 // 2) / 3`" (§6.4) |
 | A `//` side that is a `Rat`, `Dec`, or `Float` (a decimal literal among them) | "a fraction's top and bottom are integers, and `r` is a `Rat` — to divide, write `r / 2`"; at a `Dec` side the division is written at `Rat`, `Rat.fromDec(d) / 2` (§6.4) |
 | `//` with nothing to its left; a syntax error after a `//` on its line | the parser's two comment refusals, Comments §3.1: "a fraction needs a top; for a comment, write `--`", and the note "for a comment, write `--`" added to the syntax error |
-| `1 // 0` | runtime `DivideByZeroFault`, "Rat.create: bottom is zero" (§6.4) |
+| `1 // 0`: a bottom written as a literal zero | "a fraction's bottom is never zero, so `1 // 0` has no value; write the bottom that was meant", with the note "a fraction's bottom written as a literal is checked when the program is compiled" (§6.4; Division & Remainder §12.5) |
+| `r / 0` at `Rat`, in any spelling: a divisor written as a literal zero | "division by zero: `r / 0` has no value; write the divisor that was meant", with the note "a divisor written as a literal is checked when the program is compiled" (§6.1; Division & Remainder §12.5) |
+| A zero bottom or `Rat` divisor not written as a literal | runtime `DivideByZeroFault`, "Rat.create: bottom is zero" or "Rat.divide: divisor is zero" (§6.1, §6.4) |
 | `1..2..3` | "`..` does not chain; a range has exactly two endpoints" |
 | Eats-right form in non-final operand position | parse error + "parenthesize the `if` / lambda / `match`" |
 | `if` without `then` | parse error + "`if` requires `then`; write `if condition then` before the indented true branch" |
@@ -594,6 +598,7 @@ The floored convention recorded as decided in Primitive Types §2 is **downgrade
 | *(#808)* At a primitive representation every spelling of an operator-backed member emits the operator's lowering verbatim; `**` at the guarded instances and `compare` keep the call | §1.1, §5.1; Constraints §6.1 |
 | *(#1542)* `//` writes a fraction: a structural form that builds and takes apart the prelude's `Rat`, by identity, through `Rat.create`, `top` and `bottom`; level 5, between unary minus and `*` `/` (Julia's level, ruled over Lean's); non-associative and non-chaining; both sides integers at `BigInt` seats, a `Rat`, `Dec` or `Float` side refused with `/` named; a zero bottom faults at run time; the table is 18 levels | §3, §6.4, §13 |
 | Bitwise words `band`/`bor`/`bxor` (contextual) and `bnot` (hard) elaborate to `Bitwise`; Lean levels — `bnot` 2 above `**`, `band` 8 > `bxor` 9 > `bor` 10 between additive and `..`; the table is 18 levels; `Bitwise` is a tower rung, so `Nat`/`Int`/`BigInt` operands meet at the wider home and a written face lifts (`bitwise.md` §5.1) | §1.1, §3; `bitwise.md` |
+| *(#1545)* A bottom of `//`, or a divisor of `/` at `Rat`, written as a literal zero is refused when the program is compiled, as at every exact division (Division & Remainder §12); a zero the text does not write faults at run time | §6.1, §6.4, §15 |
 
 ---
 
@@ -678,5 +683,8 @@ let third = 1 // 3             -- Rat → emits Rat.create(1n, 3n)
 1 // 2 // 3                    -- ERROR: `//` does not chain
 r // 2                         -- ERROR at r : Rat: to divide, write `r / 2`
 1.5 // 2                       -- ERROR: a fraction's top and bottom are integers — write `1.5 / 2`
-1 // 0                         -- DivideByZeroFault when it runs
+1 // 0                         -- ERROR: a fraction's bottom is never zero, so `1 // 0` has no value
+1 // zero                      -- DivideByZeroFault when it runs, after `let zero = 0`
+let q: Rat = 1 / 0             -- ERROR: division by zero: `1 / 0` has no value
+let x: Float = 1 / 0           -- Infinity: `Float` is not checked
 ```

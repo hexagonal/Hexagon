@@ -2,7 +2,9 @@
 
 **Status:** Decided (July 2026). Amended 2026-11-14 (#1542): a fraction is written and
 taken apart with `//` (§3); `Rat` is a prelude module and a `Dec` enters it through
-`FromDec` (§5, §10); `Rat` rounds to an integer five ways (§11).
+`FromDec` (§5, §10); `Rat` rounds to an integer five ways (§11). Amended 2026-11-14 (#1545):
+a bottom or divisor written as a literal zero is refused when the program is compiled
+(§3, §4, §8, §9; Division & Remainder §12).
 **Scope:** The v1 exact rational type, its representation invariant, construction and
 the `//` form, arithmetic, ordering, display, hashing, conversions with `Dec`, rounding
 to an integer, JavaScript representation, and acceptance tests.
@@ -60,7 +62,10 @@ Rat.top(value: Rat): BigInt
 Rat.bottom(value: Rat): BigInt
 ```
 
-`create` throws `DivideByZeroFault` when the bottom is zero. Otherwise it:
+`create` throws `DivideByZeroFault` when the bottom is zero, and a call of `create`
+whose bottom is written as a literal zero is refused when the program is compiled
+(Division & Remainder §12).
+Otherwise it:
 
 1. computes `g = top.gcd(bottom)` — `Integral<BigInt>`'s member, spelled as the dot call (Method Syntax §7; the qualified `BigInt.gcd` remains equally legal, #344) — with the Euclidean
    algorithm and its non-negative Euclidean remainder step;
@@ -85,6 +90,8 @@ let n // d = 4 // -5                -- n = -4n, d = 5n
 
 As a value, `top // bottom` is `create(top, bottom)`: both sides are integers, and a
 zero bottom throws `DivideByZeroFault` with `Rat.create: bottom is zero` when it runs.
+A bottom written as a literal zero never runs: `1 // 0` is refused when the program is
+compiled, and `1 // zero` faults when it runs (Division & Remainder §12).
 As a pattern it matches every `Rat` and binds its canonical top and bottom, so it is
 a view of the canonical pair, not of construction history. `//` is a language form,
 like `..`, and not a declared pattern: `Rat` exports no pattern, nothing is imported
@@ -106,8 +113,11 @@ The v1 companion supplies `add`, `subtract`, `multiply`, `divide`, `negate`, and
 common factors before multiplication as a transparent optimization.
 
 Division checks its right operand explicitly and throws `DivideByZeroFault` with
-the provenance-tagged message `Rat.divide: divisor is zero`. `reciprocal(0)`
-throws the same exception through the smart construction boundary. Addition and
+the provenance-tagged message `Rat.divide: divisor is zero`. A divisor written as a
+literal zero, at `/` or at `divide` in any spelling, is refused when the program is
+compiled (Division & Remainder §12). `reciprocal(0)` throws the same exception
+through the smart construction boundary; neither `reciprocal` nor `pow` is checked
+when the program is compiled, since their zero is an operand, not a divisor. Addition and
 multiplication never round. `Num<Rat>` owns those operations and defines
 `fromNat(n)` as `n / 1`; `Signed<Rat>` adds subtraction, negation, and
 `fromInt(n)` as `n / 1`. `FromBigInt<Rat>` supplies `fromBigInt(n)` as
@@ -222,9 +232,18 @@ not merely round-trips.
 
 ## 8. Diagnostics
 
-- A zero bottom reports `DivideByZeroFault` and rewrites toward a nonzero
-  bottom or explicit validation before `Rat.create`.
-- Division by a zero `Rat` reports `DivideByZeroFault` at `Rat.divide` with
+- A bottom written as a literal zero, at `//` or at `Rat.create` in any spelling, is
+  refused when the program is compiled (Division & Remainder §12.5): "a fraction's
+  bottom is never zero, so `1 // 0` has no value; write the bottom that was meant",
+  with the note "a fraction's bottom written as a literal is checked when the program
+  is compiled".
+- Any other zero bottom reports `DivideByZeroFault` when it runs and rewrites toward a
+  nonzero bottom or explicit validation before `Rat.create`.
+- A divisor written as a literal zero, at `/` or at `Rat.divide` in any spelling, is
+  refused when the program is compiled (Division & Remainder §12.5): "division by zero: `r / 0` has no value; write
+  the divisor that was meant", with the note "a divisor written as a literal is checked
+  when the program is compiled".
+- Division by any other zero `Rat` reports `DivideByZeroFault` at `Rat.divide` with
   `Rat.divide: divisor is zero`.
 - Attempts to access fields outside Rat's home module receive the standard opaque
   record diagnostic and point to `Rat.top` / `Rat.bottom`. A constructor or record
@@ -261,7 +280,8 @@ Rat.create(1, 2) + Rat.create(1, 3)
 Rat.create(1, 2) / Rat.create(1, 3)
     == Rat.create(3, 2)                         -- true
 show(Rat.create(10, 12))                      -- "5/6"
-Rat.create(1, 0)                              -- DivideByZeroFault
+Rat.create(1, 0)                              -- ERROR: a fraction's bottom is never zero
+Rat.create(1, zero)                           -- DivideByZeroFault, after let zero = 0
 Rat.pow(Rat.create(2, 1), 10)
     == Rat.create(1024, 1)                        -- true
 Rat.pow(Rat.create(2, 3), -2)
@@ -276,7 +296,10 @@ Rat.toFloat(Rat.create(1, 2 ** 1100))         -- FloatRangeFault (nonzero would 
 1 // 3 == Rat.create(1, 3)                    -- true
 6 // -4                                       -- -3/2
 -1 // 3 == -(1 // 3)                          -- true: the sign belongs to the top
-1 // 0                                        -- DivideByZeroFault: Rat.create: bottom is zero
+1 // 0                                        -- ERROR: a fraction's bottom is never zero
+1 // zero                                     -- DivideByZeroFault: Rat.create: bottom is zero
+Rat.create(1, 2) / 0                          -- ERROR: division by zero
+Rat.reciprocal(0)                             -- DivideByZeroFault: not checked when compiled
 let half: Rat = 1.50d - 1                     -- 1/2: the Dec enters the Rat home
 (5 // 2).round()                              -- 3n
 (-5 // 2).round()                             -- -3n
