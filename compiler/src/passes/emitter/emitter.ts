@@ -6907,40 +6907,81 @@ class JavaScriptEmitter {
           return `(${node}).slice()`;
       }
     }
-    const member = this.#memberCall(expression, depth, evidenceNames);
+    // A grouped callee, `(show)(n)`, reaches here as a call with no evidence of
+    // its own around a reference that carries the callee's: the checker keeps a
+    // grouped callee a value (Functions §10's "a called member"; Exceptions'
+    // `(throw)(…)` "applies the named value"), and elaboration erases the
+    // group. Applying that value is
+    // the call the bare spelling makes, so the evidence is moved onto the call
+    // and every arm below reads it as `show(n)` — the same seat, edition or
+    // trailing dictionary, rather than an eta-expanded wrapper applied in place
+    // (#1272). Only below the arms above: an intrinsic is never constrained,
+    // and a released or ignored call is decided on the call as written.
+    const call = this.#hoistedCalleeEvidence(expression);
+    const member = this.#memberCall(call, depth, evidenceNames);
     if (member !== undefined) return member;
-    const receiver = this.#receiverCall(expression, depth, evidenceNames);
+    const receiver = this.#receiverCall(call, depth, evidenceNames);
     if (receiver !== undefined) {
       // Value position (Statements §3.3): a `Unit` row's value is `Unit`'s own
       // representation, never whatever the JavaScript call or assignment
       // expression yields — Part 6 §3.2's discard, which the wrapper's `{ … }`
       // body performs and `void` performs here.
       if (!receiver.statement) return receiver.text;
-      return symbolConvention(this.#symbols.get((expression.callee as Core.NameExpr).symbol)) === "set"
+      return symbolConvention(this.#symbols.get((call.callee as Core.NameExpr).symbol)) === "set"
         ? `void (${receiver.text})`
         : `void ${receiver.text}`;
     }
-    const specialized = this.#specializedCallee(expression);
+    const specialized = this.#specializedCallee(call);
     const emittedCallee = specialized ??
-      this.#emitExpr(expression.callee, depth, evidenceNames);
+      this.#emitExpr(call.callee, depth, evidenceNames);
+    // A `Name` that still carries evidence emits as an arrow function
+    // (`#emitConstrainedValue`), which is no primary: applied bare, the
+    // arguments would land in the arrow's body. The hoist above leaves none
+    // such; the brackets keep the shape right if one ever arrives.
     const callee =
-      expression.callee.kind === "Name" ||
-        expression.callee.kind === "Call"
+      specialized !== undefined ||
+        (call.callee.kind === "Name" && (call.callee.evidence?.length ?? 0) === 0) ||
+        call.callee.kind === "Call"
         ? emittedCallee
         : `(${emittedCallee})`;
     // The written arguments are rendered left to right whichever edition was
     // chosen, and evidence only ever follows them, so §8.1.4's same-evaluation-
     // order obligation is a property of the shape rather than something the
     // choice has to preserve.
-    const arguments_ = expression.arguments.map((argument) =>
+    const arguments_ = call.arguments.map((argument) =>
       this.#emitExpr(argument, depth, evidenceNames),
     );
     if (specialized === undefined) {
       arguments_.push(
-        ...this.#evidenceArguments(expression.evidence, expression.span, evidenceNames),
+        ...this.#evidenceArguments(call.evidence, call.span, evidenceNames),
       );
     }
     return `${callee}(${arguments_.join(", ")})`;
+  }
+
+  /**
+   * The call as the bare spelling would have elaborated it, where its callee is
+   * a grouped constrained function: the reference's evidence moved onto the
+   * call, the reference left bare (#1272). Any other call is returned as is.
+   *
+   * The three conditions are what make the two shapes one. The call must carry
+   * no evidence of its own, or the two lists would have to be merged and nothing
+   * says in what order; the reference must carry some, or there is nothing to
+   * move; and it must be a function, since a constrained non-function is not a
+   * thing the checker lets reach a value position.
+   */
+  #hoistedCalleeEvidence(expression: Core.CallExpr): Core.CallExpr {
+    const callee = expression.callee;
+    if (
+      callee.kind !== "Name" ||
+      (callee.evidence?.length ?? 0) === 0 ||
+      callee.type.kind !== "Function" ||
+      expression.evidence.length > 0
+    ) {
+      return expression;
+    }
+    const { evidence, ...bare } = callee;
+    return { ...expression, callee: bare, evidence: evidence! };
   }
 
   /**
@@ -7825,7 +7866,10 @@ class JavaScriptEmitter {
         // A field's function is called on its record, so the record is what is
         // evaluated outside, and the call inside keeps it as its receiver.
         if (expression.callee.kind === "FieldAccess") hoist(expression.callee.receiver);
-        else hoist(expression.callee);
+        // A grouped constrained callee is read as the bare call
+        // (`#hoistedCalleeEvidence`): its reference is a name, evaluated
+        // nowhere, so there is nothing to hand in (#1272).
+        else if (this.#hoistedCalleeEvidence(expression) === expression) hoist(expression.callee);
         for (const argument of expression.arguments) hoist(argument);
       }
       const error = this.#generatedNames.fresh("error");
