@@ -102,6 +102,7 @@ class Writer {
   readonly #multiLine = new Set<number>();
   readonly #openPairs = new Set<number>();
   #lastTokens: Map<number, number> | undefined;
+  #lineEnds: Map<number, number> | undefined;
   #nextIndents: Map<number, number> | undefined;
   /** In a union declaration at top level, the line of its latest `|` alternative. */
   #alternativeLine = -1;
@@ -253,8 +254,8 @@ class Writer {
           this.#multiLine.add(topItem);
         }
         if (frames.length === 1 && topItem !== -1 && this.#isUnion(this.#items[topItem]!.first)) {
-          if (token.kind === "Bar") this.#alternativeLine = token.span.start.line;
           const first = this.#tokens[previous];
+          if (token.kind === "Bar" || first?.kind === "Equal") this.#alternativeLine = token.span.start.line;
           if (token.kind === "Bar" || first?.kind === "Equal") {
             unionLines += 1;
             if (unionLines >= 2) this.#multiLine.add(topItem);
@@ -547,7 +548,14 @@ class Writer {
       visualWidth(this.#text.slice(line.start, lastComment.end), 0);
     let start = target - commentsWidth - gap;
     let lastGap = gap;
-    if (start < 0) {
+    // A tab a comment holds is kept, and keeps its width only where the
+    // comments stay at their column; the gap before the code takes the rest.
+    const tabbed = here.slice(0, codeAt).some((element) => this.#text.slice(element.start, element.end).includes("\t"));
+    if (tabbed) {
+      start = from;
+      lastGap = target - from - commentsWidth;
+      if (lastGap < 1) start = -1;
+    } else if (start < 0) {
       lastGap = Math.max(1, gap + start);
       start = target - commentsWidth - lastGap;
     }
@@ -716,12 +724,14 @@ class Writer {
 
   /** The line on which the last element that begins on a line ends. */
   #endOfLine(lineNumber: number): number {
-    let end = lineNumber;
-    for (const element of this.#elements) {
-      if (element.startLine > lineNumber) break;
-      if (element.startLine === lineNumber) end = Math.max(end, element.endLine);
+    if (this.#lineEnds === undefined) {
+      const ends = new Map<number, number>();
+      for (const element of this.#elements) {
+        ends.set(element.startLine, Math.max(ends.get(element.startLine) ?? 0, element.endLine));
+      }
+      this.#lineEnds = ends;
     }
-    return end;
+    return Math.max(lineNumber, this.#lineEnds.get(lineNumber) ?? lineNumber);
   }
 }
 

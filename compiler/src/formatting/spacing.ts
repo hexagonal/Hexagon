@@ -143,15 +143,17 @@ function opensBinder(tokens: readonly Lexed.Token[], index: number, followsOpera
 }
 
 /**
- * Whether a `>` that would close a binder list is written against an operand
- * after it, as the `>` of `c>d` is: a list's `>` is followed by a space, `(`,
- * `=`, or a closer, never directly by a name or a literal.
+ * Whether a `>` that would close a binder list after an operand is followed by
+ * an operand, as the `>` of `c>d` or `c> d` is: such a list's `>` is followed
+ * by `(`, `=` or a closer, never by a name, a literal or a sign.
  */
 function closesAgainstOperand(tokens: readonly Lexed.Token[], close: number): boolean {
   const next = tokens[close + 1];
-  if (next === undefined || next.span.start.offset !== tokens[close]!.span.end.offset) return false;
-  return ["NonUpperName", "UpperName", "Integer", "BigInt", "Dec", "Float", "String", "Wildcard"]
-    .includes(next.kind);
+  if (next === undefined) return false;
+  if (["NonUpperName", "UpperName", "Integer", "BigInt", "Dec", "Float", "String", "Wildcard"].includes(next.kind)) {
+    return true;
+  }
+  return next.kind === "Minus" && next.span.start.offset === tokens[close]!.span.end.offset;
 }
 
 /** The `>` that closes a binder list opened at `open`, if the tokens allow one. */

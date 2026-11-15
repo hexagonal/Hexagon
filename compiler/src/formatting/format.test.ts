@@ -179,6 +179,22 @@ describe("Indentation (§5)", () => {
     ));
   });
 
+  it("measures a first alternative written without `|` from its own line", () => {
+    expect(format(lines(
+      "module Example",
+      "union Shape =",
+      "    Circle(radius: Float,",
+      "        centre: Float)",
+      "    | Square(side: Float)",
+    ))).toBe(lines(
+      "module Example",
+      "union Shape =",
+      "    Circle(radius: Float,",
+      "            centre: Float)",
+      "    | Square(side: Float)",
+    ));
+  });
+
   it("places union alternatives one level in", () => {
     expect(format(lines(
       "module Example",
@@ -352,6 +368,7 @@ describe("Spacing within a line (§7)", () => {
 
   it("reads tight comparisons as comparisons, not a binder list", () => {
     expect(format("module A\nlet x = f(a<b, c>d)\n")).toBe("module A\nlet x = f(a < b, c > d)\n");
+    expect(format("module A\nlet x = f(a<b, c> d)\n")).toBe("module A\nlet x = f(a < b, c > d)\n");
   });
 
   it("keeps the gaps that carry meaning (§7.2)", () => {
@@ -452,6 +469,12 @@ describe("Comments (§8)", () => {
       "    match x",
       "{-a\tb-} _ => x",
     ));
+  });
+
+  it("keeps a tabbed comment at its column, so a second run agrees", () => {
+    const once = format(lines("module A", "let f(x: Int): Int =", "    match x", " {-\t-} _ => x"));
+    expect(once).toBe(lines("module A", "let f(x: Int): Int =", "    match x", " {-\t-}  _ => x"));
+    expect(format(once)).toBe(once);
   });
 
   it("adds §6.2's blank line after a trailing comment that spans lines, not inside it", () => {
