@@ -550,8 +550,10 @@ class Writer {
     const commentsWidth = visualWidth(this.#text.slice(line.start, lastComment.end), 0) - from;
     const gap = visualWidth(this.#text.slice(line.start, code.start), 0) -
       visualWidth(this.#text.slice(line.start, lastComment.end), 0);
-    let start = target - commentsWidth - gap;
-    let lastGap = gap;
+    // The gap between the comment and its code is an ordinary gap: as
+    // written, or one space under Collapse extra spaces, and never less.
+    let lastGap = this.#options.collapseExtraSpaces ? 1 : Math.max(1, gap);
+    let start = target - commentsWidth - lastGap;
     // A tab a comment holds is kept, and keeps its width only where the
     // comments stay at their column; the gap before the code takes the rest.
     const tabbed = here.slice(0, codeAt).some((element) => this.#text.slice(element.start, element.end).includes("\t"));
@@ -560,7 +562,7 @@ class Writer {
       lastGap = target - from - commentsWidth;
       if (lastGap < 1) start = -1;
     } else if (start < 0) {
-      lastGap = Math.max(1, gap + start);
+      lastGap = Math.max(1, lastGap + start);
       start = target - commentsWidth - lastGap;
     }
     if (start < 0) {

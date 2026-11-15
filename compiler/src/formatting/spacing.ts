@@ -24,6 +24,13 @@ export interface Roles {
   readonly binderClose: ReadonlySet<number>;
   /** `band`, `bor` and `bxor` written as operators (Lexer §4.2). */
   readonly bitwiseOperator: ReadonlySet<number>;
+  /**
+   * `derives` in its keyword seat, after a declaration head's name or
+   * parameters (Lexer §4.2). Hexagon has no juxtaposition, so a `derives`
+   * that follows a complete operand is the keyword, never a call, and it is
+   * spaced like one: `derives (Eq, Show)`.
+   */
+  readonly derives: ReadonlySet<number>;
 }
 
 const operandEnds = new Set<Lexed.Token["kind"]>([
@@ -102,6 +109,7 @@ export function roles(tokens: readonly Lexed.Token[], beginsItem: ReadonlySet<nu
   const binderOpen = new Set<number>();
   const binderClose = new Set<number>();
   const bitwiseOperator = new Set<number>();
+  const derives = new Set<number>();
 
   const followsOperand = (index: number): boolean => {
     if (index === 0 || beginsItem.has(index)) return false;
@@ -116,6 +124,8 @@ export function roles(tokens: readonly Lexed.Token[], beginsItem: ReadonlySet<nu
       prefix.add(index);
     } else if (token.kind === "Minus" || token.kind === "Plus") {
       if (!followsOperand(index) || bitwiseOperator.has(index - 1)) prefix.add(index);
+    } else if (token.kind === "NonUpperName" && token.text === "derives" && followsOperand(index)) {
+      derives.add(index);
     } else if (token.kind === "NonUpperName" && bitwiseWords.has(token.text)) {
       const previous = tokens[index - 1];
       const againstParen = previous?.kind === "RightParen" &&
@@ -131,7 +141,7 @@ export function roles(tokens: readonly Lexed.Token[], beginsItem: ReadonlySet<nu
       }
     }
   }
-  return { prefix, binderOpen, binderClose, bitwiseOperator };
+  return { prefix, binderOpen, binderClose, bitwiseOperator, derives };
 }
 
 function opensBinder(tokens: readonly Lexed.Token[], index: number, followsOperand: boolean): boolean {
@@ -233,6 +243,7 @@ export function rule(tokens: readonly Lexed.Token[], roles: Roles, index: number
   if (right.kind === "RightParen" || right.kind === "RightBracket" || roles.binderClose.has(index + 1)) {
     return "none";
   }
+  if (roles.derives.has(index) || roles.derives.has(index + 1)) return "one";
   const opensAfter = right.kind === "LeftParen" || right.kind === "LeftBracket" ||
     roles.binderOpen.has(index + 1);
   if (opensAfter) {

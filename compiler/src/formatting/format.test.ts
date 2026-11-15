@@ -381,6 +381,11 @@ describe("Spacing within a line (§7)", () => {
     expect(format("module A\nlet x = f(a<b, c> d)\n")).toBe("module A\nlet x = f(a < b, c > d)\n");
   });
 
+  it("spaces `derives` as the keyword it is, never as a call", () => {
+    expect(format("module A\nunion Ping derives(Eq, Show) = | Ping\n")).toBe("module A\nunion Ping derives (Eq, Show) = | Ping\n");
+    expect(format("module A\nlet x = derives(1)\n")).toBe("module A\nlet x = derives(1)\n");
+  });
+
   it("keeps the gaps that carry meaning (§7.2)", () => {
     const text = lines(
       "module A",
@@ -499,6 +504,20 @@ describe("Comments (§8)", () => {
       "   more -}",
       "",
       "let x = 1",
+    ));
+  });
+
+  it("collapses the gap between a leading comment and its code under Collapse extra spaces", () => {
+    expect(format(lines(
+      "module A",
+      "let f(x: Int): Int =",
+      "    match x",
+      "{- n -}   _ => x",
+    ), { collapseExtraSpaces: true })).toBe(lines(
+      "module A",
+      "let f(x: Int): Int =",
+      "    match x",
+      "{- n -} _ => x",
     ));
   });
 
