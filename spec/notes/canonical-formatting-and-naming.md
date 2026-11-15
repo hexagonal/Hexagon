@@ -106,7 +106,7 @@ declarations through this list before considering the segment done.
   bare binder — `f(x, y)`, not `f(x: _, y)`; `let n = ...`, not
   `let n: _ = ...`. Format document changes whitespace only and leaves a
   written `x: _` as it stands, since its author may be on the way to
-  `x: _: Num` (Canonical Layout §10). Holes *inside* a written type —
+  `x: _: Num` (Canonical Layout §13). Holes *inside* a written type —
   `xs: Vector(_)` — are ordinary canonical Hexagon and stay written. A
   **constrained** hole is never inert and is never dropped: `x: _: Show`
   carries a claim and stays written. The ascription's degenerate spelling
@@ -164,7 +164,7 @@ declarations through this list before considering the segment done.
 ## 5. House settings
 
 This section is the house style's own record, not a restatement. The
-formatter leaves these choices to the author (Canonical Layout §10), and
+formatter leaves these choices to the author (Canonical Layout §13), and
 the standard library and the Book make them this way.
 
 - **H1** The standard library and the Book are formatted at Maximum line
