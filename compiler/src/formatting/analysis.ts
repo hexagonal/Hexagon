@@ -118,7 +118,15 @@ function tokenKey(token: Lexed.Token): string {
 
 function commentKey(comment: Source.Comment): string {
   const lines = comment.text.split(/\r\n|\r|\n/u);
-  const rest = lines.slice(1).map((line) => line.replace(/^[ \t]+/u, ""));
+  // The later lines move together: each keeps its indentation relative to the
+  // least indented of them, and a line of only whitespace is blank.
+  const later = lines.slice(1).map((line) => {
+    const leading = /^[ \t]*/u.exec(line)![0];
+    return { leading, rest: line.slice(leading.length) };
+  });
+  const written = later.filter(({ rest }) => rest !== "");
+  const common = written.length === 0 ? 0 : Math.min(...written.map(({ leading }) => leading.length));
+  const rest = later.map(({ leading, rest: text }) => text === "" ? "" : leading.slice(common) + text);
   return JSON.stringify([comment.kind, comment.documentation, lines[0], ...rest]);
 }
 

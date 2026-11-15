@@ -189,20 +189,30 @@ function regionOf(
     return lineStart(formatted, map.get(groups[group]!.leadOffset)!);
   };
 
-  const first = containing(selection.start);
+  // The blank lines at the end of a group, after its last code or comment.
+  const tailOf = (group: number): number => {
+    const end = endOf(group);
+    let line = lineStarts.findIndex((offset) => offset >= end);
+    if (line === -1) line = lineStarts.length;
+    let tail = line;
+    while (tail - 1 > groups[group]!.lead && isBlank(text, lineStarts, tail - 1)) tail -= 1;
+    return tail < lineStarts.length ? lineStarts[tail]! : end;
+  };
+
+  let first = containing(selection.start);
   const lastTouched = containing(Math.max(selection.start, selection.end - 1));
-  // A selection that touches only the blank lines after an item covers them.
-  const group = groups[first]!;
-  if (first === lastTouched && Number.isFinite(group.lastLine) && group.lastLine + 1 < lineStarts.length) {
-    const tail = lineStarts[group.lastLine + 1]!;
-    if (selection.start >= tail && tail < endOf(first)) {
+  const tail = tailOf(first);
+  if (selection.start >= tail && tail < endOf(first)) {
+    if (lastTouched === first) {
+      // A selection that touches only the blank lines after an item covers them.
       let character = tail - 1;
       while (character > 0 && isWhitespace(text.charCodeAt(character))) character -= 1;
-      const after = map.get(character)!;
-      let from = after;
+      let from = map.get(character)!;
       while (from < formatted.length && !isLineEnd(formatted.charCodeAt(from))) from += 1;
       return { start: tail, end: endOf(first), from: Math.min(from + 1, formatted.length), to: formattedStart(first + 1) };
     }
+    // It begins in those blank lines and touches no line of the item before them.
+    first += 1;
   }
   return {
     start: startOf(first),
@@ -210,6 +220,12 @@ function regionOf(
     from: formattedStart(first),
     to: formattedStart(lastTouched + 1),
   };
+}
+
+function isBlank(text: string, lineStarts: readonly number[], line: number): boolean {
+  const start = lineStarts[line]!;
+  const end = line + 1 < lineStarts.length ? lineStarts[line + 1]! : text.length;
+  return text.slice(start, end).trim() === "";
 }
 
 function isLineEnd(code: number): boolean {

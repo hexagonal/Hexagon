@@ -101,6 +101,10 @@ class Writer {
   readonly #itemKinds: ItemKind[] = [];
   readonly #multiLine = new Set<number>();
   readonly #openPairs = new Set<number>();
+  #lastTokens: Map<number, number> | undefined;
+  #nextIndents: Map<number, number> | undefined;
+  /** In a union declaration at top level, the line of its latest `|` alternative. */
+  #alternativeLine = -1;
 
   constructor(reading: Scan, options: Options) {
     this.#reading = reading;
@@ -249,6 +253,7 @@ class Writer {
           this.#multiLine.add(topItem);
         }
         if (frames.length === 1 && topItem !== -1 && this.#isUnion(this.#items[topItem]!.first)) {
+          if (token.kind === "Bar") this.#alternativeLine = token.span.start.line;
           const first = this.#tokens[previous];
           if (token.kind === "Bar" || first?.kind === "Equal") {
             unionLines += 1;
@@ -262,6 +267,7 @@ class Writer {
         this.#itemKinds.push(this.#itemKind(position));
         topItem = this.#items.length - 1;
         unionLines = 0;
+        this.#alternativeLine = -1;
       }
       if (frame.newItem) {
         frame.itemStart = position;
@@ -299,8 +305,15 @@ class Writer {
     const token = this.#tokens[position]!;
     const frame = frames.at(-1)!;
     const before = this.#tokens[previous];
-    const itemLine = (target: Frame): number =>
-      target.itemStart === -1 ? this.#lineOf(position) : this.#lineOf(target.itemStart);
+    // A union's alternatives are items of their own (§5.1): a line carried on
+    // within one is measured from the alternative's line.
+    const itemLine = (target: Frame): number => {
+      if (target.itemStart === -1) return this.#lineOf(position);
+      if (target === frames[0] && this.#alternativeLine > this.#lineOf(target.itemStart)) {
+        return this.#alternativeLine;
+      }
+      return this.#lineOf(target.itemStart);
+    };
     const parent = frames.at(-2);
 
     if (frames.length === 1 && frame.newItem) return 0;
@@ -316,7 +329,7 @@ class Writer {
     }
     if (before?.kind === "Equal") return this.#lineIndent(itemLine(frame)) + LEVEL;
     if (token.kind === "Bar" && frame.itemStart !== -1 && this.#isUnion(frame.itemStart)) {
-      return this.#lineIndent(itemLine(frame)) + LEVEL;
+      return this.#lineIndent(this.#lineOf(frame.itemStart)) + LEVEL;
     }
     // The item a line continues holds both its first token and the one
     // before it; a comma between brackets belongs to the item around them.
@@ -547,18 +560,32 @@ class Writer {
     }
     let text = " ".repeat(start);
     const base = line.start;
-    text += expandTabs(lineText.slice(first.start - base, lastComment.end - base), from);
+    // The comments as written, and the gaps between them with tabs expanded.
+    for (let index = 0; index < codeAt; index += 1) {
+      const element = here[index]!;
+      if (index > 0) {
+        const before = here[index - 1]!;
+        text += expandTabs(lineText.slice(before.end - base, element.start - base),
+          visualWidth(lineText.slice(0, before.end - base), 0));
+      }
+      text += lineText.slice(element.start - base, element.end - base);
+    }
     text += " ".repeat(lastGap);
     text += this.#text.slice(code.start, Math.min(code.end, line.end));
     return { kind: "Placed", text, count: codeAt + 1, firstColumn: start };
   }
 
   #nextCodeIndent(lineNumber: number): number {
-    for (let line = lineNumber + 1; line < this.#lines.length; line += 1) {
-      const indent = this.#indent.get(line);
-      if (indent !== undefined) return indent;
+    if (this.#nextIndents === undefined) {
+      const next = new Map<number, number>();
+      let following = 0;
+      for (let line = this.#lines.length - 1; line >= 0; line -= 1) {
+        next.set(line, following);
+        following = this.#indent.get(line) ?? following;
+      }
+      this.#nextIndents = next;
     }
-    return 0;
+    return this.#nextIndents.get(lineNumber) ?? 0;
   }
 
   /**
@@ -648,7 +675,7 @@ class Writer {
     for (let item = 0; item + 1 < this.#items.length; item += 1) {
       const kind = this.#itemKinds[item]!;
       const next = this.#itemKinds[item + 1]!;
-      const lastLine = this.#tokens[this.#items[item]!.last]!.span.end.line;
+      const lastLine = this.#endOfLine(this.#tokens[this.#items[item]!.last]!.span.end.line);
       const nextLine = this.#tokens[this.#items[item + 1]!.first]!.span.start.line;
       if (lastLine === nextLine) continue;
       const follows = next === "declaration" || next === "statement";
@@ -677,12 +704,24 @@ class Writer {
   }
 
   #lastTokenOn(lineNumber: number): number | undefined {
-    let last: number | undefined;
+    if (this.#lastTokens === undefined) {
+      const last = new Map<number, number>();
+      for (const element of this.#elements) {
+        if (element.kind === "token") last.set(element.endLine, element.index);
+      }
+      this.#lastTokens = last;
+    }
+    return this.#lastTokens.get(lineNumber);
+  }
+
+  /** The line on which the last element that begins on a line ends. */
+  #endOfLine(lineNumber: number): number {
+    let end = lineNumber;
     for (const element of this.#elements) {
       if (element.startLine > lineNumber) break;
-      if (element.kind === "token" && element.endLine === lineNumber) last = element.index;
+      if (element.startLine === lineNumber) end = Math.max(end, element.endLine);
     }
-    return last;
+    return end;
   }
 }
 

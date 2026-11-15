@@ -163,6 +163,22 @@ describe("Indentation (§5)", () => {
     expect(format(text)).toBe(text);
   });
 
+  it("carries a line on within a union alternative from the alternative's line", () => {
+    expect(format(lines(
+      "module Example",
+      "union Shape =",
+      "    | Circle(radius: Float,",
+      "        centre: Float)",
+      "    | Square(side: Float)",
+    ))).toBe(lines(
+      "module Example",
+      "union Shape =",
+      "    | Circle(radius: Float,",
+      "            centre: Float)",
+      "    | Square(side: Float)",
+    ));
+  });
+
   it("places union alternatives one level in", () => {
     expect(format(lines(
       "module Example",
@@ -334,6 +350,10 @@ describe("Spacing within a line (§7)", () => {
     ));
   });
 
+  it("reads tight comparisons as comparisons, not a binder list", () => {
+    expect(format("module A\nlet x = f(a<b, c>d)\n")).toBe("module A\nlet x = f(a < b, c > d)\n");
+  });
+
   it("keeps the gaps that carry meaning (§7.2)", () => {
     const text = lines(
       "module A",
@@ -417,6 +437,35 @@ describe("Comments (§8)", () => {
       "let f(x: Int): Int =",
       "    match x",
       "{- n -} _ => x",
+    ));
+  });
+
+  it("never changes the inside of a comment that leads code, tabs included (§8.1)", () => {
+    expect(format(lines(
+      "module A",
+      "let f(x: Int): Int =",
+      "    match x",
+      "{-a\tb-} _ => x",
+    ))).toBe(lines(
+      "module A",
+      "let f(x: Int): Int =",
+      "    match x",
+      "{-a\tb-} _ => x",
+    ));
+  });
+
+  it("adds §6.2's blank line after a trailing comment that spans lines, not inside it", () => {
+    expect(format(lines(
+      "module A",
+      "import B {- note",
+      "   more -}",
+      "let x = 1",
+    ))).toBe(lines(
+      "module A",
+      "import B {- note",
+      "   more -}",
+      "",
+      "let x = 1",
     ));
   });
 
@@ -563,6 +612,15 @@ describe("Format selection (§2.2)", () => {
     });
   });
 
+  it("starts after an item's blank lines when the selection starts in them and runs on", () => {
+    const start = text.indexOf("\n\n") + 2;
+    const result = formatSelection(text, { start, end: text.indexOf("c=3") + 1 });
+    expect(result).toMatchObject({
+      kind: "Formatted",
+      text: lines("module A", "let a=1", "-- b's note", "let b=2", "", "", "", "let c = 3"),
+    });
+  });
+
   it("agrees with Format document over the whole document", () => {
     const whole = formatSelection(text, { start: 0, end: text.length });
     expect(whole).toMatchObject({ kind: "Formatted", text: format(text) });
@@ -586,29 +644,40 @@ const settings: readonly FormatOptions[] = [
   { maximumLineLength: 72, collapseExtraSpaces: true },
 ];
 
+const formattedLibrary = new Map<string, string>();
+
+/** A standard-library file under one of the settings, formatted once. */
+function libraryFormat(name: string, setting: number): string {
+  const key = `${name}:${setting}`;
+  const known = formattedLibrary.get(key);
+  if (known !== undefined) return known;
+  const text = format(STDLIB_SOURCES[name]!, settings[setting]);
+  formattedLibrary.set(key, text);
+  return text;
+}
+
+const cases = library.flatMap(([name]) => settings.map((_, setting) => [name, setting] as const));
+
 describe("The standard library (§12)", () => {
-  it.each(library)("formats %s under every setting, and the settings never fight", (_, source) => {
-    const before = read(source);
-    const formatted = settings.map((options) => format(source, options));
-    formatted.forEach((text, index) => {
-      // The text and the program are the same (§1).
-      const after = read(text);
-      expect(sameText(before, after)).toBe(true);
-      expect(sameTree(before, after)).toBe(true);
-      // Formatting twice changes nothing (§1).
-      expect(format(text, settings[index])).toBe(text);
-    });
+  it.each(cases)("formats %s under setting %i, keeping its text and tree, and twice changes nothing", (name, setting) => {
+    const before = read(STDLIB_SOURCES[name]!);
+    const text = libraryFormat(name, setting);
+    const after = read(text);
+    expect(sameText(before, after)).toBe(true);
+    expect(sameTree(before, after)).toBe(true);
+    expect(format(text, settings[setting])).toBe(text);
+  });
 
-    // §6.3: the grouping is the same under every setting.
-    const groupings = formatted.map(blankLineSites);
+  it.each(library)("keeps %s's grouping under every setting (§6.3)", (name) => {
+    const groupings = settings.map((_, setting) => blankLineSites(libraryFormat(name, setting)));
     for (const grouping of groupings) expect(grouping).toEqual(groupings[0]);
+  });
 
-    // §3.3: once formatted under A and then B, formatting under either changes nothing.
-    for (const [first, second] of [[0, 4], [1, 2], [2, 4]] as const) {
-      const both = format(formatted[first]!, settings[second]);
-      expect(format(both, settings[first])).toBe(both);
-      expect(format(both, settings[second])).toBe(both);
-    }
+  const pairs = library.flatMap(([name]) => ([[0, 4], [1, 2], [2, 4]] as const).map(([a, b]) => [name, a, b] as const));
+  it.each(pairs)("settings never fight over %s: %i then %i (§3.3)", (name, first, second) => {
+    const both = format(libraryFormat(name, first), settings[second]);
+    expect(format(both, settings[first])).toBe(both);
+    expect(format(both, settings[second])).toBe(both);
   });
 });
 

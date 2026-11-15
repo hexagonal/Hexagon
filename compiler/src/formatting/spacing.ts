@@ -123,7 +123,10 @@ export function roles(tokens: readonly Lexed.Token[], beginsItem: ReadonlySet<nu
       if (followsOperand(index) && !againstParen) bitwiseOperator.add(index);
     } else if (token.kind === "Less" && !binderOpen.has(index)) {
       const close = binderEnd(tokens, index);
-      if (close !== undefined && opensBinder(tokens, index, followsOperand(index))) {
+      if (
+        close !== undefined && opensBinder(tokens, index, followsOperand(index)) &&
+        !(followsOperand(index) && closesAgainstOperand(tokens, close))
+      ) {
         markBinder(tokens, index, close, binderOpen, binderClose);
       }
     }
@@ -137,6 +140,18 @@ function opensBinder(tokens: readonly Lexed.Token[], index: number, followsOpera
   // After an operand, `<` opens a list only where it is written against a
   // name: `Show<Ping>`, `contains<a: Eq>`. Spaced, it compares.
   return isName(previous) && previous.span.end.offset === tokens[index]!.span.start.offset;
+}
+
+/**
+ * Whether a `>` that would close a binder list is written against an operand
+ * after it, as the `>` of `c>d` is: a list's `>` is followed by a space, `(`,
+ * `=`, or a closer, never directly by a name or a literal.
+ */
+function closesAgainstOperand(tokens: readonly Lexed.Token[], close: number): boolean {
+  const next = tokens[close + 1];
+  if (next === undefined || next.span.start.offset !== tokens[close]!.span.end.offset) return false;
+  return ["NonUpperName", "UpperName", "Integer", "BigInt", "Dec", "Float", "String", "Wildcard"]
+    .includes(next.kind);
 }
 
 /** The `>` that closes a binder list opened at `open`, if the tokens allow one. */
