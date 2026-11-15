@@ -916,7 +916,8 @@ late pedagogy pass, not a commitment to the current order.
   maximal constraint lists and omit entailed base constraints; private module-level
   function annotation remains a style convention.
 - Private nominal types cannot appear in public signatures; private aliases expand.
-- Instances are global once their module enters the import graph and are never
+- An instance is visible in the modules whose imports reach its module, directly or
+  through other modules; coherence is program-wide. Instances are never
   imported/exported as source names.
 - Imports are acyclic. Dependencies initialize depth-first before a module's top-level
   `Unit` effects; a host-selected root runs by ordinary ESM evaluation with no special
@@ -930,9 +931,11 @@ late pedagogy pass, not a commitment to the current order.
 - Establishes the three equivalent spellings, type-directed companion lookup,
   exported subject-first eligibility, bare-dot field access, explicit collision
   resolution, and the independently-known receiver rule.
-- Honoring binds no bare name: `show` is bare everywhere, every other constraint
-  member is a dot call, an operator, or `Constraint.member(…)`. A dot call's
-  candidates include the members of instances visible in the calling module.
+- Honoring binds no bare name: `show` is bare everywhere. Any other member is bare
+  only inside the module that declares its constraint; elsewhere it is a dot call,
+  an operator, or qualified by the declaring module's name (`Ord.compare(a, b)`,
+  `Lib.trim(s)`). A dot call's candidates include the members of instances visible
+  in the calling module.
 - Dot calls erase to ordinary function calls and add nothing method-shaped to `.d.ts`.
 - Constraints, Derivation, Modules, and Dot Calls have been reviewed as one sequence in
   `reviews/04-capabilities-and-calls.md`.

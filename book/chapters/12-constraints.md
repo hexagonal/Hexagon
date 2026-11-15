@@ -201,8 +201,10 @@ the value inside it, using the `Show<a>` instance required by the first part of 
 header. A bare `show(box.value)` would mean the same thing. Honoring a constraint
 gives the module no new bare names, so `show` here is still the one every module
 starts with, and it picks the instance for whatever value it is handed. `show` is the
-only member with that standing. Every other member is reached with a dot call, an
-operator, or its constraint's name, as in `Ord.compare(a, b)`.
+only member every module may write bare. Any other member is bare only inside the
+module that declares its constraint, as `area(shape)` was above. Elsewhere it is
+reached with a dot call, an operator, or the name of the module that declares the
+constraint, as in `Ord.compare(a, b)`.
 
 Put together, the declaration says: **if `a` can be displayed, then `Box(a)` can be
 displayed**. `Box(Int)` uses the existing `Show<Int>` instance; `Box(String)` uses
