@@ -105,6 +105,14 @@ export {
 export { type SignatureHelp, type SignatureParameter } from "./queries/signature-help.js";
 export { type InlayHint } from "./queries/inlay-hints.js";
 export {
+  formatDocument,
+  formatSelection,
+  type FormatOptions,
+  type FormatRange,
+  type FormatResult,
+  type TextEdit,
+} from "./formatting/format.js";
+export {
   emitJavaScript,
   emitDeclarations,
 } from "./passes/emitter/emitter.js";
