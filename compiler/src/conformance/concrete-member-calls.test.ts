@@ -193,7 +193,7 @@ describe("§6.1 — a ground instance's members hoist to member seats", () => {
       "record Coupon = {code: String}\n" +
         "honor Eq<Coupon> =\n" +
         "    equals(l, r) = l.code == r.code\n" +
-        'export let differs: Bool = notEquals(Coupon({code = "a"}), Coupon({code = "b"}))\n';
+        'export let differs: Bool = Coupon({code = "a"}).notEquals(Coupon({code = "b"}))\n';
     const text = emitted(source);
 
     expect(text).toContain(

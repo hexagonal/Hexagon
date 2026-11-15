@@ -15,11 +15,11 @@ import { compileFiles, projectDiagnostics } from "../support/test-project.js";
  * home remains the report says the pair is closed rather than inventing a fixit
  * the reader cannot perform.
  *
- * **The head is Constraints §8's, not §7.6's.** §7.6's exemplar opens "no
- * `Ord<Config>` instance is in the program"; the unsatisfied-constraint row of
- * Constraints §8 owns the head shape ("`T` has no `Ord` instance"), and the
- * corpus's pins read it. What §7.6 obliges is the *clause*, and that is what
- * this file pins. Adjudicated once, here, rather than left for each reader.
+ * **The head is §7.6's** wherever a clause follows it: "no `Ord<Config>`
+ * instance is visible in this module", since an instance is visible only in the
+ * modules that reach it (§7.2). Where no clause can be true (a structural
+ * subject) and at the `Frac<Dec>` routes §7.6 spells itself, the head is
+ * Constraints §8's "type `T` has no `C` instance".
  *
  * The Collections Part 5 §3.3 loop-head report is untouched and still wins where
  * it fires (`iterable-module.test.ts` owns it); this file pins the boundary.
@@ -48,7 +48,7 @@ describe("the ordinary branch: both homes named, offerable ones offered", () => 
         "",
       ].join("\n")],
     ])).toEqual([
-      "type `Token` has no `Badge` instance; it could only be declared in " +
+      "no `Badge<Token>` instance is visible in this module; it could only be declared in " +
         "module `Token` (declares `Token`) or module `Badge` (declares `Badge`)",
     ]);
   });
@@ -71,7 +71,7 @@ describe("the ordinary branch: both homes named, offerable ones offered", () => 
         "",
       ].join("\n")],
     ])).toEqual([
-      "type `Token` has no `Badge` instance; it could only be declared in " +
+      "no `Badge<Token>` instance is visible in this module; it could only be declared in " +
         "module `Kit`, which declares both `Token` and `Badge`",
     ]);
   });
@@ -99,7 +99,7 @@ describe("the ordinary branch: both homes named, offerable ones offered", () => 
         "",
       ].join("\n")],
     ])).toEqual([
-      "type `Widget` has no `Show` instance; it could only be declared in " +
+      "no `Show<Widget>` instance is visible in this module; it could only be declared in " +
         "module `Widget` (declares `Widget`) or the module declaring `Show`" +
         "; add `derives Show` to the declaration of `Widget`",
     ]);
@@ -122,7 +122,7 @@ describe("the ordinary branch: both homes named, offerable ones offered", () => 
         "",
       ].join("\n")],
     ])).toEqual([
-      "type `Int` has no `Badge` instance; it could only be declared in " +
+      "no `Badge<Int>` instance is visible in this module; it could only be declared in " +
         "module `Badge` (declares `Badge`) or `Int`'s prelude companion module",
     ]);
   });
@@ -134,7 +134,7 @@ describe("the closed pair: no offerable home, so no honor offered", () => {
     // would be worse than none" — the actionable content is the two exits that
     // need no instance at all.
     expect(projectDiagnostics("module Main\n\n" + "export fun gap(a: Nat, b: Nat): Nat = a - b\n")).toEqual([
-      "type `Nat` has no `Signed` instance; its only legal homes are the module " +
+      "no `Signed<Nat>` instance is visible in this module; its only legal homes are the module " +
         "declaring `Signed` and `Nat`'s prelude companion module, both outside project " +
         "source, so this pair's honored set is closed — change the type, or go through " +
         "the operations those homes export" +
@@ -193,7 +193,7 @@ describe("unexported is what licenses the sealed branch, not un-imported", () =>
         "",
       ].join("\n")],
     ])).toEqual([
-      "type `Siren` has no `Loud` instance; it could only be declared in module `Main` " +
+      "no `Loud<Siren>` instance is visible in this module; it could only be declared in module `Main` " +
         "(declares `Siren`) or module `Units` (declares `Loud`)",
     ]);
   });
@@ -216,7 +216,7 @@ describe("unexported is what licenses the sealed branch, not un-imported", () =>
         "",
       ].join("\n")],
     ])).toEqual([
-      "type `Token` has no `Gate` instance; it could only be declared in module `Token` " +
+      "no `Gate<Token>` instance is visible in this module; it could only be declared in module `Token` " +
         "(declares `Token`) or module `Gatekeeper` (declares `Gate`)",
     ]);
   });
@@ -251,7 +251,7 @@ describe("the unnameable branch: the declaring module, alone (§7.6, #633)", () 
         "",
       ].join("\n")],
     ])).toEqual([
-      "type `Ounce` has no `Small` instance; `Small` is not nameable here, so the " +
+      "no `Small<Ounce>` instance is visible in this module; `Small` is not nameable here, so the " +
         "honor can only be written in module `Scales`, which declares it",
     ]);
   });
@@ -285,7 +285,7 @@ describe("the unnameable branch: the declaring module, alone (§7.6, #633)", () 
         "",
       ].join("\n")],
     ])).toEqual([
-      "type `Badge` has no `Gate` instance; `Gate` is not nameable here, so the " +
+      "no `Gate<Badge>` instance is visible in this module; `Gate` is not nameable here, so the " +
         "honor can only be written in module `Gatekeeper`, which declares it",
     ]);
   });
@@ -311,7 +311,7 @@ describe("the unnameable branch: the declaring module, alone (§7.6, #633)", () 
         "",
       ].join("\n")],
     ])).toEqual([
-      "type `Panel` has no `Sealed` instance; `Sealed` is not nameable here, so the " +
+      "no `Sealed<Panel>` instance is visible in this module; `Sealed` is not nameable here, so the " +
         "honor can only be written in module `Seal`, which declares it",
     ]);
   });
@@ -372,7 +372,7 @@ describe("the unnameable branch: the declaring module, alone (§7.6, #633)", () 
         "",
       ].join("\n")],
     ])).toEqual([
-      "type `Ticket` has no `Gate` instance; `Gate` is not nameable here, so the honor " +
+      "no `Gate<Ticket>` instance is visible in this module; `Gate` is not nameable here, so the honor " +
         "can only be written in module `Gate`, which declares it",
     ]);
   });
@@ -393,7 +393,7 @@ describe("the unnameable branch: the declaring module, alone (§7.6, #633)", () 
       "",
     ].join("\n");
     const sealed = (subject: string) =>
-      `type \`${subject}\` has no \`Gate\` instance; \`Gate\` is not nameable here, ` +
+      `no \`Gate<${subject}>\` instance is visible in this module; \`Gate\` is not nameable here, ` +
       "so the honor can only be written in module `Gate`, which declares it";
 
     expect(messagesOf([
@@ -453,7 +453,7 @@ describe("the unnameable branch: the declaring module, alone (§7.6, #633)", () 
     ]);
 
     expect(messages).toEqual([
-      "type `Panel` has no `Describe` instance; the `Describe` required here is " +
+      "no `Describe<Panel>` instance is visible in this module; the `Describe` required here is " +
         "module `Alpha`'s, not the one this module names; the honor can only be " +
         "written there",
     ]);
@@ -506,7 +506,7 @@ describe("a structural subject has no home under either branch (§5.4, §9.3)", 
         "",
       ].join("\n")],
     ])).toEqual([
-      "type `Int` has no `Gate` instance; `Gate` is not nameable here, so the honor " +
+      "no `Gate<Int>` instance is visible in this module; `Gate` is not nameable here, so the honor " +
         "can only be written in module `Gate`, which declares it",
     ]);
   });

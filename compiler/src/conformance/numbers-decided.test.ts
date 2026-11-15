@@ -116,7 +116,7 @@ const ORDERS: readonly (readonly [string, string, string, readonly string[], rea
     FLOAT,
     "let f() =\n    for x in [1, 2, 3]\n        {0}\n        {1}\n    ()",
     ["ignore(x.floor())", "useFloat(x)"],
-    ["`Int` has no field `floor`, its companion exports no operation `floor`, and no constraint honored at `Int` has a subject-first member `floor`; call an available subject-first function explicitly"],
+    ["`Int` has no field `floor`, its companion exports no operation `floor`, and no constraint whose instance at `Int` is visible in this module has a subject-first member `floor`; call an available subject-first function explicitly"],
   ],
   [
     "O1-holder-loop",

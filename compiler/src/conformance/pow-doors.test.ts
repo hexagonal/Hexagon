@@ -485,7 +485,7 @@ describe("the `widens` declaration at a user nominal (Constraints §4.7)", () =>
         "Box({value = Float.pow(value.value, exponent)})",
       "",
     )).toEqual([
-      "the `Pow<Box>` instance binds `pow`, which is already bound (line 10); a " +
+      "`pow` is already bound: the `Pow<Box>` instance binds it as a member (line 12); a " +
         "member's wider face is declared, not exported — write `widens " +
         "Pow.pow(…)` and account for the member with `pow = widened`",
       "`pow = widened` accounts for a `widens Pow.pow` declaration this module " +
@@ -498,7 +498,7 @@ describe("the `widens` declaration at a user nominal (Constraints §4.7)", () =>
       "export let pow(value: Box, exponent: Int): Box = value",
       "",
     )).toEqual([
-      "the `Pow<Box>` instance binds `pow`, which is already bound (line 10); " +
+      "`pow` is already bound: the `Pow<Box>` instance binds it as a member (line 12); " +
         "Hexagon does not allow rebinding — choose a different name",
       "`pow = widened` accounts for a `widens Pow.pow` declaration this module " +
         "does not contain",
@@ -510,7 +510,7 @@ describe("the `widens` declaration at a user nominal (Constraints §4.7)", () =>
       "let pow(value: Box, exponent: Float): Box = value",
       "",
     )).toEqual([
-      "the `Pow<Box>` instance binds `pow`, which is already bound (line 10); " +
+      "`pow` is already bound: the `Pow<Box>` instance binds it as a member (line 12); " +
         "Hexagon does not allow rebinding — choose a different name",
       "`pow = widened` accounts for a `widens Pow.pow` declaration this module " +
         "does not contain",

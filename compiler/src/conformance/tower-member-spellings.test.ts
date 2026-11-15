@@ -758,7 +758,6 @@ describe("§14(v): the receiver seat, and §5.1's stand-down", () => {
       const receiver of [
         "((i + j) + p)",
         "(Num.add(i + j, p))",
-        "add(i + j, p)",
         "((i + j) |> Num.add(p))",
         "(i + j).add(p)",
         "i.add(j).add(p)",
@@ -774,6 +773,12 @@ describe("§14(v): the receiver seat, and §5.1's stand-down", () => {
         kept: "Foo",
       })]);
     }
+    // The bare spelling is no member call here: honoring `Num<Foo>` binds no
+    // bare name (Constraints §4.6, #757), so it is Modules §5.5's refusal,
+    // and row 16 never meets it.
+    expect(refusals(`${foo}let probe: BigInt = add(i + j, p).gcd(s2)\n`)).toEqual([
+      "no bare `add`; write `(i + j).add(p)`, `Num.add(i + j, p)`, or `Set.add(i + j, p)`",
+    ]);
     expect(refusals(`${foo}let t: BigInt = Num.add(i + j, p)\n`)).toEqual([
       "`p` is a `Foo` and cannot enter `BigInt`, so the addition could not run at `BigInt`",
     ]);
@@ -820,7 +825,7 @@ describe("§14(v): the receiver seat, and §5.1's stand-down", () => {
     // named above is pasted back and must be accepted.
     expect(refusals(`${foo}let probe: BigInt = (i + p: Foo).gcd(s2)\n`)).toEqual([]);
     expect(refusals(`${foo}let probe: BigInt = (p + q: Foo).gcd(s2)\n`)).toEqual([]);
-    expect(refusals(`${foo}let probe: BigInt = (add(p, q): Foo).gcd(s2)\n`)).toEqual([]);
+    expect(refusals(`${foo}let probe: BigInt = (p.add(q): Foo).gcd(s2)\n`)).toEqual([]);
     expect(refusals(`${foo}let probe: BigInt = (if c then (p + q: Foo) else p).gcd(s2)\n`))
       .toEqual([]);
     expect(
@@ -1008,7 +1013,7 @@ describe("§14(v): the receiver seat, and §5.1's stand-down", () => {
     // no such member and offer an ascription that does not compile.
     const noSuchGcd = (type: string): string =>
       `\`${type}\` has no field \`gcd\`, its companion exports no operation ` +
-      `\`gcd\`, and no constraint honored at \`${type}\` has a subject-first ` +
+      `\`gcd\`, and no constraint whose instance at \`${type}\` is visible in this module has a subject-first ` +
       "member `gcd`; call an available subject-first function explicitly";
     // `Float` honors no `Integral` and exports no `gcd`; the receiver stands
     // down all the same, `Float` reaching `BigInt` by neither route.
@@ -1169,7 +1174,7 @@ describe("§14(v): the receiver seat, and §5.1's stand-down", () => {
     // Unannotated, the literals take `s2`'s `Foo` and `Integral<Foo>` is
     // missing — refused either way, and neither refusal is row 16.
     expect(refusals(`${foo}let probe = (1 + 2).gcd(s2)\n`)).toEqual([
-      "type `Foo` has no `Integral` instance; it could only be declared in " +
+      "no `Integral<Foo>` instance is visible in this module; it could only be declared in " +
       "module `Main` (declares `Foo`) or the module declaring `Integral`",
     ]);
     expect(line(`${foo}let probe: BigInt = (1 + 2).gcd(3)\n`))
@@ -1510,12 +1515,12 @@ describe("§9 row 14: the exponent seat's fixit, in every spelling", () => {
 });
 
 describe("§4.2's ownership clause and §9 row 15's rider", () => {
-  const noSigned = "type `Nat` has no `Signed` instance; its only legal homes are the " +
+  const noSigned = "no `Signed<Nat>` instance is visible in this module; its only legal homes are the " +
     "module declaring `Signed` and `Nat`'s prelude companion module, both outside " +
     "project source, so this pair's honored set is closed — change the type, or go " +
     "through the operations those homes export; a written `Int` face runs the " +
     "operation and admits the result (`let difference: Int = …`)";
-  const noFrac = "type `Int` has no `Frac` instance; its only legal homes are the module " +
+  const noFrac = "no `Frac<Int>` instance is visible in this module; its only legal homes are the module " +
     "declaring `Frac` and `Int`'s prelude companion module, both outside project " +
     "source, so this pair's honored set is closed — change the type, or go through " +
     "the operations those homes export; for the integer quotient and remainder use " +
@@ -1561,7 +1566,7 @@ describe("§4.2's ownership clause and §9 row 15's rider", () => {
     // Both exist — `Integral` is honored at both — and the pin is the offer
     // beside the proof that it compiles.
     expect(verdict("let probe = n.divide(m)\n")).toEqual([
-      "type `Nat` has no `Frac` instance; its only legal homes are the module " +
+      "no `Frac<Nat>` instance is visible in this module; its only legal homes are the module " +
         "declaring `Frac` and `Nat`'s prelude companion module, both outside project " +
         "source, so this pair's honored set is closed — change the type, or go " +
         "through the operations those homes export; for the integer quotient and " +
@@ -1589,7 +1594,7 @@ describe("§4.2's ownership clause and §9 row 15's rider", () => {
     // `Integral`, and no ownership route invents one.
     expect(verdict("let probe = f.div(g)\n")).toEqual([
       "`Float` has no field `div`, its companion exports no operation `div`, and no " +
-        "constraint honored at `Float` has a subject-first member `div`; call an " +
+        "constraint whose instance at `Float` is visible in this module has a subject-first member `div`; call an " +
         "available subject-first function explicitly",
     ]);
   });

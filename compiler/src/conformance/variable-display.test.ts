@@ -39,7 +39,7 @@ describe("the law: a survivor reaching a report is named", () => {
         "\n" +
         "export fun go(): Int = Hash.hash(Box({value = 1}))\n",
     )).toEqual([
-      "type `Box(a)` has no `Hash` instance; `Hash` instances must be derived, " +
+      "no `Hash<Box(a)>` instance is visible in this module; `Hash` instances must be derived, " +
       "so the only repair is `derives (Eq, Hash)` on the declaration of `Box` " +
       "in module `Main`",
     ]);
@@ -93,7 +93,7 @@ describe("fresh names dedupe against every name already visible", () => {
         "\n" +
         "export fun go(x: a): Int = Hash.hash(Pair({left = x, right = 1}))\n",
     )).toEqual([
-      "type `Pair(a, b)` has no `Hash` instance; `Hash` instances must be " +
+      "no `Hash<Pair(a, b)>` instance is visible in this module; `Hash` instances must be " +
       "derived, so the only repair is `derives (Eq, Hash)` on the declaration " +
       "of `Pair` in module `Main`",
     ]);

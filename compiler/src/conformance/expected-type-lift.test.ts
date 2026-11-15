@@ -88,7 +88,7 @@ describe("the two acceptances", () => {
     // Syntax §9 row 15), on this spelling and on `n.subtract(m)` alike.
     expect(verdict("export let x: Nat = n - m\n"))
       .toEqual([
-        "type `Nat` has no `Signed` instance; its only legal homes are the module " +
+        "no `Signed<Nat>` instance is visible in this module; its only legal homes are the module " +
           "declaring `Signed` and `Nat`'s prelude companion module, both outside project " +
           "source, so this pair's honored set is closed — change the type, or go through " +
           "the operations those homes export; a written `Int` face runs the operation " +
@@ -100,7 +100,7 @@ describe("the two acceptances", () => {
     expect(verdict("export let mean: Float = sum / size\n")).toEqual([]);
     expect(verdict("export let mean: Int = sum / size\n"))
       .toEqual([
-        "type `Int` has no `Frac` instance; its only legal homes are the module declaring " +
+        "no `Frac<Int>` instance is visible in this module; its only legal homes are the module declaring " +
           "`Frac` and `Int`'s prelude companion module, both outside project source, so " +
           "this pair's honored set is closed — change the type, or go through the " +
           "operations those homes export; for the integer quotient and remainder use " +
@@ -331,7 +331,7 @@ describe("the recursion", () => {
     // the unary arm — the `Int` case above takes the `Signed.fromInt` one.
     expect(verdict("export let x: Nat = -n\n"))
       .toEqual([
-        "type `Nat` has no `Signed` instance; its only legal homes are the module " +
+        "no `Signed<Nat>` instance is visible in this module; its only legal homes are the module " +
           "declaring `Signed` and `Nat`'s prelude companion module, both outside project " +
           "source, so this pair's honored set is closed — change the type, or go through " +
           "the operations those homes export; a written `Int` face runs the operation " +

@@ -207,7 +207,7 @@ describe("a dot call cannot make a `let` recursive (Functions §6)", () => {
       BOX + "export let use(b: Box): Int = b.nope()\n",
     )).toEqual([
       "`Box` has no field `nope`, its companion exports no operation `nope`, " +
-      "and no constraint honored at `Box` has a subject-first member `nope`; " +
+      "and no constraint whose instance at `Box` is visible in this module has a subject-first member `nope`; " +
       "call an available subject-first function explicitly",
     ]);
   });

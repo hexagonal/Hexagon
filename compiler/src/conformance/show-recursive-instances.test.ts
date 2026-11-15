@@ -14,9 +14,9 @@ import { compileMain, runMain } from "../support/test-project.js";
  * The recursive step in each body is spelled with string interpolation
  * (`"${kid}"`), which reaches `Show` evidence and names no binding. That was PR
  * α's only sanctioned spelling; since PR γ the dot call (`kid.show()`) and the
- * qualified form (`Show.show(kid)`) exist beside it, and the own-name refusal
- * α deferred has landed — see the bottom describe, which replaces α's
- * deliberately-overturnable baseline pin with the ruling it was waiting for.
+ * qualified form (`Show.show(kid)`) exist beside it, and so does a bare
+ * `show(kid)`, the prelude's `show` selecting the instance at the kid's type —
+ * see the bottom describe (Constraints §4.6, #757).
  * Interpolation stays here unchanged: these three are emission pins, and the
  * fault line they measure is about *when* an instance is read, not how it is
  * spelled.
@@ -130,20 +130,16 @@ describe("a recursive parameterized instance executes (pin 3)", () => {
 
 describe("a member's own name in its own body (Constraints §4.6)", () => {
   /**
-   * PR α pinned the opposite of this — the note's reading (i), where the bare
-   * spelling inside the body was the polymorphic export, evidence-selected at
-   * the argument's type — as an explicit baseline for PR γ to overturn once the
-   * rewrites the refusal names existed. They do now, so the refusal lands:
-   * a member definition is a `let` header, not a `fun` (#293's non-`fun` law),
-   * and its own body may not call its own name.
-   *
-   * The refusal is what makes recursion *spelled*. Under reading (i) the same
-   * spelling would evidence-select a different instance depending on the
-   * argument's type inside its own definition — a subtlety wearing an innocent
-   * face, which is exactly what James ruled against.
+   * A member's own name is pending in its body and reaches nothing there, so a
+   * bare spelling in the body reads as it reads anywhere in the module — and
+   * honoring binds no bare name (#757). Bare `show` is therefore the prelude's
+   * `show`, as in every module: at `wrap.inner` it selects `Show<Int>` by
+   * ordinary dispatch, and nothing about the body being `Show<Wrap>`'s own
+   * changes that. The own-name refusal this test used to pin is gone with the
+   * reading that needed it.
    */
-  test("bare `show` inside `Show<Wrap>`'s body is refused with the rewrite", () => {
-    const project = compileMain([
+  test("bare `show` inside `Show<Wrap>`'s body is the prelude's `show`", async () => {
+    const exports = await runMain([
       "module Main",
       "",
       "export record Wrap = {inner: Int}",
@@ -151,13 +147,34 @@ describe("a member's own name in its own body (Constraints §4.6)", () => {
       "honor Show<Wrap> =",
       "    show(wrap) = \"Wrap(\" ++ show(wrap.inner) ++ \")\"",
       "",
+      "export let shown: String = show(Wrap({inner = 5}))",
+      "",
     ].join("\n"));
 
-    expect(project.diagnostics.map(({ message }) => message)).toEqual([
-      "`show` is this member's own name, and a member cannot call itself bare; " +
-      "recursion is spelled through dispatch — write the dot call `value.show()`, " +
-      "or qualify the instance you mean: `Show.show(…)`",
-    ]);
+    expect(exports.shown).toBe("Wrap(5)");
+  });
+
+  /**
+   * At the honored type the same bare spelling is the recursion: the prelude's
+   * `show` at `Wrap` selects the instance being defined, a use of the instance
+   * inside its own knot (§4.8) — one of the routes §4.6 lists beside the dot.
+   */
+  test("bare `show` at the honored type inside its own body recurses through the instance", async () => {
+    const exports = await runMain([
+      "module Main",
+      "",
+      "export union Nest = Leaf | Wrapped(Nest)",
+      "",
+      "honor Show<Nest> =",
+      "    show(nest) = match nest",
+      "        Leaf => \"leaf\"",
+      "        Wrapped(inner) => \"(\" ++ show(inner) ++ \")\"",
+      "",
+      "export let shown: String = show(Wrapped(Wrapped(Leaf)))",
+      "",
+    ].join("\n"));
+
+    expect(exports.shown).toBe("((leaf))");
   });
 
   /** The sanctioned rewrite, executed — a refusal whose fixit does not run is half a ruling. */

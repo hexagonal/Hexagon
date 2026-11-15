@@ -24,6 +24,9 @@
  * identities above already depend on.
  */
 
+import type * as Resolved from "./syntax/resolved/index.js";
+import type * as Source from "./support/source.js";
+
 /**
  * The constraints the compiler pre-registers (§5.1.1, Modules §6.4).
  *
@@ -299,4 +302,55 @@ export function declaredConstraintIdentity(
   name: string,
 ): string {
   return `${fileId}:${name}`;
+}
+
+/**
+ * Constraints §8's report for an ordinary module-level binding of a spelling an
+ * honored instance claims (§4.6's first bullet, #757). The claim covers every
+ * member of the constraint, so the spelling may be one no line of the block
+ * writes; the report cites the line that declares the instance — the `honor`
+ * line, or for a derived instance the line that derives it (the type declaring
+ * the `derives` clause, or the `honor … = derive`) — and says how the instance
+ * holds the spelling, in the row's three forms:
+ *
+ * - a member the block **writes** — "binds it as a member";
+ * - a member a hand-written block **inherits** from the constraint's default —
+ *   "inherits it as a member from `C`'s default";
+ * - a member of a **derived** instance — "binds" for a member derivation
+ *   supplies, "inherits … from `C`'s default" for one it inherits.
+ *
+ * Both seats of the claim build their message here — the resolver for a
+ * private binding and the checker for an exported one — so the two cannot
+ * drift. `defaulted` is whether the constraint's declaration gives the member
+ * a default body, which is what separates a derived instance's two forms;
+ * `ending` is the repair, the plain rebinding one or the checker's `widens`
+ * rewrite. The report itself stands at the ordinary binding, whose name the
+ * fix changes; the cited span is returned for its label.
+ */
+export function honoredMemberClaim(
+  item: Resolved.HonorItem,
+  member: string,
+  instance: string,
+  defaulted: boolean,
+  ending: string,
+): { readonly message: string; readonly cited: Source.Span; readonly label: string } {
+  const bound = `\`${member}\` is already bound:`;
+  const line = `line ${item.span.start.line + 1}`;
+  const inherited = `inherits it as a member from \`${item.constraint}\`'s default`;
+  if (item.derived) {
+    return {
+      message: `${bound} the derived \`${instance}\` instance (${line}) ` +
+        `${defaulted ? inherited : "binds it as a member"}; ${ending}`,
+      cited: item.derivesEntry ?? item.span,
+      label: "the instance is derived here",
+    };
+  }
+  const written = item.members.some(({ name }) => name === member);
+  return {
+    message: written
+      ? `${bound} the \`${instance}\` instance binds it as a member (${line}); ${ending}`
+      : `${bound} the \`${instance}\` instance (${line}) ${inherited}; ${ending}`,
+    cited: item.span,
+    label: "the instance is declared here",
+  };
 }

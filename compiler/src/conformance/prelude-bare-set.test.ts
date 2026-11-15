@@ -122,12 +122,9 @@ describe("the bare set is exactly twenty-eight names, and closed", () => {
   });
 
   /**
-   * **A `derives` clause seeds nothing** (#753 review). §5.5's in-module
-   * carve-out is for a module that *binds* members — an `honor` block it wrote —
-   * and a `derives` writes no block: the instance is the compiler's. Seeding off
-   * the wider index §4.6's laws use gave a deriving module nineteen bare names
-   * and let `compare(1, 2)` compile in it, which is ruling 4 undone by an
-   * implementation detail. The layer is the plain nineteen here.
+   * **A `derives` clause seeds nothing**: honoring binds no bare name, in any
+   * of an instance's forms (Constraints §4.6, #757), so a deriving module's
+   * layer is the plain bare set and `compare(1, 2)` is refused in it.
    */
   test("a module that derives seeds nothing of its own", () => {
     const source = "export record Box derives (Eq, Ord) = {n: Int}\n";
@@ -137,24 +134,17 @@ describe("the bare set is exactly twenty-eight names, and closed", () => {
   });
 
   /**
-   * An `honor` block is the other half of the same rule, and its members do come
-   * back — the completed set, defaults included, since an omitted default is
-   * bound here too as the wrapper seat the emitter hoists for it.
-   *
-   * **Where they sit is measured, not assumed.** They are put back into the
-   * *prelude* layer, because what goes back is the prelude's own polymorphic
-   * member symbol; the module's own layer holds only what the module declares.
-   * §5.5 describes them as module-level bindings, and the difference is visible
-   * — a function-local `let equals` still shadows rather than colliding — so the
-   * placement is pinned rather than left to be discovered.
+   * An `honor` block is the other half of the same rule, and it seeds nothing
+   * either: honoring binds no bare name (Constraints §4.6, Modules §5.5, #757),
+   * so a module that writes an `Eq<Box>` block holds the plain bare set in its
+   * prelude layer and only what it declares in its own.
    */
-  test("an honoring module's member spellings sit in the prelude layer, not its own", () => {
+  test("an honoring module seeds nothing: its layers are the bare set and its own declarations", () => {
     const source =
       "export record Box = {n: Int}\n" +
       "honor Eq<Box> =\n" +
       "    equals(left, right) = left.n == right.n\n";
-    expect(bareNames(source))
-      .toEqual([...BARE_SET, "equals", "notEquals"].sort());
+    expect(bareNames(source)).toEqual(BARE_SET);
     expect(moduleNames(source)).toEqual(["Box"]);
   });
 
@@ -370,7 +360,7 @@ describe("the function channel: none, and `ignore`", () => {
     ] as const) {
       expect(projectDiagnostics("module Main\n\n" + source)).toEqual([
         `\`Vector(a)\` has no field \`${member}\`, its companion exports no operation ` +
-        `\`${member}\`, and no constraint honored at \`Vector(a)\` has a subject-first ` +
+        `\`${member}\`, and no constraint whose instance at \`Vector(a)\` is visible in this module has a subject-first ` +
         `member \`${member}\`; call an available subject-first function explicitly`,
       ]);
     }
@@ -827,47 +817,49 @@ describe("the member channel: `show` only", () => {
   });
 
   /**
-   * **A member's in-module spelling is untouched** (§5.5's own carve-out): an
-   * honoring module binds its members at module level, and every Constraints
-   * §4.6 law about that spelling is written against it resolving.
+   * **Honoring changes none of this** (§5.5's member bullet, #757): a bare
+   * member spelling in a module that honors the constraint reads as it reads
+   * in a module that honors nothing — the refusal, at the honored type as at
+   * any other — and the routes it names run.
    */
-  test("an honoring module still writes its member's spelling bare", async () => {
-    const main = await runMain("module Main\n\n" + "export record Span = {lo: Int, hi: Int}\n" +
+  test("an honoring module meets the refusal at its own type, and the routes run", async () => {
+    const honoring = "export record Span = {lo: Int, hi: Int}\n" +
       "\n" +
       "honor Eq<Span> =\n" +
       "    equals(left, right) = left.lo == right.lo and left.hi == right.hi\n" +
-      "\n" +
+      "\n";
+    expect(projectDiagnostics("module Main\n\n" + honoring +
       "export let same: Bool = equals(Span({lo = 1, hi = 2}), Span({lo = 1, hi = 2}))\n",
+    )).toEqual([
+      "no bare `equals`; write `Span({lo = 1, hi = 2}).equals(Span({lo = 1, hi = 2}))` " +
+        "or `Eq.equals(Span({lo = 1, hi = 2}), Span({lo = 1, hi = 2}))`",
+    ]);
+    const main = await runMain("module Main\n\n" + honoring +
+      "export let dotted: Bool = Span({lo = 1, hi = 2}).equals(Span({lo = 1, hi = 2}))\n" +
+      "export let qualified: Bool = Eq.equals(Span({lo = 1, hi = 2}), Span({lo = 1, hi = 3}))\n",
     );
-    expect(main["same"]).toBe(true);
+    expect([main["dotted"], main["qualified"]]).toEqual([true, false]);
   });
 
   /**
-   * **The §4.6 monomorphic-denotation gap, at a spelling #742 newly routes
-   * through the carve-out.** Constraints §4.6 rules that a bare use elsewhere in
-   * the honoring module means *this binding* — monomorphic, at the honored type
-   * — so `compare(1, 2)` in a module honoring `Ord<Box>` should be refused: the
-   * binding is at `Box` and `1` is not one.
-   *
-   * It compiles, because what the carve-out puts back is the prelude's
-   * *polymorphic* member symbol and a member binding has no represented scheme
-   * to put back instead. That is the same gap
-   * `constraint-member-dispatch.test.ts`'s deferred baseline records at `Show`,
-   * reached at a second constraint now that `compare` has no other bare route.
-   * Pinned so the flip is a visible change to a stated expectation rather than a
-   * discovery; the follow-up owns the reversal.
+   * And at another type: the bare spelling is the same refusal whatever the
+   * argument's type, because it never meant the module's binding (§4.6's
+   * rejected alternative records the monomorphic reading this would have
+   * distinguished).
    */
-  test("a bare use at another type still resolves polymorphically — the §4.6 gap", () => {
+  test("a bare member at the honored type and at another type is the same refusal", () => {
     const honoring =
       "export record Box derives (Eq) = {n: Int}\n" +
       "honor Ord<Box> =\n" +
       "    compare(left, right) = Ord.compare(left.n, right.n)\n";
     expect(projectDiagnostics("module Main\n\n" + `${honoring}export let own: Ordering = compare(Box({n = 1}), Box({n = 2}))\n`,
-    )).toEqual([]);
-    // Under §4.6's ruled reading this line has no meaning and the module is
-    // refused. Today it dispatches `Ord<Int>`.
+    )).toEqual([
+      "no bare `compare`; write `Box({n = 1}).compare(Box({n = 2}))` or `Ord.compare(Box({n = 1}), Box({n = 2}))`",
+    ]);
     expect(projectDiagnostics("module Main\n\n" + `${honoring}export let other: Ordering = compare(1, 2)\n`))
-      .toEqual([]);
+      .toEqual(["no bare `compare`; write `(1).compare(2)` or `Ord.compare(1, 2)`"]);
+    expect(projectDiagnostics("module Main\n\n" + `${honoring}export let own: Ordering = Box({n = 1}).compare(Box({n = 2}))\n` +
+      "export let other: Ordering = Ord.compare(1, 2)\n")).toEqual([]);
   });
 
   /** And a module that honors nothing of the name keeps the refusal. */
@@ -927,7 +919,7 @@ describe("`toSeq` is reachable at every iterable", () => {
     expect(projectDiagnostics("module Main\n\n" + "export let n(r: Range): Int = r.spin()\n"))
       .toEqual([
         "`Range` has no field `spin`, its companion exports no operation `spin`, and no " +
-        "constraint honored at `Range` has a subject-first member `spin`; call an " +
+        "constraint whose instance at `Range` is visible in this module has a subject-first member `spin`; call an " +
         "available subject-first function explicitly",
       ]);
   });

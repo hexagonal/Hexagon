@@ -261,7 +261,7 @@ describe("§4.5 what the surface refuses", () => {
     // not a bespoke report.
     expect(projectDiagnostics("module Main\n\n" + "export let go(source: Stream(Int)): Unit =\n    for x in source\n        ()\n",
     )).toEqual([
-      "type `Stream(Int)` has no `Iterable` instance; its only legal homes are the module " +
+      "no `Iterable<Stream(Int)>` instance is visible in this module; its only legal homes are the module " +
         "declaring `Iterable` and the prelude module declaring `Stream`, both outside " +
         "project source, so this pair's honored set is closed — change the type, or go " +
         "through the operations those homes export",

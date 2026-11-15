@@ -457,7 +457,7 @@ describe("the `for p in e` failure taxonomy (Part 5 §3.2/§3.3)", () => {
         "        ()\n",
     );
     expect(messages).toContain(
-      "type `Option(Int)` has no `Iterable` instance; its only legal homes are " +
+      "no `Iterable<Option(Int)>` instance is visible in this module; its only legal homes are " +
         "the module declaring `Iterable` and the prelude module declaring " +
         "`Option`, both outside project source, so this pair's honored set is " +
         "closed — change the type, or go through the operations those homes export",
@@ -504,7 +504,7 @@ describe("the `for p in e` failure taxonomy (Part 5 §3.2/§3.3)", () => {
         "        ()\n",
     );
     expect(messages).toContain(
-      "type `Int` has no `Iterable` instance; its only legal homes are the " +
+      "no `Iterable<Int>` instance is visible in this module; its only legal homes are the " +
         "module declaring `Iterable` and `Int`'s prelude companion module, both " +
         "outside project source, so this pair's honored set is closed — change " +
         "the type, or go through the operations those homes export",

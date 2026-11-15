@@ -600,7 +600,7 @@ describe("knots, and the value a `match` or a `for` reads (R.b, review round 4)"
     // `n` is the `String` the map holds, so `n + 1` is refused.
     for (const source of [viaFor, viaMatch]) {
       expect(reports(source).map(([, message]) => message)).toContain(
-        "type `String` has no `Num` instance; its only legal homes are the module declaring `Num` and " +
+        "no `Num<String>` instance is visible in this module; its only legal homes are the module declaring `Num` and " +
           "`String`'s prelude companion module, both outside project source, so this pair's honored set is " +
           "closed — change the type, or go through the operations those homes export",
       );

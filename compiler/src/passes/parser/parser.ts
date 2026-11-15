@@ -1637,7 +1637,7 @@ class Parser {
       if (this.#at("Honor")) {
         this.#errorAt(
           exportToken.span,
-          "instances are always visible; `export` does not apply",
+          "an instance is never exported; `export` does not apply",
         );
         this.#synchronize(itemEnds);
         return {

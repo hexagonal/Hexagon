@@ -687,7 +687,7 @@ describe("the bare constraint seat (Constraints §8's row)", () => {
         "module Main\n\n" + "export record Box = {value: Float}\n" +
         "honor Pow<Box> =\n    pow(value, exponent) = value\n"],
     ])).toEqual([
-      "type `Box` has no `Num` instance; it could only be declared in " +
+      "no `Num<Box>` instance is visible in this module; it could only be declared in " +
         "module `Main` (declares `Box`) or the module declaring `Num`",
     ]);
   });

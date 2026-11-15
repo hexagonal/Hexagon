@@ -205,7 +205,7 @@ describe("the companion is the type's home (Constraints §4.4, §5.3)", () => {
     expect(diagnostics(
       "constraint Pretty<t> =\n    pretty(x: t) -> Int\n\n" + "export let n: Int = pretty([1])\n",
     )).toEqual([
-      "type `Vector(a)` has no `Pretty` instance; it could only be declared in module `Main` " +
+      "no `Pretty<Vector(a)>` instance is visible in this module; it could only be declared in module `Main` " +
         "(declares `Pretty`) or the prelude module declaring `Vector`",
     ]);
   });
@@ -283,16 +283,17 @@ describe("the companion is the type's home (Constraints §4.4, §5.3)", () => {
    */
   test("the companion's own head binds its variables, as any head does", () => {
     const claimed = [
-      "the `Ord<Map(k, v)>` instance binds `max`, which is already bound (line 220); " +
-      "Hexagon does not allow rebinding — choose a different name",
-      "the `Ord<Map(k, v)>` instance binds `min`, which is already bound (line 224); " +
-      "Hexagon does not allow rebinding — choose a different name",
+      "`max` is already bound: the `Ord<Map(k, v)>` instance (line 244) inherits it as a " +
+      "member from `Ord`'s default; Hexagon does not allow rebinding — choose a different name",
+      "`min` is already bound: the `Ord<Map(k, v)>` instance (line 244) inherits it as a " +
+      "member from `Ord`'s default; Hexagon does not allow rebinding — choose a different name",
     ];
     expect(inCompanion("Map", "\nhonor Ord<Map(k, v)> =\n    compare(l, r) = Ordering.Equal\n"))
       .toEqual([
+        // Each claim stands at the companion's own `let`, above the honor.
+        ...claimed,
         "`k` is declared without constraints, but the body requires `Hash`; write `<k: Hash>` on the `honor` header",
         "`v` is declared without constraints, but the body requires `Eq`; write `<v: Eq>` on the `honor` header",
-        ...claimed,
       ]);
     expect(inCompanion(
       "Map",

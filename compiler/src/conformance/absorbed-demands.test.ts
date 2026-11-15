@@ -139,7 +139,7 @@ describe("a refused kept demand refuses the absorbed one once", () => {
         "    let known: Int = xs\n" +
         "    b\n",
     ).diagnostics.map(({ message }) => message)).toEqual([
-      "type `Int` has no `Iterable` instance; its only legal homes are the module declaring " +
+      "no `Iterable<Int>` instance is visible in this module; its only legal homes are the module declaring " +
         "`Iterable` and `Int`'s prelude companion module, both outside project source, so this " +
         "pair's honored set is closed — change the type, or go through the operations those " +
         "homes export",

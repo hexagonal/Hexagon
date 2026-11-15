@@ -70,7 +70,7 @@ describe("the ordinary Math module surface", () => {
     expect(projectDiagnostics(HEADER + "export let answer: Float = (4.0).sqrt()\n"))
       .toEqual([
         "`Float` has no field `sqrt`, its companion exports no operation `sqrt`, " +
-        "and no constraint honored at `Float` has a subject-first member `sqrt`; " +
+        "and no constraint whose instance at `Float` is visible in this module has a subject-first member `sqrt`; " +
         "call an available subject-first function explicitly",
       ]);
   });

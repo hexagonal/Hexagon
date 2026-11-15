@@ -312,8 +312,8 @@ describe("what the law refuses at the same reach (Constraints §4.7)", () => {
         "",
       ].join("\n")],
     ]).diagnostics.map(({ message }) => message)).toEqual([
-      "the `Scale.Scale<Matrix>` instance binds `scale`, which is already bound " +
-        "(line 8); a member's wider face is declared, not exported — write " +
+      "`scale` is already bound: the `Scale.Scale<Matrix>` instance binds it as a member " +
+        "(line 10); a member's wider face is declared, not exported — write " +
         "`widens Scale.scale(…)` and account for the member with " +
         "`scale = widened`",
     ]);

@@ -288,8 +288,8 @@ export let hexagon: Bool = match Exn.stack(Boom)
       "let f(e: Exn) = e.show\n",
     )).toEqual([
       "exceptions are inspected with `try`/`catch`",
-      "`Exn` has no field `message`, its companion exports no operation `message`, and no constraint honored at `Exn` has a subject-first member `message`; call an available subject-first function explicitly",
-      "type `Exn` has no `Eq` instance; its only legal homes are the module declaring `Eq` and `Exn`'s prelude companion module, both outside project source, so this pair's honored set is closed — change the type, or go through the operations those homes export",
+      "`Exn` has no field `message`, its companion exports no operation `message`, and no constraint whose instance at `Exn` is visible in this module has a subject-first member `message`; call an available subject-first function explicitly",
+      "no `Eq<Exn>` instance is visible in this module; its only legal homes are the module declaring `Eq` and `Exn`'s prelude companion module, both outside project source, so this pair's honored set is closed — change the type, or go through the operations those homes export",
       "exceptions are inspected with `try`/`catch`; `stack` is an operation, so call it: `e.stack()`",
       "exceptions are inspected with `try`/`catch`; `show` is an operation, so call it: `e.show()`",
     ]);

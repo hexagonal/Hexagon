@@ -137,9 +137,15 @@ describe("only subject-first members are in the operation set (§4.2)", () => {
   test("a member whose subject appears only in the return is not a spelling", () => {
     expect(projectDiagnostics("module Main\n\n" + "export let n: Int = 3.fromNat(2)\n")).toEqual([
       "`Int` has no field `fromNat`, its companion exports no operation `fromNat`, " +
-      "and no constraint honored at `Int` has a subject-first member `fromNat`; " +
+      "and no constraint whose instance at `Int` is visible in this module has a subject-first member `fromNat`; " +
       "`Num`'s member `fromNat` does not take its constraint's subject first — " +
-      "call it as `fromNat(…)`",
+      "call it as `Num.fromNat(…)`",
+    ]);
+    // The offered spelling, through the declaring module, compiles; the bare
+    // one the hint used to name is the member channel's refusal (Modules §5.5).
+    expect(projectDiagnostics("module Main\n\n" + "export let n: Int = Num.fromNat(2)\n")).toEqual([]);
+    expect(projectDiagnostics("module Main\n\n" + "export let n: Int = fromNat(2)\n")).toEqual([
+      "no bare `fromNat`; write `Num.fromNat(2)`",
     ]);
   });
 
@@ -166,7 +172,7 @@ describe("only subject-first members are in the operation set (§4.2)", () => {
       "",
     ].join("\n"))).toEqual([
       "`Int` has no field `wrap`, its companion exports no operation `wrap`, and " +
-      "no constraint honored at `Int` has a subject-first member `wrap`; " +
+      "no constraint whose instance at `Int` is visible in this module has a subject-first member `wrap`; " +
       "`Wrap`'s member `wrap` does not take its constraint's subject first — " +
       "call it as `wrap(…)`",
     ]);
@@ -322,7 +328,7 @@ describe("a numeric literal subject takes its default at the dot (§3.3)", () =>
     expect(projectDiagnostics("module Main\n\n" + "export let n: Int = 7.total(1)\n",
     )).toEqual([
       "`Int` has no field `total`, its companion exports no operation `total`, " +
-      "and no constraint honored at `Int` has a subject-first member `total`; " +
+      "and no constraint whose instance at `Int` is visible in this module has a subject-first member `total`; " +
       "call an available subject-first function explicitly",
     ]);
   });
@@ -409,30 +415,58 @@ describe("qualified access reaches the members a module honors (Modules §5.3)",
     expect(exports.quotient).toBe(2);
   });
 
-  test("honoring one constraint at several own types makes the spelling ambiguous", () => {
+  test("honoring one constraint at several own types makes the spelling ambiguous", async () => {
+    const shapes = ["/shapes.hex", "module Shapes\n\n" + [
+      "export record Disc derives (Eq) = {radius: Int}",
+      "export record Bar derives (Eq) = {width: Int}",
+      "",
+      "honor Show<Disc> =",
+      '    show(disc) = "Disc"',
+      "",
+      "honor Show<Bar> =",
+      '    show(bar) = "Bar"',
+      "",
+      "honor Ord<Disc> =",
+      "    compare(a, b) = Ordering.Equal",
+      "",
+      "honor Ord<Bar> =",
+      "    compare(a, b) = Ordering.Less",
+      "",
+    ].join("\n")] as const;
+    // Each spelling the refusal offers is one the next compile accepts: bare
+    // `show(…)`, because `show` is the prelude's bare member, but never a bare
+    // `compare(…)`, which the member channel refuses (Modules §5.5).
     expect(diagnostics([
-      ["/shapes.hex", "module Shapes\n\n" + [
-        "export record Disc = {radius: Int}",
-        "export record Bar = {width: Int}",
-        "",
-        "honor Show<Disc> =",
-        '    show(disc) = "Disc"',
-        "",
-        "honor Show<Bar> =",
-        '    show(bar) = "Bar"',
-        "",
-      ].join("\n")],
+      shapes,
       ["/main.hex", "module Main\n\n" + [
         'import Shapes',
         "",
         "export let drawn: String = Shapes.show(Shapes.Disc({radius = 1}))",
+        "export let ordered: Ordering = Shapes.compare(Shapes.Bar({width = 1}), Shapes.Bar({width = 2}))",
         "",
       ].join("\n")],
     ])).toEqual([
       "`Shapes.show` is ambiguous: `Shapes` honors a constraint with a member " +
       "`show` at `Disc` and `Bar`; write the dot call on a value of the type you " +
-      "mean, the bare `show(…)`, or the declaring module's qualified spelling",
+      "mean, `show(…)`, or `Show.show(…)`",
+      "`Shapes.compare` is ambiguous: `Shapes` honors a constraint with a member " +
+      "`compare` at `Disc` and `Bar`; write the dot call on a value of the type you " +
+      "mean, or `Ord.compare(…)`",
     ]);
+    const exports = await runProject([
+      shapes,
+      ["/main.hex", "module Main\n\n" + [
+        'import Shapes',
+        "",
+        "export let dotted: String = Shapes.Disc({radius = 1}).show()",
+        "export let bare: String = show(Shapes.Disc({radius = 1}))",
+        "export let qualified: String = Show.show(Shapes.Bar({width = 1}))",
+        "export let ordered: Ordering = Ord.compare(Shapes.Bar({width = 1}), Shapes.Bar({width = 2}))",
+        "",
+      ].join("\n")],
+    ]);
+    expect([exports.dotted, exports.bare, exports.qualified]).toEqual(["Disc", "Disc", "Bar"]);
+    expect((exports.ordered as { tag: string }).tag).toBe("Less");
   });
 
   /**
@@ -551,20 +585,18 @@ describe("duplicate claimants refuse, and never rank (§6, §9 row 6)", () => {
   });
 
   /**
-   * Constraints §4.6's ambiguity arm, in the module itself. The definitions
-   * coexist — that is the carve-out — and it is the bare *use* that has no
-   * discriminator, so it is refused naming the routes that do.
+   * Two member bindings of one spelling in one module, and the bare spelling
+   * reaches neither (Constraints §4.6's first and fourth bullets, #757): with
+   * no refusal of its own, bare `show` is the prelude's `show`, as in a module
+   * that honors nothing, and at `Probe` it selects `Show<Probe>`. `Warm`'s
+   * member is reached through its declaring module's qualified spelling.
    *
-   * The shape is forced. A module import puts no member in bare scope on its
-   * own, and two same-spelled members declared in one module collide at the
-   * second declaration — so the only way one module holds two bare-visible
-   * bindings of a spelling is the companion fallback (Modules §5.1 rule 2,
-   * #762): an alias spelled the same as the constraint it names puts that
-   * constraint's own bare name in view, beside a prelude one, whose member the
-   * fallback occludes (Modules §5.4).
+   * Formerly the bare use was refused here as ambiguous between the two
+   * constraints; that refusal existed only because honoring made a member
+   * bare, and it went with that reading.
    */
-  test("two constraints binding one spelling refuse the bare in-module use", () => {
-    expect(diagnostics([
+  test("two constraints binding one spelling leave bare `show` the prelude's", async () => {
+    const files: readonly (readonly [string, string])[] = [
       ["/warm.hex", "module Warm\n\n" + [
         "export constraint Warm<a> =",
         "    show(value: a) -> String",
@@ -582,12 +614,14 @@ describe("duplicate claimants refuse, and never rank (§6, §9 row 6)", () => {
         '    show(probe) = "shown"',
         "",
         "export let taken: String = show(Probe({reading = 2}))",
+        "export let warmed: String = Warm.show(Probe({reading = 2}))",
         "",
       ].join("\n")],
-    ])).toEqual([
-      "`show` is ambiguous here: this module binds it as a member of `Warm` " +
-      "and `Show`; write the dot call on a value, or qualify the instance you mean",
-    ]);
+    ];
+    expect(diagnostics(files)).toEqual([]);
+    const exports = await runProject(files);
+    expect(exports.taken).toBe("shown");
+    expect(exports.warmed).toBe("warm");
   });
 
   /**
@@ -636,42 +670,51 @@ describe("duplicate claimants refuse, and never rank (§6, §9 row 6)", () => {
   });
 });
 
-describe("member bindings enter the module's order with their honor's knot (§4.6, §4.8)", () => {
-  test("a block above the one that binds a sibling's name takes the declared-later error", () => {
-    const messages = projectDiagnostics([
+describe("a sibling's spelling in an honor block, and the knot (§4.6, §4.8)", () => {
+  /**
+   * Honoring binds no bare name (Constraints §4.6, #757), so a bare sibling
+   * call inside an honor block is Modules §5.5's refusal, with the dot and
+   * qualified routes in the program's own words — wherever the sibling's honor
+   * stands. The order law still holds for every route that reaches the member:
+   * the dot rewrite above the `Num` honor is a use of `Num<Ratio>` above its
+   * honor, and is refused as one (§4.8).
+   */
+  test("a bare sibling is the §5.5 refusal, and its dot rewrite above the honor is a use above it", () => {
+    const program = (divide: string): string => [
       "module Main",
       "",
       "export record Ratio = {top: Int, bottom: Int}",
       "",
       "honor Frac<Ratio> =",
-      "    divide(left, right) = multiply(left, right)",
+      `    divide(left, right) = ${divide}`,
       "",
       "honor Num<Ratio> =",
       "    add(left, right) = left",
       "    multiply(left, right) = right",
       "    fromNat(n) = Ratio({top = 0, bottom = 1})",
       "",
-    ].join("\n"));
+    ].join("\n");
 
-    // Never "unknown name", which would be false — the fix is the ordinary one:
-    // order the blocks, or group them (Constraints §4.6, §4.8). Dispatch is no
-    // way round it: a dot call is a use of the instance, read by the same law.
-    expect(messages).toContain(
-      "`multiply` is bound by the `Num` instance below this use; declarations " +
-      "are read top-down — move the instance above this use, or declare both " +
-      "honors in one honor group",
+    const bare = projectDiagnostics(program("multiply(left, right)"));
+    expect(bare).toContain(
+      "no bare `multiply`; write `left.multiply(right)` or `Num.multiply(left, right)`",
+    );
+    expect(bare.some((message) => message.includes("below this use"))).toBe(false);
+    expect(projectDiagnostics(program("left.multiply(right)"))).toContain(
+      "`Num<Ratio>` is used here, and its honor is declared below it; " +
+      "declarations are read top-down — move the honor above this use",
     );
   });
 
-  test("inside one honor group, a member sees every member, earlier and later alike (§4.8)", () => {
-    expect(projectDiagnostics([
+  test("inside one honor group, a bare sibling is still refused, and the dot sees every member (§4.8)", () => {
+    const program = (divide: string): string => [
       "module Main",
       "",
       "export record Ratio = {top: Int, bottom: Int}",
       "",
       "honor",
       "    Frac<Ratio> =",
-      "        divide(left, right) = multiply(left, right)",
+      `        divide(left, right) = ${divide}`,
       "    Num<Ratio> =",
       "        add(left, right) = left",
       "        multiply(left, right) = right",
@@ -683,11 +726,16 @@ describe("member bindings enter the module's order with their honor's knot (§4.
       "",
       "export let r: Ratio = Ratio({top = 1, bottom = 2}) / Ratio({top = 3, bottom = 4})",
       "",
-    ].join("\n"))).toEqual([]);
+    ].join("\n");
+
+    expect(projectDiagnostics(program("multiply(left, right)"))).toEqual([
+      "no bare `multiply`; write `left.multiply(right)` or `Num.multiply(left, right)`",
+    ]);
+    expect(projectDiagnostics(program("left.multiply(right)"))).toEqual([]);
   });
 
-  test("the same module reordered compiles, and the sibling call runs", async () => {
-    const exports = await runMain([
+  test("the same module reordered: the bare sibling is refused, and its dot rewrite runs", async () => {
+    const program = (subtract: string): string => [
       "module Main",
       "",
       "export record Span = {lo: Int, hi: Int}",
@@ -698,53 +746,33 @@ describe("member bindings enter the module's order with their honor's knot (§4.
       "    fromNat(n) = Span({lo = 0, hi = 0})",
       "",
       "honor Signed<Span> =",
-      // The sibling called is `multiply`, not `add`. `add` would do just as well
-      // as a *test* and cannot be written here: since #373 `stdlib/Set.hex`
-      // exports `add`, so the bare spelling is a collided prelude name, and a
-      // member binding from an `honor` block does **not** occlude that layer the
-      // way an ordinary `let` does — a compiler defect against Modules §5.4 /
-      // Constraints §4.6 that predates this step and reproduces on `main` with
-      // `concat` (`Concat.hex` and `Seq.hex` both export it). `multiply` is a
-      // sibling of the same block and collides with nothing.
-      "    subtract(left, right) = multiply(left, right)",
+      `    subtract(left, right) = ${subtract}`,
       "    negate(value) = value",
       "    fromInt(n) = Span({lo = 0, hi = 0})",
       "",
       "export let joined: Int = Span({lo = 1, hi = 2}).subtract(Span({lo = 3, hi = 4})).hi",
       "",
-    ].join("\n"));
+    ].join("\n");
 
-    // A sibling member's bare spelling, below its line, means that binding —
-    // and `subtract` reaches it, so the dot call on the result reads `hi`:
-    // `multiply`'s, which is 2 * 4.
+    expect(projectDiagnostics(program("multiply(left, right)"))).toEqual([
+      "no bare `multiply`; write `left.multiply(right)` or `Num.multiply(left, right)`",
+    ]);
+    // The dot reaches `Num<Span>`'s `multiply`, so `subtract` answers 2 * 4.
+    const exports = await runMain(program("left.multiply(right)"));
     expect(exports.joined).toBe(8);
   });
 });
 
-describe("what a bare in-module member spelling means today (§4.6, deferred)", () => {
+describe("what a bare member spelling means in its honoring module (§4.6, #757)", () => {
   /**
-   * **A deliberately overturnable baseline, in PR α's style.**
-   *
-   * Constraints §4.6 rules that a bare use elsewhere in the honoring module
-   * means *this binding* — monomorphic, at the honored type, occluding the
-   * prelude's polymorphic export under Modules §5.4. PR γ implements every
-   * consequence of that sentence a reference can observe (the ordering law, the
-   * ambiguity refusal, the own-name refusal) but **not the denotation itself**:
-   * a member binding has no represented scheme, so a bare use is still the
-   * polymorphic member instantiated at the use site.
-   *
-   * One program distinguishes the two readings, and it is the one below: a bare
-   * `show` inside a module honoring `Show<Crate>`, applied to something that is
-   * not a `Crate`. Under the ruled reading it is refused — the binding is at
-   * `Crate` and `42` is not one. Today it compiles and dispatches `Show<Int>`.
-   *
-   * Pinned rather than left silent, so the flip is a visible change to a stated
-   * expectation rather than a discovery. The follow-up issue for the §4.6
-   * monomorphic-denotation gap owns the reversal; representing the binding needs
-   * a scheme for it, which for a parameterized instance has no obvious
-   * monomorphic form — which is why it is deferred and not merely unfinished.
+   * Honoring binds no bare name: a bare `show` in a module honoring
+   * `Show<Crate>` is the prelude's `show`, at every type, exactly as in a
+   * module that honors nothing. It answers `Show<Int>` at `42` and the
+   * module's own instance at a `Crate`, by ordinary dispatch. (The rejected
+   * reading — the member bare and monomorphic at the honored type — would
+   * refuse the first line; Constraints §4.6 records why it was not taken.)
    */
-  test("a bare use at another type still resolves polymorphically — the reading γ leaves open", async () => {
+  test("a bare `show` is the prelude's at another type and at the honored one", async () => {
     const exports = await runMain([
       "module Main",
       "",
@@ -758,8 +786,6 @@ describe("what a bare in-module member spelling means today (§4.6, deferred)", 
       "",
     ].join("\n"));
 
-    // Both run, and that is exactly the point: under §4.6's monomorphic reading
-    // the first line has no meaning at all and the module is refused.
     expect(exports.elsewhere).toBe("42");
     expect(exports.honored).toBe("Crate");
   });

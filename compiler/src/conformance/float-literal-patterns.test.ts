@@ -456,7 +456,7 @@ describe("the literal at the type of its position (§2.5's checking rule, #519)"
     // The pattern's text is pinned whole, and the comparison's is pinned as that
     // text **plus** the rider, so the two cannot drift apart silently and the one
     // clause that differs is the only one that may.
-    const closedPair = "type `Nat` has no `Signed` instance; its only legal homes " +
+    const closedPair = "no `Signed<Nat>` instance is visible in this module; its only legal homes " +
       "are the module declaring `Signed` and `Nat`'s prelude companion module, both " +
       "outside project source, so this pair's honored set is closed — change the " +
       "type, or go through the operations those homes export";
@@ -482,7 +482,7 @@ describe("the literal at the type of its position (§2.5's checking rule, #519)"
     // and a literal pattern never demands `Frac`.
     expect(projectDiagnostics(main("export fun f(n: Nat, m: Nat): Nat = n / m\n")))
       .toEqual([
-        "type `Nat` has no `Frac` instance; its only legal homes are the module " +
+        "no `Frac<Nat>` instance is visible in this module; its only legal homes are the module " +
         "declaring `Frac` and `Nat`'s prelude companion module, both outside project " +
         "source, so this pair's honored set is closed — change the type, or go " +
         "through the operations those homes export; for the integer quotient and " +
@@ -839,7 +839,7 @@ describe("coverage identity is the value, not the spelling (§7.2)", BUDGET, () 
       "    match None\n" + arms,
     ));
     // `Vector`'s home is named since #1071: its companion declares it.
-    const noNum = "type `Vector((Int) -> String)` has no `Num` instance; its only legal homes " +
+    const noNum = "no `Num<Vector((Int) -> String)>` instance is visible in this module; its only legal homes " +
       "are the module declaring `Num` and the prelude module declaring `Vector`, both " +
       "outside project source, so this pair's honored set is closed — change the type, " +
       "or go through the operations those homes export";
@@ -920,7 +920,7 @@ describe("coverage identity is the value, not the spelling (§7.2)", BUDGET, () 
     // refused before any key is read". Two `-1` arms draw two `Signed` reports and
     // no duplicate report between them: each failed to type, and §7.3's fourth tier
     // keys neither and lets neither shadow.
-    const closedPair = "type `Nat` has no `Signed` instance; its only legal homes " +
+    const closedPair = "no `Signed<Nat>` instance is visible in this module; its only legal homes " +
       "are the module declaring `Signed` and `Nat`'s prelude companion module, both " +
       "outside project source, so this pair's honored set is closed — change the " +
       "type, or go through the operations those homes export";
@@ -1061,7 +1061,7 @@ describe("a term's spelling in pattern position (§2.5, §12)", BUDGET, () => {
       "/main.hex",
       termGuard("h", "Hue.Hue", "Hue.first", "import Hue\n"),
     ]])).toEqual([
-      "type `Hue` has no `Eq` instance; it could only be declared in module `Hue` " +
+      "no `Eq<Hue>` instance is visible in this module; it could only be declared in module `Hue` " +
       "(declares `Hue`) or the module declaring `Eq`; add `derives Eq` to the " +
       "declaration of `Hue`",
     ]);
@@ -1078,7 +1078,7 @@ describe("a term's spelling in pattern position (§2.5, §12)", BUDGET, () => {
       "/main.hex",
       termGuard("n", "Nat", "-Helper.zero", "import Helper\n"),
     ]])).toEqual([
-      "type `Nat` has no `Signed` instance; its only legal homes are the module " +
+      "no `Signed<Nat>` instance is visible in this module; its only legal homes are the module " +
       "declaring `Signed` and `Nat`'s prelude companion module, both outside " +
       "project source, so this pair's honored set is closed — change the type, or " +
       "go through the operations those homes export; a written `Int` face runs the " +
@@ -1351,7 +1351,7 @@ describe("a term's spelling in pattern position (§2.5, §12)", BUDGET, () => {
     // A union honoring neither draws one report per unmet constraint — two — and no
     // refusal beside them, which is §12's "one per unmet constraint" exactly.
     expect(projectDiagnostics(late("Some(Red)", "union Hue = Red | Green\n\n"))).toEqual([
-      "type `Hue` has no `Eq` instance; it could only be declared in module `Main` " +
+      "no `Eq<Hue>` instance is visible in this module; it could only be declared in module `Main` " +
       "(declares `Hue`) or the module declaring `Eq`; add `derives Eq` to the " +
       "declaration of `Hue`",
       "integer literal cannot have type `Hue`",
@@ -1385,13 +1385,13 @@ describe("a term's spelling in pattern position (§2.5, §12)", BUDGET, () => {
         "        _ => \"o\"\n";
     // `Eq` unmet: the delegated report alone.
     expect(projectDiagnostics(tally("", "0"))).toEqual([
-      "type `Tally` has no `Eq` instance; it could only be declared in module `Main` " +
+      "no `Eq<Tally>` instance is visible in this module; it could only be declared in module `Main` " +
       "(declares `Tally`) or the module declaring `Eq`; add `derives Eq` to the " +
       "declaration of `Tally`",
     ]);
     // `Signed` unmet, which only a negative literal demands: likewise.
     expect(projectDiagnostics(tally(" derives Eq", "-1"))).toEqual([
-      "type `Tally` has no `Signed` instance; it could only be declared in module " +
+      "no `Signed<Tally>` instance is visible in this module; it could only be declared in module " +
       "`Main` (declares `Tally`) or the module declaring `Signed`",
     ]);
     // And the control that makes the gate a *condition* rather than a blanket skip:
@@ -1488,7 +1488,7 @@ describe("a term's spelling in pattern position (§2.5, §12)", BUDGET, () => {
         "/main.hex",
         termGuard("value", type, spelling, "import Helper\n"),
       ]])).toContain(
-        "type `Blob` has no `Eq` instance; it could only be declared in module " +
+        "no `Eq<Blob>` instance is visible in this module; it could only be declared in module " +
         "`Helper` (declares `Blob`) or the module declaring `Eq`; add `derives Eq` " +
         "to the declaration of `Blob`",
       );
@@ -1514,7 +1514,7 @@ describe("a term's spelling in pattern position (§2.5, §12)", BUDGET, () => {
       "/main.hex",
       termGuard("value", "Option(Helper.Blob)", "Helper.nothing", "import Helper\n"),
     ]])).toContain(
-      "type `Blob` has no `Eq` instance; it could only be declared in module " +
+      "no `Eq<Blob>` instance is visible in this module; it could only be declared in module " +
       "`Helper` (declares `Blob`) or the module declaring `Eq`; add `derives Eq` " +
       "to the declaration of `Blob`",
     );

@@ -26,7 +26,7 @@ describe("String owns its Iterable instance in source", () => {
       ["/main.hex", "module Main\n\nexport let view: Seq(String) = Iterable.toSeq(\"abc\")\n"],
     ], { trustedStandardLibraryModules: new Set(["String"]) });
     expect(project.diagnostics.map(({ message }) => message).join("\n"))
-      .toContain("type `String` has no `Iterable` instance");
+      .toContain("no `Iterable<String>` instance is visible in this module");
   });
 
   test("declaring-module, honoring-module, and dot calls share the lazy replayable adapter", async () => {
