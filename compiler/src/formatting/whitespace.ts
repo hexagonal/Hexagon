@@ -255,7 +255,11 @@ class Writer {
         }
         if (frames.length === 1 && topItem !== -1 && this.#isUnion(this.#items[topItem]!.first)) {
           const first = this.#tokens[previous];
-          if (token.kind === "Bar" || first?.kind === "Equal") this.#alternativeLine = token.span.start.line;
+          // A value beneath a `type`'s `=` is an alias's, not an alternative.
+          const alias = this.#tokens[this.#pastVisibility(this.#items[topItem]!.first)]?.kind === "Type";
+          if (token.kind === "Bar" || (first?.kind === "Equal" && !alias)) {
+            this.#alternativeLine = token.span.start.line;
+          }
           if (token.kind === "Bar" || first?.kind === "Equal") {
             unionLines += 1;
             if (unionLines >= 2) this.#multiLine.add(topItem);

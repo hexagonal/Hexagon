@@ -150,7 +150,8 @@ function opensBinder(tokens: readonly Lexed.Token[], index: number, followsOpera
 function closesAgainstOperand(tokens: readonly Lexed.Token[], close: number): boolean {
   const next = tokens[close + 1];
   if (next === undefined) return false;
-  if (["NonUpperName", "UpperName", "Integer", "BigInt", "Dec", "Float", "String", "Wildcard"].includes(next.kind)) {
+  const operands = ["NonUpperName", "UpperName", "Integer", "BigInt", "Dec", "Float", "String", "Wildcard", "True", "False"];
+  if (operands.includes(next.kind)) {
     return true;
   }
   return next.kind === "Minus" && next.span.start.offset === tokens[close]!.span.end.offset;

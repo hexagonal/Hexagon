@@ -195,6 +195,16 @@ describe("Indentation (§5)", () => {
     ));
   });
 
+  it("measures a line carried on in a type alias's value from the declaration", () => {
+    const text = lines(
+      "module Example",
+      "type Lookup(k, v) =",
+      "    (k,",
+      "        v) -> Option(v)",
+    );
+    expect(format(text)).toBe(text);
+  });
+
   it("places union alternatives one level in", () => {
     expect(format(lines(
       "module Example",
