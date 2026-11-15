@@ -427,8 +427,8 @@ own: the own-name refusal in a member's body, a refusal of a bare use where
 two member bindings share a spelling, and order rules for unqualified member
 references in a knot. Under Q none of the three exists. The reasons given
 for Q: "the text decides", applied to names — a bare name means the same in
-every module unless the module declares it; and Haskell, Rust and Swift do
-not make a member bare by implementing it. Its price: a bare member call at
+every module unless the module declares it; and Haskell and Rust do not
+make a member bare by implementing it. Its price: a bare member call at
 the honored type (`add(m, m)`, `max(a, b)`, `notEquals(a, b)`) and a bare
 sibling call inside an honor block become §5.5 refusals, rewritten with the
 dot or the qualified spelling; numeric modules are untouched, their
