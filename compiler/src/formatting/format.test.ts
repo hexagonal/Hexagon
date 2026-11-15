@@ -387,6 +387,8 @@ describe("Spacing within a line (§7)", () => {
     expect(format("module A\nunion Box(a)derives(Eq) = | Box(a)\n")).toBe("module A\nunion Box(a) derives (Eq) = | Box(a)\n");
     expect(format("module A\nlet y = x band derives(1)\n")).toBe("module A\nlet y = x band derives(1)\n");
     expect(format("module A\nlet a = f(x)\nderives(1)\n")).toBe("module A\nlet a = f(x)\nderives(1)\n");
+    expect(format("module A\nlet f(x: Int): Int =\n    match x\n        (k)derives => k\n")).toBe(
+      "module A\nlet f(x: Int): Int =\n    match x\n        (k)derives => k\n");
   });
 
   it("keeps the gaps that carry meaning (§7.2)", () => {
@@ -622,6 +624,23 @@ describe("A line that is too long (§9)", () => {
       "    alpha",
       "            band beta",
       "            band gamma",
+    ));
+  });
+
+  it("never leaves an operator alone on a line when the author ended a long line with it", () => {
+    expect(format(lines(
+      "module A",
+      "let total =",
+      "    alpha + beta + gamma + delta +",
+      "            epsilon",
+    ), { maximumLineLength: 20 })).toBe(lines(
+      "module A",
+      "let total =",
+      "    alpha",
+      "            + beta",
+      "            + gamma",
+      "            + delta +",
+      "            epsilon",
     ));
   });
 

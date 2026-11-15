@@ -305,7 +305,7 @@ function plan(reading: Reading, line: LongLine, failed: ReadonlySet<string>): Pl
     // 3. A chain.
     candidates.push({ shape: "chain", before: () => chain(tokens, roles, value) });
     // 5. An operator.
-    candidates.push({ shape: "operator", before: () => operator(tokens, roles, value) });
+    candidates.push({ shape: "operator", before: () => operator(tokens, roles, value, line.last) });
   }
   // 2. Brackets: the first pair on the line with something between it, or, on
   // a header whose value is already beneath it, the header's.
@@ -462,6 +462,7 @@ function operator(
   tokens: readonly Lexed.Token[],
   roles: Spacing.Roles,
   value: readonly number[],
+  last: number,
 ): number[] {
   const operands = reach(tokens, value);
   let loosest = 0;
@@ -470,8 +471,9 @@ function operator(
   const before: number[] = [];
   for (const index of operands) {
     if (binaryLevel(tokens, roles, index) !== loosest) continue;
-    // The carried-on line begins with the operator (§9.5, ruled 2026-11-15).
-    before.push(index);
+    // The carried-on line begins with the operator (§9.5). An operator the
+    // author left at the end of the line stays there, with its operand.
+    if (index < last) before.push(index);
   }
   return before;
 }

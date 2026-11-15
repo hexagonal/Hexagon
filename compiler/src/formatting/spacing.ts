@@ -125,7 +125,7 @@ export function roles(tokens: readonly Lexed.Token[], beginsItem: ReadonlySet<nu
     } else if (token.kind === "Minus" || token.kind === "Plus") {
       if (!followsOperand(index) || bitwiseOperator.has(index - 1)) prefix.add(index);
     } else if (token.kind === "NonUpperName" && token.text === "derives" && !beginsItem.has(index) &&
-      endsHead(tokens, index, binderClose)) {
+      endsHead(tokens, index, binderClose) && inTypeHead(tokens, index, beginsItem)) {
       derives.add(index);
     } else if (token.kind === "NonUpperName" && bitwiseWords.has(token.text)) {
       const previous = tokens[index - 1];
@@ -153,6 +153,32 @@ function endsHead(tokens: readonly Lexed.Token[], index: number, binderClose: Re
   const previous = tokens[index - 1];
   return previous !== undefined &&
     (previous.kind === "UpperName" || previous.kind === "RightParen" || binderClose.has(index - 1));
+}
+
+/**
+ * Whether a token stands in the head of a `record`, `union` or foreign-enum
+ * declaration, before its `=`: the one seat `derives` is a keyword in
+ * (Lexer §4.2).
+ */
+function inTypeHead(tokens: readonly Lexed.Token[], index: number, beginsItem: ReadonlySet<number>): boolean {
+  // Back to the start of the item, past the brackets in its head.
+  let start = index - 1;
+  let depth = 0;
+  while (start > 0 && !(depth === 0 && beginsItem.has(start))) {
+    const kind = tokens[start]!.kind;
+    if (kind === "RightParen" || kind === "RightBracket" || kind === "RightBrace") depth += 1;
+    else if (kind === "LeftParen" || kind === "LeftBracket" || kind === "LeftBrace") depth -= 1;
+    if (depth < 0) return false;
+    if (depth === 0 && (kind === "Equal" || kind === "FatArrow")) return false;
+    start -= 1;
+  }
+  let head = start;
+  if (tokens[head]?.kind === "Export") head += 1;
+  const word = tokens[head];
+  if (word?.kind === "NonUpperName" && word.text === "opaque") head += 1;
+  const first = tokens[head];
+  return first?.kind === "Record" || first?.kind === "Extern" ||
+    (first?.kind === "NonUpperName" && first.text === "union");
 }
 
 function opensBinder(tokens: readonly Lexed.Token[], index: number, followsOperand: boolean): boolean {
