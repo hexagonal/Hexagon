@@ -542,7 +542,7 @@ describe("duplicate claimants refuse, and never rank (§6, §9 row 6)", () => {
         "",
       ].join("\n")],
     ])).toEqual([
-      "`reach` after a dot is ambiguous on `a`: `Near` and `Far` each declare a " +
+      "`reach` after a dot is ambiguous on `a`: `Near`'s member `reach`, `Far`'s " +
       "member `reach`; write `Near.reach(…)` or `Far.reach(…)`",
     ]);
   });

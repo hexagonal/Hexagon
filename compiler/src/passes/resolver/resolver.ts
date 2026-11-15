@@ -11,6 +11,7 @@ import * as Diagnostics from "../../support/diagnostics.js";
 import {
   declaredConstraintIdentity,
   honoredMemberClaim,
+  honorsInSourceOrder,
   isPreRegisteredConstraint,
   NON_REDECLARABLE_CONSTRAINTS,
   PRE_REGISTERED_CONSTRAINT_MEMBERS,
@@ -2461,8 +2462,8 @@ class Resolver {
     // *declares* (see `ModuleInterface`), never the member bindings of an
     // `honor` block, which is the boundary the note's §5 item 8 requires: bare
     // `show` in a consumer has exactly one exporter, `Show.hex` — an honoring
-    // module's binding is reached only qualified, or bare from inside that
-    // module.
+    // module's member is reached only qualified or by the dot, inside that
+    // module as outside it: honoring binds no bare name (Constraints §4.6).
     const subjects = new Map<string, string>();
     /** Members of a structurally-instanced constraint, by spelling (see `PreludeRoute`). */
     const structuralMembers = new Set<string>();
@@ -7745,23 +7746,6 @@ class Resolver {
   }
 
   /**
-   * Consequence 4 of the members-as-values ruling, as Modules §5.3 graduates it:
-   * **qualified access reaches an honoring module's members.**
-   *
-   * `Rat.add(r1, r2)` denotes `Num<Rat>`'s member; `Bool.show(flag)` denotes
-   * derived `Show<Bool>`'s. The governing principle is uniform access — a
-   * consumer's `M.f(…)` survives `f` migrating between a plain module function
-   * and a constraint member, in either direction, with no call site changing —
-   * which is why this read comes *after* `terms` and after the module's own
-   * declared members, and never merges with either.
-   *
-   * Only instances at a type the module **declares**: an instance merely passing
-   * through its import graph is not its member to offer. A module honoring one
-   * constraint at several of its own types makes the spelling ambiguous and
-   * takes §5.5's refusal posture, naming each honored type and the routes that
-   * are not ambiguous.
-   */
-  /**
    * The aliases this module holds for the module that declares the constraint
    * `identity` and exports it — the spellings through which its members are
    * qualified here. A prelude alias a module alias of the same name shadows is
@@ -7778,6 +7762,23 @@ class Resolver {
     ];
   }
 
+  /**
+   * Consequence 4 of the members-as-values ruling, as Modules §5.3 graduates it:
+   * **qualified access reaches an honoring module's members.**
+   *
+   * `Rat.add(r1, r2)` denotes `Num<Rat>`'s member; `Bool.show(flag)` denotes
+   * derived `Show<Bool>`'s. The governing principle is uniform access — a
+   * consumer's `M.f(…)` survives `f` migrating between a plain module function
+   * and a constraint member, in either direction, with no call site changing —
+   * which is why this read comes *after* `terms` and after the module's own
+   * declared members, and never merges with either.
+   *
+   * Only instances at a type the module **declares**: an instance merely passing
+   * through its import graph is not its member to offer. A module honoring one
+   * constraint at several of its own types makes the spelling ambiguous and
+   * takes §5.5's refusal posture, naming each honored type and the routes that
+   * are not ambiguous.
+   */
   #honoredMemberAccess(
     iface: ModuleInterface,
     alias: string,
@@ -7902,11 +7903,13 @@ class Resolver {
         exportedNames.add(item.binding.name);
       }
     }
-    for (const item of items) {
-      if (item.kind !== "Honor") continue;
+    // One report per binding (§4.6): where several instances claim its
+    // spelling, the first in source order is the one named.
+    const reported = new Set<string>();
+    for (const item of honorsInSourceOrder(items)) {
       const instance = `${item.constraint}<${annotationHeadName(item.subject)}>`;
       for (const member of this.#honoredMemberNames(item)) {
-        if (exportedNames.has(member)) continue;
+        if (exportedNames.has(member) || reported.has(member)) continue;
         const existing = scope.lookupLocal(member);
         if (existing === undefined) continue;
         const previous = this.#symbol(existing);
@@ -7918,6 +7921,7 @@ class Resolver {
           this.#memberDefaulted(item, member),
           "Hexagon does not allow rebinding — choose a different name",
         );
+        reported.add(member);
         this.#diagnostics.add({
           severity: "error",
           message: claim.message,

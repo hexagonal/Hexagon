@@ -1,5 +1,7 @@
 import { describe, expect, test } from "vitest";
 
+import { compileProject, type ProjectPackage } from "../project.js";
+import * as Source from "../support/source.js";
 import { compileFiles, compileMain, projectDiagnostics, runMain, runProject } from "../support/test-project.js";
 
 /**
@@ -312,6 +314,53 @@ describe("the claim's report says how the instance holds the spelling (Constrain
     ]);
   });
 
+  test("a declaration over several lines: the line the label points at, the `derives` entry's", () => {
+    expect(report("export record Box derives (\n    Eq,\n    Ord\n) = {n: Int}\n\n" +
+      "let compare(a: Int, b: Int): Int = a\n")).toEqual([{
+      message: `\`compare\` is already bound: the derived \`Ord<Box>\` instance (line 5) binds it as a member; ${REBIND}`,
+      at: 8,
+      cites: [5],
+    }]);
+    expect(report("export union Shape\n    derives (Eq, Ord) =\n    | Circle\n    | Square\n\n" +
+      "let max(a: Int, b: Int): Int = a\n")).toEqual([{
+      message: "`max` is already bound: the derived `Ord<Shape>` instance (line 4) inherits it as a member " +
+        `from \`Ord\`'s default; ${REBIND}`,
+      at: 8,
+      cites: [4],
+    }]);
+    // A hand-written block's report cites its `honor` line, as its label does.
+    expect(report("export record Box derives (Eq) = {n: Int}\n\n\nhonor Ord<Box> =\n" +
+      "    compare(left, right) = left.n.compare(right.n)\n\nlet compare(a: Int, b: Int): Int = a\n")).toEqual([{
+      message: `\`compare\` is already bound: the \`Ord<Box>\` instance binds it as a member (line 6); ${REBIND}`,
+      at: 9,
+      cites: [6],
+    }]);
+  });
+
+  test("several instances claiming one spelling: one report at the binding, the first instance's", () => {
+    // `Ord<A>` inherits `max`, `Ord<B>` writes it; the binding is one cause.
+    for (const binding of ["let", "export let"]) {
+      expect(report("export record A derives (Eq) = {n: Int}\nexport record B derives (Eq) = {n: Int}\n\n" +
+        "honor Ord<A> =\n    compare(l, r) = l.n.compare(r.n)\n\n" +
+        "honor Ord<B> =\n    compare(l, r) = l.n.compare(r.n)\n    max(l, r) = l\n\n" +
+        `${binding} max(a: Int, b: Int): Int = a\n`)).toEqual([{
+        message: "`max` is already bound: the `Ord<A>` instance (line 6) inherits it as a member " +
+          `from \`Ord\`'s default; ${REBIND}`,
+        at: 13,
+        cites: [6],
+      }]);
+    }
+    // Derived and written alike: the first in source order is named.
+    expect(report("export record Box derives (Eq, Ord) = {n: Int}\n\n" +
+      "export union Shape derives (Eq, Ord) = Circle | Square\n\n" +
+      "let max(a: Int, b: Int): Int = a\n")).toEqual([{
+      message: "`max` is already bound: the derived `Ord<Box>` instance (line 3) inherits it as a member " +
+        `from \`Ord\`'s default; ${REBIND}`,
+      at: 7,
+      cites: [3],
+    }]);
+  });
+
   test("the repair each report offers compiles: the binding renamed", () => {
     expect(projectDiagnostics(MAIN + "export record Box derives (Eq, Ord) = {n: Int}\n\n" +
       "let larger(a: Box, b: Box): Box = a\nexport let ordering(a: Box, b: Box): Ordering = Ordering.Equal\n"))
@@ -434,5 +483,212 @@ describe("an instance is visible where the module's imports reach it (Modules §
     }
     const exports = await runProject(program("unreached", "export let t: String = \" ab \".trim()\n"));
     expect(exports.t).toBe("ab");
+  });
+});
+
+describe("every claimant of a dot refusal is named, with a spelling or as fact (Method Syntax §6, §9 rows 4–6)", () => {
+  const messages = (files: readonly (readonly [string, string])[]): readonly string[] =>
+    compileFiles(files).diagnostics.map(({ message }) => message);
+
+  describe("on a declared type variable, as at a known head", () => {
+    /** Two bounds, each reaching a base constraint with a member `heft`. */
+    const program = (exportP1: boolean, exportP2: boolean, body = "x.heft()") => [
+      ["/x.hex", "module X\n\n" + (exportP1 ? "export " : "") + "constraint P1<c> =\n    heft(x: c) -> String\n\n" +
+        "export constraint B1<a: P1> =\n    one(x: a) -> Int\n"],
+      ["/y.hex", "module Y\n\n" + (exportP2 ? "export " : "") + "constraint P2<c> =\n    heft(x: c) -> String\n\n" +
+        "export constraint B2<a: P2> =\n    two(x: a) -> Int\n"],
+      ["/main.hex", MAIN + "import X\nimport Y\n\n" + `export fun f<a: (X.B1, Y.B2)>(x: a): String = ${body}\n`],
+    ] as const;
+
+    test("a claimant with no spelling is named as fact, and the others' spellings offered", () => {
+      expect(messages(program(false, true))).toEqual([
+        "`heft` after a dot is ambiguous on `a`: `P1`'s member `heft`, declared in module `X`, which does not " +
+          "export `P1`, `P2`'s member `heft`; write `Y.heft(…)`",
+      ]);
+      // The offer, pasted back, compiles.
+      expect(messages(program(false, true, "Y.heft(x)"))).toEqual([]);
+    });
+
+    test("where none has a spelling, the refusal says so and offers none", () => {
+      expect(messages(program(false, false))).toEqual([
+        "`heft` after a dot is ambiguous on `a`: `P1`'s member `heft`, declared in module `X`, which does not " +
+          "export `P1`, `P2`'s member `heft`, declared in module `Y`, which does not export `P2`; " +
+          "none of them has a spelling this module can write",
+      ]);
+    });
+  });
+
+  test("at a known head, where none has a spelling, the refusal says so and offers none", () => {
+    const module = (name: string, constraint: string) => [`/${name.toLowerCase()}.hex`, `module ${name}\n\n` +
+      `constraint ${constraint}<c> =\n    heft(x: c) -> String\n\n` +
+      `honor ${constraint}<String> =\n    heft(v) = "${name}"\n\nexport let k: Int = 1\n`] as const;
+    expect(messages([module("X", "P1"), module("Y", "P2"),
+      ["/main.hex", MAIN + "import X\nimport Y\n\nexport let h: String = \"ab\".heft()\n"]])).toEqual([
+      "`heft` after a dot is ambiguous at `String`: `P1`'s member `heft`, declared in module `X`, which does " +
+        "not export `P1`, `P2`'s member `heft`, declared in module `Y`, which does not export `P2`; " +
+        "none of them has a spelling this module can write",
+    ]);
+  });
+
+  /**
+   * Packages §3.1's visible set: a member whose instance reaches this module
+   * through a dependency's own dependency is visible here, and its declaring
+   * module is one this package cannot import.
+   */
+  describe("a claimant whose module lies outside the package's visible set", () => {
+    const LIB_TEXT = "module Lib\n\nexport constraint Sized<c> =\n    trim(x: c) -> String\n\n" +
+      "honor Sized<String> =\n    trim(v) = \"lib-trim\"\n";
+    const NEAR_TEXT = "module Near\n\nimport Lib\n\nexport let n: Int = 1\n";
+    // Ids clear of the project's own files, which `compileFiles` numbers from 0.
+    let id = 100;
+    const file = (path: string, text: string) => new Source.File(Source.fileId(id++), path, text);
+    const pkg = (name: string, dependencies: readonly string[], files: readonly Source.File[]): ProjectPackage => ({
+      record: { name, dependencies, installed: new Set(dependencies) },
+      files,
+    });
+    const compile = (main: string, packages: readonly ProjectPackage[]) =>
+      compileProject([new Source.File(Source.fileId(0), "/work/app/main.hex", main)], {
+        dependencies: ["Acme"],
+        installed: new Set(["Acme", "Bolt"]),
+        packages,
+      }).diagnostics.map(({ message }) => message);
+
+    test("is named as fact, with its module, which this module cannot import", () => {
+      expect(compile(MAIN + "import Near\n\nexport let t: String = \"ab\".trim()\n", [
+        pkg("Acme", ["Bolt"], [file("/work/app/node_modules/acme/near.hex", NEAR_TEXT)]),
+        pkg("Bolt", [], [file("/work/app/node_modules/bolt/lib.hex", LIB_TEXT)]),
+      ])).toEqual([
+        "`trim` after a dot is ambiguous at `String`: a companion operation `String.trim`, `Sized`'s member " +
+          "`trim`, declared in module `Bolt.Lib`, which this module cannot import; write `String.trim(…)` " +
+          "for the companion operation",
+      ]);
+    });
+
+    test("one the package may import is offered by the import that resolves to it from here", async () => {
+      const packages = [pkg("Acme", [], [
+        file("/work/app/node_modules/acme/near.hex", NEAR_TEXT),
+        file("/work/app/node_modules/acme/lib.hex", LIB_TEXT),
+      ])];
+      expect(compile(MAIN + "import Acme.Near\n\nexport let t: String = \"ab\".trim()\n", packages)).toEqual([
+        "`trim` after a dot is ambiguous at `String`: a companion operation `String.trim`, `Sized`'s member " +
+          "`trim`; write `import Acme.Lib`, then `Lib.trim(…)`, or `String.trim(…)` for the companion operation",
+      ]);
+      const exports = await runProject([["/work/app/main.hex", MAIN + "import Acme.Near\nimport Acme.Lib\n\n" +
+        "export let t: String = Lib.trim(\"ab\")\n"]], {
+        dependencies: ["Acme"],
+        installed: new Set(["Acme"]),
+        packages,
+      });
+      expect(exports.t).toBe("lib-trim");
+    });
+  });
+
+  /**
+   * A companion operation declared in another user module is spelled through
+   * that module — never bare, which only a claimant declared in the calling
+   * module may be (`Crate.size`, not `size`).
+   */
+  describe("a user module's companion beside a visible member", () => {
+    const CRATE = ["/crate.hex", "module Crate\n\nexport record Crate = {n: Int}\n" +
+      "export let size(c: Crate): Int = c.n\nexport let mk(n: Int): Crate = Crate({n = n})\n"] as const;
+    const WEIGH = ["/weigh.hex", "module Weigh\n\nimport Crate\n\nexport constraint Weigh<c> =\n" +
+      "    size(x: c) -> Int\n\nhonor Weigh<Crate.Crate> =\n    size(c) = 1000\n"] as const;
+    const MID = ["/mid.hex", "module Mid\n\nimport Crate\nimport Weigh\n\n" +
+      "export let crate: Crate.Crate = Crate.mk(4)\n"] as const;
+    const program = (imports: string, line: string) =>
+      [CRATE, WEIGH, MID, ["/main.hex", MAIN + `import Mid\n${imports}\n${line}`]] as const;
+    const head = (companion: string) => `\`size\` after a dot is ambiguous at \`Crate\`: a companion operation ` +
+      `\`${companion}.size\`, \`Weigh\`'s member \`size\`; write `;
+
+    test("with no alias for either module, each import is named first", () => {
+      expect(messages(program("", "export let u: Int = Mid.crate.size()\n"))).toEqual([
+        head("Crate") + "`import Weigh`, then `Weigh.size(…)`, or `import Crate`, then `Crate.size(…)` for the " +
+          "companion operation",
+      ]);
+    });
+
+    test("with an alias held for each, the aliases", () => {
+      expect(messages(program("import Weigh as W\nimport Crate as C\n", "export let u: Int = Mid.crate.size()\n")))
+        .toEqual([head("C") + "`W.size(…)`, or `C.size(…)` for the companion operation"]);
+    });
+
+    test("every spelling offered compiles, and means its claimant", async () => {
+      const imported = await runProject(program("import Weigh\nimport Crate\n",
+        "export let member: Int = Weigh.size(Mid.crate)\nexport let companion: Int = Crate.size(Mid.crate)\n"));
+      expect([imported.member, imported.companion]).toEqual([1000, 4]);
+      const aliased = await runProject(program("import Weigh as W\nimport Crate as C\n",
+        "export let member: Int = W.size(Mid.crate)\nexport let companion: Int = C.size(Mid.crate)\n"));
+      expect([aliased.member, aliased.companion]).toEqual([1000, 4]);
+    });
+  });
+
+  /**
+   * The binding a member's spelling refuses is that refusal's cause, and the
+   * dot names it no second time — which would offer the same spelling twice,
+   * once for the member and once for the binding (Constraints §4.6).
+   */
+  describe("a companion binding the module already refused is no claimant at the dot", () => {
+    test("one an instance honored here claims: the claim's report, alone", () => {
+      const LIB = ["/lib.hex", "module Lib\n\nexport constraint Sized<c> =\n    size(x: c) -> Int\n"] as const;
+      for (const binding of ["let", "fun"]) {
+        expect(messages([LIB, ["/main.hex", MAIN + "import Lib\n\nexport record Box = {n: Int}\n" +
+          `export ${binding} size(b: Box): Int = b.n\n\nhonor Lib.Sized<Box> =\n    size(b) = 7\n\n` +
+          "export let r: Int = Box({n = 1}).size()\n"]])).toEqual([
+          "`size` is already bound: the `Lib.Sized<Box>` instance binds it as a member (line 8); " +
+            "Hexagon does not allow rebinding — choose a different name",
+        ]);
+      }
+    });
+
+    test("one a constraint declared here binds: the rebinding report, alone", () => {
+      expect(projectDiagnostics(MAIN + "export constraint Sized<c> =\n    size(x: c) -> Int\n\n" +
+        "export record Box = {n: Int}\nexport let size(b: Box): Int = b.n\n\n" +
+        "honor Sized<Box> =\n    size(b) = 7\n\nexport let r: Int = Box({n = 1}).size()\n")).toEqual([
+        "`size` is already bound (line 4); Hexagon does not allow rebinding — choose a different name",
+      ]);
+    });
+  });
+
+  test("a prelude alias a module alias shadows is no spelling: the import is named first", async () => {
+    const LIB = ["/lib.hex", "module Lib\n\nexport let k: Int = 1\n"] as const;
+    expect(messages([LIB, ["/main.hex", MAIN + "import Lib as Ord\n\n" +
+      "export record Box derives (Eq, Ord) = {max: Int}\n" +
+      "export let r: Box = Box({max = 1}).max(Box({max = 2}))\n"]])).toEqual([
+      "`max` after a dot is ambiguous at `Box`: a field `max`, `Ord`'s member `max`; write " +
+        "`import Ord as Ord_1`, then `Ord_1.max(…)`, or `(…​.max)` for the field",
+    ]);
+    const exports = await runProject([LIB, ["/main.hex", MAIN + "import Lib as Ord\nimport Ord as Ord_1\n\n" +
+      "export record Box derives (Eq, Ord) = {max: Int}\n" +
+      "export let r: Int = Ord_1.max(Box({max = 1}), Box({max = 2})).max\n"]]);
+    expect(exports.r).toBe(2);
+  });
+
+  describe("an offer that needs its import says to add it, then call (Method Syntax §9 rows 5, 8)", () => {
+    const LIB = ["/lib.hex", "module Lib\n\nexport constraint Sized<c> =\n    heft(x: c) -> String\n" +
+      "    make(n: Int) -> c\n\nhonor Sized<String> =\n    heft(v) = \"heft\"\n    make(n) = \"made\"\n"] as const;
+    const MID = ["/mid.hex", "module Mid\n\nimport Lib\n\nexport let n: Int = 1\n"] as const;
+
+    test("the near-miss: `add`, `then call`; with the alias held, `call it as`", async () => {
+      const tail = "`String` has no field `make`, its companion exports no operation `make`, and no constraint " +
+        "whose instance at `String` is visible in this module has a subject-first member `make`; `Sized`'s " +
+        "member `make` does not take its constraint's subject first — ";
+      expect(messages([LIB, MID, ["/main.hex", MAIN + "import Mid\n\nexport let t: String = \"ab\".make()\n"]]))
+        .toEqual([tail + "add `import Lib`, then call `Lib.make(…)`"]);
+      expect(messages([LIB, ["/main.hex", MAIN + "import Lib\n\nexport let t: String = \"ab\".make()\n"]]))
+        .toEqual([tail + "call it as `Lib.make(…)`"]);
+      const exports = await runProject([LIB, MID, ["/main.hex", MAIN + "import Mid\nimport Lib\n\n" +
+        "export let t: String = Lib.make(1)\n"]]);
+      expect(exports.t).toBe("made");
+    });
+
+    test("the record spelling's redirect: `add`, `then call`; with the alias held, `call`", () => {
+      const use = "fun g(x) = x.heft\nlet t = g(\"ab\")\n";
+      const tail = "this value's type was inferred as a record with a `heft` field because its type was unknown " +
+        "where it was written; `String` is not a record; annotate it to use dispatch, or ";
+      expect(messages([LIB, MID, ["/main.hex", MAIN + "import Mid\n\n" + use]]))
+        .toEqual([tail + "add `import Lib`, then call `Lib.heft(…)` directly"]);
+      expect(messages([LIB, ["/main.hex", MAIN + "import Lib\n\n" + use]]))
+        .toEqual([tail + "call `Lib.heft(…)` directly"]);
+    });
   });
 });

@@ -335,13 +335,16 @@ export function honoredMemberClaim(
   ending: string,
 ): { readonly message: string; readonly cited: Source.Span; readonly label: string } {
   const bound = `\`${member}\` is already bound:`;
-  const line = `line ${item.span.start.line + 1}`;
+  const cited = claimCitedSpan(item);
+  // The line cited in the text is the line the label points at, which a
+  // multi-line type declaration may put below the type's own first line.
+  const line = `line ${cited.start.line + 1}`;
   const inherited = `inherits it as a member from \`${item.constraint}\`'s default`;
   if (item.derived) {
     return {
       message: `${bound} the derived \`${instance}\` instance (${line}) ` +
         `${defaulted ? inherited : "binds it as a member"}; ${ending}`,
-      cited: item.derivesEntry ?? item.span,
+      cited,
       label: "the instance is derived here",
     };
   }
@@ -350,7 +353,32 @@ export function honoredMemberClaim(
     message: written
       ? `${bound} the \`${instance}\` instance binds it as a member (${line}); ${ending}`
       : `${bound} the \`${instance}\` instance (${line}) ${inherited}; ${ending}`,
-    cited: item.span,
+    cited,
     label: "the instance is declared here",
   };
+}
+
+/**
+ * The span a claim report cites for its instance: the `derives` entry that
+ * derives it, or the `honor` line that declares it.
+ */
+function claimCitedSpan(item: Resolved.HonorItem): Source.Span {
+  return item.derived ? item.derivesEntry ?? item.span : item.span;
+}
+
+/**
+ * A module's instances in the order its text declares them — the order the
+ * claim reports in. Several instances can claim one spelling (two `Ord`
+ * instances both carry `max`), and a binding takes one report for one cause
+ * (Constraints §4.6): the first instance's.
+ */
+export function honorsInSourceOrder(items: readonly Resolved.Item[]): readonly Resolved.HonorItem[] {
+  return items
+    .filter((item): item is Resolved.HonorItem => item.kind === "Honor")
+    .map((item, index) => ({ item, index }))
+    .sort((left, right) =>
+      claimCitedSpan(left.item).start.offset - claimCitedSpan(right.item).start.offset ||
+      left.index - right.index
+    )
+    .map(({ item }) => item);
 }

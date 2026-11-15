@@ -36,6 +36,7 @@ import {
 import {
   declaredConstraintIdentity,
   honoredMemberClaim,
+  honorsInSourceOrder,
   isPreRegisteredIdentity,
   mintBaseConstraintSlots,
   PRE_REGISTERED_BASE_CONSTRAINTS,
@@ -7186,6 +7187,10 @@ class Checker {
    * not be re-run — and re-reported — by every importer.
    */
   readonly #localConstraints = new Map<string, Resolved.ConstraintItem>();
+  /** This module's items, for the questions asked of them after `check` began. */
+  #moduleItems: readonly Resolved.Item[] = [];
+  /** `#memberSpellingRefusals`, computed once a dot first asks. */
+  #memberSpellingRefusalSet: ReadonlySet<Resolved.SymbolId> | undefined;
   /**
    * Every constraint declaration this module can see, by identity: its own,
    * every one its imports name, and every one its import graph merely reaches.
@@ -7599,6 +7604,7 @@ class Checker {
     // wrote: module `Option` is bound and exports no such constraint.
     for (const { alias } of module.moduleAliases) this.#moduleAliases.add(alias);
     this.#modulePath = module.path;
+    this.#moduleItems = module.items;
     this.#orderPrescan(module);
     this.#preludeUnionIds = new Set(module.preludeUnions.values());
     this.#preludeRecordIds = new Set(module.preludeRecords.values());
@@ -9726,8 +9732,13 @@ class Checker {
     if (members.length > 0) {
       const minted = new Set<string>();
       const memberSpellings = members.map((member) => this.#memberSpelling(member, minted));
-      const companion = operation === undefined ? undefined : this.#claimantSpelling(operation.id, name, {
-        local: operationHome !== undefined && operationHome.path === this.#modulePath,
+      const local = operationHome !== undefined && operationHome.path === this.#modulePath;
+      // A companion binding this module already refused for wearing a member's
+      // spelling is no claimant: its own report is the cause, and the dot
+      // would name the same spelling twice (one report per cause).
+      const refused = operation !== undefined && local && this.#memberSpellingRefusals().has(operation.id);
+      const companion = operation === undefined || refused ? undefined : this.#claimantSpelling(operation.id, name, {
+        local,
         path: operationHome?.path,
         fallback: companionHeadName(actual) ?? this.#display(actual),
       }, minted);
@@ -9738,29 +9749,18 @@ class Checker {
           : [companion.kind === "spelled"
             ? `a companion operation \`${companion.text}\``
             : `a companion operation \`${name}\`${this.#claimantFact(companion)}`]),
-        ...members.map((member, index) =>
-          `\`${member.constraint}\`'s member \`${name}\`` +
-          this.#claimantFact(memberSpellings[index]!, member.constraint)
-        ),
+        ...members.map((member, index) => this.#memberClaimant(member, memberSpellings[index]!)),
       ];
       if (claimants.length > 1) {
         this.#dotCallArguments(expression, level);
-        // The rewrites are the claimants that have a spelling; a claimant
-        // named as fact offers none (Method Syntax §6).
-        const offered = memberSpellings.flatMap((spelling) => this.#offeredCall(spelling) ?? []);
         const companionCall = companion === undefined ? undefined : this.#offeredCall(companion);
-        const rewrites = [
-          ...(offered.length === 0 ? [] : [offered.join(" or ")]),
-          ...(companionCall === undefined ? [] : [`${companionCall} for the companion operation`]),
-          ...(recordHasField ? [`\`(…​.${name})\` for the field`] : []),
-        ];
         return this.#unsupported(
           callee.field.span,
           `\`${name}\` after a dot is ambiguous at \`${this.#display(actual)}\`: ` +
-            `${claimants.join(", ")}` +
-            (rewrites.length === 0
-              ? "; none of them has a spelling this module can write"
-              : `; write ${rewrites.join(", or ")}`),
+            this.#ambiguityClaimants(claimants, memberSpellings, [
+              ...(companionCall === undefined ? [] : [`${companionCall} for the companion operation`]),
+              ...(recordHasField ? [`\`(…​.${name})\` for the field`] : []),
+            ]),
         );
       }
       this.#settleDeferredReceiver(callee.receiver, receiver);
@@ -10313,6 +10313,79 @@ class Checker {
   }
 
   /**
+   * The module-level bindings this module refuses for wearing a constraint
+   * member's spelling: one an instance honored here claims (Constraints §4.6,
+   * the resolver's seat for a private binding and `#refuseExportedMemberSpellings`
+   * for an exported one), or one a constraint declared or named-imported here
+   * already binds (the plain rebinding refusal). A `widens` binding wears its
+   * spelling lawfully and is none of them.
+   */
+  #memberSpellingRefusals(): ReadonlySet<Resolved.SymbolId> {
+    if (this.#memberSpellingRefusalSet !== undefined) return this.#memberSpellingRefusalSet;
+    const spellings = new Set<string>();
+    for (const item of this.#moduleItems) {
+      if (item.kind === "ConstraintDeclaration") {
+        for (const member of item.members) spellings.add(member.binding.name);
+      } else if (item.kind === "Import" && item.form.kind === "Named") {
+        for (const { declaration } of item.constraints) {
+          for (const member of declaration.members) spellings.add(member.binding.name);
+        }
+      } else if (item.kind === "Honor") {
+        const declaration = this.#constraintsByIdentity.get(item.constraintIdentity);
+        const names = declaration === undefined
+          ? PRE_REGISTERED_CONSTRAINT_MEMBERS[item.constraint] ?? []
+          : declaration.members.map(({ binding }) => binding.name);
+        for (const name of names) spellings.add(name);
+      }
+    }
+    const refused = new Set<Resolved.SymbolId>();
+    for (const item of this.#moduleItems) {
+      if (item.kind === "Let" && item.widens !== undefined) continue;
+      if ((item.kind === "Let" || item.kind === "Fun") && spellings.has(item.binding.name)) {
+        refused.add(item.binding.symbol);
+      }
+    }
+    this.#memberSpellingRefusalSet = refused;
+    return refused;
+  }
+
+  /** A member claimant as a dot refusal names it: its constraint, and its fact. */
+  #memberClaimant(member: MemberCandidate, spelling: ClaimantSpelling): string {
+    return `\`${member.constraint}\`'s member \`${member.member}\`` +
+      this.#claimantFact(spelling, member.constraint);
+  }
+
+  /**
+   * A dot refusal's body after its head: every claimant, then the rewrites —
+   * the members' offered spellings first, then the `others` (companion,
+   * field). A claimant named as fact offers none (Method Syntax §6); where no
+   * claimant has a spelling, the refusal says so rather than offering nothing.
+   */
+  #ambiguityClaimants(
+    claimants: readonly string[],
+    memberSpellings: readonly ClaimantSpelling[],
+    others: readonly string[],
+  ): string {
+    const offered = memberSpellings.flatMap((spelling) => this.#offeredCall(spelling) ?? []);
+    const rewrites = [...(offered.length === 0 ? [] : [offered.join(" or ")]), ...others];
+    return claimants.join(", ") + (rewrites.length === 0
+      ? "; none of them has a spelling this module can write"
+      : `; write ${rewrites.join(", or ")}`);
+  }
+
+  /**
+   * An offered spelling as an instruction to call it: `call \`Lib.make(…)\``,
+   * or, where the import comes first, `add \`import Lib\`, then call
+   * \`Lib.make(…)\``. `undefined` for a claimant with no spelling.
+   */
+  #callInstruction(spelling: ClaimantSpelling): string | undefined {
+    if (spelling.kind === "fact") return undefined;
+    return spelling.route === undefined
+      ? `call \`${spelling.text}(…)\``
+      : `add \`${spelling.route}\`, then call \`${spelling.text}(…)\``;
+  }
+
+  /**
    * §9 row 4, now that the candidate set has three sources: the message must
    * account for all three, or it asserts something false about the two it does
    * not mention. Row 5's near-miss rides along — a member that exists but does
@@ -10330,14 +10403,19 @@ class Checker {
     // do not reach is no claimant here. The near-miss is offered by a spelling
     // this module can write — through the declaring module, never bare, which
     // the member channel refuses (Modules §5.5) — and by none where it has none.
-    const call = nearMiss === undefined ? undefined : this.#offeredCall(this.#memberSpelling(nearMiss, new Set()));
+    const spelling = nearMiss === undefined ? undefined : this.#memberSpelling(nearMiss, new Set());
+    const call = spelling === undefined || spelling.kind === "fact"
+      ? undefined
+      : spelling.route === undefined
+      ? `call it as ${this.#offeredCall(spelling)}`
+      : this.#callInstruction(spelling);
     return `\`${display}\` has no field \`${name}\`, its companion exports no ` +
       `operation \`${name}\`, and no constraint whose instance at \`${display}\` is ` +
       `visible in this module has a subject-first member \`${name}\`` +
       (nearMiss === undefined
         ? "; call an available subject-first function explicitly"
         : `; \`${nearMiss.constraint}\`'s member \`${name}\` does not take its ` +
-          `constraint's subject first` + (call === undefined ? "" : ` — call it as ${call}`));
+          `constraint's subject first` + (call === undefined ? "" : ` — ${call}`));
   }
 
   /** §3.4's declared-type-variable row: the bounds, and nothing else. */
@@ -10357,13 +10435,18 @@ class Checker {
     }
     this.#dotCallArguments(expression, level);
     if (members.length > 1) {
+      // The head-known refusal's assembly, at the bounds: every claimant
+      // named, a claimant with no spelling named as fact (Method Syntax §6).
       const minted = new Set<string>();
+      const spellings = members.map((member) => this.#memberSpelling(member, minted));
       return this.#unsupported(
         callee.field.span,
         `\`${name}\` after a dot is ambiguous on \`${variable.rigidName}\`: ` +
-          `${members.map(({ constraint }) => `\`${constraint}\``).join(" and ")} each ` +
-          `declare a member \`${name}\`; write ` +
-          `${members.flatMap((member) => this.#offeredCall(this.#memberSpelling(member, minted)) ?? []).join(" or ")}`,
+          this.#ambiguityClaimants(
+            members.map((member, index) => this.#memberClaimant(member, spellings[index]!)),
+            spellings,
+            [],
+          ),
       );
     }
     // §9 row 7. The bounds are the entire candidate set, so the message says so
@@ -34926,17 +35009,17 @@ class Checker {
       // display: `Vector.length`, not `Vector(Int).length`, which resolves
       // nowhere (Method Syntax §6, §9 row 8); a claimant with no spelling here
       // is offered none.
-      const call = member === undefined
-        ? this.#offeredCall(this.#claimantSpelling(operation!.id, name, {
+      const call = this.#callInstruction(member === undefined
+        ? this.#claimantSpelling(operation!.id, name, {
           local: this.#operationHomes.get(operation!.id)?.path === this.#modulePath,
           path: this.#operationHomes.get(operation!.id)?.path,
           fallback: companionHeadName(nominal) ?? display,
-        }, new Set()))
-        : this.#offeredCall(this.#memberSpelling(member, new Set()));
+        }, new Set())
+        : this.#memberSpelling(member, new Set()));
       return `this value's type was inferred as a record with a \`${name}\` field ` +
         `because its type was unknown where it was written; \`${display}\` is not a ` +
         `record; annotate it to use dispatch` +
-        (call === undefined ? "" : `, or call ${call} directly`);
+        (call === undefined ? "" : `, or ${call} directly`);
     }
     return undefined;
   }
@@ -42837,8 +42920,9 @@ class Checker {
         }
       }
     }
-    for (const item of items) {
-      if (item.kind !== "Honor") continue;
+    // One report per binding (§4.6): the first instance in source order.
+    const reported = new Set<string>();
+    for (const item of honorsInSourceOrder(items)) {
       const declaration = this.#constraintsByIdentity.get(item.constraintIdentity);
       const subject = this.#instanceSubjects.get(item);
       if (subject === undefined) continue;
@@ -42853,9 +42937,10 @@ class Checker {
             .map((member) => ({ member }))
           : constraintMemberCandidates(declaration);
       for (const candidate of candidates) {
-        if (ordinaryElsewhere.has(candidate.member)) continue;
+        if (ordinaryElsewhere.has(candidate.member) || reported.has(candidate.member)) continue;
         const door = exported.get(candidate.member);
         if (door === undefined) continue;
+        reported.add(candidate.member);
         const rewrite = "symbol" in candidate &&
             this.#generalises(door.binding.symbol, candidate, subject, item.span)
           ? "a member's wider face is declared, not exported — write " +
