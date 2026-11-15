@@ -590,7 +590,7 @@ describe("A line that is too long (§9)", () => {
     ));
   });
 
-  it("carries an operator on at two levels, breaking at its loosest operator after it (§9.4 rule 5, §9.5)", () => {
+  it("carries an operator on at two levels, the carried-on line beginning with its loosest operator (§9.4 rule 5, §9.5)", () => {
     expect(format(lines(
       "module A",
       "let total =",
@@ -598,10 +598,20 @@ describe("A line that is too long (§9)", () => {
     ), { maximumLineLength: 30 })).toBe(lines(
       "module A",
       "let total =",
-      "    first * second +",
-      "            third * fourth +",
-      "            fifth",
+      "    first * second",
+      "            + third * fourth",
+      "            + fifth",
     ));
+  });
+
+  it("leaves an operator the author put at the end of a line where it is", () => {
+    const text = lines(
+      "module A",
+      "let total =",
+      "    first * second +",
+      "            third * fourth",
+    );
+    expect(format(text, { maximumLineLength: 30 })).toBe(text);
   });
 
   it("never breaks a string, a comment, or a line with nothing left to break, and measures without a trailing comment", () => {

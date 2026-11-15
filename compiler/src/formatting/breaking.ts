@@ -13,13 +13,6 @@ import * as Spacing from "./spacing.js";
 import * as Whitespace from "./whitespace.js";
 import type * as Lexed from "../syntax/lexed/index.js";
 
-/**
- * Which side of an operator a carried-on break falls on (§9.5, pending the
- * house-style ruling). `"after"`: the line above ends with the operator, as
- * every example in the chapter is written. `"before"`: the carried-on line
- * begins with it.
- */
-export const OPERATOR_SIDE: "after" | "before" = "after";
 
 /** Binary operators by precedence level, loosest highest (Operators §3). */
 const precedence = new Map<string, number>([
@@ -313,7 +306,7 @@ function plan(reading: Reading, line: LongLine, failed: ReadonlySet<string>): Pl
     // 3. A chain.
     candidates.push({ shape: "chain", before: () => chain(tokens, roles, value) });
     // 5. An operator.
-    candidates.push({ shape: "operator", before: () => operator(tokens, roles, value, line.last) });
+    candidates.push({ shape: "operator", before: () => operator(tokens, roles, value) });
   }
   // 2. Brackets: the first pair on the line with something between it, or, on
   // a header whose value is already beneath it, the header's.
@@ -470,7 +463,6 @@ function operator(
   tokens: readonly Lexed.Token[],
   roles: Spacing.Roles,
   value: readonly number[],
-  last: number,
 ): number[] {
   const operands = reach(tokens, value);
   let loosest = 0;
@@ -479,11 +471,8 @@ function operator(
   const before: number[] = [];
   for (const index of operands) {
     if (binaryLevel(tokens, roles, index) !== loosest) continue;
-    if (OPERATOR_SIDE === "after") {
-      if (index < last) before.push(index + 1);
-    } else {
-      before.push(index);
-    }
+    // The carried-on line begins with the operator (§9.5, ruled 2026-11-15).
+    before.push(index);
   }
   return before;
 }
