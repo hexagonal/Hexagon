@@ -560,7 +560,7 @@ export fun f(t: T): Int = t.hidden!()
 `]]).diagnostics.map(({ message }) => message),
     ).toEqual([
       "`T` has no field `hidden`, its companion exports no operation `hidden`, and no " +
-      "constraint honored at `T` has a subject-first member `hidden`; call an available " +
+      "constraint whose instance at `T` is visible in this module has a subject-first member `hidden`; call an available " +
       "subject-first function explicitly",
     ]);
   });

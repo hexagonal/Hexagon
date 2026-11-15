@@ -164,7 +164,7 @@ describe("a position is checked as `Vector.at`'s `Int` (Collections Part 3 §5.1
   });
 
   test("an index whose shape does not choose closes on its own, as a dot call's receiver does", () => {
-    const refusal = "type `Nat` has no `Signed` instance";
+    const refusal = "no `Signed<Nat>` instance is visible in this module";
     // The dot: its receiver closes first, and its name need not be a tower
     // member's, so its shape chooses nothing.
     const dot = diagnostics("export fun r(xs: Vector(Int), k: Nat): Int = xs[k.subtract(1)]\n");

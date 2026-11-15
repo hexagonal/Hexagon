@@ -61,17 +61,14 @@ describe("every honor is a knot (§4.8)", () => {
 
 describe("a use stands below its honor (§4.8, §8)", () => {
   test("every spelling of a member call above its honor is refused, once each", () => {
-    for (const call of ["Show.show(p)", "p.show()", "p |> Show.show"]) {
+    // The bare spelling among them: `show` is the prelude's, and at `P` it
+    // selects the instance (§4.6, #757) — a use of it like the others, never a
+    // reference to a member binding.
+    for (const call of ["Show.show(p)", "p.show()", "p |> Show.show", "show(p)"]) {
       expect(projectDiagnostics(MAIN + P + `let early(p: P): String = ${call}\n` + SHOW_P))
         .toEqual([above("Show<P>")]);
       expect(projectDiagnostics(MAIN + P + SHOW_P + `let late(p: P): String = ${call}\n`)).toEqual([]);
     }
-    // The bare spelling names the member binding (§4.6), which enters the
-    // order with its honor's knot: the declared-later error, and only it.
-    expect(projectDiagnostics(MAIN + P + "let early(p: P): String = show(p)\n" + SHOW_P)).toEqual([
-      "`show` is bound by the `Show` instance below this use; declarations are read top-down — " +
-      "move the instance above this use",
-    ]);
   });
 
   test("an operator, interpolation, and evidence handed to generic code are uses", () => {
@@ -303,33 +300,51 @@ describe("derived instances (§4.8)", () => {
 
   test("the derivation fixit moves a declaration standing below the use above it", () => {
     expect(projectDiagnostics(MAIN + "export let same(t: T): Bool = t == t\nexport record T = {n: Int}\n")).toEqual([
-      "type `T` has no `Eq` instance; it could only be declared in module `Main` (declares `T`) or the module " +
+      "no `Eq<T>` instance is visible in this module; it could only be declared in module `Main` (declares `T`) or the module " +
       "declaring `Eq`; add `derives Eq` to the declaration of `T`, and move the declaration above this use",
     ]);
     expect(projectDiagnostics(MAIN + "export record T = {n: Int}\nexport let same(t: T): Bool = t == t\n")).toEqual([
-      "type `T` has no `Eq` instance; it could only be declared in module `Main` (declares `T`) or the module " +
+      "no `Eq<T>` instance is visible in this module; it could only be declared in module `Main` (declares `T`) or the module " +
       "declaring `Eq`; add `derives Eq` to the declaration of `T`",
     ]);
   });
 });
 
-describe("member bindings enter the order with their knot (§4.6)", () => {
-  test("inside a knot a bare member name is visible earlier and later; its own name stays refused", () => {
-    expect(projectDiagnostics(MAIN + P +
+describe("no bare name reaches a member binding (§4.6, #757)", () => {
+  /**
+   * Honoring binds no bare name, so a bare member spelling has no order of its
+   * own to meet: inside a knot and outside it alike, `equals` is Modules
+   * §5.5's refusal, and `show` is the prelude's. The knot's order is read by
+   * the routes that do reach the member — the dot here — and inside a group
+   * they see every instance, earlier and later alike.
+   */
+  test("inside a knot a bare sibling is the §5.5 refusal, and the dot sees earlier and later", () => {
+    const group = (inside: string, below: string): string => MAIN + P +
       "honor\n" +
-      '    Show<P> =\n        show(p) = "P${equals(p, p)}"\n' +
+      `    Show<P> =\n        show(p) = "P\${${inside}}"\n` +
       "    Eq<P> =\n        equals(a, b) = a.x == b.x\n" +
-      "let f(p: P): Bool = equals(p, p)\n")).toEqual([]);
-    expect(projectDiagnostics(MAIN + P + 'honor Show<P> =\n    show(p) = show(p.x)\n')).toEqual([
-      "`show` is this member's own name, and a member cannot call itself bare; recursion is spelled " +
-      "through dispatch — write the dot call `value.show()`, or qualify the instance you mean: `Show.show(…)`",
+      `let f(p: P): Bool = ${below}\n`;
+    expect(projectDiagnostics(group("equals(p, p)", "equals(p, p)"))).toEqual([
+      "no bare `equals`; write `p.equals(p)` or `Eq.equals(p, p)`",
+      "no bare `equals`; write `p.equals(p)` or `Eq.equals(p, p)`",
     ]);
+    expect(projectDiagnostics(group("p.equals(p)", "p.equals(p)"))).toEqual([]);
   });
 
-  test("outside its knot, above the knot's last line, a bare member name is the declared-later error", () => {
+  test("a member's own spelling in its body is the prelude's `show`, no refusal of its own", async () => {
+    expect(projectDiagnostics(MAIN + P + 'honor Show<P> =\n    show(p) = show(p.x)\n')).toEqual([]);
+    const exports = await runMain(MAIN + P + 'honor Show<P> =\n    show(p) = "<" ++ show(p.x) ++ ">"\n' +
+      "export let s: String = show(P({x = 3}))\n");
+    expect(exports["s"]).toBe("<3>");
+  });
+
+  test("above the knot, a bare member spelling is the §5.5 refusal, never declared-later", () => {
     expect(projectDiagnostics(MAIN + P + "let f(p: P): Bool = equals(p, p)\n" + EQ_P)).toEqual([
-      "`equals` is bound by the `Eq` instance below this use; declarations are read top-down — " +
-      "move the instance above this use",
+      "no bare `equals`; write `p.equals(p)` or `Eq.equals(p, p)`",
+    ]);
+    // Its dot rewrite there is a use above the honor, refused in the law's words.
+    expect(projectDiagnostics(MAIN + P + "let f(p: P): Bool = p.equals(p)\n" + EQ_P)).toEqual([
+      above("Eq<P>"),
     ]);
   });
 });

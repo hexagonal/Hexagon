@@ -275,7 +275,7 @@ describe("`Nat` honors no `Signed`", () => {
     expect(diagnostics([
       ["/main.hex", "module Main\n\n" + "export let gap(a: Nat, b: Nat): Nat = a - b\n"],
     ])).toContain(
-      "type `Nat` has no `Signed` instance; its only legal homes are the module declaring " +
+      "no `Signed<Nat>` instance is visible in this module; its only legal homes are the module declaring " +
         "`Signed` and `Nat`'s prelude companion module, both outside project source, so " +
         "this pair's honored set is closed — change the type, or go through the operations " +
         "those homes export; a written `Int` face runs the operation and admits the " +
@@ -284,7 +284,7 @@ describe("`Nat` honors no `Signed`", () => {
     expect(diagnostics([
       ["/main.hex", "module Main\n\n" + "export let flipped(a: Nat): Nat = -a\n"],
     ])).toContain(
-      "type `Nat` has no `Signed` instance; its only legal homes are the module declaring " +
+      "no `Signed<Nat>` instance is visible in this module; its only legal homes are the module declaring " +
         "`Signed` and `Nat`'s prelude companion module, both outside project source, so " +
         "this pair's honored set is closed — change the type, or go through the operations " +
         "those homes export; a written `Int` face runs the operation and admits the " +

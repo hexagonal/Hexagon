@@ -123,7 +123,7 @@ describe("the no-such-operation diagnostic tells the truth again (#585)", () => 
         "export let out: Float = Crate.Crate({n = 1.0}).quadrupled()\n"],
     ])).toEqual([
       "`Crate` has no field `quadrupled`, its companion exports no operation " +
-      "`quadrupled`, and no constraint honored at `Crate` has a subject-first " +
+      "`quadrupled`, and no constraint whose instance at `Crate` is visible in this module has a subject-first " +
       "member `quadrupled`; call an available subject-first function explicitly",
     ]);
   });

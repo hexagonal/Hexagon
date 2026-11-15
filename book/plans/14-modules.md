@@ -6,7 +6,7 @@ Teach the module header and its name as identity, several modules per file with
 `end module`, private-by-default declarations, the single path-free module-import
 form, named exports, opaque records and unions, companion modules, acyclic loading,
 top-level
-effects, root execution, and the global visibility of instances.
+effects, root execution, and the visibility of instances through imports.
 
 ## Reader outcome
 
@@ -24,7 +24,7 @@ and execution without looking for a special `main` function.
    or a `match`-arm constructor.
 4. Module aliases and the companion-module idiom.
 5. `opaque` for records and unions.
-6. Public-signature visibility and instance globality.
+6. Public-signature visibility and instance visibility through imports.
 7. Acyclic loading, top-level effects, and selected roots.
 8. Direct ESM emission.
 

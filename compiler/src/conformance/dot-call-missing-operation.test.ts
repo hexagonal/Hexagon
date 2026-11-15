@@ -38,7 +38,7 @@ describe("a missing companion operation reports rather than crashing (#212)", ()
     expect(
       projectDiagnostics("module Main\n\n" + "export fun go(s: Seq(Int)): Seq(Int) = s.bogus(1)\n"),
     ).toEqual([
-      "`Seq(Int)` has no field `bogus`, its companion exports no operation `bogus`, and no constraint honored at `Seq(Int)` has a subject-first member `bogus`; call an available subject-first function explicitly",
+      "`Seq(Int)` has no field `bogus`, its companion exports no operation `bogus`, and no constraint whose instance at `Seq(Int)` is visible in this module has a subject-first member `bogus`; call an available subject-first function explicitly",
     ]);
   });
 
@@ -48,7 +48,7 @@ describe("a missing companion operation reports rather than crashing (#212)", ()
           "export let counts: Vector(Int) = blank.nope(1)\n",
       ),
     ).toEqual([
-      "`Vector(Int)` has no field `nope`, its companion exports no operation `nope`, and no constraint honored at `Vector(Int)` has a subject-first member `nope`; call an available subject-first function explicitly",
+      "`Vector(Int)` has no field `nope`, its companion exports no operation `nope`, and no constraint whose instance at `Vector(Int)` is visible in this module has a subject-first member `nope`; call an available subject-first function explicitly",
     ]);
   });
 
@@ -59,7 +59,7 @@ describe("a missing companion operation reports rather than crashing (#212)", ()
           "export let q = p.nope(1)\n",
       ),
     ).toContain(
-      "`P` has no field `nope`, its companion exports no operation `nope`, and no constraint honored at `P` has a subject-first member `nope`; call an available subject-first function explicitly",
+      "`P` has no field `nope`, its companion exports no operation `nope`, and no constraint whose instance at `P` is visible in this module has a subject-first member `nope`; call an available subject-first function explicitly",
     );
   });
 });
@@ -84,7 +84,7 @@ describe("a misspelling beside a correctly-spelled operation", () => {
 
     expect(messages).toEqual([
       "`Vector(a)` has no field `appendd`, its companion exports no operation " +
-      "`appendd`, and no constraint honored at `Vector(a)` has a subject-first " +
+      "`appendd`, and no constraint whose instance at `Vector(a)` is visible in this module has a subject-first " +
       "member `appendd`; call an available subject-first function explicitly",
     ]);
   });
@@ -134,7 +134,7 @@ describe("a member name with no instance behind it is still a misspelling", () =
         ],
       ]),
     ).toContain(
-      "`Token` has no field `show`, its companion exports no operation `show`, and no constraint honored at `Token` has a subject-first member `show`; call an available subject-first function explicitly",
+      "`Token` has no field `show`, its companion exports no operation `show`, and no constraint whose instance at `Token` is visible in this module has a subject-first member `show`; call an available subject-first function explicitly",
     );
   });
 });
@@ -147,7 +147,7 @@ describe("the controls that already reported before the fix", () => {
     expect(
       projectDiagnostics("module Main\n\n" + "export fun go(s: Seq(Int)): Seq(Int) = s.bogus(1.5)\n"),
     ).toEqual([
-      "`Seq(Int)` has no field `bogus`, its companion exports no operation `bogus`, and no constraint honored at `Seq(Int)` has a subject-first member `bogus`; call an available subject-first function explicitly",
+      "`Seq(Int)` has no field `bogus`, its companion exports no operation `bogus`, and no constraint whose instance at `Seq(Int)` is visible in this module has a subject-first member `bogus`; call an available subject-first function explicitly",
     ]);
   });
 
@@ -158,7 +158,7 @@ describe("the controls that already reported before the fix", () => {
           "export let counts: Vector(Int) = blank.nope(one)\n",
       ),
     ).toContain(
-      "`Vector(Int)` has no field `nope`, its companion exports no operation `nope`, and no constraint honored at `Vector(Int)` has a subject-first member `nope`; call an available subject-first function explicitly",
+      "`Vector(Int)` has no field `nope`, its companion exports no operation `nope`, and no constraint whose instance at `Vector(Int)` is visible in this module has a subject-first member `nope`; call an available subject-first function explicitly",
     );
   });
 
@@ -168,7 +168,7 @@ describe("the controls that already reported before the fix", () => {
           "export let blank = xs.vacant()\n",
       ),
     ).toContain(
-      "`Vector(Int)` has no field `vacant`, its companion exports no operation `vacant`, and no constraint honored at `Vector(Int)` has a subject-first member `vacant`; call an available subject-first function explicitly",
+      "`Vector(Int)` has no field `vacant`, its companion exports no operation `vacant`, and no constraint whose instance at `Vector(Int)` is visible in this module has a subject-first member `vacant`; call an available subject-first function explicitly",
     );
   });
 });

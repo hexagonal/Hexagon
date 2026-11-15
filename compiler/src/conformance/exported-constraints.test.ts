@@ -336,7 +336,7 @@ describe("base-constraint entailment through an imported constraint", () => {
       // as `honor Units.Loud<Siren>`, and its own module is the home the report
       // leads with. (`Units` could not hold it — naming `Siren` there
       // would need an import of `Main`, which §7.3 forbids on this graph.)
-      "type `Siren` has no `Loud` instance; it could only be declared in module `Main` " +
+      "no `Loud<Siren>` instance is visible in this module; it could only be declared in module `Main` " +
         "(declares `Siren`) or module `Units` (declares `Loud`)",
     ]);
   });
@@ -435,7 +435,7 @@ describe("a base chain whose middle link the importer cannot name", () => {
         "",
       ].join("\n")],
     ])).toEqual([
-      "type `Ounce` has no `Small` instance; `Small` is not nameable here, so the honor " +
+      "no `Small<Ounce>` instance is visible in this module; `Small` is not nameable here, so the honor " +
         "can only be written in module `Scales`, which declares it",
     ]);
   });
@@ -891,7 +891,7 @@ describe("`export honor` and `opaque constraint` (Modules §4.1, §10)", () => {
       "    tally(n) = n",
       "",
     ].join("\n")]])).toContain(
-      "instances are always visible; `export` does not apply",
+      "an instance is never exported; `export` does not apply",
     );
   });
 

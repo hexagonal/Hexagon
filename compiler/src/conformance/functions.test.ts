@@ -176,7 +176,7 @@ describe("Functions specification conformance", () => {
       checkSource(text).diagnostics.map(({ message, primary }) => [message, caret(text, primary)]);
     const n = "let n: Nat = 3\n";
     const signedFace = "; a written `Int` face runs the operation and admits the result (`let difference: Int = …`)";
-    const signed = "type `Nat` has no `Signed` instance; its only legal homes are the module declaring `Signed` and `Nat`'s prelude companion module, both outside project source, so this pair's honored set is closed — change the type, or go through the operations those homes export";
+    const signed = "no `Signed<Nat>` instance is visible in this module; its only legal homes are the module declaring `Signed` and `Nat`'s prelude companion module, both outside project source, so this pair's honored set is closed — change the type, or go through the operations those homes export";
 
     // At the seat — an operator, and a constraint member's own call — the
     // rider stands: the face goes on the binding that runs the operation.
@@ -234,7 +234,7 @@ describe("Functions specification conformance", () => {
     // instance's, and names no literal the caller did not write.
     expect(reports("let g(x) = x + 1\nlet y = g(True)")).toEqual([
       [
-        "type `Bool` has no `Num` instance; its only legal homes are the module declaring `Num` and the prelude module declaring `Bool`, both outside project source, so this pair's honored set is closed — change the type, or go through the operations those homes export",
+        "no `Num<Bool>` instance is visible in this module; its only legal homes are the module declaring `Num` and the prelude module declaring `Bool`, both outside project source, so this pair's honored set is closed — change the type, or go through the operations those homes export",
         "g",
       ],
     ]);

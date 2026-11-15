@@ -170,7 +170,7 @@ describe("exact BigInt-source widening through FromBigInt", () => {
     );
 
     expect(messages).toHaveLength(1);
-    expect(messages[0]).toContain("type `BigInt` has no `Frac` instance");
+    expect(messages[0]).toContain("no `Frac<BigInt>` instance is visible in this module");
     expect(messages[0]).not.toContain("Rat");
     expect(messages[0]).not.toContain("Float");
   });

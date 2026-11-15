@@ -485,7 +485,7 @@ describe("genericity is granted inside the boundary only (§3.4)", () => {
     expect(inRuntimeModule(
       "record Weird = {s: String}\n" +
       `${constrained}export let bad: Int = Node.get(one(Weird({s = "K"})), 0).s\n`,
-    ).join("\n")).toContain("type `Weird` has no `Hash` instance");
+    ).join("\n")).toContain("no `Hash<Weird>` instance is visible in this module");
   });
 
   /**

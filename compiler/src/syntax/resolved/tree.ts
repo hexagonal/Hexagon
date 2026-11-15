@@ -537,6 +537,13 @@ export interface ScopeRegion {
 export interface ModuleAlias {
   readonly alias: string;
   readonly members: readonly { readonly name: string; readonly symbol: SymbolId }[];
+  /**
+   * The aliased module's project-normalized path, where the compilation had
+   * one: what a report reads to spell a declaration through **this** module's
+   * alias for its home, a constraint's member included, which `members` (the
+   * module's terms) does not list (Method Syntax §6).
+   */
+  readonly path?: string;
 }
 
 export interface Module {

@@ -138,15 +138,15 @@ describe("qualified access to a declaring module (ordinary access to an export)"
 });
 
 describe("`Eq`'s defaulted `notEquals` (Constraints §2's first default)", () => {
-  test("an instance that omits it inherits the negation, bare and through `!=`", async () => {
+  test("an instance that omits it inherits the negation, by the dot and through `!=`", async () => {
     const exports = await runMain("module Main\n\n" + [
       "export record Odd = {n: Int}",
       "",
       "honor Eq<Odd> =",
       "    equals(left, right) = left.n == right.n",
       "",
-      "export let differ: Bool = notEquals(Odd({n = 1}), Odd({n = 2}))",
-      "export let agree: Bool = notEquals(Odd({n = 1}), Odd({n = 1}))",
+      "export let differ: Bool = Odd({n = 1}).notEquals(Odd({n = 2}))",
+      "export let agree: Bool = Eq.notEquals(Odd({n = 1}), Odd({n = 1}))",
       "export let viaOperator: Bool = Odd({n = 1}) != Odd({n = 2})",
       "",
     ].join("\n"));
@@ -184,7 +184,7 @@ describe("`Eq`'s defaulted `notEquals` (Constraints §2's first default)", () =>
       "honor Eq<Pair> =",
       "    equals(left, right) = left.n == right.n",
       "",
-      "export let differ: Bool = notEquals(Pair({n = 1}), Pair({n = 2}))",
+      "export let differ: Bool = Pair({n = 1}).notEquals(Pair({n = 2}))",
       "",
     ].join("\n"));
 
@@ -203,7 +203,7 @@ describe("`Eq`'s defaulted `notEquals` (Constraints §2's first default)", () =>
    * effect is observable: if the completion still fired, the answers below
    * would be the negation instead.
    */
-  test("an override is honored, bare and through `!=`", async () => {
+  test("an override is honored, by the dot and through `!=`", async () => {
     const exports = await runMain("module Main\n\n" + [
       "export record Weird = {n: Int}",
       "",
@@ -211,12 +211,12 @@ describe("`Eq`'s defaulted `notEquals` (Constraints §2's first default)", () =>
       "    equals(left, right) = left.n == right.n",
       "    notEquals(left, right) = False",
       "",
-      "export let bare: Bool = notEquals(Weird({n = 1}), Weird({n = 2}))",
+      "export let dotted: Bool = Weird({n = 1}).notEquals(Weird({n = 2}))",
       "export let viaOperator: Bool = Weird({n = 1}) != Weird({n = 2})",
       "",
     ].join("\n"));
 
-    expect(exports.bare).toBe(false);
+    expect(exports.dotted).toBe(false);
     expect(exports.viaOperator).toBe(false);
   });
 });

@@ -740,8 +740,8 @@ describe("resolve", () => {
     );
 
     expect(module.diagnostics.map(({ message }) => message)).toContain(
-      "the `Eq<Odd>` instance binds `notEquals`, which is already bound (line 4); " +
-        "Hexagon does not allow rebinding — choose a different name",
+      "`notEquals` is already bound: the `Eq<Odd>` instance (line 5) inherits it as a " +
+        "member from `Eq`'s default; Hexagon does not allow rebinding — choose a different name",
     );
   });
 

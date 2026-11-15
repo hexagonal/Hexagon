@@ -410,7 +410,7 @@ describe("the wired rows are gone, not dormant", () => {
       .toEqual(["module `Float` does not export `quot`"]);
     expect(projectDiagnostics("module Main\n\n" + "export let g: Float = Integral.gcd(1.5, 2.0)\n"))
       .toEqual([
-        "type `Float` has no `Integral` instance; its only legal homes are the module " +
+        "no `Integral<Float>` instance is visible in this module; its only legal homes are the module " +
           "declaring `Integral` and `Float`'s prelude companion module, both outside " +
           "project source, so this pair's honored set is closed — change the type, or go " +
           "through the operations those homes export",
@@ -427,7 +427,7 @@ describe("the wired rows are gone, not dormant", () => {
   test("a `div` dot call on a `Float` receiver takes the neither-error", () => {
     expect(projectDiagnostics("module Main\n\n" + "export let d: Float = (1.5).div(2.0)\n")).toEqual([
       "`Float` has no field `div`, its companion exports no operation `div`, and " +
-        "no constraint honored at `Float` has a subject-first member `div`; call " +
+        "no constraint whose instance at `Float` is visible in this module has a subject-first member `div`; call " +
         "an available subject-first function explicitly",
     ]);
     expect(projectDiagnostics("module Main\n\n" + "let t: Float = 7.0\nexport let m: Float = t.mod(3.0)\n"))

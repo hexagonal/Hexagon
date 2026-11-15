@@ -47,7 +47,7 @@ const FLAGS = ["/flags.hex", "module Flags\n\n" + "export union Flag = On | Off\
  * union honors neither, and the arm draws one report per unmet constraint, exactly
  * as `x == 0` does there.
  */
-const FLAG_EQ = "type `Flag` has no `Eq` instance; it could only be declared in " +
+const FLAG_EQ = "no `Eq<Flag>` instance is visible in this module; it could only be declared in " +
   "module `Flags` (declares `Flag`) or the module declaring `Eq`; add `derives Eq` " +
   "to the declaration of `Flag`";
 
@@ -650,7 +650,7 @@ describe("the error-program obligation: a broken pattern must not widen the voca
         "        0 => 1\n",
       ],
     ])).toEqual([
-      "type `Handle` has no `Eq` instance; it could only be declared in module `H` " +
+      "no `Eq<Handle>` instance is visible in this module; it could only be declared in module `H` " +
       "(declares `Handle`) or the module declaring `Eq`; add `derives Eq` to the " +
       "declaration of `Handle`",
       "integer literal cannot have type `Handle`",

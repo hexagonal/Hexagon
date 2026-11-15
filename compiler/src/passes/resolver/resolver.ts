@@ -10,6 +10,8 @@ import { constantMarks, isFollowing, markedArrow, writtenArrowText } from "../..
 import * as Diagnostics from "../../support/diagnostics.js";
 import {
   declaredConstraintIdentity,
+  honoredMemberClaim,
+  honorsInSourceOrder,
   isPreRegisteredConstraint,
   NON_REDECLARABLE_CONSTRAINTS,
   PRE_REGISTERED_CONSTRAINT_MEMBERS,
@@ -1385,33 +1387,6 @@ class Resolver {
   readonly #importedSymbols = new Map<Resolved.SymbolId, Resolved.Symbol>();
   /** The honor-block member currently being resolved (Constraints §4.6). */
   readonly #honorMembers: Parsed.Name[] = [];
-  /** Whether resolution is inside a constraint declaration's default body. */
-  #inDefaultBody = false;
-  /** Where this module's `honor` declarations bind each spelling (§4.6). */
-  readonly #honoredMemberLines = new Map<string, HonoredMemberLine[]>();
-  /**
-   * The member spellings this module **binds at module level** — the members an
-   * `honor` block *writes* (Constraints §4.6), and nothing else.
-   *
-   * Deliberately narrower than `#honoredMemberLines` beside it, which is the
-   * index §4.6's three *laws* read and therefore covers every member an instance
-   * binds however it came by one: a `derives` clause's, and a block's defaulted
-   * members too. Those laws are about what a spelling *means* here, and they are
-   * right to reach that wide.
-   *
-   * Modules §5.5's carve-out is a different question — which spellings this
-   * module puts back into bare scope — and it turns on the module having written
-   * a block. A `derives (Ord)` writes none: the instance is the compiler's, and a
-   * module that derived one was never *writing* the member. Seeding off the wider
-   * index gave such a module nineteen bare names and let `compare(1, 2)` compile
-   * in it, which is ruling 4 undone by an implementation detail (#753 review).
-   *
-   * A written block contributes its **completed** member set, defaults included:
-   * an omitted default is bound here too, as the wrapper seat the emitter hoists
-   * for it, and the corpus has pinned its bare reachability since Constraints
-   * §2's defaults landed.
-   */
-  readonly #boundHonoredMembers = new Set<string>();
   readonly #unions: Resolved.Union[] = [];
   readonly #records: Resolved.RecordDeclaration[] = [];
   readonly #externTypes: Resolved.ExternTypeDeclaration[] = [];
@@ -1600,13 +1575,6 @@ class Resolver {
    * `Vector.hex` also exports has one route here, not two.
    */
   readonly #qualifiedOnlyPreludeNames = new Map<string, PreludeRoute[]>();
-  /**
-   * Every prelude **constraint member** the bare layer does not hold, by name —
-   * the symbols `#seedHonoredMemberSpellings` puts back for a module that honors
-   * the constraint (Modules §5.5's "a member's *in-module* spelling is
-   * untouched").
-   */
-  readonly #preludeMembersByName = new Map<string, Resolved.SymbolId>();
   readonly #moduleAliases = new Map<string, ModuleInterface>();
   /**
    * The specifier each alias was imported from, as the module wrote it.
@@ -2494,8 +2462,8 @@ class Resolver {
     // *declares* (see `ModuleInterface`), never the member bindings of an
     // `honor` block, which is the boundary the note's §5 item 8 requires: bare
     // `show` in a consumer has exactly one exporter, `Show.hex` — an honoring
-    // module's binding is reached only qualified, or bare from inside that
-    // module.
+    // module's member is reached only qualified or by the dot, inside that
+    // module as outside it: honoring binds no bare name (Constraints §4.6).
     const subjects = new Map<string, string>();
     /** Members of a structurally-instanced constraint, by spelling (see `PreludeRoute`). */
     const structuralMembers = new Set<string>();
@@ -2526,7 +2494,6 @@ class Resolver {
         ]);
       } else {
         route(name, "member", subjects.get(name));
-        this.#preludeMembersByName.set(name, symbol.id);
       }
       this.#preludeTermsByName.set(name, [
         ...this.#preludeTermsByName.get(name) ?? [],
@@ -2648,8 +2615,6 @@ class Resolver {
         }
       }
     }
-    this.#indexHonoredMemberLines(module.items);
-    this.#seedHonoredMemberSpellings();
     const walked = this.#resolveItems(module.items, scope);
     this.#claimHonoredMembers(walked, scope);
     // After the claim and before everything downstream: the members a `widens`
@@ -2692,6 +2657,7 @@ class Resolver {
         .map(([alias, reached]) => ({
           alias,
           members: [...reached.terms].map(([name, symbol]) => ({ name, symbol: symbol.id })),
+          ...(reached.module.path === undefined ? {} : { path: reached.module.path }),
         })),
       patternNamespaceNames: [...new Set([
         ...this.#ownPatterns.keys(),
@@ -3918,7 +3884,7 @@ class Resolver {
             ...(member.arrowSpan === undefined ? {} : { arrowSpan: member.arrowSpan }),
             ...(member.defaultValue === undefined
               ? {}
-              : { defaultValue: this.#resolveDefaultBody(member.defaultValue, scope, impliedContext) }),
+              : { defaultValue: this.#resolveLambda(member.defaultValue, scope, impliedContext) }),
             span: member.span,
           };
         });
@@ -4025,11 +3991,12 @@ class Resolver {
                 span: member.span,
               };
             }
-            // Constraints §4.6: a member definition is a `let` header, not a
-            // `fun`, so its own body may not call its own name. The stack is what
-            // tells a reference which name that is; a constraint *declaration's*
-            // default body never pushes onto it, which is the exemption stated
-            // in the same bullet.
+            // Constraints §4.6: a member's own name is pending in its body, and
+            // the pending clause reserves it against rebinding — a sequential
+            // binder there may not claim it (Statements §9.3). The stack is what
+            // tells a binder which name that is. A bare use of the spelling is
+            // not this stack's business: it reads as it reads anywhere in the
+            // module, because honoring binds no bare name.
             this.#honorMembers.push(member.name);
             const value = this.#resolveLambda(member.value, scope, impliedContext);
             this.#honorMembers.pop();
@@ -5587,37 +5554,6 @@ class Resolver {
    * the declaration as below (§5.4's reservation), and the declared-later error
    * is the truer sentence there.
    */
-  /**
-   * Puts a prelude constraint member's spelling back into the bare layer for a
-   * module that **honors** the constraint — Modules §5.5's own carve-out: "a
-   * member's *in-module* spelling is untouched: an honoring module binds its
-   * members at module level (Constraints §4.6)".
-   *
-   * #742 took the member channel's bare seeding from *consumers*, and the
-   * honoring module is not one: `subtract(left, right) = multiply(left, right)`
-   * reads a sibling of the block it is written in, and every law that governs
-   * that read — §4.6's own-name refusal, its ambiguity-between-constraints
-   * refusal, its declared-later error — is written against the spelling
-   * resolving. Refusing it here would replace three specific diagnostics with
-   * one that misreads the program as a consumer's.
-   *
-   * Read from `#boundHonoredMembers` and **not** from the wider index §4.6's
-   * laws use: the carve-out is for a spelling this module *binds*, so a
-   * `derives` clause — which writes no member anywhere — puts nothing back, and
-   * neither does a block's defaulted member. A spelling this module does not
-   * bind stays refused, and the routes recorded for it stay in place. The name
-   * is dropped from `#qualifiedOnlyPreludeNames` in the same breath, because a
-   * spelling cannot be both in the layer and refused for not being in it.
-   */
-  #seedHonoredMemberSpellings(): void {
-    for (const name of this.#boundHonoredMembers) {
-      const symbol = this.#preludeMembersByName.get(name);
-      if (symbol === undefined) continue;
-      this.#preludeScope.define(name, symbol);
-      this.#qualifiedOnlyPreludeNames.delete(name);
-    }
-  }
-
   #refusedBarePrelude(name: Parsed.Name): boolean {
     const routes = this.#qualifiedOnlyPreludeNames.get(name.text);
     if (routes === undefined || routes.length === 0) return false;
@@ -6305,9 +6241,6 @@ class Resolver {
       // built from, and `ErrorExpr` poisons the checker's view of it the way an
       // unknown name does — one diagnostic for the program, not a cascade.
       if (this.#refusedAmbiguousPrelude(expression.name, scope)) {
-        return { kind: "ErrorExpr", span: expression.span };
-      }
-      if (this.#refusedMemberReference(expression.name, symbol)) {
         return { kind: "ErrorExpr", span: expression.span };
       }
       const owner = this.#varOwners.get(symbol);
@@ -7723,8 +7656,8 @@ class Resolver {
    * Answers whether it reported. On a hit the caller must still define the
    * refused binder — there is no meaning worth preserving over it, and defining
    * keeps later references resolving to what the source obviously intended
-   * instead of cascading into the Functions §6 or Constraints §4.6
-   * self-reference diagnostics (or, in the occluded-prelude shape, into a
+   * instead of cascading into the Functions §6 self-reference diagnostic
+   * (or, in the occluded-prelude shape, into a
    * phantom type error against the prelude's own type).
    */
   #reportPendingRebinding(
@@ -7758,188 +7691,6 @@ class Resolver {
     return true;
   }
 
-
-  /**
-   * A constraint declaration's default member body, marked as such.
-   *
-   * The mark is the whole point: §4.6's reference laws govern honor blocks, and
-   * a default lives in the declaration. Its member references reach whichever
-   * instance completes it, at call time — an evidence route, which names no
-   * binding, so a self-recursive default is as legal as it ever was.
-   */
-  #resolveDefaultBody(
-    value: Parsed.LambdaExpr,
-    scope: Scope,
-    impliedContext?: { readonly owner: string; readonly names: ReadonlySet<string> },
-  ): Resolved.LambdaExpr {
-    this.#inDefaultBody = true;
-    const resolved = this.#resolveLambda(value, scope, impliedContext);
-    this.#inDefaultBody = false;
-    return resolved;
-  }
-
-  /**
-   * Constraints §4.6's ordering half, indexed before any body is resolved: for
-   * each spelling this module's `honor` declarations bind, where each binding's
-   * line is.
-   *
-   * A member definition **enters the module's top-down order at its own line**,
-   * so a bare reference to one is legal exactly where any binding reference is:
-   * after that line. The index is built from the parsed items because the law is
-   * about text, and because a reference in the first honor block has to be able
-   * to ask about the last one — which resolution has not reached yet.
-   *
-   * Three sources of member names per block, because the claim covers every
-   * member the instance binds and not only the ones the block writes: the
-   * written members, a locally declared constraint's list, and the compiler's
-   * table for a pre-registered name. A defaulted member of an *imported* user
-   * constraint is the residue, and it can only under-report — never refuse a
-   * program §4.6 permits.
-   *
-   * A pre-registered constraint reached under an importer's alias joins that
-   * same residue (#727): the index is built from *parsed* items, before any
-   * import is resolved, so `derives (H)` has no identity to look the member
-   * table up by and contributes nothing. Under-reporting again, and for the
-   * structural reason rather than by choice — there is no identity in existence
-   * at this point in the pass to key on.
-   */
-  #indexHonoredMemberLines(items: readonly Parsed.Item[]): void {
-    const declared = new Map<string, readonly string[]>();
-    for (const item of items) {
-      if (item.kind !== "ConstraintDeclaration") continue;
-      declared.set(
-        item.name.text,
-        item.members.map((member) => member.name.text),
-      );
-    }
-    const record = (name: string, entry: HonoredMemberLine): void => {
-      this.#honoredMemberLines.set(name, [
-        ...this.#honoredMemberLines.get(name) ?? [],
-        entry,
-      ]);
-    };
-    for (const item of items) {
-      if (item.kind === "Union" || item.kind === "RecordDeclaration") {
-        for (const derive of item.derives) {
-          for (const member of PRE_REGISTERED_CONSTRAINT_MEMBERS[derive.text] ?? []) {
-            record(member, { constraint: derive.text, span: item.span, knot: item.span });
-          }
-        }
-        continue;
-      }
-      if (item.kind !== "Honor") continue;
-      const constraint = item.constraint.text;
-      const names = new Set([
-        ...item.members.map((member) => member.name.text),
-        ...declared.get(constraint) ?? [],
-        ...PRE_REGISTERED_CONSTRAINT_MEMBERS[constraint] ?? [],
-      ]);
-      for (const name of names) {
-        const written = item.members.find((member) => member.name.text === name);
-        record(name, { constraint, span: written?.span ?? item.span, knot: item.group?.span ?? item.span });
-        // §5.5's carve-out follows the **instance's completed member set** for a
-        // block this module wrote — a member it omits is still bound here, as
-        // the wrapper seat the emitter hoists for it (Constraints §2's defaults).
-        // What the carve-out does not follow is `derives`, above: that clause
-        // writes no block at all.
-        this.#boundHonoredMembers.add(name);
-      }
-    }
-  }
-
-  /**
-   * Constraints §4.6, at a bare reference to a spelling this module honors.
-   *
-   * Three refusals, all of them the law applied to one sentence — a member
-   * definition is a module-level binding:
-   *
-   * - **Its own body cannot call its own name** (#293's non-`fun` law). The
-   *   rewrite diagnostic names the sanctioned forms, and the qualified one only
-   *   where it exists: a constraint declared in this module has no qualified
-   *   spelling, because a module cannot name itself.
-   * - **Two blocks binding one spelling** make the bare use genuinely ambiguous.
-   *   The coexistence carve-out keeps both definitions legal; it is the bare
-   *   *use* that is refused, naming the routes that are not ambiguous.
-   * - **A reference above the binding's line** is the ordinary declared-later
-   *   error — never "unknown name", which would be false.
-   *
-   * Evidence routes are not references and never reach here: interpolation, an
-   * operator face, and a member-resolved dot call name no binding (Method Syntax
-   * §4.4), which is what keeps mutually recursive instances legal in either
-   * order.
-   */
-  #refusedMemberReference(name: Parsed.Name, symbol: Resolved.SymbolId): boolean {
-    const declaration = this.#symbol(symbol);
-    if (declaration.kind !== "constraint-member") return false;
-    // A constraint *declaration's* default body is not an honor block. Its
-    // member references — its own name included — reach the completed instance
-    // through evidence, so none of the laws below governs them (§4.6's third
-    // bullet, and Method Syntax §4.4's exemption for evidence routes).
-    if (this.#inDefaultBody) return false;
-    const bindings = this.#honoredMemberLines.get(name.text);
-    if (bindings === undefined || bindings.length === 0) return false;
-    if (this.#honorMembers.at(-1)?.text === name.text) {
-      const qualified = this.#declaredConstraintNames.has(bindings[0]!.constraint)
-        ? ""
-        : `, or qualify the instance you mean: \`${bindings[0]!.constraint}.${name.text}(…)\``;
-      this.#diagnostics.add({
-        severity: "error",
-        message: `\`${name.text}\` is this member's own name, and a member cannot ` +
-          "call itself bare; recursion is spelled through dispatch — write the " +
-          `dot call \`value.${name.text}()\`${qualified}`,
-        primary: name.span,
-      });
-      return true;
-    }
-    // On the **declaring** module the polymorphic read wins (the note's
-    // consequence 4): a module that declares a constraint and also honors it
-    // holds the spelling twice on purpose, and bare use means the declaration's
-    // export — ordered at the declaration's own line, which the ordinary
-    // top-down machinery already governs. Only where the instance binding is the
-    // spelling's one meaning do the two laws below have anything to say.
-    if (Number(declaration.bindingSpan.fileId) === this.#fileId) return false;
-    // Ambiguity is between **constraints**, never between instances. Two blocks
-    // honoring one constraint at two of the module's types bind one declaration's
-    // member twice, and evidence at the argument's type tells them apart — which
-    // is what §4.6's carve-out means by "disambiguated by evidence". Two
-    // *constraints* whose members share a spelling is the case with no such
-    // discriminator, and it is the one refused.
-    const constraints = [...new Set(bindings.map(({ constraint }) => constraint))];
-    if (constraints.length > 1) {
-      this.#diagnostics.add({
-        severity: "error",
-        message: `\`${name.text}\` is ambiguous here: this module binds it as a ` +
-          `member of ${constraints.map((constraint) => `\`${constraint}\``).join(" and ")}; ` +
-          "write the dot call on a value, or qualify the instance you mean",
-        primary: name.span,
-      });
-      return true;
-    }
-    // A member binding enters the module's order with its honor's knot
-    // (§4.6, §4.8): a reference inside the knot sees it earlier and later
-    // alike, and one elsewhere sees it below the knot's last line. A reference
-    // that no binding of the spelling reaches is the ordinary declared-later
-    // error — never "unknown name", which would be false.
-    const reaches = (binding: HonoredMemberLine): boolean =>
-      name.span.start.offset >= binding.knot.end.offset ||
-      (binding.knot.start.offset <= name.span.start.offset && name.span.end.offset <= binding.knot.end.offset);
-    if (!bindings.some(reaches)) {
-      const earliest = bindings.reduce((first, binding) =>
-        binding.span.start.offset < first.span.start.offset ? binding : first
-      );
-      const inHonor = this.#honorMembers.length > 0;
-      this.#diagnostics.add({
-        severity: "error",
-        message: `\`${name.text}\` is bound by the \`${earliest.constraint}\` instance ` +
-          "below this use; declarations are read top-down — move the instance " +
-          (inHonor ? "above this use, or declare both honors in one honor group" : "above this use"),
-        primary: name.span,
-        labels: [{ span: earliest.span, message: "the member is bound here" }],
-      });
-      return true;
-    }
-    return false;
-  }
 
   /**
    * The instances `alias.field` could be reading, before any of the choosing:
@@ -7995,6 +7746,23 @@ class Resolver {
   }
 
   /**
+   * The aliases this module holds for the module that declares the constraint
+   * `identity` and exports it — the spellings through which its members are
+   * qualified here. A prelude alias a module alias of the same name shadows is
+   * no spelling of the prelude module (Modules §5.4).
+   */
+  #declaringAliases(identity: string): readonly string[] {
+    const declares = (iface: ModuleInterface): boolean =>
+      [...iface.constraints.values()].some((declaration) => declaration.identity === identity);
+    return [
+      ...[...this.#moduleAliases].filter(([, iface]) => declares(iface)).map(([alias]) => alias),
+      ...[...this.#preludeModuleAliases]
+        .filter(([alias, iface]) => !this.#moduleAliases.has(alias) && declares(iface))
+        .map(([alias]) => alias),
+    ];
+  }
+
+  /**
    * Consequence 4 of the members-as-values ruling, as Modules §5.3 graduates it:
    * **qualified access reaches an honoring module's members.**
    *
@@ -8020,12 +7788,26 @@ class Resolver {
     if (candidates.length === 0) return undefined;
     if (candidates.length > 1) {
       const types = candidates.map(({ instance }) => `\`${annotationHeadName(instance.subject)}\``);
+      // Every spelling offered is one the next compile accepts (Method Syntax
+      // §6's discipline): the bare spelling only where it resolves here to the
+      // member (`show`, the one member the prelude seeds — Modules §5.5), and
+      // the declaring module's spelling only through an alias this module
+      // holds for it.
+      const { instance, member } = candidates[0]!;
+      const routes = [
+        "the dot call on a value of the type you mean",
+        ...(this.#moduleScope?.lookup(field.text) === member.binding.symbol
+          ? [`\`${field.text}(…)\``]
+          : []),
+        ...this.#declaringAliases(instance.constraintIdentity)
+          .slice(0, 1)
+          .map((declaring) => `\`${declaring}.${field.text}(…)\``),
+      ];
       this.#diagnostics.add({
         severity: "error",
         message: `\`${alias}.${field.text}\` is ambiguous: \`${alias}\` honors a ` +
           `constraint with a member \`${field.text}\` at ${types.join(" and ")}; ` +
-          `write the dot call on a value of the type you mean, the bare ` +
-          `\`${field.text}(…)\`, or the declaring module's qualified spelling`,
+          `write ${routes.length === 1 ? routes[0] : `${routes.slice(0, -1).join(", ")}, or ${routes.at(-1)}`}`,
         primary: field.span,
       });
       return { kind: "ErrorExpr", span: field.span };
@@ -8098,9 +7880,11 @@ class Resolver {
    *
    * Run once, after every item is resolved, which is what makes the claim
    * order-free — a `let` before the block and a `let` after it are the same
-   * collision, and each is reported at whichever of the two the reader would
-   * fix. Only the module layer: an inner-layer binder is refused by §5.4's
-   * absolute ban long before it could reach here.
+   * collision, and both are reported at the ordinary binding, the one line in
+   * the module that owns the name, saying how the instance holds the spelling
+   * (`honoredMemberClaim`, Constraints §8). Only the module layer: an
+   * inner-layer binder is refused by §5.4's absolute ban long before it could
+   * reach here.
    */
   #claimHonoredMembers(items: readonly Resolved.Item[], scope: Scope): void {
     const exportedNames = new Set(
@@ -8119,32 +7903,48 @@ class Resolver {
         exportedNames.add(item.binding.name);
       }
     }
-    for (const item of items) {
-      if (item.kind !== "Honor") continue;
+    // One report per binding (§4.6): where several instances claim its
+    // spelling, the first in source order is the one named.
+    const reported = new Set<string>();
+    for (const item of honorsInSourceOrder(items)) {
       const instance = `${item.constraint}<${annotationHeadName(item.subject)}>`;
       for (const member of this.#honoredMemberNames(item)) {
-        if (exportedNames.has(member)) continue;
+        if (exportedNames.has(member) || reported.has(member)) continue;
         const existing = scope.lookupLocal(member);
         if (existing === undefined) continue;
         const previous = this.#symbol(existing);
         if (previous.kind === "constraint-member") continue;
-        const bound = previous.bindingSpan;
-        const rebinding = "Hexagon does not allow rebinding — choose a different name";
-        const claimFirst = item.span.start.offset < bound.start.offset;
+        const claim = honoredMemberClaim(
+          item,
+          member,
+          instance,
+          this.#memberDefaulted(item, member),
+          "Hexagon does not allow rebinding — choose a different name",
+        );
+        reported.add(member);
         this.#diagnostics.add({
           severity: "error",
-          message: claimFirst
-            ? `\`${member}\` is already bound: the \`${instance}\` instance binds it ` +
-              `as a member (line ${item.span.start.line + 1}); ${rebinding}`
-            : `the \`${instance}\` instance binds \`${member}\`, which is already ` +
-              `bound (line ${bound.start.line + 1}); ${rebinding}`,
-          primary: claimFirst ? bound : item.span,
-          labels: claimFirst
-            ? [{ span: item.span, message: "the member is bound here" }]
-            : [{ span: bound, message: "previous binding" }],
+          message: claim.message,
+          primary: previous.bindingSpan,
+          labels: [{ span: claim.cited, message: claim.label }],
         });
       }
     }
+  }
+
+  /**
+   * Whether the constraint an `honor` answers declares a default body for
+   * `member` — what tells a derived instance's inherited member from one the
+   * derivation supplies (Constraints §4.5, §8). With no declaration in view
+   * (the pass-level harnesses' prelude-less compile) nothing is known to be
+   * defaulted, and the report says the instance binds the member.
+   */
+  #memberDefaulted(item: Resolved.HonorItem, member: string): boolean {
+    const declaration = this.#visibleConstraints.get(item.constraintIdentity) ??
+      this.#namedConstraint(item.constraint);
+    return declaration?.members.some(({ binding, defaultValue }) =>
+      binding.name === member && defaultValue !== undefined
+    ) ?? false;
   }
 
   /**
@@ -8779,18 +8579,6 @@ function curatedCompanionMiss(
   return member === undefined
     ? undefined
     : CURATED_COMPANION_MISSES.get(`${member}.${field}`);
-}
-
-/** One `honor` declaration's binding of one member spelling (Constraints §4.6). */
-interface HonoredMemberLine {
-  readonly constraint: string;
-  readonly span: Source.Span;
-  /**
-   * The knot the binding enters the module's order with (Constraints §4.6,
-   * §4.8): its honor, its honor group, or the line of the type whose
-   * `derives` clause declares it.
-   */
-  readonly knot: Source.Span;
 }
 
 function annotationHeadName(annotation: Resolved.TypeAnnotation): string {

@@ -380,7 +380,7 @@ test("a program's own constraint is honored at the captured collections", async 
  */
 test("a missing instance names the companion as the type's home", () => {
   expect(diagnostics("let same(xs: Array(Int)): Bool = xs == xs\n")).toEqual([
-    "type `Array(Int)` has no `Eq` instance; its only legal homes are the module declaring " +
+    "no `Eq<Array(Int)>` instance is visible in this module; its only legal homes are the module declaring " +
       "`Eq` and the prelude module declaring `Array`, both outside project source, so this " +
       "pair's honored set is closed — change the type, or go through the operations those " +
       "homes export",
@@ -389,7 +389,7 @@ test("a missing instance names the companion as the type's home", () => {
     "constraint Describe<t> =\n    describe(x: t) -> String\n\n" +
       "let d(m: JsMap(Int, Int)): String = describe(m)\n",
   )).toEqual([
-    "type `JsMap(Int, Int)` has no `Describe` instance; it could only be declared in module " +
+    "no `Describe<JsMap(Int, Int)>` instance is visible in this module; it could only be declared in module " +
       "`Main` (declares `Describe`) or the prelude module declaring `JsMap`",
   ]);
 });

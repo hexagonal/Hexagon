@@ -179,7 +179,7 @@ spelling `Bag.toSeq` reads.
 
 Opacity also changes nothing. The home module can honor `Iterable` for an opaque
 collection because it can see the hidden representation. Consumers cannot see the
-fields, but they can iterate the value through the globally coherent instance.
+fields, but they can iterate the value through the one coherent instance.
 
 ## Implied types are not general type projections
 

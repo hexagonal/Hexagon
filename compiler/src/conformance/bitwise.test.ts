@@ -335,7 +335,7 @@ describe("the tower's operand treatment (§5.1)", () => {
     for (const body of ["n band m", "n.bitAnd(m)", "bnot n", "n.shiftLeft(1)"]) {
       const messages = verdict("let n: Nat = 5\nlet m: Nat = 3\nlet x = " + body + "\n");
       expect(messages).toHaveLength(1);
-      expect(messages[0]).toContain("type `Nat` has no `Bitwise` instance");
+      expect(messages[0]).toContain("no `Bitwise<Nat>` instance is visible in this module");
       expect(messages[0]).toContain(
         "a written `Int` face runs the operation and admits the result (`let bits: Int = …`)",
       );
@@ -346,7 +346,7 @@ describe("the tower's operand treatment (§5.1)", () => {
 describe("refusals (§2.1, §9)", () => {
   test("Bool, Float, and a user honor of a prelude type are refused", () => {
     expect(verdict("let f: Float = 1.5\nlet x = f band f\n")[0])
-      .toContain("type `Float` has no `Bitwise` instance");
+      .toContain("no `Bitwise<Float>` instance is visible in this module");
     for (const type of ["Bool", "Float", "Nat"]) {
       expect(verdict(`honor Bitwise<${type}> =\n` +
         "    bitAnd(l, r) = l\n    bitOr(l, r) = l\n    bitXor(l, r) = l\n" +

@@ -46,7 +46,7 @@ describe("appended: `Eq`, `Ord`, `Show` keep the clause and gain the fixit", () 
         "",
       ].join("\n")],
     ])).toEqual([
-      "type `Colour` has no `Show` instance; it could only be declared in " +
+      "no `Show<Colour>` instance is visible in this module; it could only be declared in " +
         "module `Main` (declares `Colour`) or the module declaring `Show`" +
         "; add `derives Show` to the declaration of `Colour`",
     ]);
@@ -63,7 +63,7 @@ describe("appended: `Eq`, `Ord`, `Show` keep the clause and gain the fixit", () 
         "",
       ].join("\n")],
     ])).toEqual([
-      "type `Point` has no `Ord` instance; it could only be declared in " +
+      "no `Ord<Point>` instance is visible in this module; it could only be declared in " +
         "module `Main` (declares `Point`) or the module declaring `Ord`" +
         "; add `Ord` to the `derives` list of `Point`",
     ]);
@@ -82,7 +82,7 @@ describe("appended: `Eq`, `Ord`, `Show` keep the clause and gain the fixit", () 
         "",
       ].join("\n")],
     ])).toEqual([
-      "type `Point` has no `Ord` instance; it could only be declared in " +
+      "no `Ord<Point>` instance is visible in this module; it could only be declared in " +
         "module `Main` (declares `Point`) or the module declaring `Ord`" +
         "; add `derives (Eq, Ord)` to the declaration of `Point`",
     ]);
@@ -99,7 +99,7 @@ describe("appended: `Eq`, `Ord`, `Show` keep the clause and gain the fixit", () 
         "",
       ].join("\n")],
     ])).toEqual([
-      "type `Point` has no `Ord` instance; it could only be declared in " +
+      "no `Ord<Point>` instance is visible in this module; it could only be declared in " +
         "module `Main` (declares `Point`) or the module declaring `Ord`" +
         "; add `(Eq, Ord)` to the `derives` list of `Point`",
     ]);
@@ -122,7 +122,7 @@ describe("appended: `Eq`, `Ord`, `Show` keep the clause and gain the fixit", () 
         "",
       ].join("\n")],
     ])).toEqual([
-      "type `Point` has no `Ord` instance; it could only be declared in " +
+      "no `Ord<Point>` instance is visible in this module; it could only be declared in " +
         "module `Main` (declares `Point`) or the module declaring `Ord`" +
         "; add `derives Ord` to the declaration of `Point`",
     ]);
@@ -143,7 +143,7 @@ describe("appended: `Eq`, `Ord`, `Show` keep the clause and gain the fixit", () 
     ]);
 
     expect(message).toBe(
-      "type `Widget` has no `Show` instance; it could only be declared in " +
+      "no `Show<Widget>` instance is visible in this module; it could only be declared in " +
         "module `Widget` (declares `Widget`) or the module declaring `Show`" +
         "; add `derives Show` to the declaration of `Widget`",
     );
@@ -156,7 +156,7 @@ describe("replacing: `Hash` offers only the seat the checker would accept", () =
     expect(projectDiagnostics("module Main\n\n" + "record Point = {n: Int}\n" +
         "export let bad: Set(Point) = Set.add(Set.empty, Point({n = 1}))\n",
     )).toContain(
-      "type `Point` has no `Hash` instance; `Hash` instances must be derived, " +
+      "no `Hash<Point>` instance is visible in this module; `Hash` instances must be derived, " +
         "so the only repair is `derives (Eq, Hash)` on the declaration of `Point` " +
         "in module `Main`",
     );
@@ -166,7 +166,7 @@ describe("replacing: `Hash` offers only the seat the checker would accept", () =
     expect(projectDiagnostics("module Main\n\n" + "record Point derives Eq = {n: Int}\n" +
         "export let bad: Set(Point) = Set.add(Set.empty, Point({n = 1}))\n",
     )).toContain(
-      "type `Point` has no `Hash` instance; `Hash` instances must be derived, " +
+      "no `Hash<Point>` instance is visible in this module; `Hash` instances must be derived, " +
         "so the only repair is adding `Hash` to `Point`'s `derives` list " +
         "in module `Main`",
     );
@@ -176,7 +176,7 @@ describe("replacing: `Hash` offers only the seat the checker would accept", () =
     expect(projectDiagnostics("module Main\n\n" + "record Point derives Show = {n: Int}\n" +
         "export let bad: Set(Point) = Set.add(Set.empty, Point({n = 1}))\n",
     )).toContain(
-      "type `Point` has no `Hash` instance; `Hash` instances must be derived, " +
+      "no `Hash<Point>` instance is visible in this module; `Hash` instances must be derived, " +
         "so the only repair is adding `(Eq, Hash)` to `Point`'s `derives` list " +
         "in module `Main`",
     );
@@ -194,7 +194,7 @@ describe("replacing: `Hash` offers only the seat the checker would accept", () =
         "honor Eq<Point> = derive\n" +
         "export let bad: Set(Point) = Set.add(Set.empty, Point({n = 1}))\n",
     )).toContain(
-      "type `Point` has no `Hash` instance; `Hash` instances must be derived, " +
+      "no `Hash<Point>` instance is visible in this module; `Hash` instances must be derived, " +
         "so the only repair is `derives Hash` on the declaration of `Point` " +
         "in module `Main`",
     );
@@ -223,7 +223,7 @@ describe("replacing: `Hash` offers only the seat the checker would accept", () =
         "",
       ].join("\n")],
     ])).toEqual([
-      "type `Point` has no `Hash` instance; `Hash` instances must be derived, " +
+      "no `Hash<Point>` instance is visible in this module; `Hash` instances must be derived, " +
         "so the only repair is `derives (Eq, Hash)` on the declaration of `Point` " +
         "in module `Point`",
     ]);
@@ -238,7 +238,7 @@ describe("replacing: `Hash` offers only the seat the checker would accept", () =
         "    equals(left, right) = left.s == right.s\n" +
         "export let bad: Set(Weird) = Set.add(Set.empty, Weird({s = \"K\"}))\n",
     )).toContain(
-      "type `Weird` has no `Hash` instance; `derives Hash` requires a derived `Eq`, " +
+      "no `Hash<Weird>` instance is visible in this module; `derives Hash` requires a derived `Eq`, " +
         "and `Weird` declares its own — key on a wrapper type whose `Eq` and `Hash` " +
         "are both derived",
     );
@@ -283,7 +283,7 @@ describe("`Eq`'s provenance travels with the instance, not with the importer", (
         "",
       ].join("\n")],
     ])).toEqual([
-      "type `Point` has no `Hash` instance; `Hash` instances must be derived, " +
+      "no `Hash<Point>` instance is visible in this module; `Hash` instances must be derived, " +
         "so the only repair is adding `Hash` to `Point`'s `derives` list " +
         "in module `Point`",
     ]);
@@ -308,7 +308,7 @@ describe("`Eq`'s provenance travels with the instance, not with the importer", (
         "",
       ].join("\n")],
     ])).toEqual([
-      "type `Point` has no `Hash` instance; `derives Hash` requires a derived `Eq`, " +
+      "no `Hash<Point>` instance is visible in this module; `derives Hash` requires a derived `Eq`, " +
         "and `Point` declares its own — key on a wrapper type whose `Eq` and `Hash` " +
         "are both derived",
     ]);
@@ -333,7 +333,7 @@ describe("`Eq`'s provenance travels with the instance, not with the importer", (
         "",
       ].join("\n")],
     ])).toEqual([
-      "type `Point` has no `Hash` instance; `Hash` instances must be derived, " +
+      "no `Hash<Point>` instance is visible in this module; `Hash` instances must be derived, " +
         "so the only repair is adding `Hash` to `Point`'s `derives` list " +
         "in module `Point`",
     ]);
@@ -352,7 +352,7 @@ describe("the gate: what draws no fixit at all", () => {
         "",
       ].join("\n")],
     ])).toEqual([
-      "type `Box` has no `Num` instance; it could only be declared in " +
+      "no `Num<Box>` instance is visible in this module; it could only be declared in " +
         "module `Main` (declares `Box`) or the module declaring `Num`",
     ]);
   });
@@ -383,7 +383,7 @@ describe("the gate: what draws no fixit at all", () => {
         "",
       ].join("\n")],
     ])).toEqual([
-      "type `Panel` has no `Render` instance; it could only be declared in " +
+      "no `Render<Panel>` instance is visible in this module; it could only be declared in " +
         "module `Main` (declares `Panel`) or module `Render` (declares `Render`)",
     ]);
   });
@@ -400,7 +400,7 @@ describe("the gate: what draws no fixit at all", () => {
         "",
       ].join("\n")],
     ])).toEqual([
-      "type `Option(Int)` has no `Ord` instance; its only legal homes are the module " +
+      "no `Ord<Option(Int)>` instance is visible in this module; its only legal homes are the module " +
         "declaring `Ord` and the prelude module declaring `Option`, both outside " +
         "project source, so this pair's honored set is closed — change the type, or " +
         "go through the operations those homes export",
@@ -412,7 +412,7 @@ describe("the gate: what draws no fixit at all", () => {
     // the closed-pair clause stands alone — with Method Syntax §9 row 15's
     // rider after it, which is a repair rather than a home (#808).
     expect(projectDiagnostics("module Main\n\n" + "export fun gap(a: Nat, b: Nat): Nat = a - b\n")).toEqual([
-      "type `Nat` has no `Signed` instance; its only legal homes are the module " +
+      "no `Signed<Nat>` instance is visible in this module; its only legal homes are the module " +
         "declaring `Signed` and `Nat`'s prelude companion module, both outside project " +
         "source, so this pair's honored set is closed — change the type, or go through " +
         "the operations those homes export; a written `Int` face runs the operation " +
@@ -457,7 +457,7 @@ describe("the gate: what draws no fixit at all", () => {
         "",
       ].join("\n")],
     ])).toEqual([
-      "type `Odd` has no `Show` instance; it could only be declared in " +
+      "no `Show<Odd>` instance is visible in this module; it could only be declared in " +
         "module `Main` (declares `Odd`) or the module declaring `Show`" +
         "; add `derives Show` to the declaration of `Odd`",
     ]);

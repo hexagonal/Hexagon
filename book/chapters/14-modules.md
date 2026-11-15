@@ -283,7 +283,8 @@ opaque union Handle =
 
 The home module can still construct and match both alternatives. Consumers use its
 exported smart constructors and observers. Opacity hides structure, not capabilities:
-derived `Eq` or `Show` behavior and other lawful instances continue to work globally.
+derived `Eq` or `Show` behavior and other lawful instances continue to work in every
+module whose imports reach the home module.
 
 Aliases cannot be opaque because an alias is transparent by definition. When a named
 abstraction is required, use a nominal record or union.
@@ -575,7 +576,8 @@ The next chapter uses that fact to explain the convenient dot-call spelling.
   against its representation; a bare parameter claims nothing;
 - exported terms have complete signatures with explicit maximal constraints;
 - public faces — signatures, fields, payloads, alias targets, and constraint member signatures — cannot leak private nominal types (though a private constraint may gate an exported function);
-- instances are global over the imported program graph rather than exported names;
+- instances are not exported names: a module sees an instance when its imports reach
+  the instance's module, and the program holds at most one per constraint and type;
 - imports are acyclic and initialize dependencies before dependants;
 - a selected root runs through ordinary top-level module evaluation, without `main`;
   and

@@ -198,10 +198,13 @@ show(box) = "Box(${box.value.show()})"
 
 The outer `show` defines how to display the box. The inner `box.value.show()` displays
 the value inside it, using the `Show<a>` instance required by the first part of the
-header. Why the dot call and not a bare `show(box.value)`? Inside this body, `show` is
-the very member being defined, and a member never calls its own name. Recursion into
-`Show` is spelled through dispatch instead: the dot call says "use the instance for
-this value's type," which is exactly what is meant.
+header. A bare `show(box.value)` would mean the same thing. Honoring a constraint
+gives the module no new bare names, so `show` here is still the one every module
+starts with, and it picks the instance for whatever value it is handed. `show` is the
+only member every module may write bare. Any other member is bare only inside the
+module that declares its constraint, as `area(shape)` was above. Elsewhere it is
+reached with a dot call, an operator, or the name of the module that declares the
+constraint, as in `Ord.compare(a, b)`.
 
 Put together, the declaration says: **if `a` can be displayed, then `Box(a)` can be
 displayed**. `Box(Int)` uses the existing `Show<Int>` instance; `Box(String)` uses
@@ -315,8 +318,8 @@ honor Show<Tree> =
 ```
 
 Interpolating `left` and `right` uses `Show<Tree>` inside its own honor. Like a `fun`,
-an honor is a **knot**: its body may refer to what it defines. The member still never
-calls its own name, as `Box` showed; recursion goes through the instance.
+an honor is a **knot**: its body may refer to what it defines. As `Box` showed, the
+recursion goes through the instance, whichever spelling reaches it.
 
 When two honors need each other, neither can stand above the other. Declare them
 together in an **honor group**: `honor` on a line of its own, with the instances
@@ -346,7 +349,8 @@ instead, and write the one it relies on first.
 
 Hexagon permits at most one instance for each constraint and type constructor in the
 whole program. There cannot be two competing definitions of `Ord<Rectangle>` whose
-selection depends on imports or call-site context.
+selection depends on imports or call-site context. Imports decide only whether a
+module can see that one instance, never which instance it is.
 
 This property is called **coherence**: the same constrained operation has the same
 meaning everywhere. It protects more than aesthetics. A map or set cannot safely be
@@ -360,8 +364,10 @@ declaration for a constraint and type must live in either:
 
 This leaves each library a legitimate place to supply an instance while preventing an
 unrelated third module from inventing a competing answer. Instances are not imported
-or exported individually; once their module is part of the program, they participate
-globally.
+or exported individually. A module sees an instance when its imports reach the
+instance's module, directly or through other modules. Because an instance lives with
+its constraint or its type, a module that can name both has normally reached it
+already.
 
 Instance heads remain deliberately simple. They describe one type constructor, such
 as `Rectangle` or `Box(a)`, rather than special cases such as `Box(Int)`. Instance
@@ -425,7 +431,8 @@ exporting constrained polymorphic functions.
 - an instance is used below its `honor`; an honor's body sees its own instance, and
   honors that need each other form an honor group;
 - a base constraint is an obligation that another constraint builds on;
-- coherence gives every constraint/type pair one program-wide meaning;
+- coherence gives every constraint/type pair one program-wide meaning, seen wherever
+  a module's imports reach the instance's module;
 - the orphan rule places an instance with either its constraint or its type; and
 - dictionaries appear only where JavaScript must preserve genuine polymorphism.
 

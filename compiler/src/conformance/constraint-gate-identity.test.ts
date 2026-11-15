@@ -358,7 +358,7 @@ describe("a container walk demands of its contents what the identity says", () =
           "export let r: String = render(xs)\n",
       ),
     ).toEqual([
-      "type `P` has no `Show` instance; it could only be declared in module `Main` " +
+      "no `Show<P>` instance is visible in this module; it could only be declared in module `Main` " +
         "(declares `P`) or the module declaring `Show`; add `Show` to the `derives` list of `P`",
     ]);
   });
@@ -375,9 +375,9 @@ describe("a container walk demands of its contents what the identity says", () =
         "export let r: String = render(m)\n",
     );
     expect(reports).toEqual([
-      "type `P` has no `Show` instance; it could only be declared in module `Main` " +
+      "no `Show<P>` instance is visible in this module; it could only be declared in module `Main` " +
         "(declares `P`) or the module declaring `Show`; add `Show` to the `derives` list of `P`",
-      "type `Q` has no `Show` instance; it could only be declared in module `Main` " +
+      "no `Show<Q>` instance is visible in this module; it could only be declared in module `Main` " +
         "(declares `Q`) or the module declaring `Show`; add `Show` to the `derives` list of `Q`",
     ]);
   });
@@ -396,7 +396,7 @@ describe("a container walk demands of its contents what the identity says", () =
           "export let r: Int = keyed(m)\n",
       ),
     ).toEqual([
-      "type `V` has no `Hash` instance; `Hash` instances must be derived, so the " +
+      "no `Hash<V>` instance is visible in this module; `Hash` instances must be derived, so the " +
         "only repair is adding `Hash` to `V`'s `derives` list in module `Main`",
     ]);
   });

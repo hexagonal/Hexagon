@@ -202,7 +202,7 @@ describe("a built-in receiver reaches the module addressable under its name", ()
     // allocation counter.
     expect(messages).toEqual([
       "`Vector(a)` has no field `doubled`, its companion exports no operation " +
-      "`doubled`, and no constraint honored at `Vector(a)` has a subject-first " +
+      "`doubled`, and no constraint whose instance at `Vector(a)` is visible in this module has a subject-first " +
       "member `doubled`; call an available subject-first function explicitly",
     ]);
   });
@@ -287,7 +287,7 @@ describe("the companion is the home module, and only the home module", () => {
         "export let n: Int = Box({value = 1}).secret() + secret(Box({value = 0}))\n",
       ),
     ).toEqual([
-      "`Box` has no field `secret`, its companion exports no operation `secret`, and no constraint honored at `Box` has a subject-first member `secret`; call an available subject-first function explicitly",
+      "`Box` has no field `secret`, its companion exports no operation `secret`, and no constraint whose instance at `Box` is visible in this module has a subject-first member `secret`; call an available subject-first function explicitly",
     ]);
   });
 
@@ -303,7 +303,7 @@ describe("the companion is the home module, and only the home module", () => {
         "export let n: Int = make(1).make()\n",
       ),
     ).toEqual([
-      "`Box` has no field `make`, its companion exports no operation `make`, and no constraint honored at `Box` has a subject-first member `make`; call an available subject-first function explicitly",
+      "`Box` has no field `make`, its companion exports no operation `make`, and no constraint whose instance at `Box` is visible in this module has a subject-first member `make`; call an available subject-first function explicitly",
     ]);
   });
 

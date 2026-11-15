@@ -358,7 +358,7 @@ describe("a faced tree is refused once, naming the value that declined (#827)", 
     // and select no home, so it reaches the face like any unsolved value, and
     // the gate's missing instance is the one report — never silence.
     const missing = (face: string, rung: string): string =>
-      `type \`${face}\` has no \`${rung}\` instance`;
+      `no \`${rung}<${face}>\` instance is visible in this module`;
     for (
       const [source, face, rung] of [
         ["fun gg(y, z) =\n    let x: Nat = (y - z) + m\n    x\n", "Nat", "Signed"],
@@ -521,7 +521,7 @@ describe("calls join the tree (#1062, part 2)", () => {
     const orders = ["Integral.gcd(s2, n + i)", "Integral.gcd(n + i, s2)", "(n + i).gcd(s2)"];
     const reports = orders.map((call) => refusals(foo + `let g = ${call}\n`));
     expect(reports[0]).toHaveLength(1);
-    expect(reports[0]![0]).toContain("type `Foo` has no `Integral` instance");
+    expect(reports[0]![0]).toContain("no `Integral<Foo>` instance is visible in this module");
     for (const report of reports) expect(report).toEqual(reports[0]);
     // Under a face the operand order is invisible too, whether or not the
     // declining type carries the rung (Method Syntax §2.2): `s2` is named once.
@@ -680,7 +680,7 @@ describe("calls join the tree (#1062, part 2)", () => {
     // A constrained hole's constraint is required once.
     const frac = refusals(apply + "let w = apply2(m, (v: _ : Frac) => v)\n");
     expect(frac).toHaveLength(1);
-    expect(frac[0]).toContain("type `Nat` has no `Frac` instance");
+    expect(frac[0]).toContain("no `Frac<Nat>` instance is visible in this module");
     // An arrow's colour is read as the lambda's own reading finds it; an early
     // reading would call the `>->` orphaned. Since #1119 `spare` fits the
     // lambda's own `>->` and pins nothing, so the program compiles.

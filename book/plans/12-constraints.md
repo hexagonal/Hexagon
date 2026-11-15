@@ -45,7 +45,8 @@ when dictionaries do or do not survive into JavaScript.
 - Defaults may call other members, but circular inherited defaults can recurse forever;
   the book warns readers to ground defaults in required operations.
 - One instance per constraint/type constructor, program-wide.
-- Instances are global once their module participates in the program.
+- An instance is visible in a module whose imports reach the instance's module;
+  coherence stays program-wide.
 - Genuinely polymorphic JavaScript carries dictionaries after the source arguments as
   trailing evidence.
 - Nothing constraint-shaped appears in ordinary `.d.ts` output.

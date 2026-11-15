@@ -78,9 +78,9 @@ Inside a package, an import can name three kinds of module:
 Nothing else. A dependency's own dependencies are invisible: if `Acme` uses `Bolt`,
 your project still cannot write `import Bolt.Util` unless it lists `Bolt` itself. The
 modules you cannot name may still be part of the program — `Acme`'s imports bring them
-in, and the instances they declare are as global as any — but your imports do not
-reach them. The visible set is decided per package, so a dependency's imports are
-resolved against *its* manifest, never yours.
+in, and the instances they declare count toward the one-instance rule like any other —
+but your imports do not reach them. The visible set is decided per package, so a
+dependency's imports are resolved against *its* manifest, never yours.
 
 ## Bare when unique, qualified when contested
 
