@@ -604,6 +604,27 @@ describe("A line that is too long (§9)", () => {
     ));
   });
 
+  it("begins a carried-on line with `-` or `band` and keeps what the program means", () => {
+    expect(format(lines(
+      "module A",
+      "let total =",
+      "    alpha - beta - gamma - delta",
+      "let masked =",
+      "    alpha band beta band gamma",
+    ), { maximumLineLength: 20 })).toBe(lines(
+      "module A",
+      "let total =",
+      "    alpha",
+      "            - beta",
+      "            - gamma",
+      "            - delta",
+      "let masked =",
+      "    alpha",
+      "            band beta",
+      "            band gamma",
+    ));
+  });
+
   it("leaves an operator the author put at the end of a line where it is", () => {
     const text = lines(
       "module A",

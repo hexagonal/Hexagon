@@ -13,7 +13,6 @@ import * as Spacing from "./spacing.js";
 import * as Whitespace from "./whitespace.js";
 import type * as Lexed from "../syntax/lexed/index.js";
 
-
 /** Binary operators by precedence level, loosest highest (Operators §3). */
 const precedence = new Map<string, number>([
   ["Power", 3],
