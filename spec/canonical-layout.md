@@ -163,7 +163,7 @@ export let clamp(reading: Option(Int),
         _ => 0
 ```
 
-The body of `clamp` is measured from the line where `export let` begins, and the arm's body from the line where its arm begins.
+The body of `clamp` is measured from the line where `export let` begins, and the arm's body from the line where the arm begins.
 
 ### 5.4 Lines the rows do not move, and what the rows keep
 
@@ -251,7 +251,7 @@ These rules govern the gaps between two code tokens on the same line. They do no
 
 Colons have one spacing everywhere. Every colon is tight on its left with one space after. This holds for a binding's annotation, an ascription, a constrained hole and a binder list alike. The space before a colon carries no meaning: horizontal whitespace is trivia, not a token (Lexer §7), and no rule of the lexer or the parser reads whether a colon touches what stands before it. Hexagon writes parameters in brackets and has no application by juxtaposition. Gleam is the same in both respects, and its documentation writes `fn add(x: Int, y: Int) -> Int`.
 
-`derives` is a keyword after the name, the parameters or the binder list of a `record`, `union` or foreign enum, before its `=` (Lexer §4.2). It lexes as a name, but it is spaced as a keyword, so its brackets never look like a call's: `union Ping derives (Eq, Show)`. Anywhere else `derives` is an ordinary name, and a function named `derives` is called tight, as in `derives(1)`.
+`derives` is a keyword in the header of a `record`, `union` or foreign enum, before its `=` (Lexer §4.2). It lexes as a name, but it is spaced as a keyword, so its brackets never look like a call's: `union Ping derives (Eq, Show)`. Anywhere else `derives` is an ordinary name, and a function named `derives` is called tight, as in `derives(1)`.
 
 ### 7.2 Gaps the formatter never opens or closes
 
@@ -280,7 +280,7 @@ A comment that begins its line takes the indentation of the next line that begin
 
 A comment that spans lines moves as a unit. Every line of it shifts by the same number of columns, so a doc comment's content, which is measured from its lines' common indentation, stays the same. If a move to the left would cut into the text of a later line, the later lines stay as written and only the first line moves.
 
-A line that begins with a block comment and continues with code is placed by its code. The code goes where §5 puts it, and the comment stands before it. The gap between the comment and the code is an ordinary gap, like one where §7.1 calls for one space: it is kept as written, it becomes one space under Collapse extra spaces (§3.2), and it is never less than one space. Where the comment does not fit before the code with that gap, the gap shrinks as far as it must, to no less than one space. Where even that leaves no room for the comment, the formatter refuses the document and names the line (§2.3).
+A line that begins with a block comment and continues with code is placed by its code. The code goes where §5 puts it, and the comment stands before it. The gap between the comment and the code is an ordinary gap, like one where §7.1 calls for one space: it is kept as written, it becomes one space under Collapse extra spaces (§3.2), and it is never less than one space. Where the comment does not fit before the code with that gap, the gap shrinks as far as it must. Where even one space leaves no room for the comment, the formatter refuses the document and names the line (§2.3).
 
 ### 8.3 A comment after code
 
@@ -302,7 +302,7 @@ Code points are the measure in version one. The measure may later become display
 
 - **A string**, its interpolation holes included, and **a comment**.
 - **A union's alternatives** are never split onto lines of their own, since that would change which declarations are multi-line (§6.3).
-- **A head**: an `if`'s condition, from the `if` to its `then`, and the head of a `match`, `for` or `while`, from its keyword to the end of its line. The line that holds a head may still be broken outside it: before the `if` or the `match`, when a value goes beneath its `=`, and after `then`.
+- **A head**: an `if`'s condition, from the `if` to its `then`, and the head of a `match`, `for` or `while`, from its keyword to the end of its line. The line that holds a head may still be broken outside it: before the `if` or the `match`, when a value goes beneath its `=` or a body beneath its `=>`, and after `then`.
 - **Anywhere the program would read differently afterwards.** Every break is made only where the tree stays the same (§1). Where several items share a line, separated by `;`, only the last of them is broken.
 
 A line with nothing left to break stays long, and the formatter does not report it.
@@ -315,7 +315,7 @@ The formatter breaks the **outermost** structure of a too-long line first, and s
 2. **Brackets.** Their contents go one item per line, never several to a line. The closing bracket takes a line of its own at the indentation of the opening bracket's line.
 3. **A chain** of two or more links, where each link is a dot call or a `|>` stage, takes Method Syntax §2.1's form. The receiver ends its line, and every link takes a line of its own. Where the receiver begins its line, as it does once a value is beneath its `=`, the links sit at the receiver's level; otherwise they are carried on, two levels in (§5.1). Every link is broken, or none. A chain breaks before the brackets inside its links do. A dot after an uppercase name is a module qualifier and never breaks; nor does a field path such as `order.customer.name`. A single link is not a chain, and its brackets open instead.
 4. **A conditional** takes Operators §11.3's multiline shape. `then` stays on the condition's line, each branch goes on a line of its own one level in (§5.3), and `else` takes its item's level (§5.1), which is under `if` wherever `if` begins the line, as it does once a value is beneath its `=`. An `else if` stays on one line. Every branch of the conditional is broken, or none. A head is never broken (§9.3): an `if`'s condition stays on one line however long it is, and so does the head line of a `match`, `for` or `while`.
-5. **An operator.** An expression whose outermost structure is an operator has nothing to open. It is carried on at two levels, broken before each of its loosest operators, so that each carried-on line begins with an operator and holds one operand (§9.5).
+5. **An operator.** An expression whose outermost structure is an operator has nothing to open. It is carried on at two levels, broken before each of its loosest operators, so that each carried-on line begins with an operator and holds one operand (§9.5). An operator the author wrote at the end of a line is not broken before: it stays where it is (§9.5).
 
 So in `let x = if c then f(a, b) else g(c)`, the value goes beneath the `=` first, then the conditional takes its shape, and only then, if a branch is still too long, do its brackets open.
 
