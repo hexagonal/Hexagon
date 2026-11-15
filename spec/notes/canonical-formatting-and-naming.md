@@ -101,15 +101,17 @@ declarations through this list before considering the segment done.
   must reach a generic `a -> b` slot, the bridge is the eta-wrap
   `_ => thunk()`.
   (Functions §5.3)
-- **S11 [canonical]** A degenerate whole-type hole is normalized to omission:
-  `x: _` and `let n: _ = ...` are legal and inert, and the formatter drops
-  the annotation, leaving the bare binder — `f(x: _, y)` becomes `f(x, y)`,
-  `let n: _ = ...` becomes `let n = ...`. Holes *inside* a written type —
+- **S11 [canonical]** A degenerate whole-type hole is omitted: `x: _` and
+  `let n: _ = ...` are legal and inert, and canonical Hexagon writes the
+  bare binder — `f(x, y)`, not `f(x: _, y)`; `let n = ...`, not
+  `let n: _ = ...`. Format document changes whitespace only and leaves a
+  written `x: _` as it stands, since its author may be on the way to
+  `x: _: Num` (Canonical Layout §10). Holes *inside* a written type —
   `xs: Vector(_)` — are ordinary canonical Hexagon and stay written. A
-  **constrained** hole is never inert and is never dropped: `x: _ : Show`
+  **constrained** hole is never inert and is never dropped: `x: _: Show`
   carries a claim and stays written. The ascription's degenerate spelling
-  normalizes the same way: `(e : _)` becomes `(e)` (Ascription spec §3.2).
-  So does a typed pattern's: `(p: _)` becomes `p`, its parentheses with it
+  is omitted the same way: `(e)`, not `(e: _)` (Ascription spec §3.2).
+  So is a typed pattern's: `p`, not `(p: _)`, its parentheses with it
   where they group nothing else (Pattern Matching §2.9).
   (`decisions-ml-dialect-annotations-2026-08.md` §5.2, §4.4)
 - **S12 [canonical]** A hole is never written where a type variable would
@@ -118,14 +120,14 @@ declarations through this list before considering the segment done.
   never `xs: Vector(_)`. A hole is the canonical spelling exactly where a
   variable would be refused — the concrete-but-inferred position:
   `rows: Vector(_)` whose body fixes the element. The same rule governs
-  constrained holes: where `_ : C` would generalize, write the binder and
-  the variable (`f<a: Show>(x: a)`, never `f(x: _ : Show)`); `_ : C` is
+  constrained holes: where `_: C` would generalize, write the binder and
+  the variable (`f<a: Show>(x: a)`, never `f(x: _: Show)`); `_: C` is
   canonical exactly where the variable is refused. The formatter never
   rewrites one into the other — that transform invents a name, which is
-  authorship, not formatting. Constraint-colon spacing: `x: _ : Num`,
-  never `x: _: Num` — the annotation colon hugs its binder, the constraint
-  colon stands off; binder lists are untouched (`<a: Num>`). The rule
-  reaches ascribed types (Ascription spec §3.2).
+  authorship, not formatting. Every colon is written tight on its left
+  with one space after: `x: _: Num`, never `x: _ : Num`, and `(e: T)`,
+  never `(e : T)` (Canonical Layout §7.1). The rule reaches ascribed
+  types (Ascription spec §3.2).
   (`decisions-ml-dialect-annotations-2026-08.md` §5.6, §4.4)
 
 ## 3. Literals
@@ -141,7 +143,8 @@ declarations through this list before considering the segment done.
 
 ## 4. Layout and conditionals
 
-- **F1 [canonical]** Four spaces per indentation level. (Lexer Layout §1)
+- **F1 [canonical]** Four spaces per indentation level. (Lexer Layout §1;
+  Format document writes it, Canonical Layout §5)
 - **F2 [enforced]** Conditionals carry mandatory `then` (parse error without).
   An else-less `if` is sugar for `else ()` and its `then` branch must be
   `Unit`; an else-less `if` producing a value is a type error with the
@@ -157,6 +160,22 @@ declarations through this list before considering the segment done.
   neither into the other — the fused spelling is idiomatic for one member,
   the block earns its place at two, but neither is enforced. Revisit with
   field evidence. (Functions §7.3)
+
+## 5. House settings
+
+This section is the house style's own record, not a restatement. The
+formatter leaves these choices to the author (Canonical Layout §10), and
+the standard library and the Book make them this way.
+
+- **H1** The standard library and the Book are formatted at Maximum line
+  length 100. A line that cannot be broken, such as one holding a long
+  string or comment, stays longer. (Canonical Layout §3.1, §9)
+- **H2** They are formatted with Collapse extra spaces on: the house never
+  lines things up with spaces. (Canonical Layout §3.2)
+- **H3** In the standard library and the Book, a function with a doc
+  comment is always written as multi-line, with a blank line on both
+  sides. The formatter does not enforce this: for it, a doc comment does
+  not make a declaration multi-line. (Canonical Layout §6.3)
 
 ---
 

@@ -136,7 +136,7 @@ rigid, filled with a monotype, never a scheme. The bare whole-type hole
 (`x: _`) is legal and inert — it means exactly what omitting the annotation
 means, and canonical formatting drops it, leaving the bare binder `x`.
 A hole — and only a hole — may carry a written constraint list, the §4.2
-form: `x: _ : Show`, or `xs: Vector(_ : Num)` for an element. The list is a
+form: `x: _: Show`, or `xs: Vector(_: Num)` for an element. The list is a
 requirement the fill must satisfy — a floor, never a cap; a named variable
 instead constrains at its binder (§4.2), the one home a name affords.
 Semantics, legal positions, constrained holes, and the

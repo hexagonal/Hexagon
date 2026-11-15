@@ -21,6 +21,7 @@ Every normative owner appears exactly once. The explicitly marked router and gui
 | Lexical | `lexer-layout.md` | layout, blocks, `;`, indentation rules |
 | Lexical | `comments.md` | comment forms |
 | Lexical | `doc-comments.md` | doc-comment recognition, attachment, content model, JSDoc emission *(added 2026-08-01, #191)* |
+| Lexical | `canonical-layout.md` | the canonical layout Format document and Format selection write: line ends, indentation, blank lines, spacing within a line, where comments stand, breaking a line that is too long, the two options |
 | Lexical | `numeric-literals.md` | numeric literal grammar, defaulting |
 | Declarations | `declarations-preamble.md` | declaration forms, headers, order-insensitivity |
 | Declarations | `functions.md` | lambdas, `let`/`fun`, arity, application, generalization, function emission |
@@ -100,7 +101,7 @@ Load the set for the task; add files only when a cited section demands it. `ffi.
 | **Collections work** | `collections-part1-decisions.md` through `collections-part5-iterable.md`, `loops-ranges-iteration.md`; for the JS boundary add `ffi-part10-js-map-set.md` |
 | **FFI work** | `ffi.md` first, then the owning part(s) via its §4 router; `exceptions.md` §6–§7 and `modules.md` §11 as cited |
 | **Stdlib work** | `collections-part1-decisions.md` §3 (naming/accessor doctrine), `collections-part5-iterable.md` §10, `method-syntax.md` §4/§15 (dot-callability constraints), `intrinsics.md` (how stdlib source names compiler-provided implementations), `ffi.md` §9.1, `stdlib-roadmap.md` *(pending)*; prelude rules in `modules.md` §6 |
-| **Documentation work** | `notes/hexagon-for-typescript-coders.md`, `notes/canonical-formatting-plan.md`, `type-system-overview.md` *(orienting, stale — prefer `language.md` once it lands)*, `spec-roadmap.md`, this file |
+| **Documentation work** | `notes/hexagon-for-typescript-coders.md`, `canonical-layout.md`, `notes/canonical-formatting-plan.md`, `type-system-overview.md` *(orienting, stale — prefer `language.md` once it lands)*, `spec-roadmap.md`, this file |
 
 ## Historical material
 
