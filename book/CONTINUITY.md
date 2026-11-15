@@ -930,8 +930,9 @@ late pedagogy pass, not a commitment to the current order.
 - Establishes the three equivalent spellings, type-directed companion lookup,
   exported subject-first eligibility, bare-dot field access, explicit collision
   resolution, and the independently-known receiver rule.
-- Constraint members remain bare calls or pipes; dot-call syntax never searches
-  instances.
+- Honoring binds no bare name: `show` is bare everywhere, every other constraint
+  member is a dot call, an operator, or `Constraint.member(…)`. A dot call's
+  candidates include the members of instances visible in the calling module.
 - Dot calls erase to ordinary function calls and add nothing method-shaped to `.d.ts`.
 - Constraints, Derivation, Modules, and Dot Calls have been reviewed as one sequence in
   `reviews/04-capabilities-and-calls.md`.
