@@ -258,7 +258,7 @@ This is the sentence `Stream` stands on. `Stream(a)`'s field `next: () ->! Optio
 - **The reverse stays refused.** A function that is impure where purity is demanded, or one that may fail where the demand says it cannot, is an error (§4.3): `Button({ onClick = oops0 })` under `onClick: () ->~ Unit` is refused.
 - **A face a function writes for itself may claim more effect than its body performs, never less** (§4.2). `let h: () ->! Unit = () => ()` is `->!`, and its calls wear `!`. A `->` face over a body that is impure, or may fail, is refused.
 - **References are colourless.** A name, a field access or a stored function carries no mark (no argument list, no mark: §3.2). Storing a function that is impure or may fail does neither; calling it may.
-- **The term-level purity demand is the ascription** `(f : a -> b)`, rigid per the Ascription spec. A signature demand (`->` in a parameter annotation, or `->^` or `->~`) refuses by unification an argument that does what it leaves silent. There is no other demand form.
+- **The term-level purity demand is the ascription** `(f: a -> b)`, rigid per the Ascription spec. A signature demand (`->` in a parameter annotation, or `->^` or `->~`) refuses by unification an argument that does what it leaves silent. There is no other demand form.
 - **The two levels share no token, so a lambda's return annotation needs no parenthesization rule.** `=>` is a term arrow and the `->` family is a type arrow, so the annotation grammar can be right-associative and greedy without hazard (Functions §4.1):
 
   ```text

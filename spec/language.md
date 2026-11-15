@@ -8,7 +8,7 @@ Hexagon is an **ML dialect that targets JavaScript**, in the posture of F# with 
 
 ## 2. Dependency and reading order
 
-1. **Lexical structure** — `lexer.md`, `lexer-layout.md`, `comments.md`, `numeric-literals.md`
+1. **Lexical structure** — `lexer.md`, `lexer-layout.md`, `comments.md`, `numeric-literals.md`, `canonical-layout.md`
 2. **Declarations** — `declarations-preamble.md`, `functions.md`, `statements-blocks-mutability.md`
 3. **Name resolution and modules** — `modules.md` §5; dot-call resolution belongs to `method-syntax.md`
 4. **Types and data** — `primitive-types.md`, `products.md`, `unions.md`, `rat.md`
@@ -22,7 +22,7 @@ Hexagon is an **ML dialect that targets JavaScript**, in the posture of F# with 
 
 | Area | Questions routed here | Normative owner(s) |
 |---|---|---|
-| Lexical structure | tokens, literals, comments, layout, separators | `lexer.md`; `lexer-layout.md`; `comments.md`; `numeric-literals.md` |
+| Lexical structure | tokens, literals, comments, layout, separators, canonical layout | `lexer.md`; `lexer-layout.md`; `comments.md`; `numeric-literals.md`; `canonical-layout.md` |
 | Declarations and local scope | declaration forms, functions, binders, blocks, mutation | `declarations-preamble.md`; `functions.md`; `statements-blocks-mutability.md` |
 | Names and modules | namespaces, imports/exports, visibility, module graph, ordinary qualification | `modules.md` |
 | Types and data | primitives, tuples, records, rows, nominal data, unions, exact rationals | `primitive-types.md`; `products.md`; `unions.md`; `rat.md` |

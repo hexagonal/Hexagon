@@ -164,8 +164,8 @@ else
     falseExpression
 ```
 
-The formatter may collapse the multiline form only when the complete conditional
-fits the configured line-width limit.
+The formatter never collapses the multiline form, since it keeps the author's
+line breaks (Canonical Layout §1).
 
 In multiline code, a chain canonically uses `else if` on the same line, aligned
 with the first `if` and final `else`. Each branch body indents one level; the

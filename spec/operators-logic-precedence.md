@@ -1,6 +1,6 @@
 # Hexagon Spec — Operators, Logic & Precedence
 
-**Status:** Decided (v1), except items explicitly marked deferred. Amended 2026-11-13 (#1538): §6.2 says that two minus signs are written apart. Amended 2026-11-14 (#1542): `//` writes a fraction, at its own level 5 (§3, §6.4). Amended 2026-11-14 (#1545): a divisor or bottom written as a literal zero is refused when the program is compiled (§6.1, §6.4, §15; Division & Remainder §12).
+**Status:** Decided (v1), except items explicitly marked deferred. Amended 2026-11-13 (#1538): §6.2 says that two minus signs are written apart. Amended 2026-11-14 (#1542): `//` writes a fraction, at its own level 5 (§3, §6.4). Amended 2026-11-14 (#1545): a divisor or bottom written as a literal zero is refused when the program is compiled (§6.1, §6.4, §15; Division & Remainder §12). Amended 2026-11-16 (#1561): §11.3, the formatter never collapses a multiline conditional (Canonical Layout §1).
 **Scope:** The complete v1 operator inventory; the precedence and associativity table; word-based logical operators (`not`, `and`, `or`, `implies`, `iff`) and their desugarings; comparison operators, chaining, and the single-evaluation rule; arithmetic operators including `**`; the concatenation operator `++`; the pipe operator `|>`; the fraction form `//`; the `if … then … else` expression (mandatory `then`; `else` omissible as `Unit` sugar, §11.2); the grammatical placement of `..`, `:=`, `=>`, `[]`, `.`, and call syntax.
 **Not in scope:** Semantics of indexing/slicing (`xs[i]`, `xs[lo..hi]`) beyond precedence — owed to the collections/indexing spec. Semantics of `Range` construction — Loops, Ranges & Iteration spec is authoritative; this spec only fixes `..`'s precedence. `match` — pattern-matching spec; referenced here only as a member of the eats-to-the-right family. Constraint mechanics (dictionary passing, coherence) — Constraints spec.
 **Companions:** Constraints (operator→member elaboration targets, prelude constraint listing), Primitive Types (per-type instance inventories, `Ord String`), Numeric Literals (literal elaboration under operators), Loops/Ranges/Iteration (`..` semantics, `while`/`for` condition grammar by reference), Statements/Blocks/Mutability (`:=` semantics, discard rule), Exceptions (edit note §14.2), Functions (`=>`, header sugar).
@@ -438,8 +438,8 @@ else
 ```
 
 This multiline spelling is the reliable canonical form regardless of branch
-complexity. A formatter may collapse it only when the complete conditional fits
-the configured line-width limit. A block arm's value is its final expression per
+complexity. The formatter never collapses it, since it keeps the author's line
+breaks (Canonical Layout §1). A block arm's value is its final expression per
 the standard block rule.
 
 `else if` is syntactically `else` whose expression is another mandatory-`then`
