@@ -25,10 +25,10 @@ export interface Roles {
   /** `band`, `bor` and `bxor` written as operators (Lexer §4.2). */
   readonly bitwiseOperator: ReadonlySet<number>;
   /**
-   * `derives` in its keyword seat, after a declaration head's name or
-   * parameters (Lexer §4.2). Hexagon has no juxtaposition, so a `derives`
-   * that follows a complete operand is the keyword, never a call, and it is
-   * spaced like one: `derives (Eq, Show)`.
+   * `derives` in its keyword seat, after a declaration head's uppercase name,
+   * its parameters or its binder list (Lexer §4.2). Hexagon has no
+   * juxtaposition, so a `derives` there is the keyword, never a call, and it
+   * is spaced like one: `derives (Eq, Show)`.
    */
   readonly derives: ReadonlySet<number>;
 }
@@ -124,7 +124,7 @@ export function roles(tokens: readonly Lexed.Token[], beginsItem: ReadonlySet<nu
       prefix.add(index);
     } else if (token.kind === "Minus" || token.kind === "Plus") {
       if (!followsOperand(index) || bitwiseOperator.has(index - 1)) prefix.add(index);
-    } else if (token.kind === "NonUpperName" && token.text === "derives" && followsOperand(index)) {
+    } else if (token.kind === "NonUpperName" && token.text === "derives" && endsHead(tokens, index, binderClose)) {
       derives.add(index);
     } else if (token.kind === "NonUpperName" && bitwiseWords.has(token.text)) {
       const previous = tokens[index - 1];
@@ -142,6 +142,16 @@ export function roles(tokens: readonly Lexed.Token[], beginsItem: ReadonlySet<nu
     }
   }
   return { prefix, binderOpen, binderClose, bitwiseOperator, derives };
+}
+
+/**
+ * Whether the token before `index` ends a declaration head's name or
+ * parameters: an uppercase name, a closing parenthesis, or a binder list's `>`.
+ */
+function endsHead(tokens: readonly Lexed.Token[], index: number, binderClose: ReadonlySet<number>): boolean {
+  const previous = tokens[index - 1];
+  return previous !== undefined &&
+    (previous.kind === "UpperName" || previous.kind === "RightParen" || binderClose.has(index - 1));
 }
 
 function opensBinder(tokens: readonly Lexed.Token[], index: number, followsOperand: boolean): boolean {
@@ -221,6 +231,7 @@ function isBinary(tokens: readonly Lexed.Token[], roles: Roles, index: number): 
 export function rule(tokens: readonly Lexed.Token[], roles: Roles, index: number, gap: boolean): Rule {
   const left = tokens[index]!;
   const right = tokens[index + 1]!;
+  if (roles.derives.has(index) || roles.derives.has(index + 1)) return "one";
   // §7.2: gaps that carry meaning keep whether they are there.
   if (left.kind === "RightParen" && isName(right) && right.kind !== "Wildcard") return "presence";
   if (marks.has(left.kind) || marks.has(right.kind)) return "presence";
@@ -243,7 +254,6 @@ export function rule(tokens: readonly Lexed.Token[], roles: Roles, index: number
   if (right.kind === "RightParen" || right.kind === "RightBracket" || roles.binderClose.has(index + 1)) {
     return "none";
   }
-  if (roles.derives.has(index) || roles.derives.has(index + 1)) return "one";
   const opensAfter = right.kind === "LeftParen" || right.kind === "LeftBracket" ||
     roles.binderOpen.has(index + 1);
   if (opensAfter) {

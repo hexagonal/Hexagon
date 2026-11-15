@@ -384,6 +384,8 @@ describe("Spacing within a line (§7)", () => {
   it("spaces `derives` as the keyword it is, never as a call", () => {
     expect(format("module A\nunion Ping derives(Eq, Show) = | Ping\n")).toBe("module A\nunion Ping derives (Eq, Show) = | Ping\n");
     expect(format("module A\nlet x = derives(1)\n")).toBe("module A\nlet x = derives(1)\n");
+    expect(format("module A\nunion Box(a)derives(Eq) = | Box(a)\n")).toBe("module A\nunion Box(a) derives (Eq) = | Box(a)\n");
+    expect(format("module A\nlet y = x band derives(1)\n")).toBe("module A\nlet y = x band derives(1)\n");
   });
 
   it("keeps the gaps that carry meaning (§7.2)", () => {
