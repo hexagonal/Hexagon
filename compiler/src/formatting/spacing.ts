@@ -124,7 +124,8 @@ export function roles(tokens: readonly Lexed.Token[], beginsItem: ReadonlySet<nu
       prefix.add(index);
     } else if (token.kind === "Minus" || token.kind === "Plus") {
       if (!followsOperand(index) || bitwiseOperator.has(index - 1)) prefix.add(index);
-    } else if (token.kind === "NonUpperName" && token.text === "derives" && endsHead(tokens, index, binderClose)) {
+    } else if (token.kind === "NonUpperName" && token.text === "derives" && !beginsItem.has(index) &&
+      endsHead(tokens, index, binderClose)) {
       derives.add(index);
     } else if (token.kind === "NonUpperName" && bitwiseWords.has(token.text)) {
       const previous = tokens[index - 1];
