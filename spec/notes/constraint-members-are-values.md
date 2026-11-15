@@ -14,7 +14,9 @@ Constraints §4.6. One extension beyond this note, ruled by James on the
 parameterized-recursion exhibit: **dot calls dispatch bound members on declared
 type variables** (the note's §1 table listed that row as refused; the book's
 nested-example rewrite silently required it — Method Syntax §16.2 records the
-forcing argument). The companion arc (PR δ) remains.
+forcing argument). The companion arc (PR δ) remains. Item 8's own-name
+refusal and its in-module bare reading were withdrawn on 2026-11-15 by the
+#757 rulings, recorded in §8 below; Constraints §4.6 carries the text.
 
 ## 1. The problem, measured
 
@@ -380,3 +382,71 @@ Each step lands alone, measurable, and reversible before the next.
 | `42.0.show()` | `"42"` | head-known `Float`, `Show<Float>` member |
 
 No row waits for a companion module.
+
+## 8. Record, 2026-11-15: what honoring claims and binds (#757)
+
+Two rulings on #757 replace item 8's reading of a member's spelling in its
+honoring module. Constraints §4.6 holds the normative text, §8 the reports,
+and Modules §5.4 the growth channel; this section keeps the reasons and the
+measurements behind them.
+
+**Ruling K — the claim covers every member.** Honoring a constraint claims
+every member's spelling in the module's term space against ordinary
+module-level bindings, written in the block or not: a defaulted member the
+instance inherits is claimed, and so is every member of a derived instance.
+The rebinding report says how the instance holds an unwritten spelling — it
+names the constraint and says the member is inherited from its default, or
+that the instance is derived — and keeps "choose a different name". The
+alternative measured was narrowing the claim to the members a block writes.
+It cost no existing program anything, and it was rejected: beside an
+`Ord<Box>` instance that inherits `max`, a module's own `max` at `Box` would
+answer `Box.max` and the bare name while `Ord.max` and generic code answered
+the default, and `x.max(y)` would meet two claimants, refused by Method
+Syntax §6 in the module and in every importer. The price kept instead is a
+growth channel: a constraint gaining a defaulted member can break a module
+that honors it and already binds the spelling, one declaration-shaped report
+at the line that owns the name (Modules §5.4's third channel).
+
+**Ruling Q — honoring binds no bare name.** A bare member spelling in an
+honoring module reads as it reads in a module that honors nothing: `show` is
+the prelude's `show` everywhere, every other member spelling is Modules
+§5.5's refusal, and an imported user constraint's member is in no bare scope.
+A bare name is the module's own only where the programmer wrote a
+module-level declaration — a `let`, a `fun`, a `widens` declaration, or the
+constraint declaration itself. One rule covers a hand-written honor block,
+`derives`, and `= derive`, at prelude and user constraints alike.
+
+The reading Q replaces — call it S, "a member is bare in its honoring
+module, monomorphic at the honored type", this note's item 8 — was measured
+in full: it changed nothing in the standard library, the Playground examples
+or the Book. It was rejected on what it does to the meaning of a bare name.
+Under S, bare `show` was usable only at the module's own type in a module
+with one `Show` instance, and at no type in a module with two (a `derives
+(Show)` on two records suffices), and the reading needed three rules of its
+own: the own-name refusal in a member's body, a refusal of a bare use where
+two member bindings share a spelling, and order rules for unqualified member
+references in a knot. Under Q none of the three exists. The reasons given
+for Q: "the text decides", applied to names — a bare name means the same in
+every module unless the module declares it; and Haskell and Rust do not
+make a member bare by implementing it. Its price: a bare member call at
+the honored type (`add(m, m)`, `max(a, b)`, `notEquals(a, b)`) and a bare
+sibling call inside an honor block become §5.5 refusals, rewritten with the
+dot or the qualified spelling; numeric modules are untouched, their
+arithmetic being written with operators and helper functions.
+
+**What item 8 keeps and loses.** Item 8's letrec ruling stands where it
+concerns rebinding: a member is a `let` header, its own name pending in its
+body (Statements §5.1), absent for reference and reserved against rebinding,
+so `let equals = ...` inside member `equals` is still the "already being
+defined" error. What goes is everything item 8 derived from "a member
+definition is a module-level binding" for bare reference: the own-name
+refusal and its sanctioned-forms diagnostic (a bare `show(box.value)` in a
+`Show<Box>` member is the prelude's `show`, legal), the in-module bare
+reading of a sibling member (`multiply(left, ...)` in `Frac<Rat>` is the
+§5.5 refusal), and the ordering half's rules for name references to members
+(every route to a member is a use of the instance, Constraints §4.8). The
+alternative item 8 rejected — the spelling reserved, binding nothing — is
+close to what Q rules. Q keeps the claim, adds no bare binding, and leaves
+the bare spelling to mean what it means in a module that honors nothing.
+Item 8's boundary paragraph (the honoring module's binding is no bare
+export) holds unchanged, and now holds inside the honoring module too.
