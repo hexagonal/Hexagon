@@ -310,9 +310,11 @@ function plan(reading: Reading, line: LongLine, failed: ReadonlySet<string>): Pl
   // 2. Brackets: the first pair on the line with something between it, or, on
   // a header whose value is already beneath it, the header's.
   const bracketsFrom = value.length > 0 ? valueStart : start;
-  candidates.push({ shape: "brackets", before: () => brackets(tokens, range(bracketsFrom), depth, line.last) });
-
   const blocked = heads(tokens, start, line.last);
+  // The first pair outside a head (§9.3).
+  const pairs = range(bracketsFrom).filter((index) => !blocked.has(index));
+  candidates.push({ shape: "brackets", before: () => brackets(tokens, pairs, depth, line.last) });
+
   for (const candidate of candidates) {
     if (failed.has(`${line.first}:${candidate.shape}`)) continue;
     const before = candidate.before().filter((index) => index > line.first && index <= line.last);
@@ -336,16 +338,9 @@ function rolesOf(reading: Reading): Spacing.Roles {
 }
 
 /**
- * The tokens no line may begin with: those inside a control head on the line,
- * from its keyword to the `then` that ends an `if`'s condition, or to the end
- * of the line for `match`, `for` and `while`.
- *
- * Lexer & Layout §2.1 reads a line that ends inside such a head as a block
- * head, so the line after it would open a block and the program would read
- * differently: today the layout pass keeps a bare `if` as its recovery head,
- * which is why a condition carried onto a second line (§5.3's example) does
- * not yet parse. Breaking there could only fail the tree check, so the
- * structure is not tried.
+ * The tokens no line may begin with: those inside a head on the line (§9.3),
+ * from an `if` to the `then` that ends its condition, or from `match`, `for`
+ * or `while` to the end of the line. A head is never broken.
  */
 function heads(tokens: readonly Lexed.Token[], from: number, last: number): Set<number> {
   const blocked = new Set<number>();
@@ -445,7 +440,7 @@ const eatsRight = new Set(["If", "Match", "Attempt", "Assume", "Try", "FatArrow"
 /**
  * The tokens an operator chain reaches: up to a form that eats to the right
  * (Operators §3.2), whose operators are its own, or, in a conditional, the
- * condition (§9.4 rule 4: a condition too long breaks by the same rules).
+ * condition, which `heads` then keeps whole (§9.3).
  */
 function reach(tokens: readonly Lexed.Token[], whole: readonly number[]): readonly number[] {
   const value = elseIf(tokens, whole);
