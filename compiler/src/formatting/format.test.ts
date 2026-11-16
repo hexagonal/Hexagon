@@ -1382,6 +1382,23 @@ describe("An assignment laid out as a binding (§9.4 rule 1)", () => {
     ));
   });
 
+  it("puts an `else` branch's value beneath its `:=`, as it would a binding's", () => {
+    expect(format(lines(
+      "module A",
+      "let f(c: Bool): Unit =",
+      "    var x = 0",
+      "    if c then x := 1",
+      "    else x := compute(alpha, beta, gamma)",
+    ), { maximumLineLength: 36 })).toBe(lines(
+      "module A",
+      "let f(c: Bool): Unit =",
+      "    var x = 0",
+      "    if c then x := 1",
+      "    else x :=",
+      "        compute(alpha, beta, gamma)",
+    ));
+  });
+
   it("leaves a value that fits on the `:=` line where it is", () => {
     const text = lines(
       "module A",

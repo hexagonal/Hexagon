@@ -43,6 +43,35 @@ describe("applyLayout", () => {
       expect(kindsOf[kindsOf.indexOf("Assign") + 1]).toBe("VOpen");
     });
 
+    test("a branch's or an arm's `:=` ending its line opens the value's block", () => {
+      for (const text of [
+        "if ready then total :=\n    count + 1",
+        "match n with\n    0 => total :=\n        count + 1",
+      ]) {
+        const result = layout(text);
+        expect(kinds(result.tokens).join(" "), text).toContain("Assign VOpen");
+        expect(result.diagnostics, text).toEqual([]);
+      }
+    });
+
+    test("a `:=` inside an unfinished head opens nothing; the head goes on", () => {
+      const result = layout("while total :=\n        more do\n    step()");
+      expect(kinds(result.tokens).join(" ")).not.toContain("Assign VOpen");
+    });
+
+    test("inside brackets, a line-ending `:=` opens a block at their level, as `=>` does (§2.2)", () => {
+      for (const text of ["g(t :=\n    1)", "g(t =>\n    1)"]) {
+        expect(virtualKinds(layout(text).tokens), text).toEqual(["VOpen", "VSep", "VOpen", "VClose", "VClose"]);
+      }
+    });
+
+    test("a line-ending `:=` with nothing beneath reports the missing block, as `=` does", () => {
+      const assigned = layout("total :=\ncount").diagnostics.map(({ message }) => message);
+      const bound = layout("let total =\ncount").diagnostics.map(({ message }) => message);
+      expect(assigned).toEqual(bound);
+      expect(assigned.length).toBeGreaterThan(0);
+    });
+
     test("an assignment with its value on its line opens nothing", () => {
       for (const text of ["total := count\n    + 1", "total := count + 1"]) {
         const result = layout(text);

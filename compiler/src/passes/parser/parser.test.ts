@@ -1053,6 +1053,39 @@ describe("parse", () => {
     expect(module.diagnostics).toEqual([]);
   });
 
+  test("keeps the chain error, and an `else` after a `:=` block, at a line-ending `:=`", () => {
+    expect(parseSource("t := u :=\n    1").diagnostics.map(({ message }) => message)).toContain(
+      "`:=` does not chain; assignment produces `Unit`",
+    );
+    const module = parseSource(
+      "fun pick(c: Bool) =\n" +
+        "    var t = 0\n" +
+        "    if c then t :=\n" +
+        "        let d = 2\n" +
+        "        d\n" +
+        "    else t := 3\n" +
+        "    t",
+    );
+    expect(module.diagnostics).toEqual([]);
+    expect(module.items[0]).toMatchObject({
+      value: {
+        body: {
+          items: [
+            { kind: "Var" },
+            {
+              expression: {
+                kind: "If",
+                consequence: { kind: "Assignment", value: { kind: "Block" } },
+                alternative: { kind: "Assignment", value: { kind: "Integer" } },
+              },
+            },
+            { kind: "ExprItem" },
+          ],
+        },
+      },
+    });
+  });
+
   test("parses for loops over ranges and strings", () => {
     const module = parseSource(
       "fun visit(): Unit =\n" +
