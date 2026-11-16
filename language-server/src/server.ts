@@ -247,11 +247,6 @@ export function startServer(connection: Connection): void {
   });
 
   connection.onInitialized(async () => {
-    if (formattingRegistration) {
-      const documentSelector = [{ language: "hexagon" }];
-      await connection.client.register(DocumentFormattingRequest.type, { documentSelector }).catch(() => undefined);
-      await connection.client.register(DocumentRangeFormattingRequest.type, { documentSelector }).catch(() => undefined);
-    }
     // The workspace is already analysed, so its diagnostics exist before any
     // document is opened. Waiting for a document event to publish them would
     // leave a user who opens a project and looks at the Problems panel — the
@@ -264,6 +259,13 @@ export function startServer(connection: Connection): void {
       await connection.client
         .register(DidChangeConfigurationNotification.type, { section: "hexagon.inlayHints" })
         .catch(() => undefined);
+    }
+    // Formatting for Hexagon files alone, after the first publication, so
+    // diagnostics never wait on the client's answer.
+    if (formattingRegistration) {
+      const documentSelector = [{ language: "hexagon" }];
+      await connection.client.register(DocumentFormattingRequest.type, { documentSelector }).catch(() => undefined);
+      await connection.client.register(DocumentRangeFormattingRequest.type, { documentSelector }).catch(() => undefined);
     }
     if (!watchedFilesRegistered) return;
     // Files can change without ever being opened — a branch switch, a formatter,
