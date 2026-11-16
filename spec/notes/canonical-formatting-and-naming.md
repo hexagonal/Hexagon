@@ -181,8 +181,9 @@ the Book, the Playground's tutorials and the spec's own examples.
   lines things up with spaces. (Canonical Layout §3.2)
 - **H3** In house text, a function with a doc comment has a blank line
   above the doc comment and a blank line below the function. The
-  formatter adds neither for this reason: for it, a doc comment does not
-  change where blank lines go. (Canonical Layout §6.3)
+  formatter never adds one because of the doc comment: for it, a doc
+  comment does not change where blank lines go. (Canonical Layout
+  §6.2, §6.3)
 - **H4** A line carried on at an operator begins with the operator, as
   each line Format document breaks at one does. An operator written at
   the end of a line is legal and the formatter leaves it there, but house
