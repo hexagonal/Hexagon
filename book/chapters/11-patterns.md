@@ -6,7 +6,7 @@ Earlier chapters have already used small patterns:
 let (guest, seats) = reservationPair
 let {name, confirmed} = reservation
 
-match status
+match status with
     Pending => "waiting"
     Dispatched(code) => code
     Delivered => "arrived"
@@ -35,7 +35,7 @@ Constructor, tuple, and record patterns may contain other patterns:
 ```hexagon
 union Booking = Booked(party: (String, Int)) | Refused(reason: {message: String})
 
-match booking
+match booking with
     Booked((name, seats)) => "${name}: ${seats}"
     Refused({message}) => message
 ```
@@ -47,7 +47,7 @@ Tuple patterns must match the tuple's arity. Record patterns are different: they
 always open and mention only the fields they need.
 
 ```hexagon
-match reservation
+match reservation with
     {confirmed = True, guest} => "Confirmed for ${guest}"
     {guest} => "Awaiting confirmation for ${guest}"
 ```
@@ -69,7 +69,7 @@ A nominal record must cross through its constructor pattern:
 record Point = {x: Float, y: Float}
 
 let distanceFromOrigin(point: Point): Float =
-    match point
+    match point with
         Point({x, y}) => Float.pow(x ** 2 + y ** 2, 0.5)
 ```
 
@@ -82,7 +82,7 @@ Bare integer, `BigInt`, `Float`, `Dec`, and `String` literals may appear in patt
 
 ```hexagon
 let describeCount(count: Int): String =
-    match count
+    match count with
         0 => "none"
         1 => "one"
         _ => "many"
@@ -97,7 +97,7 @@ beyond the range of a bare literal:
 
 ```hexagon
 let describeBig(count: BigInt): String =
-    match count
+    match count with
         9007199254740993n => "a large count"
         -9007199254740993n => "its negative"
         0 => "zero"
@@ -127,7 +127,7 @@ pattern too:
 
 ```hexagon
 let describeTemperature(celsius: Float): String =
-    match celsius
+    match celsius with
         0.0 => "freezing"
         -40.0 => "the same in Fahrenheit"
         _ => "some other temperature"
@@ -155,7 +155,7 @@ arm-level runtime test this chapter reaches below:
 
 ```hexagon
 let classify(value: Float): String =
-    match value
+    match value with
         x when x == Float.nan => "not a number"
         x when x == Float.infinity => "positive infinity"
         x when x == -Float.infinity => "negative infinity"
@@ -173,7 +173,7 @@ constructor patterns, so this is the ordinary union exhaustiveness of the previo
 chapter:
 
 ```hexagon
-match enabled
+match enabled with
     True => "enabled"
     False => "disabled"
 ```
@@ -183,7 +183,7 @@ match enabled
 ```hexagon
 let finished: Unit = ()
 
-match finished
+match finished with
     () => "finished"
 ```
 
@@ -194,7 +194,7 @@ That single arm is exhaustive because every `Unit` value is `()`.
 Use `|` when several shapes should take the same path:
 
 ```hexagon
-match status
+match status with
     Pending | Dispatched(_) => "still active"
     Delivered => "complete"
 ```
@@ -205,7 +205,7 @@ names, every alternative must bind the same names at compatible types:
 ```hexagon
 union Notice = Warning(message: String) | Failure(message: String) | Quiet
 
-match notice
+match notice with
     Warning(message) | Failure(message) => message
     Quiet => ""
 ```
@@ -223,7 +223,7 @@ Sometimes an arm needs both a component and the complete value. An **as-pattern*
 both:
 
 ```hexagon
-match status
+match status with
     Dispatched(code) as travelling => logStatus(travelling, code)
     Pending | Delivered as settled => logSimpleStatus(settled)
 ```
@@ -241,7 +241,7 @@ A pattern handles shape; a **guard** handles a condition that must be evaluated:
 
 ```hexagon
 let classifyPort(port: Int): String =
-    match port
+    match port with
         0 => "automatic"
         value when 1 <= value <= 1023 => "privileged"
         value when 1024 <= value <= 65535 => "ordinary"
@@ -333,13 +333,13 @@ handed straight to the arms:
 
 ```hexagon
 Vector.map(options, option =>
-    match option
+    match option with
         Some(value) => value
         None => "missing"
 )
 ```
 
-Hexagon lets you drop that name. **A `match` with nothing after it on the line is a
+Hexagon lets you drop that name. **A bare `match`, with no scrutinee and no `with`, is a
 function** — the unary function that matches its argument against the arms:
 
 ```hexagon
@@ -351,14 +351,14 @@ let labels = Vector.map(options, match
 
 This is exactly the previous example with the parameter and the scrutinee removed, and
 that is its definition rather than a resemblance: `match` with arms *means*
-`x => match x` with those arms, for a name you cannot write and never need. Everything
+`x => match x with` and those arms, for a name you cannot write and never need. Everything
 else follows from that. It is a function value like any other, so it can be bound,
 passed, and returned. Its type is read off the patterns and the arm bodies. The arms
 take the full pattern language, guards included.
 
-The disambiguation is one token: anything after `match` on the same line is a scrutinee,
-so `match option` is the expression you already know and only a bare `match` is the
-function. A bare `match` had no meaning before, so nothing changed underneath you.
+The two never blur. `match option with` holds a scrutinee and closes its head, so it is
+the expression you already know. A bare `match` holds nothing, needs no closing word, and
+ends its line: that one is the function.
 
 Being a `match`, it must be exhaustive over its parameter's type — which is the whole
 point. The reason lambda parameters refuse refutable patterns is that a lambda has no
@@ -373,7 +373,7 @@ One seat it does not have: a `fun`. A `fun` always shows its header, so a recurs
 matcher names its parameter and scrutinizes it —
 
 ```hexagon
-fun size(shape) = match shape
+fun size(shape) = match shape with
     Leaf => 0
     Node(left, _, right) => 1 + size(left) + size(right)
 ```
@@ -445,7 +445,7 @@ type there takes a pair of its own:
 
 ```hexagon
 let seatsOf(choice: Option(Int)): Int =
-    match choice
+    match choice with
         Some((seats: Int)) => seats
         None => 0
 ```
@@ -494,7 +494,7 @@ Each side is itself a pattern, so a match can ask about either one:
 
 ```hexagon
 let describe(value: Rat): String =
-    match value
+    match value with
         0 // _ => "zero"
         n // 1 => "the whole number ${n}"
         n // d => "${n} over ${d}"
@@ -508,7 +508,7 @@ Because the pattern sees lowest terms only, some fraction patterns can never mat
 and the compiler refuses them as dead cases:
 
 ```hexagon
-match value
+match value with
     2 // 6 => "a third"   -- error
     _ => "something else"
 ```
@@ -550,7 +550,7 @@ Declared patterns accept the same sub-patterns as other shapes:
 
 ```hexagon
 let describe(time: Time.Time): String =
-    match time
+    match time with
         (0, 0)clock => "midnight"
         (_, 0)clock => "on the hour"
         (h, m)clock => "${h}:${m}"
@@ -674,8 +674,8 @@ dialects.
 - a typed pattern `(p: T)` writes the type of the part it takes apart, inside a pattern's
   own parentheses; it is checked when the program compiles and never tests or converts,
   while `let p: T = e` types the whole binding and converts as a named binding's type does;
-- a `match` with nothing after it on the line is the function that matches its argument,
-  which is how refutable patterns reach callback position; and
+- a bare `match`, with no scrutinee and no `with`, is the function that matches its
+  argument, which is how refutable patterns reach callback position; and
 - a type written around a function reaches its parameters before its arms are checked, so
   a match function whose arms only guard still works at an annotated binding, in callback
   position, and at a receiver whose type is known at the dot.

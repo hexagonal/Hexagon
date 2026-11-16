@@ -3,19 +3,20 @@
 Hexagon's primary loop reads as a direct description of iteration:
 
 ```hexagon
-for number in 1..5
+for number in 1..5 do
     Debug.log("Number ${number}")
 ```
 
 The range contains `1`, `2`, `3`, `4`, and `5`. The loop binds each value to `number`
-and evaluates the body once for that value.
+and evaluates the body once for that value. The word `do` closes the loop's head, as
+`then` closes an `if`'s, and the body follows it.
 
 Loops work naturally with the mutable variables introduced in the preceding chapter:
 
 ```hexagon
 let sumTo(limit: Int): Int =
     var total = 0
-    for number in 1..limit
+    for number in 1..limit do
         total := total + number
     total
 ```
@@ -28,13 +29,14 @@ update `total` without crossing a lambda boundary.
 The general form is:
 
 ```hexagon
-for pattern in source
+for pattern in source do
     body
 ```
 
-Hexagon evaluates `source` once, then visits its elements in order. The loop pattern is
-in scope only within the body. Its names are immutable, but they may reuse familiar
-names from an enclosing scope because their region is visibly attached to the loop.
+The head runs from `for` to `do`. Hexagon evaluates `source` once, then visits its
+elements in order. The loop pattern is in scope only within the body. Its names are
+immutable, but they may reuse familiar names from an enclosing scope because their
+region is visibly attached to the loop.
 
 The source's type determines the element type statically. A `Range` yields `Int`
 values; a `String` yields one-codepoint `String` values; `Seq(a)` yields `a`. Later,
@@ -44,12 +46,19 @@ Both the body and the whole loop have type `Unit`. A body that accidentally fini
 with a useful value is rejected:
 
 ```hexagon
-for number in 1..5
+for number in 1..5 do
     number * number -- error: this value would be discarded
 ```
 
 Perform an effect, assign an accumulator, or explicitly pipe an intentionally ignored
 result to `ignore`.
+
+A body of one expression may follow `do` on the head's own line, as a branch may follow
+`then`:
+
+```hexagon
+for number in 1..5 do Debug.log("Number ${number}")
+```
 
 ## Ranges are inclusive integer progressions
 
@@ -95,10 +104,14 @@ source:
 ```hexagon
 let countdown(start: Int): Unit =
     var remaining = start
-    while remaining > 0
+    while remaining > 0 do
         Debug.log("${remaining}")
         remaining := remaining - 1
 ```
+
+The condition runs from `while` to `do`, and like an `if`'s condition it may carry on
+over deeper lines until that closing word. A one-expression body may follow `do` on the
+same line here too: `while remaining > 0 do remaining := remaining - 1` is a whole loop.
 
 The condition must be `Bool`; Hexagon has no numeric or object truthiness. It is tested
 before every iteration, so a condition that starts out `False` executes the body zero times.
@@ -114,7 +127,7 @@ receives a sequence of tuple values:
 
 ```hexagon
 let logReservations(entries: Seq((String, Int))): Unit =
-    for (guest, seats) in entries
+    for (guest, seats) in entries do
         Debug.log("${guest}: ${seats}")
 ```
 
@@ -126,7 +139,7 @@ A loop pattern must match every possible element. A refutable pattern is an erro
 
 ```hexagon
 let logPresent(possibilities: Seq(Option(Int))): Unit =
-    for Some(value) in possibilities
+    for Some(value) in possibilities do
         Debug.log("${value}")
     -- error: an element might be None; use match in the body
 ```
@@ -153,7 +166,7 @@ Sequences chapter shows the conversion that place performs:
 
 ```hexagon
 let consume(source: Seq(a)): Unit =
-    for item in source
+    for item in source do
         item |> ignore
 ```
 
@@ -166,7 +179,7 @@ loops.
 A syntactic range loop emits as a native counting loop:
 
 ```hexagon
-for number in 1..limit
+for number in 1..limit do
     total := total + number
 ```
 
@@ -181,7 +194,7 @@ as a call, arithmetic, or a `var` the body might change, is evaluated once, into
 `const` before the loop:
 
 ```hexagon
-for row in 1..rowCount(table)
+for row in 1..rowCount(table) do
     total := total + row
 ```
 
@@ -203,7 +216,9 @@ next chapter can explain in context.
 
 ## Summary
 
-- `for pattern in source` evaluates the source once and visits its elements in order;
+- `for pattern in source do` evaluates the source once and visits its elements in order;
+- `do` closes the head of a `for` or a `while`, and the body is a block beneath it or one
+  expression after it;
 - loop bodies and complete loops have type `Unit`;
 - `start..end` and `Range.up(start, end)` make inclusive ascending integer ranges;
 - reversed ascending bounds are empty, while `Range.down` is explicitly descending;

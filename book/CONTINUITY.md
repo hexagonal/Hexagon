@@ -834,12 +834,13 @@ late pedagogy pass, not a commitment to the current order.
   patterns may appear in `let`, loop, and parameter binding positions.
 - `(x, y) =>` remains two parameters; `((x, y)) =>` is one tuple-destructured
   parameter.
-- **A `match` with nothing after it on the line is a function** (#505) — the unary
+- **A bare `match`, with no scrutinee and no `with`, is a function** (#505) — the unary
   function matching its argument, taught as the answer to the irrefutability gate in
-  callback position. It *means* `x => match x` with those arms; exhaustiveness is
-  demanded over the parameter type; the disambiguation is one token; it is a lambda
+  callback position. It *means* `x => match x with` and those arms; exhaustiveness is
+  demanded over the parameter type; a bare `match` holds nothing and needs no closing word;
+  it is a lambda
   literal with every *expression* seat (`let` bindings, call arguments, pipes) and no
-  `fun` seat — a recursive matcher is written `fun size(shape) = match shape`; and it
+  `fun` seat — a recursive matcher is written `fun size(shape) = match shape with`; and it
   takes no `catch` clause (Chapter 21 carries the one-line callback).
 - Vector patterns, loop patterns, and `catch` patterns are taught with collections,
   loops, and exceptions respectively as extensions of this same grammar.
@@ -952,7 +953,12 @@ late pedagogy pass, not a commitment to the current order.
 
 ### Loops and Ranges
 
-- `for pattern in source` evaluates its source once; the pattern must be irrefutable
+- A head that holds an expression ends with a closing word: `if … then`, `while … do`,
+  `for pattern in source do`, `match scrutinee with`. Layout teaches the rule with `if`
+  (deeper lines carry an unfinished head on); Unions and Loops name `with` and `do`
+  where `match` and the loops first appear. A loop body is a block or one expression
+  after `do`; `match` arms are always a block.
+- `for pattern in source do` evaluates its source once; the pattern must be irrefutable
   and its binders are immutable head binders.
 - `for`/`while` bodies and complete loop expressions have type `Unit`.
 - `..` and `Range.up` are inclusive ascending `Int` ranges; reversed bounds are empty.
