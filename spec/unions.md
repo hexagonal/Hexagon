@@ -1,6 +1,6 @@
 # Hexagon Spec: Unions
 
-**Status:** Decided (July 2026)
+**Status:** Decided (July 2026). Amended 2026-11-16 (#1573): a `match` head ends with `with` and may be carried across lines up to it; arms stay a block, with no leading `|` (§4.1, §9, §10; Lexer & Layout §2.4).
 **Scope:** The nominal `union` declaration: constructors (nullary and payload-carrying, named and unnamed slots), the `match` expression's union-specific facts (constructor patterns as the pattern grammar's degenerate case; closed-constructor exhaustiveness), generics and recursion, the tagged-POJO runtime representation, the one union shape and the `Bool` pin, prelude `Option`/`Result`, derived-constraint semantics, JS emission and `.d.ts` shapes.
 **Not in scope:** the full pattern grammar, guards, generalized scrutinees, and the general exhaustiveness/reachability/irrefutability machinery (Pattern Matching; this doc owns only the union-specific facts, §4), the declaration-header grammar shared with `record`/`type` (Declarations Preamble §§2–3), the constraint mechanism and `honor` (Constraints; this doc fixes derived-instance *semantics* only — invocation is Constraints §4.5), module-level qualification of constructor names (Modules), FFI conversions (`Nullable(a)` ↔ `Option` — FFI Part 2 §4–§5), foreign-backed nullary unions (`extern enum`, `ffi-foreign-enums.md`).
 **Companions:** Products spec (the product half of the algebra; `itemN` vocabulary; nominal-name opacity doctrine; rows are records-only, Products §4), Functions spec (arity checking, constructors-as-functions, value restriction), Pattern Matching (§2/§7/§11.3), Method Syntax (§3.4 — union receivers in the dot-call table), Lexer & Layout spec (match arms are a layout block), Primitive Types §7 (Show display semantics), Collections Part 2 (`Hash`), FFI Part 7 §4 (constructor exports).
@@ -84,12 +84,12 @@ match shape with
     Point => 0.0
 ```
 
-- `match scrutineeExpr with` followed by a **layout block of arms** — one arm per VSEP, `;` usable as the compressed newline exactly per the Lexer & Layout rules. There is no braced form: braces are records, so Rust-style `match e { ... }` does not exist and must produce the standard brace diagnostic if attempted.
+- `match scrutineeExpr with` followed by a **layout block of arms** — one arm per VSEP, `;` usable as the compressed newline exactly per the Lexer & Layout rules. The head runs from `match` to its closing word `with`, and may be carried across lines up to it (Lexer & Layout §2.4; Pattern Matching §6.1). The arms are always a block below the head, so `with` ends its line, and an arm takes no leading `|`: `|` keeps its one meaning, "or", between a union's constructors (§2) and in an or-pattern (Pattern Matching §2.6). There is no braced form: braces are records, so Rust-style `match e { ... }` does not exist and must produce the standard brace diagnostic if attempted.
 - Each arm is `pattern => body`. The `=>` is the same token as the lambda arrow; no ambiguity arises because arms occur only inside a `match` block (the parser is in match-arm context after VOPEN following a `match` head). A pattern is *not* a parameter list; the parser must not route it through lambda parsing.
 - The arm body is an expression: same line, or an indented block whose final expression is the arm's value — identical to lambda bodies (Functions §3.1).
 - `match` is an **expression**; all arm bodies meet at one result type — by unification, and for numeric arms at their expression tree's home, exactly as `if` branches do (Numeric Literals §5.1, #1062). The scrutinee is evaluated once.
 - A `match` whose head begins its logical item may take a **`catch` clause** at that column, after the arm block — the match catch expression, whose arms handle exceptions thrown by the scrutinee's evaluation only (a mid-line head takes no clause). Owned by Exceptions §5.4; nothing in this section changes when the clause is present.
-- A `match` that **ends** its logical item — no scrutinee at all — is the **match function**, the unary function literal matching its argument (Pattern Matching §6.7). Any token after `match` on the same line means this section's scrutinee form, unchanged.
+- A `match` that **ends** its logical item — no scrutinee at all — is the **match function**, the unary function literal matching its argument (Pattern Matching §6.7). Any token after `match` on the same line means this section's scrutinee form, unchanged, whose head ends with `with`; the match function holds nothing and takes none.
 
 ### 4.2 Constructor patterns (this grammar's degenerate case; the full grammar is Pattern Matching's)
 
@@ -259,6 +259,7 @@ union Bool derives (Eq, Ord, Show, Hash) = False | True
 | Non-exhaustive match on a union | hard error listing missing constructors — the degenerate witness rendering (§4.3; general machinery Pattern Matching §7) |
 | Unreachable arm | hard error, naming the shadowing case (§4.3; Pattern Matching §7.2) |
 | Braced match body `match e { ... }` | the Lexer & Layout brace diagnostic (records-not-blocks) |
+| A `match` head with no `with`; arms on the head's line | Pattern Matching §12's rows: "`match` requires `with`" at the `match`, and "a `match`'s arms go on the lines below its head, one to a line" (§4.1) |
 | Bare dot access on a union value (incl. `.tag`, `.itemN`) | "union values are inspected with `match`" (§5; a fused dot call resolving to a companion operation is not access — Method Syntax) |
 | Duplicate constructor name (within a union / across a module's unions) | hard error at declaration (§2) |
 | `...` (bare or named, at any depth, through any alias) in a payload type | hard error at the slot; name the fields, or give the slot the type `JsValue` (§2.1; Products §4) |
@@ -278,6 +279,7 @@ union Bool derives (Eq, Ord, Show, Hash) = False | True
 | Nullary constructors are values (no `()`); generalise as values (`None : Option(a)`) | §2.2 |
 | Recursion allowed (nominal indirection) | §2 |
 | `match`: layout arms, `pattern => expr`, expression, single evaluation; only eliminator; fused dot calls = companion dispatch, never field exposure | §4, §5 |
+| *(#1573)* The `match` head ends with `with` and may be carried across lines up to it (Lexer & Layout §2.4); arms stay an indented block, with no leading `\|`; `\|` keeps its one meaning, "or" | §4.1 |
 | Constructor patterns = the pattern grammar's degenerate case (full grammar, nesting, generalized scrutinees: Pattern Matching); positional always; named-slot patterns deferred to Pattern Matching §11.3; arity/nullary diagnostics owned here | §4.2 |
 | Exhaustiveness and reachability: hard errors, exact over closed constructor sets; general machinery Pattern Matching §7 on this section's doctrine | §4.3 |
 | Representation: string-tagged flat POJOs; shared constants for nullary; classes/compressed tags rejected | §6.1 |

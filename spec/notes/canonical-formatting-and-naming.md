@@ -145,7 +145,8 @@ declarations through this list before considering the segment done.
 
 - **F1 [canonical]** Four spaces per indentation level. (Lexer Layout §1;
   Format document writes it, Canonical Layout §5)
-- **F2 [enforced]** Conditionals carry mandatory `then` (parse error without).
+- **F2 [enforced]** Conditionals carry mandatory `then`, loops `do`, and a
+  `match` with a scrutinee `with` (parse error without; Lexer & Layout §2.4).
   An else-less `if` is sugar for `else ()` and its `then` branch must be
   `Unit`; an else-less `if` producing a value is a type error with the
   add-an-else fixit. (Operators §11.2; canonical-formatting-plan §5 restates)
@@ -160,6 +161,11 @@ declarations through this list before considering the segment done.
   neither into the other — the fused spelling is idiomatic for one member,
   the block earns its place at two, but neither is enforced. Revisit with
   field evidence. (Functions §7.3)
+- **F5 [canonical]** A head's closing word ends the head's last line. A head
+  too long for its line is carried on at two levels, each carried-on line
+  beginning with its operator; a `then`, `do` or `with` that begins a line of
+  its own is legal but not canonical. (Lexer & Layout §2.4; Canonical Layout
+  §9.3–§9.4; Operators §11.3)
 
 ## 5. House settings
 
