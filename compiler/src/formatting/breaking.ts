@@ -357,8 +357,12 @@ function plan(reading: Reading, line: LongLine, failed: ReadonlySet<string>, lim
   const bracketsFrom = value.length > 0 ? valueStart : start;
   // The first pair outside a head.
   const openings = range(bracketsFrom).filter((index) => !blocked.has(index));
-  const shaping: Shaping = { tokens, pairs, roles, measure, last: line.last };
+  const shaping: Shaping = { tokens, pairs, roles, measure, last: line.last, keepHead: true };
+  // Where a lambda's kept head cannot be made, as before a trailing comma,
+  // the brackets open one item to a line instead.
+  const plainly: Shaping = { ...shaping, keepHead: false };
   candidates.push({ shape: "brackets", before: () => brackets(shaping, openings, depth) });
+  candidates.push({ shape: "brackets plainly", before: () => brackets(plainly, openings, depth) });
 
   // 7. A head, once nothing else on its line is left to break: its own
   // expression breaks as any does, and its closing word ends its last line.
@@ -394,6 +398,10 @@ function plan(reading: Reading, line: LongLine, failed: ReadonlySet<string>, lim
     candidates.push({
       shape: "head brackets",
       before: () => inHead(brackets(shaping, own, depth, top)),
+    });
+    candidates.push({
+      shape: "head brackets plainly",
+      before: () => inHead(brackets(plainly, own, depth, top)),
     });
   }
 
@@ -656,6 +664,8 @@ interface Shaping {
   readonly measure: Measure;
   /** The last token on the line being broken. */
   readonly last: number;
+  /** Whether a last item that is a lambda keeps its head on the line. */
+  readonly keepHead: boolean;
 }
 
 /** The first token of each item between a pair of brackets, and the comma after each, where there is one. */
@@ -859,9 +869,13 @@ function brackets(shaping: Shaping, candidates: readonly number[], depth: readon
 function shapeOf(shaping: Shaping, open: number, close: number): number[] {
   const { tokens, pairs, measure, last } = shaping;
   const onLine = close <= last;
-  // Brackets whose only item is bracketed open and close with it.
+  // Brackets whose only item is a vector literal, a record or a tuple open
+  // and close with it. Parentheses around one expression are not a tuple.
   const inner = open + 1;
-  if (openers.has(tokens[inner]!.kind) && pairs.partner.get(inner) === close - 1 && close - 1 > inner + 1) {
+  if (
+    openers.has(tokens[inner]!.kind) && pairs.partner.get(inner) === close - 1 && close - 1 > inner + 1 &&
+    (tokens[inner]!.kind !== "LeftParen" || itemsOf(tokens, pairs, inner, close - 1).commas.length > 0)
+  ) {
     return shapeOf(shaping, inner, close - 1);
   }
   const { starts } = itemsOf(tokens, pairs, open, close);
@@ -870,7 +884,7 @@ function shapeOf(shaping: Shaping, open: number, close: number): number[] {
   // A last item that is a lambda keeps its head on the line, where it fits.
   const head = lastItemHead(shaping, open, close);
   if (head !== undefined) {
-    if (head < last && measure.fits(head)) return [head + 1, ...(onLine ? [close] : [])];
+    if (shaping.keepHead && head < last && measure.fits(head)) return [head + 1, ...(onLine ? [close] : [])];
     return oneToALine;
   }
   // Brackets whose closer is on a later line open only for a lambda.

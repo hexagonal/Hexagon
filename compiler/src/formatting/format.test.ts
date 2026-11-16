@@ -993,6 +993,43 @@ describe("The shapes brackets break in (§9.4 rule 2)", () => {
     ));
   });
 
+  it("opens the brackets one item to a line where a trailing comma leaves no room to keep the lambda's head", () => {
+    expect(format(lines(
+      "module A",
+      "let y = f(2, x => compute(x, x, x, x, x),)",
+    ), { maximumLineLength: 20 })).toBe(lines(
+      "module A",
+      "let y =",
+      "    f(",
+      "        2,",
+      "        x => compute(",
+      "            x,",
+      "            x,",
+      "            x,",
+      "            x,",
+      "            x",
+      "        ),",
+      "    )",
+    ));
+  });
+
+  it("does not open brackets with an only item that is an expression in parentheses", () => {
+    expect(format(lines(
+      "module A",
+      "let x = f((alpha + beta * gamma - delta))",
+    ), { maximumLineLength: 30 })).toBe(lines(
+      "module A",
+      "let x =",
+      "    f(",
+      "        (",
+      "            alpha",
+      "                    + beta * gamma",
+      "                    - delta",
+      "        )",
+      "    )",
+    ));
+  });
+
   it("keeps a record's last-field lambda's head on its line, inside a call's brackets too", () => {
     expect(format(lines(
       "module A",
