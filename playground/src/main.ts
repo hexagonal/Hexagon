@@ -42,11 +42,14 @@ import {
   serializeSettings,
   settingOn,
   settingRows,
+  formatOptions,
+  lineLengthOf,
   settingsStorageKey,
   shownHints,
   withSetting,
   type PlaygroundSettings,
   type SettingsState,
+  type ToggleKey,
 } from "./settings";
 import {
   parseThemePreference,
@@ -304,11 +307,13 @@ const languageServices = createLanguageServices(
 );
 
 // The editor's view of those services: the inlay hints the settings show, and
-// none asked for while they show none.
+// none asked for while they show none, and formatting with the settings' options.
 const shownLanguageServices: LanguageServices = {
   ...languageServices,
   inlayHints: (source, range) =>
     shownHints(settingsState.settings, () => languageServices.inlayHints(source, range)),
+  // Formatting runs with the options the `Settings…` window holds when the dev asks.
+  format: (source, _options, range) => languageServices.format(source, formatOptions(settingsState.settings), range),
 };
 
 compilerWorker.addEventListener("message", (event: MessageEvent<CompilerMessage>) => {
@@ -827,15 +832,33 @@ function renderSettingRows(): void {
       fieldset.append(legend);
       settingsRows.append(fieldset);
     }
-    // The checkbox is named by the row's name alone, and described by its words.
+    // The control is named by the row's name alone, and described by its words.
     const settingRow = document.createElement("div");
     settingRow.className = "setting-row";
-    const checkbox = document.createElement("input");
-    checkbox.type = "checkbox";
-    checkbox.id = `setting-${row.key}`;
-    checkbox.setAttribute("aria-describedby", `setting-${row.key}-description`);
-    checkbox.checked = settingOn(settingsState, row.key);
-    checkbox.addEventListener("change", () => changeSetting(row.key, checkbox.checked));
+    const key = row.key;
+    const control = document.createElement("input");
+    control.id = `setting-${key}`;
+    control.setAttribute("aria-describedby", `setting-${key}-description`);
+    if (key === "maximumLineLength") {
+      // A number, or nothing for Unlimited (Canonical Layout §3.1): its name
+      // and its box on one line, its words below, as the theme's choice is.
+      settingRow.className = "setting-choice";
+      control.type = "number";
+      control.min = "1";
+      control.step = "1";
+      control.inputMode = "numeric";
+      control.placeholder = "Unlimited";
+      control.value = settingsState.settings.maximumLineLength?.toString() ?? "";
+      control.addEventListener("change", () => {
+        changeLineLength(lineLengthOf(control.value));
+        control.value = settingsState.settings.maximumLineLength?.toString() ?? "";
+      });
+    } else {
+      control.type = "checkbox";
+      control.checked = settingOn(settingsState, key);
+      control.addEventListener("change", () => changeSetting(key, control.checked));
+    }
+    const checkbox = control;
     const name = document.createElement("label");
     name.className = "setting-name";
     name.htmlFor = checkbox.id;
@@ -844,7 +867,8 @@ function renderSettingRows(): void {
     description.className = "setting-description";
     description.id = `setting-${row.key}-description`;
     description.append(...withCode(row.description));
-    settingRow.append(checkbox, name, description);
+    if (key === "maximumLineLength") settingRow.append(name, checkbox, description);
+    else settingRow.append(checkbox, name, description);
     fieldset.append(settingRow);
   }
   // The plain editor, which narrow screens and touch screens keep, shows no
@@ -856,20 +880,34 @@ function renderSettingRows(): void {
   hintsNote.textContent =
     "The plain editor on this screen shows no inlay hints. The full editor, on a wider screen with a mouse or trackpad, shows them.";
   settingsRows.querySelector("fieldset[data-group='Inlay hints']")?.append(hintsNote);
+  const formatNote = document.createElement("p");
+  formatNote.id = "settings-format-note";
+  formatNote.className = "settings-note";
+  formatNote.textContent =
+    "The plain editor on this screen does not format. The full editor, on a wider screen with a mouse or trackpad, has Format Document and Format Selection in its context menu and command palette.";
+  settingsRows.querySelector("fieldset[data-group='Formatting']")?.append(formatNote);
   renderHintsNote();
 }
 
-/** Shows the hints' note while the plain editor is the one on the page. */
+/** Shows the hints' and the formatting's notes while the plain editor is the one on the page. */
 function renderHintsNote(): void {
-  const note = settingsRows.querySelector<HTMLElement>("#settings-hints-note");
-  if (note !== null) note.hidden = generatedCodeEditor !== undefined;
+  for (const id of ["#settings-hints-note", "#settings-format-note"]) {
+    const note = settingsRows.querySelector<HTMLElement>(id);
+    if (note !== null) note.hidden = generatedCodeEditor !== undefined;
+  }
 }
 
-function changeSetting(key: keyof PlaygroundSettings, on: boolean): void {
+function changeSetting(key: ToggleKey, on: boolean): void {
   settingsState = withSetting(settingsState, key, on);
   writeSettings(settingsState.settings);
   if (key === "inputBox") applyInputBoxSetting();
-  else sourceEditor.refreshInlayHints();
+  // The formatting options are read when the dev next formats.
+  else if (key !== "collapseExtraSpaces") sourceEditor.refreshInlayHints();
+}
+
+function changeLineLength(length: number | undefined): void {
+  settingsState = { ...settingsState, settings: { ...settingsState.settings, maximumLineLength: length } };
+  writeSettings(settingsState.settings);
 }
 
 /** Text with its backquoted spans set as code. */
