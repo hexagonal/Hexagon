@@ -34,11 +34,11 @@ constraint Eq<a> =
 constraint Ord<a: Eq> =
     compare(x: a, y: a) -> Ordering
     max(x: a, y: a) -> a =
-        match compare(x, y)
+        match compare(x, y) with
             Greater => x
             _ => y
     min(x: a, y: a) -> a =
-        match compare(x, y)
+        match compare(x, y) with
             Greater => y
             _ => x
 
@@ -252,11 +252,11 @@ What a knot settles:
 ```
 honor
     Show<Ping> =
-        show(ping) = match ping.next
+        show(ping) = match ping.next with
             Some(pong) => "Ping(${ping.label} ${pong})"
             None => "Ping(${ping.label})"
     Show<Pong> =
-        show(pong) = match pong.back
+        show(pong) = match pong.back with
             Some(ping) => "Pong(${pong.label} ${ping})"
             None => "Pong(${pong.label})"
 ```

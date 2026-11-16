@@ -57,7 +57,7 @@ export let memoize<a: Hash>(f: (a) -> b): (a) -> b =
 let digits(n: Int): Int =
     var count = 1
     var rest = n
-    while rest >= 10
+    while rest >= 10 do
         rest := rest.quot(10)
         count := count + 1
     count

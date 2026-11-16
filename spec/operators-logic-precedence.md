@@ -106,7 +106,7 @@ The early draft placed `not` above the comparisons (C-family habit), making `not
 ```
 1 + if c then a else b        -- 1 + (if c then a else b)
 xs |> Seq.map(x => x + 1)     -- lambda is map's argument (delimited by the paren)
-f(x) + match y ...            -- match is the right operand of +
+f(x) + match y with ...       -- match is the right operand of +
 x => x |> f                   -- the whole pipe is the lambda body
 ```
 

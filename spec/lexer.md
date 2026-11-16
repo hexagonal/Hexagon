@@ -762,7 +762,7 @@ let subtract = x - -1             -- x - (-1); the space keeps the second minus 
 let kept = x --1                  -- kept is x: the comment begins at the dashes
 let quiet = {- inline -} 2        -- a block comment is trivia
 let third = 1 // 3                -- Integer, Fraction, Integer
-match value
+match value with
     Some(x) | None as whole when ready => whole
 ```
 

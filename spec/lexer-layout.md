@@ -199,7 +199,7 @@ closes a block when a line begins at a shallower column, and a group's `)`, `]`,
 or `}` may share a line with that block's last item — there is no dedent to see:
 
 ```
-Seq({ pull = () => match next(source)
+Seq({ pull = () => match next(source) with
     None => None
     Some((value, rest)) => Some((value, rest)) })
 ```
@@ -215,7 +215,7 @@ feedback from the parser. Haskell reaches the same outcome through its
 are a closed set (§2.1) and groups are physically delimited.
 
 Two boundaries this rule does **not** cross. A block opened *before* the group
-survives the group's closer — `match x` / `A => f({ y = 1 })` keeps its arm block
+survives the group's closer — `match x with` / `A => f({ y = 1 })` keeps its arm block
 across the `}`, and any following arm is still a sibling. And an **unmatched**
 closer closes nothing: it is already an error, and unwinding real blocks on a
 stray character turns one diagnostic into a cascade.

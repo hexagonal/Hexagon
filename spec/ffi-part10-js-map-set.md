@@ -139,7 +139,7 @@ This part declares two instances, extending Collections Part 5 §4's table by tw
 | `JsMap(k, v)` | `(k, v)` | `JsMap.toSeq` (≡ `entries`) |
 | `JsSet(a)` | `a` | `JsSet.toSeq` |
 
-`for (key, value) in jsMap` and `for x in jsSet` therefore work exactly as for the persistent collections (Part 5 §3), tuple destructuring included.
+`for (key, value) in jsMap do` and `for x in jsSet do` therefore work exactly as for the persistent collections (Part 5 §3), tuple destructuring included.
 
 ### 6.2 The order contract
 

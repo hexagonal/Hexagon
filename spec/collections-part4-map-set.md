@@ -3,7 +3,7 @@
 **Status:** Decided (July 2026); amended 2026-11-02 — §13.1 routes `Map.filter` and `Set.map`/`filter` to `collection-combinators.md`, which replaces `mapValues` with `Map.map`. The authoritative specification of the persistent hash-backed keyed collections: representation and honest complexity, construction (no literals; the `fromVector` convenience), the keyed-access family (`map[k]`, `KeyFault`, `Map.get`), the upsert/forgiving update doctrine, representative retention, set algebra, the iteration-order contract (grounded in Part 2 §2.4), the `Eq`/`Show`/`Hash` instances and the deliberate absence of `Ord`, the core API, and the semantic ground rules for the JS boundary (conversions specified in FFI Part 10). Written against Collections Parts 1–3, Constraints, Exceptions, Pattern Matching, Loops, and Modules; none re-litigated. Amended 2026-11-14 (#1542): a key enters by one of Numeric Literals §5.1's four conversions.
 **Scope:** As above, plus: the `KeyFault` declaration (nullary); the `Map.set`-vs-`Vector.set` semantic split stated as doctrine; the **representative-retention rule** (first wins / left wins — §5.4); `keys`/`values`/`entries` correspondence; `fromEntries`/`fromSeq` and `entries`/`toSeq` synonym pairs; the JS→Hexagon key-collapse rule.
 **Not in scope:** The combinator surface (`Map.map`/`filter`/`fold`/`find`/`any`/`all` and `Set.map`/`filter`/`fold`/`find`/`any`/`all` — `collection-combinators.md`, which replaces `mapValues` with `Map.map`; `Map.update`/`merge`/`mergeWith`, `getOr`, `containsValue` — `stdlib-roadmap.md`; boundary decided in Part 5 §10); the normative `Iterable` operational spec, table-opening, and the `Bag` worked example (Part 5); transients (Part 5 §11 — runtime-internal only); the JS conversion *functions* themselves and their failure machinery (`toJsMap`/`fromJsMap`/`toJsSet`/`fromJsSet`, `JsConversionError`, cycle paths — FFI Part 10/Part 11; this doc pins the semantic ground rules, §10); `SortedMap`/`SortedSet` (pre-registered v2, Part 1 §4.1).
-**Companions:** Collections Part 1 (§3 naming doctrine applied; §3.3 accessor pair instantiated for `Map`; §4 key model made operational; §7 operator boundaries restated); Collections Part 2 (§2.4 split determinism consumed as the iteration-order ground truth; §4.4 wording used for all instances); Collections Part 3 (accessor-family symmetry maintained and deliberately broken at `set`, §5); Exceptions (owed the `KeyFault` declaration, §14; §2 no-polymorphic-payload rule is why it is nullary); Pattern Matching (loop heads are pattern positions — `for (k, v) in m`, §7.2); Loops (§2.1 loop heads; §5 table `Map`/`Set` rows); Modules (§6.4 qualified homes: `Map`/`Set` companion modules); FFI Part 10 (`JsMap`/`JsSet` and the boundary conversions); Operators (§7: no `++` for `Map`/`Set`; §14 bracket grammar); Constraints (§4.3 parameterized instances; §7 `Eq<Float>` = SameValueZero).
+**Companions:** Collections Part 1 (§3 naming doctrine applied; §3.3 accessor pair instantiated for `Map`; §4 key model made operational; §7 operator boundaries restated); Collections Part 2 (§2.4 split determinism consumed as the iteration-order ground truth; §4.4 wording used for all instances); Collections Part 3 (accessor-family symmetry maintained and deliberately broken at `set`, §5); Exceptions (owed the `KeyFault` declaration, §14; §2 no-polymorphic-payload rule is why it is nullary); Pattern Matching (loop heads are pattern positions — `for (k, v) in m do`, §7.2); Loops (§2.1 loop heads; §5 table `Map`/`Set` rows); Modules (§6.4 qualified homes: `Map`/`Set` companion modules); FFI Part 10 (`JsMap`/`JsSet` and the boundary conversions); Operators (§7: no `++` for `Map`/`Set`; §14 bracket grammar); Constraints (§4.3 parameterized instances; §7 `Eq<Float>` = SameValueZero).
 
 ---
 
@@ -233,13 +233,13 @@ Declared in source, each by its companion's `honor` block (`stdlib/Map.hex`, `st
 | `Iterable<Set(a)>` | `type Item = a` | element traversal |
 
 ```
-for (key, value) in m
+for (key, value) in m do
     ...
-for x in s
+for x in s do
     ...
 ```
 
-`for (key, value) in m` is legal: the tuple-of-binders pattern is irrefutable, and loop heads are one of Pattern Matching's five positions under the one irrefutability gate (Pattern Matching §6; Loops §2.1).
+`for (key, value) in m do` is legal: the tuple-of-binders pattern is irrefutable, and loop heads are one of Pattern Matching's five positions under the one irrefutability gate (Pattern Matching §6; Loops §2.1).
 
 ### 7.3 `keys` / `values` / `entries` correspondence
 
@@ -310,8 +310,8 @@ These instances make `Map`s and `Set`s usable as map keys and set elements thems
 | `m[lo..hi]` where the key type is not `Range` | ordinary type error; with a `Range` key type (and `Hash<Range>` provided) it is an ordinary key lookup, never a slice | §4.4 |
 | Hand-written-`Eq` key type used with `Map`/`Set` | unsatisfied `Hash` at the use site; the Part 2 §4.3 Eq-agreement error at the derivation site; wrapper-key pattern is the sanctioned answer | Part 2 §4.3/§4.5 |
 | `Map.set` / `remove` / `add` with absent or present key | **no error** — upsert / forgiving by design | §5 |
-| `for (k, v) in m` | legal (irrefutable tuple pattern in a loop head) | §7.2 |
-| `for [k, v] in m` | irrefutability-gate error (vector pattern can fail on length), as Part 3 §3.4 | §7.2 |
+| `for (k, v) in m do` | legal (irrefutable tuple pattern in a loop head) | §7.2 |
+| `for [k, v] in m do` | irrefutability-gate error (vector pattern can fail on length), as Part 3 §3.4 | §7.2 |
 | Ordering comparison (`<` etc.) on `Map`/`Set` | ordinary unsatisfied-`Ord` error; no bespoke message | §8.2 |
 | `show(m)` where key/value lacks `Show` | ordinary unsatisfied-constraint error | §8.3 |
 
@@ -349,7 +349,7 @@ Consistent with §3.3 — conversion *is* `fromEntries` over the source's entry 
 - `Map.empty`/`Set.empty` emit shared runtime constants (as `Vector.empty`, Part 3 §2).
 - `m[k]` emits a runtime keyed read with the presence check that produces `KeyFault` (a check exists either way — JS `.get` returns `undefined` on absence; the throwing form wins on type cleanliness, exactly the Part 3 §5.1 argument).
 - Constructors, algebra, and instances emit `@hexagon/runtime` calls; `.d.ts` faces expose `Hex.Map<k, v>` and `Hex.Set<a>` from `@hexagon/runtime` (final namespace/import form: FFI spec).
-- `for (k, v) in m` emits the general iterable path (Loops §6.5) with a destructuring head: `for (const [k, v] of m.entries())`-shaped — readable, native.
+- `for (k, v) in m do` emits the general iterable path (Loops §6.5) with a destructuring head: `for (const [k, v] of m.entries())`-shaped — readable, native.
 
 ---
 
@@ -460,9 +460,9 @@ s ++ s                                     -- ERROR: no Concat for Set (use Set.
 
 -- (g) Iteration; pattern loop head
 var total = 0
-for (k, v) in m
+for (k, v) in m do
     total := total + k                       -- OK: irrefutable tuple head
-for [k, v] in m
+for [k, v] in m do
     ...                                      -- ERROR: this pattern can fail; use match
 
 -- (h) Order contract (property-shaped, not golden-output)

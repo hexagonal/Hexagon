@@ -584,11 +584,11 @@ For a vector of `n` elements, not counting the callbacks' own costs:
 export constraint Ord<a: Eq> =
     compare(left: a, right: a) -> Ordering
     max(left: a, right: a) -> a =
-        match compare(left, right)
+        match compare(left, right) with
             Greater => left
             _ => right
     min(left: a, right: a) -> a =
-        match compare(left, right)
+        match compare(left, right) with
             Greater => right
             _ => left
 ```

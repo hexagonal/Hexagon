@@ -75,7 +75,7 @@ A vector pattern is irrefutable **iff it matches every length**: exactly the for
 ```
 let [x, ...rest] = xs        -- ERROR: this pattern can fail: []; use `match`
 let [...all] = xs            -- OK (legal, pointless, and the checker doesn't judge)
-for [k, v] in pairs ...      -- ERROR (same gate; match inside the loop instead)
+for [k, v] in pairs do ...   -- ERROR (same gate; match inside the loop instead)
 ```
 
 Same uniform gate message, same witness printer (Pattern Matching §5.3).
@@ -286,7 +286,7 @@ operations, if ever, are named stdlib functions, never `[]`.
 - `String.get(s, i): Option(String)` — total sibling.
 - `String.at(s, i): String` — signed sibling, identical §5.3 semantics (equation included), codepoint-addressed.
 - `s[lo..hi]` — clamping codepoint window; descending `Range` throws `SliceFault`; identical §6 rules.
-- **Cost: codepoint indexing is O(n) in the worst case and amortised O(1) on a string indexed again** (surrogate pairs make a position a scan, not an offset). A bracket on any but a short string scans it once and the runtime keeps a sparse table of where its codepoints start, so a later `s[i]` or `s[lo..hi]` on the same string walks a bounded distance from the nearest entry, and a loop of `s[i]` over `1..length(s)` is O(n) in total; a short string is scanned each time, which costs no more than the lookup. The memo is transparent on the terms Effects §6.2 sets for an owned memo: each entry depends on the string's contents alone, so a hit and a miss are indistinguishable. **Its price is space:** in each module that brackets strings, the memo holds a small, fixed number of recently indexed strings with their tables and keeps each reachable until brackets on other strings that are not short displace it, so a large string indexed once can outlive the program's last reference to it. `regex.md` §6.2 declines a memo of its subject for exactly this retention wherever its enumeration carries a cursor from one match to the next, and takes it only where `findFrom` addresses a position far from any cursor, as a bracket does; a bracket is a single expression with no state to carry a cursor in. A loop that alternates brackets among more strings than the memo holds may scan on every access: that is the O(n) worst case. The memo recognises a string by comparing it with the strings it keeps, most recent first, and on a hit keeps the string just read in place of the equal one it held. A bracket therefore also pays, for each kept string of its length that it is compared with before it reaches its own entry, the prefix the two share; and when its entry is held under a separately built string with the same contents, the comparison that finds it is the whole string. A loop of brackets on one string pays this at most once, on its first access; a loop alternating brackets between two long strings of one length pays it on every access. `for c in s` — a single pass yielding one-codepoint `String`s (Collections Part 5 §5) — and `String.toSeq` are linear with no memo at all.
+- **Cost: codepoint indexing is O(n) in the worst case and amortised O(1) on a string indexed again** (surrogate pairs make a position a scan, not an offset). A bracket on any but a short string scans it once and the runtime keeps a sparse table of where its codepoints start, so a later `s[i]` or `s[lo..hi]` on the same string walks a bounded distance from the nearest entry, and a loop of `s[i]` over `1..length(s)` is O(n) in total; a short string is scanned each time, which costs no more than the lookup. The memo is transparent on the terms Effects §6.2 sets for an owned memo: each entry depends on the string's contents alone, so a hit and a miss are indistinguishable. **Its price is space:** in each module that brackets strings, the memo holds a small, fixed number of recently indexed strings with their tables and keeps each reachable until brackets on other strings that are not short displace it, so a large string indexed once can outlive the program's last reference to it. `regex.md` §6.2 declines a memo of its subject for exactly this retention wherever its enumeration carries a cursor from one match to the next, and takes it only where `findFrom` addresses a position far from any cursor, as a bracket does; a bracket is a single expression with no state to carry a cursor in. A loop that alternates brackets among more strings than the memo holds may scan on every access: that is the O(n) worst case. The memo recognises a string by comparing it with the strings it keeps, most recent first, and on a hit keeps the string just read in place of the equal one it held. A bracket therefore also pays, for each kept string of its length that it is compared with before it reaches its own entry, the prefix the two share; and when its entry is held under a separately built string with the same contents, the comparison that finds it is the whole string. A loop of brackets on one string pays this at most once, on its first access; a loop alternating brackets between two long strings of one length pays it on every access. `for c in s do` — a single pass yielding one-codepoint `String`s (Collections Part 5 §5) — and `String.toSeq` are linear with no memo at all.
 - Emission: runtime codepoint helpers (`String.hex_at(s, i)`-shaped); no native JS bracket emission — JS `s[i]` is code-unit-addressed and 0-based, wrong twice.
 
 ---
@@ -343,7 +343,7 @@ Part 1's rejections; listed to keep this doc's rejection index complete. Do not 
 1. *(resolved)* **`KeyFault` payload shape** — decided in **Part 4 §4.3**: nullary (Exceptions §2 bans polymorphic payloads). Not open.
 2. **Stdlib combinator listing for `Vector`** (incl. `reverse`, needed by §6.3's explicit-reversal idiom, and `sort`, which §8's lexicographic `Ord` makes useful) → `collection-combinators.md` for the combinators it decides, `reverse` among them, and `sort` (its §12); the rest stay in `stdlib-roadmap.md`.
 3. **Total-and-signed accessor** (a `get`-shaped `at`) → v2 on field evidence only; the pair stays a pair in v1 (§5.3).
-4. *(resolved)* **String iteration element type** — decided in **Collections Part 5 §5**: one-codepoint `String`, `for c in s` O(n) total. Not open.
+4. *(resolved)* **String iteration element type** — decided in **Collections Part 5 §5**: one-codepoint `String`, `for c in s do` O(n) total. Not open.
 5. *(resolved)* **Trailing-comma statement for record/tuple literals** — applied: Products §3.1 states the rule. Not open.
 6. **Expression spread** → §11.3's field-evidence condition.
 
@@ -378,29 +378,29 @@ let sp = [x, ...ys]                   -- ERROR: spread is pattern syntax;
                                       --   write `prepend(ys, x)` or `[x] ++ ys`
 
 -- (b) Patterns: forms and nesting
-match xs
+match xs with
     [] => 0
     [x] => x
     [x, ...rest] => x + rest.length()     -- exhaustive: [] covers 0, [x] covers 1, third covers ≥1
 
-match pairs
+match pairs with
     [(k, v), ...] => k                  -- nested tuple in element slot
     [] => defaultKey
 
-match ys
+match ys with
     [first, ..., last] => first + last  -- middle rest
     [x] => x
     [] => 0                             -- exhaustive
 
 -- (c) Exhaustiveness by length
-match xs
+match xs with
     [] => 0
     [a, b] => a + b                     -- ERROR: non-exhaustive; e.g. [_] not covered
 
 -- (d) One rest only; spelling
-match xs
+match xs with
     [...a, ...b] => 0                   -- ERROR: at most one `...`
-match xs
+match xs with
     [x, ..rest] => x                    -- ERROR: Hexagon spells rest patterns with `...`
 
 -- (e) Irrefutability gate
@@ -432,7 +432,7 @@ Vector.dropFirst([1, 2])              -- [2]
 [1, 3] > [1, 2, 99]                   -- true          (Ord: first unequal decides)
 show([1, 2])                          -- "[1, 2]"      (Show)
 [1] ++ [2, 3]                         -- [1, 2, 3]     (Concat; linear, documented)
-for x in [1, 2, 3]                    -- Iterable: Item = Int
+for x in [1, 2, 3] do                 -- Iterable: Item = Int
     total := total + x
 
 -- (j) String, same doctrine

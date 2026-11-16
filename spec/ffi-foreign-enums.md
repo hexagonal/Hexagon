@@ -278,7 +278,7 @@ all-nullary union:
 let initial: Direction = Up
 
 let describe(direction: Direction): String =
-    match direction
+    match direction with
         Up => "up"
         Down => "down"
 ```

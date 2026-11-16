@@ -1,7 +1,7 @@
 # Hexagon Spec: Collections Part 5 — `Iterable` & Collections Closeout
 
-**Status:** Decided (July 2026); pre-landing corrections incorporated in place (§18); `Iterable<String>` source ownership adopted September 2026 (§18.4); `Seq` seats — an iterable adapted where a sequence is expected, and a loop head over a source not yet known — adopted September 2026 (§3.4–§3.6); the report at a function handed by name whose result is not converted, naming the lambda whose body is, adopted November 2026 (§3.6, §12). Revised 2026-11-15: an instance is visible in a module where that module's imports reach the instance's module, not program-wide, and every `Iterable` instance is visible wherever its type's values are (§2.2, §3.1, §3.4, §7.2, §15; Modules §7.1). Fifth and final part of the Collections effort. The authoritative operational specification of v1 `Iterable`: the resolution and typing of `for p in e`, the finalized standard-instance table (nine rows, every one a source `honor` block: six core rows and three FFI-owned ones), table-opening for user instances, static-resolution emission, the collections/stdlib boundary, and the transients decision. Written against Collections Parts 1–4, Constraints, Loops/Ranges/Iteration, Pattern Matching, and Modules; none re-litigated.
-**Scope:** The `for p in e` resolution algorithm and its failure taxonomy (a declared type variable's `Seq(a)` rewrite; the two-legal-homes user-nominal message); `Seq` seats — the adaptation of an iterable value where a sequence is expected, a source whose head is not yet known, and what never adapts (§3.4–§3.6); the standard instance table (§4); `Iterable<String>` with `Item = String`, its authoritative source declaration in `String.hex`, and the `String.toSeq`/`String.fromSeq` conversion pair (`fromSeq` = concatenation, full contract §5.3); the collection-conversion-suite domain (finite collections; `Range` and `Seq` exempt with reasons); `toSeq` as a real prelude term (the `Iterable` member); user-instance mechanics, discoverability, and collisions at filled slots; the "writing your own collection" recipe, normative, with `Bag(a)`; static-resolution emission; the combinator-surface boundary; transients runtime-internal only.
+**Status:** Decided (July 2026); pre-landing corrections incorporated in place (§18); `Iterable<String>` source ownership adopted September 2026 (§18.4); `Seq` seats — an iterable adapted where a sequence is expected, and a loop head over a source not yet known — adopted September 2026 (§3.4–§3.6); the report at a function handed by name whose result is not converted, naming the lambda whose body is, adopted November 2026 (§3.6, §12). Revised 2026-11-15: an instance is visible in a module where that module's imports reach the instance's module, not program-wide, and every `Iterable` instance is visible wherever its type's values are (§2.2, §3.1, §3.4, §7.2, §15; Modules §7.1). Fifth and final part of the Collections effort. The authoritative operational specification of v1 `Iterable`: the resolution and typing of `for p in e do`, the finalized standard-instance table (nine rows, every one a source `honor` block: six core rows and three FFI-owned ones), table-opening for user instances, static-resolution emission, the collections/stdlib boundary, and the transients decision. Written against Collections Parts 1–4, Constraints, Loops/Ranges/Iteration, Pattern Matching, and Modules; none re-litigated.
+**Scope:** The `for p in e do` resolution algorithm and its failure taxonomy (a declared type variable's `Seq(a)` rewrite; the two-legal-homes user-nominal message); `Seq` seats — the adaptation of an iterable value where a sequence is expected, a source whose head is not yet known, and what never adapts (§3.4–§3.6); the standard instance table (§4); `Iterable<String>` with `Item = String`, its authoritative source declaration in `String.hex`, and the `String.toSeq`/`String.fromSeq` conversion pair (`fromSeq` = concatenation, full contract §5.3); the collection-conversion-suite domain (finite collections; `Range` and `Seq` exempt with reasons); `toSeq` as a real prelude term (the `Iterable` member); user-instance mechanics, discoverability, and collisions at filled slots; the "writing your own collection" recipe, normative, with `Bag(a)`; static-resolution emission; the combinator-surface boundary; transients runtime-internal only.
 **Not in scope:** The `Iterable` declaration and type-member grammar (Part 2 §5–§8 — consumed, not restated); the v2 implied-types remainder (deferred `Item(α)` goals, `Item(c)` reference syntax, member obligations, `Iterable` binders, `derive via` — Part 2 §11, Part 1 §6.3); the combinator families themselves (`stdlib-roadmap.md` ledger, decided at the stdlib listing; boundary drawn in §10); `AsyncSeq` and any `for await` form (Loops §11.4); **everything normative about the foreign collections `Array(a)`, `JsMap(k, v)`, `JsSet(a)`** — types, capture and borrow contracts, observation semantics, conversions, emission, `.d.ts` faces (FFI Parts 2 and 10; §4 records their instance rows, §6 the discharged `Array` ownership); the foreign (`.d.ts`) representation of constraints on exported polymorphic functions (FFI spec; see §9.3); String text-processing operations beyond this document's iteration and `fromSeq` contracts (`string-text-processing.md`).
 **Companions:** Functions (§4's specified conversions; §4.3's seats, channels, and an argument's own turn; §8 item 2); Method Syntax (§3's deadline; §10's doctrine); Ascription (§3); Collections Part 1 (§6.1/§6.5 made normative here; §9.5/§9.6 closed); Collections Part 2 (§8 declaration; §7.2 binder ban; §9 diagnostics extended); Collections Part 3 (§8 `Iterable<Vector>` row; §9 linear idiom cashed by §5 here); Collections Part 4 (§7.2 rows; §13.1/§13.4 closed here); Loops/Ranges/Iteration (§2.3 desugaring; §5 table finalized as §4 here; §6 `Seq`; §7.1 judgment made normative as instance lookup); Pattern Matching (§5 five-positions gate); Modules (§7 instance visibility and orphan rule; §7.6 discoverability); Constraints (§5.1 coherence; §2.2 members); FFI Part 2 (§§6, 8–9: the `Array(a)` obligation discharged); FFI Part 3 (`Seq(a)` boundary crossing); FFI Part 10 (§6 `JsMap`/`JsSet` rows); Primitive Types (§5.1 String indexing).
 
@@ -10,7 +10,7 @@
 ## 1. Doctrine
 
 - **The table is the constraint.** The Loops §5 iterable table *is* `Iterable`'s instance table (Part 2 §8); this document finalizes its v1 rows and opens it to users. There is no second mechanism, no registry beside the constraint system.
-- **"You can write a real collection" is a v1 requirement, and `for x in myBag` is its floor** (Part 1 §6.1, discharged here). The whole tax is one small `honor` block.
+- **"You can write a real collection" is a v1 requirement, and `for x in myBag do` is its floor** (Part 1 §6.1, discharged here). The whole tax is one small `honor` block.
 - **Loops and `Seq` seats are one consumer.** A `for` head and a seat expecting `Seq(a)` both require a sequence, and the same lookup supplies it from an iterable value (§3.4). Consumers take `Seq(a)`; callers pass their collections as they are.
 - **v1 iteration is monomorphic.** The projection-bearing binder ban (Part 2 §7.2) means every `for..in` site knows its collection's outer constructor at compile time. Static instance resolution and dictionary-free loop emission are therefore *consequences*, not optimisations (§9.1).
 - **Iterable and "in the conversion suite" are different properties.** `toSeq` is the `Iterable` member itself (§2.3): every iterable type has it, supplied by its instance. The **conversion suite** is the stronger, finite-collection property of *also* providing `fromSeq` under exactly that name — deliberately including `String` (§5). `Range` is iterable but is not a collection: its instance supplies `toSeq` like any instance's, but `Range.fromSeq` has no natural meaning and does not exist. `Seq` is the conversion **currency itself** — its instance's `toSeq` is the identity — and it crosses the FFI boundary through FFI Part 3's explicit adapters. `Array(a)` is a suite member (decided by FFI Part 2 §8.3; §6 here). Third-party collections are expected to provide `fromSeq` as part of the recipe (§8.1); their `toSeq` is their instance's member.
@@ -54,7 +54,7 @@ Two consumers need a sequence: a `for` head (§3.1) and a seat whose expected ty
 
 ### 3.1 The algorithm (normative)
 
-For `for p in e` with body `b`:
+For `for p in e do` with body `b`:
 
 1. Typecheck `e` **once**, yielding τ. (`e` is evaluated once at runtime, before iteration — Loops §2.3, unchanged.)
 2. Resolve τ's **outer type constructor**. A declared type variable fails per §3.2. An unsolved inference variable **waits**: the loop makes τ's `Iterable` demand now, as a `Seq` seat does (§3.5), and the demand's `Item` stands as ε for steps 5–7; steps 3–4 run when τ's head is established — by its owner region's close at the latest, where a head nothing established is `Seq` (§3.5). Whether the loop's head is accepted therefore never depends on whether an earlier or a later statement describes its source (#1118).
@@ -65,7 +65,7 @@ For `for p in e` with body `b`:
 7. Check `b` against `Unit` (Loops §2.2, unchanged, including the discard-error phrasing).
 8. The whole expression has type `Unit`.
 
-Steps 5–6 consume Part 4 §7.2's supersession of Loops §2.1: loop heads are one of Pattern Matching's five positions; `for (k, v) in m` is the canonical beneficiary.
+Steps 5–6 consume Part 4 §7.2's supersession of Loops §2.1: loop heads are one of Pattern Matching's five positions; `for (k, v) in m do` is the canonical beneficiary.
 
 A waiting source's element is read in the body as the schedule has solved it (Functions §4.3's ordering pin): known where an earlier seat or statement fixed it, an inference variable otherwise — so a body that must dispatch on the element, a dot call or a `match` whose arms test something, needs the source decided by the text (Method Syntax §3.1, Pattern Matching §6.1): annotated, or made from what the text decides. Conceptually the loop traverses `Iterable.toSeq(e)`: loops and `Seq` seats share one capability lookup and one conversion meaning (§3.4), which neither turns a call into a loop nor requires a loop to allocate a sequence — native traversal stays where canonical provenance licenses it (§9).
 
@@ -248,8 +248,8 @@ Unicode scalar value (Primitive Types §5.1; String Text Processing §1 and §9)
 This closes the question Loops §11.6 left open, in the only way it could close:
 
 - Hexagon has no `Char` (Primitive Types §5.1); a one-codepoint `String` is the established unit — it is exactly what `s[i]` returns (Part 3 §9).
-- Part 2 §8 already carried `String` in the iterable inventory; Part 3 §9 already tells users "the linear idiom is `for c in s`". The source declaration now makes that capability visible where readers meet the type.
-- **`for c in s` is O(n) total** — a single pass that keeps nothing. Brackets reach the same total over one string once Part 3 §9's memo holds its positions, and scan per access past what the memo holds; the loop is the traversal idiom that never depends on it.
+- Part 2 §8 already carried `String` in the iterable inventory; Part 3 §9 already tells users "the linear idiom is `for c in s do`". The source declaration now makes that capability visible where readers meet the type.
+- **`for c in s do` is O(n) total** — a single pass that keeps nothing. Brackets reach the same total over one string once Part 3 §9's memo holds its positions, and scan per access past what the memo holds; the loop is the traversal idiom that never depends on it.
 - Grapheme-cluster iteration, if it ever ships, is a named stdlib function (mirroring Part 3 §9's indexing stance); the instance is codepoints, permanently.
 
 ### 5.2 `String.toSeq`
@@ -357,7 +357,7 @@ import Bag
 
 let bag = Bag.fromSeq(Vector.toSeq([1, 2, 2, 3]))
 var total = 0
-for x in bag                 -- Item = Int; resolution: head constructor Bag → the instance
+for x in bag do              -- Item = Int; resolution: head constructor Bag → the instance
     total := total + x         -- 8
 
 -- The generic form remains unwritable in v1, exactly as designed:
@@ -374,7 +374,7 @@ What the example fixes, normatively:
 
 - **Constraint placement is honest:** `fromSeq`/`add`/`count` need `<a: Hash>` (they consult the backing `Map`'s keys); `size` and the `Iterable` instance — `toSeq` included — need **nothing**: iteration never hashes. A user whose element type lacks `Hash` can still iterate a `Bag` handed to them; they simply cannot build one.
 - **The instance lives in the type's home module** (module `Bag`) — the ordinary orphan-legal choice, and the one §3.3's diagnostic points at.
-- **Opacity and instances compose:** `Bag` is `opaque`; consumers cannot see `counts`, but `for x in bag` works, because the instance was declared where nothing is hidden.
+- **Opacity and instances compose:** `Bag` is `opaque`; consumers cannot see `counts`, but `for x in bag do` works, because the instance was declared where nothing is hidden.
 - **The order contract is inherited and must be stated:** `Bag.toSeq`'s cross-element order is its backing `Map`'s iteration order — deterministic for a value within one execution, unspecified, unstable across runs (Part 4 §7.1). A user collection's docs inherit the obligation to say so; this one just did.
 
 ---
@@ -415,7 +415,7 @@ emitted shape, laziness, and the absence of the extra adapter on the loop path.
 
 ### 9.3 Laziness and `.d.ts`
 
-- `for x in s` over a `Seq` pulls elements **on demand** (the functional cursor, Loops §6.2/§6.5); an infinite `Seq` loops forever, computing each element only as reached — exit is via `throw` or process end, per the `while True` stance (Loops §4).
+- `for x in s do` over a `Seq` pulls elements **on demand** (the functional cursor, Loops §6.2/§6.5); an infinite `Seq` loops forever, computing each element only as reached — exit is via `throw` or process end, per the `while True do` stance (Loops §4).
 - **No `Iterable`, `Item`, or `Iterable`-instance machinery appears in `.d.ts`.** The constraint cannot leak by construction (no binder can carry it — Part 2 §8), instances are never exports (Modules §11.5), and the v1 reference ban keeps `Item` out of every signature. **The foreign representation of *other* constraints on exported polymorphic functions (e.g. `Bag.fromSeq`'s `<a: Hash>`) is owned by the FFI spec** — see the bounded exported-dictionaries direction (`spec/notes/ffi-exported-dictionaries.md`); this document asserts nothing about it. (`Seq(a)` itself faces as `Iterable<a>` — Loops §6.5 — which is a statement about `Seq`, not about the constraint.)
 
 ---
@@ -447,15 +447,15 @@ New rows first; inherited rows by reference (unchanged, listed for the consolida
 
 | Situation | Error / hint | § |
 |---|---|---|
-| `for x in xs`, `xs` an unsolved inference variable | none at the head: its head waits for its owner's close, and a head nothing established is `Seq` | §3.1, §3.5 |
-| `for x in xs`, `xs : c` a rigid declared variable — and a `Seq` seat whose source is one | "`xs` has the generic type `c`, and `Iterable` declares an implied type and cannot constrain a type variable in v1; take a `Seq(a)` parameter instead" | §3.2, §3.5 |
+| `for x in xs do`, `xs` an unsolved inference variable | none at the head: its head waits for its owner's close, and a head nothing established is `Seq` | §3.1, §3.5 |
+| `for x in xs do`, `xs : c` a rigid declared variable — and a `Seq` seat whose source is one | "`xs` has the generic type `c`, and `Iterable` declares an implied type and cannot constrain a type variable in v1; take a `Seq(a)` parameter instead" | §3.2, §3.5 |
 | A `Seq` seat's source whose head has no `Iterable` instance | the seat's ordinary mismatch, naming both types: "type mismatch: expected `Seq(String)`, found `Int`" | §3.4 |
 | A `Seq` seat's source whose `Item` disagrees with the expected element | the seat's ordinary mismatch, adding the sequence the source supplies: "type mismatch: expected `Seq(String)`, found `Vector(Int)`, which supplies `Seq(Int)`" | §3.4, §3.6 |
 | A form's paths under an open `Seq` element whose elements disagree | Functions §4.3's join report, where the join reports it (the `if`; a later arm; a later element), naming the element types | §3.4 |
 | An existing structure at a `Seq`-bearing type (`Option(Vector(String))` at `Option(Seq(String))`) | the seat's ordinary mismatch; nothing inside an existing value adapts | §3.6 |
 | A function handed by name as an argument and refused for its result alone, where its parameter's function type returns a `Seq` and the function returns a `Vector`, `Set`, `Map`, `Range` or captured foreign collection whose `Item` is that `Seq`'s element (`Seq.flatMap(rows, identity)`, `rows: Seq(Vector(Int))`) | the seat's ordinary mismatch + "`identity` returns a `Vector(Int)` here, and an existing function's result is not converted to a sequence, but a lambda's body is (Collections Part 5 §3.6) — write `(x) => identity(x)`", the lambda offered as the fix. It takes one parameter for each of the seat's, named from `x`, `y`, `z`, `w`, `v`, `u`, `t` in turn, skipping the function's own name. No lambda is named for a function also refused for its parameters, since no lambda calling it would compile: each mismatch is the ordinary one. Nor is one named for a function that has effects or may fail, whose call would want a mark and whose colours the seat compares, nor for one taking more than six parameters. In the dot spelling, a bare name whose result is a type variable (`rows.flatMap(identity)`) takes the seat's `Seq` as that result before the receiver meets its seat, so the refusal is the receiver's ordinary mismatch; a grouped name (`rows.flatMap((identity))`), and one whose result is a collection, are refused for their result, and the report names the lambda | §3.6 |
 | A value of an `Iterable` instance's own subject at a `Seq` seat inside its own `toSeq` | the seat's ordinary mismatch + "inside `Iterable<Stack(a)>`'s own `toSeq`, a `Stack(a)` is not converted to a sequence, since that would call the member being defined; convert its contents, or write `Iterable.toSeq(…)` where recursion on a smaller value is meant" | §3.6 |
-| A dot call or a `match` on a source whose head waits (`v.map(match …)`, `match v`) | Method Syntax §3.5's refusal at the dot, and Pattern Matching §6.1's at a `match` whose arms test something; the repairs (§3.5): annotate the source (`v: Seq(Int)`), or spell the call qualified (`Seq.map(v, match …)`) | §3.5 |
+| A dot call or a `match` on a source whose head waits (`v.map(match …)`, `match v with`) | Method Syntax §3.5's refusal at the dot, and Pattern Matching §6.1's at a `match` whose arms test something; the repairs (§3.5): annotate the source (`v: Seq(Int)`), or spell the call qualified (`Seq.map(v, match …)`) | §3.5 |
 | A waiting source's late head with no instance, or an `Item` disagreeing with the linked element | the demand site's own report (a seat's row above, §3.2's at a loop head, the explicit call's ordinary report at an explicit call), where the subject's demand was made, whether the head arrived before or after it | §3.5 |
 | Non-iterable concrete type, not user-nominal | "`Int` is not iterable" (+ conversion hint where one exists) | §3.2 |
 | Non-iterable user nominal type | two-legal-homes form: the type's home module with the `honor` fixit, the prelude as the only other legal home, and the `toSeq`/`Seq(a)` alternatives | **§3.3 (new)** |
@@ -520,7 +520,7 @@ Rejected per §7.2: for a home-module instance the pattern is structurally unnec
 |---|---|---|
 | 1 | Iterable(τ)=ε defined as instance lookup on τ's outer constructor (visibility: Modules §7.1); the Loops table is the instance table, operationally | §2.2 |
 | 2 | `toSeq` is the member, reached by the dot and qualified (not seeded bare — Modules §5.5); Loops §2.3's desugaring names it; qualified home `Iterable.toSeq`, an export of the declaring module; companions supply theirs as instance members, never as plain exports, and `Seq.iterate` (the producer) is unrelated | §2.3 |
-| 3 | Normative 8-step algorithm for `for p in e`; pattern heads per Pattern Matching's five positions, irrefutability-gated; body `Unit`; source evaluated once | §3.1 |
+| 3 | Normative 8-step algorithm for `for p in e do`; pattern heads per Pattern Matching's five positions, irrefutability-gated; body `Unit`; source evaluated once | §3.1 |
 | 4 | **Inference-vs-declared split**: a declared type variable → `Seq(a)` parameter hint; an unsolved inference variable is not refused at the head: it waits for its owner's close (row 18) | §3.2 |
 | 5 | User-nominal not-iterable error names **both legal homes** (the Modules §7.6 discoverability obligation's loop-side face), leading with the actionable one | §3.3 |
 | 6 | The v1 core table is exactly six rows, each a source `honor` block: `String` in its primitive companion; `Range`, `Vector`, `Map`, and `Set` in the companions declaring them; `Seq` in `Iterable.hex`, its own companion seating before the constraint (so no `Seq.toSeq`); the FFI-owned captured foreign collections add `Array(a)` (obligated §6.1, discharged FFI Part 2 §8; #876), `JsMap(k, v)`, and `JsSet(a)` (FFI Part 10 §6; #875), each in its declaring companion; nothing else iterable in v1 | §4–§6 |
@@ -550,7 +550,7 @@ The roadmap and agenda edits queued at landing were applied then; the companion-
 
 | Doc | Edit | When |
 |---|---|---|
-| **primitive-types.md** | §5.1: note String iteration decided — `for c in s`, one-codepoint items, O(n) single pass (pointer §5 here). | on next touch |
+| **primitive-types.md** | §5.1: note String iteration decided — `for c in s do`, one-codepoint items, O(n) single pass (pointer §5 here). | on next touch |
 | **hexagon-for-typescript-coders.md** | `for..in` chapter — Hexagon's `for..in` is JS's `for..of` done right (Loops §1 doctrine); tuple heads over `Map`; String loops are codepoint-correct (unlike naive JS index loops); "write your own collection" sidebar = §8's recipe; the generic-`Iterable` rejection with the `Seq(a)` idiom. | on next touch |
 
 ### 16.2 Closeout confirmations
@@ -565,19 +565,19 @@ The roadmap and agenda edits queued at landing were applied then; the companion-
 
 ```
 -- (a) Every standard row loops, with the right element type
-for i in 1..3            -- i : Int      (counting-loop emission, mandatory)
+for i in 1..3 do         -- i : Int      (counting-loop emission, mandatory)
     ...
-for x in [10, 20]        -- x : Int      (Vector)
+for x in [10, 20] do     -- x : Int      (Vector)
     ...
-for c in "héllo"         -- c : String   (one codepoint; emits for (const c of s))
+for c in "héllo" do      -- c : String   (one codepoint; emits for (const c of s))
     ...
-for x in Set.fromVector([1, 2])   -- x : Int
+for x in Set.fromVector([1, 2]) do   -- x : Int
     ...
 
 -- (b) Map: tuple head; vector-pattern head still gated
-for (k, v) in m          -- irrefutable tuple head; emits for (const [k, v] of ...)
+for (k, v) in m do       -- irrefutable tuple head; emits for (const [k, v] of ...)
     ...
-for [k, v] in m          -- ERROR: this pattern can fail; use match (Part 4 §9)
+for [k, v] in m do       -- ERROR: this pattern can fail; use match (Part 4 §9)
     ...
 
 -- (c) String conversion suite (contract per §5.3)
@@ -590,29 +590,29 @@ String.fromSeq(Seq.empty)                   -- ""
 -- (d) The Bag example end-to-end (per §8.2)
 let bag = Bag.fromSeq(Vector.toSeq([1, 2, 2, 3]))   -- fromSeq needs Hash<Int>: provided
 var total = 0
-for x in bag                                -- iteration needs no Hash
+for x in bag do                             -- iteration needs no Hash
     total := total + x                        -- total = 8
 -- emits: for (const x of __Iterable_Bag.toSeq(bag)) { total = total + x; }
 
 -- (e) Rigid vs unsolved: a refusal, and a head that waits
 fun f(xs: c) =
-    for x in xs                               -- ERROR: `xs` has the generic type `c`, and
+    for x in xs do                            -- ERROR: `xs` has the generic type `c`, and
         ...                                     --   Iterable declares an implied type and cannot
                                             --   constrain a type variable in v1; take a Seq(a)
                                             --   parameter instead
 fun g(xs) =
-    for x in xs                               -- the head waits for g's close (§3.1 step 2)
+    for x in xs do                            -- the head waits for g's close (§3.1 step 2)
         ()
     Vector.length(xs)                         -- g : (Vector(a)) -> Int — and the same with
                                             --   the two statements swapped (#1118)
 fun h(xs) =
-    for x in xs                               -- nothing describes xs: h : (Seq(a)) -> Unit
+    for x in xs do                            -- nothing describes xs: h : (Seq(a)) -> Unit
         ()
 
 -- (f) Non-iterable: plain vs user-nominal (two legal homes)
-for x in 42                                 -- ERROR: `Int` is not iterable
+for x in 42 do                              -- ERROR: `Int` is not iterable
     ...
-for x in widget                             -- widget : Widget, user record, no instance
+for x in widget do                          -- widget : Widget, user record, no instance
     ...                                       -- ERROR: `Widget` is not iterable. Define
                                             --   honor Iterable<Widget> in module Widget,
                                             --   which declares Widget. The only other
@@ -632,21 +632,21 @@ honor Iterable<Bag(a)> = ...                -- second declaration in module Bag
 -- ERROR at the second declaration: duplicate instance of Iterable<Bag>
 
 -- (i) Once-evaluation of the source
-for x in expensive()                        -- expensive() called exactly once
+for x in expensive() do                     -- expensive() called exactly once
     ...
 -- emits: for (const x of expensive()) { ... }  -- the head is evaluated once; no temporary
 
 -- (j) Infinite Seq: lazy pull, no divergence before the loop
 -- nats: an infinite Seq of 1, 2, 3, ... (producer illustrative — any infinite
 -- Seq specimen serves; the combinator surface is the stdlib listing's)
-for n in nats
+for n in nats do
     if n > 3 then throw(Done()) else consume(n)   -- consume : Int -> Unit
 -- pulls 1, 2, 3, 4; consumes 1, 2, 3; throws on 4; each element computed on
 -- demand; nothing materialized
 
 -- (k) var mutation in loop bodies keeps working (blocks, not lambdas)
 var acc = ""
-for c in "abc"
+for c in "abc" do
     acc := acc ++ c                           -- acc = "abc"
 
 -- (l) No Iterable machinery in .d.ts
@@ -730,7 +730,7 @@ The draft declared the `Iterable<Array(a)>` row normatively here while leaving i
 
 ### 18.3 `Bool` reclassified in §4's non-iterables note (2026-07-29, #147)
 
-§4's closing note listed `Bool` in its concrete-primitive clause; under the ML-dialect ruling (`decisions-ml-dialect-bool-2026-07.md`) `Bool` is the prelude union `False | True` (Unions §8) and now stands with `Option`/`Result` in the prelude-union clause instead. No behavioral change: `Bool` was not iterable and is not iterable; a `for x in myBool` head remains the §3.2 concrete-non-iterable error either way.
+§4's closing note listed `Bool` in its concrete-primitive clause; under the ML-dialect ruling (`decisions-ml-dialect-bool-2026-07.md`) `Bool` is the prelude union `False | True` (Unions §8) and now stands with `Option`/`Result` in the prelude-union clause instead. No behavioral change: `Bool` was not iterable and is not iterable; a `for x in myBool do` head remains the §3.2 concrete-non-iterable error either way.
 
 ### 18.4 `Iterable<String>` moved from a provided row to source (2026-09)
 

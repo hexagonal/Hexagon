@@ -63,52 +63,52 @@ The following definitions specify behavior and source-level signatures:
 
 ```hexagon
 export let map(source: Option(a), transform: a ->! b): Option(b) =
-    match source
+    match source with
         Some(value) => Some(transform!(value))
         None => None
 
 export let flatMap(source: Option(a), transform: a ->! Option(b)): Option(b) =
-    match source
+    match source with
         Some(value) => transform!(value)
         None => None
 
 export let defaultValue(source: Option(a), fallback: a): a =
-    match source
+    match source with
         Some(value) => value
         None => fallback
 
 export let defaultWith(source: Option(a), fallback: () ->! a): a =
-    match source
+    match source with
         Some(value) => value
         None => fallback!()
 
 export let toSeq(source: Option(a)): Seq(a) =
-    match source
+    match source with
         Some(value) => Seq.singleton(value)
         None => Seq.empty
 
 export let orThrow(source: Option(a), failure: () -> Exn): a =
-    match source
+    match source with
         Some(value) => value
         None => throw^(failure())
 
 export let toResult(source: Option(a), failure: () -> Exn): Result(a) =
-    match source
+    match source with
         Some(value) => Ok(value)
         None => Err(failure())
 
 export let flatten(source: Option(Option(a))): Option(a) =
-    match source
+    match source with
         Some(inner) => inner
         None => None
 
 export let isSome(source: Option(a)): Bool =
-    match source
+    match source with
         Some(_) => True
         None => False
 
 export let isNone(source: Option(a)): Bool =
-    match source
+    match source with
         Some(_) => False
         None => True
 ```
@@ -155,47 +155,47 @@ export union Result(a) =
     | Err(error: Exn)
 
 export let map(source: Result(a), transform: a ->! b): Result(b) =
-    match source
+    match source with
         Ok(value) => Ok(transform!(value))
         Err(error) => Err(error)
 
 export let flatMap(source: Result(a), transform: a ->! Result(b)): Result(b) =
-    match source
+    match source with
         Ok(value) => transform!(value)
         Err(error) => Err(error)
 
 export let defaultValue(source: Result(a), fallback: a): a =
-    match source
+    match source with
         Ok(value) => value
         Err(_) => fallback
 
 export let defaultWith(source: Result(a), fallback: Exn ->! a): a =
-    match source
+    match source with
         Ok(value) => value
         Err(error) => fallback!(error)
 
 export let orThrow(source: Result(a)): a =
-    match source
+    match source with
         Ok(value) => value
         Err(failure) => throw^(failure)
 
 export let toOption(source: Result(a)): Option(a) =
-    match source
+    match source with
         Ok(value) => Some(value)
         Err(_) => None
 
 export let flatten(source: Result(Result(a))): Result(a) =
-    match source
+    match source with
         Ok(inner) => inner
         Err(error) => Err(error)
 
 export let isOk(source: Result(a)): Bool =
-    match source
+    match source with
         Ok(_) => True
         Err(_) => False
 
 export let isErr(source: Result(a)): Bool =
-    match source
+    match source with
         Ok(_) => False
         Err(_) => True
 ```

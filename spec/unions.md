@@ -78,13 +78,13 @@ Point                          -- nullary: no parens at all
 ### 4.1 Syntax
 
 ```
-match shape
+match shape with
     Circle(r) => 3.14 * r * r
     Rect(w, h) => w * h
     Point => 0.0
 ```
 
-- `match scrutineeExpr` followed by a **layout block of arms** — one arm per VSEP, `;` usable as the compressed newline exactly per the Lexer & Layout rules. There is no braced form: braces are records, so Rust-style `match e { ... }` does not exist and must produce the standard brace diagnostic if attempted.
+- `match scrutineeExpr with` followed by a **layout block of arms** — one arm per VSEP, `;` usable as the compressed newline exactly per the Lexer & Layout rules. There is no braced form: braces are records, so Rust-style `match e { ... }` does not exist and must produce the standard brace diagnostic if attempted.
 - Each arm is `pattern => body`. The `=>` is the same token as the lambda arrow; no ambiguity arises because arms occur only inside a `match` block (the parser is in match-arm context after VOPEN following a `match` head). A pattern is *not* a parameter list; the parser must not route it through lambda parsing.
 - The arm body is an expression: same line, or an indented block whose final expression is the arm's value — identical to lambda bodies (Functions §3.1).
 - `match` is an **expression**; all arm bodies meet at one result type — by unification, and for numeric arms at their expression tree's home, exactly as `if` branches do (Numeric Literals §5.1, #1062). The scrutinee is evaluated once.
@@ -159,7 +159,7 @@ union Color = Red | Green | Blue
 | Hexagon | JS | `.d.ts` |
 |---|---|---|
 | `Red` | `{tag: "Red"}` — the shared constant `const Red = {tag: "Red"};` | `type Color = {tag: "Red"} \| {tag: "Green"} \| {tag: "Blue"};` |
-| `match c` arms | `switch (c.tag) { case "Red": ... }` | — |
+| `match c with` arms | `switch (c.tag) { case "Red": ... }` | — |
 
 **What one shape buys: adding a constructor is additive at the JavaScript boundary.** Whether the new constructor carries a payload or not, every existing value keeps its shape and every existing `.d.ts` arm keeps its text. What a consumer's code can still lose is the exhaustiveness of a `switch`, which a new case costs in any language; and derived `Ord` still follows declaration order (§7), so inserting or reordering constructors changes what an exported `compare` means (the same event FFI Foreign Enums §7.3 records for its form) — a change of meaning, never of shape. Nothing in the declaration has to be read as changing the representation of what stands beside it, and no generated documentation has to warn about it (FFI Part 7 §4).
 

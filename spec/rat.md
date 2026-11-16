@@ -81,7 +81,7 @@ The accessors expose the canonical values, never mutable storage.
 ```hexagon
 let third = 1 // 3                  -- Rat.create(1, 3)
 let same = 6 // 10 == 3 // 5        -- True: create reduces
-match r
+match r with
     0 // _ => "zero"
     n // 1 => "the whole number ${n}"
     n // d => "${n} over ${d}"

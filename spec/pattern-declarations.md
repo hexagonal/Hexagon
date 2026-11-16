@@ -74,14 +74,14 @@ A **`pattern` head** — the contextual head word (Lexer §4.2), the pattern's n
 ### 3.1 In pattern position
 
 ```
-match t
+match t with
     (0, 0)clock => Midnight
     (12, 0)clock => Noon
     (h, m)clock => Other(h, m)
 
 let (h, m)clock = t                        -- irrefutable: the view is total
 fun hourOf((h, _)clock) = h                -- a lambda head; the §3.1 gate is satisfied
-match c
+match c with
     (0.0, 0.0, 0.0)rgb => "black"
     (_, 0.0, _)hsl | (1.0, 1.0, 1.0)rgb => "achromatic"
     (r, g, b)rgb as colour => ...
@@ -137,7 +137,7 @@ A pattern's name lives in the **pattern namespace** — a namespace of its own, 
 import Color
 import Paint                               -- both export rgb
 pattern rgb = Color.rgb                    -- own: occludes both, the contest is over
-match c
+match c with
     (r, g, b)rgb => ...
 ```
 
@@ -175,7 +175,7 @@ Pattern Matching §7's usefulness matrix treats a total view as a **one-construc
 - **Matching** hoists the view before the arm tests, once per pattern per position (§5), and destructures its result as a tuple's array (Products §2.6) — at arity one, the value itself:
 
   ```
-  match t                                   --  const [h, m] = __patt_clock.view(t);
+  match t with                              --  const [h, m] = __patt_clock.view(t);
       (0, 0)clock => Midnight               --  if (h === 0 && m === 0) return Midnight;
       (12, 0)clock => Noon                  --  if (h === 12 && m === 0) return Noon;
       (h, m)clock => Other(h, m)            --  return Other(h, m);
@@ -290,7 +290,7 @@ let t = (1, 90)clock                         -- emits: Time.__patt_clock.build(1
 let (h, m)clock = t                          -- irrefutable; h = 2, m = 30
 let same = (1, 90)clock == (2, 30)clock      -- True
 fun classify(t: Time): String =
-    match t
+    match t with
         (0, 0)clock => "midnight"
         (_, 0)clock => "on the hour"
         (h, m)clock => "${h}:${m}"
@@ -312,23 +312,23 @@ let (p, q)clock = Mid.make()                 -- OK
 --                   view(c) = ...
 import Color
 fun name(c: Color): String =
-    match c
+    match c with
         (0.0, 0.0, 0.0)rgb => "black"        -- each component through Eq<Float> (Pattern Matching §2.5)
         (_, 0.0, _)hsl => "grey"
         _ => "colour"                        -- required: rgb and hsl rows never specialise together
 fun bad(c: Color): String =
-    match c
+    match c with
         (0.0, 0.0, 0.0)rgb => "black"
         (_, 0.0, _)hsl => "grey"             -- ERROR: match is missing cases: (_, _, _)rgb
 fun any(c: Color): String =
-    match c
+    match c with
         (0.0, 0.0, 0.0)rgb => "black"
         (h, s, l)hsl => "any"                -- OK: exhaustive — the hsl row is irrefutable;
                                              --   h, s, l are Float bindings
         (1.0, 1.0, 1.0)rgb => "never"        -- ERROR: this case is unreachable; the arm
                                              --   (h, s, l)hsl above already covers it
 fun zeros(c: Color): String =
-    match c
+    match c with
         (0.0, _, _)rgb => "no red"
         (-0.0, _, _)rgb => "never"           -- ERROR: this case is unreachable; the arm
                                              --   (0.0, _, _)rgb above already covers it (one Float literal, §4)
@@ -336,7 +336,7 @@ fun zeros(c: Color): String =
 let x = (0.0, 0.0, 0.0)rgb                   -- ERROR: rgb is a match-only pattern: its
                                              --   declaration has no build
 fun channels(c: Color): Float =
-    match c                                  -- ERROR: cannot destructure opaque record Color;
+    match c with                             -- ERROR: cannot destructure opaque record Color;
         Color({channels}) => channels        --   match it with (r, g, b)rgb or (h, s, l)hsl
 
 -- (d) The door is closed where the type is undetermined; contests; the alias
@@ -349,7 +349,7 @@ let g = ((r, _, _)rgb) => r                  -- ERROR: no rgb here: its type is 
 import Color
 import Paint                                 -- OK: imports never collide on a pattern
 fun g(c: Color): Float =
-    match c
+    match c with
         (r, _, _)rgb => r                    -- ERROR: rgb is exported by Color and Paint;
                                              --   declare pattern rgb = Color.rgb or
                                              --   pattern rgb = Paint.rgb
@@ -358,7 +358,7 @@ fun g(c: Color): Float =
 import Paint                                 -- Color never imported: the contest is keyed on
 import Palette                               --   Paint.rgb's declared subject, no type read
 fun k(): Float =
-    match Palette.black()
+    match Palette.black() with
         (r, _, _)rgb => r                    -- ERROR: rgb here is Paint.rgb, over Color, whose
                                              --   home exports its own rgb — import Color, then
                                              --   declare pattern rgb = Color.rgb, or declare
@@ -369,7 +369,7 @@ import Paint
 pattern rgb = Color.rgb                      -- own: the contest is over (a use above this line
                                              --   would be the declared-later error, never a contest)
 fun h(c: Color): Float =
-    match c
+    match c with
         (r, _, _)rgb => r                    -- OK: Color.rgb
 export pattern rgb2 = Paint.rgb              -- ERROR: an exported alias is a re-export;
                                              --   re-exports are deferred (Modules §12.2)
@@ -538,7 +538,7 @@ whose view returns `False`. A client obtains a `Ticket` through `Mid`
 without importing `Ticket` and matches:
 
 ```hexagon
-match ticket
+match ticket with
     (True)flagged => "yes"
     (False)flagged => "no"
 ```

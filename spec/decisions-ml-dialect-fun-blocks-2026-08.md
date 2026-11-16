@@ -109,7 +109,7 @@ fun fact(n) = if n <= 1 then 1 else n * fact(n - 1)
 
 fun size = match                                           -- ERROR; write:
     ...
-fun size(shape) = match shape
+fun size(shape) = match shape with
     ...
 ```
 
@@ -139,7 +139,7 @@ The retirement buys the reader a guarantee the run rule could not give: adjacenc
 
 - **Type-level, not spelling-level.** A spelling ban (no lambda RHS on `var`) would be a leaky speed bump — `var f = identity(lambda)` walks past it. The rule reads the type: the ban fires wherever the `var`'s monotype **resolves to an arrow** — at the declaration (annotated or inferred from the initializer) or at the pinning use that settles an unsolved variable to a function type (Statements §6.1's first-use-pinning).
 - **The ban is on the `var`'s own top-level type.** Functions inside data are data: `var handlers = [onOpen, onClose]` (a `Vector((a) -> b)`) is legal, as is a record holding functions. Only the var itself may not *be* a function.
-- **Rewrite advice:** model changing behavior as data — a union the code matches on: declare the states, `var mode = Fast`, and `match mode` at the use site. The diagnostic names this spelling (§9).
+- **Rewrite advice:** model changing behavior as data — a union the code matches on: declare the states, `var mode = Fast`, and `match mode with` at the use site. The diagnostic names this spelling (§9).
 - Non-foreclosing: refused in v1, reopenable on field evidence.
 - **Consequence for Functions §4.3:** the supplying-seat list drops its "annotated `var` and every `:=` right-hand side" entry and its conformance pins — the only lambda that seat could land is a function-typed `var`'s, which no longer exists. Numeric Literals §5.1's own list is untouched: an assignment boundary still establishes the expected type for the *numeric* channel, which is about data.
 
@@ -160,7 +160,7 @@ The family, all under the Rewrite Rule (Declarations Preamble §1.1):
 | Situation | Error |
 |---|---|
 | `fun f = (n) => …` (lambda RHS) | parse error: "`fun` defines functions by header; write `fun f(n) = …`" — the rewrite is mechanical from the lambda's own parameters |
-| `fun f = match …` | parse error: the header rewrite naming parameter and scrutinee: "write `fun f(x) = match x` — a match function stays legal on a `let` and at call sites" |
+| `fun f = match …` | parse error: the header rewrite naming parameter and scrutinee: "write `fun f(x) = match x with` — a match function stays legal on a `let` and at call sites" |
 | §4.2 contract exceeded by a member under a block head | the advice respells to the head and names the member: "`a` is declared to honor `Eq` on the block head, but `containsAll`'s body requires `Hash`; widen the head: `fun<a: Hash>`, or remove the head's constraint to let it be inferred" — never a member binder, which the block refuses (ruled post-review; Functions §10's row carries both arms) |
 | `fun x = 5`, `fun fib = memoize(…)` — any other `fun name =` | parse error: "`fun` defines functions by header; write `fun fib(n) = …`, or bind the value with `let`" |
 | Mutual reference between two separate `fun`s (the retired run) | Functions §7.2's declared-later family, extended: "only members of one `fun` block recurse together; wrap both definitions as its members" |

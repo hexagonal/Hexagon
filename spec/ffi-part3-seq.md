@@ -109,7 +109,7 @@ The unavoidable space rule, stated for users: consuming a very large or infinite
 
 ## 6. Traversal is iterative, never recursion-dependent
 
-`for x in xs`, `while`-based cursor consumption, and runtime combinators such as `Seq.fold` must use **constant-stack iteration** (`for...of`/loops in emitted JavaScript). Hexagon does not promise tail-call optimization; recursive sequence traversal remains ordinary recursion and may overflow the stack, so it is **not** the documented streaming idiom. The documented idiom is the loop and the combinator, both of which the implementation must keep flat.
+`for x in xs do`, `while`-based cursor consumption, and runtime combinators such as `Seq.fold` must use **constant-stack iteration** (`for...of`/loops in emitted JavaScript). Hexagon does not promise tail-call optimization; recursive sequence traversal remains ordinary recursion and may overflow the stack, so it is **not** the documented streaming idiom. The documented idiom is the loop and the combinator, both of which the implementation must keep flat.
 
 ---
 

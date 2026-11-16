@@ -109,7 +109,7 @@ For example:
 
 ```
 export let map(source: Option(a), transform: a ->! b): Option(b) =
-    match source
+    match source with
         Some(value) => Some(transform!(value))
         None => None
 
@@ -156,7 +156,7 @@ So a header or a guard carried onto a second line does not push its block deeper
 ```
 export let clamp(reading: Option(Int),
         limit: Int): Int =
-    match reading
+    match reading with
         Some(n) when n > 0
                 and n < limit =>
             n
@@ -245,7 +245,7 @@ These rules govern the gaps between two code tokens on the same line. They do no
 | An opening bracket after a name, a closing bracket or the `>` of a binder list | none | `f(x)`, `xs[i]`, `Vector(a)`, `Show<Ping>`, `<a: Ord>(x)` |
 | A binder list's `<` after a keyword | none | `fun<a: Eq>`, `honor<a: Show>` |
 | A prefix sign and its operand: unary `-`, variance `+` and `-`, spread `...` | none | `-x`, `Nullable(+a)`, `[_, ...rest]` |
-| A keyword and the token on either side of it | one space | `match (a, b)`, `if ready then 1 else 2`, `f(x) then` |
+| A keyword and the token on either side of it | one space | `match (a, b) with`, `if ready then 1 else 2`, `f(x) then` |
 | Between two names, or a binder list's `>` and a name | one space | `<a: Show> Show<Rose(a)>` |
 | Any other two tokens | as the author wrote them: a gap stays a gap (§7.3), and no gap stays none | |
 
@@ -424,7 +424,7 @@ The language server serves both commands (#1564), and the VS Code extension reli
 
 The formatter deliberately leaves these choices to the author. The house style for the standard library and the Book is written in `notes/canonical-formatting-and-naming.md`.
 
-- **Where lines break**, except in a line longer than the Maximum line length. This covers which line a keyword stands on, such as `match x` on the header line or on a line of its own. It also covers whether a short conditional is written on one line or several, and whether brackets are open.
+- **Where lines break**, except in a line longer than the Maximum line length. This covers which line a keyword stands on, such as `match x with` on the header line or on a line of its own. It also covers whether a short conditional is written on one line or several, and whether brackets are open.
 - **Grouping by blank lines**, beyond the three places the formatter adds one (§6.2) and the cap of one.
 - **Extra spaces that align columns**, while Collapse extra spaces is off, and a wide gap before a trailing comment.
 - **The tokens:** parentheses, a leading `|` on a union's first alternative, a trailing comma, `;` or a new line, a degenerate `x: _`, the fused `fun f(…) = …` or a `fun` block, and the order and place of imports. Each token-level rule that other chapters name for "the formatter" waits for a ruling of its own. Until then, the canonical spelling is the author's to write.
