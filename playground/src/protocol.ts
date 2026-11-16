@@ -319,6 +319,30 @@ export interface InlayHintsRequest extends ServiceRequest, BufferRange {
   readonly kind: "inlay-hints";
 }
 
+/** The options Format document and Format selection run with (Canonical Layout §3). */
+export interface PlaygroundFormatOptions {
+  /** A number of characters, or `undefined` for Unlimited. */
+  readonly maximumLineLength: number | undefined;
+  readonly collapseExtraSpaces: boolean;
+}
+
+/** Format document, or, with `range`, Format selection (Canonical Layout §2). */
+export interface FormatRequest extends ServiceRequest {
+  readonly kind: "format";
+  readonly options: PlaygroundFormatOptions;
+  readonly range?: BufferRange;
+}
+
+/**
+ * The formatter's answer: its edits, or none, with a refusal's words. A
+ * syntax error carries no words, since the error is already shown (§2.3).
+ */
+export type PlaygroundFormatResult =
+  /** Each edit a run of whitespace, with no snippet. */
+  | { readonly kind: "formatted"; readonly edits: readonly PlaygroundTextEdit[] }
+  | { readonly kind: "syntax-error" }
+  | { readonly kind: "refused"; readonly message: string };
+
 export interface DefinitionRequest extends ServiceRequest {
   readonly kind: "definition";
   readonly offset: number;
@@ -381,6 +405,11 @@ export interface InlayHintsReply extends ServiceReply {
   readonly hints: readonly PlaygroundInlayHint[];
 }
 
+export interface FormatReply extends ServiceReply {
+  readonly kind: "format";
+  readonly result: PlaygroundFormatResult;
+}
+
 export interface DefinitionReply extends ServiceReply {
   readonly kind: "definition";
   readonly ranges: readonly BufferRange[];
@@ -424,6 +453,7 @@ export type CompilerRequest =
   | CompletionRequest
   | SignatureHelpRequest
   | InlayHintsRequest
+  | FormatRequest
   | DefinitionRequest
   | ReferencesRequest
   | PrepareRenameRequest
@@ -437,6 +467,7 @@ export type ServiceReplyMessage =
   | CompletionReply
   | SignatureHelpReply
   | InlayHintsReply
+  | FormatReply
   | DefinitionReply
   | ReferencesReply
   | PrepareRenameReply

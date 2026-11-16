@@ -14,6 +14,7 @@ import type {
   ServiceReplyMessage,
 } from "./protocol";
 import { compileSource } from "./compile";
+import { formatSource } from "./formatting";
 import { PlaygroundAnalysis } from "./analysis";
 
 export interface CompilerService {
@@ -161,6 +162,8 @@ function serve(
           version,
           hints: analysis.inlayHints(request.source, request),
         };
+      case "format":
+        return { kind: "format", id, version, result: formatSource(request.source, request.options, request.range) };
       case "definition":
         return {
           kind: "definition",

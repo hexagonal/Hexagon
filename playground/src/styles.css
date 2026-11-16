@@ -320,8 +320,13 @@ button:disabled {
   align-items: center;
 }
 
-.setting-choice select {
+.setting-choice select,
+.setting-choice input {
   justify-self: start;
+}
+
+.setting-choice input[type="number"] {
+  width: 7rem;
 }
 
 .setting-choice .setting-description {

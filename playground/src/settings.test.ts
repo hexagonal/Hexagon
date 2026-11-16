@@ -4,6 +4,8 @@ import { inputStorageKey, sourceStorageKey } from "./persistence";
 import {
   anyHintShown,
   defaultPlaygroundSettings,
+  formatOptions,
+  lineLengthOf,
   hintShown,
   inputBoxShown,
   parseSettings,
@@ -20,7 +22,14 @@ import {
 } from "./settings";
 import { themeStorageKey } from "./theme";
 
-const none: PlaygroundSettings = { typeHints: false, colourHints: false, regexGroupHints: false, inputBox: false };
+const none: PlaygroundSettings = {
+  typeHints: false,
+  colourHints: false,
+  regexGroupHints: false,
+  inputBox: false,
+  maximumLineLength: undefined,
+  collapseExtraSpaces: false,
+};
 
 describe("the playground's settings", () => {
   test("each off until the dev turns it on", () => {
@@ -38,10 +47,16 @@ describe("the playground's settings", () => {
     expect(parseSettings("true")).toEqual(none);
     expect(parseSettings("null")).toEqual(none);
     expect(parseSettings(JSON.stringify({ typeHints: "yes", inputBox: 1 }))).toEqual(none);
+    for (const length of [0, -5, 80.5, "80x", true, null, "Unlimited"]) {
+      expect(parseSettings(JSON.stringify({ maximumLineLength: length }))).toEqual(none);
+    }
   });
 
   test("each read on its own, and written back as read", () => {
-    for (const key of Object.keys(none) as (keyof PlaygroundSettings)[]) {
+    const length = { ...none, maximumLineLength: 100 };
+    expect(parseSettings(JSON.stringify({ maximumLineLength: 100 }))).toEqual(length);
+    expect(parseSettings(serializeSettings(length))).toEqual(length);
+    for (const key of (Object.keys(none) as (keyof PlaygroundSettings)[]).filter((key) => key !== "maximumLineLength")) {
       const on = { ...none, [key]: true };
       expect(parseSettings(JSON.stringify({ [key]: true }))).toEqual(on);
       expect(parseSettings(serializeSettings(on))).toEqual(on);
@@ -55,6 +70,8 @@ describe("the playground's settings", () => {
       "Inlay hints: Colours",
       "Inlay hints: Regex group numbers",
       "Running: Input box",
+      "Formatting: Maximum line length",
+      "Formatting: Collapse extra spaces",
     ]);
   });
 
@@ -69,10 +86,16 @@ describe("the playground's settings", () => {
       contributes: { configuration: { properties: Record<string, { markdownDescription?: string }> } };
     };
     const { properties } = manifest.contributes.configuration;
-    const extensionName = { typeHints: "types", colourHints: "colours", regexGroupHints: "regexGroups" } as const;
+    const extensionName = {
+      typeHints: "inlayHints.types",
+      colourHints: "inlayHints.colours",
+      regexGroupHints: "inlayHints.regexGroups",
+      maximumLineLength: "format.maximumLineLength",
+      collapseExtraSpaces: "format.collapseExtraSpaces",
+    } as const;
     for (const row of settingRows) {
       if (row.key === "inputBox") continue;
-      expect(row.description).toBe(properties[`hexagon.inlayHints.${extensionName[row.key]}`]?.markdownDescription);
+      expect(row.description).toBe(properties[`hexagon.${extensionName[row.key]}`]?.markdownDescription);
     }
   });
 });
@@ -162,6 +185,16 @@ describe("the window's rows", () => {
       sharedInput: "3 4\n",
     });
     expect(withSetting(shared, "typeHints", false)).toEqual(shared);
+  });
+});
+
+describe("the formatting options", () => {
+  test("both off by default, and the window's line length read as a whole number or Unlimited", () => {
+    expect(formatOptions(none)).toEqual({ maximumLineLength: undefined, collapseExtraSpaces: false });
+    expect(formatOptions({ ...none, maximumLineLength: 72, collapseExtraSpaces: true }))
+      .toEqual({ maximumLineLength: 72, collapseExtraSpaces: true });
+    expect(lineLengthOf("100")).toBe(100);
+    for (const typed of ["", "  ", "0", "-3", "7.5", "eighty"]) expect(lineLengthOf(typed)).toBeUndefined();
   });
 });
 

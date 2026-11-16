@@ -14,7 +14,7 @@ import type {
 } from "./editor";
 import { restartInlayHints } from "./editor";
 import { createHoverSpanCache } from "./hover-spans";
-import type { BufferRange } from "./protocol";
+import type { BufferRange, PlaygroundFormatOptions } from "./protocol";
 import type { LanguageServices } from "./language-services";
 import {
   boundedOffsets,
@@ -49,6 +49,9 @@ import {
   typescriptScopeName,
 } from "./monaco-textmate";
 import { defineHexagonThemes, hexagonDarkTheme, hexagonLightTheme } from "./monaco-theme";
+
+/** The options `services.format` is asked with; the page's own settings stand in for them (`main.ts`). */
+const defaultFormatOptions: PlaygroundFormatOptions = { maximumLineLength: undefined, collapseExtraSpaces: false };
 
 globalThis.MonacoEnvironment = {
   getWorker: () => new EditorWorker(),
@@ -208,7 +211,15 @@ export function createMonacoEditors(
       startOffset: sourceModel.getOffsetAt(selection.getStartPosition()),
       endOffset: sourceModel.getOffsetAt(selection.getEndPosition()),
     }));
-  const providers = registerLanguageProviders(sourceModel, services, selections);
+  /** A formatting refusal's words, shown at the caret as Monaco shows its own (§2.3). */
+  const refused = (message: string): void => {
+    const position = sourceEditor.getPosition();
+    const controller = sourceEditor.getContribution("editor.contrib.messageController") as
+      | { showMessage(message: string, position: monaco.IPosition): void }
+      | null;
+    if (position !== null) controller?.showMessage(message, position);
+  };
+  const providers = registerLanguageProviders(sourceModel, services, selections, refused);
   const snippetCommand = registerSnippetCommand(sourceEditor, sourceModel);
   /**
    * Opens the hover where a pointer would have, for a device with no pointer.
@@ -412,9 +423,44 @@ function registerLanguageProviders(
   sourceModel: monaco.editor.ITextModel,
   services: LanguageServices,
   selections: () => readonly BufferRange[],
+  refused: (message: string) => void,
 ): monaco.IDisposable {
   const owns = (model: monaco.editor.ITextModel): boolean => model === sourceModel;
+  /**
+   * Format document, or Format selection with a range: whitespace edits, or
+   * none, a refusal's words shown at the caret and a syntax error's left to
+   * the error already drawn (Canonical Layout §2.3). The options are the
+   * page's settings, which `services` supplies.
+   */
+  const format = async (
+    model: monaco.editor.ITextModel,
+    range?: BufferRange,
+  ): Promise<monaco.languages.TextEdit[] | undefined> => {
+    if (!owns(model)) return undefined;
+    const result = await services.format(model.getValue(), defaultFormatOptions, range);
+    if (result === undefined || result.kind === "syntax-error") return [];
+    if (result.kind === "refused") {
+      refused(result.message);
+      return [];
+    }
+    return result.edits.map((edit) => ({
+      range: rangeFromOffsets(model, edit.startOffset, edit.endOffset),
+      text: edit.replacement,
+    }));
+  };
   const registrations = [
+    // Format Document and Format Selection, in the context menu and the
+    // command palette; nothing formats unasked (Canonical Layout §2.4).
+    monaco.languages.registerDocumentFormattingEditProvider(hexagonLanguage, {
+      provideDocumentFormattingEdits: (model) => format(model),
+    }),
+    monaco.languages.registerDocumentRangeFormattingEditProvider(hexagonLanguage, {
+      provideDocumentRangeFormattingEdits: (model, range) =>
+        format(model, {
+          startOffset: model.getOffsetAt(range.getStartPosition()),
+          endOffset: model.getOffsetAt(range.getEndPosition()),
+        }),
+    }),
     monaco.languages.registerHoverProvider(hexagonLanguage, {
       provideHover: async (model, position) => {
         if (!owns(model)) return undefined;

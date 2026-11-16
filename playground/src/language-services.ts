@@ -26,6 +26,8 @@ import type {
   CompilerMessage,
   PlaygroundCodeAction,
   PlaygroundCompletions,
+  PlaygroundFormatOptions,
+  PlaygroundFormatResult,
   PlaygroundHover,
   PlaygroundInlayHint,
   PlaygroundRenamePlan,
@@ -75,6 +77,15 @@ export interface LanguageServices {
   signatureHelp(source: string, offset: number): Promise<PlaygroundSignatureHelp | undefined>;
   /** The hints in `range`, ends included; empty for a dropped reply. */
   inlayHints(source: string, range: BufferRange): Promise<readonly PlaygroundInlayHint[]>;
+  /**
+   * Format document, or, with `range`, Format selection; `undefined` for a
+   * dropped reply, which formats nothing.
+   */
+  format(
+    source: string,
+    options: PlaygroundFormatOptions,
+    range?: BufferRange,
+  ): Promise<PlaygroundFormatResult | undefined>;
   definitions(source: string, offset: number): Promise<readonly BufferRange[]>;
   references(source: string, offset: number): Promise<readonly BufferRange[]>;
   prepareRename(
@@ -217,6 +228,17 @@ export function createLanguageServices(
         ...range,
       }));
       return reply?.kind === "inlay-hints" ? reply.hints : [];
+    },
+    async format(source, options, range) {
+      const reply = await ask((id, version) => ({
+        kind: "format",
+        id,
+        version,
+        source,
+        options,
+        ...(range === undefined ? {} : { range }),
+      }));
+      return reply?.kind === "format" ? reply.result : undefined;
     },
     async definitions(source, offset) {
       const reply = await ask((id, version) => ({

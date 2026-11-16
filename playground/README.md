@@ -141,8 +141,9 @@ On narrow screens the result panel moves below the source editor. The source alw
 - **Theme:** System, Dark or Light, as above.
 - **Inlay hints:** types, colours and regex group numbers, the three the extension's `hexagon.inlayHints.*` settings name, in the extension's words. Monaco shows them; the plain editor that narrow and touch screens keep shows none, and the window says so there.
 - **Input box:** the run's standard input under the editor (`spec/program-io.md` §6). While it is off, a run reads no input; a shared link that carries input shows it each time it is opened, until the dev turns the box on or off.
+- **Formatting:** Maximum line length (a whole number, or empty for Unlimited) and Collapse extra spaces, the two the extension's `hexagon.format.*` settings name, in the extension's words (`spec/canonical-layout.md` §3). Monaco has Format Document and Format Selection in its context menu and command palette, with no toolbar button, and nothing formats unasked; the plain editor does not format, and the window says so there.
 
-The hints and the input box are off until the dev turns them on (`src/settings.ts`). A new playground setting gets a row here, off until the dev turns it on, rather than a control in the toolbar.
+The hints, the input box and both formatting options are off until the dev turns them on (`src/settings.ts`). A new playground setting gets a row here, off until the dev turns it on, rather than a control in the toolbar.
 
 ### Result tabs
 
@@ -241,7 +242,8 @@ ones preferred, and a buffer's mark repairs at once), hover
 inlay hints (the types inference gave, a function's colour in words, and each
 regex group's number, as the language server shows them, each kind off until
 turned on in `Settings…`),
-"Expand Selection", go-to-definition, find-references, rename, refactorings
+"Expand Selection", Format Document and Format Selection (with the two options
+`Settings…` holds; a refusal's words shown at the caret), go-to-definition, find-references, rename, refactorings
 (a pipeline and calls, a match function and its lambda, a record's puns and
 its fields written out, arms with one body and an or-pattern's arm, and a type
 and a `type` alias for it, each written as the other, and a dot call as its

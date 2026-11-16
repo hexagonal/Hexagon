@@ -1,10 +1,10 @@
-import type { PlaygroundInlayHint } from "./protocol";
+import type { PlaygroundFormatOptions, PlaygroundInlayHint } from "./protocol";
 
 /**
  * The playground's settings, the ones its `Settings…` window lists: which inlay
- * hints the editor shows, and whether the run's input box is on the page.
- * Each starts off and stays off until the dev turns it on, as the extension's
- * own inlay hint settings do.
+ * hints the editor shows, whether the run's input box is on the page, and the
+ * two formatting options. Each starts off and stays off until the dev turns it
+ * on, as the extension's own settings do.
  */
 export interface PlaygroundSettings {
   /** `hexagon.inlayHints.types` in the extension. */
@@ -15,22 +15,31 @@ export interface PlaygroundSettings {
   readonly regexGroupHints: boolean;
   /** The input box under the editor, the run's standard input (`spec/program-io.md` §6). */
   readonly inputBox: boolean;
+  /** `hexagon.format.maximumLineLength` in the extension: a number, or `undefined` for Unlimited. */
+  readonly maximumLineLength: number | undefined;
+  /** `hexagon.format.collapseExtraSpaces` in the extension. */
+  readonly collapseExtraSpaces: boolean;
 }
+
+/** The settings that are on or off, each a checkbox in the window. */
+export type ToggleKey = Exclude<keyof PlaygroundSettings, "maximumLineLength">;
 
 export const defaultPlaygroundSettings: PlaygroundSettings = {
   typeHints: false,
   colourHints: false,
   regexGroupHints: false,
   inputBox: false,
+  maximumLineLength: undefined,
+  collapseExtraSpaces: false,
 };
 
 export const settingsStorageKey = "hexagon.playground.settings";
 
-/** One row of the `Settings…` window. */
+/** One row of the `Settings…` window: a checkbox, or, for the line length, a number box. */
 export interface SettingRow {
   readonly key: keyof PlaygroundSettings;
   /** The heading the row sits under. */
-  readonly group: "Inlay hints" | "Running";
+  readonly group: "Inlay hints" | "Running" | "Formatting";
   readonly label: string;
   readonly description: string;
 }
@@ -65,7 +74,27 @@ export const settingRows: readonly SettingRow[] = [
     description:
       "Show a box under the editor whose text a run reads as its standard input, with `Stdio.readText` or `Stdio.readTextLossy`. While it is hidden, a run reads no input.",
   },
+  {
+    key: "maximumLineLength",
+    group: "Formatting",
+    label: "Maximum line length",
+    description:
+      "The longest a line of code may be before Format Document and Format Selection break it, in characters (Unicode code points). Leave it empty for Unlimited, under which no line is ever broken. A string or a comment is never broken, and a trailing comment does not count.",
+  },
+  {
+    key: "collapseExtraSpaces",
+    group: "Formatting",
+    label: "Collapse extra spaces",
+    description:
+      "Make every gap where Hexagon's layout calls for one space exactly one space when formatting. Off, a wider gap the author wrote is kept, so code aligned in columns keeps its alignment.",
+  },
 ];
+
+/** A line length as the window or storage gives it: a whole number of at least one, else Unlimited. */
+export function lineLengthOf(value: unknown): number | undefined {
+  const number = typeof value === "string" && value.trim() !== "" ? Number(value) : value;
+  return typeof number === "number" && Number.isInteger(number) && number >= 1 ? number : undefined;
+}
 
 /**
  * Reads stored settings. A missing or unreadable value, and any entry that is
@@ -78,10 +107,10 @@ export function parseSettings(stored: string | null | undefined): PlaygroundSett
   } catch {
     read = undefined;
   }
-  const flag = (key: keyof PlaygroundSettings): boolean => {
-    const value = typeof read === "object" && read !== null
-      ? (read as Record<string, unknown>)[key]
-      : undefined;
+  const entry = (key: keyof PlaygroundSettings): unknown =>
+    typeof read === "object" && read !== null ? (read as Record<string, unknown>)[key] : undefined;
+  const flag = (key: ToggleKey): boolean => {
+    const value = entry(key);
     return typeof value === "boolean" ? value : defaultPlaygroundSettings[key];
   };
   return {
@@ -89,6 +118,8 @@ export function parseSettings(stored: string | null | undefined): PlaygroundSett
     colourHints: flag("colourHints"),
     regexGroupHints: flag("regexGroupHints"),
     inputBox: flag("inputBox"),
+    maximumLineLength: lineLengthOf(entry("maximumLineLength")),
+    collapseExtraSpaces: flag("collapseExtraSpaces"),
   };
 }
 
@@ -133,7 +164,7 @@ export interface SettingsState {
 }
 
 /** Whether a setting's row is ticked: the input box's says whether the box is on the page. */
-export function settingOn(state: SettingsState, key: keyof PlaygroundSettings): boolean {
+export function settingOn(state: SettingsState, key: ToggleKey): boolean {
   return key === "inputBox" ? inputBoxShown(state.settings, state.sharedInput) : state.settings[key];
 }
 
@@ -141,11 +172,16 @@ export function settingOn(state: SettingsState, key: keyof PlaygroundSettings): 
  * The state after the dev turns a setting on or off. Turning the box on or off
  * ends a shared link's hold on it, so the dev's choice is the one that stands.
  */
-export function withSetting(state: SettingsState, key: keyof PlaygroundSettings, on: boolean): SettingsState {
+export function withSetting(state: SettingsState, key: ToggleKey, on: boolean): SettingsState {
   return {
     settings: { ...state.settings, [key]: on },
     sharedInput: key === "inputBox" ? undefined : state.sharedInput,
   };
+}
+
+/** The formatting options the settings give (Canonical Layout §3). */
+export function formatOptions(settings: PlaygroundSettings): PlaygroundFormatOptions {
+  return { maximumLineLength: settings.maximumLineLength, collapseExtraSpaces: settings.collapseExtraSpaces };
 }
 
 /** A run's standard input: the box's text while the box is on the page, else none. */
