@@ -148,7 +148,7 @@ let name = Nullable.toOption(displayName!())
 When the API distinguishes them, preserve all three cases:
 
 ```hexagon
-match Nullable.toCase(displayName!())
+match Nullable.toCase(displayName!()) with
     NullableCase.Undefined => "not supplied"
     NullableCase.Null => "explicitly blank"
     NullableCase.Value(name) => name
@@ -394,7 +394,7 @@ and exhaustive:
 
 ```hexagon
 let describe(direction: Direction): String =
-    match direction
+    match direction with
         Up => "up"
         Down => "down"
 ```
@@ -426,7 +426,7 @@ inside arrays, records, and callbacks. When the producer is genuinely uncertain,
 the generated checked conversion:
 
 ```hexagon
-match fromJsDirection(rawValue)
+match fromJsDirection(rawValue) with
     Some(direction) => describe(direction)
     None => "unknown direction"
 ```

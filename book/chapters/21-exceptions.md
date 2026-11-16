@@ -66,7 +66,7 @@ expects a value:
 
 ```hexagon
 let requireName(possibleName: Option(String)): String =
-    match possibleName
+    match possibleName with
         Some(name) => name
         None => throw(NotFound)
 ```
@@ -172,7 +172,7 @@ The two constructs compose. A `match` written at the start of its own line may t
 
 ```hexagon
 let compile(input: String): Output =
-    match parse(input)
+    match parse(input) with
         Ok(ast) => generate(ast)
         Err(reason) => report(reason)
     catch
@@ -196,7 +196,7 @@ That is a different expression from the one you get by wrapping the whole `match
 ```hexagon
 -- The window is the scrutinee: a ParseError from `generate` escapes.
 let narrow(input: String): Output =
-    match parse(input)
+    match parse(input) with
         Ok(ast) => generate(ast)
         Err(reason) => report(reason)
     catch
@@ -204,7 +204,7 @@ let narrow(input: String): Output =
 
 -- The window is everything: a ParseError from `generate` is caught here.
 let wide(input: String): Output =
-    try match parse(input)
+    try match parse(input) with
         Ok(ast) => generate(ast)
         Err(reason) => report(reason)
     catch
@@ -229,7 +229,7 @@ column and a mid-line head has no column a following line could sit at. So this 
 work:
 
 ```hexagon
-let x = match parse(input)
+let x = match parse(input) with
     Ok(ast) => generate(ast)
     Err(reason) => report(reason)
 catch                                  -- ERROR: aligned with the `let`, not the `match`
@@ -242,7 +242,7 @@ has a head to align with:
 
 ```hexagon
 let x =
-    match parse(input)
+    match parse(input) with
         Ok(ast) => generate(ast)
         Err(reason) => report(reason)
     catch
@@ -253,7 +253,7 @@ One more error is worth expecting. A clause whose scrutinee cannot possibly thro
 dead code, and dead handlers are errors here exactly as dead arms are:
 
 ```hexagon
-match result                           -- ERROR: this `catch` can never run:
+match result with                      -- ERROR: this `catch` can never run:
     Ok(ast) => generate(ast)           -- evaluating result cannot throw
     Err(reason) => report(reason)
 catch
@@ -272,7 +272,7 @@ the lambda out and give it a `try`:
 
 ```hexagon
 Vector.map(options, option =>
-    try match option
+    try match option with
         Some(value) => decode(value)
         None => fallback
     catch

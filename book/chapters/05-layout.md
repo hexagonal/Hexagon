@@ -73,6 +73,29 @@ let clean(dishes: Dishes): Dishes =
 
 This is the same block model, not a second function syntax.
 
+## A head runs to its closing word
+
+The part of a conditional that comes before its branches is its **head**: the `if`, the
+condition, and the `then` that closes it. The head is not finished until that closing
+word, so a long condition may carry on over deeper lines:
+
+```hexagon
+let describeDelay(delayed: Bool, hours: Int): String =
+    if delayed
+            and hours > 24 then
+        "Badly delayed"
+    else
+        "On time"
+```
+
+The two condition lines are one head. A line indented deeper than the `if` continues
+it, and the branch opens only beneath the `then` that ends it. A deeper line is all that
+continues a head: a line back at the `if`'s own column ends it, so a forgotten `then`
+is reported at its `if` and never swallows the rest of the block.
+
+Every construct whose head holds an expression closes it with a word in the same way.
+Loops and `match` arrive in later chapters, each with a closing word of its own.
+
 ## Braces always mean records
 
 A JavaScript developer may instinctively write:
@@ -228,6 +251,7 @@ not start string parsing, and neither does `--` start a line comment there: insi
 - lines at the same indentation belong to the same block, deeper indentation nests,
   and dedenting closes blocks;
 - a same-line body contains one expression;
+- a head runs to its closing word, and deeper lines carry it on;
 - braces always begin records;
 - semicolons separate items at the same block level but never terminate statements or
   open blocks;

@@ -103,7 +103,7 @@ Pattern matching makes the two cases explicit:
 
 ```hexagon
 let firstOrZero(numbers: Seq(Int)): Int =
-    match Seq.next(numbers)
+    match Seq.next(numbers) with
         Some((first, _)) => first
         None => 0
 ```
@@ -114,9 +114,9 @@ sequence position observes the same next value. Continue traversal with the retu
 
 ```hexagon
 let firstTwo(numbers: Seq(Int)): (Int, Int) =
-    match Seq.next(numbers)
+    match Seq.next(numbers) with
         Some((first, rest)) =>
-            match Seq.next(rest)
+            match Seq.next(rest) with
                 Some((second, _)) => (first, second)
                 None => (first, first)
         None => (0, 0)
@@ -182,7 +182,7 @@ for generic iteration:
 ```hexagon
 let count(values: Seq(a)): Int =
     var total = 0
-    for _ in values
+    for _ in values do
         total := total + 1
     total
 ```

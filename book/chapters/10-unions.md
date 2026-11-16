@@ -62,11 +62,14 @@ expression handles the alternatives:
 
 ```hexagon
 let displayStatus(status: DeliveryStatus): String =
-    match status
+    match status with
         Pending => "Waiting to leave"
         Dispatched(code) => "In transit: ${code}"
         Delivered => "Delivered"
 ```
+
+The value between `match` and `with` is the **scrutinee**. `with` closes the head, as
+`then` closes an `if`'s, and the arms follow as an indented block, one to a line.
 
 Constructor patterns are positional, so `Dispatched(code)` binds the payload to the
 local name `code`. `_` may ignore a payload:
@@ -132,7 +135,7 @@ The caller must handle both cases:
 
 ```hexagon
 let greeting =
-    match findGuest(42)
+    match findGuest(42) with
         Some(name) => "Hello, ${name}!"
         None => "Guest not found"
 ```
@@ -168,7 +171,7 @@ let validatePort(port: Int): PortCheck =
         Invalid("port must be between 1 and 65535")
 
 let message =
-    match validatePort(8080)
+    match validatePort(8080) with
         Valid(port) => "Listening on ${port}"
         Invalid(problem) => "Invalid port: ${problem}"
 ```
@@ -189,7 +192,7 @@ exhaustive, and a `match` over one of them is the ordinary missing-case error:
 
 ```hexagon
 let label(flag: Bool): String =
-    match flag
+    match flag with
         True => "on"
         False => "off"
 ```

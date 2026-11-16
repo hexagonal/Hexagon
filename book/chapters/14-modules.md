@@ -179,7 +179,7 @@ declared them:
 import Direction
 
 let turn(d: Direction): Direction =
-    match d
+    match d with
         North => Direction.East
         East => Direction.South
         South => Direction.West

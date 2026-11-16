@@ -312,7 +312,7 @@ the instance being defined:
 union Tree = Leaf | Node(Tree, Int, Tree)
 
 honor Show<Tree> =
-    show(tree) = match tree
+    show(tree) = match tree with
         Leaf => "."
         Node(left, value, right) => "(${left} ${value} ${right})"
 ```
@@ -331,11 +331,11 @@ record Pong = {label: Int, back: Option(Ping)}
 
 honor
     Show<Ping> =
-        show(ping) = match ping.next
+        show(ping) = match ping.next with
             Some(pong) => "Ping(${ping.label} ${pong})"
             None => "Ping(${ping.label})"
     Show<Pong> =
-        show(pong) = match pong.back
+        show(pong) = match pong.back with
             Some(ping) => "Pong(${pong.label} ${ping})"
             None => "Pong(${pong.label})"
 ```

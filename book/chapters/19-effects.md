@@ -116,7 +116,7 @@ Inside such a body, the call on the handed-in function conducts:
 
 ```hexagon
 export fun runAll(source: Seq(a), action: a ->? Unit): Unit =
-    match Seq.next(source)
+    match Seq.next(source) with
         Some((value, rest)) =>
             action?(value)
             runAll?(rest, action)

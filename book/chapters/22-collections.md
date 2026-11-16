@@ -77,7 +77,7 @@ These two forms express different intentions:
 let requiredHeading = chapters[1]
 
 let optionalHeading =
-    match Vector.get(chapters, requestedIndex)
+    match Vector.get(chapters, requestedIndex) with
         Some(heading) => heading
         None => "Untitled"
 ```
@@ -104,7 +104,7 @@ The pattern language gains a vector shape:
 
 ```hexagon
 let describe(items: Vector(String)): String =
-    match items
+    match items with
         [] => "nothing"
         [only] => "one item: ${only}"
         [first, ...rest] => "first: ${first}; more: ${Vector.length(rest)}"
@@ -167,7 +167,7 @@ therefore has no bracket form.
 Maps iterate as key-value tuples, so tuple patterns fit directly:
 
 ```hexagon
-for (name, score) in scores
+for (name, score) in scores do
     Debug.log("${name}: ${score}")
 ```
 
@@ -269,7 +269,7 @@ Now ordinary loop syntax works:
 ```hexagon
 let bag = Bag({items = [2, 3, 3]})
 
-for number in bag
+for number in bag do
     Debug.log(number)
 ```
 

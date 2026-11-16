@@ -50,7 +50,7 @@ The standard instances follow this pattern:
 This is why a map loop receives tuples without another annotation:
 
 ```hexagon
-for (key, value) in scores
+for (key, value) in scores do
     Debug.log("${key}: ${value}")
 ```
 
@@ -260,7 +260,7 @@ the ordinary function selected by the instance.
 At a loop whose source type is known, instance selection is static:
 
 ```hexagon
-for value in bag
+for value in bag do
     Debug.log(value)
 ```
 

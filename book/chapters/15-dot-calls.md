@@ -150,7 +150,7 @@ union Route =
     | Leg(stop: String, rest: Route)
 
 export fun describe(route: Route): String =
-    match route
+    match route with
         Arrive(destination) => destination
         Leg(stop, rest) => "${stop} -> ${rest.describe()}"   -- error
 ```

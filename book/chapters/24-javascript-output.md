@@ -139,7 +139,7 @@ export union Delivery =
     | Arrived
 
 export let describe(delivery: Delivery): String =
-    match delivery
+    match delivery with
         Waiting => "waiting"
         Sent(tracking) => "sent as ${tracking}"
         Arrived => "arrived"

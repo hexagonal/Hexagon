@@ -98,8 +98,8 @@ Manual consumption is a `while` loop around `next!`:
 let sumFirstNegative(readings: Stream(Int)): Int =
     var found = 0
     var searching = True
-    while searching
-        match Stream.next!(readings)
+    while searching do
+        match Stream.next!(readings) with
             Some(value) =>
                 if value < 0 then
                     found := value
@@ -113,7 +113,7 @@ let sumFirstNegative(readings: Stream(Int)): Int =
 The loop body is a block, so it marks its own calls — the `!` on `next` is the loop's
 honest record that each iteration spends a pull.
 
-There is no `for value in stream`. A `for` head promises pure iteration, and a stream
+There is no `for value in stream do`. A `for` head promises pure iteration, and a stream
 cannot keep that promise; consumption is the consumers above or the `while` idiom.
 
 ## Transforming without pulling
