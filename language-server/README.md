@@ -2,7 +2,7 @@
 
 The Hexagon language server: the process that exposes Hexagon language intelligence through Microsoft's Language Server Protocol (LSP).
 
-Five slices are implemented, and a sixth has begun, over a compiler-owned analysis session: diagnostics, hover, go-to-definition and find-references; then semantic tokens, rename and completion; then quick fixes, the diagnostic-driven half of code actions, each plain one preferred and, beside a call's mark repair, one that applies every such repair in the file that is its report's only one; then documentation in hover and completion; then signature help and inlay hints. Refactorings have begun, with a pipeline and calls, a match function and its lambda, and a record's puns and its fields written out, each written as the other, a dot call written as its qualified call, arms with one body combined into one or split again, and a type alias introduced or written out. Formatting and workspace symbols are not, and the server does not announce them; a capability announced but unimplemented offers the user a command that silently does nothing.
+Five slices are implemented, and a sixth has begun, over a compiler-owned analysis session: diagnostics, hover, go-to-definition and find-references; then semantic tokens, rename and completion; then quick fixes, the diagnostic-driven half of code actions, each plain one preferred and, beside a call's mark repair, one that applies every such repair in the file that is its report's only one; then documentation in hover and completion; then signature help and inlay hints. Refactorings have begun, with a pipeline and calls, a match function and its lambda, and a record's puns and its fields written out, each written as the other, a dot call written as its qualified call, arms with one body combined into one or split again, and a type alias introduced or written out. Format document and Format selection are served too. Workspace symbols are not, and the server does not announce them; a capability announced but unimplemented offers the user a command that silently does nothing.
 
 This document states the boundary between the language server and the compiler. That boundary is the reason the server is small: every request handler converts coordinates, asks the session one question, and converts the answer back.
 
@@ -794,6 +794,19 @@ value (Pattern Matching §2.4). A definition's own colour, its outer arrow, is
 never written (Functions §4.1, #355). Like the rest, these come only when
 asked, and are never preferred.
 
+## Formatting
+
+Format document and Format selection answer `textDocument/formatting` and `textDocument/rangeFormatting` with the compiler's `formatDocument` and `formatSelection` (`spec/canonical-layout.md`; `src/formatting.ts` translates). Every edit is a run of whitespace. A selection widens to the top-level items it touches, and the text there is exactly what Format document writes (§2.2).
+
+Two settings, read from `hexagon.format` at each request, both off until the dev sets them (§3):
+
+- `hexagon.format.maximumLineLength`: a whole number of characters, counted in code points, or no number for Unlimited, under which no line is broken.
+- `hexagon.format.collapseExtraSpaces`: whether a gap wider than the one space §7 calls for becomes one.
+
+The request's own `FormattingOptions`, the editor's tab size and spaces, are not read: indentation is four spaces to a level whatever the editor's settings (§5.1).
+
+A document with a syntax error gets no edits and no message, since the error is already reported (§2.3). Any other refusal (a comment that leaves its code no room, or a failed check) gets no edits and a warning saying why, naming the line where there is one. Nothing formats unasked (§2.4): the server formats only when the client asks.
+
 ## Correctness principles
 
 - LSP positions are converted at one explicit boundary, `positions.ts`, to the compiler's source-position representation. Both count UTF-16 code units and number lines from zero, so a span crossing outward is a rename rather than a computation; only the inward direction needs the document's line index, which is why that direction takes a `TextDocument`.
@@ -859,7 +872,7 @@ The sixth begins with:
 17. the inferred type written down where a hint stands, a whole header's at
     once, and a written type removed, in both, each checked by compiling it.
 
-Formatting and workspace symbols follow as the necessary compiler services become stable. Features are not simulated with textual guesses when semantic information is required — where these slices read source text, it is to locate a name the tree already said was there, or to read a half-typed line no tree describes yet, never to decide what a name means.
+Workspace symbols follow as the necessary compiler services become stable. Features are not simulated with textual guesses when semantic information is required — where these slices read source text, it is to locate a name the tree already said was there, or to read a half-typed line no tree describes yet, never to decide what a name means.
 
 ## Implementation and distribution
 

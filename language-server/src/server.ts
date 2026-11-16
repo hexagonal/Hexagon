@@ -32,6 +32,8 @@ import {
   ErrorCodes,
   FileChangeType,
   MarkupKind,
+  MessageType,
+  ShowMessageNotification,
   TextDocumentSyncKind,
   DiagnosticSeverity,
   ResponseError,
@@ -60,6 +62,8 @@ import { basename } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   completionMark,
+  formatDocument,
+  formatSelection,
   hoverMarkdown,
   refused,
   signatureMarkdown,
@@ -84,6 +88,13 @@ import {
   type InlayHintSettings,
 } from "./inlay-hints.js";
 import { Workspace, type OutsideEveryPackage } from "./workspace.js";
+import {
+  DEFAULT_FORMAT_SETTINGS,
+  formatOptionsOf,
+  formatSettingsOf,
+  toLspFormatting,
+  type FormatSettings,
+} from "./formatting.js";
 import { MANIFEST_NAME, type SeatedProblem } from "../../host/src/index.js";
 import { LEGEND, encodeSemanticTokens } from "./semantic-tokens.js";
 
@@ -174,6 +185,10 @@ export function startServer(connection: Connection): void {
         // Incremental sync keeps a large file's edits proportional to the edit
         // rather than to the file; `TextDocuments` applies them for us.
         textDocumentSync: TextDocumentSyncKind.Incremental,
+        // Format document and Format selection (Canonical Layout §2). Neither
+        // runs unasked: the server formats only when the client asks (§2.4).
+        documentFormattingProvider: true,
+        documentRangeFormattingProvider: true,
         hoverProvider: true,
         // "Expand Selection" and "Shrink Selection", through the pieces of the
         // text around the caret.
@@ -433,6 +448,51 @@ export function startServer(connection: Connection): void {
       end: offsetOfPosition(document, range.end),
     });
     return toLspInlayHints(hints, (offset) => document.positionAt(offset), settings);
+  });
+
+  /**
+   * The formatting settings, read from the client at each request, since a
+   * request is rare and the dev expects the setting they just changed. A
+   * client with no settings to read, or a read that fails, formats with both
+   * options off.
+   */
+  const formatSettings = async (): Promise<FormatSettings> => {
+    if (!configurationPull) return DEFAULT_FORMAT_SETTINGS;
+    return await connection.workspace.getConfiguration("hexagon.format").then(
+      formatSettingsOf,
+      () => DEFAULT_FORMAT_SETTINGS,
+    );
+  };
+
+  /** A refusal's edits, none, and its message shown to the dev (§2.3). */
+  const answerFormatting = (answer: { readonly edits: TextEdit[]; readonly message?: string }): TextEdit[] => {
+    if (answer.message !== undefined) {
+      void connection.sendNotification(ShowMessageNotification.type, {
+        type: MessageType.Warning,
+        message: answer.message,
+      });
+    }
+    return answer.edits;
+  };
+
+  connection.onDocumentFormatting(async ({ textDocument }): Promise<TextEdit[] | null> => {
+    const settings = await formatSettings();
+    const document = documents.get(textDocument.uri);
+    if (document === undefined) return null;
+    const result = formatDocument(document.getText(), formatOptionsOf(settings));
+    return answerFormatting(toLspFormatting(result, (offset) => document.positionAt(offset)));
+  });
+
+  connection.onDocumentRangeFormatting(async ({ textDocument, range }): Promise<TextEdit[] | null> => {
+    const settings = await formatSettings();
+    const document = documents.get(textDocument.uri);
+    if (document === undefined) return null;
+    const result = formatSelection(
+      document.getText(),
+      { start: offsetOfPosition(document, range.start), end: offsetOfPosition(document, range.end) },
+      formatOptionsOf(settings),
+    );
+    return answerFormatting(toLspFormatting(result, (offset) => document.positionAt(offset)));
   });
 
   connection.onSignatureHelp(({ textDocument, position }): SignatureHelp | null => {

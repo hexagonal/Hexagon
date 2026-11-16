@@ -374,8 +374,10 @@ describe("the Hexagon language server", () => {
       expect(result.capabilities.codeActionProvider).toBeUndefined();
       // Still withheld from everyone, and still deliberately: a capability
       // announced but unimplemented offers a command that silently does nothing.
-      expect(result.capabilities.documentFormattingProvider).toBeUndefined();
       expect(result.capabilities.workspaceSymbolProvider).toBeUndefined();
+      // Format document and Format selection (Canonical Layout §2).
+      expect(result.capabilities.documentFormattingProvider).toBe(true);
+      expect(result.capabilities.documentRangeFormattingProvider).toBe(true);
     } finally {
       await solo.dispose();
     }
@@ -920,6 +922,92 @@ describe("the Hexagon language server", () => {
     } finally {
       await offsets.dispose();
     }
+  });
+
+  describe("formatting", () => {
+    const MESSY = ["module Main", "", "let total=1+2", "let other =  3", ""].join("\n");
+    const open = async (hex: Harness, text = MESSY) => {
+      await hex.client.sendNotification(DidOpenTextDocumentNotification.type, {
+        textDocument: { uri: hex.uriOf("main.hex"), languageId: "hexagon", version: 1, text },
+      });
+    };
+    const apply = (text: string, edits: readonly TextEdit[] | null): string =>
+      TextDocument.applyEdits(TextDocument.create("x", "hexagon", 1, text), [...(edits ?? [])]);
+    const formatting = (hex: Harness) =>
+      hex.client.sendRequest("textDocument/formatting", {
+        textDocument: { uri: hex.uriOf("main.hex") },
+        options: { tabSize: 2, insertSpaces: false },
+      }) as Promise<TextEdit[] | null>;
+
+    test("formats the document with both options off when the client has no settings, whatever its tab size", async () => {
+      const hex = await harness({ "main.hex": MESSY });
+      try {
+        expect(hex.capabilities.documentFormattingProvider).toBe(true);
+        expect(hex.capabilities.documentRangeFormattingProvider).toBe(true);
+        await open(hex);
+        expect(apply(MESSY, await formatting(hex))).toBe("module Main\n\nlet total = 1 + 2\nlet other =  3\n");
+      } finally {
+        await hex.dispose();
+      }
+    });
+
+    test("reads both options from the client at each request", async () => {
+      let settings: unknown = { maximumLineLength: 20, collapseExtraSpaces: true };
+      const asked: unknown[] = [];
+      const hex = await harness({ "main.hex": MESSY }, { workspace: { configuration: true } });
+      hex.client.onRequest("workspace/configuration", (params: { items: unknown[] }) => {
+        asked.push(...params.items);
+        return [settings];
+      });
+      const long = ["module Main", "", "let total = alpha + beta + gamma", ""].join("\n");
+      try {
+        await open(hex, long);
+        expect(apply(long, await formatting(hex))).toBe(
+          "module Main\n\nlet total =\n    alpha\n            + beta\n            + gamma\n",
+        );
+        settings = { maximumLineLength: null, collapseExtraSpaces: false };
+        expect(await formatting(hex)).toEqual([]);
+        expect(asked).toEqual([{ section: "hexagon.format" }, { section: "hexagon.format" }]);
+      } finally {
+        await hex.dispose();
+      }
+    });
+
+    test("formats a selection's top-level items and nothing else", async () => {
+      const hex = await harness({ "main.hex": MESSY });
+      try {
+        await open(hex);
+        const edits = await hex.client.sendRequest("textDocument/rangeFormatting", {
+          textDocument: { uri: hex.uriOf("main.hex") },
+          range: { start: { line: 2, character: 4 }, end: { line: 2, character: 5 } },
+          options: { tabSize: 4, insertSpaces: true },
+        }) as TextEdit[] | null;
+        expect(apply(MESSY, edits)).toBe("module Main\n\nlet total = 1 + 2\nlet other =  3\n");
+      } finally {
+        await hex.dispose();
+      }
+    });
+
+    test("returns no edits for a syntax error and says nothing, and names a refusal's line", async () => {
+      const hex = await harness({ "main.hex": MESSY });
+      const shown: string[] = [];
+      hex.client.onNotification("window/showMessage", ({ message }: { message: string }) => {
+        shown.push(message);
+      });
+      try {
+        await open(hex, "module Main\nlet x = (1\n");
+        expect(await formatting(hex)).toEqual([]);
+        await hex.client.sendNotification("textDocument/didChange", {
+          textDocument: { uri: hex.uriOf("main.hex"), version: 2 },
+          contentChanges: [{ text: "module Main\nlet f(x: Int): Int =\n{- a much longer note -} x\n" }],
+        });
+        expect(await formatting(hex)).toEqual([]);
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        expect(shown).toEqual(["the comment on line 3 leaves its code no room; move it to a line of its own"]);
+      } finally {
+        await hex.dispose();
+      }
+    });
   });
 
   describe("the type of an expression", () => {
