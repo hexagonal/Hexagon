@@ -88,10 +88,11 @@ let describeDelay(delayed: Bool, hours: Int): String =
         "On time"
 ```
 
-The two condition lines are one head. A line indented deeper than the `if` continues
-it, and the branch opens only beneath the `then` that ends it. A deeper line is all that
-continues a head: a line back at the `if`'s own column ends it, so a forgotten `then`
-is reported at its `if` and never swallows the rest of the block.
+The two condition lines are one head. No block opens at the second line, because
+nothing has asked for one yet: the head is still unfinished, so the deeper line continues
+it, and the branch opens only beneath the `then` that ends it. Only a deeper line carries
+a condition on. A line back at the `if`'s own column cannot be part of it, so a forgotten
+`then` is reported at its `if` and never swallows the rest of the block.
 
 Every construct whose head holds an expression closes it with a word in the same way.
 Loops and `match` arrive in later chapters, each with a closing word of its own.

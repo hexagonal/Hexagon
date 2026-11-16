@@ -674,8 +674,8 @@ dialects.
 - a typed pattern `(p: T)` writes the type of the part it takes apart, inside a pattern's
   own parentheses; it is checked when the program compiles and never tests or converts,
   while `let p: T = e` types the whole binding and converts as a named binding's type does;
-- a bare `match`, with no scrutinee and no `with`, is the function that matches its argument,
-  which is how refutable patterns reach callback position; and
+- a bare `match`, with no scrutinee and no `with`, is the function that matches its
+  argument, which is how refutable patterns reach callback position; and
 - a type written around a function reaches its parameters before its arms are checked, so
   a match function whose arms only guard still works at an annotated binding, in callback
   position, and at a receiver whose type is known at the dot.

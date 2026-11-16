@@ -86,7 +86,7 @@ open specification work does not make the book outline provisional.
 12. **Patterns** — `match` supports constructor, tuple, record, literal,
     vector, wildcard, variable, or-, as-, and declared patterns, plus guards and construction
     punning. Exhaustiveness and unreachable arms are compile errors, and refutable
-    patterns are restricted in binding positions; a scrutinee-less `match` is the unary
+    patterns are restricted in binding positions; a bare `match` is the unary
     function matching its argument, which is how refutable patterns reach callbacks.
     Declared patterns supply a pure view and optional build; suffix construction
     supports the ordinary effect marks, and competing imports require explicit aliases.
@@ -115,7 +115,7 @@ open specification work does not make the book outline provisional.
     closures do not capture changing local variables and the compiler need not perform
     escape analysis.
 
-17. **Loops and ranges** — `for ... in`, `while`, ascending and descending
+17. **Loops and ranges** — `for … in … do`, `while … do`, ascending and descending
     ranges, irrefutable loop patterns, and `Iterable` connect imperative-looking loops
     to typed functional iteration. Loop bodies return `Unit`, and iterable resolution is
     static.

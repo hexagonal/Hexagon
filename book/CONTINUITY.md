@@ -837,8 +837,8 @@ late pedagogy pass, not a commitment to the current order.
 - **A bare `match`, with no scrutinee and no `with`, is a function** (#505) — the unary
   function matching its argument, taught as the answer to the irrefutability gate in
   callback position. It *means* `x => match x with` and those arms; exhaustiveness is
-  demanded over the parameter type; a bare `match` holds nothing and needs no closing
-  word; it is a lambda
+  demanded over the parameter type; a bare `match` holds nothing and needs no closing word;
+  it is a lambda
   literal with every *expression* seat (`let` bindings, call arguments, pipes) and no
   `fun` seat — a recursive matcher is written `fun size(shape) = match shape with`; and it
   takes no `catch` clause (Chapter 21 carries the one-line callback).

@@ -267,7 +267,7 @@ is not an effect, and a pure function may throw.
 
 The match function of Chapter 11 is the same observation with no exception to it: its
 scrutinee is its parameter, produced by the caller before the function was entered, so a
-scrutinee-less `match` takes no `catch` clause at all. To guard *those* arm bodies, write
+bare `match` takes no `catch` clause at all. To guard *those* arm bodies, write
 the lambda out and give it a `try`:
 
 ```hexagon
