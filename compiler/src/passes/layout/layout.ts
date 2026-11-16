@@ -330,8 +330,11 @@ function expectsBlock(
   // deeper line continues it.
   if (scan.open.length > 0) return false;
 
+  // A line ending in an assignment's `:=` opens its value block, as a
+  // binding's `=` does (§2.1's row).
   if (
     last.kind === "FatArrow" ||
+    last.kind === "Assign" ||
     last.kind === "Else" ||
     last.kind === "Catch" ||
     last.kind === "Finally" ||

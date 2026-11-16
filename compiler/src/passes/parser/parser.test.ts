@@ -1011,6 +1011,48 @@ describe("parse", () => {
     expect(module.diagnostics).toEqual([]);
   });
 
+  test("parses the block beneath a line-ending `:=` as the value assigned", () => {
+    const module = parseSource(
+      "fun bump(start: Int) =\n" +
+        "    var current: Int = start\n" +
+        "    current :=\n" +
+        "        let doubled = current * 2\n" +
+        "        doubled + 1\n" +
+        "    current := current\n" +
+        "        + 1\n" +
+        "    current",
+    );
+
+    expect(module.items[0]).toMatchObject({
+      kind: "Fun",
+      value: {
+        body: {
+          kind: "Block",
+          items: [
+            { kind: "Var" },
+            {
+              kind: "ExprItem",
+              expression: {
+                kind: "Assignment",
+                target: { kind: "Name" },
+                value: {
+                  kind: "Block",
+                  items: [{ kind: "Let" }, { kind: "ExprItem", expression: { kind: "Binary" } }],
+                },
+              },
+            },
+            {
+              kind: "ExprItem",
+              expression: { kind: "Assignment", value: { kind: "Binary", operator: "Add" } },
+            },
+            { kind: "ExprItem", expression: { kind: "Name" } },
+          ],
+        },
+      },
+    });
+    expect(module.diagnostics).toEqual([]);
+  });
+
   test("parses for loops over ranges and strings", () => {
     const module = parseSource(
       "fun visit(): Unit =\n" +

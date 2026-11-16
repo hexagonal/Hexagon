@@ -71,6 +71,7 @@ describe("indentation rules", () => {
       "    if count <= 0 then",
       "    else",
       "let step = () =>",
+      "        total :=",
       "constraint Integral<a: (Num, Ord)> =",
       "honor Ord<Rat> =",
       "        match next(current) with",
@@ -90,6 +91,7 @@ describe("indentation rules", () => {
     expect(increase().test("honor Eq<Point> = derive")).toBe(false);
     expect(increase().test("export let empty: Seq(a) = Seq({ pull = () => None })")).toBe(false);
     expect(increase().test("let x = 1")).toBe(false);
+    expect(increase().test("    total := total + 1")).toBe(false);
     // A head carried on, or a loop with its body on the head's line, opens nothing yet.
     expect(increase().test("    while remaining > 0")).toBe(false);
     expect(increase().test("    match parse(input)")).toBe(false);
