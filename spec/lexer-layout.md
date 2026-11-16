@@ -294,7 +294,16 @@ bracket, whose group stays open until it is closed.
 nested head whose closing word ends a deeper line of it opens nothing there, and
 the lines after go on continuing the item. So the lines a forgotten closing word
 takes in open no block and close none: the layout pass reports nothing among them,
-and the head's report is the only one they draw.
+and the head's report is the only one they draw. A form with a block of its own
+that a head holds, such as a `match` with its arms, is written in parentheses,
+where its block opens as in any bracket pair (§2.2):
+
+```
+for x in (match source with
+        Left(xs) => xs
+        Right(ys) => ys) do
+    visit(x)
+```
 
 **Where a closing word stands.** The canonical spelling ends the head's last line
 with its closing word (Canonical Layout §9.3). None of the closing words can
