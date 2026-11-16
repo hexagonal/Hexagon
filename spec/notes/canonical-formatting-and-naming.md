@@ -171,17 +171,85 @@ declarations through this list before considering the segment done.
 
 This section is the house style's own record, not a restatement. The
 formatter leaves these choices to the author (Canonical Layout §13), and
-the standard library and the Book make them this way.
+house text makes them this way. **House text** is the standard library,
+the Book, the Playground's tutorials and the spec's own examples.
 
-- **H1** The standard library and the Book are formatted at Maximum line
-  length 100. A line that cannot be broken, such as one holding a long
-  string or comment, stays longer. (Canonical Layout §3.1, §9)
-- **H2** They are formatted with Collapse extra spaces on: the house never
+- **H1** House text is formatted at Maximum line length 100. A line that
+  cannot be broken, such as one holding a long string or comment, stays
+  longer. (Canonical Layout §3.1, §9)
+- **H2** It is formatted with Collapse extra spaces on: the house never
   lines things up with spaces. (Canonical Layout §3.2)
-- **H3** In the standard library and the Book, a function with a doc
-  comment is always written as multi-line, with a blank line on both
-  sides. The formatter does not enforce this: for it, a doc comment does
-  not make a declaration multi-line. (Canonical Layout §6.3)
+- **H3** In house text, a function with a doc comment is always written
+  as multi-line, with a blank line on both sides. The formatter does not
+  enforce this: for it, a doc comment does not make a declaration
+  multi-line. (Canonical Layout §6.3)
+- **H4** A line carried on at an operator begins with the operator, as
+  each line Format document breaks at one does. An operator written at
+  the end of a line is legal and the formatter leaves it there, but house
+  text does not write it. A head carried on to its closing word is no
+  exception (F5). (Canonical Layout §9.4, §9.5, §13)
+
+  ```
+  let negative =
+      (numerator < 0 and denominator > 0)
+              or (numerator > 0 and denominator < 0)
+  ```
+
+- **H5** An expression that fits on its line stays there, after its `=`
+  or `=>`. One that runs on over further lines begins a line of its own,
+  beneath its `=` or `=>` and one level in. Open brackets hold what they
+  contain: an expression whose further lines are only its open brackets'
+  contents and closing bracket stays on its line, as
+  `let scriptNames: Map(String, String) = Map.fromVector([` does.
+  (Canonical Layout §5.2, §13)
+- **H6** So a `match … with` always begins its own line, since its arms
+  are always a block beneath it. That holds wherever it stands: as a
+  binding's value, as the body of an arm or a lambda, after `try`, and
+  as a call's argument. `if` and `try` follow H5 as it stands: one that
+  fits on its line stays after its `=` or `=>`, and one that runs on
+  begins its own line. A conditional's shape is F3's, and a condition
+  carried on ends its last line with `then` (F5). (Canonical Layout §13)
+
+  ```
+  export let first(values: Vector(a)): Option(a) =
+      match values with
+          [] => None
+          [value, ...] => Some(value)
+
+  let scale = if aligned > 1074 then 1074 else aligned
+
+  let counted =
+      if point == "{" then
+          braceCount(text, position)
+      else
+          simpleCount(point)
+  ```
+
+- **H7** A head stays on the line where it stands: the bare `match` of a
+  match function, where the function is bound or passed; a lambda's
+  `(params) =>`; and an arm's `pattern =>`. A head's body follows H5: a
+  body that fits stays after the `=>`, and one that runs on goes beneath
+  it, one level in. (Pattern Matching §6.7; Canonical
+  Layout §13)
+
+  ```
+  let label = match
+      Some(value) => value
+      None => "missing"
+
+  let labels = Vector.map(options, match
+      Some(value) => value
+      None => "missing"
+  )
+
+  let doubled = values.map(value => value * 2)
+
+  let largest = Vector.fold(values, None, (best, value) =>
+      match best with
+          Some(kept) => if value > kept then Some(value) else best
+          None => Some(value)
+  )
+  ```
 
 ---
 
