@@ -497,6 +497,11 @@ describe("Inside a string (§7.4)", () => {
     expect(format('module A\nlet h = "${x-- note\n}"\n')).toBe('module A\nlet h = "${x -- note\n}"\n');
   });
 
+  it("writes a string whose hole holds a comment against its neighbours, as §7.1 says", () => {
+    expect(format('module A\nlet a = g( "${y{- q -}}"   ,z)\n', { collapseExtraSpaces: true })).toBe(
+      'module A\nlet a = g("${y{- q -}}", z)\n');
+  });
+
   it("checks each string's text as written, not only its value (§1)", () => {
     const spelled = read('module A\nlet s = "\\u{41} ${x}"\n');
     expect(sameText(spelled, read('module A\nlet s = "\\u{41} ${x}"\n'))).toBe(true);

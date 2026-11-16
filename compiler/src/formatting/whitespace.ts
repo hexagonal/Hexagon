@@ -687,27 +687,37 @@ class Writer {
    */
   #readHoles(): HoleGap[] {
     const gaps: HoleGap[] = [];
+    const comments = [...this.#reading.lexed.comments].sort((left, right) => left.span.start.offset - right.span.start.offset);
     const visit = (token: Lexed.Token): void => {
       if (token.kind !== "String") return;
       for (const part of token.parts) {
         if (part.kind !== "Interpolation") continue;
         const tokens = part.tokens.filter(({ kind }) => kind !== "Eof");
         tokens.forEach(visit);
-        this.#spaceHole(part, tokens, gaps);
+        this.#spaceHole(part, tokens, comments, gaps);
       }
     };
     this.#tokens.forEach(visit);
     return gaps.sort((left, right) => left.start - right.start);
   }
 
-  #spaceHole(part: Lexed.StringInterpolation, tokens: readonly Lexed.Token[], gaps: HoleGap[]): void {
+  #spaceHole(
+    part: Lexed.StringInterpolation,
+    tokens: readonly Lexed.Token[],
+    all: readonly Source.Comment[],
+    gaps: HoleGap[],
+  ): void {
     const open = part.span.start.offset;
     const close = part.span.end.offset - 1;
     // The hole's own comments, not those of a string inside it.
     const strings = tokens.filter(({ kind }) => kind === "String").map(({ span }) => span);
-    const comments = this.#reading.lexed.comments.filter(({ span }) =>
-      span.start.offset > open && span.start.offset < close &&
-      !strings.some((inner) => inner.start.offset <= span.start.offset && span.start.offset < inner.end.offset));
+    const comments: Source.Comment[] = [];
+    for (let at = firstAtOrAfter(all, ({ span }) => span.start.offset, open); at < all.length; at += 1) {
+      const { span } = all[at]!;
+      if (span.start.offset >= close) break;
+      const inner = strings.some(({ start, end }) => start.offset <= span.start.offset && span.start.offset < end.offset);
+      if (!inner) comments.push(all[at]!);
+    }
     const brace = (start: number, end: number, endLine: number): HolePiece =>
       ({ kind: "brace", index: -1, start, end, endLine, endsLine: false });
     const pieces: HolePiece[] = [
@@ -764,8 +774,9 @@ class Writer {
   #source(from: number, to: number): string {
     let out = "";
     let at = from;
-    for (const gap of this.#holeGaps) {
-      if (gap.start < from) continue;
+    const gaps = this.#holeGaps;
+    for (let next = firstAtOrAfter(gaps, ({ start }) => start, from); next < gaps.length; next += 1) {
+      const gap = gaps[next]!;
       if (gap.end > to) break;
       out += this.#text.slice(at, gap.start) + gap.text;
       at = gap.end;
@@ -870,6 +881,18 @@ interface RenderedLine {
   readonly kind: "blank" | "code" | "comment" | "content";
   /** The line of the author's document this one was written from. */
   readonly source: number;
+}
+
+/** The index of the first item, in a list sorted by `offset`, at or after `target`. */
+function firstAtOrAfter<T>(items: readonly T[], offset: (item: T) => number, target: number): number {
+  let low = 0;
+  let high = items.length;
+  while (low < high) {
+    const middle = (low + high) >> 1;
+    if (offset(items[middle]!) < target) low = middle + 1;
+    else high = middle;
+  }
+  return low;
 }
 
 /**

@@ -308,12 +308,16 @@ export function rule(tokens: readonly Lexed.Token[], roles: Roles, index: number
 /**
  * Whether writing two tokens against each other still reads as those two
  * tokens (§7.2's last paragraph): `- -x` keeps its space, since `--` begins a
- * comment.
+ * comment. A comment inside a string's hole is the string's own, and stays
+ * one whatever stands beside the string.
  */
 export function canJoin(left: string, right: string, kinds: readonly [string, string]): boolean {
   const joined = new Source.File(Source.fileId(0), "join.hex", left + right);
   const lexed = lex(joined);
-  if (lexed.comments.length > 0 || lexed.diagnostics.length > 0) return false;
+  const strings = lexed.tokens.filter(({ kind }) => kind === "String").map(({ span }) => span);
+  const begun = lexed.comments.some(({ span }) =>
+    !strings.some(({ start, end }) => start.offset <= span.start.offset && span.start.offset < end.offset));
+  if (begun || lexed.diagnostics.length > 0) return false;
   const tokens = lexed.tokens.filter(({ kind }) => kind !== "Eof");
   return tokens.length === 2 && tokens[0]!.kind === kinds[0] && tokens[1]!.kind === kinds[1];
 }
