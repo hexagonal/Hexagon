@@ -1,6 +1,6 @@
 # Hexagon Spec: Canonical Layout
 
-**Status:** Decided (November 2026). The layout that Format document and Format selection write (#1561; the formatter's stages are gathered under #1567). Amended 2026-11-16 (#1573): a head, which ends with its closing word, may be broken, though never before that word; a loop's body goes beneath its `do` (§5.3, §7.1, §9.3, §9.4, §10, §11). Amended 2026-11-16 (#1586): brackets whose only item is bracketed open and close with it, a lambda that is a call's last argument, a record's last field or a binding's value keeps its head on its line, and brackets of literals are filled (§5.2, §9.4, §10). Amended 2026-11-16 (#1590): an assignment is laid out as a binding is, its value beneath its `:=` (§5.3, §9.4, §10, §11). Amended 2026-11-16 (#1594): a list whose closing bracket begins its line ends with a comma, which Format document adds unless the third option, Leave trailing commas as written, is on, and a `<…>` list the author spreads opens as other brackets do (§1, §3, §5, §7, §9, §10–§14).
+**Status:** Decided (November 2026). The layout that Format document and Format selection write (#1561; the formatter's stages are gathered under #1567). Amended 2026-11-16 (#1573): a head, which ends with its closing word, may be broken, though never before that word; a loop's body goes beneath its `do` (§5.3, §7.1, §9.3, §9.4, §10, §11). Amended 2026-11-16 (#1586): brackets whose only item is bracketed open and close with it, a lambda that is a call's last argument, a record's last field or a binding's value keeps its head on its line, and brackets of literals are filled (§5.2, §9.4, §10). Amended 2026-11-16 (#1590): an assignment is laid out as a binding is, its value beneath its `:=` (§5.3, §9.4, §10, §11). Amended 2026-11-16 (#1594): a list whose closing bracket begins its line ends with a comma, which Format document adds unless the third option, Leave trailing commas as written, is on, and a `<…>` list the author spreads opens as other brackets do (§1, §3, §5, §7, §9, §10–§14). Amended 2026-11-17 (#1598): the code inside a string's interpolation holes is spaced as code is anywhere, while a string's text is never changed and a hole is never broken (§1, §4–§7, §9.3, §10, §12, §13).
 **Scope:** What the two formatting commands change and what they refuse (§1–§2); the three options and the test any later option must pass (§3); line ends (§4), indentation (§5), blank lines (§6) and spacing within a line (§7); comments (§8); how a line longer than the Maximum line length is broken (§9); what the formatter leaves to the author (§13); the trailing comma it adds (§14).
 **Not in scope:** Changes to tokens other than adding a trailing comma (§14): removing or adding parentheses, a leading `|` or a degenerate `x: _`, and moving imports. Each waits for a ruling of its own (§13). House style, which is how the standard library and the Book are written where the formatter leaves the author free: `notes/canonical-formatting-and-naming.md`. The editors' commands and settings screens, which are the implementation's (§12).
 **Companions:** Lexer & Layout (blocks, the block-head inventory §2.1, the continuation tokens §2.3, heads and their closing words §2.4, lists and the trailing comma §7), Lexer §2 (line ends, tabs) and §7 (trivia), Comments §2–§4, Doc Comments §3–§4, Operators §3 and §11.3 (the conditional's shapes), Method Syntax §2.1 (the chain's shape), Unions §2, Modules §2–§3 (headers, closers, imports), Ascription §2, `notes/canonical-formatting-and-naming.md` (house style).
@@ -13,7 +13,7 @@
 
 Three guarantees follow, and an implementation checks each of them on every run (§12):
 
-- **The text is the same.** The tokens, every comment and every string are identical before and after, in the same order, apart from the trailing commas §14 adds. A line end is a line boundary, not text (Lexer §2.1), so a comment or string that spans lines is the same whichever line end separates them.
+- **The text is the same.** The tokens, every comment and the text of every string are identical before and after, in the same order, apart from the trailing commas §14 adds. The tokens include those inside a string's interpolation holes, which are spaced as code is (§7.4). A line end is a line boundary, not text (Lexer §2.1), so a comment or string that spans lines is the same whichever line end separates them.
 - **The program is the same.** The formatted document parses to the same tree. Hexagon is layout-sensitive (Lexer & Layout §1), so this is a separate guarantee from the first: an indentation change can change what a program means while leaving its tokens alone.
 - **Formatting twice changes nothing.** A document Format document has written is unchanged by Format document under the same settings.
 
@@ -81,7 +81,7 @@ Either way, it removes none: a comma the author wrote stays where it is.
 ## 4. Line ends
 
 - Every line ends with a line feed. A carriage return followed by a line feed, or a lone carriage return, becomes a line feed. Lexer §2.1 makes all three the same line boundary, and inside a multiline string each is the same `\n`, so no value changes.
-- No line ends in spaces or tabs outside a string or comment. Whitespace after the last code on a line is removed. Whitespace inside a multiline string is content, and whitespace at the end of a comment is the comment's (§8.1); both stay.
+- No line ends in spaces or tabs outside a string or comment. Whitespace after the last code on a line is removed. Whitespace inside a multiline string is content, and whitespace at the end of a comment is the comment's (§8.1); both stay, as does whitespace at the end of a line inside an interpolation hole (§7.4).
 - A line holding only spaces or tabs becomes empty.
 - The document ends with exactly one line feed after its last line. A document with no code and no comments becomes empty.
 - A byte-order mark at the start of the document stays as it is (Lexer §2.1).
@@ -195,7 +195,7 @@ while remaining > 0
 
 ### 5.4 Lines the rows do not move, and what the rows keep
 
-- **A line that begins inside a multiline string** is the string's content and keeps its indentation.
+- **A line that begins inside a multiline string** keeps its indentation, whether it begins in the string's text, which is content, or in an interpolation hole (§7.4).
 - **A line that begins inside a block comment** moves with its comment (§8.2).
 - **A comment that begins its line** is placed by §8.2.
 
@@ -212,7 +212,7 @@ The formatter keeps the blank lines the author wrote, with a run of them capped 
 - after a line that ends with the opening bracket of an open pair, before its first item;
 - before a closing bracket that begins its line, and before `else` or `catch`.
 
-Blank lines inside a string or a comment are content, and are never touched.
+Blank lines inside a string or a comment are never touched. In a string's text and in a comment they are content, and an interpolation hole keeps its lines as written (§7.4).
 
 ### 6.2 Blank lines the formatter adds
 
@@ -256,7 +256,7 @@ Formatting never creates or removes a line that begins a block's second item or 
 
 ### 7.1 The rules
 
-These rules govern the gaps between two code tokens on the same line. They do not apply to a line's indentation (§5), to the inside of a string or comment, or to the gap before a trailing comment (§8.3). Where two rows meet, the earlier row decides.
+These rules govern the gaps between two code tokens on the same line. They do not apply to a line's indentation (§5), to a string's text or the inside of a comment, or to the gap before a trailing comment (§8.3). They do apply between the tokens of a string's interpolation hole (§7.4). Where two rows meet, the earlier row decides.
 
 | Where | Spacing | Written |
 |---|---|---|
@@ -266,6 +266,7 @@ These rules govern the gaps between two code tokens on the same line. They do no
 | `.` | no space either side | `xs.length`, `Vector.at(xs, 1)` |
 | Before `,` or `;`; after `,` or `;` | none before; one after, except none between a comma and `)`, `]` or a `>` that closes a list | `f(a, b)`, `let x = 1; let y = 2`, `f(a, b,)` |
 | Before `:`; after `:` | none before; one after | `width: Float`, `(e: Type)`, `x: _: Num`, `<a: Num>` |
+| Inside an interpolation hole's `${` and the `}` that closes it | none | `"${total}"`, `"${{ x = 1 }.x}"` |
 | Inside `{` and `}` with something between them | one space | `{ top = 1, bottom = 2 }` |
 | `{}` | no space | `{}` |
 | Inside `(` `)`, `[` `]` and `<` `>` | none | `f(x)`, `[1, 2]`, `Pow<a: Num>` |
@@ -297,6 +298,29 @@ The formatter also never removes a space where removing it would make two tokens
 Where §7.1 calls for one space, Collapse extra spaces decides what happens to a wider gap (§3.2). Where §7.1 allows none, every space is removed under either setting. Indentation is never collapsed: it is §5's.
 
 A tab between code tokens becomes spaces (Lexer §2.2). Each tab advances to the next column that is a multiple of four, counted in code points on the line as the author wrote it, and the gap is then treated as spaces. The formatter writes no tab outside a string or comment.
+
+### 7.4 Inside a string
+
+A string's **text** is everything between its quotes apart from its interpolation holes. The text is never changed: its spaces, tabs and line breaks are part of the string's value. A **hole**, from its `${` to the `}` that closes it, holds code (Lexer §6.1). The gaps between its tokens on one line follow §7.1–§7.3, as gaps in code do anywhere, under either setting of Collapse extra spaces (§3.2). For example,
+
+```
+Debug.log("Does 10/12 = 5/6? ${10 // 12 == 5 // 6}")
+let label = "${ count+1 } of ${total  -  skipped}"
+```
+
+becomes
+
+```
+Debug.log("Does 10/12 = 5/6? ${10//12 == 5//6}")
+let label = "${count + 1} of ${total - skipped}"
+```
+
+with Collapse extra spaces on. With it off, `total  -  skipped` keeps its wider gaps, and every other change is the same.
+
+- **A hole's own braces** take no space inside them (§7.1), as parentheses take none: `${total}`. They are not a record's braces. A record inside a hole is spaced as a record is anywhere, as in `${{ x = 1 }.x}`.
+- **A string inside a hole** has text and holes of its own, and this section applies to them at any depth.
+- **A comment inside a hole** is a comment. Its inside is never changed (§8.1), and the gap before a trailing comment is kept, never less than one space (§8.3).
+- **Only the gaps between a hole's tokens on one line change.** A hole is never broken (§9.3). A hole the author wrote over several lines is a named limit: it keeps its line breaks and blank lines, the indentation of each line that begins inside it and any spaces at the end of such a line, and it takes no trailing comma (§4, §5.4, §6.1, §14). The layout pass does not read a hole's lines (Lexer §6.1), so §5's levels, which follow blocks and items, give them none to take, and how they are laid out waits for a ruling of its own. A `${` that ends its line and a `}` that begins one stay where they are.
 
 ## 8. Comments
 
@@ -330,7 +354,7 @@ Code points are the measure in version one. The measure may later become display
 
 ### 9.3 What is never broken
 
-- **A string**, its interpolation holes included, and **a comment**.
+- **A string**, its interpolation holes included, and **a comment**. The tokens inside a hole are spaced as code is (§7.4), but no line is broken there.
 - **A union's alternatives** are never split onto lines of their own, since that would change which declarations are multi-line (§6.3).
 - **Before a closing word.** `then`, `do` and `with` end the last line of their head (Lexer & Layout §2.4), and no break is made before one. A closing word the author wrote at the start of a line stays there, since the formatter never joins lines (§1), but the formatter never puts one there.
 - **Anywhere the program would read differently afterwards.** Every break is made only where the tree stays the same (§1). Where several items share a line, separated by `;`, only the last of them is broken.
@@ -493,6 +517,8 @@ Both are legal. A line indented deeper than its item continues the item whatever
 24. **Adding the comma only to brackets the formatter opens itself.** A formatted document would then hold both spellings, depending on who broke each line (§14).
 25. **Removing a trailing comma**, from a one-line list or while Leave trailing commas as written is on. One setting would then remove what another adds, which fails §3.3's second test. A comma on a one-line list is the author's to keep or remove (§13).
 26. **A comma that ends a block**, so that a lambda whose body is beneath its `=>` could take its comma on the body's last line. The layout pass would have to close blocks at a comma, and a comma also separates the items of a `<…>` list, which the layout pass does not track as brackets (Lexer & Layout §2.2, §3.2), so it would close blocks that are still open. A list whose last item ends in a block takes no comma instead (§14).
+27. **Leaving an interpolation hole as written.** A hole holds code, and the spaces between its tokens are no part of the string's value, so spacing them changes nothing the program computes. Left as written, `${10 // 12 == 5 // 6}` would disagree with the same code written outside a string, `10//12 == 5//6`. Prettier spaces the code inside a JavaScript template literal's `${…}` in the same way, and keeps it on its line (§7.4).
+28. **A space inside a hole's braces**, as in `${ total }`, as a record's braces take one. A hole's braces enclose one expression, as parentheses do, and Hexagon writes parentheses tight. Swift's hole is a pair of parentheses, `\(total)`. Prettier spaces a JavaScript object's braces and writes a template literal's hole tight, side by side as `${{ x: 1 }.x}` (§7.4).
 
 ## 11. Edit notes to existing specs
 
@@ -525,7 +551,7 @@ Applied with the trailing comma (#1594): **Lexer & Layout §7** says that every 
 
 An implementation of the formatter (#1562) must meet these conditions.
 
-1. **It checks the three guarantees of §1 on every run:** identical tokens, comments and strings, apart from the trailing commas it adds (§14); an identical tree; and a second run that changes nothing. If any check fails, it refuses the document, returns no edits, and says that formatting failed (§2.3).
+1. **It checks the three guarantees of §1 on every run:** identical tokens, those inside interpolation holes included, comments and string text, apart from the trailing commas it adds (§14); an identical tree; and a second run that changes nothing. If any check fails, it refuses the document, returns no edits, and says that formatting failed (§2.3).
 2. **Settings never fight.** Its tests show §3.3's second test for the three options, and that §6.3's grouping is the same under every setting.
 3. **Mangled input comes back canonical.** A document whose whitespace has been scrambled, without changing its meaning, formats to the same result as the original.
 4. **The standard library is canonical.** Every standard-library file is unchanged by Format document at Maximum line length 100, with Collapse extra spaces on and Leave trailing commas as written off, the house settings (#1563).
@@ -543,6 +569,7 @@ The formatter deliberately leaves these choices to the author. The house style f
 - **The tokens:** parentheses, a leading `|` on a union's first alternative, `;` or a new line, a degenerate `x: _`, the fused `fun f(…) = …` or a `fun` block, and the order and place of imports. Each token-level rule that other chapters name for "the formatter" waits for a ruling of its own. Until then, the canonical spelling is the author's to write.
 - **A trailing comma that §14 does not add**: one on a list whose closing bracket does not begin a line, such as a one-line list, and every one while Leave trailing commas as written is on. The formatter never removes a comma.
 - **Comments**: what they say, which line they are on, and the shape of a doc comment.
+- **Strings**: their text, and the line breaks, indentation and line-end spaces of a hole written over several lines (§7.4).
 - **Which side of an operator the author breaks a line on.** An operator the author writes at the end of a line stays there. Only the breaks the formatter makes put the operator first (§9.5).
 
 ## 14. Trailing commas
