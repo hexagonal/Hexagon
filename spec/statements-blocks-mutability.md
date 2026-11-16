@@ -1,6 +1,6 @@
 # Hexagon Spec: Statements, Blocks & Mutability
 
-**Status:** Decided (July 2026). With a **hanging-questions** section (§10; §§10.2–10.3 are resolved anchors); nothing there blocks implementation of §1–§9. §5.4 is the permanent rationale anchor for `let`-pattern binders being sequential.
+**Status:** Decided (July 2026). Amended 2026-11-16 (#1590): a line ending in `:=` opens a block for the value, emitted as a binding's block is (§6.3, §8, §11; Lexer & Layout §2.1). With a **hanging-questions** section (§10; §§10.2–10.3 are resolved anchors); nothing there blocks implementation of §1–§9. §5.4 is the permanent rationale anchor for `let`-pattern binders being sequential.
 **Scope:** The expression/binding classification ("everything is an expression except bindings"), block typing (non-final items unify with `Unit`, block-final bindings are errors), the discarded-value rule and the prelude `ignore` function, the two-tier shadowing ban (the Head Binder Shadowing rule: sequential binders may not shadow; head binders may — class decided by position, §5), the `var` declaration, the `:=` assignment expression, the lambda-boundary rule for `var`, JS emission, and edit notes to existing specs.
 **Not in scope:** loop constructs (`for` / `for..in` — loops spec; this doc records one binding constraint on it, §7.4), the pattern grammar (pattern-matching spec; the binder *class* of every pattern position is fixed here, §5), module-level name collisions between local bindings and imports/prelude names (modules spec — decided there, Modules §5.4; consumed here §5.2), ref cells (do not exist; §6.4 records the rejection), lint policy (§10.4).
 **Companions:** Functions spec (blocks as lambda bodies §3.1; the top-down law §7.2; generalisation §8 — `var` rule confirmed here), Lexer & Layout spec (blocks as pure layout; "a block's value is its final expression" — refined by this doc §9.2), Unions spec (match-arm binders §4.2 — classified as head binders here), Exceptions spec (catch-arm binders — likewise), Primitive Types spec (§9 `Unit`), Declarations Preamble §1.1 (the Rewrite Rule, which this doc's diagnostics obey).
@@ -233,6 +233,7 @@ best := candidate
 ```
 
 - **`name := expr` is an expression of type `Unit`.** The RHS unifies with the `var`'s monotype — "cannot change type" is a *consequence* of unification against the binding's monotype, not a separate rule, and its failure is an ordinary type error phrased against the `var`: "`count` has type `Int`; cannot assign a `String`."
+- **The value may begin beneath `:=`.** A line ending in `:=` opens a block, as a line ending in a binding's `=` does, and the block's value, its final expression, is the value assigned (Lexer & Layout §2.1).
 - **Target grammar: a bare name, only.** Everything else is rejected with a targeted diagnostic (checklist §9.3): `p.x := e` (records are immutable — suggest `{p with x = e}`), `t.item1 := e` (tuples are immutable), `f(x) := e` (parse error: assign to a name).
 - **Target must be `var`-bound.** `:=` to a `let`-bound name: "`y` was bound with `let`; declare it with `var` if you need to update it." To a head binder (parameter, pattern binder): "`x` is a parameter and cannot be assigned; declare a `var`." To an undeclared name: ordinary unbound-name error — **no** implicit declaration, ever (the JS `x = 5`-creates-a-global disease does not exist here, and the diagnostic should not suggest it).
 - Targets resolve uniquely by construction (§5.2). Assignment before the `var`'s declaration line is impossible for the same reason any use is: the name is not yet in scope (blocks are sequential; the pending-binder machinery already covers the RHS case).
@@ -285,7 +286,7 @@ This spec imposed two requirements on loops, both now normative in `loops-ranges
 
 - `.d.ts` impact: none. `var` is function-internal; nothing mutable crosses the boundary.
 - The `var` → `let` mapping is sound *because of* §6.2: JS `let` is captured by reference by closures, but no Hexagon lambda ever closes over a `var`, so the difference is unobservable. If §6.2 were ever relaxed, this emission would need revisiting — recorded as the coupling it is.
-- Blocks: no change to emission machinery — block structure is explicit in the AST (Lexer & Layout §3.3); the discarded-value rule is a typecheck, not an emission concern; rejected programs never reach the emitter.
+- Blocks: no change to emission machinery — block structure is explicit in the AST (Lexer & Layout §3.3), and a block beneath `:=` emits as a binding's block does, its final expression the value assigned; the discarded-value rule is a typecheck, not an emission concern; rejected programs never reach the emitter.
 
 ---
 
@@ -438,6 +439,7 @@ fun h() =
 | Nothing else may generalize a `var`'s type: its variables belong to the environment for the whole of the `var`'s scope, so an expansive alias (`let e = v`) has them declined by Functions §8.7 (2026-08-01, #205/#207) | §6.1, §7.2; Functions §8.4 |
 | Lambda boundary: no read or write of an outer `var` from any lambda; read rewrite = copy to `let`; mutation rewrite = `for` or return-and-assign outside; `fun` therefore never touches vars; **no escape-analysis exception, permanently — legality never depends on optimizer cleverness or foreign callback behavior; any relaxation must be explicit syntax** | §6.2 |
 | `:=`: bare-name target, `var`-bound only, RHS unifies with the monotype ("can't change type" is a consequence); no implicit declaration | §6.3 |
+| *(#1590)* A line ending in `:=` opens a block whose value is the value assigned, as a line ending in a binding's `=` does | §6.3; Lexer & Layout §2.1 |
 | No ref cells, no mutable fields, no compound assignment, no module-level `var` | §6.4 |
 | `fun` in blocks follows Functions §7.2/§7.3 (top-down law; `fun` blocks — respelled from contiguous groups under #700); no capture analysis exists | §7.3 |
 | Loop constraint (discharged into `loops-ranges-iteration.md`): loop bodies are blocks, not lambdas; loop variable is a head binder | §7.4 |

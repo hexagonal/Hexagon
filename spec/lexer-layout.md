@@ -1,6 +1,6 @@
 # Hexagon Spec: Lexer & Layout
 
-**Status:** Decided (July 2026); compiler pass implemented. Revised 2026-11-13 (#1538): §1 and §4 say that `{-` opens a comment, not a brace. Amended 2026-11-14 (#1542): §2.3 keeps `//` out of the continuation tokens, and §2.1's declared-pattern example is `clock`. Amended 2026-11-16 (#1573): a head that holds an expression ends with its closing word, `then`, `do` or `with`, and deeper lines and open brackets carry it on until that word (§1, §2.1, §2.2, §2.4, §5, §6); a `then` at its item's column continues the item, as `else` and `catch` do (§2). This document owns layout, blocks, `;`, and
+**Status:** Decided (July 2026); compiler pass implemented. Revised 2026-11-13 (#1538): §1 and §4 say that `{-` opens a comment, not a brace. Amended 2026-11-14 (#1542): §2.3 keeps `//` out of the continuation tokens, and §2.1's declared-pattern example is `clock`. Amended 2026-11-16 (#1573): a head that holds an expression ends with its closing word, `then`, `do` or `with`, and deeper lines and open brackets carry it on until that word (§1, §2.1, §2.2, §2.4, §5, §6); a `then` at its item's column continues the item, as `else` and `catch` do (§2). Amended 2026-11-16 (#1590): a line ending in an assignment's `:=` opens a block, as a line ending in a binding's `=` does (§2.1, §6). This document owns layout, blocks, `;`, and
 brace disambiguation. The companion [Physical Lexer](lexer.md) specification owns
 the complete physical token and keyword inventory, source coordinates, literals,
 whitespace, comments-as-trivia, and lexical diagnostics.
@@ -74,6 +74,7 @@ refuses it before a `fun` block head (Functions §7.3; layout stays agnostic).
 | `extern from "specifier"` head (FFI Part 4 §2.2 — one item per line under ordinary layout; the row was owed from that part and is added with the kind taxonomy) | Member block |
 | An `extern class` head — `class` and its name, alias or modifiers, ending its logical item (FFI Part 5 §6.1). **Optional:** a head followed by no deeper-indented line is a class with no members and complete, never "expected an indented block" | Member block |
 | Term binding ending in `=` (`let x =`, `var x =`, `let f(...) =`, `fun f(...) =`, or a member header — a `fun` block's member lines included) | Binding body block |
+| Assignment ending in `:=` (`total :=`; Statements §6.3) | Value block |
 
 A hard keyword standing in a name seat (Lexer §4.4) is a name, not a head, and not
 §2.3's continuation operator: straight after a `.` (`let kind = ev.match` ending its
@@ -86,8 +87,9 @@ is not a name seat, and a label seat lies inside a bracket pair, so `or` or `and
 beginning a line keeps §2.3's continuation reading.
 
 *(#700 terminology.)* The right column sorts into three kinds, and the head
-decides which: **expression blocks** — bodies and binding blocks, item
-sequences whose final expression is the block's value (Statements §3) —
+decides which: **expression blocks** — bodies, binding blocks and an assignment's
+value block, item sequences whose final expression is the block's value
+(Statements §3) —
 **arm blocks** — a `match`'s or `catch`'s arms — and **member blocks** —
 the `constraint`, `honor` (an honor's members, and an honor group's honors), `extern from`, `extern class`, `fun`, and `pattern` heads' bodies, plus the
 module's own implicit block: sequences that declare rather than compute — no
@@ -126,6 +128,20 @@ declared type's name (lexer spec §4.2, #373) — so a term binding named `union
 (`let union = …`) opens its block like any other term binding, while the
 declaration form's layout is unchanged. `finally` is reserved but is never a
 block head — Hexagon has no `finally` (Exceptions §10.1).
+
+**An assignment opens a block as a binding does.** A line ending in `:=` opens a
+block, and the value assigned is the block's value, its final expression
+(Statements §6.3). So an assignment's value is laid out as a binding's: on the
+`:=` line, alone on the lines beneath it, or as several items:
+
+```
+total :=
+    let doubled = count * 2
+    doubled + 1
+```
+
+A single wrapped expression is again the one-item case, and assigns what it would
+assign written on the `:=` line.
 
 ### 2.3 Expression-continuation tokens
 
@@ -412,3 +428,4 @@ These are binding on the implementation, same status as the Functions spec's dia
 | An `honor` head ending its logical item opens the honor group (a member block), and each item's `C<T> =` opens that honor's member block (#1227) | §2.1 |
 | Block-kind terminology (#700): expression blocks (value), arm blocks, member blocks (`constraint`/`honor`/`extern from`/`fun`/module top level — they declare rather than compute, and are not expressions); one layout mechanism serves all three; the `extern from` row joins the inventory (owed from FFI Part 4 §2.2) | §2.1, §1 |
 | *(#1573)* A head that holds an expression ends with its closing word: `if … then`, `while … do`, `for … in … do`, `match … with`; a head that holds nothing needs none. An unfinished head is no block head: deeper lines carry it on, as they carry a guard or a header, and brackets hold it open; it holds nothing open itself, and no block opens inside it outside brackets, so a forgotten closing word is one report at the head's keyword. A closing `with` is recognised from tokens: at the `match`'s depth, directly after a token that can end an operand. A closing word may begin a deeper line (legal, not canonical); `then` at the item's column continues the item as `else` and `catch` do, while `do` and `with` there begin a new item. More after the closing word on its line is a one-line body, a `match`'s arms excepted | §2, §2.1, §2.2, §2.4 |
+| *(#1590)* A line ending in `:=` opens a block, as a line ending in a binding's `=` does: an assignment's value is laid out as a binding's, on the `:=` line, alone beneath it, or as several items whose final expression is the value | §2.1 |
