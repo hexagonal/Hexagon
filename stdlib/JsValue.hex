@@ -31,7 +31,11 @@ module JsValue
     `JsConversionError(reason, path, _)` to take it apart. A foreign operation
     that throws while a value is inspected is not one of these: it travels as
     the foreign throw it is, through `JsError`. -}
-export exception JsConversionError(reason: JsConversionReason, path: Vector(JsPathSegment), message: String)
+export exception JsConversionError(
+    reason: JsConversionReason,
+    path: Vector(JsPathSegment),
+    message: String
+)
 
 -- The two failures every decoder below throws. Both have the empty path
 -- (section 5.1): a decoder here inspects the value itself and descends into
@@ -112,43 +116,48 @@ extern from "hex:intrinsic"
 {-- `value` as a `Float`. A value that is not a JavaScript number throws
     `JsConversionError` with reason `Shape`. Every number succeeds — `NaN`, both
     infinities and `-0` included — because every one of them is a `Float`. -}
-export let toFloat(value: JsValue): Float = match kind(value) with
-    JsKind.Number => asFloatUnchecked(value)
-    _ => throw^(shapeFailure("a Float"))
+export let toFloat(value: JsValue): Float =
+    match kind(value) with
+        JsKind.Number => asFloatUnchecked(value)
+        _ => throw^(shapeFailure("a Float"))
 
 {-- `value` as an `Int`. A value that is not one throws `JsConversionError`, and
     the two failures are different mistakes with different repairs, so they
     carry different reasons: a value that is not a number at all fails with
     `Shape`, and a number outside the safe-integer range — `1.5`, `2^53`, `NaN`
     — fails with `Range`. Nothing is rounded, truncated or parsed. -}
-export let toInt(value: JsValue): Int = match kind(value) with
-    JsKind.Number =>
-        if isSafeInteger(value) then
-            asIntUnchecked(value)
-        else
-            throw^(rangeFailure("a whole number in Int's range"))
-    _ => throw^(shapeFailure("an Int"))
+export let toInt(value: JsValue): Int =
+    match kind(value) with
+        JsKind.Number =>
+            if isSafeInteger(value) then
+                asIntUnchecked(value)
+            else
+                throw^(rangeFailure("a whole number in Int's range"))
+        _ => throw^(shapeFailure("an Int"))
 
 {-- `value` as a `BigInt`. A value that is not a JavaScript bigint throws
     `JsConversionError` with reason `Shape`; a number is not a bigint here,
     however whole it is. -}
-export let toBigInt(value: JsValue): BigInt = match kind(value) with
-    JsKind.BigInt => asBigIntUnchecked(value)
-    _ => throw^(shapeFailure("a BigInt"))
+export let toBigInt(value: JsValue): BigInt =
+    match kind(value) with
+        JsKind.BigInt => asBigIntUnchecked(value)
+        _ => throw^(shapeFailure("a BigInt"))
 
 {-- `value` as a `Bool`. A value that is not a JavaScript boolean throws
     `JsConversionError` with reason `Shape`; `1` is not `true`: truthiness is a
     foreign-side decision, made in foreign code. -}
-export let toBool(value: JsValue): Bool = match kind(value) with
-    JsKind.Bool => asBoolUnchecked(value)
-    _ => throw^(shapeFailure("a Bool"))
+export let toBool(value: JsValue): Bool =
+    match kind(value) with
+        JsKind.Bool => asBoolUnchecked(value)
+        _ => throw^(shapeFailure("a Bool"))
 
 {-- `value` as a `String`. A value that is not a JavaScript string throws
     `JsConversionError` with reason `Shape`; `42` is not `"42"`: nothing here
     calls `String()`, and no `toString` of the value's is ever invoked. -}
-export let toString(value: JsValue): String = match kind(value) with
-    JsKind.String => asStringUnchecked(value)
-    _ => throw^(shapeFailure("a String"))
+export let toString(value: JsValue): String =
+    match kind(value) with
+        JsKind.String => asStringUnchecked(value)
+        _ => throw^(shapeFailure("a String"))
 
 {-- `value` as a captured `Array` of the values it holds, each still a
     `JsValue` (a hole is `undefined`); a value that is not a JavaScript array

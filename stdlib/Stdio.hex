@@ -61,7 +61,8 @@ let firstLoneSurrogate(text: String): Int =
 let refuseLoneSurrogate(text: String): Unit =
     if not isWellFormed(text) then
         let position = firstLoneSurrogate(text)
-        let message = "the text holds a lone surrogate at codepoint ${position}, which UTF-8 cannot write; repair it with String.toWellFormed first"
+        let message =
+            "the text holds a lone surrogate at codepoint ${position}, which UTF-8 cannot write; repair it with String.toWellFormed first"
         throw(LoneSurrogateFault(message, position))
 
 -- Ends the program with `status`. Node's `exit` doesn't return, and it throws
@@ -82,7 +83,8 @@ let codeOf(error: JsValue): String =
 let described(error: JsValue): String =
     let code = codeOf~(error)
     let message = JsError.message(error)
-    let withoutCode = if message.startsWith("${code}: ") then message.dropFirstN(code.length() + 2) else message
+    let withoutCode =
+        if message.startsWith("${code}: ") then message.dropFirstN(code.length() + 2) else message
     if withoutCode.endsWith(", write") then
         withoutCode.dropLastN(7)
     else if withoutCode.endsWith(", read") then

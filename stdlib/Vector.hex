@@ -107,7 +107,10 @@ extern from "hex:intrinsic"
         `Equal` when neither goes first. Elements that compare `Equal` keep
         their original order. For the usual order, use `sort`. To order by one
         property of each element, use `sortBy`. -}
-    export fun vectorSortUsing as sortUsing(values: Vector(a), compare: (a, a) ->! Ordering) >-> Vector(a)
+    export fun vectorSortUsing as sortUsing(
+        values: Vector(a),
+        compare: (a, a) ->! Ordering
+    ) >-> Vector(a)
 
 {-- A vector with no elements, the same as `[]`. -}
 export let empty: Vector(a) = []
@@ -119,24 +122,28 @@ export let singleton(value: a): Vector(a) = [value]
 export let isEmpty(values: Vector(a)): Bool = length(values) == 0
 
 {-- The first element, or `None` when the vector is empty. -}
-export let first(values: Vector(a)): Option(a) = match values with
-    [] => None
-    [value, ...] => Some(value)
+export let first(values: Vector(a)): Option(a) =
+    match values with
+        [] => None
+        [value, ...] => Some(value)
 
 {-- The last element, or `None` when the vector is empty. -}
-export let last(values: Vector(a)): Option(a) = match values with
-    [] => None
-    [..., value] => Some(value)
+export let last(values: Vector(a)): Option(a) =
+    match values with
+        [] => None
+        [..., value] => Some(value)
 
 {-- A new vector without the first element. An empty vector stays empty. -}
-export let dropFirst(values: Vector(a)): Vector(a) = match values with
-    [] => []
-    [_, ...rest] => rest
+export let dropFirst(values: Vector(a)): Vector(a) =
+    match values with
+        [] => []
+        [_, ...rest] => rest
 
 {-- A new vector without the last element. An empty vector stays empty. -}
-export let dropLast(values: Vector(a)): Vector(a) = match values with
-    [] => []
-    [...rest, _] => rest
+export let dropLast(values: Vector(a)): Vector(a) =
+    match values with
+        [] => []
+        [...rest, _] => rest
 
 {-- The element at the position `index`, counting from 1, or `None` when the
     vector has no element there. Unlike brackets, as in `items[4]`, it never
@@ -291,31 +298,38 @@ let earlierBy<b: Ord>(best: Option((b, a)), ranked: (b, a)): Option((b, a)) =
                 _ => best
         _ => Some(ranked)
 
-let unranked(best: Option((b, a))): Option(a) = match best with
-    Some((_, value)) => Some(value)
-    None => None
+let unranked(best: Option((b, a))): Option(a) =
+    match best with
+        Some((_, value)) => Some(value)
+        None => None
 
 {-- The largest element, or `None` when the vector is empty. The function
     `compare` decides which of two elements is larger, as it does for
     `sortUsing`. If several elements are equally large, the result is the last
     of them. -}
 export let maxUsing(values: Vector(a), compare: (a, a) ->! Ordering): Option(a) =
-    fold!(values, None, (best: Option(a), value: a) => match best with
-        Some(kept) => match compare!(kept, value) with
-            Greater => best
-            _ => Some(value)
-        None => Some(value))
+    fold!(values, None, (best: Option(a), value: a) =>
+        match best with
+            Some(kept) =>
+                match compare!(kept, value) with
+                    Greater => best
+                    _ => Some(value)
+            None => Some(value)
+    )
 
 {-- The smallest element, or `None` when the vector is empty. The function
     `compare` decides which of two elements is smaller, as it does for
     `sortUsing`. If several elements are equally small, the result is the first
     of them. -}
 export let minUsing(values: Vector(a), compare: (a, a) ->! Ordering): Option(a) =
-    fold!(values, None, (best: Option(a), value: a) => match best with
-        Some(kept) => match compare!(kept, value) with
-            Greater => Some(value)
-            _ => best
-        None => Some(value))
+    fold!(values, None, (best: Option(a), value: a) =>
+        match best with
+            Some(kept) =>
+                match compare!(kept, value) with
+                    Greater => Some(value)
+                    _ => best
+            None => Some(value)
+    )
 
 {-- The largest element, or `None` when the vector is empty. -}
 export let max<a: Ord>(values: Vector(a)): Option(a) = maxUsing(values, Ord.compare)

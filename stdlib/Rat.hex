@@ -27,9 +27,9 @@ export let create(top: BigInt, bottom: BigInt): Rat =
         let reducedTop = top.quot(divisor)
         let reducedBottom = bottom.quot(divisor)
         if reducedBottom < 0 then
-            Rat({top = -reducedTop, bottom = -reducedBottom})
+            Rat({ top = -reducedTop, bottom = -reducedBottom })
         else
-            Rat({top = reducedTop, bottom = reducedBottom})
+            Rat({ top = reducedTop, bottom = reducedBottom })
 
 {-- The top of the fraction in its simplest form. The top carries the sign:\
     `Rat.create(6, -4).top()` is `-3n`. -}
@@ -97,7 +97,7 @@ honor Signed<Rat> =
             left.bottom * right.bottom
         )
     {-- The fraction with its sign changed. -}
-    negate(value) = Rat({top = -value.top, bottom = value.bottom})
+    negate(value) = Rat({ top = -value.top, bottom = value.bottom })
     {-- `value` as a fraction, which is `value` over 1. It never fails. -}
     fromInt(value) = fromWhole(BigInt.fromInt(value))
 
@@ -363,11 +363,13 @@ let hexDigit(value: Int): String = "0123456789abcdef".dropFirstN(value).dropLast
 let escaped(point: String): String =
     if point == "\"" then "\\\""
     else if point == "\\" then "\\\\"
-    else match String.toCodepoint(point) with
-        Some(code) =>
-            if code < 32 or (code >= 127 and code <= 159) then "\\u00" ++ hexDigit(code.div(16)) ++ hexDigit(code.mod(16))
-            else point
-        None => point
+    else
+        match String.toCodepoint(point) with
+            Some(code) =>
+                if code < 32 or (code >= 127 and code <= 159) then
+                    "\\u00" ++ hexDigit(code.div(16)) ++ hexDigit(code.mod(16))
+                else point
+            None => point
 
 let quoted(text: String): String =
     -- One pass that keeps only the first 37 code points, so a long text costs a
@@ -398,12 +400,18 @@ let unsignedPart(part: String): Option(BigInt) =
     not written that way. A call that may throw carries a mark:
     `Rat.parse?(text)` gives `None` in place of throwing, and
     `assume Rat.parse^(text)` is for text that is known to be good. -}
-export let parse(text: String): Rat = match text.split("/") with
-    [whole] => match BigInt.parse?(whole) with
-        Some(value) => create(value, 1n)
-        None => throw^(notRat(text))
-    [top, bottom] => match (BigInt.parse?(top), unsignedPart(bottom)) with
-        (Some(numerator), Some(denominator)) =>
-            if denominator == 0 then throw^(notRat(text)) else create(numerator, denominator)
+export let parse(text: String): Rat =
+    match text.split("/") with
+        [whole] =>
+            match BigInt.parse?(whole) with
+                Some(value) => create(value, 1n)
+                None => throw^(notRat(text))
+        [top, bottom] =>
+            match (BigInt.parse?(top), unsignedPart(bottom)) with
+                (Some(numerator), Some(denominator)) =>
+                    if denominator == 0 then
+                        throw^(notRat(text))
+                    else
+                        create(numerator, denominator)
+                _ => throw^(notRat(text))
         _ => throw^(notRat(text))
-    _ => throw^(notRat(text))

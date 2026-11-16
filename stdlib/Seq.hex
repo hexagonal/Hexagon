@@ -115,7 +115,10 @@ export fun zipWith(left: Seq(a), right: Seq(b), combine: (a, b) -> c): Seq(c) =
                 match next(right) with
                     None => None
                     Some((rightValue, rightRest)) =>
-                        Some((combine(leftValue, rightValue), zipWith(leftRest, rightRest, combine)))
+                        Some((
+                            combine(leftValue, rightValue),
+                            zipWith(leftRest, rightRest, combine)
+                        ))
     })
 
 {-- A new sequence that pairs each element with the element at the same
@@ -338,9 +341,10 @@ let earlierBy<b: Ord>(best: Option((b, a)), ranked: (b, a)): Option((b, a)) =
                 _ => best
         _ => Some(ranked)
 
-let unranked(best: Option((b, a))): Option(a) = match best with
-    Some((_, value)) => Some(value)
-    None => None
+let unranked(best: Option((b, a))): Option(a) =
+    match best with
+        Some((_, value)) => Some(value)
+        None => None
 
 {-- The largest element, or `None` when the sequence is empty. The function
     `compare` decides which of two elements is larger: it is given two elements
@@ -348,11 +352,14 @@ let unranked(best: Option((b, a))): Option(a) = match best with
     and `Equal` when neither is. If several elements are equally large, the
     result is the last of them. -}
 export let maxUsing(source: Seq(a), compare: (a, a) ->! Ordering): Option(a) =
-    fold!(source, None, (best: Option(a), value: a) => match best with
-        Some(kept) => match compare!(kept, value) with
-            Greater => best
-            _ => Some(value)
-        None => Some(value))
+    fold!(source, None, (best: Option(a), value: a) =>
+        match best with
+            Some(kept) =>
+                match compare!(kept, value) with
+                    Greater => best
+                    _ => Some(value)
+            None => Some(value)
+    )
 
 {-- The smallest element, or `None` when the sequence is empty. The function
     `compare` decides which of two elements is smaller: it is given two elements
@@ -360,11 +367,14 @@ export let maxUsing(source: Seq(a), compare: (a, a) ->! Ordering): Option(a) =
     and `Equal` when neither is. If several elements are equally small, the
     result is the first of them. -}
 export let minUsing(source: Seq(a), compare: (a, a) ->! Ordering): Option(a) =
-    fold!(source, None, (best: Option(a), value: a) => match best with
-        Some(kept) => match compare!(kept, value) with
-            Greater => Some(value)
-            _ => best
-        None => Some(value))
+    fold!(source, None, (best: Option(a), value: a) =>
+        match best with
+            Some(kept) =>
+                match compare!(kept, value) with
+                    Greater => Some(value)
+                    _ => best
+            None => Some(value)
+    )
 
 {-- The largest element, or `None` when the sequence is empty. -}
 export let max<a: Ord>(source: Seq(a)): Option(a) = maxUsing(source, Ord.compare)

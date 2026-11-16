@@ -252,6 +252,7 @@ extern from "hex:intrinsic"
     `text` is not written that way. A call that may throw carries a mark:
     `BigInt.parse?(text)` gives `None` in place of throwing, and
     `assume BigInt.parse^(text)` is for text that is known to be good. -}
-export let parse(text: String): BigInt = match scanText(text) with
-    Some(value) => value
-    None => throw^(NumberFormatError(formatMessage(text, "is not a BigInt")))
+export let parse(text: String): BigInt =
+    match scanText(text) with
+        Some(value) => value
+        None => throw^(NumberFormatError(formatMessage(text, "is not a BigInt")))

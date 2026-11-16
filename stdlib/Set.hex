@@ -170,7 +170,8 @@ export let intersect<a: Hash>(left: Set(a), right: Set(a)): Set(a) =
         -- question and discard the answer needed, which is what the unexported
         -- `storedMember` row is for.
         elements(right).fold(empty, (accumulated, element) =>
-            keptRepresentative(left, accumulated, element))
+            keptRepresentative(left, accumulated, element)
+        )
 
 {-- The elements of `left` that `right` does not hold. -}
 export let difference<a: Hash>(left: Set(a), right: Set(a)): Set(a) =
@@ -244,30 +245,37 @@ let earlierBy<b: Ord>(best: Option((b, a)), ranked: (b, a)): Option((b, a)) =
                 _ => best
         _ => Some(ranked)
 
-let unranked(best: Option((b, a))): Option(a) = match best with
-    Some((_, element)) => Some(element)
-    None => None
+let unranked(best: Option((b, a))): Option(a) =
+    match best with
+        Some((_, element)) => Some(element)
+        None => None
 
 {-- The element of `s` that `compare` ranks greatest, or `None` when `s` is
     empty, and of elements it ranks equal, the last in traversal order.
     `compare` runs once for each element after the first, as
     `compare(best, element)`. -}
 export let maxUsing(s: Set(a), compare: (a, a) ->! Ordering): Option(a) =
-    fold!(s, None, (best: Option(a), element: a) => match best with
-        Some(kept) => match compare!(kept, element) with
-            Greater => best
-            _ => Some(element)
-        None => Some(element))
+    fold!(s, None, (best: Option(a), element: a) =>
+        match best with
+            Some(kept) =>
+                match compare!(kept, element) with
+                    Greater => best
+                    _ => Some(element)
+            None => Some(element)
+    )
 
 {-- The element of `s` that `compare` ranks least, or `None` when `s` is empty,
     and of elements it ranks equal, the first in traversal order. `compare`
     runs once for each element after the first, as `compare(best, element)`. -}
 export let minUsing(s: Set(a), compare: (a, a) ->! Ordering): Option(a) =
-    fold!(s, None, (best: Option(a), element: a) => match best with
-        Some(kept) => match compare!(kept, element) with
-            Greater => Some(element)
-            _ => best
-        None => Some(element))
+    fold!(s, None, (best: Option(a), element: a) =>
+        match best with
+            Some(kept) =>
+                match compare!(kept, element) with
+                    Greater => Some(element)
+                    _ => best
+            None => Some(element)
+    )
 
 {-- The greatest element of `s` under its `Ord`, or `None` when `s` is empty. -}
 export let max<a: Ord>(s: Set(a)): Option(a) = maxUsing(s, Ord.compare)

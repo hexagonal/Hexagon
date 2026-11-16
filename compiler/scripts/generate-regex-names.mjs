@@ -13,8 +13,8 @@ import { readFile, writeFile } from "node:fs/promises";
 const UNICODE = "17.0.0";
 const DATA = new URL(`./ucd-${UNICODE}/`, import.meta.url);
 const SYNTAX = new URL("../../stdlib/Regex/Syntax.hex", import.meta.url);
-const BEGIN = "// BEGIN GENERATED NAMES\n";
-const END = "// END GENERATED NAMES\n";
+const BEGIN = "-- BEGIN GENERATED NAMES\n";
+const END = "-- END GENERATED NAMES\n";
 
 const BINARY = [
   "Alphabetic",
@@ -59,18 +59,21 @@ function table(name, pairs) {
     if (seen.has(alias)) throw new Error(`${name}: ${alias} appears twice`);
     seen.add(alias);
   }
+  // House layout (spec/notes/canonical-formatting-and-naming.md H1, H5), which
+  // Format document leaves as it is: the value beneath its `=`, the call and
+  // its vector opening together, and the entries filled to 100 columns.
   const entries = pairs.map(([alias, target]) => `(${JSON.stringify(alias)}, ${JSON.stringify(target)})`);
   const lines = [];
-  let line = "   ";
+  let line = "       ";
   for (const entry of entries) {
     if (line.length + entry.length + 2 > 100) {
       lines.push(line.trimEnd());
-      line = "   ";
+      line = "       ";
     }
     line += ` ${entry},`;
   }
   lines.push(line.trimEnd());
-  return `let ${name}: Map(String, String) = Map.fromVector([\n${lines.join("\n")}\n])\n`;
+  return `let ${name}: Map(String, String) =\n    Map.fromVector([\n${lines.join("\n")}\n    ])\n`;
 }
 
 const propertyRows = await rows("PropertyAliases.txt");

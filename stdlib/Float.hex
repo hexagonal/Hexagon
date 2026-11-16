@@ -306,6 +306,7 @@ extern from "hex:intrinsic"
     throw carries a mark: `Float.parse?(text)` gives `None` in place of
     throwing, and `assume Float.parse^(text)` is for text that is known to be
     good. -}
-export let parse(text: String): Float = match scanText(text) with
-    Some(value) => value
-    None => throw^(NumberFormatError(formatMessage(text, "is not a Float")))
+export let parse(text: String): Float =
+    match scanText(text) with
+        Some(value) => value
+        None => throw^(NumberFormatError(formatMessage(text, "is not a Float")))

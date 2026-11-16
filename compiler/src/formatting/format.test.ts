@@ -1364,6 +1364,13 @@ describe("The standard library (§12)", () => {
     expect(format(text, settings[setting])).toBe(text);
   });
 
+  // The house settings are setting 3: Maximum line length 100, Collapse extra
+  // spaces on (spec/notes/canonical-formatting-and-naming.md H1, H2). The
+  // library is house text, so Format document has nothing left to change.
+  it.each(library)("leaves %s as it is at the house settings", (name) => {
+    expect(libraryFormat(name, 3)).toBe(STDLIB_SOURCES[name]);
+  });
+
   it.each(library)("keeps %s's grouping under every setting (§6.3)", (name) => {
     const groupings = settings.map((_, setting) => blankLineSites(libraryFormat(name, setting)));
     for (const grouping of groupings) expect(grouping).toEqual(groupings[0]);

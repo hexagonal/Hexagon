@@ -45,28 +45,31 @@ extern from "hex:intrinsic"
 -- Section 3.4's two tables. A message names the path. For `Other`, Node's own
 -- message says more than a code would, and the path follows it where it
 -- doesn't name the path itself.
-let reasonOf(code: String): FileErrorReason = match code with
-    "ENOENT" => NotFound
-    "EACCES" => PermissionDenied
-    "EPERM" => PermissionDenied
-    "EISDIR" => IsDirectory
-    "ENOTDIR" => NotDirectory
-    _ => Other(code)
+let reasonOf(code: String): FileErrorReason =
+    match code with
+        "ENOENT" => NotFound
+        "EACCES" => PermissionDenied
+        "EPERM" => PermissionDenied
+        "EISDIR" => IsDirectory
+        "ENOTDIR" => NotDirectory
+        _ => Other(code)
 
 let refusal(path: String, error: JsValue): Exn =
-    let code = match readCode~(error).toString?() with
-        Some(text) => text
-        None => ""
+    let code =
+        match readCode~(error).toString?() with
+            Some(text) => text
+            None => ""
     let reason = reasonOf(code)
-    let message = match reason with
-        NotFound => "not found: ${path}"
-        PermissionDenied => "permission denied: ${path}"
-        IsDirectory => "is a directory: ${path}"
-        NotDirectory => "not a directory: ${path}"
-        NotUtf8 => "not UTF-8: ${path}"
-        Other(_) =>
-            let described = JsError.message(error)
-            if described.contains(path) then described else "${described}: ${path}"
+    let message =
+        match reason with
+            NotFound => "not found: ${path}"
+            PermissionDenied => "permission denied: ${path}"
+            IsDirectory => "is a directory: ${path}"
+            NotDirectory => "not a directory: ${path}"
+            NotUtf8 => "not UTF-8: ${path}"
+            Other(_) =>
+                let described = JsError.message(error)
+                if described.contains(path) then described else "${described}: ${path}"
     FileError(reason, path, message)
 
 -- The whole file's bytes, as the `Buffer` Node read them into.
@@ -110,7 +113,8 @@ let firstLoneSurrogate(text: String): Int =
 let refuseLoneSurrogate(text: String): Unit =
     if not isWellFormed(text) then
         let position = firstLoneSurrogate(text)
-        let message = "the text holds a lone surrogate at codepoint ${position}, which UTF-8 cannot write; repair it with String.toWellFormed first"
+        let message =
+            "the text holds a lone surrogate at codepoint ${position}, which UTF-8 cannot write; repair it with String.toWellFormed first"
         throw(LoneSurrogateFault(message, position))
 
 {-- The whole file at `path` as text, read as UTF-8. One leading byte-order
@@ -121,7 +125,8 @@ export let readText(path: String): String =
     let bytes = bytesOf!(path)
     match strictText!(path, bytes).toString?() with
         Some(text) => text
-        None => throw^(FileError(NotUtf8, path, "not UTF-8 at byte ${firstBadByte~(bytes)}: ${path}"))
+        None =>
+            throw^(FileError(NotUtf8, path, "not UTF-8 at byte ${firstBadByte~(bytes)}: ${path}"))
 
 {-- The whole file at `path` as text, as `readText` reads it, except that each
     ill-formed sequence becomes U+FFFD instead of refusing the file. For a file

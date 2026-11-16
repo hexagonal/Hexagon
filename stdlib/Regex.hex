@@ -30,7 +30,8 @@ extern from "hex:intrinsic"
 
 {-- A compiled pattern: a value, immutable and sharable. Two regexes are compared
     by their `source`. -}
-opaque record Regex = { source: String, groupCount: Int, names: Vector((String, Int)), program: Program }
+opaque record Regex =
+    { source: String, groupCount: Int, names: Vector((String, Int)), program: Program }
 
 {-- One match against one subject: the whole match, every capturing group, and
     the group names. Read it with `start`, `length`, `text`, `group`, `named`
@@ -56,23 +57,26 @@ honor Show<Regex> =
 export fault RegexCompileFault(message: String, position: Int, rewrites: Vector(Syntax.Rewrite))
 
 -- The group number in one entry of a regex's table of names.
-let numberIn(entry: (String, Int)): Int = match entry with
-    (_, number) => number
+let numberIn(entry: (String, Int)): Int =
+    match entry with
+        (_, number) => number
 
 -- The number `name` names in a regex's table of names, which is in group order.
 let numberOf(names: Vector((String, Int)), name: String): Option(Int) =
-    let named(entry: (String, Int)): Bool = match entry with
-        (candidate, _) => candidate == name
+    let named(entry: (String, Int)): Bool =
+        match entry with
+            (candidate, _) => candidate == name
     match Vector.find(names, named) with
         Some(entry) => Some(numberIn(entry))
         None => None
 
-let compiled(pattern: String, parsed: Syntax.Pattern): Regex = Regex({
-    source = pattern,
-    groupCount = parsed.groupCount,
-    names = Vector.sortBy(Vector.fromSeq(Map.entries(parsed.names)), numberIn),
-    program = compileProgram(parsed),
-})
+let compiled(pattern: String, parsed: Syntax.Pattern): Regex =
+    Regex({
+        source = pattern,
+        groupCount = parsed.groupCount,
+        names = Vector.sortBy(Vector.fromSeq(Map.entries(parsed.names)), numberIn),
+        program = compileProgram(parsed),
+    })
 
 {-- `pattern` compiled, for a pattern the programmer wrote. It takes no mark:
     a pattern that does not parse throws the fault `RegexCompileFault`, and one
@@ -98,9 +102,23 @@ export let parse(pattern: String): Regex = compiled(pattern, Syntax.parse^(patte
 -- Whether a codepoint is one `escape` writes behind a backslash: a
 -- metacharacter in any position, or White_Space.
 let needsEscape(point: String): Bool =
-    point == "\\" or point == "." or point == "+" or point == "*" or point == "?" or point == "(" or
-        point == ")" or point == "|" or point == "[" or point == "]" or point == "{" or point == "}" or
-        point == "^" or point == "$" or point == "#" or point == "-" or String.trim(point) == ""
+    point == "\\"
+            or point == "."
+            or point == "+"
+            or point == "*"
+            or point == "?"
+            or point == "("
+            or point == ")"
+            or point == "|"
+            or point == "["
+            or point == "]"
+            or point == "{"
+            or point == "}"
+            or point == "^"
+            or point == "$"
+            or point == "#"
+            or point == "-"
+            or String.trim(point) == ""
 
 {-- `text` as a pattern matching exactly `text`, under every flag: a backslash
     before every metacharacter and every White_Space codepoint. The sanctioned
@@ -123,9 +141,10 @@ export let groupIndex(regex: Regex, name: String): Option(Int) = numberOf(regex.
 -- ---------------------------------------------------------------------------
 -- Searching (§4.3)
 
-let groupOf(span: Option((Int, Int, String))): Option(Group) = match span with
-    Some((start, length, text)) => Some(Group({ start = start, length = length, text = text }))
-    None => None
+let groupOf(span: Option((Int, Int, String))): Option(Group) =
+    match span with
+        Some((start, length, text)) => Some(Group({ start = start, length = length, text = text }))
+        None => None
 
 -- The `Match` the search row answered: group 0 first, then each group.
 let matchOf(regex: Regex, spans: Vector(Option((Int, Int, String)))): Match =
@@ -136,15 +155,17 @@ let matchOf(regex: Regex, spans: Vector(Option((Int, Int, String)))): Match =
         index := index + 1
     -- Group 0 is always present in an answer with spans (§3.3), so the
     -- fallback is unreachable; it is there because `Option` must be matched.
-    let whole = match groupOf(spans[1]) with
-        Some(group) => group
-        None => Group({ start = 1, length = 0, text = "" })
+    let whole =
+        match groupOf(spans[1]) with
+            Some(group) => group
+            None => Group({ start = 1, length = 0, text = "" })
     Match({ whole = whole, groups = groups, names = regex.names })
 
 {-- Whether `regex` matches anywhere in `text`. -}
-export let isMatch(regex: Regex, text: String): Bool = match searchProgram(regex.program, text, 1, (1, 0), False) with
-    Some(_) => True
-    None => False
+export let isMatch(regex: Regex, text: String): Bool =
+    match searchProgram(regex.program, text, 1, (1, 0), False) with
+        Some(_) => True
+        None => False
 
 {-- The leftmost match starting at position `start` or later. The whole text is
     still the subject: `^`, `\b` and `$` see the codepoints before `start`. A
@@ -180,21 +201,29 @@ let nextMatch(regex: Regex, text: String, state: Enumeration): Option((Match, En
                 if empty and found.whole.start == current.previousEnd then
                     current := Enumeration({ start = resume, cursor = cursor, previousEnd = -1 })
                 else
-                    answer := Some((found, Enumeration({ start = resume, cursor = cursor, previousEnd = end })))
+                    answer := Some((
+                        found,
+                        Enumeration({ start = resume, cursor = cursor, previousEnd = end })
+                    ))
                     searching := False
     answer
 
 {-- Every match in `text`, left to right, without overlapping (§3.5): lazy, and
     re-derived on each traversal. -}
 export let findAll(regex: Regex, text: String): Seq(Match) =
-    Seq.unfold(Enumeration({ start = 1, cursor = (1, 0), previousEnd = -1 }), (state) => nextMatch(regex, text, state))
+    Seq.unfold(Enumeration({ start = 1, cursor = (1, 0), previousEnd = -1 }), (state) =>
+        nextMatch(regex, text, state)
+    )
 
 -- ---------------------------------------------------------------------------
 -- Replacement and splitting (§4.4)
 
 -- The matches of the enumeration, all of them or the first.
 let matchesOf(regex: Regex, text: String, all: Bool): Vector(Match) =
-    if all then Vector.fromSeq(findAll(regex, text)) else Vector.fromSeq(Seq.take(findAll(regex, text), 1))
+    if all then
+        Vector.fromSeq(findAll(regex, text))
+    else
+        Vector.fromSeq(Seq.take(findAll(regex, text), 1))
 
 -- The text between the matches, in one pass over the subject's codepoints:
 -- one more run than there are matches.
@@ -211,7 +240,9 @@ let runsBetween(text: String, matches: Vector(Match)): Vector(String) =
             runs := runs.append(String.join(Iterable.toSeq(chunks), ""))
             chunks := []
             index := index + 1
-        let inside = index > 1 and position < matches[index - 1].whole.start + matches[index - 1].whole.length
+        let inside =
+            index > 1
+                    and position < matches[index - 1].whole.start + matches[index - 1].whole.length
         if not inside then chunks := chunks.append(point)
         position := position + 1
     while index <= count do
@@ -263,7 +294,8 @@ export let replaceFirstWith(regex: Regex, text: String, replacement: Match ->! S
 
 {-- The pieces of `text` between the matches, empty pieces kept at both ends and
     between adjacent matches. -}
-export let split(regex: Regex, text: String): Vector(String) = runsBetween(text, matchesOf(regex, text, True))
+export let split(regex: Regex, text: String): Vector(String) =
+    runsBetween(text, matchesOf(regex, text, True))
 
 -- ---------------------------------------------------------------------------
 -- `Match` accessors (§4.5)
@@ -289,9 +321,10 @@ export let group(found: Match, index: Int): Option(Group) =
 
 {-- The group `name` names, as `group` answers it; `None` for a name the
     pattern does not define. -}
-export let named(found: Match, name: String): Option(Group) = match numberOf(found.names, name) with
-    Some(index) => group(found, index)
-    None => None
+export let named(found: Match, name: String): Option(Group) =
+    match numberOf(found.names, name) with
+        Some(index) => group(found, index)
+        None => None
 
 {-- Groups 1 to `groupCount`, in order. -}
 export let groups(found: Match): Vector(Option(Group)) = found.groups

@@ -113,9 +113,10 @@ fun readInternal(trie: TrieVector(a), internal: Int): a =
         var remaining = internal
         -- A height-`h` trie has `h - 1` branch levels above its leaves.
         for level in 2..trie.height do
-            node := match node with
-                Branch(children) => Node.get(children, remaining.div(span))
-                Leaf(_) => node
+            node :=
+                    match node with
+                        Branch(children) => Node.get(children, remaining.div(span))
+                        Leaf(_) => node
             remaining := remaining.mod(span)
             span := span.div(radix)
         match node with
@@ -150,9 +151,10 @@ fun nodeRun(trie: TrieVector(a), index: Int): (Node(a), Int, Int) =
         var span = pow32(trie.height - 1)
         var remaining = internal
         for level in 2..trie.height do
-            node := match node with
-                Branch(children) => Node.get(children, remaining.div(span))
-                Leaf(_) => node
+            node :=
+                    match node with
+                        Branch(children) => Node.get(children, remaining.div(span))
+                        Leaf(_) => node
             remaining := remaining.mod(span)
             span := span.div(radix)
         let inNode = radix - remaining
@@ -188,7 +190,9 @@ fun insertLeaf(node: Tree(a), height: Int, p: Int, leaf: Tree(a)): Tree(a) =
                 Branch(Node.set(children, childIndex, newPath(height - 2, leaf)))
             else
                 let child = Node.get(children, childIndex)
-                Branch(Node.set(children, childIndex, insertLeaf(child, height - 1, childPos, leaf)))
+                Branch(
+                    Node.set(children, childIndex, insertLeaf(child, height - 1, childPos, leaf))
+                )
 
 -- Flushes a full tail (as `Leaf(tail)`) into `root`, returning the new root and
 -- its height. `treeExtent` is the internal extent already held by `root` (a
@@ -253,10 +257,18 @@ fun writeValue(node: Tree(a), height: Int, index: Int, value: a): Tree(a) =
             let childPos = index.mod(span)
             if childPos == span - 1 then
                 -- First write into this child: it is fresh.
-                Branch(Node.set(children, childIndex, writeValue(freshSubtree(height - 1), height - 1, childPos, value)))
+                Branch(
+                    Node.set(
+                        children,
+                        childIndex,
+                        writeValue(freshSubtree(height - 1), height - 1, childPos, value)
+                    )
+                )
             else
                 let child = Node.get(children, childIndex)
-                Branch(Node.set(children, childIndex, writeValue(child, height - 1, childPos, value)))
+                Branch(
+                    Node.set(children, childIndex, writeValue(child, height - 1, childPos, value))
+                )
 
 fun prepend(trie: TrieVector(a), value: a): TrieVector(a) =
     if trie.capacity == trie.origin then
@@ -322,7 +334,13 @@ fun updateAt(node: Tree(a), height: Int, index: Int, value: a): Tree(a) =
             let span = pow32(height - 1)
             let childIndex = index.div(span)
             let childPos = index.mod(span)
-            Branch(Node.set(children, childIndex, updateAt(Node.get(children, childIndex), height - 1, childPos, value)))
+            Branch(
+                Node.set(
+                    children,
+                    childIndex,
+                    updateAt(Node.get(children, childIndex), height - 1, childPos, value)
+                )
+            )
 
 -- Persistent update at 0-based logical `index` (caller guarantees it is in range;
 -- the public `Vector.set` owns the `IndexFault` bounds assertion). A tail slot is
@@ -361,7 +379,13 @@ fun set(trie: TrieVector(a), index: Int, value: a): TrieVector(a) =
 -- lying wholly in the tail is the descent's limit — the tree is dead, so it is
 -- dropped for the empty leaf and the indices rebase by the whole tail offset,
 -- leaving a capacity of 1..32 whose own `tailOffset` is 0.
-let trimHeight(origin: Int, capacity: Int, height: Int, root: Tree(a), tail: Node(a)): TrieVector(a) =
+let trimHeight(
+    origin: Int,
+    capacity: Int,
+    height: Int,
+    root: Tree(a),
+    tail: Node(a)
+): TrieVector(a) =
     let treeEnd = tailOffset(capacity)
     if treeEnd <= origin then
         TrieVector({
@@ -383,10 +407,12 @@ let trimHeight(origin: Int, capacity: Int, height: Int, root: Tree(a), tail: Nod
             let child = low.div(span)
             if child == (high - 1).div(span) then
                 let delta = child * span
-                node := match node with
-                    Branch(children) => Node.get(children, child)
-                    -- A branch level always holds branches above height 1.
-                    Leaf(_) => throw(TrieCorruptionFault("trimHeight: a leaf above height 1"))
+                node :=
+                        match node with
+                            Branch(children) => Node.get(children, child)
+                            -- A branch level always holds branches above height 1.
+                            Leaf(_) =>
+                                throw(TrieCorruptionFault("trimHeight: a leaf above height 1"))
                 low := low - delta
                 high := high - delta
                 cap := cap - delta
@@ -528,7 +554,10 @@ fun zip(left: TrieVector(a), right: TrieVector(b)): TrieVector((a, b)) =
         let run = if leftRun < rightRun then leftRun else rightRun
         var step = 0
         while step < run do
-            result := append(result, (Node.get(leftValues, leftOffset + step), Node.get(rightValues, rightOffset + step)))
+            result := append(
+                result,
+                (Node.get(leftValues, leftOffset + step), Node.get(rightValues, rightOffset + step))
+            )
             step := step + 1
         index := index + run
     result

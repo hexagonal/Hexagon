@@ -289,7 +289,8 @@ extern from "hex:intrinsic"
     is outside the range an `Int` holds exactly. A call that may throw carries a
     mark: `Int.parse?(text)` gives `None` in place of throwing, and
     `assume Int.parse^(text)` is for text that is known to be good. -}
-export let parse(text: String): Int = match scanText(text) with
-    Some(Some(value)) => value
-    Some(None) => throw^(NumberFormatError(formatMessage(text, "is out of range for Int")))
-    None => throw^(NumberFormatError(formatMessage(text, "is not an Int")))
+export let parse(text: String): Int =
+    match scanText(text) with
+        Some(Some(value)) => value
+        Some(None) => throw^(NumberFormatError(formatMessage(text, "is out of range for Int")))
+        None => throw^(NumberFormatError(formatMessage(text, "is not an Int")))

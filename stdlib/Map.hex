@@ -76,7 +76,10 @@ extern from "hex:intrinsic"
     -- Unexported, beneath `map` below: the entries `transform` returns, as a map,
     -- or `None` when two of their keys are equal. The fault is thrown in this
     -- file because the runtime module is seated before it.
-    fun mapRemap as remap<j: Hash>(m: Map(k, v), transform: ((k, v)) ->! (j, w)) >-> Option(Map(j, w))
+    fun mapRemap as remap<j: Hash>(
+        m: Map(k, v),
+        transform: ((k, v)) ->! (j, w)
+    ) >-> Option(Map(j, w))
 
 {-- The empty map. -}
 export let empty: Map(k, v) = emptyMap()
@@ -191,29 +194,36 @@ let earlierBy<c: Ord>(best: Option((c, (k, v))), ranked: (c, (k, v))): Option((c
                 _ => best
         _ => Some(ranked)
 
-let unranked(best: Option((c, (k, v)))): Option((k, v)) = match best with
-    Some((_, entry)) => Some(entry)
-    None => None
+let unranked(best: Option((c, (k, v)))): Option((k, v)) =
+    match best with
+        Some((_, entry)) => Some(entry)
+        None => None
 
 {-- The entry of `m` that `compare` ranks greatest, or `None` when `m` is empty,
     and of entries it ranks equal, the last in traversal order. `compare` runs
     once for each entry after the first, as `compare(best, entry)`. -}
 export let maxUsing(m: Map(k, v), compare: ((k, v), (k, v)) ->! Ordering): Option((k, v)) =
-    fold!(m, None, (best: Option((k, v)), entry: (k, v)) => match best with
-        Some(kept) => match compare!(kept, entry) with
-            Greater => best
-            _ => Some(entry)
-        None => Some(entry))
+    fold!(m, None, (best: Option((k, v)), entry: (k, v)) =>
+        match best with
+            Some(kept) =>
+                match compare!(kept, entry) with
+                    Greater => best
+                    _ => Some(entry)
+            None => Some(entry)
+    )
 
 {-- The entry of `m` that `compare` ranks least, or `None` when `m` is empty,
     and of entries it ranks equal, the first in traversal order. `compare` runs
     once for each entry after the first, as `compare(best, entry)`. -}
 export let minUsing(m: Map(k, v), compare: ((k, v), (k, v)) ->! Ordering): Option((k, v)) =
-    fold!(m, None, (best: Option((k, v)), entry: (k, v)) => match best with
-        Some(kept) => match compare!(kept, entry) with
-            Greater => Some(entry)
-            _ => best
-        None => Some(entry))
+    fold!(m, None, (best: Option((k, v)), entry: (k, v)) =>
+        match best with
+            Some(kept) =>
+                match compare!(kept, entry) with
+                    Greater => Some(entry)
+                    _ => best
+            None => Some(entry)
+    )
 
 {-- The greatest entry of `m`, ordering entries by key and then by value, which
     is the entry with the greatest key, or `None` when `m` is empty. -}

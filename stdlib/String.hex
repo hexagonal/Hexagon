@@ -351,13 +351,15 @@ export let words(text: String): Vector(String) =
     contain `delimiter` gives one piece, the whole string. An empty `delimiter`
     splits between every two codepoints and adds an empty piece at each end. To
     split at whitespace, use `words`. -}
-export let split(text: String, delimiter: String): Vector(String) = splitWith(text, delimiter, False)
+export let split(text: String, delimiter: String): Vector(String) =
+    splitWith(text, delimiter, False)
 
 {-- A vector of the pieces of the string that lie between the occurrences of
     `delimiter`, as `split` gives, except that upper and lower case are treated
     as the same:\
     `"oneXtwoxthree".splitCi("x")` is `["one", "two", "three"]`. -}
-export let splitCi(text: String, delimiter: String): Vector(String) = splitWith(text, delimiter, True)
+export let splitCi(text: String, delimiter: String): Vector(String) =
+    splitWith(text, delimiter, True)
 
 {-- The string without its first `count` codepoints:\
     `"hello".dropFirstN(2)` is `"llo"`.\
@@ -438,36 +440,44 @@ let lastIndexWith(text: String, targetText: String, insensitive: Bool): Option(I
     codepoints from 1, or `None` when it does not appear. The position is where
     that last appearance begins:\
     `"banana".lastIndexOf("an")` is `Some(4)`. -}
-export let lastIndexOf(text: String, targetText: String): Option(Int) = lastIndexWith(text, targetText, False)
+export let lastIndexOf(text: String, targetText: String): Option(Int) =
+    lastIndexWith(text, targetText, False)
 {-- The position where `targetText` last appears in the string when upper and
     lower case are treated as the same, counting codepoints from 1, or `None`
     when it does not appear. The position is where that last appearance
     begins. -}
-export let lastIndexOfCi(text: String, targetText: String): Option(Int) = lastIndexWith(text, targetText, True)
+export let lastIndexOfCi(text: String, targetText: String): Option(Int) =
+    lastIndexWith(text, targetText, True)
 
 {-- Whether `targetText` appears anywhere in the string. -}
-export let contains(text: String, targetText: String): Bool = match indexOf(text, targetText) with
-    Some(_) => True
-    None => False
+export let contains(text: String, targetText: String): Bool =
+    match indexOf(text, targetText) with
+        Some(_) => True
+        None => False
 
 {-- Whether `targetText` appears anywhere in the string when upper and lower
     case are treated as the same:\
     `"Hello".containsCi("HELL")` is `True`. -}
-export let containsCi(text: String, targetText: String): Bool = match indexOfCi(text, targetText) with
-    Some(_) => True
-    None => False
+export let containsCi(text: String, targetText: String): Bool =
+    match indexOfCi(text, targetText) with
+        Some(_) => True
+        None => False
 
 {-- Whether the string begins with `prefix`. -}
-export let startsWith(text: String, prefix: String): Bool = match exactEnd(text, length(text), points(prefix), 1) with
-    Some(_) => True
-    None => False
+export let startsWith(text: String, prefix: String): Bool =
+    match exactEnd(text, length(text), points(prefix), 1) with
+        Some(_) => True
+        None => False
 
 {-- Whether the string begins with `prefix` when upper and lower case are
     treated as the same. -}
 export let startsWithCi(text: String, prefix: String): Bool =
-    if prefix == "" then True else match foldedEnd(text, length(text), points(foldedText(prefix)), 1) with
-        Some(_) => True
-        None => False
+    if prefix == "" then
+        True
+    else
+        match foldedEnd(text, length(text), points(foldedText(prefix)), 1) with
+            Some(_) => True
+            None => False
 
 {-- Whether the string ends with `suffix`. -}
 export let endsWith(text: String, suffix: String): Bool =
