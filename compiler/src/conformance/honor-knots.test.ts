@@ -40,7 +40,7 @@ describe("every honor is a knot (§4.8)", () => {
     const exports = await runMain(MAIN +
       "export union Tree = Leaf | Node(Tree, Int, Tree)\n" +
       "honor Show<Tree> =\n" +
-      "    show(t) = match t\n" +
+      "    show(t) = match t with\n" +
       '        Leaf => "."\n' +
       '        Node(l, n, r) => "(${l} ${n} ${r.show()})"\n' +
       "export let shown: String = Node(Leaf, 1, Node(Leaf, 2, Leaf)).show()\n");
@@ -51,7 +51,7 @@ describe("every honor is a knot (§4.8)", () => {
     const exports = await runMain(MAIN +
       "union Nested(a) = Flat(a) | Nest(Nested(Vector(a)))\n" +
       "honor<a: Show> Show<Nested(a)> =\n" +
-      "    show(n) = match n\n" +
+      "    show(n) = match n with\n" +
       "        Flat(v) => v.show()\n" +
       '        Nest(inner) => "<${inner.show()}>"\n' +
       "export let shown: String = Nest(Flat([1, 2])).show()\n");
@@ -85,7 +85,7 @@ describe("a use stands below its honor (§4.8, §8)", () => {
   test("a `for` head at the type is a use", () => {
     const bag = "record Bag = { items: Vector(Int) }\n";
     const iterable = "honor Iterable<Bag> =\n    type Item = Int\n    toSeq(b) = b.items.toSeq()\n";
-    const loop = "let total(b: Bag): Int =\n    var sum = 0\n    for n in b\n        sum := sum + n\n    sum\n";
+    const loop = "let total(b: Bag): Int =\n    var sum = 0\n    for n in b do\n        sum := sum + n\n    sum\n";
     expect(projectDiagnostics(MAIN + bag + loop + iterable)).toEqual([above("Iterable<Bag>")]);
     expect(projectDiagnostics(MAIN + bag + iterable + loop)).toEqual([]);
   });
@@ -122,10 +122,10 @@ describe("a use stands below its honor (§4.8, §8)", () => {
 describe("the honor group (§4.8)", () => {
   const PING_PONG = "export record Ping = {label: Int, next: Option(Pong)}\n" +
     "export record Pong = {label: Int, back: Option(Ping)}\n";
-  const ping = "    Show<Ping> =\n        show(ping) = match ping.next\n" +
+  const ping = "    Show<Ping> =\n        show(ping) = match ping.next with\n" +
     '            Some(pong) => "Ping(${ping.label} ${pong})"\n' +
     '            None => "Ping(${ping.label})"\n';
-  const pong = "    Show<Pong> =\n        show(pong) = match pong.back\n" +
+  const pong = "    Show<Pong> =\n        show(pong) = match pong.back with\n" +
     '            Some(ping) => "Pong(${pong.label} ${ping})"\n' +
     '            None => "Pong(${pong.label})"\n';
   const chain = "export let chain: String =\n" +
@@ -173,11 +173,11 @@ describe("the honor group (§4.8)", () => {
       "union Forest(a) = Nil2 | More(head: Tree2(a), rest: Forest(a))\n" +
       "honor\n" +
       "    <a: Show> Show<Tree2(a)> =\n" +
-      "        show(t) = match t\n" +
+      "        show(t) = match t with\n" +
       "            Tip(v) => v.show()\n" +
       '            Branch(f) => "[${f.show()}]"\n' +
       "    <a: Show> Show<Forest(a)> =\n" +
-      "        show(f) = match f\n" +
+      "        show(f) = match f with\n" +
       '            Nil2 => ""\n' +
       '            More(h, r) => "${h}${r}"\n' +
       "export let text: String = Branch(More(Tip(1), More(Tip(2), Nil2))).show()\n");
@@ -429,7 +429,7 @@ describe("the knot's colours (Effects §13.3, §3.4)", () => {
   const SIZE = "constraint Size<a> =\n    size(x: a) ->! Int\n";
 
   const tree = (mark: string, leaf: string, below: string) => SIZE +
-    "union T = Leaf | Node(T, T)\nhonor Size<T> =\n    size(t) = match t\n" +
+    "union T = Leaf | Node(T, T)\nhonor Size<T> =\n    size(t) = match t with\n" +
     `        Leaf => ${leaf}\n        Node(l, r) => l.size${mark}() + r.size${mark}()\n` +
     `let k(t: T): Int = ${below}\n`;
 
@@ -438,7 +438,7 @@ describe("the knot's colours (Effects §13.3, §3.4)", () => {
     expect(colours(tree("!", "0", "size(t)"))).toEqual([overMarked(".size")]);
     expect(colours(tree("", "0", "size!(t)"))).toEqual([overMarked("size")]);
     const exports = await runMain(MAIN + SIZE + "export union T = Leaf | Node(T, T)\nhonor Size<T> =\n" +
-      "    size(t) = match t\n        Leaf => 1\n        Node(l, r) => l.size() + r.size()\n" +
+      "    size(t) = match t with\n        Leaf => 1\n        Node(l, r) => l.size() + r.size()\n" +
       "export let n: Int = size(Node(Leaf, Node(Leaf, Leaf)))\n");
     expect(exports["n"]).toBe(3);
   });
@@ -452,7 +452,7 @@ describe("the knot's colours (Effects §13.3, §3.4)", () => {
   test("`->^` and `->~` contracts follow the knot on the colour they mark", () => {
     const count = (arrow: string, leaf: string, mark: string, below: string) =>
       `constraint Count<a> =\n    count(x: a) ${arrow} Int\nunion T = Leaf | Node(T)\n` +
-      `honor Count<T> =\n    count(t) = match t\n        Leaf => ${leaf}\n        Node(k) => 1 + k.count${mark}()\n` +
+      `honor Count<T> =\n    count(t) = match t with\n        Leaf => ${leaf}\n        Node(k) => 1 + k.count${mark}()\n` +
       `let k(t: T): Int = ${below}\n`;
     expect(colours(count("->^", "0", "", "count(t)"))).toEqual([]);
     expect(colours(count("->^", "check^(1)", "^", "count^(t)"))).toEqual([]);
@@ -466,8 +466,8 @@ describe("the knot's colours (Effects §13.3, §3.4)", () => {
 
   test("a group of two `->!` honors calling each other settles together, in either order", () => {
     const group = (mark: string, bLeaf: string, aFirst: boolean) => {
-      const a = `    Size<A> =\n        size(a) = match a\n            ANil => 0\n            ACons(b) => b.size${mark}()\n`;
-      const b = `    Size<B> =\n        size(b) = match b\n            BNil => ${bLeaf}\n            BCons(a) => a.size${mark}()\n`;
+      const a = `    Size<A> =\n        size(a) = match a with\n            ANil => 0\n            ACons(b) => b.size${mark}()\n`;
+      const b = `    Size<B> =\n        size(b) = match b with\n            BNil => ${bLeaf}\n            BCons(a) => a.size${mark}()\n`;
       return SIZE + "union A = ANil | ACons(B)\nunion B = BNil | BCons(A)\nhonor\n" + (aFirst ? a + b : b + a) +
         `let k(a: A, b: B): Int = size${mark}(a) + size${mark}(b)\n`;
     };
@@ -482,7 +482,7 @@ describe("the knot's colours (Effects §13.3, §3.4)", () => {
 
   test("a `->` member of the group follows the `->!` sibling it calls, and its seat compares after", () => {
     const shown = (leaf: string, sizeFirst: boolean) => {
-      const size = `    Size<T> =\n        size(t) = match t\n            Leaf => ${leaf}\n` +
+      const size = `    Size<T> =\n        size(t) = match t with\n            Leaf => ${leaf}\n` +
         `            Node(k) => 1 + k.size${leaf === "0" ? "" : "!"}()\n`;
       const show = '    Show<T> =\n        show(t) = "${t.size()}"\n';
       return SIZE + "union T = Leaf | Node(T)\nhonor\n" + (sizeFirst ? size + show : show + size) +
@@ -502,7 +502,7 @@ describe("the knot's colours (Effects §13.3, §3.4)", () => {
   test("only own colours wait: a recursive call may hand any callback, marked by what it hands", () => {
     const run = (inner: string, below: string) =>
       "constraint Run<a> =\n    run(r: a, action: () ->! Unit) ->! Unit\nunion T = Leaf | Node(T)\n" +
-      "honor Run<T> =\n    run(t, action) = match t\n        Leaf => action!()\n" +
+      "honor Run<T> =\n    run(t, action) = match t with\n        Leaf => action!()\n" +
       `        Node(k) => ${inner}\nlet k(t: T): Unit = ${below}\n`;
     // Handing on its own callback, or a fresh pure one: the instance is silent.
     expect(colours(run("k.run!(action)", "run(t, () => ())"))).toEqual([]);
@@ -519,7 +519,7 @@ describe("the knot's colours (Effects §13.3, §3.4)", () => {
   test("an honor with two members where only one recurses", () => {
     const two = (leaf: string, mark: string, below: string) =>
       "constraint Two<a> =\n    size(x: a) ->! Int\n    name(x: a) ->! String\nunion T = Leaf | Node(T)\n" +
-      `honor Two<T> =\n    size(t) = match t\n        Leaf => ${leaf}\n        Node(k) => 1 + k.size${mark}()\n` +
+      `honor Two<T> =\n    size(t) = match t with\n        Leaf => ${leaf}\n        Node(k) => 1 + k.size${mark}()\n` +
       `    name(t) = "t"\nlet k(t: T): String = ${below}\n`;
     expect(colours(two("0", "", '"${size(t)}${name(t)}"'))).toEqual([]);
     expect(colours(two(READS("            "), "!", '"${size!(t)}${name(t)}"'))).toEqual([]);
@@ -529,7 +529,7 @@ describe("the knot's colours (Effects §13.3, §3.4)", () => {
   test("a parameterized instance follows its knot", () => {
     const list = (leaf: string, mark: string, below: string) =>
       SIZE + "union L(a) = Nil | Cons(a, L(a))\n" +
-      `honor Size<L(a)> =\n    size(l) = match l\n        Nil => ${leaf}\n        Cons(_, t) => 1 + t.size${mark}()\n` +
+      `honor Size<L(a)> =\n    size(l) = match l with\n        Nil => ${leaf}\n        Cons(_, t) => 1 + t.size${mark}()\n` +
       `let k(l: L(Int)): Int = ${below}\n`;
     expect(colours(list("0", "", "size(l)"))).toEqual([]);
     expect(colours(list(READS("            "), "!", "size!(l)"))).toEqual([]);
@@ -538,14 +538,14 @@ describe("the knot's colours (Effects §13.3, §3.4)", () => {
 
   test("a lambda that calls the instance waits with the knot, whatever the order of the lines", () => {
     const folded = (leaf: string, mark: string) => SIZE + "union T = Leaf | Node(Vector(T))\n" +
-      `honor Size<T> =\n    size(t) = match t\n        Leaf => ${leaf}\n` +
+      `honor Size<T> =\n    size(t) = match t with\n        Leaf => ${leaf}\n` +
       `        Node(ks) => Seq.fold${mark}(ks, 0, (n, k) => n + k.size${mark}())\n` +
       `let k(t: T): Int = size${mark}(t)\n`;
     expect(colours(folded("0", ""))).toEqual([]);
     expect(colours(folded(READS("            "), "!"))).toEqual([]);
     // A pure demand on such a lambda is compared once the knot settles it.
     const demanded = (leaf: string) => SIZE + "union T = Leaf | Node(T)\n" +
-      `honor Size<T> =\n    size(t) = match t\n        Leaf => ${leaf}\n        Node(k) =>\n` +
+      `honor Size<T> =\n    size(t) = match t with\n        Leaf => ${leaf}\n        Node(k) =>\n` +
       `            let f: () -> Int = () => k.size${leaf === "0" ? "" : "!"}()\n            f()\n`;
     expect(colours(demanded("0"))).toEqual([]);
     expect(colours(demanded(READS("            ")))).toEqual([
@@ -555,14 +555,14 @@ describe("the knot's colours (Effects §13.3, §3.4)", () => {
   });
 
   test("a body in error leaves its calls owing no mark; a default member follows the default's own colour", () => {
-    const failing = SIZE + "union T = Leaf | Node(T)\nhonor Size<T> =\n    size(t) = match t\n" +
+    const failing = SIZE + "union T = Leaf | Node(T)\nhonor Size<T> =\n    size(t) = match t with\n" +
       "        Leaf => nope()\n        Node(k) => 1 + k.size()\nlet k(t: T): Int = size(t)\nlet j(t: T): Int = size!(t)\n";
     expect(colours(failing)).toEqual(["unknown name `nope`"]);
     // `twice`'s default calls `base` through the constraint, so its own colour
     // is the contract's, whichever instance uses it (§13.3).
     const defaulted = (mark: string) => "constraint D<a> =\n    base(x: a) ->! Int\n" +
       "    twice(x: a) ->! Int = base!(x) + base!(x)\nunion T = Leaf | Node(T)\nhonor D<T> =\n" +
-      `    base(t) = match t\n        Leaf => 0\n        Node(k) => k.twice${mark}()\nlet k(t: T): Int = base!(t)\n`;
+      `    base(t) = match t with\n        Leaf => 0\n        Node(k) => k.twice${mark}()\nlet k(t: T): Int = base!(t)\n`;
     expect(colours(defaulted("!"))).toEqual([]);
     expect(colours(defaulted(""))).toEqual([wants(".twice")]);
   });
@@ -572,7 +572,7 @@ describe("the knot's colours (Effects §13.3, §3.4)", () => {
     // function's arrow keeps the contract's colour inside the knot, and so
     // the instance's own colour there is impure below it too.
     const made = (leaf: string, mark: string) => "constraint Mk<a> =\n    make(x: a) ->! () ->! Int\n" +
-      "union T = Leaf | Node(T)\nhonor Mk<T> =\n    make(t) = match t\n" +
+      "union T = Leaf | Node(T)\nhonor Mk<T> =\n    make(t) = match t with\n" +
       `        Leaf => () => ${leaf}\n        Node(k) => () => k.make()${mark}()\nlet k(t: T): Int = make(t)${mark}()\n`;
     expect(colours(made("0", "!"))).toEqual([]);
     expect(colours(made('String.length(readIt!("x"))', "!"))).toEqual([]);
@@ -584,7 +584,7 @@ describe("the knot's colours (Effects §13.3, §3.4)", () => {
   test("a held lambda merged with the honor's own callback keeps the callback the seat's (review r3 of #1226)", () => {
     const B = "record B = { m: Int }\nlet loudB(b: B): Int =\n    let z = readIt!(\"x\")\n    0\nunion T = Leaf | Node(T)\n";
     const run = (body: string, below: string) => B +
-      "constraint R<a> =\n    run(s: a, f: (B) ->! Int) ->! Int\nhonor R<T> =\n    run(t, f) = match t\n" +
+      "constraint R<a> =\n    run(s: a, f: (B) ->! Int) ->! Int\nhonor R<T> =\n    run(t, f) = match t with\n" +
       `        Leaf => 0\n        Node(k) =>\n${body}${below}`;
     const held = "            let g = if True then f else (b: B) => k.run((c: B) => 1)\n";
     const merged = "            let h = if True then f else loudB\n";
@@ -599,14 +599,14 @@ describe("the knot's colours (Effects §13.3, §3.4)", () => {
       .toEqual([wants("run")]);
     // Two callbacks merged beside the held lambda: the merge runs either.
     const two = B + "constraint R<a> =\n    run(s: a, f: (B) ->! Int, j: (B) ->! Int) ->! Int\nhonor R<T> =\n" +
-      "    run(t, f, j) = match t\n        Leaf => 0\n        Node(k) =>\n" +
+      "    run(t, f, j) = match t with\n        Leaf => 0\n        Node(k) =>\n" +
       "            let g = if True then f else (b: B) => k.run((c: B) => 1, j)\n" +
       "            let h = if True then f else j\n            h(B({ m = 1 }))\n" +
       "export let p1(): Int = run(Node(Leaf), (b: B) => 7, (b: B) => 8)\n";
     expect(colours(two)).toEqual([wants(".run"), wants("h")]);
     // The callback stored in a pure field after the merge narrows the instance.
     const boxed = B + "record Box = { g: (B) -> Int }\nconstraint R<a> =\n    wrap(s: a, f: (B) ->! Int) ->! Box\n" +
-      "honor R<T> =\n    wrap(t, f) = match t\n        Leaf => Box({ g = (b) => 0 })\n        Node(k) =>\n" +
+      "honor R<T> =\n    wrap(t, f) = match t with\n        Leaf => Box({ g = (b) => 0 })\n        Node(k) =>\n" +
       "            let x = if True then f else (b: B) => k.wrap((c: B) => 1).g(b)\n            Box({ g = f })\n";
     expect(colours(boxed)).toEqual([
       "`wrap`'s contract accepts any `f`, and this instance accepts only one that is pure and cannot fail — " +

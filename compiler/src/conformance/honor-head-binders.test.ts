@@ -67,7 +67,7 @@ describe("the head introduces its own binders", () => {
     const main = await runMain("module Main\n\n" + iterable + bag +
       "export fun run(ignored: Int): String =\n" +
       "    var out = \"\"\n" +
-      "    for word in Bag({items = [\"a\", \"b\", \"c\"]})\n" +
+      "    for word in Bag({items = [\"a\", \"b\", \"c\"]}) do\n" +
       "        out := out ++ word\n" +
       "    out\n");
     expect((main["run"] as (ignored: number) => string)(0)).toBe("abc");
@@ -79,7 +79,7 @@ describe("the head introduces its own binders", () => {
     expect(projectDiagnostics(iterable + bag +
       "fun total(bag: Bag(String)): Int =\n" +
       "    var sum = 0\n" +
-      "    for number in bag\n" +
+      "    for number in bag do\n" +
       "        sum := sum + number\n" +
       "    sum\n")).toContain("type mismatch: expected Int, found String");
   });
@@ -222,7 +222,7 @@ describe("the binder-less instance crosses the module boundary", () => {
         "\n" +
         "export fun run(ignored: Int): String =\n" +
         "    var out = \"\"\n" +
-        "    for word in Bags.Bag({items = [\"x\", \"y\"]})\n" +
+        "    for word in Bags.Bag({items = [\"x\", \"y\"]}) do\n" +
         "        out := out ++ word\n" +
         "    out\n"],
     ]);
@@ -236,7 +236,7 @@ describe("the binder-less instance crosses the module boundary", () => {
         "\n" +
         "fun total(bag: Bags.Bag(String)): Int =\n" +
         "    var sum = 0\n" +
-        "    for number in bag\n" +
+        "    for number in bag do\n" +
         "        sum := sum + number\n" +
         "    sum\n"],
     ])).toContain("type mismatch: expected Int, found String");
@@ -252,7 +252,7 @@ describe("the binder-less instance crosses the module boundary", () => {
         "\n" +
         "export fun joined(bag: Bags.Bag(String)): String =\n" +
         "    var out = \"\"\n" +
-        "    for word in bag\n" +
+        "    for word in bag do\n" +
         "        out := out ++ word\n" +
         "    out\n"],
     ])).toEqual([]);

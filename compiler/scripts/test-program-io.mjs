@@ -35,7 +35,7 @@ export let writeError(text: String): Unit = Stdio.writeError~(text)
 export let writeErrorLine(text: String): Unit = Stdio.writeErrorLine~(text)
 
 export let lines(count: Int): Unit =
-    for n in 1..count
+    for n in 1..count do
         Stdio.writeLine~("line \${n}")
 
 -- A probe first, which makes Node switch a piped stdout to non-blocking, then
@@ -44,13 +44,13 @@ export let probeThenWrite(size: Int): Unit =
     Debug.log("probe")
     var text = "abcdefgh\\n"
     var length = 9
-    while length < size
+    while length < size do
         text := text ++ text
         length := length * 2
     Stdio.write~(text)
 
 export let showArguments(): Unit =
-    for argument in Process.arguments~()
+    for argument in Process.arguments~() do
         Stdio.writeLine~("[\${argument}]")
 
 export let setStatus(status: Int): Unit = Process.setExitStatus~(status)
@@ -60,7 +60,7 @@ export let read(path: String): String = File.readText!(path)
 -- One of the four writers, by number, refusing text with a lone surrogate.
 export let guardedWrite(writer: Int, text: String): String =
     try
-        match writer
+        match writer with
             1 => Stdio.write~(text)
             2 => Stdio.writeLine~(text)
             3 => Stdio.writeError~(text)

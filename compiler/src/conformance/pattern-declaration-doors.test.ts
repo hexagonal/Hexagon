@@ -123,7 +123,7 @@ describe("pattern declaration doors (§3.3)", () => {
     ] as const;
     expect(messages([
       vault,
-      ["/main.hex", "module Main\n\nimport Vault\nfun read(): Int =\n    match Vault.make()\n        Vault.Token({value}) => 0\n"],
+      ["/main.hex", "module Main\n\nimport Vault\nfun read(): Int =\n    match Vault.make() with\n        Vault.Token({value}) => 0\n"],
     ])).toEqual([
       "cannot destructure opaque record `Token`; match it with `(value)token` or `(value)tokenHex`",
     ]);

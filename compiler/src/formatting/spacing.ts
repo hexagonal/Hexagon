@@ -54,7 +54,7 @@ const operandEnds = new Set<Lexed.Token["kind"]>([
 ]);
 
 const keywordKinds = new Set<string>([
-  "And", "Assume", "Attempt", "Bnot", "Catch", "Constraint", "Derive", "Else",
+  "And", "Assume", "Attempt", "Bnot", "Catch", "Constraint", "Derive", "Do", "Else",
   "Exception", "Export", "Extern", "False", "Finally", "For", "Fun", "Honor",
   "Iff", "If", "Implies", "Import", "In", "Let", "Match", "Not", "Or", "Record",
   "Then", "True", "Try", "Type", "Var", "While",

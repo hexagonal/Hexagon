@@ -50,8 +50,8 @@ describe("a decimal literal waits for the rest of its expression", () => {
         "let a3: Dec = (if c then n else 0.5) * price\n" +
         "let a4: Dec = if c then n else 0.5\n" +
         "let a5: Dec = if c then 1 else 0.5\n" +
-        "let a6: Dec = match c\n    True => n\n    False => m\n" +
-        "let a7: Dec = match c\n    True => 0.5\n    False => n\n" +
+        "let a6: Dec = match c with\n    True => n\n    False => m\n" +
+        "let a7: Dec = match c with\n    True => 0.5\n    False => n\n" +
         "export let shown: (String, String, String, String, String, String, String) = " +
         "(a1.show(), a2.show(), a3.show(), a4.show(), a5.show(), a6.show(), a7.show())\n",
     );
@@ -92,9 +92,9 @@ describe("the forms join as one", () => {
     const exports = await run(
       "let j1 = if c then m else n\n" +
         "let j2 = if c then n else m\n" +
-        "let j3 = match c\n    True => m\n    False => n\n" +
-        "let j4 = match c\n    True => n\n    False => m\n" +
-        "let j5: Int = match c\n    True => n\n    False => m\n" +
+        "let j3 = match c with\n    True => m\n    False => n\n" +
+        "let j4 = match c with\n    True => n\n    False => m\n" +
+        "let j5: Int = match c with\n    True => n\n    False => m\n" +
         "let j6: Int =\n    try\n        m\n    catch\n        fault _ => n\n" +
         "export let joined: (Int, Int, Int, Int, Int, Int) = (j1, j2, j3, j4, j5, j6)\n",
     );
@@ -103,8 +103,8 @@ describe("the forms join as one", () => {
     for (const join of [
       "if c then m else n",
       "if c then n else m",
-      "match c\n    True => m\n    False => n",
-      "match c\n    True => n\n    False => m",
+      "match c with\n    True => m\n    False => n",
+      "match c with\n    True => n\n    False => m",
     ]) {
       expect(refusals(`let j = ${join}\nlet z: Nat = j\n`))
         .toEqual(["type mismatch: expected Nat, found Int"]);
@@ -235,10 +235,10 @@ describe("the boundaries", () => {
     expect(refusals("let a = foo + \"a\"\n")).toEqual(["unknown name `foo`"]);
     expect(refusals("let a: Int = foo / 2\n")).toEqual(["unknown name `foo`"]);
     expect(refusals(
-      "let g = (v: Int) => v\nlet a: Int = match g\n    _ => \"s\"\n",
+      "let g = (v: Int) => v\nlet a: Int = match g with\n    _ => \"s\"\n",
     )).toEqual(["cannot match on `(Int) -> Int` yet"]);
     expect(refusals(
-      "let g = (v: Int) => v\nlet a = (match g\n    _ => \"s\"\n    ) + 1\n",
+      "let g = (v: Int) => v\nlet a = (match g with\n    _ => \"s\"\n    ) + 1\n",
     )).toEqual(["cannot match on `(Int) -> Int` yet"]);
   });
 

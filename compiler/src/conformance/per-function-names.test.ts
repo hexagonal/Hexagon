@@ -44,29 +44,29 @@ const LOOPS = "export record Box = { size: Int }\n" +
   "\n" +
   "export let first(b: Box): Int =\n" +
   "    var total = 0\n" +
-  "    for i in 1..b.size\n" +
+  "    for i in 1..b.size do\n" +
   "        total := total + i\n" +
   "    total\n" +
   "\n" +
   "export let second(b: Box): Int =\n" +
   "    var total = 0\n" +
-  "    for i in 1..b.size\n" +
+  "    for i in 1..b.size do\n" +
   "        total := total + i\n" +
-  "    for i in 1..b.size\n" +
+  "    for i in 1..b.size do\n" +
   "        total := total + i\n" +
   "    total\n" +
   "\n" +
   "export let nested(b: Box): Int =\n" +
   "    var total = 0\n" +
-  "    for i in 1..b.size\n" +
+  "    for i in 1..b.size do\n" +
   "        let up = (c: Box): Int =>\n" +
   "            var t = 0\n" +
-  "            for j in 1..c.size\n" +
+  "            for j in 1..c.size do\n" +
   "                t := t + j\n" +
   "            t\n" +
   "        let twice = (c: Box): Int =>\n" +
   "            var t = 0\n" +
-  "            for j in 1..c.size\n" +
+  "            for j in 1..c.size do\n" +
   "                t := t + 2 * j\n" +
   "            t\n" +
   "        total := total + up(b) + twice(b)\n" +
@@ -107,13 +107,13 @@ describe("a function numbers its own generated names", () => {
   test("a module-level temporary is reserved in every function after it", async () => {
     const source = "export union Side = Left(value: Int) | Right(value: Int)\n" +
       "\n" +
-      "export let early(s: Side): Int = match s\n" +
+      "export let early(s: Side): Int = match s with\n" +
       "    Left(l) => l\n" +
       "    Right(r) => 0 - r\n" +
       "\n" +
       "let Left(amount) | Right(amount) = Left(42)\n" +
       "\n" +
-      "export let late(s: Side): Int = match s\n" +
+      "export let late(s: Side): Int = match s with\n" +
       "    Left(l) => l + amount\n" +
       "    Right(r) => amount - r\n";
     const text = javascript(source);
@@ -137,11 +137,11 @@ describe("a function the emitter writes is a function too", () => {
       "\n" +
       "export let depth(tree: Tree, steps: Int): Int =\n" +
       "    var node = tree\n" +
-      "    for level in 1..steps\n" +
-      "        node := match node\n" +
+      "    for level in 1..steps do\n" +
+      "        node := match node with\n" +
       "            Branch(child) => child\n" +
       "            Leaf(_) => node\n" +
-      "    match node\n" +
+      "    match node with\n" +
       "        Leaf(value) => value\n" +
       "        Branch(_) => 0 - 1\n" +
       "\n" +
@@ -176,13 +176,13 @@ describe("a function the emitter writes is a function too", () => {
       "\n" +
       "fun sumTo(b: Box): Int =\n" +
       "    var total = 0\n" +
-      "    for i in 1..b.size\n" +
+      "    for i in 1..b.size do\n" +
       "        total := total + i\n" +
       "    total\n" +
       "\n" +
       "fun sumTwice(b: Box): Int =\n" +
       "    var total = 0\n" +
-      "    for i in 1..b.size\n" +
+      "    for i in 1..b.size do\n" +
       "        total := total + 2 * i\n" +
       "    total\n" +
       "\n" +
@@ -191,12 +191,12 @@ describe("a function the emitter writes is a function too", () => {
       "export let blocks(b: Box): Int =\n" +
       "    let a =\n" +
       "        var t = 0\n" +
-      "        for i in 1..b.size\n" +
+      "        for i in 1..b.size do\n" +
       "            t := t + i\n" +
       "        t\n" +
       "    let c =\n" +
       "        var t = 0\n" +
-      "        for i in 1..b.size\n" +
+      "        for i in 1..b.size do\n" +
       "            t := t + 2 * i\n" +
       "        t\n" +
       "    a + c\n" +
@@ -204,10 +204,10 @@ describe("a function the emitter writes is a function too", () => {
       "export let loops(b: Box): Int =\n" +
       "    var t = 0\n" +
       "    let u =\n" +
-      "        for i in 1..b.size\n" +
+      "        for i in 1..b.size do\n" +
       "            t := t + i\n" +
       "    let w =\n" +
-      "        for i in 1..b.size\n" +
+      "        for i in 1..b.size do\n" +
       "            t := t + 2 * i\n" +
       "    t\n" +
       "\n" +
@@ -215,13 +215,13 @@ describe("a function the emitter writes is a function too", () => {
       "    var t = 0\n" +
       "    var k = 0\n" +
       "    let u =\n" +
-      "        while k < 1\n" +
-      "            for i in 1..b.size\n" +
+      "        while k < 1 do\n" +
+      "            for i in 1..b.size do\n" +
       "                t := t + i\n" +
       "            k := k + 1\n" +
       "    let w =\n" +
-      "        while k < 2\n" +
-      "            for i in 1..b.size\n" +
+      "        while k < 2 do\n" +
+      "            for i in 1..b.size do\n" +
       "                t := t + 2 * i\n" +
       "            k := k + 1\n" +
       "    t\n";

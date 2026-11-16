@@ -160,7 +160,7 @@ describe("#355 fold's body — the designated specimen, in both directions", () 
   function foldWith(next: string, combine: string): readonly string[] {
     const foldBody = seqSource.slice(seqSource.indexOf("export let fold("));
     const mutatedBody = foldBody
-      .replace("match next(current)", `match next${next}(current)`)
+      .replace("match next(current) with", `match next${next}(current) with`)
       .replace("combine!(accumulator, value)", `combine${combine}(accumulator, value)`);
     // Guard against a replacement that silently matched nothing: only the
     // no-mutation case may leave the body untouched.
@@ -2495,12 +2495,12 @@ export let probe(): Unit = later(save0, 2)!()
     a(n: Int) = Some((cb: () ->! Unit) =>
         if n == 0 then cb!()
         else
-            match a(n - 1)
+            match a(n - 1) with
                 Some(r) => r(() => b(n))
                 None => ())
     b(n: Int): Unit =
         if n > 0 then
-            match a(n - 1)
+            match a(n - 1) with
                 Some(r) => r(save0)
                 None => ()
         else ()
@@ -2512,8 +2512,8 @@ export let probe(): Unit = later(save0, 2)!()
     // same data does.
     const union = "union Cont(a) = K((a) ->! Unit) | Done\n";
     const contA = "    a(n: Int) =\n        K((cb) =>\n            if n == 0 then cb!()\n            else\n" +
-      "                match a(n - 1)\n                    K(r) => r!(() => b(n))\n                    Done => ())\n";
-    const contB = "    b(n: Int): Unit =\n        if n > 0 then\n            match a(n - 1)\n                K(r) => r!(save0)\n" +
+      "                match a(n - 1) with\n                    K(r) => r!(() => b(n))\n                    Done => ())\n";
+    const contB = "    b(n: Int): Unit =\n        if n > 0 then\n            match a(n - 1) with\n                K(r) => r!(save0)\n" +
       "                Done => ()\n        else ()\n";
     for (const knot of members(contA, contB)) {
       expect(at(union + knot).filter(([, message]) => message === handed)).toEqual([["a(n - 1)", handed], ["a(n - 1)", handed]]);
@@ -2533,7 +2533,7 @@ fun
             if n == 0 then cb!()
             else
                 let (_, k) = a(n - 1)
-                match k
+                match k with
                     K(r) => r!(() => ())
                     Done => ()))
 `).filter(([, message]) => message === handed)).toEqual([["a(n - 1)", handed]]);
@@ -3509,7 +3509,7 @@ describe("Effects §3.4 — a knot's colour is re-opened where it is used (#1233
         "if n > 1 then () => save!(\"x\") else () => a(n - 1)()",
         "if n > 0 then () => a(n - 1)() else save0",
         "if n == 0 then save0 else () => a(n - 1)()",
-        "\n    match n\n        0 => () => a(n - 1)()\n        _ => save0",
+        "\n    match n with\n        0 => () => a(n - 1)()\n        _ => save0",
         "\n    let f = if n > 1 then () => a(n - 1)() else save0\n    f",
       ]
     ) {
@@ -3537,7 +3537,7 @@ describe("Effects §3.4 — a knot's colour is re-opened where it is used (#1233
       expect(check(knot + "export let probe(): Unit = b(2)()\n")).toEqual([bang, bang]);
       expect(hover(knot, "b(n: Int)")).toBe("Int -> () ->! Unit");
     }
-    const boxed = "fun a(n: Int) = if n > 1 then Some(() =>\n    match a(n - 1)\n        Some(f) => f!()\n" +
+    const boxed = "fun a(n: Int) = if n > 1 then Some(() =>\n    match a(n - 1) with\n        Some(f) => f!()\n" +
       "        None => ()) else Some(save0)\n";
     expect(hover(boxed, "a(n: Int)")).toBe("Int -> Option(() ->! Unit)");
   });
@@ -3753,7 +3753,7 @@ describe("Effects §3.4 — what a held lambda's own callbacks run is not held (
     // An arrow under a constructor in what the callback hands back is `->!`,
     // as outside a knot, unless a bare call pins it pure (#1380): `h()` does.
     const source = "fun\n    ping(n: Int): Int =\n        let q = (cb) =>\n            let _ = if n > 0 then ping(n - 1) else 0\n" +
-      "            match cb()\n                Some(h) => h()\n                None => ()\n        q(() => Some(noop))\n        0\n";
+      "            match cb() with\n                Some(h) => h()\n                None => ()\n        q(() => Some(noop))\n        0\n";
     expect(check(source)).toEqual([]);
   });
 
@@ -3778,7 +3778,7 @@ describe("Effects §3.4 — what a held lambda's own callbacks run is not held (
     // given stands alone.
     const given = (member: string) => `this function is not one \`${member}\` was given, and a recursive call ` +
       "hands on only the callbacks it was given";
-    expect(check("fun\n    a(n: Int) =\n            match n\n                0 => (cb) => save!(\"x\")\n" +
+    expect(check("fun\n    a(n: Int) =\n            match n with\n                0 => (cb) => save!(\"x\")\n" +
       "                _ => ((cb) => if n > 3 then b(n - 1)!(cb) else cb())\n" +
       "    b(n: Int) = ((if n > 1 then (cb) => cb() else (cb) => a(n - 1)(cb)): (() ->! Unit) ->! Unit)\n" +
       "export let probe(): Unit = a(2)(save0)\n")).toEqual([given("a"), given("b")]);
@@ -4648,7 +4648,7 @@ describe("Effects §3.5 — a colour in error (#1223)", () => {
     // (Declarations Preamble §1.1).
     expect(check(
       "fun a(cb: () ->! Unit, n: Int): Option(() -> Unit) = if n == 0 then Some(noop) else a(() => cb!(), n - 1)\n" +
-        "export let p(): Unit =\n    match a(save0, 1)\n        Some(g) => g!()\n        None => ()\n",
+        "export let p(): Unit =\n    match a(save0, 1) with\n        Some(g) => g!()\n        None => ()\n",
     )).toEqual([made, hedged("`g`")]);
     // An arrow its text writes as a constant is the text's: the refused member
     // draws what its repair draws, beside the refusal.
@@ -5006,7 +5006,7 @@ describe("Effects §4.2, §4.4 — a refused `>->` reads as its fix wherever it 
     const shapes = [
       ["(() >-> Unit, Int)", "(save0, 1)", "let (g, _) = mkBad(noop)\n    g", "", "(() ->! Unit) -> (() ->! Unit, Int)"],
       ["{ run: () >-> Unit, n: Int }", "{ run = save0, n = 1 }", "let g = mkBad(noop).run\n    g", "", "(() ->! Unit) -> {run: () ->! Unit, n: Int}"],
-      ["Option(() >-> Unit)", "Some(save0)", "match mkBad(noop)\n        Some(g) => g", "\n        None => ()", "(() ->! Unit) -> Option(() ->! Unit)"],
+      ["Option(() >-> Unit)", "Some(save0)", "match mkBad(noop) with\n        Some(g) => g", "\n        None => ()", "(() ->! Unit) -> Option(() ->! Unit)"],
     ] as const;
     for (const [face, value, use, rest, hover] of shapes) {
       const program = (mark: string) =>
@@ -5124,7 +5124,7 @@ describe("a binding annotation's outer arrow is the face of the value it writes 
     expect(compile(run4 + 'let r: () -> Unit = if True then run4(() => save!("x")) else () => ()\n'))
       .toEqual([]);
     expect(compile(run4 +
-      'let r: () -> Unit = match True\n    True => run4(() => save!("x"))\n    False => () => ()\n'))
+      'let r: () -> Unit = match True with\n    True => run4(() => save!("x"))\n    False => () => ()\n'))
       .toEqual([]);
     expect(compile(run4 + 'let r: () -> Unit = try\n    run4(() => save!("x"))\ncatch\n    fault _ => () => ()\n'))
       .toEqual([]);
@@ -5136,7 +5136,7 @@ describe("a binding annotation's outer arrow is the face of the value it writes 
     const [report] = effectSpans([["/world.js", ""], ["/main.hex", "module Main\n\n" + world + source]]);
     expect(report?.primary).toBe(("module Main\n\n" + world + source).indexOf('save!("y")'));
     const arms = run4 +
-      'let r: () -> Unit = match True\n    True => run4(() => save!("x"))\n    False => () => save!("y")\n';
+      'let r: () -> Unit = match True with\n    True => run4(() => save!("x"))\n    False => () => save!("y")\n';
     expect(compile(arms)).toEqual([pureFace]);
     const [armReport] = effectSpans([["/world.js", ""], ["/main.hex", "module Main\n\n" + world + arms]]);
     expect(armReport?.primary).toBe(("module Main\n\n" + world + arms).indexOf('save!("y")'));
@@ -5150,7 +5150,7 @@ describe("a binding annotation's outer arrow is the face of the value it writes 
     };
     at('let r: () -> Unit = try\n    () => save!("x")\ncatch\n    fault _ => () => ()\n', 'save!("x")');
     at(run4 + 'let r: () -> Unit = try\n    run4(() => save!("x"))\ncatch\n    fault _ => (() => save!("y"))\n', 'save!("y")');
-    at(run4 + 'let r: () -> Unit =\n    match trim("a")\n        "a" => run4(() => save!("x"))\n' +
+    at(run4 + 'let r: () -> Unit =\n    match trim("a") with\n        "a" => run4(() => save!("x"))\n' +
       '        _ => run4(() => save!("y"))\n    catch\n        fault _ => () => save!("z")\n', 'save!("z")');
   });
 
@@ -5199,7 +5199,7 @@ describe("#355 eager combinators — the shape Map/Set will imitate", () => {
 export let map(values: Vector(a), transform: a ->! b): Vector(b) =
     var out: Vector(b) = []
     var index = 1
-    while index <= Vector.length(values)
+    while index <= Vector.length(values) do
         out := Vector.append(out, transform!(Vector.at(values, index)))
         index := index + 1
     out
@@ -5207,7 +5207,7 @@ export let map(values: Vector(a), transform: a ->! b): Vector(b) =
 export let fold(values: Vector(a), initial: b, combine: (b, a) ->! b): b =
     var total = initial
     var index = 1
-    while index <= Vector.length(values)
+    while index <= Vector.length(values) do
         total := combine!(total, Vector.at(values, index))
         index := index + 1
     total
@@ -5972,13 +5972,13 @@ export let x: Int = 1
     expect(face(`let use(f) =\n    ${back}\n    a()\n`)).toBe("(() -> (() -> a, b)) -> a");
     // A field and an `Option`'s contents, the same.
     expect(check("let use(r) =\n    (r.run)!()\nexport let p(): Unit = use!({ run = save0 })\n")).toEqual([]);
-    expect(check("let use(o) =\n    match o\n        Some(f) => f!()\n        None => ()\nexport let p(): Unit = use!(Some(save0))\n"))
+    expect(check("let use(o) =\n    match o with\n        Some(f) => f!()\n        None => ()\nexport let p(): Unit = use!(Some(save0))\n"))
       .toEqual([]);
     // What the body hands a function it received is `->` where only pure
     // functions flowed into it, as for a callback's parameters.
     const g = "let g(f: () -> Unit): Unit = f()\n";
     expect(check(g + "let use(t) =\n    let (a, _) = t\n    a(noop)\nexport let p(): Unit = use((g, 1))\n")).toEqual([]);
-    expect(check(g + "let use(o) =\n    match o\n        Some(a) => a(noop)\n        None => ()\nexport let p(): Unit = use(Some(g))\n"))
+    expect(check(g + "let use(o) =\n    match o with\n        Some(a) => a(noop)\n        None => ()\nexport let p(): Unit = use(Some(g))\n"))
       .toEqual([]);
     // A bare call through data two parameters share leaves it pure, though no
     // fact names it.
@@ -6254,7 +6254,7 @@ export let clean(document: String): String = trim(document)
     const source = `export let fold(values: Vector(a), initial: b, combine: (b, a) ->! b): b =
     var total = initial
     var index = 1
-    while index <= Vector.length(values)
+    while index <= Vector.length(values) do
         total := combine!(total, Vector.at(values, index))
         index := index + 1
     total
@@ -6578,7 +6578,7 @@ ${use}
     r!(() => save!("x"))`);
     expect(check(inTuple)).toEqual([]);
     expect(hover(inTuple, "make() =")).toBe("() -> ((() ->! Unit) >-> Unit, Int)");
-    const inOption = make("Some(run)", `    match make()
+    const inOption = make("Some(run)", `    match make() with
         Some(r) => r!(() => save!("x"))
         None => ()`);
     expect(check(inOption)).toEqual([]);

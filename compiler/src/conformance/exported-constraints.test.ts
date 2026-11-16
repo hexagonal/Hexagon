@@ -635,7 +635,7 @@ describe("a parameterized honor of an imported constraint", () => {
         "",
         "honor<a: Renders.Render> Renders.Render<Nest(a)> =",
         "    render(n) =",
-        "        match n",
+        "        match n with",
         // The sanctioned recursion spelling since #304/#335: a member cannot
         // call its own name (Constraints §4.6), and the dot call is the route
         // — `inner: Nest(a)` dispatches through this instance's own evidence,

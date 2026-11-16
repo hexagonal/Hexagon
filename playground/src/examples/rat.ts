@@ -23,7 +23,7 @@ let top // bottom = fraction
 Debug.log("top = \${top}")
 Debug.log("bottom = \${bottom}")
 
-let describe(fraction: Rat) = match fraction
+let describe(fraction: Rat) = match fraction with
     0 // _ => "zero"
     n // 1 => "the whole number \${n}"
     n // d => "\${n} over \${d}"

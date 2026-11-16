@@ -153,7 +153,7 @@ let hexDigits: Vector(String) = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9
 -- text to read, and a lone surrogate is no character to show.
 let quoted(message: String): String =
     var chunks: Vector(String) = []
-    for point in message
+    for point in message do
         let value = codepointValue(point)
         if value >= 55_296 and value <= 57_343 then
             chunks := chunks.append("U+" ++ hexDigits[Int.div(value, 4096) + 1] ++ hexDigits[Int.mod(Int.div(value, 256), 16) + 1] ++
@@ -216,7 +216,7 @@ let isNameContinue(point: String): Bool = isNameStart(point) or isAsciiDigit(poi
 let isValidName(name: String): Bool =
     var valid = name != ""
     var first = True
-    for point in name
+    for point in name do
         if first then
             valid := valid and isNameStart(point)
             first := False
@@ -227,11 +227,11 @@ let isValidName(name: String): Bool =
 -- Whether `value` is `None`, read by matching: this module never asks for
 -- `Option`'s instances or its companion's operations, so that it compiles beside
 -- any prelude member the host replaces.
-let isAbsent(value: Option(a)): Bool = match value
+let isAbsent(value: Option(a)): Bool = match value with
     Some(_) => False
     None => True
 
-let prefixed(prefix: String, value: Option(String)): Option(String) = match value
+let prefixed(prefix: String, value: Option(String)): Option(String) = match value with
     Some(text) => Some(prefix ++ text)
     None => None
 
@@ -246,14 +246,14 @@ let skipIgnored(text: Vector(String), position: Int, extended: Bool): Int =
     let size = Vector.length(text)
     var at = position
     var scanning = extended
-    while scanning and at <= size
+    while scanning and at <= size do
         let point = text[at]
         if isWhiteSpace(point) then
             at := at + 1
         else if point == "#" then
             at := at + 1
             var inComment = True
-            while inComment and at <= size
+            while inComment and at <= size do
                 if text[at] == "\n" then inComment := False
                 at := at + 1
         else
@@ -284,7 +284,7 @@ let refusedEscape(letter: String): Option(String) =
     if isAsciiDigit(letter) and letter != "0" then
         Some("`\\" ++ letter ++ "` is a backreference, which the dialect does not have")
     else
-        match letter
+        match letter with
             "0" => Some("`\\0` is not an escape; write `\\u{…}`")
             "x" => Some("`\\x` is not an escape; write `\\u{…}`")
             "f" => Some("`\\f` is not an escape; write `\\u{…}`")
@@ -460,7 +460,7 @@ let writtenProperty(letter: String, body: String, braced: Bool): String =
 let separatorAt(body: String): Option(Int) =
     var at = 1
     var found = None
-    for point in body
+    for point in body do
         if isAbsent(found) and (point == "=" or point == ":") then found := Some(at)
         at := at + 1
     found
@@ -477,7 +477,7 @@ let valueKind(property: String): Option(PropertyKind) =
     else
         None
 
-let tableOf(kind: PropertyKind): Map(String, String) = match kind
+let tableOf(kind: PropertyKind): Map(String, String) = match kind with
     GeneralCategory => generalCategoryNames
     Script => scriptNames
     ScriptExtensions => scriptNames
@@ -488,11 +488,11 @@ let lookupValue(kind: PropertyKind, value: String): Option(String) = Map.get(tab
 -- A bare name: a General_Category value, then a Script value, then a binary
 -- property, then `Any`, `ASCII`, `Assigned` (§2.4; the spaces are disjoint).
 let lookupBare(name: String): Option((PropertyKind, String)) =
-    match Map.get(generalCategoryNames, name)
+    match Map.get(generalCategoryNames, name) with
         Some(value) => Some((GeneralCategory, value))
-        None => match Map.get(scriptNames, name)
+        None => match Map.get(scriptNames, name) with
             Some(value) => Some((Script, value))
-            None => match Map.get(binaryNames, name)
+            None => match Map.get(binaryNames, name) with
                 Some(value) => Some((Binary, value))
                 None =>
                     if name == "Any" then
@@ -508,7 +508,7 @@ let lookupBare(name: String): Option((PropertyKind, String)) =
 -- refused loose spelling gets.
 let loosened(name: String): String =
     var chunks: Vector(String) = []
-    for point in name
+    for point in name do
         let code = codeOf(point)
         if not (point == "_" or point == "-" or point == " ") then
             chunks := chunks.append(if code >= 65 and code <= 90 then String.toLower(point) else point)
@@ -517,7 +517,7 @@ let loosened(name: String): String =
 let looseIn(names: Vector(String), name: String): Option(String) =
     let wanted = loosened(name)
     var found = None
-    for candidate in names
+    for candidate in names do
         if isAbsent(found) and loosened(candidate) == wanted then found := Some(candidate)
     found
 
@@ -525,13 +525,13 @@ let spellings(table: Map(String, String)): Vector(String) = Vector.fromSeq(Map.k
 
 -- The canonical spelling of the table entry `name` loosely matches.
 let looseCanonical(table: Map(String, String), name: String): Option(String) =
-    match looseIn(spellings(table), name)
+    match looseIn(spellings(table), name) with
         Some(alias) => Map.get(table, alias)
         None => None
 
 let looseValue(kind: PropertyKind, value: String): Option(String) = looseCanonical(tableOf(kind), value)
 
-let looseOrExact(kind: PropertyKind, value: String): Option(String) = match lookupValue(kind, value)
+let looseOrExact(kind: PropertyKind, value: String): Option(String) = match lookupValue(kind, value) with
     Some(canonical) => Some(canonical)
     None => looseValue(kind, value)
 
@@ -539,11 +539,11 @@ let looseProperty(property: String): Option(String) =
     looseIn(["gc", "General_Category", "sc", "Script", "scx", "Script_Extensions"], property)
 
 let looseBare(name: String): Option(String) =
-    match looseCanonical(generalCategoryNames, name)
+    match looseCanonical(generalCategoryNames, name) with
         Some(found) => Some(found)
-        None => match looseCanonical(scriptNames, name)
+        None => match looseCanonical(scriptNames, name) with
             Some(found) => Some(found)
-            None => match looseCanonical(binaryNames, name)
+            None => match looseCanonical(binaryNames, name) with
                 Some(found) => Some(found)
                 None => looseIn(["Any", "ASCII", "Assigned"], name)
 
@@ -557,14 +557,14 @@ let editDistance(left: Vector(String), right: Vector(String)): Int =
     var earlier: Vector(Int) = []
     var previous: Vector(Int) = []
     var column = 0
-    while column <= width
+    while column <= width do
         previous := previous.append(column)
         column := column + 1
     var row = 1
-    while row <= Vector.length(left)
+    while row <= Vector.length(left) do
         var current: Vector(Int) = [row]
         var other = 1
-        while other <= width
+        while other <= width do
             let substituted = previous[other] + (if left[row] == right[other] then 0 else 1)
             var distance = smaller(substituted, smaller(current[other] + 1, previous[other + 1] + 1))
             if row > 1 and other > 1 and left[row] == right[other - 1] and left[row - 1] == right[other] then
@@ -585,19 +585,19 @@ let nearest(candidates: Vector(String), written: String): Option(String) =
     let wanted = points(written)
     let size = Vector.length(wanted)
     var best: Option((String, Int)) = None
-    for candidate in candidates
+    for candidate in candidates do
         let other = points(candidate)
         let gap = if Vector.length(other) > size then Vector.length(other) - size else size - Vector.length(other)
-        let worth = match best
+        let worth = match best with
             Some((_, known)) => gap <= known
             None => True
         if worth then
             let distance = editDistance(wanted, other)
-            let better = match best
+            let better = match best with
                 Some((spelling, known)) => distance < known or (distance == known and candidate < spelling)
                 None => True
             if better then best := Some((candidate, distance))
-    match best
+    match best with
         Some((spelling, distance)) =>
             let room = Int.div(String.length(spelling), 3)
             if size > 1 and distance <= (if room > 1 then room else 1) then Some(spelling) else None
@@ -606,12 +606,12 @@ let nearest(candidates: Vector(String), written: String): Option(String) =
 -- The supported spelling nearest a `\p` body that names nothing, for the
 -- near miss its refusal offers.
 let nearProperty(body: String): Option(String) =
-    match separatorAt(body)
+    match separatorAt(body) with
         Some(at) =>
             let property = slice(body, 1, at - 1)
             let separator = body[at..at]
             let value = slice(body, at + 1, String.length(body))
-            match valueKind(property)
+            match valueKind(property) with
                 Some(kind) => prefixed(property ++ separator, nearest(spellings(tableOf(kind)), value))
                 -- A near name is offered only with a value it has: first the
                 -- nearest of the names that have the value written, then the
@@ -619,23 +619,23 @@ let nearProperty(body: String): Option(String) =
                 None =>
                     let names = ["gc", "General_Category", "sc", "Script", "scx", "Script_Extensions"]
                     var having: Vector(String) = []
-                    for name in names
-                        match valueKind(name)
-                            Some(kind) => match lookupValue(kind, value)
+                    for name in names do
+                        match valueKind(name) with
+                            Some(kind) => match lookupValue(kind, value) with
                                 Some(_) => having := having.append(name)
                                 None => ()
                             None => ()
-                    match nearest(having, property)
+                    match nearest(having, property) with
                         Some(near) => Some(near ++ separator ++ value)
-                        None => match nearest(names, property)
-                            Some(near) => match valueKind(near)
+                        None => match nearest(names, property) with
+                            Some(near) => match valueKind(near) with
                                 Some(kind) => prefixed(near ++ separator, nearest(spellings(tableOf(kind)), value))
                                 None => None
                             None => None
         None =>
             var candidates: Vector(String) = ["Any", "ASCII", "Assigned"]
-            for table in [generalCategoryNames, scriptNames, binaryNames]
-                for spelling in spellings(table)
+            for table in [generalCategoryNames, scriptNames, binaryNames] do
+                for spelling in spellings(table) do
                     candidates := candidates.append(spelling)
             nearest(candidates, body)
 
@@ -643,21 +643,21 @@ let nearProperty(body: String): Option(String) =
 -- spelling of what it loosely matches, if anything (§2.4: no loose matching, but
 -- the message names the spelling).
 let lookupProperty(body: String): Outcome((PropertyKind, String), Option(String)) =
-    match separatorAt(body)
+    match separatorAt(body) with
         Some(at) =>
             let property = slice(body, 1, at - 1)
             let separator = body[at..at]
             let value = slice(body, at + 1, String.length(body))
-            match valueKind(property)
-                Some(kind) => match lookupValue(kind, value)
+            match valueKind(property) with
+                Some(kind) => match lookupValue(kind, value) with
                     Some(canonical) => Read((kind, canonical))
                     None => Refused(prefixed(property ++ separator, looseValue(kind, value)))
-                None => Refused(match looseProperty(property)
-                    Some(spelling) => match valueKind(spelling)
+                None => Refused(match looseProperty(property) with
+                    Some(spelling) => match valueKind(spelling) with
                         Some(kind) => prefixed(spelling ++ separator, looseOrExact(kind, value))
                         None => None
                     None => None)
-        None => match lookupBare(body)
+        None => match lookupBare(body) with
             Some(found) => Read(found)
             None => Refused(looseBare(body))
 
@@ -670,18 +670,18 @@ let propertyEscape(
     position: Int,
     next: Int,
 ): Outcome((Escaped, Int), Refusal) =
-    match found
+    match found with
         Read((kind, value)) => Read((perl(kind, value, negated), next))
         Refused(suggestion) =>
             let written = writtenProperty(letter, body, braced)
-            match suggestion
+            match suggestion with
                 Some(spelling) =>
                     let spelled = "\\" ++ letter ++ "{" ++ spelling ++ "}"
                     let message = "`" ++ written ++ "` names no supported property; write `" ++ spelled ++ "`"
                     Refused(fixed(message, position, [writing("write `" ++ spelled ++ "`", position, next, spelled)]))
                 None =>
                     -- A near miss is a guess, so it names no edit.
-                    let advice = match nearProperty(body)
+                    let advice = match nearProperty(body) with
                         Some(spelling) => "; did you mean `\\" ++ letter ++ "{" ++ spelling ++ "}`?"
                         None => ""
                     Refused(fault("`" ++ written ++ "` names no supported property" ++ advice, position))
@@ -696,14 +696,14 @@ let readProperty(pattern: String, text: Vector(String), position: Int, negated: 
         Refused(badForm)
     else if text[open] == "{" then
         var close = open + 1
-        while close <= size and text[close] != "}"
+        while close <= size and text[close] != "}" do
             close := close + 1
         if close > size or close == open + 1 then
             Refused(badForm)
         else
             let body = slice(pattern, open + 1, close - 1)
             let name = slice(pattern, open + 2, close - 1)
-            let known = match lookupProperty(name)
+            let known = match lookupProperty(name) with
                 Read(_) => True
                 Refused(_) => False
             if text[open + 1] == "^" and known then
@@ -734,8 +734,8 @@ let readCodeEscape(text: Vector(String), position: Int): Outcome((Escaped, Int),
         var value = 0
         var digits = 0
         var reading = True
-        while reading and at <= size
-            match hexValue(text[at])
+        while reading and at <= size do
+            match hexValue(text[at]) with
                 Some(digit) =>
                     value := value * 16 + digit
                     digits := digits + 1
@@ -759,7 +759,7 @@ let readEscape(pattern: String, text: Vector(String), position: Int): Outcome((E
         if not (isAsciiLetter(letter) or isAsciiDigit(letter)) then
             Read((EscapedPoint(codeOf(letter)), next))
         else
-            match letter
+            match letter with
                 "n" => Read((EscapedPoint(10), next))
                 "t" => Read((EscapedPoint(9), next))
                 "r" => Read((EscapedPoint(13), next))
@@ -776,7 +776,7 @@ let readEscape(pattern: String, text: Vector(String), position: Int): Outcome((E
                 "B" => Read((EscapedAnchor(NotWordBoundary, "\\B"), next))
                 "A" => Read((EscapedAnchor(TextStart, "\\A"), next))
                 "z" => Read((EscapedAnchor(TextEnd, "\\z"), next))
-                _ => match refusedEscape(letter)
+                _ => match refusedEscape(letter) with
                     Some(message) => Refused(fault(message, position))
                     None => Refused(fault("`\\" ++ letter ++ "` is not an escape; write `" ++ letter ++ "`, or see the escape table", position))
 
@@ -789,7 +789,7 @@ let addRange(ranges: Vector((Int, Int)), low: Int, high: Int): Vector((Int, Int)
     var pendingLow = low
     var pendingHigh = high
     var placed = False
-    for (existingLow, existingHigh) in ranges
+    for (existingLow, existingHigh) in ranges do
         if placed then
             result := result.append((existingLow, existingHigh))
         else if existingHigh + 1 < pendingLow then
@@ -804,8 +804,8 @@ let addRange(ranges: Vector((Int, Int)), low: Int, high: Int): Vector((Int, Int)
 
 let complemented(items: Vector(ClassItem)): Vector(ClassItem) =
     var result: Vector(ClassItem) = []
-    for item in items
-        result := result.append(match item
+    for item in items do
+        result := result.append(match item with
             Property(kind, value, negated) => Property(kind, value, not negated)
             Range(low, high) => Range(low, high))
     result
@@ -825,7 +825,7 @@ let innerBracketFault(text: Vector(String), position: Int): Refusal =
 let readMember(pattern: String, text: Vector(String), position: Int): Outcome((Member, Int), Refusal) =
     let point = text[position]
     if point == "\\" then
-        match readEscape(pattern, text, position)
+        match readEscape(pattern, text, position) with
             Read((EscapedPoint(value), next)) => Read((Single(value), next))
             Read((EscapedItems(items, negated), next)) =>
                 Read((Several(if negated then complemented(items) else items), next))
@@ -853,7 +853,7 @@ let readClass(pattern: String, text: Vector(String), open: Int, folded: Bool): O
     if position <= size and text[position] == "]" then
         failure := Some(fault("empty class; write `\\]` for a literal `]`", open))
         reading := False
-    while reading
+    while reading do
         if position > size then
             failure := Some(fault("missing `]` for the class opened here; close it, or write `\\[` for a literal", open))
             reading := False
@@ -864,7 +864,7 @@ let readClass(pattern: String, text: Vector(String), open: Int, folded: Bool): O
             failure := Some(rangeEndFault(position))
             reading := False
         else
-            match readMember(pattern, text, position)
+            match readMember(pattern, text, position) with
                 Refused(error) =>
                     failure := Some(error)
                     reading := False
@@ -883,7 +883,7 @@ let readClass(pattern: String, text: Vector(String), open: Int, folded: Bool): O
                         ranges := addRange(ranges, low, low)
                         position := next
                     else
-                        match readMember(pattern, text, highAt)
+                        match readMember(pattern, text, highAt) with
                             Refused(error) =>
                                 failure := Some(error)
                                 reading := False
@@ -907,11 +907,11 @@ let readClass(pattern: String, text: Vector(String), open: Int, folded: Bool): O
                                 else
                                     ranges := addRange(ranges, low, highValue)
                                     position := after
-    match failure
+    match failure with
         Some(error) => Refused(error)
         None =>
             var items: Vector(ClassItem) = []
-            for (low, high) in ranges
+            for (low, high) in ranges do
                 items := items.append(Range(low, high))
             Read((Class(items ++ properties, negated, folded), position))
 
@@ -922,7 +922,7 @@ let readDigits(text: Vector(String), position: Int): (Int, Int, Int) =
     let size = Vector.length(text)
     var at = position
     var value = 0
-    while at <= size and isAsciiDigit(text[at])
+    while at <= size and isAsciiDigit(text[at]) do
         value := if value > 100_000 then value else value * 10 + digitValue(text[at])
         at := at + 1
     (value, at - position, at)
@@ -954,7 +954,7 @@ let readCount(text: Vector(String), open: Int): Outcome((Int, Option(Int), Int),
 -- ---------------------------------------------------------------------------
 -- Groups and flags (§2.6)
 
-let flagLetter(flags: Flags, letter: String, value: Bool): Flags = match letter
+let flagLetter(flags: Flags, letter: String, value: Bool): Flags = match letter with
     "i" => { flags with folded = value }
     "m" => { flags with multiLine = value }
     "s" => { flags with dotAll = value }
@@ -977,7 +977,7 @@ let readFlags(text: Vector(String), position: Int, opening: Int, flags: Flags): 
     var twice: Option((String, Int, String)) = None
     var closed = False
     var reading = True
-    while reading
+    while reading do
         if at > size then
             failure := Some(fault("missing `)` for the group opened here; close it, or write `\\(` for a literal", opening))
             reading := False
@@ -999,7 +999,7 @@ let readFlags(text: Vector(String), position: Int, opening: Int, flags: Flags): 
             else if point == "i" or point == "m" or point == "s" or point == "x" then
                 var earlier = 0
                 var index = 0
-                for letter in seen
+                for letter in seen do
                     index := index + 1
                     if letter == point then earlier := index
                 if earlier > 0 then
@@ -1037,7 +1037,7 @@ let readFlags(text: Vector(String), position: Int, opening: Int, flags: Flags): 
             else
                 failure := Some(fault("`" ++ point ++ "` is not a flag; the flags are `i`, `m`, `s`, `x`", at))
                 reading := False
-    match (twice, failure)
+    match (twice, failure) with
         (Some((message, position, _)), Some(_)) => Refused(fault(message, position))
         (Some((message, position, letter)), None) =>
             Refused(fixed(message, position, [writing("drop the second `" ++ letter ++ "`", position, position + 1, "")]))
@@ -1048,7 +1048,7 @@ let readFlags(text: Vector(String), position: Int, opening: Int, flags: Flags): 
 let readName(pattern: String, text: Vector(String), angle: Int): Outcome(Opened, Refusal) =
     let size = Vector.length(text)
     var close = angle + 1
-    while close <= size and text[close] != ">" and text[close] != ")"
+    while close <= size and text[close] != ">" and text[close] != ")" do
         close := close + 1
     if close > size or text[close] == ")" then
         Refused(fault("group name is not closed; write `(?<year>…)`", angle))
@@ -1101,7 +1101,7 @@ let readPrefix(pattern: String, text: Vector(String), opening: Int, flags: Flags
         else if (point == "+" or point == "-") and isAsciiDigit(next) then
             Refused(fault("`(?" ++ point ++ next ++ "` is recursion, which the dialect does not have", question))
         else if isAsciiLetter(point) or point == "-" or point == ")" then
-            match readFlags(text, at, opening, flags)
+            match readFlags(text, at, opening, flags) with
                 Read((result, close, True)) => Read(OpenedSetting(result, close + 1))
                 Read((result, close, False)) => Read(OpenedGroup(result, close + 1))
                 Refused(error) => Refused(error)
@@ -1113,23 +1113,23 @@ let readPrefix(pattern: String, text: Vector(String), opening: Int, flags: Flags
 
 let sequenceOf(pieces: Vector(Piece)): Expr =
     var parts: Vector(Expr) = []
-    for piece in pieces
-        let isSetting = match piece.kind
+    for piece in pieces do
+        let isSetting = match piece.kind with
             Setting(_) => True
             _ => False
         if not isSetting then parts := parts.append(piece.expr)
-    match parts
+    match parts with
         [] => Empty
         [only] => only
         _ => Concat(parts)
 
-let alternationOf(branches: Vector(Expr)): Expr = match branches
+let alternationOf(branches: Vector(Expr)): Expr = match branches with
     [only] => only
     _ => Alternate(branches)
 
 let productOf(pieces: Vector(Piece)): Int =
     var largest = 1
-    for piece in pieces
+    for piece in pieces do
         if piece.product > largest then largest := piece.product
     largest
 
@@ -1157,7 +1157,7 @@ let withPiece(frames: Vector(Frame), piece: Piece): Vector(Frame) =
 -- A quantifier's text written to match itself: `*?` as `\*\?`, `{3}` as `\{3}`.
 let literalSpelling(written: String): String =
     var chunks: Vector(String) = []
-    for point in written
+    for point in written do
         chunks := chunks.append(if point == "*" or point == "+" or point == "?" or point == "{" then "\\" ++ point else point)
     String.join(Iterable.toSeq(chunks), "")
 
@@ -1167,10 +1167,10 @@ let literalSpelling(written: String): String =
 let holdsCapture(expr: Expr): Bool =
     var pending: Vector(Expr) = [expr]
     var found = False
-    while not found and Vector.length(pending) > 0
+    while not found and Vector.length(pending) > 0 do
         let next = pending[Vector.length(pending)]
         pending := Vector.dropLast(pending)
-        match next
+        match next with
             Capture(_, _, _) => found := True
             Concat(parts) => pending := pending ++ parts
             Alternate(branches) => pending := pending ++ branches
@@ -1191,7 +1191,7 @@ let holdsCapture(expr: Expr): Bool =
 let countSequence(atom: String, low: Int, high: Option(Int), lazy: Bool, bound: Int): Option(String) =
     let runs = if low > 0 then Int.div(low - 1, bound) else 0
     let rest = low - runs * bound
-    let tail: Option(Vector(String)) = match high
+    let tail: Option(Vector(String)) = match high with
         None => Some(["{${rest},}"])
         Some(value) =>
             let optional = value - low
@@ -1199,7 +1199,7 @@ let countSequence(atom: String, low: Int, high: Option(Int), lazy: Bool, bound: 
             else if optional == 0 then Some(["{${rest}}"])
             else if rest + optional <= bound then Some(["{${rest},${rest + optional}}"])
             else Some(["{${rest}}", "{0,${optional}}"])
-    match tail
+    match tail with
         None => None
         Some(counts) =>
             let pieces = runs + Vector.length(counts)
@@ -1208,10 +1208,10 @@ let countSequence(atom: String, low: Int, high: Option(Int), lazy: Bool, bound: 
             else
                 var chunks: Vector(String) = []
                 var run = 0
-                while run < runs
+                while run < runs do
                     chunks := chunks.append(atom ++ "{${bound}}")
                     run := run + 1
-                for count in counts
+                for count in counts do
                     chunks := chunks.append(atom ++ count)
                 if lazy then chunks := chunks.append("?")
                 Some(String.join(Iterable.toSeq(chunks), ""))
@@ -1229,7 +1229,7 @@ let pastBound(pattern: String, last: Piece, counted: Counted, message: String, t
     else
         let written = slice(pattern, last.start, counted.start - 1)
         countSequence(written, counted.low, counted.high, counted.lazy, Int.div(limit, last.product))
-    match sequence
+    match sequence with
         Some(spelled) => fixed(message, counted.start, [writing(title, last.start, counted.after, spelled)])
         None => fault(message, counted.start)
 
@@ -1251,7 +1251,7 @@ let quantify(
         Read((1, None, position + 1))
     else
         Read((0, Some(1), position + 1))
-    match counted
+    match counted with
         Refused(error) => Refused(error)
         Read((low, high, afterCount)) =>
             let lazyAt = skipIgnored(text, afterCount, flags.extended)
@@ -1265,7 +1265,7 @@ let quantify(
                 Refused(fault("nothing to repeat before `" ++ written ++ "`" ++ "; write `" ++ literalSpelling(written) ++ "` for a literal `" ++ written ++ "`", position))
             else
                 let last = top.pieces[count]
-                match last.kind
+                match last.kind with
                     Asserted(assertion) =>
                         Refused(fault("nothing to repeat before `" ++ written ++ "`; `" ++ assertion ++ "` is an assertion, not an atom" ++ "; write `" ++ literalSpelling(written) ++ "` for a literal `" ++ written ++ "`", position))
                     Setting(setting) =>
@@ -1281,7 +1281,7 @@ let quantify(
                         else
                             Refused(fault("`" ++ previous ++ written ++ "` repeats a repetition; " ++ nested, position))
                     Atom =>
-                        let maximum = match high
+                        let maximum = match high with
                             Some(value) => value
                             None => low
                         if point == "{" and (low > limit or maximum > limit) then
@@ -1320,7 +1320,7 @@ let parseText(pattern: String, text: Vector(String)): Outcome(Pattern, Refusal) 
     var position = 1
     var failure: Option(Refusal) = None
     var reading = True
-    while reading
+    while reading do
         position := skipIgnored(text, position, flags.extended)
         if position > size then
             reading := False
@@ -1340,7 +1340,7 @@ let parseText(pattern: String, text: Vector(String)): Outcome(Pattern, Refusal) 
                 else
                     let body = alternationOf(top.branches.append(sequenceOf(top.pieces)))
                     let product = if productOf(top.pieces) > top.product then productOf(top.pieces) else top.product
-                    let group = match top.capture
+                    let group = match top.capture with
                         Some(index) =>
                             let opened = spans[index]
                             spans := Vector.set(spans, index, { opened with length = position - opened.start + 1 })
@@ -1358,7 +1358,7 @@ let parseText(pattern: String, text: Vector(String)): Outcome(Pattern, Refusal) 
                     readPrefix(pattern, text, position, flags)
                 else
                     Read(OpenedGroup(flags, position + 1))
-                let isSetting = match opened
+                let isSetting = match opened with
                     Read(OpenedSetting(_, _)) => True
                     _ => False
                 let isCapture = not (position + 1 <= size and text[position + 1] == "?")
@@ -1371,7 +1371,7 @@ let parseText(pattern: String, text: Vector(String)): Outcome(Pattern, Refusal) 
                     frames := frames.append(frameOf(position, Some(count), None, flags))
                     position := position + 1
                 else
-                    match opened
+                    match opened with
                         Refused(error) =>
                             failure := Some(error)
                             reading := False
@@ -1400,7 +1400,7 @@ let parseText(pattern: String, text: Vector(String)): Outcome(Pattern, Refusal) 
                                 frames := frames.append(frameOf(position, Some(count), Some(name), flags))
                                 position := next
             else if isQuantifier(point) then
-                match quantify(pattern, text, frames, position, flags)
+                match quantify(pattern, text, frames, position, flags) with
                     Refused(error) =>
                         failure := Some(error)
                         reading := False
@@ -1408,7 +1408,7 @@ let parseText(pattern: String, text: Vector(String)): Outcome(Pattern, Refusal) 
                         frames := updated
                         position := next
             else if point == "[" then
-                match readClass(pattern, text, position, flags.folded)
+                match readClass(pattern, text, position, flags.folded) with
                     Refused(error) =>
                         failure := Some(error)
                         reading := False
@@ -1416,7 +1416,7 @@ let parseText(pattern: String, text: Vector(String)): Outcome(Pattern, Refusal) 
                         frames := withPiece(frames, atom(expr, position))
                         position := next
             else if point == "\\" then
-                match readEscape(pattern, text, position)
+                match readEscape(pattern, text, position) with
                     Refused(error) =>
                         failure := Some(error)
                         reading := False
@@ -1444,7 +1444,7 @@ let parseText(pattern: String, text: Vector(String)): Outcome(Pattern, Refusal) 
             else
                 frames := withPiece(frames, atom(literalOf(codeOf(point), flags), position))
                 position := position + 1
-    match failure
+    match failure with
         Some(error) => Refused(error)
         None =>
             let depth = Vector.length(frames)
@@ -1458,6 +1458,6 @@ let parseText(pattern: String, text: Vector(String)): Outcome(Pattern, Refusal) 
 {-- Parses `pattern` as the dialect of `spec/regex.md` §2: the tree. A pattern
     the dialect refuses throws `RegexError` for the first defect in reading
     order. -}
-export let parse(pattern: String): Pattern = match parseText(pattern, points(pattern))
+export let parse(pattern: String): Pattern = match parseText(pattern, points(pattern)) with
     Read(parsed) => parsed
     Refused(refusal) => throw^(RegexError(refusal.message, refusal.position, refusal.rewrites))

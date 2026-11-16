@@ -137,7 +137,7 @@ describe("a constructor application's own expected type (#1066)", () => {
         "let d: Option(Dec) = Some(n * 1.5)\n" +
         "let e: Option(Dec) = if c then Some(n) else None\n" +
         "let w: Wrapper(Dec) = Wrapper({value = n})\n" +
-        "let show(o: Option(Dec)): String = match o\n    Some(x) => x.show()\n    None => \"none\"\n" +
+        "let show(o: Option(Dec)): String = match o with\n    Some(x) => x.show()\n    None => \"none\"\n" +
         "export let shown: (String, String, String, String) = (show(a), show(d), show(e), w.value.show())\n",
     );
     expect(exports.shown).toEqual(["3", "4.5", "3", "3"]);
@@ -334,7 +334,7 @@ describe("the argument's spine (#1096)", () => {
       g9 + "let a = g9(m, {f = (v) => v + n})\n",
       g10 + "let a = g10(m, [(1, (v) => v + n)])\n",
       "let a = apply2(m, if c then (v) => v + n else ident)\n",
-      "let a = apply2(m, match c\n        True => (v) => v + n\n        False => ident)\n",
+      "let a = apply2(m, match c with\n        True => (v) => v + n\n        False => ident)\n",
       "let a = apply2(m, if c then\n        let k2 = 1\n        (v) => v + n + k2\n    else ident)\n",
     ]) {
       expect(refusals(program), program).toEqual([settledAtNat]);

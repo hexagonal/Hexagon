@@ -119,22 +119,22 @@ export let singleton(value: a): Vector(a) = [value]
 export let isEmpty(values: Vector(a)): Bool = length(values) == 0
 
 {-- The first element, or `None` when the vector is empty. -}
-export let first(values: Vector(a)): Option(a) = match values
+export let first(values: Vector(a)): Option(a) = match values with
     [] => None
     [value, ...] => Some(value)
 
 {-- The last element, or `None` when the vector is empty. -}
-export let last(values: Vector(a)): Option(a) = match values
+export let last(values: Vector(a)): Option(a) = match values with
     [] => None
     [..., value] => Some(value)
 
 {-- A new vector without the first element. An empty vector stays empty. -}
-export let dropFirst(values: Vector(a)): Vector(a) = match values
+export let dropFirst(values: Vector(a)): Vector(a) = match values with
     [] => []
     [_, ...rest] => rest
 
 {-- A new vector without the last element. An empty vector stays empty. -}
-export let dropLast(values: Vector(a)): Vector(a) = match values
+export let dropLast(values: Vector(a)): Vector(a) = match values with
     [] => []
     [...rest, _] => rest
 
@@ -159,7 +159,7 @@ export let get(values: Vector(a), index: Int): Option(a) =
     `[1, 2, 3].map(n => n * 2)` is `[2, 4, 6]`. -}
 export let map(values: Vector(a), transform: a ->! b): Vector(b) =
     var result: Vector(b) = []
-    for value in values
+    for value in values do
         result := append(result, transform!(value))
     result
 
@@ -167,7 +167,7 @@ export let map(values: Vector(a), transform: a ->! b): Vector(b) =
     `True`. -}
 export let filter(values: Vector(a), keep: a ->! Bool): Vector(a) =
     var result: Vector(a) = []
-    for value in values
+    for value in values do
         if keep!(value) then
             result := append(result, value)
     result
@@ -177,8 +177,8 @@ export let filter(values: Vector(a), keep: a ->! Bool): Vector(a) =
     `[1, 2].flatMap(n => [n, n * 10])` is `[1, 10, 2, 20]`. -}
 export let flatMap(values: Vector(a), transform: a ->! Vector(b)): Vector(b) =
     var result: Vector(b) = []
-    for value in values
-        for produced in transform!(value)
+    for value in values do
+        for produced in transform!(value) do
             result := append(result, produced)
     result
 
@@ -194,7 +194,7 @@ export let flatten(rows: Vector(Vector(a))): Vector(a) =
     `[1, 2, 3].fold(0, (total, n) => total + n)` is `6`. -}
 export let fold(values: Vector(a), initial: b, combine: (b, a) ->! b): b =
     var accumulated = initial
-    for value in values
+    for value in values do
         accumulated := combine!(accumulated, value)
     accumulated
 
@@ -228,7 +228,7 @@ export let indexOf<a: Eq>(values: Vector(a), element: a): Option(Int) =
 {-- A new vector with the elements in the opposite order. -}
 export let reverse(values: Vector(a)): Vector(a) =
     var result: Vector(a) = []
-    for value in values
+    for value in values do
         result := prepend(result, value)
     result
 
@@ -239,7 +239,7 @@ export let reverse(values: Vector(a)): Vector(a) =
 export let indexed(values: Vector(a)): Vector((Int, a)) =
     var result: Vector((Int, a)) = []
     var position = 0
-    for value in values
+    for value in values do
         position := position + 1
         result := append(result, (position, value))
     result
@@ -255,10 +255,10 @@ export let sort<a: Ord>(values: Vector(a)): Vector(a) = sortUsing(values, Ord.co
     Elements for which `key` returns equal values keep their original order. -}
 export let sortBy<b: Ord>(values: Vector(a), key: a ->! b): Vector(a) =
     var keyed: Vector((b, a)) = []
-    for value in values
+    for value in values do
         keyed := append(keyed, (key!(value), value))
     var result: Vector(a) = []
-    for (_, value) in sortUsing(keyed, ((left, _), (right, _)) => Ord.compare(left, right))
+    for (_, value) in sortUsing(keyed, ((left, _), (right, _)) => Ord.compare(left, right)) do
         result := append(result, value)
     result
 
@@ -274,9 +274,9 @@ export let sortBy<b: Ord>(values: Vector(a), key: a ->! b): Vector(a) =
 -- One step of `maxBy`: the ranked element replaces the best unless the best's
 -- key is greater.
 let laterBy<b: Ord>(best: Option((b, a)), ranked: (b, a)): Option((b, a)) =
-    match (best, ranked)
+    match (best, ranked) with
         (Some((keptKey, _)), (rankedKey, _)) =>
-            match Ord.compare(keptKey, rankedKey)
+            match Ord.compare(keptKey, rankedKey) with
                 Greater => best
                 _ => Some(ranked)
         _ => Some(ranked)
@@ -284,14 +284,14 @@ let laterBy<b: Ord>(best: Option((b, a)), ranked: (b, a)): Option((b, a)) =
 -- One step of `minBy`: the ranked element replaces the best only when the
 -- best's key is greater.
 let earlierBy<b: Ord>(best: Option((b, a)), ranked: (b, a)): Option((b, a)) =
-    match (best, ranked)
+    match (best, ranked) with
         (Some((keptKey, _)), (rankedKey, _)) =>
-            match Ord.compare(keptKey, rankedKey)
+            match Ord.compare(keptKey, rankedKey) with
                 Greater => Some(ranked)
                 _ => best
         _ => Some(ranked)
 
-let unranked(best: Option((b, a))): Option(a) = match best
+let unranked(best: Option((b, a))): Option(a) = match best with
     Some((_, value)) => Some(value)
     None => None
 
@@ -300,8 +300,8 @@ let unranked(best: Option((b, a))): Option(a) = match best
     `sortUsing`. If several elements are equally large, the result is the last
     of them. -}
 export let maxUsing(values: Vector(a), compare: (a, a) ->! Ordering): Option(a) =
-    fold!(values, None, (best: Option(a), value: a) => match best
-        Some(kept) => match compare!(kept, value)
+    fold!(values, None, (best: Option(a), value: a) => match best with
+        Some(kept) => match compare!(kept, value) with
             Greater => best
             _ => Some(value)
         None => Some(value))
@@ -311,8 +311,8 @@ export let maxUsing(values: Vector(a), compare: (a, a) ->! Ordering): Option(a) 
     `sortUsing`. If several elements are equally small, the result is the first
     of them. -}
 export let minUsing(values: Vector(a), compare: (a, a) ->! Ordering): Option(a) =
-    fold!(values, None, (best: Option(a), value: a) => match best
-        Some(kept) => match compare!(kept, value)
+    fold!(values, None, (best: Option(a), value: a) => match best with
+        Some(kept) => match compare!(kept, value) with
             Greater => Some(value)
             _ => best
         None => Some(value))

@@ -267,7 +267,7 @@ describe("#419: the probe takes any showable value", () => {
           "module Main\n\n" + "union Light = Red | Green\n" +
             "honor Show<Light> =\n" +
             "    show(value) =\n" +
-            "        match value\n" +
+            "        match value with\n" +
             '            Red => "stop"\n' +
             '            Green => "go"\n' +
             "Debug.log(Green)\n" +

@@ -156,7 +156,7 @@ describe("annotations end where their surrounding syntax ends", () => {
   });
 
   test("a match arm's body is not a type", async () => {
-    const source = "match x\n    | Some(v) => v\n    | None => 0";
+    const source = "match x with\n    | Some(v) => v\n    | None => 0";
     expect(await allTokensFor(source, "v")).toEqual([term, term]);
   });
 });
@@ -332,7 +332,7 @@ describe("what Playground gains by inheriting the grammar (#145)", () => {
     // (Lexer §4.2), so a `from` in the refused JavaScript head is a plain name.
     expect(await tokenOf('extern from "./m"', "from")).toBe("keyword.other.from.hexagon");
     expect(await tokenOf("let q = {p with x = 3}", "with")).toBe("keyword.other.with.hexagon");
-    expect(await tokenOf("match e\n    | N(x) when x > 0 => x", "when")).toBe(
+    expect(await tokenOf("match e with\n    | N(x) when x > 0 => x", "when")).toBe(
       "keyword.other.when.hexagon",
     );
   });

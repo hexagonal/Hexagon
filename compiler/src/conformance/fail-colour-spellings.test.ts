@@ -1002,7 +1002,7 @@ describe("Effects §3.4: a mark decides nothing; facts decide an untyped paramet
       ]]);
     }
     // A `match` whose arms are the parameters is a merge too.
-    expect(reports(PRE + pure + "let j3(g, f, n: Int) =\n    pureOnly(g)\n    (match n\n        0 => g\n        _ => f)!()\n"))
+    expect(reports(PRE + pure + "let j3(g, f, n: Int) =\n    pureOnly(g)\n    (match n with\n        0 => g\n        _ => f)!()\n"))
       .toEqual([["!", message]]);
     // Written, the mark holds; so it does with the wrapper.
     expect(reports(PRE + pure + "let j3(g: () -> Unit, f: () ->! Unit) =\n    pureOnly(g)\n    pick(g, f)!()\n")).toEqual([]);

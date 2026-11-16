@@ -102,7 +102,7 @@ const RESULT_USING_OPTION = [
   "/Result.hex",
   "module Result\n\n" + "export union Result(a, e) = Ok(value: a) | Err(error: e)\n" +
   "export fun toOption(result: Result(a, e)): Option(a) =\n" +
-  "    match result\n" +
+  "    match result with\n" +
   "        Ok(value) => Some(value)\n" +
   "        Err(_) => None\n",
 ] as const;
@@ -211,7 +211,7 @@ describe("ordered intra-prelude visibility", () => {
       ["/Result.hex",
         "module Result\n\n" + "export union Result(a, e) = Ok(value: a) | Err(error: e)\n" +
         "export fun toSeq(result: Result(a, e)): Seq(a) =\n" +
-        "    match result\n" +
+        "    match result with\n" +
         "        Ok(value) => Seq.singleton(value)\n" +
         "        Err(_) => Seq.empty\n"],
       ENTRY,
@@ -313,7 +313,7 @@ describe("emission follows the new dependency edge", () => {
     "module Option\n\n" + "import Result as R\n" +
     "export union Option(a) = Some(value: a) | None\n" +
     "export fun toResult(option: Option(a), error: e): R.Result(a, e) =\n" +
-    "    match option\n" +
+    "    match option with\n" +
     "        Some(value) => R.Ok(value)\n" +
     "        None => R.Err(error)\n",
   ] as const;

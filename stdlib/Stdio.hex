@@ -50,10 +50,10 @@ extern from "hex:intrinsic"
 let firstLoneSurrogate(text: String): Int =
     var position = 0
     var found = 0
-    for point in text
+    for point in text do
         position := position + 1
         if found == 0 then
-            match point.toCodepoint()
+            match point.toCodepoint() with
                 Some(_) => ()
                 None => found := position
     found
@@ -71,7 +71,7 @@ let end(status: Int): Unit =
 
 -- The error's code, or "" where it has none.
 let codeOf(error: JsValue): String =
-    match readCode~(error).toString?()
+    match readCode~(error).toString?() with
         Some(text) => text
         None => ""
 
@@ -111,12 +111,12 @@ let writeAll(descriptor: Int, text: String): Unit =
     let count = encode~(text)
     let bytes = buffer~()
     var offset = 0
-    while offset < count
+    while offset < count do
         try
             offset := offset + writeBytes!(descriptor, bytes, offset, count - offset)
         catch
             JsError(error) =>
-                match codeOf~(error)
+                match codeOf~(error) with
                     "EAGAIN" => pause~(1000)
                     "EPIPE" => end~(141)
                     _ => failed~(descriptor, error)
@@ -164,7 +164,7 @@ let inputBytes(): JsValue =
     var used = 0
     var reading = True
     var wait = 10
-    while reading
+    while reading do
         try
             let length = reserve~(used)
             let count = readBytes!(0, input~(length), used, length - used)
@@ -172,7 +172,7 @@ let inputBytes(): JsValue =
             wait := 10
         catch
             JsError(error) =>
-                match codeOf~(error)
+                match codeOf~(error) with
                     "EAGAIN" =>
                         pause~(wait)
                         wait := if wait * 2 < 16000 then wait * 2 else 16000
@@ -210,7 +210,7 @@ let lossyText(bytes: JsValue): String =
     on standard error and status 1. -}
 export let readText(): String =
     let bytes = inputBytes~()
-    match strictText~(bytes)
+    match strictText~(bytes) with
         Some(text) => text
         None => unreadable~("not UTF-8 at byte ${firstBadByte~(bytes)}")
 

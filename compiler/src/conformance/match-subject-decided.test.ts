@@ -61,7 +61,7 @@ const BOOM = "`Boom` is an exception's constructor, and a `match` never takes `E
   "exceptions are inspected with `try`/`catch`";
 const value = (spelled: string): string => opening("the matched value's") + `write \`(${spelled}: …)\``;
 
-const ZERO = "match k\n        0 => 1\n        _ => 2";
+const ZERO = "match k with\n        0 => 1\n        _ => 2";
 const SHOW_X = "the program's text does not decide `x`'s type here, so `.show(…)` cannot tell whose `show` it is — " +
   "write `x`'s type, or call the operation by its module (`Module.show(x, …)`); a record's field is called as `(x.show)(…)`";
 const BODY = "let f(k) =\n    {0}\n    {1}\n    ()";
@@ -79,76 +79,76 @@ const ORDERS: readonly (readonly [string, string, string, readonly string[], rea
     "dot-on-the-match",
     "",
     BODY,
-    ["let w: Int = k", "let n = (match k\n        0 => [1]\n        _ => [2]).length()"],
+    ["let w: Int = k", "let n = (match k with\n        0 => [1]\n        _ => [2]).length()"],
     [],
   ],
   [
     "in-an-arm-body",
     "",
     "let f(c: Bool, k) =\n    {0}\n    {1}\n    ()",
-    ["let w: Int = k", "let n = match c\n        True => match k\n            0 => 1\n            _ => 2\n        False => 3"],
+    ["let w: Int = k", "let n = match c with\n        True => match k with\n            0 => 1\n            _ => 2\n        False => 3"],
     [],
   ],
   // A pattern that names the head decides it, whatever the lines say.
-  ["patterns-name-bool", "", BODY, ["let w: Bool = k", "let n = match k\n        True => 1\n        False => 2"], []],
-  ["patterns-name-option", "", BODY, ["let w: Option(Int) = k", "let n = match k\n        Some(0) => 1\n        _ => 2"], []],
-  ["patterns-name-float", "", BODY, ["let w: Float = k", "let n = match k\n        0 => 1\n        1.5 => 2\n        _ => 3"], []],
-  ["patterns-name-tuple", "", BODY, ["let w: (Int, Int) = k", "let n = match k\n        (0, _) => 1\n        _ => 2"], []],
+  ["patterns-name-bool", "", BODY, ["let w: Bool = k", "let n = match k with\n        True => 1\n        False => 2"], []],
+  ["patterns-name-option", "", BODY, ["let w: Option(Int) = k", "let n = match k with\n        Some(0) => 1\n        _ => 2"], []],
+  ["patterns-name-float", "", BODY, ["let w: Float = k", "let n = match k with\n        0 => 1\n        1.5 => 2\n        _ => 3"], []],
+  ["patterns-name-tuple", "", BODY, ["let w: (Int, Int) = k", "let n = match k with\n        (0, _) => 1\n        _ => 2"], []],
   [
     "an-or-pattern-names-through-one-alternative",
     "",
     BODY,
-    ["let w: Ordering = k", "let n = match k\n        Less | Ordering.Greater => 1\n        _ => 2"],
+    ["let w: Ordering = k", "let n = match k with\n        Less | Ordering.Greater => 1\n        _ => 2"],
     [],
   ],
   [
     "a-declared-pattern-names-its-subject",
     "pattern same(value: Int): Int\n    view(value) = value\n    build(value) = value",
     BODY,
-    ["let w: Int = k", "let n = match k\n        (0)same => 1\n        _ => 2"],
+    ["let w: Int = k", "let n = match k with\n        (0)same => 1\n        _ => 2"],
     [],
   ],
   // A bare integer pattern makes the parameter an `Int`, through `|` too.
-  ["or-integer-patterns", "", BODY, ["let w: Int = k", "let n = match k\n        0 | 1 => 1\n        _ => 2"], []],
+  ["or-integer-patterns", "", BODY, ["let w: Int = k", "let n = match k with\n        0 | 1 => 1\n        _ => 2"], []],
   // A bare integer pattern makes the parameter an `Int` through `as` too.
-  ["as-integer", "", BODY, ["let w: BigInt = k", "let n = match k\n        0 as z => 1\n        _ => 2"], []],
+  ["as-integer", "", BODY, ["let w: BigInt = k", "let n = match k with\n        0 as z => 1\n        _ => 2"], []],
   // Patterns that test nothing need no head, and are still judged (§7).
-  ["guard-only", "", BODY, ["let w: Int = k", "let n = match k\n        x when x > 0 => 1\n        _ => 2"], []],
+  ["guard-only", "", BODY, ["let w: Int = k", "let n = match k with\n        x when x > 0 => 1\n        _ => 2"], []],
   [
     "guard-only-without-a-catch-all",
     "",
     BODY,
-    ["let w: Int = k", "let n = match k\n        x when x > 0 => 1"],
+    ["let w: Int = k", "let n = match k with\n        x when x > 0 => 1"],
     ["match is missing cases: `_`"],
   ],
-  ["binder-only", "", BODY, ["let w: Int = k", "let n = match k\n        x => x"], []],
+  ["binder-only", "", BODY, ["let w: Int = k", "let n = match k with\n        x => x"], []],
   // Nothing decides the head: refused alike in every order.
-  ["door-only", "", BODY, ["let w: Ordering = k", "let n = match k\n        Less => 1\n        _ => 2"], [PARAMETER]],
-  ["door-or-wildcard", "", BODY, ["let w: Ordering = k", "let n = match k\n        Less | _ => 1"], [PARAMETER]],
+  ["door-only", "", BODY, ["let w: Ordering = k", "let n = match k with\n        Less => 1\n        _ => 2"], [PARAMETER]],
+  ["door-or-wildcard", "", BODY, ["let w: Ordering = k", "let n = match k with\n        Less | _ => 1"], [PARAMETER]],
   // A declared pattern with a generic subject names no head, and an
   // exception's constructor fixes none: a `match` never takes `Exn`.
   [
     "a-generic-declared-pattern",
     "pattern ident\n    view(x) = x\n    build(x) = x",
     BODY,
-    ["let w: Int = k", "let n = match k\n        (0)ident => 1\n        _ => 2"],
+    ["let w: Int = k", "let n = match k with\n        (0)ident => 1\n        _ => 2"],
     [PARAMETER],
   ],
-  ["an-exception-constructor", "exception Boom", BODY, ["let w: Exn = k", "let n = match k\n        Boom => 1\n        _ => 2"], [PARAMETER, BOOM]],
-  ["an-exception-constructor-under-as", "exception Boom", BODY, ["let w: Exn = k", "let n = match k\n        Boom as b => 1\n        _ => 2"], [PARAMETER, BOOM]],
-  ["an-or-of-an-exception-and-a-door", "exception Boom", BODY, ["let w: Ordering = k", "let n = match k\n        Boom | Less => 1\n        _ => 2"], [PARAMETER, BOOM]],
+  ["an-exception-constructor", "exception Boom", BODY, ["let w: Exn = k", "let n = match k with\n        Boom => 1\n        _ => 2"], [PARAMETER, BOOM]],
+  ["an-exception-constructor-under-as", "exception Boom", BODY, ["let w: Exn = k", "let n = match k with\n        Boom as b => 1\n        _ => 2"], [PARAMETER, BOOM]],
+  ["an-or-of-an-exception-and-a-door", "exception Boom", BODY, ["let w: Ordering = k", "let n = match k with\n        Boom | Less => 1\n        _ => 2"], [PARAMETER, BOOM]],
   [
     "an-or-of-a-generic-declared-pattern-and-a-named-head",
     "pattern ident\n    view(x) = x\n    build(x) = x",
     BODY,
-    ["let w: Ordering = k", "let n = match k\n        (Less)ident | Ordering.Greater => 1\n        _ => 2"],
+    ["let w: Ordering = k", "let n = match k with\n        (Less)ident | Ordering.Greater => 1\n        _ => 2"],
     [],
   ],
   [
     "a-generic-declared-pattern-before-a-named-head",
     "pattern ident\n    view(x) = x\n    build(x) = x",
     BODY,
-    ["let w: Ordering = k", "let n = match k\n        (Less)ident => 1\n        Ordering.Greater => 2\n        _ => 3"],
+    ["let w: Ordering = k", "let n = match k with\n        (Less)ident => 1\n        Ordering.Greater => 2\n        _ => 3"],
     [],
   ],
   // A generic declared pattern names no head, so an integer arm beside it is the test.
@@ -156,24 +156,24 @@ const ORDERS: readonly (readonly [string, string, string, readonly string[], rea
     "a-generic-declared-pattern-beside-an-integer",
     "pattern ident\n    view(x) = x\n    build(x) = x",
     BODY,
-    ["let w: Int = k", "let n = match k\n        0 => 1\n        (m)ident => 2"],
+    ["let w: Int = k", "let n = match k with\n        0 => 1\n        (m)ident => 2"],
     [],
   ],
   // A refused `match`'s arms are read against nothing: the door says nothing
   // of the `Int` another line made, in either order.
-  ["door-only-beside-another-type", "", BODY, ["let w: Int = k", "let n = match k\n        Less => 1\n        _ => 2"], [PARAMETER]],
+  ["door-only-beside-another-type", "", BODY, ["let w: Int = k", "let n = match k with\n        Less => 1\n        _ => 2"], [PARAMETER]],
   [
     "a-name-made-from-the-parameter",
     "",
     "let f(k) =\n    let a = k\n    {0}\n    {1}\n    ()",
-    ["let w: Int = k", "let n = match a\n        0 => 1\n        _ => 2"],
+    ["let w: Int = k", "let n = match a with\n        0 => 1\n        _ => 2"],
     [named("a")],
   ],
   [
     "a-call",
     "",
     "let f(g) =\n    {0}\n    {1}\n    ()",
-    ["let w: Int = g(1)", "let n = match g(1)\n        0 => 1\n        _ => 2"],
+    ["let w: Int = g(1)", "let n = match g(1) with\n        0 => 1\n        _ => 2"],
     [value("g(1)")],
   ],
   // A refused `match` makes no new name: its binding arm defaults nothing.
@@ -181,14 +181,14 @@ const ORDERS: readonly (readonly [string, string, string, readonly string[], rea
     "a-call-with-a-binding-arm",
     "",
     "let f(g) =\n    {0}\n    {1}\n    ()",
-    ["let w: Nat = g(1)", "let n = match g(1) + 0\n        0 => 1\n        x => 2"],
+    ["let w: Nat = g(1)", "let n = match g(1) + 0 with\n        0 => 1\n        x => 2"],
     [value("g(1) + 0")],
   ],
   [
     "a-loop-variable-of-an-untyped-source",
     "",
     "let f(xs) =\n    {0}\n    {1}\n    ()",
-    ["let w: Vector(Int) = xs", "for x in xs\n        ignore(match x\n            0 => 1\n            _ => 2)"],
+    ["let w: Vector(Int) = xs", "for x in xs do\n        ignore(match x with\n            0 => 1\n            _ => 2)"],
     [named("x")],
   ],
   // A lambda applied where it is written takes its argument's type, as a
@@ -222,7 +222,7 @@ const ORDERS: readonly (readonly [string, string, string, readonly string[], rea
     "applied-to-an-untyped-value",
     "",
     "let f(v) =\n    {0}\n    {1}\n    ()",
-    ["let w: BigInt = v", "let s = ((x) => match x\n        0 => \"zero\"\n        _ => \"other\")(v)"],
+    ["let w: BigInt = v", "let s = ((x) => match x with\n        0 => \"zero\"\n        _ => \"other\")(v)"],
     [PARAMETER],
   ],
   // A `fun` block's members meet their siblings' calls before their own body
@@ -232,8 +232,8 @@ const ORDERS: readonly (readonly [string, string, string, readonly string[], rea
     "",
     "fun\n    {0}\n    {1}\nlet r: Bool = even(4)",
     [
-      "even(k) = match k\n        0 => True\n        _ => odd(k - 1)",
-      "odd(k) = match k\n        0 => False\n        _ => even(k - 1)",
+      "even(k) = match k with\n        0 => True\n        _ => odd(k - 1)",
+      "odd(k) = match k with\n        0 => False\n        _ => even(k - 1)",
     ],
     [PARAMETER, PARAMETER],
   ],
@@ -252,10 +252,10 @@ describe("no order of the lines decides what a `match` tests (Pattern Matching �
 
 describe("a parameter a `match` tests with a number is an `Int` where it is made (Numeric Literals §4)", () => {
   test("its function takes an `Int`, which a narrower argument widens into and a wider one cannot", () => {
-    expect(typeOf("let f(k) =\n    match k\n        0 => \"zero\"\n        _ => \"other\"\n", "f")).toBe("Int -> String");
-    compiles("let f(k) =\n    match k\n        0 => \"zero\"\n        _ => \"other\"\nlet g(n: Nat): String = f(n)\n");
+    expect(typeOf("let f(k) =\n    match k with\n        0 => \"zero\"\n        _ => \"other\"\n", "f")).toBe("Int -> String");
+    compiles("let f(k) =\n    match k with\n        0 => \"zero\"\n        _ => \"other\"\nlet g(n: Nat): String = f(n)\n");
     const compiled = compileMain(
-      HEADER + "let f(k) =\n    match k\n        0 => \"zero\"\n        _ => \"other\"\nlet g(): String = f(10n)\n",
+      HEADER + "let f(k) =\n    match k with\n        0 => \"zero\"\n        _ => \"other\"\nlet g(): String = f(10n)\n",
     );
     expect(compiled.diagnostics.map(({ message }) => message)).toEqual(["type mismatch: expected Int, found BigInt"]);
     expect(compiled.diagnostics[0]!.labels?.map(({ message }) => message)).toEqual([
@@ -277,22 +277,22 @@ describe("a parameter a `match` tests with a number is an `Int` where it is made
   });
 
   test("a written type, a landing call, or a pattern naming the head decides instead", () => {
-    expect(typeOf("let f(k: BigInt) =\n    match k\n        0 => \"zero\"\n        _ => \"other\"\n", "f"))
+    expect(typeOf("let f(k: BigInt) =\n    match k with\n        0 => \"zero\"\n        _ => \"other\"\n", "f"))
       .toBe("BigInt -> String");
     compiles(
       "let f(bigs: Vector(BigInt)): Vector(String) = Vector.fromSeq(Seq.map(bigs, match\n" +
         "    0 => \"zero\"\n    _ => \"other\"))\n",
     );
-    expect(typeOf("let f(k) =\n    match k\n        0 => \"zero\"\n        1.5 => \"half\"\n        _ => \"other\"\n", "f"))
+    expect(typeOf("let f(k) =\n    match k with\n        0 => \"zero\"\n        1.5 => \"half\"\n        _ => \"other\"\n", "f"))
       .toBe("Float -> String");
   });
 
   test("through `as`, the bare integer is the test", () => {
-    expect(typeOf("let f(k) =\n    match k\n        0 as z => z\n        _ => 2\n", "f")).toBe("Int -> Int");
+    expect(typeOf("let f(k) =\n    match k with\n        0 as z => z\n        _ => 2\n", "f")).toBe("Int -> Int");
   });
 
   test("a lone `fun`, recursive or not, makes its parameter an `Int` too", () => {
-    expect(typeOf("fun down(k) = match k\n    0 => 0\n    _ => down(k - 1)\n", "down")).toBe("Int -> Int");
+    expect(typeOf("fun down(k) = match k with\n    0 => 0\n    _ => down(k - 1)\n", "down")).toBe("Int -> Int");
   });
 });
 
@@ -300,7 +300,7 @@ describe("a pattern that names the head is read before a constructor the head's 
   test("`Less` in an earlier arm meets the `Ordering` a later arm names, in either order of the lines", async () => {
     // Before, an earlier arm's door saw the head still open where the written
     // line came below, and its constructor was silently read as `_`.
-    const arms = "match k\n        Less => 1\n        Ordering.Greater => 2\n        _ => 3";
+    const arms = "match k with\n        Less => 1\n        Ordering.Greater => 2\n        _ => 3";
     const exports = await runMain(
       HEADER +
         `let above(k) =\n    let w: Ordering = k\n    ${arms}\n` +
@@ -315,7 +315,7 @@ describe("a pattern that names the head is read before a constructor the head's 
 
   test("within an or-pattern, the alternative that names the head is read first", async () => {
     const exports = await runMain(
-      HEADER + "let f(k) =\n    match k\n        Less | Ordering.Greater => 1\n        _ => 2\n" +
+      HEADER + "let f(k) =\n    match k with\n        Less | Ordering.Greater => 1\n        _ => 2\n" +
         "export let a: Vector(Int) = [f(Ordering.Less), f(Ordering.Equal), f(Ordering.Greater)]\n",
     );
     expect([...exports["a"] as Iterable<number>]).toEqual([1, 2, 1]);
@@ -326,8 +326,8 @@ describe("a lambda applied where it is written is read as a `let` of its argumen
   test("a pipe into a match function means `match` on the piped value, in all three spellings", async () => {
     const spellings = [
       "value |> match\n        0 => \"zero\"\n        _ => \"other\"",
-      "value |> (x) => match x\n        0 => \"zero\"\n        _ => \"other\"",
-      "match value\n        0 => \"zero\"\n        _ => \"other\"",
+      "value |> (x) => match x with\n        0 => \"zero\"\n        _ => \"other\"",
+      "match value with\n        0 => \"zero\"\n        _ => \"other\"",
     ];
     for (const spelling of spellings) {
       const exports = await runMain(
@@ -342,7 +342,7 @@ describe("a lambda applied where it is written is read as a `let` of its argumen
     // Method Syntax §3.5's echo rule: the parameter takes its argument's type,
     // and the argument's own report is the one the reader needs.
     expect(projectDiagnostics(
-      HEADER + "let f() =\n    let s = fromNat(3) |> (x) => match x\n        0 => 1\n        _ => 2\n    ()\n",
+      HEADER + "let f() =\n    let s = fromNat(3) |> (x) => match x with\n        0 => 1\n        _ => 2\n    ()\n",
     )).toEqual(["no bare `fromNat`; write `Num.fromNat(3)`"]);
   });
 
@@ -356,9 +356,9 @@ describe("a literal scrutinee takes `Int` where no pattern names its head (Metho
   test("`match 3` with `0` and `_` is an `Int` match; a `Float` pattern makes it a `Float` one", async () => {
     const exports = await runMain(
       HEADER +
-        "export let a: String =\n    match 3\n        0 => \"zero\"\n        _ => \"other\"\n" +
-        "export let b: String =\n    match 1.5\n        1.5 => \"half\"\n        _ => \"other\"\n" +
-        "export let c: Int = (match 3\n    0 => [1]\n    _ => [2, 3]).length()\n",
+        "export let a: String =\n    match 3 with\n        0 => \"zero\"\n        _ => \"other\"\n" +
+        "export let b: String =\n    match 1.5 with\n        1.5 => \"half\"\n        _ => \"other\"\n" +
+        "export let c: Int = (match 3 with\n    0 => [1]\n    _ => [2, 3]).length()\n",
     );
     expect([exports["a"], exports["b"], exports["c"]]).toEqual(["other", "half", 2]);
   });
@@ -366,7 +366,7 @@ describe("a literal scrutinee takes `Int` where no pattern names its head (Metho
 
 describe("patterns that test nothing need no type (Pattern Matching §6.1)", () => {
   test("a guard-only `match` on an untyped parameter is generic, and runs at each type", async () => {
-    const classify = "let classify(k) = match k\n    n when n < 0 => \"negative\"\n    _ => \"other\"\n";
+    const classify = "let classify(k) = match k with\n    n when n < 0 => \"negative\"\n    _ => \"other\"\n";
     expect(typeOf(classify, "classify")).toBe("<a: (Num, Ord)> a -> String");
     const exports = await runMain(
       HEADER + classify + "export let a: String = classify(-5)\nexport let b: String = classify(2.5)\n",
@@ -376,25 +376,25 @@ describe("patterns that test nothing need no type (Pattern Matching §6.1)", () 
 
   test("a declared type variable is matched where nothing is tested, and refused where something is", () => {
     compiles(
-      "export let describe<a: Show>(value: a): String = match value\n" +
+      "export let describe<a: Show>(value: a): String = match value with\n" +
         "    v when show(v) == \"\" => \"(empty)\"\n" +
         "    v => show(v)\n",
     );
     expect(projectDiagnostics(
-      HEADER + "export let describe<a: Show>(value: a): String = match value\n    Less => \"less\"\n    _ => \"x\"\n",
+      HEADER + "export let describe<a: Show>(value: a): String = match value with\n    Less => \"less\"\n    _ => \"x\"\n",
     )).toEqual(["cannot match on a value of abstract type `a`; use the operations its constraints provide"]);
   });
 
   test("missing cases are judged at any type, a declared variable's included", () => {
-    expect(projectDiagnostics(HEADER + "let classify(k) = match k\n    n when n < 0 => \"negative\"\n"))
+    expect(projectDiagnostics(HEADER + "let classify(k) = match k with\n    n when n < 0 => \"negative\"\n"))
       .toEqual(["match is missing cases: `_`"]);
     expect(projectDiagnostics(
-      HEADER + "export let g<a: Show>(v: a): String = match v\n    x when show(x) == \"1\" => \"one\"\n",
+      HEADER + "export let g<a: Show>(v: a): String = match v with\n    x when show(x) == \"1\" => \"one\"\n",
     )).toEqual(["match is missing cases: `_`"]);
   });
 
   test("its arms are still judged: a binder after `_` is unreachable", () => {
-    const reports = projectDiagnostics(HEADER + "let f(k) = match k\n    _ => 1\n    x => 2\n");
+    const reports = projectDiagnostics(HEADER + "let f(k) = match k with\n    _ => 1\n    x => 2\n");
     expect(reports).toHaveLength(1);
     expect(reports[0]).toMatch(/unreachable/u);
   });
@@ -410,10 +410,10 @@ describe("the refusal names the fundamental spelling, and stands where the reade
   });
 
   test("each spelling compiles once the type is written", () => {
-    compiles("let f(k: Ordering) =\n    match k\n        Less => 1\n        _ => 2\n");
-    compiles("let f(g: (Int) -> Int) =\n    match g(1)\n        0 => 1\n        _ => 2\n");
+    compiles("let f(k: Ordering) =\n    match k with\n        Less => 1\n        _ => 2\n");
+    compiles("let f(g: (Int) -> Int) =\n    match g(1) with\n        0 => 1\n        _ => 2\n");
     compiles("let f(v: BigInt) =\n    v |> match\n        0 => \"zero\"\n        _ => \"other\"\n");
-    compiles("fun\n    even(k: Int): Bool = match k\n        0 => True\n        _ => odd(k - 1)\n" +
-      "    odd(k: Int): Bool = match k\n        0 => False\n        _ => even(k - 1)\n");
+    compiles("fun\n    even(k: Int): Bool = match k with\n        0 => True\n        _ => odd(k - 1)\n" +
+      "    odd(k: Int): Bool = match k with\n        0 => False\n        _ => even(k - 1)\n");
   });
 });

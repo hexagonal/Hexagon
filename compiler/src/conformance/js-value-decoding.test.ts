@@ -47,7 +47,7 @@ const PROGRAM = "export let kindOf(v: JsValue): JsKind = JsValue.kind(v)\n" +
   "-- representation: which reason, and how long the path is.\n" +
   "-- The reasons are matched qualified because `spec/ffi.md` §12's extension\n" +
   "-- (#511) makes them qualified-only; the arms are the same arms.\n" +
-  "let reasonOf(reason: JsConversionReason): String = match reason\n" +
+  "let reasonOf(reason: JsConversionReason): String = match reason with\n" +
   "    JsConversionReason.Shape => \"Shape\"\n" +
   "    JsConversionReason.Range => \"Range\"\n" +
   "    JsConversionReason.Cycle(_) => \"Cycle\"\n" +
@@ -392,7 +392,7 @@ describe("the scalar decoders are strict and non-coercing (§4.1)", () => {
   /** The decoders reach through the dot as well, at the same companion. */
   test("`v.toInt?()` reads `JsValue.toInt` through the dot", async () => {
     const main = await runMain("module Main\n\n" + "export let dotted(v: JsValue): Option(Int) = v.toInt?()\n" +
-        "export let ok(r: Option(Int)): Bool = match r\n" +
+        "export let ok(r: Option(Int)): Bool = match r with\n" +
         "    Some(_) => True\n" +
         "    None => False\n",
     );
@@ -423,7 +423,7 @@ describe("the failure is a tracked exception (§5.1)", () => {
   /** At run time it is a branded `Error`, its slots its payload, its message one line. */
   test("the failure is an `Error` with its three slots", async () => {
     const main = await runMain("module Main\n\n" + "export let fail(v: JsValue): Result(Int) = attempt JsValue.toInt^(v)\n" +
-      "export let shown(v: JsValue): String = match attempt JsValue.toInt^(v)\n" +
+      "export let shown(v: JsValue): String = match attempt JsValue.toInt^(v) with\n" +
       "    Ok(_) => \"ok\"\n" +
       "    Err(e) => show(e)\n",
     );

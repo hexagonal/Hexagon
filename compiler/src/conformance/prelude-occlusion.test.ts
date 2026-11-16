@@ -470,7 +470,7 @@ describe("a declaration's constructor names occlude too (#466)", () => {
     // Were it still the prelude's, the scrutinee would not type as `Direction`.
     const exports = await runMain("module Main\n\n" + "export union Direction = Less | Greater\n" +
       "export fun name(d: Direction): String =\n" +
-      "    match d\n" +
+      "    match d with\n" +
       "        Less => \"the module's Less\"\n" +
       "        Greater => \"the module's Greater\"\n" +
       "export let low: String = name(Less)\n" +
@@ -488,7 +488,7 @@ describe("a declaration's constructor names occlude too (#466)", () => {
     matchesControl(
       (name, other) =>
         "export fun f(d: Direction): Int =\n" +
-        "    match d\n" +
+        "    match d with\n" +
         `        ${name} => 1\n` +
         "        _ => 2\n" +
         `union Direction = ${name} | ${other}\n`,
@@ -496,7 +496,7 @@ describe("a declaration's constructor names occlude too (#466)", () => {
       ["Zork", "Zap"],
     );
     expect(projectDiagnostics("module Main\n\n" + "export fun f(d: Direction): Int =\n" +
-      "    match d\n" +
+      "    match d with\n" +
       "        Less => 1\n" +
       "        _ => 2\n" +
       "union Direction = Less | Greater\n",
@@ -561,7 +561,7 @@ describe("a declaration's constructor names occlude too (#466)", () => {
       "export let flag: Flag = True\n" +
       "export let yes: Bool = Bool.True\n" +
       "export fun describe(b: Bool): String =\n" +
-      "    match b\n" +
+      "    match b with\n" +
       "        Bool.True => \"yes\"\n" +
       "        Bool.False => \"no\"\n" +
       "export let said: String = describe(Bool.True)\n",

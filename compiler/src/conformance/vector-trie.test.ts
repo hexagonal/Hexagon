@@ -64,27 +64,27 @@ async function runTrie(probes: string): Promise<Record<string, unknown>> {
 const BUILD =
   "fun buildTo(n: Int): TrieVector(Int) =\n" +
   "    var acc: TrieVector(Int) = empty\n" +
-  "    for i in 1..n\n" +
+  "    for i in 1..n do\n" +
   "        acc := append(acc, i)\n" +
   "    acc\n" +
   // buildDown(n) yields the same [1, 2, ..., n] by prepending n, n-1, ..., 1 —
   // every element enters at the front, so the whole origin/left-grow path runs.
   "fun buildDown(n: Int): TrieVector(Int) =\n" +
   "    var acc: TrieVector(Int) = empty\n" +
-  "    for i in 1..n\n" +
+  "    for i in 1..n do\n" +
   "        acc := prepend(acc, n - i + 1)\n" +
   "    acc\n" +
   // appendRange(v, lo, hi) appends lo, lo+1, ..., hi onto v.
   "fun appendRange(v: TrieVector(Int), lo: Int, hi: Int): TrieVector(Int) =\n" +
   "    var acc: TrieVector(Int) = v\n" +
-  "    for i in lo..hi\n" +
+  "    for i in lo..hi do\n" +
   "        acc := append(acc, i)\n" +
   "    acc\n" +
   // prependN(v, n) prepends n elements (values 1999, 1998, ..., 2000 - n) onto v,
   // so the final front is 2000 - n; disjoint from any 1..k source.
   "fun prependN(v: TrieVector(Int), n: Int): TrieVector(Int) =\n" +
   "    var acc: TrieVector(Int) = v\n" +
-  "    for i in 1..n\n" +
+  "    for i in 1..n do\n" +
   "        acc := prepend(acc, 2000 - i)\n" +
   "    acc\n" +
   // state(v) is the representation a derivation is actually stated in:
@@ -104,12 +104,12 @@ const WALK =
   "    var calls = 0\n" +
   "    var total = 0\n" +
   "    var index = 0\n" +
-  "    for step in 1..size(v)\n" +
+  "    for step in 1..size(v) do\n" +
   "        if index < size(v) then\n" +
   "            let (leafValues, offset, run) = nodeRun(v, index)\n" +
   "            calls := calls + 1\n" +
   "            var seen = 0\n" +
-  "            for inner in 1..run\n" +
+  "            for inner in 1..run do\n" +
   "                total := total + Node.get(leafValues, offset + seen)\n" +
   "                seen := seen + 1\n" +
   "            index := index + run\n" +
@@ -254,7 +254,7 @@ describe("VectorTrie prepend path (origin + left growth)", () => {
       BUILD +
         "fun mixed(): TrieVector(Int) =\n" +
         "    var acc: TrieVector(Int) = buildDown(40)\n" + // forces a left-grow, origin > 0
-        "    for i in 41..80\n" +
+        "    for i in 41..80 do\n" +
         "        acc := append(acc, i)\n" + // appends must route past the prepended front
         "    acc\n" +
         "let v = mixed()\n" +

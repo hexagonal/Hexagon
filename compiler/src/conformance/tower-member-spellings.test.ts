@@ -591,7 +591,7 @@ describe("§14(v): the receiver seat, and §5.1's stand-down", () => {
     // A `match` arm, a block's final expression and a `try` body are forwarding
     // forms too. The receiver has no spelling this report can offer, so it names
     // none.
-    branch("", "(match c\n        True => p.add(q)\n        False => p).gcd(s2)");
+    branch("", "(match c with\n        True => p.add(q)\n        False => p).gcd(s2)");
     branch("", "(if c then\n        let z = 1\n        p.add(q)\n    else p).gcd(s2)");
     branch("", "(try\n        p.add(q)\n    catch\n        JsError(e) => p).gcd(s2)");
     // A tower operation inside a branch, reached as an operand of another.
@@ -696,7 +696,7 @@ describe("§14(v): the receiver seat, and §5.1's stand-down", () => {
     // twins of the control above: one report, and row 16 stands aside.
     expect(
       refusals(
-        `${foo}let probe: BigInt = (match c\n` +
+        `${foo}let probe: BigInt = (match c with\n` +
           "        True => p.add(q)\n        False => b9).gcd(s2)\n",
       ),
     ).toEqual(["type mismatch: expected Foo, found BigInt"]);
@@ -714,7 +714,7 @@ describe("§14(v): the receiver seat, and §5.1's stand-down", () => {
     // Nothing offerable, so nothing offered.
     expect(
       refusals(
-        `${foo}let probe: BigInt = (match c\n` +
+        `${foo}let probe: BigInt = (match c with\n` +
           "        True => i + j\n        False => p).gcd(s2)\n",
       ),
     ).toEqual(["type mismatch: expected BigInt, found Foo"]);
@@ -998,7 +998,7 @@ describe("§14(v): the receiver seat, and §5.1's stand-down", () => {
       .toBe("const probe = gcd(t9, s2);");
     expect(
       line(
-        `${foo}let t9 = match c\n        True => i + j\n        False => p\n` +
+        `${foo}let t9 = match c with\n        True => i + j\n        False => p\n` +
           "let probe: BigInt = t9.gcd(s2)\n",
       ),
     ).toBe("const probe = gcd(t9, s2);");

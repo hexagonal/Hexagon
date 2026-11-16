@@ -62,7 +62,7 @@ const PROGRAM = "export let size(xs: Array(Int)): Int = Array.length(xs)\n" +
   "\n" +
   "-- The `Option` projection, so a test can read `get`'s answer without naming\n" +
   "-- `Option`'s representation.\n" +
-  "export let peeked(xs: Array(Int), index: Int): Int = match Array.get(xs, index)\n" +
+  "export let peeked(xs: Array(Int), index: Int): Int = match Array.get(xs, index) with\n" +
   "    None => -1\n" +
   "    Some(value) => value\n" +
   "\n" +

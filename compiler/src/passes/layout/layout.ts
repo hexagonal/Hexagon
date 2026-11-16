@@ -20,7 +20,17 @@ interface Block {
    * the keyword, so each `C<T> =` item opens that honor's member block.
    */
   readonly honorGroup?: boolean;
+  /**
+   * The kind of the last unfinished head the item a `VSep` ended was left
+   * with, if any (Lexer & Layout §2.4): a `do` or a `with` at the head's own
+   * column begins a new item, and that item, the closing word alone, still
+   * opens the block the head meant, so the parser's one report is the head's.
+   */
+  pending?: HeadKind | undefined;
 }
+
+/** A head that holds an expression, and so ends with a closing word (§2.4). */
+type HeadKind = "If" | "For" | "While" | "Match";
 
 type DelimiterKind = "LeftParen" | "LeftBracket" | "LeftBrace";
 
@@ -158,13 +168,14 @@ export function applyLayout(file: Lexed.File): LaidOut.File {
     ) {
       block.item.length = 0;
       block.hasContent = false;
+      block.pending = undefined;
     }
 
     previous = token;
   }
 
   const finalBlock = currentBlock(blocks);
-  if (expectsBlock(finalBlock.item, finalBlock.honorGroup === true)) {
+  if (expectsBlock(finalBlock.item, finalBlock.honorGroup === true, finalBlock.pending)) {
     diagnostics.add({
       severity: "error",
       message: LaidOut.MISSING_BLOCK,
@@ -200,11 +211,14 @@ function beginLine(
 
   if (
     indentation > block.indentation &&
-    (expectsBlock(block.item, block.honorGroup === true) || opensClassBlock(block.item))
+    (expectsBlock(block.item, block.honorGroup === true, block.pending) || opensClassBlock(block.item))
   ) {
     output.push(virtual("VOpen", token.span));
     const honorGroup = opensHonorGroup(block.item);
-    block.item.length = 0;
+    // A block opened inside a bracket pair leaves the item outside it going on
+    // (§2.2): a head that pair stands in reaches its closing word after the
+    // pair closes, so the item keeps what came before.
+    if (delimiterDepth === block.delimiterDepth) block.item.length = 0;
     blocks.push({
       indentation,
       delimiterDepth,
@@ -258,7 +272,7 @@ function beginLine(
   }
 
   if (indentation <= block.indentation) {
-    if (expectsBlock(block.item, block.honorGroup === true)) {
+    if (expectsBlock(block.item, block.honorGroup === true, block.pending)) {
       diagnostics.add({
         severity: "error",
         message: LaidOut.MISSING_BLOCK,
@@ -267,6 +281,7 @@ function beginLine(
     }
     if (block.hasContent && !expressionContinuations.has(token.kind)) {
       output.push(virtual("VSep", token.span));
+      block.pending = scanHeads(block.item).open.at(-1)?.kind;
       block.item.length = 0;
       block.hasContent = false;
     }
@@ -283,7 +298,11 @@ function opensGroupHonor(item: readonly Lexed.Token[]): boolean {
   return item.at(-1)?.kind === "Equal" && (first?.kind === "UpperName" || first?.kind === "Less");
 }
 
-function expectsBlock(item: readonly Lexed.Token[], honorGroup = false): boolean {
+function expectsBlock(
+  item: readonly Lexed.Token[],
+  honorGroup = false,
+  pending?: HeadKind,
+): boolean {
   if (item.length === 0) {
     return false;
   }
@@ -292,35 +311,49 @@ function expectsBlock(item: readonly Lexed.Token[], honorGroup = false): boolean
   // member block (§2.1's row).
   if (opensHonorGroup(item)) return true;
 
-  const last = item.at(-1);
+  // Only the innermost open bracket pair's own level decides (§2.2): a line
+  // that ends inside a pair opens a block for a head standing in that pair,
+  // never for one outside it.
+  const scan = scanHeads(item);
+  const level = scan.level;
+  const lastIndex = level.length - 1;
+  const last = level[lastIndex];
+  if (last === undefined) return false;
+  const named = isNameSeat(level, lastIndex);
+
+  // A `match` that ends its line holds nothing: it is the match function
+  // (Pattern Matching §6.7), whose arms are a block.
+  if (last.kind === "Match" && !named) {
+    return scan.open.length === 1;
+  }
+  // No block opens inside an unfinished head (§2.4): its item goes on, and a
+  // deeper line continues it.
+  if (scan.open.length > 0) return false;
+
   if (
-    last?.kind === "FatArrow" ||
-    last?.kind === "Then" ||
-    last?.kind === "Else" ||
-    last?.kind === "Catch" ||
-    last?.kind === "Finally"
+    last.kind === "FatArrow" ||
+    last.kind === "Else" ||
+    last.kind === "Catch" ||
+    last.kind === "Finally" ||
+    ((last.kind === "Then" || last.kind === "Do") && !named)
   ) {
     return true;
   }
-
-  const activeControl = lastControlHead(item);
-  if (activeControl !== undefined) {
-    // A bare `try`, `attempt` or `assume` opens its body block (Lexer &
-    // Layout §2.1's rows); with a body on its line it opens nothing.
-    if (activeControl.kind === "Try" || activeControl.kind === "Attempt" || activeControl.kind === "Assume") {
-      return activeControl.index === item.length - 1;
-    }
-    if (activeControl.kind === "If") {
-      // A bare `if` remains a recovery head so the parser can diagnose the
-      // formerly valid layout spelling at the right boundary. Valid multiline
-      // conditionals open their true-branch block after mandatory `then`.
-      const hasThen = item
-        .slice(activeControl.index + 1)
-        .some(({ kind }) => kind === "Then");
-      return !hasThen;
-    }
+  // A closing `with` (§2.4), or the lone `with` that begins an item after a
+  // `match` head left unfinished at its column: the head's report names it,
+  // and its arms still lay out as arms.
+  if (last.kind === "NonUpperName" && last.text === "with") {
+    if (scan.closedAt === lastIndex) return true;
+    if (pending === "Match" && level.length === 1 && scan.depth === 0) return true;
+  }
+  // A bare `try`, `attempt` or `assume` opens its body block (Lexer & Layout
+  // §2.1's rows); with a body on its line it opens nothing.
+  if ((last.kind === "Try" || last.kind === "Attempt" || last.kind === "Assume") && !named) {
     return true;
   }
+  // The declaration heads below stand at the head of the item, outside every
+  // bracket pair.
+  if (scan.depth > 0) return false;
 
   const head = declarationStart(item);
   const first = item[head];
@@ -344,12 +377,12 @@ function expectsBlock(item: readonly Lexed.Token[], honorGroup = false): boolean
   if (
     first?.kind === "Extern" &&
     item.some((token) => token.kind === "NonUpperName" && token.text === "from") &&
-    last?.kind === "String"
+    last.kind === "String"
   ) {
     return true;
   }
 
-  if (last?.kind !== "Equal") {
+  if (last.kind !== "Equal") {
     return false;
   }
 
@@ -484,23 +517,151 @@ function hasBindingParameterList(item: readonly Lexed.Token[]): boolean {
   return item[index]?.kind === "LeftParen";
 }
 
-function lastControlHead(
-  item: readonly Lexed.Token[],
-): { readonly kind: Lexed.Token["kind"]; readonly index: number } | undefined {
-  const controls = new Set<Lexed.Token["kind"]>(["If", "For", "While", "Match", "Try", "Attempt", "Assume"]);
-  for (let index = item.length - 1; index >= 0; index -= 1) {
-    const kind = item[index]?.kind;
-    // A control keyword before `,` or `}` is a refused field pun (`{match}`,
-    // Lexer §4.4), which heads nothing.
-    if (["Comma", "RightBrace"].includes(item[index + 1]?.kind ?? "")) continue;
-    // A body form with its body on its line heads nothing: the control before
-    // it does (`match attempt parse^(s)` opens the arm block).
-    if ((kind === "Attempt" || kind === "Assume") && index !== item.length - 1) continue;
-    if (kind !== undefined && controls.has(kind)) {
-      return { kind, index };
+/**
+ * The heads an item leaves unfinished, read from tokens alone (Lexer & Layout
+ * §2.4), at the level of the innermost bracket pair still open at its end.
+ *
+ * A pair that has closed counts at its own level as its two brackets only, so a
+ * head inside it is that pair's and is gone with it; a head outside a pair
+ * still open is no business of a line that ends inside the pair (§2.2).
+ */
+function scanHeads(item: readonly Lexed.Token[]): {
+  readonly open: readonly { readonly kind: HeadKind; readonly index: number }[];
+  readonly level: readonly Lexed.Token[];
+  /** The index in `level` of the last closing word that closed a head. */
+  readonly closedAt: number;
+  /** How many bracket pairs are open at the item's end. */
+  readonly depth: number;
+} {
+  interface Frame {
+    readonly tokens: Lexed.Token[];
+    readonly open: { readonly kind: HeadKind; readonly index: number }[];
+    closedAt: number;
+  }
+  const frames: Frame[] = [{ tokens: [], open: [], closedAt: -1 }];
+  for (const token of item) {
+    let frame = frames.at(-1)!;
+    if (openingDelimiters.has(token.kind)) {
+      frame.tokens.push(token);
+      frames.push({ tokens: [], open: [], closedAt: -1 });
+      continue;
+    }
+    if (closingDelimiter.has(token.kind) && frames.length > 1) {
+      frames.pop();
+      frame = frames.at(-1)!;
+      frame.tokens.push(token);
+      continue;
+    }
+    frame.tokens.push(token);
+    const index = frame.tokens.length - 1;
+    const top = frame.open.at(-1);
+    // A `match` that ended its line held nothing: the match function.
+    if (
+      top?.kind === "Match" && top.index === index - 1 &&
+      token.span.start.line > frame.tokens[top.index]!.span.end.line
+    ) {
+      frame.open.pop();
+    }
+    if (isNameSeat(frame.tokens, index)) continue;
+    switch (token.kind) {
+      case "If":
+      case "For":
+      case "While":
+      case "Match":
+        frame.open.push({ kind: token.kind, index });
+        break;
+      case "Then":
+        closeNearest(frame, index, (kind) => kind === "If");
+        break;
+      case "Do":
+        closeNearest(frame, index, (kind) => kind === "For" || kind === "While");
+        break;
+      case "NonUpperName": {
+        const head = frame.open.at(-1);
+        if (
+          token.text === "with" && head?.kind === "Match" && index > head.index + 1 &&
+          closesMatchHead(frame.tokens[index - 1]!, token)
+        ) {
+          frame.open.pop();
+          frame.closedAt = index;
+        }
+        break;
+      }
+      default:
+        break;
     }
   }
-  return undefined;
+  const frame = frames.at(-1)!;
+  return { open: frame.open, level: frame.tokens, closedAt: frame.closedAt, depth: frames.length - 1 };
+}
+
+function closeNearest(
+  frame: { readonly open: { readonly kind: HeadKind; readonly index: number }[]; closedAt: number },
+  index: number,
+  matches: (kind: HeadKind) => boolean,
+): void {
+  for (let at = frame.open.length - 1; at >= 0; at -= 1) {
+    if (matches(frame.open[at]!.kind)) {
+      frame.open.length = at;
+      frame.closedAt = index;
+      return;
+    }
+  }
+}
+
+/** Tokens that can end an operand, after which a `with` may close a `match` head. */
+const endsOperand = new Set<Lexed.Token["kind"]>([
+  "NonUpperName",
+  "UpperName",
+  "RightParen",
+  "RightBracket",
+  "RightBrace",
+  "Integer",
+  "BigInt",
+  "Dec",
+  "Float",
+  "String",
+  "True",
+  "False",
+  "Bang",
+  "Caret",
+  "Tilde",
+  "Question",
+]);
+
+/**
+ * Whether a `with` closes the `match` head before it (Lexer & Layout §2.4): it
+ * stands directly after a token that can end an operand, and is not written
+ * against a `)`, which is a declared pattern's suffix seat (Lexer §4.2).
+ */
+function closesMatchHead(before: Lexed.Token, word: Lexed.Token): boolean {
+  if (!endsOperand.has(before.kind)) return false;
+  return !(before.kind === "RightParen" && before.span.end.offset === word.span.start.offset);
+}
+
+/**
+ * Whether the keyword at `index` stands in a name seat (Lexer §4.4), where it
+ * is a name and heads nothing: straight after a `.`, or as a declaration's
+ * name straight after `let`, `var`, `fun`, or an FFI row's `method`, `get` or
+ * `set` at the head of the item. The seats inside brackets — a label, a field pun — close with their
+ * pair, which takes whatever they hold with it.
+ */
+function isNameSeat(level: readonly Lexed.Token[], index: number): boolean {
+  const before = level[index - 1];
+  if (before === undefined) return false;
+  if (before.kind === "Dot" || before.kind === "Let" || before.kind === "Var" || before.kind === "Fun") {
+    return true;
+  }
+  if (before.kind !== "NonUpperName" || !["method", "get", "set"].includes(before.text)) return false;
+  // Only at the head of the item, past `export`, `static` and `default`: `for
+  // x in set do` closes its head with that `do`.
+  for (let at = index - 2; at >= 0; at -= 1) {
+    const token = level[at]!;
+    if (token.kind === "Export") continue;
+    if (token.kind === "NonUpperName" && (token.text === "static" || token.text === "default")) continue;
+    return false;
+  }
+  return true;
 }
 
 /**

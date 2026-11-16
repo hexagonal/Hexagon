@@ -684,7 +684,7 @@ describe("Effects §13.3: an instance's own colour, and the calls that follow it
     const tree = (mark: string, leaf = "0") =>
       "constraint Size<a> =\n    size(x: a) ->! Int\n" +
       "union T = Leaf | Node(T, T)\n" +
-      "honor Size<T> =\n    size(t) = match t\n" +
+      "honor Size<T> =\n    size(t) = match t with\n" +
       `        Leaf => ${leaf}\n` +
       `        Node(l, r) => l.size${mark}() + r.size${mark}()\n`;
     expect(messages(IO + tree("") + "let k(t: T): Int = size(t)\n")).toEqual([]);
@@ -768,7 +768,7 @@ describe("Effects §13.3: an instance's own colour, and the calls that follow it
     expect(messages(IO + make("(() ->! Unit)", "() => ()", "make(s)()"))).toEqual([]);
     expect(messages(IO + make("(() ->! Unit)", '() => Debug.log(readIt!("x"))', "make(s)!()"))).toEqual([]);
     expect(messages(IO + make("Option(() ->! Unit)", "Some(() => ())",
-      "match make(s)\n    Some(f) => f!()\n    None => ()"))).toEqual([]);
+      "match make(s) with\n    Some(f) => f!()\n    None => ()"))).toEqual([]);
   });
 
   test("a member named without being called carries the contract's face", () => {
@@ -3426,7 +3426,7 @@ describe("Effects §13.2: every merging expression, spelled three ways, in both 
     {
       name: "a `match`, the slot in one arm and a pure function in the others",
       join: (first: string, second: string) =>
-        `match t\n            A => ${first}\n            B => spare\n            Z => ${second}`,
+        `match t with\n            A => ${first}\n            B => spare\n            Z => ${second}`,
       after: (join: string) => `        let f = ${join}\n        f()\n`,
       call: "f()",
     },
@@ -3449,7 +3449,7 @@ describe("Effects §13.2: every merging expression, spelled three ways, in both 
       name: "a vector element",
       join: (first: string, second: string) => `[${first}, ${second}]`,
       after: (join: string) =>
-        `        let v = ${join}\n        match Vector.get(v, 0)\n` +
+        `        let v = ${join}\n        match Vector.get(v, 0) with\n` +
         "            Some(u) => u()\n            None => ()\n",
       call: "u()",
     },
@@ -3480,7 +3480,7 @@ describe("Effects §13.2: every merging expression, spelled three ways, in both 
       join: (_first: string, second: string) => `v := [${second}]`,
       after: (join: string, first: string) =>
         `        var v = [${first}]\n        ${join}\n` +
-        "        match Vector.get(v, 0)\n" +
+        "        match Vector.get(v, 0) with\n" +
         "            Some(u) => u()\n            None => ()\n",
       call: "u()",
     },
@@ -3738,7 +3738,7 @@ describe("Effects §13.2: a `match` merge, and a pin on a merge", () => {
       "union T = A | B | Z\n" +
       "let t: T = A\n" +
       "honor C<R> =\n    go(runner, d, b) =\n" +
-      "        let g = match t\n" +
+      "        let g = match t with\n" +
       "            A => d\n            B => spare\n            Z => b\n" +
       "        () => g()\n";
     expect(messages(source)).toEqual([pureReturns("go")]);

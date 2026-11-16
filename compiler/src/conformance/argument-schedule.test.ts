@@ -247,7 +247,7 @@ describe("the pipe seat supplies (§4.3, Operators §8)", () => {
   test("the bare-lambda stage is served alike", () => {
     expect(verdict(
       "export fun classify(total: Int): String = total |> (v =>\n" +
-        "    match v\n" +
+        "    match v with\n" +
         "        n when n < 0 => \"negative\"\n" +
         "        _ => \"other\")\n",
     )).toEqual([]);

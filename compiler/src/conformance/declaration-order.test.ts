@@ -373,7 +373,7 @@ describe("the term names a type declaration binds read top-down (§7.2)", () => 
 
   test("a match arm above the union names the union as the move", () => {
     expect(diagnostics([["/main.hex",
-      "module Main\n\n" + "export fun distance(s: Spot): Int = match s\n" +
+      "module Main\n\n" + "export fun distance(s: Spot): Int = match s with\n" +
       "    Origin => 0\n" +
       "    Away(n) => n\n" +
       "export union Spot = Origin | Away(Int)\n",
@@ -535,7 +535,7 @@ describe("an import straddles the reading laws it imports (Modules §3, #465, #7
     test("...as does `Geo.Circle(r)` in a pattern", () => {
       expect(diagnostics([GEOMETRY, ["/main.hex",
         "module Main\n\n" + "export fun radius(s: Geo.Shape): Int =\n" +
-        "    match s\n" +
+        "    match s with\n" +
         "        Geo.Circle(r) => r\n" +
         "        _ => 0\n" +
         "import Geometry as Geo\n",
@@ -547,7 +547,7 @@ describe("an import straddles the reading laws it imports (Modules §3, #465, #7
         "module Main\n\n" + "import Geometry as Geo\n" +
         "export fun size(p: Geo.Point): Int = Geo.area(p)\n" +
         "export fun radius(s: Geo.Shape): Int =\n" +
-        "    match s\n" +
+        "    match s with\n" +
         "        Geo.Circle(r) => r\n" +
         "        Geo.Square(side) => side\n" +
         "export let box: Int = size(Geo.Point({x = 5, y = 5}))\n" +
@@ -597,7 +597,7 @@ describe("an import straddles the reading laws it imports (Modules §3, #465, #7
     test("...and in pattern position, where the surface is `terms` alone", () => {
       const above = diagnostics([GEOMETRY, ["/main.hex",
         "module Main\n\n" + "export fun radius(s: Geo.Shape): Int =\n" +
-        "    match s\n" +
+        "    match s with\n" +
         "        Geo.Zork(r) => r\n" +
         "        _ => 0\n" +
         "import Geometry as Geo\n",
@@ -613,7 +613,7 @@ describe("an import straddles the reading laws it imports (Modules §3, #465, #7
       expect(diagnostics([GEOMETRY, ["/main.hex",
         "module Main\n\n" + "import Geometry as Geo\n" +
         "export fun radius(s: Geo.Shape): Int =\n" +
-        "    match s\n" +
+        "    match s with\n" +
         "        Geo.Zork(r) => r\n" +
         "        _ => 0\n",
       ]])).toEqual(above);
@@ -767,7 +767,7 @@ describe("an import straddles the reading laws it imports (Modules §3, #465, #7
       ]);
       expect(diagnostics([["/main.hex",
         "module Main\n\n" + "export fun pick(s: Int): Int =\n" +
-        "    match s\n" +
+        "    match s with\n" +
         "        Nope.Zork(x) => x\n" +
         "        _ => 0\n" +
         "import Nowhere as Nope\n",

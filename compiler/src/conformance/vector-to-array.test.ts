@@ -67,14 +67,14 @@ const PROGRAM = "-- The two spellings Modules section 5.5 leaves for a two-homed
   "-- `[1, ..., count]` grown from the back — the tail-then-spine path.\n" +
   "export let appended(count: Int): Vector(Int) =\n" +
   "    var built: Vector(Int) = []\n" +
-  "    for index in 1..count\n" +
+  "    for index in 1..count do\n" +
   "        built := Vector.append(built, index)\n" +
   "    built\n" +
   "\n" +
   "-- The same elements grown from the front, so the origin path runs instead.\n" +
   "export let prepended(count: Int): Vector(Int) =\n" +
   "    var built: Vector(Int) = []\n" +
-  "    for index in 1..count\n" +
+  "    for index in 1..count do\n" +
   "        built := Vector.prepend(built, count - index + 1)\n" +
   "    built\n" +
   "\n" +

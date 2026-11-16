@@ -184,7 +184,7 @@ describe("Node intrinsic contract (leak-proof rejections)", () => {
     const messages = diagnose(
       "fun count(): Int =\n" +
         "    var total = 0\n" +
-        "    for x in Node.empty()\n" +
+        "    for x in Node.empty() do\n" +
         "        total := total + 1\n" +
         "    total\n" +
         "export let z: Int = count()\n",
@@ -257,7 +257,7 @@ describe("Node intrinsic contract (leak-proof rejections)", () => {
       "union Bag(a) =\n" +
         "    | Pack(values: Node(a))\n" +
         "    | Fan(children: Node(Bag(a)))\n" +
-        "fun packHead(bag: Bag(Int)): Int = match bag\n" +
+        "fun packHead(bag: Bag(Int)): Int = match bag with\n" +
         "    Pack(values) => Node.get(values, 0)\n" +
         "    Fan(_) => 0 - 1\n" +
         "export fun demo(): Int = packHead(Pack(Node.set(Node.empty(), 0, 5)))\n",
@@ -299,14 +299,14 @@ describe("Node annotations enable the recursive trie shape", () => {
       "union Bag(a) =\n" +
         "    | Pack(values: Node(a))\n" +
         "    | Fan(children: Node(Bag(a)))\n" +
-        "fun packValue(bag: Bag(Int), slot: Int): Int = match bag\n" +
+        "fun packValue(bag: Bag(Int), slot: Int): Int = match bag with\n" +
         "    Pack(values) => Node.get(values, slot)\n" +
         "    Fan(_) => 0 - 1\n" +
         "fun buildPack(): Bag(Int) = Pack(Node.set(Node.set(Node.empty(), 0, 10), 1, 20))\n" +
         "fun buildFan(): Bag(Int) = Fan(Node.set(Node.empty(), 0, buildPack()))\n" +
         "export let leaf0: Int = packValue(buildPack(), 0)\n" +
         "export let leaf1: Int = packValue(buildPack(), 1)\n" +
-        "export let nested: Int = match buildFan()\n" +
+        "export let nested: Int = match buildFan() with\n" +
         "    Fan(children) => packValue(Node.get(children, 0), 1)\n" +
         "    Pack(_) => 0 - 1\n",
     );

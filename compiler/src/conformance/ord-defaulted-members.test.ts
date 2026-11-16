@@ -150,7 +150,7 @@ describe("an instance may write its own (Constraints §2, §7)", () => {
       "",
       "honor Ord<Size> =",
       "    compare(left, right) =",
-      "        match (left, right)",
+      "        match (left, right) with",
       "            (Small, Large) => Ordering.Less",
       "            (Large, Small) => Ordering.Greater",
       "            _ => Ordering.Equal",
@@ -331,11 +331,11 @@ describe("what the completion emits (Constraints §6.1)", () => {
     const exports = await run(CARD + [
       "export let pick<a: Ord>(x: a, y: a): (a, Int) = Ord.max((x, 1), (y, 1))",
       "export let low<a: Ord>(x: a, y: a): (a, Int) = Ord.min((x, 1), (y, 1))",
-      'export let high: String = match pick(card(1, "first"), card(1, "second"))',
+      'export let high: String = match pick(card(1, "first"), card(1, "second")) with',
       "    (chosen, _) => chosen.tag",
-      'export let least: String = match low(card(1, "first"), card(1, "second"))',
+      'export let least: String = match low(card(1, "first"), card(1, "second")) with',
       "    (chosen, _) => chosen.tag",
-      'export let ordered: String = match pick(card(3, "three"), card(2, "two"))',
+      'export let ordered: String = match pick(card(3, "three"), card(2, "two")) with',
       "    (chosen, _) => chosen.tag",
       "",
     ].join("\n"));

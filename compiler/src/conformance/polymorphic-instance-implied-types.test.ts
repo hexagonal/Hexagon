@@ -73,7 +73,7 @@ describe("the projection instantiates at the use (requirement discharge)", () =>
     const main = await runMain("module Main\n\n" + iterable + bag +
       "export fun run(ignored: Int): Int =\n" +
       "    var sum = 0\n" +
-      "    for number in Bag({items = [2, 3, 3]})\n" +
+      "    for number in Bag({items = [2, 3, 3]}) do\n" +
       "        sum := sum + number\n" +
       "    sum\n");
     expect((main["run"] as (ignored: number) => number)(0)).toBe(8);
@@ -85,7 +85,7 @@ describe("the projection instantiates at the use (requirement discharge)", () =>
     const messages = projectDiagnostics("module Main\n\n" + iterable + bag +
       "fun total(bag: Bag(String)): Int =\n" +
       "    var sum = 0\n" +
-      "    for number in bag\n" +
+      "    for number in bag do\n" +
       "        sum := sum + number\n" +
       "    sum\n");
     expect(messages).toContain("type mismatch: expected Int, found String");
@@ -107,7 +107,7 @@ describe("the instance crosses the module boundary (seeding path)", () => {
         "\n" +
         "export fun run(ignored: Int): Int =\n" +
         "    var sum = 0\n" +
-        "    for number in Bag({items = [4, 5]})\n" +
+        "    for number in Bag({items = [4, 5]}) do\n" +
         "        sum := sum + number\n" +
         "    sum\n"],
     ]);
@@ -121,7 +121,7 @@ describe("the instance crosses the module boundary (seeding path)", () => {
         "\n" +
         "fun total(bag: Bag(String)): Int =\n" +
         "    var sum = 0\n" +
-        "    for number in bag\n" +
+        "    for number in bag do\n" +
         "        sum := sum + number\n" +
         "    sum\n"],
     ]);

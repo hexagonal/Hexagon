@@ -254,10 +254,10 @@ export let ceil(value: Rat): BigInt =
 -- linear in it — the exponents here reach into the thousands.
 let bitLength(value: BigInt): Int =
     var high: Int = 1
-    while (2 ** high) <= value
+    while (2 ** high) <= value do
         high := high * 2
     var low: Int = if high == 1 then 0 else high.quot(2)
-    while high - low > 1
+    while high - low > 1 do
         let middle = (low + high).quot(2)
         if (2 ** middle) <= value then
             low := middle
@@ -363,7 +363,7 @@ let hexDigit(value: Int): String = "0123456789abcdef".dropFirstN(value).dropLast
 let escaped(point: String): String =
     if point == "\"" then "\\\""
     else if point == "\\" then "\\\\"
-    else match String.toCodepoint(point)
+    else match String.toCodepoint(point) with
         Some(code) =>
             if code < 32 or (code >= 127 and code <= 159) then "\\u00" ++ hexDigit(code.div(16)) ++ hexDigit(code.mod(16))
             else point
@@ -374,12 +374,12 @@ let quoted(text: String): String =
     -- count and never a copy.
     var count = 0
     var head = ""
-    for point in text
+    for point in text do
         head := if count < 37 then head ++ point else head
         count := count + 1
     let shown = if count > 40 then head ++ "\u{2026}" else text
     var written = "\""
-    for point in shown
+    for point in shown do
         written := written ++ escaped(point)
     written ++ "\""
 
@@ -398,11 +398,11 @@ let unsignedPart(part: String): Option(BigInt) =
     not written that way. A call that may throw carries a mark:
     `Rat.parse?(text)` gives `None` in place of throwing, and
     `assume Rat.parse^(text)` is for text that is known to be good. -}
-export let parse(text: String): Rat = match text.split("/")
-    [whole] => match BigInt.parse?(whole)
+export let parse(text: String): Rat = match text.split("/") with
+    [whole] => match BigInt.parse?(whole) with
         Some(value) => create(value, 1n)
         None => throw^(notRat(text))
-    [top, bottom] => match (BigInt.parse?(top), unsignedPart(bottom))
+    [top, bottom] => match (BigInt.parse?(top), unsignedPart(bottom)) with
         (Some(numerator), Some(denominator)) =>
             if denominator == 0 then throw^(notRat(text)) else create(numerator, denominator)
         _ => throw^(notRat(text))

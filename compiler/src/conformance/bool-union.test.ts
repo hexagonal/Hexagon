@@ -32,7 +32,7 @@ describe("Bool is a prelude union (#147 §2)", () => {
     // than the deleted finite-literal-domain carve-out.
     expect(
       projectDiagnostics("module Main\n\n" + "export let label(flag: Bool): String =\n" +
-          "    match flag\n" +
+          "    match flag with\n" +
           "        True => \"on\"\n" +
           "        False => \"off\"\n",
       ),
@@ -42,7 +42,7 @@ describe("Bool is a prelude union (#147 §2)", () => {
   test("a match missing a constructor is the ordinary missing-case error", () => {
     expect(
       projectDiagnostics("module Main\n\n" + "export let label(flag: Bool): String =\n" +
-          "    match flag\n" +
+          "    match flag with\n" +
           "        True => \"on\"\n",
       ),
     ).toContain("match is missing cases: `False`");
@@ -119,7 +119,7 @@ describe("the representation pin (#147 §3)", () => {
   test("a `Bool` match emits on the boolean itself", () => {
     const emitted = javascript(
       "export let label(flag: Bool): String =\n" +
-        "    match flag\n" +
+        "    match flag with\n" +
         "        True => \"on\"\n" +
         "        False => \"off\"\n",
     );
@@ -174,7 +174,7 @@ describe("the representation pin (#147 §3)", () => {
     const project = compileMain("module Main\n\n" + "extern from \"host\"\n" +
         "    export fun isReady() ->! Bool\n" +
         "export let describe(): String =\n" +
-        "    match isReady!()\n" +
+        "    match isReady!() with\n" +
         "        True => \"ready\"\n" +
         "        False => \"waiting\"\n",
     );

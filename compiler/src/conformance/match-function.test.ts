@@ -132,7 +132,7 @@ describe("a scrutinee-less `match` is a unary function literal", () => {
     const armsOnly = "    n when n > 0 => \"positive\"\n    _ => \"other\"\n";
 
     const written = projectDiagnostics("module Main\n\n" + "let sign: (Int) -> String = value =>\n" +
-        "    match value\n" +
+        "    match value with\n" +
         armsOnly.replaceAll("    ", "        ") +
         "export let a: String = sign(3)\n",
     );
@@ -163,7 +163,7 @@ describe("a scrutinee-less `match` is a unary function literal", () => {
       "is bound, or hand the function a value whose type is written";
     for (const [arms, expected] of [[guardOnly, []], [doorOnly, [refusal]]] as const) {
       const written = projectDiagnostics("module Main\n\n" + "let sign = value =>\n" +
-          "    match value\n" +
+          "    match value with\n" +
           arms.replaceAll("    ", "        "),
       );
       const desugared = projectDiagnostics("module Main\n\n" + "let sign = match\n" + arms);
@@ -268,7 +268,7 @@ describe("it is a `match`: exhaustiveness and reachability are demanded", () => 
   test("an arm block is still required, and its absence is the one report", () => {
     expect(projectDiagnostics("module Main\n\n" + "let describe = match\n"))
       .toEqual(["expected an indented block of match arms"]);
-    expect(projectDiagnostics("module Main\n\nexport let f(s: Int): Int =\n    match s\nexport let z: Int = 1\n"))
+    expect(projectDiagnostics("module Main\n\nexport let f(s: Int): Int =\n    match s with\nexport let z: Int = 1\n"))
       .toEqual(["expected an indented block of match arms"]);
   });
 });
@@ -292,7 +292,7 @@ describe("it is a lambda literal, and the `fun` seat is retired (#700)", () => {
 
   test("the rewrite compiles and recurses", async () => {
     const exports = await runMain("module Main\n\n" + "union Peano = Zero | Succ(Peano)\n" +
-        "fun depth(shape) = match shape\n" +
+        "fun depth(shape) = match shape with\n" +
         "    Zero => 0\n" +
         "    Succ(inner) => 1 + depth(inner)\n" +
         "export let two: Int = depth(Succ(Succ(Zero)))\n",
@@ -334,7 +334,7 @@ describe("disambiguation is one token of lookahead", () => {
     const exports = await runMain(
       maybe +
         "export let describe(value: Maybe): Int =\n" +
-        "    match value\n" +
+        "    match value with\n" +
         "        Just(n) => n\n" +
         "        Nothing => 0\n" +
         "export let answer: Int = describe(Just(7))\n",
@@ -367,7 +367,7 @@ describe("no `catch` clause, at either seat (Exceptions §5.4, §9)", () => {
   const boom = "exception Boom(message: String)\n";
   const noClause = "a match function's parameter is already a value; there is nothing here " +
     "for `catch` to observe — to guard the arm bodies, write a lambda whose body is " +
-    "`try match x …` with `catch` aligned to the `try`";
+    "`try match x with …` with `catch` aligned to the `try`";
 
   test("a `catch` at the head's own column", () => {
     expect(projectDiagnostics(
@@ -477,7 +477,7 @@ describe("no `catch` clause, at either seat (Exceptions §5.4, §9)", () => {
       maybe + boom +
         "export let answer(value: Maybe): Int =\n" +
         "    let described =\n" +
-        "        match value\n" +
+        "        match value with\n" +
         "            Just(n) => n\n" +
         "            Nothing => 0\n" +
         "    catch\n" +
@@ -491,13 +491,13 @@ describe("no `catch` clause, at either seat (Exceptions §5.4, §9)", () => {
   });
 
   test("the rewrite the message names compiles", () => {
-    // `try match x …` inside a lambda body, the `try` heading its own line —
+    // `try match x with …` inside a lambda body, the `try` heading its own line —
     // the one legal layout of that composition under §5.4's attachment rules.
     expect(projectDiagnostics(
       maybe + boom +
         "let risky(n: Int): Int = if n > 0 then n else throw^(Boom(\"negative\"))\n" +
         "let describe = value =>\n" +
-        "    try match value\n" +
+        "    try match value with\n" +
         "        Just(n) => risky^(n)\n" +
         "        Nothing => 0\n" +
         "    catch\n" +
@@ -515,7 +515,7 @@ describe("no `catch` clause, at either seat (Exceptions §5.4, §9)", () => {
         "let apply(value: Maybe, transform: (Maybe) ->^ Int): Int = transform^(value)\n" +
         "export let answer(value: Maybe): Int =\n" +
         "    apply^(value, option =>\n" +
-        "        try match option\n" +
+        "        try match option with\n" +
         "            Just(n) => risky^(n)\n" +
         "            Nothing => 0\n" +
         "        catch\n" +

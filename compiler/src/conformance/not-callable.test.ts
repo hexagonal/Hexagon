@@ -287,7 +287,7 @@ fun
 
   test("a `match` over a value already in error adds nothing either (#414)", () => {
     for (const value of ["nope", "nope(1)"]) {
-      expect(main(`export let bad: Int =\n    match ${value}\n        0 => 1\n        _ => 2\n`))
+      expect(main(`export let bad: Int =\n    match ${value} with\n        0 => 1\n        _ => 2\n`))
         .toEqual(["unknown name `nope`"]);
     }
   });

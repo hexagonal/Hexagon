@@ -39,7 +39,7 @@ const dot: Shape = { tag: "Dot" };
 describe("an arm that declares is a block of its own", () => {
   test("two arms binding one name load and run", async () => {
     const source = SHAPE +
-      "export let area(s: Shape): Int = match s\n" +
+      "export let area(s: Shape): Int = match s with\n" +
       "    Circle(size) => size * 3\n" +
       "    Square(size) => size * size\n" +
       "    Dot => 0\n";
@@ -63,12 +63,12 @@ describe("an arm that declares is a block of its own", () => {
 
   test("an arm's binder does not hide an outer name from the other arms", async () => {
     const source = SHAPE +
-      "export let pick(size: Int, s: Shape): Int = match s\n" +
+      "export let pick(size: Int, s: Shape): Int = match s with\n" +
       "    Circle(size) => size\n" +
       "    Square(_) => size\n" +
       "    Dot => 0 - size\n" +
       "\n" +
-      "export let fallback(other: Int, s: Shape): Int = match s\n" +
+      "export let fallback(other: Int, s: Shape): Int = match s with\n" +
       "    Circle(_) => other\n" +
       "    other => 0\n";
     const text = javascript(source);
@@ -92,12 +92,12 @@ describe("an arm that declares is a block of its own", () => {
     // `Square` arm's `let` is inside the arrow its block emits as, so the arm
     // itself declares nothing.
     const source = SHAPE +
-      "export let nested(s: Shape, t: Shape): Int = match s\n" +
+      "export let nested(s: Shape, t: Shape): Int = match s with\n" +
       "    Circle(a) => a\n" +
       "    Square(_) =>\n" +
       "        let k = 2\n" +
       "        k * 3\n" +
-      "    Dot => match t\n" +
+      "    Dot => match t with\n" +
       "        Circle(b) => b\n" +
       "        _ => 0 - 1\n";
     const text = javascript(source);
@@ -123,10 +123,10 @@ describe("an arm that declares is a block of its own", () => {
     const source = SHAPE +
       "export let tally(s: Shape): Int =\n" +
       "    var n = 0\n" +
-      "    match s\n" +
+      "    match s with\n" +
       "        Circle(size) => n := n + size\n" +
       "        Square(size) => n := n - size\n" +
-      "        Dot => for (a, b) in [(1, 2), (3, 4)]\n" +
+      "        Dot => for (a, b) in [(1, 2), (3, 4)] do\n" +
       "            n := n + a * b\n" +
       "    n\n";
     const text = javascript(source);
@@ -145,7 +145,7 @@ describe("an arm that declares is a block of its own", () => {
   });
 
   test("a literal-valued switch braces its catch-all binder", async () => {
-    const source = "export let flag(b: Bool): Int = match b\n" +
+    const source = "export let flag(b: Bool): Int = match b with\n" +
       "    True => 1\n" +
       "    other => 0\n";
     const text = javascript(source);

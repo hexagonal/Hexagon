@@ -110,7 +110,7 @@ describe("the constructor pattern destructures a nominal record in its home modu
 
     const exports = await runMain("module Main\n\n" + "export record Box(a) = {item: a}\n" +
       "export fun bump(b: Box(Int)): Int =\n" +
-      "    match b\n" +
+      "    match b with\n" +
       "        Box({item}) => item + 1\n" +
       "export let v: Int = bump(Box({item = 41}))\n",
     );
@@ -134,7 +134,7 @@ describe("a `match` on a nominal-record scrutinee", () => {
       "module Main\n\n" +
       CRATE +
       "export fun size(c: Crate): Float =\n" +
-      "    match c\n" +
+      "    match c with\n" +
       "        Crate({n}) => n\n",
     )).toEqual([]);
 
@@ -142,7 +142,7 @@ describe("a `match` on a nominal-record scrutinee", () => {
       "module Main\n\n" +
       CRATE +
       "export fun size(c: Crate): Float =\n" +
-      "    match c\n" +
+      "    match c with\n" +
       "        Crate({n}) => n\n" +
       "export let v: Float = size(Crate({n = 3.5, tag = \"a\"}))\n",
     );
@@ -156,7 +156,7 @@ describe("a `match` on a nominal-record scrutinee", () => {
       "module Main\n\n" +
       CRATE +
       "export fun size(c: Crate): Float =\n" +
-      "    match c\n" +
+      "    match c with\n" +
       "        Crate({tag = \"a\"}) => 1.0\n",
     )).toEqual(["match is missing cases: `Crate(_)`"]);
   });
@@ -166,7 +166,7 @@ describe("a `match` on a nominal-record scrutinee", () => {
       "module Main\n\n" +
       CRATE +
       "export fun name(c: Crate): String =\n" +
-      "    match c\n" +
+      "    match c with\n" +
       "        Crate({tag = \"a\"}) => \"first\"\n" +
       "        Crate({tag}) => tag\n",
     )).toEqual([]);
@@ -175,7 +175,7 @@ describe("a `match` on a nominal-record scrutinee", () => {
       "module Main\n\n" +
       CRATE +
       "export fun name(c: Crate): String =\n" +
-      "    match c\n" +
+      "    match c with\n" +
       "        Crate({tag = \"a\"}) => \"first\"\n" +
       "        Crate({tag}) => tag\n" +
       "export let hit: String = name(Crate({n = 0.0, tag = \"a\"}))\n" +
@@ -189,7 +189,7 @@ describe("a `match` on a nominal-record scrutinee", () => {
       "module Main\n\n" +
       CRATE +
       "export fun size(c: Crate): Float =\n" +
-      "    match c\n" +
+      "    match c with\n" +
       "        Crate({n}) => n\n" +
       "        Crate({n}) => n\n",
     )).toEqual(["this match arm is unreachable; an earlier pattern matches everything"]);
@@ -200,14 +200,14 @@ describe("a `match` on a nominal-record scrutinee", () => {
       "module Main\n\n" +
       CRATE +
       "export fun size(c: Crate): Float =\n" +
-      "    match c\n" +
+      "    match c with\n" +
       "        _ => 0.0\n",
     )).toEqual([]);
     expect(projectDiagnostics(
       "module Main\n\n" +
       CRATE +
       "export fun size(c: Crate): Float =\n" +
-      "    match c\n" +
+      "    match c with\n" +
       "        _ => 0.0\n" +
       "        Crate({n}) => n\n",
     )).toEqual(["this match arm is unreachable; an earlier pattern matches everything"]);
@@ -221,7 +221,7 @@ describe("a `match` on a nominal-record scrutinee", () => {
       "module Main\n\n" +
       CRATE +
       "export fun size(c: Crate): Float =\n" +
-      "    match c\n" +
+      "    match c with\n" +
       "        Crate({n}) when n > 0.0 => n\n",
     )).toEqual(["match is missing cases: `_`"]);
   });
@@ -231,7 +231,7 @@ describe("a `match` on a nominal-record scrutinee", () => {
       "module Main\n\n" +
       CRATE +
       "export fun size(c: Option(Crate)): Float =\n" +
-      "    match c\n" +
+      "    match c with\n" +
       "        Some(Crate({n})) => n\n" +
       "        _ => 0.0\n" +
       "export let some: Float = size(Some(Crate({n = 4.0, tag = \"a\"})))\n" +
@@ -251,7 +251,7 @@ describe("a `match` on a nominal-record scrutinee", () => {
       "module Main\n\n" +
       declaration +
       "export fun size(o: Option(Wrapped)): Int =\n" +
-      "    match o\n" +
+      "    match o with\n" +
       `        ${arm}\n` +
       "        None => 0\n",
     );
@@ -266,7 +266,7 @@ describe("a `match` on a nominal-record scrutinee", () => {
       "module Main\n\n" +
       CRATE +
       "export fun twice(c: Crate): Float =\n" +
-      "    match c\n" +
+      "    match c with\n" +
       "        Crate({n}) as whole => n + whole.n\n" +
       "export let v: Float = twice(Crate({n = 1.5, tag = \"a\"}))\n",
     );
@@ -298,7 +298,7 @@ describe("every binding position takes it, gated only by irrefutability (§6)", 
       CRATE +
       "export fun total(cs: Vector(Crate)): Float =\n" +
       "    var sum = 0.0\n" +
-      "    for Crate({n}) in cs\n" +
+      "    for Crate({n}) in cs do\n" +
       "        sum := sum + n\n" +
       "    sum\n",
     )).toEqual([]);
@@ -308,7 +308,7 @@ describe("every binding position takes it, gated only by irrefutability (§6)", 
       CRATE +
       "export fun total(cs: Vector(Crate)): Float =\n" +
       "    var sum = 0.0\n" +
-      "    for Crate({n}) in cs\n" +
+      "    for Crate({n}) in cs do\n" +
       "        sum := sum + n\n" +
       "    sum\n" +
       "export let v: Float = total([Crate({n = 1.5, tag = \"a\"}), Crate({n = 2.0, tag = \"b\"})])\n",
@@ -343,7 +343,7 @@ describe("every binding position takes it, gated only by irrefutability (§6)", 
       CRATE +
       "export fun total(cs: Vector(Crate)): Float =\n" +
       "    var sum = 0.0\n" +
-      "    for Crate({tag = \"a\"}) in cs\n" +
+      "    for Crate({tag = \"a\"}) in cs do\n" +
       "        sum := sum + 1.0\n" +
       "    sum\n",
     )).toEqual([
@@ -383,7 +383,7 @@ describe("the bare record pattern is redirected, not mismatched (§2.4)", () => 
       "module Main\n\n" +
       CRATE +
       "export fun size(c: Crate): Float =\n" +
-      "    match c\n" +
+      "    match c with\n" +
       "        {n, tag} => n\n",
     )).toEqual([
       // One error, not two: a record pattern is structurally irrefutable, so
@@ -467,7 +467,7 @@ describe("the bare record pattern is redirected, not mismatched (§2.4)", () => 
       ["/main.hex",
         "module Main\n\n" + 'import Geo as Crate\n' +
         "export fun size(c: Crate): Float =\n" +
-        "    match c\n" +
+        "    match c with\n" +
         "        {n} => n\n"],
     ]).diagnostics.map(({ message }) => message)).toEqual([
       "cannot destructure opaque record `Crate`; use an operation exported by its home module",
@@ -488,7 +488,7 @@ describe("arity is one, positional (§2.2)", () => {
       "module Main\n\n" +
       CRATE +
       "export fun size(c: Crate): Float =\n" +
-      "    match c\n" +
+      "    match c with\n" +
       "        Crate({n}, x) => n\n",
     )).toEqual(["constructor pattern `Crate` expects 1 arguments, got 2"]);
   });
@@ -498,7 +498,7 @@ describe("arity is one, positional (§2.2)", () => {
       "module Main\n\n" +
       CRATE +
       "export fun size(c: Crate): Float =\n" +
-      "    match c\n" +
+      "    match c with\n" +
       "        Crate => 1.0\n",
     )).toEqual([
       // One report, not two: the matrix widens the missing sub-pattern to `_`,
@@ -530,7 +530,7 @@ describe("outside the home module the name carries it, and only the name", () =>
       ["/main.hex",
         "module Main\n\n" + 'import Geo as Crate\n' +
         "export fun size(c: Crate): Float =\n" +
-        "    match c\n" +
+        "    match c with\n" +
         "        Crate({n}) => n\n" +
         "export let v: Float = size(Crate.make())\n"],
     ]);
@@ -552,7 +552,7 @@ describe("outside the home module the name carries it, and only the name", () =>
       ["/main.hex",
         "module Main\n\n" + 'import Geo\n' +
         "export fun size(c: Geo.Crate): Float =\n" +
-        "    match c\n" +
+        "    match c with\n" +
         "        Geo.Crate({n}) => n\n" +
         "export let v: Float = size(Geo.make())\n"],
     ]);
@@ -620,7 +620,7 @@ describe("a `match` on a nominal-record scrutinee", () => {
       "module Main\n\n" +
       CRATE +
       "export fun size(c: Crate): Float =\n" +
-      "    match c\n" +
+      "    match c with\n" +
       "        Crate({n}) => n\n",
     )).toEqual([]);
 
@@ -628,7 +628,7 @@ describe("a `match` on a nominal-record scrutinee", () => {
       "module Main\n\n" +
       CRATE +
       "export fun size(c: Crate): Float =\n" +
-      "    match c\n" +
+      "    match c with\n" +
       "        Crate({n}) => n\n" +
       "export let v: Float = size(Crate({n = 3.5, tag = \"a\"}))\n",
     );
@@ -642,7 +642,7 @@ describe("a `match` on a nominal-record scrutinee", () => {
       "module Main\n\n" +
       CRATE +
       "export fun size(c: Crate): Float =\n" +
-      "    match c\n" +
+      "    match c with\n" +
       "        Crate({tag = \"a\"}) => 1.0\n",
     )).toEqual(["match is missing cases: `Crate(_)`"]);
   });
@@ -652,7 +652,7 @@ describe("a `match` on a nominal-record scrutinee", () => {
       "module Main\n\n" +
       CRATE +
       "export fun name(c: Crate): String =\n" +
-      "    match c\n" +
+      "    match c with\n" +
       "        Crate({tag = \"a\"}) => \"first\"\n" +
       "        Crate({tag}) => tag\n",
     )).toEqual([]);
@@ -661,7 +661,7 @@ describe("a `match` on a nominal-record scrutinee", () => {
       "module Main\n\n" +
       CRATE +
       "export fun name(c: Crate): String =\n" +
-      "    match c\n" +
+      "    match c with\n" +
       "        Crate({tag = \"a\"}) => \"first\"\n" +
       "        Crate({tag}) => tag\n" +
       "export let hit: String = name(Crate({n = 0.0, tag = \"a\"}))\n" +
@@ -675,7 +675,7 @@ describe("a `match` on a nominal-record scrutinee", () => {
       "module Main\n\n" +
       CRATE +
       "export fun size(c: Crate): Float =\n" +
-      "    match c\n" +
+      "    match c with\n" +
       "        Crate({n}) => n\n" +
       "        Crate({n}) => n\n",
     )).toEqual(["this match arm is unreachable; an earlier pattern matches everything"]);
@@ -686,14 +686,14 @@ describe("a `match` on a nominal-record scrutinee", () => {
       "module Main\n\n" +
       CRATE +
       "export fun size(c: Crate): Float =\n" +
-      "    match c\n" +
+      "    match c with\n" +
       "        _ => 0.0\n",
     )).toEqual([]);
     expect(projectDiagnostics(
       "module Main\n\n" +
       CRATE +
       "export fun size(c: Crate): Float =\n" +
-      "    match c\n" +
+      "    match c with\n" +
       "        _ => 0.0\n" +
       "        Crate({n}) => n\n",
     )).toEqual(["this match arm is unreachable; an earlier pattern matches everything"]);
@@ -707,7 +707,7 @@ describe("a `match` on a nominal-record scrutinee", () => {
       "module Main\n\n" +
       CRATE +
       "export fun size(c: Crate): Float =\n" +
-      "    match c\n" +
+      "    match c with\n" +
       "        Crate({n}) when n > 0.0 => n\n",
     )).toEqual(["match is missing cases: `_`"]);
   });
@@ -717,7 +717,7 @@ describe("a `match` on a nominal-record scrutinee", () => {
       "module Main\n\n" +
       CRATE +
       "export fun size(c: Option(Crate)): Float =\n" +
-      "    match c\n" +
+      "    match c with\n" +
       "        Some(Crate({n})) => n\n" +
       "        _ => 0.0\n" +
       "export let some: Float = size(Some(Crate({n = 4.0, tag = \"a\"})))\n" +
@@ -737,7 +737,7 @@ describe("a `match` on a nominal-record scrutinee", () => {
       "module Main\n\n" +
       declaration +
       "export fun size(o: Option(Wrapped)): Int =\n" +
-      "    match o\n" +
+      "    match o with\n" +
       `        ${arm}\n` +
       "        None => 0\n",
     );
@@ -752,7 +752,7 @@ describe("a `match` on a nominal-record scrutinee", () => {
       "module Main\n\n" +
       CRATE +
       "export fun twice(c: Crate): Float =\n" +
-      "    match c\n" +
+      "    match c with\n" +
       "        Crate({n}) as whole => n + whole.n\n" +
       "export let v: Float = twice(Crate({n = 1.5, tag = \"a\"}))\n",
     );
@@ -784,7 +784,7 @@ describe("every binding position takes it, gated only by irrefutability (§6)", 
       CRATE +
       "export fun total(cs: Vector(Crate)): Float =\n" +
       "    var sum = 0.0\n" +
-      "    for Crate({n}) in cs\n" +
+      "    for Crate({n}) in cs do\n" +
       "        sum := sum + n\n" +
       "    sum\n",
     )).toEqual([]);
@@ -794,7 +794,7 @@ describe("every binding position takes it, gated only by irrefutability (§6)", 
       CRATE +
       "export fun total(cs: Vector(Crate)): Float =\n" +
       "    var sum = 0.0\n" +
-      "    for Crate({n}) in cs\n" +
+      "    for Crate({n}) in cs do\n" +
       "        sum := sum + n\n" +
       "    sum\n" +
       "export let v: Float = total([Crate({n = 1.5, tag = \"a\"}), Crate({n = 2.0, tag = \"b\"})])\n",
@@ -829,7 +829,7 @@ describe("every binding position takes it, gated only by irrefutability (§6)", 
       CRATE +
       "export fun total(cs: Vector(Crate)): Float =\n" +
       "    var sum = 0.0\n" +
-      "    for Crate({tag = \"a\"}) in cs\n" +
+      "    for Crate({tag = \"a\"}) in cs do\n" +
       "        sum := sum + 1.0\n" +
       "    sum\n",
     )).toEqual([
@@ -869,7 +869,7 @@ describe("the bare record pattern is redirected, not mismatched (§2.4)", () => 
       "module Main\n\n" +
       CRATE +
       "export fun size(c: Crate): Float =\n" +
-      "    match c\n" +
+      "    match c with\n" +
       "        {n, tag} => n\n",
     )).toEqual([
       // One error, not two: a record pattern is structurally irrefutable, so
@@ -953,7 +953,7 @@ describe("the bare record pattern is redirected, not mismatched (§2.4)", () => 
       ["/main.hex",
         "module Main\n\n" + 'import Geo as Crate\n' +
         "export fun size(c: Crate): Float =\n" +
-        "    match c\n" +
+        "    match c with\n" +
         "        {n} => n\n"],
     ]).diagnostics.map(({ message }) => message)).toEqual([
       "cannot destructure opaque record `Crate`; use an operation exported by its home module",
@@ -974,7 +974,7 @@ describe("arity is one, positional (§2.2)", () => {
       "module Main\n\n" +
       CRATE +
       "export fun size(c: Crate): Float =\n" +
-      "    match c\n" +
+      "    match c with\n" +
       "        Crate({n}, x) => n\n",
     )).toEqual(["constructor pattern `Crate` expects 1 arguments, got 2"]);
   });
@@ -984,7 +984,7 @@ describe("arity is one, positional (§2.2)", () => {
       "module Main\n\n" +
       CRATE +
       "export fun size(c: Crate): Float =\n" +
-      "    match c\n" +
+      "    match c with\n" +
       "        Crate => 1.0\n",
     )).toEqual([
       // One report, not two: the matrix widens the missing sub-pattern to `_`,
@@ -1016,7 +1016,7 @@ describe("outside the home module the name carries it, and only the name", () =>
       ["/main.hex",
         "module Main\n\n" + 'import Geo as Crate\n' +
         "export fun size(c: Crate): Float =\n" +
-        "    match c\n" +
+        "    match c with\n" +
         "        Crate({n}) => n\n" +
         "export let v: Float = size(Crate.make())\n"],
     ]);
@@ -1038,7 +1038,7 @@ describe("outside the home module the name carries it, and only the name", () =>
       ["/main.hex",
         "module Main\n\n" + 'import Geo\n' +
         "export fun size(c: Geo.Crate): Float =\n" +
-        "    match c\n" +
+        "    match c with\n" +
         "        Geo.Crate({n}) => n\n" +
         "export let v: Float = size(Geo.make())\n"],
     ]);
@@ -1133,7 +1133,7 @@ describe("emission erases the wrapper, because there is none (Products §5.4)", 
     const javascript = mainJs(
       CRATE +
       "export fun size(c: Crate): Float =\n" +
-      "    match c\n" +
+      "    match c with\n" +
       "        Crate({n}) => n\n",
     );
     expect(javascript).toContain("const n = __match.n;");
@@ -1146,7 +1146,7 @@ describe("emission erases the wrapper, because there is none (Products §5.4)", 
       CRATE +
       "export fun total(cs: Vector(Crate)): Float =\n" +
       "    var sum = 0.0\n" +
-      "    for Crate({n}) in cs\n" +
+      "    for Crate({n}) in cs do\n" +
       "        sum := sum + n\n" +
       "    sum\n",
     )).toContain("const n = __item.n;");

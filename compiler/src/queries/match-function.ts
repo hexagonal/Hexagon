@@ -52,11 +52,11 @@ export function matchFunctionRefactorings(
   // A function's header (`let size(shape) = match shape …`) is not a lambda the
   // dev wrote, and has no match function to be.
   if (!written(file, lambda)) return [];
-  // Asked from the head (the parameter, the arrow, the keyword or the
-  // scrutinee, not an arm), of a `match` on the one parameter. A pattern
+  // Asked from the head (the parameter, the arrow, the keyword, the scrutinee
+  // or its `with`, not an arm), of a `match` on the one parameter. A pattern
   // parameter's binder is one the scrutinee cannot name.
   const [parameter, ...others] = lambda.parameters;
-  const onHead = start <= match.scrutinee.span.end.offset;
+  const onHead = start <= headEnd(file, match);
   const onParameter = parameter !== undefined && others.length === 0 &&
     match.scrutinee.kind === "Name" && match.scrutinee.name.text === parameter.name.text;
   return onHead && onParameter ? [asMatchFunction(file, module, lambda, match, parameter)] : [];
@@ -88,6 +88,13 @@ function written(file: Source.File, lambda: Parsed.LambdaExpr): boolean {
   return tokensOf(file).findLast(({ span }) => span.end.offset <= body)?.kind === "FatArrow";
 }
 
+/** Where a `match`'s head ends: past its closing `with` (Lexer & Layout §2.4). */
+function headEnd(file: Source.File, match: Parsed.MatchExpr): number {
+  const scrutineeEnd = match.scrutinee.span.end.offset;
+  const closing = tokensOf(file).find(({ span }) => span.start.offset >= scrutineeEnd);
+  return closing?.kind === "NonUpperName" && closing.text === "with" ? closing.span.end.offset : scrutineeEnd;
+}
+
 const lexed = new WeakMap<Source.File, readonly Lexed.Token[]>();
 
 function tokensOf(file: Source.File): readonly Lexed.Token[] {
@@ -96,7 +103,7 @@ function tokensOf(file: Source.File): readonly Lexed.Token[] {
   return tokens;
 }
 
-/** `match …` as `(value) => match value …`, under a name the arms leave free. */
+/** `match …` as `(value) => match value with …`, under a name the arms leave free. */
 function asLambda(file: Source.File, module: Parsed.Module, lambda: Parsed.LambdaExpr, keyword: number): Refactoring {
   const used = namesIn(matchedBody(lambda)!.arms);
   let name = PARAMETER;
@@ -104,12 +111,12 @@ function asLambda(file: Source.File, module: Parsed.Module, lambda: Parsed.Lambd
   const { end } = solid(file, lambda.span);
   const arms = file.span(keyword, end);
   return rewrite(file, module, TO_LAMBDA_TITLE, lambda, {
-    texts: [`(${name}) => match ${name}${textOf(file, arms)}`],
+    texts: [`(${name}) => match ${name} with${textOf(file, arms)}`],
     kept: [arms],
   });
 }
 
-/** `(shape) => match shape …` as `match …`, or why the lambda says more than a match function can. */
+/** `(shape) => match shape with …` as `match …`, or why the lambda says more than a match function can. */
 function asMatchFunction(
   file: Source.File,
   module: Parsed.Module,
@@ -129,6 +136,6 @@ function asMatchFunction(
     return { title, disabled: `\`${name}\` is named in an arm, and a match function's parameter has no name.` };
   }
   const { end } = solid(file, lambda.span);
-  const arms = file.span(match.scrutinee.span.end.offset, end);
+  const arms = file.span(headEnd(file, match), end);
   return rewrite(file, module, title, lambda, { texts: [`match${textOf(file, arms)}`], kept: [arms] });
 }

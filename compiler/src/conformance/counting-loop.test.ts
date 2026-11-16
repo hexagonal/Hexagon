@@ -39,7 +39,7 @@ function lines(...text: readonly string[]): string {
 
 const SUM = "export let sum(lo: Int, hi: Int): Int =\n" +
   "    var total = 0\n" +
-  "    for i in lo..hi\n" +
+  "    for i in lo..hi do\n" +
   "        total := total + i\n" +
   "    total\n";
 
@@ -48,7 +48,7 @@ describe("the counting loop's shape (Loops §8)", () => {
     const text = javascript(
       "export let total(): Int =\n" +
         "    var t = 0\n" +
-        "    for i in 1..10\n" +
+        "    for i in 1..10 do\n" +
         "        t := t + i\n" +
         "    t\n",
     );
@@ -62,9 +62,9 @@ describe("the counting loop's shape (Loops §8)", () => {
       "export let total(n: Int): Int =\n" +
         "    let m = n + 1\n" +
         "    var t = 0\n" +
-        "    for i in 1..n\n" +
-        "        for j in i..m\n" +
-        "            for k in 1..i\n" +
+        "    for i in 1..n do\n" +
+        "        for j in i..m do\n" +
+        "            for k in 1..i do\n" +
         "                t := t + j + k\n" +
         "    t\n",
     );
@@ -79,9 +79,9 @@ describe("the counting loop's shape (Loops §8)", () => {
     const text = javascript(
       "export let total(hi: Int, it: Int): Int =\n" +
         "    var t = 0\n" +
-        "    for i in 1..hi\n" +
+        "    for i in 1..hi do\n" +
         "        t := t + i\n" +
-        "    for i in it..3\n" +
+        "    for i in it..3 do\n" +
         "        t := t + i\n" +
         "    t\n",
     );
@@ -97,7 +97,7 @@ describe("the counting loop's shape (Loops §8)", () => {
       ["/main.hex", "module Main\n\nimport Config\n\n" +
         "export let total(): Int =\n" +
         "    var t = 0\n" +
-        "    for i in 1..Config.limit\n" +
+        "    for i in 1..Config.limit do\n" +
         "        t := t + i\n" +
         "    t\n"],
     ]);
@@ -111,7 +111,7 @@ describe("the counting loop's shape (Loops §8)", () => {
     const text = javascript(
       "export let total(): Int =\n" +
         "    var t = 0\n" +
-        "    for i in -3..-1\n" +
+        "    for i in -3..-1 do\n" +
         "        t := t + i\n" +
         "    t\n",
     );
@@ -123,9 +123,9 @@ describe("the counting loop's shape (Loops §8)", () => {
     const text = javascript(
       "export let total(n: Int): Int =\n" +
         "    var t = 0\n" +
-        "    for i in (1..n)\n" +
+        "    for i in (1..n) do\n" +
         "        t := t + i\n" +
-        "    for i in (1..n : Range)\n" +
+        "    for i in (1..n : Range) do\n" +
         "        t := t + i\n" +
         "    t\n",
     );
@@ -139,7 +139,7 @@ describe("the counting loop's shape (Loops §8)", () => {
       "let double(n: Int): Int = n * 2\n" +
         "export let total(n: Int): Int =\n" +
         "    var t = 0\n" +
-        "    for i in 1..double(n)\n" +
+        "    for i in 1..double(n) do\n" +
         "        t := t + i\n" +
         "    t\n",
     );
@@ -155,7 +155,7 @@ describe("the counting loop's shape (Loops §8)", () => {
       "export let total(n0: Int): Int =\n" +
         "    var n = n0\n" +
         "    var t = 0\n" +
-        "    for i in 1..n\n" +
+        "    for i in 1..n do\n" +
         "        n := n + 1\n" +
         "        t := t + i\n" +
         "    t\n",
@@ -172,7 +172,7 @@ describe("the counting loop's shape (Loops §8)", () => {
       "export record Box = {height: Int}\n" +
         "export let levels(box: Box): Int =\n" +
         "    var t = 0\n" +
-        "    for level in 2..box.height\n" +
+        "    for level in 2..box.height do\n" +
         "        t := t + level\n" +
         "    t\n",
     );
@@ -188,7 +188,7 @@ describe("the counting loop's shape (Loops §8)", () => {
       'extern from "./m.js"\n    let limit: Int\n\n' +
         "export let total(): Int =\n" +
         "    var t = 0\n" +
-        "    for i in 1..limit\n" +
+        "    for i in 1..limit do\n" +
         "        t := t + i\n" +
         "    t\n",
     );
@@ -203,7 +203,7 @@ describe("the counting loop's shape (Loops §8)", () => {
     const text = javascript(
       "export let total(lo: () ->! Int, hi: () ->! Int): Int =\n" +
         "    var t = 0\n" +
-        "    for i in lo!()..hi!()\n" +
+        "    for i in lo!()..hi!() do\n" +
         "        t := t + i\n" +
         "    t\n",
     );
@@ -220,7 +220,7 @@ describe("the counting loop's shape (Loops §8)", () => {
       "let half(n: Int): Int = n.div(2)\n" +
         "export let total(n: Int): Int =\n" +
         "    var t = 0\n" +
-        "    for i in half(n)..n\n" +
+        "    for i in half(n)..n do\n" +
         "        t := t + i\n" +
         "    t\n",
     );
@@ -233,9 +233,9 @@ describe("the counting loop's shape (Loops §8)", () => {
     const source = "let double(n: Int): Int = n * 2\n" +
       "export let total(n: Int): Int =\n" +
       "    var t = 0\n" +
-      "    for _ in 1..10\n" +
+      "    for _ in 1..10 do\n" +
       "        t := t + 1\n" +
-      "    for _ in 1..double(n)\n" +
+      "    for _ in 1..double(n) do\n" +
       "        t := t + 1\n" +
       "    t\n";
     const text = javascript(source);
@@ -252,7 +252,7 @@ describe("the counting loop's shape (Loops §8)", () => {
     const text = javascript(
       "export let total(n: Int): Int =\n" +
         "    var t = 0\n" +
-        "    for (_ as i) in 1..n\n" +
+        "    for (_ as i) in 1..n do\n" +
         "        t := t + i\n" +
         "    t\n",
     );
@@ -269,9 +269,9 @@ describe("the counting loop's shape (Loops §8)", () => {
       "export let total(n: Int): Int =\n" +
         "    var t = 0\n" +
         "    let r = 1..n\n" +
-        "    for i in r\n" +
+        "    for i in r do\n" +
         "        t := t + i\n" +
-        "    for i in 1..n\n" +
+        "    for i in 1..n do\n" +
         "        t := t + i\n" +
         "    t\n",
     );
@@ -306,10 +306,10 @@ describe("the counting loop runs as the range would (Loops §2.3, §3.4)", () =>
     const exports = await run(
       "export let captured(): String =\n" +
         "    var fs: Vector(() -> Int) = []\n" +
-        "    for i in 1..3\n" +
+        "    for i in 1..3 do\n" +
         "        fs := fs.append(() => i)\n" +
         "    var out = \"\"\n" +
-        "    for f in fs\n" +
+        "    for f in fs do\n" +
         "        out := \"${out}${f()}\"\n" +
         "    out\n",
     );
@@ -321,7 +321,7 @@ describe("the counting loop runs as the range would (Loops §2.3, §3.4)", () =>
     const exports = await run(
       "export let total(hi: () ->! Int): Int =\n" +
         "    var t = 0\n" +
-        "    for i in 1..hi!()\n" +
+        "    for i in 1..hi!() do\n" +
         "        t := t + i\n" +
         "    t\n",
     );
@@ -338,7 +338,7 @@ describe("the counting loop runs as the range would (Loops §2.3, §3.4)", () =>
     const exports = await run(
       "export let total(lo: () ->! Int, hi: () ->! Int): Int =\n" +
         "    var t = 0\n" +
-        "    for i in lo!()..hi!()\n" +
+        "    for i in lo!()..hi!() do\n" +
         "        t := t + i\n" +
         "    t\n",
     );
@@ -356,7 +356,7 @@ describe("the counting loop runs as the range would (Loops §2.3, §3.4)", () =>
       "export let total(n0: Int): Int =\n" +
         "    var n = n0\n" +
         "    var t = 0\n" +
-        "    for i in 1..n\n" +
+        "    for i in 1..n do\n" +
         "        if i == 1 then\n" +
         "            n := n + 2\n" +
         "        t := t + i\n" +
@@ -370,8 +370,8 @@ describe("the counting loop runs as the range would (Loops §2.3, §3.4)", () =>
     const exports = await run(
       "export let triangle(n: Int): Int =\n" +
         "    var t = 0\n" +
-        "    for i in 1..n\n" +
-        "        for j in 1..i\n" +
+        "    for i in 1..n do\n" +
+        "        for j in 1..i do\n" +
         "            t := t + 1\n" +
         "    t\n",
     );
@@ -384,7 +384,7 @@ describe("a loop variable may shadow a name its own head reads (#1127)", () => {
   test("a counting loop's end: read before the loop, the counter keeps its name", async () => {
     const source = "export let total(n: Int): Int =\n" +
       "    var t = 0\n" +
-      "    for n in 1..n\n" +
+      "    for n in 1..n do\n" +
       "        t := t + n\n" +
       "    t\n";
 
@@ -398,7 +398,7 @@ describe("a loop variable may shadow a name its own head reads (#1127)", () => {
   test("a counting loop's start", async () => {
     const source = "export let total(n: Int): Int =\n" +
       "    var t = 0\n" +
-      "    for n in n..10\n" +
+      "    for n in n..10 do\n" +
       "        t := t + n\n" +
       "    t\n";
 
@@ -412,7 +412,7 @@ describe("a loop variable may shadow a name its own head reads (#1127)", () => {
   test("only the mentioning bound moves: a computed start stays in the loop", async () => {
     const source = "export let total(lo: () ->! Int, n: Int): Int =\n" +
       "    var t = 0\n" +
-      "    for n in lo!()..n\n" +
+      "    for n in lo!()..n do\n" +
       "        t := t + n\n" +
       "    t\n";
 
@@ -427,7 +427,7 @@ describe("a loop variable may shadow a name its own head reads (#1127)", () => {
   test("a `Vector` head", async () => {
     const source = "let total(xs: Vector(Int)): Int =\n" +
       "    var t = 0\n" +
-      "    for xs in xs\n" +
+      "    for xs in xs do\n" +
       "        t := t + xs\n" +
       "    t\n" +
       "export let run(): Int = total([1, 2, 3])\n";
@@ -442,7 +442,7 @@ describe("a loop variable may shadow a name its own head reads (#1127)", () => {
   test("a `String` head", async () => {
     const source = "export let count(s: String): Int =\n" +
       "    var t = 0\n" +
-      "    for s in s\n" +
+      "    for s in s do\n" +
       "        t := t + 1\n" +
       "    t\n";
 
@@ -456,7 +456,7 @@ describe("a loop variable may shadow a name its own head reads (#1127)", () => {
   test("a `Seq` head", async () => {
     const source = "let total(s: Seq(Int)): Int =\n" +
       "    var t = 0\n" +
-      "    for s in s\n" +
+      "    for s in s do\n" +
       "        t := t + s\n" +
       "    t\n" +
       "export let run(): Int = total([1, 2, 3].toSeq())\n";
@@ -475,7 +475,7 @@ describe("a loop variable may shadow a name its own head reads (#1127)", () => {
       "    toSeq(bag) = bag.items.toSeq()\n" +
       "let total(bag: Bag): Int =\n" +
       "    var t = 0\n" +
-      "    for bag in bag\n" +
+      "    for bag in bag do\n" +
       "        t := t + bag\n" +
       "    t\n" +
       "export let run(): Int = total(Bag({items = [1, 2, 3]}))\n";
@@ -491,7 +491,7 @@ describe("a loop variable may shadow a name its own head reads (#1127)", () => {
     const text = javascript(
       "export let count(s: String): Int =\n" +
         "    var t = 0\n" +
-        "    for c in s\n" +
+        "    for c in s do\n" +
         "        t := t + 1\n" +
         "    t\n",
     );
@@ -508,7 +508,7 @@ describe("a loop variable may shadow a name its own head reads (#1127)", () => {
         "    toSeq(bag) = bag.items.toSeq()\n" +
         "export let total(bag: Bag): Int =\n" +
         "    var t = 0\n" +
-        "    for x in bag\n" +
+        "    for x in bag do\n" +
         "        t := t + x\n" +
         "    t\n",
     );

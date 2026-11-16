@@ -39,13 +39,13 @@ async function run(source: string): Promise<Record<string, unknown>> {
 /** Joins a range's values in iteration order, through the value path. */
 const SPELL = "export fun spell(r: Range): String =\n" +
   "    var out = \"\"\n" +
-  "    for i in r\n" +
+  "    for i in r do\n" +
   "        out := \"${out}${i},\"\n" +
   "    out\n";
 
 const SUM = "export fun sum(n: Nat): Int =\n" +
   "    var t = 0\n" +
-  "    for i in 1..n\n" +
+  "    for i in 1..n do\n" +
   "        t := t + i\n" +
   "    t\n";
 
@@ -147,7 +147,7 @@ describe("a position is checked as `Vector.at`'s `Int` (Collections Part 3 §5.1
       "let xs: Vector(Int) = [10, 20, 30, 40]\n" +
         "export fun show(v: Vector(Int)): String =\n" +
         "    var out = \"\"\n" +
-        "    for x in v\n" +
+        "    for x in v do\n" +
         "        out := \"${out}${x},\"\n" +
         "    out\n" +
         "export fun head(k: Nat): Vector(Int) = xs[1..k]\n" +
@@ -298,12 +298,12 @@ describe("a widened bound stays in the counting loop's test (Loops §8)", () => 
       SUM +
         "export fun twin(n: Nat): Int =\n" +
         "    var t = 0\n" +
-        "    for i in Range.up(1, n)\n" +
+        "    for i in Range.up(1, n) do\n" +
         "        t := t + i\n" +
         "    t\n" +
         "export fun down(n: Nat): Int =\n" +
         "    var t = 0\n" +
-        "    for i in Range.down(n, 1)\n" +
+        "    for i in Range.down(n, 1) do\n" +
         "        t := t + i\n" +
         "    t\n",
     );
@@ -321,7 +321,7 @@ describe("a widened bound stays in the counting loop's test (Loops §8)", () => 
     const text = javascript(
       "export fun below(n: Nat): Int =\n" +
         "    var t = 0\n" +
-        "    for i in 1..(n - 1)\n" +
+        "    for i in 1..(n - 1) do\n" +
         "        t := t + i\n" +
         "    t\n",
     );
@@ -338,7 +338,7 @@ describe("a widened bound stays in the counting loop's test (Loops §8)", () => 
       "export fun count(): Int =\n" +
         "    var v: Nat = 3\n" +
         "    var t = 0\n" +
-        "    for i in 1..v\n" +
+        "    for i in 1..v do\n" +
         "        t := t + i\n" +
         "    t\n",
     );

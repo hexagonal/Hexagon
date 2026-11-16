@@ -59,8 +59,8 @@ describe("§2 the protocol", () => {
       "export let pulls(ignored: Int): Vector(Int) =\n" +
       "    var seen = Vector.empty\n" +
       "    var pulling = True\n" +
-      "    while pulling\n" +
-      "        match Stream.next!(source)\n" +
+      "    while pulling do\n" +
+      "        match Stream.next!(source) with\n" +
       "            None => pulling := False\n" +
       "            Some(value) => seen := Vector.append(seen, value)\n" +
       "    seen\n",
@@ -180,7 +180,7 @@ describe("§4.4 consumers", () => {
   it("finds the first match and stops there", async () => {
     const exports = await runMain("module Main\n\n" + `let source: Stream(Int) = ${script(9)}\n` +
       "export let probe(ignored: Int): Vector(Int) =\n" +
-      "    match Stream.find!(source, x => x > 2)\n" +
+      "    match Stream.find!(source, x => x > 2) with\n" +
       "        None => Vector.empty\n" +
       "        Some(found) => Vector.prepend(Stream.collect!(source, 1), found)\n",
     );
@@ -191,7 +191,7 @@ describe("§4.4 consumers", () => {
   });
 
   it("answers `None` from `find` when the stream ends first", async () => {
-    const exports = await runMain("module Main\n\n" + `export let missing: Bool = match Stream.find!(${script(3)}, x => x > 99)\n` +
+    const exports = await runMain("module Main\n\n" + `export let missing: Bool = match Stream.find!(${script(3)}, x => x > 99) with\n` +
       "    None => True\n" +
       "    Some(_) => False\n",
     );
@@ -259,7 +259,7 @@ describe("§4.5 what the surface refuses", () => {
     // `toSeq` is a constraint member and members are pure (Effects §5), so a
     // `Stream` cannot honor `Iterable` — and the refusal is the ordinary one,
     // not a bespoke report.
-    expect(projectDiagnostics("module Main\n\n" + "export let go(source: Stream(Int)): Unit =\n    for x in source\n        ()\n",
+    expect(projectDiagnostics("module Main\n\n" + "export let go(source: Stream(Int)): Unit =\n    for x in source do\n        ()\n",
     )).toEqual([
       "no `Iterable<Stream(Int)>` instance is visible in this module; its only legal homes are the module " +
         "declaring `Iterable` and the prelude module declaring `Stream`, both outside " +

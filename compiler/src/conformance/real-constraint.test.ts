@@ -6,7 +6,7 @@ const PROGRAM = "module Main\n\n" +
   "import Rat\n\n" +
   "fun doubledAbs<a: Real>(value: a): a = Real.abs(value) + value.abs()\n" +
   "fun signCode<a: Real>(value: a): Int =\n" +
-  "    match value.sign()\n" +
+  "    match value.sign() with\n" +
   "        Sign.Negative => -1\n" +
   "        Sign.Zero => 0\n" +
   "        Sign.Positive => 1\n\n" +

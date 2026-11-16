@@ -180,7 +180,7 @@ test("a ported 32-bit hash matches its JavaScript original (FNV-1a, shift-add fo
     "module Main\n\n" +
       "export let fnv(codes: Vector(Int)): Int =\n" +
       "    var h: Int = 0x811c9dc5\n" +
-      "    for c in codes\n" +
+      "    for c in codes do\n" +
       "        h := (h bxor c).toInt32()\n" +
       "        h := h + h.shiftLeft(1).toInt32() + h.shiftLeft(4).toInt32() +\n" +
       "            h.shiftLeft(7).toInt32() + h.shiftLeft(8).toInt32() +\n" +
@@ -459,7 +459,7 @@ describe("non-decimal literals (§8)", () => {
   test("literal patterns take every base, and emit in it", async () => {
     const source =
       "let kind(x: Int): String =\n" +
-      "    match x\n" +
+      "    match x with\n" +
       "        0xFF => \"all\"\n" +
       "        -0b1 => \"minus one\"\n" +
       "        _ => \"other\"\n" +
@@ -489,7 +489,7 @@ describe("non-decimal literals (§8)", () => {
   test("a refused literal pattern is quoted, and its guard written, in the source base (#1038)", () => {
     const [message] = projectDiagnostics("module Main\n\nimport Rat\n\n" +
       "export fun f(ratio: Rat.Rat): String =\n" +
-      "    match ratio\n" +
+      "    match ratio with\n" +
       "        0xFF => \"mask\"\n" +
       "        _ => \"other\"\n");
     expect(message).toContain("`0xFF` is not a pattern at `Rat`");
@@ -499,13 +499,13 @@ describe("non-decimal literals (§8)", () => {
   test("nested guards, duplicate arms, and literal reports quote the source base (#1038)", () => {
     const [nested] = projectDiagnostics("module Main\n\nimport Rat\n\n" +
       "export fun f(p: (Rat.Rat, Int)): String =\n" +
-      "    match p\n" +
+      "    match p with\n" +
       "        (0xFF, 0x1) => \"mask\"\n" +
       "        _ => \"other\"\n");
     expect(nested).toContain("(y, 0x1) when y == 0xFF");
     const duplicate = projectDiagnostics("module Main\n\n" +
       "export fun f(p: Option(Int)): String =\n" +
-      "    match p\n" +
+      "    match p with\n" +
       "        Some(0xFF) => \"a\"\n" +
       "        Some(0xFF) => \"b\"\n" +
       "        _ => \"c\"\n");

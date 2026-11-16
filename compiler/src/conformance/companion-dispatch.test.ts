@@ -315,7 +315,7 @@ describe("the companion is the home module, and only the home module", () => {
       "    | Pale\n" +
       "    | Dark\n" +
       "export fun rank(s: Shade): Int =\n" +
-      "    match s\n" +
+      "    match s with\n" +
       "        Pale => 1\n" +
       "        Dark => 2\n" +
       "export let n: Int = Pale.rank()\n",

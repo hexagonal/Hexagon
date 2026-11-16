@@ -259,7 +259,7 @@ describe("Exn.stack, and the companion", () => {
     const main = await runMain(`module Main
 
 exception Boom
-export let hexagon: Bool = match Exn.stack(Boom)
+export let hexagon: Bool = match Exn.stack(Boom) with
     Some(_) => True
     None => False
 `);

@@ -60,13 +60,14 @@
       "A header ending in `=` already covers `constraint C<a> =` and `honor C<T> =`,",
       "and leaves `honor C<T> = derive` alone — spec/lexer.md §4.1 makes that a",
       "complete one-line declaration that opens no block.",
-      "The scrutinee-taking forms open their block from the *front* of the line, not",
-      "the end: `match next(current)` and `while searching` are followed by an",
-      "indented block, and `let first(v) = match v` puts `match` mid-line, so those",
-      "words are matched wherever they appear rather than only at end of line.",
+      "A head that holds an expression ends with its closing word, so `then`, `do`",
+      "and `with` at the end of a line open a block: `while searching do`,",
+      "`let first(v) = match v with` (spec/lexer-layout.md §2.4). A bare `match`, the",
+      "match function, opens one ending its line, and `try` and `catch` wherever they",
+      "appear.",
       "`extern from` is the one block header that does neither."
     ],
-    "increaseIndentPattern": "(?:^|\\s)(?:then|else|=>|=)\\s*$|(?:^|\\s)(?:match|try|catch|while|for)\\b|^\\s*extern\\s+from\\b",
+    "increaseIndentPattern": "(?:^|\\s)(?:then|else|do|with|=>|=)\\s*$|(?:^|\\s)(?:match|try|catch)\\s*$|(?:^|\\s)(?:try|catch)\\b|^\\s*extern\\s+from\\b",
     "decreaseIndentPattern": "^\\s*else\\b"
   },
   "onEnterRules": [

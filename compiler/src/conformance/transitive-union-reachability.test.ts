@@ -68,7 +68,7 @@ describe("the coverage column answers from the reached declaration", () => {
         "/main.hex",
         "module Main\n\n" + "import B\n" +
         "export fun probe(): Int =\n" +
-        "    match B.make()\n" +
+        "    match B.make() with\n" +
         "        _ => 1\n",
       ],
     ])).toEqual([]);
@@ -81,7 +81,7 @@ describe("the coverage column answers from the reached declaration", () => {
         "/main.hex",
         "module Main\n\n" + "import B\n" +
         "export fun probe(): Int =\n" +
-        "    match B.make()\n" +
+        "    match B.make() with\n" +
         "        On => 1\n",
       ],
     ])).toEqual([
@@ -109,7 +109,7 @@ describe("the coverage column answers from the reached declaration", () => {
         "/main.hex",
         "module Main\n\n" + "import B\n" +
         "export fun probe(): Int =\n" +
-        "    match B.make()\n" +
+        "    match B.make() with\n" +
         "        Dot => 1\n",
       ],
     ])).toEqual([
@@ -130,7 +130,7 @@ describe("the coverage column answers from the reached declaration", () => {
         "/main.hex",
         "module Main\n\n" + "import A\n" +
         "export fun probe(f: A.Flag): Int =\n" +
-        "    match f\n" +
+        "    match f with\n" +
         "        On => 1\n",
       ],
     ])).toEqual([
@@ -151,7 +151,7 @@ describe("the coverage column answers from the reached declaration", () => {
         "/main.hex",
         "module Main\n\n" + "import A\n" +
         "export fun probe(): Int =\n" +
-        "    match A.make()\n" +
+        "    match A.make() with\n" +
         "        _ => 1\n",
       ],
     ])).toEqual([]);
@@ -171,7 +171,7 @@ describe("the coverage column answers from the reached declaration", () => {
         "/main.hex",
         "module Main\n\n" + "import A\n" +
         "export fun probe(): Int =\n" +
-        "    match A.make()\n" +
+        "    match A.make() with\n" +
         "        _ => 1\n",
       ],
     ] as const;
@@ -210,7 +210,7 @@ describe("constructor-pattern typing answers from the reached declaration", () =
         "/main.hex",
         "module Main\n\n" + "import A\n" +
         "export fun probe(s: String): Int =\n" +
-        "    match s\n" +
+        "    match s with\n" +
         "        A.On => 1\n" +
         "        _ => 2\n",
       ],
@@ -237,11 +237,11 @@ describe("the emitter reads a reached union from the same declaration", () => {
         "/main.hex",
         "module Main\n\n" + "import B\n" +
         "export let atDot: Int =\n" +
-        "    match B.dot()\n" +
+        "    match B.dot() with\n" +
         "        Dot => 11\n" +
         "        Circle(r) => 12\n" +
         "export let atCircle: Int =\n" +
-        "    match B.circle(1.5)\n" +
+        "    match B.circle(1.5) with\n" +
         "        Dot => 21\n" +
         "        Circle(r) => 22\n",
       ],
@@ -263,11 +263,11 @@ describe("the emitter reads a reached union from the same declaration", () => {
         "/main.hex",
         "module Main\n\n" + "import B\n" +
         "export let atRed: Int =\n" +
-        "    match B.red()\n" +
+        "    match B.red() with\n" +
         "        Red => 7\n" +
         "        Green => 8\n" +
         "export let atGreen: Int =\n" +
-        "    match B.green()\n" +
+        "    match B.green() with\n" +
         "        Red => 9\n" +
         "        Green => 10\n",
       ],
@@ -285,7 +285,7 @@ describe("the emitter reads a reached union from the same declaration", () => {
         "/main.hex",
         "module Main\n\n" + "import B\n" +
         "export fun probe(): Int =\n" +
-        "    match B.make()\n" +
+        "    match B.make() with\n" +
         "        _ => 1\n",
       ],
     ]);
@@ -316,9 +316,9 @@ describe("a reached union is still the importer's copy, for §4.3's reading", ()
         "module Main\n\n" + "import A\n" +
         "export fun pass(): A.Pair = A.make()\n" +
         "export fun probe(): Int =\n" +
-        "    match pass()\n" +
+        "    match pass() with\n" +
         "        (f, n) =>\n" +
-        "            match f\n" +
+        "            match f with\n" +
         "                _ => n\n",
       ],
     ])).toEqual([]);

@@ -12,13 +12,13 @@ import Hex.Regex.Syntax as Syntax
 
 let pointText(point: Int): String =
     if point >= 33 and point <= 126 and point != 45 and point != 93 then
-        match String.fromCodepoint(point)
+        match String.fromCodepoint(point) with
             Some(text) => text
             None => "?"
     else
         "#" ++ show(point)
 
-let kindText(kind: Syntax.PropertyKind): String = match kind
+let kindText(kind: Syntax.PropertyKind): String = match kind with
     Syntax.GeneralCategory => "gc"
     Syntax.Script => "sc"
     Syntax.ScriptExtensions => "scx"
@@ -28,14 +28,14 @@ let kindText(kind: Syntax.PropertyKind): String = match kind
     Syntax.Assigned => "Assigned"
     Syntax.Word => "Word"
 
-let itemText(item: Syntax.ClassItem): String = match item
+let itemText(item: Syntax.ClassItem): String = match item with
     Syntax.Range(low, high) =>
         if low == high then pointText(low) else pointText(low) ++ "-" ++ pointText(high)
     Syntax.Property(kind, value, negated) =>
         let letter = if negated then "\\P" else "\\p"
         if value == "" then letter ++ "{" ++ kindText(kind) ++ "}" else letter ++ "{" ++ kindText(kind) ++ "=" ++ value ++ "}"
 
-let anchorText(kind: Syntax.AnchorKind): String = match kind
+let anchorText(kind: Syntax.AnchorKind): String = match kind with
     Syntax.TextStart => "\\A"
     Syntax.TextEnd => "\\z"
     Syntax.LineStart => "^m"
@@ -45,39 +45,39 @@ let anchorText(kind: Syntax.AnchorKind): String = match kind
 
 let joined(parts: Vector(String), separator: String): String = String.join(Iterable.toSeq(parts), separator)
 
-fun render(expr: Syntax.Expr): String = match expr
+fun render(expr: Syntax.Expr): String = match expr with
     Syntax.Empty => "()"
     Syntax.Literal(point) => pointText(point)
     Syntax.Dot(newline) => if newline then ".s" else "."
     Syntax.Class(items, negated, folded) =>
         var texts: Vector(String) = []
-        for item in items
+        for item in items do
             texts := texts.append(itemText(item))
         (if negated then "[^" else "[") ++ joined(texts, " ") ++ (if folded then "]i" else "]")
     Syntax.Anchor(kind) => anchorText(kind)
     Syntax.Concat(parts) =>
         var texts: Vector(String) = []
-        for part in parts
+        for part in parts do
             texts := texts.append(render(part))
         "cat(" ++ joined(texts, " ") ++ ")"
     Syntax.Alternate(branches) =>
         var texts: Vector(String) = []
-        for branch in branches
+        for branch in branches do
             texts := texts.append(render(branch))
         "alt(" ++ joined(texts, " | ") ++ ")"
     Syntax.Repeat(body, min, max, greedy) =>
-        let upper = match max
+        let upper = match max with
             Some(value) => show(value)
             None => ""
         "rep{" ++ show(min) ++ "," ++ upper ++ (if greedy then "}(" else "}?(") ++ render(body) ++ ")"
     Syntax.Capture(body, index, name) =>
-        let label = match name
+        let label = match name with
             Some(text) => "<" ++ text ++ ">"
             None => ""
         "cap" ++ show(index) ++ label ++ "(" ++ render(body) ++ ")"
 
 export let describe(pattern: String): String =
-    match Syntax.parse^(pattern)
+    match Syntax.parse^(pattern) with
         parsed => render(parsed.root) ++ " #" ++ show(parsed.groupCount)
     catch
         Syntax.RegexError(message, position, _) => "error " ++ show(position) ++ ": " ++ message
@@ -85,14 +85,14 @@ export let describe(pattern: String): String =
 
 -- Each rewrite a refusal names: its words, and its edits as start-end=text.
 export let rewritesOf(pattern: String): String =
-    match Syntax.parse^(pattern)
+    match Syntax.parse^(pattern) with
         _ => "parsed"
     catch
         Syntax.RegexError(_, _, rewrites) =>
             var texts: Vector(String) = []
-            for rewrite in rewrites
+            for rewrite in rewrites do
                 var edits: Vector(String) = []
-                for edit in rewrite.edits
+                for edit in rewrite.edits do
                     edits := edits.append(show(edit.start) ++ "-" ++ show(edit.end) ++ "=" ++ edit.text)
                 texts := texts.append(rewrite.title ++ " [" ++ joined(edits, ", ") ++ "]")
             joined(texts, " | ")
@@ -100,22 +100,22 @@ export let rewritesOf(pattern: String): String =
 
 -- The pattern with each rewrite's edits applied, one pattern per rewrite.
 export let rewritten(pattern: String): Vector(String) =
-    match Syntax.parse^(pattern)
+    match Syntax.parse^(pattern) with
         _ => []
     catch
         Syntax.RegexError(_, _, rewrites) =>
             let points = Vector.fromSeq(Iterable.toSeq(pattern))
             var results: Vector(String) = []
-            for rewrite in rewrites
+            for rewrite in rewrites do
                 var out: Vector(String) = []
                 var at = 1
-                for edit in rewrite.edits
-                    while at < edit.start
+                for edit in rewrite.edits do
+                    while at < edit.start do
                         out := out.append(points[at])
                         at := at + 1
                     out := out.append(edit.text)
                     at := edit.end
-                while at <= Vector.length(points)
+                while at <= Vector.length(points) do
                     out := out.append(points[at])
                     at := at + 1
                 results := results.append(joined(out, ""))
@@ -123,16 +123,16 @@ export let rewritten(pattern: String): Vector(String) =
         _ => []
 
 -- Each group's span, as start+length, in group order.
-export let spansOf(pattern: String): String = match Syntax.parse?(pattern)
+export let spansOf(pattern: String): String = match Syntax.parse?(pattern) with
     Some(parsed) =>
         var out: Vector(String) = []
-        for span in parsed.spans
+        for span in parsed.spans do
             out := out.append(show(span.start) ++ "+" ++ show(span.length))
         joined(out, " ")
     None => "refused"
 
-export let groupIndex(pattern: String, name: String): Int = match Syntax.parse?(pattern)
-    Some(parsed) => match Map.get(parsed.names, name)
+export let groupIndex(pattern: String, name: String): Int = match Syntax.parse?(pattern) with
+    Some(parsed) => match Map.get(parsed.names, name) with
         Some(index) => index
         None => 0
     None => -1

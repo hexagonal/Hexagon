@@ -17,13 +17,97 @@ describe("applyLayout", () => {
 
   test("keeps comment-only lines invisible to the offside rule", () => {
     const result = layout(
-      "while ready\n    first()\n-- deliberately outdented\n            {- padded -}\n    second()",
+      "while ready do\n    first()\n-- deliberately outdented\n            {- padded -}\n    second()",
     );
 
     expect(virtualKinds(result.tokens)).toEqual([
       "VOpen", "VSep", "VOpen", "VSep", "VClose", "VClose",
     ]);
     expect(result.diagnostics).toEqual([]);
+  });
+
+  describe("heads and their closing words (§2.4)", () => {
+    test("a head is carried on by deeper lines to its closing word", () => {
+      for (const text of [
+        "if ready\n        and steady then\n    go()",
+        "while remaining > 0\n        and not cancelled(job) do\n    step()",
+        "for (name, total)\n        in totals do\n    show(name)",
+        "match parse(\n        input) with\n    Some(n) => n",
+        "match first\n        |> second with\n    Some(n) => n",
+      ]) {
+        const result = layout(text);
+        expect(virtualKinds(result.tokens), text).toEqual(["VOpen", "VSep", "VOpen", "VClose", "VClose"]);
+        expect(result.diagnostics, text).toEqual([]);
+      }
+    });
+
+    test("brackets hold a head open, and a line inside them opens no block for it (§2.2)", () => {
+      for (const text of [
+        "while waiting(first,\n        second) do\n    step()",
+        "if (a and\n        b) then\n    go()",
+        "for x in [\n        a,\n        b\n    ] do\n    visit(x)",
+        "match (\n        a,\n        b\n    ) with\n    _ => 0",
+      ]) {
+        const result = layout(text);
+        expect(virtualKinds(result.tokens), text).toEqual(["VOpen", "VSep", "VOpen", "VClose", "VClose"]);
+        expect(result.diagnostics, text).toEqual([]);
+      }
+    });
+
+    test("a block opened inside brackets leaves the head going on after them", () => {
+      const result = layout("while xs.any(x =>\n        x > 0) do\n    step()");
+      expect(virtualKinds(result.tokens)).toEqual(["VOpen", "VSep", "VOpen", "VClose", "VOpen", "VClose", "VClose"]);
+      expect(result.diagnostics).toEqual([]);
+    });
+
+    test("an unfinished head opens no block: the deeper lines continue its item", () => {
+      for (const text of ["while ready\n    step()", "for x in xs\n    visit(x)", "match o\n    None => 0", "if ready\n    go()"]) {
+        const result = layout(text);
+        expect(virtualKinds(result.tokens), text).toEqual(["VOpen", "VSep", "VClose"]);
+        expect(result.diagnostics, text).toEqual([]);
+      }
+    });
+
+    test("no block opens inside an unfinished head, except within brackets", () => {
+      const bare = layout("while if a then\n        b\n    else c do\n    step()");
+      expect(virtualKinds(bare.tokens)).toEqual(["VOpen", "VSep", "VOpen", "VClose", "VClose"]);
+      const bracketed = layout("for x in (match cached with\n        Some(xs) => xs\n        None => []) do\n    visit(x)");
+      expect(virtualKinds(bracketed.tokens)).toEqual([
+        "VOpen", "VSep", "VOpen", "VSep", "VClose", "VOpen", "VClose", "VClose",
+      ]);
+      expect(bracketed.diagnostics).toEqual([]);
+    });
+
+    test("a closing word with more on its line opens no block", () => {
+      const result = layout("while n > 0 do n := n - 1\nfor x in set do visit(x); finish()");
+      expect(virtualKinds(result.tokens)).toEqual(["VOpen", "VSep", "VSep", "VClose"]);
+      expect(result.diagnostics).toEqual([]);
+    });
+
+    test("`then` at the item's column continues it; `do` and `with` there begin an item that still opens the block", () => {
+      expect(virtualKinds(layout("if a\nthen\n    go()").tokens)).toEqual(["VOpen", "VSep", "VOpen", "VClose", "VClose"]);
+      expect(virtualKinds(layout("while a\ndo\n    go()").tokens)).toEqual([
+        "VOpen", "VSep", "VSep", "VOpen", "VClose", "VClose",
+      ]);
+      expect(virtualKinds(layout("match a\nwith\n    _ => 0").tokens)).toEqual([
+        "VOpen", "VSep", "VSep", "VOpen", "VClose", "VClose",
+      ]);
+      // A lone `with` after no unfinished `match` is a name, and opens nothing.
+      expect(virtualKinds(layout("let a = 1\nwith\n    .show()").tokens)).toEqual(["VOpen", "VSep", "VSep", "VClose"]);
+    });
+
+    test("`with` closes a `match` head only in the closing seat", () => {
+      // The match function is a bare `match`; `match with with` matches a value named `with`.
+      expect(virtualKinds(layout("let f = match\n    _ => 0").tokens)).toEqual(["VOpen", "VSep", "VOpen", "VClose", "VClose"]);
+      expect(virtualKinds(layout("let f = match with with\n    _ => 0").tokens)).toEqual([
+        "VOpen", "VSep", "VOpen", "VClose", "VClose",
+      ]);
+      // `match with` has no scrutinee before its `with`, and `(a, b)with` is a suffix.
+      expect(virtualKinds(layout("let f = match with\n    _ => 0").tokens)).toEqual(["VOpen", "VSep", "VClose"]);
+      expect(virtualKinds(layout("let f = match (a, b)with\n    _ => 0").tokens)).toEqual(["VOpen", "VSep", "VClose"]);
+      // A keyword in a name seat heads nothing.
+      expect(virtualKinds(layout("let k = ev.match\nlet j = p.then\n").tokens)).toEqual(["VOpen", "VSep", "VSep", "VClose"]);
+    });
   });
 
   test("opens nested blocks and closes repeated dedents", () => {
@@ -191,7 +275,7 @@ describe("applyLayout", () => {
   test("keeps a record literal open across a multi-arm match in a field value", () => {
     const result = layout(
       "Seq({ pull = () =>\n" +
-      "    match next(source)\n" +
+      "    match next(source) with\n" +
       "        None => None\n" +
       "        Some((value, rest)) => Some((value, rest))\n" +
       "})",
@@ -208,7 +292,7 @@ describe("applyLayout", () => {
     const result = layout(
       "Seq({ pull = () =>\n" +
       "    var current = source\n" +
-      "    while searching\n" +
+      "    while searching do\n" +
       "        current := rest\n" +
       "    current\n" +
       "})",
@@ -227,7 +311,7 @@ describe("applyLayout", () => {
   test("closes a layout block at the delimiter that ends its group", () => {
     const result = layout(
       "let m =\n" +
-      "    Seq({ pull = () => match next(source)\n" +
+      "    Seq({ pull = () => match next(source) with\n" +
       "        None => None\n" +
       "        Some((v, r)) => Some((v, r)) })",
     );
@@ -244,7 +328,7 @@ describe("applyLayout", () => {
   test("closes a layout block at a `)` too — the group's kind is irrelevant", () => {
     const result = layout(
       "let m =\n" +
-      "    f(() => match next(source)\n" +
+      "    f(() => match next(source) with\n" +
       "        None => None\n" +
       "        Some((v, r)) => Some((v, r)))",
     );
@@ -262,8 +346,8 @@ describe("applyLayout", () => {
   test("one closer unwinds every block its group opened", () => {
     const result = layout(
       "let m =\n" +
-      "    f(x => match a\n" +
-      "        A => match b\n" +
+      "    f(x => match a with\n" +
+      "        A => match b with\n" +
       "            B => 1)",
     );
 
@@ -277,7 +361,7 @@ describe("applyLayout", () => {
   test("blocks opened outside the group survive its closer", () => {
     const result = layout(
       "let m =\n" +
-      "    match x\n" +
+      "    match x with\n" +
       "        A => f({ y = 1 })\n" +
       "        B => 2",
     );
@@ -293,7 +377,7 @@ describe("applyLayout", () => {
   test("closes a layout block at a `]`, and at a `}` reached through `]`", () => {
     const result = layout(
       "let m =\n" +
-      "    [match p\n" +
+      "    [match p with\n" +
       "        True => 1\n" +
       "        False => 0]",
     );
@@ -306,7 +390,7 @@ describe("applyLayout", () => {
   test("a closer of the wrong kind closes nothing", () => {
     // `)` against an open `[` matches no group, so it must not unwind the arm
     // block — same reasoning as the unmatched case, different branch value.
-    const result = layout("let m =\n    id([match p\n        True => 1)\n");
+    const result = layout("let m =\n    id([match p with\n        True => 1)\n");
 
     const closer = result.tokens.findIndex(({ kind }) => kind === "RightParen");
     expect(result.tokens[closer - 1]?.kind).not.toBe("VClose");
@@ -317,8 +401,8 @@ describe("applyLayout", () => {
   test("a trailing `;` before a group's closer is still diagnosed", () => {
     // The closer ends the block, so the `;` is trailing — §5 owes the diagnostic
     // whichever line the closer sits on. Both spellings must agree.
-    const trailing = layout("let m =\n    id(match p\n        True => 1\n        False => 0;)");
-    const dedented = layout("let m =\n    id(match p\n        True => 1\n        False => 0;\n    )");
+    const trailing = layout("let m =\n    id(match p with\n        True => 1\n        False => 0;)");
+    const dedented = layout("let m =\n    id(match p with\n        True => 1\n        False => 0;\n    )");
 
     expect(trailing.diagnostics.map(({ message }) => message)).toEqual([
       "`;` separates statements; Hexagon lines don't end with one",
@@ -333,7 +417,7 @@ describe("applyLayout", () => {
     // real blocks on them if that ever stopped being true.
     const result = layout(
       "let m =\n" +
-      "    id(match p\n" +
+      "    id(match p with\n" +
       "        True => \"a${ 1 }b)\"\n" +
       "        False => \"}\")",
     );
@@ -345,7 +429,7 @@ describe("applyLayout", () => {
   });
 
   test("an unmatched closer closes no block", () => {
-    const result = layout("let m =\n    match x\n        A => 1)\n");
+    const result = layout("let m =\n    match x with\n        A => 1)\n");
 
     // One stray `)` must not unwind the arm block into a cascade of errors.
     const closer = result.tokens.findIndex(({ kind }) => kind === "RightParen");
@@ -424,7 +508,7 @@ describe("applyLayout", () => {
     // Another block's item that a dedent ends is the parser's to report, which
     // it does in its own words, as is a group's item that is no honor.
     expect(layout("fun\n    g() =\nlet x = 1").diagnostics).toEqual([]);
-    for (const item of ["f(x) =", "match x", "fun", "honor", "honor Show<Ping> =", "widens M.f =", "let x =", "Show<Pong>"]) {
+    for (const item of ["f(x) =", "match x with", "fun", "honor", "honor Show<Ping> =", "widens M.f =", "let x =", "Show<Pong>"]) {
       expect(layout(`honor\n    Show<Ping> =\n        show(p) = "ping"\n    ${item}\nlet x = 1`).diagnostics).toEqual([]);
     }
   });
@@ -436,7 +520,7 @@ describe("applyLayout", () => {
     const line = fc.tuple(
       fc.nat({ max: 3 }).map((depth) => " ".repeat(depth * 4)),
       fc.constantFrom(
-        "match x", "f(", "g({ a = ", "h([", "x =>", "if p then", "while p",
+        "match x with", "f(", "g({ a = ", "h([", "x =>", "if p then", "while p do",
         "let y =", ")", "}", "]", "})", "])", "A => 1", "1", "y", ");",
         "{ a = 1 }", "1;", "1;)",
       ),

@@ -187,7 +187,7 @@ describe("a contestant that binds nothing in JavaScript is no contestant", () =>
         "type Lib = Types.Lib\n" +
         "export union Colour =\n    | Lib(n: Int)\n    | Other\n" +
         "export fun level(c: Colour): Int =\n" +
-        "    match c\n" +
+        "    match c with\n" +
         "        Lib(n) => n\n" +
         "        Other => 0\n" +
         "export let four: Int = Lib.twice(2)\n" +
@@ -301,7 +301,7 @@ describe("every qualified use the alias serves follows it", () => {
         "module Main\n\n" + 'import Shape\n' +
           "export record Shape = {n: Int}\n" +
           "export fun radius(s: Shape.Shape): Float =\n" +
-          "    match s\n" +
+          "    match s with\n" +
           "        Shape.Circle(r) => r\n" +
           "        Shape.Square(side) => side\n" +
           "export let round: Float = radius(Shape.Circle(2.0))\n" +

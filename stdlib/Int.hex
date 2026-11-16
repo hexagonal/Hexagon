@@ -182,7 +182,7 @@ honor Integral<Int> =
         var smaller = if right < 0 then -right else right
         -- Both operands are non-negative from here, so the loop's `rem` never
         -- sees a zero divisor: a zero `smaller` is the exit condition.
-        while smaller != 0
+        while smaller != 0 do
             let next = larger.rem(smaller)
             larger := smaller
             smaller := next
@@ -289,7 +289,7 @@ extern from "hex:intrinsic"
     is outside the range an `Int` holds exactly. A call that may throw carries a
     mark: `Int.parse?(text)` gives `None` in place of throwing, and
     `assume Int.parse^(text)` is for text that is known to be good. -}
-export let parse(text: String): Int = match scanText(text)
+export let parse(text: String): Int = match scanText(text) with
     Some(Some(value)) => value
     Some(None) => throw^(NumberFormatError(formatMessage(text, "is out of range for Int")))
     None => throw^(NumberFormatError(formatMessage(text, "is not an Int")))

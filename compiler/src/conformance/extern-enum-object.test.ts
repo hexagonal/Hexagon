@@ -151,7 +151,7 @@ describe("the foreign contract (§3, §9 tests 1–4)", () => {
           "export let up: JsValue = toJsDirection(Up)\n" +
           "export let down: JsValue = toJsDirection(Down)\n" +
           "export let name(d: Direction): String =\n" +
-          "    match d\n" +
+          "    match d with\n" +
           '        Up => "up"\n' +
           '        Down => "down"\n']],
       { keys: NUMERIC },
@@ -175,7 +175,7 @@ describe("the foreign contract (§3, §9 tests 1–4)", () => {
           "    export enum Direction = UP as Up | DOWN as Down\n" +
           "\n" +
           "export let describe(d: Direction): String =\n" +
-          "    match d\n" +
+          "    match d with\n" +
           '        Up => "going up"\n' +
           '        Down => "going down"\n' +
           "export let value: JsValue = toJsDirection(Up)\n"]],
@@ -200,7 +200,7 @@ describe("the foreign contract (§3, §9 tests 1–4)", () => {
           "    export enum Kind derives (Eq) = S | O | N\n" +
           "\n" +
           "export let name(k: Kind): String =\n" +
-          "    match k\n" +
+          "    match k with\n" +
           '        S => "symbol"\n' +
           '        O => "object"\n' +
           '        N => "nan"\n' +
@@ -257,7 +257,7 @@ describe("the foreign contract (§3, §9 tests 1–4)", () => {
           "    fun reads() ->! Int\n" +
           "\n" +
           "export let isA(t: Tag): Bool =\n" +
-          "    match t\n" +
+          "    match t with\n" +
           "        A => True\n" +
           "        B => False\n" +
           "export let count(): Int = reads!()\n" +
@@ -288,7 +288,7 @@ describe("the foreign contract (§3, §9 tests 1–4)", () => {
           "    fun mutate() ->! Unit\n" +
           "\n" +
           "export let name(v: JsValue): String =\n" +
-          "    match fromJsM(v)\n" +
+          "    match fromJsM(v) with\n" +
           '        Some(X) => "x"\n' +
           '        Some(Y) => "y"\n' +
           '        None => "none"\n' +
@@ -501,11 +501,11 @@ describe("crossing and matching (§4, §5.1, §9 tests 5–6)", () => {
         'export extern enum Order = "asc" as Ascending | "desc" as Descending\n' +
         "\n" +
         "export let way(d: Direction): String =\n" +
-        "    match d\n" +
+        "    match d with\n" +
         '        Up => "up"\n' +
         '        Down => "down"\n' +
         "export let order(o: Order): String =\n" +
-        "    match o\n" +
+        "    match o with\n" +
         '        Ascending => "ascending"\n' +
         '        Descending => "descending"\n',
     );
@@ -529,7 +529,7 @@ describe("crossing and matching (§4, §5.1, §9 tests 5–6)", () => {
       "    enum Direction = Up | Down | Left\n" +
       "\n" +
       "let f(d: Direction): Int =\n" +
-      "    match d\n" +
+      "    match d with\n" +
       "        Up => 1\n" +
       "        Down => 2\n";
     expect(projectDiagnostics("module Main\n\n" + missing)).toEqual([
@@ -539,7 +539,7 @@ describe("crossing and matching (§4, §5.1, §9 tests 5–6)", () => {
       "    enum Direction = Up | Down\n" +
       "\n" +
       "let f(d: Direction): Int =\n" +
-      "    match d\n" +
+      "    match d with\n" +
       "        Up => 1\n" +
       "        Down => 2\n" +
       "        Up => 3\n";
@@ -561,7 +561,7 @@ describe("crossing and matching (§4, §5.1, §9 tests 5–6)", () => {
           "    export enum Direction = Up | Down\n" +
           "\n" +
           "export let way(d: Direction): String =\n" +
-          "    match d\n" +
+          "    match d with\n" +
           '        Up => "up"\n' +
           '        Down => "down"\n']],
       { d: 'export const Direction = { Up: "up", Down: "down" };\n' },
@@ -588,7 +588,7 @@ describe("crossing and matching (§4, §5.1, §9 tests 5–6)", () => {
           "module Main\n\n" + 'import Bindings\n' +
             "\n" +
             "export let way(d: Bindings.Direction): String =\n" +
-            "    match d\n" +
+            "    match d with\n" +
             '        Up => "up"\n' +
             '        Down => "down"\n'],
       ],
@@ -607,7 +607,7 @@ describe("crossing and matching (§4, §5.1, §9 tests 5–6)", () => {
         "module Main\n\n" + 'import Bindings\n' +
           "\n" +
           "export let way(d: Bindings.Direction): String =\n" +
-          "    match d\n" +
+          "    match d with\n" +
           '        Up => "up"\n' +
           '        Down => "down"\n'],
     ]);
@@ -666,7 +666,7 @@ describe("the generated conversions (§5.2, §9 tests 7–8)", () => {
           "    export enum Direction = Up | Down\n" +
           "\n" +
           "export let read(v: JsValue): String =\n" +
-          "    match fromJsDirection(v)\n" +
+          "    match fromJsDirection(v) with\n" +
           '        Some(Up) => "up"\n' +
           '        Some(Down) => "down"\n' +
           '        None => "none"\n']],
@@ -694,7 +694,7 @@ describe("the generated conversions (§5.2, §9 tests 7–8)", () => {
           "    export enum Aliased as A = FIRST as One | SECOND as Two\n" +
           "\n" +
           "export let read(v: JsValue): String =\n" +
-          "    match fromJsA(v)\n" +
+          "    match fromJsA(v) with\n" +
           '        Some(One) => "one"\n' +
           '        Some(Two) => "two"\n' +
           '        None => "none"\n']],
@@ -960,7 +960,7 @@ describe("the surfaces (§7, §9 test 10)", () => {
         "export union Colour = Red | Green\n" +
         "\n" +
         "export let name(c: Colour): String =\n" +
-        "    match c\n" +
+        "    match c with\n" +
         '        Red => "red"\n' +
         '        Green => "green"\n',
     );

@@ -83,7 +83,7 @@ describe("`//` writes a fraction (Operators §6.4)", () => {
     expect(messages("let x = 1 // 2 // 3\n")).toEqual([
       "`//` does not chain; a fraction has one top and one bottom — to divide one, write `(1 // 2) / 3`",
     ]);
-    expect(messages("let r = 1 // 2\nlet x = match r\n    1 // 2 // 3 => 1\n    _ => 2\n")).toContain(
+    expect(messages("let r = 1 // 2\nlet x = match r with\n    1 // 2 // 3 => 1\n    _ => 2\n")).toContain(
       "`//` does not chain; a fraction has one top and one bottom — to divide one, write `(1 // 2) / 3`",
     );
   });
@@ -134,7 +134,7 @@ describe("a `//` meant as a comment (Comments §3.1)", () => {
   test("in any block, and wherever no operand has begun, it is refused once and read on", () => {
     const refusal = "a fraction needs a top; for a comment, write `--`";
     expect(messages(
-      "let r = 1 // 2\nlet s = match r\n    // the zero case\n    0 // _ => 1\n    _ => 2\n" +
+      "let r = 1 // 2\nlet s = match r with\n    // the zero case\n    0 // _ => 1\n    _ => 2\n" +
         "record P = {\n    // the x\n    x: Int,\n}\n",
     )).toEqual([refusal, refusal]);
     expect(messages("let v = [\n    1, // one\n    2,\n]\nlet g(x: Int): Int = // doubles\n    x * 2\n"))
@@ -166,13 +166,13 @@ describe("a `//` meant as a comment (Comments §3.1)", () => {
 describe("`p1 // p2` takes a fraction apart (Pattern Matching §2.10)", () => {
   test("arms, `let`, a lambda head and a guard each read it", async () => {
     const exports = await run(
-      "let describe(r: Rat): String = match r\n" +
+      "let describe(r: Rat): String = match r with\n" +
         '    0 // _ => "zero"\n' +
         '    n // 1 => "the whole number ${n}"\n' +
         '    n // d => "${n} over ${d}"\n' +
         "let n // d = 4 // -5\n" +
         "let tops = [1 // 2, 3 // 4].map(t // _ => t)\n" +
-        "let size(r: Rat): String = match r\n" +
+        "let size(r: Rat): String = match r with\n" +
         '    x when x > 1 // 2 => "big"\n' +
         '    _ => "small"\n' +
         'export let shown: String = "${describe(6 // 4)}; ${describe(-8 // 4)}; ${describe(0 // 5)}; ' +
@@ -182,7 +182,7 @@ describe("`p1 // p2` takes a fraction apart (Pattern Matching §2.10)", () => {
   });
 
   test("its witness prints with `//` between its sides", () => {
-    expect(messages("let r = 1 // 2\nlet s = match r\n    0 // _ => 1\n")).toEqual([
+    expect(messages("let r = 1 // 2\nlet s = match r with\n    0 // _ => 1\n")).toEqual([
       "match is missing cases: `_ // _`",
     ]);
     expect(messages("let r = 1 // 2\nlet 1 // d = r\n")).toEqual([
@@ -197,14 +197,14 @@ describe("`p1 // p2` takes a fraction apart (Pattern Matching §2.10)", () => {
   });
 
   test("a `Rat` abroad names `//` as its pattern", () => {
-    expect(messages("let r = 1 // 2\nlet s = match r\n    Rat(x) => 1\n")).toEqual([
+    expect(messages("let r = 1 // 2\nlet s = match r with\n    Rat(x) => 1\n")).toEqual([
       "cannot destructure opaque record `Rat`; match it with `top // bottom`",
     ]);
   });
 
   test("a fraction its literals show can never match is a dead case, named with its spelling", () => {
     const dead = (pattern: string): readonly string[] =>
-      messages(`let r = 1 // 2\nlet s = match r\n    ${pattern} => 1\n    _ => 2\n`);
+      messages(`let r = 1 // 2\nlet s = match r with\n    ${pattern} => 1\n    _ => 2\n`);
     const lead = "this case is unreachable; a fraction comes apart in lowest terms with a positive bottom, so ";
     expect(dead("2 // 6")).toEqual([`${lead}\`2 // 6\` never matches — write \`1 // 3\``]);
     expect(dead("1 // -3")).toEqual([`${lead}\`1 // -3\` never matches — write \`-1 // 3\``]);
@@ -214,7 +214,7 @@ describe("`p1 // p2` takes a fraction apart (Pattern Matching §2.10)", () => {
     ]);
     expect(dead("n // 0")).toEqual(["this case is unreachable; a fraction's bottom is never zero — remove the case"]);
     // The fix rewrites bare literals; under `as` it would delete the binder.
-    const fixed = compileMain(main("let r = 1 // 2\nlet s = match r\n    (2 as two) // 6 => 1\n    _ => 2\n"));
+    const fixed = compileMain(main("let r = 1 // 2\nlet s = match r with\n    (2 as two) // 6 => 1\n    _ => 2\n"));
     expect(fixed.diagnostics[0]?.fixes).toBeUndefined();
     // A literal under `as` is a literal; each alternative is judged alone.
     expect(dead("(2 as two) // 6")).toEqual([`${lead}\`(2 as two) // 6\` never matches — write \`1 // 3\``]);
@@ -225,8 +225,8 @@ describe("`p1 // p2` takes a fraction apart (Pattern Matching §2.10)", () => {
   });
 
   test("its sides are checked at `BigInt` and do not widen", () => {
-    expect(messages("let r = 1 // 2\nlet s = match r\n    1.5 // 2 => 1\n    _ => 2\n")).toHaveLength(1);
-    expect(messages("let r = 1 // 2\nlet s = match r\n    1.50d => 1\n    _ => 2\n")).toEqual([
+    expect(messages("let r = 1 // 2\nlet s = match r with\n    1.5 // 2 => 1\n    _ => 2\n")).toHaveLength(1);
+    expect(messages("let r = 1 // 2\nlet s = match r with\n    1.50d => 1\n    _ => 2\n")).toEqual([
       "type mismatch: expected Rat, found Dec",
     ]);
   });

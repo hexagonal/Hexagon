@@ -95,11 +95,11 @@ async function runTrieWithIdentity(
 /** Small readers the probes share; nothing here is under test. */
 const READERS =
   "let intOr(option: Option(Int), fallback: Int): Int =\n" +
-  "    match option\n" +
+  "    match option with\n" +
   "        None => fallback\n" +
   "        Some(value) => value\n" +
   "let isPresent(option: Option(Int)): Bool =\n" +
-  "    match option\n" +
+  "    match option with\n" +
   "        None => False\n" +
   "        Some(_) => True\n";
 
@@ -108,12 +108,12 @@ const BUILD =
   READERS +
   "let buildTo(n: Int): HashTrie(Int, Int) =\n" +
   "    var acc: HashTrie(Int, Int) = empty\n" +
-  "    for i in 1..n\n" +
+  "    for i in 1..n do\n" +
   "        acc := set(acc, i, i * 10)\n" +
   "    acc\n" +
   "let dropRange(trie: HashTrie(Int, Int), lo: Int, hi: Int): HashTrie(Int, Int) =\n" +
   "    var acc: HashTrie(Int, Int) = trie\n" +
-  "    for i in lo..hi\n" +
+  "    for i in lo..hi do\n" +
   "        acc := remove(acc, i)\n" +
   "    acc\n";
 
@@ -300,7 +300,7 @@ describe("HashTrie at scale (branch growth and compaction)", () => {
         "export let bigZero: Bool = containsKey(big, 0)\n" +
         "let readBack(): Int =\n" +
         "    var found = 0\n" +
-        "    for i in 1..1000\n" +
+        "    for i in 1..1000 do\n" +
         "        if intOr(get(big, i), -1) == i * 10 then\n" +
         "            found := found + 1\n" +
         "    found\n" +
@@ -326,7 +326,7 @@ describe("HashTrie at scale (branch growth and compaction)", () => {
         "export let survivorEntries: Int = Seq.length(entries(survivor))\n" +
         "let stillThere(): Int =\n" +
         "    var found = 0\n" +
-        "    for i in 1..1000\n" +
+        "    for i in 1..1000 do\n" +
         "        if containsKey(survivor, i) then\n" +
         "            found := found + 1\n" +
         "    found\n" +
@@ -445,7 +445,7 @@ describe("HashTrie collisions", () => {
       READERS +
         "let mixed(): HashTrie(String, Int) =\n" +
         "    var acc: HashTrie(String, Int) = empty\n" +
-        "    for i in 1..500\n" +
+        "    for i in 1..500 do\n" +
         "        acc := set(acc, \"k${i}\", i)\n" +
         "    set(set(acc, \"AaAa\", 7001), \"BBBB\", 7002)\n" +
         "let big: HashTrie(String, Int) = mixed()\n" +
@@ -495,7 +495,7 @@ describe("HashTrie representative retention (Part 4 §5.4)", () => {
       READERS +
         "let repeated(): HashTrie(Int, Int) =\n" +
         "    var acc: HashTrie(Int, Int) = empty\n" +
-        "    for i in 1..20\n" +
+        "    for i in 1..20 do\n" +
         "        acc := set(acc, 7, i)\n" +
         "    acc\n" +
         "let once: HashTrie(Int, Int) = repeated()\n" +
@@ -520,7 +520,7 @@ describe("HashTrie representative retention (Part 4 §5.4)", () => {
         // `Entry`.
         "let repeated(): HashTrie(String, Int) =\n" +
         "    var acc: HashTrie(String, Int) = set(empty, \"AaAa\", 1)\n" +
-        "    for i in 1..20\n" +
+        "    for i in 1..20 do\n" +
         "        acc := set(acc, \"BBBB\", i)\n" +
         "    acc\n" +
         "let both: HashTrie(String, Int) = repeated()\n" +
@@ -553,7 +553,7 @@ describe("HashTrie representative retention (Part 4 §5.4)", () => {
         "export let zeroesSize: Int = size(zeroes)\n" +
         "export let equatedAsFloats: Bool = -0.0 == 0.0\n" +
         "export let negativeZeroValue: Int =\n" +
-        "    match get(zeroes, -0.0)\n" +
+        "    match get(zeroes, -0.0) with\n" +
         "        None => -1\n" +
         "        Some(value) => value\n" +
         "let signSum(total: Int, pair: (Float, Int)): Int =\n" +
@@ -715,7 +715,7 @@ describe("HashTrie unplaced singleton (§12.4, #370)", () => {
         // and shrinks through the ordinary walkers.
         "let hundred(): HashTrie(Int, Int) =\n" +
         "    var acc: HashTrie(Int, Int) = two\n" +
-        "    for i in 10..100\n" +
+        "    for i in 10..100 do\n" +
         "        acc := set(acc, i, i * 10)\n" +
         "    acc\n" +
         "let big: HashTrie(Int, Int) = hundred()\n" +
@@ -882,45 +882,45 @@ describe("HashTrie unplaced singleton (§12.4, #370)", () => {
 describe("HashTrie shape after the combinators' rebuilds", () => {
   const CHECKER =
     "fun digitsAgree(tree: Tree(k, v), shift: Int, expected: Int): Bool =\n" +
-    "    match tree\n" +
+    "    match tree with\n" +
     "        Entry(hash, _, _) => digit(hash, shift) == expected\n" +
     "        Collision(hash, _, _) => digit(hash, shift) == expected\n" +
     "        Branch(bitmap, children) =>\n" +
     "            let count = bitCount(bitmap)\n" +
     "            var agree = True\n" +
     "            var index = 0\n" +
-    "            while index < count\n" +
+    "            while index < count do\n" +
     "                if not digitsAgree(Node.get(children, index), shift, expected) then agree := False\n" +
     "                index := index + 1\n" +
     "            agree\n" +
     "fun counted(tree: Tree(k, v)): Int =\n" +
-    "    match tree\n" +
+    "    match tree with\n" +
     "        Entry(_, _, _) => 1\n" +
     "        Collision(_, count, _) => count\n" +
     "        Branch(bitmap, children) =>\n" +
     "            let count = bitCount(bitmap)\n" +
     "            var total = 0\n" +
     "            var index = 0\n" +
-    "            while index < count\n" +
+    "            while index < count do\n" +
     "                total := total + counted(Node.get(children, index))\n" +
     "                index := index + 1\n" +
     "            total\n" +
     "let loneLeaf(tree: Tree(k, v)): Bool =\n" +
-    "    match tree\n" +
+    "    match tree with\n" +
     "        Branch(_, _) => False\n" +
     "        Entry(_, _, _) => True\n" +
     "        Collision(_, _, _) => True\n" +
     "fun faults<k: Hash>(tree: Tree(k, v), shift: Int): Int =\n" +
-    "    match tree\n" +
+    "    match tree with\n" +
     "        Entry(hash, key, _) => if placement(key) == hash then 0 else 1\n" +
     "        Collision(hash, count, pairs) =>\n" +
     "            var found = if count < 2 then 1 else 0\n" +
     "            var i = 0\n" +
-    "            while i < count\n" +
+    "            while i < count do\n" +
     "                let (key, _) = Node.get(pairs, i)\n" +
     "                if placement(key) != hash then found := found + 1\n" +
     "                var j = i + 1\n" +
-    "                while j < count\n" +
+    "                while j < count do\n" +
     "                    let (other, _) = Node.get(pairs, j)\n" +
     "                    if key == other then found := found + 1\n" +
     "                    j := j + 1\n" +
@@ -931,7 +931,7 @@ describe("HashTrie shape after the combinators' rebuilds", () => {
     "            var found = if count == 0 then 1 else 0\n" +
     "            if count == 1 and loneLeaf(Node.get(children, 0)) then found := found + 1\n" +
     "            var d = 0\n" +
-    "            while d <= 31\n" +
+    "            while d <= 31 do\n" +
     "                if bitTest(bitmap, d) then\n" +
     "                    let child = Node.get(children, bitCountBelow(bitmap, d))\n" +
     "                    if not digitsAgree(child, shift, d) then found := found + 1\n" +
@@ -939,16 +939,16 @@ describe("HashTrie shape after the combinators' rebuilds", () => {
     "                d := d + 1\n" +
     "            found\n" +
     "let shapeFaults<k: Hash>(trie: HashTrie(k, v)): Int =\n" +
-    "    match trie.root\n" +
+    "    match trie.root with\n" +
     "        NoRoot => if trie.size == 0 then 0 else 1\n" +
     "        Sole(_, _) => if trie.size == 1 then 0 else 1\n" +
     "        Rooted(tree) => faults(tree, 0) + (if counted(tree) == trie.size then 0 else 1)\n" +
     "let remapped<j: Hash>(result: Option(HashTrie(j, w))): HashTrie(j, w) =\n" +
-    "    match result\n" +
+    "    match result with\n" +
     "        Some(trie) => trie\n" +
     "        None => throw(TrieCorruptionFault(\"unexpected repeat\"))\n" +
     "let repeated(result: Option(HashTrie(j, w))): Bool =\n" +
-    "    match result\n" +
+    "    match result with\n" +
     "        Some(_) => False\n" +
     "        None => True\n";
 
@@ -957,7 +957,7 @@ describe("HashTrie shape after the combinators' rebuilds", () => {
   const MIXED =
     "let mixed(): HashTrie(String, Int) =\n" +
     "    var acc: HashTrie(String, Int) = empty\n" +
-    "    for i in 1..500\n" +
+    "    for i in 1..500 do\n" +
     "        acc := set(acc, \"k${i}\", i)\n" +
     "    set(set(set(set(acc, \"AaAa\", 1001), \"AaBB\", 1002), \"BBAa\", 1003), \"BBBB\", 1004)\n" +
     "let big: HashTrie(String, Int) = mixed()\n" +
@@ -1213,7 +1213,7 @@ describe("HashTrie bit intrinsics", () => {
         "let full: Int = -1\n" +
         "let holed(): Int =\n" +
         "    var acc = full\n" +
-        "    for i in 0..31\n" +
+        "    for i in 0..31 do\n" +
         "        acc := bitClear(acc, i)\n" +
         "    acc\n" +
         "export let clearedEverything: Int = holed()\n",
@@ -1269,7 +1269,7 @@ describe("HashTrie placement mix (Effects §6.2 species (b))", () => {
         "export let negativeStable: Bool = mix(-7) == mix(-7)\n" +
         "let distinct(): Int =\n" +
         "    var seen = 0\n" +
-        "    for i in 1..64\n" +
+        "    for i in 1..64 do\n" +
         "        if mix(i) != mix(i + 1) then\n" +
         "            seen := seen + 1\n" +
         "    seen\n" +
@@ -1277,7 +1277,7 @@ describe("HashTrie placement mix (Effects §6.2 species (b))", () => {
         // The result has to be a 32-bit `Int`, because `digit` reads it as one.
         "let inRange(): Int =\n" +
         "    var count = 0\n" +
-        "    for i in 0..200\n" +
+        "    for i in 0..200 do\n" +
         "        if mix(i) >= -2147483648 and mix(i) <= 2147483647 then\n" +
         "            count := count + 1\n" +
         "    count\n" +
@@ -1286,7 +1286,7 @@ describe("HashTrie placement mix (Effects §6.2 species (b))", () => {
         // one root slot, which is the whole reason the mix exists.
         "let rootSlots(): Int =\n" +
         "    var bitmap = 0\n" +
-        "    for i in 0..31\n" +
+        "    for i in 0..31 do\n" +
         "        bitmap := bitSet(bitmap, digit(mix(i), 0))\n" +
         "    bitCount(bitmap)\n" +
         "export let occupiedRootSlots: Int = rootSlots()\n",

@@ -564,7 +564,7 @@ function markText(kind: TokenKind): string {
 const matchFunctionCatchError =
   "a match function's parameter is already a value; there is nothing here for " +
   "`catch` to observe — to guard the arm bodies, write a lambda whose body is " +
-  "`try match x …` with `catch` aligned to the `try`";
+  "`try match x with …` with `catch` aligned to the `try`";
 
 /** A `match` whose line ends with no arms below it (`#reportEmptyBlock`). */
 export const EMPTY_ARM_BLOCK = "expected an indented block of match arms";
@@ -6716,6 +6716,9 @@ class Parser {
     if (this.#at("If")) {
       return this.#parseIf(stops);
     }
+    if (this.#at("Do")) {
+      return this.#parseStrayDo(stops);
+    }
     if (this.#at("While")) {
       return this.#parseWhile(stops);
     }
@@ -7065,7 +7068,11 @@ class Parser {
         fixes: [{ message: "write a space", edits: [{ span: next.span, replacement: ` ${word}` }] }],
       });
     }
-    if (!this.#at("NonUpperName") || spacedBitwise || gluedBitwise) {
+    // A spaced `with` is a `match` head's closing word, or a record update's
+    // (Lexer §4.2): only one written against the `)` is the suffix seat.
+    const spacedWith = next.kind === "NonUpperName" && (next as Lexed.NameToken).text === "with" &&
+      next.span.start.offset !== closing.end.offset;
+    if (!this.#at("NonUpperName") || spacedBitwise || gluedBitwise || spacedWith) {
       return components.length === 1
         ? components[0]!
         : { kind: "Tuple", elements: components, span: spanFrom(opening, closing) };
@@ -7260,6 +7267,7 @@ class Parser {
 
   #parseIf(outerStops: ReadonlySet<TokenKind>): Parsed.Expr {
     const start = this.#advance();
+    const mark = this.#diagnostics.count;
     const condition = this.#parseExpression(
       0,
       withStops(outerStops, "Then", "VOpen"),
@@ -7274,34 +7282,27 @@ class Parser {
     if (this.#at("Then")) {
       this.#advance();
       consequence = this.#parseBodyExpression(withStops(outerStops, "Else"));
-      if (this.#at("Else")) {
-        this.#advance();
-        alternative = this.#at("If")
-          ? this.#parseIf(outerStops)
-          : this.#parseBodyExpression(outerStops);
-      } else {
-        alternative = { kind: "Unit", span: this.#current().span };
-        elseless = true;
-      }
-    } else if (this.#at("VOpen")) {
-      this.#errorAt(
-        start.span,
-        "`if` requires `then`; write `if condition then` before the indented true branch",
-      );
-      consequence = this.#parseBlock();
-      if (this.#at("Else")) {
-        this.#advance();
-        alternative = this.#at("If")
-          ? this.#parseIf(outerStops)
-          : this.#parseBodyExpression(outerStops);
-      } else {
-        alternative = { kind: "Unit", span: this.#current().span };
-        elseless = true;
-      }
     } else {
-      this.#error("expected `then` after `if` condition");
-      consequence = { kind: "ErrorExpr", span: this.#current().span };
-      alternative = { kind: "ErrorExpr", span: this.#current().span };
+      // Lexer & Layout §2.4: the head is the `if`'s, and so is the one report.
+      this.#reportMissingCloser(start, condition, mark, "then",
+        "`if` requires `then`; write `if condition then` before the indented true branch");
+      if (this.#at("VOpen")) {
+        consequence = this.#parseBlock();
+      } else {
+        // The branch stands, as an error, over the first token the head met.
+        const met = this.#current().span;
+        this.#skipUnfinishedHead(withStops(outerStops, "Else"), start);
+        consequence = { kind: "ErrorExpr", span: met };
+      }
+    }
+    if (this.#at("Else")) {
+      this.#advance();
+      alternative = this.#at("If")
+        ? this.#parseIf(outerStops)
+        : this.#parseBodyExpression(outerStops);
+    } else {
+      alternative = { kind: "Unit", span: this.#current().span };
+      elseless = true;
     }
 
     return {
@@ -7314,19 +7315,30 @@ class Parser {
     };
   }
 
+  /**
+   * A `do` that closes no `for` or `while` head: the `do … while` habit (Loops
+   * §10.2). One report, at the `do`; its body is read for recovery, and a
+   * `while` that follows it at its column draws no report of its own.
+   */
+  #parseStrayDo(stops: ReadonlySet<TokenKind>): Parsed.Expr {
+    const word = this.#advance();
+    this.#errorAt(word.span, "Hexagon has no `do … while` loop; a loop's condition comes first — " +
+      "write `while condition do` with the body beneath it");
+    if (this.#at("VOpen")) this.#parseBlock();
+    else this.#skipUnfinishedHead(stops);
+    if (this.#at("VSep") && this.#peek(1).kind === "While") {
+      this.#advance();
+      this.#skipUnfinishedHead(stops);
+    }
+    return { kind: "ErrorExpr", span: word.span };
+  }
+
   #parseWhile(outerStops: ReadonlySet<TokenKind>): Parsed.Expr {
     const start = this.#advance();
-    const condition = this.#parseExpression(0, withStops(outerStops, "VOpen"));
-    if (!this.#at("VOpen")) {
-      this.#error("expected an indented block after `while` condition");
-      return {
-        kind: "While",
-        condition,
-        body: { kind: "Block", items: [], span: condition.span },
-        span: spanFrom(start.span, condition.span),
-      };
-    }
-    const body = this.#parseBlock();
+    const mark = this.#diagnostics.count;
+    const condition = this.#parseExpression(0, withStops(outerStops, "Do", "VOpen"));
+    const body = this.#parseLoopBody(start, condition, mark, outerStops,
+      "`while` requires `do`; write `while condition do` before the indented body");
     return {
       kind: "While",
       condition,
@@ -7350,7 +7362,8 @@ class Parser {
       if (typed !== undefined && !this.#headedByRefusedFault(pattern)) pattern = unparenthesised = typed;
     }
     this.#expect("In", "expected `in` after `for` pattern");
-    const iterable = this.#parseExpression(0, withStops(outerStops, "VOpen"));
+    const mark = this.#diagnostics.count;
+    const iterable = this.#parseExpression(0, withStops(outerStops, "Do", "VOpen"));
     if (unparenthesised !== undefined) {
       // The pattern's text carries the refusals already made inside it.
       const typed = this.#textWithBareEdits(unparenthesised.span);
@@ -7360,7 +7373,7 @@ class Parser {
       this.#diagnostics.add({
         severity: "error",
         message: "write the element's type in the pattern: " +
-          `\`for (${typed}) in ${shown}\``,
+          `\`for (${typed}) in ${shown} do\``,
         primary: unparenthesised.annotation.span,
         fixes: [{
           message: `write \`(${typed})\``,
@@ -7368,17 +7381,8 @@ class Parser {
         }],
       });
     }
-    if (!this.#at("VOpen")) {
-      this.#error("expected an indented block after `for` iterable");
-      return {
-        kind: "For",
-        pattern,
-        iterable,
-        body: { kind: "Block", items: [], span: iterable.span },
-        span: spanFrom(start.span, iterable.span),
-      };
-    }
-    const body = this.#parseBlock();
+    const body = this.#parseLoopBody(start, iterable, mark, outerStops,
+      "`for` requires `do`; write `for pattern in source do` before the indented body");
     return {
       kind: "For",
       pattern,
@@ -7386,6 +7390,158 @@ class Parser {
       body,
       span: spanFrom(start.span, body.span),
     };
+  }
+
+  /**
+   * A loop's closing `do` and its body (Lexer & Layout §2.4): an indented block,
+   * or one expression on the head's line (`while n > 0 do n := n - 1`), which is
+   * the body's only item. A head that meets anything but `do` draws one report,
+   * at its keyword, and the lines it took in draw none.
+   */
+  #parseLoopBody(
+    keyword: LaidOut.Token,
+    head: Parsed.Expr,
+    mark: number,
+    outerStops: ReadonlySet<TokenKind>,
+    message: string,
+  ): Parsed.BlockExpr {
+    const empty = (span: Source.Span): Parsed.BlockExpr => ({ kind: "Block", items: [], span });
+    if (!this.#at("Do")) {
+      if (this.#at("VSep") && this.#peek(1).kind === "Do") {
+        // A `do` at the head's own column began a new item; the head's report
+        // names the move, and the `do` draws none of its own.
+        this.#advance();
+        const word = this.#advance();
+        this.#reportMisplacedCloser(keyword, head, word,
+          `a \`do\` at the \`${keyword.kind === "For" ? "for" : "while"}\`'s column begins a new line of the block; end the head's last line with \`do\``);
+        return this.#loopBodyAfter(word, outerStops);
+      }
+      this.#reportMissingCloser(keyword, head, mark, "do", message);
+      if (this.#at("VOpen")) return this.#parseBlock();
+      this.#skipUnfinishedHead(outerStops, keyword);
+      return empty(head.span);
+    }
+    return this.#loopBodyAfter(this.#advance(), outerStops);
+  }
+
+  #loopBodyAfter(word: LaidOut.Token, outerStops: ReadonlySet<TokenKind>): Parsed.BlockExpr {
+    if (this.#at("VOpen")) return this.#parseBlock();
+    if (withStops(outerStops, ...structuralEnds).has(this.#current().kind)) {
+      this.#reportEmptyBlock("expected the loop's body after `do`", word.span);
+      return { kind: "Block", items: [], span: word.span };
+    }
+    const expression = this.#parseExpression(0, outerStops);
+    return {
+      kind: "Block",
+      items: [{ kind: "ExprItem", expression, span: expression.span }],
+      span: expression.span,
+    };
+  }
+
+  /**
+   * The report for a head whose expression met anything but its closing word
+   * (Lexer & Layout §2.4), at the head's keyword, with a fixit ending the
+   * head's last line with the word.
+   *
+   * The head's expression may have read on into the lines meant as the body,
+   * where they begin with something that continues it (`match pair` over
+   * `(a, b) => a + b` reads `pair(a, b)`): then the token it met stands on its
+   * own last line, or is the item's end. The body's first line is then taken to
+   * be the shallowest of the lines the head took in, and the head's last line
+   * the one before it. What the head took in draws no report of its own, so
+   * reports made while reading those lines are withdrawn (`mark` is the count
+   * before the head).
+   */
+  #reportMissingCloser(keyword: LaidOut.Token, head: Parsed.Expr, mark: number, word: string, message: string): void {
+    const met = this.#current();
+    let end = head.span.end;
+    const tookIn = head.span.end.line > keyword.span.start.line;
+    const swallowed = isVirtual(met) || met.kind === "Eof" || met.span.start.line === head.span.end.line;
+    if (tookIn && swallowed) {
+      // The first token of each line the head took in, after the keyword's.
+      let from = this.#index - 1;
+      while (from > 0 && this.#tokens[from] !== keyword) from -= 1;
+      let body: LaidOut.Token | undefined;
+      let previous: LaidOut.Token = keyword;
+      let lastBefore: LaidOut.Token = keyword;
+      for (let index = from + 1; index < this.#index; index += 1) {
+        const token = this.#tokens[index]!;
+        if (isVirtual(token)) continue;
+        if (token.span.start.line > previous.span.end.line &&
+          (body === undefined || token.span.start.column < body.span.start.column)) {
+          body = token;
+          lastBefore = previous;
+        }
+        previous = token;
+      }
+      if (body !== undefined) end = lastBefore.span.end;
+    }
+    if (tookIn) this.#diagnostics.discardSince(mark);
+    const at: Source.Span = { ...head.span, start: end, end };
+    this.#diagnostics.add({
+      severity: "error",
+      message,
+      primary: keyword.span,
+      fixes: [{ message: `add \`${word}\``, edits: [{ span: at, replacement: ` ${word}` }] }],
+    });
+  }
+
+  /**
+   * The report for a closing word written at the head's own column, where it
+   * began a new item (Lexer & Layout §2.4): at the head's keyword, with a fixit
+   * moving the word to the end of the head's last line.
+   */
+  #reportMisplacedCloser(keyword: LaidOut.Token, head: Parsed.Expr, word: LaidOut.Token, message: string): void {
+    const gap = this.#text.slice(head.span.end.offset, word.span.start.offset);
+    const text = this.#text.slice(word.span.start.offset, word.span.end.offset);
+    const edits = /^\s*$/.test(gap)
+      ? [{ span: spanFrom({ ...head.span, start: head.span.end }, word.span), replacement: ` ${text}` }]
+      : [
+          { span: { ...head.span, start: head.span.end }, replacement: ` ${text}` },
+          { span: word.span, replacement: "" },
+        ];
+    this.#diagnostics.add({
+      severity: "error",
+      message,
+      primary: keyword.span,
+      fixes: [{ message: `move \`${text}\` to the end of the head`, edits }],
+    });
+  }
+
+  /**
+   * Passes over what an unfinished head took in, to the end of its item: the
+   * deeper lines after it, which draw no report of their own (Lexer & Layout
+   * §2.4). A bracket pair, or a block opened inside one, is passed whole.
+   */
+  #skipUnfinishedHead(stops: ReadonlySet<TokenKind>, keyword?: LaidOut.Token): void {
+    const ends = withStops(stops, ...structuralEnds);
+    // Brackets the head opened and its expression left open are the head's
+    // too: their closers are passed over, not taken for an enclosing pair's.
+    let depth = 0;
+    if (keyword !== undefined) {
+      let from = this.#index - 1;
+      while (from > 0 && this.#tokens[from] !== keyword) from -= 1;
+      for (let index = from + 1; index < this.#index; index += 1) {
+        const kind = this.#tokens[index]!.kind;
+        if (kind === "LeftParen" || kind === "LeftBracket" || kind === "LeftBrace" || kind === "VOpen") depth += 1;
+        else if (kind === "RightParen" || kind === "RightBracket" || kind === "RightBrace" || kind === "VClose") {
+          depth = Math.max(0, depth - 1);
+        }
+      }
+    }
+    while (!this.#at("Eof")) {
+      const kind = this.#current().kind;
+      if (depth === 0 && ends.has(kind)) return;
+      if (kind === "LeftParen" || kind === "LeftBracket" || kind === "LeftBrace" || kind === "VOpen") {
+        depth += 1;
+      } else if (
+        kind === "RightParen" || kind === "RightBracket" || kind === "RightBrace" || kind === "VClose"
+      ) {
+        if (depth === 0) return;
+        depth -= 1;
+      }
+      this.#advance();
+    }
   }
 
   #parseMatch(outerStops: ReadonlySet<TokenKind>): Parsed.Expr {
@@ -7403,10 +7559,63 @@ class Parser {
     if (next.kind === "Eof" || next.span.start.line > start.span.end.line) {
       return this.#parseMatchFunction(start, headsItem);
     }
+    const mark = this.#diagnostics.count;
     const scrutinee = this.#parseExpression(
       0,
       withStops(outerStops, "VOpen", "Catch"),
     );
+    // The closing `with` (Lexer & Layout §2.4). The scrutinee's parse stops at
+    // it on its own: no juxtaposition exists, so a name there continues nothing.
+    let headEnd = scrutinee.span;
+    if (this.#atContextual("with")) {
+      const word = this.#advance();
+      headEnd = word.span;
+      // Pattern Matching §6.1: a `match`'s arms are always a block.
+      if (!this.#at("VOpen") && this.#current().span.start.line === word.span.end.line &&
+        !withStops(outerStops, ...structuralEnds).has(this.#current().kind)) {
+        this.#error("a `match`'s arms go on the lines below its head: write `match value with`, " +
+          "then each `pattern => body` on a line of its own");
+        this.#skipUnfinishedHead(outerStops, start);
+        return { kind: "Match", scrutinee, arms: [], span: spanFrom(start.span, this.#previous().span) };
+      }
+      // Inside an unfinished head no block opens (Lexer & Layout §2.4), so
+      // the arms below run on as the head's own lines: one report, here, and
+      // the head reads on to its closing word.
+      if (!this.#at("VOpen") && !this.#at("Catch") &&
+        !withStops(outerStops, ...structuralEnds).has(this.#current().kind)) {
+        this.#errorAt(spanFrom(start.span, word.span),
+          "a `match` and its arms inside another construct's head are written in parentheses: " +
+            "`(match value with` … `)`");
+        this.#skipUnfinishedHead(outerStops, start);
+        return { kind: "Match", scrutinee, arms: [], span: spanFrom(start.span, word.span) };
+      }
+    } else if (this.#at("VSep") && isContextualWord(this.#peek(1), "with")) {
+      // A `with` at the `match`'s own column began a new item; the head's report
+      // names the move, and the line draws none of its own.
+      this.#advance();
+      const word = this.#advance();
+      headEnd = word.span;
+      this.#reportMisplacedCloser(start, scrutinee, word,
+        "a `with` at the `match`'s column begins a new line of the block; end the head's last line with `with`");
+    } else if (scrutinee.kind === "Name" && scrutinee.name.text === "with" && !this.#at("Catch")) {
+      // §6.7: the match function written with a closing word.
+      const withSpan = { ...scrutinee.span, start: start.span.end };
+      this.#diagnostics.add({
+        severity: "error",
+        message: "the match function is a bare `match`, with no `with`; to match a value, write `match value with`",
+        primary: start.span,
+        fixes: [{ message: "remove `with`", edits: [{ span: withSpan, replacement: "" }] }],
+      });
+      this.#skipUnfinishedHead(outerStops, start);
+      return { kind: "Match", scrutinee, arms: [], span: spanFrom(start.span, this.#previous().span) };
+    } else if (!this.#at("Catch")) {
+      this.#reportMissingCloser(start, scrutinee, mark, "with",
+        "`match` requires `with`; write `match value with` before the indented arms");
+      if (!this.#at("VOpen")) {
+        this.#skipUnfinishedHead(outerStops, start);
+        return { kind: "Match", scrutinee, arms: [], span: spanFrom(start.span, this.#previous().span) };
+      }
+    }
     // `match e` with the `catch` on the next line at the head's column: layout
     // continued the clause rather than opening an arm block, so there are no
     // arms at all. Exceptions §9's own message, ahead of the generic one.
@@ -7425,8 +7634,8 @@ class Parser {
         span: spanFrom(start.span, this.#previous().span),
       };
     }
-    const block = this.#parseArmBlock(false, spanFrom(start.span, scrutinee.span), headsItem);
-    let end = block.closing?.span ?? block.arms.at(-1)?.span ?? scrutinee.span;
+    const block = this.#parseArmBlock(false, spanFrom(start.span, headEnd), headsItem);
+    let end = block.closing?.span ?? block.arms.at(-1)?.span ?? headEnd;
 
     // The match catch clause (Exceptions §5.4, #500). Layout has already
     // continued the `catch` after this item; it is this match's only if this
@@ -9145,9 +9354,17 @@ function describe(kind: TokenKind): string {
   }
 }
 
+function isVirtual(token: LaidOut.Token): boolean {
+  return token.kind === "VOpen" || token.kind === "VSep" || token.kind === "VClose";
+}
+
+function isContextualWord(token: LaidOut.Token, word: string): boolean {
+  return token.kind === "NonUpperName" && token.text === word;
+}
+
 function isKeyword(kind: TokenKind): kind is Lexed.KeywordKind {
   return [
-    "And", "Catch", "Constraint", "Derive", "Else", "Exception", "Export",
+    "And", "Catch", "Constraint", "Derive", "Do", "Else", "Exception", "Export",
     "Extern", "False", "Finally", "For", "Fun", "Honor", "Iff", "If",
     "Implies", "Import", "In", "Let", "Match", "Not", "Or", "Record",
     "Then", "True", "Try", "Type", "Var", "While", "Attempt", "Assume",

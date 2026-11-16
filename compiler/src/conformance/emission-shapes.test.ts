@@ -55,7 +55,7 @@ describe("statement-position match", () => {
       MAYBE +
         "let pick(source: Maybe): Int =\n" +
         "    var result = 0\n" +
-        "    match source\n" +
+        "    match source with\n" +
         "        Nothing => result := 1\n" +
         "        Just(value) => result := value\n" +
         "    result\n" +
@@ -71,9 +71,9 @@ describe("statement-position match", () => {
       MAYBE +
         "let count(source: Maybe): Int =\n" +
         "    var total = 0\n" +
-        "    match source\n" +
+        "    match source with\n" +
         "        Just(limit) =>\n" +
-        "            for step in 1..limit\n" +
+        "            for step in 1..limit do\n" +
         "                total := total + step\n" +
         "        Nothing => total := 0 - 1\n" +
         "    total\n" +
@@ -92,7 +92,7 @@ describe("statement-position match", () => {
     const m = await run(
       "let pick(pair: (Int, Int)): Int =\n" +
         "    var result = 0\n" +
-        "    match pair\n" +
+        "    match pair with\n" +
         "        (0, second) => result := second\n" +
         "        (first, _) => result := first\n" +
         "    result\n" +
@@ -107,7 +107,7 @@ describe("statement-position match", () => {
     const m = await run(
       "let pick(pair: (Int, Int)): Int =\n" +
         "    var result = 0\n" +
-        "    match pair\n" +
+        "    match pair with\n" +
         "        (0, second) => if second > 0 then result := second\n" +
         "        (first, _) => result := first\n" +
         "    result\n" +
@@ -224,7 +224,7 @@ describe("statement-position conditionals", () => {
       "let evens(limit: Int): Int =\n" +
         "    var total = 0\n" +
         "    var step = 0\n" +
-        "    while step < limit\n" +
+        "    while step < limit do\n" +
         "        step := step + 1\n" +
         "        if Int.mod(step, 2) == 0 then total := total + step\n" +
         "    total\n" +

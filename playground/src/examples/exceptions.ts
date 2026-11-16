@@ -36,7 +36,7 @@ let settings = Map.fromVector([("host", "localhost"), ("port", "8080")])
 
 -- throw is an ordinary function, not a keyword. It never returns, so it types
 -- as whatever its position asks for -- here, the String the other arm gives.
-let setting(key: String): String = match Map.get(settings, key)
+let setting(key: String): String = match Map.get(settings, key) with
     Some(value) => value
     None => throw^(SettingError(key, "no such setting"))
 

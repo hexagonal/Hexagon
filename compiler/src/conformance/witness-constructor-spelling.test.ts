@@ -72,7 +72,7 @@ describe("tier 1: the bare spelling, where it denotes this constructor", () => {
         "/main.hex",
         "module Main\n\n" + "export union Flag = On | Off\n" +
         "export fun f(x: Flag): Int =\n" +
-        "    match x\n" +
+        "    match x with\n" +
         "        On => 1\n",
       ],
     ])).toEqual(["match is missing cases: `Off`"]);
@@ -88,7 +88,7 @@ describe("tier 1: the bare spelling, where it denotes this constructor", () => {
         "/main.hex",
         "module Main\n\n" + 'import Flags\n' +
         "export fun f(x: Flags.Flag): Int =\n" +
-        "    match x\n" +
+        "    match x with\n" +
         "        Off => 0\n",
       ],
     ])).toEqual(["match is missing cases: `On`"]);
@@ -101,7 +101,7 @@ describe("tier 1: the bare spelling, where it denotes this constructor", () => {
         "/main.hex",
         "module Main\n\n" + 'import Flags\n' +
         "export fun f(x: Flags.Flag): Int =\n" +
-        "    match x\n" +
+        "    match x with\n" +
         "        Off => 0\n" +
         "        On => 1\n",
       ],
@@ -116,7 +116,7 @@ describe("tier 2: the qualified spelling", () => {
         "/main.hex",
         "module Main\n\n" + "union Flag = True | Maybe\n" +
         "export fun f(b: Bool): Int =\n" +
-        "    match b\n" +
+        "    match b with\n" +
         "        False => 0\n",
       ],
     ])).toEqual(["match is missing cases: `Bool.True`"]);
@@ -128,7 +128,7 @@ describe("tier 2: the qualified spelling", () => {
         "/main.hex",
         "module Main\n\n" + "union Flag = True | Maybe\n" +
         "export fun f(b: Bool): Int =\n" +
-        "    match b\n" +
+        "    match b with\n" +
         "        False => 0\n" +
         "        Bool.True => 1\n",
       ],
@@ -149,7 +149,7 @@ describe("tier 2: the qualified spelling", () => {
         "module Main\n\n" + 'import Shapes\n' +
         'import Box\n' +
         "export fun f(s: Shapes.Shape): Int =\n" +
-        "    match s\n" +
+        "    match s with\n" +
         "        Round => 1\n",
       ],
     ])).toEqual(["match is missing cases: `Shapes.Box(_)`"]);
@@ -162,7 +162,7 @@ describe("tier 2: the qualified spelling", () => {
         "/main.hex",
         "module Main\n\n" + 'import Shapes\n' +
         "export fun f(s: Shapes.Shape): Int =\n" +
-        "    match s\n" +
+        "    match s with\n" +
         "        Round => 1\n",
       ],
     ])).toEqual(["match is missing cases: `Box(_)`"]);
@@ -179,7 +179,7 @@ describe("tier 2: the qualified spelling", () => {
         "module Main\n\n" + 'import Flags as A\n' +
         "union Local = Off | Other\n" +
         "export fun f(x: A.Flag): Int =\n" +
-        "    match x\n" +
+        "    match x with\n" +
         "        On => 1\n",
       ],
     ])).toEqual(["match is missing cases: `A.Off`"]);
@@ -193,7 +193,7 @@ describe("tier 2: the qualified spelling", () => {
         "module Main\n\n" + 'import Flags as A\n' +
         "union Local = Off | Other\n" +
         "export fun f(x: A.Flag): Int =\n" +
-        "    match x\n" +
+        "    match x with\n" +
         "        On => 1\n" +
         "        A.Off => 0\n",
       ],
@@ -215,7 +215,7 @@ describe("the tiers reach the nominal record's constructor too", () => {
         "/main.hex",
         "module Main\n\n" + 'import H\n' +
         "export fun f(b: H.Box): Int =\n" +
-        "    match b\n" +
+        "    match b with\n" +
         "        H.Box({m = True}) => 1\n",
       ],
     ])).toEqual(["match is missing cases: `Box({m = False})`"]);
@@ -228,7 +228,7 @@ describe("the tiers reach the nominal record's constructor too", () => {
         "/main.hex",
         "module Main\n\n" + 'import H\n' +
         "export fun f(b: H.Box): Int =\n" +
-        "    match b\n" +
+        "    match b with\n" +
         "        H.Box({m = True}) => 1\n" +
         "        Box({m = False}) => 0\n",
       ],
@@ -243,7 +243,7 @@ describe("the tiers reach the nominal record's constructor too", () => {
         "module Main\n\n" + 'import H\n' +
         "record Box = {q: Int}\n" +
         "export fun f(b: H.Box): Int =\n" +
-        "    match b\n" +
+        "    match b with\n" +
         "        H.Box({m = True}) => 1\n",
       ],
     ])).toEqual(["match is missing cases: `H.Box({m = False})`"]);
@@ -268,7 +268,7 @@ describe("tier 3: the bare name with the route stated", () => {
         "module Main\n\n" + 'import Flags as F\n' +
         TAKEN +
         "export fun f(x: F.Flag): Int =\n" +
-        "    match x\n" +
+        "    match x with\n" +
         "        On => 1\n" +
         "        F.Off => 0\n" +
         "        Dummy => 2\n",
@@ -281,7 +281,7 @@ describe("tier 3: the bare name with the route stated", () => {
         "/main.hex",
         "module Main\n\n" + "union Local = Off | Other\n" +
         "export fun f(x: Flag): Int =\n" +
-        "    match x\n" +
+        "    match x with\n" +
         "        On => 1\n",
       ],
     ])[0]).toMatch(/unknown type `Flag`/u);
@@ -300,7 +300,7 @@ describe("tier 3: the bare name with the route stated", () => {
         TAKEN +
         extra +
         "export fun f(): Int =\n" +
-        "    match B.make()\n" +
+        "    match B.make() with\n" +
         "        On => 1\n",
       ],
     ] as const;
@@ -321,7 +321,7 @@ describe("tier 3: the bare name with the route stated", () => {
         TAKEN +
         'import Flags\n' +
         "export fun f(): Int =\n" +
-        "    match B.make()\n" +
+        "    match B.make() with\n" +
         "        On => 1\n" +
         "        Flags.Off => 0\n",
       ],
@@ -337,7 +337,7 @@ describe("tier 3: the bare name with the route stated", () => {
         "module Main\n\n" + 'import B\n' +
         "union Local = Off | Flags\n" +
         "export fun f(): Int =\n" +
-        "    match B.make()\n" +
+        "    match B.make() with\n" +
         "        On => 1\n",
       ],
     ])).toEqual([
@@ -357,7 +357,7 @@ describe("tier 3: the bare name with the route stated", () => {
         "/main.hex",
         "module Main\n\n" + 'import B\n' +
         "export fun probe(): Int =\n" +
-        "    match B.make()\n" +
+        "    match B.make() with\n" +
         "        On => 1\n",
       ],
     ])).toEqual(["match is missing cases: `Off`"]);
@@ -368,7 +368,7 @@ describe("tier 3: the bare name with the route stated", () => {
         "/main.hex",
         "module Main\n\n" + 'import B\n' +
         "export fun probe(): Int =\n" +
-        "    match B.make()\n" +
+        "    match B.make() with\n" +
         "        On => 1\n" +
         "        Off => 0\n",
       ],
@@ -383,7 +383,7 @@ describe("tier 3: the bare name with the route stated", () => {
         "module Main\n\n" + 'import Bool\n' +
         "union Flag = True | Maybe\n" +
         "export fun f(b: Bool): Int =\n" +
-        "    match b\n" +
+        "    match b with\n" +
         "        False => 0\n",
       ],
     ])).toEqual([
@@ -401,7 +401,7 @@ describe("tier 3: the bare name with the route stated", () => {
         "module Main\n\n" + 'import Bool as Mine\n' +
         "union Flag = True | Maybe\n" +
         "export fun f(b: Bool): Int =\n" +
-        "    match b\n" +
+        "    match b with\n" +
         "        False => 0\n" +
         "        Bool.True => 1\n",
       ],
@@ -425,7 +425,7 @@ describe("aggregation: one clause per declaring module", () => {
         "module Main\n\n" + 'import B\n' +
         "union Local = Off | Dim | Other\n" +
         "export fun f(): Int =\n" +
-        "    match B.make()\n" +
+        "    match B.make() with\n" +
         "        On => 1\n" +
         "        Warm => 2\n" +
         "        Cool => 3\n",
@@ -446,7 +446,7 @@ describe("aggregation: one clause per declaring module", () => {
         "module Main\n\n" + 'import B\n' +
         "union Local = Dim | Cool | Other\n" +
         "export fun f(): Int =\n" +
-        "    match B.make()\n" +
+        "    match B.make() with\n" +
         "        On => 1\n" +
         "        Warm => 2\n",
       ],
@@ -473,7 +473,7 @@ describe("aggregation: one clause per declaring module", () => {
         "module Main\n\n" + 'import Mid\n' +
         "union Local = A2 | B2\n" +
         "export fun f(): Int =\n" +
-        "    match (Mid.x(), Mid.y())\n" +
+        "    match (Mid.x(), Mid.y()) with\n" +
         "        (A1, B1) => 1\n" +
         "        (_, B1) => 2\n",
       ],
@@ -497,7 +497,7 @@ describe("aggregation: one clause per declaring module", () => {
         "module Main\n\n" + 'import Mid\n' +
         "union Local = Off | Dim | Warm | G2\n" +
         "export fun f(): Int =\n" +
-        "    match (Mid.x(), Mid.y())\n" +
+        "    match (Mid.x(), Mid.y()) with\n" +
         "        (On, G1) => 1\n" +
         "        (_, G1) => 2\n",
       ],
@@ -520,7 +520,7 @@ describe("aggregation: one clause per declaring module", () => {
         "module Main\n\n" + 'import B\n' +
         "union Local = Off | Dim | Warm | Cool | Other\n" +
         "export fun f(): Int =\n" +
-        "    match B.make()\n" +
+        "    match B.make() with\n" +
         "        On => 1\n",
       ],
     ])).toEqual([
@@ -594,7 +594,7 @@ describe("the error-program obligation: a broken pattern must not widen the voca
         "/main.hex",
         "module Main\n\n" + 'import H\n' +
         "export fun f(): Int =\n" +
-        "    match H.mkFile(1)\n" +
+        "    match H.mkFile(1) with\n" +
         "        None => 1\n",
       ],
     ])).toEqual([
@@ -624,7 +624,7 @@ describe("the error-program obligation: a broken pattern must not widen the voca
         "/main.hex",
         "module Main\n\n" + 'import H\n' +
         "export fun f(): Int =\n" +
-        "    for None in [H.mkFile(1)]\n" +
+        "    for None in [H.mkFile(1)] do\n" +
         "        ignore(1)\n" +
         "    1\n",
       ],
@@ -646,7 +646,7 @@ describe("the error-program obligation: a broken pattern must not widen the voca
         "/main.hex",
         "module Main\n\n" + 'import H\n' +
         "export fun f(): Int =\n" +
-        "    match H.mkFile(1)\n" +
+        "    match H.mkFile(1) with\n" +
         "        0 => 1\n",
       ],
     ])).toEqual([
@@ -664,7 +664,7 @@ describe("the error-program obligation: a broken pattern must not widen the voca
         "/main.hex",
         "module Main\n\n" + 'import H\n' +
         "export fun f(): Int =\n" +
-        "    match H.pair(1)\n" +
+        "    match H.pair(1) with\n" +
         "        (None, True) => 1\n",
       ],
     ])).toEqual([
@@ -680,7 +680,7 @@ describe("the error-program obligation: a broken pattern must not widen the voca
         "/main.hex",
         "module Main\n\n" + 'import Flags as F\n' +
         "export fun f(x: F.Flag): Int =\n" +
-        "    match x\n" +
+        "    match x with\n" +
         "        0 => 1\n",
       ],
     ])).toEqual([
@@ -705,7 +705,7 @@ describe("the error-program obligation: a broken pattern must not widen the voca
         "/main.hex",
         "module Main\n\n" + 'import Flags as F\n' +
         "export fun f(x: F.Flag): Int =\n" +
-        "    match x\n" +
+        "    match x with\n" +
         "        On => 1\n",
       ],
     ])).toEqual([
@@ -718,7 +718,7 @@ describe("the error-program obligation: a broken pattern must not widen the voca
       [
         "/main.hex",
         "module Main\n\n" + "export fun f(n: Int): Int =\n" +
-        "    match n\n" +
+        "    match n with\n" +
         "        0 => 1\n",
       ],
     ])).toEqual(["match is missing cases: `_`"]);
@@ -750,7 +750,7 @@ describe("the obligation reaches the nominal record's constructor pattern too", 
         "module Main\n\n" + 'import H\n' +
         "record Box = {n: Int}\n" +
         "export fun f(): Int =\n" +
-        "    match H.mk()\n" +
+        "    match H.mk() with\n" +
         "        Box({n = 0}) => 1\n",
       ],
     ])).toEqual([
@@ -782,7 +782,7 @@ describe("§7.2 takes the dual: a broken pattern is never a shadower", () => {
         "/main.hex",
         "module Main\n\n" + 'import Flags as F\n' +
         "export fun f(x: F.Flag): Int =\n" +
-        "    match x\n" +
+        "    match x with\n" +
         "        0 => 1\n" +
         "        On => 2\n" +
         "        Off => 3\n",
@@ -797,7 +797,7 @@ describe("§7.2 takes the dual: a broken pattern is never a shadower", () => {
         "/main.hex",
         "module Main\n\n" + 'import H\n' +
         "export fun f(): Int =\n" +
-        "    match H.mkFile(1)\n" +
+        "    match H.mkFile(1) with\n" +
         "        None => 1\n" +
         "        x => 2\n",
       ],
@@ -811,7 +811,7 @@ describe("§7.2 takes the dual: a broken pattern is never a shadower", () => {
         "/main.hex",
         "module Main\n\n" + 'import Flags as F\n' +
         "export fun f(x: F.Flag): Int =\n" +
-        "    match x\n" +
+        "    match x with\n" +
         "        0 => 1\n" +
         "        1 => 2\n" +
         "        On => 3\n" +
@@ -834,7 +834,7 @@ describe("§7.2 takes the dual: a broken pattern is never a shadower", () => {
         "/main.hex",
         "module Main\n\n" + "export union Flag = On(Int) | Off\n" +
         "export fun f(x: Flag): Int =\n" +
-        "    match x\n" +
+        "    match x with\n" +
         "        On => 1\n" +
         "        On(3) => 2\n" +
         "        Off => 3\n",
@@ -870,7 +870,7 @@ describe("§7.2 takes the dual: a broken pattern is never a shadower", () => {
         "/main.hex",
         "module Main\n\n" + 'import Flags as F\n' +
         "export fun f(x: F.Flag): Int =\n" +
-        "    match x\n" +
+        "    match x with\n" +
         "        y => 2\n" +
         "        0 => 1\n",
       ],

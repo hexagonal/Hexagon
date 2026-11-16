@@ -62,7 +62,7 @@ export let toOption(value: Nullable(a)): Option(a) =
     carrying a `Some` value unchanged. Use `fromOptionOrNull` when an API asks
     for explicit `null`. -}
 export let fromOption(option: Option(a)): Nullable(a) =
-    match option
+    match option with
         None => undefined
         Some(value) => fromValue(value)
 
@@ -70,6 +70,6 @@ export let fromOption(option: Option(a)): Nullable(a) =
     carrying a `Some` value unchanged. Use `fromOption` for the ordinary
     omitted or defaulted JavaScript case. -}
 export let fromOptionOrNull(option: Option(a)): Nullable(a) =
-    match option
+    match option with
         None => null
         Some(value) => fromValue(value)

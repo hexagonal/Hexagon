@@ -243,7 +243,7 @@ let canonical(decimal: Dec): (BigInt, Int) =
         var coefficient = decimal.unscaled
         var remainingPlaces = decimal.places
         var stride: Int = 1
-        while remainingPlaces > 0 and coefficient.rem(10) == 0
+        while remainingPlaces > 0 and coefficient.rem(10) == 0 do
             let count = if stride < remainingPlaces then stride else remainingPlaces
             let divisor = tenTo(count)
             if coefficient.rem(divisor) == 0 then
@@ -326,7 +326,7 @@ honor Show<Dec> =
             else
                 var zeroes = ""
                 var count = retained - digitCount
-                while count > 0
+                while count > 0 do
                     zeroes := "${zeroes}0"
                     count := count - 1
                 "0.${zeroes}${digits}"
@@ -336,10 +336,10 @@ honor Show<Dec> =
 -- the correctly rounded significand using integers, then assemble one Float.
 let bitLength(value: BigInt): Int =
     var high: Int = 1
-    while (2 ** high) <= value
+    while (2 ** high) <= value do
         high := high * 2
     var low: Int = if high == 1 then 0 else high.quot(2)
-    while high - low > 1
+    while high - low > 1 do
         let middle = (low + high).quot(2)
         if (2 ** middle) <= value then low := middle else high := middle
     high
@@ -408,10 +408,10 @@ let fromFloatRounded(value: Float, requested: Int, even: Bool, operation: String
     else
         var magnitude = if value < 0 then -value else value
         var shift: Int = 0
-        while magnitude < 4503599627370496.0
+        while magnitude < 4503599627370496.0 do
             magnitude := magnitude * 2
             shift := shift + 1
-        while magnitude >= 9007199254740992.0
+        while magnitude >= 9007199254740992.0 do
             magnitude := magnitude / 2
             shift := shift - 1
         let significand = BigInt.fromInt(magnitude.trunc())
@@ -462,6 +462,6 @@ extern from "hex:intrinsic"
     written that way. A call that may throw carries a mark: `Dec.parse?(text)`
     gives `None` in place of throwing, and `assume Dec.parse^(text)` is for text
     that is known to be good. -}
-export let parse(text: String): Dec = match scanText(text)
+export let parse(text: String): Dec = match scanText(text) with
     Some((unscaled, places)) => create(unscaled, places)
     None => throw^(NumberFormatError(formatMessage(text, "is not a Dec")))

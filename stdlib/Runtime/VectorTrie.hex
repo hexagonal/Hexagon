@@ -96,7 +96,7 @@ fun tailOffset(capacity: Int): Int =
 -- height-`h` trie holds when full.
 fun pow32(exponent: Int): Int =
     var result = 1
-    for step in 1..exponent
+    for step in 1..exponent do
         result := result * radix
     result
 
@@ -112,13 +112,13 @@ fun readInternal(trie: TrieVector(a), internal: Int): a =
         var span = pow32(trie.height - 1)
         var remaining = internal
         -- A height-`h` trie has `h - 1` branch levels above its leaves.
-        for level in 2..trie.height
-            node := match node
+        for level in 2..trie.height do
+            node := match node with
                 Branch(children) => Node.get(children, remaining.div(span))
                 Leaf(_) => node
             remaining := remaining.mod(span)
             span := span.div(radix)
-        match node
+        match node with
             Leaf(values) => Node.get(values, remaining)
             -- Unreachable for a populated path (the loop always lands on a leaf).
             Branch(_) => throw(TrieCorruptionFault("readInternal: descent did not reach a leaf"))
@@ -149,8 +149,8 @@ fun nodeRun(trie: TrieVector(a), index: Int): (Node(a), Int, Int) =
         var node: Tree(a) = trie.root
         var span = pow32(trie.height - 1)
         var remaining = internal
-        for level in 2..trie.height
-            node := match node
+        for level in 2..trie.height do
+            node := match node with
                 Branch(children) => Node.get(children, remaining.div(span))
                 Leaf(_) => node
             remaining := remaining.mod(span)
@@ -158,7 +158,7 @@ fun nodeRun(trie: TrieVector(a), index: Int): (Node(a), Int, Int) =
         let inNode = radix - remaining
         let inRegion = off - internal
         let run = if inNode < inRegion then inNode else inRegion
-        match node
+        match node with
             Leaf(values) => (values, remaining, run)
             -- Unreachable for a populated path (the loop always lands on a leaf).
             Branch(_) => throw(TrieCorruptionFault("nodeRun: descent did not reach a leaf"))
@@ -167,7 +167,7 @@ fun nodeRun(trie: TrieVector(a), index: Int): (Node(a), Int, Int) =
 -- subtree. `newPath(0, leaf) = leaf`.
 fun newPath(levels: Int, leaf: Tree(a)): Tree(a) =
     var node: Tree(a) = leaf
-    for step in 1..levels
+    for step in 1..levels do
         node := Branch(Node.set(Node.empty(), 0, node))
     node
 
@@ -176,7 +176,7 @@ fun newPath(levels: Int, leaf: Tree(a)): Tree(a) =
 -- child exactly when the position within that child is 0. Recursion depth is
 -- bounded by `h` (<= ~7 for billions of elements), so this is stack-safe.
 fun insertLeaf(node: Tree(a), height: Int, p: Int, leaf: Tree(a)): Tree(a) =
-    match node
+    match node with
         -- Only reached at height 1: the empty root leaf is replaced by the first
         -- flushed leaf.
         Leaf(_) => leaf
@@ -244,7 +244,7 @@ fun freshSubtree(height: Int): Tree(a) =
 -- child is fresh; every lower position reuses the child a previous prepend made.
 -- Recursion depth is bounded by `h`, so this is stack-safe.
 fun writeValue(node: Tree(a), height: Int, index: Int, value: a): Tree(a) =
-    match node
+    match node with
         -- Height 1: `index` selects the slot within the leaf directly.
         Leaf(values) => Leaf(Node.set(values, index, value))
         Branch(children) =>
@@ -316,7 +316,7 @@ fun prepend(trie: TrieVector(a), value: a): TrieVector(a) =
 -- `node`, descending to its leaf. Unlike `writeValue` every node on the path
 -- already exists, so no slot is created — a persistent overwrite.
 fun updateAt(node: Tree(a), height: Int, index: Int, value: a): Tree(a) =
-    match node
+    match node with
         Leaf(values) => Leaf(Node.set(values, index, value))
         Branch(children) =>
             let span = pow32(height - 1)
@@ -378,12 +378,12 @@ let trimHeight(origin: Int, capacity: Int, height: Int, root: Tree(a), tail: Nod
         var cap = capacity
         var level = height
         var descending = True
-        while descending and level >= 2
+        while descending and level >= 2 do
             let span = pow32(level - 1)
             let child = low.div(span)
             if child == (high - 1).div(span) then
                 let delta = child * span
-                node := match node
+                node := match node with
                     Branch(children) => Node.get(children, child)
                     -- A branch level always holds branches above height 1.
                     Leaf(_) => throw(TrieCorruptionFault("trimHeight: a leaf above height 1"))
@@ -436,7 +436,7 @@ fun slice(trie: TrieVector(a), begin: Int, end: Int): TrieVector(a) =
             -- the tail slots beneath the origin stay empty and are never read.
             let liveStart = if newOrigin > newOff then newOrigin else newOff
             var newTail: Node(a) = Node.empty()
-            for internal in liveStart..(newCapacity - 1)
+            for internal in liveStart..(newCapacity - 1) do
                 newTail := Node.set(newTail, internal - newOff, readInternal(trie, internal))
             -- Rebuild first, then trim: the rebuilt tail is filled at alignment
             -- `newOff`, and every rebase the trim then applies is a multiple of
@@ -474,7 +474,7 @@ fun concat(left: TrieVector(a), right: TrieVector(a)): TrieVector(a) =
     let count = size(right)
     var result: TrieVector(a) = left
     var index = 0
-    while index < count
+    while index < count do
         -- `leafValues` rather than `values`: this module is seated before
         -- `stdlib/Map.hex`, so its `values` projection is out of scope here —
         -- but the conformance probe compiles this same text at an ordinary path,
@@ -483,7 +483,7 @@ fun concat(left: TrieVector(a), right: TrieVector(a)): TrieVector(a) =
         -- compiling the module rather than a variant of it.
         let (leafValues, offset, run) = nodeRun(right, index)
         -- `run` is at least 1, so this range is never empty.
-        for step in 0..(run - 1)
+        for step in 0..(run - 1) do
             result := append(result, Node.get(leafValues, offset + step))
         index := index + run
     result
@@ -501,10 +501,10 @@ fun findPosition(trie: TrieVector(a), matches: a ->! Bool): Int =
     let count = size(trie)
     var found = 0
     var index = 0
-    while index < count
+    while index < count do
         let (leafValues, offset, run) = nodeRun(trie, index)
         var step = 0
-        while step < run
+        while step < run do
             if matches!(Node.get(leafValues, offset + step)) then
                 found := index + step + 1
                 step := run
@@ -522,12 +522,12 @@ fun zip(left: TrieVector(a), right: TrieVector(b)): TrieVector((a, b)) =
     let count = if size(left) < size(right) then size(left) else size(right)
     var result: TrieVector((a, b)) = empty
     var index = 0
-    while index < count
+    while index < count do
         let (leftValues, leftOffset, leftRun) = nodeRun(left, index)
         let (rightValues, rightOffset, rightRun) = nodeRun(right, index)
         let run = if leftRun < rightRun then leftRun else rightRun
         var step = 0
-        while step < run
+        while step < run do
             result := append(result, (Node.get(leftValues, leftOffset + step), Node.get(rightValues, rightOffset + step)))
             step := step + 1
         index := index + run

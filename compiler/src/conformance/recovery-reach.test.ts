@@ -134,7 +134,7 @@ honor Runner<Job> =
     readsAsFix(
       `export let outer(action: () ->! Unit): Unit =
     let o: Option(Step) = Some(action)
-    match o
+    match o with
         Some(g) => g!()
         None => ()
 `,
@@ -149,7 +149,7 @@ honor Runner<Job> =
     );
     readsAsFix(`export let outer(action: () ->! Unit): Unit =
     var r: Option(Step) = Some(action)
-    match r
+    match r with
         Some(g) => g!()
         None => ()
 `);
@@ -175,7 +175,7 @@ describe("a parameter typed by the refused alias is the callback its fixit write
 
   test.each([
     ["if True then s else save0", "if True then save0 else s"],
-    ["match True\n        True => s\n        False => save0", "match True\n        True => save0\n        False => s"],
+    ["match True with\n        True => s\n        False => save0", "match True with\n        True => save0\n        False => s"],
     ["try s catch\n        _ => save0", "try save0 catch\n        _ => s"],
   ])("a form's paths in either order: %s", (first, second) => {
     for (const form of [first, second]) {
@@ -190,14 +190,14 @@ describe("a parameter typed by the refused alias is the callback its fixit write
     for (const form of ["if True then Some(s) else Some(save0)", "if True then Some(save0) else Some(s)"]) {
       readsAsFix(`export let go(s: Step): Unit =
     let o = ${form}
-    match o
+    match o with
         Some(g) => g!()
         None => ()
 `);
     }
     for (const elements of ["[s, save0]", "[save0, s]", '[() => s!(), () => save!("y")]']) {
       readsAsFix(`export let go(s: Step): Unit =
-    match ${elements}
+    match ${elements} with
         [g, _] => g!()
         _ => ()
 `);

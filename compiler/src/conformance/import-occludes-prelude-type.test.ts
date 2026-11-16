@@ -223,7 +223,7 @@ describe("term position: the import's constructor outranks the prelude's", () =>
       ["/main.hex",
         "module Main\n\n" + "import JsError\n" +
           "export fun f(e: JsError): Int =\n" +
-          "    match e\n" +
+          "    match e with\n" +
           "        JsError({ n }) => n\n"],
     ])).toEqual([]);
   });
@@ -234,7 +234,7 @@ describe("term position: the import's constructor outranks the prelude's", () =>
       ["/main.hex",
         "module Main\n\n" + "import JsError\n" +
           "fun read(e: JsError): Int =\n" +
-          "    match e\n" +
+          "    match e with\n" +
           "        JsError({ n }) => n\n" +
           "export let bare: Int = read(JsError({ n = 1 }))\n" +
           "export let qualified: Int = read(JsError.JsError({ n = 2 }))\n"],
@@ -376,7 +376,7 @@ describe("term position: the occlusion keys on the type", () => {
       ["/main.hex",
         "module Main\n\n" + "import JsError\n" +
           "export fun f(e: JsError): Int =\n" +
-          "    match e\n" +
+          "    match e with\n" +
           "        JsError(n) => n\n" +
           "        _ => 0\n"],
     ])).toEqual(["`JsError` has no constructor `JsError`"]);
@@ -461,7 +461,7 @@ describe("term position: the occlusion keys on the type", () => {
         "module Main\n\n" + "import JsError\n" +
           "union Mine = JsError(Int) | Nope\n" +
           "fun read(m: Mine): Int =\n" +
-          "    match m\n" +
+          "    match m with\n" +
           "        JsError(k) => k\n" +
           "        Nope => 0\n" +
           "export let y: Int = read(JsError(5))\n" +

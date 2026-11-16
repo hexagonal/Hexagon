@@ -63,7 +63,7 @@ describe("identifiers and start class (spec/lexer.md §3.1)", () => {
   });
 
   it("keeps bare `_` a wildcard but `_name` an ordinary name", async () => {
-    expect(await scope("match x\n    _ => 1", "_")).toBe("variable.language.wildcard.hexagon");
+    expect(await scope("match x with\n    _ => 1", "_")).toBe("variable.language.wildcard.hexagon");
     expect(await scope("let _name = 1", "_name")).toBe("variable.other.definition.hexagon");
   });
 
@@ -83,7 +83,11 @@ describe("keywords (spec/lexer.md §4)", () => {
   it("scopes hard control keywords", async () => {
     expect(await scope("if a then b else c", "if")).toBe("keyword.control.hexagon");
     expect(await scope("if a then b else c", "then")).toBe("keyword.control.hexagon");
-    expect(await scope("while running\n    x", "while")).toBe("keyword.control.hexagon");
+    expect(await scope("while running do\n    x", "while")).toBe("keyword.control.hexagon");
+    expect(await scope("while running do\n    x", "do")).toBe("keyword.control.hexagon");
+    expect(await scope("for x in xs do visit(x)", "do")).toBe("keyword.control.hexagon");
+    // A `match` head's closing word (Lexer & Layout §2.4).
+    expect(await scope("let n = match next(current) with\n    _ => 0", "with")).toBe("keyword.control.hexagon");
   });
 
   it("scopes word operators rather than leaving them as names", async () => {
@@ -152,7 +156,7 @@ describe("contextual keywords are positional (spec/lexer.md §4.2)", () => {
   });
 
   it("recognizes `when` before an arm arrow but not as a binder", async () => {
-    expect(await scope("match v\n    Some(x) when ready => x", "when")).toBe(
+    expect(await scope("match v with\n    Some(x) when ready => x", "when")).toBe(
       "keyword.other.when.hexagon",
     );
     expect(await scope("let when = True", "when")).toBe("variable.other.definition.hexagon");
@@ -828,7 +832,7 @@ describe("type variables are nominal-coloured in type positions", () => {
   });
 
   it("leaves a pattern-position `_` alone", async () => {
-    expect(await scope("match x\n    _ => 1", "_")).toBe("variable.language.wildcard.hexagon");
+    expect(await scope("match x with\n    _ => 1", "_")).toBe("variable.language.wildcard.hexagon");
     // Not the wildcard scope — the `let` binder rule claims this one, and has
     // since before holes existed. What matters here is that the type-position
     // meaning did not reach into pattern position.
@@ -1107,7 +1111,7 @@ describe("an unterminated bracket group stays on its line (#162)", () => {
     for (const guard of guards) {
       expect(guard, guard).toContain(
         "|pattern(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+" +
-          "(?![\\p{Uppercase}\\p{Lt}])(?!__)(?!(?:catch|else|finally|for|if|in|match|" +
+          "(?![\\p{Uppercase}\\p{Lt}])(?!__)(?!(?:catch|do|else|finally|for|if|in|match|" +
           "then|try|while|attempt|assume|import|export|extern|constraint|derive|exception|fun|honor|let|" +
           "record|type|var|and|bnot|iff|implies|not|or|true|false)" +
           "(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}]))[\\p{ID_Start}$_]" +
@@ -1842,11 +1846,11 @@ describe("contextual keywords in a third position", () => {
     // it can never appear inside a nested pattern. Each line here also has a later
     // `=>`, which is exactly what makes the naive lookahead insufficient.
     const cases = [
-      ["match e\n    Event(when, what) => f(when)", "a pattern binder"],
+      ["match e with\n    Event(when, what) => f(when)", "a pattern binder"],
       ["let g = (when) => when + 1", "a lambda parameter"],
       ["fun schedule(when: Instant): Unit = xs.map(x => x)", "a parameter"],
       ["let r = f(when, x => x)", "an ordinary argument"],
-      ["match e\n    Event(a, when) => a", "a later pattern binder"],
+      ["match e with\n    Event(a, when) => a", "a later pattern binder"],
     ] as const;
 
     for (const [source, description] of cases) {
@@ -1858,7 +1862,7 @@ describe("contextual keywords in a third position", () => {
   });
 
   it("still recognizes `when` after a complete arm pattern", async () => {
-    expect(await scope("match v\n    None when ready => 1", "when")).toBe(
+    expect(await scope("match v with\n    None when ready => 1", "when")).toBe(
       "keyword.other.when.hexagon",
     );
   });

@@ -14,7 +14,7 @@ union Direction derives (Show) =
     | South
     | West
 
-let opposite(direction: Direction) = match direction
+let opposite(direction: Direction) = match direction with
     North => South
     East => West
     South => North
@@ -22,18 +22,18 @@ let opposite(direction: Direction) = match direction
 
 Debug.log("Opposite of North: \${opposite(North)}")
 
-fun attendanceLabel(count: Int) = match count
+fun attendanceLabel(count: Int) = match count with
     0 => "none"
     1 => "one"
     _ => "many"
 
 Debug.log("Guests: \${attendanceLabel(1)}")
 
-fun tupleLabel(pair: (Bool, Int)) = match pair
+fun tupleLabel(pair: (Bool, Int)) = match pair with
     (True, _) => "active"
     (_, _) => "inactive"
 
-fun unitLabel(value: Unit) = match value
+fun unitLabel(value: Unit) = match value with
     () => "unit"
 
 Debug.log("\${tupleLabel((True, 3))} \${unitLabel(())}")

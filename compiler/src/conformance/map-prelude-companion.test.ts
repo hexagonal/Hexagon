@@ -143,7 +143,7 @@ describe("§16 (c) the accessor pair", () => {
         "export let held: Bool = Map.containsKey(m, 2)\n" +
         "export let absent: Bool = Map.containsKey(m, 9)\n" +
         "let describe(option: Option(String)): String =\n" +
-        "    match option\n" +
+        "    match option with\n" +
         "        None => \"none\"\n" +
         "        Some(value) => value\n" +
         "export let found: String = describe(Map.get(m, 1))\n" +
@@ -235,7 +235,7 @@ describe("§16 (e) upsert, forgiving removal, and §7.3's correspondence", () =>
         // and a `var` may not rebind one.
         "    var keySum = 0\n" +
         "    var valueSum = 0\n" +
-        "    for (key, value) in m\n" +
+        "    for (key, value) in m do\n" +
         "        keySum := keySum + key\n" +
         "        valueSum := valueSum + value\n" +
         "    (keySum, valueSum)\n",
@@ -432,7 +432,7 @@ describe("the companion's surface", () => {
         "export let dotted: Int = Map.size(m.set(2, \"two\"))\n" +
         "export let qualified: Int = Map.size(Map.set(m, 2, \"two\"))\n" +
         "let describe(option: Option(String)): String =\n" +
-        "    match option\n" +
+        "    match option with\n" +
         "        None => \"none\"\n" +
         "        Some(value) => value\n" +
         "export let dottedGet: String = describe(m.get(1))\n" +

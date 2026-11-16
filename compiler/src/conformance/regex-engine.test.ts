@@ -40,54 +40,54 @@ let opText(program: Compiled, at: Int): String =
     else if op == opSave then "save " ++ first
     else "assert " ++ first
 
-export let program(pattern: String): String = match parsedOf(pattern)
+export let program(pattern: String): String = match parsedOf(pattern) with
     Good(parsed) =>
         let compiled = compile~(parsed)
         var texts: Vector(String) = []
         var at = 0
-        while at < compiled.size
+        while at < compiled.size do
             texts := texts.append(show(at) ++ ":" ++ opText~(compiled, at))
             at := at + 1
         String.join(Iterable.toSeq(texts), "; ")
     Bad(message) => message
 
-export let set(pattern: String): Vector((Int, Int)) = match parsedOf(pattern)
+export let set(pattern: String): Vector((Int, Int)) = match parsedOf(pattern) with
     Good(parsed) => classOf~(compile~(parsed), 0)
     Bad(_) => []
 
-let groupText(group: Option((Int, Int, String))): String = match group
+let groupText(group: Option((Int, Int, String))): String = match group with
     Some((start, length, text)) => show(start) ++ "+" ++ show(length) ++ "'" ++ text ++ "'"
     None => "-"
 
-let rendered(answer: Option((Vector(Option((Int, Int, String))), (Int, Int)))): String = match answer
+let rendered(answer: Option((Vector(Option((Int, Int, String))), (Int, Int)))): String = match answer with
     Some((groups, (position, offset))) =>
         var texts: Vector(String) = []
-        for group in groups
+        for group in groups do
             texts := texts.append(groupText(group))
         String.join(Iterable.toSeq(texts), " ") ++ " @" ++ show(position) ++ "/" ++ show(offset)
     None => "none"
 
-export let find(pattern: String, text: String, start: Int): String = match parsedOf(pattern)
+export let find(pattern: String, text: String, start: Int): String = match parsedOf(pattern) with
     Good(parsed) => rendered(search~(compile~(parsed), text, start, (1, 0), True))
     Bad(message) => "error " ++ message
 
 export let findWith(pattern: String, text: String, start: Int, position: Int, offset: Int, spans: Bool): String =
-    match parsedOf(pattern)
+    match parsedOf(pattern) with
         Good(parsed) => rendered(search~(compile~(parsed), text, start, (position, offset), spans))
         Bad(message) => "error " ++ message
 
-export let findVm(pattern: String, text: String, start: Int, spans: Bool): String = match parsedOf(pattern)
+export let findVm(pattern: String, text: String, start: Int, spans: Bool): String = match parsedOf(pattern) with
     Good(parsed) => rendered(searchByVm~(compile~(parsed), text, start, spans))
     Bad(message) => "error " ++ message
 
 -- How the forward scan over the text from its start went: how many times its
 -- cache filled, and whether it finished ("dfa") or handed over ("vm").
-export let forwardRoute(pattern: String, text: String): String = match parsedOf(pattern)
+export let forwardRoute(pattern: String, text: String): String = match parsedOf(pattern) with
     Good(parsed) =>
         let compiled = compile~(parsed)
         let flushes = create~(1, 0)
         let units = codeUnits(text)
-        let finished = match scanForward~(compiled, text, units, placeAt(text, units, 1, 0), False, flushes)
+        let finished = match scanForward~(compiled, text, units, placeAt(text, units, 1, 0), False, flushes) with
             Some(_) => "dfa"
             None => "vm"
         finished ++ " " ++ show(read~(flushes, 0))
@@ -96,13 +96,13 @@ export let forwardRoute(pattern: String, text: String): String = match parsedOf(
 -- One compiled program searched over two subjects at every start, so that its
 -- caches and alphabet carry from search to search: every answer, joined; and the
 -- same through the VM alone.
-export let everyStart(pattern: String, first: String, second: String, viaVm: Bool): String = match parsedOf(pattern)
+export let everyStart(pattern: String, first: String, second: String, viaVm: Bool): String = match parsedOf(pattern) with
     Good(parsed) =>
         let compiled = compile~(parsed)
         var answers: Vector(String) = []
-        for text in [first, second, first]
+        for text in [first, second, first] do
             var start = 1
-            while start <= String.length(text) + 1
+            while start <= String.length(text) + 1 do
                 let answer = if viaVm then searchByVm~(compiled, text, start, True) else search~(compiled, text, start, (1, 0), True)
                 answers := answers.append(rendered(answer))
                 start := start + 1

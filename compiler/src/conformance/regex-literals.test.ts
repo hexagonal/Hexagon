@@ -269,19 +269,19 @@ describe("a good literal is emitted already built (§8, §9)", () => {
     "foo food\nbar\nbarn",
   ];
   const describeMatches = String.raw`
-let groupText(group: Option(Regex.Group)): String = match group
+let groupText(group: Option(Regex.Group)): String = match group with
     Some(g) => show(g.start) ++ "+" ++ show(g.length) ++ "'" ++ g.text ++ "'"
     None => "-"
 
 let described(regex: Regex.Regex, text: String): String =
     var parts: Vector(String) = [regex.source(), show(regex.groupCount())]
-    for name in ["year", "month", "day", "nope"]
+    for name in ["year", "month", "day", "nope"] do
         parts := parts.append(name ++ "=" ++ show(regex.groupIndex(name)))
-    for m in regex.findAll(text)
+    for m in regex.findAll(text) do
         parts := parts.append(groupText(m.group(0)))
-        for group in m.groups()
+        for group in m.groups() do
             parts := parts.append(groupText(group))
-        for name in ["year", "month", "day"]
+        for name in ["year", "month", "day"] do
             parts := parts.append(name ++ ":" ++ groupText(m.named(name)))
     String.join(Iterable.toSeq(parts), " ")
 `;

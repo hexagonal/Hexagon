@@ -141,7 +141,7 @@ describe("the supplying seats (§4.3)", () => {
     expect(projectDiagnostics("module Main\n\n" + "export constraint Sign<a> =\n" +
         "    sign(value: a) -> String\n" +
         "honor Sign<Int> =\n" +
-        "    sign(value) = match value\n" +
+        "    sign(value) = match value with\n" +
         guardOnly("        ") +
         "let three: Int = 3\n" +
         "export let a: String = sign(three)\n",
@@ -192,7 +192,7 @@ describe("the forwarding forms (§4.3)", () => {
 
   test("every arm body of `match`", () => {
     expect(conducts(
-      "    match flag\n" +
+      "    match flag with\n" +
         "        True => match\n" +
         guardOnly("            ") +
         "        False => match\n" +
@@ -257,7 +257,7 @@ describe("the forwarding forms (§4.3)", () => {
 
     test("`match` — the lambda in only the first arm body", () => {
       expect(oneSided(
-        "    match flag\n" +
+        "    match flag with\n" +
           "        True => match\n" +
           guardOnly("            ") +
           "        False => other\n",
@@ -266,7 +266,7 @@ describe("the forwarding forms (§4.3)", () => {
 
     test("`match` — the lambda in only the last arm body", () => {
       expect(oneSided(
-        "    match flag\n" +
+        "    match flag with\n" +
           "        True => other\n" +
           "        False => match\n" +
           guardOnly("            "),
@@ -295,7 +295,7 @@ describe("the forwarding forms (§4.3)", () => {
           "let risky(flag: Bool): Bool = if flag then throw^(Boom(\"x\")) else True\n" +
           "let flag: Bool = True\n" +
           "let sign: (Int) -> String =\n" +
-          "    match risky^(flag)\n" +
+          "    match risky^(flag) with\n" +
           "        True => other\n" +
           "        False => other\n" +
           "    catch\n" +
@@ -487,7 +487,7 @@ describe("the pipe seat supplies (#517)", () => {
     // they agree — the desugar-equality pin, now succeeding together.
     const written = projectDiagnostics("module Main\n\n" + "let classify: (Int) -> String = value =>\n" +
         "    value |> (v =>\n" +
-        "        match v\n" +
+        "        match v with\n" +
         "            n when n > 0 => \"positive\"\n" +
         "            _ => \"other\")\n" +
         "export let a: String = classify(3)\n",
@@ -522,11 +522,11 @@ describe("Pattern Matching §6.1's refusal, reduced and re-worded", () => {
   test("a declared type variable keeps the constraint-operations advice where a pattern tests, and names itself", () => {
     // Determined, and abstract by declaration: a pattern that tests reads a
     // representation `a` does not have. Patterns that test nothing read none.
-    expect(projectDiagnostics("module Main\n\n" + "export let describe<a: Show>(value: a): String = match value\n" +
+    expect(projectDiagnostics("module Main\n\n" + "export let describe<a: Show>(value: a): String = match value with\n" +
         "    v when show(v) == \"\" => \"(empty)\"\n" +
         "    v => show(v)\n",
     )).toEqual([]);
-    expect(projectDiagnostics("module Main\n\n" + "export let describe<a: Show>(value: a): String = match value\n" +
+    expect(projectDiagnostics("module Main\n\n" + "export let describe<a: Show>(value: a): String = match value with\n" +
         "    Less => \"less\"\n" +
         "    _ => \"x\"\n",
     )).toEqual([

@@ -70,7 +70,7 @@ describe("pattern declarations (#834)", () => {
         "    view(colour) = (colour.red, colour.green, colour.blue)\n" +
         "    build(red, green, blue) = Colour({red = red, green = green, blue = blue})\n" +
         "export fun name(colour: Colour): String =\n" +
-        "    match colour\n" +
+        "    match colour with\n" +
         "        (0.0, _, _)rgb => \"zero\"\n" +
         "        _ => \"other\"\n" +
         "export let negativeZero: String = name((-0.0, 1.0, 1.0)rgb)\n",
@@ -212,7 +212,7 @@ describe("pattern declarations (#834)", () => {
         "    view(value) = value.inner\n" +
         "    build(inner) = Outer({inner = inner})\n" +
         "export fun classify(value: Outer): String =\n" +
-        "    match value\n" +
+        "    match value with\n" +
         "        ((0)inner)outer => \"zero\"\n" +
         "        ((1)inner)outer => \"one\"\n" +
         "        (_)outer => \"other\"\n" +
@@ -357,7 +357,7 @@ describe("declared-view signatures in coverage (§4)", () => {
     expect(messages(
       views +
         "export fun classify(shape: Shape): String =\n" +
-        "    match shape\n" +
+        "    match shape with\n" +
         "        (0)second => \"zero\"\n" +
         "        (_)first => \"other\"\n",
     )).toEqual([]);
@@ -367,7 +367,7 @@ describe("declared-view signatures in coverage (§4)", () => {
     expect(messages(
       views +
         "fun classify(shape: Shape): String =\n" +
-        "    match shape\n" +
+        "    match shape with\n" +
         "        (_)first => \"all\"\n" +
         "        (_)second => \"never\"\n",
     )).toEqual(["this match arm is unreachable; an earlier pattern matches everything"]);
@@ -380,7 +380,7 @@ describe("declared-view signatures in coverage (§4)", () => {
         "    view(value) = 0\n" +
         "    build(value) = if value == 0 then Light else Dark\n" +
         "fun classify(value: Shade): String =\n" +
-        "    match value\n" +
+        "    match value with\n" +
         "        Light => \"light\"\n" +
         "        Dark => \"dark\"\n" +
         "        (_)shade => \"never\"\n",
@@ -393,7 +393,7 @@ describe("declared-view signatures in coverage (§4)", () => {
       "import Views\n" +
       "pattern chosen = Views.first\n" +
       "fun classify(shape: Views.Shape): String =\n" +
-      "    match shape\n" +
+      "    match shape with\n" +
       "        (0)first => \"zero\"\n" +
       "        (0)chosen => \"never\"\n" +
       "        (_)first => \"other\"\n";
@@ -421,10 +421,10 @@ describe("pattern declaration boundary and home regressions", () => {
 
   test("glued contextual words receive their spacing diagnostics", () => {
     expect(messages(
-      "let first = match (1, 2)\n" +
+      "let first = match (1, 2) with\n" +
         "    (1, 2)when => 1\n" +
         "    _ => 0\n" +
-        "let second = match (1 : Int)\n" +
+        "let second = match (1 : Int) with\n" +
         "    (x)as => x\n",
     )).toEqual([
       "a guard's `when` stands off the parenthesis; write `(…) when condition`",
@@ -529,7 +529,7 @@ describe("pattern declaration boundary and home regressions", () => {
       "export pattern ticketFlagged(flag: Bool): Ticket\n    view(ticket) = ticket.flag\n";
     const generic = "module Generic\n\nexport pattern flagged<a>(flag: Bool): a\n    view(value) = False\n";
     const mid = "module Mid\n\nimport Ticket\nexport let make(): Ticket.Ticket = Ticket.Ticket({flag = True})\n";
-    const source = "module Main\n\nimport Generic\nimport Mid\nlet answer = match Mid.make()\n" +
+    const source = "module Main\n\nimport Generic\nimport Mid\nlet answer = match Mid.make() with\n" +
       "    (True)flagged => 1\n    (False)flagged => 0\n";
     const files = [["/ticket.hex", ticket], ["/generic.hex", generic], ["/mid.hex", mid]] as const;
     const project = compileFiles([...files, ["/main.hex", source]]);
@@ -636,7 +636,7 @@ describe("pattern declaration boundary and home regressions", () => {
     const generic = "module Generic\n\nexport pattern flagged<a>(flag: Bool): a\n    view(value) = False\n";
     const project = compileFiles([
       ["/ticket.hex", ticket], ["/generic.hex", generic],
-      ["/main.hex", "module Main\n\nimport Generic\nimport Ticket\nfun inspect(value: Option(Ticket.Ticket)): Int = match value\n" +
+      ["/main.hex", "module Main\n\nimport Generic\nimport Ticket\nfun inspect(value: Option(Ticket.Ticket)): Int = match value with\n" +
         "    Some((True)flagged) => 1\n    Some((False)flagged) => 0\n    None => 0\n"],
     ]);
     const reports = project.diagnostics.filter(({ message }) => message.includes("exported by `Generic` and `Ticket`"));
@@ -649,7 +649,7 @@ describe("a vector's view positions are its slots as read (§5, #1472)", () => {
   const neg = "pattern neg(n: Int): Int\n    view(v) = 0 - v\n    build(n) = 0 - n\n";
   const len = "pattern len(n: Int): Vector(Int)\n    view(v: Vector(Int)) = Vector.length(v)\n";
   const arms = (first: string, second: string): string =>
-    "fun f(v: Vector(Int)): Int =\n    match v\n" +
+    "fun f(v: Vector(Int)): Int =\n    match v with\n" +
     `        ${first} when x > 100 => 1\n        ${second} => x\n        _ => 99\n` +
     "export let out: Int = f([1, 2, 3])\n";
 
@@ -669,7 +669,7 @@ describe("a vector's view positions are its slots as read (§5, #1472)", () => {
     ["end slots", neg, "([..., (x)neg], _)", "(_, [..., (x)neg])", -5],
     ["windows", len, "([...(x)len], _)", "(_, [...(x)len])", 2],
   ])("%s in two components of a tuple", async (_shape, declaration, first, second, out) => {
-    const source = "fun f(p: (Vector(Int), Vector(Int))): Int =\n    match p\n" +
+    const source = "fun f(p: (Vector(Int), Vector(Int))): Int =\n    match p with\n" +
       `        ${first} when x > 100 => 1\n        ${second} => x\n        _ => 99\n` +
       "export let out: Int = f(([1, 2, 3], [4, 5]))\n";
     expect(await runMain(main(declaration + source))).toMatchObject({ out });

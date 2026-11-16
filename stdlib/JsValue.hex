@@ -112,7 +112,7 @@ extern from "hex:intrinsic"
 {-- `value` as a `Float`. A value that is not a JavaScript number throws
     `JsConversionError` with reason `Shape`. Every number succeeds — `NaN`, both
     infinities and `-0` included — because every one of them is a `Float`. -}
-export let toFloat(value: JsValue): Float = match kind(value)
+export let toFloat(value: JsValue): Float = match kind(value) with
     JsKind.Number => asFloatUnchecked(value)
     _ => throw^(shapeFailure("a Float"))
 
@@ -121,7 +121,7 @@ export let toFloat(value: JsValue): Float = match kind(value)
     carry different reasons: a value that is not a number at all fails with
     `Shape`, and a number outside the safe-integer range — `1.5`, `2^53`, `NaN`
     — fails with `Range`. Nothing is rounded, truncated or parsed. -}
-export let toInt(value: JsValue): Int = match kind(value)
+export let toInt(value: JsValue): Int = match kind(value) with
     JsKind.Number =>
         if isSafeInteger(value) then
             asIntUnchecked(value)
@@ -132,21 +132,21 @@ export let toInt(value: JsValue): Int = match kind(value)
 {-- `value` as a `BigInt`. A value that is not a JavaScript bigint throws
     `JsConversionError` with reason `Shape`; a number is not a bigint here,
     however whole it is. -}
-export let toBigInt(value: JsValue): BigInt = match kind(value)
+export let toBigInt(value: JsValue): BigInt = match kind(value) with
     JsKind.BigInt => asBigIntUnchecked(value)
     _ => throw^(shapeFailure("a BigInt"))
 
 {-- `value` as a `Bool`. A value that is not a JavaScript boolean throws
     `JsConversionError` with reason `Shape`; `1` is not `true`: truthiness is a
     foreign-side decision, made in foreign code. -}
-export let toBool(value: JsValue): Bool = match kind(value)
+export let toBool(value: JsValue): Bool = match kind(value) with
     JsKind.Bool => asBoolUnchecked(value)
     _ => throw^(shapeFailure("a Bool"))
 
 {-- `value` as a `String`. A value that is not a JavaScript string throws
     `JsConversionError` with reason `Shape`; `42` is not `"42"`: nothing here
     calls `String()`, and no `toString` of the value's is ever invoked. -}
-export let toString(value: JsValue): String = match kind(value)
+export let toString(value: JsValue): String = match kind(value) with
     JsKind.String => asStringUnchecked(value)
     _ => throw^(shapeFailure("a String"))
 

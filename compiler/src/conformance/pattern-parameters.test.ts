@@ -192,7 +192,7 @@ describe("guard termination", () => {
   test("§3 a bare boolean guard leaves the arm its arrow", async () => {
     const m = await run(
       `${union}fun f(b: Box, flag: Bool): Int =\n` +
-        "    match b\n" +
+        "    match b with\n" +
         "        Wrap(x) when flag => x\n" +
         rest +
         "export let taken: Int = f(Wrap(5), True)\n" +
@@ -205,7 +205,7 @@ describe("guard termination", () => {
     const m = await run(
       `${union}fun apply(g: (Int) -> Bool, n: Int): Bool = g(n)\n` +
         "fun f(b: Box): Int =\n" +
-        "    match b\n" +
+        "    match b with\n" +
         "        Wrap(x) when apply(y => y > 0, x) => x\n" +
         rest +
         "export let positive: Int = f(Wrap(5))\n" +
@@ -217,7 +217,7 @@ describe("guard termination", () => {
   test("§3 an arm body may still be a lambda", async () => {
     const m = await run(
       `${union}fun f(b: Box): Int =\n` +
-        "    match b\n" +
+        "    match b with\n" +
         "        Wrap(x) => (y => y + x)(1)\n" +
         "        Empty => 0\n" +
         "export let out: Int = f(Wrap(5))\n",

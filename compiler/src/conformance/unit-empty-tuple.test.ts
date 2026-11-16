@@ -71,7 +71,7 @@ describe("the tuple machinery answers at arity 0 (#159 §2)", () => {
   test("a `match` on `Unit` with a `()` arm is exhaustive with no `_`", () => {
     expect(
       projectDiagnostics("module Main\n\n" + "export fun tag(u: Unit): Int =\n" +
-          "    match u\n" +
+          "    match u with\n" +
           "        () => 1\n",
       ),
     ).toEqual([]);

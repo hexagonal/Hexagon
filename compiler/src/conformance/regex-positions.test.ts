@@ -30,15 +30,15 @@ let bs: Regex.Regex = regexOf("b+")
 let xs: Regex.Regex = regexOf("x*")
 let boundedBs: Regex.Regex = regexOf("\\\\bb+")
 
-export let runFrom(text: String, start: Int): (Int, Int, String) = match Regex.findFrom(bs, text, start)
+export let runFrom(text: String, start: Int): (Int, Int, String) = match Regex.findFrom(bs, text, start) with
     Some(found) => (found.start(), found.length(), found.text())
     None => (0, 0, "")
 
-export let boundedFrom(text: String, start: Int): (Int, Int) = match Regex.findFrom(boundedBs, text, start)
+export let boundedFrom(text: String, start: Int): (Int, Int) = match Regex.findFrom(boundedBs, text, start) with
     Some(found) => (found.start(), found.length())
     None => (0, 0)
 
-export let emptyFrom(text: String, start: Int): (Int, Int) = match Regex.findFrom(xs, text, start)
+export let emptyFrom(text: String, start: Int): (Int, Int) = match Regex.findFrom(xs, text, start) with
     Some(found) => (found.start(), found.length())
     None => (0, 0)
 
@@ -48,7 +48,7 @@ export let emptyPieces(text: String): Vector(String) = Regex.split(xs, text)
 
 export let allCount(text: String): Int =
     var total = 0
-    for _ in Regex.findAll(xs, text)
+    for _ in Regex.findAll(xs, text) do
         total := total + 1
     total
 
@@ -59,8 +59,8 @@ export let count(text: String): Int =
     var position = 1
     var total = 0
     var going = True
-    while going
-        match Regex.findFrom(digit, text, position)
+    while going do
+        match Regex.findFrom(digit, text, position) with
             Some(found) =>
                 total := total + 1
                 position := found.start() + found.length()
@@ -71,8 +71,8 @@ export let pastEnd(text: String, times: Int): Int =
     let digit = regexOf("[0-9]")
     let start = String.length(text) + 2
     var misses = 0
-    for _ in 1..times
-        match Regex.findFrom(digit, text, start)
+    for _ in 1..times do
+        match Regex.findFrom(digit, text, start) with
             Some(_) => ()
             None => misses := misses + 1
     misses

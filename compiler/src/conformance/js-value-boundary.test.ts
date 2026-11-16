@@ -86,7 +86,7 @@ describe("the type (§2)", () => {
       .toEqual(["type `JsValue` has no `Eq` instance"]);
     expect(projectDiagnostics("module Main\n\n" + "export let count(v: JsValue): Int =\n" +
         "    var n = 0\n" +
-        "    for x in v\n" +
+        "    for x in v do\n" +
         "        n = n + 1\n" +
         "    n\n",
     )[0]).toBe("type `JsValue` has no `Iterable` instance");

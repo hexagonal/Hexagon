@@ -133,7 +133,7 @@ export let go(): Unit =
     run(noop)
 `)).toEqual([]);
     expect(reports(`export let runOne(o: Option(() ->! Unit)): Unit =
-    match o
+    match o with
         Some(f) => f!()
         None => ()
 export let go(): Unit =
@@ -181,7 +181,7 @@ export let outer(action: () ->! Unit, box: Box): Unit = apply2!(action, box.step
 
   test("a pattern variable over a written pure function fits", () => {
     expect(reports(`export let outer(action: () ->! Unit, o: Option(() -> Unit)): Unit =
-    match o
+    match o with
         Some(f) => apply2!(action, f)
         None => ()
 `)).toEqual([]);
@@ -274,8 +274,8 @@ describe("only a colour the program's text decides is re-opened (R.b)", () => {
       ["let (a, b) = p", "tieTwo(action, a)", "let w: (() -> Unit, Int) = p"],
     );
     refusedBothWays(
-      ["let w: Option(() -> Unit) = p", "match p\n            Some(f) => tieTwo(action, f)\n            None => ()"],
-      ["match p\n            Some(f) => tieTwo(action, f)\n            None => ()", "let w: Option(() -> Unit) = p"],
+      ["let w: Option(() -> Unit) = p", "match p with\n            Some(f) => tieTwo(action, f)\n            None => ()"],
+      ["match p with\n            Some(f) => tieTwo(action, f)\n            None => ()", "let w: Option(() -> Unit) = p"],
     );
   });
 
@@ -416,7 +416,7 @@ describe("what the program's text decides, in any line order (R.b)", () => {
     for (const [make, use] of [
       ["let get = () => cb", "tieTwo(action, get())"],
       ["let r = { f = cb }", "tieTwo(action, r.f)"],
-      ["let t = Some(cb)", "match t\n            Some(f) => tieTwo(action, f)\n            None => ()"],
+      ["let t = Some(cb)", "match t with\n            Some(f) => tieTwo(action, f)\n            None => ()"],
       ["let t = (cb, 1)", "let (a, b) = t\n        tieTwo(action, a)"],
     ] as const) {
       const answer = verdict([
@@ -442,7 +442,7 @@ describe("what the program's text decides, in any line order (R.b)", () => {
     const prefix = "opaque record Box(a) = { value: a }\n" +
       "let mkBox(): Box(Option(a)) = Box({ value = None })\n" +
       "let unbox(b: Box(a)): a = b.value\n";
-    const use = ["match unbox(m)", "    Some(f) => tieTwo(action, f)", "    None => ()"];
+    const use = ["match unbox(m) with", "    Some(f) => tieTwo(action, f)", "    None => ()"];
     const fill = "let ok: Box(Option(() -> Unit)) = m";
     for (const made of ["let m = mkBox()", "let (m, n) = (mkBox(), 1)"]) {
       const answer = verdict([[made, fill, ...use], [made, ...use, fill]], prefix);
@@ -452,7 +452,7 @@ describe("what the program's text decides, in any line order (R.b)", () => {
 
   test("a covariant empty collection generalizes, so its uses do not meet, in either order", () => {
     // `JsMap(+k, +v)` (Verdict Table row 14): `m` serves each use at its own type.
-    const use = ["match JsMap.get(m, 1)", "    Some(f) => tieTwo(action, f)", "    None => ()"];
+    const use = ["match JsMap.get(m, 1) with", "    Some(f) => tieTwo(action, f)", "    None => ()"];
     const fill = "let ok: JsMap(Int, () -> Unit) = m";
     for (const made of ["let m = JsMap.fromSeq(Seq.empty)", "let (m, n) = (JsMap.fromSeq(Seq.empty), 1)"]) {
       const answer = verdict([[made, fill, ...use], [made, ...use, fill]]);
@@ -461,7 +461,7 @@ describe("what the program's text decides, in any line order (R.b)", () => {
   });
 
   test("a `match` over an unsettled scrutinee makes every arm's variables inferred, whatever the arms' order", () => {
-    const scrutinee = "match JsMap.get(JsMap.fromSeq(Seq.empty), 1)";
+    const scrutinee = "match JsMap.get(JsMap.fromSeq(Seq.empty), 1) with";
     const answer = verdict([
       [scrutinee, "    Some(f) when True => pureOnly(f)", "    Some(g) => tieTwo(action, g)", "    None => ()"],
       [scrutinee, "    Some(g) when True => tieTwo(action, g)", "    Some(f) => pureOnly(f)", "    None => ()"],
@@ -535,16 +535,16 @@ describe("knots, and the value a `match` or a `for` reads (R.b, review round 4)"
     const outer = (lines: readonly string[]): string =>
       "export let outer(action: () ->! Unit): Unit =\n" + lines.map((line) => `    ${line}\n`).join("") + "    ()\n";
     const pinned = ["        pureOnly(f)", "        tieTwo(action, f)"];
-    expect(reports(outer(["let t = Some(noop)", "match t", "    Some(f) =>", ...pinned, "    None => ()"]))).toEqual([]);
-    expect(reports(outer(["match Some(noop)", "    Some(f) => tieTwo(action, f)", "    None => ()"]))).toEqual([]);
+    expect(reports(outer(["let t = Some(noop)", "match t with", "    Some(f) =>", ...pinned, "    None => ()"]))).toEqual([]);
+    expect(reports(outer(["match Some(noop) with", "    Some(f) => tieTwo(action, f)", "    None => ()"]))).toEqual([]);
     // Its colour is a slack still open, so its variable is inferred (#1170):
     // refused in either order of the arm's lines.
     const reversed = [pinned[1]!, pinned[0]!];
     for (const lines of [
-      ["match Some(noop)", "    Some(f) =>", ...pinned, "    None => ()"],
-      ["match Some(noop)", "    Some(f) =>", ...reversed, "    None => ()"],
-      ["for f in [noop]", ...pinned.map((line) => line.slice(4))],
-      ["for f in [noop]", ...reversed.map((line) => line.slice(4))],
+      ["match Some(noop) with", "    Some(f) =>", ...pinned, "    None => ()"],
+      ["match Some(noop) with", "    Some(f) =>", ...reversed, "    None => ()"],
+      ["for f in [noop] do", ...pinned.map((line) => line.slice(4))],
+      ["for f in [noop] do", ...reversed.map((line) => line.slice(4))],
     ]) {
       expect([lines, reports(outer(lines)).map(([, message]) => message)]).toEqual([lines, [SOLVED_PURE]]);
     }
@@ -557,12 +557,12 @@ describe("knots, and the value a `match` or a `for` reads (R.b, review round 4)"
       "    export fun impure1(f: () ->! Unit) ->! Unit\n" +
       "export let call1(f: () ->! Unit): Unit = f!()\n" +
       "export let usePure(m: JsMap(Int, (() -> Unit) -> Unit)): Unit =\n" +
-      "    match JsMap.get(m, 1)\n        Some(h) => h(() => ())\n        None => ()\n";
+      "    match JsMap.get(m, 1) with\n        Some(h) => h(() => ())\n        None => ()\n";
     const use = ["let g = m", "setFn!(g, 1, impure1)", "usePure(g)"];
     for (const source of [
-      "export let bad(): Unit =\n    for m in [JsMap.fromSeq(Seq.singleton((1, call1)))]\n" +
+      "export let bad(): Unit =\n    for m in [JsMap.fromSeq(Seq.singleton((1, call1)))] do\n" +
         use.map((line) => `        ${line}\n`).join(""),
-      "export let bad(): Unit =\n    match (JsMap.fromSeq(Seq.singleton((1, call1))), 0)\n        (m, _) =>\n" +
+      "export let bad(): Unit =\n    match (JsMap.fromSeq(Seq.singleton((1, call1))), 0) with\n        (m, _) =>\n" +
         use.map((line) => `            ${line}\n`).join(""),
     ]) {
       expect(reports(world + source).map(([, message]) => message)).toContain(PURITY);
@@ -577,22 +577,22 @@ describe("knots, and the value a `match` or a `for` reads (R.b, review round 4)"
       [
         "let g = m",
         'setStr!(g, 1, "x")',
-        "match JsMap.get(g, 1)",
+        "match JsMap.get(g, 1) with",
         "    Some(n) => out := n + 1",
         "    None => ()",
       ].map((line) => `${indent}${line}\n`).join("");
-    const viaFor = setStr + "let bad(): Int =\n    var out = 0\n    for m in [JsMap.fromSeq(Seq.empty)]\n" +
+    const viaFor = setStr + "let bad(): Int =\n    var out = 0\n    for m in [JsMap.fromSeq(Seq.empty)] do\n" +
       readBack("        ") + "    out\n";
     const viaMatch = setStr + "let bad(): Int =\n    var out = 0\n" + [
-      "match Some(JsMap.fromSeq(Seq.empty))",
+      "match Some(JsMap.fromSeq(Seq.empty)) with",
       "    o =>",
       "        let g = o",
-      "        match g",
+      "        match g with",
       '            Some(w) => setStr!(w, 1, "x")',
       "            None => ()",
-      "        match g",
+      "        match g with",
       "            Some(r) =>",
-      "                match JsMap.get(r, 1)",
+      "                match JsMap.get(r, 1) with",
       "                    Some(n) => out := n + 1",
       "                    None => ()",
       "            None => ()",
@@ -611,13 +611,13 @@ describe("knots, and the value a `match` or a `for` reads (R.b, review round 4)"
     // another one.
     const nat = "let useNat(v: Nat): Nat = v\nexport let total(): Nat =\n    var sum: Nat = 0\n";
     const viaLoop = (source: string): string =>
-      nat + `    for i in ${source}\n        let j = i\n        sum := sum + useNat(j)\n    sum\n`;
+      nat + `    for i in ${source} do\n        let j = i\n        sum := sum + useNat(j)\n    sum\n`;
     expect(reports(viaLoop("[1, 2, 3]")).map(([, message]) => message)).toEqual([
       "type mismatch: expected Nat, found Int",
     ]);
     expect(reports(viaLoop("([1, 2, 3]: Vector(Nat))"))).toEqual([]);
     const viaArm = (source: string): string =>
-      nat + `    match ${source}\n        p =>\n            let q = p\n            match q\n` +
+      nat + `    match ${source} with\n        p =>\n            let q = p\n            match q with\n` +
       "                (a, b) => sum := sum + useNat(a)\n    sum\n";
     expect(reports(viaArm("(1, 2)")).map(([, message]) => message)).toEqual(["type mismatch: expected Nat, found Int"]);
     expect(reports(viaArm("((1, 2): (Nat, Nat))"))).toEqual([]);
@@ -648,7 +648,7 @@ describe("every pin and every route from an untyped parameter, in every line ord
     thunk: [["let get = () => cb"], ["tieTwo(action, get())"]],
     function: [["let m = (x: Int) => cb"], ["tieTwo(action, m(1))"]],
     record: [["let r = { f = cb }"], ["tieTwo(action, r.f)"]],
-    option: [["let t = Some(cb)"], ["match t", "    Some(f) => tieTwo(action, f)", "    None => ()"]],
+    option: [["let t = Some(cb)"], ["match t with", "    Some(f) => tieTwo(action, f)", "    None => ()"]],
     tuple: [["let t = (cb, 1)"], ["let (a, b) = t", "tieTwo(action, a)"]],
     generic: [["let g = pickUp(cb)"], ["tieTwo(action, g)"]],
     join: [["let g = if True then cb else noop"], ["tieTwo(action, g)"]],
@@ -720,7 +720,7 @@ describe("a colour left open where the binding is made (#1170)", () => {
     pattern: (uses) => ["let (r, _) = make()", ...uses],
     field: (uses) => ["let m = makeRecord()", "let r = m.run", ...uses],
     "field read": (uses) => ["let m = makeRecord()", ...uses.map((use) => use.replaceAll(/\br\b/gu, "(m.run)"))],
-    match: (uses) => ["match makeOption()", "    None => ()", "    Some(r) =>", ...uses.map((use) => `        ${use}`), "        ()"],
+    match: (uses) => ["match makeOption() with", "    None => ()", "    Some(r) =>", ...uses.map((use) => `        ${use}`), "        ()"],
   };
   const program = (lines: readonly string[]): string =>
     prefix + "export let use(): Unit =\n" + lines.map((line) => `    ${line}\n`).join("") + "    ()\n";
@@ -998,7 +998,7 @@ describe("every arrow a use receives (Swift's rule, #1169)", () => {
     for (const first of uses) {
       for (const second of uses) {
         if (first === second) continue;
-        const source = make + "export let go(): Unit =\n    match make()\n        (r, g) =>\n" +
+        const source = make + "export let go(): Unit =\n    match make() with\n        (r, g) =>\n" +
           `            ${first}\n            ${second}\n            ()\n    ()\n`;
         expect([first, second, reports(source)]).toEqual([first, second, []]);
       }
@@ -1007,7 +1007,7 @@ describe("every arrow a use receives (Swift's rule, #1169)", () => {
 
   test("so is a value a `for` reads in place: the loop variable is re-opened at its own uses, in either order", () => {
     const makers = "let mkV() = [() => ()]\nlet mkP() = [(() => (), 1)]\n";
-    for (const head of ["for f in mkV()", "for (f, _) in mkP()"]) {
+    for (const head of ["for f in mkV() do", "for (f, _) in mkP() do"]) {
       for (const lines of [["let h: () ->! Unit = f", "pureOnly(f)"], ["pureOnly(f)", "let h: () ->! Unit = f"]]) {
         const source = makers + `export let go(): Unit =\n    ${head}\n` +
           lines.map((line) => `        ${line}\n`).join("") + "        ()\n";
@@ -1026,8 +1026,8 @@ describe("a value read in place leaves a colour the environment holds to the bin
   ];
   const forms = [
     (value: string, pattern: string) => `    let ${pattern} = ${value}\n`,
-    (value: string, pattern: string) => `    match ${value}\n        ${pattern} => ()\n`,
-    (value: string, pattern: string) => `    for ${pattern} in [${value}]\n        ()\n`,
+    (value: string, pattern: string) => `    match ${value} with\n        ${pattern} => ()\n`,
+    (value: string, pattern: string) => `    for ${pattern} in [${value}] do\n        ()\n`,
   ];
 
   test("a `match` or a `for` read before the line that solves the colour reads as one after it, and as a `let`", () => {
@@ -1046,7 +1046,7 @@ describe("a value read in place leaves a colour the environment holds to the bin
   });
 
   test("the form generalizes nothing: what the value leaves open is one type for every use in the body", () => {
-    for (const head of ["match ident([])\n        xs =>", "for xs in [ident([])]"]) {
+    for (const head of ["match ident([]) with\n        xs =>", "for xs in [ident([])] do"]) {
       const indent = head.startsWith("match") ? "            " : "        ";
       const source = "let ident(x: a): a = x\nexport let go(): Unit =\n    " + head + "\n" +
         ["let ys = xs", "let a: Vector(Int) = ys", "let b: Vector(String) = ys", "()"].map((line) => indent + line + "\n").join("") +
@@ -1061,7 +1061,7 @@ describe("a value read in place leaves a colour the environment holds to the bin
       "let mk(cb: () ->! Unit): Sink((() ->! Unit) >-> Unit) = Sink({ put = (h) => h!(cb) })\n";
     const uses = ["s.put!((f) => f!())", "s.put!((f) => save0!())"];
     for (const order of [uses, [...uses].reverse()]) {
-      const source = sink + "export let user(): Unit =\n    match mk(() => ())\n        s =>\n" +
+      const source = sink + "export let user(): Unit =\n    match mk(() => ()) with\n        s =>\n" +
         order.map((use) => `            ${use}\n`).join("") + "            ()\n    ()\n";
       expect([order, reports(source)]).toEqual([order, []]);
     }
@@ -1069,7 +1069,7 @@ describe("a value read in place leaves a colour the environment holds to the bin
 
   test("so does a call in the read that a pattern's part runs, in either order", () => {
     for (const [value, pattern, tie] of reads) {
-      const read = `    match ${value}\n        ${pattern} =>\n            r!()\n            ()\n`;
+      const read = `    match ${value} with\n        ${pattern} =>\n            r!()\n            ()\n`;
       const verdicts = [[read, `    ${tie}\n`], [`    ${tie}\n`, read]].map((lines) =>
         reports(makers + "let f(p) =\n" + lines.join("") + "    ()\n")
       );
@@ -1133,11 +1133,11 @@ describe("beneath its own arrow, only what the text decides is re-opened (#1169 
   test("a value built where a `match` or a `for` reads it is taken apart as a `let`'s would be", () => {
     const make = "let make() =\n    let run = ident((f) => f!())\n    run!(() => ())\n    (run, () => ())\n";
     const heads: [string, string, string][] = [
-      ["    match Some(make())\n        Some((r, g)) =>\n", "            ", "        None => ()\n"],
-      ["    match ident(make())\n        (r, g) =>\n", "            ", ""],
-      ["    match { p = make() }\n        { p = (r, g) } =>\n", "            ", ""],
-      ["    match [make()]\n        [(r, g)] =>\n", "            ", "        _ => ()\n"],
-      ["    for (r, g) in [make()]\n", "        ", ""],
+      ["    match Some(make()) with\n        Some((r, g)) =>\n", "            ", "        None => ()\n"],
+      ["    match ident(make()) with\n        (r, g) =>\n", "            ", ""],
+      ["    match { p = make() } with\n        { p = (r, g) } =>\n", "            ", ""],
+      ["    match [make()] with\n        [(r, g)] =>\n", "            ", "        _ => ()\n"],
+      ["    for (r, g) in [make()] do\n", "        ", ""],
     ];
     const pairs = [["g()", "let h: () ->! Unit = g"], ["pureOnly(g)", "let h: () ->! Unit = g"],
       ["r(() => ())", "let k: (() -> Unit) ->! Unit = r"]];
@@ -1249,7 +1249,7 @@ describe("a function in the data a signature returns is a signature of its own (
       ["", "((f) => f!(), 1)", ["let (r, _) = make()", "r(() => ())", "r!(save0)"]],
       ["", "((f) => f!(), (g) => g!())", ["let (r, s) = make()", "r(() => ())", "s!(save0)"]],
       ["", "{run = (f) => f!(), n = 1}", ["let h = make()", "h.run(() => ())", "h.run!(save0)"]],
-      ["", "Some((f) => f!())", ["match make()", "    Some(r) => r!(save0)", "    None => ()"]],
+      ["", "Some((f) => f!())", ["match make() with", "    Some(r) => r!(save0)", "    None => ()"]],
       ["cb: () ->! Unit", "(() => cb!(), (g) => g!())", ["let (q, r) = make(() => ())", "q()", "r(() => ())"]],
       ["cb: () ->! Unit", "((g: () ->! Unit) => cb!(), 1)", ["let (r, _) = make(save0)", "r!(() => ())"]],
       ["", "\n    let k = (f) => (g) =>\n        f!()\n        g!()\n    (k, 1)", ["let (k, _) = make()", "k(() => ())(() => ())"]],
@@ -1497,7 +1497,7 @@ describe("a function in the data a signature returns is a signature of its own (
       ["Box((() ->! Unit) >-> Unit)", "Box({value = (g) => (if True then g else cb)!()})", "let r = make(() => ()).value"],
       // A slot's own arguments are read with the declaration's: `W`'s `a` in `Option(a)`.
       ["W((() ->! Unit) >-> Unit)", "W(Some((g) => (if True then g else cb)!()))",
-        "let r = match make(() => ())\n        W(Some(f)) => f\n        W(None) => (f) => ()"],
+        "let r = match make(() => ()) with\n        W(Some(f)) => f\n        W(None) => (f) => ()"],
     ] as const) {
       const source = "record Box(a) = {value: a}\nunion W(a) = W(Option(a))\n" +
         `let make(cb: () ->! Unit): ${result} = ${value}\n` + user([take, "r!(save0)"]);
@@ -1578,10 +1578,10 @@ describe("where a use hands something, a `->!` the value's own written type spel
       (value: string, pattern: string, uses: string[]) =>
         `    let ${pattern} = ${value}\n` + uses.map((use) => `    ${use}\n`).join("") + "    ()\n",
       (value: string, pattern: string, uses: string[]) =>
-        `    match ${value}\n        ${pattern} =>\n` + uses.map((use) => `            ${use}\n`).join("") +
+        `    match ${value} with\n        ${pattern} =>\n` + uses.map((use) => `            ${use}\n`).join("") +
         "            ()\n    ()\n",
       (value: string, pattern: string, uses: string[]) =>
-        `    for ${pattern} in [${value}]\n` + uses.map((use) => `        ${use}\n`).join("") + "        ()\n    ()\n",
+        `    for ${pattern} in [${value}] do\n` + uses.map((use) => `        ${use}\n`).join("") + "        ()\n    ()\n",
     ];
     const seat = "let k: (() -> Unit) -> Unit = r";
     for (const [parameter, value, pattern] of reads) {
@@ -1597,11 +1597,11 @@ describe("where a use hands something, a `->!` the value's own written type spel
     for (const source of [
       "export let go(h: HolderV(Int)): Unit =\n    let { a = HolderV({ run = r, v = _ }), b = _ } = { a = h, b = 1 }\n" +
         "    let k: (() -> Unit) -> Unit = r\n    ()\n",
-      "export let go(o: Option(HolderV(Int))): Unit =\n    match o\n        Some(HolderV({ run = r, v = _ })) =>\n" +
+      "export let go(o: Option(HolderV(Int))): Unit =\n    match o with\n        Some(HolderV({ run = r, v = _ })) =>\n" +
         "            let k: (() -> Unit) -> Unit = r\n            ()\n        None => ()\n    ()\n",
       "export let go(h: HolderV(Int)): Unit =\n    let (HolderV({ run = r, v = _ }), n) = (h, 1)\n" +
         "    let k: (() -> Unit) -> Unit = r\n    ()\n",
-      "export let go(h: HolderV(Int)): Unit =\n    match [h]\n        [HolderV({ run = r, v = _ })] =>\n" +
+      "export let go(h: HolderV(Int)): Unit =\n    match [h] with\n        [HolderV({ run = r, v = _ })] =>\n" +
         "            let k: (() -> Unit) -> Unit = r\n            ()\n        _ => ()\n    ()\n",
     ]) {
       expect([source, reports(records + source)]).toEqual([source, []]);
@@ -1683,7 +1683,7 @@ describe("the text decides a lambda's written types, its parameters under a writ
     // A part a pattern takes out of it is decided too, through a `let` or a `match`.
     expect(reports(makers + "let use(p): Unit =\n    let (g, _) = mkPair(p)\n    let w: () ->! Unit = g\n    ()\n"))
       .toEqual([]);
-    expect(reports(makers + "let use(p): Unit =\n    match mkPair(p)\n        (g, _) =>\n" +
+    expect(reports(makers + "let use(p): Unit =\n    match mkPair(p) with\n        (g, _) =>\n" +
       "            let w: () ->! Unit = g\n            ()\n")).toEqual([]);
   });
 
@@ -1767,7 +1767,7 @@ describe("a written result type decides the arrows it spells, whatever the call 
   });
 
   test("a value a `match` reads in place is read as §3.4 says, whatever line settles its shape first", () => {
-    const arm = "match {0}\n        (g, _) =>\n            let w: () ->! Unit = g\n            ()";
+    const arm = "match {0} with\n        (g, _) =>\n            let w: () ->! Unit = g\n            ()";
     const routes: readonly (readonly [string, string])[] = [["", "mkVar(p)"], ["let v = mkVar(p)", "v"]];
     for (const [made, read] of routes) {
       const lines = ["let n: Int = p", arm.replace("{0}", read)];

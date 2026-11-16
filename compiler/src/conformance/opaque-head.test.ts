@@ -93,7 +93,7 @@ describe("the `opaque` head means what `export opaque` meant (§4.2)", () => {
         "module Handles\n\n" + "opaque union Handle = FileHandle(fd: Int) | NetHandle(sock: Int)\n" +
         "export fun openFile(fd: Int): Handle = FileHandle(fd)\n" +
         "export fun describe(h: Handle): Int =\n" +
-        "    match h\n" +
+        "    match h with\n" +
         "        FileHandle(fd) => fd\n" +
         "        NetHandle(sock) => sock\n"],
       ["/main.hex",

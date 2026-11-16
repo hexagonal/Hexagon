@@ -26,7 +26,7 @@ let selected2 =
 
 -- Open the complete JS view: Seq is an ordinary Hexagon record of a pull thunk,
 -- declared in stdlib/Seq.hex — the combinators above are plain Hexagon functions.
-for number in selected
+for number in selected do
     Debug.log("\${number}")
 `,
   specificationReferences: ["spec/loops-ranges-iteration.md"],

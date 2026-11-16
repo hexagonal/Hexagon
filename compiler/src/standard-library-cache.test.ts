@@ -588,7 +588,7 @@ describe("nothing downstream writes to the cached prefix", () => {
     [main(
       "export union Shape = Circle(radius: Float) | Square(side: Float)\n" +
       "export fun area(s: Shape): Float =\n" +
-      "    match s\n" +
+      "    match s with\n" +
       "        Circle(r) => r * r * 3.0\n" +
       "        Square(n) => n * n\n" +
       "export fun label<a: Show>(x: a): String = show(x)\n",

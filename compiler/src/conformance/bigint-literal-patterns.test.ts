@@ -10,7 +10,7 @@ describe("BigInt literal patterns (#898)", BUDGET, () => {
   test("the documented positive, negative, zero, and arbitrary-precision cases run exactly", async () => {
     const source = main(
       "export let describeBig(count: BigInt): String =\n" +
-        "    match count\n" +
+        "    match count with\n" +
         "        900719925474099312345678901234567890n => \"a large count\"\n" +
         "        -900719925474099312345678901234567890n => \"its negative\"\n" +
         "        0n => \"zero\"\n" +
@@ -40,7 +40,7 @@ describe("BigInt literal patterns (#898)", BUDGET, () => {
     for (const type of ["Int", "Nat", "Float"] as const) {
       expect(projectDiagnostics(main(
         `export let f(value: ${type}): String =\n` +
-          "    match value\n" +
+          "    match value with\n" +
           "        0n => \"zero\"\n" +
           "        _ => \"other\"\n",
       ))).toEqual([`type mismatch: expected ${type}, found BigInt`]);
@@ -50,7 +50,7 @@ describe("BigInt literal patterns (#898)", BUDGET, () => {
   test("coverage keys the BigInt value across suffixes, signs, and leading zeros", () => {
     expect(projectDiagnostics(main(
       "export let f(value: BigInt): String =\n" +
-        "    match value\n" +
+        "    match value with\n" +
         "        0 => \"bare\"\n" +
         "        0n => \"suffixed\"\n" +
         "        -0n => \"negative zero\"\n" +
@@ -63,13 +63,13 @@ describe("BigInt literal patterns (#898)", BUDGET, () => {
     const exports = await runMain(main(
       "export record Parcel = {code: BigInt}\n" +
         "exception Failed(code: BigInt)\n" +
-        "export let nested(value: Option(BigInt)): Bool = match value\n" +
+        "export let nested(value: Option(BigInt)): Bool = match value with\n" +
         "    Some(0n | 1n) => True\n" +
         "    _ => False\n" +
-        "export let named(value: BigInt): BigInt = match value\n" +
+        "export let named(value: BigInt): BigInt = match value with\n" +
         "    7n as whole => whole\n" +
         "    _ => 0n\n" +
-        "export let declared(value: Parcel): Bool = match value\n" +
+        "export let declared(value: Parcel): Bool = match value with\n" +
         "    Parcel({code = 9n}) => True\n" +
         "    _ => False\n" +
         "export let caught(): BigInt =\n" +
@@ -81,7 +81,7 @@ describe("BigInt literal patterns (#898)", BUDGET, () => {
         "export let b: BigInt = named(7n)\n" +
         "export let c: Bool = declared(Parcel({code = 9n}))\n" +
         "export let d: BigInt = caught()\n" +
-        "export let inferred: String = match Some(0n)\n" +
+        "export let inferred: String = match Some(0n) with\n" +
         "    Some(0n) => \"nested BigInt\"\n" +
         "    Some(_) => \"other\"\n" +
         "    None => \"none\"\n",
@@ -101,7 +101,7 @@ describe("BigInt literal patterns (#898)", BUDGET, () => {
 
   test("an oversized bare pattern offers `n` only at a resolved BigInt seat", () => {
     const atBigInt = compileMain(main(
-      "export let f(value: BigInt): String = match value\n" +
+      "export let f(value: BigInt): String = match value with\n" +
         "    9007199254740993 => \"large\"\n" +
         "    _ => \"other\"\n",
     )).diagnostics;
@@ -114,7 +114,7 @@ describe("BigInt literal patterns (#898)", BUDGET, () => {
     });
 
     const atInt = compileMain(main(
-      "export let f(value: Int): String = match value\n" +
+      "export let f(value: Int): String = match value with\n" +
         "    9007199254740993 => \"large\"\n" +
         "    _ => \"other\"\n",
     )).diagnostics;
@@ -124,7 +124,7 @@ describe("BigInt literal patterns (#898)", BUDGET, () => {
     expect(atInt[0]?.fixes).toBeUndefined();
 
     const negative = compileMain(main(
-      "export let f(value: BigInt): String = match value\n" +
+      "export let f(value: BigInt): String = match value with\n" +
         "    -9_007_199_254_740_993 => \"large\"\n" +
         "    _ => \"other\"\n",
     )).diagnostics;
@@ -149,7 +149,7 @@ describe("BigInt literal patterns (#898)", BUDGET, () => {
         "    Some(9007199254740993) => \"large\"\n",
     ] as const) {
       const diagnostics = compileMain(main(
-        "export let result: String = match None\n" + arms +
+        "export let result: String = match None with\n" + arms +
           "    Some(_) => \"other\"\n" +
           "    None => \"none\"\n",
       )).diagnostics;
@@ -161,7 +161,7 @@ describe("BigInt literal patterns (#898)", BUDGET, () => {
     }
 
     const unresolved = compileMain(main(
-      "export let result: String = match None\n" +
+      "export let result: String = match None with\n" +
         "    Some(9007199254740993) => \"large\"\n" +
         "    None => \"none\"\n",
     )).diagnostics;

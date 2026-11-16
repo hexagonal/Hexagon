@@ -187,7 +187,7 @@ describe("the seats an object literal needs handling at", () => {
       "    | Point\n" +
       "export record Holder = {shape: Shape}\n" +
       "fun scrutinizeOne(s: Shape): Float =\n" +
-      "    match s\n" +
+      "    match s with\n" +
       "        Circle(r) => r\n" +
       "        Point => 0.0\n" +
       "export fun body(): (Float) -> Shape = (r: Float): Shape => Circle(r)\n" +
@@ -195,7 +195,7 @@ describe("the seats an object literal needs handling at", () => {
       "    ignore(Circle(1.0))\n" +
       "    7\n" +
       "export fun scrutinee(): Float =\n" +
-      "    match Circle(3.0)\n" +
+      "    match Circle(3.0) with\n" +
       "        Circle(r) => r\n" +
       "        Point => 0.0\n" +
       "export fun argument(): Float = scrutinizeOne(Circle(4.0))\n" +
@@ -244,7 +244,7 @@ describe("the two demand sites, and nothing else", () => {
       "/main.hex",
       "module Main\n\n" + "union Shape = Circle(radius: Float) | Point\n" +
       "export fun area(): Float =\n" +
-      "    match Circle(2.0)\n" +
+      "    match Circle(2.0) with\n" +
       "        Circle(r) => r\n" +
       "        Point => 0.0\n",
     ]]);
@@ -262,7 +262,7 @@ describe("the two demand sites, and nothing else", () => {
       "export let mapped: Seq(Shape) = Seq.map(Seq.singleton(2.0), Circle)\n" +
       "export let direct: Shape = Circle(2.0)\n" +
       "export let agree: Bool =\n" +
-      "    match Seq.next(mapped)\n" +
+      "    match Seq.next(mapped) with\n" +
       "        Some((s, _)) => s == direct\n" +
       "        None => False\n";
     const javascript = emitted([["/main.hex", "module Main\n\n" + source]]);
@@ -325,7 +325,7 @@ describe("the two demand sites, and nothing else", () => {
       "/main.hex",
       "module Main\n\n" + "opaque union Shape = Circle(radius: Float) | Point\n" +
       "export fun radius(s: Shape): Float =\n" +
-      "    match s\n" +
+      "    match s with\n" +
       "        Circle(r) => r\n" +
       "        Point => 0.0\n" +
       "export let n: Float = radius(Circle(2.0))\n",
@@ -426,7 +426,7 @@ describe("a declaration that emits nothing shapes none of the page", () => {
       "\n" +
       "-- second block, about something else entirely\n" +
       "export fun area(): Float =\n" +
-      "    match Circle(2.0)\n" +
+      "    match Circle(2.0) with\n" +
       "        Circle(r) => r\n" +
       "        Rect(w, h) => w\n" +
       "export fun half(a: Int, b: Int): Int = a.div(b)\n",
@@ -452,7 +452,7 @@ describe("a declaration that emits nothing shapes none of the page", () => {
       "export let mid: Int = 2\n\n\n\n" +
       "export let after: Int = 3\n\n\n\n" +
       "export fun area(): Float =\n" +
-      "    match Circle(2.0)\n" +
+      "    match Circle(2.0) with\n" +
       "        Circle(r) => r\n" +
       "        Rect(w, h) => w\n",
     ]]);

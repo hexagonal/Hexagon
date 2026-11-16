@@ -38,7 +38,7 @@ describe("the table: every hard keyword in every name seat", () => {
     expect(main(
       `export let r: {${word}: Int} = {${word} = 1}\n` +
         `export let v: Int = r.${word}\n` +
-        `export let w: Int = match r\n    {${word} = x} => x\n` +
+        `export let w: Int = match r with\n    {${word} = x} => x\n` +
         `export let u: {${word}: Int} = {r with ${word} = 2}\n`,
     )).toEqual([]);
   });
@@ -112,7 +112,7 @@ describe("the seats, one construct at a time", () => {
     const pun = `\`${word}\` is reserved; write the field out: \`{${word} = …}\``;
     expect(main(`let r = {${word} = 1}\nexport let u: {${word}: Int} = {r with ${word}}\n`)).toEqual([pun]);
     expect(main(`export let r: {${word}: Int, x: Int} = {${word}, x = 1}\n`)).toEqual([pun]);
-    expect(main(`let r = {${word} = 1}\nexport let v: Int = match r\n    {${word}} => 1\n`)).toEqual([pun]);
+    expect(main(`let r = {${word} = 1}\nexport let v: Int = match r with\n    {${word}} => 1\n`)).toEqual([pun]);
   });
 
   test("a keyword in a type's braces is a missing annotation, as `{x}` is", () => {
@@ -183,7 +183,7 @@ describe("emission", () => {
     expect(module.declarations?.text).toContain("export declare function E(__for: number): E;");
     const { value } = await runProject([["/main.hex",
       "module Main\n\nunion U = C(delete: Int, in: Int)\n" +
-      "export let value: Int = match C(1, 2)\n    C(d, i) => d + i\n"]]);
+      "export let value: Int = match C(1, 2) with\n    C(d, i) => d + i\n"]]);
     expect(value).toBe(3);
   });
 

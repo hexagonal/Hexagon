@@ -31,7 +31,7 @@ let isShortOptions(option: String): Bool =
 -- (`-pe`).
 let ranCommandLineCode(options: Array(String)): Bool =
     var found = False
-    for option in options
+    for option in options do
         if option == "-e" or option == "--eval" or option == "-p" or option == "--print" then
             found := True
         else if option.startsWith("--eval=") or option.startsWith("--print=") then
@@ -47,7 +47,7 @@ export let arguments(): Vector(String) =
     let skipped = if ranCommandLineCode(execArgv~(process)) then 1 else 2
     var result: Vector(String) = []
     var position = 0
-    for argument in argv~(process)
+    for argument in argv~(process) do
         position := position + 1
         if position > skipped then result := result.append(argument)
     result

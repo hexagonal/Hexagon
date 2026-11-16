@@ -95,11 +95,11 @@ const PROGRAM = "-- The two spellings Modules section 5.5 leaves a prelude funct
   "-- `first` and `last` reach the trie's two ends, which is where a conversion\n" +
   "-- that built the spine backwards or off by one shows. `-1` stands for `None`,\n" +
   "-- so a test reads an `Int` rather than `Option`'s representation.\n" +
-  "export let firstOf(values: Vector(Int)): Int = match Vector.first(values)\n" +
+  "export let firstOf(values: Vector(Int)): Int = match Vector.first(values) with\n" +
   "    None => -1\n" +
   "    Some(value) => value\n" +
   "\n" +
-  "export let lastOf(values: Vector(Int)): Int = match Vector.last(values)\n" +
+  "export let lastOf(values: Vector(Int)): Int = match Vector.last(values) with\n" +
   "    None => -1\n" +
   "    Some(value) => value\n" +
   "\n" +
@@ -108,7 +108,7 @@ const PROGRAM = "-- The two spellings Modules section 5.5 leaves a prelude funct
   "export let weighted(values: Vector(Int)): Int =\n" +
   "    var total = 0\n" +
   "    var position = 1\n" +
-  "    for value in values\n" +
+  "    for value in values do\n" +
   "        total := total + position * value\n" +
   "        position := position + 1\n" +
   "    total\n" +
@@ -150,7 +150,7 @@ const PROGRAM = "-- The two spellings Modules section 5.5 leaves a prelude funct
   "-- an array.\n" +
   "export let built(count: Int): Vector(Int) =\n" +
   "    var values: Vector(Int) = []\n" +
-  "    for index in 1..count\n" +
+  "    for index in 1..count do\n" +
   "        values := Vector.append(values, index)\n" +
   "    values\n";
 
@@ -516,7 +516,7 @@ describe("what makes the Hexagon body possible (`stdlib-roadmap.md` §5.1)", () 
   test("a borrowed array can be walked in Hexagon source", () => {
     expect(projectDiagnostics("module Main\n\n" + "export let f(xs: Array(Int)): Int =\n" +
         "    var total = 0\n" +
-        "    for value in xs\n" +
+        "    for value in xs do\n" +
         "        total := total + value\n" +
         "    total\n",
     )).toEqual([]);

@@ -816,7 +816,7 @@ describe("code actions: infer return type", () => {
       // every one of these.
       'export fun m(x: Int) =\n    x\n) ++ "a"\n',
       "export fun m(x: Int, y: Int) =\n    x\n, y)\n",
-      "export fun m(x: Int) =\n    match x\n        _ => 1\n) ++ 2\n",
+      "export fun m(x: Int) =\n    match x with\n        _ => 1\n) ++ 2\n",
       "export fun m(x: Int) =\n    let y: Int = x + 1\n    y\n)\nexport fun g(): Int = 2\n",
       // The same event with nothing after it to make it look worse. Refusing
       // here is a decision, not an accident: no test on token positions can
@@ -861,7 +861,7 @@ describe("code actions: infer return type", () => {
       "export fun m(x: Int) =\n    let y: Int = x\n    y\nexport fun g(): Int = 2\n",
       "export fun m(x: Int) =\n    let y: Int =\n        let z: Int = x\n        z\n    y\n",
       "export fun m(x: Int) =\n    if x > 0 then\n        1\n    else\n        2\n",
-      "export fun m(x: Int) = match x\n    _ => 1\nexport fun g(): Int = 2\n",
+      "export fun m(x: Int) = match x with\n    _ => 1\nexport fun g(): Int = 2\n",
       "export fun m(x: Int) =\n    let y: Int = x\n    y",
     ].map((body) => "module Main\n\n" + body)) {
       const { session } = sessionOf({ "/main.hex": source });

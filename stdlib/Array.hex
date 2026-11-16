@@ -90,7 +90,7 @@ export let get(values: Array(a), index: Int): Option(a) =
     arrives as that same value. -}
 export let toVector(values: Array(a)): Vector(a) =
     var collected: Vector(a) = []
-    for value in values
+    for value in values do
         collected := collected.append(value)
     collected
 

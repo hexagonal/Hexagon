@@ -202,7 +202,7 @@ describe("Array's data seat", () => {
     ["the name", "export let n(xs: Array(Int)): Int = 1\n", []],
     [
       "a loop and a bracket",
-      "export let n(xs: Array(Int)): Int =\n    var t = xs[1]\n    for x in xs\n        t := t + x\n    t\n",
+      "export let n(xs: Array(Int)): Int =\n    var t = xs[1]\n    for x in xs do\n        t := t + x\n    t\n",
       [],
     ],
     [
@@ -292,9 +292,9 @@ describe("the companions honor Iterable in source", () => {
         "export let s(s: JsSet(Int)): Seq(Int) = JsSet.toSeq(s)\n" +
         "export let sum(xs: Array(Int), m: JsMap(String, Int), s: JsSet(Int)): Int =\n" +
         "    var t = 0\n" +
-        "    for x in xs\n        t := t + x\n" +
-        "    for (k, v) in m\n        t := t + v\n" +
-        "    for x in s\n        t := t + x\n" +
+        "    for x in xs do\n        t := t + x\n" +
+        "    for (k, v) in m do\n        t := t + v\n" +
+        "    for x in s do\n        t := t + x\n" +
         "    t\n",
     );
     expect(text).toContain('import { __Iterable_Array_toSeq } from "./Hex/Array.js";');

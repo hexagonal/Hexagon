@@ -124,22 +124,22 @@ describe("§2.9 where a type is written", () => {
   });
 
   test("a constructor's slot, a record field, a vector element and a declared component, each in its own parentheses", async () => {
-    expect(await run("let g(o) = match o\n    Some((n: Int)) => n\n    None => 0\nexport let out: Int = g(Some(4))\n"))
+    expect(await run("let g(o) = match o with\n    Some((n: Int)) => n\n    None => 0\nexport let out: Int = g(Some(4))\n"))
       .toMatchObject({ out: 4 });
-    expect(await run("let g(r) = match r\n    {total = (t: Float)} => t\nexport let out: Float = g({total = 2.5})\n"))
+    expect(await run("let g(r) = match r with\n    {total = (t: Float)} => t\nexport let out: Float = g({total = 2.5})\n"))
       .toMatchObject({ out: 2.5 });
-    expect(await run("let g(xs) = match xs\n    [(first: Int), ...rest] => first\n    _ => 0\nexport let out: Int = g([5, 6])\n"))
+    expect(await run("let g(xs) = match xs with\n    [(first: Int), ...rest] => first\n    _ => 0\nexport let out: Int = g([5, 6])\n"))
       .toMatchObject({ out: 5 });
-    expect(await run(USER_ID + "let f(k: UserId): Int = match k\n    ((n: Int))id => n\nexport let out: Int = f((7)id)\n"))
+    expect(await run(USER_ID + "let f(k: UserId): Int = match k with\n    ((n: Int))id => n\nexport let out: Int = f((7)id)\n"))
       .toMatchObject({ out: 7 });
   });
 
   test("the colon is looser than `|` and `as`", async () => {
-    const or = SHAPE + "let size(x) = match x\n    (Circle(r) | Square(r): Shape) => r\n    Label(_) => 0.0\n" +
+    const or = SHAPE + "let size(x) = match x with\n    (Circle(r) | Square(r): Shape) => r\n    Label(_) => 0.0\n" +
       "export let out: Float = size(Square(2.0))\n";
     expect(scheme(or, "size")).toBe("Shape -> Float");
     expect(await run(or)).toMatchObject({ out: 2 });
-    const as = SHAPE + "let size(x) = match x\n    (Circle(r) as s: Shape) => r\n    _ => 0.0\n" +
+    const as = SHAPE + "let size(x) = match x with\n    (Circle(r) as s: Shape) => r\n    _ => 0.0\n" +
       "export let out: Float = size(Circle(1.5))\n";
     expect(scheme(as, "size")).toBe("Shape -> Float");
   });
@@ -150,7 +150,7 @@ describe("§2.9 where a type is written", () => {
         "export let out: Int = f()\n",
     )).toMatchObject({ out: 3 });
     expect(await run(
-      "let g(): Float =\n    var total = 0.0\n    for (x: Float) in [1, 2]\n        total := total + x\n    total\nexport let out: Float = g()\n",
+      "let g(): Float =\n    var total = 0.0\n    for (x: Float) in [1, 2] do\n        total := total + x\n    total\nexport let out: Float = g()\n",
     )).toMatchObject({ out: 3 });
   });
 
@@ -163,33 +163,33 @@ describe("§2.9 the parentheses-only rule (§12's rows)", () => {
   const cases: readonly (readonly [string, string, string, string])[] = [
     [
       "a constructor's slot",
-      "let g(o) = match o\n    Some(n: Int) => n\n    None => 0\nexport let out: Int = g(None)\n",
+      "let g(o) = match o with\n    Some(n: Int) => n\n    None => 0\nexport let out: Int = g(None)\n",
       "a type in a pattern goes in parentheses: `Some((n: Int))`",
-      "let g(o) = match o\n    Some((n: Int)) => n\n    None => 0\nexport let out: Int = g(None)\n",
+      "let g(o) = match o with\n    Some((n: Int)) => n\n    None => 0\nexport let out: Int = g(None)\n",
     ],
     [
       "a record field",
-      "let g(r) = match r\n    {total = t: Float} => t\nexport let out: Float = g({total = 1.0})\n",
+      "let g(r) = match r with\n    {total = t: Float} => t\nexport let out: Float = g({total = 1.0})\n",
       "a type in a pattern goes in parentheses: `{total = (t: Float)}`",
-      "let g(r) = match r\n    {total = (t: Float)} => t\nexport let out: Float = g({total = 1.0})\n",
+      "let g(r) = match r with\n    {total = (t: Float)} => t\nexport let out: Float = g({total = 1.0})\n",
     ],
     [
       "a vector element",
-      "let g(xs) = match xs\n    [first: Int, ...rest] => first\n    _ => 0\nexport let out: Int = g([1])\n",
+      "let g(xs) = match xs with\n    [first: Int, ...rest] => first\n    _ => 0\nexport let out: Int = g([1])\n",
       "a type in a pattern goes in parentheses: `[(first: Int), ...rest]`",
-      "let g(xs) = match xs\n    [(first: Int), ...rest] => first\n    _ => 0\nexport let out: Int = g([1])\n",
+      "let g(xs) = match xs with\n    [(first: Int), ...rest] => first\n    _ => 0\nexport let out: Int = g([1])\n",
     ],
     [
       "a declared pattern's component",
-      USER_ID + "let f(k: UserId): Int = match k\n    (n: Int)id => n\nexport let out: Int = f((7)id)\n",
+      USER_ID + "let f(k: UserId): Int = match k with\n    (n: Int)id => n\nexport let out: Int = f((7)id)\n",
       "a type in a pattern goes in parentheses: `((n: Int))id`",
-      USER_ID + "let f(k: UserId): Int = match k\n    ((n: Int))id => n\nexport let out: Int = f((7)id)\n",
+      USER_ID + "let f(k: UserId): Int = match k with\n    ((n: Int))id => n\nexport let out: Int = f((7)id)\n",
     ],
     [
       "a `match` arm's whole pattern",
-      "let f(k) = match k\n    n: Int => n\nexport let out: Int = f(1)\n",
+      "let f(k) = match k with\n    n: Int => n\nexport let out: Int = f(1)\n",
       "a type in a pattern goes in parentheses: `(n: Int)`",
-      "let f(k) = match k\n    (n: Int) => n\nexport let out: Int = f(1)\n",
+      "let f(k) = match k with\n    (n: Int) => n\nexport let out: Int = f(1)\n",
     ],
     [
       "a `catch` arm's whole pattern",
@@ -199,15 +199,15 @@ describe("§2.9 the parentheses-only rule (§12's rows)", () => {
     ],
     [
       "a loop's pattern",
-      "let g(): Int =\n    for x: Nat in [1, 2]\n        ignore(x)\n    0\nexport let out: Int = g()\n",
-      "write the element's type in the pattern: `for (x: Nat) in [1, 2]`",
-      "let g(): Int =\n    for (x: Nat) in [1, 2]\n        ignore(x)\n    0\nexport let out: Int = g()\n",
+      "let g(): Int =\n    for x: Nat in [1, 2] do\n        ignore(x)\n    0\nexport let out: Int = g()\n",
+      "write the element's type in the pattern: `for (x: Nat) in [1, 2] do`",
+      "let g(): Int =\n    for (x: Nat) in [1, 2] do\n        ignore(x)\n    0\nexport let out: Int = g()\n",
     ],
     [
       "a vector's rest",
-      "let g(xs) = match xs\n    [a, ...rest: Vector(Int)] => a\n    _ => 0\nexport let out: Int = g([1])\n",
+      "let g(xs) = match xs with\n    [a, ...rest: Vector(Int)] => a\n    _ => 0\nexport let out: Int = g([1])\n",
       "a rest takes the vector's type; type the whole: `([a, ...rest]: Vector(Int))`",
-      "let g(xs) = match xs\n    ([a, ...rest]: Vector(Int)) => a\n    _ => 0\nexport let out: Int = g([1])\n",
+      "let g(xs) = match xs with\n    ([a, ...rest]: Vector(Int)) => a\n    _ => 0\nexport let out: Int = g([1])\n",
     ],
     [
       "a declared pattern's argument in an expression (Pattern Declarations §3.2)",
@@ -229,14 +229,14 @@ describe("§2.9 the parentheses-only rule (§12's rows)", () => {
     for (
       const [source, rewritten, fixed] of [
         [
-          "let g(xs) = match xs\n    [x: Int, y: Int] => x + y\n    _ => 0\nexport let out: Int = g([1, 2])\n",
+          "let g(xs) = match xs with\n    [x: Int, y: Int] => x + y\n    _ => 0\nexport let out: Int = g([1, 2])\n",
           "[(x: Int), (y: Int)]",
-          "let g(xs) = match xs\n    [(x: Int), (y: Int)] => x + y\n    _ => 0\nexport let out: Int = g([1, 2])\n",
+          "let g(xs) = match xs with\n    [(x: Int), (y: Int)] => x + y\n    _ => 0\nexport let out: Int = g([1, 2])\n",
         ],
         [
-          "let g(r) = match r\n    {x = n: Int, y = m: Int} => n + m\nexport let out: Int = g({x = 1, y = 2})\n",
+          "let g(r) = match r with\n    {x = n: Int, y = m: Int} => n + m\nexport let out: Int = g({x = 1, y = 2})\n",
           "{x = (n: Int), y = (m: Int)}",
-          "let g(r) = match r\n    {x = (n: Int), y = (m: Int)} => n + m\nexport let out: Int = g({x = 1, y = 2})\n",
+          "let g(r) = match r with\n    {x = (n: Int), y = (m: Int)} => n + m\nexport let out: Int = g({x = 1, y = 2})\n",
         ],
       ] as const
     ) {
@@ -263,14 +263,14 @@ describe("§2.9 the parentheses-only rule (§12's rows)", () => {
     for (
       const [source, messages_, fixed] of [
         [
-          "let f(o) = match o\n    Some(Some(n: Int): Option(Int)) => n\n    _ => 0\nexport let out: Int = f(None)\n",
+          "let f(o) = match o with\n    Some(Some(n: Int): Option(Int)) => n\n    _ => 0\nexport let out: Int = f(None)\n",
           ["`Some((Some((n: Int)): Option(Int)))`", "`Some((n: Int))`"],
-          "let f(o) = match o\n    Some((Some((n: Int)): Option(Int))) => n\n    _ => 0\nexport let out: Int = f(None)\n",
+          "let f(o) = match o with\n    Some((Some((n: Int)): Option(Int))) => n\n    _ => 0\nexport let out: Int = f(None)\n",
         ],
         [
-          "let f(o) = match o\n    Some(n: Int): Option(Int) => n\n    _ => 0\nexport let out: Int = f(None)\n",
+          "let f(o) = match o with\n    Some(n: Int): Option(Int) => n\n    _ => 0\nexport let out: Int = f(None)\n",
           ["`(Some((n: Int)): Option(Int))`", "`Some((n: Int))`"],
-          "let f(o) = match o\n    (Some((n: Int)): Option(Int)) => n\n    _ => 0\nexport let out: Int = f(None)\n",
+          "let f(o) = match o with\n    (Some((n: Int)): Option(Int)) => n\n    _ => 0\nexport let out: Int = f(None)\n",
         ],
       ] as const
     ) {
@@ -286,7 +286,7 @@ describe("§2.9 the parentheses-only rule (§12's rows)", () => {
       expect(messages(fixed)).toEqual([]);
     }
     // A vector whose rest takes a type is rewritten whole, its elements' types written in it.
-    const project = compiled("let g(xs) = match xs\n    [x: Int, ...rest: Vector(Int)] => x\n    _ => 0\nexport let out: Int = g([1])\n");
+    const project = compiled("let g(xs) = match xs with\n    [x: Int, ...rest: Vector(Int)] => x\n    _ => 0\nexport let out: Int = g([1])\n");
     const whole = "`([(x: Int), ...rest]: Vector(Int))`";
     expect(project.diagnostics.map(({ message }) => message)).toEqual([
       `a type in a pattern goes in parentheses: ${whole}`,
@@ -295,10 +295,10 @@ describe("§2.9 the parentheses-only rule (§12's rows)", () => {
     for (const diagnostic of project.diagnostics) {
       expect(diagnostic.fixes![0]!.edits.map(({ replacement }) => replacement)).toEqual(["([(x: Int), ...rest]: Vector(Int))"]);
     }
-    expect(messages("let g(xs) = match xs\n    ([(x: Int), ...rest]: Vector(Int)) => x\n    _ => 0\nexport let out: Int = g([1])\n"))
+    expect(messages("let g(xs) = match xs with\n    ([(x: Int), ...rest]: Vector(Int)) => x\n    _ => 0\nexport let out: Int = g([1])\n"))
       .toEqual([]);
     // A bare type around such a vector: the wider rewrite is the outer one.
-    const around = "let g(xs) = match xs\n    [a, ...r: Vector(Int)]: Vector(Int) => a\n    _ => 0\nexport let out: Int = g([1])\n";
+    const around = "let g(xs) = match xs with\n    [a, ...r: Vector(Int)]: Vector(Int) => a\n    _ => 0\nexport let out: Int = g([1])\n";
     const aroundFixed = around.replace("[a, ...r: Vector(Int)]: Vector(Int)", "(([a, ...r]: Vector(Int)): Vector(Int))");
     const [outer] = compiled(around).diagnostics;
     expect(outer!.message).toBe("a type in a pattern goes in parentheses: `(([a, ...r]: Vector(Int)): Vector(Int))`");
@@ -310,11 +310,11 @@ describe("§2.9 the parentheses-only rule (§12's rows)", () => {
     for (
       const [source, rewritten] of [
         [
-          "let f(xs) = match xs\n    [Some(a: Int), b: Option(Int)] => a\n    _ => 0\nexport let out: Int = f([None])\n",
+          "let f(xs) = match xs with\n    [Some(a: Int), b: Option(Int)] => a\n    _ => 0\nexport let out: Int = f([None])\n",
           "[Some((a: Int)), (b: Option(Int))]",
         ],
         [
-          "let f(r) = match r\n    {a = Some(n: Int), b = m: Int} => m\n    _ => 0\nexport let out: Int = f({a = None, b = 1})\n",
+          "let f(r) = match r with\n    {a = Some(n: Int), b = m: Int} => m\n    _ => 0\nexport let out: Int = f({a = None, b = 1})\n",
           "{a = Some((n: Int)), b = (m: Int)}",
         ],
       ] as const
@@ -328,7 +328,7 @@ describe("§2.9 the parentheses-only rule (§12's rows)", () => {
       expect(fixed).toContain(rewritten);
     }
     // A form written over several lines is quoted in the report, and its fix's title, read on one line, names no text.
-    const lines = "union Two = | Two(Option(Int), Int)\nlet f(o) = match o\n    Two(\n        Some(a: Int),\n        b: Int\n    ) => b\n" +
+    const lines = "union Two = | Two(Option(Int), Int)\nlet f(o) = match o with\n    Two(\n        Some(a: Int),\n        b: Int\n    ) => b\n" +
       "    _ => 0\nexport let out: Int = f(Two(None, 1))\n";
     const across = compiled(lines).diagnostics.find(({ message }) => message.includes("Two("))!;
     expect(across.message).toBe(
@@ -362,24 +362,24 @@ describe("§2.9 the parentheses-only rule (§12's rows)", () => {
     // parentheses, in a slot, and at a loop.
     for (
       const [typed, untyped] of [
-        ["let f(x: Int): Int = match x\n    fault e: Exn => 1\n    _ => 0\n", "fault e: Exn", "fault e"],
-        ["let f(x: Int): Int = match x\n    fault e as y: Exn => 1\n    _ => 0\n", "fault e as y: Exn", "fault e as y"],
+        ["let f(x: Int): Int = match x with\n    fault e: Exn => 1\n    _ => 0\n", "fault e: Exn", "fault e"],
+        ["let f(x: Int): Int = match x with\n    fault e as y: Exn => 1\n    _ => 0\n", "fault e as y: Exn", "fault e as y"],
         [
-          "exception Oops(n: Int)\nlet f(x: Int): Int = match x\n    fault e | Oops(_): Exn => 1\n    _ => 0\n",
+          "exception Oops(n: Int)\nlet f(x: Int): Int = match x with\n    fault e | Oops(_): Exn => 1\n    _ => 0\n",
           "fault e | Oops(_): Exn",
           "fault e | Oops(_)",
         ],
-        ["let f(x: Int): Int = match x\n    (fault e: Exn) => 1\n    _ => 0\n", "(fault e: Exn)", "(fault e)"],
-        ["let f(x: Option(Int)): Int = match x\n    Some(fault e: Exn) => 1\n    _ => 0\n", "fault e: Exn", "fault e"],
-        ["let f(x: (Int, Int)): Int = match x\n    (fault e: Exn, b) => b\n", "fault e: Exn", "fault e"],
-        ["let g(): Int =\n    for fault _: Exn in [1]\n        ignore(1)\n    0\n", "fault _: Exn", "fault _"],
+        ["let f(x: Int): Int = match x with\n    (fault e: Exn) => 1\n    _ => 0\n", "(fault e: Exn)", "(fault e)"],
+        ["let f(x: Option(Int)): Int = match x with\n    Some(fault e: Exn) => 1\n    _ => 0\n", "fault e: Exn", "fault e"],
+        ["let f(x: (Int, Int)): Int = match x with\n    (fault e: Exn, b) => b\n", "fault e: Exn", "fault e"],
+        ["let g(): Int =\n    for fault _: Exn in [1] do\n        ignore(1)\n    0\n", "fault _: Exn", "fault _"],
         ["let o = Vector.map([1], ((fault e: Exn)) => 0)\n", "(fault e: Exn)", "(fault e)"],
         // Through the pattern's own parentheses around it.
-        ["let f(x: Int): Int = match x\n    (fault e): Exn => 1\n    _ => 0\n", "(fault e): Exn", "(fault e)"],
-        ["let f(x: Int): Int = match x\n    ((fault e)): Exn => 1\n    _ => 0\n", "((fault e)): Exn", "((fault e))"],
-        ["let f(x: Int): Int = match x\n    (fault e) as y: Exn => 1\n    _ => 0\n", "(fault e) as y: Exn", "(fault e) as y"],
-        ["let f(x: Option(Int)): Int = match x\n    Some((fault e): Exn) => 1\n    _ => 0\n", "(fault e): Exn", "(fault e)"],
-        ["let g(): Int =\n    for (fault _): Exn in [1]\n        ignore(1)\n    0\n", "(fault _): Exn", "(fault _)"],
+        ["let f(x: Int): Int = match x with\n    (fault e): Exn => 1\n    _ => 0\n", "(fault e): Exn", "(fault e)"],
+        ["let f(x: Int): Int = match x with\n    ((fault e)): Exn => 1\n    _ => 0\n", "((fault e)): Exn", "((fault e))"],
+        ["let f(x: Int): Int = match x with\n    (fault e) as y: Exn => 1\n    _ => 0\n", "(fault e) as y: Exn", "(fault e) as y"],
+        ["let f(x: Option(Int)): Int = match x with\n    Some((fault e): Exn) => 1\n    _ => 0\n", "(fault e): Exn", "(fault e)"],
+        ["let g(): Int =\n    for (fault _): Exn in [1] do\n        ignore(1)\n    0\n", "(fault _): Exn", "(fault _)"],
         [
           "exception Oops(n: Int)\nlet f(): Int = try throw^(Oops(3))\n    catch\n        (fault e): Exn => 1\n        _ => 0\n",
           "(fault e): Exn",
@@ -391,29 +391,29 @@ describe("§2.9 the parentheses-only rule (§12's rows)", () => {
       expect(messages(typed)[0]).toBe("a `fault` pattern is a whole catch arm's pattern");
     }
     expect(messages(
-      "let f(x: Int): Int = match x\n    fault e: Exn => 1\n    _ => 0\nexport let out: Int = f(1)\n",
+      "let f(x: Int): Int = match x with\n    fault e: Exn => 1\n    _ => 0\nexport let out: Int = f(1)\n",
     )).toEqual(["a `fault` pattern is a whole catch arm's pattern"]);
   });
 
   test("a type over a literal refused where it was read is a cause of its own", () => {
     // The literal's refusal keeps its `n` fix, which the written type reaches,
     // and the bare type is refused beside it.
-    expect(messages("let f(x) = match x\n    99999999999999999999: BigInt => 1\n    _ => 0\nexport let out: Int = f(1n)\n"))
+    expect(messages("let f(x) = match x with\n    99999999999999999999: BigInt => 1\n    _ => 0\nexport let out: Int = f(1n)\n"))
       .toEqual([
         "integer literal exceeds Int range; add `n` for a BigInt",
         "a type in a pattern goes in parentheses: `(99999999999999999999: BigInt)`",
       ]);
-    expect(messages("let f(x) = match x\n    1e999: Float => 1\n    _ => 0\nexport let out: Int = f(1.0)\n")).toEqual([
+    expect(messages("let f(x) = match x with\n    1e999: Float => 1\n    _ => 0\nexport let out: Int = f(1.0)\n")).toEqual([
       "Float literal is too large; use `Float.infinity`",
       "a type in a pattern goes in parentheses: `(1e999: Float)`",
     ]);
   });
 
   test("a loop's refusal names and applies an inner refusal's rewrite", () => {
-    const source = "let g(): Int =\n    var s = 0\n    for {a = n: Int}: {a: Int} in [{a = 1}]\n        s := n\n    s\n" +
+    const source = "let g(): Int =\n    var s = 0\n    for {a = n: Int}: {a: Int} in [{a = 1}] do\n        s := n\n    s\n" +
       "export let out: Int = g()\n";
     const loop = compiled(source).diagnostics.find(({ message }) => message.startsWith("write the element's type"))!;
-    expect(loop.message).toBe("write the element's type in the pattern: `for ({a = (n: Int)}: {a: Int}) in [{a = 1}]`");
+    expect(loop.message).toBe("write the element's type in the pattern: `for ({a = (n: Int)}: {a: Int}) in [{a = 1}] do`");
     const fixed = applied(source, loop);
     expect(fixed).toBe(source.replace("{a = n: Int}: {a: Int}", "({a = (n: Int)}: {a: Int})"));
     expect(messages(fixed)).toEqual([]);
@@ -421,10 +421,10 @@ describe("§2.9 the parentheses-only rule (§12's rows)", () => {
 
   test("a loop's refusal quotes a long iterable as `…`", () => {
     const refused = refusal(
-      "let g(): Int =\n    var s = 0\n    for x: Int in Vector.map([1, 2, 3, 4], (y) => y * 2 + 1)\n" +
+      "let g(): Int =\n    var s = 0\n    for x: Int in Vector.map([1, 2, 3, 4], (y) => y * 2 + 1) do\n" +
         "        s := s + x\n    s\nexport let out: Int = g()\n",
     );
-    expect(refused.message).toBe("write the element's type in the pattern: `for (x: Int) in …`");
+    expect(refused.message).toBe("write the element's type in the pattern: `for (x: Int) in … do`");
     expect(messages(refused.fixed[0]!)).toEqual([]);
   });
 
@@ -484,11 +484,11 @@ describe("§2.9 a claim: it tests nothing and converts nothing", () => {
   test("a typed program emits what the untyped one does", () => {
     const typed = emission(
       'let size = (3.0, 4.5)\nlet (width: Float, height: Float) = size\nlet g = ((k: String, v)) => k\n' +
-        'let h(o) = match o\n    Some((s: String)) => s\n    None => ""\nexport let out: Float = width * height\n',
+        'let h(o) = match o with\n    Some((s: String)) => s\n    None => ""\nexport let out: Float = width * height\n',
     );
     const untyped = emission(
       'let size = (3.0, 4.5)\nlet (width, height) = size\nlet g = ((k, v)) => k\n' +
-        'let h(o) = match o\n    Some(s) => s\n    None => ""\nexport let out: Float = width * height\n',
+        'let h(o) = match o with\n    Some(s) => s\n    None => ""\nexport let out: Float = width * height\n',
     );
     expect(typed).toBe(untyped);
   });
@@ -496,7 +496,7 @@ describe("§2.9 a claim: it tests nothing and converts nothing", () => {
   test("coverage and refutability read `p`", async () => {
     expect(messages("let g(o: Option(Int)): Int =\n    let (Some(x): Option(Int)) = o\n    x\nexport let out: Int = 1\n"))
       .toEqual(["this pattern can fail: `None`; use `match`"]);
-    expect(await run("let g(o) = match o\n    Some((n: Int)) => n\n    None => 0\nexport let out: Int = g(None)\n"))
+    expect(await run("let g(o) = match o with\n    Some((n: Int)) => n\n    None => 0\nexport let out: Int = g(None)\n"))
       .toMatchObject({ out: 0 });
   });
 
@@ -506,27 +506,27 @@ describe("§2.9 a claim: it tests nothing and converts nothing", () => {
 
   test("a failed claim reports once and leaves the pattern to read as `_`", () => {
     expect(messages(
-      'let n: Int = 3\nlet g() = match (n, "x")\n    ((x: Float), s) => s\nexport let out: String = g()\n',
+      'let n: Int = 3\nlet g() = match (n, "x") with\n    ((x: Float), s) => s\nexport let out: String = g()\n',
     )).toHaveLength(1);
     // At a `let`, `Some(x)` read as written would add "this pattern can fail".
     expect(messages("let (Some(x): Option(String)) = Some(1)\nexport let out: Int = 1\n")).toHaveLength(1);
     // A type the resolver refused is its one report: the arm below is reached.
     expect(messages(
       "union Shape =\n    | Circle(radius: Float)\n    | Square(side: Float)\n" +
-        "let f(sh) = match sh\n    (s: Circel) => 1\n    _ => 0\nexport let out: Int = 1\n",
+        "let f(sh) = match sh with\n    (s: Circel) => 1\n    _ => 0\nexport let out: Int = 1\n",
     )).toEqual(["unknown type `Circel`"]);
     // A refused part of a written type is that one report, and the rest of the type still decides.
     expect(messages("let ((x, y): (Foo, Int)) = (1, 2)\nexport let v: String = y.show()\n")).toEqual(["unknown type `Foo`"]);
-    expect(messages("let f() = match (1, 2)\n    ((x, y): (Foo, Int)) => y.show()\nexport let out: String = f()\n"))
+    expect(messages("let f() = match (1, 2) with\n    ((x, y): (Foo, Int)) => y.show()\nexport let out: String = f()\n"))
       .toEqual(["unknown type `Foo`"]);
     // …and the head it was written to name is that report's echo (§6.1),
     // a head only the door would find included.
-    expect(messages("let g(o) = match o\n    (Some(s): Foo) => 1\n    _ => 0\nexport let out: Int = g(Some(1))\n"))
+    expect(messages("let g(o) = match o with\n    (Some(s): Foo) => 1\n    _ => 0\nexport let out: Int = g(Some(1))\n"))
       .toEqual(["unknown type `Foo`"]);
     const colours = ["/colors.hex", "module Colors\n\nexport union Colour =\n    | Red\n    | Green\n"] as const;
     expect(compileFiles([
       colours,
-      ["/main.hex", HEADER + "import Colors\nlet f(k) = match k\n    (Red: Colour) => 1\n    _ => 0\nexport let out: Int = f(Colors.Red)\n"],
+      ["/main.hex", HEADER + "import Colors\nlet f(k) = match k with\n    (Red: Colour) => 1\n    _ => 0\nexport let out: Int = f(Colors.Red)\n"],
     ]).diagnostics.map(({ message }) => message)).toEqual(["unknown type `Colour`"]);
     // At a `catch` arm the claim is about the thrown `Exn`; one that disagrees
     // shadows nothing below it.
@@ -537,7 +537,7 @@ describe("§2.9 a claim: it tests nothing and converts nothing", () => {
     // `Some(1)` read at the type claimed, or as written, would add a mismatch
     // or a missing `Some(_)`: the claim's report is the one.
     expect(messages(
-      "let g(o: Option(Int)): Int = match o\n    (Some(1): Option(String)) => 0\n    None => 1\nexport let out: Int = g(None)\n",
+      "let g(o: Option(Int)): Int = match o with\n    (Some(1): Option(String)) => 0\n    None => 1\nexport let out: Int = g(None)\n",
     )).toHaveLength(1);
   });
 });
@@ -546,7 +546,7 @@ describe("§2.9 it decides what it writes", () => {
   test("a number type nothing decided takes it", async () => {
     expect(scheme('let (ratio: Float, label) = (1, "full")\nexport let out: Float = ratio\n', "ratio")).toBe("Float");
     expect(scheme("let (n: BigInt) = 5\nexport let out: BigInt = n\n", "n")).toBe("BigInt");
-    const loop = "let g(): Nat =\n    var total: Nat = 0\n    for (x: Nat) in [1, 2]\n        total := total + x\n    total\n" +
+    const loop = "let g(): Nat =\n    var total: Nat = 0\n    for (x: Nat) in [1, 2] do\n        total := total + x\n    total\n" +
       "export let out: Nat = g()\n";
     expect(await run(loop)).toMatchObject({ out: 3 });
     // The same loop without the type defaults `x` to `Int`, which cannot enter `Nat`.
@@ -558,15 +558,15 @@ describe("§2.9 it decides what it writes", () => {
   test("a constructor only the head's door finds is found through the written type (§6.1 rule 2)", () => {
     const colours = ["/colors.hex", "module Colors\n\nexport union Colour =\n    | Red\n    | Green\n"] as const;
     const main = (pattern: string): string =>
-      HEADER + `import Colors\nlet f(k) = match k\n    ${pattern} => 1\n    _ => 0\nexport let out: Int = f(Colors.Red)\n`;
+      HEADER + `import Colors\nlet f(k) = match k with\n    ${pattern} => 1\n    _ => 0\nexport let out: Int = f(Colors.Red)\n`;
     expect(compileFiles([colours, ["/main.hex", main("(Red: Colors.Colour)")]]).diagnostics.map(({ message }) => message))
       .toEqual([]);
     expect(compileFiles([colours, ["/main.hex", main("Red")]]).diagnostics).toHaveLength(1);
   });
 
   test("at a `match`, it names the head (§6.1 rule 2)", () => {
-    expect(scheme("let f() = match 3\n    (n: Nat) => n\nexport let out: Nat = f()\n", "f")).toBe("() -> Nat");
-    expect(scheme("let f() = match 3\n    n => n\nexport let out: Int = f()\n", "f")).toBe("() -> Int");
+    expect(scheme("let f() = match 3 with\n    (n: Nat) => n\nexport let out: Nat = f()\n", "f")).toBe("() -> Nat");
+    expect(scheme("let f() = match 3 with\n    n => n\nexport let out: Int = f()\n", "f")).toBe("() -> Int");
   });
 
   test("a box reads it as a written parameter type (Numeric Literals §4)", () => {
@@ -634,21 +634,21 @@ describe("§2.9 it decides what it writes", () => {
         ["[(a: Nat), b] => b.show().length()\n    _ => 0", "[1, 2]"],
       ] as const
     ) {
-      expect(messages(`let f() = match ${scrutinee}\n    ${arms}\nexport let out: Int = f()\n`)).toEqual([]);
+      expect(messages(`let f() = match ${scrutinee} with\n    ${arms}\nexport let out: Int = f()\n`)).toEqual([]);
     }
-    expect(scheme('let f() = match Some((1, 2))\n    Some(((a: Nat), b)) => b\n    _ => 0\nexport let out: Int = f()\n', "f"))
+    expect(scheme('let f() = match Some((1, 2)) with\n    Some(((a: Nat), b)) => b\n    _ => 0\nexport let out: Int = f()\n', "f"))
       .toBe("() -> Int");
     // Another arm over the claimed part reads the written type.
-    expect(scheme("let f() = match (1, 2)\n    ((a: Nat), 0) => a\n    (c, d) => c\nexport let out: Nat = f()\n", "f"))
+    expect(scheme("let f() = match (1, 2) with\n    ((a: Nat), 0) => a\n    (c, d) => c\nexport let out: Nat = f()\n", "f"))
       .toBe("() -> Nat");
     // At a loop, through a constructor's slots.
     const two = "union Two(a, b) = | Two(a, b)\n";
     expect(scheme(
-      two + 'let g() =\n    var s = ""\n    for Two((x: Nat), y) in [Two(1, 2)]\n        s := y.show()\n    s\nexport let out: String = g()\n',
+      two + 'let g() =\n    var s = ""\n    for Two((x: Nat), y) in [Two(1, 2)] do\n        s := y.show()\n    s\nexport let out: String = g()\n',
       "g",
     )).toBe("() -> String");
     expect(scheme(
-      two + "let g() =\n    var s = 0\n    for Two((x: Nat), y) in [Two(1, 2)]\n        let z: Nat = x\n        s := y\n    s\n" +
+      two + "let g() =\n    var s = 0\n    for Two((x: Nat), y) in [Two(1, 2)] do\n        let z: Nat = x\n        s := y\n    s\n" +
         "export let out: Int = g()\n",
       "g",
     )).toBe("() -> Int");
@@ -669,27 +669,27 @@ describe("§2.9 it decides what it writes", () => {
         ["(a, 0) | ((a: Nat), _) => a", "(1, 2)"],
       ] as const
     ) {
-      expect(scheme(`let f() = match ${scrutinee}\n    ${arms}\nexport let out: Nat = f()\n`, "f")).toBe("() -> Nat");
+      expect(scheme(`let f() = match ${scrutinee} with\n    ${arms}\nexport let out: Nat = f()\n`, "f")).toBe("() -> Nat");
     }
     expect(scheme(
-      "record Pt(a, b) = {x: a, y: b}\nlet f() = match Pt({x = 1, y = 2})\n    (Pt({x, y}): Pt(Nat, _)) => x\n" +
+      "record Pt(a, b) = {x: a, y: b}\nlet f() = match Pt({x = 1, y = 2}) with\n    (Pt({x, y}): Pt(Nat, _)) => x\n" +
         "export let out: Nat = f()\n",
       "f",
     )).toBe("() -> Nat");
     // Down through a written collection's and `Nullable`'s parts, at a loop, a `match` and a box.
     const map = 'Map.fromVector([("a", 1)])';
     expect(scheme(
-      `let g() =\n    var s = 0\n    for (m: Map(_, Nat)) in [${map}]\n        s := m.size()\n    s\nexport let out: Int = g()\n`,
+      `let g() =\n    var s = 0\n    for (m: Map(_, Nat)) in [${map}] do\n        s := m.size()\n    s\nexport let out: Int = g()\n`,
       "g",
     )).toBe("() -> Int");
     expect(scheme(
-      `let f() = match Some(${map})\n    (Some(m): Option(Map(_, Nat))) => m.size()\n    _ => 0\nexport let out: Int = f()\n`,
+      `let f() = match Some(${map}) with\n    (Some(m): Option(Map(_, Nat))) => m.size()\n    _ => 0\nexport let out: Int = f()\n`,
       "f",
     )).toBe("() -> Int");
     expect(scheme(`let o = Vector.map([${map}], ((m: Map(_, Nat))) => m.size())\nexport let out: Vector(Int) = o\n`, "o"))
       .toBe("Vector(Int)");
     expect(scheme(
-      "let g() =\n    var s = 0\n    for (t: Set((Nat, _))) in [Set.fromVector([(1, 2)])]\n        s := t.size()\n    s\n" +
+      "let g() =\n    var s = 0\n    for (t: Set((Nat, _))) in [Set.fromVector([(1, 2)])] do\n        s := t.size()\n    s\n" +
         "export let out: Int = g()\n",
       "g",
     )).toBe("() -> Int");
@@ -710,30 +710,30 @@ describe("§2.9 it decides what it writes", () => {
       expect(scheme(`let o = Vector.map([${value}], ((t: ${written})) => t)\n`, "o")).toBe(`Vector(${type})`);
     }
     expect(scheme(
-      `let f() = match Some(Map.fromVector([(1, "a")]))\n    Some((t: Map(Nat, _))) => Some(t)\n    _ => None\n`,
+      `let f() = match Some(Map.fromVector([(1, "a")])) with\n    Some((t: Map(Nat, _))) => Some(t)\n    _ => None\n`,
       "f",
     )).toBe("() -> Option(Map(Nat, String))");
     expect(scheme(
-      "let g() =\n    var s = 0\n    for (t: Array((Nat, _))) in [Vector.toArray([(1, 2)])]\n        s := t.length()\n    s\n",
+      "let g() =\n    var s = 0\n    for (t: Array((Nat, _))) in [Vector.toArray([(1, 2)])] do\n        s := t.length()\n    s\n",
       "g",
     )).toBe("() -> Int");
     // A constructor only the head's door finds is read through its declaration.
     const pairs = ["/pairs.hex", "module Pairs\n\nexport union Pair(a, b) =\n    | P(a, b)\n"] as const;
     expect(compileFiles([
       pairs,
-      ["/main.hex", HEADER + "import Pairs\nlet f() = match Pairs.P(1, 2)\n    P((a: Nat), b) => a\nexport let out: Nat = f()\n"],
+      ["/main.hex", HEADER + "import Pairs\nlet f() = match Pairs.P(1, 2) with\n    P((a: Nat), b) => a\nexport let out: Nat = f()\n"],
     ]).diagnostics.map(({ message }) => message)).toEqual([]);
     // A function an arm takes apart beside a claimed part is called as it is without the type.
     expect(scheme(
-      "let g(x: Int): Int = x + 1\nlet f() = match (1, g)\n    ((a: Nat), h) => h(2)\nexport let out: Int = f()\n",
+      "let g(x: Int): Int = x + 1\nlet f() = match (1, g) with\n    ((a: Nat), h) => h(2)\nexport let out: Int = f()\n",
       "f",
     )).toBe("() -> Int");
   });
 
   test("a hole claims nothing, and its part is what it is without the type", () => {
-    expect(scheme("let f() = match 3\n    (n: _) => n.show()\nexport let out: String = f()\n", "f")).toBe("() -> String");
+    expect(scheme("let f() = match 3 with\n    (n: _) => n.show()\nexport let out: String = f()\n", "f")).toBe("() -> String");
     // A hole that tests nothing leaves a `match` that needs no head.
-    expect(scheme('let f(x) = match x\n    (v: _) when show(v) == "" => 1\n    _ => 2\nexport let out: Int = f(1)\n', "f"))
+    expect(scheme('let f(x) = match x with\n    (v: _) when show(v) == "" => 1\n    _ => 2\nexport let out: Int = f(1)\n', "f"))
       .toBe("<a: Show> a -> Int");
     // A head written over a hole decides the head, and a dot call needs no more.
     expect(scheme("let f = (((xs: Vector(_)), n)) => xs.length()\nexport let out: Int = f(([1], 2))\n", "f"))
@@ -747,7 +747,7 @@ describe("§2.9 it decides what it writes", () => {
     // Over the name or around it, read down to its part.
     expect(messages('let f = (((k, v): (String, Int))) => k.length()\nexport let out: Int = f(("ab", 1))\n')).toEqual([]);
     expect(messages(
-      'let g(o) = match o\n    (Some(s): Option(String)) => s.length()\n    _ => 0\nexport let out: Int = g(Some("ab"))\n',
+      'let g(o) = match o with\n    (Some(s): Option(String)) => s.length()\n    _ => 0\nexport let out: Int = g(Some("ab"))\n',
     )).toEqual([]);
     expect(messages(
       "record Point = {x: Int, y: Int}\nlet g = ((Point({x = a, y = b}): Point)) => a.show()\n" +
@@ -757,20 +757,20 @@ describe("§2.9 it decides what it writes", () => {
     expect(messages('let g(p) =\n    let (k, v): (String, Int) = p\n    k.length()\nexport let out: Int = g(("abc", 1))\n'))
       .toEqual([]);
     expect(messages(
-      "let g(xs) =\n    var n = 0\n    for (s: String) in xs\n        n := n + s.length()\n    n\n" +
+      "let g(xs) =\n    var n = 0\n    for (s: String) in xs do\n        n := n + s.length()\n    n\n" +
         'export let out: Int = g(["ab", "c"])\n',
     )).toEqual([]);
     // An `as` stands on its pattern's part, and a rest is the vector's.
     expect(messages('let f = (((k: String) as key, v)) => key.length()\nexport let out: Int = f(("ab", 1))\n')).toEqual([]);
     expect(messages(
-      "let g(xs) = match xs\n    ([first, ...rest]: Vector(String)) => rest.length()\n    _ => 0\n" +
+      "let g(xs) = match xs with\n    ([first, ...rest]: Vector(String)) => rest.length()\n    _ => 0\n" +
         'export let out: Int = g(["a", "b"])\n',
     )).toEqual([]);
     // A hole writes nothing.
     expect(messages('let f = (((k, v): (_, Int))) => k.length()\nexport let out: Int = f(("ab", 1))\n')[0])
       .toContain(undecided);
     expect(messages(
-      "let g(o) = match o\n    (Some(s): Option(_)) => s.length()\n    _ => 0\nexport let out: Int = 1\n",
+      "let g(o) = match o with\n    (Some(s): Option(_)) => s.length()\n    _ => 0\nexport let out: Int = 1\n",
     )[0]).toContain("the program's text does not decide `s`'s type here");
   });
 });
@@ -832,23 +832,23 @@ const OUT = "export let out: Int = 0\n";
 describe("§2.9 a function fits the claim, at every position (#1510)", () => {
   test("a pure function fits a `->!` claim at a `match` and a `for`, as at a `let`", () => {
     for (const body of [
-      "let g(x: (() -> Unit, Int)): Unit = match x\n    ((f: () ->! Unit), n) => f!()\n",
-      "let x = (noop, 1)\nlet g(): Unit = match x\n    ((f: () ->! Unit), n) => f!()\n",
-      "let g(o: Option(() -> Unit)): Unit = match o\n    Some((f: () ->! Unit)) => f!()\n    None => ()\n",
-      "let mk(): (() -> Unit, Int) = (noop, 1)\nlet g(): Unit = match mk()\n    ((f: () ->! Unit), n) => f!()\n",
-      "let g(xs: Vector(() -> Unit)): Unit =\n    for (f: () ->! Unit) in xs\n        f!()\n",
-      "let xs = [noop]\nlet g(): Unit =\n    for (f: () ->! Unit) in xs\n        f!()\n",
+      "let g(x: (() -> Unit, Int)): Unit = match x with\n    ((f: () ->! Unit), n) => f!()\n",
+      "let x = (noop, 1)\nlet g(): Unit = match x with\n    ((f: () ->! Unit), n) => f!()\n",
+      "let g(o: Option(() -> Unit)): Unit = match o with\n    Some((f: () ->! Unit)) => f!()\n    None => ()\n",
+      "let mk(): (() -> Unit, Int) = (noop, 1)\nlet g(): Unit = match mk() with\n    ((f: () ->! Unit), n) => f!()\n",
+      "let g(xs: Vector(() -> Unit)): Unit =\n    for (f: () ->! Unit) in xs do\n        f!()\n",
+      "let xs = [noop]\nlet g(): Unit =\n    for (f: () ->! Unit) in xs do\n        f!()\n",
       "let g(x: (() -> Unit, Int)): Unit =\n    let ((f: () ->! Unit), n) = x\n    f!()\n",
       "let g(x: (() -> Unit, Int)): Unit =\n    let ((f: () ->! Unit), n): (() -> Unit, Int) = x\n    f!()\n",
       "let k = (((f: () ->! Unit), n): (() -> Unit, Int)) => f!()\n",
       // A union constructor's payload, which the pattern takes from the declaration.
       "union Box = Box(f: () -> Unit)\nlet g(b: Box): Unit =\n    let Box((f: () ->! Unit)) = b\n    f!()\n",
-      "union Box = Box(f: () -> Unit)\nlet g(b: Box): Unit = match b\n    Box((f: () ->! Unit)) => f!()\n",
+      "union Box = Box(f: () -> Unit)\nlet g(b: Box): Unit = match b with\n    Box((f: () ->! Unit)) => f!()\n",
     ]) {
       expect(messages(WORLD + body + OUT)).toEqual([]);
     }
     // The claim fits even where the arm never calls the function.
-    expect(scheme(WORLD + "let g(x: (() -> Unit, Int)): Int = match x\n    ((f: () ->! Unit), n) => n\n" + OUT, "g"))
+    expect(scheme(WORLD + "let g(x: (() -> Unit, Int)): Int = match x with\n    ((f: () ->! Unit), n) => n\n" + OUT, "g"))
       .toBe("((() -> Unit, Int)) -> Int");
   });
 
@@ -860,23 +860,23 @@ describe("§2.9 a function fits the claim, at every position (#1510)", () => {
 
   test("a `->!` the part's written type spells in a parameter accepts any function, at every position", () => {
     for (const body of [
-      "let g(x: ((() ->! Unit) -> Unit, Int)): Unit = match x\n    ((m: (() -> Unit) ->! Unit), n) => m!(noop)\n",
-      "let g(xs: Vector((() ->! Unit) -> Unit)): Unit =\n    for (m: (() -> Unit) ->! Unit) in xs\n        m!(noop)\n",
+      "let g(x: ((() ->! Unit) -> Unit, Int)): Unit = match x with\n    ((m: (() -> Unit) ->! Unit), n) => m!(noop)\n",
+      "let g(xs: Vector((() ->! Unit) -> Unit)): Unit =\n    for (m: (() -> Unit) ->! Unit) in xs do\n        m!(noop)\n",
       "let g(x: ((() ->! Unit) -> Unit, Int)): Unit =\n    let ((m: (() -> Unit) ->! Unit), n) = x\n    m!(noop)\n",
       "let k = (((m: (() -> Unit) ->! Unit), n): ((() ->! Unit) -> Unit, Int)) => m!(noop)\n",
     ]) {
       expect(messages(WORLD + body + OUT)).toEqual([]);
     }
     // One written `->` there accepts only what it says.
-    expect(messages(WORLD + "let g(x: ((() -> Unit) -> Unit, Int)): Unit = match x\n" +
+    expect(messages(WORLD + "let g(x: ((() -> Unit) -> Unit, Int)): Unit = match x with\n" +
       "    ((m: (() ->! Unit) ->! Unit), n) => m!(save0)\n" + OUT)).toHaveLength(1);
   });
 
   test("a claim under an or-pattern reads its part in the alternative that holds it", () => {
     const claim = "(m: (() -> Unit) ->! Unit)";
     for (const body of [
-      `let g(x: ((() ->! Unit) -> Unit, Int)): Unit = match x\n    (${claim}, 1) | (${claim}, _) => m!(noop)\n`,
-      `let g(x: (Int, ((() ->! Unit) -> Unit, Int))): Unit = match x\n    (n, (${claim}, 1) | (${claim}, _)) => m!(noop)\n`,
+      `let g(x: ((() ->! Unit) -> Unit, Int)): Unit = match x with\n    (${claim}, 1) | (${claim}, _) => m!(noop)\n`,
+      `let g(x: (Int, ((() ->! Unit) -> Unit, Int))): Unit = match x with\n    (n, (${claim}, 1) | (${claim}, _)) => m!(noop)\n`,
       `let g(x: ((() ->! Unit) -> Unit, Int)): Unit =\n    let (${claim}, 1) | (${claim}, _) = x\n    m!(noop)\n`,
     ]) {
       expect(messages(WORLD + body + OUT)).toEqual([]);
@@ -885,21 +885,21 @@ describe("§2.9 a function fits the claim, at every position (#1510)", () => {
     // (§2.6). An arm reads its scrutinee in place (Effects §3.4), so where
     // one alternative claims and the other doesn't, the two types differ;
     // a `let`'s value is a use, so there they meet.
-    expect(messages(WORLD + "let g(x: (() -> Unit, Int)): Unit = match x\n    ((f: () ->! Unit), 1) | (f, _) => f!()\n" +
+    expect(messages(WORLD + "let g(x: (() -> Unit, Int)): Unit = match x with\n    ((f: () ->! Unit), 1) | (f, _) => f!()\n" +
       OUT)).not.toEqual([]);
     expect(messages(WORLD + "let g(x: (() -> Unit, Int)): Unit =\n    let ((f: () ->! Unit), 1) | (f, _) = x\n    f!()\n" +
       OUT)).toEqual([]);
   });
 
   test("the binder takes the written type, so its calls wear the marks it writes", () => {
-    expect(messages(WORLD + "let g(x: (() -> Unit, Int)): Unit = match x\n    ((f: () ->! Unit), n) => f()\n" + OUT))
+    expect(messages(WORLD + "let g(x: (() -> Unit, Int)): Unit = match x with\n    ((f: () ->! Unit), n) => f()\n" + OUT))
       .toEqual(["this call is impure and may fail, so `f` wants `!`, not no mark"]);
   });
 
   test("a colour the environment holds is left to the binding that holds it", () => {
-    expect(scheme(WORLD + "let g(h) =\n    match (h, 1)\n        ((f: () ->! Unit), n) => f!()\n" + OUT, "g"))
+    expect(scheme(WORLD + "let g(h) =\n    match (h, 1) with\n        ((f: () ->! Unit), n) => f!()\n" + OUT, "g"))
       .toBe("(() ->! Unit) ->! Unit");
-    expect(scheme(WORLD + "let g(h) =\n    let p = (h, 1)\n    match p\n        ((f: () ->! Unit), n) => f!()\n" + OUT, "g"))
+    expect(scheme(WORLD + "let g(h) =\n    let p = (h, 1)\n    match p with\n        ((f: () ->! Unit), n) => f!()\n" + OUT, "g"))
       .toBe("(() ->! Unit) ->! Unit");
   });
 
@@ -908,9 +908,9 @@ describe("§2.9 a function fits the claim, at every position (#1510)", () => {
     const report = "this call is impure and may fail only because `h`, which has no written type, meets " +
       "`() ->! Unit` — write `h`'s type, or wrap `h` where it meets it: `() => h()`";
     for (const body of [
-      "let g(h) =\n    h()\n    match (h, 1)\n        ((f: () ->! Unit), n) => f!()\n",
+      "let g(h) =\n    h()\n    match (h, 1) with\n        ((f: () ->! Unit), n) => f!()\n",
       "let g(h) =\n    h()\n    let ((f: () ->! Unit), n) = (h, 1)\n    f!()\n",
-      "let g(h) =\n    h()\n    for (f: () ->! Unit) in [h]\n        f!()\n",
+      "let g(h) =\n    h()\n    for (f: () ->! Unit) in [h] do\n        f!()\n",
     ]) {
       expect(messages(WORLD + body + OUT)).toEqual([report]);
     }
@@ -922,8 +922,8 @@ describe("§2.9 a function fits the claim, at every position (#1510)", () => {
   test("the reverse stays refused, at every position", () => {
     for (const body of [
       "let (f: () -> Unit) = save0\n",
-      "let g(x: (() ->! Unit, Int)): Int = match x\n    ((f: () -> Unit), n) => n\n",
-      "let g(xs: Vector(() ->! Unit)): Unit =\n    for (f: () -> Unit) in xs\n        f()\n",
+      "let g(x: (() ->! Unit, Int)): Int = match x with\n    ((f: () -> Unit), n) => n\n",
+      "let g(xs: Vector(() ->! Unit)): Unit =\n    for (f: () -> Unit) in xs do\n        f()\n",
     ]) {
       const refused = messages(WORLD + body + OUT);
       expect(refused).toHaveLength(1);
@@ -952,12 +952,12 @@ describe("§2.9 a following arrow follows the binders' class (#1510)", () => {
     const frame = (binds: string) =>
       `\`>->\` means only as effectful as what it is handed, and ${binds} is one value, whose calls share one ` +
       "colour; write `->!` for a function that is impure and may fail, or `->` for one that is pure and cannot fail";
-    const arm = "let g(): Unit = match (run, 1)\n    ((m: (() ->! Unit) >-> Unit), n) => m!(save0)\n";
+    const arm = "let g(): Unit = match (run, 1) with\n    ((m: (() ->! Unit) >-> Unit), n) => m!(save0)\n";
     expect(refusal(WORLD + arm + OUT)).toEqual({
       message: frame("what an arm binds"),
       fixed: [WORLD + arm.replace(">->", "->!") + OUT],
     });
-    expect(messages(WORLD + "let g(): Unit =\n    for (m: (() ->! Unit) >-> Unit) in [run]\n        m!(save0)\n" + OUT))
+    expect(messages(WORLD + "let g(): Unit =\n    for (m: (() ->! Unit) >-> Unit) in [run] do\n        m!(save0)\n" + OUT))
       .toEqual([frame("what a `for` head binds")]);
     expect(messages(WORLD + "let k = (((m: (() ->! Unit) >-> Unit), n)) => m!(save0)\nlet g(): Unit = k!((run, 1))\n" + OUT))
       .toEqual([frame("what a lambda's parameter binds")]);
@@ -965,30 +965,30 @@ describe("§2.9 a following arrow follows the binders' class (#1510)", () => {
     expect(messages(WORLD + "exception Oops\nlet g(): Int = try throw^(Oops)\n    catch\n        (e: () >-> Unit) => 1\n" + OUT))
       .toContain(frame("what an arm binds"));
     // It reads as its constant, so a bare call of it asks for the mark the constant implies.
-    expect(messages(WORLD + "let g(): Unit = match (run, 1)\n    ((m: (() ->! Unit) >-> Unit), n) => m(noop)\n" + OUT))
+    expect(messages(WORLD + "let g(): Unit = match (run, 1) with\n    ((m: (() ->! Unit) >-> Unit), n) => m(noop)\n" + OUT))
       .toEqual([frame("what an arm binds"), "this call is impure and may fail, so `m` wants `!`, not no mark"]);
   });
 
   test("it leads the passes-through and type-argument rows, and names each arrow's own constant", () => {
-    const refused = messages(WORLD + "let g(): Int = match ([noop], 1)\n    ((v: Vector(() >-> Unit)), n) => n\n" + OUT);
+    const refused = messages(WORLD + "let g(): Int = match ([noop], 1) with\n    ((v: Vector(() >-> Unit)), n) => n\n" + OUT);
     expect(refused).toEqual([
       "`>->` means only as effectful as what it is handed, and what an arm binds is one value, whose calls share " +
         "one colour; write `->!` for a function that is impure and may fail, or `->` for one that is pure and cannot fail",
     ]);
     // Over a callback marked only for failure, the passes-through row does not speak.
-    expect(messages(WORLD + "let check(c: () ->^ Unit): Unit = c^()\nlet g(): Unit = match (check, 1)\n" +
+    expect(messages(WORLD + "let check(c: () ->^ Unit): Unit = c^()\nlet g(): Unit = match (check, 1) with\n" +
       "    ((m: (() ->^ Unit) >-> Unit), n) => m!(() => ())\n" + OUT)).toEqual([
       "`>->` means only as effectful as what it is handed, and what an arm binds is one value, whose calls share " +
         "one colour; write `->!` for a function that is impure and may fail, or `->` for one that is pure and cannot fail",
     ]);
-    expect(messages(WORLD + "let g(): Int = match ([noop], 1)\n    ((v: Vector(() >^> Unit)), n) => n\n" + OUT)).toEqual([
+    expect(messages(WORLD + "let g(): Int = match ([noop], 1) with\n    ((v: Vector(() >^> Unit)), n) => n\n" + OUT)).toEqual([
       "`>^>` means only as effectful as what it is handed, and what an arm binds is one value, whose calls share " +
         "one colour; write `->^` for a function that is pure and may fail, or `->` for one that is pure and cannot fail",
     ]);
   });
 
   test("inside a parameter type of a head binder's type, the parameter-type frame", () => {
-    expect(messages(WORLD + "let use(h: () ->! Unit): Unit = ()\nlet g(): Unit = match (use, 1)\n" +
+    expect(messages(WORLD + "let use(h: () ->! Unit): Unit = ()\nlet g(): Unit = match (use, 1) with\n" +
       "    ((m: (() >-> Unit) -> Unit), n) => m(noop)\n" + OUT)).toEqual([
       "`>->` means only as effectful as what it is handed, and nothing is handed here — an arrow inside a parameter " +
         "type, other than a callback's own, is a constant; write `->!` for a function that is impure and may fail, " +
@@ -1012,11 +1012,11 @@ describe("§2.9 a head binder's type writes no callback (#1510)", () => {
       "this callback is written `->!`, which accepts any function, and this accepts only one that is pure and cannot " +
         "fail — write its arrow `->`",
     ]);
-    const arm = messages(WORLD + "let g(): Int = match (run, 1)\n    ((m: (() ->! Unit) -> Unit), n) => n\n" + OUT);
+    const arm = messages(WORLD + "let g(): Int = match (run, 1) with\n    ((m: (() ->! Unit) -> Unit), n) => n\n" + OUT);
     expect(arm).toHaveLength(1);
     expect(arm[0]).not.toContain("callback");
     // With the constant written around it, the arm fits.
-    expect(scheme(WORLD + "let g(): Unit = match (run, 1)\n    ((m: (() ->! Unit) ->! Unit), n) => m!(noop)\n" + OUT, "g"))
+    expect(scheme(WORLD + "let g(): Unit = match (run, 1) with\n    ((m: (() ->! Unit) ->! Unit), n) => m!(noop)\n" + OUT, "g"))
       .toBe("() ->! Unit");
   });
 });
@@ -1046,7 +1046,7 @@ describe("§12 a claim the part does not fit (#1510)", () => {
         ['let g(q): Unit =\n    let (x: (Int, Int)) = ("s", q)\n    ()\n', "type mismatch: expected Int, found String", "(x: (String, _))"],
         // At an arm, as at a `let`.
         [
-          "let g(p: (Bool, Int)): Int = match p\n    (b: String, n) => n\n",
+          "let g(p: (Bool, Int)): Int = match p with\n    (b: String, n) => n\n",
           "type mismatch: expected String, found Bool",
           "(b: Bool)",
         ],
@@ -1081,7 +1081,7 @@ describe("§12 a claim the part does not fit (#1510)", () => {
     expect(messages(record.fixed[0]!)).toEqual([]);
     // A string may hold a line break of its own, so a claim holding one over
     // lines is not quoted: the rewrite names the type alone.
-    const string = 'let g(x: (String, Int)): Unit = match x\n    (("a\n        : b", y): (Int, Int)) => ()\n    _ => ()\n';
+    const string = 'let g(x: (String, Int)): Unit = match x with\n    (("a\n        : b", y): (Int, Int)) => ()\n    _ => ()\n';
     expect(diagnostic(string + OUT).fixes!.map(({ message }) => message)).toEqual(["write `(String, Int)`"]);
     // A declared variable the part is not: the variable's report, with the
     // claim's rewrite.
@@ -1103,9 +1103,9 @@ describe("§12 a claim the part does not fit (#1510)", () => {
     // A unification the claim's sets off at another span, a constraint met
     // there, keeps that span's report, with no rewrite of the claim.
     const elsewhere = [
-      "let g(q, n: Int) =\n    for x in q\n        ignore(x + n)\n    let (v: Vector(String)) = q\n    ()\n",
-      WORLD + "let g(q) =\n    for f in q\n        ignore([f, save0])\n    let (v: Vector(() -> Unit)) = q\n    ()\n",
-      "let g(q, x: a): Unit =\n    for y in q\n        ignore([y, x])\n    let (v: Vector(Int)) = q\n    ()\n",
+      "let g(q, n: Int) =\n    for x in q do\n        ignore(x + n)\n    let (v: Vector(String)) = q\n    ()\n",
+      WORLD + "let g(q) =\n    for f in q do\n        ignore([f, save0])\n    let (v: Vector(() -> Unit)) = q\n    ()\n",
+      "let g(q, x: a): Unit =\n    for y in q do\n        ignore([y, x])\n    let (v: Vector(Int)) = q\n    ()\n",
     ];
     expect(diagnostic(elsewhere[0]! + OUT).message).toBe("type mismatch: expected Int, found String");
     expect(diagnostic(elsewhere[1]! + OUT).message).toMatch(/^this position's arrow says the function is impure and may fail/);
@@ -1196,8 +1196,8 @@ describe("§12 a claim the part does not fit (#1510)", () => {
     for (
       const [body, written] of [
         ["let g(p: (Int, String)): Float =\n    let (x: Float, s) = p\n    x\n", "Float.fromInt(x)"],
-        ["let g(p: (Int, String)): Float = match p\n    (x: Float, s) => x\n", "Float.fromInt(x)"],
-        ["let g(xs: Vector(Int)): Unit =\n    for (x: Float) in xs\n        ignore(x)\n", "Float.fromInt(x)"],
+        ["let g(p: (Int, String)): Float = match p with\n    (x: Float, s) => x\n", "Float.fromInt(x)"],
+        ["let g(xs: Vector(Int)): Unit =\n    for (x: Float) in xs do\n        ignore(x)\n", "Float.fromInt(x)"],
         ["let k = ((x: Dec, s): (Int, String)) => x\n", "Dec.fromInt(x)"],
       ] as const
     ) {
@@ -1229,7 +1229,7 @@ describe("§12 a claim the part does not fit (#1510)", () => {
           "type mismatch: expected Float, found Int",
           "(q: (Int, String))",
         ],
-        ["let g(p: (Int, String)): Int = match p\n    (_: Float, s) => 0\n", "type mismatch: expected Float, found Int", "(_: Int)"],
+        ["let g(p: (Int, String)): Int = match p with\n    (_: Float, s) => 0\n", "type mismatch: expected Float, found Int", "(_: Int)"],
       ] as const
     ) {
       const each = diagnostic(body + OUT);
@@ -1258,9 +1258,9 @@ describe("§12 a claim the part does not fit (#1510)", () => {
     // At every position, each colour on its own.
     for (
       const [body, rewrite] of [
-        ["let g(x: (() ->! Unit, Int)): Unit = match x\n    ((f: () -> Unit), n) => f!()\n", "(f: () ->! Unit)"],
-        ["let g(xs: Vector(() ->! Unit)): Unit =\n    for (f: () -> Unit) in xs\n        f!()\n", "(f: () ->! Unit)"],
-        ["let g(xs: Vector(() ->! Unit)): Unit =\n    for (f: () ->^ Unit) in xs\n        f!()\n", "(f: () ->! Unit)"],
+        ["let g(x: (() ->! Unit, Int)): Unit = match x with\n    ((f: () -> Unit), n) => f!()\n", "(f: () ->! Unit)"],
+        ["let g(xs: Vector(() ->! Unit)): Unit =\n    for (f: () -> Unit) in xs do\n        f!()\n", "(f: () ->! Unit)"],
+        ["let g(xs: Vector(() ->! Unit)): Unit =\n    for (f: () ->^ Unit) in xs do\n        f!()\n", "(f: () ->! Unit)"],
       ] as const
     ) {
       const each = diagnostic(WORLD + body + OUT);
@@ -1322,8 +1322,8 @@ describe("§12 a claim the part does not fit (#1510)", () => {
     // to its own report.
     for (
       const [declaration, matched] of [
-        ["let g(o) =\n    let p: Option(() -> Unit) = o\n    match o\n", "        Some((f: () ->! Unit)) => f!()\n        _ => ()\n"],
-        ["let g(t) =\n    let p: (() -> Unit, Int) = t\n    match t\n", "        ((f: () ->! Unit), _) => f!()\n"],
+        ["let g(o) =\n    let p: Option(() -> Unit) = o\n    match o with\n", "        Some((f: () ->! Unit)) => f!()\n        _ => ()\n"],
+        ["let g(t) =\n    let p: (() -> Unit, Int) = t\n    match t with\n", "        ((f: () ->! Unit), _) => f!()\n"],
       ] as const
     ) {
       const source = declaration + matched + OUT;
@@ -1341,7 +1341,7 @@ describe("§12 a claim the part does not fit (#1510)", () => {
     // An arrow that marks one colour, where that is the one the report names.
     // An arrow a parameter's type fixed, met in the data it holds.
     const fixed = (payload: string, claim: string): string =>
-      `let pin(x: Option(${payload})): Unit = ()\nlet g(o) =\n    pin(o)\n    match o\n        Some((f: ${claim})) => ()\n` +
+      `let pin(x: Option(${payload})): Unit = ()\nlet g(o) =\n    pin(o)\n    match o with\n        Some((f: ${claim})) => ()\n` +
       "        _ => ()\n" + OUT;
     for (const arrow of ["->~", "->^"]) {
       const source = fixed("() -> Unit", `() ${arrow} Unit`);
@@ -1390,7 +1390,7 @@ describe("§12 a claim the part does not fit (#1510)", () => {
       expect(messages(applied(once, left!))).toEqual([]);
     }
     // In a parameter of the claim's type, an arrow silent on a colour the fixed part's parameter marks: marked on it.
-    const handedFixed = "let g(o: Option((() ->! Unit) -> Unit)): Unit = match o\n    Some((f: (() -> Unit) -> Unit)) => ()\n" +
+    const handedFixed = "let g(o: Option((() ->! Unit) -> Unit)): Unit = match o with\n    Some((f: (() -> Unit) -> Unit)) => ()\n" +
       "    _ => ()\n" + OUT;
     const handed = diagnostic(handedFixed);
     expect(handed.message).toMatch(/^this position's arrow says the function is impure and may fail, and the pure arrow/);
@@ -1418,7 +1418,7 @@ describe("§12 a claim the part does not fit (#1510)", () => {
     // At an arm, whose type writes no callback, the claim's `->!` hands any
     // function to one that takes only a pure one.
     // The report is in the callback row's words, less the callback.
-    const source = WORLD + "let g(x: ((() -> Unit) -> Unit, Int)): Unit = match x\n    ((m: (() ->! Unit) -> Unit), n) => m(noop)\n" + OUT;
+    const source = WORLD + "let g(x: ((() -> Unit) -> Unit, Int)): Unit = match x with\n    ((m: (() ->! Unit) -> Unit), n) => m(noop)\n" + OUT;
     const refused = diagnostic(source);
     expect(refused.message).toBe(
       "this `->!` accepts any function, and `m` accepts only one that is pure and cannot fail — write its arrow `->`",
@@ -1430,23 +1430,23 @@ describe("§12 a claim the part does not fit (#1510)", () => {
     for (
       const [body, message, rewrite] of [
         [
-          "let g(x: ((() ->^ Unit) -> Unit, Int)): Unit = match x\n    ((m: (() ->! Unit) -> Unit), n) => m(noop)\n",
+          "let g(x: ((() ->^ Unit) -> Unit, Int)): Unit = match x with\n    ((m: (() ->! Unit) -> Unit), n) => m(noop)\n",
           "this `->!` accepts any function, and `m` accepts only a pure one — write its arrow `->^`",
           "(m: (() ->^ Unit) -> Unit)",
         ],
         // Only what cannot hold changes: a colour the claim leaves silent stays silent.
         [
-          "let g(x: ((() ->~ Unit) -> Unit, Int)): Unit = match x\n    ((m: (() ->^ Unit) -> Unit), n) => m(noop)\n",
+          "let g(x: ((() ->~ Unit) -> Unit, Int)): Unit = match x with\n    ((m: (() ->^ Unit) -> Unit), n) => m(noop)\n",
           "this `->^` accepts any function that is pure, and `m` accepts only one that cannot fail — write its arrow `->`",
           "(m: (() -> Unit) -> Unit)",
         ],
         [
-          "let g(x: ((() -> Unit) -> Unit, Int)): Unit = match x\n    ((_: (() ->! Unit) -> Unit), n) => ()\n",
+          "let g(x: ((() -> Unit) -> Unit, Int)): Unit = match x with\n    ((_: (() ->! Unit) -> Unit), n) => ()\n",
           "this `->!` accepts any function, and the part accepts only one that is pure and cannot fail — write its arrow `->`",
           "(_: (() -> Unit) -> Unit)",
         ],
         [
-          "let g(xs: Vector((() -> Unit) -> Unit)): Unit =\n    for (m: (() ->! Unit) -> Unit) in xs\n        m(noop)\n",
+          "let g(xs: Vector((() -> Unit) -> Unit)): Unit =\n    for (m: (() ->! Unit) -> Unit) in xs do\n        m(noop)\n",
           "this `->!` accepts any function, and `m` accepts only one that is pure and cannot fail — write its arrow `->`",
           "(m: (() -> Unit) -> Unit)",
         ],
@@ -1458,7 +1458,7 @@ describe("§12 a claim the part does not fit (#1510)", () => {
       expect(messages(applied(WORLD + body + OUT, each))).toEqual([]);
     }
     // An arrow an alias spells there: named by what it marks, and the part's type whole.
-    for (const head of ["match x\n    ((m: (Cb) -> Unit), n) => m(noop)\n", "match x\n    ((_: (Cb) -> Unit), n) => ()\n"]) {
+    for (const head of ["match x with\n    ((m: (Cb) -> Unit), n) => m(noop)\n", "match x with\n    ((_: (Cb) -> Unit), n) => ()\n"]) {
       const alias = WORLD + "type Cb = () ->! Unit\nlet g(x: ((() -> Unit) -> Unit, Int)): Unit = " + head + OUT;
       const aliased = diagnostic(alias);
       const part = head.includes("(m:") ? "`m`" : "the part";
@@ -1474,7 +1474,7 @@ describe("§12 a claim the part does not fit (#1510)", () => {
     }
     // Where this module cannot spell the part, the type removed.
     const unspelled = WORLD + "type Cb = ({a: Int}) ->! Unit\nlet g(x: (({a: Int}) -> Unit) -> Unit): Unit =\n" +
-      "    for (m: (Cb) -> Unit) in [x]\n        ()\n" + OUT;
+      "    for (m: (Cb) -> Unit) in [x] do\n        ()\n" + OUT;
     const removed = diagnostic(unspelled);
     expect(removed.message).toBe(
       "the `->!` this type spells in a parameter accepts any function, and `m` accepts only one that is pure and cannot " +

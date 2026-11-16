@@ -33,7 +33,7 @@ describe("an arm reached through the door matches the declared tag", () => {
       ["/shapes.hex",
         "module Shapes\n\n" + SHAPES +
         "export fun name(s: Shape): String =\n" +
-        "    match s\n" +
+        "    match s with\n" +
         "        Circle(r) => \"round\"\n" +
         "        Square(x) => \"boxy\"\n"],
       ["/main.hex",
@@ -56,7 +56,7 @@ describe("an arm reached through the door matches the declared tag", () => {
       ["/main.hex",
         "module Main\n\n" + 'import Shapes\n' +
         "export fun name(s: Shapes.Shape): String =\n" +
-        "    match s\n" +
+        "    match s with\n" +
         "        Circle(r) => \"round\"\n" +
         "        Square(x) => \"boxy\"\n" +
         "export let first: String = name(Shapes.unitCircle)\n" +
@@ -77,7 +77,7 @@ describe("an arm reached through the door matches the declared tag", () => {
       ["/main.hex",
         "module Main\n\n" + 'import Traffic\n' +
         "export fun word(s: Traffic.Signal): String =\n" +
-        "    match s\n" +
+        "    match s with\n" +
         "        Stop => \"halt\"\n" +
         "        Go => \"proceed\"\n" +
         "export let stopped: String = word(Traffic.halt)\n" +
@@ -93,7 +93,7 @@ describe("an arm reached through the door matches the declared tag", () => {
       ["/main.hex",
         "module Main\n\n" + 'import Shapes\n' +
         "export fun radius(s: Shapes.Shape): Float =\n" +
-        "    match s\n" +
+        "    match s with\n" +
         "        Circle(r) => r\n" +
         "        Square(x) => x\n"],
     ]).modules.find(({ source }) => source.path === "/main.hex")!.javascript.text;
@@ -114,7 +114,7 @@ describe("an arm reached through the door matches the declared tag", () => {
       ["/main.hex",
         "module Main\n\n" + 'import Shapes\n' +
         "export fun only(s: Shapes.Shape): Float =\n" +
-        "    match s\n" +
+        "    match s with\n" +
         "        Circle(r) => r\n"],
     ]).diagnostics.map(({ message }) => message)).toEqual([
       // #607 tier 1, widened by the door (#763): every constructor of the
@@ -146,7 +146,7 @@ describe("the arms that never reach the switch", () => {
       ["/main.hex",
         "module Main\n\n" + 'import Parcel\n' +
         "export fun contents(p: Parcel.Parcel): String =\n" +
-        "    match p\n" +
+        "    match p with\n" +
         "        Wrapped(Circle(r)) => \"round\"\n" +
         "        Wrapped(Square(x)) => \"square\"\n" +
         "        Empty => \"empty\"\n" +
@@ -177,7 +177,7 @@ describe("the arms that never reach the switch", () => {
       ["/main.hex",
         "module Main\n\n" + 'import Guarded\n' +
         "export fun scaled(s: Guarded.Shape): Float =\n" +
-        "    match s\n" +
+        "    match s with\n" +
         "        Circle(r) when r > 0.5 => r * 10.0\n" +
         "        Circle(r) => r\n" +
         "        Square(x) => x\n" +
@@ -202,7 +202,7 @@ describe("what the reader is shown stays the spelling the reader wrote", () => {
       ["/main.hex",
         "module Main\n\n" + 'import Shapes\n' +
         "export fun area(s: Shapes.Shape): Float =\n" +
-        "    match s\n" +
+        "    match s with\n" +
         `        ${arm} => 1.0\n` +
         "        Square(x) => x\n"],
     ]).diagnostics.map(({ message }) => message);
@@ -225,7 +225,7 @@ describe("what the reader is shown stays the spelling the reader wrote", () => {
       ["/main.hex",
         "module Main\n\n" + 'import Shapes\n' +
         "export fun twice(s: Shapes.Shape): Float =\n" +
-        "    match s\n" +
+        "    match s with\n" +
         "        Circle(r) => r\n" +
         "        Circle(q) => q\n" +
         "        Square(x) => x\n"],
@@ -244,7 +244,7 @@ describe("what the reader is shown stays the spelling the reader wrote", () => {
       ["/main.hex",
         "module Main\n\n" + 'import Shapes\n' +
         "export fun area(s: Shapes.Shape): Float =\n" +
-        "    match s\n" +
+        "    match s with\n" +
         "        Round(r) => r\n" +
         "        _ => 0.0\n"],
     ]).diagnostics.map(({ message }) => message)).toEqual([
@@ -303,7 +303,7 @@ describe("the prelude's constructors read as any other module's do", () => {
     const exports = await runProject([
       ["/main.hex",
         "module Main\n\n" + "export fun unwrap(o: Option(Int)): Int =\n" +
-        "    match o\n" +
+        "    match o with\n" +
         "        Some(v) => v + 1\n" +
         "        None => 0\n" +
         "export let full: Int = unwrap(Some(41))\n" +
@@ -317,7 +317,7 @@ describe("the prelude's constructors read as any other module's do", () => {
     expect(compileFiles([
       ["/main.hex",
         "module Main\n\n" + "export fun sign(a: Int, b: Int): Int =\n" +
-        "    match a.compare(b)\n" +
+        "    match a.compare(b) with\n" +
         "        Less => -1\n" +
         "        Equal => 0\n" +
         "        Greater => 1\n"],

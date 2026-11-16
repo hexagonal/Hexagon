@@ -201,7 +201,7 @@ describe("a type-only prelude mention has its instances", () => {
     expect(diagnostics([[
       "/main.hex",
       "module Main\n\n" + "export fun g(a: Ordering): Int =\n" +
-      "    match a\n" +
+      "    match a with\n" +
       "        Ordering.Less => 0\n" +
       "        _ => 1\n" +
       "export fun f(a: Ordering, b: Ordering): Bool = a == b\n",

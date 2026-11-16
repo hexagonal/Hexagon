@@ -195,7 +195,7 @@ let pairNode(first: a, second: a): Node(a) =
 let indexOfKey(entries: Node((k, v)), count: Int, key: k, equal: (k, k) -> Bool): Option(Int) =
     var found: Option(Int) = None
     var index = 0
-    while index < count
+    while index < count do
         let (storedKey, _) = Node.get(entries, index)
         if equal(storedKey, key) then
             found := Some(index)
@@ -210,7 +210,7 @@ let indexOfKey(entries: Node((k, v)), count: Int, key: k, equal: (k, k) -> Bool)
 -- code at all. Recursion depth is bounded by the seven shifts, so this is
 -- stack-safe.
 fun lookup(tree: Tree(k, v), hash: Int, key: k, shift: Int, equal: (k, k) -> Bool): Option(v) =
-    match tree
+    match tree with
         Entry(entryHash, entryKey, value) =>
             if entryHash == hash and equal(entryKey, key) then
                 Some(value)
@@ -218,7 +218,7 @@ fun lookup(tree: Tree(k, v), hash: Int, key: k, shift: Int, equal: (k, k) -> Boo
                 None
         Collision(collisionHash, count, entries) =>
             if collisionHash == hash then
-                match indexOfKey(entries, count, key, equal)
+                match indexOfKey(entries, count, key, equal) with
                     None => None
                     Some(at) =>
                         let (_, value) = Node.get(entries, at)
@@ -237,7 +237,7 @@ fun lookup(tree: Tree(k, v), hash: Int, key: k, shift: Int, equal: (k, k) -> Boo
 -- would be work for an answer already in hand, and would fix a placement the
 -- entry has so far managed without.
 let get<k: Hash>(trie: HashTrie(k, v), key: k): Option(v) =
-    match trie.root
+    match trie.root with
         NoRoot => None
         Sole(soleKey, soleValue) =>
             if soleKey == key then Some(soleValue) else None
@@ -245,7 +245,7 @@ let get<k: Hash>(trie: HashTrie(k, v), key: k): Option(v) =
 
 -- Whether `trie` binds `key`.
 let containsKey<k: Hash>(trie: HashTrie(k, v), key: k): Bool =
-    match get(trie, key)
+    match get(trie, key) with
         None => False
         Some(_) => True
 
@@ -258,7 +258,7 @@ let containsKey<k: Hash>(trie: HashTrie(k, v), key: k): Bool =
 -- key but need not be one value, so which concrete key a trie physically holds
 -- is observable, and set intersection has to be able to name it.
 fun lookupKey(tree: Tree(k, v), hash: Int, key: k, shift: Int, equal: (k, k) -> Bool): Option(k) =
-    match tree
+    match tree with
         Entry(entryHash, entryKey, _) =>
             if entryHash == hash and equal(entryKey, key) then
                 Some(entryKey)
@@ -266,7 +266,7 @@ fun lookupKey(tree: Tree(k, v), hash: Int, key: k, shift: Int, equal: (k, k) -> 
                 None
         Collision(collisionHash, count, entries) =>
             if collisionHash == hash then
-                match indexOfKey(entries, count, key, equal)
+                match indexOfKey(entries, count, key, equal) with
                     None => None
                     Some(at) =>
                         let (collidedKey, _) = Node.get(entries, at)
@@ -285,7 +285,7 @@ fun lookupKey(tree: Tree(k, v), hash: Int, key: k, shift: Int, equal: (k, k) -> 
 -- the two keys and nothing else, because placing an entry to read it back would
 -- fix a placement it has so far managed without.
 let representative<k: Hash>(trie: HashTrie(k, v), key: k): Option(k) =
-    match trie.root
+    match trie.root with
         NoRoot => None
         Sole(soleKey, _) =>
             if soleKey == key then Some(soleKey) else None
@@ -335,7 +335,7 @@ fun insert(
     shift: Int,
     equal: (k, k) -> Bool,
 ): (Tree(k, v), Bool) =
-    match tree
+    match tree with
         Entry(entryHash, entryKey, entryValue) =>
             if entryHash != hash then
                 (splitEntry(tree, entryHash, Entry(hash, key, value), hash, shift), True)
@@ -351,7 +351,7 @@ fun insert(
             if collisionHash != hash then
                 (splitEntry(tree, collisionHash, Entry(hash, key, value), hash, shift), True)
             else
-                match indexOfKey(entries, count, key, equal)
+                match indexOfKey(entries, count, key, equal) with
                     Some(at) =>
                         let (storedKey, _) = Node.get(entries, at)
                         (Collision(hash, count, Node.set(entries, at, (storedKey, value))), False)
@@ -371,7 +371,7 @@ fun insert(
 -- (`placed` rather than `hash`: the prelude's `Hash` member of that name is in
 -- scope here, and a `let` may not rebind it.)
 let set<k: Hash>(trie: HashTrie(k, v), key: k, value: v): HashTrie(k, v) =
-    match trie.root
+    match trie.root with
         -- A first entry into an empty trie is placed at once rather than left
         -- unplaced: this operation carries the `Hash` evidence `singleton` does
         -- not, so there is nothing to defer. `Sole` is `singleton`'s arm, not a
@@ -423,7 +423,7 @@ let collapse(bitmap: Int, children: Node(Tree(k, v))): Option(Tree(k, v)) =
         Some(Branch(bitmap, children))
     else
         let lone = Node.get(children, 0)
-        match lone
+        match lone with
             Entry(_, _, _) => Some(lone)
             Collision(_, _, _) => Some(lone)
             Branch(_, _) => Some(Branch(bitmap, children))
@@ -441,7 +441,7 @@ fun discard(
     shift: Int,
     equal: (k, k) -> Bool,
 ): (Option(Tree(k, v)), Bool) =
-    match tree
+    match tree with
         Entry(entryHash, entryKey, _) =>
             if entryHash == hash and equal(entryKey, key) then
                 (None, True)
@@ -451,7 +451,7 @@ fun discard(
             if collisionHash != hash then
                 (Some(tree), False)
             else
-                match indexOfKey(entries, count, key, equal)
+                match indexOfKey(entries, count, key, equal) with
                     None => (Some(tree), False)
                     Some(at) =>
                         if count > 2 then
@@ -468,7 +468,7 @@ fun discard(
                 let slot = bitCountBelow(bitmap, index)
                 let (child, removed) = discard(Node.get(children, slot), hash, key, shift + step, equal)
                 if removed then
-                    match child
+                    match child with
                         Some(replacement) =>
                             (collapse(bitmap, Node.set(children, slot, replacement)), True)
                         None =>
@@ -482,7 +482,7 @@ fun discard(
 -- unchanged — the same value, not a copy of it. Removing the last entry yields
 -- the one shared `empty`.
 let remove<k: Hash>(trie: HashTrie(k, v), key: k): HashTrie(k, v) =
-    match trie.root
+    match trie.root with
         NoRoot => trie
         -- Unplaced, so the question is one comparison: the sole entry either is
         -- the one being unbound — leaving the shared `empty` — or the removal
@@ -492,7 +492,7 @@ let remove<k: Hash>(trie: HashTrie(k, v), key: k): HashTrie(k, v) =
         Rooted(tree) =>
             let (root, removed) = discard(tree, placement(key), key, 0, (left, right) => left == right)
             if removed then
-                match root
+                match root with
                     None => empty
                     Some(replacement) =>
                         HashTrie({
@@ -522,7 +522,7 @@ union Frames(k, v) =
 -- descends one trie level or pops one exhausted frame, and both are bounded by
 -- the depth, so this is stack-safe however many entries the trie holds.
 fun advance(frames: Frames(k, v)): Option(((k, v), Frames(k, v))) =
-    match frames
+    match frames with
         NoFrames => None
         Pairs(pairs, pairAt, pairCount, pairRest) =>
             if pairAt >= pairCount then
@@ -534,7 +534,7 @@ fun advance(frames: Frames(k, v)): Option(((k, v), Frames(k, v))) =
                 advance(slotRest)
             else
                 let following = Slots(trees, slotAt + 1, slotCount, slotRest)
-                match Node.get(trees, slotAt)
+                match Node.get(trees, slotAt) with
                     Entry(_, key, value) => Some(((key, value), following))
                     Collision(_, entryCount, entries) => advance(Pairs(entries, 0, entryCount, following))
                     Branch(bitmap, children) => advance(Slots(children, 0, bitCount(bitmap), following))
@@ -551,7 +551,7 @@ fun advance(frames: Frames(k, v)): Option(((k, v), Frames(k, v))) =
 -- to enumerate it would be the only thing in the file that hashed a key without
 -- being asked a keyed question.
 let entries(trie: HashTrie(k, v)): Seq((k, v)) =
-    match trie.root
+    match trie.root with
         NoRoot => Seq.empty
         Sole(soleKey, soleValue) => Seq.singleton((soleKey, soleValue))
         Rooted(tree) => Seq.unfold(Slots(nodeSingleton(tree), 0, 1, NoFrames), advance)
@@ -573,12 +573,12 @@ let entries(trie: HashTrie(k, v)): Seq((k, v)) =
 
 -- `initial` combined with every entry under `tree`, in traversal order.
 fun foldTree(tree: Tree(k, v), initial: b, combine: (b, k, v) ->! b): b =
-    match tree
+    match tree with
         Entry(_, key, value) => combine!(initial, key, value)
         Collision(_, count, pairs) =>
             var accumulated = initial
             var index = 0
-            while index < count
+            while index < count do
                 let (key, value) = Node.get(pairs, index)
                 accumulated := combine!(accumulated, key, value)
                 index := index + 1
@@ -587,7 +587,7 @@ fun foldTree(tree: Tree(k, v), initial: b, combine: (b, k, v) ->! b): b =
             let count = bitCount(bitmap)
             var accumulated = initial
             var index = 0
-            while index < count
+            while index < count do
                 accumulated := foldTree!(Node.get(children, index), accumulated, combine)
                 index := index + 1
             accumulated
@@ -595,13 +595,13 @@ fun foldTree(tree: Tree(k, v), initial: b, combine: (b, k, v) ->! b): b =
 -- The first entry under `tree`, in traversal order, that `matches` accepts. The
 -- walk stops there: no later entry is handed to `matches`.
 fun findTree(tree: Tree(k, v), matches: (k, v) ->! Bool): Option((k, v)) =
-    match tree
+    match tree with
         Entry(_, key, value) =>
             if matches!(key, value) then Some((key, value)) else None
         Collision(_, count, pairs) =>
             var found: Option((k, v)) = None
             var index = 0
-            while index < count
+            while index < count do
                 let (key, value) = Node.get(pairs, index)
                 if matches!(key, value) then
                     found := Some((key, value))
@@ -613,8 +613,8 @@ fun findTree(tree: Tree(k, v), matches: (k, v) ->! Bool): Option((k, v)) =
             let count = bitCount(bitmap)
             var found: Option((k, v)) = None
             var index = 0
-            while index < count
-                match findTree!(Node.get(children, index), matches)
+            while index < count do
+                match findTree!(Node.get(children, index), matches) with
                     None => index := index + 1
                     Some(entry) =>
                         found := Some(entry)
@@ -637,14 +637,14 @@ union Pruned(k, v) =
 -- `discard`'s do. A kept key is the representative the trie already held
 -- (Collections Part 4 section 5.4).
 fun filterTree(tree: Tree(k, v), keep: (k, v) ->! Bool): Pruned(k, v) =
-    match tree
+    match tree with
         Entry(_, key, value) =>
             if keep!(key, value) then Whole(1) else Emptied
         Collision(hash, count, pairs) =>
             var kept = pairs
             var keptCount = 0
             var index = 0
-            while index < count
+            while index < count do
                 let (key, value) = Node.get(pairs, index)
                 if keep!(key, value) then
                     keptCount := keptCount + 1
@@ -670,9 +670,9 @@ fun filterTree(tree: Tree(k, v), keep: (k, v) ->! Bool): Pruned(k, v) =
             -- shrinks as emptied children leave it.
             var slot = 0
             var digitAt = 0
-            while digitAt <= 31
+            while digitAt <= 31 do
                 if bitTest(bitmap, digitAt) then
-                    match filterTree!(Node.get(children, bitCountBelow(bitmap, digitAt)), keep)
+                    match filterTree!(Node.get(children, bitCountBelow(bitmap, digitAt)), keep) with
                         Whole(survivors) =>
                             keptCount := keptCount + survivors
                             slot := slot + 1
@@ -689,7 +689,7 @@ fun filterTree(tree: Tree(k, v), keep: (k, v) ->! Bool): Pruned(k, v) =
             if not changed then
                 Whole(keptCount)
             else
-                match collapse(keptBitmap, keptChildren)
+                match collapse(keptBitmap, keptChildren) with
                     None => Emptied
                     Some(compacted) => Rebuilt(compacted, keptCount)
 
@@ -705,7 +705,7 @@ fun filterTree(tree: Tree(k, v), keep: (k, v) ->! Bool): Pruned(k, v) =
 -- whichever route is taken. Collision nodes are rare, and their kept keys are
 -- compared pairwise anyway.
 fun reshape(tree: Tree(k, v), transform: ((k, v)) ->! (j, w), hashOf: j -> Int): Tree(j, w) =
-    match tree
+    match tree with
         Entry(_, key, value) =>
             let (newKey, newValue) = transform!((key, value))
             Entry(hashOf(newKey), newKey, newValue)
@@ -726,7 +726,7 @@ fun pairsKeepSlot(pairs: Node((j, w)), index: Int, count: Int, hash: Int, hashOf
         if hashOf(key) != hash then
             False
         else
-            match indexOfKey(pairs, index, key, equal)
+            match indexOfKey(pairs, index, key, equal) with
                 Some(_) => False
                 None => pairsKeepSlot(pairs, index + 1, count, hash, hashOf, equal)
 
@@ -737,24 +737,24 @@ fun pairsKeepSlot(pairs: Node((j, w)), index: Int, count: Int, hash: Int, hashOf
 -- mixed hashes and cannot be equal, so only a collision needs `equal`. It stops
 -- at the first entry that does not keep its slot.
 fun keepsEverySlot(original: Tree(k, v), shadow: Tree(j, w), hashOf: j -> Int, equal: (j, j) -> Bool): Bool =
-    match original
+    match original with
         Entry(hash, _, _) =>
-            match shadow
+            match shadow with
                 Entry(newHash, _, _) => newHash == hash
                 Collision(_, _, _) => False
                 Branch(_, _) => False
         Collision(hash, count, _) =>
-            match shadow
+            match shadow with
                 Collision(_, _, newPairs) => pairsKeepSlot(newPairs, 0, count, hash, hashOf, equal)
                 Entry(_, _, _) => False
                 Branch(_, _) => False
         Branch(bitmap, children) =>
-            match shadow
+            match shadow with
                 Branch(_, newChildren) =>
                     let count = bitCount(bitmap)
                     var allKept = True
                     var index = 0
-                    while index < count
+                    while index < count do
                         if keepsEverySlot(Node.get(children, index), Node.get(newChildren, index), hashOf, equal) then
                             index := index + 1
                         else
@@ -771,18 +771,18 @@ fun keepsEverySlot(original: Tree(k, v), shadow: Tree(j, w), hashOf: j -> Int, e
 -- The answer changes no result, only the route: placing whole skips building
 -- `split`'s move list, about a fifth of the time when every key moves.
 fun anyKept(original: Tree(k, v), shadow: Tree(j, w), hashOf: j -> Int): Bool =
-    match original
+    match original with
         Entry(hash, _, _) =>
-            match shadow
+            match shadow with
                 Entry(newHash, _, _) => newHash == hash
                 Collision(_, _, _) => False
                 Branch(_, _) => False
         Collision(hash, count, _) =>
-            match shadow
+            match shadow with
                 Collision(_, _, newPairs) =>
                     var found = False
                     var index = 0
-                    while index < count
+                    while index < count do
                         let (key, _) = Node.get(newPairs, index)
                         if hashOf(key) == hash then
                             found := True
@@ -793,12 +793,12 @@ fun anyKept(original: Tree(k, v), shadow: Tree(j, w), hashOf: j -> Int): Bool =
                 Entry(_, _, _) => False
                 Branch(_, _) => False
         Branch(bitmap, children) =>
-            match shadow
+            match shadow with
                 Branch(_, newChildren) =>
                     let count = bitCount(bitmap)
                     var found = False
                     var index = 0
-                    while index < count
+                    while index < count do
                         if anyKept(Node.get(children, index), Node.get(newChildren, index), hashOf) then
                             found := True
                             index := count
@@ -818,7 +818,7 @@ let placeOne(
     value: w,
     equal: (j, j) -> Bool,
 ): (Option(Tree(j, w)), Bool) =
-    match placed
+    match placed with
         None => (Some(Entry(hash, key, value)), repeated)
         Some(tree) =>
             let (grown, inserted) = insert(tree, hash, key, value, 0, equal)
@@ -834,13 +834,13 @@ fun placeAll(
     hashOf: j -> Int,
     equal: (j, j) -> Bool,
 ): (Option(Tree(j, w)), Bool) =
-    match shadow
+    match shadow with
         Entry(hash, key, value) => placeOne(placed, repeated, hash, key, value, equal)
         Collision(_, count, pairs) =>
             var into = placed
             var seen = repeated
             var index = 0
-            while index < count
+            while index < count do
                 let (key, value) = Node.get(pairs, index)
                 let (grown, grownSeen) = placeOne(into, seen, hashOf(key), key, value, equal)
                 into := grown
@@ -852,7 +852,7 @@ fun placeAll(
             var into = placed
             var seen = repeated
             var index = 0
-            while index < count
+            while index < count do
                 let (grown, grownSeen) = placeAll(Node.get(children, index), into, seen, hashOf, equal)
                 into := grown
                 seen := grownSeen
@@ -877,9 +877,9 @@ fun split(
     equal: (j, j) -> Bool,
     moves: Moves(j, w),
 ): (Option(Tree(j, w)), Moves(j, w), Bool) =
-    match shadow
+    match shadow with
         Entry(newHash, newKey, newValue) =>
-            match original
+            match original with
                 Entry(hash, _, _) =>
                     if newHash == hash then
                         (Some(shadow), moves, False)
@@ -893,14 +893,14 @@ fun split(
             var pending = moves
             var repeated = False
             var index = 0
-            while index < count
+            while index < count do
                 let (newKey, newValue) = Node.get(newPairs, index)
                 let newHash = hashOf(newKey)
                 if newHash == hash then
-                    match kept
+                    match kept with
                         None => kept := Some(nodeSingleton((newKey, newValue)))
                         Some(keptPairs) =>
-                            match indexOfKey(keptPairs, keptCount, newKey, equal)
+                            match indexOfKey(keptPairs, keptCount, newKey, equal) with
                                 None => ()
                                 Some(_) => repeated := True
                             kept := Some(nodeInsertAt(keptPairs, keptCount, (newKey, newValue)))
@@ -908,7 +908,7 @@ fun split(
                 else
                     pending := Move(newHash, newKey, newValue, pending)
                 index := index + 1
-            match kept
+            match kept with
                 None => (None, pending, repeated)
                 Some(keptPairs) =>
                     if keptCount == 1 then
@@ -917,7 +917,7 @@ fun split(
                     else
                         (Some(Collision(hash, keptCount, keptPairs)), pending, repeated)
         Branch(bitmap, newChildren) =>
-            match original
+            match original with
                 Branch(_, children) =>
                     var keptBitmap = 0
                     var keptChildren: Option(Node(Tree(j, w))) = None
@@ -925,7 +925,7 @@ fun split(
                     var pending = moves
                     var repeated = False
                     var digitAt = 0
-                    while digitAt <= 31
+                    while digitAt <= 31 do
                         if bitTest(bitmap, digitAt) then
                             let slot = bitCountBelow(bitmap, digitAt)
                             let (remapped, after, childRepeated) =
@@ -933,16 +933,16 @@ fun split(
                             pending := after
                             if childRepeated then
                                 repeated := True
-                            match remapped
+                            match remapped with
                                 None => ()
                                 Some(subtree) =>
                                     keptBitmap := bitSet(keptBitmap, digitAt)
-                                    keptChildren := match keptChildren
+                                    keptChildren := match keptChildren with
                                         None => Some(nodeSingleton(subtree))
                                         Some(node) => Some(nodeInsertAt(node, keptCount, subtree))
                                     keptCount := keptCount + 1
                         digitAt := digitAt + 1
-                    match keptChildren
+                    match keptChildren with
                         None => (None, pending, repeated)
                         Some(node) => (collapse(keptBitmap, node), pending, repeated)
                 Entry(_, _, _) => throw(TrieCorruptionFault("split: shapes differ"))
@@ -950,7 +950,7 @@ fun split(
 
 -- `initial` combined with every entry of `trie`, as a pair, in traversal order.
 let foldEntries(trie: HashTrie(k, v), initial: b, combine: (b, (k, v)) ->! b): b =
-    match trie.root
+    match trie.root with
         NoRoot => initial
         Sole(soleKey, soleValue) => combine!(initial, (soleKey, soleValue))
         Rooted(tree) =>
@@ -958,7 +958,7 @@ let foldEntries(trie: HashTrie(k, v), initial: b, combine: (b, (k, v)) ->! b): b
 
 -- The first entry of `trie`, in traversal order, that `matches` accepts.
 let findEntry(trie: HashTrie(k, v), matches: ((k, v)) ->! Bool): Option((k, v)) =
-    match trie.root
+    match trie.root with
         NoRoot => None
         Sole(soleKey, soleValue) =>
             if matches!((soleKey, soleValue)) then Some((soleKey, soleValue)) else None
@@ -967,7 +967,7 @@ let findEntry(trie: HashTrie(k, v), matches: ((k, v)) ->! Bool): Option((k, v)) 
 -- What a filter of `trie`'s tree left, as a trie: `trie` itself when every entry
 -- survived, and the shared `empty` when none did.
 let filtered(trie: HashTrie(k, v), pruned: Pruned(k, v)): HashTrie(k, v) =
-    match pruned
+    match pruned with
         Whole(_) => trie
         Emptied => empty
         Rebuilt(tree, count) =>
@@ -979,7 +979,7 @@ let filtered(trie: HashTrie(k, v), pruned: Pruned(k, v)): HashTrie(k, v) =
 -- `trie` keeping the entries `keep` accepts, with no key hashed again. Keeping
 -- every entry answers `trie` itself.
 let filterEntries(trie: HashTrie(k, v), keep: ((k, v)) ->! Bool): HashTrie(k, v) =
-    match trie.root
+    match trie.root with
         NoRoot => trie
         Sole(soleKey, soleValue) =>
             if keep!((soleKey, soleValue)) then trie else empty
@@ -1004,7 +1004,7 @@ let filterEntries(trie: HashTrie(k, v), keep: ((k, v)) ->! Bool): HashTrie(k, v)
 -- and Collections Part 4 section 7.1 promises nothing about either across two
 -- tries. An unplaced `Sole` root stays unplaced.
 let remapEntries<j: Hash>(trie: HashTrie(k, v), transform: ((k, v)) ->! (j, w)): Option(HashTrie(j, w)) =
-    match trie.root
+    match trie.root with
         NoRoot => Some(empty)
         Sole(soleKey, soleValue) =>
             let (newKey, newValue) = transform!((soleKey, soleValue))
@@ -1019,7 +1019,7 @@ let remapEntries<j: Hash>(trie: HashTrie(k, v), transform: ((k, v)) ->! (j, w)):
                     root = Rooted(shadow),
                 }))
             else if not anyKept(tree, shadow, hashOf) then
-                match placeAll(shadow, None, False, hashOf, equal)
+                match placeAll(shadow, None, False, hashOf, equal) with
                     (_, True) => None
                     (None, False) => Some(empty)
                     (Some(placed), False) =>
@@ -1033,11 +1033,11 @@ let remapEntries<j: Hash>(trie: HashTrie(k, v), transform: ((k, v)) ->! (j, w)):
                 var repeated = keptRepeated
                 var pending = moves
                 var placing = True
-                while placing
-                    match pending
+                while placing do
+                    match pending with
                         NoMoves => placing := False
                         Move(hash, key, value, rest) =>
-                            match root
+                            match root with
                                 None => root := Some(Entry(hash, key, value))
                                 Some(placed) =>
                                     let (grown, inserted) = insert(placed, hash, key, value, 0, equal)
@@ -1048,7 +1048,7 @@ let remapEntries<j: Hash>(trie: HashTrie(k, v), transform: ((k, v)) ->! (j, w)):
                 if repeated then
                     None
                 else
-                    match root
+                    match root with
                         None => Some(empty)
                         Some(placed) =>
                             Some(HashTrie({
@@ -1135,31 +1135,31 @@ let members(s: HashSet(a)): Seq(a) = entries(s.trie).map(pairKey)
 -- `initial` combined with every element of `s`, in traversal order — the trie's
 -- walk with the `Unit` values left where they are.
 let foldMembers(s: HashSet(a), initial: b, combine: (b, a) ->! b): b =
-    match s.trie.root
+    match s.trie.root with
         NoRoot => initial
         Sole(soleKey, _) => combine!(initial, soleKey)
         Rooted(tree) => foldTree!(tree, initial, (accumulated, key, _) => combine!(accumulated, key))
 
 -- The first element of `s`, in traversal order, that `matches` accepts.
 let findMember(s: HashSet(a), matches: a ->! Bool): Option(a) =
-    match s.trie.root
+    match s.trie.root with
         NoRoot => None
         Sole(soleKey, _) =>
             if matches!(soleKey) then Some(soleKey) else None
         Rooted(tree) =>
-            match findTree!(tree, (key, _) => matches!(key))
+            match findTree!(tree, (key, _) => matches!(key)) with
                 None => None
                 Some((key, _)) => Some(key)
 
 -- `s` keeping the elements `keep` accepts, each as the representative `s` holds,
 -- with none hashed again. Keeping every element answers `s` itself.
 let filterMembers(s: HashSet(a), keep: a ->! Bool): HashSet(a) =
-    match s.trie.root
+    match s.trie.root with
         NoRoot => s
         Sole(soleKey, _) =>
             if keep!(soleKey) then s else emptySet
         Rooted(tree) =>
-            match filterTree!(tree, (key, _) => keep!(key))
+            match filterTree!(tree, (key, _) => keep!(key)) with
                 Whole(_) => s
                 Emptied => emptySet
                 Rebuilt(kept, count) =>

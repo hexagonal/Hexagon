@@ -29,10 +29,10 @@ let isoDate: Regex = Regex.compile("^(?<year>[0-9]{4})-(?<month>[0-9]{2})-(?<day
 -- it, which is an Option too: a name the pattern does not define has none, and
 -- neither does a group in an alternative the match did not take. Both are
 -- called with a dot, on the regex and on the match.
-let check(text: String) = match isoDate.find(text)
+let check(text: String) = match isoDate.find(text) with
     None => Debug.log("\${text}: not an ISO date")
     Some(found) =>
-        let part(name: String) = match found.named(name)
+        let part(name: String) = match found.named(name) with
             Some(group) => group.text
             None => "?"
         Debug.log("\${text}: year \${part("year")}, month \${part("month")}, day \${part("day")}")
@@ -52,7 +52,7 @@ Debug.log("is 1999-12-31 a date? \${isoDate.isMatch("1999-12-31")}")
 -- through Regex.parse. A bad one is a failure the program should plan for, so
 -- parse throws the exception RegexError, and its call is marked. Read with ?,
 -- the call answers an Option: None for text that is not a pattern.
-let tryPattern(pattern: String) = match Regex.parse?(pattern)
+let tryPattern(pattern: String) = match Regex.parse?(pattern) with
     Some(regex) => Debug.log("\${pattern} is a pattern; on abc it says \${regex.isMatch("abc")}")
     None => Debug.log("\${pattern} is not a pattern")
 

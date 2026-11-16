@@ -126,14 +126,14 @@ describe("the walk is the one the loop takes", () => {
         "    k\n" +
         "export let mapWalks(): (Vector(Int), Vector(Int), Vector(Int)) =\n" +
         "    var looped: Vector(Int) = []\n" +
-        "    for (k, _) in m\n" +
+        "    for (k, _) in m do\n" +
         "        looped := looped.append(k)\n" +
         "    let walked = Vector.fromSeq(m.toSeq().map(key))\n" +
         "    let listed = Vector.fromSeq(Map.keys(m))\n" +
         "    (looped, walked, listed)\n" +
         "export let setWalks(): (Vector(String), Vector(String)) =\n" +
         "    var looped: Vector(String) = []\n" +
-        "    for x in s\n" +
+        "    for x in s do\n" +
         "        looped := looped.append(x)\n" +
         "    (looped, Vector.fromSeq(s.toSeq()))\n",
     );
@@ -177,10 +177,10 @@ describe("emission", () => {
         "export let d(q: Seq(Int)): Seq(Int) = Iterable.toSeq(q)\n" +
         "export let sum(v: Vector(Int), m: Map(String, Int), s: Set(Int), q: Seq(Int)): Int =\n" +
         "    var t = 0\n" +
-        "    for x in v\n        t := t + x\n" +
-        "    for (k, y) in m\n        t := t + y\n" +
-        "    for x in s\n        t := t + x\n" +
-        "    for x in q\n        t := t + x\n" +
+        "    for x in v do\n        t := t + x\n" +
+        "    for (k, y) in m do\n        t := t + y\n" +
+        "    for x in s do\n        t := t + x\n" +
+        "    for x in q do\n        t := t + x\n" +
         "    t\n",
     )("/main.hex");
     expect(text).toContain('import { __Iterable_Vector_toSeq } from "./Hex/Vector.js";');
@@ -207,8 +207,8 @@ describe("emission", () => {
     const text = compiled(
       "export let total(m: Map(String, Int), s: Set(Int)): Int =\n" +
         "    var t = 0\n" +
-        "    for (k, y) in m\n        t := t + y\n" +
-        "    for x in s\n        t := t + x\n" +
+        "    for (k, y) in m do\n        t := t + y\n" +
+        "    for x in s do\n        t := t + x\n" +
         "    t\n",
     )("/main.hex");
     expect(text).not.toContain("./Hex/Map.js");
@@ -304,7 +304,7 @@ describe("`Seq`'s row, in `Iterable.hex`", () => {
     const text = compiled(
       "export let sum(q: Seq(Int)): Int =\n" +
         "    var t = 0\n" +
-        "    for x in q\n        t := t + x\n" +
+        "    for x in q do\n        t := t + x\n" +
         "    t\n",
     )("/main.hex");
     expect(text).not.toContain("Iterable.js");

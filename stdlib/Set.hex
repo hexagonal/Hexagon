@@ -152,7 +152,7 @@ export let union<a: Hash>(left: Set(a), right: Set(a)): Set(a) =
 -- `Map.hex`'s `entryKey` and `insertEntry` are named. The lambda that remains at
 -- the call site is the one closing over `source`.
 let keptRepresentative<a: Hash>(source: Set(a), accumulated: Set(a), element: a): Set(a) =
-    match storedMember(source, element)
+    match storedMember(source, element) with
         None => accumulated
         Some(stored) => add(accumulated, stored)
 
@@ -202,14 +202,14 @@ export let map<b: Hash>(s: Set(a), transform: a ->! b): Set(b) =
 {-- Whether some element of `s` satisfies `matches`. It stops at the first that
     does. -}
 export let any(s: Set(a), matches: a ->! Bool): Bool =
-    match find!(s, matches)
+    match find!(s, matches) with
         None => False
         Some(_) => True
 
 {-- Whether every element of `s` satisfies `matches`, which the empty set does.
     It stops at the first that does not. -}
 export let all(s: Set(a), matches: a ->! Bool): Bool =
-    match find!(s, (element) => not matches!(element))
+    match find!(s, (element) => not matches!(element)) with
         None => True
         Some(_) => False
 
@@ -227,9 +227,9 @@ export let all(s: Set(a), matches: a ->! Bool): Bool =
 -- One step of `maxBy`: the ranked element replaces the best unless the best's
 -- key is greater.
 let laterBy<b: Ord>(best: Option((b, a)), ranked: (b, a)): Option((b, a)) =
-    match (best, ranked)
+    match (best, ranked) with
         (Some((keptKey, _)), (rankedKey, _)) =>
-            match Ord.compare(keptKey, rankedKey)
+            match Ord.compare(keptKey, rankedKey) with
                 Greater => best
                 _ => Some(ranked)
         _ => Some(ranked)
@@ -237,14 +237,14 @@ let laterBy<b: Ord>(best: Option((b, a)), ranked: (b, a)): Option((b, a)) =
 -- One step of `minBy`: the ranked element replaces the best only when the
 -- best's key is greater.
 let earlierBy<b: Ord>(best: Option((b, a)), ranked: (b, a)): Option((b, a)) =
-    match (best, ranked)
+    match (best, ranked) with
         (Some((keptKey, _)), (rankedKey, _)) =>
-            match Ord.compare(keptKey, rankedKey)
+            match Ord.compare(keptKey, rankedKey) with
                 Greater => Some(ranked)
                 _ => best
         _ => Some(ranked)
 
-let unranked(best: Option((b, a))): Option(a) = match best
+let unranked(best: Option((b, a))): Option(a) = match best with
     Some((_, element)) => Some(element)
     None => None
 
@@ -253,8 +253,8 @@ let unranked(best: Option((b, a))): Option(a) = match best
     `compare` runs once for each element after the first, as
     `compare(best, element)`. -}
 export let maxUsing(s: Set(a), compare: (a, a) ->! Ordering): Option(a) =
-    fold!(s, None, (best: Option(a), element: a) => match best
-        Some(kept) => match compare!(kept, element)
+    fold!(s, None, (best: Option(a), element: a) => match best with
+        Some(kept) => match compare!(kept, element) with
             Greater => best
             _ => Some(element)
         None => Some(element))
@@ -263,8 +263,8 @@ export let maxUsing(s: Set(a), compare: (a, a) ->! Ordering): Option(a) =
     and of elements it ranks equal, the first in traversal order. `compare`
     runs once for each element after the first, as `compare(best, element)`. -}
 export let minUsing(s: Set(a), compare: (a, a) ->! Ordering): Option(a) =
-    fold!(s, None, (best: Option(a), element: a) => match best
-        Some(kept) => match compare!(kept, element)
+    fold!(s, None, (best: Option(a), element: a) => match best with
+        Some(kept) => match compare!(kept, element) with
             Greater => Some(element)
             _ => best
         None => Some(element))

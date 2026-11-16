@@ -24,7 +24,7 @@ describe("#1288 an unbound type variable in a declaration is refused", () => {
       "module Main\n\n" +
       "union V = V((b) -> Int)\n" +
       "let v = V((x: Int) => x + 1)\n" +
-      "export let n: Int = match v\n" +
+      "export let n: Int = match v with\n" +
       "    V(f) => f(\"s\")\n",
     );
     expect(messages).toEqual([
@@ -81,7 +81,7 @@ describe("#1288 an unbound type variable in a declaration is refused", () => {
       "type F(a) = (a) -> Int\n" +
       "union V = V(F(b))\n" +
       "let v = V((x: Int) => x + 1)\n" +
-      "export let n: Int = match v\n" +
+      "export let n: Int = match v with\n" +
       "    V(f) => f(\"s\")\n",
     );
     expect(messages).toEqual([

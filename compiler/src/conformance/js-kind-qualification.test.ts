@@ -120,7 +120,7 @@ describe("the ten constructors are not bare prelude terms (ffi.md §12)", () => 
    * answers, is what the door *is* — this is the seat it was built for.
    */
   test.each(KINDS)("bare `%s` in a pattern resolves through the door (#763)", (constructor) => {
-    expect(projectDiagnostics("module Main\n\n" + "export let f(k: JsKind): Int = match k\n" +
+    expect(projectDiagnostics("module Main\n\n" + "export let f(k: JsKind): Int = match k with\n" +
         `    ${constructor} => 1\n` +
         "    _ => 2\n",
     )).toEqual([]);
@@ -134,7 +134,7 @@ describe("the ten constructors are not bare prelude terms (ffi.md §12)", () => 
    */
   test("a module may bind the spellings freely", () => {
     expect(projectDiagnostics("module Main\n\n" + "export union Answer = Null | Object | Number(value: Int)\n" +
-        "export let n(a: Answer): Int = match a\n" +
+        "export let n(a: Answer): Int = match a with\n" +
         "    Null => 0\n" +
         "    Object => 1\n" +
         "    Number(value) => value\n",
@@ -153,7 +153,7 @@ describe("the qualified spelling works everywhere (Modules §3.3)", () => {
 
   /** Pattern position, all ten, exhaustively — which also pins the inventory. */
   test("every constructor is reachable in a pattern, and the ten are exhaustive", () => {
-    expect(projectDiagnostics("module Main\n\n" + "export let name(k: JsKind): String = match k\n" +
+    expect(projectDiagnostics("module Main\n\n" + "export let name(k: JsKind): String = match k with\n" +
         KINDS.map((kind) => `    JsKind.${kind} => "${kind}"\n`).join(""),
     )).toEqual([]);
   });
@@ -168,7 +168,7 @@ describe("the qualified spelling works everywhere (Modules §3.3)", () => {
    * `match`*, which is bare.
    */
   test("exhaustiveness still counts the arms, and names them by their barest pastable spelling", () => {
-    expect(projectDiagnostics("module Main\n\n" + "export let name(k: JsKind): String = match k\n" +
+    expect(projectDiagnostics("module Main\n\n" + "export let name(k: JsKind): String = match k with\n" +
         "    JsKind.Null => \"Null\"\n",
     )).toEqual([
       "match is missing cases: `Undefined`, `Bool`, `Number` …and 6 more",
@@ -185,13 +185,13 @@ describe("the qualified spelling works everywhere (Modules §3.3)", () => {
    * section of the spec; they coincide for an ordinary union and diverge here.
    */
   test("the duplicate-arm report names the constructor qualified too", () => {
-    expect(projectDiagnostics("module Main\n\n" + "export let name(k: JsKind): String = match k\n" +
+    expect(projectDiagnostics("module Main\n\n" + "export let name(k: JsKind): String = match k with\n" +
         "    JsKind.Null => \"a\"\n" +
         "    JsKind.Null => \"b\"\n" +
         "    _ => \"c\"\n",
     )).toEqual(["this case is unreachable; `JsKind.Null` is already handled above"]);
     // And for the two unions the extension added, payload and all.
-    expect(projectDiagnostics("module Main\n\n" + "export let depth(s: JsPathSegment): Int = match s\n" +
+    expect(projectDiagnostics("module Main\n\n" + "export let depth(s: JsPathSegment): Int = match s with\n" +
         "    JsPathSegment.Index(i) => i\n" +
         "    JsPathSegment.Index(j) => j\n" +
         "    _ => 0\n",
@@ -281,7 +281,7 @@ describe("the runtime representation is unchanged (ffi.md §12, Unions §6.2)", 
    */
   test("each constructor emits as its shared constant, and matching switches on the tag", () => {
     const text = javascript(
-      "export let name(k: JsKind): String = match k\n" +
+      "export let name(k: JsKind): String = match k with\n" +
         "    JsKind.Null => \"null\"\n" +
         "    JsKind.Array => \"array\"\n" +
         "    _ => \"other\"\n",
@@ -324,7 +324,7 @@ describe("the extension gives the eight words back (§12's extension, #511)", ()
   test.each(["Shape", "Range"] as const)(
     "bare `%s` in a pattern resolves through the door (#763)",
     (constructor) => {
-      expect(projectDiagnostics("module Main\n\n" + "export let f(r: JsConversionReason): Int = match r\n" +
+      expect(projectDiagnostics("module Main\n\n" + "export let f(r: JsConversionReason): Int = match r with\n" +
           `    ${constructor} => 1\n` +
           "    _ => 2\n",
       )).toEqual([]);
@@ -338,14 +338,14 @@ describe("the extension gives the eight words back (§12's extension, #511)", ()
    * report a nullary write of a unary constructor always draws.
    */
   test("bare `Cycle(_)` in a pattern resolves through the door (#763)", () => {
-    expect(projectDiagnostics("module Main\n\n" + "export let f(r: JsConversionReason): Int = match r\n" +
+    expect(projectDiagnostics("module Main\n\n" + "export let f(r: JsConversionReason): Int = match r with\n" +
         "    Cycle(_) => 1\n" +
         "    _ => 2\n",
     )).toEqual([]);
   });
 
   test("bare `Cycle` with no argument list still draws the arity report", () => {
-    expect(projectDiagnostics("module Main\n\n" + "export let f(r: JsConversionReason): Int = match r\n" +
+    expect(projectDiagnostics("module Main\n\n" + "export let f(r: JsConversionReason): Int = match r with\n" +
         "    Cycle => 1\n" +
         "    _ => 2\n",
     )).toEqual(["constructor pattern `Cycle` expects 1 arguments, got 0"]);
@@ -365,11 +365,11 @@ describe("the extension gives the eight words back (§12's extension, #511)", ()
         "    JsPathSegment.MapValue(1),\n" +
         "    JsPathSegment.SetElement(1),\n" +
         "]\n" +
-        "export let which(r: JsConversionReason): Int = match r\n" +
+        "export let which(r: JsConversionReason): Int = match r with\n" +
         "    JsConversionReason.Shape => 0\n" +
         "    JsConversionReason.Range => 1\n" +
         "    JsConversionReason.Cycle(_) => 2\n" +
-        "export let depth(s: JsPathSegment): Int = match s\n" +
+        "export let depth(s: JsPathSegment): Int = match s with\n" +
         "    JsPathSegment.Field(_) => 0\n" +
         "    JsPathSegment.Index(i) => i\n" +
         "    JsPathSegment.MapKey(p) => p\n" +
@@ -396,7 +396,7 @@ describe("the extension gives the eight words back (§12's extension, #511)", ()
         "export let unit: Shape = Shape({sides = 3})\n",
     )).toEqual([]);
     expect(projectDiagnostics("module Main\n\n" + "export union Shape = Circle | Square\n" +
-        "export let name(s: Shape): String = match s\n" +
+        "export let name(s: Shape): String = match s with\n" +
         "    Circle => \"circle\"\n" +
         "    Square => \"square\"\n" +
         "export let unit: Shape = Circle\n",
@@ -478,7 +478,7 @@ describe("the exception is exactly §12's, and no wider", () => {
   test("a user's own union named `JsKind` keeps bare constructors", () => {
     expect(projectDiagnostics("module Main\n\n" + "export union JsKind = Yes | No\n" +
         "export let k: JsKind = Yes\n" +
-        "export let f(k: JsKind): Int = match k\n" +
+        "export let f(k: JsKind): Int = match k with\n" +
         "    Yes => 1\n" +
         "    No => 0\n",
     )).toEqual([]);

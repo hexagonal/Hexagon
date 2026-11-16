@@ -219,7 +219,7 @@ export let count(lineCount: Int): Int =
 
 export let sevens(text: String): Int =
     var total = 0
-    for position in 1..text.length()
+    for position in 1..text.length() do
         if text[position] == "7" then total := total + 1
     total
 `) as { sevens: (text: string) => number };

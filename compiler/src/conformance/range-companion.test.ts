@@ -50,7 +50,7 @@ function lines(...text: readonly string[]): string {
 /** Joins a range's values in iteration order, through the value path. */
 const SPELL = "export fun spell(r: Range): String =\n" +
   "    var out = \"\"\n" +
-  "    for i in r\n" +
+  "    for i in r do\n" +
   "        out := \"${out}${i},\"\n" +
   "    out\n";
 
@@ -138,7 +138,7 @@ describe("`toSeq` at a range, by every spelling", () => {
 
   test("a descending range's sequence runs downward", async () => {
     const exports = await run(
-      "export let first: Int = match Seq.next(Range.toSeq(Range.down(9, 1)))\n" +
+      "export let first: Int = match Seq.next(Range.toSeq(Range.down(9, 1))) with\n" +
         "    Some((head, _)) => head\n" +
         "    None => 0\n",
     );
@@ -151,9 +151,9 @@ describe("the counting loop over `Range.up` / `Range.down` (Loops §8)", () => {
     const text = javascript(
       "export fun total(n: Int): Int =\n" +
         "    var t = 0\n" +
-        "    for i in Range.up(1, n)\n" +
+        "    for i in Range.up(1, n) do\n" +
         "        t := t + i\n" +
-        "    for i in Range.down(n, 1)\n" +
+        "    for i in Range.down(n, 1) do\n" +
         "        t := t + i\n" +
         "    t\n",
     );
@@ -168,11 +168,11 @@ describe("the counting loop over `Range.up` / `Range.down` (Loops §8)", () => {
       "let half(n: Int): Int = n.div(2)\n" +
         "export fun total(n: Int, lo: () ->! Int, hi: () ->! Int): Int =\n" +
         "    var t = 0\n" +
-        "    for i in Range.down(n, half(n))\n" +
+        "    for i in Range.down(n, half(n)) do\n" +
         "        t := t + i\n" +
-        "    for i in Range.down(half(n), n)\n" +
+        "    for i in Range.down(half(n), n) do\n" +
         "        t := t + i\n" +
-        "    for i in Range.down(hi!(), lo!())\n" +
+        "    for i in Range.down(hi!(), lo!()) do\n" +
         "        t := t + i\n" +
         "    t\n",
     );
@@ -192,7 +192,7 @@ describe("the counting loop over `Range.up` / `Range.down` (Loops §8)", () => {
     const exports = await run(
       "export fun collect(hi: Int, lo: Int): String =\n" +
         "    var out = \"\"\n" +
-        "    for i in Range.down(hi, lo)\n" +
+        "    for i in Range.down(hi, lo) do\n" +
         "        out := \"${out}${i},\"\n" +
         "    out\n",
     );
@@ -204,7 +204,7 @@ describe("the counting loop over `Range.up` / `Range.down` (Loops §8)", () => {
     const exports = await run(
       "export fun total(hi: () ->! Int, lo: () ->! Int): Int =\n" +
         "    var t = 0\n" +
-        "    for i in Range.down(hi!(), lo!())\n" +
+        "    for i in Range.down(hi!(), lo!()) do\n" +
         "        t := t + i\n" +
         "    t\n",
     );
@@ -217,7 +217,7 @@ describe("the counting loop over `Range.up` / `Range.down` (Loops §8)", () => {
   test("a loop variable shadowing a bound is read before the loop (#1127)", async () => {
     const source = "export fun total(n: Int): Int =\n" +
       "    var t = 0\n" +
-      "    for n in Range.down(n, 1)\n" +
+      "    for n in Range.down(n, 1) do\n" +
       "        t := t + n\n" +
       "    t\n";
     expect(javascript(source)).toContain(lines(
@@ -232,7 +232,7 @@ describe("the counting loop over `Range.up` / `Range.down` (Loops §8)", () => {
       "let up(lo: Int, hi: Int): Range = lo..hi\n" +
         "export fun total(n: Int): Int =\n" +
         "    var t = 0\n" +
-        "    for i in up(1, n)\n" +
+        "    for i in up(1, n) do\n" +
         "        t := t + i\n" +
         "    t\n",
     );
@@ -244,7 +244,7 @@ describe("the counting loop over `Range.up` / `Range.down` (Loops §8)", () => {
       "import Hex.Range as R\n" +
         "export fun total(n: Int): Int =\n" +
         "    var t = 0\n" +
-        "    for i in R.down(n, 1)\n" +
+        "    for i in R.down(n, 1) do\n" +
         "        t := t + i\n" +
         "    t\n",
     );
@@ -256,7 +256,7 @@ describe("the counting loop over `Range.up` / `Range.down` (Loops §8)", () => {
       "export fun total(n: Int): Int =\n" +
         "    let d = Range.down\n" +
         "    var t = 0\n" +
-        "    for i in d(n, 1)\n" +
+        "    for i in d(n, 1) do\n" +
         "        t := t + i\n" +
         "    t\n",
     );
@@ -269,7 +269,7 @@ describe("the counting loop over `Range.up` / `Range.down` (Loops §8)", () => {
       ["/main.hex", "module Main\n\nimport Range\n\n" +
         "export fun total(n: Int): Int =\n" +
         "    var t = 0\n" +
-        "    for i in Range.up(1, n)\n" +
+        "    for i in Range.up(1, n) do\n" +
         "        t := t + i\n" +
         "    t\n"],
     ]);
@@ -284,7 +284,7 @@ describe("the counting loop over `Range.up` / `Range.down` (Loops §8)", () => {
       "export fun total(n: Int): Int =\n" +
         "    var t = 0\n" +
         "    let r = Range.down(n, 1)\n" +
-        "    for i in r\n" +
+        "    for i in r do\n" +
         "        t := t + i\n" +
         "    t\n",
     );

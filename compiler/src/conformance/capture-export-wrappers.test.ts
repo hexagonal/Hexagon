@@ -369,7 +369,7 @@ describe("exported constructors are functions for this occasion (§5.4 item 4)",
         "    | Keep(xs: Array(Int))\n" +
         "\n" +
         "export fun sizeOf(h: Held): Int =\n" +
-        "    match h\n" +
+        "    match h with\n" +
         "        Keep(xs) => Array.length(xs)\n",
     );
     const given = [1, 2, 3];
@@ -681,7 +681,7 @@ describe("every captured head and every aggregate that leads to one", () => {
   test("`Option` and `Nullable` carry the walk through to the collection", async () => {
     const { main } = await run(
       "export fun sizeOf(o: Option(Array(Int))): Int =\n" +
-        "    match o\n" +
+        "    match o with\n" +
         "        None => -1\n" +
         "        Some(xs) => Array.length(xs)\n" +
         "\n" +

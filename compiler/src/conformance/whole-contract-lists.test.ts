@@ -107,7 +107,7 @@ describe("a function binder's refusals advise one list", () => {
     // "`0` is not a pattern at `a`", which is not this row's refusal.
     expect(verdict(
       "export let f<a: Show>(x: a): String =\n" +
-      "    match (x, 1)\n" +
+      "    match (x, 1) with\n" +
       '        (0, _) => "zero"\n' +
       '        (_, 1) => "one"\n',
     )).toEqual([

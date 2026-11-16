@@ -22,7 +22,7 @@ export let next(source: Stream(a)): Option(a) = (source.next)!()
     The derived stream shares `source`'s cursor: pulling it advances `source`. -}
 export let map(source: Stream(a), transform: a ->! b): Stream(b) =
     Stream({ next = () =>
-        match next!(source)
+        match next!(source) with
             None => None
             Some(value) => Some(transform!(value))
     })
@@ -33,8 +33,8 @@ export let filter(source: Stream(a), keep: a ->! Bool): Stream(a) =
     Stream({ next = () =>
         var found = None
         var searching = True
-        while searching
-            match next!(source)
+        while searching do
+            match next!(source) with
                 None => searching := False
                 Some(value) =>
                     if keep!(value) then
@@ -53,11 +53,11 @@ export let collect(source: Stream(a), count: Int): Vector(a) =
     var collected = Vector.empty
     var remaining = count
     var pulling = True
-    while pulling
+    while pulling do
         if remaining <= 0 then
             pulling := False
         else
-            match next!(source)
+            match next!(source) with
                 None => pulling := False
                 Some(value) =>
                     collected := collected.append(value)
@@ -70,8 +70,8 @@ export let collect(source: Stream(a), count: Int): Vector(a) =
 export let fold(source: Stream(a), initial: b, combine: (b, a) ->! b): b =
     var accumulator = initial
     var pulling = True
-    while pulling
-        match next!(source)
+    while pulling do
+        match next!(source) with
             None => pulling := False
             Some(value) => accumulator := combine!(accumulator, value)
     accumulator
@@ -80,8 +80,8 @@ export let fold(source: Stream(a), initial: b, combine: (b, a) ->! b): b =
     exhaustion, so it does not return on an ambient source. -}
 export let forEach(source: Stream(a), action: a ->! Unit): Unit =
     var pulling = True
-    while pulling
-        match next!(source)
+    while pulling do
+        match next!(source) with
             None => pulling := False
             Some(value) => action!(value)
 
@@ -91,8 +91,8 @@ export let forEach(source: Stream(a), action: a ->! Unit): Unit =
 export let find(source: Stream(a), matches: a ->! Bool): Option(a) =
     var result = None
     var searching = True
-    while searching
-        match next!(source)
+    while searching do
+        match next!(source) with
             None => searching := False
             Some(value) =>
                 if matches!(value) then

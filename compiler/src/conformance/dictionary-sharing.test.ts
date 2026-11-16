@@ -196,7 +196,7 @@ describe("§3.2 — self-evidence is the instance record under construction", ()
     '    describe(value) = "${value}"\n' +
     "union Tree(a) = Leaf | Node(left: Tree(a), item: a, right: Tree(a))\n" +
     "honor<a: Describe> Describe<Tree(a)> =\n" +
-    "    describe(tree) = match tree\n" +
+    "    describe(tree) = match tree with\n" +
     '        Leaf => "leaf"\n' +
     '        Node(left, item, right) => "(${left.describe()}${item.describe()}${right.describe()})"\n';
 
@@ -305,11 +305,11 @@ describe("§3.3 — non-identity evidence inside a factory body stays call-time"
       // The two instances use each other: one honor group (Constraints §4.8).
       "honor\n" +
       "    <a: Rend> Rend<Tree2(a)> =\n" +
-      "        rend(t) = match t\n" +
+      "        rend(t) = match t with\n" +
       "            Tip(v) => v.rend()\n" +
       '            Branch(f) => "[${f.rend()}]"\n' +
       "    <a: Rend> Rend<Forest(a)> =\n" +
-      "        rend(f) = match f\n" +
+      "        rend(f) = match f with\n" +
       '            Nil2 => ""\n' +
       '            More(h, r) => "${h.rend()}${r.rend()}"\n' +
       "let forest: Tree2(Int) = Branch(More(Tip(1), More(Tip(2), Nil2)))\n" +
@@ -339,7 +339,7 @@ describe("§3.3 — non-identity evidence inside a factory body stays call-time"
       '    dsc(b) = "B(${b.value.dsc()})"\n' +
       "union Weird(a) = End | W(inner: Weird(Box2(a)))\n" +
       "honor<a: Dsc> Dsc<Weird(a)> =\n" +
-      "    dsc(w) = match w\n" +
+      "    dsc(w) = match w with\n" +
       '        End => "end"\n' +
       '        W(inner) => "W(${inner.dsc()})"\n' +
       "let w: Weird(Int) = W(W(End))\n" +
@@ -365,7 +365,7 @@ describe("§3.3 — non-identity evidence inside a factory body stays call-time"
       "    dsp(value) = value\n" +
       "union Swap(a, b) = Stop | Go(one: a, rest: Swap(b, a))\n" +
       "honor<a: Dsp, b: Dsp> Dsp<Swap(a, b)> =\n" +
-      "    dsp(s) = match s\n" +
+      "    dsp(s) = match s with\n" +
       '        Stop => "stop"\n' +
       '        Go(one, rest) => "${one.dsp()}${rest.dsp()}"\n' +
       'let s: Swap(Int, String) = Go(1, Go("x", Stop))\n' +

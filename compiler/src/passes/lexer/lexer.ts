@@ -33,6 +33,7 @@ const keywords: ReadonlyMap<string, Lexed.KeywordKind> = new Map([
   ["catch", "Catch"],
   ["constraint", "Constraint"],
   ["derive", "Derive"],
+  ["do", "Do"],
   ["else", "Else"],
   ["exception", "Exception"],
   ["export", "Export"],

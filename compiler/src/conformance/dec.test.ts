@@ -345,7 +345,7 @@ describe("Dec literals and exact decimal arithmetic", () => {
     const exports = await runMain(
       HEADER +
         "export let equal: Bool = 1.50d == 1.500d\n" +
-        "export let label(value: Dec): String = match value\n" +
+        "export let label(value: Dec): String = match value with\n" +
         "    5.00d => \"five\"\n" +
         "    _ => \"other\"\n" +
         "export let matched: String = label(5d)\n",
@@ -353,7 +353,7 @@ describe("Dec literals and exact decimal arithmetic", () => {
     expect(exports).toMatchObject({ equal: true, matched: "five" });
     expect(projectDiagnostics(
       HEADER +
-        "let label(value: Dec): String = match value\n" +
+        "let label(value: Dec): String = match value with\n" +
         "    5d => \"first\"\n" +
         "    5.00d => \"second\"\n" +
         "    _ => \"other\"\n",
@@ -364,13 +364,13 @@ describe("Dec literals and exact decimal arithmetic", () => {
       "    0 => \"first\"\n    -0.00d => \"second\"\n",
     ]) {
       expect(projectDiagnostics(
-        HEADER + "let duplicate(value: Dec): String = match value\n" + arms +
+        HEADER + "let duplicate(value: Dec): String = match value with\n" + arms +
           "    _ => \"other\"\n",
       )[0]).toMatch(/already (covers it|handled above)/);
     }
     const bare = await runMain(
       HEADER +
-        "let label(value: Dec): String = match value\n" +
+        "let label(value: Dec): String = match value with\n" +
         "    5 => \"five\"\n" +
         "    -2 => \"negative\"\n" +
         "    _ => \"other\"\n" +
@@ -381,12 +381,12 @@ describe("Dec literals and exact decimal arithmetic", () => {
 
     expect(projectDiagnostics(
       HEADER +
-        "let incomplete(value: Dec): String = match value\n" +
+        "let incomplete(value: Dec): String = match value with\n" +
         "    0d => \"zero\"\n",
     )).toEqual(["match is missing cases: `_`"]);
     expect(projectDiagnostics(
       HEADER +
-        "let complete(value: Dec): String = match value\n" +
+        "let complete(value: Dec): String = match value with\n" +
         "    0d => \"zero\"\n" +
         "    _ => \"other\"\n",
     )).toEqual([]);
@@ -401,7 +401,7 @@ describe("Dec literals and exact decimal arithmetic", () => {
     expect(projectDiagnostics(
       HEADER +
         "record Dec = {value: Int}\n" +
-        "let classify(value: Dec): Int = match value\n" +
+        "let classify(value: Dec): Int = match value with\n" +
         "    1d => 1\n" +
         "    _ => 0\n",
     )).toEqual(["type mismatch: expected Dec, found Dec"]);
