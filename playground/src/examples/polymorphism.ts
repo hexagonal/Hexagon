@@ -27,9 +27,9 @@ let labels: Vector(String) = blank.append("one")
 -- Your own types say what they promise. An opaque type hides its structure, so
 -- nothing crosses the boundary that the author did not write: \`+a\` declares
 -- that a \`Box\` only ever hands an \`a\` out, never takes one in.
-opaque record Box(+a) = {open: () -> Option(a)}
+opaque record Box(+a) = { open: () -> Option(a) }
 
-export fun emptyBox<a>(): Box(a) = Box({open = () => None})
+export fun emptyBox<a>(): Box(a) = Box({ open = () => None })
 
 export fun openBox<a>(box: Box(a)): Option(a) = (box.open)()
 
