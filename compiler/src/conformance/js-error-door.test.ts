@@ -168,7 +168,7 @@ describe("the arm is the foreign branch, in both catch seats (§6.2, §7.4)", ()
     const exports = await run(
       externThrower +
         "export let caught(ignored: Int): String =\n" +
-        "    match reading!()\n" +
+        "    match reading!() with\n" +
         "        0 => \"zero\"\n" +
         "        _ => \"other\"\n" +
         "    catch\n" +
@@ -681,7 +681,7 @@ describe("a catch reads the brand through the kept read (Exceptions §7.1, §7.4
         "    catch\n" +
         "        _ => \"caught\"\n" +
         "export let attempted(v: JsValue): String =\n" +
-        "    match attempt fails^(v)\n" +
+        "    match attempt fails^(v) with\n" +
         "        Ok(_) => \"ok\"\n" +
         "        Err(_) => \"err\"\n" +
         "export let described(v: JsValue): String =\n" +
@@ -1096,15 +1096,15 @@ describe("`attempt` bridges back to data (§8.2)", () => {
         "        Boom(m) => \"domestic \" ++ m\n" +
         "        JsError(e) => \"foreign \" ++ JsError.message(e)\n" +
         "export let ok(ignored: Int): String =\n" +
-        "    match attempt domestic^(0)\n" +
+        "    match attempt domestic^(0) with\n" +
         "        Ok(value) => \"ok \" ++ Int.show(value)\n" +
         "        Err(thrown) => classify^(thrown)\n" +
         "export let declared(ignored: Int): String =\n" +
-        "    match attempt domestic^(1)\n" +
+        "    match attempt domestic^(1) with\n" +
         "        Ok(value) => \"ok \" ++ Int.show(value)\n" +
         "        Err(thrown) => classify^(thrown)\n" +
         "export let foreign(ignored: Int): String =\n" +
-        "    match attempt reading!()\n" +
+        "    match attempt reading!() with\n" +
         "        Ok(value) => \"ok \" ++ Int.show(value)\n" +
         "        Err(thrown) => classify^(thrown)\n",
       thrower,
@@ -1259,7 +1259,7 @@ describe("emission and the guard the door does not ship (§7.4, §7.6)", () => {
     const text = mainJavascript(
       "let step(n: Int): Int = n + 1\n" +
         "export let run(n: Int): String =\n" +
-        "    match step(n)\n" +
+        "    match step(n) with\n" +
         "        0 => \"zero\"\n" +
         "        _ => \"other\"\n" +
         "    catch\n" +

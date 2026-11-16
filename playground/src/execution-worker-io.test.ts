@@ -127,7 +127,7 @@ Process.setExitStatus~(3)
     harness.posted.length = 0;
     await harness.send(execute(104, `import File
 import Stdio
-for path in ["out.txt", "/somewhere/else.txt"]
+for path in ["out.txt", "/somewhere/else.txt"] do
     let written = try
         File.writeTextBom!(path, "text")
         "written"

@@ -55,9 +55,9 @@ const FORMS = [
   "let risky(n: Int): Int = if n > 0 then n else throw^(Oops(n))",
   "let forms(xs: Vector(Int), i: Int, flag: Bool, base: {x: Int, y: Int}): Int =",
   "    var total = 0",
-  "    while flag",
+  "    while flag do",
   "        total := total + xs[i]",
-  "    for value in xs",
+  "    for value in xs do",
   "        total := total - value",
   "    let moved = { base with x = i }",
   "    let ordered = i < total <= moved.y",
@@ -70,7 +70,7 @@ const FORMS = [
   "    let made = attempt risky^(i)",
   "    let sure = assume risky^(total)",
   "    let chosen =",
-  "        match risky^(i)",
+  "        match risky^(i) with",
   "            n when n > total => n",
   "            _ => minus",
   "        catch",
@@ -96,7 +96,7 @@ const DECLARATIONS = [
   "pattern doubled = Main.twice",
   "fun counter(start: Int): Int = start",
   "let alias<a: Show>: (a) -> String = Show.show",
-  "let pick(s: Shape, xs: Vector(Int)): Int = match (s, xs)",
+  "let pick(s: Shape, xs: Vector(Int)): Int = match (s, xs) with",
   "    (Main.Box(w, _) as whole, [first, ...rest]) => w",
   "    (Dot | Main.Dot, []) => 0",
   "    ({ x, y = other }, _) => 1",
@@ -113,7 +113,7 @@ const PUNS = [
   "module Main",
   "let x = 1",
   "let p = { x }",
-  "let f(q: {x: Int}): Int = match q",
+  "let f(q: {x: Int}): Int = match q with",
   "    { x } => x",
   "let g({ x }: {x: Int}): Int = x",
   "let same = <a: Eq>(left: a, right: a) => left == right",
@@ -228,7 +228,7 @@ describe("the type of a selection", () => {
 
   test("what is not an expression answers nothing", () => {
     // A pattern, a type, a declaration, a binder.
-    expect(shown(`${HEAD}let f(o: Option(Int)): Int = match o\n    «Some(x)» => x\n    None => 0\n`)).toBe("none");
+    expect(shown(`${HEAD}let f(o: Option(Int)): Int = match o with\n    «Some(x)» => x\n    None => 0\n`)).toBe("none");
     expect(shown(`${HEAD}let f(o: «Option(Int)»): Int = 0\n`)).toBe("none");
     expect(shown(`${HEAD}«let n = 1»\n`)).toBe("none");
     expect(shown(`${HEAD}let f(«o»: Int): Int = o\n`)).toBe("none");
@@ -288,7 +288,7 @@ describe("the type of a selection", () => {
 
   test("a selection inside a record field or a `match` arm names the expression, over its text", () => {
     expect(shown(`${HEAD}let p = { «x = 1», y = "a" }\n`)).toBe('`{x: Int, y: String}` @ { x = 1, y = "a" }');
-    expect(shown(`${HEAD}let k = match 1\n    «0 => 2»\n    _ => 3\n`)).toBe("`Int` @ match 1\n    0 => 2\n    _ => 3\n");
+    expect(shown(`${HEAD}let k = match 1 with\n    «0 => 2»\n    _ => 3\n`)).toBe("`Int` @ match 1 with\n    0 => 2\n    _ => 3\n");
     expect(shown(`${HEAD}let n = 1\nlet s = "a«\${n}»b"\n`)).toBe('`String` @ "a${n}b"');
   });
 
@@ -337,12 +337,12 @@ describe("the type at an operator, a bracket, a literal or a keyword", () => {
     const source = `${HEAD}let n = 3\nlet r = ‸if n > 2 then n else 0\n`;
     expect(shown(source)).toBe("`Int` @ if");
     expect(shown(source.replace("‸", "").replace("then", "‸then"))).toBe("`Int` @ then");
-    expect(shown(`${HEAD}let o: Option(Int) = None\nlet k = ‸match o\n    Some(x) => x\n    None => 0\n`))
+    expect(shown(`${HEAD}let o: Option(Int) = None\nlet k = ‸match o with\n    Some(x) => x\n    None => 0\n`))
       .toBe("`Int` @ match");
   });
 
   test("a part of a form's own syntax is the form's: an arm's `=>`, a field's `=`, a string's `${`", () => {
-    expect(shown(`${HEAD}let o: Option(Int) = None\nlet k = match o\n    Some(x) ‸=> x\n    None => 0\n`))
+    expect(shown(`${HEAD}let o: Option(Int) = None\nlet k = match o with\n    Some(x) ‸=> x\n    None => 0\n`))
       .toBe("`Int` @ =>");
     expect(shown(`${HEAD}let p = { x ‸= 1 }\n`)).toBe("`{x: Int}` @ =");
     expect(shown(`${HEAD}let n = 1\nlet s = "‸a\${n}"\n`)).toBe("`String` @ a");
@@ -377,7 +377,7 @@ describe("the type at an operator, a bracket, a literal or a keyword", () => {
     // A comment inside an expression.
     expect(shown(`${HEAD}let n = 1 + {- tw‸o -} 2\n`)).toBe("none");
     // A pattern's bracket.
-    expect(shown(`${HEAD}let p: (Int, Int) = (1, 2)\nlet k = match p\n    ‸(a, b) => a\n`)).toBe("none");
+    expect(shown(`${HEAD}let p: (Int, Int) = (1, 2)\nlet k = match p with\n    ‸(a, b) => a\n`)).toBe("none");
     // A type's arrow, and an ascription's.
     expect(shown(`${HEAD}let f: Int ‸-> Int = (v) => v\n`)).toBe("none");
     expect(shown(`${HEAD}let g = ((v) => v : Int ‸-> Int)\n`)).toBe("none");
@@ -403,7 +403,7 @@ describe("hoverSpans with expressions", () => {
     "let o: Option(Int) = Some(1)",
     "let s: Seq(Int) = [1, 2]",
     "let n: Int = 1 + 2 * (3 - 1)",
-    "let k = match o",
+    "let k = match o with",
     "    Some(x) => x + n {- a comment -}",
     "    None => 0",
     'let t = "a${n}b"',
@@ -509,7 +509,7 @@ describe("selection ranges", () => {
   test("each range holds the one before it, and is wider, at every offset", () => {
     const text = [
       "module Main",
-      "let k = match Some(1)",
+      "let k = match Some(1) with",
       "    Some(x) => [x, x * 2] |> Vector.length",
       "    None => 0 {- none -}",
       "let g(b: Bool): Unit =",

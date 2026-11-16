@@ -508,7 +508,7 @@ describe("still-intrinsic names keep working — this phase changes order, not m
     expect(diagnostics(
       "export record Seq(a) = { item: a }\n" +
       "export fun visit(values: Vector(Int)): Unit =\n" +
-      "    for value in values\n" +
+      "    for value in values do\n" +
       "        Debug.log(\"${value}\")\n",
     )).toEqual([]);
   });

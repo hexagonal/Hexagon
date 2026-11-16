@@ -29,7 +29,7 @@ describe("#215 a nested `as` binds at every destructuring seat", () => {
     ],
     [
       "a `for` head",
-      "let total(ps: Vector((Int, Int))): Int =\n    var t = 0\n    for (x as z, y) in ps\n        t := t + x + y + z\n    t\nexport let out: Int = total([(1, 2)])\n",
+      "let total(ps: Vector((Int, Int))): Int =\n    var t = 0\n    for (x as z, y) in ps do\n        t := t + x + y + z\n    t\nexport let out: Int = total([(1, 2)])\n",
       4,
     ],
     [
@@ -55,7 +55,7 @@ describe("#215 an or-pattern inside a vector", () => {
   test("with binders, its alternatives are arms", async () => {
     expect(await run(
       "fun f(v: Vector(Int)): Int =\n" +
-      "    match v\n" +
+      "    match v with\n" +
       "        [(x | x)] => x\n" +
       "        _ => 0\n" +
       "export let a: Int = f([7])\n" +
@@ -66,7 +66,7 @@ describe("#215 an or-pattern inside a vector", () => {
   test("without binders, the length test still holds", async () => {
     expect(await run(
       "fun f(v: Vector(Int)): Int =\n" +
-      "    match v\n" +
+      "    match v with\n" +
       "        [1 | 2] => 10\n" +
       "        _ => 0\n" +
       "export let twoThenFive: Int = f([2, 5])\n" +
@@ -78,7 +78,7 @@ describe("#215 an or-pattern inside a vector", () => {
   test("in a slot after a rest, and in the rest itself", async () => {
     expect(await run(
       "fun f(v: Vector(Int)): Int =\n" +
-      "    match v\n" +
+      "    match v with\n" +
       "        [...(r | r), 1 | 2] => r.length()\n" +
       "        _ => 100\n" +
       "export let a: Int = f([5, 6, 2])\n" +
@@ -92,7 +92,7 @@ describe("#215 an or-pattern with binders in a `for` head", () => {
     expect(await run(
       "let total(ps: Vector((Int, Int))): Int =\n" +
       "    var t = 0\n" +
-      "    for ((x | x), y) in ps\n" +
+      "    for ((x | x), y) in ps do\n" +
       "        t := t + x + y\n" +
       "    t\n" +
       "export let out: Int = total([(1, 2), (3, 4)])\n",

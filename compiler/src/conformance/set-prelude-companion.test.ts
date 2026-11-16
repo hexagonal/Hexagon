@@ -417,7 +417,7 @@ describe("§16 (g) iteration", () => {
     const main = await runMain("module Main\n\n" + "let s: Set(Int) = Set.fromVector([1, 2, 3])\n" +
         "let total(source: Set(Int)): Int =\n" +
         "    var sum = 0\n" +
-        "    for x in source\n" +
+        "    for x in source do\n" +
         "        sum := sum + x\n" +
         "    sum\n" +
         "export let summed: Int = total(s)\n" +
@@ -648,7 +648,7 @@ describe("the companion's surface", () => {
         "export let agree: Bool = left.union(right) == Set.union(left, right)\n" +
         // The word still declares, and the declaration is still usable.
         "let describe(colour: Colour): Int =\n" +
-        "    match colour\n" +
+        "    match colour with\n" +
         "        Red => 1\n" +
         "        Green => 2\n" +
         "export let declared: Int = describe(Green)\n" +

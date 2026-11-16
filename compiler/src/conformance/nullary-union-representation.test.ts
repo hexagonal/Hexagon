@@ -77,7 +77,7 @@ describe("at home: the declaration, the reference, the match, the face", () => {
 
   test("`match` lowers to a switch on the tag", async () => {
     const source = "export union Grade = Alpha | Beta | Gamma\n" +
-      "export let letter(g: Grade): String = match g\n" +
+      "export let letter(g: Grade): String = match g with\n" +
       "    Alpha => \"a\"\n" +
       "    Beta => \"b\"\n" +
       "    Gamma => \"c\"\n";
@@ -139,7 +139,7 @@ describe("abroad: the qualified reference and the imported match", () => {
         "export let first: Lamp = Amber\n"],
       ["/main.hex",
         "module Main\n\n" + 'import Signals\n' +
-        "export let word(l: Signals.Lamp): String = match l\n" +
+        "export let word(l: Signals.Lamp): String = match l with\n" +
         "    Amber => \"wait\"\n" +
         "    Emerald => \"go\"\n" +
         "export let atFirst: String = word(Signals.first)\n"],
@@ -208,7 +208,7 @@ describe("`Ordering` end to end", () => {
       "module Main\n\n" + "export let lesser: Ordering = Ord.compare(1, 2)\n" +
       "export let isLess: Bool = Ord.compare(1, 2) == Ordering.Less\n" +
       "export let named: String = show(Ord.compare(1, 2))\n" +
-      "export let matched: String = match Ord.compare(3, 2)\n" +
+      "export let matched: String = match Ord.compare(3, 2) with\n" +
       "    Ordering.Less => \"lt\"\n" +
       "    Ordering.Equal => \"eq\"\n" +
       "    Ordering.Greater => \"gt\"\n"]]);
@@ -445,7 +445,7 @@ describe("a manufactured value is one hoisted constant per module", () => {
       "export let written: Ordering = Ordering.Less\n" +
       "export let same: Bool = Ord.compare(1, 2) == Ordering.Less\n" +
       "export let shown: String = show(Ord.compare(1, 2))\n" +
-      "export let matched: Bool = match Ord.compare(1, 2)\n" +
+      "export let matched: Bool = match Ord.compare(1, 2) with\n" +
       "    Ordering.Less => True\n" +
       "    _ => False\n"]]);
 
@@ -479,7 +479,7 @@ describe("`JsKind`", () => {
   test("`kind` answers the tagged constant, and a match reads three of them", async () => {
     const main = await runProject([["/main.hex",
       "module Main\n\n" + "export let isNull(v: JsValue): Bool = JsValue.kind(v) == JsKind.Null\n" +
-      "export let label(v: JsValue): String = match JsValue.kind(v)\n" +
+      "export let label(v: JsValue): String = match JsValue.kind(v) with\n" +
       "    JsKind.Null => \"null\"\n" +
       "    JsKind.Number => \"number\"\n" +
       "    JsKind.String => \"string\"\n" +
@@ -520,7 +520,7 @@ describe("what one shape does not change", () => {
     // needs no temporary to name the scrutinee by.
     const source = "export let yes: Bool = True\n" +
       "export let no: Bool = False\n" +
-      "export let flip(b: Bool): Bool = match b\n" +
+      "export let flip(b: Bool): Bool = match b with\n" +
       "    True => False\n" +
       "    False => True\n" +
       "export let pick(b: Bool): Int = if b then 1 else 0\n";

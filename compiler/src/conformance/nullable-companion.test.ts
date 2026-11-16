@@ -45,7 +45,7 @@ describe("values, predicates, and exact classification (FFI Part 2 §§2–3)", 
     const main = await runMain(
       "module Main\n\n" +
         "export let classify(value: Nullable(String)): String =\n" +
-        "    match Nullable.toCase(value)\n" +
+        "    match Nullable.toCase(value) with\n" +
         "        NullableCase.Undefined => \"undefined\"\n" +
         "        NullableCase.Null => \"null\"\n" +
         "        NullableCase.Value(text) => text\n",
@@ -62,7 +62,7 @@ describe("Option conversions (FFI Part 2 §4)", () => {
     const main = await runMain(
       "module Main\n\n" +
         "export let read(value: Nullable(String)): String =\n" +
-        "    match Nullable.toOption(value)\n" +
+        "    match Nullable.toOption(value) with\n" +
         "        None => \"none\"\n" +
         "        Some(text) => text\n" +
         "export let missing(): Nullable(String) = Nullable.fromOption(None)\n" +
@@ -85,17 +85,17 @@ describe("Option conversions (FFI Part 2 §4)", () => {
       "module Main\n\n" +
         "export extern enum Tri = true as Yes | null as Unknown | undefined as Missing\n" +
         "export let js(value: JsValue): Bool =\n" +
-        "    match Nullable.toOption(value)\n" +
+        "    match Nullable.toOption(value) with\n" +
         "        None => False\n" +
         "        Some(_) => True\n" +
         "export let tri(value: Tri): Bool =\n" +
-        "    match Nullable.toOption(value)\n" +
+        "    match Nullable.toOption(value) with\n" +
         "        None => False\n" +
         "        Some(_) => True\n" +
         "export let triNone(): Tri = Nullable.fromOption(None)\n" +
         "export let nested(): Nullable(String) = Nullable.fromOption(Some(Nullable.null))\n" +
         "export let unit(): Bool =\n" +
-        "    match Nullable.toOption(Nullable.fromOption(Some(())))\n" +
+        "    match Nullable.toOption(Nullable.fromOption(Some(()))) with\n" +
         "        None => True\n" +
         "        Some(_) => False\n",
     );
@@ -118,21 +118,21 @@ describe("Option conversions (FFI Part 2 §4)", () => {
         "export extern enum NullSlot = true as Yes | null as Unknown\n" +
         "export extern enum UndefinedSlot = \"ready\" as Ready | undefined as Missing\n" +
         "export let nullSlot(value: Nullable(NullSlot)): String =\n" +
-        "    match Nullable.toCase(value)\n" +
+        "    match Nullable.toCase(value) with\n" +
         "        NullableCase.Null => \"null\"\n" +
         "        NullableCase.Undefined => \"undefined\"\n" +
         "        NullableCase.Value(_) => \"value\"\n" +
         "export let undefinedSlot(value: Nullable(UndefinedSlot)): String =\n" +
-        "    match Nullable.toCase(value)\n" +
+        "    match Nullable.toCase(value) with\n" +
         "        NullableCase.Null => \"null\"\n" +
         "        NullableCase.Undefined => \"undefined\"\n" +
         "        NullableCase.Value(_) => \"value\"\n" +
         "export let nullMemberLost(): Bool =\n" +
-        "    match Nullable.toOption(Nullable.fromOption(Some(Unknown)))\n" +
+        "    match Nullable.toOption(Nullable.fromOption(Some(Unknown))) with\n" +
         "        None => True\n" +
         "        Some(_) => False\n" +
         "export let undefinedMemberLost(): Bool =\n" +
-        "    match Nullable.toOption(Nullable.fromOption(Some(Missing)))\n" +
+        "    match Nullable.toOption(Nullable.fromOption(Some(Missing))) with\n" +
         "        None => True\n" +
         "        Some(_) => False\n" +
         "export let nullSlotNone(): Nullable(NullSlot) = Nullable.fromOption(None)\n" +
@@ -226,7 +226,7 @@ describe("variance, faces, and emission", () => {
         "export let dot(value: Nullable(String)): Bool = value.isNullish()\n" +
         "export let higher(value: Nullable(String)): Bool = predicate(value)\n" +
         "export let converted(value: Nullable(String)): Bool =\n" +
-        "    match conversion(value)\n" +
+        "    match conversion(value) with\n" +
         "        None => False\n" +
         "        Some(_) => True\n",
     );

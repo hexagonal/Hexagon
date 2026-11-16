@@ -34,7 +34,7 @@ describe("finite shapes are checked exactly (§7.1)", () => {
     expect(projectDiagnostics(
       "module Main\n\n" + BOOL_RECORD +
       "export fun pick(r: R): Int =\n" +
-      "    match r\n" +
+      "    match r with\n" +
       "        R({b = True}) => 1\n" +
       "        R({b = False}) => 0\n",
     )).toEqual([]);
@@ -42,7 +42,7 @@ describe("finite shapes are checked exactly (§7.1)", () => {
 
   test("a structural record's field space decomposes", () => {
     expect(projectDiagnostics("module Main\n\n" + "export fun pick(r: {b: Bool}): Int =\n" +
-      "    match r\n" +
+      "    match r with\n" +
       "        {b = True} => 1\n" +
       "        {b = False} => 0\n",
     )).toEqual([]);
@@ -50,7 +50,7 @@ describe("finite shapes are checked exactly (§7.1)", () => {
 
   test("a tuple's components combine, exactly and at every depth", async () => {
     expect(projectDiagnostics("module Main\n\n" + "export fun corner(p: (Bool, Bool)): Int =\n" +
-      "    match p\n" +
+      "    match p with\n" +
       "        (True, True) => 3\n" +
       "        (True, False) => 2\n" +
       "        (False, True) => 1\n" +
@@ -60,7 +60,7 @@ describe("finite shapes are checked exactly (§7.1)", () => {
     // The coarser split covers just as exactly: the second component is `_` in
     // both arms, so the matrix never has to look at it.
     expect(projectDiagnostics("module Main\n\n" + "export fun left(p: (Bool, Bool)): Int =\n" +
-      "    match p\n" +
+      "    match p with\n" +
       "        (True, _) => 1\n" +
       "        (False, _) => 0\n",
     )).toEqual([]);
@@ -69,7 +69,7 @@ describe("finite shapes are checked exactly (§7.1)", () => {
     // fallthrough it has always closed on, so an exhaustive match with no
     // catch-all answers every input.
     const exports = await runMain("module Main\n\n" + "fun corner(p: (Bool, Bool)): Int =\n" +
-      "    match p\n" +
+      "    match p with\n" +
       "        (True, True) => 3\n" +
       "        (True, False) => 2\n" +
       "        (False, True) => 1\n" +
@@ -88,14 +88,14 @@ describe("finite shapes are checked exactly (§7.1)", () => {
     // sub-pattern under it decomposed nothing; instantiated at the scrutinee it
     // is `Bool`, and `True`/`False` cover it between them.
     expect(projectDiagnostics("module Main\n\n" + "export fun pick(o: Option(Bool)): Int =\n" +
-      "    match o\n" +
+      "    match o with\n" +
       "        Some(True) => 1\n" +
       "        Some(False) => 0\n" +
       "        None => -1\n",
     )).toEqual([]);
 
     const exports = await runMain("module Main\n\n" + "fun pick(o: Option(Bool)): Int =\n" +
-      "    match o\n" +
+      "    match o with\n" +
       "        Some(True) => 1\n" +
       "        Some(False) => 0\n" +
       "        None => -1\n" +
@@ -109,14 +109,14 @@ describe("finite shapes are checked exactly (§7.1)", () => {
   test("a sole-constructor newtype under a generic slot covers, in both spellings", () => {
     expect(projectDiagnostics("module Main\n\n" + "export union UserId = UserId(Int)\n" +
       "export fun pick(o: Option(UserId)): Int =\n" +
-      "    match o\n" +
+      "    match o with\n" +
       "        Some(UserId(n)) => n\n" +
       "        None => 0\n",
     )).toEqual([]);
 
     expect(projectDiagnostics("module Main\n\n" + "export record Crate = {n: Int}\n" +
       "export fun pick(o: Option(Crate)): Int =\n" +
-      "    match o\n" +
+      "    match o with\n" +
       "        Some(Crate({n})) => n\n" +
       "        None => 0\n",
     )).toEqual([]);
@@ -127,14 +127,14 @@ describe("finite shapes are checked exactly (§7.1)", () => {
       "module Main\n\n" + BOOL_RECORD +
       "export union V = V(R)\n" +
       "export fun pick(v: V): Int =\n" +
-      "    match v\n" +
+      "    match v with\n" +
       "        V(R({b = True})) => 1\n" +
       "        V(R({b = False})) => 0\n",
     )).toEqual([]);
 
     expect(projectDiagnostics("module Main\n\n" + "export union P = P((Bool, Bool))\n" +
       "export fun pick(p: P): Int =\n" +
-      "    match p\n" +
+      "    match p with\n" +
       "        P((True, True)) => 3\n" +
       "        P((True, False)) => 2\n" +
       "        P((False, True)) => 1\n" +
@@ -147,7 +147,7 @@ describe("finite shapes are checked exactly (§7.1)", () => {
     // sub-patterns into a synthesized or-pattern. The matrix has no arity in it.
     expect(projectDiagnostics("module Main\n\n" + "export union T = T(Bool, Bool)\n" +
       "export fun pick(t: T): Int =\n" +
-      "    match t\n" +
+      "    match t with\n" +
       "        T(True, True) => 3\n" +
       "        T(True, False) => 2\n" +
       "        T(False, True) => 1\n" +
@@ -157,14 +157,14 @@ describe("finite shapes are checked exactly (§7.1)", () => {
 
   test("record coverage is over the mentioned fields, unioned across arms (§7.1)", () => {
     expect(projectDiagnostics("module Main\n\n" + "export fun pick(r: {a: Bool, b: Bool}): Int =\n" +
-      "    match r\n" +
+      "    match r with\n" +
       "        {a = True} => 2\n" +
       "        {a = False, b = True} => 1\n" +
       "        {a = False, b = False} => 0\n",
     )).toEqual([]);
 
     expect(projectDiagnostics("module Main\n\n" + "export fun pick(r: {a: Bool, b: Bool}): Int =\n" +
-      "    match r\n" +
+      "    match r with\n" +
       "        {a = True} => 2\n" +
       "        {b = True} => 1\n",
     )).toEqual(["match is missing cases: `{a = False, b = False}`"]);
@@ -178,14 +178,14 @@ describe("dead arms are hard errors, including ones the old checker demanded (§
     // the sub-patterns into a synthesized or-pattern. It still is.
     expect(projectDiagnostics("module Main\n\n" + "export union W = W(Bool)\n" +
       "export fun pick(w: W): Int =\n" +
-      "    match w\n" +
+      "    match w with\n" +
       "        W(True) => 1\n" +
       "        W(False) => 0\n",
     )).toEqual([]);
 
     expect(projectDiagnostics("module Main\n\n" + "export union W = W(Bool)\n" +
       "export fun pick(w: W): Int =\n" +
-      "    match w\n" +
+      "    match w with\n" +
       "        W(True) => 1\n" +
       "        W(True) => 2\n" +
       "        W(False) => 0\n",
@@ -198,7 +198,7 @@ describe("dead arms are hard errors, including ones the old checker demanded (§
 
   test("a catch-all behind arms that now exhaust the domain is unreachable", () => {
     expect(projectDiagnostics("module Main\n\n" + "export fun corner(p: (Bool, Bool)): Int =\n" +
-      "    match p\n" +
+      "    match p with\n" +
       "        (True, True) => 3\n" +
       "        (True, False) => 2\n" +
       "        (False, True) => 1\n" +
@@ -209,7 +209,7 @@ describe("dead arms are hard errors, including ones the old checker demanded (§
 
   test("a constructor handled above in full is named", () => {
     expect(projectDiagnostics("module Main\n\n" + "export fun pick(o: Option(Int)): Int =\n" +
-      "    match o\n" +
+      "    match o with\n" +
       "        Some(_) => 1\n" +
       "        Some(x) => x\n" +
       "        None => 0\n",
@@ -218,7 +218,7 @@ describe("dead arms are hard errors, including ones the old checker demanded (§
 
   test("anything behind an arm that covers everything is unreachable", () => {
     expect(projectDiagnostics("module Main\n\n" + "export fun pick(o: Option(Int)): Int =\n" +
-      "    match o\n" +
+      "    match o with\n" +
       "        _ => 1\n" +
       "        None => 0\n",
     )).toEqual(["this match arm is unreachable; an earlier pattern matches everything"]);
@@ -226,20 +226,20 @@ describe("dead arms are hard errors, including ones the old checker demanded (§
 
   test("a duplicate literal is unreachable; literals never complete their domain", () => {
     expect(projectDiagnostics("module Main\n\n" + "export fun name(n: Int): String =\n" +
-      "    match n\n" +
+      "    match n with\n" +
       "        0 => \"none\"\n" +
       "        0 => \"zero\"\n" +
       "        _ => \"many\"\n",
     )).toEqual(["this literal case is unreachable; it is already handled above"]);
 
     expect(projectDiagnostics("module Main\n\n" + "export fun name(n: Int): String =\n" +
-      "    match n\n" +
+      "    match n with\n" +
       "        0 => \"none\"\n" +
       "        1 => \"one\"\n",
     )).toEqual(["match is missing cases: `_`"]);
 
     expect(projectDiagnostics("module Main\n\n" + "export fun name(s: String): Int =\n" +
-      "    match s\n" +
+      "    match s with\n" +
       "        \"yes\" => 1\n",
     )).toEqual(["match is missing cases: `_`"]);
   });
@@ -248,7 +248,7 @@ describe("dead arms are hard errors, including ones the old checker demanded (§
 describe("guards contribute nothing, and are not subsumed by each other (§7.1, §7.2)", () => {
   test("a guarded arm covers nothing — `when True` included", () => {
     expect(projectDiagnostics("module Main\n\n" + "export fun pick(b: Bool): Int =\n" +
-      "    match b\n" +
+      "    match b with\n" +
       "        True => 1\n" +
       "        False when True => 0\n",
     )).toEqual(["match is missing cases: `False`"]);
@@ -256,7 +256,7 @@ describe("guards contribute nothing, and are not subsumed by each other (§7.1, 
 
   test("two arms with the same pattern and different guards are both reachable", () => {
     expect(projectDiagnostics("module Main\n\n" + "export fun pick(n: Int): Int =\n" +
-      "    match n\n" +
+      "    match n with\n" +
       "        v when v > 0 => 1\n" +
       "        v when v < 0 => -1\n" +
       "        _ => 0\n",
@@ -265,7 +265,7 @@ describe("guards contribute nothing, and are not subsumed by each other (§7.1, 
 
   test("a guarded arm fully covered by an earlier unguarded one is unreachable", () => {
     expect(projectDiagnostics("module Main\n\n" + "export fun pick(o: Option(Int)): Int =\n" +
-      "    match o\n" +
+      "    match o with\n" +
       "        Some(_) => 1\n" +
       "        Some(x) when x > 0 => x\n" +
       "        None => 0\n",
@@ -277,19 +277,19 @@ describe("§7.3's witnesses", () => {
   test("a constructor's slots render as `_`, and a nullary renders bare", () => {
     expect(projectDiagnostics("module Main\n\n" + "export union Tree = Leaf | Node(Tree, Int, Tree)\n" +
       "export fun size(t: Tree): Int =\n" +
-      "    match t\n" +
+      "    match t with\n" +
       "        Leaf => 0\n",
     )).toEqual(["match is missing cases: `Node(_, _, _)`"]);
 
     expect(projectDiagnostics("module Main\n\n" + "export fun pick(b: Bool): Int =\n" +
-      "    match b\n" +
+      "    match b with\n" +
       "        True => 1\n",
     )).toEqual(["match is missing cases: `False`"]);
   });
 
   test("a tuple renders with `_` holes", () => {
     expect(projectDiagnostics("module Main\n\n" + "export fun pick(p: (Option(Int), Int)): Int =\n" +
-      "    match p\n" +
+      "    match p with\n" +
       "        (Some(x), _) => x\n",
     )).toEqual(["match is missing cases: `(None, _)`"]);
   });
@@ -297,7 +297,7 @@ describe("§7.3's witnesses", () => {
   test("a record renders only the discriminating fields, never invented mentions", () => {
     expect(projectDiagnostics("module Main\n\n" + "export union Status = Queued | Running | Done\n" +
       "export fun pick(r: {status: Status, id: Int}): Int =\n" +
-      "    match r\n" +
+      "    match r with\n" +
       "        {status = Running} => 1\n" +
       "        {status = Done} => 2\n",
     )).toEqual(["match is missing cases: `{status = Queued}`"]);
@@ -306,7 +306,7 @@ describe("§7.3's witnesses", () => {
   test("the list is capped at three, then counted", () => {
     expect(projectDiagnostics("module Main\n\n" + "export union Six = A | B | C | D | E | F\n" +
       "export fun pick(s: Six): Int =\n" +
-      "    match s\n" +
+      "    match s with\n" +
       "        A => 0\n",
     )).toEqual(["match is missing cases: `B`, `C`, `D` …and 2 more"]);
   });
@@ -315,7 +315,7 @@ describe("§7.3's witnesses", () => {
     // No unguarded arm has split the domain, so nothing deeper than `_` is true
     // of the uncovered values: every value is one.
     expect(projectDiagnostics("module Main\n\n" + "export fun pick(o: Option(Int)): Int =\n" +
-      "    match o\n" +
+      "    match o with\n" +
       "        Some(x) when x > 0 => x\n",
     )).toEqual(["match is missing cases: `_`"]);
   });
@@ -356,7 +356,7 @@ describe("§5.1's gate is the single-row matrix, and §5.3 is its one sentence",
     // with §6.7's fixit.
     expect(projectDiagnostics("module Main\n\n" + "export fun count(xs: Vector(Option(Int))): Int =\n" +
       "    var total = 0\n" +
-      "    for Some(n) in xs\n" +
+      "    for Some(n) in xs do\n" +
       "        total := total + n\n" +
       "    total\n",
     )).toEqual(["this pattern can fail: `None`; use `match`"]);
@@ -376,7 +376,7 @@ describe("§5.1's gate is the single-row matrix, and §5.3 is its one sentence",
     expect(exports.v).toBe(1);
 
     expect(projectDiagnostics("module Main\n\n" + "export fun pick(o: Option(Int)): Int =\n" +
-      "    match o\n" +
+      "    match o with\n" +
       "        Some(_) | None => 1\n",
     )).toEqual([]);
   });
@@ -396,7 +396,7 @@ describe("§5.1's gate is the single-row matrix, and §5.3 is its one sentence",
 describe("the vector's lengths are a signature (Collections Part 3 §3.3)", () => {
   test("element sub-patterns decide too, so a partial length is not covered (#600)", () => {
     expect(projectDiagnostics("module Main\n\n" + "export fun f(v: Vector(Bool)): Int =\n" +
-      "    match v\n" +
+      "    match v with\n" +
       "        [True, ...rest] => 1\n" +
       "        [] => 2\n",
     )).toEqual(["match is missing cases: `[False]`, `[False, _]`"]);
@@ -405,7 +405,7 @@ describe("the vector's lengths are a signature (Collections Part 3 §3.3)", () =
     // and the variadic head standing for every length ≥ 2, printed at its own
     // shortest length. Both are values the arms really miss.
     expect(projectDiagnostics("module Main\n\n" + "export fun f(v: Vector(Bool)): Int =\n" +
-      "    match v\n" +
+      "    match v with\n" +
       "        [] => 0\n" +
       "        [True] => 1\n" +
       "        [_, _, ...rest] => 2\n",
@@ -413,7 +413,7 @@ describe("the vector's lengths are a signature (Collections Part 3 §3.3)", () =
 
     // The elements alone can complete the lengths above zero.
     expect(projectDiagnostics("module Main\n\n" + "export fun f(v: Vector(Bool)): Int =\n" +
-      "    match v\n" +
+      "    match v with\n" +
       "        [] => 0\n" +
       "        [True, ...] => 1\n" +
       "        [False, ...] => 2\n",
@@ -422,7 +422,7 @@ describe("the vector's lengths are a signature (Collections Part 3 §3.3)", () =
 
   test("decomposition nests: a union inside a length decomposes as itself", () => {
     expect(projectDiagnostics("module Main\n\n" + "export fun f(v: Vector(Option(Bool))): Int =\n" +
-      "    match v\n" +
+      "    match v with\n" +
       "        [] => 0\n" +
       "        [Some(True), ...] => 1\n" +
       "        [Some(False), ...] => 2\n" +
@@ -430,7 +430,7 @@ describe("the vector's lengths are a signature (Collections Part 3 §3.3)", () =
     )).toEqual([]);
 
     expect(projectDiagnostics("module Main\n\n" + "export fun f(v: Vector(Option(Bool))): Int =\n" +
-      "    match v\n" +
+      "    match v with\n" +
       "        [] => 0\n" +
       "        [Some(True), ...] => 1\n" +
       "        [None, ...] => 3\n",
@@ -439,13 +439,13 @@ describe("the vector's lengths are a signature (Collections Part 3 §3.3)", () =
 
   test("a missed length is still reported as a length", () => {
     expect(projectDiagnostics("module Main\n\n" + "export fun f(v: Vector(Int)): Int =\n" +
-      "    match v\n" +
+      "    match v with\n" +
       "        [] => 0\n" +
       "        [_] => 1\n",
     )).toEqual(["match is missing cases: `[_, _]`"]);
 
     expect(projectDiagnostics("module Main\n\n" + "export fun f(v: Vector(Int)): Int =\n" +
-      "    match v\n" +
+      "    match v with\n" +
       "        [_] => 1\n",
     )).toEqual(["match is missing cases: `[]`, `[_, _]`"]);
   });
@@ -453,25 +453,25 @@ describe("the vector's lengths are a signature (Collections Part 3 §3.3)", () =
   /** §3.3's own examples, none of which moves. */
   test("a rest covers every length at or above its slot count", () => {
     expect(projectDiagnostics("module Main\n\n" + "export fun size(v: Vector(Int)): Int =\n" +
-      "    match v\n" +
+      "    match v with\n" +
       "        [] => 0\n" +
       "        [_, ...rest] => 1\n",
     )).toEqual([]);
 
     expect(projectDiagnostics("module Main\n\n" + "export fun size(v: Vector(Int)): Int =\n" +
-      "    match v\n" +
+      "    match v with\n" +
       "        [] => 0\n" +
       "        [x] => x\n" +
       "        [x, y, ...rest] => x + y\n",
     )).toEqual([]);
 
     expect(projectDiagnostics("module Main\n\n" + "export fun size(v: Vector(Int)): Int =\n" +
-      "    match v\n" +
+      "    match v with\n" +
       "        [...rest] => 1\n",
     )).toEqual([]);
 
     expect(projectDiagnostics("module Main\n\n" + "export fun size(v: Vector(Int)): Int =\n" +
-      "    match v\n" +
+      "    match v with\n" +
       "        [...] => 1\n",
     )).toEqual([]);
   });
@@ -479,13 +479,13 @@ describe("the vector's lengths are a signature (Collections Part 3 §3.3)", () =
   /** §3.1: "slots after the rest count from the end". */
   test("a rest at either end, or in the middle, aligns its slots", () => {
     expect(projectDiagnostics("module Main\n\n" + "export fun f(v: Vector(Int)): Int =\n" +
-      "    match v\n" +
+      "    match v with\n" +
       "        [] => 0\n" +
       "        [...init, x] => x\n",
     )).toEqual([]);
 
     expect(projectDiagnostics("module Main\n\n" + "export fun f(v: Vector(Int)): Int =\n" +
-      "    match v\n" +
+      "    match v with\n" +
       "        [] => 0\n" +
       "        [x] => x\n" +
       "        [a, ..., z] => a + z\n",
@@ -495,7 +495,7 @@ describe("the vector's lengths are a signature (Collections Part 3 §3.3)", () =
     // meet only at length 1: `[False, …, True]` is uncovered above it, and the
     // witness says so at the shortest length that shows it.
     expect(projectDiagnostics("module Main\n\n" + "export fun f(v: Vector(Bool)): Int =\n" +
-      "    match v\n" +
+      "    match v with\n" +
       "        [] => 0\n" +
       "        [True, ...rest] => 1\n" +
       "        [...init, False] => 2\n",
@@ -526,14 +526,14 @@ describe("the vector's lengths are a signature (Collections Part 3 §3.3)", () =
     // they separate, and everything with `False` there and `True` two from the
     // end escapes both.
     expect(projectDiagnostics("module Main\n\n" + "export fun f(v: Vector(Bool)): Int =\n" +
-      "    match v\n" +
+      "    match v with\n" +
       ENDS,
     )).toEqual(["match is missing cases: `[_, False, True, _]`"]);
 
     // And the witness is a real escapee, not a bound artefact: with a sentinel
     // arm below, an instance of it reaches the sentinel.
     const escapes = await runMain("module Main\n\n" + "fun f(v: Vector(Bool)): Int =\n" +
-      "    match v\n" +
+      "    match v with\n" +
       ENDS +
       "        _ => -1\n" +
       "export let w: Int = f([True, False, True, True])\n",
@@ -545,13 +545,13 @@ describe("the vector's lengths are a signature (Collections Part 3 §3.3)", () =
     // witness is a length-4 value. A variadic head read at 3 calls it dead and
     // turns a correct program into a hard error.
     expect(projectDiagnostics("module Main\n\n" + "export fun f(v: Vector(Bool)): Int =\n" +
-      "    match v\n" +
+      "    match v with\n" +
       ENDS +
       "        _ => 5\n",
     )).toEqual([]);
 
     const completed = await runMain("module Main\n\n" + "fun f(v: Vector(Bool)): Int =\n" +
-      "    match v\n" +
+      "    match v with\n" +
       ENDS +
       "        _ => 5\n" +
       "export let w: Int = f([False, False, True, True])\n",
@@ -575,7 +575,7 @@ describe("the vector's lengths are a signature (Collections Part 3 §3.3)", () =
       "        [...rest, True, _] => 5\n";
 
     expect(projectDiagnostics("module Main\n\n" + "export fun f(v: Vector(Bool)): Int =\n" +
-      "    match v\n" +
+      "    match v with\n" +
       COVERING,
     )).toEqual([]);
 
@@ -585,7 +585,7 @@ describe("the vector's lengths are a signature (Collections Part 3 §3.3)", () =
     // the emitter's unreachable-pattern throw, and each length answers with the
     // arm the lengths and the elements together pick.
     const exports = await runMain("module Main\n\n" + "fun f(v: Vector(Bool)): Int =\n" +
-      "    match v\n" +
+      "    match v with\n" +
       COVERING +
       "export let threeFront: Int = f([False, True, False])\n" +
       "export let threeBack: Int = f([False, False, False])\n" +
@@ -610,7 +610,7 @@ describe("the vector's lengths are a signature (Collections Part 3 §3.3)", () =
 
   test("reachability over the lengths is exact (§7.2)", () => {
     expect(projectDiagnostics("module Main\n\n" + "export fun f(v: Vector(Int)): Int =\n" +
-      "    match v\n" +
+      "    match v with\n" +
       "        [] => 0\n" +
       "        [_, ...rest] => 1\n" +
       "        [_, _] => 2\n",
@@ -618,13 +618,13 @@ describe("the vector's lengths are a signature (Collections Part 3 §3.3)", () =
     )).toEqual(["this case is unreachable; the arm `[_, ...rest]` above already covers it"]);
 
     expect(projectDiagnostics("module Main\n\n" + "export fun f(v: Vector(Int)): Int =\n" +
-      "    match v\n" +
+      "    match v with\n" +
       "        [...rest] => 1\n" +
       "        [] => 2\n",
     )).toEqual(["this match arm is unreachable; an earlier pattern matches everything"]);
 
     expect(projectDiagnostics("module Main\n\n" + "export fun f(v: Vector(Bool)): Int =\n" +
-      "    match v\n" +
+      "    match v with\n" +
       "        [_] => 1\n" +
       "        [True] => 2\n" +
       "        _ => 0\n",
@@ -634,7 +634,7 @@ describe("the vector's lengths are a signature (Collections Part 3 §3.3)", () =
 
   test("guarded arms contribute nothing here either (§7.1)", () => {
     expect(projectDiagnostics("module Main\n\n" + "export fun f(v: Vector(Int)): Int =\n" +
-      "    match v\n" +
+      "    match v with\n" +
       "        [] => 0\n" +
       "        [x, ...rest] when x > 0 => 1\n",
     )).toEqual(["match is missing cases: `[_]`"]);
@@ -643,13 +643,13 @@ describe("the vector's lengths are a signature (Collections Part 3 §3.3)", () =
   test("a vector column inside another column decomposes the same way", () => {
     expect(projectDiagnostics("module Main\n\n" + "export union Wrap = W(Vector(Bool))\n" +
       "export fun f(w: Wrap): Int =\n" +
-      "    match w\n" +
+      "    match w with\n" +
       "        W([]) => 0\n" +
       "        W([True, ...]) => 1\n",
     )).toEqual(["match is missing cases: `W([False])`, `W([False, _])`"]);
 
     expect(projectDiagnostics("module Main\n\n" + "export fun f(p: (Vector(Bool), Bool)): Int =\n" +
-      "    match p\n" +
+      "    match p with\n" +
       "        ([], _) => 0\n" +
       "        ([True, ...], _) => 1\n",
     )).toEqual(["match is missing cases: `([False], _)`, `([False, _], _)`"]);
@@ -663,14 +663,14 @@ describe("the vector's lengths are a signature (Collections Part 3 §3.3)", () =
   test("§3.4's gate names the length the pattern can fail on", () => {
     expect(projectDiagnostics("module Main\n\n" + "export fun first(vs: Vector(Vector(Int))): Int =\n" +
       "    var total = 0\n" +
-      "    for [...rest] in vs\n" +
+      "    for [...rest] in vs do\n" +
       "        total := total + 1\n" +
       "    total\n",
     )).toEqual([]);
 
     expect(projectDiagnostics("module Main\n\n" + "export fun first(vs: Vector(Vector(Int))): Int =\n" +
       "    var total = 0\n" +
-      "    for [a] in vs\n" +
+      "    for [a] in vs do\n" +
       "        total := total + a\n" +
       "    total\n",
     )).toEqual(["this pattern can fail: `[]`; use `match`"]);
@@ -727,7 +727,7 @@ describe("the witness printer keeps a record's private fields at home (Modules �
       ["/main.hex",
         "module Main\n\n" + 'import Geo\n' +
         "export fun pick(o: Option(Geo.Crate)): Int =\n" +
-        "    match o\n" +
+        "    match o with\n" +
         "        None => 0\n"],
     ]);
     // Constructor granularity, and no `n` anywhere: a diagnostic never signposts
@@ -739,7 +739,7 @@ describe("the witness printer keeps a record's private fields at home (Modules �
   test("inside the home module `opaque` changes nothing, and the row prints", () => {
     expect(projectDiagnostics("module Main\n\n" + "opaque record Crate = {n: Bool}\n" +
       "export fun pick(c: Crate): Int =\n" +
-      "    match c\n" +
+      "    match c with\n" +
       "        Crate({n = True}) => 1\n",
     )).toEqual(["match is missing cases: `Crate({n = False})`"]);
   });
@@ -769,7 +769,7 @@ describe("a constraint's default body is checked like any other body (#599)", ()
     expect(projectDiagnostics(
       "module Main\n\n" + FLAG + PICK +
       "    rank(self: a, flag: Flag) -> Int =\n" +
-      "        match flag\n" +
+      "        match flag with\n" +
       "            On => 1\n",
     )).toEqual(["match is missing cases: `Off`"]);
   });
@@ -778,13 +778,13 @@ describe("a constraint's default body is checked like any other body (#599)", ()
     const inDefault = projectDiagnostics(
       "module Main\n\n" + FLAG + "union Other = Thing\n" + PICK +
       "    rank(self: a, flag: Flag) -> Int =\n" +
-      "        match flag\n" +
+      "        match flag with\n" +
       "            Thing => 1\n",
     );
     const atTopLevel = projectDiagnostics(
       "module Main\n\n" + FLAG + "union Other = Thing\n" +
       "fun rank(flag: Flag): Int =\n" +
-      "    match flag\n" +
+      "    match flag with\n" +
       "        Thing => 1\n",
     );
     // #607: the missing-cases report that used to ride beside the type error is
@@ -802,7 +802,7 @@ describe("a constraint's default body is checked like any other body (#599)", ()
     expect(projectDiagnostics(
       "module Main\n\n" + FLAG + PICK +
       "    rank(self: a, flag: Flag) -> Int =\n" +
-      "        match flag\n" +
+      "        match flag with\n" +
       "            On => 1\n" +
       "            _ => 2\n",
     )).toEqual([]);
@@ -812,7 +812,7 @@ describe("a constraint's default body is checked like any other body (#599)", ()
     expect(projectDiagnostics(
       "module Main\n\n" + FLAG + PICK +
       "    rank(self: a, flag: Flag) -> Int =\n" +
-      "        match flag\n" +
+      "        match flag with\n" +
       "            On => 1\n" +
       "            On => 2\n" +
       "            Off => 3\n",
@@ -854,14 +854,14 @@ describe("a constraint's default body is checked like any other body (#599)", ()
     expect(projectDiagnostics(
       "module Main\n\n" + PICK +
       "    rank(self: a, flag: Bool) -> Int =\n" +
-      "        match flag\n" +
+      "        match flag with\n" +
       "            True => 1\n",
     )).toEqual(["match is missing cases: `False`"]);
 
     expect(projectDiagnostics(
       "module Main\n\n" + PICK +
       "    rank(self: a, held: Option(Int)) -> Int =\n" +
-      "        match held\n" +
+      "        match held with\n" +
       "            Some(n) => n\n",
     )).toEqual(["match is missing cases: `None`"]);
   });

@@ -98,7 +98,7 @@ describe("acceptance and matching (§2.5, §15 (k))", BUDGET, () => {
     // JavaScript's `===` already equates the zeros.
     const exports = await runMain(main(
       "export fun name(t: Float): String =\n" +
-        "    match t\n" +
+        "    match t with\n" +
         "        0.0 => \"zero\"\n" +
         "        -40.0 => \"the same on both scales\"\n" +
         "        _ => \"ok\"\n" +
@@ -122,7 +122,7 @@ describe("acceptance and matching (§2.5, §15 (k))", BUDGET, () => {
     // pinned: the seat goes through the one `Float` equality the language has.
     const text = emitted(
       "export fun f(t: Float): String =\n" +
-        "    match t\n" +
+        "    match t with\n" +
         "        0.0 => \"zero\"\n" +
         "        -40.0 => \"cold\"\n" +
         "        _ => \"ok\"\n",
@@ -135,20 +135,20 @@ describe("acceptance and matching (§2.5, §15 (k))", BUDGET, () => {
   test("nested, tuple, record and or-pattern positions all take the literal", async () => {
     const exports = await runMain(main(
       "export fun inOption(o: Option(Float)): String =\n" +
-        "    match o\n" +
+        "    match o with\n" +
         "        Some(0.0) => \"some zero\"\n" +
         "        Some(_) => \"some\"\n" +
         "        None => \"none\"\n" +
         "export fun inTuple(p: (Float, Int)): String =\n" +
-        "    match p\n" +
+        "    match p with\n" +
         "        (0.0, _) => \"zero first\"\n" +
         "        _ => \"other\"\n" +
         "export fun inRecord(r: {port: Float}): String =\n" +
-        "    match r\n" +
+        "    match r with\n" +
         "        {port = 0.0} => \"closed\"\n" +
         "        _ => \"open\"\n" +
         "export fun inOr(t: Float): String =\n" +
-        "    match t\n" +
+        "    match t with\n" +
         "        0.0 | 1.5 => \"either\"\n" +
         "        _ => \"neither\"\n" +
         "export let a: String = inOption(Some(-0.0))\n" +
@@ -164,7 +164,7 @@ describe("acceptance and matching (§2.5, §15 (k))", BUDGET, () => {
   test("`Float` stays an infinite domain: the catch-all is required (§7.1)", () => {
     expect(projectDiagnostics(main(
       "export fun f(t: Float): String =\n" +
-        "    match t\n" +
+        "    match t with\n" +
         "        0.0 => \"zero\"\n" +
         "        1.5 => \"half\"\n",
     ))).toEqual(["match is missing cases: `_`"]);
@@ -176,13 +176,13 @@ describe("acceptance and matching (§2.5, §15 (k))", BUDGET, () => {
     // fixit of the pattern's own (§12's row).
     expect(projectDiagnostics(main(
       "export fun f(count: Int): String =\n" +
-        "    match count\n" +
+        "    match count with\n" +
         "        0.0 => \"zero\"\n" +
         "        _ => \"ok\"\n",
     ))).toEqual(["type mismatch: expected Int, found Float"]);
     expect(projectDiagnostics("module Main\n\nimport Rat\n\n" +
       "export fun f(ratio: Rat.Rat): String =\n" +
-        "    match ratio\n" +
+        "    match ratio with\n" +
         "        1.5 => \"never\"\n" +
         "        _ => \"ok\"\n",
     )).toEqual(["type mismatch: expected Rat, found Float"]);
@@ -190,7 +190,7 @@ describe("acceptance and matching (§2.5, §15 (k))", BUDGET, () => {
     // scrutinee's, is what the literal is checked against.
     expect(projectDiagnostics("module Main\n\nimport Rat\n\n" +
       "export fun f(o: Option(Rat.Rat)): String =\n" +
-        "    match o\n" +
+        "    match o with\n" +
         "        Some(0.0) => \"never\"\n" +
         "        _ => \"ok\"\n",
     )).toEqual(["type mismatch: expected Rat, found Float"]);
@@ -210,7 +210,7 @@ describe("the literal at the type of its position (§2.5's checking rule, #519)"
     ] as const) {
       expect(projectDiagnostics(main(
         `export fun f(${scrutinee}: ${type}): String =\n` +
-          `    match ${scrutinee}\n` +
+          `    match ${scrutinee} with\n` +
           "        0 => \"zero\"\n" +
           "        _ => \"other\"\n",
       ))).toEqual([]);
@@ -223,7 +223,7 @@ describe("the literal at the type of its position (§2.5's checking rule, #519)"
     // the value at `Rat` is not one the compiler computes (§7.2, §8).
     expect(projectDiagnostics("module Main\n\nimport Rat\n\n" +
       "export fun f(ratio: Rat.Rat): String =\n" +
-        "    match ratio\n" +
+        "    match ratio with\n" +
         "        0 => \"zero\"\n" +
         "        _ => \"ok\"\n",
     )).toEqual([
@@ -239,7 +239,7 @@ describe("the literal at the type of its position (§2.5's checking rule, #519)"
     // at all, the one report still stands alone.
     expect(projectDiagnostics("module Main\n\nimport Rat\n\n" +
       "export fun f(ratio: Rat.Rat): String =\n" +
-        "    match ratio\n" +
+        "    match ratio with\n" +
         "        0 => \"zero\"\n",
     )).toEqual([
       "`0` is not a pattern at `Rat`; bind a name and test it in a guard: " +
@@ -253,7 +253,7 @@ describe("the literal at the type of its position (§2.5's checking rule, #519)"
     // enclosing pattern's shape.
     expect(projectDiagnostics(main(
       "export fun f<a: (Num, Eq)>(o: Option(a)): String =\n" +
-        "    match o\n" +
+        "    match o with\n" +
         "        Some(0) => \"zero\"\n" +
         "        _ => \"other\"\n",
     ))).toEqual([
@@ -263,7 +263,7 @@ describe("the literal at the type of its position (§2.5's checking rule, #519)"
     // The binder dodges every name the pattern already binds.
     expect(projectDiagnostics(main(
       "export fun f<a: (Num, Eq)>(p: (a, a)): String =\n" +
-        "    match p\n" +
+        "    match p with\n" +
         "        (0, y) => \"zero\"\n" +
         "        _ => \"other\"\n",
     ))).toEqual([
@@ -281,7 +281,7 @@ describe("the literal at the type of its position (§2.5's checking rule, #519)"
       "fun use(r: Rat.Rat): String = \"used\"\n" + body;
     expect(projectDiagnostics(rat(
       "export fun f(r: Rat.Rat): String =\n" +
-        "    match r\n" +
+        "    match r with\n" +
         "        0 as z => use(z)\n" +
         "        _ => \"ok\"\n",
     ))).toEqual([
@@ -291,14 +291,14 @@ describe("the literal at the type of its position (§2.5's checking rule, #519)"
     // And the rewrite compiles, binder and all — which is the whole claim.
     expect(projectDiagnostics(rat(
       "export fun f(r: Rat.Rat): String =\n" +
-        "    match r\n" +
+        "    match r with\n" +
         "        y as z when y == 0 => use(z)\n" +
         "        _ => \"ok\"\n",
     ))).toEqual([]);
     // Beneath the top the `as` travels with the rest of the shape.
     expect(projectDiagnostics(rat(
       "export fun f(o: Option(Rat.Rat)): String =\n" +
-        "    match o\n" +
+        "    match o with\n" +
         "        Some(0 as z) => use(z)\n" +
         "        _ => \"ok\"\n",
     ))).toEqual([
@@ -310,7 +310,7 @@ describe("the literal at the type of its position (§2.5's checking rule, #519)"
     // and the unparenthesized rewrite drew four reports of its own.
     expect(projectDiagnostics(rat(
       "export fun f(r: Rat.Rat): String =\n" +
-        "    match r\n" +
+        "    match r with\n" +
         "        (0 as y) as z => use(z)\n" +
         "        _ => \"ok\"\n",
     ))).toEqual([
@@ -319,14 +319,14 @@ describe("the literal at the type of its position (§2.5's checking rule, #519)"
     ]);
     expect(projectDiagnostics(rat(
       "export fun f(r: Rat.Rat): String =\n" +
-        "    match r\n" +
+        "    match r with\n" +
         "        (y1 as y) as z when y1 == 0 => use(z)\n" +
         "        _ => \"ok\"\n",
     ))).toEqual([]);
     // One level down the enclosing form's brackets already separate them.
     expect(projectDiagnostics(rat(
       "export fun f(o: Option(Rat.Rat)): String =\n" +
-        "    match o\n" +
+        "    match o with\n" +
         "        Some(0 as y) as z => use(y)\n" +
         "        _ => \"ok\"\n",
     ))).toEqual([
@@ -340,7 +340,7 @@ describe("the literal at the type of its position (§2.5's checking rule, #519)"
       const scrutinee = pattern.startsWith("Some") ? "Option(Rat.Rat)" : "Rat.Rat";
       expect(projectDiagnostics(rat(
         `export fun f(r: ${scrutinee}): String =\n` +
-          "    match r\n" +
+          "    match r with\n" +
           `        ${pattern} => "small"\n` +
           "        _ => \"ok\"\n",
       ))).toEqual([
@@ -351,7 +351,7 @@ describe("the literal at the type of its position (§2.5's checking rule, #519)"
     // The control: the rewrite the seat declined to offer is indeed refused.
     expect(projectDiagnostics(rat(
       "export fun f(o: Option(Rat.Rat)): String =\n" +
-        "    match o\n" +
+        "    match o with\n" +
         "        Some(y | 1) when y == 0 => \"small\"\n" +
         "        _ => \"ok\"\n",
     ))).toEqual([
@@ -367,13 +367,13 @@ describe("the literal at the type of its position (§2.5's checking rule, #519)"
     // reported and the arm emits an `Int` test.
     expect(projectDiagnostics(main(
       "export let a: String =\n" +
-        "    match None\n" +
+        "    match None with\n" +
         "        Some(0) => \"zero\"\n" +
         "        _ => \"other\"\n",
     ))).toEqual([]);
     expect(emitted(
       "export let a: String =\n" +
-        "    match None\n" +
+        "    match None with\n" +
         "        Some(0) => \"zero\"\n" +
         "        _ => \"other\"\n",
     )).toContain("=== 0");
@@ -384,23 +384,23 @@ describe("the literal at the type of its position (§2.5's checking rule, #519)"
     // spelling (Numeric Literals §5.2 — `0.0`, `0n`) and the test is the equality
     // the compiler computes there (§8's "patterns never invoke user code").
     expect(emitted(
-      "export fun f(t: Float): String =\n    match t\n        0 => \"z\"\n        _ => \"o\"\n",
+      "export fun f(t: Float): String =\n    match t with\n        0 => \"z\"\n        _ => \"o\"\n",
     )).toContain("__floatEquals(__match, 0.0)");
     expect(emitted(
-      "export fun f(b: BigInt): String =\n    match b\n        0 => \"z\"\n        _ => \"o\"\n",
+      "export fun f(b: BigInt): String =\n    match b with\n        0 => \"z\"\n        _ => \"o\"\n",
     )).toContain("__match === 0n");
     expect(emitted(
-      "export fun f(n: Nat): String =\n    match n\n        0 => \"z\"\n        _ => \"o\"\n",
+      "export fun f(n: Nat): String =\n    match n with\n        0 => \"z\"\n        _ => \"o\"\n",
     )).toContain("__match === 0");
     expect(emitted(
-      "export fun f(i: Int): String =\n    match i\n        0 => \"z\"\n        _ => \"o\"\n",
+      "export fun f(i: Int): String =\n    match i with\n        0 => \"z\"\n        _ => \"o\"\n",
     )).toContain("__match === 0");
   });
 
   test("a `BigInt` literal arm runs", async () => {
     const exports = await runMain(main(
       "export fun f(b: BigInt): String =\n" +
-        "    match b\n" +
+        "    match b with\n" +
         "        0 => \"zero\"\n" +
         "        _ => \"big\"\n" +
         "export let a: String = f(0n)\n" +
@@ -427,7 +427,7 @@ describe("the literal at the type of its position (§2.5's checking rule, #519)"
       const pattern = projectDiagnostics(main(
         declaration +
           `fun g(x: ${type}): String =\n` +
-          "    match x\n" +
+          "    match x with\n" +
           "        0 => \"zero\"\n" +
           "        _ => \"other\"\n" +
           `export let a: String = g(${argument})\n`,
@@ -442,7 +442,7 @@ describe("the literal at the type of its position (§2.5's checking rule, #519)"
     // fails: `String` honors `Eq` and not `Num`, the union honors neither.
     expect(projectDiagnostics(main(
       "export fun f(s: String): String =\n" +
-        "    match s\n" +
+        "    match s with\n" +
         "        0 => \"zero\"\n" +
         "        _ => \"other\"\n",
     ))).toEqual(["integer literal cannot have type `String`"]);
@@ -464,7 +464,7 @@ describe("the literal at the type of its position (§2.5's checking rule, #519)"
       "(`let difference: Int = …`)";
     const fromPattern = projectDiagnostics(main(
       "export fun f(n: Nat): String =\n" +
-        "    match n\n" +
+        "    match n with\n" +
         "        -1 => \"never\"\n" +
         "        _ => \"ok\"\n",
     ));
@@ -492,14 +492,14 @@ describe("the literal at the type of its position (§2.5's checking rule, #519)"
     // The demand is judged whatever the payload, `-0` included (§2.5).
     expect(projectDiagnostics(main(
       "export fun f(n: Nat): String =\n" +
-        "    match n\n" +
+        "    match n with\n" +
         "        -0 => \"never\"\n" +
         "        _ => \"ok\"\n",
     ))).toEqual([closedPair]);
     // And it is satisfied at every `Signed`-honoring type.
     expect(projectDiagnostics(main(
       "export fun f(i: Int): String =\n" +
-        "    match i\n" +
+        "    match i with\n" +
         "        -1 => \"minus one\"\n" +
         "        _ => \"ok\"\n",
     ))).toEqual([]);
@@ -511,18 +511,18 @@ describe("the literal at the type of its position (§2.5's checking rule, #519)"
     // pattern names a head, it takes Numeric Literals §4's default at the
     // `match` (Method Syntax §3.3). A pattern that names one decides instead.
     expect(projectDiagnostics(main(
-      "export let a: String =\n    match 0\n        0 => \"zero\"\n        _ => \"other\"\n",
+      "export let a: String =\n    match 0 with\n        0 => \"zero\"\n        _ => \"other\"\n",
     ))).toEqual([]);
     expect(projectDiagnostics(main(
-      "export let a: String =\n    match 0\n        1.5 => \"one and a half\"\n        _ => \"other\"\n",
+      "export let a: String =\n    match 0 with\n        1.5 => \"one and a half\"\n        _ => \"other\"\n",
     ))).toEqual([]);
     // Patterns that test nothing need no type at all.
     expect(projectDiagnostics(main(
-      "export let a: String =\n    match 0\n        _ => \"other\"\n",
+      "export let a: String =\n    match 0 with\n        _ => \"other\"\n",
     ))).toEqual([]);
     expect(projectDiagnostics(main(
       "export let a: String =\n" +
-        "    match 0\n" +
+        "    match 0 with\n" +
         "        x when x == 0 => \"zero\"\n" +
         "        _ => \"other\"\n",
     ))).toEqual([]);
@@ -534,7 +534,7 @@ describe("the literal at the type of its position (§2.5's checking rule, #519)"
     expect(projectDiagnostics(main(
       "fun byName(x) =\n" +
         "    let alias = x\n" +
-        "    match alias\n" +
+        "    match alias with\n" +
         "        0 => \"zero\"\n" +
         "        _ => \"value\"\n" +
         "export let a: String = byName(0)\n",
@@ -544,7 +544,7 @@ describe("the literal at the type of its position (§2.5's checking rule, #519)"
     ]);
     expect(projectDiagnostics(main(
       "fun byCall(g) =\n" +
-        "    match g(1)\n" +
+        "    match g(1) with\n" +
         "        0 => \"zero\"\n" +
         "        _ => \"value\"\n",
     ))).toEqual([
@@ -556,7 +556,7 @@ describe("the literal at the type of its position (§2.5's checking rule, #519)"
     // §4's box rule), and the scrutinee is an `Int`.
     expect(projectDiagnostics(main(
       "export let a: String =\n" +
-        "    match (x => x)(0)\n" +
+        "    match (x => x)(0) with\n" +
         "        _ => \"value\"\n",
     ))).toEqual([]);
   });
@@ -564,7 +564,7 @@ describe("the literal at the type of its position (§2.5's checking rule, #519)"
   test("an ascription gives an undetermined literal scrutinee a concrete type", () => {
     expect(projectDiagnostics(main(
       "export let a: String =\n" +
-        "    match (0: Int)\n" +
+        "    match (0: Int) with\n" +
         "        0 => \"zero\"\n" +
         "        _ => \"other\"\n",
     ))).toEqual([]);
@@ -577,7 +577,7 @@ describe("the literal at the type of its position (§2.5's checking rule, #519)"
     // §6.1) — whatever order the body's lines come in.
     expect(projectDiagnostics(main(
       "fun f(x) =\n" +
-        "    match x\n" +
+        "    match x with\n" +
         "        0 => \"zero\"\n" +
         "        _ => \"other\"\n" +
         "export let a: String = f(1)\n",
@@ -585,7 +585,7 @@ describe("the literal at the type of its position (§2.5's checking rule, #519)"
     // Annotated, it compiles and runs at the annotation's type.
     expect(projectDiagnostics(main(
       "fun f(x: Nat): String =\n" +
-        "    match x\n" +
+        "    match x with\n" +
         "        0 => \"zero\"\n" +
         "        _ => \"other\"\n" +
         "export let a: String = f(1)\n",
@@ -600,7 +600,7 @@ describe("the literal at the type of its position (§2.5's checking rule, #519)"
     // declaration, and not one of the four.
     expect(projectDiagnostics(main(
       "export fun f(o: Option(a)): String =\n" +
-        "    match o\n" +
+        "    match o with\n" +
         "        Some(0) => \"zero\"\n" +
         "        _ => \"other\"\n",
     ))).toEqual([
@@ -616,7 +616,7 @@ describe("the literal at the type of its position (§2.5's checking rule, #519)"
     // Declared, the signature's report goes and the restriction stands alone.
     expect(projectDiagnostics(main(
       "export fun f<a: (Num, Eq)>(o: Option(a)): String =\n" +
-        "    match o\n" +
+        "    match o with\n" +
         "        Some(0) => \"zero\"\n" +
         "        _ => \"other\"\n",
     ))).toEqual([
@@ -635,7 +635,7 @@ describe("the literal at the type of its position (§2.5's checking rule, #519)"
     // of the program advise the same two.
     expect(projectDiagnostics(main(
       "export fun f(o: Option(a)): String =\n" +
-        "    match o\n" +
+        "    match o with\n" +
         "        Some(-1) => \"one\"\n" +
         "        _ => \"other\"\n",
     ))).toEqual([
@@ -652,7 +652,7 @@ describe("the literal at the type of its position (§2.5's checking rule, #519)"
     // de-based, so §4.1.1's omit-the-base rule has nothing to say.
     expect(projectDiagnostics(main(
       "export fun f<a: (Eq, Signed)>(o: Option(a)): String =\n" +
-        "    match o\n" +
+        "    match o with\n" +
         "        Some(-1) => \"one\"\n" +
         "        _ => \"other\"\n",
     ))).toEqual([
@@ -691,7 +691,7 @@ describe("coverage identity is the value, not the spelling (§7.2)", BUDGET, () 
     // §15 (k)'s second block, line for line.
     expect(projectDiagnostics(main(
       "export fun f(t: Float): String =\n" +
-        "    match t\n" +
+        "    match t with\n" +
         "        0.0 => \"zero\"\n" +
         "        -0.0 => \"never\"\n" +
         "        0 => \"still never\"\n" +
@@ -702,7 +702,7 @@ describe("coverage identity is the value, not the spelling (§7.2)", BUDGET, () 
   test("spellings the lexer rounds to one double are one literal", () => {
     expect(projectDiagnostics(main(
       "export fun f(t: Float): String =\n" +
-        "    match t\n" +
+        "    match t with\n" +
         "        1.0 => \"one\"\n" +
         "        1.00 => \"never\"\n" +
         "        1.0e0 => \"never\"\n" +
@@ -712,7 +712,7 @@ describe("coverage identity is the value, not the spelling (§7.2)", BUDGET, () 
     // Once per dead alternative, at the top of one arm (§7.2).
     expect(projectDiagnostics(main(
       "export fun f(t: Float): String =\n" +
-        "    match t\n" +
+        "    match t with\n" +
         "        1.0 | 1.00 | 1.0e0 => \"one\"\n" +
         "        _ => \"ok\"\n",
     ))).toEqual([DUPLICATE, DUPLICATE]);
@@ -723,7 +723,7 @@ describe("coverage identity is the value, not the spelling (§7.2)", BUDGET, () 
     // the two arms cover the same values and the matrix says so.
     expect(projectDiagnostics(main(
       "export fun f(t: Float): String =\n" +
-        "    match t\n" +
+        "    match t with\n" +
         "        1.0e-400 => \"tiny\"\n" +
         "        0.0 => \"never\"\n" +
         "        _ => \"ok\"\n",
@@ -735,7 +735,7 @@ describe("coverage identity is the value, not the spelling (§7.2)", BUDGET, () 
     // spelling, and Lexer §5 legalises the leading zeroes.
     expect(projectDiagnostics(main(
       "export fun f(count: Int): String =\n" +
-        "    match count\n" +
+        "    match count with\n" +
         "        7 => \"seven\"\n" +
         "        007 => \"never\"\n" +
         "        0 => \"zero\"\n" +
@@ -745,7 +745,7 @@ describe("coverage identity is the value, not the spelling (§7.2)", BUDGET, () 
     // Separators are not part of the value either (§7.2's separator-free reading).
     expect(projectDiagnostics(main(
       "export fun f(count: Int): String =\n" +
-        "    match count\n" +
+        "    match count with\n" +
         "        1_000 => \"a thousand\"\n" +
         "        1000 => \"never\"\n" +
         "        _ => \"ok\"\n",
@@ -756,7 +756,7 @@ describe("coverage identity is the value, not the spelling (§7.2)", BUDGET, () 
     for (const type of ["Nat", "BigInt"] as const) {
       expect(projectDiagnostics(main(
         `export fun f(n: ${type}): String =\n` +
-          "    match n\n" +
+          "    match n with\n" +
           "        7 => \"seven\"\n" +
           "        007 => \"never\"\n" +
           "        _ => \"ok\"\n",
@@ -774,7 +774,7 @@ describe("coverage identity is the value, not the spelling (§7.2)", BUDGET, () 
       "guard: `x when x == 0`";
     expect(projectDiagnostics("module Main\n\nimport Rat\n\n" +
       "export fun f(r: Rat.Rat): String =\n" +
-        "    match r\n" +
+        "    match r with\n" +
         "        0 => \"zero\"\n" +
         "        0 => \"never\"\n" +
         "        _ => \"ok\"\n",
@@ -793,14 +793,14 @@ describe("coverage identity is the value, not the spelling (§7.2)", BUDGET, () 
     expect(projectDiagnostics(
       "module Main\n\nimport Rat\n\n" +
       "export fun eager(value: Option(Rat.Rat)): String =\n" +
-      "    match value\n" + arms,
+      "    match value with\n" + arms,
     )).toEqual([refusal, refusal]);
     // Undetermined at both literal arms, then fixed by the sibling. The deferred
     // verdict is still the matrix's input, so neither refusal is a shadower.
     expect(projectDiagnostics(
       "module Main\n\nimport Rat\n\n" +
       "export let late: String =\n" +
-      "    match None\n" + arms,
+      "    match None with\n" + arms,
     )).toEqual([refusal, refusal]);
   });
 
@@ -813,14 +813,14 @@ describe("coverage identity is the value, not the spelling (§7.2)", BUDGET, () 
       "        _ => \"other\"\n";
     expect(projectDiagnostics(main(
       "export fun eager(value: Option(String)): String =\n" +
-      "    match value\n" + arms,
+      "    match value with\n" + arms,
     ))).toEqual([failure, failure]);
     // Both occurrences share one inferred slot and therefore one evidence seat.
     // Diagnostics remain per failed pattern: evidence deduplication cannot erase
     // the second typing verdict or let that pattern shadow an arm below it.
     expect(projectDiagnostics(main(
       "export let late: String =\n" +
-      "    match None\n" + arms,
+      "    match None with\n" + arms,
     ))).toEqual([failure, failure]);
   });
 
@@ -832,11 +832,11 @@ describe("coverage identity is the value, not the spelling (§7.2)", BUDGET, () 
       "        _ => \"other\"\n";
     const eager = projectDiagnostics(main(
       "export fun eager(value: Option(Vector((Int) -> String))): String =\n" +
-      "    match value\n" + arms,
+      "    match value with\n" + arms,
     ));
     const late = projectDiagnostics(main(
       "export let late: String =\n" +
-      "    match None\n" + arms,
+      "    match None with\n" + arms,
     ));
     // `Vector`'s home is named since #1071: its companion declares it.
     const noNum = "no `Num<Vector((Int) -> String)>` instance is visible in this module; its only legal homes " +
@@ -863,11 +863,11 @@ describe("coverage identity is the value, not the spelling (§7.2)", BUDGET, () 
     expect(projectDiagnostics(
       "module Main\n\nimport Rat\n\n" +
       "export fun eager(value: Option(Rat.Rat)): String =\n" +
-      "    match value\n" +
+      "    match value with\n" +
       "        Some(0) => \"zero\"\n" +
       "        _ => \"other\"\n" +
       "export let late: String =\n" +
-      "    match None\n" +
+      "    match None with\n" +
       "        Some(0) => \"zero\"\n" +
       "        Some(r) => \"${Rat.toFloat(r)}\"\n" +
       "        _ => \"other\"\n",
@@ -881,10 +881,10 @@ describe("coverage identity is the value, not the spelling (§7.2)", BUDGET, () 
       "module Main\n\nimport Rat\n\n" +
       "fun f(value): String =\n" +
       "    let first =\n" +
-      "        match value\n" +
+      "        match value with\n" +
       "            _ => \"all\"\n" +
       "            Some(0) => \"broken\"\n" +
-      "    match value\n" +
+      "    match value with\n" +
       "        Some(r) => \"${Rat.toFloat(r)}\"\n" +
       "        _ => first\n" +
       "export let answer: String = f(None)\n",
@@ -900,14 +900,14 @@ describe("coverage identity is the value, not the spelling (§7.2)", BUDGET, () 
     // stands where several arms cover it only jointly.
     expect(projectDiagnostics(main(
       "export fun f(p: (Float, Int)): String =\n" +
-        "    match p\n" +
+        "    match p with\n" +
         "        (0.0, _) => \"zero\"\n" +
         "        (-0.0, _) => \"never\"\n" +
         "        _ => \"ok\"\n",
     ))).toEqual(["this case is unreachable; the arm `(0.0, _)` above already covers it"]);
     expect(projectDiagnostics(main(
       "export fun f(p: (Bool, Int)): String =\n" +
-        "    match p\n" +
+        "    match p with\n" +
         "        (True, 0) => \"a\"\n" +
         "        (False, 0) => \"b\"\n" +
         "        (_, 0) => \"never\"\n" +
@@ -926,7 +926,7 @@ describe("coverage identity is the value, not the spelling (§7.2)", BUDGET, () 
       "type, or go through the operations those homes export";
     expect(projectDiagnostics(main(
       "export fun f(n: Nat): String =\n" +
-        "    match n\n" +
+        "    match n with\n" +
         "        -1 => \"a\"\n" +
         "        -1 => \"b\"\n" +
         "        _ => \"ok\"\n",
@@ -936,7 +936,7 @@ describe("coverage identity is the value, not the spelling (§7.2)", BUDGET, () 
   test("a guarded arm still establishes no coverage (§3, §7.1)", () => {
     expect(projectDiagnostics(main(
       "export fun f(t: Float): String =\n" +
-        "    match t\n" +
+        "    match t with\n" +
         "        0.0 when t < 1.0 => \"guarded zero\"\n" +
         "        0.0 => \"zero\"\n" +
         "        _ => \"ok\"\n",
@@ -967,7 +967,7 @@ const termArm = (
 ): string =>
   `module Main\n\n${imports}\n` +
   `export fun f(${scrutinee}: ${type}): String =\n` +
-  `    match ${scrutinee}\n` +
+  `    match ${scrutinee} with\n` +
   `        ${pattern} => "n"\n` +
   "        _ => \"ok\"\n";
 
@@ -979,7 +979,7 @@ const termGuard = (
 ): string =>
   `module Main\n\n${imports}\n` +
   `export fun f(${scrutinee}: ${type}): String =\n` +
-  `    match ${scrutinee}\n` +
+  `    match ${scrutinee} with\n` +
   `        x when x == ${spelling} => "n"\n` +
   "        _ => \"ok\"\n";
 
@@ -990,7 +990,7 @@ describe("a term's spelling in pattern position (§2.5, §12)", BUDGET, () => {
     // found `.`", and an unreachable-arm report riding beside them.
     expect(projectDiagnostics("module Main\n\nimport Float\n\n" +
       "export fun f(t: Float): String =\n" +
-        "    match t\n" +
+        "    match t with\n" +
         "        Float.nan => \"not a number\"\n" +
         "        _ => \"ok\"\n",
     )).toEqual([
@@ -1002,7 +1002,7 @@ describe("a term's spelling in pattern position (§2.5, §12)", BUDGET, () => {
   test("the sign rides the sentence: `-Float.infinity`", () => {
     expect(projectDiagnostics("module Main\n\nimport Float\n\n" +
       "export fun f(t: Float): String =\n" +
-        "    match t\n" +
+        "    match t with\n" +
         "        -Float.infinity => \"cold\"\n" +
         "        _ => \"ok\"\n",
     )).toEqual([
@@ -1019,7 +1019,7 @@ describe("a term's spelling in pattern position (§2.5, §12)", BUDGET, () => {
       "/main.hex",
       "module Main\n\nimport Helper\n\n" +
       "export fun f(n: Nat): String =\n" +
-        "    match n\n" +
+        "    match n with\n" +
         "        Helper.zero => \"zero\"\n" +
         "        _ => \"ok\"\n",
     ]])).toEqual([
@@ -1106,7 +1106,7 @@ describe("a term's spelling in pattern position (§2.5, §12)", BUDGET, () => {
       "/main.hex",
       "module Main\n\nimport Helper\n\n" +
       "export fun f(): Int =\n" +
-        "    match Helper.go(1)\n" +
+        "    match Helper.go(1) with\n" +
         "        x => x\n" +
         "    catch\n" +
         "        Helper.count => 0\n" +
@@ -1140,7 +1140,7 @@ describe("a term's spelling in pattern position (§2.5, §12)", BUDGET, () => {
         "/main.hex",
         "module Main\n\nimport Helper\n\n" +
         `export fun f(${subject}: ${type}): String =\n` +
-        `    match ${subject}\n` +
+        `    match ${subject} with\n` +
         `        ${arm} => "n"\n` +
         "        _ => \"ok\"\n",
       ];
@@ -1162,7 +1162,7 @@ describe("a term's spelling in pattern position (§2.5, §12)", BUDGET, () => {
         "/main.hex",
         "module Main\n\nimport Helper\n\n" +
         `export fun f(${subject}: ${type}): String =\n` +
-        `    match ${subject}\n` +
+        `    match ${subject} with\n` +
         `        ${pattern} => "n"\n` +
         "        _ => \"ok\"\n",
       ]])).toEqual(["`Helper.count` is a value, not a pattern"]);
@@ -1178,13 +1178,13 @@ describe("a term's spelling in pattern position (§2.5, §12)", BUDGET, () => {
     const rat = (body: string): string => "module Main\n\nimport Rat\n\n" + body;
     expect(projectDiagnostics(rat(
       "export fun f(p: (Rat.Rat, Int)): String =\n" +
-        "    match p\n" +
+        "    match p with\n" +
         "        (0, Nowhere.zilch) => \"z\"\n" +
         "        _ => \"ok\"\n",
     ))).toEqual(["`0` is not a pattern at `Rat`", "no module alias `Nowhere`"]);
     expect(projectDiagnostics(rat(
       "export fun f(p: (Rat.Rat, Float)): String =\n" +
-        "    match p\n" +
+        "    match p with\n" +
         "        (0, 1.0e309) => \"z\"\n" +
         "        _ => \"ok\"\n",
     ))).toEqual([
@@ -1196,7 +1196,7 @@ describe("a term's spelling in pattern position (§2.5, §12)", BUDGET, () => {
       "/main.hex",
       "module Main\n\nimport Helper\n\n" +
       "export fun f(p: (Int, String)): String =\n" +
-        "    match p\n" +
+        "    match p with\n" +
         "        (Helper.count, Helper.text) => \"z\"\n" +
         "        _ => \"ok\"\n",
     ]])).toEqual([
@@ -1207,7 +1207,7 @@ describe("a term's spelling in pattern position (§2.5, §12)", BUDGET, () => {
     // *literal* is printed as written, and a wildcard sibling is no obstacle.
     expect(projectDiagnostics(rat(
       "export fun f(p: (Rat.Rat, Rat.Rat)): String =\n" +
-        "    match p\n" +
+        "    match p with\n" +
         "        (0, 1) => \"z\"\n" +
         "        _ => \"ok\"\n",
     ))).toEqual([
@@ -1220,7 +1220,7 @@ describe("a term's spelling in pattern position (§2.5, §12)", BUDGET, () => {
       "/main.hex",
       "module Main\n\nimport Helper\n\n" +
       "export fun f(p: (Int, String)): String =\n" +
-        "    match p\n" +
+        "    match p with\n" +
         "        (Helper.count, _) => \"z\"\n" +
         "        _ => \"ok\"\n",
     ]])).toEqual([
@@ -1240,7 +1240,7 @@ describe("a term's spelling in pattern position (§2.5, §12)", BUDGET, () => {
     const rat = (body: string): string => "module Main\n\nimport Rat\n\n" + body;
     const tuple = (arm: string): string => rat(
       "export fun f(p: (Rat.Rat, Int)): String =\n" +
-        "    match p\n" +
+        "    match p with\n" +
         `        ${arm} => "z"\n` +
         "        _ => \"ok\"\n",
     );
@@ -1249,7 +1249,7 @@ describe("a term's spelling in pattern position (§2.5, §12)", BUDGET, () => {
     // At the top of an arm too: `x when x == 0` replaces a guard just as readily.
     expect(projectDiagnostics(rat(
       "export fun f(r: Rat.Rat, g: Bool): String =\n" +
-        "    match r\n" +
+        "    match r with\n" +
         "        0 when g => \"z\"\n" +
         "        _ => \"ok\"\n",
     ))).toEqual(["`0` is not a pattern at `Rat`"]);
@@ -1258,7 +1258,7 @@ describe("a term's spelling in pattern position (§2.5, §12)", BUDGET, () => {
       "/main.hex",
       "module Main\n\nimport Helper\n\n" +
       "export fun f(p: (Int, Int)): String =\n" +
-        "    match p\n" +
+        "    match p with\n" +
         "        (Helper.count, k) when k > 5 => \"z\"\n" +
         "        _ => \"ok\"\n",
     ]])).toEqual(["`Helper.count` is a value, not a pattern"]);
@@ -1276,7 +1276,7 @@ describe("a term's spelling in pattern position (§2.5, §12)", BUDGET, () => {
       "/main.hex",
       "module Main\n\nimport Helper\n\n" +
       "export fun f(p: (Int, Int)): String =\n" +
-        "    match p\n" +
+        "    match p with\n" +
         "        (Helper.count, k) => \"z\"\n" +
         "        _ => \"ok\"\n",
     ]])).toEqual([
@@ -1285,7 +1285,7 @@ describe("a term's spelling in pattern position (§2.5, §12)", BUDGET, () => {
     ]);
     expect(projectDiagnostics(rat(
       "export fun f(p: (Rat.Rat, Int)): String =\n" +
-        "    match p\n" +
+        "    match p with\n" +
         "        (0, k) => \"z\"\n" +
         "        (1, k) when k > 5 => \"y\"\n" +
         "        _ => \"ok\"\n",
@@ -1298,7 +1298,7 @@ describe("a term's spelling in pattern position (§2.5, §12)", BUDGET, () => {
     // latched: a guarded arm above leaves the unguarded arm below it its rewrite.
     expect(projectDiagnostics(rat(
       "export fun f(p: (Rat.Rat, Int)): String =\n" +
-        "    match p\n" +
+        "    match p with\n" +
         "        (1, k) when k > 5 => \"y\"\n" +
         "        (0, k) => \"z\"\n" +
         "        _ => \"ok\"\n",
@@ -1314,7 +1314,7 @@ describe("a term's spelling in pattern position (§2.5, §12)", BUDGET, () => {
     const late = (arm: string, sibling: string): string =>
       "module Main\n\nimport Rat\n\n" +
       "export fun f(g: Bool): String =\n" +
-        "    match None\n" +
+        "    match None with\n" +
         `        ${arm} => "z"\n` +
         `        ${sibling}\n` +
         "        _ => \"o\"\n";
@@ -1338,7 +1338,7 @@ describe("a term's spelling in pattern position (§2.5, §12)", BUDGET, () => {
     const late = (sibling: string, declaration = ""): string =>
       "module Main\n\n" + declaration +
       "export let a: String =\n" +
-        "    match None\n" +
+        "    match None with\n" +
         "        Some(0) => \"z\"\n" +
         `        ${sibling} => "y"\n` +
         "        _ => \"o\"\n";
@@ -1360,7 +1360,7 @@ describe("a term's spelling in pattern position (§2.5, §12)", BUDGET, () => {
     // order, at a position the literal's own check resolved.
     expect(projectDiagnostics(
       "module Main\n\nexport fun f(s: String): String =\n" +
-        "    match s\n        0 => \"z\"\n        _ => \"o\"\n",
+        "    match s with\n        0 => \"z\"\n        _ => \"o\"\n",
     )).toEqual(["integer literal cannot have type `String`"]);
   });
 
@@ -1379,7 +1379,7 @@ describe("a term's spelling in pattern position (§2.5, §12)", BUDGET, () => {
       "    fromNat(n) = Tally({count = Int.fromNat(n)})\n" +
       "\n" +
       "export let a: String =\n" +
-        "    match None\n" +
+        "    match None with\n" +
         `        Some(${arm}) => "z"\n` +
         "        Some(Tally({count = _})) => \"y\"\n" +
         "        _ => \"o\"\n";
@@ -1427,23 +1427,23 @@ describe("a term's spelling in pattern position (§2.5, §12)", BUDGET, () => {
   test("a polymorphic term is proved without changing inference state", () => {
     const source = "module Main\n\nimport Helper\n\n" +
       "export fun ints(o: Option(Int)): String =\n" +
-        "    match o\n" +
+        "    match o with\n" +
         "        Helper.nothing => \"z\"\n" +
         "        _ => \"ok\"\n\n" +
       "export fun strings(o: Option(String)): String =\n" +
-        "    match o\n" +
+        "    match o with\n" +
         "        Helper.nothing => \"z\"\n" +
         "        _ => \"ok\"\n\n" +
       "export fun nested(o: Option(Option(Int))): String =\n" +
-        "    match o\n" +
+        "    match o with\n" +
         "        Helper.nothing => \"z\"\n" +
         "        _ => \"ok\"\n\n" +
       "export fun intVectors(v: Vector(Int)): String =\n" +
-        "    match v\n" +
+        "    match v with\n" +
         "        Helper.empty => \"z\"\n" +
         "        _ => \"ok\"\n\n" +
       "export fun stringVectors(v: Vector(String)): String =\n" +
-        "    match v\n" +
+        "    match v with\n" +
         "        Helper.empty => \"z\"\n" +
         "        _ => \"ok\"\n";
     expect(diagnostics([HELPER, ["/main.hex", source]])).toEqual([
@@ -1528,7 +1528,7 @@ describe("a term's spelling in pattern position (§2.5, §12)", BUDGET, () => {
     const seats = [
       "export fun f(): Int =\n    let Helper.count = 1\n    2\n",
       "export fun f(v: Vector(Int)): Int =\n" +
-        "    for Helper.count in v\n        ignore(1)\n    1\n",
+        "    for Helper.count in v do\n        ignore(1)\n    1\n",
       "export fun f(Helper.count: Int): Int = 1\n",
     ];
     for (const seat of seats) {
@@ -1549,7 +1549,7 @@ describe("a term's spelling in pattern position (§2.5, §12)", BUDGET, () => {
     const refusal = "`0` is not a pattern at `Rat`";
     expect(projectDiagnostics("module Main\n\nimport Rat\n\n" +
       "export fun f(v: Vector(Rat.Rat)): Int =\n" +
-        "    for 0 in v\n        ignore(1)\n    1\n",
+        "    for 0 in v do\n        ignore(1)\n    1\n",
     )).toEqual([refusal]);
     expect(projectDiagnostics("module Main\n\nimport Rat\n\n" +
       "export fun f(0: Rat.Rat): Int = 1\n",
@@ -1560,7 +1560,7 @@ describe("a term's spelling in pattern position (§2.5, §12)", BUDGET, () => {
     // A rewrite is never offered for a value that does not exist (§2.5).
     expect(projectDiagnostics("module Main\n\nimport Rat\n\n" +
       "export fun f(t: Float): String =\n" +
-        "    match t\n" +
+        "    match t with\n" +
         "        Rat.zilch => \"never\"\n" +
         "        _ => \"ok\"\n",
     )).toEqual(["module `Rat` does not export `zilch`"]);
@@ -1573,14 +1573,14 @@ describe("a term's spelling in pattern position (§2.5, §12)", BUDGET, () => {
     // until #1542 seated it in the prelude.)
     expect(projectDiagnostics(main(
       "export fun f(t: Float): String =\n" +
-        "    match t\n" +
+        "    match t with\n" +
         "        Regex.zilch => \"never\"\n" +
         "        _ => \"ok\"\n",
     ))).toEqual(["no module alias `Regex`; `import Regex`"]);
     // And without a module of the name, the same report with no repair invented.
     expect(projectDiagnostics(main(
       "export fun f(t: Float): String =\n" +
-        "    match t\n" +
+        "    match t with\n" +
         "        Nowhere.zilch => \"never\"\n" +
         "        _ => \"ok\"\n",
     ))).toEqual(["no module alias `Nowhere`"]);
@@ -1593,7 +1593,7 @@ describe("a term's spelling in pattern position (§2.5, §12)", BUDGET, () => {
     // drew "this match arm is unreachable; an earlier pattern matches everything".
     expect(projectDiagnostics("module Main\n\nimport Float\n\n" +
       "export fun f(t: Float): String =\n" +
-        "    match t\n" +
+        "    match t with\n" +
         "        Float.nan => \"nan\"\n" +
         "        0.0 => \"zero\"\n" +
         "        _ => \"ok\"\n",
@@ -1604,7 +1604,7 @@ describe("a term's spelling in pattern position (§2.5, §12)", BUDGET, () => {
     // And the control: a genuine catch-all above still shadows the arm below it.
     expect(projectDiagnostics("module Main\n\nimport Float\n\n" +
       "export fun f(t: Float): String =\n" +
-        "    match t\n" +
+        "    match t with\n" +
         "        x => \"anything\"\n" +
         "        Float.nan => \"nan\"\n",
     )).toEqual([
@@ -1618,7 +1618,7 @@ describe("a term's spelling in pattern position (§2.5, §12)", BUDGET, () => {
     // §2.5's complete example, run on all four inputs and on `-0.0`.
     const exports = await runMain("module Main\n\nimport Float\n\n" +
       "export fun describe(value: Float): String =\n" +
-        "    match value\n" +
+        "    match value with\n" +
         "        x when x == Float.nan => \"not a number\"\n" +
         "        x when x == Float.infinity => \"positive infinity\"\n" +
         "        x when x == -Float.infinity => \"negative infinity\"\n" +
@@ -1649,7 +1649,7 @@ describe("the lexer's conversion governs (§2.5, §12; Lexer §5)", BUDGET, () =
   test("`1.0e308` is a legal pattern", () => {
     expect(projectDiagnostics(main(
       "export fun f(t: Float): String =\n" +
-        "    match t\n" +
+        "    match t with\n" +
         "        1.0e308 => \"huge\"\n" +
         "        _ => \"ok\"\n",
     ))).toEqual([]);
@@ -1664,14 +1664,14 @@ describe("the lexer's conversion governs (§2.5, §12; Lexer §5)", BUDGET, () =
     // followed. Lexer §9's recovery form ends all of it: one report, at every seat.
     expect(projectDiagnostics(main(
       "export fun f(t: Float): String =\n" +
-        "    match t\n" +
+        "    match t with\n" +
         "        1.0e309 => \"hot\"\n" +
         "        _ => \"ok\"\n",
     ))).toEqual(["Float literal is too large; use `Float.infinity`"]);
     // The sign rides the same stand-down.
     expect(projectDiagnostics(main(
       "export fun f(t: Float): String =\n" +
-        "    match t\n" +
+        "    match t with\n" +
         "        -1.0e309 => \"cold\"\n" +
         "        _ => \"ok\"\n",
     ))).toEqual(["Float literal is too large; use `Float.infinity`"]);
@@ -1703,20 +1703,20 @@ describe("the lexer's conversion governs (§2.5, §12; Lexer §5)", BUDGET, () =
     // —
     expect(projectDiagnostics(main(
       "export fun f(t: Float): String =\n" +
-        "    match t\n" +
+        "    match t with\n" +
         "        1.0e309 => \"a\"\n",
     ))).toEqual(["Float literal is too large; use `Float.infinity`"]);
     // — with or without the sign, which the negative seat reads the same way.
     expect(projectDiagnostics(main(
       "export fun f(t: Float): String =\n" +
-        "    match t\n" +
+        "    match t with\n" +
         "        -1.0e309 => \"a\"\n",
     ))).toEqual(["Float literal is too large; use `Float.infinity`"]);
     // — and it is never a shadower: two of them draw two lexical reports and no
     // duplicate-literal report between them.
     expect(projectDiagnostics(main(
       "export fun f(t: Float): String =\n" +
-        "    match t\n" +
+        "    match t with\n" +
         "        1.0e309 => \"a\"\n" +
         "        1.0e309 => \"b\"\n" +
         "        _ => \"ok\"\n",
@@ -1732,7 +1732,7 @@ describe("the lexer's conversion governs (§2.5, §12; Lexer §5)", BUDGET, () =
     // its three expected reports were absent. All three, in source order.
     expect(projectDiagnostics("module Main\n\nimport Float\n\n" +
       "export fun f(temp: Float): String =\n" +
-        "    match temp\n" +
+        "    match temp with\n" +
         "        1.0e309 => \"hot\"\n" +
         "        Float.nan => \"not a number\"\n" +
         "        -Float.infinity => \"cold\"\n" +
@@ -1754,7 +1754,7 @@ describe("the lexer's conversion governs (§2.5, §12; Lexer §5)", BUDGET, () =
     for (const type of ["BigInt", "Int"] as const) {
       const diagnostics = projectDiagnostics(main(
         `export fun f(n: ${type}): String =\n` +
-          "    match n\n" +
+          "    match n with\n" +
           "        9007199254740993 => \"big\"\n" +
           "        _ => \"ok\"\n",
       ));
@@ -1777,7 +1777,7 @@ describe("the emitted integer literal is canonical (#897)", BUDGET, () => {
     // never loaded.
     const text = emitted(
       "export fun f(n: Int): String =\n" +
-        "    match n\n" +
+        "    match n with\n" +
         "        007 => \"seven\"\n" +
         "        _ => \"other\"\n",
     );
@@ -1792,7 +1792,7 @@ describe("the emitted integer literal is canonical (#897)", BUDGET, () => {
     // at stake and it should read as the literal the arm matches.
     const text = emitted(
       "export fun f(i: Int): String =\n" +
-        "    match i\n" +
+        "    match i with\n" +
         "        -0 => \"zero\"\n" +
         "        _ => \"other\"\n",
     );
@@ -1801,7 +1801,7 @@ describe("the emitted integer literal is canonical (#897)", BUDGET, () => {
     // A sign that carries a value keeps it.
     expect(emitted(
       "export fun f(i: Int): String =\n" +
-        "    match i\n" +
+        "    match i with\n" +
         "        -007 => \"minus seven\"\n" +
         "        _ => \"other\"\n",
     )).toContain("__match === -7");
@@ -1830,7 +1830,7 @@ describe("the emitted integer literal is canonical (#897)", BUDGET, () => {
         "export let b: BigInt = 007n\n" +
         "export let f: Float = 0007.50\n" +
         "export fun seven(n: Int): Bool =\n" +
-        "    match n\n" +
+        "    match n with\n" +
         "        007 => True\n" +
         "        _ => False\n" +
         "export let matched: Bool = seven(7)\n",

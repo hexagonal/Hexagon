@@ -216,7 +216,7 @@ describe("check", () => {
   test("tracks refutable constructor payloads before marking a case covered", () => {
     const complete = checkSource(
       "union Flagged = Flagged(value: Bool) | Empty\n" +
-        "fun describe(flagged: Flagged): String = match flagged\n" +
+        "fun describe(flagged: Flagged): String = match flagged with\n" +
         '    Flagged(True) => "yes"\n' +
         '    Flagged(False) => "no"\n' +
         '    Empty => "empty"',
@@ -225,7 +225,7 @@ describe("check", () => {
 
     const incomplete = checkSource(
       "union Flagged = Flagged(value: Bool) | Empty\n" +
-        "fun describe(flagged: Flagged): String = match flagged\n" +
+        "fun describe(flagged: Flagged): String = match flagged with\n" +
         '    Flagged(True) => "yes"\n' +
         '    Empty => "empty"',
     );
@@ -237,7 +237,7 @@ describe("check", () => {
 
     const unreachable = checkSource(
       "union Flagged = Flagged(value: Bool) | Empty\n" +
-        "fun describe(flagged: Flagged): String = match flagged\n" +
+        "fun describe(flagged: Flagged): String = match flagged with\n" +
         '    Flagged(True) => "yes"\n' +
         '    Flagged(False) => "no"\n' +
         '    Flagged(_) => "impossible"\n' +
@@ -252,7 +252,7 @@ describe("check", () => {
     const module = checkSource(
       "union Side = Left(value: Int) | Right(value: Int)\n" +
         "union Box = Box(side: Side)\n" +
-        "fun unbox(box: Box): Int = match box\n" +
+        "fun unbox(box: Box): Int = match box with\n" +
         "    Box(Left(value) | Right(value)) => value\n" +
         "let True | False = True\n" +
         "let Left(amount) | Right(amount) = Left(42)\n" +
@@ -276,11 +276,11 @@ describe("check", () => {
   test("checks negative integer and top-level or-pattern coverage", () => {
     const module = checkSource(
       "union Shape = Circle(radius: Float) | Rectangle(width: Float, height: Float) | Point\n" +
-        "fun measure(shape: Shape): Float = match shape\n" +
+        "fun measure(shape: Shape): Float = match shape with\n" +
         "    Circle(extent) | Rectangle(extent, _) when extent > 0.0 => extent\n" +
         "    Circle(_) | Rectangle(_, _) => 0.0\n" +
         "    Point => 0.0\n" +
-        "fun sign(value: Int): String = match value\n" +
+        "fun sign(value: Int): String = match value with\n" +
         '    -1 => "negative one"\n' +
         '    _ => "other"',
     );
@@ -297,7 +297,7 @@ describe("check", () => {
 
     const mismatched = checkSource(
       "union Shape = Circle(radius: Float) | Point\n" +
-        "fun measure(shape: Shape): Float = match shape\n" +
+        "fun measure(shape: Shape): Float = match shape with\n" +
         "    Circle(radius) | Point => radius\n" +
         "    _ => 0.0",
     );
@@ -373,7 +373,7 @@ describe("check", () => {
 
   test("checks Unit patterns as exhaustive and irrefutable", () => {
     const module = checkSource(
-      'fun describe(value: Unit): String = match value\n    () => "unit"\n' +
+      'fun describe(value: Unit): String = match value with\n    () => "unit"\n' +
         "let () = ()",
     );
     expect(module.diagnostics).toEqual([]);
@@ -382,7 +382,7 @@ describe("check", () => {
   test("checks as-patterns and binds the whole matched value", () => {
     const module = checkSource(
       "union Shape = Circle(radius: Float) | Point\n" +
-        "fun preserve(shape: Shape): Shape = match shape\n" +
+        "fun preserve(shape: Shape): Shape = match shape with\n" +
         "    Circle(_) as whole => whole\n" +
         "    Point as whole => whole",
     );
@@ -395,10 +395,10 @@ describe("check", () => {
 
   test("matches tuple and structural-record scrutinees directly", () => {
     const module = checkSource(
-      'fun tupleLabel(pair: (Bool, Int)): String = match pair\n' +
+      'fun tupleLabel(pair: (Bool, Int)): String = match pair with\n' +
         '    (True, count) => "active"\n' +
         '    (_, _) => "inactive"\n' +
-        'fun recordName(user: {name: String, active: Bool}): String = match user\n' +
+        'fun recordName(user: {name: String, active: Bool}): String = match user with\n' +
         '    {active = True, name} => name\n' +
         '    {name} => name',
     );
@@ -410,7 +410,7 @@ describe("check", () => {
     // here the second component is `Int`, so the witness names the missing half
     // and leaves the infinite half `_`.
     const exact = checkSource(
-      'fun corners(pair: (Bool, Bool)): Int = match pair\n' +
+      'fun corners(pair: (Bool, Bool)): Int = match pair with\n' +
         "    (True, True) => 0\n" +
         "    (True, False) => 1\n" +
         "    (False, True) => 2\n" +
@@ -419,7 +419,7 @@ describe("check", () => {
     expect(exact.diagnostics).toEqual([]);
 
     const incomplete = checkSource(
-      'fun tupleLabel(pair: (Bool, Int)): String = match pair\n    (True, _) => "active"',
+      'fun tupleLabel(pair: (Bool, Int)): String = match pair with\n    (True, _) => "active"',
     );
     expect(incomplete.diagnostics.map(({ message }) => message)).toContain(
       "match is missing cases: `(False, _)`",
@@ -443,18 +443,18 @@ describe("check", () => {
 
   test("checks exhaustive Bool literal matches and catch-alls for infinite primitives", () => {
     const module = checkSource(
-      'fun describe(flag: Bool): String = match flag\n    True => "yes"\n    False => "no"\n' +
-        'fun count(n: Int): String = match n\n    0 => "none"\n    1 => "one"\n    _ => "many"',
+      'fun describe(flag: Bool): String = match flag with\n    True => "yes"\n    False => "no"\n' +
+        'fun count(n: Int): String = match n with\n    0 => "none"\n    1 => "one"\n    _ => "many"',
     );
     expect(module.diagnostics).toEqual([]);
 
     const strings = checkSource(
-      'fun agrees(answer: String): Bool = match answer\n    "yes" => True\n    _ => False',
+      'fun agrees(answer: String): Bool = match answer with\n    "yes" => True\n    _ => False',
     );
     expect(strings.diagnostics).toEqual([]);
 
     const incomplete = checkSource(
-      'fun count(n: Int): String = match n\n    0 => "none"',
+      'fun count(n: Int): String = match n with\n    0 => "none"',
     );
     // The infinite domains report through §7.3's one sentence too (#594): no set
     // of literals completes them, so the witness is `_` — which is exactly what
@@ -467,7 +467,7 @@ describe("check", () => {
   test("checks guards after pattern bindings without counting them as coverage", () => {
     const module = checkSource(
       "union Shape = Circle(radius: Float) | Point\n" +
-        "fun describe(shape: Shape): String = match shape\n" +
+        "fun describe(shape: Shape): String = match shape with\n" +
         '    Circle(radius) when radius > 0.0 => "positive"\n' +
         '    Circle(_) => "circle"\n' +
         '    Point => "point"',
@@ -475,14 +475,14 @@ describe("check", () => {
     expect(module.diagnostics).toEqual([]);
 
     const guardedOnly = checkSource(
-      'fun describe(flag: Bool): String = match flag\n    True when flag => "yes"\n    False => "no"',
+      'fun describe(flag: Bool): String = match flag with\n    True when flag => "yes"\n    False => "no"',
     );
     expect(guardedOnly.diagnostics.map(({ message }) => message)).toContain(
       "match is missing cases: `True`",
     );
 
     const wrongGuard = checkSource(
-      'fun describe(flag: Bool): String = match flag\n    True when 1 => "yes"\n    _ => "no"',
+      'fun describe(flag: Bool): String = match flag with\n    True when 1 => "yes"\n    _ => "no"',
     );
     expect(wrongGuard.diagnostics.map(({ message }) => message)).toContain(
       "integer literal cannot have type `Bool`",
@@ -505,7 +505,7 @@ describe("check", () => {
       // Named `Outcome`/`Fine`/`Bad`, not `Result`/`Ok`/`Err`: this now compiles
       // with the prelude, whose `Result` owns those constructor names.
       "union Outcome = Fine(value: (String, Int)) | Bad(error: {context: {message: String}, code: Int})\n" +
-        "fun describe(outcome: Outcome): String = match outcome\n" +
+        "fun describe(outcome: Outcome): String = match outcome with\n" +
         "    Fine((name, _)) => name\n" +
         "    Bad({context = {message = reason}}) => reason",
     );
@@ -764,7 +764,7 @@ describe("check", () => {
     const module = checkSource(
       "union Suit = Clubs | Diamonds | Hearts | Spades\n" +
         "let card = (10, Hearts)\n" +
-        "let color(suit: Suit): String = match suit\n" +
+        "let color(suit: Suit): String = match suit with\n" +
         '    Clubs => "black"\n    Diamonds => "red"\n' +
         '    Hearts => "red"\n    Spades => "black"',
     );
@@ -787,12 +787,12 @@ describe("check", () => {
   test("checks union match exhaustiveness and reachability exactly", () => {
     const missing = checkSource(
       "union Suit = Clubs | Diamonds | Hearts | Spades\n" +
-        "let color(suit: Suit) = match suit\n" +
+        "let color(suit: Suit) = match suit with\n" +
         '    Clubs => "black"\n    Hearts => "red"',
     );
     const unreachable = checkSource(
       "union Suit = Clubs | Hearts\n" +
-        "let color(suit: Suit) = match suit\n" +
+        "let color(suit: Suit) = match suit with\n" +
         '    _ => "known"\n    Hearts => "red"',
     );
 
@@ -1076,7 +1076,7 @@ describe("check", () => {
         "exception WrongMessage(message: Int)\n" +
         "exception Missing\n" +
         "let called = Missing()\n" +
-        "fun inspect(error: Exn): Int = match error\n" +
+        "fun inspect(error: Exn): Int = match error with\n" +
         "    _ => 0\n" +
         "fun field(error: Exn) = error.name",
     );
@@ -1226,7 +1226,7 @@ describe("check", () => {
         "    describe(value: a) -> String\n" +
         "union Wrap(a) = Empty | Full(value: a)\n" +
         "honor<a: Describe> Describe<Wrap(a)> =\n" +
-        "    describe(wrap) = match wrap\n" +
+        "    describe(wrap) = match wrap with\n" +
         '        Empty => "empty"\n' +
         // The dot call, not the bare own name: Constraints §4.6 refuses a
         // member's own spelling in its own body, and `value: a` dispatches
@@ -1299,7 +1299,7 @@ describe("check", () => {
       "union Held(a) = Missing | Held2(value: a)\n" +
         "constraint Pick<a> =\n" +
         "    pick(value: a) -> a\n" +
-        "    pickHeld(fallback: a, held: Held(a)) -> a = match held\n" +
+        "    pickHeld(fallback: a, held: Held(a)) -> a = match held with\n" +
         "        Missing => fallback\n" +
         "        Held2(value) => pick(value)\n" +
         "honor Pick<Int> =\n" +
@@ -1358,7 +1358,7 @@ describe("check", () => {
       "fun countdown(start: Int): Unit =\n" +
         "    var current = start\n" +
         "    let visited = 1..current\n" +
-        "    while current > 0\n" +
+        "    while current > 0 do\n" +
         "        current := current - 1",
     );
     expect(module.diagnostics).toEqual([]);
@@ -1369,7 +1369,7 @@ describe("check", () => {
       "fun bad(): Unit =\n" +
         "    let fixed = 1\n" +
         "    fixed := 2\n" +
-        "    while True\n" +
+        "    while True do\n" +
         "        42",
     );
     expect(invalid.diagnostics.map(({ message }) => message)).toContain(
@@ -1677,14 +1677,14 @@ describe("check", () => {
   test("checks Range and String for loops with their concrete item types", () => {
     const module = checkSource(
       "fun visit(): Unit =\n" +
-        "    for number in 1..3\n" +
+        "    for number in 1..3 do\n" +
         // Not `next`: that is a prelude term (`Seq.next`), and a *local* binding
         // of a prelude name is currently rejected as rebinding — a pre-existing
         // compiler defect this test would otherwise trip over now that it
         // compiles with the prelude.
         "        let incremented: Int = number + 1\n" +
         "        Debug.log(\"${incremented}\")\n" +
-        "    for character in \"ab\"\n" +
+        "    for character in \"ab\" do\n" +
         "        let copy: String = character\n" +
         "        Debug.log(copy)",
     );
@@ -1692,9 +1692,9 @@ describe("check", () => {
 
     const invalid = checkSource(
       "fun bad(): Unit =\n" +
-        "    for True in 1..3\n" +
+        "    for True in 1..3 do\n" +
         "        ()\n" +
-        "    for item in 42\n" +
+        "    for item in 42 do\n" +
         "        ()",
     );
     // #607: `True` fails to type against the `Int` item, and Pattern Matching
@@ -1725,7 +1725,7 @@ describe("check", () => {
         "record Bag = {size: Int}\n" +
           "let bag: Bag = Bag({size = 1})\n" +
           "fun run(): Unit =\n" +
-          "    for item in bag\n" +
+          "    for item in bag do\n" +
           "        ()\n",
       ).diagnostics.map(({ message }) => message),
     ).toContain("type `Bag` has no `Iterable` instance");

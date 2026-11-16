@@ -7,31 +7,31 @@ export union Option(a) derives (Eq, Show) =
 
 {-- Transforms a present value. `None` stays `None`. -}
 export let map(source: Option(a), transform: a ->! b): Option(b) =
-    match source
+    match source with
         Some(value) => Some(transform!(value))
         None => None
 
 {-- Transforms a present value without adding another `Option` layer. -}
 export let flatMap(source: Option(a), transform: a ->! Option(b)): Option(b) =
-    match source
+    match source with
         Some(value) => transform!(value)
         None => None
 
 {-- Returns the present value, or the already-evaluated `fallback`. -}
 export let defaultValue(source: Option(a), fallback: a): a =
-    match source
+    match source with
         Some(value) => value
         None => fallback
 
 {-- Returns the present value, or calls `fallback` for `None`. -}
 export let defaultWith(source: Option(a), fallback: () ->! a): a =
-    match source
+    match source with
         Some(value) => value
         None => fallback!()
 
 {-- Converts `Some(value)` to a singleton sequence and `None` to an empty one. -}
 export let toSeq(source: Option(a)): Seq(a) =
-    match source
+    match source with
         Some(value) => Seq.singleton(value)
         None => Seq.empty
 
@@ -40,7 +40,7 @@ export let toSeq(source: Option(a)): Seq(a) =
     `name.orThrow^(() => MissingNameError)`. The exception is built only for
     `None`, so its stack is captured at the throw. -}
 export let orThrow(source: Option(a), failure: () -> Exn): a =
-    match source
+    match source with
         Some(value) => value
         None => throw^(failure())
 
@@ -49,25 +49,25 @@ export let orThrow(source: Option(a), failure: () -> Exn): a =
     `name.toResult(() => MissingNameError)`. The exception is built only for
     `None`, so its stack is captured where it is kept. -}
 export let toResult(source: Option(a), failure: () -> Exn): Result(a) =
-    match source
+    match source with
         Some(value) => Ok(value)
         None => Err(failure())
 
 {-- The inner option of a `Some`, or `None`: one `Option` layer removed. -}
 export let flatten(source: Option(Option(a))): Option(a) =
-    match source
+    match source with
         Some(inner) => inner
         None => None
 
 {-- Whether a value is present. It reads the constructor only, so it asks for no
     `Eq` on the value, where `source == None` would. -}
 export let isSome(source: Option(a)): Bool =
-    match source
+    match source with
         Some(_) => True
         None => False
 
 {-- Whether no value is present. -}
 export let isNone(source: Option(a)): Bool =
-    match source
+    match source with
         Some(_) => False
         None => True

@@ -90,15 +90,15 @@ describe("a field written as a pun", () => {
   });
 
   test("in a pattern: an arm's, a `let`'s, a lambda's head, a constructor's argument, a loop's", () => {
-    expect(rewritten(lines("let f = (q: { x: Int, y: Int }) => match q", "    { x = x‸, y } => x + y"), pun("x")))
-      .toBe(lines("let f = (q: { x: Int, y: Int }) => match q", "    { x, y } => x + y"));
+    expect(rewritten(lines("let f = (q: { x: Int, y: Int }) => match q with", "    { x = x‸, y } => x + y"), pun("x")))
+      .toBe(lines("let f = (q: { x: Int, y: Int }) => match q with", "    { x, y } => x + y"));
     expect(rewritten(lines("let f(s: { z: Int }) =", "    let { z = z‸ } = s", "    z"), pun("z")))
       .toBe(lines("let f(s: { z: Int }) =", "    let { z } = s", "    z"));
     expect(rewritten("let f = ({ x = x‸ }) => x", pun("x"))).toBe("let f = ({ x }) => x");
-    expect(rewritten("let f = (p: Point) => match p\n    Point({ y = y‸ }) => y", pun("y")))
-      .toBe("let f = (p: Point) => match p\n    Point({ y }) => y");
-    expect(rewritten(lines("let f() =", "    for { x = x‸ } in [r]", "        ()"), pun("x")))
-      .toBe(lines("let f() =", "    for { x } in [r]", "        ()"));
+    expect(rewritten("let f = (p: Point) => match p with\n    Point({ y = y‸ }) => y", pun("y")))
+      .toBe("let f = (p: Point) => match p with\n    Point({ y }) => y");
+    expect(rewritten(lines("let f() =", "    for { x = x‸ } in [r] do", "        ()"), pun("x")))
+      .toBe(lines("let f() =", "    for { x } in [r] do", "        ()"));
   });
 
   test("a field named `with`, which is no update", () => {
@@ -156,16 +156,16 @@ describe("a field written as a pun", () => {
     expect(titles("let p = { x = (x)‸ }")).toEqual([]);
     // A pattern's parentheses only group, and the parser keeps no group there:
     // `{x = (x)}` binds `x` as `{x}` does.
-    expect(rewritten(lines("let f = (q: { x: Int }) => match q", "    { x = (x)‸ } => x"), pun("x")))
-      .toBe(lines("let f = (q: { x: Int }) => match q", "    { x } => x"));
+    expect(rewritten(lines("let f = (q: { x: Int }) => match q with", "    { x = (x)‸ } => x"), pun("x")))
+      .toBe(lines("let f = (q: { x: Int }) => match q with", "    { x } => x"));
     expect(titles("let p = { x = x + 1‸ }")).toEqual([]);
-    expect(titles(lines("let f = (q: { x: Int }) => match q", "    { x = _‸ } => 0"))).toEqual([]);
-    expect(titles(lines("let f = (q: { x: Int }) => match q", "    { x = y‸ } => y"))).toEqual([]);
-    expect(titles(lines("let f = (q: { x: Int }) => match q", "    { x = x as y‸ } => x + y"))).toEqual([]);
-    expect(titles(lines("let f = (q: { x: Int }) => match q", "    { x = _ as x‸ } => x"))).toEqual([]);
+    expect(titles(lines("let f = (q: { x: Int }) => match q with", "    { x = _‸ } => 0"))).toEqual([]);
+    expect(titles(lines("let f = (q: { x: Int }) => match q with", "    { x = y‸ } => y"))).toEqual([]);
+    expect(titles(lines("let f = (q: { x: Int }) => match q with", "    { x = x as y‸ } => x + y"))).toEqual([]);
+    expect(titles(lines("let f = (q: { x: Int }) => match q with", "    { x = _ as x‸ } => x"))).toEqual([]);
     const same = ["pattern same(s: Int): Int", "    view(s) = s", "    build(s) = s"];
     expect(titles(lines(...same, "let p = { same = (1)same‸ }"))).toEqual([]);
-    expect(titles(lines("let f = (q: { x: Int }) => match q", "    { x = 1‸ } => 0", "    _ => 1"))).toEqual([]);
+    expect(titles(lines("let f = (q: { x: Int }) => match q with", "    { x = 1‸ } => 0", "    _ => 1"))).toEqual([]);
   });
 
   test("not in a record type or declaration, nor for a field named by a keyword", () => {
@@ -180,8 +180,8 @@ describe("a pun written out", () => {
     expect(rewritten("let p = { x‸, y = 1 }", out("x"))).toBe("let p = { x = x, y = 1 }");
     expect(rewritten("let p = { r with x‸ }", out("x"))).toBe("let p = { r with x = x }");
     expect(rewritten("let f = ({ x‸ }) => x", out("x"))).toBe("let f = ({ x = x }) => x");
-    expect(rewritten(lines("let f = (q: { x: Int, y: Int }) => match q", "    { x, y‸ } => x + y"), out("y")))
-      .toBe(lines("let f = (q: { x: Int, y: Int }) => match q", "    { x, y = y } => x + y"));
+    expect(rewritten(lines("let f = (q: { x: Int, y: Int }) => match q with", "    { x, y‸ } => x + y"), out("y")))
+      .toBe(lines("let f = (q: { x: Int, y: Int }) => match q with", "    { x, y = y } => x + y"));
   });
 
   test("every pun from the record's brace, and the written fields left as they are", () => {

@@ -9,25 +9,25 @@ export union Result(a) =
 
 {-- Transforms a successful value. `Err` stays unchanged. -}
 export let map(source: Result(a), transform: a ->! b): Result(b) =
-    match source
+    match source with
         Ok(value) => Ok(transform!(value))
         Err(error) => Err(error)
 
 {-- Transforms a successful value without adding another `Result` layer. -}
 export let flatMap(source: Result(a), transform: a ->! Result(b)): Result(b) =
-    match source
+    match source with
         Ok(value) => transform!(value)
         Err(error) => Err(error)
 
 {-- Returns the successful value, or the already-evaluated `fallback`. -}
 export let defaultValue(source: Result(a), fallback: a): a =
-    match source
+    match source with
         Ok(value) => value
         Err(_) => fallback
 
 {-- Returns the successful value, or makes one from the caught exception. -}
 export let defaultWith(source: Result(a), fallback: Exn ->! a): a =
-    match source
+    match source with
         Ok(value) => value
         Err(error) => fallback!(error)
 
@@ -35,32 +35,32 @@ export let defaultWith(source: Result(a), fallback: Exn ->! a): a =
     stack it was built with. It may fail on its own account, so every call wears
     `^`; it is the way back from `attempt`. -}
 export let orThrow(source: Result(a)): a =
-    match source
+    match source with
         Ok(value) => value
         Err(failure) => throw^(failure)
 
 {-- `Some` of the successful value, or `None` for a caught exception, which is
     dropped. -}
 export let toOption(source: Result(a)): Option(a) =
-    match source
+    match source with
         Ok(value) => Some(value)
         Err(_) => None
 
 {-- The inner result of an `Ok`, or `source`'s own `Err`: one `Result` layer
     removed. -}
 export let flatten(source: Result(Result(a))): Result(a) =
-    match source
+    match source with
         Ok(inner) => inner
         Err(error) => Err(error)
 
 {-- Whether `source` is `Ok`. -}
 export let isOk(source: Result(a)): Bool =
-    match source
+    match source with
         Ok(_) => True
         Err(_) => False
 
 {-- Whether `source` is `Err`. -}
 export let isErr(source: Result(a)): Bool =
-    match source
+    match source with
         Ok(_) => False
         Err(_) => True

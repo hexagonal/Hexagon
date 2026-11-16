@@ -13,16 +13,16 @@ const PROGRAM = String.raw`module Main
 import Hex.Regex as Regex
 import Hex.Regex.Syntax as Syntax
 
-let shown(found: Option(Regex.Match)): String = match found
+let shown(found: Option(Regex.Match)): String = match found with
     Some(m) => show(m.start()) ++ "+" ++ show(m.length()) ++ "'" ++ m.text() ++ "'"
     None => "none"
 
-let groupShown(group: Option(Regex.Group)): String = match group
+let groupShown(group: Option(Regex.Group)): String = match group with
     Some(g) => show(g.start) ++ "+" ++ show(g.length) ++ "'" ++ g.text ++ "'"
     None => "-"
 
 -- Every pattern below compiles; a refused one would show as its fallback.
-let using(pattern: String, fallback: b, answer: Regex.Regex -> b): b = match Regex.parse?(pattern)
+let using(pattern: String, fallback: b, answer: Regex.Regex -> b): b = match Regex.parse?(pattern) with
     Some(regex) => answer(regex)
     None => fallback
 
@@ -49,7 +49,7 @@ export let isMatch(pattern: String, text: String): Bool = using(pattern, False, 
 
 let allShown(regex: Regex.Regex, text: String): String =
     var texts: Vector(String) = []
-    for m in regex.findAll(text)
+    for m in regex.findAll(text) do
         texts := texts.append(shown(Some(m)))
     String.join(Iterable.toSeq(texts), ",")
 
@@ -72,10 +72,10 @@ export let split(pattern: String, text: String): String =
 
 export let splitCount(pattern: String, text: String): Int = using(pattern, -1, (regex) => Vector.length(regex.split(text)))
 
-let groupsShown(found: Option(Regex.Match)): String = match found
+let groupsShown(found: Option(Regex.Match)): String = match found with
     Some(m) =>
         var texts: Vector(String) = [groupShown(m.group(0))]
-        for group in m.groups()
+        for group in m.groups() do
             texts := texts.append(groupShown(group))
         texts := texts.append("[" ++ groupShown(m.group(-1)) ++ "," ++ groupShown(m.group(99)) ++ "]")
         String.join(Iterable.toSeq(texts), " ")
@@ -83,14 +83,14 @@ let groupsShown(found: Option(Regex.Match)): String = match found
 
 export let groups(pattern: String, text: String): String = using(pattern, "refused", (regex) => groupsShown(regex.find(text)))
 
-let namedShown(found: Option(Regex.Match), name: String): String = match found
+let namedShown(found: Option(Regex.Match), name: String): String = match found with
     Some(m) => groupShown(m.named(name))
     None => "none"
 
 export let named(pattern: String, text: String, name: String): String =
     using(pattern, "refused", (regex) => namedShown(regex.find(text), name))
 
-let indexOr(index: Option(Int)): Int = match index
+let indexOr(index: Option(Int)): Int = match index with
     Some(value) => value
     None => 0
 
@@ -106,7 +106,7 @@ export let escape(text: String): String = Regex.escape(text)
 export let escapedFinds(text: String, subject: String): String =
     let regex = Regex.compile(Regex.escape(text))
     var starts: Vector(String) = []
-    for m in regex.findAll(subject)
+    for m in regex.findAll(subject) do
         starts := starts.append(show(m.start()))
     String.join(Iterable.toSeq(starts), ",")
 

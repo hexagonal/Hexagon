@@ -160,7 +160,7 @@ honor Integral<BigInt> =
         var smaller = right.abs()
         -- Both operands are non-negative from here, so the loop's `rem` never
         -- sees a zero divisor: a zero `smaller` is the exit condition.
-        while smaller != 0
+        while smaller != 0 do
             let next = larger.rem(smaller)
             larger := smaller
             smaller := next
@@ -252,6 +252,6 @@ extern from "hex:intrinsic"
     `text` is not written that way. A call that may throw carries a mark:
     `BigInt.parse?(text)` gives `None` in place of throwing, and
     `assume BigInt.parse^(text)` is for text that is known to be good. -}
-export let parse(text: String): BigInt = match scanText(text)
+export let parse(text: String): BigInt = match scanText(text) with
     Some(value) => value
     None => throw^(NumberFormatError(formatMessage(text, "is not a BigInt")))

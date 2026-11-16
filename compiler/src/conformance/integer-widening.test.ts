@@ -177,7 +177,7 @@ describe("exact BigInt-source widening through FromBigInt", () => {
 
   test("the n suffix and the exponent seat remain monomorphic", () => {
     const patternMessages = verdict(
-      "let describe(value: Rat.Rat): Int = match value\n" +
+      "let describe(value: Rat.Rat): Int = match value with\n" +
       "    3n => 1\n" +
       "    _ => 0\n",
     );

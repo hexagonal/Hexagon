@@ -45,7 +45,7 @@ extern from "hex:intrinsic"
 -- Section 3.4's two tables. A message names the path. For `Other`, Node's own
 -- message says more than a code would, and the path follows it where it
 -- doesn't name the path itself.
-let reasonOf(code: String): FileErrorReason = match code
+let reasonOf(code: String): FileErrorReason = match code with
     "ENOENT" => NotFound
     "EACCES" => PermissionDenied
     "EPERM" => PermissionDenied
@@ -54,11 +54,11 @@ let reasonOf(code: String): FileErrorReason = match code
     _ => Other(code)
 
 let refusal(path: String, error: JsValue): Exn =
-    let code = match readCode~(error).toString?()
+    let code = match readCode~(error).toString?() with
         Some(text) => text
         None => ""
     let reason = reasonOf(code)
-    let message = match reason
+    let message = match reason with
         NotFound => "not found: ${path}"
         PermissionDenied => "permission denied: ${path}"
         IsDirectory => "is a directory: ${path}"
@@ -97,10 +97,10 @@ let lossyText(path: String, bytes: JsValue): String =
 let firstLoneSurrogate(text: String): Int =
     var position = 0
     var found = 0
-    for point in text
+    for point in text do
         position := position + 1
         if found == 0 then
-            match point.toCodepoint()
+            match point.toCodepoint() with
                 Some(_) => ()
                 None => found := position
     found
@@ -119,7 +119,7 @@ let refuseLoneSurrogate(text: String): Unit =
     `FileError(NotUtf8, path, _)`, whose message names the first bad byte. -}
 export let readText(path: String): String =
     let bytes = bytesOf!(path)
-    match strictText!(path, bytes).toString?()
+    match strictText!(path, bytes).toString?() with
         Some(text) => text
         None => throw^(FileError(NotUtf8, path, "not UTF-8 at byte ${firstBadByte~(bytes)}: ${path}"))
 

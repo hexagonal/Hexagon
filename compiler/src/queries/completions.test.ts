@@ -91,7 +91,7 @@ describe("completions", () => {
 
   test("an inner binding shadows an outer one rather than appearing twice", () => {
     const source = [
-      "fun shadowed(value: Int): Int = match value",
+      "fun shadowed(value: Int): Int = match value with",
       "    value => ‸value",
       "",
     ].join("\n");
@@ -230,7 +230,7 @@ describe("completions", () => {
     // an arm's start column is where the arm itself sits, so a cursor there is
     // writing the next arm, and the previous arm's binder has gone out of scope.
     const offered = namesIn(
-      ["fun f(n: Int): Int = match n", "    zero => zero", "    ‸", ""].join("\n"),
+      ["fun f(n: Int): Int = match n with", "    zero => zero", "    ‸", ""].join("\n"),
     );
     expect(offered).toContain("n");
     expect(offered).not.toContain("zero");
@@ -290,7 +290,7 @@ describe("completions", () => {
     const source = [
       "fun total(xs: Vector(Int)): Int =",
       "    var sum: Int = 0",
-      "    for item in xs‸",
+      "    for item in xs do‸",
       "        sum := sum + item",
       "    sum",
       "",

@@ -393,7 +393,7 @@ describe("inlay hints: bindings, lambdas and patterns", () => {
       "    count + n",
       "union Tree = Leaf | Node(Tree, Int, Tree)",
       "honor Show<Tree> =",
-      "    show(tree) = match tree",
+      "    show(tree) = match tree with",
       '        Leaf => "."',
       '        Node(_, value, _) => "${value}"',
       "",
@@ -404,7 +404,7 @@ describe("inlay hints: bindings, lambdas and patterns", () => {
       "    count + n",
       "union Tree = Leaf | Node(Tree, Int, Tree)",
       "honor Show<Tree> =",
-      "    show(tree⟦: Tree⟧) = match tree",
+      "    show(tree⟦: Tree⟧) = match tree with",
       '        Leaf => "."',
       '        Node(_, value, _) => "${value}"',
       "",
@@ -676,7 +676,7 @@ describe("inlay hints: what the host asks for", () => {
       .toBe("let broken(x: Int): Int =\n    missing(x)\n    x\n");
     expect(hinted("let pick(r) =\n    r.go()\n    1\n")).toBe("let pick(r⟦: a⟧)⟦: Int⟧ =\n    r.go()\n    1\n");
     // Only its fail colour in error: a `throw` written without its mark.
-    const requireName = "let requireName(o: Option(String)): String =\n    match o\n        Some(name) => name\n        None => throw(NotFound)\n";
+    const requireName = "let requireName(o: Option(String)): String =\n    match o with\n        Some(name) => name\n        None => throw(NotFound)\n";
     expect(hinted(requireName)).toBe(requireName);
     // Only its world colour in error: a mark that names no callee.
     const twice = "export let twice(action: () ->! Unit): Unit =\n    step?()\n";

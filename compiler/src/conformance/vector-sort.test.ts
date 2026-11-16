@@ -25,7 +25,7 @@ export let prepended(values: Array(Int)): Vector(Int) =
     let forward = Array.toVector(values)
     var result: Vector(Int) = []
     var index = forward.length()
-    while index >= 1
+    while index >= 1 do
         result := result.prepend(forward[index])
         index := index - 1
     result

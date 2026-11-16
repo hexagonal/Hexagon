@@ -25,7 +25,7 @@ describe("instance evidence threads at runtime", () => {
         '    describe(value) = "${value}"\n' +
         "union Tree(a) = Leaf | Node(left: Tree(a), item: a, right: Tree(a))\n" +
         "honor<a: Describe> Describe<Tree(a)> =\n" +
-        "    describe(tree) = match tree\n" +
+        "    describe(tree) = match tree with\n" +
         '        Leaf => "leaf"\n' +
         // Constraints §4.6: the member's own name is refused in its own body,
         // and the dot call is the ruled rewrite. `left`/`right` dispatch through
@@ -41,7 +41,7 @@ describe("instance evidence threads at runtime", () => {
     const exports = await runMain("module Main\n\n" + "union Held(a) = Missing | Held2(value: a)\n" +
         "constraint Pick<a> =\n" +
         "    pick(value: a) -> a\n" +
-        "    pickHeld(fallback: a, held: Held(a)) -> a = match held\n" +
+        "    pickHeld(fallback: a, held: Held(a)) -> a = match held with\n" +
         "        Missing => fallback\n" +
         "        Held2(value) => pick(value)\n" +
         "honor Pick<Int> =\n" +

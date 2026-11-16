@@ -151,7 +151,7 @@ describe("visibility and export (§2.3)", () => {
    */
   test("a private enum exports nothing and faces nothing", () => {
     const source = "extern enum Direction = \"up\" as Up | \"down\" as Down\n" +
-      "export let go(): String = match Up\n" +
+      "export let go(): String = match Up with\n" +
       "    Up => \"u\"\n" +
       "    Down => \"d\"\n";
     const emitted = javascript(source);
@@ -211,7 +211,7 @@ describe("matching (§4)", () => {
     expect(javascript(
       "export extern enum Order = \"asc\" as Ascending | \"desc\" as Descending\n" +
         "export let describe(order: Order): String =\n" +
-        "    match order\n" +
+        "    match order with\n" +
         "        Ascending => \"ascending\"\n" +
         "        Descending => \"descending\"\n",
     )).toContain(
@@ -227,7 +227,7 @@ describe("matching (§4)", () => {
   test("a nullish member takes its own `switch` case", () => {
     const emitted = javascript(
       TRI + "export let name(t: Tri): String =\n" +
-        "    match t\n" +
+        "    match t with\n" +
         "        Yes => \"yes\"\n" +
         "        No => \"no\"\n" +
         "        Unknown => \"unknown\"\n" +
@@ -246,7 +246,7 @@ describe("matching (§4)", () => {
     expect(javascript(
       "export extern enum Order = \"asc\" as Ascending | \"desc\" as Descending\n" +
         "export let describe(order: Order, loud: Bool): String =\n" +
-        "    match order\n" +
+        "    match order with\n" +
         "        Ascending when loud => \"ASC\"\n" +
         "        _ => \"other\"\n",
     )).toContain('=== "asc"');
@@ -256,7 +256,7 @@ describe("matching (§4)", () => {
   test("exhaustiveness reads the declared member set", () => {
     expect(projectDiagnostics("module Main\n\n" + "export extern enum Direction = \"up\" as Up | \"down\" as Down\n" +
         "export let go(d: Direction): String =\n" +
-        "    match d\n" +
+        "    match d with\n" +
         "        Up => \"u\"\n",
     )).toEqual(["match is missing cases: `Down`"]);
   });
@@ -265,7 +265,7 @@ describe("matching (§4)", () => {
   test("a repeated member is an unreachable arm", () => {
     expect(projectDiagnostics("module Main\n\n" + "export extern enum Direction = \"up\" as Up | \"down\" as Down\n" +
         "export let go(d: Direction): String =\n" +
-        "    match d\n" +
+        "    match d with\n" +
         "        Up => \"u\"\n" +
         "        Down => \"d\"\n" +
         "        Up => \"u again\"\n",
@@ -290,7 +290,7 @@ describe("matching (§4)", () => {
       ["/main.hex",
         "module Main\n\n" + "import Bindings\n" +
           "export let read(): String =\n" +
-          "    match Bindings.current()\n" +
+          "    match Bindings.current() with\n" +
           "        Bindings.Pos => \"pos\"\n" +
           "        Bindings.Zero => \"zero\"\n"],
     ], {
@@ -317,11 +317,11 @@ describe("abroad (§2.3, §9 test 13)", () => {
       ["/main.hex",
         "module Main\n\n" + "import Bindings\n" +
           "export let qualified(): String =\n" +
-          "    match Bindings.Up\n" +
+          "    match Bindings.Up with\n" +
           "        Bindings.Up => \"u\"\n" +
           "        Bindings.Down => \"d\"\n" +
           "export let door(d: Bindings.Direction): String =\n" +
-          "    match d\n" +
+          "    match d with\n" +
           "        Up => \"u\"\n" +
           "        Down => \"d\"\n" +
           "export let value(): Bindings.Direction = Bindings.Down\n"],
@@ -380,7 +380,7 @@ describe("the generated conversions (§5.2)", () => {
   test("`fromJsT` answers `Some` for every member and `None` otherwise", async () => {
     const exports = await runMain("module Main\n\n" + "export extern enum Direction = \"up\" as Up | \"down\" as Down\n" +
         "export let read(v: JsValue): String =\n" +
-        "    match fromJsDirection(v)\n" +
+        "    match fromJsDirection(v) with\n" +
         "        Some(Up) => \"up\"\n" +
         "        Some(Down) => \"down\"\n" +
         "        None => \"none\"\n",
@@ -397,7 +397,7 @@ describe("the generated conversions (§5.2)", () => {
   test("`fromJsT` finds a nullish member", async () => {
     const exports = await runMain(
       "module Main\n\n" + TRI + "export let read(v: JsValue): String =\n" +
-        "    match fromJsTri(v)\n" +
+        "    match fromJsTri(v) with\n" +
         "        Some(t) => show(t)\n" +
         "        None => \"none\"\n",
     );
@@ -470,7 +470,7 @@ describe("the generated conversions (§5.2)", () => {
       ["/main.hex",
         "module Main\n\n" + "import Bindings\n" +
           "export let read(v: JsValue): String =\n" +
-          "    match Bindings.fromJsDirection(v)\n" +
+          "    match Bindings.fromJsDirection(v) with\n" +
           "        Some(d) => show(d)\n" +
           "        None => \"none\"\n" +
           "export let out(): JsValue = Bindings.toJsDirection(Bindings.Up)\n"],
@@ -578,7 +578,7 @@ describe("nullish members (§2.4, §9 test 14)", () => {
   test("a one-nullish enum still has exactly its declared members", async () => {
     const exports = await runMain("module Main\n\n" + "export extern enum Sign = \"pos\" as Pos | null as Zero\n" +
         "export let read(v: JsValue): String =\n" +
-        "    match fromJsSign(v)\n" +
+        "    match fromJsSign(v) with\n" +
         "        Some(Pos) => \"pos\"\n" +
         "        Some(Zero) => \"zero\"\n" +
         "        None => \"none\"\n",
@@ -719,7 +719,7 @@ describe("the TypeScript face (§7.2, §9 test 16)", () => {
     const face = declarations(
       "extern enum Direction = \"up\" as Up\n" +
         "export let go(): String =\n" +
-        "    match Up\n" +
+        "    match Up with\n" +
         "        Up => \"u\"\n",
     );
     expect(face).not.toContain("Direction");

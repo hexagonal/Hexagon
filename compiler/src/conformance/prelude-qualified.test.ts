@@ -211,7 +211,7 @@ describe("the qualified spelling runs (PR #90 finding F1)", () => {
     const module = await run([[
       "/main.hex",
       "module Main\n\n" + "export let wrapped: Option(Int) = Option.Some(41)\n" +
-      "export let unwrapped: Int = match wrapped\n" +
+      "export let unwrapped: Int = match wrapped with\n" +
       "    None => 0\n" +
       "    Some(value) => value + 1\n",
     ]]);

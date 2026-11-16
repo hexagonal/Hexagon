@@ -359,7 +359,7 @@ describe("walks that enter a `Buffer`'s argument", () => {
 test("a `match` over a `Buffer` is refused as patternless, not as not-yet", () => {
   expect(diagnostics(
     "let f(b: Buffer(Int)): Int =\n" +
-    "    match b\n" +
+    "    match b with\n" +
     "        _ => 0\n",
   )).toEqual([
     "`Buffer(Int)` is a compiler-implemented type and has no pattern; its values " +

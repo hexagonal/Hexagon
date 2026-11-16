@@ -171,7 +171,7 @@ describe("a form's paths (Part 5 §3.4)", () => {
     expect(typeOf("let c = 1 > 2\nlet n = Seq.length(if c then words else moreWords)\n", "n"))
       .toBe("Int");
     expect(typeOf(
-      "let c = 1 > 2\nlet n = Seq.length(match c\n    True => moreWords\n    False => words)\n",
+      "let c = 1 > 2\nlet n = Seq.length(match c with\n    True => moreWords\n    False => words)\n",
       "n",
     )).toBe("Int");
     expect(typeOf("let c = 1 > 2\nlet s: Seq(_) = if c then words else moreWords\n", "s"))
@@ -288,31 +288,31 @@ describe("a source whose head is not yet known (Part 5 §3.5)", () => {
 
 describe("a loop head follows the same rule (Part 5 §3.1 step 2, #1118)", () => {
   test("a source described after the loop, or before it", () => {
-    expect(typeOf("let f(xs) =\n    for x in xs\n        ()\n    Vector.length(xs)\n", "f"))
+    expect(typeOf("let f(xs) =\n    for x in xs do\n        ()\n    Vector.length(xs)\n", "f"))
       .toBe("Vector(a) -> Int");
     expect(typeOf(
-      "let f(xs) =\n    let n = Vector.length(xs)\n    for x in xs\n        ()\n    n\n",
+      "let f(xs) =\n    let n = Vector.length(xs)\n    for x in xs do\n        ()\n    n\n",
       "f",
     )).toBe("Vector(a) -> Int");
   });
 
   test("a source nothing describes is a `Seq`; a declared one is refused", () => {
-    expect(typeOf("let h(xs) =\n    for x in xs\n        ()\n", "h")).toBe("Seq(a) -> Unit");
-    expect(refusals("let h(xs: c) =\n    for x in xs\n        ()\n")).toEqual([RIGID_SOURCE]);
+    expect(typeOf("let h(xs) =\n    for x in xs do\n        ()\n", "h")).toBe("Seq(a) -> Unit");
+    expect(refusals("let h(xs: c) =\n    for x in xs do\n        ()\n")).toEqual([RIGID_SOURCE]);
   });
 
   test("a head that arrives late iterates natively, as a head known at the loop does", () => {
     const vector = emitted(
-      "let f(xs) =\n    var n = 0\n    for x in xs\n        n := n + x\n    n + Vector.length(xs)\n",
+      "let f(xs) =\n    var n = 0\n    for x in xs do\n        n := n + x\n    n + Vector.length(xs)\n",
     );
     expect(vector).toContain("for (const x of xs) {");
     expect(vector).not.toContain("toSeq");
     expect(emitted(
-      "let f(m) =\n    var n = 0\n    for (k, v) in m\n        n := n + v\n" +
+      "let f(m) =\n    var n = 0\n    for (k, v) in m do\n        n := n + v\n" +
         "    let known: Map(String, Int) = m\n    n\n",
     )).toContain("for (const __item of m) {");
     expect(emitted(
-      "let f(s) =\n    var n = 0\n    for c in s\n        n := n + 1\n    let known: String = s\n    n\n",
+      "let f(s) =\n    var n = 0\n    for c in s do\n        n := n + 1\n    let known: String = s\n    n\n",
     )).toContain("for (const c of s) {");
   });
 });
@@ -332,7 +332,7 @@ describe("an instance's own subject, in its own `toSeq` (Part 5 §3.6)", () => {
     expect(refusals(honor("Seq.map(s, (x) => x)"))).toEqual([refusal("Stack(a)")]);
     expect(refusals(
       "union Tree(a) = Leaf(a) | Node(Vector(Tree(a)))\n" +
-        "honor Iterable<Tree(a)> =\n    type Item = a\n    toSeq(t) = match t\n" +
+        "honor Iterable<Tree(a)> =\n    type Item = a\n    toSeq(t) = match t with\n" +
         "        Leaf(v) => Vector.toSeq([v])\n" +
         "        Node(kids) => Seq.flatMap(Vector.toSeq(kids), (k) => k)\n",
     )).toEqual([refusal("Tree(a)")]);
@@ -346,7 +346,7 @@ describe("an instance's own subject, in its own `toSeq` (Part 5 §3.6)", () => {
     expect(typeOf(honor("flat(s)", "let flat(s: Stack(a)): Seq(a) = s.items\n"), "n")).toBe("Int");
     expect(refusals(
       "union Tree(a) = Leaf(a) | Node(Vector(Tree(a)))\n" +
-        "honor Iterable<Tree(a)> =\n    type Item = a\n    toSeq(t) = match t\n" +
+        "honor Iterable<Tree(a)> =\n    type Item = a\n    toSeq(t) = match t with\n" +
         "        Leaf(v) => Vector.toSeq([v])\n" +
         "        Node(kids) => Seq.flatMap(Vector.toSeq(kids), (k) => Iterable.toSeq(k))\n",
     )).toEqual([]);
@@ -377,7 +377,7 @@ describe("at run time an adaptation is its explicit call (Part 5 §3.6)", () => 
       "export let held: Option(Seq(String)) = Some(words)\n" +
       "export let length(xs: Vector(Int)): Int = Seq.length(xs)\n" +
       "export let loops(n: Int): Int =\n" +
-      "    let f(xs) =\n        var t = 0\n        for x in xs\n            t := t + x\n" +
+      "    let f(xs) =\n        var t = 0\n        for x in xs do\n            t := t + x\n" +
       "        t + Vector.length(xs)\n" +
       "    f([n, n])\n"]]);
     expect(run["joined"]).toBe("ab");
@@ -395,7 +395,7 @@ describe("several demands on one waiting source settle as one (#1125)", () => {
 
   test("a loop, a seat, and a late `Vector` head", async () => {
     expect(await exported(
-      "let f(xs) =\n    var t = 0\n    for x in xs\n        t := t + 1\n" +
+      "let f(xs) =\n    var t = 0\n    for x in xs do\n        t := t + 1\n" +
         "    let b = Seq.length(xs)\n    let n = Vector.length(xs)\n    b + t\n" +
         "export let r: Int = f([\"a\", \"b\"])\n",
     )).toBe(4);
@@ -407,10 +407,10 @@ describe("several demands on one waiting source settle as one (#1125)", () => {
       "export let r: Int = f(Stack({items = [1, 2]}))\n";
     expect(await exported(f("    let total = Seq.length(xs) + Seq.length(xs)\n"))).toBe(4);
     expect(await exported(f(
-      "    var t = Seq.length(xs)\n    for x in xs\n        t := t + x\n    let total = t\n",
+      "    var t = Seq.length(xs)\n    for x in xs do\n        t := t + x\n    let total = t\n",
     ))).toBe(5);
     expect(await exported(f(
-      "    var t = 0\n    for x in xs\n        t := t + x\n    for y in xs\n        t := t + y\n" +
+      "    var t = 0\n    for x in xs do\n        t := t + x\n    for y in xs do\n        t := t + y\n" +
         "    let total = t\n",
     ))).toBe(6);
   });
@@ -432,7 +432,7 @@ describe("several demands on one waiting source settle as one (#1125)", () => {
 
   test("a seat and a loop at a late `String` head: the loop stays native", () => {
     expect(emitted(
-      "let f(s) =\n    let b = Seq.length(s)\n    var n = 0\n    for c in s\n        n := n + 1\n" +
+      "let f(s) =\n    let b = Seq.length(s)\n    var n = 0\n    for c in s do\n        n := n + 1\n" +
         "    let known: String = s\n    n + b\n",
     )).toContain("for (const c of s) {");
   });
@@ -449,7 +449,7 @@ describe("the exclusion holds however late the head arrives (Part 5 §3.6)", () 
     "export let count(box: Box, xs: Seq(a)): Int = Seq.length(xs)\n" +
     "honor Iterable<Stack(a)> =\n    type Item = a\n    toSeq(s) =\n" +
     "        var holder = Vector.empty\n" +
-    `        let n = match Vector.first(holder)\n            Some(b) => ${arm}\n            None => 0\n` +
+    `        let n = match Vector.first(holder) with\n            Some(b) => ${arm}\n            None => 0\n` +
     `        holder := ${fill}\n        s.items\n`;
 
   test("a dot call on a head that arrives after the body is refused at the dot", () => {
@@ -510,12 +510,12 @@ describe("the rest of what never adapts, and what it costs", () => {
   test("a `match` on a waiting source reads it open", () => {
     // Pattern Matching §6.1: the text does not decide `v`, so a pattern that
     // tests needs a head nothing gives; patterns that test nothing need none.
-    expect(refusals("fun go(v) =\n    let t = sumInts(v)\n    match v\n        Less => 1\n        _ => 2\n")).toEqual([
+    expect(refusals("fun go(v) =\n    let t = sumInts(v)\n    match v with\n        Less => 1\n        _ => 2\n")).toEqual([
       "the program's text does not decide the parameter's type here, and no pattern names it, so the `match` " +
         "cannot tell what its patterns test — write the parameter's type where the function is bound, or hand " +
         "the function a value whose type is written",
     ]);
-    expect(refusals("fun go(v) =\n    let t = sumInts(v)\n    match v\n        s => 1\n")).toEqual([]);
+    expect(refusals("fun go(v) =\n    let t = sumInts(v)\n    match v with\n        s => 1\n")).toEqual([]);
   });
 
   test("an adapted binding is no value (Functions §8 item 2)", () => {
@@ -714,7 +714,7 @@ describe("an unknown value on a form's path, or grouped, waits too (Part 5 §3.5
       "f",
     )).toBe("(Bool, Vector(String), Seq(String)) -> Int");
     expect(typeOf(
-      "let f(c: Bool, xs, ys) =\n    let s = String.fromSeq(match c\n        True => xs\n" +
+      "let f(c: Bool, xs, ys) =\n    let s = String.fromSeq(match c with\n        True => xs\n" +
         "        False => ys)\n    let a: Vector(String) = xs\n    s\n",
       "f",
     )).toBe("(Bool, Vector(String), Seq(String)) -> String");
@@ -734,8 +734,8 @@ describe("an unknown value on a form's path, or grouped, waits too (Part 5 §3.5
       "record Stack(a) = {items: Vector(a)}\n" +
         "honor Iterable<Stack(a)> =\n    type Item = a\n    toSeq(s) =\n" +
         "        var holder = Vector.empty\n" +
-        "        let n = match Vector.first(holder)\n            Some(b) =>\n" +
-        "                var t = 0\n                for x in b\n                    t := t + 1\n" +
+        "        let n = match Vector.first(holder) with\n            Some(b) =>\n" +
+        "                var t = 0\n                for x in b do\n                    t := t + 1\n" +
         "                t + Seq.length(b)\n            None => 0\n" +
         "        holder := [s]\n        s.items\n",
     )).toEqual([

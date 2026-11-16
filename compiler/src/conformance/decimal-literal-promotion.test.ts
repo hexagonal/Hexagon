@@ -54,7 +54,7 @@ describe("promotion into Dec", () => {
     const exports = await runMain(
       HEADER +
         "let pick(waived: Bool): Dec = if waived then 0.0 else 1.25\n" +
-        "let size(n: Int): Dec = match n\n    0 => 0.00\n    _ => 2.5\n" +
+        "let size(n: Int): Dec = match n with\n    0 => 0.00\n    _ => 2.5\n" +
         "let blockValue: Dec =\n    let unused = 1\n    0.75\n" +
         "let grouped: Dec = (0.250)\n" +
         "let guarded(): Dec =\n    try\n        0.5\n    catch\n        fault _ => 1.5\n" +
@@ -126,8 +126,8 @@ describe("promotion into Dec", () => {
     const exports = await runMain(
       HEADER +
         "import Rat\n\n" +
-        "let size(m: Int): Dec = match m\n    0 => 0.5\n    _ => -2.5\n" +
-        "let ratio(m: Int): Rat = match m\n    0 => -0.5\n    _ => 2.5\n" +
+        "let size(m: Int): Dec = match m with\n    0 => 0.5\n    _ => -2.5\n" +
+        "let ratio(m: Int): Rat = match m with\n    0 => -0.5\n    _ => 2.5\n" +
         "let guarded(): Dec =\n    try\n        0.5\n    catch\n        fault _ => -1.5\n" +
         "export let shown: (String, String, String) = (size(1).show(), ratio(0).show(), guarded().show())\n",
     );
@@ -285,7 +285,7 @@ describe("what stays Float", () => {
   test("a literal pattern, whose refusal names the `d` spelling", () => {
     const refusal = (arm: string): readonly string[] =>
       projectDiagnostics(
-        HEADER + `let label(a: Dec): String = match a\n    ${arm} => "x"\n    _ => "o"\n`,
+        HEADER + `let label(a: Dec): String = match a with\n    ${arm} => "x"\n    _ => "o"\n`,
       );
     expect(refusal("0.5")).toEqual([
       "type mismatch: expected Dec, found Float; a `Dec` pattern is written with the `d` suffix: `0.5d`",

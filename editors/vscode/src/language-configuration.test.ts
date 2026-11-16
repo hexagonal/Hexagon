@@ -73,8 +73,11 @@ describe("indentation rules", () => {
       "let step = () =>",
       "constraint Integral<a: (Num, Ord)> =",
       "honor Ord<Rat> =",
-      "        match next(current)",
-      "    while searching",
+      "        match next(current) with",
+      "    while searching do",
+      "    for x in xs do",
+      "let first = match",
+      "    try",
       'extern from "hex:intrinsic"',
     ]) {
       expect(increase().test(line), line).toBe(true);
@@ -87,6 +90,10 @@ describe("indentation rules", () => {
     expect(increase().test("honor Eq<Point> = derive")).toBe(false);
     expect(increase().test("export let empty: Seq(a) = Seq({ pull = () => None })")).toBe(false);
     expect(increase().test("let x = 1")).toBe(false);
+    // A head carried on, or a loop with its body on the head's line, opens nothing yet.
+    expect(increase().test("    while remaining > 0")).toBe(false);
+    expect(increase().test("    match parse(input)")).toBe(false);
+    expect(increase().test("    while n > 0 do n := n - 1")).toBe(false);
   });
 
   it("dedents `else` onto its parent's column", () => {

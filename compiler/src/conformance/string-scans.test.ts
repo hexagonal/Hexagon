@@ -22,19 +22,19 @@ const SOURCE = `module Main
 export let size(text: String): Int = text.length()
 export let starts(text: String, prefix: String): Bool = text.startsWith(prefix)
 export let ends(text: String, suffix: String): Bool = text.endsWith(suffix)
-export let first(text: String, target: String): Int = match text.indexOf(target)
+export let first(text: String, target: String): Int = match text.indexOf(target) with
     Some(at) => at
     None => 0
-export let last(text: String, target: String): Int = match text.lastIndexOf(target)
+export let last(text: String, target: String): Int = match text.lastIndexOf(target) with
     Some(at) => at
     None => 0
 export let pieces(text: String, delimiter: String): Vector(String) = text.split(delimiter)
-export let code(text: String): Int = match text.toCodepoint()
+export let code(text: String): Int = match text.toCodepoint() with
     Some(value) => value
     None => -1
 export let piecesCi(text: String, delimiter: String): Vector(String) = text.splitCi(delimiter)
 export let replacedCi(text: String, target: String): String = text.replaceCi(target, "_")
-export let lastCi(text: String, target: String): Int = match text.lastIndexOfCi(target)
+export let lastCi(text: String, target: String): Int = match text.lastIndexOfCi(target) with
     Some(at) => at
     None => 0
 export let startsCi(text: String, prefix: String): Bool = text.startsWithCi(prefix)
@@ -248,7 +248,7 @@ describe("the cost: a question about a long text no longer copies it", () => {
 
 export let asked(text: String): Int =
     var total = 0
-    for _ in 1..1000
+    for _ in 1..1000 do
         total := total + text.length()
         if text.startsWith("12") then total := total + 1
         if text.endsWith("90") then total := total + 1

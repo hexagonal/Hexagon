@@ -11,7 +11,7 @@ fun guestName(reservation: {guest: String, ...}) = reservation.guest
 fun renameGuest(reservation: {guest: String, ...rest}, guest: String) =
     {reservation with guest = guest}
 
-fun confirmedGuest(reservation: {guest: String, confirmed: Bool}) = match reservation
+fun confirmedGuest(reservation: {guest: String, confirmed: Bool}) = match reservation with
     {confirmed = True, guest} => guest
     {guest} => guest
 

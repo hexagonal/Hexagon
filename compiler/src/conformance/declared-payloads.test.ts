@@ -38,8 +38,8 @@ function undecided(subject: string, name: string): string {
 /** The arm's body over a `u` whose type is written, one whose type is not, and at a `catch` arm. */
 function everywhere(arm: string): readonly (readonly [string, string])[] {
   return [
-    ["over `u: U`", WORLD + U + `let g(u: U): Unit = match u\n    ${arm}\n    _ => ()\n` + OUT],
-    ["over an untyped `u`", WORLD + U + `let g(u) = match u\n    ${arm}\n    _ => ()\nexport let k: Unit = g(B)\n` + OUT],
+    ["over `u: U`", WORLD + U + `let g(u: U): Unit = match u with\n    ${arm}\n    _ => ()\n` + OUT],
+    ["over an untyped `u`", WORLD + U + `let g(u) = match u with\n    ${arm}\n    _ => ()\nexport let k: Unit = g(B)\n` + OUT],
     [
       "at a `catch` arm",
       WORLD + "exception A(n: Int, f: () -> Unit)\nlet g(): Unit = try throw^(A(1, noop))\n    catch\n" +
@@ -65,7 +65,7 @@ describe("a constructor's declaration decides the parts it writes (#1518)", () =
   test("a slot the declaration writes as a type parameter is the value's to give", () => {
     // Nothing written gives `Option`'s `a`: the dot is refused, and an arrow another line fixed meets a use and a
     // claim as it was fixed.
-    expect(messages("let g(o) = match o\n    Some(n) => n.show()\n    None => \"\"\n" + OUT))
+    expect(messages("let g(o) = match o with\n    Some(n) => n.show()\n    None => \"\"\n" + OUT))
       .toEqual([undecided("n", "show")]);
     for (
       const arm of [
@@ -73,20 +73,20 @@ describe("a constructor's declaration decides the parts it writes (#1518)", () =
         "Some((f: () ->! Unit)) => ()",
       ]
     ) {
-      expect(messages(WORLD + `let g(o) =\n    let p: Option(() -> Unit) = o\n    match o\n        ${arm}\n        _ => ()\n` + OUT))
+      expect(messages(WORLD + `let g(o) =\n    let p: Option(() -> Unit) = o\n    match o with\n        ${arm}\n        _ => ()\n` + OUT))
         .toEqual([FIXED]);
     }
     // A written type around the slot gives the parameter: the part is decided as that type writes it.
-    expect(messages("let g(o: Option(Int)): String = match o\n    Some(n) => n.show()\n    None => \"\"\n" + OUT)).toEqual([]);
+    expect(messages("let g(o: Option(Int)): String = match o with\n    Some(n) => n.show()\n    None => \"\"\n" + OUT)).toEqual([]);
     // A slot that writes a parameter beneath a written head decides the head alone.
     const listed = "union L(a) =\n    | L(xs: Vector(a))\n";
-    expect(messages(listed + "let g(l) = match l\n    L(xs) => xs.length()\nexport let k: Int = g(L([1]))\n" + OUT)).toEqual([]);
+    expect(messages(listed + "let g(l) = match l with\n    L(xs) => xs.length()\nexport let k: Int = g(L([1]))\n" + OUT)).toEqual([]);
     // Its element is the value's, though another line has given it a type.
-    expect(messages(listed + "let g(l) = match l\n    L(xs) =>\n        let y = xs[0]\n        let z: Int = y\n        y.show()\n" + OUT))
+    expect(messages(listed + "let g(l) = match l with\n    L(xs) =>\n        let y = xs[0]\n        let z: Int = y\n        y.show()\n" + OUT))
       .toEqual([undecided("y", "show")]);
     // So is a nominal record's field that writes the parameter.
     const recorded = "record RL(a) = {xs: Vector(a)}\n";
-    expect(messages(recorded + "let g(r) = match r\n    RL({xs = xs}) =>\n        let y = xs[0]\n        let z: Int = y\n        y.show()\n" + OUT))
+    expect(messages(recorded + "let g(r) = match r with\n    RL({xs = xs}) =>\n        let y = xs[0]\n        let z: Int = y\n        y.show()\n" + OUT))
       .toEqual([undecided("y", "show")]);
   });
 
@@ -115,12 +115,12 @@ describe("a constructor's declaration decides the parts it writes (#1518)", () =
         ],
       ] as const
     ) {
-      expect(messages(WORLD + declaration + `let g(v) = match v\n    ${arm}\nexport let k: Unit = g(${handed})\n` + OUT))
+      expect(messages(WORLD + declaration + `let g(v) = match v with\n    ${arm}\nexport let k: Unit = g(${handed})\n` + OUT))
         .toEqual([]);
     }
     // The element the tuple's type parameter stands at is the value's.
     expect(messages(
-      WORLD + "union T(a) =\n    | T(p: (a, () -> Unit))\nlet g(t) =\n    let q: T(() -> Unit) = t\n    match t\n" +
+      WORLD + "union T(a) =\n    | T(p: (a, () -> Unit))\nlet g(t) =\n    let q: T(() -> Unit) = t\n    match t with\n" +
         "        T(((f: () ->! Unit), _)) => ()\n" + OUT,
     )).toEqual([FIXED]);
   });
@@ -130,17 +130,17 @@ describe("a constructor's declaration decides the parts it writes (#1518)", () =
     const arrow = "union F(a) =\n    | F(f: (a) -> Unit)\n";
     for (
       const source of [
-        pair + "let g(w) = match w\n    W(p) =>\n        let h: (() ->! Unit, Int) = p\n        ()\nexport let k: Unit = g(W((noop, 1)))\n",
-        pair + "let g(w) = match w\n    W((p: (() ->! Unit, Int))) => ()\nexport let k: Unit = g(W((noop, 1)))\n",
-        arrow + "let g(v) = match v\n    F(f) =>\n        let h: (Int) ->! Unit = f\n        ()\nexport let k: Unit = g(F((n: Int) => ()))\n",
-        arrow + "let g(v) = match v\n    F((f: (Int) ->! Unit)) => ()\nexport let k: Unit = g(F((n: Int) => ()))\n",
+        pair + "let g(w) = match w with\n    W(p) =>\n        let h: (() ->! Unit, Int) = p\n        ()\nexport let k: Unit = g(W((noop, 1)))\n",
+        pair + "let g(w) = match w with\n    W((p: (() ->! Unit, Int))) => ()\nexport let k: Unit = g(W((noop, 1)))\n",
+        arrow + "let g(v) = match v with\n    F(f) =>\n        let h: (Int) ->! Unit = f\n        ()\nexport let k: Unit = g(F((n: Int) => ()))\n",
+        arrow + "let g(v) = match v with\n    F((f: (Int) ->! Unit)) => ()\nexport let k: Unit = g(F((n: Int) => ()))\n",
       ]
     ) {
       expect(messages(WORLD + source + OUT)).toEqual([]);
     }
     // What the type parameter stands for is the value's: an arrow another line fixed meets a use and a claim as it
     // was fixed.
-    const fixed = WORLD + pair + "let g(w) =\n    let q: W(() -> Unit) = w\n    match w\n";
+    const fixed = WORLD + pair + "let g(w) =\n    let q: W(() -> Unit) = w\n    match w with\n";
     expect(messages(fixed + "        W(p) =>\n            let h: (() ->! Unit, () ->! Unit) = p\n            ()\n" + OUT))
       .toEqual([FIXED]);
     expect(messages(fixed + "        W((p: (() ->! Unit, () ->! Unit))) => ()\n" + OUT)).toEqual([FIXED]);
@@ -151,7 +151,7 @@ describe("a constructor's declaration decides the parts it writes (#1518)", () =
     )).toEqual([FIXED]);
     // Over a value whose type a later line fills, read in place or bound, as over one the text decides.
     for (
-      const scrutinee of ["let g(): Unit = match pass(W((noop, [])))\n", "let g(): Unit =\n    let w = pass(W((noop, [])))\n    match w\n"]
+      const scrutinee of ["let g(): Unit = match pass(W((noop, []))) with\n", "let g(): Unit =\n    let w = pass(W((noop, [])))\n    match w with\n"]
     ) {
       for (
         const arm of [
@@ -160,7 +160,7 @@ describe("a constructor's declaration decides the parts it writes (#1518)", () =
           "W((f, _)) =>\n        let h: () ->! Unit = f\n        ()",
         ]
       ) {
-        const indent = scrutinee.endsWith("match w\n") ? "        " : "    ";
+        const indent = scrutinee.endsWith("match w with\n") ? "        " : "    ";
         const source = WORLD + "let pass(x: a): a = x\n" + pair + scrutinee + indent + arm.replaceAll("\n", "\n" + indent.slice(4)) +
           "\n" + OUT;
         expect([arm, messages(source)]).toEqual([arm, []]);
@@ -180,38 +180,38 @@ describe("a constructor's declaration decides the parts it writes (#1518)", () =
     // A slot written whole: every arrow in it, not only the part's own.
     const union = "union U =\n    | A(p: (() -> Unit, Int))\n    | B\n";
     expect(messages(
-      WORLD + union + "let g(u) = match u\n    A(p) =>\n        let h: (() ->! Unit, Int) = p\n        ()\n    B => ()\n" +
+      WORLD + union + "let g(u) = match u with\n    A(p) =>\n        let h: (() ->! Unit, Int) = p\n        ()\n    B => ()\n" +
         "export let k: Unit = g(B)\n" + OUT,
     )).toEqual([]);
     // A value made from the part is made from the text: a call of it, and a field read of a call handed it.
     const holder = "record Holder = {run: () -> Unit}\nunion M =\n    | M(mk: () -> (() -> Unit), h: Holder)\n" +
       "let pass(x: a): a = x\n";
     for (const use of ["let k: () ->! Unit = mk()", "let k: () ->! Unit = pass(h).run"]) {
-      const source = WORLD + holder + `let g(m) = match m\n    M(mk, h) =>\n        ${use}\n        ()\n` +
+      const source = WORLD + holder + `let g(m) = match m with\n    M(mk, h) =>\n        ${use}\n        ()\n` +
         "export let k: Unit = g(M(() => noop, Holder({run = noop})))\n" + OUT;
       expect([use, messages(source)]).toEqual([use, []]);
     }
     // A record's field is its value's own written type: a `->!` it writes in a parameter accepts any function, at a
     // use and under a claim, written whole or beside a type parameter, as a field read of a typed value gives it.
     const record = "record R(a) = {f: (() ->! Unit) -> Unit, x: a}\nrecord S = {run: (() -> Unit) -> Unit}\n";
-    for (const [head, handed] of [["let g(r) = match r\n", "export let k: Unit = g(R({f = (c) => (), x = 1}))\n"], ["let g(r: R(Int)): Unit = match r\n", ""]]) {
+    for (const [head, handed] of [["let g(r) = match r with\n", "export let k: Unit = g(R({f = (c) => (), x = 1}))\n"], ["let g(r: R(Int)): Unit = match r with\n", ""]]) {
       for (const arm of ["R({f = f, x = _}) => ignore(S({run = f}))", "R({f = (f: (() -> Unit) -> Unit), x = _}) => ()"]) {
         expect([head, arm, messages(WORLD + record + head + "    " + arm + "\n" + handed + OUT)]).toEqual([head, arm, []]);
       }
     }
     // So over a value the text decides with no type written for it, and with a type argument a written type gives.
     expect(messages(
-      WORLD + record + "let g(): Unit =\n    let r = R({f = (c) => (), x = 1})\n    match r\n" +
+      WORLD + record + "let g(): Unit =\n    let r = R({f = (c) => (), x = 1})\n    match r with\n" +
         "        R({f = (f: (() -> Unit) -> Unit), x = _}) => ()\n" + OUT,
     )).toEqual([]);
     expect(messages(
-      WORLD + "record RA(a) = {f: (a) -> Unit}\nlet g(r: RA(() ->! Unit)): Unit = match r\n" +
+      WORLD + "record RA(a) = {f: (a) -> Unit}\nlet g(r: RA(() ->! Unit)): Unit = match r with\n" +
         "    RA({f = (f: (() -> Unit) -> Unit)}) => ()\n" + OUT,
     )).toEqual([]);
     // A union's slot is not its value's own written type, whether the value's type is written or not.
     const slot = "union V =\n    | V(f: (() ->! Unit) -> Unit)\nrecord S = {run: (() -> Unit) -> Unit}\n";
     for (
-      const head of ["let g(v) = match v\n", "let g(v: V): Unit = match v\n"]
+      const head of ["let g(v) = match v with\n", "let g(v: V): Unit = match v with\n"]
     ) {
       for (const arm of ["V(f) => ignore(S({run = f}))", "V((f: (() -> Unit) -> Unit)) => ()"]) {
         expect([head, arm, messages(WORLD + slot + head + "    " + arm + "\nexport let k: Unit = g(V((c) => ()))\n" + OUT)])
@@ -220,7 +220,7 @@ describe("a constructor's declaration decides the parts it writes (#1518)", () =
     }
     // Nor where it writes the part beside a type parameter.
     const beside = "union Q(a) =\n    | Q(p: ((() ->! Unit) -> Unit, a))\nrecord S = {run: ((() -> Unit) -> Unit, Int)}\n";
-    for (const head of ["let g(v) = match v\n", "let g(v: Q(Int)): Unit = match v\n"]) {
+    for (const head of ["let g(v) = match v with\n", "let g(v: Q(Int)): Unit = match v with\n"]) {
       for (const arm of ["Q(p) => ignore(S({run = p}))", "Q((p: ((() -> Unit) -> Unit, Int))) => ()"]) {
         const source = WORLD + beside + head + "    " + arm + "\nexport let k: Unit = g(Q(((c) => (), 1)))\n" + OUT;
         expect([head, arm, messages(source)]).toEqual([head, arm, [FIXED]]);
@@ -232,9 +232,9 @@ describe("a constructor's declaration decides the parts it writes (#1518)", () =
     const slotted = given + "union V =\n    | V(r: RA(() ->! Unit))\n";
     for (
       const head of [
-        "let g(v) = match v\n",
-        "let g(v: V): Unit = match v\n",
-        "let g(): Unit =\n    let v = V(RA({f = (c) => ()}))\n    match v\n",
+        "let g(v) = match v with\n",
+        "let g(v: V): Unit = match v with\n",
+        "let g(): Unit =\n    let v = V(RA({f = (c) => ()}))\n    match v with\n",
       ]
     ) {
       for (const arm of ["V(RA({f = f})) => ignore(S({run = f}))", "V(RA({f = (f: (() -> Unit) -> Unit)})) => ()"]) {
@@ -248,27 +248,27 @@ describe("a constructor's declaration decides the parts it writes (#1518)", () =
       expect([arm, messages(source)]).toEqual([arm, [FIXED]]);
     }
     expect(messages(
-      WORLD + given + "union V3 =\n    | V3(p: (RA(() ->! Unit), Int))\nlet g(v) = match v\n" +
+      WORLD + given + "union V3 =\n    | V3(p: (RA(() ->! Unit), Int))\nlet g(v) = match v with\n" +
         "    V3((RA({f = f}), _)) => ignore(S({run = f}))\n" + OUT,
     )).toEqual([FIXED]);
     // So a union's slot beneath another's, whose type that slot writes.
     expect(messages(
       WORLD + "record S = {run: (() -> Unit) -> Unit}\nunion V4 =\n    | V4(f: (() ->! Unit) -> Unit)\n" +
-        "union O =\n    | O(v: V4)\nlet g(o) = match o\n    O(V4(f)) => ignore(S({run = f}))\n" + OUT,
+        "union O =\n    | O(v: V4)\nlet g(o) = match o with\n    O(V4(f)) => ignore(S({run = f}))\n" + OUT,
     )).toEqual([FIXED]);
     // A record's own field keeps its reading in a union's slot, and gives a union's type parameter its own, whatever
     // the value.
     const own = "record R3 = {f: (() ->! Unit) -> Unit}\nrecord S = {run: (() -> Unit) -> Unit}\nunion V2 =\n    | V2(r: R3)\n";
-    for (const head of ["let g(v) = match v\n", "let g(v: V2): Unit = match v\n"]) {
+    for (const head of ["let g(v) = match v with\n", "let g(v: V2): Unit = match v with\n"]) {
       expect([head, messages(WORLD + own + head + "    V2(R3({f = f})) => ignore(S({run = f}))\n" + OUT)]).toEqual([head, []]);
     }
     const option = "record S = {run: (() -> Unit) -> Unit}\nrecord RO = {o: Option((() ->! Unit) -> Unit)}\n";
     for (
       const head of [
-        "let g(r) = match r\n",
-        "let g(r: RO): Unit = match r\n",
-        "let g(): Unit =\n    let r = RO({o = None})\n    match r\n",
-        "let g(rs: Vector(RO)): Unit =\n    for r in rs\n        match r\n",
+        "let g(r) = match r with\n",
+        "let g(r: RO): Unit = match r with\n",
+        "let g(): Unit =\n    let r = RO({o = None})\n    match r with\n",
+        "let g(rs: Vector(RO)): Unit =\n    for r in rs do\n        match r with\n",
       ]
     ) {
       const indent = " ".repeat(head.split("\n").at(-2)!.search(/\S/) + 4);
@@ -281,20 +281,20 @@ describe("a constructor's declaration decides the parts it writes (#1518)", () =
       "record S = {run: (() -> Unit) -> Unit}\n";
     for (
       const [head, body] of [
-        ["let g(x) = match x\n", "    RO2({u = U(RA({f = f}))}) => ignore(S({run = f}))\n"],
-        ["let g(x: RO2): Unit = match x\n", "    RO2({u = U(RA({f = f}))}) => ignore(S({run = f}))\n"],
+        ["let g(x) = match x with\n", "    RO2({u = U(RA({f = f}))}) => ignore(S({run = f}))\n"],
+        ["let g(x: RO2): Unit = match x with\n", "    RO2({u = U(RA({f = f}))}) => ignore(S({run = f}))\n"],
         [
-          "let g(): Unit =\n    let x = RO2({u = U(RA({f = (c) => ()}))})\n    match x\n",
+          "let g(): Unit =\n    let x = RO2({u = U(RA({f = (c) => ()}))})\n    match x with\n",
           "        RO2({u = U(RA({f = f}))}) => ignore(S({run = f}))\n",
         ],
-        ["let g(x: RO2): Unit = match x\n", "    RO2({u = U(RA({f = (f: (() -> Unit) -> Unit)}))}) => ()\n"],
+        ["let g(x: RO2): Unit = match x with\n", "    RO2({u = U(RA({f = (f: (() -> Unit) -> Unit)}))}) => ()\n"],
         ["let g(x: RO2): Unit =\n", "    let RO2({u = U(RA({f = f}))}) = x\n    ignore(S({run = f}))\n"],
       ]
     ) {
       expect([head, body, messages(WORLD + through + head + body + OUT)]).toEqual([head, body, []]);
     }
     // A part a written type reaches through a record's field, though the value is not decided wholly.
-    const partial = "record R2(a) = {f: () -> Unit, x: a}\nlet g(t: (R2(_), Int)): Unit = match t\n";
+    const partial = "record R2(a) = {f: () -> Unit, x: a}\nlet g(t: (R2(_), Int)): Unit = match t with\n";
     for (const arm of ["(R2({f = (f: () ->! Unit), x = _}), _) => ()", "(R2({f = f, x = _}), _) =>\n        let h: () ->! Unit = f\n        ()"]) {
       expect([arm, messages(WORLD + partial + "    " + arm + "\n" + OUT)]).toEqual([arm, []]);
     }
@@ -309,24 +309,24 @@ describe("a constructor's declaration decides the parts it writes (#1518)", () =
         "X(_, n) | Y(_, n) => ignore(n.show())",
       ]
     ) {
-      expect([arm, messages(WORLD + both + `let g(v) = match v\n    ${arm}\nexport let k: Unit = g(X(noop, 1))\n` + OUT)])
+      expect([arm, messages(WORLD + both + `let g(v) = match v with\n    ${arm}\nexport let k: Unit = g(X(noop, 1))\n` + OUT)])
         .toEqual([arm, []]);
     }
     // So in a slot, which gives every alternative its type.
     const slot = "union V3 =\n    | V3(p: (Option(() -> Unit), Option(() -> Unit)))\n";
     expect(messages(
-      WORLD + slot + "let g(v) = match v\n    V3((Some(f), _) | (_, Some(f))) =>\n        let h: () ->! Unit = f\n        ()\n" +
+      WORLD + slot + "let g(v) = match v with\n    V3((Some(f), _) | (_, Some(f))) =>\n        let h: () ->! Unit = f\n        ()\n" +
         "    _ => ()\nexport let k: Unit = g(V3((None, None)))\n" + OUT,
     )).toEqual([]);
     // Position by position: a head every alternative writes, and an arrow every one writes beside a type parameter.
     const heads = "union L(a) =\n    | X(xs: Vector(a), o: Option(a))\n    | Y(xs: Vector(a), o: Option(a))\n";
     for (const arm of ["X(xs, _) | Y(xs, _) => xs.length()", "X(_, o) | Y(_, o) => if o.isSome() then 1 else 0"]) {
-      expect([arm, messages(heads + `let g(l) = match l\n    ${arm}\nexport let k: Int = g(X([1], None))\n` + OUT)])
+      expect([arm, messages(heads + `let g(l) = match l with\n    ${arm}\nexport let k: Int = g(X([1], None))\n` + OUT)])
         .toEqual([arm, []]);
     }
     const beside = "union P(a) =\n    | X(p: (() -> Unit, a))\n    | Y(p: (() -> Unit, a))\n";
     expect(messages(
-      WORLD + beside + "let g(v) = match v\n    X(p) | Y(p) =>\n        let h: (() ->! Unit, Int) = p\n        ()\n" +
+      WORLD + beside + "let g(v) = match v with\n    X(p) | Y(p) =>\n        let h: (() ->! Unit, Int) = p\n        ()\n" +
         "export let k: Unit = g(X((noop, 1)))\n" + OUT,
     )).toEqual([]);
     // An arrow a union's slot writes on one path keeps that reading on every path, whatever the value.
@@ -340,9 +340,9 @@ describe("a constructor's declaration decides the parts it writes (#1518)", () =
       const arm = alternatives.includes("Y(f") ? "X(R({f = f})) | Y(f)" : "X(R({f = f})) | Y(R({f = f}))";
       for (
         const [head, body] of [
-          ["let g(w) = match w\n", `    ${arm} => ignore(S({run = f}))\n`],
-          ["let g(w: W): Unit = match w\n", `    ${arm} => ignore(S({run = f}))\n`],
-          ["let g(): Unit =\n    let w = X(R({f = (c) => ()}))\n    match w\n", `        ${arm} => ignore(S({run = f}))\n`],
+          ["let g(w) = match w with\n", `    ${arm} => ignore(S({run = f}))\n`],
+          ["let g(w: W): Unit = match w with\n", `    ${arm} => ignore(S({run = f}))\n`],
+          ["let g(): Unit =\n    let w = X(R({f = (c) => ()}))\n    match w with\n", `        ${arm} => ignore(S({run = f}))\n`],
           ["let g(w: W): Unit =\n", `    let ${arm} = w\n    ignore(S({run = f}))\n`],
         ]
       ) {
@@ -357,7 +357,7 @@ describe("a constructor's declaration decides the parts it writes (#1518)", () =
       ] as const
     ) {
       const source = WORLD + `union XY(a) =\n    | X(r: {f: () -> Unit, n: Int})\n    | Y(r: ${y})\n` +
-        "let g(v) = match v\n    X(r) | Y(r) =>\n        let h: () ->! Unit = r.f\n        ()\n" + OUT;
+        "let g(v) = match v with\n    X(r) | Y(r) =>\n        let h: () ->! Unit = r.f\n        ()\n" + OUT;
       expect([y, messages(source)]).toEqual([y, expected]);
     }
     // Alternatives that write the name different types are refused, and that is the one report, as over a typed value.
@@ -383,22 +383,22 @@ describe("a constructor's declaration decides the parts it writes (#1518)", () =
         ["{f: () -> Unit}", "{f: a, n: Int}", pure("n.f"), "record fields do not match; unexpected `n`"],
       ] as const
     ) {
-      const source = WORLD + `union XY(a) =\n    | X(n: ${x})\n    | Y(n: ${y})\n` + `let g(v) = match v\n    X(n) | Y(n) => ${body}\n` + OUT;
+      const source = WORLD + `union XY(a) =\n    | X(n: ${x})\n    | Y(n: ${y})\n` + `let g(v) = match v with\n    X(n) | Y(n) => ${body}\n` + OUT;
       expect([x, y, messages(source)]).toEqual([x, y, [report]]);
     }
     // A name one alternative takes from a type parameter is the value's on that path, in either order, beneath a
     // head they all write too.
     const nothing = "union R(a) =\n    | P(p: a)\n    | Q(q: {n: Int})\n";
     for (const arm of ["Q({n = n}) | P({n = n})", "P({n = n}) | Q({n = n})"]) {
-      expect([arm, messages(nothing + `let g(v) = match v\n    ${arm} => n.show()\n` + OUT)]).toEqual([arm, [undecided("n", "show")]]);
+      expect([arm, messages(nothing + `let g(v) = match v with\n    ${arm} => n.show()\n` + OUT)]).toEqual([arm, [undecided("n", "show")]]);
     }
     const result = "union XY(a) =\n    | X(f: () -> (() -> Unit))\n    | Y(f: () -> a)\n";
     for (const arm of ["X(f) | Y(f)", "Y(f) | X(f)"]) {
-      const source = WORLD + result + `let g(v) = match v\n    ${arm} =>\n        let h: () ->! (() ->! Unit) = f\n        ()\n` + OUT;
+      const source = WORLD + result + `let g(v) = match v with\n    ${arm} =>\n        let h: () ->! (() ->! Unit) = f\n        ()\n` + OUT;
       expect([arm, messages(source)]).toEqual([arm, [FIXED]]);
     }
     const one = "union XZ(a) =\n    | X(n: Int)\n    | Z(n: a)\n";
-    expect(messages(one + "let g(v) = match v\n    X(n) | Z(n) => n.show()\nexport let k: String = g(X(1))\n" + OUT))
+    expect(messages(one + "let g(v) = match v with\n    X(n) | Z(n) => n.show()\nexport let k: String = g(X(1))\n" + OUT))
       .toEqual([undecided("n", "show")]);
   });
 
@@ -411,7 +411,7 @@ describe("a constructor's declaration decides the parts it writes (#1518)", () =
       ]).diagnostics.map(({ message }) => message);
     // Beneath a slot written as a type parameter, another line chose `WC`: what it writes is the value's.
     const param = "union T(a) =\n    | T(x: a)\n";
-    expect(files(param + "let g(t) =\n    let q: T(M2.W2) = t\n    match t\n        T(WC(n)) => n.show()\n"))
+    expect(files(param + "let g(t) =\n    let q: T(M2.W2) = t\n    match t with\n        T(WC(n)) => n.show()\n"))
       .toEqual([undecided("n", "show")]);
     for (
       const arm of [
@@ -419,13 +419,13 @@ describe("a constructor's declaration decides the parts it writes (#1518)", () =
         "T(WC((f: () ->! Unit))) => f!()",
       ]
     ) {
-      expect([arm, files(param + `let g(t) =\n    let q: T(M1.W1) = t\n    match t\n        ${arm}\n`)]).toEqual([arm, [FIXED]]);
+      expect([arm, files(param + `let g(t) =\n    let q: T(M1.W1) = t\n    match t with\n        ${arm}\n`)]).toEqual([arm, [FIXED]]);
     }
     // Written qualified, or beneath a slot that writes its union, it is the text's.
-    expect(files(param + "let g(t) = match t\n    T(M2.WC(n)) => n.show()\n")).toEqual([]);
-    expect(files("union T2 =\n    | T2(x: M2.W2)\nlet g(t) = match t\n    T2(WC(n)) => n.show()\n")).toEqual([]);
+    expect(files(param + "let g(t) = match t with\n    T(M2.WC(n)) => n.show()\n")).toEqual([]);
+    expect(files("union T2 =\n    | T2(x: M2.W2)\nlet g(t) = match t with\n    T2(WC(n)) => n.show()\n")).toEqual([]);
     expect(files(
-      "union T3 =\n    | T3(x: M1.W1)\nlet g(t) = match t\n    T3(WC(f)) =>\n        let h: () ->! Unit = f\n        ()\n",
+      "union T3 =\n    | T3(x: M1.W1)\nlet g(t) = match t with\n    T3(WC(f)) =>\n        let h: () ->! Unit = f\n        ()\n",
     )).toEqual([]);
     // At the pattern's top the position's type is the value's: over a value the text decides, every position's type is
     // the text's, so a record the door named is read through its fields at every step, and over one it does not, it is
@@ -458,16 +458,16 @@ describe("a constructor's declaration decides the parts it writes (#1518)", () =
     ) {
       // A claim is a use of its part, so a type written over it reads the same.
       for (const written of [arm, claimed(arm), claimed(arm, "_")]) {
-        const source = `let g(${head}): Unit = match w\n    ${written}\n`;
+        const source = `let g(${head}): Unit = match w with\n    ${written}\n`;
         expect([written, records(source)]).toEqual([written, expected]);
       }
     }
     for (
       const source of [
-        `let g(): Unit =\n    let w = R1.WC({f = (c) => ()})\n    match w\n        WC({f = f}) => ${run}\n`,
+        `let g(): Unit =\n    let w = R1.WC({f = (c) => ()})\n    match w with\n        WC({f = f}) => ${run}\n`,
         `let g(w: R1.WC): Unit =\n    let WC({f = f}) = w\n    ${run}\n`,
         `let g(t: T(R1.WC)): Unit =\n    let T(WC({f = f})) = t\n    ${run}\n`,
-        `let mk(x: a): T(R1.WC) = T(R1.WC({f = (c) => ()}))\nlet g(u) = match mk(u)\n    T(WC({f = f})) => ${run}\n`,
+        `let mk(x: a): T(R1.WC) = T(R1.WC({f = (c) => ()}))\nlet g(u) = match mk(u) with\n    T(WC({f = f})) => ${run}\n`,
       ].flatMap((source) => [source, claimed(source), claimed(source, "_")])
     ) {
       expect([source, records(source)]).toEqual([source, []]);
@@ -477,10 +477,10 @@ describe("a constructor's declaration decides the parts it writes (#1518)", () =
     // literal leaves the `match` open.
     for (
       const [source, expected] of [
-        [`let g(t) =\n    let q: T(R1.WC) = t\n    match t\n        T(WC({f = f})) => ${run}\n`, [FIXED]],
-        [`let g(t) = match (t: T(R1.WC))\n    T(WC({f = f})) => ${run}\n`, [FIXED]],
+        [`let g(t) =\n    let q: T(R1.WC) = t\n    match t with\n        T(WC({f = f})) => ${run}\n`, [FIXED]],
+        [`let g(t) = match (t: T(R1.WC)) with\n    T(WC({f = f})) => ${run}\n`, [FIXED]],
         [`let g(t) =\n    let T(WC({f = f})): T(R1.WC) = t\n    ${run}\n`, [FIXED]],
-        [`let g(t: T(R1.WC)): Unit = match (t, 1)\n    (T(WC({f = f})), _) => ${run}\n`, [FIXED]],
+        [`let g(t: T(R1.WC)): Unit = match (t, 1) with\n    (T(WC({f = f})), _) => ${run}\n`, [FIXED]],
         [`let g(t: T(R1.WC)): Unit =\n    let T(WC({f = f})): T(_) = t\n    ${run}\n`, []],
       ] as const
     ) {
@@ -508,41 +508,41 @@ describe("a constructor's declaration decides the parts it writes (#1518)", () =
     for (
       const [source, rewrite] of [
         // A nominal record's fields, read where a pattern names its constructor: no name here spells them.
-        [record + "let k(r: R): Unit = match r\n    R(x) =>\n        let (z: R) = x\n        ()\n", "remove the type"],
+        [record + "let k(r: R): Unit = match r with\n    R(x) =>\n        let (z: R) = x\n        ()\n", "remove the type"],
         [
-          record + "union V =\n    | V(r: R)\nlet k(v: V): Unit = match v\n    V(R(x)) =>\n        let (z: Int) = x\n        ()\n",
+          record + "union V =\n    | V(r: R)\nlet k(v: V): Unit = match v with\n    V(R(x)) =>\n        let (z: Int) = x\n        ()\n",
           "remove the type",
         ],
         // A slot read with a type argument: its text spells the parameter.
         [
-          applied + "union V =\n    | V(r: RA(Int))\nlet k(v: V): Unit = match v\n    V(RA({f = f})) =>\n" +
+          applied + "union V =\n    | V(r: RA(Int))\nlet k(v: V): Unit = match v with\n    V(RA({f = f})) =>\n" +
           "        let (h: String) = f\n        ()\n",
           "remove the type",
         ],
-        [applied + "let k(r: RA(Int)): Unit = match r\n    RA({f = (h: String)}) => ()\n", "write `(h: (Int) -> Unit)`"],
+        [applied + "let k(r: RA(Int)): Unit = match r with\n    RA({f = (h: String)}) => ()\n", "write `(h: (Int) -> Unit)`"],
         [
-          "record RB(a) = {f: Option((a) -> Unit)}\nlet k(r: RB(Int)): Unit = match r\n    RB({f = (h: String)}) => ()\n",
+          "record RB(a) = {f: Option((a) -> Unit)}\nlet k(r: RB(Int)): Unit = match r with\n    RB({f = (h: String)}) => ()\n",
           "write `(h: Option((Int) -> Unit))`",
         ],
         [
-          applied + "union W =\n    | X(r: RA(Int))\n    | Y(r: RA(Int))\nlet k(w: W): Unit = match w\n" +
+          applied + "union W =\n    | X(r: RA(Int))\n    | Y(r: RA(Int))\nlet k(w: W): Unit = match w with\n" +
           "    X(RA({f = f})) | Y(RA({f = f})) =>\n        let (h: String) = f\n        ()\n",
           "remove the type",
         ],
         [
-          applied + "union V =\n    | V(r: RA(Int))\nlet k(v) = match v\n    V(RA({f = (h: String)})) => ()\n",
+          applied + "union V =\n    | V(r: RA(Int))\nlet k(v) = match v with\n    V(RA({f = (h: String)})) => ()\n",
           "write `(h: (Int) -> Unit)`",
         ],
         // A declared field's own text spells it, whatever the value.
-        [record + "let k(r: R): Unit = match r\n    R({f = (h: String)}) => ()\n", "write `(h: (() ->! Unit) -> Unit)`"],
+        [record + "let k(r: R): Unit = match r with\n    R({f = (h: String)}) => ()\n", "write `(h: (() ->! Unit) -> Unit)`"],
         // And the value's own written type, where it gives what a type parameter the declaration writes becomes.
-        ...["match r\n    RB({f = (h: String)}) => ()\n", "\n    let RB({f = (h: String)}) = r\n    ()\n"].map((body) =>
+        ...["match r with\n    RB({f = (h: String)}) => ()\n", "\n    let RB({f = (h: String)}) = r\n    ()\n"].map((body) =>
           [
             "type Handler = (Int) -> Unit\nrecord RB(a) = {f: a}\nlet k(r: RB(Handler)): Unit = " + body,
             "write `(h: Handler)`",
           ] as const
         ),
-        ...["let k(r: R): Unit = match r\n", "let k(r) = match r\n"].map((head) =>
+        ...["let k(r: R): Unit = match r with\n", "let k(r) = match r with\n"].map((head) =>
           [
             "type Handler = (Int) -> Unit\nrecord R = {f: Handler}\n" + head + "    R({f = (h: String)}) => ()\n",
             "write `(h: Handler)`",
@@ -559,7 +559,7 @@ describe("a constructor's declaration decides the parts it writes (#1518)", () =
     for (
       const source of [
         "let g(u) =\n    let One((f: () ->! Unit)) = u\n    f!()\nexport let k: Unit = g!(One(noop))\n",
-        "let g(us) =\n    for One((f: () ->! Unit)) in us\n        f!()\nexport let k: Unit = g!([One(noop)])\n",
+        "let g(us) =\n    for One((f: () ->! Unit)) in us do\n        f!()\nexport let k: Unit = g!([One(noop)])\n",
         "let k: (One) ->! Unit = ((One((f: () ->! Unit)))) => f!()\n",
         "let g(u) =\n    let One(f) = u\n    let h: () ->! Unit = f\n    h!()\nexport let k: Unit = g!(One(noop))\n",
       ]

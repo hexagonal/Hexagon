@@ -559,7 +559,7 @@ describe("what the clause does not reach", () => {
     // already keeps the offering discipline §7.6 generalised.
     const messages = projectDiagnostics("module Main\n\n" + "export record Bag = {size: Int}\n" +
         "export fun run(bag: Bag): Unit =\n" +
-        "    for item in bag\n" +
+        "    for item in bag do\n" +
         "        ()\n",
     );
 

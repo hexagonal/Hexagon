@@ -19,13 +19,13 @@ export constraint Ord<a: Eq> =
         instance may write its own `max`, which must return the same argument
         as this one. -}
     max(left: a, right: a) -> a =
-        match compare(left, right)
+        match compare(left, right) with
             Greater => left
             _ => right
     {-- The lesser of `left` and `right`, and `left` when the two are equal. An
         instance may write its own `min`, which must return the same argument
         as this one. -}
     min(left: a, right: a) -> a =
-        match compare(left, right)
+        match compare(left, right) with
             Greater => right
             _ => left

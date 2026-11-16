@@ -177,7 +177,7 @@ describe("NumberFormatError and its message", () => {
     const main = await runMain(`module Main
 
 export let shown: String =
-    match attempt Int.parse^("12x")
+    match attempt Int.parse^("12x") with
         Err(e) => show(e)
         Ok(_) => "parsed"
 export let qualified: String =
@@ -223,10 +223,10 @@ export let intsBack: Bool = Seq.all(ints.toSeq(), (n) => Int.parse?(show(n)) == 
 export let natsBack: Bool = Seq.all(nats.toSeq(), (n) => Nat.parse?(show(n)) == Some(n))
 export let bigsBack: Bool = Seq.all(bigs.toSeq(), (n) => BigInt.parse?(show(n)) == Some(n))
 export let floatsBack: Bool = Seq.all(floats.toSeq(), (x) => Float.parse?(show(x)) == Some(x))
-export let nanBack: Bool = match Float.parse?(show(Float.nan))
+export let nanBack: Bool = match Float.parse?(show(Float.nan)) with
     Some(x) => x.isNan()
     None => False
-export let decsBack: Bool = Seq.all(decs.toSeq(), (d) => match Dec.parse?(show(d))
+export let decsBack: Bool = Seq.all(decs.toSeq(), (d) => match Dec.parse?(show(d)) with
     Some(back) => Dec.same(back, d)
     None => False)
 export let ratsBack: Bool = Seq.all(rats.toSeq(), (r) => Rat.parse?(show(r)) == Some(r))

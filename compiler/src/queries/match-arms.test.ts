@@ -75,13 +75,13 @@ describe("arms with one body combined into one", () => {
   test("adjacent arms, as one or-pattern in their order", () => {
     expect(rewritten(program(
       "export let g(s: Shape): Int =",
-      "    match s",
+      "    match s with",
       "        Ci‸rcle(_) => 0",
       "        Square(_) => 0",
       "        Dot => 1",
     ), combineTitle(2))).toBe(program(
       "export let g(s: Shape): Int =",
-      "    match s",
+      "    match s with",
       "        Circle(_) | Square(_) => 0",
       "        Dot => 1",
     ));
@@ -90,7 +90,7 @@ describe("arms with one body combined into one", () => {
   test("the whole run around the arm asked on, from its pattern or its arrow, not its body", () => {
     const run = (at: string): string => program(
       "export let g(o: Option(Int)): Int =",
-      "    match o",
+      "    match o with",
       "        Some(1) => 0",
       "        Some(2) => 1",
       `        ${at.startsWith("‸Some") ? at : `Some(3) ${at}`}`,
@@ -99,7 +99,7 @@ describe("arms with one body combined into one", () => {
     );
     const combined = program(
       "export let g(o: Option(Int)): Int =",
-      "    match o",
+      "    match o with",
       "        Some(1) => 0",
       "        Some(2) | Some(3) | Some(4) | _ => 1",
     );
@@ -112,13 +112,13 @@ describe("arms with one body combined into one", () => {
   test("binding the same names at the same types", () => {
     expect(rewritten(program(
       "export let g(s: Shape): Float =",
-      "    match s",
+      "    match s with",
       "        Circle(‸x) => x * 2.0",
       "        Square(x) => x * 2.0",
       "        Dot => 0.0",
     ), combineTitle(2))).toBe(program(
       "export let g(s: Shape): Float =",
-      "    match s",
+      "    match s with",
       "        Circle(x) | Square(x) => x * 2.0",
       "        Dot => 0.0",
     ));
@@ -127,23 +127,23 @@ describe("arms with one body combined into one", () => {
   test("an or-pattern among them, and an `as` in parentheses", () => {
     expect(rewritten(program(
       "export let g(s: Shape): Float =",
-      "    match s",
+      "    match s with",
       "        Circle(_) | Dot ‸=> 0.0",
       "        Square(_) => 0.0",
     ), combineTitle(2))).toBe(program(
       "export let g(s: Shape): Float =",
-      "    match s",
+      "    match s with",
       "        Circle(_) | Dot | Square(_) => 0.0",
     ));
     expect(rewritten(program(
       "export let g(s: Shape): Float =",
-      "    match s",
+      "    match s with",
       "        Circle(_) as t ‸=> f(t)",
       "        (Square(_) as t) => f(t)",
       "        Dot => 0.0",
     ), combineTitle(2))).toBe(program(
       "export let g(s: Shape): Float =",
-      "    match s",
+      "    match s with",
       "        (Circle(_) as t) | (Square(_) as t) => f(t)",
       "        Dot => 0.0",
     ));
@@ -152,7 +152,7 @@ describe("arms with one body combined into one", () => {
   test("a body over lines, a body laid out differently, and comments in what is kept", () => {
     expect(rewritten(program(
       "export let g(s: Shape): Float =",
-      "    match s",
+      "    match s with",
       "        Circle(_) {- round -} ‸=>",
       "            let r = 1.0",
       "            r -- the first",
@@ -162,7 +162,7 @@ describe("arms with one body combined into one", () => {
       "        Dot => 0.0",
     ), combineTitle(2))).toBe(program(
       "export let g(s: Shape): Float =",
-      "    match s",
+      "    match s with",
       "        Circle(_) | Square(_) {- round -} =>",
       "            let r = 1.0",
       "            r -- the first",
@@ -173,21 +173,21 @@ describe("arms with one body combined into one", () => {
   test("a body begun on the line after its arrow, as the one written after it", () => {
     expect(rewritten(program(
       "export let g(s: Shape): Int =",
-      "    match s",
+      "    match s with",
       "        Circle(_) ‸=>",
       "            0",
       "        Square(_) => 0",
       "        Dot => 1",
     ), combineTitle(2))).toBe(program(
       "export let g(s: Shape): Int =",
-      "    match s",
+      "    match s with",
       "        Circle(_) | Square(_) =>",
       "            0",
       "        Dot => 1",
     ));
     expect(titles(program(
       "export let g(s: Shape): Int =",
-      "    match s",
+      "    match s with",
       "        Circle(_) ‸=> 0",
       "        Square(_) =>",
       "            let n = 0",
@@ -199,13 +199,13 @@ describe("arms with one body combined into one", () => {
   test("an or-pattern inside an arm's, its alternatives as the outer one's", () => {
     expect(rewritten(program(
       "export let g(o: Option(Int)): Int =",
-      "    match o",
+      "    match o with",
       "        Some(1) | (Some(2) | Some(3)) ‸=> 0",
       "        Some(4) => 0",
       "        _ => 1",
     ), combineTitle(2))).toBe(program(
       "export let g(o: Option(Int)): Int =",
-      "    match o",
+      "    match o with",
       "        Some(1) | (Some(2) | Some(3)) | Some(4) => 0",
       "        _ => 1",
     ));
@@ -214,25 +214,25 @@ describe("arms with one body combined into one", () => {
   test("literal and record patterns", () => {
     expect(rewritten(program(
       "export let g(n: Int): String =",
-      "    match n",
+      "    match n with",
       "        0 ‸=> \"small\"",
       "        1 => \"small\"",
       "        _ => \"big\"",
     ), combineTitle(2))).toBe(program(
       "export let g(n: Int): String =",
-      "    match n",
+      "    match n with",
       "        0 | 1 => \"small\"",
       "        _ => \"big\"",
     ));
     expect(rewritten(program(
       "export let g(r: {x: Int, y: Int}): Int =",
-      "    match r",
+      "    match r with",
       "        {x = 0, y} ‸=> y",
       "        {x = 1, y} => y",
       "        _ => 0",
     ), combineTitle(2))).toBe(program(
       "export let g(r: {x: Int, y: Int}): Int =",
-      "    match r",
+      "    match r with",
       "        {x = 0, y} | {x = 1, y} => y",
       "        _ => 0",
     ));
@@ -241,14 +241,14 @@ describe("arms with one body combined into one", () => {
   test("the arms a selection touches, and no others", () => {
     expect(rewritten(program(
       "export let g(o: Option(Int)): Int =",
-      "    match o",
+      "    match o with",
       "        Some(1) => 1",
       "        So‸me(2) => 1",
       "        Some(3)‸ => 1",
       "        _ => 0",
     ), combineTitle(2))).toBe(program(
       "export let g(o: Option(Int)): Int =",
-      "    match o",
+      "    match o with",
       "        Some(1) => 1",
       "        Some(2) | Some(3) => 1",
       "        _ => 0",
@@ -258,7 +258,7 @@ describe("arms with one body combined into one", () => {
   test("whole lines selected, the first arm's or the last's among them, and the comments after the last", () => {
     const lines = [
       "export let g(s: Shape): Int =",
-      "    match s",
+      "    match s with",
       "        Circle(_) => 0",
       "        Square(_) => 0",
       "        Dot => 0",
@@ -268,14 +268,14 @@ describe("arms with one body combined into one", () => {
       program(...lines.map((line, index) => (index === from || index === to ? `‸${line}` : line)));
     expect(rewritten(selecting(2, 4), combineTitle(2))).toBe(program(
       "export let g(s: Shape): Int =",
-      "    match s",
+      "    match s with",
       "        Circle(_) | Square(_) => 0",
       "        Dot => 0",
       "export let h: Int = 1",
     ));
     expect(rewritten(selecting(3, 5), combineTitle(2))).toBe(program(
       "export let g(s: Shape): Int =",
-      "    match s",
+      "    match s with",
       "        Circle(_) => 0",
       "        Square(_) | Dot => 0",
       "export let h: Int = 1",
@@ -283,7 +283,7 @@ describe("arms with one body combined into one", () => {
     // The last arm's comments are its own, so the selection is the arms', refused for the comment.
     expect(rewritten(program(
       "export let g(s: Shape): Int =",
-      "    match s",
+      "    match s with",
       "        Circle(_) => 0",
       "        ‸Square(_) => 0",
       "        Dot => 0 {- dots -} -- too‸",
@@ -296,34 +296,34 @@ describe("arms with one body combined into one", () => {
   test("a selection of an arm's head up to its body, as a caret there", () => {
     expect(rewritten(program(
       "export let g(s: Shape): Int =",
-      "    match s",
+      "    match s with",
       "        ‸Circle(_) => ‸0",
       "        Square(_) => 0",
       "        Dot => 1",
     ), combineTitle(2))).toBe(program(
       "export let g(s: Shape): Int =",
-      "    match s",
+      "    match s with",
       "        Circle(_) | Square(_) => 0",
       "        Dot => 1",
     ));
     // From its line's start, or from before a tab after a `;`.
     expect(titles(program(
       "export let g(s: Shape): Int =",
-      "    match s",
+      "    match s with",
       "        Circle(_) => 0",
       "‸        Square(_) =>‸ 0",
       "        Dot => 1",
     ))).toEqual([combineTitle(2)]);
     expect(titles(program(
       "export let g(s: Shape): Int =",
-      "    match s",
+      "    match s with",
       "        Circle(_) => 0;‸\tSquare(_) =>‸ 0",
       "        Dot => 1",
     ))).toEqual([combineTitle(2)]);
     // But not spaces that end before it, as a caret there.
     expect(titles(program(
       "export let g(s: Shape): Int =",
-      "    match s",
+      "    match s with",
       "        Circle(_) => 0",
       "‸       ‸ Square(_) => 0",
       "        Dot => 1",
@@ -333,7 +333,7 @@ describe("arms with one body combined into one", () => {
   test("but not on a selection of one whole arm, which touches no other", () => {
     // The arm, its whole line, and the last arm's line up to the next item.
     for (const arms of ["        ‸Square(_) => 0‸\n        Dot => 0", "‸        Square(_) => 0\n‸        Dot => 0", "        Square(_) => 0\n‸        Dot => 0\n‸"]) {
-      const source = program("export let g(s: Shape): Int =", "    match s", "        Circle(_) => 0", arms, "export let h: Int = 1");
+      const source = program("export let g(s: Shape): Int =", "    match s with", "        Circle(_) => 0", arms, "export let h: Int = 1");
       expect(reports(marked(source).text)).toEqual([]);
       expect(titles(source)).toEqual([]);
     }
@@ -342,18 +342,18 @@ describe("arms with one body combined into one", () => {
   test("a selection in a `match` inside an arm, which takes the inner arms", () => {
     expect(rewritten(program(
       "export let g(s: Shape, n: Int): Int =",
-      "    match s",
+      "    match s with",
       "        Dot =>",
-      "            match n",
+      "            match n with",
       "                ‸0 => 1",
       "                1 => 1‸",
       "                _ => 2",
       "        _ => 3",
     ), combineTitle(2))).toBe(program(
       "export let g(s: Shape, n: Int): Int =",
-      "    match s",
+      "    match s with",
       "        Dot =>",
-      "            match n",
+      "            match n with",
       "                0 | 1 => 1",
       "                _ => 2",
       "        _ => 3",
@@ -363,16 +363,16 @@ describe("arms with one body combined into one", () => {
   test("in a `match` written in an arm's guard, the inner arms", () => {
     expect(rewritten(program(
       "export let g(s: Shape, n: Int): Int =",
-      "    match s",
-      "        Circle(_) when (match n",
+      "    match s with",
+      "        Circle(_) when (match n with",
       "            0 ‸=> True",
       "            1 => True",
       "            _ => False) => 0",
       "        _ => 1",
     ), combineTitle(2))).toBe(program(
       "export let g(s: Shape, n: Int): Int =",
-      "    match s",
-      "        Circle(_) when (match n",
+      "    match s with",
+      "        Circle(_) when (match n with",
       "            0 | 1 => True",
       "            _ => False) => 0",
       "        _ => 1",
@@ -384,7 +384,7 @@ describe("arms with one body combined into one", () => {
     expect(rewritten(program(
       throwing,
       "export let h(s: Int): Int =",
-      "    match parse^(s)",
+      "    match parse^(s) with",
       "        n => n",
       "    catch",
       "        Bad(c) ‸=> c",
@@ -392,7 +392,7 @@ describe("arms with one body combined into one", () => {
     ), combineTitle(2))).toBe(program(
       throwing,
       "export let h(s: Int): Int =",
-      "    match parse^(s)",
+      "    match parse^(s) with",
       "        n => n",
       "    catch",
       "        Bad(c) | Worse(c) => c",
@@ -404,13 +404,13 @@ describe("arms with one body combined into one", () => {
     // the second pattern's comment comes before it.
     expect(rewritten(program(
       "export let g(s: Shape): Int =",
-      "    match s",
+      "    match s with",
       "        Circle({- any -} _) ‸=> 0\t-- round",
       "        Square({- side -} _) => 0",
       "        Dot => 1",
     ), combineTitle(2))).toBe(program(
       "export let g(s: Shape): Int =",
-      "    match s",
+      "    match s with",
       "        Circle({- any -} _) | Square({- side -} _) => 0\t-- round",
       "        Dot => 1",
     ));
@@ -419,12 +419,12 @@ describe("arms with one body combined into one", () => {
   test("arms sharing a line", () => {
     expect(rewritten(program(
       "export let g(s: Shape): Int =",
-      "    match s",
+      "    match s with",
       "        Circle(_) ‸=> 0; Square(_) => 0",
       "        Dot => 1",
     ), combineTitle(2))).toBe(program(
       "export let g(s: Shape): Int =",
-      "    match s",
+      "    match s with",
       "        Circle(_) | Square(_) => 0",
       "        Dot => 1",
     ));
@@ -462,7 +462,7 @@ describe("arms with one body combined into one", () => {
       "fun",
       "    g(s: Shape): Int = h(s)",
       "    h(s: Shape): Int =",
-      "        match s",
+      "        match s with",
       ...arms,
     );
     expect(rewritten(block("            Circle(_) ‸=> 0", "            Square(_) => 0", "            Dot => 1"), combineTitle(2)))
@@ -476,7 +476,7 @@ describe("arms combined, refused", () => {
   test("a guarded arm with its neighbour", () => {
     const source = program(
       "export let g(s: Shape): Int =",
-      "    match s",
+      "    match s with",
       "        Circle(x) when x > 1.0 ‸=> 0",
       "        Square(_) => 0",
       "        _ => 1",
@@ -484,14 +484,14 @@ describe("arms combined, refused", () => {
     expect(rewritten(source, combineTitle(2))).toBe(GUARDED);
     expect(rewritten(program(
       "export let g(s: Shape): Int =",
-      "    match s",
+      "    match s with",
       "        ‸Circle(x) when x > 1.0 => 0",
       "        Square(_) => 0‸",
       "        _ => 1",
     ), combineTitle(2))).toBe(GUARDED);
     expect(rewritten(program(
       "export let g(s: Shape): Int =",
-      "    match s",
+      "    match s with",
       "        Square(_) => 0",
       "        Circle(x) when x > 1.0 ‸=> 0",
       "        _ => 1",
@@ -501,7 +501,7 @@ describe("arms combined, refused", () => {
   test("a guarded arm with a guarded neighbour, which its run takes", () => {
     expect(rewritten(program(
       "export let g(o: Option(Int)): Int =",
-      "    match o",
+      "    match o with",
       "        Some(n) when n > 0 => 1",
       "        Some(n) when n < 0 ‸=> 1",
       "        _ => 0",
@@ -511,7 +511,7 @@ describe("arms combined, refused", () => {
   test("names bound in one arm and not another", () => {
     expect(rewritten(program(
       "export let g(s: Shape): Int =",
-      "    match s",
+      "    match s with",
       "        Circle(x) ‸=> 0",
       "        Square(y) => 0",
       "        Dot => 1",
@@ -524,7 +524,7 @@ describe("arms combined, refused", () => {
   test("a name bound at two types, written or inferred", () => {
     expect(rewritten(program(
       "export let g(i: Item): Int =",
-      "    match i",
+      "    match i with",
       "        Num(v) ‸=> 0",
       "        Text(v) => 0",
     ), combineTitle(2))).toBe(
@@ -538,7 +538,7 @@ describe("arms combined, refused", () => {
     for (const written of ["Two(a, b)", "Two(b, a)", "Two((b, Int), (b, String))", "Two(b, Int)", "Two(Int, b)", "Two({x: Int, ...r}, {x: String, ...r})"]) {
       expect(rewritten(program(
         `export let g(t: ${written}): Int =`,
-        "    match t",
+        "    match t with",
         "        L(v) ‸=> 0",
         "        R(v) => 0",
       ), combineTitle(2))).toBe(different);
@@ -546,7 +546,7 @@ describe("arms combined, refused", () => {
     // Two colours inference kept apart, which show alike. Shown apart, they are shown.
     expect(rewritten(program(
       "export let g(a: () ->! Int, b: (Int) ->! Int): Int =",
-      "    match (Some(a), Some(b))",
+      "    match (Some(a), Some(b)) with",
       "        (Some(v), _) ‸=> 0",
       "        (_, Some(v)) => 0",
       "        _ => 1",
@@ -555,7 +555,7 @@ describe("arms combined, refused", () => {
     );
     expect(rewritten(program(
       "export let g(a: () ->! Int, b: () ->! Int): Int =",
-      "    match (Some(a), Some(b))",
+      "    match (Some(a), Some(b)) with",
       "        (Some(v), _) ‸=> 0",
       "        (_, Some(v)) => 0",
       "        _ => 1",
@@ -564,7 +564,7 @@ describe("arms combined, refused", () => {
     for (const [p, q] of [["{f = a, n = 1}", "{n = 1, f = b}"], ["Some({f = a, n = 1})", "Some({n = 1, f = b})"], ["{n = 1, f = a}", "{f = b, n = 1}"]]) {
       expect(rewritten(program(
         "export let g(a: () ->! Int, b: () ->! Int): Int =",
-        `    match (Some(${p}), Some(${q}))`,
+        `    match (Some(${p}), Some(${q})) with`,
         "        (Some(v), _) ‸=> 0",
         "        (_, Some(v)) => 0",
         "        _ => 1",
@@ -580,7 +580,7 @@ describe("arms combined, refused", () => {
       "export record Point = {y: Int}",
       "export union U = Here(p: {a: Int, b: Point}) | There(p: {b: Geo.Point, a: Int})",
       "export let g(u: U): Int =",
-      "    match u",
+      "    match u with",
       "        Here(v) ‸=> 0",
       "        There(v) => 0",
       "",
@@ -595,7 +595,7 @@ describe("arms combined, refused", () => {
       "export record Point = {y: Int}",
       "export union U = Here(p: Point) | There(p: Geo.Point)",
       "export let g(u: U): Int =",
-      "    match u",
+      "    match u with",
       "        Here(v) ‸=> 0",
       "        There(v) => 0",
       "",
@@ -611,7 +611,7 @@ describe("arms combined, refused", () => {
     ]) {
       expect(rewritten(program(
         `export let g(t: ${written}): Int =`,
-        "    match t",
+        "    match t with",
         "        L(v) ‸=> 0",
         "        R(v) => 0",
       ), combineTitle(2))).toBe(
@@ -625,45 +625,45 @@ describe("arms combined, refused", () => {
     expect(rewritten(program(
       union,
       "export let g(u: U): Int =",
-      "    match u",
+      "    match u with",
       "        A(r) ‸=> r.x",
       "        B(r) => r.x",
     ), combineTitle(2))).toBe(program(
       union,
       "export let g(u: U): Int =",
-      "    match u",
+      "    match u with",
       "        A(r) | B(r) => r.x",
     ));
     expect(rewritten(program(
       "export let g(u: Option({x: Int, y: Int}), w: Option({y: Int, x: Int})): Int =",
-      "    match (u, w)",
+      "    match (u, w) with",
       "        (Some(r), _) ‸=> r.x",
       "        (_, Some(r)) => r.x",
       "        _ => 0",
     ), combineTitle(2))).toBe(program(
       "export let g(u: Option({x: Int, y: Int}), w: Option({y: Int, x: Int})): Int =",
-      "    match (u, w)",
+      "    match (u, w) with",
       "        (Some(r), _) | (_, Some(r)) => r.x",
       "        _ => 0",
     ));
     // Fields whose names a locale's order holds equal: a joiner inside one, an accent composed or not.
     for (const [one, another] of [["ab", "a\u200db"], ["\u00e9", "e\u0301"]]) {
       const types = `Two({${one}: Int, ${another}: String}, {${another}: String, ${one}: Int})`;
-      expect(rewritten(program(`export let g(t: ${types}): Int =`, "    match t", "        L(v) ‸=> 0", "        R(v) => 0"), combineTitle(2)))
-        .toBe(program(`export let g(t: ${types}): Int =`, "    match t", "        L(v) | R(v) => 0"));
+      expect(rewritten(program(`export let g(t: ${types}): Int =`, "    match t with", "        L(v) ‸=> 0", "        R(v) => 0"), combineTitle(2)))
+        .toBe(program(`export let g(t: ${types}): Int =`, "    match t with", "        L(v) | R(v) => 0"));
     }
     // Inside another type.
     const nested = "export union V = A(r: Option({x: Int, y: Int})) | B(r: Option({y: Int, x: Int}))";
     expect(rewritten(program(
       nested,
       "export let g(v: V): Int =",
-      "    match v",
+      "    match v with",
       "        A(r) ‸=> 0",
       "        B(r) => 0",
     ), combineTitle(2))).toBe(program(
       nested,
       "export let g(v: V): Int =",
-      "    match v",
+      "    match v with",
       "        A(r) | B(r) => 0",
     ));
   });
@@ -673,7 +673,7 @@ describe("arms combined, refused", () => {
       "export let g(a: () ->! Int, b: () ->! Int): Int =",
       "    let c = () => a!() + b!()",
       "    let d = () => b!() + a!()",
-      "    match (Some(c), Some(d))",
+      "    match (Some(c), Some(d)) with",
     ];
     expect(rewritten(program(...head, "        (Some(k), _) ‸=> 0", "        (_, Some(k)) => 0", "        _ => 1"), combineTitle(2)))
       .toBe(program(...head, "        (Some(k), _) | (_, Some(k)) => 0", "        _ => 1"));
@@ -686,7 +686,7 @@ describe("arms combined, refused", () => {
       "export union Pair = A(o: Option(Int)) | B(o: O.Option(Int))",
       "let h(o: Option(Int)): Int = 0",
       "export let g(p: Pair): Int =",
-      "    match p",
+      "    match p with",
       ...arms,
       "",
     ].join("\n");
@@ -697,14 +697,14 @@ describe("arms combined, refused", () => {
   test("a comment only a later arm holds", () => {
     expect(rewritten(program(
       "export let g(s: Shape): Int =",
-      "    match s",
+      "    match s with",
       "        Circle(_) ‸=> 0",
       "        Square(_) => {- squares too -} 0",
       "        Dot => 1",
     ), combineTitle(2))).toBe("refused: A comment inside it would be lost. Move the comment out first.");
     expect(rewritten(program(
       "export let g(s: Shape): Int =",
-      "    match s",
+      "    match s with",
       "        Circle(_) ‸=> 0",
       "        -- and squares",
       "        Square(_) => 0",
@@ -715,7 +715,7 @@ describe("arms combined, refused", () => {
   test("one after a later arm's body, on its line", () => {
     expect(rewritten(program(
       "export let g(s: Shape): Int =",
-      "    match s",
+      "    match s with",
       "        Circle(_) ‸=> 0",
       "        Square(_) => 0 -- squares too",
       "        Dot => 1",
@@ -725,26 +725,26 @@ describe("arms combined, refused", () => {
   test("but not those after the first arm's body, which the arm keeps, nor one after the arms", () => {
     expect(rewritten(program(
       "export let g(s: Shape): Int =",
-      "    match s",
+      "    match s with",
       "        Circle(_) ‸=> 0 {- a -} -- b",
       "        Square(_) => 0",
       "        Dot => 1",
     ), combineTitle(2))).toBe(program(
       "export let g(s: Shape): Int =",
-      "    match s",
+      "    match s with",
       "        Circle(_) | Square(_) => 0 {- a -} -- b",
       "        Dot => 1",
     ));
     expect(rewritten(program(
       "export let g(s: Shape): Int =",
-      "    match s",
+      "    match s with",
       "        Circle(_) ‸=> 0 -- round ones",
       "        Square(_) => 0",
       "        -- the rest",
       "        Dot => 1",
     ), combineTitle(2))).toBe(program(
       "export let g(s: Shape): Int =",
-      "    match s",
+      "    match s with",
       "        Circle(_) | Square(_) => 0 -- round ones",
       "        -- the rest",
       "        Dot => 1",
@@ -756,7 +756,7 @@ describe("arms combined, not offered", () => {
   test("bodies that differ, or the same body in arms apart", () => {
     expect(titles(program(
       "export let g(s: Shape): Int =",
-      "    match s",
+      "    match s with",
       "        Circle(_) ‸=> 0",
       "        Square(_) => 1",
       "        Dot => 0",
@@ -766,7 +766,7 @@ describe("arms combined, not offered", () => {
   test("a guarded arm beside the arm asked on ends the run", () => {
     expect(titles(program(
       "export let g(s: Shape): Int =",
-      "    match s",
+      "    match s with",
       "        Circle(x) when x > 1.0 => 0",
       "        Square(_) ‸=> 0",
       "        Dot => 1",
@@ -810,13 +810,13 @@ describe("arms combined, not offered", () => {
 
   test("a selection ending where the next arm starts, or starting where the last ends, which touches one arm", () => {
     for (const arms of ["‸Some(1) => 1;‸Some(2) => 1", "Some(1) => 1‸;Some(2) => 1‸"]) {
-      const source = program("export let g(o: Option(Int)): Int =", "    match o", `        ${arms}`, "        _ => 0");
+      const source = program("export let g(o: Option(Int)): Int =", "    match o with", `        ${arms}`, "        _ => 0");
       expect(reports(marked(source).text)).toEqual([]);
       expect(titles(source)).toEqual([]);
     }
     expect(titles(program(
       "export let g(o: Option(Int)): Int =",
-      "    match o",
+      "    match o with",
       "        Some(1) => 1",
       "        So‸me(2) => 1",
       "        ‸Some(3) => 1",
@@ -824,7 +824,7 @@ describe("arms combined, not offered", () => {
     ))).toEqual([]);
     expect(titles(program(
       "export let g(o: Option(Int)): Int =",
-      "    match o",
+      "    match o with",
       "        Some(1) => 1‸",
       "        Some(2) => ‸1",
       "        _ => 0",
@@ -834,16 +834,16 @@ describe("arms combined, not offered", () => {
   test("a selection reaching out of the arms' `match`", () => {
     expect(titles(program(
       "export let g(s: Shape): Int =",
-      "    match s",
+      "    match s with",
       "        Dot => 0",
       "        _ => 1",
       "export let h(s: Shape): Int =",
-      "    match s",
+      "    match s with",
       "        Dot => 1",
       "        Ci‸rcle(_) => 1",
       "        Square(_) => 1",
       "export let k(s: Shape): Int =",
-      "    match s",
+      "    match s with",
       "        Dot‸ => 1",
       "        _ => 0",
     ))).toEqual([]);
@@ -859,9 +859,9 @@ describe("arms combined, not offered", () => {
   test("but a `match` with no arms yet, as one being written, is passed over", () => {
     const source = program(
       "export let g(s: Shape): Int =",
-      "    match s",
+      "    match s with",
       "export let h(o: Option(Int)): Int =",
-      "    match o",
+      "    match o with",
       "        So‸me(1) => 1",
       "        Some(2)‸ => 1",
       "        _ => 0",
@@ -873,7 +873,7 @@ describe("arms combined, not offered", () => {
   test("a selection whose arms' bodies differ", () => {
     expect(titles(program(
       "export let g(s: Shape): Int =",
-      "    match s",
+      "    match s with",
       "        Cir‸cle(_) => 0",
       "        Square(_) => 1‸",
       "        Dot => 0",
@@ -883,7 +883,7 @@ describe("arms combined, not offered", () => {
   test("an arm whose pattern the checker could not read as written", () => {
     const source = program(
       "export let g(s: Shape): Int =",
-      "    match s",
+      "    match s with",
       "        Nope(x) ‸=> 0",
       "        Square(x) => 0",
       "        _ => 1",
@@ -897,11 +897,11 @@ describe("an or-pattern's arm split", () => {
   test("into one arm per alternative, each with the body", () => {
     expect(rewritten(program(
       "export let g(s: Shape): Int =",
-      "    match s",
+      "    match s with",
       "        Circle(_) | ‸Square(_) | Dot => 0",
     ), SPLIT_TITLE)).toBe(program(
       "export let g(s: Shape): Int =",
-      "    match s",
+      "    match s with",
       "        Circle(_) => 0",
       "        Square(_) => 0",
       "        Dot => 0",
@@ -911,12 +911,12 @@ describe("an or-pattern's arm split", () => {
   test("alternatives that are `as` patterns, without their parentheses", () => {
     expect(rewritten(program(
       "export let g(s: Shape): Float =",
-      "    match s",
+      "    match s with",
       "        (Circle(_) as t) | (Square(_) as t) ‸=> f(t)",
       "        Dot => 0.0",
     ), SPLIT_TITLE)).toBe(program(
       "export let g(s: Shape): Float =",
-      "    match s",
+      "    match s with",
       "        Circle(_) as t => f(t)",
       "        Square(_) as t => f(t)",
       "        Dot => 0.0",
@@ -926,24 +926,24 @@ describe("an or-pattern's arm split", () => {
   test("under an `as`, which each arm keeps", () => {
     expect(rewritten(program(
       "export let g(s: Shape): Float =",
-      "    match s",
+      "    match s with",
       "        Circle(_) | Square(_) as t ‸=> f(t)",
       "        Dot => 0.0",
     ), SPLIT_TITLE)).toBe(program(
       "export let g(s: Shape): Float =",
-      "    match s",
+      "    match s with",
       "        Circle(_) as t => f(t)",
       "        Square(_) as t => f(t)",
       "        Dot => 0.0",
     ));
     expect(rewritten(program(
       "export let g(s: Shape): Float =",
-      "    match s",
+      "    match s with",
       "        (Circle(_) as u) | (Square(_) as u) as t ‸=> f(t)",
       "        Dot => 0.0",
     ), SPLIT_TITLE)).toBe(program(
       "export let g(s: Shape): Float =",
-      "    match s",
+      "    match s with",
       "        (Circle(_) as u) as t => f(t)",
       "        (Square(_) as u) as t => f(t)",
       "        Dot => 0.0",
@@ -953,7 +953,7 @@ describe("an or-pattern's arm split", () => {
   test("under an `as` written in parentheses around it, which each arm keeps without them", () => {
     const split = program(
       "export let g(s: Shape): Float =",
-      "    match s",
+      "    match s with",
       "        Circle(_) as t => f(t) -- either",
       "        Square(_) as t => f(t) -- either",
       "        Dot => 0.0",
@@ -961,7 +961,7 @@ describe("an or-pattern's arm split", () => {
     for (const pattern of ["(Circle(_) | Square(_) as t)", "((Circle(_) | Square(_)) as t)", "(Circle(_) | Square(_)) as t"]) {
       expect(rewritten(program(
         "export let g(s: Shape): Float =",
-        "    match s",
+        "    match s with",
         `        ${pattern} ‸=> f(t) -- either`,
         "        Dot => 0.0",
       ), SPLIT_TITLE)).toBe(split);
@@ -969,12 +969,12 @@ describe("an or-pattern's arm split", () => {
     // A comment in the `as`, or after the name, goes with it into every arm.
     expect(rewritten(program(
       "export let g(s: Shape): Float =",
-      "    match s",
+      "    match s with",
       "        Circle(_) | Square(_) {- either -} as t {- the shape -} ‸=> f(t)",
       "        Dot => 0.0",
     ), SPLIT_TITLE)).toBe(program(
       "export let g(s: Shape): Float =",
-      "    match s",
+      "    match s with",
       "        Circle(_) {- either -} as t {- the shape -} => f(t)",
       "        Square(_) {- either -} as t {- the shape -} => f(t)",
       "        Dot => 0.0",
@@ -984,7 +984,7 @@ describe("an or-pattern's arm split", () => {
   test("alternatives in parentheses with spaces inside, each at the arm's column", () => {
     const split = (...before: readonly string[]): string => program(
       "export let g(s: Shape): Float =",
-      "    match s",
+      "    match s with",
       ...before,
       "        Circle(_) as t => f(t)",
       "        Square(_) as t => f(t)",
@@ -994,12 +994,12 @@ describe("an or-pattern's arm split", () => {
       .toBe(split("        Dot => 0.0"));
     expect(rewritten(program(
       "export let g(s: Shape): Float =",
-      "    match s",
+      "    match s with",
       arm,
       "        Dot => 0.0",
     ), SPLIT_TITLE)).toBe(program(
       "export let g(s: Shape): Float =",
-      "    match s",
+      "    match s with",
       "        Circle(_) as t => f(t)",
       "        Square(_) as t => f(t)",
       "        Dot => 0.0",
@@ -1009,11 +1009,11 @@ describe("an or-pattern's arm split", () => {
   test("an or-pattern among the alternatives, one arm for each of its own", () => {
     expect(rewritten(program(
       "export let g(s: Shape): Int =",
-      "    match s",
+      "    match s with",
       "        (Circle(_) | Dot) | Square(_) ‸=> 0",
     ), SPLIT_TITLE)).toBe(program(
       "export let g(s: Shape): Int =",
-      "    match s",
+      "    match s with",
       "        Circle(_) => 0",
       "        Dot => 0",
       "        Square(_) => 0",
@@ -1021,12 +1021,12 @@ describe("an or-pattern's arm split", () => {
     // However deep.
     expect(rewritten(program(
       "export let g(o: Option(Int)): Int =",
-      "    match o",
+      "    match o with",
       "        ((Some(1) | Some(2)) | Some(3)) | Some(4) ‸=> 0",
       "        _ => 1",
     ), SPLIT_TITLE)).toBe(program(
       "export let g(o: Option(Int)): Int =",
-      "    match o",
+      "    match o with",
       "        Some(1) => 0",
       "        Some(2) => 0",
       "        Some(3) => 0",
@@ -1035,11 +1035,11 @@ describe("an or-pattern's arm split", () => {
     ));
     expect(rewritten(program(
       "export let g(s: Shape): Float =",
-      "    match s",
+      "    match s with",
       "        ((Circle(_) as u) | (Dot as u)) | (Square(_) as u) as t ‸=> f(t)",
     ), SPLIT_TITLE)).toBe(program(
       "export let g(s: Shape): Float =",
-      "    match s",
+      "    match s with",
       "        (Circle(_) as u) as t => f(t)",
       "        (Dot as u) as t => f(t)",
       "        (Square(_) as u) as t => f(t)",
@@ -1050,13 +1050,13 @@ describe("an or-pattern's arm split", () => {
     const crlf = (text: string): string => text.replaceAll("\n", "\r\n");
     expect(rewritten(crlf(program(
       "export let g(s: Shape): Int =",
-      "    match s",
+      "    match s with",
       "        Circle(_) | Square(_) ‸=>",
       "            0",
       "        Dot => 1",
     )), SPLIT_TITLE)).toBe(crlf(program(
       "export let g(s: Shape): Int =",
-      "    match s",
+      "    match s with",
       "        Circle(_) =>",
       "            0",
       "        Square(_) =>",
@@ -1068,27 +1068,27 @@ describe("an or-pattern's arm split", () => {
   test("on a selection of the whole arm, its comments after it or not", () => {
     const split = program(
       "export let g(s: Shape): Int =",
-      "    match s",
+      "    match s with",
       "        Circle(_) => 0 -- or",
       "        Square(_) => 0 -- or",
       "        Dot => 1",
     );
     expect(rewritten(program(
       "export let g(s: Shape): Int =",
-      "    match s",
+      "    match s with",
       "        ‸Circle(_) | Square(_) => 0‸ -- or",
       "        Dot => 1",
     ), SPLIT_TITLE)).toBe(split);
     // And no combine, though a neighbour shares its body: the selection touches one arm.
     expect(titles(program(
       "export let g(s: Shape): Int =",
-      "    match s",
+      "    match s with",
       "        ‸Circle(_) | Square(_) => 0‸",
       "        Dot => 0",
     ))).toEqual([SPLIT_TITLE]);
     expect(rewritten(program(
       "export let g(s: Shape): Int =",
-      "    match s",
+      "    match s with",
       "‸        Circle(_) | Square(_) => 0 -- or",
       "‸        Dot => 1",
     ), SPLIT_TITLE)).toBe(split);
@@ -1096,7 +1096,7 @@ describe("an or-pattern's arm split", () => {
     for (const arm of ["Circle(_) | ‸Square(_) => 0 -- or‸", "‸Circle(_) | Square(_) => 0 -- o‸r"]) {
       expect(titles(program(
         "export let g(s: Shape): Int =",
-        "    match s",
+        "    match s with",
         `        ${arm}`,
         "        Dot => 1",
       ))).not.toContain(SPLIT_TITLE);
@@ -1106,14 +1106,14 @@ describe("an or-pattern's arm split", () => {
   test("with a body over lines and its comments, copied into every arm", () => {
     expect(rewritten(program(
       "export let g(s: Shape): Float =",
-      "    match s",
+      "    match s with",
       "        Circle(x) | Square(x) {- either -} ‸=>",
       "            let y = x -- the size",
       "            y",
       "        Dot => 0.0",
     ), SPLIT_TITLE)).toBe(program(
       "export let g(s: Shape): Float =",
-      "    match s",
+      "    match s with",
       "        Circle(x) {- either -} =>",
       "            let y = x -- the size",
       "            y",
@@ -1127,12 +1127,12 @@ describe("an or-pattern's arm split", () => {
   test("with a comment after the body, copied into every arm", () => {
     expect(rewritten(program(
       "export let g(s: Shape): Int =",
-      "    match s",
+      "    match s with",
       "        Circle(_) | Square(_) ‸=> 0 -- round or square",
       "        Dot => 1",
     ), SPLIT_TITLE)).toBe(program(
       "export let g(s: Shape): Int =",
-      "    match s",
+      "    match s with",
       "        Circle(_) => 0 -- round or square",
       "        Square(_) => 0 -- round or square",
       "        Dot => 1",
@@ -1142,7 +1142,7 @@ describe("an or-pattern's arm split", () => {
   test("and combined again, which undoes it", () => {
     const split = program(
       "export let g(s: Shape): Int =",
-      "    match s",
+      "    match s with",
       "        Circle(_) => 0",
       "        Square(_) => 0",
       "        Dot => 1",
@@ -1154,7 +1154,7 @@ describe("an or-pattern's arm split", () => {
   test("beside a combine, where its neighbour shares its body", () => {
     expect(titles(program(
       "export let g(s: Shape): Int =",
-      "    match s",
+      "    match s with",
       "        Circle(_) | Square(_) ‸=> 0",
       "        Dot => 0",
     ))).toEqual([combineTitle(2), SPLIT_TITLE]);
@@ -1165,7 +1165,7 @@ describe("an arm split, refused or not offered", () => {
   test("a guarded arm, refused", () => {
     expect(rewritten(program(
       "export let g(s: Shape): Int =",
-      "    match s",
+      "    match s with",
       "        Circle(x) | Square(x) when x > 1.0 ‸=> 0",
       "        _ => 1",
     ), SPLIT_TITLE)).toBe(GUARDED);
@@ -1174,7 +1174,7 @@ describe("an arm split, refused or not offered", () => {
   test("a comment between alternatives, refused", () => {
     expect(rewritten(program(
       "export let g(s: Shape): Int =",
-      "    match s",
+      "    match s with",
       "        Circle(_) | {- or -} Square(_) ‸=> 0",
       "        Dot => 1",
     ), SPLIT_TITLE)).toBe("refused: A comment inside it would be lost. Move the comment out first.");
@@ -1183,7 +1183,7 @@ describe("an arm split, refused or not offered", () => {
   test("an arm that does not start its line, not offered", () => {
     expect(titles(program(
       "export let g(s: Shape): Int =",
-      "    match s",
+      "    match s with",
       "        Dot => 1; Circle(_) | Square(_) ‸=> 0",
     ))).toEqual([]);
   });
@@ -1191,7 +1191,7 @@ describe("an arm split, refused or not offered", () => {
   test("an or-pattern inside a pattern, or none at all, not offered", () => {
     expect(titles(program(
       "export let g(o: Option(Int)): Int =",
-      "    match o",
+      "    match o with",
       "        Some(0 | 1) ‸=> 0",
       "        _ => 1",
     ))).toEqual([]);
@@ -1202,7 +1202,7 @@ describe("the rewrites", () => {
   test("are offered only when the dev asks, as refactorings, never preferred", () => {
     const { text, start } = marked(program(
       "export let g(s: Shape): Int =",
-      "    match s",
+      "    match s with",
       "        Circle(_) | Square(_) ‸=> 0",
       "        Dot => 0",
     ));
@@ -1234,7 +1234,7 @@ describe("the check of what an edit leaves", () => {
   test("takes the arms combined in their order, and no other text", () => {
     const { file, module, arms: list, edit } = arms(program(
       "export let g(s: Shape): Int =",
-      "    match s",
+      "    match s with",
       "        Circle(_) => 0",
       "        Square(_) => 0",
       "        Dot => 1",
@@ -1248,7 +1248,7 @@ describe("the check of what an edit leaves", () => {
   test("takes the arm split in its order, and no other text", () => {
     const { file, module, arms: list, edit } = arms(program(
       "export let g(s: Shape): Int =",
-      "    match s",
+      "    match s with",
       "        Circle(_) | Square(_) => 0",
       "        Dot => 1",
     ));

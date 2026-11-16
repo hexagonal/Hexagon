@@ -102,8 +102,8 @@ describe("a dot call written as its qualified call", () => {
     const home = (line: string): string => HOME + line + "\n";
     expect(rewritten(home("export let twice(s: Shape): Float = s.ar‸ea() * 2.0"), as("area")))
       .toBe(home("export let twice(s: Shape): Float = area(s) * 2.0"));
-    expect(rewritten(home("export let c(s: Shape): Float = match s\n    Circle(_) => s.ar‸ea()\n    _ => 0.0"), as("area")))
-      .toBe(home("export let c(s: Shape): Float = match s\n    Circle(_) => area(s)\n    _ => 0.0"));
+    expect(rewritten(home("export let c(s: Shape): Float = match s with\n    Circle(_) => s.ar‸ea()\n    _ => 0.0"), as("area")))
+      .toBe(home("export let c(s: Shape): Float = match s with\n    Circle(_) => area(s)\n    _ => 0.0"));
   });
 
   test("from its dot or its name, and not from its receiver or arguments", () => {
@@ -288,8 +288,8 @@ describe("where it is refused", () => {
     const captured = "refused: `area` is bound here as well, so `area(…)` could call that instead.";
     expect(rewritten(home("export let c(area: Float, s: Shape): Float = s.ar‸ea()"), as("area"))).toBe(captured);
     expect(rewritten(home("export let d(s: Shape): Float = ((area: Float) => s.ar‸ea())(1.0)"), as("area"))).toBe(captured);
-    expect(rewritten(home("export let e(s: Shape): Float = match 1.0\n    area => s.ar‸ea()"), as("area"))).toBe(captured);
-    expect(rewritten(home("export let f(s: Shape): Float = match 1.0\n    _ as area => s.ar‸ea()"), as("area"))).toBe(captured);
+    expect(rewritten(home("export let e(s: Shape): Float = match 1.0 with\n    area => s.ar‸ea()"), as("area"))).toBe(captured);
+    expect(rewritten(home("export let f(s: Shape): Float = match 1.0 with\n    _ as area => s.ar‸ea()"), as("area"))).toBe(captured);
     expect(rewritten(main("export let c(area: Float, s: Geo.Shape): Float = s.ar‸ea()"), as("Geo.area")))
       .toBe(main("export let c(area: Float, s: Geo.Shape): Float = Geo.area(s)"));
   });

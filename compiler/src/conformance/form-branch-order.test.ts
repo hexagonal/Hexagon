@@ -62,8 +62,8 @@ describe("a form's value paths meet a concrete expectation each at its own turn 
     for (const [program, mirror] of [
       ["let r: Option(Dec) = if c then o1 else od\n", "let r: Option(Dec) = if c then od else o1\n"],
       [
-        "let r: Option(Dec) = match c\n    True => o1\n    False => od\n",
-        "let r: Option(Dec) = match c\n    True => od\n    False => o1\n",
+        "let r: Option(Dec) = match c with\n    True => o1\n    False => od\n",
+        "let r: Option(Dec) = match c with\n    True => od\n    False => o1\n",
       ],
       [
         "let r: Option(Dec) = try o1\n    catch\n        fault _ => od\n",
@@ -119,7 +119,7 @@ describe("a form's value paths meet a concrete expectation each at its own turn 
         decFoundInt,
       ],
       // A `match` joins at its arms, as ever: the later arm.
-      ["let r: Option(_) = match c\n    True => o1\n    False => od\n", "od", "type mismatch: expected Int, found Dec"],
+      ["let r: Option(_) = match c with\n    True => o1\n    False => od\n", "od", "type mismatch: expected Int, found Dec"],
     ] as const) {
       expect(reports(program), program).toEqual([[at, message]]);
     }
@@ -173,7 +173,7 @@ describe("a form's value paths meet a concrete expectation each at its own turn 
   test("several paths refused are one report, at the first, the others its labels", () => {
     const folded = [["o1", decFoundInt, [["o2", "`o2` is an `Option(Int)`"]]]];
     expect(reports("let r: Option(Dec) = if c then o1 else o2\n")).toEqual(folded);
-    expect(reports("let r: Option(Dec) = match n\n    0 => od\n    1 => o1\n    _ => o2\n")).toEqual(folded);
+    expect(reports("let r: Option(Dec) = match n with\n    0 => od\n    1 => o1\n    _ => o2\n")).toEqual(folded);
     expect(reports("let r: Option(Dec) = if c then (if c then o1 else od) else o2\n")).toEqual(folded);
   });
 
@@ -186,7 +186,7 @@ describe("a form's value paths meet a concrete expectation each at its own turn 
     ]) {
       expect(reports(program), program).toEqual([["wrap(n)", report]]);
     }
-    expect(reports("let r: Option(Dec) = match c\n    True => wrap(n)\n    False => wrap(m)\n")).toEqual([
+    expect(reports("let r: Option(Dec) = match c with\n    True => wrap(n)\n    False => wrap(m)\n")).toEqual([
       ["wrap(n)", report, [["wrap(m)", "`wrap(m)` is an `Option(Nat)`"]]],
     ]);
   });
@@ -257,7 +257,7 @@ describe("a form's value paths meet a concrete expectation each at its own turn 
   test("the programs that compiled still compile, at the written type", async () => {
     const exports = await run(
       "let r: Option(Dec) = if c then Some(n) else od\n" +
-        "let s: Option(Dec) = match c\n    True => None\n    False => Some(0.5)\n" +
+        "let s: Option(Dec) = match c with\n    True => None\n    False => Some(0.5)\n" +
         "let h: (Int) -> Dec = if c then (x) => x else (x) => price\n" +
         "export let shown: (String, String, String) = " +
         "(r.map((v) => v.show()).defaultValue(\"none\"), s.map((v) => v.show()).defaultValue(\"none\"), h(4).show())\n",
@@ -341,7 +341,7 @@ describe("a vector literal's elements meet a part outside the tower each at its 
       .toEqual([["o1", decFoundInt, [["o2", "`o2` is an `Option(Int)`"]]]]);
     // A refused `match` is one `ERROR` value: nothing it holds meets the part,
     // and its scrutinee, already in error, draws nothing more (#414).
-    expect(reports("let v: Vector(Option(Dec)) = [match zzz\n    _ => o1]\n").map(([at]) => at))
+    expect(reports("let v: Vector(Option(Dec)) = [match zzz with\n    _ => o1]\n").map(([at]) => at))
       .toEqual(["zzz"]);
     expect(reports("let v: Vector(Option(Dec)) = [wrap(n), od]\n"))
       .toEqual([["wrap(n)", functionResult("wrap(n)", "Option(Int)", "wrap((n: Dec))")]]);

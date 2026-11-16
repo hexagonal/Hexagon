@@ -112,7 +112,7 @@ let unionOf(left: Vector((Int, Int)), right: Vector((Int, Int))): Vector((Int, I
     var result: Vector((Int, Int)) = []
     var leftAt = 1
     var rightAt = 1
-    while leftAt <= leftSize or rightAt <= rightSize
+    while leftAt <= leftSize or rightAt <= rightSize do
         let takeLeft = rightAt > rightSize or (leftAt <= leftSize and left[leftAt].item1 <= right[rightAt].item1)
         let (low, high) = if takeLeft then left[leftAt] else right[rightAt]
         if takeLeft then leftAt := leftAt + 1 else rightAt := rightAt + 1
@@ -127,7 +127,7 @@ let unionOf(left: Vector((Int, Int)), right: Vector((Int, Int))): Vector((Int, I
 let complementOf(set: Vector((Int, Int))): Vector((Int, Int)) =
     var result: Vector((Int, Int)) = []
     var next = 0
-    for (low, high) in set
+    for (low, high) in set do
         if low > next then result := result.append((next, low - 1))
         next := high + 1
     if next <= lastPoint then result.append((next, lastPoint)) else result
@@ -137,7 +137,7 @@ let contains(set: Vector((Int, Int)), point: Int): Bool =
     var low = 1
     var high = Vector.length(set)
     var found = False
-    while not found and low <= high
+    while not found and low <= high do
         let middle = Int.div(low + high, 2)
         let (from, to) = set[middle]
         if point < from then
@@ -160,7 +160,7 @@ fun sortedPoints(points: Vector(Int)): Vector(Int) =
         var merged: Vector(Int) = []
         var leftAt = 1
         var rightAt = 1
-        while leftAt <= half or rightAt <= count - half
+        while leftAt <= half or rightAt <= count - half do
             if rightAt > count - half or (leftAt <= half and left[leftAt] <= right[rightAt]) then
                 merged := merged.append(left[leftAt])
                 leftAt := leftAt + 1
@@ -172,7 +172,7 @@ fun sortedPoints(points: Vector(Int)): Vector(Int) =
 -- `points`, in any order, as a set.
 let setOfPoints(points: Vector(Int)): Vector((Int, Int)) =
     var result: Vector((Int, Int)) = []
-    for point in sortedPoints(points)
+    for point in sortedPoints(points) do
         let count = Vector.length(result)
         if count > 0 and point <= result[count].item2 + 1 then
             if point > result[count].item2 then result := Vector.set(result, count, (result[count].item1, point))
@@ -185,18 +185,18 @@ let setOfPoints(points: Vector(Int)): Vector((Int, Int)) =
 -- so they are gathered first and merged once.
 let foldedSet(set: Vector((Int, Int))): Vector((Int, Int)) =
     var added: Vector(Int) = []
-    for (low, high) in set
+    for (low, high) in set do
         var point = low
-        while point <= high
+        while point <= high do
             let orbit = foldOrbit(point)
             if Vector.length(orbit) > 1 then
-                for other in orbit
+                for other in orbit do
                     if not contains(set, other) then added := added.append(other)
             point := point + 1
     unionOf(set, setOfPoints(added))
 
 -- The codepoints one class item stands for.
-let itemSet(item: Syntax.ClassItem): Vector((Int, Int)) = match item
+let itemSet(item: Syntax.ClassItem): Vector((Int, Int)) = match item with
     Syntax.Range(low, high) => [(low, high)]
     Syntax.Property(kind, value, negated) =>
         let ranges = propertyRanges(kind, value)
@@ -208,7 +208,7 @@ let itemSet(item: Syntax.ClassItem): Vector((Int, Int)) = match item
 -- `(?i)[^a]` not match `A`.
 let classSet(items: Vector(Syntax.ClassItem), negated: Bool, folded: Bool): Vector((Int, Int)) =
     var set: Vector((Int, Int)) = []
-    for item in items
+    for item in items do
         set := unionOf(set, itemSet(item))
     let closed = if folded then foldedSet(set) else set
     if negated then complementOf(closed) else closed
@@ -246,7 +246,7 @@ record Code = {
     classes: Vector(ClassSpec),
 }
 
-let anchorCode(kind: Syntax.AnchorKind): Int = match kind
+let anchorCode(kind: Syntax.AnchorKind): Int = match kind with
     Syntax.TextStart => 0
     Syntax.TextEnd => 1
     Syntax.LineStart => 2
@@ -263,7 +263,7 @@ let setFirst(code: Code, at: Int, target: Int): Code = { code with first = Vecto
 
 let setSecond(code: Code, at: Int, target: Int): Code = { code with second = Vector.set(code.second, at + 1, target) }
 
-let kindCode(kind: Syntax.PropertyKind): Int = match kind
+let kindCode(kind: Syntax.PropertyKind): Int = match kind with
     Syntax.GeneralCategory => 0
     Syntax.Script => 1
     Syntax.ScriptExtensions => 2
@@ -273,7 +273,7 @@ let kindCode(kind: Syntax.PropertyKind): Int = match kind
     Syntax.Assigned => 6
     Syntax.Word => 7
 
-let sameItem(left: Syntax.ClassItem, right: Syntax.ClassItem): Bool = match (left, right)
+let sameItem(left: Syntax.ClassItem, right: Syntax.ClassItem): Bool = match (left, right) with
     (Syntax.Range(leftLow, leftHigh), Syntax.Range(rightLow, rightHigh)) => leftLow == rightLow and leftHigh == rightHigh
     (Syntax.Property(leftKind, leftValue, leftNegated), Syntax.Property(rightKind, rightValue, rightNegated)) =>
         kindCode(leftKind) == kindCode(rightKind) and leftValue == rightValue and leftNegated == rightNegated
@@ -283,7 +283,7 @@ let sameSpec(left: ClassSpec, right: ClassSpec): Bool =
     var same = left.negated == right.negated and left.folded == right.folded and
         Vector.length(left.items) == Vector.length(right.items)
     var index = 1
-    while same and index <= Vector.length(left.items)
+    while same and index <= Vector.length(left.items) do
         same := sameItem(left.items[index], right.items[index])
         index := index + 1
     same
@@ -294,7 +294,7 @@ let sameSpec(left: ClassSpec, right: ClassSpec): Bool =
 let emitClass(code: Code, spec: ClassSpec): Code =
     var found = -1
     var index = 1
-    while found < 0 and index <= Vector.length(code.classes)
+    while found < 0 and index <= Vector.length(code.classes) do
         if sameSpec(code.classes[index], spec) then found := index - 1
         index := index + 1
     if found >= 0 then
@@ -310,7 +310,7 @@ let setSplit(code: Code, at: Int, out: Int, greedy: Bool): Code =
     if greedy then setSecond(setFirst(code, at, at + 1), at, out) else setSecond(setFirst(code, at, out), at, at + 1)
 
 -- Whether `expr` can match the empty string.
-fun nullable(expr: Syntax.Expr): Bool = match expr
+fun nullable(expr: Syntax.Expr): Bool = match expr with
     Syntax.Empty => True
     Syntax.Literal(_) => False
     Syntax.Dot(_) => False
@@ -318,12 +318,12 @@ fun nullable(expr: Syntax.Expr): Bool = match expr
     Syntax.Anchor(_) => True
     Syntax.Concat(parts) =>
         var all = True
-        for part in parts
+        for part in parts do
             all := all and nullable(part)
         all
     Syntax.Alternate(branches) =>
         var any = False
-        for branch in branches
+        for branch in branches do
             any := any or nullable(branch)
         any
     Syntax.Repeat(body, min, _, _) => min == 0 or nullable(body)
@@ -332,7 +332,7 @@ fun nullable(expr: Syntax.Expr): Bool = match expr
 -- `expr`'s instructions after `code`'s. `backward` builds the program for the
 -- reverse scan (§6.2): a sequence's parts in reverse order and no capture
 -- slots, since that scan locates a match's start and assigns no captures.
-fun emitExpr(code: Code, expr: Syntax.Expr, backward: Bool): Code = match expr
+fun emitExpr(code: Code, expr: Syntax.Expr, backward: Bool): Code = match expr with
     Syntax.Empty => code
     Syntax.Literal(point) => emitClass(code, singleClass(point))
     Syntax.Dot(newline) =>
@@ -347,7 +347,7 @@ fun emitExpr(code: Code, expr: Syntax.Expr, backward: Bool): Code = match expr
         var current = code
         let count = Vector.length(parts)
         var index = 1
-        while index <= count
+        while index <= count do
             current := emitExpr(current, parts[if backward then count + 1 - index else index], backward)
             index := index + 1
         current
@@ -358,7 +358,7 @@ fun emitExpr(code: Code, expr: Syntax.Expr, backward: Bool): Code = match expr
         var jumps: Vector(Int) = []
         let count = Vector.length(branches)
         var index = 1
-        while index < count
+        while index < count do
             let split = counter(current)
             current := emitExpr(emit(current, opSplit, split + 1, 0), branches[index], backward)
             jumps := jumps.append(counter(current))
@@ -367,16 +367,16 @@ fun emitExpr(code: Code, expr: Syntax.Expr, backward: Bool): Code = match expr
             index := index + 1
         current := emitExpr(current, branches[count], backward)
         let end = counter(current)
-        for jump in jumps
+        for jump in jumps do
             current := setFirst(current, jump, end)
         current
     Syntax.Repeat(body, min, max, greedy) =>
         var current = code
         var copies = 0
-        while copies < min
+        while copies < min do
             current := emitExpr(current, body, backward)
             copies := copies + 1
-        match max
+        match max with
             None =>
                 if nullable(body) then
                     -- `x*` over a body that can match empty is `(?:x+)?`, as
@@ -405,12 +405,12 @@ fun emitExpr(code: Code, expr: Syntax.Expr, backward: Bool): Code = match expr
                 -- The optional copies nest, each split's way out the end:
                 -- `x{1,3}` is `x(x(x)?)?`.
                 var splits: Vector(Int) = []
-                while copies < most
+                while copies < most do
                     splits := splits.append(counter(current))
                     current := emitExpr(emit(current, opSplit, 0, 0), body, backward)
                     copies := copies + 1
                 let end = counter(current)
-                for split in splits
+                for split in splits do
                     current := setSplit(current, split, end, greedy)
                 current
     Syntax.Capture(body, index, _) =>
@@ -471,7 +471,7 @@ record Machine = { ops: Buffer(Int), first: Buffer(Int), second: Buffer(Int), si
 let frozen(values: Vector(Int)): Buffer(Int) =
     let buffer = create~(Vector.length(values), 0)
     var index = 0
-    for value in values
+    for value in values do
         write~(buffer, index, value)
         index := index + 1
     buffer
@@ -494,7 +494,7 @@ let compile(pattern: Syntax.Pattern): Compiled =
     write~(marks, 1, create~(Vector.length(forward.ops), -1))
     write~(marks, 2, create~(Vector.length(backward.ops), -1))
     var assertive = False
-    for op in code.ops
+    for op in code.ops do
         if op == opAssert then assertive := True
     Compiled({
         ops = frozen~(code.ops),
@@ -516,7 +516,7 @@ let compile(pattern: Syntax.Pattern): Compiled =
 
 -- Class `index`'s codepoints, resolved once and kept in the program.
 let classOf(program: Compiled, index: Int): Vector((Int, Int)) =
-    match read~(program.resolved, index)
+    match read~(program.resolved, index) with
         Some(set) => set
         None =>
             let spec = program.classes[index + 1]
@@ -571,7 +571,7 @@ let saved(slots: Vector(Int), slot: Int, place: Place): Vector(Int) =
 let follow(program: Compiled, mark: Buffer(Int), stamp: Int, start: Thread, list: Vector(Thread), place: Place): Vector(Thread) =
     var pending: Vector(Thread) = [start]
     var reached = list
-    while Vector.length(pending) > 0
+    while Vector.length(pending) > 0 do
         let thread = pending[Vector.length(pending)]
         pending := Vector.dropLast(pending)
         let pc = thread.pc
@@ -610,7 +610,7 @@ let placeAt(text: String, units: Int, position: Int, offset: Int): Place =
         after = if offset < units then codepointAt(text, offset) else -1,
     })
 
-let isNone(value: Option(a)): Bool = match value
+let isNone(value: Option(a)): Bool = match value with
     Some(_) => False
     None => True
 
@@ -619,7 +619,7 @@ let isSome(value: Option(a)): Bool = not isNone(value)
 -- Every capture slot unsaved: a position and an offset of -1 for each.
 let unsaved(groupCount: Int): Vector(Int) =
     var slots: Vector(Int) = []
-    while Vector.length(slots) < 4 * (groupCount + 1)
+    while Vector.length(slots) < 4 * (groupCount + 1) do
         slots := slots.append(-1)
     slots
 
@@ -628,7 +628,7 @@ let unsaved(groupCount: Int): Vector(Int) =
 let groupsOf(text: String, groupCount: Int, slots: Vector(Int)): Vector(Option((Int, Int, String))) =
     var groups: Vector(Option((Int, Int, String))) = []
     var group = 0
-    while group <= groupCount
+    while group <= groupCount do
         let startPosition = slots[4 * group + 1]
         let startOffset = slots[4 * group + 2]
         let endPosition = slots[4 * group + 3]
@@ -663,7 +663,7 @@ let pike(
     var found: Option(Vector(Int)) = None
     var seeding = True
     var running = True
-    while running
+    while running do
         if seeding and isNone(found) then threads := follow~(program, mark, stamp, fresh, threads, place)
         if anchored then seeding := False
         let final = stop >= 0 and place.position >= stop
@@ -673,7 +673,7 @@ let pike(
         var next: Vector(Thread) = []
         var stepping = True
         var index = 1
-        while stepping and index <= Vector.length(threads)
+        while stepping and index <= Vector.length(threads) do
             let thread = threads[index]
             let op = read~(program.ops, thread.pc)
             if op == opMatch then
@@ -740,20 +740,20 @@ let standIn(edge: Int): Int =
 -- every class, of the word class, and of `\n`, as the ascending first codepoint
 -- of each part. Built on the program's first use and kept.
 let alphabetOf(program: Compiled): Vector(Int) =
-    match read~(program.alphabet, 0)
+    match read~(program.alphabet, 0) with
         Some(starts) => starts
         None =>
             var cuts: Vector(Int) = [0]
             var index = 0
-            while index < Vector.length(program.classes)
-                for (low, high) in classOf~(program, index)
+            while index < Vector.length(program.classes) do
+                for (low, high) in classOf~(program, index) do
                     cuts := cuts.append(low).append(high + 1)
                 index := index + 1
-            for (low, high) in propertyRanges(Syntax.Word, "")
+            for (low, high) in propertyRanges(Syntax.Word, "") do
                 cuts := cuts.append(low).append(high + 1)
             cuts := cuts.append(10).append(11)
             var starts: Vector(Int) = []
-            for cut in sortedPoints(cuts)
+            for cut in sortedPoints(cuts) do
                 let count = Vector.length(starts)
                 if cut <= lastPoint and (count == 0 or starts[count] != cut) then starts := starts.append(cut)
             write~(program.alphabet, 0, Some(starts))
@@ -767,7 +767,7 @@ let letterOf(starts: Vector(Int), point: Int): Int =
     else
         var low = 1
         var high = Vector.length(starts)
-        while low < high
+        while low < high do
             let middle = Int.div(low + high + 1, 2)
             if starts[middle] <= point then low := middle else high := middle - 1
         low - 1
@@ -780,9 +780,9 @@ let reach(machine: Machine, mark: Buffer(Int), stamp: Int, waiting: Vector(Int),
     var consuming: Vector(Int) = []
     var matched = False
     var index = 1
-    while index <= Vector.length(waiting) and not (cut and matched)
+    while index <= Vector.length(waiting) and not (cut and matched) do
         var pending: Vector(Int) = [waiting[index]]
-        while Vector.length(pending) > 0 and not (cut and matched)
+        while Vector.length(pending) > 0 and not (cut and matched) do
             let pc = pending[Vector.length(pending)]
             pending := Vector.dropLast(pending)
             if read~(mark, pc) != stamp then
@@ -805,14 +805,14 @@ let reach(machine: Machine, mark: Buffer(Int), stamp: Int, waiting: Vector(Int),
 
 let keyOf(list: Vector(Int), edge: Int): String =
     var parts: Vector(String) = [show(edge)]
-    for pc in list
+    for pc in list do
         parts := parts.append(show(pc))
     String.join(Iterable.toSeq(parts), ",")
 
 -- The id of the state for `list` and `edge` in `dfa`, added where it is new.
 let stateIn(dfa: Dfa, list: Vector(Int), edge: Int): (Dfa, Int) =
     let key = keyOf(list, edge)
-    match Map.get(dfa.ids, key)
+    match Map.get(dfa.ids, key) with
         Some(id) => (dfa, id)
         None =>
             let id = Vector.length(dfa.lists)
@@ -834,7 +834,7 @@ let move(
     forward: Bool,
 ): (Dfa, Int, Bool) =
     let key = id * (Vector.length(alphabetOf~(program)) + 1) + letter
-    match Map.get(dfa.moves, key)
+    match Map.get(dfa.moves, key) with
         Some(encoded) => (dfa, Int.div(encoded, 2), Int.mod(encoded, 2) == 1)
         None =>
             let edge = dfa.edges[id + 1]
@@ -844,14 +844,14 @@ let move(
             let (consuming, matched) = reach~(machine, mark, stamp, dfa.lists[id + 1], place, forward)
             var next: Vector(Int) = []
             if point >= 0 then
-                for pc in consuming
+                for pc in consuming do
                     if contains(classOf~(program, read~(machine.first, pc)), point) then next := next.append(pc + 1)
             let (grown, target) = stateIn(dfa, next, edgeIn(program, point))
             let encoded = target * 2 + (if matched then 1 else 0)
             ({ grown with moves = Map.set(grown.moves, key, encoded) }, target, matched)
 
 -- A scan's cache, or a fresh one.
-let cacheOf(program: Compiled, which: Int): Dfa = match read~(program.caches, which)
+let cacheOf(program: Compiled, which: Int): Dfa = match read~(program.caches, which) with
     Some(dfa) => dfa
     None => emptyDfa
 
@@ -879,7 +879,7 @@ let scanForward(
     var last: Option((Int, Int)) = None
     var running = True
     var exhausted = False
-    while running
+    while running do
         let point = if offset < units then codepointAt(text, offset) else -1
         let letter = letterOf(starts, point)
         let probe = if point < 0 then -1 else starts[letter + 1]
@@ -923,7 +923,7 @@ let scanBackward(program: Compiled, text: String, end: (Int, Int), floor: Int, f
     var best = (endPosition, endOffset)
     var running = True
     var exhausted = False
-    while running
+    while running do
         let point = pointBefore(text, offset)
         let letter = letterOf(starts, point)
         let probe = if point < 0 then -1 else starts[letter + 1]
@@ -963,7 +963,7 @@ let viaVm(
     spans: Bool,
     cursor: (Int, Int),
 ): Option((Vector(Option((Int, Int, String))), (Int, Int))) =
-    match pike~(program, text, units, place, spans, False, -1)
+    match pike~(program, text, units, place, spans, False, -1) with
         None => None
         Some(slots) => if spans then Some(answerOf(program, text, slots)) else Some(([], cursor))
 
@@ -994,7 +994,7 @@ let search(
     let beyond = not fromCursor and not located and start > 1
     var position = if fromCursor then cursorPosition else if located then start else 1
     var offset = if fromCursor then cursorOffset else if located then codeUnits(text[1..(start - 1)]) else 0
-    while not beyond and position < start and offset < units
+    while not beyond and position < start and offset < units do
         offset := offset + width(codepointAt(text, offset))
         position := position + 1
     if position < start then
@@ -1002,21 +1002,21 @@ let search(
     else
         let place = placeAt(text, units, position, offset)
         let flushes = create~(1, 0)
-        match scanForward~(program, text, units, place, not spans, flushes)
+        match scanForward~(program, text, units, place, not spans, flushes) with
             None => viaVm~(program, text, units, place, spans, cursor)
             Some(None) => None
             Some(Some((endPosition, endOffset))) =>
                 if not spans then
                     Some(([], cursor))
                 else
-                    match scanBackward~(program, text, (endPosition, endOffset), position, flushes)
+                    match scanBackward~(program, text, (endPosition, endOffset), position, flushes) with
                         None => viaVm~(program, text, units, place, spans, cursor)
                         Some((startPosition, startOffset)) =>
                             if program.groupCount == 0 then
                                 Some(([Some((startPosition, endPosition - startPosition, cut(text, startOffset, endOffset)))], (endPosition, endOffset)))
                             else
                                 let from = placeAt(text, units, startPosition, startOffset)
-                                match pike~(program, text, units, from, True, True, endPosition)
+                                match pike~(program, text, units, from, True, True, endPosition) with
                                     Some(slots) => Some(answerOf(program, text, slots))
                                     None => viaVm~(program, text, units, place, spans, cursor)
 
@@ -1031,12 +1031,12 @@ let searchByVm(
     let units = codeUnits(text)
     var position = 1
     var offset = 0
-    while position < start and offset < units
+    while position < start and offset < units do
         offset := offset + width(codepointAt(text, offset))
         position := position + 1
     if position < start then
         None
     else
-        match pike~(program, text, units, placeAt(text, units, position, offset), spans, False, -1)
+        match pike~(program, text, units, placeAt(text, units, position, offset), spans, False, -1) with
             None => None
             Some(slots) => if spans then Some(answerOf(program, text, slots)) else Some(([], (1, 0)))

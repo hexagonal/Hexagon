@@ -150,7 +150,7 @@ describe("iteration over the real thing (Part 10 §6)", () => {
         "export fun walk(): (String, Int) =\n" +
         '    var letters = ""\n' +
         "    var total = 0\n" +
-        "    for (key, value) in table!()\n" +
+        "    for (key, value) in table!() do\n" +
         "        letters := letters ++ key\n" +
         "        total := total + value\n" +
         "    (letters, total)\n",
@@ -171,7 +171,7 @@ describe("iteration over the real thing (Part 10 §6)", () => {
         "\n" +
         "export fun sum(): Int =\n" +
         "    var running = 0\n" +
-        "    for flag in flags!()\n" +
+        "    for flag in flags!() do\n" +
         "        running := running + flag\n" +
         "    running\n",
       { flags: "export function flags() { return new Set([4, 5, 6, 5]); }\n" },
@@ -213,7 +213,7 @@ describe("iteration over the real thing (Part 10 §6)", () => {
         "    let rows = Iterable.toSeq(prices!())\n" +
         "    let count = Seq.length(rows)\n" +
         "    count + Seq.fold(rows, 0, (acc, pair) =>\n" +
-        "        match pair\n" +
+        "        match pair with\n" +
         "            (_, value) => acc + value)\n",
       {
         prices: "export function prices() {\n" +
@@ -237,7 +237,7 @@ describe("iteration over the real thing (Part 10 §6)", () => {
         "\n" +
         "export fun tally(): Int =\n" +
         "    var seen = 0\n" +
-        "    for item in stock!()\n" +
+        "    for item in stock!() do\n" +
         "        seen := seen + item\n" +
         "    seen\n",
     );
@@ -430,7 +430,7 @@ describe("arity, and what outranks the intrinsic", () => {
   test("a user type of the name does not inherit the companion's row", () => {
     expect(projectDiagnostics("module Main\n\n" + "record JsSet(a) = { only: a }\n" +
         "export fun scan(): Unit =\n" +
-        "    for item in JsSet({ only = 1 })\n" +
+        "    for item in JsSet({ only = 1 }) do\n" +
         "        ()\n",
     ).join("\n")).toContain("is not iterable. Define `honor Iterable<JsSet(a)>`");
   });
@@ -453,7 +453,7 @@ describe("`JsMap.get` and the two-step lowering (Part 10 §4.2)", () => {
         "    fun voids() ->! JsMap(String, Unit)\n" +
         "\n" +
         "let answer(m: JsMap(String, Unit), key: String): String =\n" +
-        "    match JsMap.get(m, key)\n" +
+        "    match JsMap.get(m, key) with\n" +
         '        None => "none"\n' +
         '        Some(_) => "some"\n' +
         "\n" +
@@ -476,7 +476,7 @@ describe("`JsMap.get` and the two-step lowering (Part 10 §4.2)", () => {
         "    fun maybes() ->! JsMap(String, Nullable(Int))\n" +
         "\n" +
         "let read(m: JsMap(String, Nullable(Int)), key: String): String =\n" +
-        "    match JsMap.get(m, key)\n" +
+        "    match JsMap.get(m, key) with\n" +
         '        None => "absent"\n' +
         '        Some(_) => "present"\n' +
         "\n" +
@@ -499,7 +499,7 @@ describe("`JsMap.get` and the two-step lowering (Part 10 §4.2)", () => {
         "    fun prices() ->! JsMap(String, Int)\n" +
         "\n" +
         "let read(m: JsMap(String, Int), key: String): Int =\n" +
-        "    match JsMap.get(m, key)\n" +
+        "    match JsMap.get(m, key) with\n" +
         "        None => 0\n" +
         "        Some(value) => value\n" +
         "\n" +
@@ -526,7 +526,7 @@ describe("`JsMap.get` and the two-step lowering (Part 10 §4.2)", () => {
         "    fun calls() ->! Int\n" +
         "\n" +
         "export fun probe(): Int =\n" +
-        "    match JsMap.get(table!(), key!())\n" +
+        "    match JsMap.get(table!(), key!()) with\n" +
         "        None => calls!()\n" +
         "        Some(_) => calls!()\n",
       {
@@ -819,7 +819,7 @@ describe("the two failure doors (Part 10 §4.4)", () => {
         "\n" +
         "export fun probe(): String =\n" +
         "    try\n" +
-        '        match JsMap.get(hostile!(), "a")\n' +
+        '        match JsMap.get(hostile!(), "a") with\n' +
         '            None => "none"\n' +
         '            Some(_) => "some"\n' +
         "    catch\n" +
@@ -951,7 +951,7 @@ describe("the qualified and dot spellings (Part 10 §3, §6.1)", () => {
         "export fun probe(): (Int, Int, Int, Bool, Bool) =\n" +
         "    let m = table!()\n" +
         "    let s = flags!()\n" +
-        '    let value = match m.get("a")\n' +
+        '    let value = match m.get("a") with\n' +
         "        None => 0\n" +
         "        Some(found) => found\n" +
         "    (m.size(), s.size(), value + Seq.length(m.toSeq()),\n" +
@@ -1013,7 +1013,7 @@ describe("the qualified and dot spellings (Part 10 §3, §6.1)", () => {
         "\n" +
         "export fun probe(): Int =\n" +
         '    Seq.fold(table!().entries(), 0, (acc, pair) =>\n' +
-        "        match pair\n" +
+        "        match pair with\n" +
         "            (_, value) => acc + value)\n",
       {
         stock: 'export function table() { return new Map([["c", 1], ["a", 2]]); }\n',

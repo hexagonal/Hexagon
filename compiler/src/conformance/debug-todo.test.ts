@@ -31,7 +31,7 @@ const SHAPE = "export union Shape = Circle(radius: Float) | Square(side: Float)"
 
 const AREA = [
   "export let area(s: Shape): Float =",
-  "    match s",
+  "    match s with",
   "        Circle(r) => r * r",
 ];
 

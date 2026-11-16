@@ -56,7 +56,7 @@ export fun iterate(seed: a, step: a -> a): Seq(a) =
     `memoize` on the result. -}
 export fun map(source: Seq(a), transform: a -> b): Seq(b) =
     Seq({ pull = () =>
-        match next(source)
+        match next(source) with
             None => None
             Some((value, rest)) => Some((transform(value), map(rest, transform)))
     })
@@ -68,7 +68,7 @@ export fun take(source: Seq(a), count: Int): Seq(a) =
         empty
     else
         Seq({ pull = () =>
-            match next(source)
+            match next(source) with
                 None => None
                 Some((value, rest)) => Some((value, take(rest, count - 1)))
         })
@@ -79,7 +79,7 @@ export fun take(source: Seq(a), count: Int): Seq(a) =
     `[1, 2, 3, 1].toSeq().takeWhile(n => n < 3)` produces 1, 2. -}
 export fun takeWhile(source: Seq(a), keep: a -> Bool): Seq(a) =
     Seq({ pull = () =>
-        match next(source)
+        match next(source) with
             None => None
             Some((value, rest)) =>
                 if keep(value) then
@@ -98,7 +98,7 @@ export fun takeWhile(source: Seq(a), keep: a -> Bool): Seq(a) =
     simpler. -}
 export fun unfold(seed: b, produce: b -> Option((a, b))): Seq(a) =
     Seq({ pull = () =>
-        match produce(seed)
+        match produce(seed) with
             None => None
             Some((value, nextSeed)) => Some((value, unfold(nextSeed, produce)))
     })
@@ -109,10 +109,10 @@ export fun unfold(seed: b, produce: b -> Option((a, b))): Seq(a) =
     The result ends as soon as either of the two runs out. -}
 export fun zipWith(left: Seq(a), right: Seq(b), combine: (a, b) -> c): Seq(c) =
     Seq({ pull = () =>
-        match next(left)
+        match next(left) with
             None => None
             Some((leftValue, leftRest)) =>
-                match next(right)
+                match next(right) with
                     None => None
                     Some((rightValue, rightRest)) =>
                         Some((combine(leftValue, rightValue), zipWith(leftRest, rightRest, combine)))
@@ -130,7 +130,7 @@ export let zip(left: Seq(a), right: Seq(b)): Seq((a, b)) =
     are never reached. -}
 export fun concat(first: Seq(a), second: Seq(a)): Seq(a) =
     Seq({ pull = () =>
-        match next(first)
+        match next(first) with
             None => next(second)
             Some((value, rest)) => Some((value, concat(rest, second)))
     })
@@ -146,8 +146,8 @@ export fun filter(source: Seq(a), keep: a -> Bool): Seq(a) =
         var current = source
         var result = None
         var searching = True
-        while searching
-            match next(current)
+        while searching do
+            match next(current) with
                 None => searching := False
                 Some((value, rest)) =>
                     if keep(value) then
@@ -166,12 +166,12 @@ export let drop(source: Seq(a), count: Int): Seq(a) =
         var remaining = count
         var result = None
         var running = True
-        while running
+        while running do
             if remaining <= 0 then
                 result := next(current)
                 running := False
             else
-                match next(current)
+                match next(current) with
                     None => running := False
                     Some((_, rest)) =>
                         current := rest
@@ -188,8 +188,8 @@ export let dropWhile(source: Seq(a), discard: a -> Bool): Seq(a) =
         var current = source
         var result = None
         var searching = True
-        while searching
-            match next(current)
+        while searching do
+            match next(current) with
                 None => searching := False
                 Some((value, rest)) =>
                     if discard(value) then
@@ -207,13 +207,13 @@ fun flatMapWith(source: Seq(a), transform: a -> Seq(b), pending: Seq(b)): Seq(b)
         var inner = pending
         var result = None
         var searching = True
-        while searching
-            match next(inner)
+        while searching do
+            match next(inner) with
                 Some((value, rest)) =>
                     result := Some((value, flatMapWith(outer, transform, rest)))
                     searching := False
                 None =>
-                    match next(outer)
+                    match next(outer) with
                         None => searching := False
                         Some((outerValue, outerRest)) =>
                             outer := outerRest
@@ -243,8 +243,8 @@ export let fold(source: Seq(a), initial: b, combine: (b, a) ->! b): b =
     var accumulator = initial
     var current = source
     var running = True
-    while running
-        match next(current)
+    while running do
+        match next(current) with
             None => running := False
             Some((value, rest)) =>
                 accumulator := combine!(accumulator, value)
@@ -257,8 +257,8 @@ export let length(source: Seq(a)): Int =
     var total = 0
     var current = source
     var running = True
-    while running
-        match next(current)
+    while running do
+        match next(current) with
             None => running := False
             Some((_, rest)) =>
                 total := total + 1
@@ -271,8 +271,8 @@ export let length(source: Seq(a)): Int =
 export let forEach(source: Seq(a), action: a ->! Unit): Unit =
     var current = source
     var running = True
-    while running
-        match next(current)
+    while running do
+        match next(current) with
             None => running := False
             Some((value, rest)) =>
                 action!(value)
@@ -286,8 +286,8 @@ export let find(source: Seq(a), matches: a ->! Bool): Option(a) =
     var current = source
     var result = None
     var searching = True
-    while searching
-        match next(current)
+    while searching do
+        match next(current) with
             None => searching := False
             Some((value, rest)) =>
                 if matches!(value) then
@@ -300,7 +300,7 @@ export let find(source: Seq(a), matches: a ->! Bool): Option(a) =
 {-- Whether the function `matches` returns `True` for at least one element. It
     stops at the first one that does. -}
 export let any(source: Seq(a), matches: a ->! Bool): Bool =
-    match find!(source, matches)
+    match find!(source, matches) with
         None => False
         Some(_) => True
 
@@ -321,9 +321,9 @@ export let all(source: Seq(a), matches: a ->! Bool): Bool =
 -- One step of `maxBy`: the ranked item replaces the best unless the best's key
 -- is greater.
 let laterBy<b: Ord>(best: Option((b, a)), ranked: (b, a)): Option((b, a)) =
-    match (best, ranked)
+    match (best, ranked) with
         (Some((keptKey, _)), (rankedKey, _)) =>
-            match Ord.compare(keptKey, rankedKey)
+            match Ord.compare(keptKey, rankedKey) with
                 Greater => best
                 _ => Some(ranked)
         _ => Some(ranked)
@@ -331,14 +331,14 @@ let laterBy<b: Ord>(best: Option((b, a)), ranked: (b, a)): Option((b, a)) =
 -- One step of `minBy`: the ranked item replaces the best only when the best's
 -- key is greater.
 let earlierBy<b: Ord>(best: Option((b, a)), ranked: (b, a)): Option((b, a)) =
-    match (best, ranked)
+    match (best, ranked) with
         (Some((keptKey, _)), (rankedKey, _)) =>
-            match Ord.compare(keptKey, rankedKey)
+            match Ord.compare(keptKey, rankedKey) with
                 Greater => Some(ranked)
                 _ => best
         _ => Some(ranked)
 
-let unranked(best: Option((b, a))): Option(a) = match best
+let unranked(best: Option((b, a))): Option(a) = match best with
     Some((_, value)) => Some(value)
     None => None
 
@@ -348,8 +348,8 @@ let unranked(best: Option((b, a))): Option(a) = match best
     and `Equal` when neither is. If several elements are equally large, the
     result is the last of them. -}
 export let maxUsing(source: Seq(a), compare: (a, a) ->! Ordering): Option(a) =
-    fold!(source, None, (best: Option(a), value: a) => match best
-        Some(kept) => match compare!(kept, value)
+    fold!(source, None, (best: Option(a), value: a) => match best with
+        Some(kept) => match compare!(kept, value) with
             Greater => best
             _ => Some(value)
         None => Some(value))
@@ -360,8 +360,8 @@ export let maxUsing(source: Seq(a), compare: (a, a) ->! Ordering): Option(a) =
     and `Equal` when neither is. If several elements are equally small, the
     result is the first of them. -}
 export let minUsing(source: Seq(a), compare: (a, a) ->! Ordering): Option(a) =
-    fold!(source, None, (best: Option(a), value: a) => match best
-        Some(kept) => match compare!(kept, value)
+    fold!(source, None, (best: Option(a), value: a) => match best with
+        Some(kept) => match compare!(kept, value) with
             Greater => Some(value)
             _ => best
         None => Some(value))

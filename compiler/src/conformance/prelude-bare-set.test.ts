@@ -605,17 +605,17 @@ describe("the constructor channel: the open unions only", () => {
       "export let e: Bool = True\n" +
       "export let f: Bool = False\n" +
       "export fun g(o: Option(Int)): Int =\n" +
-      "    match o\n" +
+      "    match o with\n" +
       "        Some(v) => v\n" +
       "        None => 0\n" +
       "export fun h(r: Result(Int), flag: Bool): Int =\n" +
-      "    match (r, flag)\n" +
+      "    match (r, flag) with\n" +
       "        (Ok(v), True) => v\n" +
       "        (Ok(_), False) => 0\n" +
       "        (Err(_), _) => -1\n",
     )).toEqual([]);
     const main = await runMain("module Main\n\n" + "export fun pick(o: Option(Int)): Int =\n" +
-      "    match o\n" +
+      "    match o with\n" +
       "        Some(v) => v\n" +
       "        None => 0\n" +
       "export let some: Int = pick(Some(7))\n" +
@@ -634,13 +634,13 @@ describe("the constructor channel: the open unions only", () => {
   test("`Ordering`'s constructors are qualified in both positions", async () => {
     expect(projectDiagnostics("module Main\n\n" + "export let a: Ordering = Ordering.Less\n" +
       "export fun f(o: Ordering): Int =\n" +
-      "    match o\n" +
+      "    match o with\n" +
       "        Ordering.Less => -1\n" +
       "        Ordering.Equal => 0\n" +
       "        Ordering.Greater => 1\n",
     )).toEqual([]);
     const main = await runMain("module Main\n\n" + "export fun sign(o: Ordering): Int =\n" +
-      "    match o\n" +
+      "    match o with\n" +
       "        Ordering.Less => -1\n" +
       "        Ordering.Equal => 0\n" +
       "        Ordering.Greater => 1\n" +
@@ -659,7 +659,7 @@ describe("the constructor channel: the open unions only", () => {
     expect(projectDiagnostics("module Main\n\n" + "export let a: Ordering = Less\n"))
       .toEqual(["no bare `Less`; write `Ordering.Less`"]);
     expect(projectDiagnostics("module Main\n\n" + "export fun f(o: Ordering): Int =\n" +
-      "    match o\n" +
+      "    match o with\n" +
       "        Less => -1\n" +
       "        _ => 0\n",
     )).toEqual([]);
@@ -686,7 +686,7 @@ describe("the constructor channel: the open unions only", () => {
     // reaches a project one — `JsKind.Null` bare over a `JsKind` is the
     // brief's own example.
     expect(projectDiagnostics("module Main\n\n" + "export fun f(k: JsKind): Int =\n" +
-      "    match k\n" +
+      "    match k with\n" +
       "        Null => 1\n" +
       "        _ => 0\n",
     )).toEqual([]);
@@ -703,7 +703,7 @@ describe("the constructor channel: the open unions only", () => {
     // closed-door refusal fires — naming the type, not the bare
     // "unknown constructor" a pattern with no determined expected type draws.
     expect(projectDiagnostics("module Main\n\n" + "export fun f(o: Option(Int)): Int =\n" +
-      "    match o\n" +
+      "    match o with\n" +
       "        Frobnicate => 1\n" +
       "        _ => 0\n",
     )[0]).toBe("`Option(Int)` has no constructor `Frobnicate`");
@@ -943,7 +943,7 @@ describe("`toSeq` is reachable at every iterable", () => {
   test("`for..in` over a range is untouched — it reads evidence, not this layer", async () => {
     const main = await runMain("module Main\n\n" + "export fun total(): Int =\n" +
       "    var t = 0\n" +
-      "    for x in 1..4\n" +
+      "    for x in 1..4 do\n" +
       "        t := t + x\n" +
       "    t\n" +
       "export let sum: Int = total()\n",

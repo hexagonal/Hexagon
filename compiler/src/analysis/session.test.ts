@@ -1245,7 +1245,7 @@ describe("AnalysisSession.rename", () => {
       'import Shapes',
       "",
       "let name(s: Shapes.Shape): Int =",
-      "    match s",
+      "    match s with",
       "        Circle => 1",
       "        Shapes.Square => 2",
       "",
@@ -1627,7 +1627,7 @@ describe("AnalysisSession.rename", () => {
     // in the diagnostics changes; only the occurrence sets do.
     const source = "module Main\n\n" + [
       "let tone: Int = 1",
-      "let f(x: Int): Int = match x",
+      "let f(x: Int): Int = match x with",
       "    colour => colour + tone",
       "",
     ].join("\n");
@@ -1644,7 +1644,7 @@ describe("AnalysisSession.rename", () => {
     // is meaning-preserving and must not be refused out of caution.
     const source = "module Main\n\n" + [
       "let tone: Int = 1",
-      "let f(x: Int): Int = match x",
+      "let f(x: Int): Int = match x with",
       "    colour => colour + 1",
       "",
     ].join("\n");

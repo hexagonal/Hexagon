@@ -122,9 +122,9 @@ describe("Effects §3.6: a catch-all handles what it guards", () => {
   });
 
   test("a `match`'s clause guards the scrutinee alone; its data arms join both colours", () => {
-    const clause = "let h(f: () ->! Int): Int =\n    match f!()\n        0 => 1\n        n => n\n    catch\n        _ => 0\n";
+    const clause = "let h(f: () ->! Int): Int =\n    match f!() with\n        0 => 1\n        n => n\n    catch\n        _ => 0\n";
     expect(face(clause, "h")).toBe("(() ->! Int) >~> Int");
-    const arms = "let h(f: () ->! Int, g: () ->^ Int): Int =\n    match f!()\n        0 => g^()\n        n => n\n" +
+    const arms = "let h(f: () ->! Int, g: () ->^ Int): Int =\n    match f!() with\n        0 => g^()\n        n => n\n" +
       "    catch\n        _ => 0\n";
     expect(face(arms, "h")).toBe("(() ->! Int, () ->^ Int) >-> Int");
   });
@@ -317,21 +317,21 @@ describe("Exceptions §5.3: over a part that cannot fail, an arm that only catch
   });
 
   test("a `match`'s clause over a scrutinee that cannot fail", () => {
-    expect(reports("let a(): Int =\n    match noop()\n        () => 1\n    catch\n        Oops => 2\n")).toEqual([
+    expect(reports("let a(): Int =\n    match noop() with\n        () => 1\n    catch\n        Oops => 2\n")).toEqual([
       ["Oops => 2", "this arm can never run: evaluating the scrutinee cannot fail"],
     ]);
-    expect(fixes("let a(): Int =\n    match noop()\n        () => 1\n    catch\n        Oops => 2\n"))
+    expect(fixes("let a(): Int =\n    match noop() with\n        () => 1\n    catch\n        Oops => 2\n"))
       .toEqual([["remove the `catch` clause", [""]]]);
   });
 
   test("over a bare variable or a primitive literal, §5.4's whole-clause judgment is the one report", () => {
-    expect(messages("let a(x: Int): Int =\n    match x\n        _ => 1\n    catch\n        Oops => 2\n")).toEqual([
+    expect(messages("let a(x: Int): Int =\n    match x with\n        _ => 1\n    catch\n        Oops => 2\n")).toEqual([
       "this `catch` can never run: evaluating x cannot throw",
     ]);
-    expect(messages("let a(x: Int): Int =\n    match (x)\n        _ => 1\n    catch\n        Oops => 2\n")).toEqual([
+    expect(messages("let a(x: Int): Int =\n    match (x) with\n        _ => 1\n    catch\n        Oops => 2\n")).toEqual([
       "this `catch` can never run: evaluating x cannot throw",
     ]);
-    expect(messages("let a(x: Int): Int =\n    match (x, x)\n        _ => 1\n    catch\n        Oops => 2\n")).toEqual([
+    expect(messages("let a(x: Int): Int =\n    match (x, x) with\n        _ => 1\n    catch\n        Oops => 2\n")).toEqual([
       "this arm can never run: evaluating the scrutinee cannot fail",
     ]);
   });
@@ -343,8 +343,8 @@ describe("Exceptions §5.3: over a part that cannot fail, an arm that only catch
       "let c(x: Int): Int =\n    let y =\n        try\n            let z = x + 1\n            z * 2\n        catch\n            _ => 0\n    y\n",
       "remove the `try` and its `catch`, keeping the body",
     )).toBe("let c(x: Int): Int =\n    let y =\n        let z = x + 1\n        z * 2\n    y\n");
-    expect(applied("let d(): Int =\n    match noop()\n        () => 1\n    catch\n        Oops => 2\nlet e = 1\n",
-      "remove the `catch` clause")).toBe("let d(): Int =\n    match noop()\n        () => 1\nlet e = 1\n");
+    expect(applied("let d(): Int =\n    match noop() with\n        () => 1\n    catch\n        Oops => 2\nlet e = 1\n",
+      "remove the `catch` clause")).toBe("let d(): Int =\n    match noop() with\n        () => 1\nlet e = 1\n");
     expect(applied("let f(): Unit =\n    try\n        noop()\n    catch\n        Oops => ()\n        fault e => ()\n    ()\n",
       "remove the arm")).toBe("let f(): Unit =\n    try\n        noop()\n    catch\n        fault e => ()\n    ()\n");
   });

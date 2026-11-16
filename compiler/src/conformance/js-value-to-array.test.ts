@@ -65,7 +65,7 @@ const PROGRAM = "-- A `Shape` refusal kept as data, and a foreign throw left to 
   "\n" +
   "-- The two projections of a failure that name no representation, as in\n" +
   "-- `js-value-decoding.test.ts`: which reason, and how long the path is.\n" +
-  "let reasonOf(reason: JsConversionReason): String = match reason\n" +
+  "let reasonOf(reason: JsConversionReason): String = match reason with\n" +
   "    JsConversionReason.Shape => \"Shape\"\n" +
   "    JsConversionReason.Range => \"Range\"\n" +
   "    JsConversionReason.Cycle(_) => \"Cycle\"\n" +

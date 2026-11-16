@@ -72,7 +72,7 @@ describe("Indentation (§5)", () => {
       "module Example",
       "",
       "export let map(source: Option(a), transform: a ->! b): Option(b) =",
-      "    match source",
+      "    match source with",
       "        Some(value) => Some(transform!(value))",
       "        None => None",
       "",
@@ -106,7 +106,7 @@ describe("Indentation (§5)", () => {
       "",
       "export let clamp(reading: Option(Int),",
       "        limit: Int): Int =",
-      "    match reading",
+      "    match reading with",
       "        Some(n) when n > 0",
       "                and n < limit =>",
       "            n",
@@ -119,7 +119,7 @@ describe("Indentation (§5)", () => {
     expect(format(lines(
       "module Example",
       "let f(x: Int): Int =",
-      "  match x",
+      "  match x with",
       "     0 => 1",
       "     _ =>",
       "        let y = x +",
@@ -134,7 +134,7 @@ describe("Indentation (§5)", () => {
     ))).toBe(lines(
       "module Example",
       "let f(x: Int): Int =",
-      "    match x",
+      "    match x with",
       "        0 => 1",
       "        _ =>",
       "            let y = x +",
@@ -366,7 +366,7 @@ describe("Spacing within a line (§7)", () => {
       "let q = if ready then(1)else(2)",
       "let s = x band(mask)",
       "let t = <a: Ord> (x) => x",
-      "let u = match xs",
+      "let u = match xs with",
       "    [_, ... rest] => rest",
       "opaque record Box( + a) = { value: a }",
     ))).toBe(lines(
@@ -385,7 +385,7 @@ describe("Spacing within a line (§7)", () => {
       "let q = if ready then (1) else (2)",
       "let s = x band (mask)",
       "let t = <a: Ord>(x) => x",
-      "let u = match xs",
+      "let u = match xs with",
       "    [_, ...rest] => rest",
       "opaque record Box(+a) = { value: a }",
     ));
@@ -402,8 +402,8 @@ describe("Spacing within a line (§7)", () => {
     expect(format("module A\nunion Box(a)derives(Eq) = | Box(a)\n")).toBe("module A\nunion Box(a) derives (Eq) = | Box(a)\n");
     expect(format("module A\nlet y = x band derives(1)\n")).toBe("module A\nlet y = x band derives(1)\n");
     expect(format("module A\nlet a = f(x)\nderives(1)\n")).toBe("module A\nlet a = f(x)\nderives(1)\n");
-    expect(format("module A\nlet f(x: Int): Int =\n    match x\n        (k)derives => k\n")).toBe(
-      "module A\nlet f(x: Int): Int =\n    match x\n        (k)derives => k\n");
+    expect(format("module A\nlet f(x: Int): Int =\n    match x with\n        (k)derives => k\n")).toBe(
+      "module A\nlet f(x: Int): Int =\n    match x with\n        (k)derives => k\n");
   });
 
   it("keeps the gaps that carry meaning (§7.2)", () => {
@@ -482,12 +482,12 @@ describe("Comments (§8)", () => {
     expect(format(lines(
       "module A",
       "let f(x: Int): Int =",
-      "    match x",
+      "    match x with",
       "{- n -}   _ => x",
     ))).toBe(lines(
       "module A",
       "let f(x: Int): Int =",
-      "    match x",
+      "    match x with",
       "{- n -} _ => x",
     ));
   });
@@ -496,19 +496,19 @@ describe("Comments (§8)", () => {
     expect(format(lines(
       "module A",
       "let f(x: Int): Int =",
-      "    match x",
+      "    match x with",
       "{-a\tb-} _ => x",
     ))).toBe(lines(
       "module A",
       "let f(x: Int): Int =",
-      "    match x",
+      "    match x with",
       "{-a\tb-} _ => x",
     ));
   });
 
   it("keeps a tabbed comment at its column, so a second run agrees", () => {
-    const once = format(lines("module A", "let f(x: Int): Int =", "    match x", " {-\t-} _ => x"));
-    expect(once).toBe(lines("module A", "let f(x: Int): Int =", "    match x", " {-\t-}  _ => x"));
+    const once = format(lines("module A", "let f(x: Int): Int =", "    match x with", " {-\t-} _ => x"));
+    expect(once).toBe(lines("module A", "let f(x: Int): Int =", "    match x with", " {-\t-}  _ => x"));
     expect(format(once)).toBe(once);
   });
 
@@ -531,12 +531,12 @@ describe("Comments (§8)", () => {
     expect(format(lines(
       "module A",
       "let f(x: Int): Int =",
-      "    match x",
+      "    match x with",
       "{- n -}   _ => x",
     ), { collapseExtraSpaces: true })).toBe(lines(
       "module A",
       "let f(x: Int): Int =",
-      "    match x",
+      "    match x with",
       "{- n -} _ => x",
     ));
   });

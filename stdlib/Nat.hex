@@ -112,7 +112,7 @@ honor Integral<Nat> =
         var smaller = right
         -- Both operands are non-negative by their type, so the loop's `rem`
         -- never sees a zero divisor: a zero `smaller` is the exit condition.
-        while smaller != 0
+        while smaller != 0 do
             let next = larger.rem(smaller)
             larger := smaller
             smaller := next
@@ -151,7 +151,7 @@ extern from "hex:intrinsic"
     is too large for a `Nat` to hold exactly. A call that may throw carries a
     mark: `Nat.parse?(text)` gives `None` in place of throwing, and
     `assume Nat.parse^(text)` is for text that is known to be good. -}
-export let parse(text: String): Nat = match scanText(text)
+export let parse(text: String): Nat = match scanText(text) with
     Some(Some(value)) => value
     Some(None) => throw^(NumberFormatError(formatMessage(text, "is out of range for Nat")))
     None => throw^(NumberFormatError(formatMessage(text, "is not a Nat")))

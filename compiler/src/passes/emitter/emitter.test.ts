@@ -25,7 +25,7 @@ describe("emitJavaScript", () => {
         "export pattern rat(top: Int, bottom: Int): Rat\n" +
         "    view = parts\n" +
         "    build = create\n" +
-        "export fun numerator(value: Rat): Int = match value\n" +
+        "export fun numerator(value: Rat): Int = match value with\n" +
         "    (0, _)rat => 0\n" +
         "    (top, _)rat => top\n" +
         "export let half: Rat = (1, 2)rat",
@@ -49,7 +49,7 @@ describe("emitJavaScript", () => {
         "union Wrapped = Wrapped(Rat) | Empty\n" +
         "pattern rat(top: Int, bottom: Int): Rat\n" +
         "    view(value) = (value.top, value.bottom)\n" +
-        "fun numerator(value: Wrapped): Int = match value\n" +
+        "fun numerator(value: Wrapped): Int = match value with\n" +
         "    Wrapped((top, _)rat) => top\n" +
         "    Empty => 0",
     );
@@ -69,7 +69,7 @@ describe("emitJavaScript", () => {
         "union Choice = First(Rat) | Second(Rat)\n" +
         "pattern rat(top: Int, bottom: Int): Rat\n" +
         "    view(value) = (value.top, value.bottom)\n" +
-        "fun numerator(value: Choice): Int = match value\n" +
+        "fun numerator(value: Choice): Int = match value with\n" +
         "    First((top, _)rat) => top\n" +
         "    Second((top, _)rat) => top",
     );
@@ -154,7 +154,7 @@ describe("emitJavaScript", () => {
         "export let window: Vector(Int) = values[2..99]\n" +
         "export let letter: String = \"héllo\"[2]\n" +
         "export let fingerprint: Int = Hash.hash((values, {name = \"hex\"}))\n" +
-        "export let first: Int = match values\n" +
+        "export let first: Int = match values with\n" +
         "    [head, ...rest] => head\n" +
         "    [] => 0",
     );
@@ -419,12 +419,12 @@ describe("emitJavaScript", () => {
         "    type Item = Int\n" +
         "    toSeq(bag) = bag.items\n" +
         "let bag = Bag({items = Seq.take(Seq.iterate(1, x => x + 1), 2)})\n" +
-        "for value in bag\n" +
+        "for value in bag do\n" +
         "    Debug.log(\"${value}\")\n" +
-        "for value in [1, 2]\n" +
+        "for value in [1, 2] do\n" +
         "    Debug.log(\"${value}\")\n" +
         "let pairs: Map(Int, String) = Map.set(Map.empty, 1, \"one\")\n" +
-        "for (key, value) in pairs\n" +
+        "for (key, value) in pairs do\n" +
         "    Debug.log(\"${key} ${value}\")",
     );
 
@@ -442,7 +442,7 @@ describe("emitJavaScript", () => {
     const module = coreSource(
       "export let count(xs: Array(Int)): Int =\n" +
         "    var total = 0\n" +
-        "    for _ in xs\n" +
+        "    for _ in xs do\n" +
         "        total := total + 1\n" +
         "    total\n" +
         "export let keep(value: Nullable(String)): Nullable(String) = value",
@@ -460,7 +460,7 @@ describe("emitJavaScript", () => {
       "fun countdown(start: Int) =\n" +
         "    var current = start\n" +
         "    let visited = 1..current\n" +
-        "    while current > 0\n" +
+        "    while current > 0 do\n" +
         "        current := current - 1\n" +
         "    visited",
     );
@@ -503,9 +503,9 @@ describe("emitJavaScript", () => {
   test("emits a range head as a counting loop and a String head as a native for-of loop", () => {
     const module = coreSource(
       "fun visit(): Unit =\n" +
-        "    for number in 1..3\n" +
+        "    for number in 1..3 do\n" +
         "        Debug.log(\"${number}\")\n" +
-        "    for character in \"ab\"\n" +
+        "    for character in \"ab\" do\n" +
         "        Debug.log(\"${character}\")",
     );
 
@@ -530,7 +530,7 @@ describe("emitJavaScript", () => {
         "    .map(number => number * 2)\n" +
         "    .take(5)\n" +
         "let selected2 = numbers |> Seq.filter(number => number > 3) |> Seq.map(number => number * 2) |> Seq.take(5)\n" +
-        "for number in selected\n" +
+        "for number in selected do\n" +
         "    Debug.log(\"${number}\")",
     );
 
@@ -590,7 +590,7 @@ describe("emitJavaScript", () => {
     const module = coreSource(
       "union Side = Left(value: Int) | Right(value: Int)\n" +
         "union Box = Box(side: Side)\n" +
-        "fun unbox(box: Box): Int = match box\n" +
+        "fun unbox(box: Box): Int = match box with\n" +
         "    Box(Left(value) | Right(value)) => value\n" +
         "let True | False = True\n" +
         "let Left(amount) | Right(amount) = Left(42)",
@@ -611,11 +611,11 @@ describe("emitJavaScript", () => {
   test("emits negative, or, and single-constructor binding patterns", () => {
     const module = coreSource(
       "union Shape = Circle(radius: Float) | Rectangle(width: Float, height: Float) | Point\n" +
-        "fun measure(shape: Shape): Float = match shape\n" +
+        "fun measure(shape: Shape): Float = match shape with\n" +
         "    Circle(size) | Rectangle(size, _) when size > 0.0 => size\n" +
         "    Circle(_) | Rectangle(_, _) => 0.0\n" +
         "    Point => 0.0\n" +
-        "fun sign(value: Int): String = match value\n" +
+        "fun sign(value: Int): String = match value with\n" +
         '    -1 => "negative one"\n' +
         '    _ => "other"\n' +
         "union UserId = UserId(value: Int)\n" +
@@ -634,23 +634,23 @@ describe("emitJavaScript", () => {
 
   test("emits Unit, as-pattern, tuple, and record matches through ordered tests", () => {
     const unit = emitJavaScript(coreSource(
-      'fun describe(value: Unit): String = match value\n    () => "unit"',
+      'fun describe(value: Unit): String = match value with\n    () => "unit"',
     )).text;
     expect(unit).toContain("if (__match === undefined)");
 
     const shape = emitJavaScript(coreSource(
       "union Shape = Circle(radius: Float) | Point\n" +
-        "fun preserve(shape: Shape): Shape = match shape\n" +
+        "fun preserve(shape: Shape): Shape = match shape with\n" +
         "    Circle(_) as whole => whole\n" +
         "    Point as whole => whole",
     )).text;
     expect(shape).toContain("const whole = __match;");
 
     const structural = emitJavaScript(coreSource(
-      'fun tupleLabel(pair: (Bool, Int)): String = match pair\n' +
+      'fun tupleLabel(pair: (Bool, Int)): String = match pair with\n' +
         '    (True, count) => "active"\n' +
         '    (_, _) => "inactive"\n' +
-        'fun recordName(user: {name: String, active: Bool}): String = match user\n' +
+        'fun recordName(user: {name: String, active: Bool}): String = match user with\n' +
         '    {active = True, name} => name\n' +
         '    {name} => name',
     )).text;
@@ -672,7 +672,7 @@ describe("emitJavaScript", () => {
 
   test("emits literal matches and guarded constructor arms in source order", () => {
     const primitive = coreSource(
-      'fun describe(flag: Bool): String = match flag\n    True => "yes"\n    False => "no"',
+      'fun describe(flag: Bool): String = match flag with\n    True => "yes"\n    False => "no"',
     );
     const primitiveJavaScript = emitJavaScript(primitive).text;
     // #147: a `Bool` match is a closed-union match, so it takes the same switch
@@ -684,7 +684,7 @@ describe("emitJavaScript", () => {
 
     const guarded = coreSource(
       "union Shape = Circle(radius: Float) | Point\n" +
-        "fun describe(shape: Shape): String = match shape\n" +
+        "fun describe(shape: Shape): String = match shape with\n" +
         '    Circle(radius) when radius > 0.0 => "positive"\n' +
         '    Circle(_) => "circle"\n' +
         '    Point => "point"',
@@ -704,7 +704,7 @@ describe("emitJavaScript", () => {
     const module = coreSource(
       // Not `Result`/`Ok`/`Err`: the prelude owns those names here.
       "export union Outcome = Fine(value: (String, Int)) | Bad(error: {context: {message: String}, code: Int})\n" +
-        "export fun describe(outcome: Outcome): String = match outcome\n" +
+        "export fun describe(outcome: Outcome): String = match outcome with\n" +
         "    Fine((name, _)) => name\n" +
         "    Bad({context = {message = reason}}) => reason",
     );
@@ -759,7 +759,7 @@ describe("emitJavaScript", () => {
         "fun xOf(r) = r.x\n" +
         "let point = {x = 3, y = 4}\n" +
         "let x = xOf(point)\n" +
-        "export fun radius(shape: Shape): Float = match shape\n" +
+        "export fun radius(shape: Shape): Float = match shape with\n" +
         "    Circle(value) => value\n" +
         "    Point => 0.0",
     );
@@ -782,7 +782,7 @@ describe("emitJavaScript", () => {
       // generic union, its constructors, a match, and the declarations — are
       // unchanged.
       "export union Maybe(a) = Present(value: a) | Absent\n" +
-        "export fun unwrapOr(value: Maybe(a), fallback: a): a = match value\n" +
+        "export fun unwrapOr(value: Maybe(a), fallback: a): a = match value with\n" +
         "    Present(found) => found\n" +
         "    Absent => fallback\n" +
         "export let answer: Int = unwrapOr(Present(42), 0)",
@@ -977,7 +977,7 @@ describe("emitJavaScript", () => {
     const module = coreSource(
       "export union Suit = Clubs | Diamonds | Hearts | Spades\n" +
         "export let card = (10, Hearts)\n" +
-        "export let color(suit: Suit): String = match suit\n" +
+        "export let color(suit: Suit): String = match suit with\n" +
         '    Clubs => "black"\n    Diamonds => "red"\n' +
         '    Hearts => "red"\n    Spades => "black"',
     );
@@ -1016,7 +1016,7 @@ describe("emitJavaScript", () => {
   test("uses a source catch-all arm instead of an unreachable-pattern guard", () => {
     const module = coreSource(
       "union Suit = Clubs | Spades\n" +
-        "let color(suit: Suit): String = match suit\n" +
+        "let color(suit: Suit): String = match suit with\n" +
         '    _ => "black"',
     );
 
@@ -1034,7 +1034,7 @@ describe("emitJavaScript", () => {
   test("names a scrutinee only when a match arm binds the whole value", () => {
     const module = coreSource(
       "union Suit = Clubs | Spades\n" +
-        "let identity(suit: Suit): Suit = match suit\n" +
+        "let identity(suit: Suit): Suit = match suit with\n" +
         "    whole => whole",
     );
 
@@ -1050,7 +1050,7 @@ describe("emitJavaScript", () => {
     const module = coreSource(
       "union Suit = Clubs | Spades\n" +
         "let suit = Clubs\n" +
-        "let color: String = match suit\n" +
+        "let color: String = match suit with\n" +
         '    Clubs => "black"\n' +
         '    Spades => "black"',
     );
@@ -1071,7 +1071,7 @@ describe("emitJavaScript", () => {
       "union Suit = Clubs | Spades\n" +
         "let color(suit: Suit): String =\n" +
         "    let selected = suit\n" +
-        "    match selected\n" +
+        "    match selected with\n" +
         '        Clubs => "black"\n' +
         '        Spades => "black"',
     );
@@ -2130,7 +2130,7 @@ describe("emitJavaScript", () => {
         '    describe(value) = "${value}"\n' +
         "union Tree(a) = Leaf | Node(left: Tree(a), item: a, right: Tree(a))\n" +
         "honor<a: Describe> Describe<Tree(a)> =\n" +
-        "    describe(tree) = match tree\n" +
+        "    describe(tree) = match tree with\n" +
         '        Leaf => "leaf"\n' +
         // Rewritten for #304/#335: the member's own name is refused in its own
         // body (Constraints §4.6), and the dot call is the ruled form. `left`
@@ -2176,7 +2176,7 @@ describe("emitJavaScript", () => {
       "union Held(a) = Missing | Held2(value: a)\n" +
         "constraint Pick<a> =\n" +
         "    pick(value: a) -> a\n" +
-        "    pickHeld(fallback: a, held: Held(a)) -> a = match held\n" +
+        "    pickHeld(fallback: a, held: Held(a)) -> a = match held with\n" +
         "        Missing => fallback\n" +
         "        Held2(value) => pick(value)\n" +
         "honor Pick<Int> =\n" +

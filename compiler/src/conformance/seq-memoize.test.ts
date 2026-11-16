@@ -240,7 +240,7 @@ describe("Loops §6.4: re-derivation is the default, `memoize` the opt-in", () =
         // Opens a cursor and forces one position, returning the rest as a value
         // the caller can hold — two of these interleave over one spine.
         "export let headThenLength(ignored: Int): Int =\n" +
-        "    match Seq.next(memoized)\n" +
+        "    match Seq.next(memoized) with\n" +
         "        None => 0\n" +
         "        Some((value, rest)) => value + Seq.length(rest)\n" +
         "\n" +
@@ -295,7 +295,7 @@ describe("failure is memoized per position (FFI Part 3 §7.1, inherited)", () =>
         "let memoized: Seq(Int) = Seq.memoize(Seq.map(Vector.toSeq([1, 2, 3]), explode))\n" +
         "\n" +
         "export let force(ignored: Int): Int =\n" +
-        "    match Seq.next(memoized)\n" +
+        "    match Seq.next(memoized) with\n" +
         "        None => 0\n" +
         "        Some((value, _)) => value\n" +
         "\n" +

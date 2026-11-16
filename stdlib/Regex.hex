@@ -56,14 +56,14 @@ honor Show<Regex> =
 export fault RegexCompileFault(message: String, position: Int, rewrites: Vector(Syntax.Rewrite))
 
 -- The group number in one entry of a regex's table of names.
-let numberIn(entry: (String, Int)): Int = match entry
+let numberIn(entry: (String, Int)): Int = match entry with
     (_, number) => number
 
 -- The number `name` names in a regex's table of names, which is in group order.
 let numberOf(names: Vector((String, Int)), name: String): Option(Int) =
-    let named(entry: (String, Int)): Bool = match entry
+    let named(entry: (String, Int)): Bool = match entry with
         (candidate, _) => candidate == name
-    match Vector.find(names, named)
+    match Vector.find(names, named) with
         Some(entry) => Some(numberIn(entry))
         None => None
 
@@ -107,7 +107,7 @@ let needsEscape(point: String): Bool =
     way to put untrusted text in a pattern. -}
 export let escape(text: String): String =
     var chunks: Vector(String) = []
-    for point in text
+    for point in text do
         chunks := chunks.append(if needsEscape(point) then "\\" ++ point else point)
     String.join(Iterable.toSeq(chunks), "")
 
@@ -123,7 +123,7 @@ export let groupIndex(regex: Regex, name: String): Option(Int) = numberOf(regex.
 -- ---------------------------------------------------------------------------
 -- Searching (§4.3)
 
-let groupOf(span: Option((Int, Int, String))): Option(Group) = match span
+let groupOf(span: Option((Int, Int, String))): Option(Group) = match span with
     Some((start, length, text)) => Some(Group({ start = start, length = length, text = text }))
     None => None
 
@@ -131,18 +131,18 @@ let groupOf(span: Option((Int, Int, String))): Option(Group) = match span
 let matchOf(regex: Regex, spans: Vector(Option((Int, Int, String)))): Match =
     var groups: Vector(Option(Group)) = []
     var index = 2
-    while index <= Vector.length(spans)
+    while index <= Vector.length(spans) do
         groups := groups.append(groupOf(spans[index]))
         index := index + 1
     -- Group 0 is always present in an answer with spans (§3.3), so the
     -- fallback is unreachable; it is there because `Option` must be matched.
-    let whole = match groupOf(spans[1])
+    let whole = match groupOf(spans[1]) with
         Some(group) => group
         None => Group({ start = 1, length = 0, text = "" })
     Match({ whole = whole, groups = groups, names = regex.names })
 
 {-- Whether `regex` matches anywhere in `text`. -}
-export let isMatch(regex: Regex, text: String): Bool = match searchProgram(regex.program, text, 1, (1, 0), False)
+export let isMatch(regex: Regex, text: String): Bool = match searchProgram(regex.program, text, 1, (1, 0), False) with
     Some(_) => True
     None => False
 
@@ -151,7 +151,7 @@ export let isMatch(regex: Regex, text: String): Bool = match searchProgram(regex
     `start` below 1 acts as 1. -}
 export let findFrom(regex: Regex, text: String, start: Int): Option(Match) =
     let from = if start < 1 then 1 else start
-    match searchProgram(regex.program, text, from, (1, 0), True)
+    match searchProgram(regex.program, text, from, (1, 0), True) with
         Some((spans, _)) => Some(matchOf(regex, spans))
         None => None
 
@@ -169,8 +169,8 @@ let nextMatch(regex: Regex, text: String, state: Enumeration): Option((Match, En
     var current = state
     var answer = None
     var searching = True
-    while searching
-        match searchProgram(regex.program, text, current.start, current.cursor, True)
+    while searching do
+        match searchProgram(regex.program, text, current.start, current.cursor, True) with
             None => searching := False
             Some((spans, cursor)) =>
                 let found = matchOf(regex, spans)
@@ -204,17 +204,17 @@ let runsBetween(text: String, matches: Vector(Match)): Vector(String) =
     var position = 1
     var index = 1
     let count = Vector.length(matches)
-    for point in text
+    for point in text do
         -- Close every run that ends here: a match starting at this position,
         -- empty ones included, then skip what the match covers.
-        while index <= count and matches[index].whole.start == position
+        while index <= count and matches[index].whole.start == position do
             runs := runs.append(String.join(Iterable.toSeq(chunks), ""))
             chunks := []
             index := index + 1
         let inside = index > 1 and position < matches[index - 1].whole.start + matches[index - 1].whole.length
         if not inside then chunks := chunks.append(point)
         position := position + 1
-    while index <= count
+    while index <= count do
         runs := runs.append(String.join(Iterable.toSeq(chunks), ""))
         chunks := []
         index := index + 1
@@ -224,7 +224,7 @@ let runsBetween(text: String, matches: Vector(Match)): Vector(String) =
 let interleaved(runs: Vector(String), replacements: Vector(String)): String =
     var chunks: Vector(String) = [runs[1]]
     var index = 1
-    while index <= Vector.length(replacements)
+    while index <= Vector.length(replacements) do
         chunks := chunks.append(replacements[index]).append(runs[index + 1])
         index := index + 1
     String.join(Iterable.toSeq(chunks), "")
@@ -232,7 +232,7 @@ let interleaved(runs: Vector(String), replacements: Vector(String)): String =
 let replaceLiteral(regex: Regex, text: String, replacement: String, all: Bool): String =
     let matches = matchesOf(regex, text, all)
     var replacements: Vector(String) = []
-    for _ in matches
+    for _ in matches do
         replacements := replacements.append(replacement)
     interleaved(runsBetween(text, matches), replacements)
 
@@ -248,7 +248,7 @@ export let replaceFirst(regex: Regex, text: String, replacement: String): String
 let replaceComputed(regex: Regex, text: String, replacement: Match ->! String, all: Bool): String =
     let matches = matchesOf(regex, text, all)
     var replacements: Vector(String) = []
-    for found in matches
+    for found in matches do
         replacements := replacements.append(replacement!(found))
     interleaved(runsBetween(text, matches), replacements)
 
@@ -289,7 +289,7 @@ export let group(found: Match, index: Int): Option(Group) =
 
 {-- The group `name` names, as `group` answers it; `None` for a name the
     pattern does not define. -}
-export let named(found: Match, name: String): Option(Group) = match numberOf(found.names, name)
+export let named(found: Match, name: String): Option(Group) = match numberOf(found.names, name) with
     Some(index) => group(found, index)
     None => None
 

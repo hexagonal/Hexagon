@@ -428,7 +428,7 @@ describe("parse", () => {
     const module = parseSource(
       "union Suit =\n" +
         "    | Clubs\n    | Diamonds\n    | Hearts\n    | Spades\n" +
-        "let color(suit: Suit): String = match suit\n" +
+        "let color(suit: Suit): String = match suit with\n" +
         '    Clubs => "black"\n    Diamonds => "red"\n' +
         '    Hearts => "red"\n    Spades => "black"',
     );
@@ -718,6 +718,75 @@ describe("parse", () => {
     expect(module.diagnostics).toEqual([]);
   });
 
+  describe("heads and their closing words (Lexer & Layout §2.4)", () => {
+    const messages = (text: string) => parseSource(text).diagnostics.map(({ message }) => message);
+
+    test("a missing closing word is one report, at the head, and its fix is the repair", () => {
+      const cases: readonly [string, string, string][] = [
+        ["let f(n: Int) =\n    var k = n\n    while k > 0\n        k := k - 1\n    k",
+          "`while` requires `do`; write `while condition do` before the indented body", "while k > 0 do\n"],
+        ["let f(xs: Array(Int)) =\n    for x in xs\n        print(x)",
+          "`for` requires `do`; write `for pattern in source do` before the indented body", "for x in xs do\n"],
+        ["let f(o: Option(Int)) =\n    match o\n        Some(n) => n\n        None => 0",
+          "`match` requires `with`; write `match value with` before the indented arms", "match o with\n"],
+        ["let f(x: Int) =\n    if x > 0\n        1\n    else\n        2",
+          "`if` requires `then`; write `if condition then` before the indented true branch", "if x > 0 then\n"],
+      ];
+      for (const [text, message, repaired] of cases) {
+        expect(messages(text), text).toEqual([message]);
+        const fixed = afterFix(text);
+        expect(fixed.text).toContain(repaired);
+        expect(fixed.module.diagnostics, text).toEqual([]);
+      }
+    });
+
+    test("a closing word at the head's column is named as the move", () => {
+      const loop = "let f(n: Int) =\n    var k = n\n    while k > 0\n    do\n        k := k - 1\n    k";
+      expect(messages(loop)).toEqual([
+        "a `do` at the `while`'s column begins a new line of the block; end the head's last line with `do`",
+      ]);
+      expect(afterFix(loop).module.diagnostics).toEqual([]);
+      const arms = "let f(o: Option(Int)) =\n    match o\n    with\n        Some(n) => n\n        None => 0";
+      expect(messages(arms)).toEqual([
+        "a `with` at the `match`'s column begins a new line of the block; end the head's last line with `with`",
+      ]);
+      expect(afterFix(arms).module.diagnostics).toEqual([]);
+    });
+
+    test("the match function written with a closing word", () => {
+      const text = "let f =\n    match with\n        Some(n) => n\n        None => 0";
+      expect(messages(text)).toEqual([
+        "the match function is a bare `match`, with no `with`; to match a value, write `match value with`",
+      ]);
+      expect(afterFix(text).module.diagnostics).toEqual([]);
+    });
+
+    test("arms on the head's line, and the `do … while` habit", () => {
+      expect(messages("let f(o: Option(Int)) =\n    match o with Some(n) => n")).toEqual([
+        "a `match`'s arms go on the lines below its head: write `match value with`, " +
+          "then each `pattern => body` on a line of its own",
+      ]);
+      expect(messages("let f(n: Int) =\n    var k = n\n    do\n        k := k - 1\n    while k > 0\n    k")).toEqual([
+        "Hexagon has no `do … while` loop; a loop's condition comes first — " +
+          "write `while condition do` with the body beneath it",
+      ]);
+    });
+
+    test("a head wraps, and a loop's body may share the head's line", () => {
+      for (const text of [
+        "let f(x: Int) =\n    if x > 0\n            and x < 10 then\n        1\n    else\n        2",
+        "let f(a: Int, b: Int) =\n    var n = a\n    while g(a,\n            b) do\n        n := n - 1\n    n",
+        "let f(n: Int) =\n    var k = n\n    while k > 0 do k := k - 1\n    for x in [1, 2] do k := k + x\n    k",
+        "let f(x: Int) =\n    if x > 0\n        then 1\n        else 2",
+        "let with = 3\nlet h = match with with\n    3 => 1\n    _ => 0",
+      ]) {
+        expect(messages(text), text).toEqual([]);
+      }
+      const loop = expression(parseSource("while k > 0 do k := k - 1"));
+      expect(loop.kind === "While" && loop.body.items.length).toBe(1);
+    });
+  });
+
   test("rejects the former layout conditional without then", () => {
     const module = parseSource(
       "let choose =\n" +
@@ -884,7 +953,7 @@ describe("parse", () => {
       "fun countdown(start: Int) =\n" +
         "    var current: Int = start\n" +
         "    let bounds = 1..current\n" +
-        "    while current > 0\n" +
+        "    while current > 0 do\n" +
         "        current := current - 1\n" +
         "    bounds",
     );
@@ -917,9 +986,9 @@ describe("parse", () => {
   test("parses for loops over ranges and strings", () => {
     const module = parseSource(
       "fun visit(): Unit =\n" +
-        "    for number in 1..3\n" +
+        "    for number in 1..3 do\n" +
         "        Debug.log(\"${number}\")\n" +
-        "    for character in \"ab\"\n" +
+        "    for character in \"ab\" do\n" +
         "        Debug.log(character)",
     );
 
@@ -1678,7 +1747,7 @@ describe("parse", () => {
       for (const guard of guards) {
         const module = parseSource(
           `${union}fun f(b: Box, flag: Bool): Int =\n` +
-            "    match b\n" +
+            "    match b with\n" +
             `        Wrap(x) when ${guard} => x\n` +
             rest,
         );
@@ -1708,7 +1777,7 @@ describe("parse", () => {
       for (const guard of guards) {
         const module = parseSource(
           `${union}fun f(b: Box): Int =\n` +
-            "    match b\n" +
+            "    match b with\n" +
             `        Wrap(x) when ${guard} => x\n` +
             rest,
         );
@@ -1720,7 +1789,7 @@ describe("parse", () => {
     test("and an arm body may still be a lambda", () => {
       const module = parseSource(
         `${union}fun f(b: Box): Int =\n` +
-          "    match b\n" +
+          "    match b with\n" +
           "        Wrap(x) => (y => y + x)(1)\n" +
           "        Empty => 0\n",
       );
@@ -2316,7 +2385,7 @@ describe("parse", () => {
 
 describe("a `match` with no arms below it", () => {
   // Its block is missing, and the next line is read as it stands rather than
-  // as arms: one report, in the arm block's words and on the `match`, whatever
+  // as arms: one report, in the arm block's words and on the `match`'s head, whatever
   // ends the line, and the rest of the file read as written.
   test.each([
     ["the end of the file", ""],
@@ -2324,7 +2393,7 @@ describe("a `match` with no arms below it", () => {
     ["a dedent", "let z = 1\n"],
     ["a comment line, then a dedent", "    -- note\nlet z = 1\n"],
   ])("ended by %s", (_, after) => {
-    for (const [head, end] of [["let f(s: Int): Int =\n    match s\n", 11], ["let f: Int -> Int =\n    match\n", 9]] as const) {
+    for (const [head, end] of [["let f(s: Int): Int =\n    match s with\n", 16], ["let f: Int -> Int =\n    match\n", 9]] as const) {
       const module = parseSource(head + after);
       expect(module.diagnostics.map(({ message, primary }) =>
         `${primary.start.line}:${primary.start.column}-${primary.end.column} ${message}`
@@ -2334,12 +2403,12 @@ describe("a `match` with no arms below it", () => {
   });
 
   test("leaves the next declaration standing", () => {
-    const module = parseSource("let f(s: Int): Int =\n    match s\nexport let z = 1\n");
+    const module = parseSource("let f(s: Int): Int =\n    match s with\nexport let z = 1\n");
     expect(module.items.map((item) => item.kind)).toEqual(["Let", "Let"]);
   });
 
   test("another error at its token is that line's own", () => {
-    expect(parseSource("let f(s: Int): Int =\n    match s\n)\n").readAsWritten).toBe(false);
+    expect(parseSource("let f(s: Int): Int =\n    match s with\n)\n").readAsWritten).toBe(false);
   });
 });
 

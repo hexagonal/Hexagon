@@ -253,12 +253,12 @@ describe("a catch-all lets faults through (§5.3)", () => {
       "let v: Vector(Int) = [1, 2]",
       "fun at(n: Int): Int = if n == 99 then throw^(NeverError) else v[n]",
       "export fun probe(): Int =",
-      "    match at^(9)",
+      "    match at^(9) with",
       "        n => n",
       "    catch",
       "        _ => -1",
       "export fun caught(): Int =",
-      "    match at^(9)",
+      "    match at^(9) with",
       "        n => n",
       "    catch",
       "        fault _ => -2",
@@ -435,7 +435,7 @@ describe("`fault e` is a whole catch arm's pattern (§5.2)", () => {
   test("in a `match` data arm", () => {
     expect(projectDiagnostics(main(
       "export fun f(n: Int): Int =",
-      "    match n",
+      "    match n with",
       "        fault e => 0",
     ))).toContain(refused);
   });
@@ -506,7 +506,7 @@ describe("`fault e` is a whole catch arm's pattern (§5.2)", () => {
   test("outside a catch arm, `fault` before a constructor takes §5.2's sentence, with the same repair", () => {
     const source = main(
       "export fun f(o: Option(Int)): Int =",
-      "    match o",
+      "    match o with",
       "        fault Some(x) => x",
       "        None => 0",
     );
@@ -530,7 +530,7 @@ describe("a `match` on an `Exn` scrutinee", () => {
   test("is refused once, at the scrutinee; its throwable arms add nothing", () => {
     expect(projectDiagnostics(main(
       "export fun f(e: Exn): Int =",
-      "    match e",
+      "    match e with",
       "        IndexFault(_, _) => 1",
       "        _ => 2",
     ))).toEqual(["match requires a closed type; exceptions are inspected with `try`/`catch`"]);
@@ -591,7 +591,7 @@ describe("a throwable's constructor is a pattern only in a catch arm (§3, #1204
     "exception Boom",
     "exception Bang(code: Int)",
     `export fun f(k: ${scrutinee}): Int =`,
-    "    match k",
+    "    match k with",
     `        ${arm} => 1`,
     "        _ => 2",
   ));
@@ -636,7 +636,7 @@ describe("a throwable's constructor is a pattern only in a catch arm (§3, #1204
       "exception Boom",
       "export fun f(ks: Vector((Exn, Int))): Int =",
       "    var total = 0",
-      "    for (Boom, n) in ks",
+      "    for (Boom, n) in ks do",
       "        total := total + n",
       "    total",
     ))).toEqual([refusal]);

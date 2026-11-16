@@ -34,7 +34,7 @@ describe("a closing delimiter ends the blocks its group opened", () => {
       PRELUDE +
       "    Seq.next(Seq.map(source, x => x)) \n" +
       "export let m(source: Seq(Int)): Seq(Int) =\n" +
-      "    Seq.map(source, value => match Some(value)\n" +
+      "    Seq.map(source, value => match Some(value) with\n" +
       "        None => 0\n" +
       "        Some(v) => v)\n",
     );
@@ -43,7 +43,7 @@ describe("a closing delimiter ends the blocks its group opened", () => {
       "    Seq.next(Seq.map(source, x => x)) \n" +
       "export let m(source: Seq(Int)): Seq(Int) =\n" +
       "    Seq.map(source, value =>\n" +
-      "        match Some(value)\n" +
+      "        match Some(value) with\n" +
       "            None => 0\n" +
       "            Some(v) => v\n" +
       "    )\n",
@@ -58,14 +58,14 @@ describe("a closing delimiter ends the blocks its group opened", () => {
     const record = compile(
       "export record Box = { value: Int }\n" +
       "export let b(flag: Bool): Box =\n" +
-      "    Box({ value = match flag\n" +
+      "    Box({ value = match flag with\n" +
       "        True => 1\n" +
       "        False => 0 })\n",
     );
     const call = compile(
       "export record Box = { value: Int }\n" +
       "export let b(flag: Bool): Box =\n" +
-      "    Box({ value = match flag\n" +
+      "    Box({ value = match flag with\n" +
       "        True => 1\n" +
       "        False => 0\n" +
       "    })\n",
@@ -79,8 +79,8 @@ describe("a closing delimiter ends the blocks its group opened", () => {
     const { diagnostics } = compile(
       "let identity(value: Int): Int = value\n" +
       "export let f(a: Bool, b: Bool): Int =\n" +
-      "    identity(match a\n" +
-      "        True => match b\n" +
+      "    identity(match a with\n" +
+      "        True => match b with\n" +
       "            True => 1\n" +
       "            False => 2\n" +
       "        False => 3)\n",
@@ -95,7 +95,7 @@ describe("a closing delimiter ends the blocks its group opened", () => {
     const { diagnostics } = compile(
       "export record Box = { value: Int }\n" +
       "export let f(flag: Bool): Int =\n" +
-      "    match flag\n" +
+      "    match flag with\n" +
       "        True => Box({ value = 1 }).value\n" +
       "        False => 0\n",
     );
@@ -106,7 +106,7 @@ describe("a closing delimiter ends the blocks its group opened", () => {
   test("an unmatched closer is still an error, not an unwind", () => {
     const { diagnostics } = compile(
       "export let f(flag: Bool): Int =\n" +
-      "    match flag\n" +
+      "    match flag with\n" +
       "        True => 1)\n" +
       "        False => 0\n",
     );

@@ -149,7 +149,7 @@ describe("an extern `fun`'s result is captured on the way in (Part 4 §4)", () =
         "    poke!()\n" +
         "    grow!()\n" +
         "    var total = 0\n" +
-        "    for n in Array.toVector(xs)\n" +
+        "    for n in Array.toVector(xs) do\n" +
         "        total := total + n\n" +
         "    (xs[1], Array.length(xs), total)\n",
       {
@@ -861,13 +861,13 @@ describe("`JsValue.toArray` is the acquisition a decoder performs (Part 11 §4.2
         "    fun poke() ->! Unit\n" +
         "\n" +
         "export fun probe(): (Int, Bool) =\n" +
-        "    match JsValue.toArray?(source!())\n" +
+        "    match JsValue.toArray?(source!()) with\n" +
         "        None => (0 - 1, False)\n" +
         "        Some(xs) =>\n" +
         "            poke!()\n" +
         "            (Array.length(xs), True)\n" +
         "export fun elements(): Array(JsValue) =\n" +
-        "    match JsValue.toArray?(source!())\n" +
+        "    match JsValue.toArray?(source!()) with\n" +
         "        None => Vector.toArray([])\n" +
         "        Some(xs) => xs\n",
       {
@@ -893,7 +893,7 @@ describe("`JsValue.toArray` is the acquisition a decoder performs (Part 11 §4.2
         "    fun source() ->! JsValue\n" +
         "\n" +
         "export fun probe(): Array(JsValue) =\n" +
-        "    match JsValue.toArray?(source!())\n" +
+        "    match JsValue.toArray?(source!()) with\n" +
         "        None => Vector.toArray([])\n" +
         "        Some(xs) => xs\n",
       {
@@ -928,7 +928,7 @@ describe("`JsValue.toArray` is the acquisition a decoder performs (Part 11 §4.2
         '        JsConversionError(_, _, _) => "Refused"\n' +
         '        JsError(e) => "JsError: " ++ JsError.message(e)\n' +
         "export fun shaped(): String =\n" +
-        "    match JsValue.toArray?(scalar!())\n" +
+        "    match JsValue.toArray?(scalar!()) with\n" +
         '        None => "Refused"\n' +
         '        Some(_) => "Ok"\n',
       {
@@ -955,7 +955,7 @@ describe("`JsValue.toArray` is the acquisition a decoder performs (Part 11 §4.2
     const project = compileFiles([[
       "/main.hex",
       "module Main\n\nexport fun probe(v: JsValue): Bool =\n" +
-        "    match JsValue.toArray?(v)\n" +
+        "    match JsValue.toArray?(v) with\n" +
         "        None => False\n" +
         "        Some(_) => True\n",
     ]]);

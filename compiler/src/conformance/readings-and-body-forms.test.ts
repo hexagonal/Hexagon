@@ -187,7 +187,7 @@ describe("Exceptions §8.2: `attempt` gives a failure as data", () => {
 
   test("it eats to the right, and stands after a `match` head", () => {
     const source = "let a(): Result(Int) = attempt parse^(\"1\") |> ((n) => n + 1)\n" +
-      "let b(): Int =\n    match attempt parse^(\"2\")\n        Ok(n) => n\n        Err(_) => 0\n";
+      "let b(): Int =\n    match attempt parse^(\"2\") with\n        Ok(n) => n\n        Err(_) => 0\n";
     expect(messages(source)).toEqual([]);
   });
 

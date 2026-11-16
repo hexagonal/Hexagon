@@ -80,7 +80,7 @@ describe("a subject a later or an earlier line fixes is not decided by the text 
   test("a pattern's part of an untyped parameter", () => {
     bothOrders(
       "let f(o) =",
-      "let a = match o\n        Some(v) => v.isEmpty()\n        None => True",
+      "let a = match o with\n        Some(v) => v.isEmpty()\n        None => True",
       "let w: Option(Vector(Int)) = o",
       [refusal("v", "isEmpty")],
     );
@@ -89,7 +89,7 @@ describe("a subject a later or an earlier line fixes is not decided by the text 
   test("a loop variable over an untyped parameter", () => {
     bothOrders(
       "let f(xs) =",
-      "for v in xs\n        ignore(v.isEmpty())",
+      "for v in xs do\n        ignore(v.isEmpty())",
       "let w: Vector(Vector(Int)) = xs",
       [refusal("v", "isEmpty")],
     );
@@ -107,7 +107,7 @@ describe("a subject a later or an earlier line fixes is not decided by the text 
   test("a part of a `var` its assignments fill", () => {
     bothOrders(
       "let f() =\n    var holder = Vector.empty",
-      "let n = match Vector.first(holder)\n        Some(b) => b.isEmpty()\n        None => True",
+      "let n = match Vector.first(holder) with\n        Some(b) => b.isEmpty()\n        None => True",
       "holder := [[1]]",
       [refusal("b", "isEmpty")],
     );
@@ -142,14 +142,14 @@ describe("a subject a later or an earlier line fixes is not decided by the text 
   test("a `var` its assignment fills before the dot is still not decided", () => {
     bothOrders(
       "let f() =\n    var holder = Vector.empty",
-      "for b in holder\n        ignore(b.isEmpty())",
+      "for b in holder do\n        ignore(b.isEmpty())",
       "holder := [[\"a\"]]",
       [refusal("b", "isEmpty")],
     );
   });
 
   test("a loop variable over a literal holding an untyped parameter", () => {
-    bothOrders("let f(x) =", "for v in [x]\n        ignore(v.isEmpty())", "let w: Vector(Int) = x", [
+    bothOrders("let f(x) =", "for v in [x] do\n        ignore(v.isEmpty())", "let w: Vector(Int) = x", [
       refusal("v", "isEmpty"),
     ]);
   });
@@ -188,7 +188,7 @@ describe("a subject a later or an earlier line fixes is not decided by the text 
   test("a part beneath a hole in a written type", () => {
     bothOrders(
       "let f(o: Option(_)) =",
-      "let a = match o\n        Some(v) => v.isEmpty()\n        None => True",
+      "let a = match o with\n        Some(v) => v.isEmpty()\n        None => True",
       "let w: Option(Vector(Int)) = o",
       [refusal("v", "isEmpty")],
     );
@@ -197,7 +197,7 @@ describe("a subject a later or an earlier line fixes is not decided by the text 
   test("a part of a `let` whose type kept a part a later line fills", () => {
     bothOrders(
       "let ident(x: a): a = x\nlet f() =\n    let holder = ident(Vector.empty)",
-      "let n = match Vector.first(holder)\n        Some(b) => b.isEmpty()\n        None => True",
+      "let n = match Vector.first(holder) with\n        Some(b) => b.isEmpty()\n        None => True",
       "let w: Vector(Vector(Int)) = holder",
       [refusal("b", "isEmpty")],
     );
@@ -206,7 +206,7 @@ describe("a subject a later or an earlier line fixes is not decided by the text 
   test("a part of a destructuring `let` whose part a later line fills", () => {
     bothOrders(
       "let ident(x: a): a = x\nlet f() =\n    let (held, k) = ident((Vector.empty, 1))",
-      "let n = match Vector.first(held)\n        Some(b) => b.isEmpty()\n        None => True",
+      "let n = match Vector.first(held) with\n        Some(b) => b.isEmpty()\n        None => True",
       "let w: Vector(Vector(Int)) = held",
       [refusal("b", "isEmpty")],
     );
@@ -293,7 +293,7 @@ describe("a subject a later or an earlier line fixes is not decided by the text 
   test("a part of a `match` arm, whatever order the arms come in", () => {
     const arms = (first: string, second: string): readonly string[] =>
       projectDiagnostics(
-        HEADER + "let f() =\n    let a = match Vector.empty\n" +
+        HEADER + "let f() =\n    let a = match Vector.empty with\n" +
           `        ${first}\n        ${second}\n        _ => ""\n    ()\n`,
       );
     const one = "[x] => Int.show(x)";
@@ -316,7 +316,7 @@ describe("a subject a later or an earlier line fixes is not decided by the text 
   test("what a value is made of, read wholly", () => {
     bothOrders(
       "let f(x) =",
-      "for v in (x: Vector(_))\n        ignore(v.isEmpty())",
+      "for v in (x: Vector(_)) do\n        ignore(v.isEmpty())",
       "let w: Vector(Vector(Int)) = x",
       [refusal("v", "isEmpty")],
     );
@@ -342,7 +342,7 @@ describe("a subject a later or an earlier line fixes is not decided by the text 
       "let z: {cb: (Vector(Int)) -> Int} = r",
       [refusal("x", "length")],
     );
-    bothOrders("let f(p, q) =", "for i in p..q\n        ignore(i.show())", "let w: Int = p", [
+    bothOrders("let f(p, q) =", "for i in p..q do\n        ignore(i.show())", "let w: Int = p", [
       refusal("i", "show"),
     ]);
   });
@@ -432,7 +432,7 @@ describe("a subject a later or an earlier line fixes is not decided by the text 
     bothOrders(
       "let f(g, w: Vector(Vector(Int))) =",
       "let a: Int = g(w)",
-      "let h: Vector((Vector(_)) -> Int) = [g, (x) =>\n        for v in x\n            ignore(v.isEmpty())\n        0]",
+      "let h: Vector((Vector(_)) -> Int) = [g, (x) =>\n        for v in x do\n            ignore(v.isEmpty())\n        0]",
       [refusal("v", "isEmpty")],
     );
   });
@@ -448,7 +448,7 @@ describe("a subject a later or an earlier line fixes is not decided by the text 
             tail + "\n    ()\n",
         )
       );
-    const loop = "for v in x\n    ignore(v.isEmpty())";
+    const loop = "for v in x do\n    ignore(v.isEmpty())";
     for (
       const reports of [
         inBody("    let k: (Vector(_)) -> Int = (x) =>", loop, "let w: Vector(Vector(Int)) = x"),
@@ -507,7 +507,7 @@ describe("a subject the text decides dispatches at the dot (§3.1)", () => {
     compiles("let h(p) = Vector.length(p).show()\n");
     compiles("let h(p) = (p |> Vector.length).show()\n");
     compiles("let h(p) = (p |> Vector.set(0, 1) |> Vector.length).show()\n");
-    compiles("let h(p) =\n    match p |> Vector.length\n        0 => \"none\"\n        n => n.show()\n");
+    compiles("let h(p) =\n    match p |> Vector.length with\n        0 => \"none\"\n        n => n.show()\n");
     // Each pipeline decides its subject exactly as the calls it is would.
     const pairs = [
       ["(p |> Vector.length).show()", "Vector.length(p).show()"],
@@ -554,7 +554,7 @@ describe("a subject the text decides dispatches at the dot (§3.1)", () => {
   test("a part of a lambda's parameter whose landed type holds only declared type variables", () => {
     compiles(
       "let f(xs: Seq(Vector(Vector(a)))): Seq(Int) = Seq.map(xs, (x) =>\n" +
-        "    var n = 0\n    for v in x\n        n := n + v.length()\n    n)\n",
+        "    var n = 0\n    for v in x do\n        n := n + v.length()\n    n)\n",
     );
   });
 
@@ -566,9 +566,9 @@ describe("a subject the text decides dispatches at the dot (§3.1)", () => {
 
   test("a pattern's part and a loop variable taken from a decided value", () => {
     compiles(
-      "let f(o: Option(Vector(Int))): Bool = match o\n    Some(v) => v.isEmpty()\n    None => True\n",
+      "let f(o: Option(Vector(Int))): Bool = match o with\n    Some(v) => v.isEmpty()\n    None => True\n",
     );
-    compiles("let f(xs: Vector(Vector(Int))) =\n    for v in xs\n        ignore(v.isEmpty())\n");
+    compiles("let f(xs: Vector(Vector(Int))) =\n    for v in xs do\n        ignore(v.isEmpty())\n");
   });
 
   test("a value made from decided names", () => {
@@ -603,7 +603,7 @@ describe("a subject the text decides dispatches at the dot (§3.1)", () => {
         "    (x) => x.length()\ncatch\n    fault _ => (x) => 0)\n",
     );
     compiles(
-      "let g(h: (Vector(Int)) -> Int): Int = h([1])\nlet f(k: Int): Int = g(match k\n" +
+      "let g(h: (Vector(Int)) -> Int): Int = h([1])\nlet f(k: Int): Int = g(match k with\n" +
         "    0 => (x) => x.length()\n    _ => (x) => 0)\n",
     );
   });
@@ -612,13 +612,13 @@ describe("a subject the text decides dispatches at the dot (§3.1)", () => {
     // What the lambda asked about captures, and the scrutinee, are not read.
     bothOrders(
       "let f(xs: Seq(Vector(Int)), k, c: Bool) =",
-      "let a = Seq.map(xs, match c\n        True => (x) => x.length() + k\n        False => (x) => 0)",
+      "let a = Seq.map(xs, match c with\n        True => (x) => x.length() + k\n        False => (x) => 0)",
       "let b: Int = k",
       [],
     );
     bothOrders(
       "let f(xs: Seq(Vector(Int)), o) =",
-      "let a = Seq.map(xs, match o\n        Some(_) => (x) => x.length()\n        None => (x) => 0)",
+      "let a = Seq.map(xs, match o with\n        Some(_) => (x) => x.length()\n        None => (x) => 0)",
       "let b: Option(Int) = o",
       [],
     );
@@ -633,12 +633,12 @@ describe("a subject the text decides dispatches at the dot (§3.1)", () => {
     bothOrders(
       "let f(c: Bool, k) =",
       "let w: Int = k",
-      "let n = (match c\n        True when k > 0 => [1]\n        _ => [2]).length()",
+      "let n = (match c with\n        True when k > 0 => [1]\n        _ => [2]).length()",
       [],
     );
     bothOrders(
       "let f(o) =",
-      "let n = (match o\n        Some(_) => [1]\n        None => [2]).length()",
+      "let n = (match o with\n        Some(_) => [1]\n        None => [2]).length()",
       "let w: Option(Int) = o",
       [],
     );
@@ -652,7 +652,7 @@ describe("a subject the text decides dispatches at the dot (§3.1)", () => {
       "let f(c: Bool) =\n    let k: Option((Vector(_)) -> Int) = if c then Some((x) => x.length()) else None\n    ()\n",
     );
     compiles(
-      "let f(c: Bool) =\n    let k: Option((Vector(_)) -> Int) = match c\n" +
+      "let f(c: Bool) =\n    let k: Option((Vector(_)) -> Int) = match c with\n" +
         "        True => Some((x) => x.length())\n        False => None\n    ()\n",
     );
     compiles("let k: Option((Vector(_)) -> Int) = try\n    Some((x) => x.length())\ncatch\n    fault _ => None\n");
@@ -791,7 +791,7 @@ describe("a lambda no written type and no named call reaches is not decided, wha
     // A head written above the hole decides the head, never the whole.
     const mv = "union MV(a) = MkV(a, (Vector(a)) -> Int)\n";
     refused(
-      mv + "let f() =\n    let m: MV(_) = MkV([1], (x) =>\n        for v in x\n            ignore(v.isEmpty())\n        0)\n    ()\n",
+      mv + "let f() =\n    let m: MV(_) = MkV([1], (x) =>\n        for v in x do\n            ignore(v.isEmpty())\n        0)\n    ()\n",
       "v",
       "isEmpty",
     );
@@ -804,7 +804,7 @@ describe("a lambda no written type and no named call reaches is not decided, wha
     );
     // The written type that gives the slot its head is the spelling.
     compiles(pair + "let f() =\n    let p: P(Vector(Int)) = Pair([1], (x) => x.length())\n    ()\n");
-    compiles(mv + "let f() =\n    let m: MV(Vector(Int)) = MkV([1], (x) =>\n        for v in x\n            ignore(v.isEmpty())\n        0)\n    ()\n");
+    compiles(mv + "let f() =\n    let m: MV(Vector(Int)) = MkV([1], (x) =>\n        for v in x do\n            ignore(v.isEmpty())\n        0)\n    ()\n");
     compiles(g0 + "let f() =\n    let k: Option(Vector((Vector(Int)) -> Int)) = Some([g0, (x) => x.length()])\n    ()\n");
   });
 
@@ -819,7 +819,7 @@ describe("a lambda no written type and no named call reaches is not decided, wha
   test("a value path a `match` or a `try` takes from an untyped name", () => {
     bothOrders(
       "let f(c: Bool, v) =",
-      "let n = (match c\n        True => v\n        False => [1]).length()",
+      "let n = (match c with\n        True => v\n        False => [1]).length()",
       "let w: Vector(Int) = v",
       [refusalOfSubject("length")],
     );
@@ -838,13 +838,13 @@ describe("a lambda no written type and no named call reaches is not decided, wha
     // A `match`'s catch arms are value paths too.
     bothOrders(
       "exception Boom(line: Int)\nlet source(c: Bool): Bool = if c then throw^(Boom(3)) else True\nlet f(c: Bool, v) =",
-      "let m =\n        match source^(c)\n            True => [1]\n            False => [2]\n        catch\n            _ => v\n    let n = m.length()",
+      "let m =\n        match source^(c) with\n            True => [1]\n            False => [2]\n        catch\n            _ => v\n    let n = m.length()",
       "let w: Vector(Int) = v",
       [refusal("m", "length")],
     );
     bothOrders(
       "let f(xs: Seq(Vector(Int)), o) =",
-      "let a = Seq.map(xs, match o\n        Some(k) => k\n        None => (x) => x.length())",
+      "let a = Seq.map(xs, match o with\n        Some(k) => k\n        None => (x) => x.length())",
       "let b: Option((Vector(Int)) -> Int) = o",
       [refusal("x", "length")],
     );
@@ -893,7 +893,7 @@ describe("with no written type, a constructor's declaration decides as a written
   const u2 = "union U2(a) = Mk2((Vector(a)) -> Int)\n";
   const q = "record Q = {f: (Vector(Int)) -> Int}\n";
   const r = "record R(a) = {sample: a, apply: (Vector(a)) -> Int}\n";
-  const loop = "(x) =>\n        for v in x\n            ignore(v.isEmpty())\n        0";
+  const loop = "(x) =>\n        for v in x do\n            ignore(v.isEmpty())\n        0";
 
   test("a slot the declaration writes whole decides the whole, a union's as a record's", () => {
     compiles(q + "let h() =\n    let q = Q({f = (x) => x.length()})\n    ()\n");
@@ -909,7 +909,7 @@ describe("with no written type, a constructor's declaration decides as a written
     // What a type parameter becomes is inference's, whatever fills it: here a
     // sibling field, which the text does not make the slot's.
     refused(
-      r + "let h() =\n    let q = R({sample = [1], apply = (d) =>\n        for v in d\n            ignore(v.isEmpty())\n        0})\n    ()\n",
+      r + "let h() =\n    let q = R({sample = [1], apply = (d) =>\n        for v in d do\n            ignore(v.isEmpty())\n        0})\n    ()\n",
       "v",
       "isEmpty",
     );
@@ -921,7 +921,7 @@ describe("with no written type, a constructor's declaration decides as a written
     // The written type's slot stands where both reach the lambda.
     compiles(u2 + `let h() =\n    let u: U2(Vector(Int)) = Mk2(${loop})\n    ()\n`);
     compiles(
-      r + "let h() =\n    let q: R(Vector(Int)) = R({sample = [1], apply = (d) =>\n        for v in d\n" +
+      r + "let h() =\n    let q: R(Vector(Int)) = R({sample = [1], apply = (d) =>\n        for v in d do\n" +
         "            ignore(v.isEmpty())\n        0})\n    ()\n",
     );
   });
@@ -960,7 +960,7 @@ describe("with no written type, a constructor's declaration decides as a written
     compiles(w + "let h(c: Bool) =\n    let w: W(Vector(_)) = W(if c then {f = (x) => x.length()} else {f = (y) => 0})\n    ()\n");
     compiles(w + "let h(c: Bool) =\n    let w: W(Vector(Int)) = W(if c then {f = (y) => 0} else {f = (x) => x.length()})\n    ()\n");
     compiles(
-      w + "let h(c: Bool) =\n    let w: W(Vector(_)) = W(match c\n        True => {f = (x) => x.length()}\n" +
+      w + "let h(c: Bool) =\n    let w: W(Vector(_)) = W(match c with\n        True => {f = (x) => x.length()}\n" +
         "        False => {f = (y) => 0})\n    ()\n",
     );
     compiles(
@@ -1023,7 +1023,7 @@ describe("a subject that already failed draws no second report (§3.5)", () => {
   test("a lambda parameter of a refused call, or a part of a refused value", () => {
     expect(projectDiagnostics(HEADER + "let f(v: Vector(Int)) = v.nope((x) => x.show())\n")).toHaveLength(1);
     expect(projectDiagnostics(
-      HEADER + "let f(o): String = match o.first()\n    Some(g) => g.show()\n    None => \"\"\n",
+      HEADER + "let f(o): String = match o.first() with\n    Some(g) => g.show()\n    None => \"\"\n",
     )).toEqual([refusal("o", "first")]);
   });
 
@@ -1036,7 +1036,7 @@ describe("a subject that already failed draws no second report (§3.5)", () => {
 
 test("a `match` on a refused dot call says nothing more", () => {
   expect(projectDiagnostics(
-    HEADER + "let f(o): Int = match o.first()\n    Some(g) => 1\n    None => 0\n",
+    HEADER + "let f(o): Int = match o.first() with\n    Some(g) => 1\n    None => 0\n",
   )).toEqual([refusal("o", "first")]);
 });
 

@@ -94,7 +94,7 @@ describe("Seq is one type", () => {
   test("a compiler-produced Seq destructures through the §6.2 protocol", async () => {
     const exports = await main(
       "export let head: Option(Int) =\n" +
-      "    match Seq.next(Vector.toSeq([4, 5, 6]))\n" +
+      "    match Seq.next(Vector.toSeq([4, 5, 6])) with\n" +
       "        None => None\n" +
       "        Some((value, _)) => Some(value)\n",
     );
@@ -162,7 +162,7 @@ describe("`for x in` over a Seq (R3)", () => {
     const exports = await main(
       "let sumOf(values: Seq(Int)): Int =\n" +
       "    var sum = 0\n" +
-      "    for value in values\n" +
+      "    for value in values do\n" +
       "        sum := sum + value\n" +
       "    sum\n" +
       "\n" +
@@ -175,7 +175,7 @@ describe("`for x in` over a Seq (R3)", () => {
     const exports = await main(
       "let sumOf(values: Seq(Int)): Int =\n" +
       "    var sum = 0\n" +
-      "    for value in values\n" +
+      "    for value in values do\n" +
       "        sum := sum + value\n" +
       "    sum\n" +
       "\n" +
@@ -188,7 +188,7 @@ describe("`for x in` over a Seq (R3)", () => {
     const exports = await main(
       "let sumOf(values: Seq(Int)): Int =\n" +
       "    var sum = 0\n" +
-      "    for value in values\n" +
+      "    for value in values do\n" +
       "        sum := sum + value\n" +
       "    sum\n" +
       "\n" +
@@ -485,7 +485,7 @@ describe("the boundary face (FFI Part 3)", () => {
         "    export fun counter() ->! Seq(Int)\n" +
         "\n" +
         "export let first: Option(Int) =\n" +
-        "    match Seq.next(counter!())\n" +
+        "    match Seq.next(counter!()) with\n" +
         "        None => None\n" +
         "        Some((value, _)) => Some(value)\n",
       ),
@@ -723,7 +723,7 @@ describe("the inbound adapter memoizes a forcing failure (FFI Part 3 §7.1)", ()
         "let shared: Seq(Int) = counter!()\n" +
         "\n" +
         "export let force(ignored: Int): Int =\n" +
-        "    match Seq.next(shared)\n" +
+        "    match Seq.next(shared) with\n" +
         "        None => 0\n" +
         "        Some((value, _)) => value\n" +
         "\n" +
@@ -870,19 +870,19 @@ describe("the inbound adapter memoizes a forcing failure (FFI Part 3 §7.1)", ()
         "let shared: Seq(Int) = counter!()\n" +
         "\n" +
         "let tailOf(source: Seq(Int)): Seq(Int) =\n" +
-        "    match Seq.next(source)\n" +
+        "    match Seq.next(source) with\n" +
         "        None => source\n" +
         "        Some((_, rest)) => rest\n" +
         "\n" +
         "let second: Seq(Int) = tailOf(shared)\n" +
         "\n" +
         "export let forceSecond(ignored: Int): Int =\n" +
-        "    match Seq.next(second)\n" +
+        "    match Seq.next(second) with\n" +
         "        None => 0\n" +
         "        Some((value, _)) => value\n" +
         "\n" +
         "export let forceHead(ignored: Int): Int =\n" +
-        "    match Seq.next(shared)\n" +
+        "    match Seq.next(shared) with\n" +
         "        None => 0\n" +
         "        Some((value, _)) => value\n" +
         "\n" +
@@ -1001,11 +1001,11 @@ describe("the memoizing spine reclaims an unreachable prefix (FFI Part 3 §5)", 
     "    var current = source\n" +
     "    var remaining = count\n" +
     "    var running = True\n" +
-    "    while running\n" +
+    "    while running do\n" +
     "        if remaining <= 0 then\n" +
     "            running := False\n" +
     "        else\n" +
-    "            match Seq.next(current)\n" +
+    "            match Seq.next(current) with\n" +
     "                None => running := False\n" +
     "                Some((_, rest)) =>\n" +
     "                    current := rest\n" +
@@ -1013,12 +1013,12 @@ describe("the memoizing spine reclaims an unreachable prefix (FFI Part 3 §5)", 
     "    current\n" +
     "\n" +
     "export let elementAt(source: Seq((Int, Int)), index: Int): (Int, Int) =\n" +
-    "    match Seq.next(advance(source, index))\n" +
+    "    match Seq.next(advance(source, index)) with\n" +
     "        None => (0, 0)\n" +
     "        Some((value, _)) => value\n" +
     "\n" +
     "export let headTag(source: Seq((Int, Int))): Int =\n" +
-    "    match Seq.next(source)\n" +
+    "    match Seq.next(source) with\n" +
     "        None => 0\n" +
     "        Some((value, _)) =>\n" +
     "            let (tag, _) = value\n" +

@@ -299,7 +299,7 @@ describe("every route into `let`-pattern emission binds what the pattern says", 
   test("the slice is a real trie slice at scale", async () => {
     const main = await runMain("module Main\n\n" + "fun build(n: Int): Vector(Int) =\n" +
         "    var acc: Vector(Int) = []\n" +
-        "    for i in 1..n\n" +
+        "    for i in 1..n do\n" +
         "        acc := acc.append(i)\n" +
         "    acc\n" +
         "let [...all] = build(100)\n" +

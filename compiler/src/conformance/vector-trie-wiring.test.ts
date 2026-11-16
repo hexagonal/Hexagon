@@ -230,7 +230,7 @@ describe("§3.6 pattern emission", () => {
    */
   test("a fixed-length pattern tests the exact size and reads by index", () => {
     const javascript = mainJavaScript(
-      "export let sum: Int = match [1, 2]\n" +
+      "export let sum: Int = match [1, 2] with\n" +
         "    [a, b] => a + b\n" +
         "    _ => 0\n",
     );
@@ -242,7 +242,7 @@ describe("§3.6 pattern emission", () => {
 
   test("a rest binder tests `>=` and slices the remainder", () => {
     const javascript = mainJavaScript(
-      "export let n: Int = match [1, 2, 3]\n" +
+      "export let n: Int = match [1, 2, 3] with\n" +
         "    [a, b, ...rest] => a + b\n" +
         "    _ => 0\n",
     );
@@ -255,7 +255,7 @@ describe("§3.6 pattern emission", () => {
   /** An anonymous rest binds nothing, so it must not pay §3.5's slice. */
   test("an anonymous rest emits no slice", () => {
     const javascript = mainJavaScript(
-      "export let n: Int = match [1, 2, 3]\n" +
+      "export let n: Int = match [1, 2, 3] with\n" +
         "    [a, ...] => a\n" +
         "    _ => 0\n",
     );
@@ -266,7 +266,7 @@ describe("§3.6 pattern emission", () => {
   /** Slots after the rest count from the end — what makes `[...init, last]` mean it. */
   test("a trailing slot is read from the end and bounds the rest's window", () => {
     const javascript = mainJavaScript(
-      "export let n: Int = match [1, 2, 3]\n" +
+      "export let n: Int = match [1, 2, 3] with\n" +
         "    [...init, last] => last\n" +
         "    _ => 0\n",
     );
@@ -282,26 +282,26 @@ describe("§3.6 pattern emission", () => {
   test("every pattern form destructures a real trie", async () => {
     const main = await runMain("module Main\n\n" + "fun build(n: Int): Vector(Int) =\n" +
         "    var acc: Vector(Int) = []\n" +
-        "    for i in 1..n\n" +
+        "    for i in 1..n do\n" +
         "        acc := acc.append(i)\n" +
         "    acc\n" +
         "let big = build(100)\n" +
-        "export let firstOf: Int = match big\n" +
+        "export let firstOf: Int = match big with\n" +
         "    [head, ...] => head\n" +
         "    [] => 0\n" +
-        "export let lastOf: Int = match big\n" +
+        "export let lastOf: Int = match big with\n" +
         "    [..., tail] => tail\n" +
         "    [] => 0\n" +
-        "export let ends: (Int, Int) = match big\n" +
+        "export let ends: (Int, Int) = match big with\n" +
         "    [first, ..., last] => (first, last)\n" +
         "    _ => (0, 0)\n" +
-        "export let middle: Vector(Int) = match big\n" +
+        "export let middle: Vector(Int) = match big with\n" +
         "    [_, _, ...rest] => rest\n" +
         "    _ => []\n" +
-        "export let init: Vector(Int) = match build(40)\n" +
+        "export let init: Vector(Int) = match build(40) with\n" +
         "    [...front, _] => front\n" +
         "    _ => []\n" +
-        "export let exact: Int = match [7, 8]\n" +
+        "export let exact: Int = match [7, 8] with\n" +
         "    [a, b] => a + b\n" +
         "    _ => 0\n",
     );
@@ -328,7 +328,7 @@ describe("the representation contract", () => {
   test("a crossed vector iterates, spreads, and replays", async () => {
     const main = await runMain("module Main\n\n" + "fun build(n: Int): Vector(Int) =\n" +
         "    var acc: Vector(Int) = []\n" +
-        "    for i in 1..n\n" +
+        "    for i in 1..n do\n" +
         "        acc := acc.append(i)\n" +
         "    acc\n" +
         "export let small: Vector(Int) = [10, 20, 30]\n" +
@@ -405,7 +405,7 @@ describe("§4/§7 complexity", () => {
   test("length answers without traversing", async () => {
     const main = await runMain("module Main\n\n" + "fun build(n: Int): Vector(Int) =\n" +
         "    var acc: Vector(Int) = []\n" +
-        "    for i in 1..n\n" +
+        "    for i in 1..n do\n" +
         "        acc := acc.append(i)\n" +
         "    acc\n" +
         "export let big: Vector(Int) = build(5000)\n" +
@@ -454,7 +454,7 @@ describe("§4/§7 complexity", () => {
   test("append shares the tree it did not touch, and an end slice shares both", async () => {
     const main = await runMain("module Main\n\n" + "fun build(n: Int): Vector(Int) =\n" +
         "    var acc: Vector(Int) = []\n" +
-        "    for i in 1..n\n" +
+        "    for i in 1..n do\n" +
         "        acc := acc.append(i)\n" +
         "    acc\n" +
         "export let base: Vector(Int) = build(100)\n" +
@@ -819,7 +819,7 @@ describe("§5 indexed access over the trie", () => {
   test("the payload's size is the trie's own, at every depth", async () => {
     const main = await runMain("module Main\n\n" + "fun build(n: Int): Vector(Int) =\n" +
         "    var acc: Vector(Int) = []\n" +
-        "    for i in 1..n\n" +
+        "    for i in 1..n do\n" +
         "        acc := acc.append(i)\n" +
         "    acc\n" +
         "let big = build(1100)\n" +
@@ -882,7 +882,7 @@ describe("§6 slicing over the trie", () => {
   test("windows of a large trie clamp at both ends", async () => {
     const main = await runMain("module Main\n\n" + "fun build(n: Int): Vector(Int) =\n" +
         "    var acc: Vector(Int) = []\n" +
-        "    for i in 1..n\n" +
+        "    for i in 1..n do\n" +
         "        acc := acc.append(i)\n" +
         "    acc\n" +
         "let big = build(1100)\n" +
@@ -913,12 +913,12 @@ describe("§8 instances over the trie", () => {
   test("equality, order, show, and hash agree across construction routes", async () => {
     const main = await runMain("module Main\n\n" + "fun ups(n: Int): Vector(Int) =\n" +
         "    var acc: Vector(Int) = []\n" +
-        "    for i in 1..n\n" +
+        "    for i in 1..n do\n" +
         "        acc := acc.append(i)\n" +
         "    acc\n" +
         "fun downs(n: Int): Vector(Int) =\n" +
         "    var acc: Vector(Int) = []\n" +
-        "    for i in 1..n\n" +
+        "    for i in 1..n do\n" +
         "        acc := acc.prepend(n - i + 1)\n" +
         "    acc\n" +
         "export let sameHundred: Bool = ups(100) == downs(100)\n" +

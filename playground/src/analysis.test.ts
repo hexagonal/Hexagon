@@ -77,7 +77,7 @@ describe("code actions", () => {
   test("a fill's edit carries its snippet, in buffer offsets, selecting each `Debug.todo`", () => {
     const analysis = new PlaygroundAnalysis();
     const source = MAIN + "export union Shape = Circle(r: Float) | Square(s: Float)\n" +
-      "export let area(shape: Shape): Float =\n    match shape\n        Circle(r) => r * r\n";
+      "export let area(shape: Shape): Float =\n    match shape with\n        Circle(r) => r * r\n";
     const caret = source.indexOf("match");
     const [fill] = analysis.codeActions(source, { startOffset: caret, endOffset: caret });
     expect(fill?.title).toBe("Add the missing arm");

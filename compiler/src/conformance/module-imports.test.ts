@@ -90,7 +90,7 @@ describe("§13 (b) — the companion fallbacks, both namespaces and both halves"
         "let p = Point({x = 1.0, y = 2.0})\n" +
         "export fun f(q: Point): Float = q.x\n" +
         "export let sum: Float =\n" +
-        "    match p\n" +
+        "    match p with\n" +
         "        Point({x, y}) => x + y\n" +
         // A bare name is a declaration (§3.2), and it generalises as any
         // binding does.
@@ -127,7 +127,7 @@ describe("Modules §5.1 rule 3 — the term-position fallback, in both its shape
         "module Main\n\n" + 'import Tag\n' +
         "export let t: Tag = Tag(7)\n" +
         "export let n: Int =\n" +
-        "    match t\n" +
+        "    match t with\n" +
         "        Tag(k) => k\n" +
         "        Other => 0\n"],
     ] as const;
@@ -192,7 +192,7 @@ describe("Modules §5.1 rule 3 — the term-position fallback, in both its shape
         "export let a: Circle.Shape = Circle(1.0)\n" +
         "export let b: Circle.Shape = Rect(2.0, 3.0)\n" +
         "export fun width(s: Circle.Shape): Float =\n" +
-        "    match s\n" +
+        "    match s with\n" +
         "        Circle(r) => r\n" +
         "        Rect(w, h) => w\n" +
         "export let first: Float = width(a)\n" +
@@ -247,7 +247,7 @@ describe("§13 (c) — opaque is a black box outside its home", () => {
       ["/main.hex",
         "module Main\n\n" + 'import Point\n' +
         "export let n: Float =\n" +
-        "    match Point.make(1.0, 2.0)\n" +
+        "    match Point.make(1.0, 2.0) with\n" +
         "        Point(r) => 1.0\n"],
     ])).toEqual([
       "cannot destructure opaque record `Point`; " +
@@ -474,11 +474,11 @@ describe("§13 (m) — a constructor not spelled like its alias", () => {
         "module Main\n\n" + 'import Shape\n' +
         "export let c: Shape.Shape = Shape.Circle(1.0)\n" +
         "export fun describe(s: Shape): String =\n" +
-        "    match s\n" +
+        "    match s with\n" +
         "        Circle(r) => \"circle\"\n" +
         "        Rect(w, h) => \"rect\"\n" +
         "export fun isRound(s: Shape): Bool =\n" +
-        "    match s\n" +
+        "    match s with\n" +
         "        Shape.Circle(_) => True\n" +
         "        _ => False\n" +
         "export let word: String = describe(c)\n" +
@@ -772,7 +772,7 @@ describe("the opaque family's pattern refusal, both nominal kinds", () => {
       ["/main.hex",
         "module Main\n\n" + 'import Handle\n' +
         "export fun f(): Int =\n" +
-        "    match Handle.make(1)\n" +
+        "    match Handle.make(1) with\n" +
         "        FileH(n) => n\n" +
         "        NetH(s) => s\n"],
     ])).toEqual([
@@ -788,7 +788,7 @@ describe("the opaque family's pattern refusal, both nominal kinds", () => {
       ["/handle.hex",
         "module Handle\n\n" + "opaque union Handle = FileH(fd: Int) | NetH(sock: Int)\n" +
         "export fun width(h: Handle): Int =\n" +
-        "    match h\n" +
+        "    match h with\n" +
         "        FileH(n) => n\n" +
         "        NetH(s) => s\n"],
     ])).toEqual([]);
@@ -803,7 +803,7 @@ describe("the opaque family's pattern refusal, both nominal kinds", () => {
       ["/main.hex",
         "module Main\n\n" + 'import Handle\n' +
         "export fun f(): Int =\n" +
-        "    match Handle.make(1)\n" +
+        "    match Handle.make(1) with\n" +
         "        Handle.FileH(_) => 1\n"],
     ])).toEqual([
       "cannot destructure opaque union `Handle`; " +
@@ -836,7 +836,7 @@ describe("the opaque family's pattern refusal, both nominal kinds", () => {
       ["/main.hex",
         "module Main\n\n" + 'import Point\n' +
         "export fun f(): Float =\n" +
-        "    match Point.make()\n" +
+        "    match Point.make() with\n" +
         "        Point(r) => 1.0\n"],
     ])).toEqual([
       "cannot destructure opaque record `Point`; " +
@@ -922,7 +922,7 @@ describe("the opaque family's pattern refusal, both nominal kinds", () => {
       ["/main.hex",
         "module Main\n\n" + 'import Point as P\n' +
         "export fun f(): Float =\n" +
-        "    match P.make()\n" +
+        "    match P.make() with\n" +
         "        P.Point(_) => 1.0\n"],
     ])).toEqual([
       "cannot destructure opaque record `Point`; " +
@@ -938,7 +938,7 @@ describe("the opaque family's pattern refusal, both nominal kinds", () => {
       ["/main.hex",
         "module Main\n\n" + 'import Handle\n' +
         "export fun f(): Int =\n" +
-        "    match Handle.make(1)\n" +
+        "    match Handle.make(1) with\n" +
         "        Handle.Absent(_) => 1\n"],
     ])).toEqual(["module `Handle` does not export `Absent`"]);
   });
@@ -981,7 +981,7 @@ describe("Modules §3's reading law at the fallback's own seat", () => {
       POINT,
       ["/main.hex",
         "module Main\n\n" + "export fun f(p: Point): Float =\n" +
-        "    match p\n" +
+        "    match p with\n" +
         "        Point({x, y}) => x\n" +
         'import Point\n'],
     ])).toEqual([]);
@@ -1080,7 +1080,7 @@ describe("Pattern Matching §15 (o) — the door, and the absence of its express
       ["/main.hex",
         "module Main\n\n" + 'import Direction\n' +
         "export fun turn(d: Direction): Direction =\n" +
-        "    match d\n" +
+        "    match d with\n" +
         "        North => Direction.East\n" +
         "        East => Direction.South\n" +
         "        South => Direction.West\n" +
@@ -1097,7 +1097,7 @@ describe("Pattern Matching §15 (o) — the door, and the absence of its express
       ["/main.hex",
         "module Main\n\n" + 'import Direction\n' +
         "export fun turn(d: Direction): Direction =\n" +
-        "    match d\n" +
+        "    match d with\n" +
         "        North => East\n" +
         "        _ => Direction.North\n"],
     ])).toEqual(["no bare `East`; write `Direction.East`"]);
@@ -1109,7 +1109,7 @@ describe("Pattern Matching §15 (o) — the door, and the absence of its express
       ["/main.hex",
         "module Main\n\n" + 'import Direction\n' +
         "export fun turn(d: Direction): Int =\n" +
-        "    match d\n" +
+        "    match d with\n" +
         "        North => 1\n" +
         "        East => 2\n" +
         "        South => 3\n"],
@@ -1149,7 +1149,7 @@ describe("Pattern Matching §15 (o) — the door, and the absence of its express
     const files = [
       ["/main.hex",
         "module Main\n\n" + "export fun sign(a: Int, b: Int): Int =\n" +
-        "    match a.compare(b)\n" +
+        "    match a.compare(b) with\n" +
         "        Less => -1\n" +
         "        Equal => 0\n" +
         "        Greater => 1\n" +
@@ -1181,7 +1181,7 @@ describe("Pattern Matching §15 (o2) — scope first, module-wide", () => {
         "module Main\n\n" + 'import Direction\n' +
         "union Compass = North | South\n" +
         "export fun h(d: Direction): Int =\n" +
-        "    match d\n" +
+        "    match d with\n" +
         "        North => 1\n" +
         "        _ => 0\n"],
     ])).toEqual([
@@ -1197,7 +1197,7 @@ describe("Pattern Matching §15 (o2) — scope first, module-wide", () => {
         "module Main\n\n" + 'import Direction\n' +
         "union Compass = North | South\n" +
         "export fun h(d: Direction): Int =\n" +
-        "    match d\n" +
+        "    match d with\n" +
         "        Direction.North => 1\n" +
         "        _ => 0\n"],
     ])).toEqual([]);
@@ -1218,7 +1218,7 @@ describe("Pattern Matching §15 (o2) — scope first, module-wide", () => {
         "module Main\n\n" + 'import H\n' +
         "record Box = {n: Int}\n" +
         "export fun f(): Int =\n" +
-        "    match H.mk()\n" +
+        "    match H.mk() with\n" +
         "        Box({n = 0}) => 1\n"],
     ])).toEqual([
       "`Box` here is this module's `Box`; this pattern matches a `H.Box` — " +
@@ -1235,7 +1235,7 @@ describe("Pattern Matching §15 (o2) — scope first, module-wide", () => {
         "module Main\n\n" + 'import H\n' +
         "record Box = {n: Int}\n" +
         "export fun f(): Int =\n" +
-        "    match H.mk()\n" +
+        "    match H.mk() with\n" +
         "        H.Box({n = 0}) => 1\n" +
         "        _ => 0\n"],
     ])).toEqual([]);
@@ -1255,7 +1255,7 @@ describe("Pattern Matching §15 (o2) — scope first, module-wide", () => {
         "module Main\n\n" + 'import H\n' +
         'import Other as Box\n' +
         "export fun f(): Int =\n" +
-        "    match H.mk()\n" +
+        "    match H.mk() with\n" +
         "        Box({q = 0}) => 1\n"],
     ])).toEqual([
       "`Box` here is `Box.Box`; this pattern matches a `H.Box` — " +
@@ -1280,7 +1280,7 @@ describe("Pattern Matching §15 (o2) — scope first, module-wide", () => {
         "module Main\n\n" + 'import Mid\n' +
         "union Compass = North | South\n" +
         "export fun f(): Int =\n" +
-        "    match Mid.get()\n" +
+        "    match Mid.get() with\n" +
         "        North => 1\n" +
         "        _ => 0\n"],
     ])).toEqual([
@@ -1302,7 +1302,7 @@ describe("Pattern Matching §15 (o2) — scope first, module-wide", () => {
         'import Direction\n' +
         "union Compass = North | South\n" +
         "export fun f(): Int =\n" +
-        "    match Mid.get()\n" +
+        "    match Mid.get() with\n" +
         "        Direction.North => 1\n" +
         "        _ => 0\n"],
     ])).toEqual([]);
@@ -1318,7 +1318,7 @@ describe("Pattern Matching §15 (o2) — scope first, module-wide", () => {
         "module Main\n\n" + 'import Mid\n' +
         "union Compass = North(m: Int) | South\n" +
         "export fun f(): Int =\n" +
-        "    match Mid.get()\n" +
+        "    match Mid.get() with\n" +
         "        North(n) => n\n" +
         "        _ => 0\n"],
     ])).toEqual([
@@ -1345,7 +1345,7 @@ describe("Pattern Matching §15 (o2) — scope first, module-wide", () => {
         "module Main\n\n" + 'import Mid\n' +
         "record Box = {n: Int}\n" +
         "export fun f(): Int =\n" +
-        "    match Mid.get()\n" +
+        "    match Mid.get() with\n" +
         "        Box({n}) => n\n"],
     ])).toEqual([
       "`Box` here is this module's `Box`; this pattern matches a `Lib.Box` — " +
@@ -1365,7 +1365,7 @@ describe("Pattern Matching §15 (o2) — scope first, module-wide", () => {
         'import Lib\n' +
         "record Box = {n: Int}\n" +
         "export fun f(): Int =\n" +
-        "    match Mid.get()\n" +
+        "    match Mid.get() with\n" +
         "        Lib.Box({n}) => n\n"],
     ])).toEqual([]);
   });
@@ -1380,7 +1380,7 @@ describe("Pattern Matching §15 (o2) — scope first, module-wide", () => {
         "module Main\n\n" + 'import Mid\n' +
         "record Box = {n: Int}\n" +
         "export fun f(): Int =\n" +
-        "    match Mid.get()\n" +
+        "    match Mid.get() with\n" +
         "        Box({n}) => n\n"],
     ])[0] ?? "";
     expect(reported).not.toContain("— write `Box(");
@@ -1398,7 +1398,7 @@ describe("Pattern Matching §15 (o2) — scope first, module-wide", () => {
         "module Main\n\n" + 'import Mid\n' +
         "union Compass = North | South\n" +
         "export fun f(): Int =\n" +
-        "    match Mid.get()\n" +
+        "    match Mid.get() with\n" +
         "        North => 1\n" +
         "        _ => 0\n"],
     ])[0] ?? "";
@@ -1416,7 +1416,7 @@ describe("Pattern Matching §15 (o2) — scope first, module-wide", () => {
         "module Main\n\n" + 'import H\n' +
         "record Box = {n: Int}\n" +
         "export fun f(): Int =\n" +
-        "    match H.mk()\n" +
+        "    match H.mk() with\n" +
         "        Box({n = 0}) => 1\n"],
     ])).toEqual([
       "cannot destructure opaque record `Box`; " +
@@ -1433,7 +1433,7 @@ describe("Pattern Matching §15 (o2) — scope first, module-wide", () => {
         "module Main\n\n" + 'import H\n' +
         "union Mine = Tag(n: Int)\n" +
         "export fun f(): Int =\n" +
-        "    match H.mk()\n" +
+        "    match H.mk() with\n" +
         "        Tag(n) => n\n"],
     ])).toEqual([
       "cannot destructure opaque union `Tag`; " +
@@ -1452,7 +1452,7 @@ describe("Pattern Matching §15 (o2) — scope first, module-wide", () => {
         "module Main\n\n" + 'import H\n' +
         "record Box = {n: Int}\n" +
         "export fun f(): Int =\n" +
-        "    match H.mk()\n" +
+        "    match H.mk() with\n" +
         "        Box({n = 0}) => 1\n"],
     ])).toEqual(["type mismatch: expected Crate, found Box"]);
   });
@@ -1467,7 +1467,7 @@ describe("Pattern Matching §15 (o2) — scope first, module-wide", () => {
         "module Main\n\n" + 'import Direction\n' +
         "union Compass = Up | Down\n" +
         "export fun h(d: Direction): Int =\n" +
-        "    match d\n" +
+        "    match d with\n" +
         "        Up => 1\n" +
         "        _ => 0\n"],
     ])).toEqual(["type mismatch: expected Direction, found Compass"]);
@@ -1479,7 +1479,7 @@ describe("Pattern Matching §15 (o2) — scope first, module-wide", () => {
       ["/main.hex",
         "module Main\n\n" + 'import Direction\n' +
         "export fun h(d: Direction): Int =\n" +
-        "    match d\n" +
+        "    match d with\n" +
         "        North => 1\n" +
         "        _ => 0\n" +
         "union Compass = North | South\n"],
@@ -1492,7 +1492,7 @@ describe("Pattern Matching §15 (o2) — scope first, module-wide", () => {
       ["/main.hex",
         "module Main\n\n" + 'import Direction\n' +
         "export fun h(d: Direction): Int =\n" +
-        "    match d\n" +
+        "    match d with\n" +
         "        Nort => 1\n" +
         "        _ => 0\n"],
     ])).toEqual(["`Direction` has no constructor `Nort`; did you mean `North`?"]);
@@ -1514,7 +1514,7 @@ describe("Pattern Matching §15 (p) — nested, from declarations", () => {
         "module Main\n\n" + 'import Pair\n' +
         'import Direction\n' +
         "export fun same(p: Pair): Bool =\n" +
-        "    match p\n" +
+        "    match p with\n" +
         "        Pair({first = North, second = North}) => True\n" +
         "        _ => False\n" +
         "export let both: Bool =\n" +
@@ -1573,7 +1573,7 @@ describe("Pattern Matching §15 (p2) — the lambda-parameter seat, one-sided", 
       ["/main.hex",
         "module Main\n\n" + 'import Direction\n' +
         "export let b: Int =\n" +
-        "    match None\n" +
+        "    match None with\n" +
         "        Some(East) => 2\n" +
         "        Some(Direction.North) => 1\n" +
         "        _ => 0\n"],
@@ -1589,7 +1589,7 @@ describe("Pattern Matching §15 (p2) — the lambda-parameter seat, one-sided", 
       ["/main.hex",
         "module Main\n\n" + 'import Pair as Pairs\n' +
         "export fun firstOf(p: Pairs.Pair): Int =\n" +
-        "    match p\n" +
+        "    match p with\n" +
         "        Pair({first, second}) => first\n"],
     ])).toEqual([]);
   });
@@ -1601,7 +1601,7 @@ describe("Pattern Matching §15 (p2) — the lambda-parameter seat, one-sided", 
         "module Main\n\n" + 'import Pair as Pairs\n' +
         "export fun total(ps: Vector(Pairs.Pair)): Int =\n" +
         "    var sum = 0\n" +
-        "    for Pair({first, second}) in ps\n" +
+        "    for Pair({first, second}) in ps do\n" +
         "        sum := sum + first\n" +
         "    sum\n"],
     ])).toEqual([]);
@@ -1615,7 +1615,7 @@ describe("Pattern Matching §15 (q) — beneath the top, the slot as it stands",
       ["/main.hex",
         "module Main\n\n" + 'import Direction\n' +
         "export let a: Int =\n" +
-        "    match None\n" +
+        "    match None with\n" +
         "        Some(Direction.North) => 1\n" +
         "        Some(East) => 2\n" +
         "        _ => 0\n"],
@@ -1628,7 +1628,7 @@ describe("Pattern Matching §15 (q) — beneath the top, the slot as it stands",
       ["/main.hex",
         "module Main\n\n" + 'import Direction\n' +
         "export let b: Int =\n" +
-        "    match None\n" +
+        "    match None with\n" +
         "        Some(East) => 2\n" +
         "        Some(Direction.North) => 1\n" +
         "        _ => 0\n"],

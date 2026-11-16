@@ -86,7 +86,7 @@ describe("the standard rows: `toSeq` and the `Item` projection", () => {
   test("Map(k, v) gives the pair (k, v)", async () => {
     expect(await mainOf(
       'export let main(): String = Seq.fold(Iterable.toSeq(Map.fromVector([(1, "a")])), "", (acc, pair) =>\n' +
-        "    match pair\n" +
+        "    match pair with\n" +
         '        (key, value) => acc ++ show(key) ++ value)\n',
     )).toBe("1a");
   });
@@ -207,10 +207,10 @@ describe("the standard rows: `toSeq` and the `Item` projection", () => {
         "export fun main(): Int =\n" +
         '    var text = ""\n' +
         "    var total = 0\n" +
-        "    for (key, value) in table!()\n" +
+        "    for (key, value) in table!() do\n" +
         "        text := text ++ key\n" +
         "        total := total + value\n" +
-        "    for flag in flags!()\n" +
+        "    for flag in flags!() do\n" +
         "        total := total + flag\n" +
         "    total + Seq.length(String.toSeq(text))\n",
     ]])).toEqual([]);
@@ -224,7 +224,7 @@ describe("the standard rows: `toSeq` and the `Item` projection", () => {
         "\n" +
         "export fun main(): String =\n" +
         '    var text = ""\n' +
-        "    for key in table!()\n" +
+        "    for key in table!() do\n" +
         "        text := text ++ key\n" +
         "    text\n",
     ]]).join("\n")).toContain("type mismatch");
@@ -241,7 +241,7 @@ describe("the standard rows: `toSeq` and the `Item` projection", () => {
       "/main.hex",
       "module Main\n\n" + "export let main(): Int =\n" +
         "    var total = 0\n" +
-        "    for n in [1, 2, 3]\n" +
+        "    for n in [1, 2, 3] do\n" +
         "        total := total + n\n" +
         "    total\n",
     ]]);
@@ -324,7 +324,7 @@ describe("the `for p in e` failure taxonomy (Part 5 §3.2/§3.3)", () => {
         "module Main\n\n" + 'import Bag\n' +
           "let bag: Bag(Int) = Bag.Empty\n" +
           "export fun run(): Unit =\n" +
-          "    for item in bag\n" +
+          "    for item in bag do\n" +
           "        ()\n",
       ],
     ])).toContain(
@@ -346,7 +346,7 @@ describe("the `for p in e` failure taxonomy (Part 5 §3.2/§3.3)", () => {
       "import Bag\n" +
       "let bag: Bag(Int) = Bag.Empty\n" +
       "export fun run(): Unit =\n" +
-      "    for item in bag\n" +
+      "    for item in bag do\n" +
       "        ()\n";
 
     expect(messagesOf([
@@ -367,7 +367,7 @@ describe("the `for p in e` failure taxonomy (Part 5 §3.2/§3.3)", () => {
         "module Bag\n\n" + BAG +
           "let bag: Bag(Int) = Empty\n" +
           "export fun run(): Unit =\n" +
-          "    for item in bag\n" +
+          "    for item in bag do\n" +
           "        ()\n",
       ],
     ]).join("\n")).toContain(
@@ -390,7 +390,7 @@ describe("the `for p in e` failure taxonomy (Part 5 §3.2/§3.3)", () => {
         "module Main\n\n" + 'import Pair\n' +
           'let pair: Pair(Int, String) = Pair({first = 1, second = "a"})\n' +
           "export fun run(): Unit =\n" +
-          "    for item in pair\n" +
+          "    for item in pair do\n" +
           "        ()\n",
       ],
     ]).join("\n");
@@ -409,7 +409,7 @@ describe("the `for p in e` failure taxonomy (Part 5 §3.2/§3.3)", () => {
         "module Main\n\n" + 'import Widget\n' +
           "let widget: Widget = Widget({size = 1})\n" +
           "export fun run(): Unit =\n" +
-          "    for item in widget\n" +
+          "    for item in widget do\n" +
           "        ()\n",
       ],
     ]).join("\n")).toContain(
@@ -436,7 +436,7 @@ describe("the `for p in e` failure taxonomy (Part 5 §3.2/§3.3)", () => {
       ["/app/src/main.hex",
         "module Main\n\n" + 'import Middle\n' +
           "export fun run(): Unit =\n" +
-          "    for item in Middle.make()\n" +
+          "    for item in Middle.make() do\n" +
           "        ()\n",
       ],
     ]).join("\n")).toContain(
@@ -453,7 +453,7 @@ describe("the `for p in e` failure taxonomy (Part 5 §3.2/§3.3)", () => {
   test("a prelude union keeps the generic requirement failure", () => {
     const messages = projectDiagnostics("module Main\n\n" + "let maybe: Option(Int) = Some(1)\n" +
         "export fun run(): Unit =\n" +
-        "    for item in maybe\n" +
+        "    for item in maybe do\n" +
         "        ()\n",
     );
     expect(messages).toContain(
@@ -475,7 +475,7 @@ describe("the `for p in e` failure taxonomy (Part 5 §3.2/§3.3)", () => {
    */
   test("a rigid declared variable and an unsolved one get different messages", () => {
     expect(projectDiagnostics("module Main\n\n" + "export fun visit(items: c): Unit =\n" +
-        "    for item in items\n" +
+        "    for item in items do\n" +
         "        ()\n",
     )).toContain(
       "`items` has the generic type `c`, and `Iterable` declares an implied type and cannot " +
@@ -485,7 +485,7 @@ describe("the `for p in e` failure taxonomy (Part 5 §3.2/§3.3)", () => {
     // An unsolved one is no failure at all: its head waits for its owner's close,
     // and a head nothing established is `Seq` (Part 5 §3.1 step 2, §3.5; #1118).
     expect(projectDiagnostics("module Main\n\n" + "let visit = (items) =>\n" +
-        "    for item in items\n" +
+        "    for item in items do\n" +
         "        ()\n",
     )).toEqual([]);
   });
@@ -500,7 +500,7 @@ describe("the `for p in e` failure taxonomy (Part 5 §3.2/§3.3)", () => {
    */
   test("a concrete non-nominal type keeps its own report", () => {
     const messages = projectDiagnostics("module Main\n\n" + "export fun run(): Unit =\n" +
-        "    for item in 42\n" +
+        "    for item in 42 do\n" +
         "        ()\n",
     );
     expect(messages).toContain(
@@ -578,7 +578,7 @@ describe("an orphan row on a filled slot draws one report (Part 5 §7.3, #1131)"
         "    toSeq(bag) = Vector.toSeq(bag.items)\n" +
         "export let main(): Int =\n" +
         "    var total = 0\n" +
-        "    for n in Bag({items = [1, 2, 3]})\n" +
+        "    for n in Bag({items = [1, 2, 3]}) do\n" +
         "        total := total + n\n" +
         "    total\n",
     )).toBe(6);

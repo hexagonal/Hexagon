@@ -93,28 +93,28 @@ const ORDERS: readonly (readonly [string, string, string, readonly string[], rea
   [
     "F1-for-float",
     FLOAT,
-    "let f() =\n    for x in [1, 2, 3]\n        {0}\n        {1}\n    ()",
+    "let f() =\n    for x in [1, 2, 3] do\n        {0}\n        {1}\n    ()",
     ["ignore(x.show())", "useFloat(x)"],
     [],
   ],
   [
     "F2-for-checked",
     FLOAT,
-    "let f() =\n    for x in [1, 2, 3]\n        {0}\n        {1}\n    ()",
+    "let f() =\n    for x in [1, 2, 3] do\n        {0}\n        {1}\n    ()",
     ["ignore(x.checkedAdd(1))", "useFloat(x)"],
     [],
   ],
   [
     "F3-for-nat",
     NAT,
-    "let f() =\n    for x in [1, 2, 3]\n        {0}\n        {1}\n    ()",
+    "let f() =\n    for x in [1, 2, 3] do\n        {0}\n        {1}\n    ()",
     ["ignore(x.show())", "useNat(x)"],
     ["type mismatch: expected Nat, found Int"],
   ],
   [
     "F4-for-floor",
     FLOAT,
-    "let f() =\n    for x in [1, 2, 3]\n        {0}\n        {1}\n    ()",
+    "let f() =\n    for x in [1, 2, 3] do\n        {0}\n        {1}\n    ()",
     ["ignore(x.floor())", "useFloat(x)"],
     ["`Int` has no field `floor`, its companion exports no operation `floor`, and no constraint whose instance at `Int` is visible in this module has a subject-first member `floor`; call an available subject-first function explicitly"],
   ],
@@ -122,14 +122,14 @@ const ORDERS: readonly (readonly [string, string, string, readonly string[], rea
     "O1-holder-loop",
     "",
     "let f() =\n    var xs = Vector.empty\n    {0}\n    {1}\n    {2}\n    ()",
-    ["xs := xs.append(1)", "for x in xs\n        ignore(x.show())", "xs := xs.append(2.5)"],
+    ["xs := xs.append(1)", "for x in xs do\n        ignore(x.show())", "xs := xs.append(2.5)"],
     ["the program's text does not decide `x`'s type here, so `.show(…)` cannot tell whose `show` it is — write `x`'s type, or call the operation by its module (`Module.show(x, …)`); a record's field is called as `(x.show)(…)`"],
   ],
   [
     "O2-holder-bare",
     "",
     "let f() =\n    var xs = Vector.empty\n    {0}\n    {1}\n    {2}\n    ()",
-    ["xs := xs.append(1)", "for x in xs\n        ignore(show(x))", "xs := xs.append(2.5)"],
+    ["xs := xs.append(1)", "for x in xs do\n        ignore(show(x))", "xs := xs.append(2.5)"],
     [],
   ],
   [
@@ -150,7 +150,7 @@ const ORDERS: readonly (readonly [string, string, string, readonly string[], rea
     "O5-param-vector",
     FLOAT,
     "let f(p) =\n    {0}\n    {1}\n    ()",
-    ["for x in [p, 1]\n        ignore(x.show())", "useFloat(p)"],
+    ["for x in [p, 1] do\n        ignore(x.show())", "useFloat(p)"],
     ["the program's text does not decide `x`'s type here, so `.show(…)` cannot tell whose `show` it is — write `x`'s type, or call the operation by its module (`Module.show(x, …)`); a record's field is called as `(x.show)(…)`"],
   ],
   [
@@ -163,14 +163,14 @@ const ORDERS: readonly (readonly [string, string, string, readonly string[], rea
   [
     "M1-match-float",
     FLOAT,
-    "let f() =\n    match (1, 2)\n        (a, b) =>\n            {0}\n            {1}\n    ()",
+    "let f() =\n    match (1, 2) with\n        (a, b) =>\n            {0}\n            {1}\n    ()",
     ["ignore(a.show())", "useFloat(a)"],
     [],
   ],
   [
     "M2-match-nat",
     NAT,
-    "let f() =\n    match (1, 2)\n        (a, b) =>\n            {0}\n            {1}\n    ()",
+    "let f() =\n    match (1, 2) with\n        (a, b) =>\n            {0}\n            {1}\n    ()",
     ["ignore(a.show())", "useNat(a)"],
     ["type mismatch: expected Nat, found Int"],
   ],
@@ -259,9 +259,9 @@ describe("no order of the lines chooses a number's type (Numeric Literals §4)",
 
 describe("a new name made from a number nothing decided is an `Int` there", () => {
   test("a loop over literals, a `var`, and a `match` arm's parts read an `Int`", () => {
-    compiles("let f(): Unit =\n    for x in [1, 2, 3]\n        Debug.log(x.show())\n");
+    compiles("let f(): Unit =\n    for x in [1, 2, 3] do\n        Debug.log(x.show())\n");
     compiles("let f(): String =\n    var n = 42\n    n.show()\n");
-    compiles("let f(): String =\n    match (1, 2)\n        (a, b) => a.show()\n");
+    compiles("let f(): String =\n    match (1, 2) with\n        (a, b) => a.show()\n");
     compiles("let f(): Int =\n    var h = 0x811c9dc5\n    h := h.shiftLeft(1)\n    h\n");
   });
 
@@ -274,7 +274,7 @@ describe("a new name made from a number nothing decided is an `Int` there", () =
     );
     // The same for what a loop variable holds.
     compiles(
-      NAT + "\nlet f(): Unit =\n    for x in Vector.empty\n        let a = x + 1\n        var z = x\n        useNat(x)\n",
+      NAT + "\nlet f(): Unit =\n    for x in Vector.empty do\n        let a = x + 1\n        var z = x\n        useNat(x)\n",
     );
   });
 
@@ -285,21 +285,21 @@ describe("a new name made from a number nothing decided is an `Int` there", () =
 
   test("its later lines cannot choose another number type; its written type is the spelling", () => {
     const sum = (initializer: string): string =>
-      `let f(xs: Vector(Float)): Unit =\n    var sum${initializer}\n    for x in xs\n        sum := sum + x\n`;
+      `let f(xs: Vector(Float)): Unit =\n    var sum${initializer}\n    for x in xs do\n        sum := sum + x\n`;
     expect(projectDiagnostics(HEADER + sum(" = 0"))).toEqual([
       "`x` is a `Float` and cannot enter `Int`, so the addition could not run at `Int`",
     ]);
     compiles(sum(" = 0.0"));
     compiles(sum(": Float = 0"));
-    const loop = (source: string): string => NAT + `\nlet f(): Unit =\n    for i in ${source}\n        useNat(i)\n`;
+    const loop = (source: string): string => NAT + `\nlet f(): Unit =\n    for i in ${source} do\n        useNat(i)\n`;
     expect(projectDiagnostics(HEADER + loop("[1, 2, 3]"))).toEqual(["type mismatch: expected Nat, found Int"]);
     compiles(loop("([1, 2, 3]: Vector(Nat))"));
     expect(projectDiagnostics(HEADER + NAT + "\nlet f(): Unit =\n    var x = 5\n    useNat(x)\n"))
       .toEqual(["type mismatch: expected Nat, found Int"]);
     compiles(NAT + "\nlet f(): Unit =\n    var x: Nat = 5\n    useNat(x)\n");
-    expect(projectDiagnostics(HEADER + NAT + "\nlet f(): Unit =\n    match 3\n        n => useNat(n)\n"))
+    expect(projectDiagnostics(HEADER + NAT + "\nlet f(): Unit =\n    match 3 with\n        n => useNat(n)\n"))
       .toEqual(["type mismatch: expected Nat, found Int"]);
-    compiles(NAT + "\nlet f(): Unit =\n    match (3: Nat)\n        n => useNat(n)\n");
+    compiles(NAT + "\nlet f(): Unit =\n    match (3: Nat) with\n        n => useNat(n)\n");
     expect(projectDiagnostics(HEADER + ZERO + "\nlet f(): Unit =\n    var t = zero()\n    t := t + 1.5\n")).toEqual([
       "an operand of type `Float` cannot enter `Int`, so the addition could not run at `Int`",
     ]);
@@ -318,7 +318,7 @@ describe("a new name made from a number nothing decided is an `Int` there", () =
 
 describe("a `match` defaults only what an arm names", () => {
   test("a part no arm binds is left to the patterns", () => {
-    compiles("let f(): String =\n    match (1, \"s\")\n        (1.5, s) => s\n        (_, s) => s\n");
+    compiles("let f(): String =\n    match (1, \"s\") with\n        (1.5, s) => s\n        (_, s) => s\n");
   });
 });
 
@@ -333,7 +333,7 @@ describe("a recursive function's result is its name's, not a new name's", () => 
   for (
     const made of [
       "var s = g(k + 1) + 1",
-      "for x in [g(k + 1) + 1]\n        ignore(x)",
+      "for x in [g(k + 1) + 1] do\n        ignore(x)",
       "ignore(Option.map(Some(g(k + 1) + 1), (x) => x))",
     ]
   ) {
@@ -345,7 +345,7 @@ describe("a recursive function's result is its name's, not a new name's", () => 
   }
 
   test("a member of a knot of two, in either member order", () => {
-    const a = "a(k: Int): Int =\n        for x in [b(k)]\n            ignore(takesNat(x))\n        0";
+    const a = "a(k: Int): Int =\n        for x in [b(k)] do\n            ignore(takesNat(x))\n        0";
     const b = "b(k: Int) = if k > 9 then 0 else (if a(k + 1) == 0 then 1 else 2)";
     const members = (order: readonly string[]): readonly string[] =>
       projectDiagnostics(HEADER + "let takesNat(n: Nat): Int = 0\nfun\n" + order.map((m) => `    ${m}\n`).join(""));
@@ -362,7 +362,7 @@ describe("a lambda is a box: a number reaching only its input is an `Int` before
 
   test("a number inside the input decides the input whole", () => {
     compiles(
-      "let f(): Option(Int) = Some([1, 2]).map((xs) =>\n    for v in xs\n        Debug.log(v.show())\n    0)\n",
+      "let f(): Option(Int) = Some([1, 2]).map((xs) =>\n    for v in xs do\n        Debug.log(v.show())\n    0)\n",
     );
   });
 
@@ -424,20 +424,20 @@ describe("the report points to where the number became an `Int`, and says what t
   };
 
   test("a `var`", () => {
-    expect(labels("let f(xs: Vector(Float)): Unit =\n    var sum = 0\n    for x in xs\n        sum := sum + x\n")).toEqual([
+    expect(labels("let f(xs: Vector(Float)): Unit =\n    var sum = 0\n    for x in xs do\n        sum := sum + x\n")).toEqual([
       "[sum] `sum` became an `Int` here: the `var` made it from a number nothing had decided — write `var sum: Float`",
     ]);
   });
 
   test("a loop", () => {
-    expect(labels(NAT + "\nlet f(): Unit =\n    for i in [1, 2, 3]\n        useNat(i)\n")).toEqual([
+    expect(labels(NAT + "\nlet f(): Unit =\n    for i in [1, 2, 3] do\n        useNat(i)\n")).toEqual([
       "[[1, 2, 3]] `i` became an `Int` here: the loop made it from a number nothing had decided — " +
         "write `([1, 2, 3]: Vector(Nat))`",
     ]);
   });
 
   test("a `match` arm", () => {
-    expect(labels(NAT + "\nlet f(): Unit =\n    match 3\n        n => useNat(n)\n")).toEqual([
+    expect(labels(NAT + "\nlet f(): Unit =\n    match 3 with\n        n => useNat(n)\n")).toEqual([
       "[3] an arm's name became an `Int` here: the `match` made it from a number nothing had decided — " +
         "write `(3: Nat)`",
     ]);
@@ -450,23 +450,23 @@ describe("the report points to where the number became an `Int`, and says what t
   });
 
   test("the type to write is the whole type of what was made, as this site spells it", () => {
-    expect(labels(NAT + "\nlet f(): Unit =\n    var v = [0]\n    for x in v\n        useNat(x)\n")).toEqual([
+    expect(labels(NAT + "\nlet f(): Unit =\n    var v = [0]\n    for x in v do\n        useNat(x)\n")).toEqual([
       "[v] `v` became an `Int` here: the `var` made it from a number nothing had decided — write `var v: Vector(Nat)`",
     ]);
-    compiles(NAT + "\nlet f(): Unit =\n    var v: Vector(Nat) = [0]\n    for x in v\n        useNat(x)\n");
-    expect(labels(NAT + "\nlet f(): Unit =\n    match (1, 2)\n        (a, b) => useNat(a)\n")).toEqual([
+    compiles(NAT + "\nlet f(): Unit =\n    var v: Vector(Nat) = [0]\n    for x in v do\n        useNat(x)\n");
+    expect(labels(NAT + "\nlet f(): Unit =\n    match (1, 2) with\n        (a, b) => useNat(a)\n")).toEqual([
       "[(1, 2)] an arm's name became an `Int` here: the `match` made it from a number nothing had decided — " +
         "write `((1, 2): (Nat, Int))`",
     ]);
-    compiles(NAT + "\nlet f(): Unit =\n    match ((1, 2): (Nat, Int))\n        (a, b) => useNat(a)\n");
+    compiles(NAT + "\nlet f(): Unit =\n    match ((1, 2): (Nat, Int)) with\n        (a, b) => useNat(a)\n");
     // The empty tuple's type is written `Unit` (Products §2.7): `()` in type notation is a parameter list.
-    expect(labels(NAT + "\nlet f(): Option(Unit) = Some((1, ())).map((p) => match p\n    (a, u) => useNat(a))\n")).toEqual([
+    expect(labels(NAT + "\nlet f(): Option(Unit) = Some((1, ())).map((p) => match p with\n    (a, u) => useNat(a))\n")).toEqual([
       "[p] `p` became an `Int` here: the number reached only the lambda's input — write `(p: (Nat, Unit))`",
     ]);
-    compiles(NAT + "\nlet f(): Option(Unit) = Some((1, ())).map((p: (Nat, Unit)) => match p\n    (a, u) => useNat(a))\n");
+    compiles(NAT + "\nlet f(): Option(Unit) = Some((1, ())).map((p: (Nat, Unit)) => match p with\n    (a, u) => useNat(a))\n");
     // Where a declaration takes the name, the site has no spelling for the empty tuple's type.
     expect(labels(
-      "union Unit = | U\nlet useNat(v: Nat): Int = 1\nlet f(): Option(Int) = Some((1, ())).map((p) => match p\n    (a, u) => useNat(a))\n",
+      "union Unit = | U\nlet useNat(v: Nat): Int = 1\nlet f(): Option(Int) = Some((1, ())).map((p) => match p with\n    (a, u) => useNat(a))\n",
     )).toEqual(["[p] `p` became an `Int` here: the number reached only the lambda's input — write its type here"]);
   });
 

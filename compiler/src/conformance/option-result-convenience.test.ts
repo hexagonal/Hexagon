@@ -76,19 +76,19 @@ describe("Option convenience operations", () => {
   test("map and flatMap cover both branches and preserve the flattening boundary", async () => {
     const main = await runMain(`module Main
 
-export let mappedSome: String = match Option.map(Some(3), _ => "changed")
+export let mappedSome: String = match Option.map(Some(3), _ => "changed") with
     Some(value) => value
     None => "missing"
-export let mappedNone: String = match Option.map(None, (_: Int) => "wrong")
+export let mappedNone: String = match Option.map(None, (_: Int) => "wrong") with
     Some(value) => value
     None => "missing"
-export let nested: Int = match Option.map(Some(3), value => Some(value + 1))
+export let nested: Int = match Option.map(Some(3), value => Some(value + 1)) with
     Some(Some(value)) => value
     _ => 0
-export let flattened: Int = match Option.flatMap(Some(3), value => Some(value + 2))
+export let flattened: Int = match Option.flatMap(Some(3), value => Some(value + 2)) with
     Some(value) => value
     None => 0
-export let flatNone: Int = match Option.flatMap(None, (value: Int) => Some(value + 2))
+export let flatNone: Int = match Option.flatMap(None, (value: Int) => Some(value + 2)) with
     Some(value) => value
     None => 0
 `);
@@ -140,7 +140,7 @@ export let afterFlatSkipped: Int = callCount!()
 
 opaque union Secret = Secret(value: Int)
 let reveal(secret: Secret): Int =
-    match secret
+    match secret with
         Secret(value) => value
 let source: Option(Secret) = Some(Secret(4))
 export let qualified: Int = Option.defaultValue(Option.map(source, reveal), 0)
@@ -213,23 +213,23 @@ exception Bad(message: String)
 let ok: Result(Int) = Ok(3)
 let err: Result(Int) = Err(Bad("bad"))
 export let mappedOk: String =
-    match Result.map(ok, _ => "changed")
+    match Result.map(ok, _ => "changed") with
         Ok(value) => value
         Err(_) => "wrong"
 export let mappedErr: String =
-    match Result.map(err, value => value + 1)
+    match Result.map(err, value => value + 1) with
         Ok(_) => "wrong"
         Err(error) => "\${error}"
 export let nested: Int =
-    match Result.map(ok, value => Ok(value + 1))
+    match Result.map(ok, value => Ok(value + 1)) with
         Ok(Ok(value)) => value
         _ => 0
 export let flatOk: Int =
-    match Result.flatMap(ok, value => Ok(value + 2))
+    match Result.flatMap(ok, value => Ok(value + 2)) with
         Ok(value) => value
         Err(_) => 0
 export let flatErr: String =
-    match Result.flatMap(err, value => Ok(value + 2))
+    match Result.flatMap(err, value => Ok(value + 2)) with
         Ok(_) => "wrong"
         Err(error) => "\${error}"
 `);
@@ -377,17 +377,17 @@ describe("callback effects and exceptions", () => {
 export exception Boom
 let explode(_: Int): Int = throw^(Boom)
 
-export let optionSelected: Bool = match attempt Option.map^(Some(1), explode)
+export let optionSelected: Bool = match attempt Option.map^(Some(1), explode) with
     Err(_) => True
     _ => False
-export let optionSkipped: Bool = match attempt Option.map^(None, explode)
+export let optionSkipped: Bool = match attempt Option.map^(None, explode) with
     Ok(None) => True
     _ => False
-export let resultSelected: Bool = match attempt Result.map^(Ok(1), explode)
+export let resultSelected: Bool = match attempt Result.map^(Ok(1), explode) with
     Err(_) => True
     _ => False
 let bad: Result(Int) = Err(Boom)
-export let resultSkipped: Bool = match attempt Result.map^(bad, explode)
+export let resultSkipped: Bool = match attempt Result.map^(bad, explode) with
     Ok(Err(_)) => True
     _ => False
 `);
@@ -541,17 +541,17 @@ describe("the conversions between Option and Result, and the predicates", () => 
 exception Missing
 let ok: Result(Int) = Ok(3)
 let err: Result(Int) = Err(Missing)
-export let okOption: Int = match ok.toOption()
+export let okOption: Int = match ok.toOption() with
     Some(value) => value
     None => 0
 export let errOption: Bool = err.toOption().isNone()
-export let someResult: Int = match Some(4).toResult(() => Missing)
+export let someResult: Int = match Some(4).toResult(() => Missing) with
     Ok(value) => value
     Err(_) => 0
-export let noneResult: String = match (None: Option(Int)).toResult(() => Missing)
+export let noneResult: String = match (None: Option(Int)).toResult(() => Missing) with
     Ok(_) => "ok"
     Err(error) => "\${error}"
-export let roundTrip: Int = match Some(5).toResult(() => Missing).toOption()
+export let roundTrip: Int = match Some(5).toResult(() => Missing).toOption() with
     Some(value) => value
     None => 0
 `);
@@ -601,10 +601,10 @@ describe("flatten removes one layer (§2, §3)", () => {
     const main = await runMain(`module Main
 
 exception Missing
-let shown(o: Option(Int)): String = match o
+let shown(o: Option(Int)): String = match o with
     Some(value) => "Some(\${value})"
     None => "None"
-let told(r: Result(Int)): String = match r
+let told(r: Result(Int)): String = match r with
     Ok(value) => "Ok(\${value})"
     Err(error) => "Err(\${error})"
 let lone: Option(Int) = None

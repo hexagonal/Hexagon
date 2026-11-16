@@ -29,7 +29,7 @@ extern from "hex:intrinsic"
     -- per value, the first time it is asked for.
     fun jsErrorReadName as readName(error: JsValue) -> JsValue
 
-let readString(value: JsValue): String = match value.toString?()
+let readString(value: JsValue): String = match value.toString?() with
     Some(text) => text
     None => ""
 
@@ -40,7 +40,7 @@ let joined(name: String, message: String): String =
     else if message == "" then name
     else name ++ ": " ++ message
 
-let describe(value: JsValue): String = match value.kind()
+let describe(value: JsValue): String = match value.kind() with
     JsKind.Object | JsKind.Array | JsKind.Function =>
         joined(readString(readName(value)), JsError.message(value))
     _ => JsError.message(value)

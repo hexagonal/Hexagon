@@ -109,7 +109,7 @@ describe("term-binding body blocks", () => {
       "union Shade =\n" +
         "    | Light\n" +
         "    | Dark\n" +
-        "let name(shade: Shade): Int = match shade\n" +
+        "let name(shade: Shade): Int = match shade with\n" +
         "    Light => 1\n" +
         "    Dark => 2\n" +
         "export let out: Int = name(Dark)\n",

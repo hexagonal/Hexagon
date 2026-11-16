@@ -88,12 +88,12 @@ const BUILDERS =
   "fun appendBuild(n: Int): Vector(Int) = Vector.fromSeq(Seq.iterate(1, x => x + 1).take(n))\n" +
   "fun prependBuild(n: Int): Vector(Int) =\n" +
   "    var acc: Vector(Int) = []\n" +
-  "    for i in 1..n\n" +
+  "    for i in 1..n do\n" +
   "        acc := Vector.prepend(acc, n - i + 1)\n" +
   "    acc\n" +
   "fun weaveBuild(n: Int): Vector(Int) =\n" +
   "    var acc: Vector(Int) = []\n" +
-  "    for i in 1..n\n" +
+  "    for i in 1..n do\n" +
   "        acc := if Int.mod(i, 2) == 0 then Vector.append(acc, i) else Vector.prepend(acc, i)\n" +
   "    acc\n";
 
@@ -220,8 +220,8 @@ describe("Vector specification conformance", () => {
       BUILDERS +
         "export let cat: Bool = ([1, 2] ++ [3, 4]) == [1, 2, 3, 4]\n" +
         "export let catBig: Bool = (appendBuild(1000) ++ appendBuild(56)) == (appendBuild(1000) ++ appendBuild(56))\n" +
-        "export let restHead: Int = match appendBuild(33)\n    [x, ...rest] => x\n    [] => 0\n" +
-        "export let restRestSize: Int = match appendBuild(33)\n    [x, ...rest] => Vector.length(rest)\n    [] => 0\n" +
+        "export let restHead: Int = match appendBuild(33) with\n    [x, ...rest] => x\n    [] => 0\n" +
+        "export let restRestSize: Int = match appendBuild(33) with\n    [x, ...rest] => Vector.length(rest)\n    [] => 0\n" +
         "export let shown: String = \"${[1, 2, 3]}\"\n",
     );
     expect(m.cat).toBe(true);
@@ -270,11 +270,11 @@ const COMPANION_MAIN =
   'import Vector\n' +
   "let three: Vector(Int) = [1, 2, 3]\n" +
   "let none: Vector(Int) = []\n" +
-  "export let firstFull: Int = match Vector.first(three)\n    Some(v) => v\n    None => 0 - 1\n" +
-  "export let firstEmpty: Int = match Vector.first(none)\n    Some(v) => v\n    None => 0 - 1\n" +
-  "export let lastFull: Int = match Vector.last(three)\n    Some(v) => v\n    None => 0 - 1\n" +
-  "export let getIn: Int = match Vector.get(three, 2)\n    Some(v) => v\n    None => 0 - 1\n" +
-  "export let getOut: Int = match Vector.get(three, 9)\n    Some(v) => v\n    None => 0 - 1\n" +
+  "export let firstFull: Int = match Vector.first(three) with\n    Some(v) => v\n    None => 0 - 1\n" +
+  "export let firstEmpty: Int = match Vector.first(none) with\n    Some(v) => v\n    None => 0 - 1\n" +
+  "export let lastFull: Int = match Vector.last(three) with\n    Some(v) => v\n    None => 0 - 1\n" +
+  "export let getIn: Int = match Vector.get(three, 2) with\n    Some(v) => v\n    None => 0 - 1\n" +
+  "export let getOut: Int = match Vector.get(three, 9) with\n    Some(v) => v\n    None => 0 - 1\n" +
   "export let dropF: Bool = Vector.dropFirst(three) == [2, 3]\n" +
   "export let dropL: Bool = Vector.dropLast(three) == [1, 2]\n" +
   "export let single: Bool = Vector.singleton(7) == [7]\n";

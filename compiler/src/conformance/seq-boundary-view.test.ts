@@ -599,9 +599,9 @@ describe("§9.4 channel separation: internal traversal never uses the face", () 
         "\n" +
         "export let sumTwice(ignored: Int): Int =\n" +
         "    var sum = 0\n" +
-        "    for value in counted\n" +
+        "    for value in counted do\n" +
         "        sum := sum + value\n" +
-        "    for value in counted\n" +
+        "    for value in counted do\n" +
         "        sum := sum + value\n" +
         "    sum\n" +
         "\n" +
@@ -631,7 +631,7 @@ describe("§9.4 channel separation: internal traversal never uses the face", () 
         "/main.hex",
         "module Main\n\n" + "export let total(source: Seq(Int)): Int =\n" +
         "    var sum = 0\n" +
-        "    for value in source\n" +
+        "    for value in source do\n" +
         "        sum := sum + value\n" +
         "    sum\n",
       ),
@@ -666,7 +666,7 @@ describe("occasion 1's wrapper is transparent to Hexagon importers (§9.4)", () 
     const exports = await run([
       ["/lib.hex",
         "module Lib\n\n" + "export let firstOf(source: Seq(Int)): Option(Int) =\n" +
-        "    match Seq.next(source)\n" +
+        "    match Seq.next(source) with\n" +
         "        None => None\n" +
         "        Some((value, _)) => Some(value)\n" +
         "\n" +

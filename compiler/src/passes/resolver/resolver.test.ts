@@ -222,7 +222,7 @@ describe("resolve", () => {
   test("gives for-pattern binders a loop-local head scope", () => {
     const module = resolveSource(
       "let number = 99\n" +
-        "for number in 1..3\n" +
+        "for number in 1..3 do\n" +
         "    number\n" +
         "number",
     );

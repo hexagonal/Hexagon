@@ -86,7 +86,7 @@ export let isEmpty(map: Map(k, v)): Bool = size(map) == 0
 
 {-- Whether `map` binds `key`. -}
 export let containsKey<k: Hash>(map: Map(k, v), key: k): Bool =
-    match get(map, key)
+    match get(map, key) with
         None => False
         Some(_) => True
 
@@ -141,21 +141,21 @@ export let fromVector<k: Hash>(pairs: Vector((k, v))): Map(k, v) =
     entries out. Throws `DuplicateKeyFault`, once every callback has run, when two
     returned keys are equal. -}
 export let map<j: Hash>(m: Map(k, v), transform: ((k, v)) ->! (j, w)): Map(j, w) =
-    match remap!(m, transform)
+    match remap!(m, transform) with
         None => throw(DuplicateKeyFault)
         Some(remapped) => remapped
 
 {-- Whether some entry of `m` satisfies `matches`. It stops at the first that
     does. -}
 export let any(m: Map(k, v), matches: ((k, v)) ->! Bool): Bool =
-    match find!(m, matches)
+    match find!(m, matches) with
         None => False
         Some(_) => True
 
 {-- Whether every entry of `m` satisfies `matches`, which the empty map does. It
     stops at the first that does not. -}
 export let all(m: Map(k, v), matches: ((k, v)) ->! Bool): Bool =
-    match find!(m, (entry) => not matches!(entry))
+    match find!(m, (entry) => not matches!(entry)) with
         None => True
         Some(_) => False
 
@@ -174,9 +174,9 @@ export let all(m: Map(k, v), matches: ((k, v)) ->! Bool): Bool =
 -- One step of `maxBy`: the ranked entry replaces the best unless the best's
 -- key is greater.
 let laterBy<c: Ord>(best: Option((c, (k, v))), ranked: (c, (k, v))): Option((c, (k, v))) =
-    match (best, ranked)
+    match (best, ranked) with
         (Some((keptKey, _)), (rankedKey, _)) =>
-            match Ord.compare(keptKey, rankedKey)
+            match Ord.compare(keptKey, rankedKey) with
                 Greater => best
                 _ => Some(ranked)
         _ => Some(ranked)
@@ -184,14 +184,14 @@ let laterBy<c: Ord>(best: Option((c, (k, v))), ranked: (c, (k, v))): Option((c, 
 -- One step of `minBy`: the ranked entry replaces the best only when the best's
 -- key is greater.
 let earlierBy<c: Ord>(best: Option((c, (k, v))), ranked: (c, (k, v))): Option((c, (k, v))) =
-    match (best, ranked)
+    match (best, ranked) with
         (Some((keptKey, _)), (rankedKey, _)) =>
-            match Ord.compare(keptKey, rankedKey)
+            match Ord.compare(keptKey, rankedKey) with
                 Greater => Some(ranked)
                 _ => best
         _ => Some(ranked)
 
-let unranked(best: Option((c, (k, v)))): Option((k, v)) = match best
+let unranked(best: Option((c, (k, v)))): Option((k, v)) = match best with
     Some((_, entry)) => Some(entry)
     None => None
 
@@ -199,8 +199,8 @@ let unranked(best: Option((c, (k, v)))): Option((k, v)) = match best
     and of entries it ranks equal, the last in traversal order. `compare` runs
     once for each entry after the first, as `compare(best, entry)`. -}
 export let maxUsing(m: Map(k, v), compare: ((k, v), (k, v)) ->! Ordering): Option((k, v)) =
-    fold!(m, None, (best: Option((k, v)), entry: (k, v)) => match best
-        Some(kept) => match compare!(kept, entry)
+    fold!(m, None, (best: Option((k, v)), entry: (k, v)) => match best with
+        Some(kept) => match compare!(kept, entry) with
             Greater => best
             _ => Some(entry)
         None => Some(entry))
@@ -209,8 +209,8 @@ export let maxUsing(m: Map(k, v), compare: ((k, v), (k, v)) ->! Ordering): Optio
     and of entries it ranks equal, the first in traversal order. `compare` runs
     once for each entry after the first, as `compare(best, entry)`. -}
 export let minUsing(m: Map(k, v), compare: ((k, v), (k, v)) ->! Ordering): Option((k, v)) =
-    fold!(m, None, (best: Option((k, v)), entry: (k, v)) => match best
-        Some(kept) => match compare!(kept, entry)
+    fold!(m, None, (best: Option((k, v)), entry: (k, v)) => match best with
+        Some(kept) => match compare!(kept, entry) with
             Greater => Some(entry)
             _ => best
         None => Some(entry))

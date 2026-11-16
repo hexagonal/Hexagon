@@ -129,15 +129,15 @@ describe("Seq construction and the §6.2 protocol", () => {
   test("empty pulls None; singleton and prepend pull one element then empty", async () => {
     const m = await run(
       IMPORT +
-        "export let emptyIsNone: Bool = match Seq.next(Seq.empty)\n    None => True\n    Some(_) => False\n" +
-        "export let singleHead: Int = match Seq.next(Seq.singleton(7))\n" +
+        "export let emptyIsNone: Bool = match Seq.next(Seq.empty) with\n    None => True\n    Some(_) => False\n" +
+        "export let singleHead: Int = match Seq.next(Seq.singleton(7)) with\n" +
         "    None => 0 - 1\n" +
         "    Some(pulled) =>\n        let (value, _) = pulled\n        value\n" +
-        "export let singleTailEmpty: Bool = match Seq.next(Seq.singleton(7))\n" +
+        "export let singleTailEmpty: Bool = match Seq.next(Seq.singleton(7)) with\n" +
         "    None => False\n" +
         "    Some(pulled) =>\n        let (_, rest) = pulled\n" +
-        "        match Seq.next(rest)\n            None => True\n            Some(_) => False\n" +
-        "export let prependHead: Int = match Seq.next(Seq.prepend(Seq.singleton(2), 1))\n" +
+        "        match Seq.next(rest) with\n            None => True\n            Some(_) => False\n" +
+        "export let prependHead: Int = match Seq.next(Seq.prepend(Seq.singleton(2), 1)) with\n" +
         "    None => 0 - 1\n" +
         "    Some(pulled) =>\n        let (value, _) = pulled\n        value\n" +
         "export let prependLength: Int = Seq.length(Seq.prepend(Seq.singleton(2), 1))\n",
@@ -272,13 +272,13 @@ describe("Seq while-pull combinators", () => {
     const m = await run(
       IMPORT +
         NATURALS +
-        "export let deepFilter: Int = match Seq.next(Seq.filter(naturals, x => x >= 50000))\n" +
+        "export let deepFilter: Int = match Seq.next(Seq.filter(naturals, x => x >= 50000)) with\n" +
         "    None => 0 - 1\n" +
         "    Some(pulled) =>\n        let (value, _) = pulled\n        value\n" +
-        "export let deepDropWhile: Int = match Seq.next(Seq.dropWhile(naturals, x => x < 50000))\n" +
+        "export let deepDropWhile: Int = match Seq.next(Seq.dropWhile(naturals, x => x < 50000)) with\n" +
         "    None => 0 - 1\n" +
         "    Some(pulled) =>\n        let (value, _) = pulled\n        value\n" +
-        "export let deepDrop: Int = match Seq.next(Seq.drop(naturals, 50000))\n" +
+        "export let deepDrop: Int = match Seq.next(Seq.drop(naturals, 50000)) with\n" +
         "    None => 0 - 1\n" +
         "    Some(pulled) =>\n        let (value, _) = pulled\n        value\n" +
         "export let deepFlatMap: Int = Seq.length(Seq.flatMap(Seq.take(naturals, 50000), x => Seq.empty))\n",
@@ -302,8 +302,8 @@ describe("Seq consumers", () => {
         "export let foldEmpty: Int = Seq.fold(Seq.empty, 99, (total, value) => total + value)\n" +
         "export let counted: Int = Seq.length(five)\n" +
         "export let countedEmpty: Int = Seq.length(Seq.empty)\n" +
-        "export let found: Int = match Seq.find(naturals, x => x > 3)\n    None => 0 - 1\n    Some(value) => value\n" +
-        "export let findMisses: Bool = match Seq.find(five, x => x > 99)\n    None => True\n    Some(_) => False\n" +
+        "export let found: Int = match Seq.find(naturals, x => x > 3) with\n    None => 0 - 1\n    Some(value) => value\n" +
+        "export let findMisses: Bool = match Seq.find(five, x => x > 99) with\n    None => True\n    Some(_) => False\n" +
         "export let anyTrue: Bool = Seq.any(five, x => x == 3)\n" +
         "export let anyFalse: Bool = Seq.any(five, x => x == 99)\n" +
         "export let allTrue: Bool = Seq.all(five, x => x < 99)\n" +
@@ -332,7 +332,7 @@ describe("Seq consumers", () => {
     const m = await run(
       IMPORT +
         NATURALS +
-        "export let foundEarly: Int = match Seq.find(naturals, x => x == 7)\n" +
+        "export let foundEarly: Int = match Seq.find(naturals, x => x == 7) with\n" +
         "    None => 0 - 1\n    Some(value) => value\n" +
         "export let anyEarly: Bool = Seq.any(naturals, x => x == 7)\n" +
         "export let allStopsEarly: Bool = Seq.all(naturals, x => x < 7)\n",
@@ -360,7 +360,7 @@ describe("Seq persistence", () => {
         "let firstSum = Seq.fold(odds, 0, (total, value) => total + value)\n" +
         "export let replaySum: Bool = firstSum == Seq.fold(odds, 0, (total, value) => total + value)\n" +
         // a tail taken from a partial drive is independent of the parent
-        "export let tailIndependent: Bool = match Seq.next(five)\n" +
+        "export let tailIndependent: Bool = match Seq.next(five) with\n" +
         "    None => False\n" +
         "    Some(pulled) =>\n        let (_, rest) = pulled\n" +
         "        Seq.length(rest) == 4 and Seq.length(five) == 5\n",

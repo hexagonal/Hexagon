@@ -76,7 +76,7 @@ extern from "hex:intrinsic"
 -- fallback. `JsValue.toString` is the strict decoder, so nothing here coerces:
 -- a `.message` holding `42` is not `"42"`.
 
-let readString(value: JsValue): String = match value.toString?()
+let readString(value: JsValue): String = match value.toString?() with
     Some(text) => text
     None => ""
 
@@ -92,7 +92,7 @@ let readOption(value: JsValue): Option(String) = value.toString?()
     escapes: this function describes a failure and must not manufacture one.
     The `.message` is read once, the first time it is asked for, and kept, so
     every call for the same value gives the same answer, and a call is pure. -}
-export let message(error: JsValue): String = match error.kind()
+export let message(error: JsValue): String = match error.kind() with
     JsKind.Object | JsKind.Array | JsKind.Function => readString(readMessage(error))
     _ => render(error)
 
@@ -104,6 +104,6 @@ export let message(error: JsValue): String = match error.kind()
     Conservative in the same way `message` is: a throwing read is swallowed, not
     propagated. The `.stack` is read once, the first time it is asked for, and
     kept, as `message`'s is, so a call is pure. -}
-export let stack(error: JsValue): Option(String) = match error.kind()
+export let stack(error: JsValue): Option(String) = match error.kind() with
     JsKind.Object | JsKind.Array | JsKind.Function => readOption(readStack(error))
     _ => None

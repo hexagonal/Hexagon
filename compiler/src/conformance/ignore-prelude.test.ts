@@ -449,7 +449,7 @@ describe("§3.2's fixit now names a rewrite the language accepts (#313)", () => 
     // site: a loop body whose final expression produces a value.
     expect(diagnostics(
       audit + 'export let go(): Unit =\n' +
-      '    for value in 1..3\n' +
+      '    for value in 1..3 do\n' +
       '        audit("loop")\n',
     )).toEqual([
       "the final expression of a loop body produces a value that is discarded " +
@@ -457,7 +457,7 @@ describe("§3.2's fixit now names a rewrite the language accepts (#313)", () => 
     ]);
     expect(diagnostics(
       audit + 'export let go(): Unit =\n' +
-      '    for value in 1..3\n' +
+      '    for value in 1..3 do\n' +
       '        ignore(audit("loop"))\n',
     )).toEqual([]);
   });
@@ -511,7 +511,7 @@ describe("the book's `ignore` examples compile (ch.1, 3, 6, 7, 17)", () => {
   test("ch.17's loop example — #313's discovery site", () => {
     expect(diagnostics(
       "export let consume(source: Seq(a)): Unit =\n" +
-      "    for item in source\n" +
+      "    for item in source do\n" +
       "        item |> ignore\n",
     )).toEqual([]);
   });

@@ -115,8 +115,8 @@ describe("§14.1 the crossing accepts what a single-pass source is", () => {
       "    let stream: Stream(Int) = readings!()\n" +
       "    var seen = Vector.empty\n" +
       "    var pulling = True\n" +
-      "    while pulling\n" +
-      "        match Stream.next!(stream)\n" +
+      "    while pulling do\n" +
+      "        match Stream.next!(stream) with\n" +
       "            None => pulling := False\n" +
       "            Some(value) => seen := Vector.append(seen, value)\n" +
       "    seen\n",
@@ -248,7 +248,7 @@ describe("§14.1 the absences: nothing is manufactured, memoized, or strengthene
       "let stream: Stream(Int) = readings!()\n" +
       "\n" +
       "export let pull(ignored: Int): Int =\n" +
-      "    match Stream.next!(stream)\n" +
+      "    match Stream.next!(stream) with\n" +
       "        None => 0\n" +
       "        Some(value) => value\n",
       {
@@ -288,7 +288,7 @@ describe("§14.1 the absences: nothing is manufactured, memoized, or strengthene
       "let stream: Stream(Int) = readings!()\n" +
       "\n" +
       "export let pull(ignored: Int): Int =\n" +
-      "    match Stream.next!(stream)\n" +
+      "    match Stream.next!(stream) with\n" +
       "        None => 0\n" +
       "        Some(value) => value\n",
       {
@@ -335,7 +335,7 @@ describe("§14.1 the absences: nothing is manufactured, memoized, or strengthene
       "\n" +
       "export let pull(ignored: Int): String =\n" +
       "    try\n" +
-      "        match Stream.next!(stream)\n" +
+      "        match Stream.next!(stream) with\n" +
       "            None => \"none\"\n" +
       "            Some(value) => Int.show(value)\n" +
       "    catch\n" +
@@ -366,7 +366,7 @@ describe("§14.1 the absences: nothing is manufactured, memoized, or strengthene
       "    fun readings() ->! Stream(Int)\n" +
       "\n" +
       "export let pull(ignored: Int): Int =\n" +
-      "    match Stream.next!(readings!())\n" +
+      "    match Stream.next!(readings!()) with\n" +
       "        None => 0\n" +
       "        Some(value) => value\n",
       {

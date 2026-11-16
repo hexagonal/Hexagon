@@ -473,7 +473,7 @@ describe("the widened table costs the rest of the module nothing", () => {
       ["/main.hex",
         "module Main\n\n" + "import { Boom } from \"./lib\"\n" +
         "export fun f(e: Exn): Int =\n" +
-        "    match e\n" +
+        "    match e with\n" +
         "        Boom(c) => c\n"],
     ]).diagnostics.map(({ message }) => message)).toContain(
       "match requires a closed type; exceptions are inspected with `try`/`catch`",

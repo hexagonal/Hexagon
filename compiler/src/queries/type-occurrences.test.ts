@@ -22,7 +22,7 @@ describe("collectTypeOccurrences", () => {
       "let selected = numbers.map(number => number + 1)\n" +
       "let qualifiedRound = Float.roundAway(2.5)\n" +
       "let dottedRound = 2.5.roundAway()\n" +
-      "for item in selected\n" +
+      "for item in selected do\n" +
       "    Debug.log(\"${item}\")\n";
     // Through `compileProject`, because `Seq(a)` is a prelude declaration now
     // (Loops §6.6) and the passes called directly cannot see the prelude.

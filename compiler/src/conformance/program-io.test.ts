@@ -114,7 +114,7 @@ export let input(): String = Stdio.readText~()
 const FILE_PROGRAM = `module Main
 import File
 
-let reasonOf(reason: File.FileErrorReason): String = match reason
+let reasonOf(reason: File.FileErrorReason): String = match reason with
     File.NotFound => "NotFound"
     File.PermissionDenied => "PermissionDenied"
     File.IsDirectory => "IsDirectory"

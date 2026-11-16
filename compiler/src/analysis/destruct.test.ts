@@ -52,13 +52,13 @@ function destructed(text: string, n = 1): { readonly text: string; readonly diag
 
 describe("destruct on a `match` with no arms", () => {
   test("one arm per case of the subject's type, in declaration order", () => {
-    const text = program("export let area(s: Shape): Float =", "    match s", "export let one: Int = 1");
+    const text = program("export let area(s: Shape): Float =", "    match s with", "export let one: Int = 1");
     expect(repairs(text).map(({ title, kind, preferred }) => ({ title, kind, preferred })))
       .toEqual([{ title: "Add the 3 arms", kind: "quickfix", preferred: undefined }]);
     expect(destructed(text)).toEqual({
       text: program(
         "export let area(s: Shape): Float =",
-        "    match s",
+        "    match s with",
         "        Circle(_) => Debug.todo(\"Circle(_)\")",
         "        Square(_) => Debug.todo(\"Square(_)\")",
         "        Tri(_, _) => Debug.todo(\"Tri(_, _)\")",
@@ -69,7 +69,7 @@ describe("destruct on a `match` with no arms", () => {
   });
 
   test("its stand-ins selected in turn", () => {
-    const text = program("export let area(s: Shape): Float =", "    match s");
+    const text = program("export let area(s: Shape): Float =", "    match s with");
     expect(repairs(text)[0]?.edits.map(({ snippet }) => snippet?.text)).toEqual([
       "        Circle(_) => ${1:Debug.todo(\"Circle(_)\")}\n" +
       "        Square(_) => ${2:Debug.todo(\"Square(_)\")}\n" +
@@ -93,10 +93,10 @@ describe("destruct on a `match` with no arms", () => {
   });
 
   test("one step in from where the `match`'s line begins, below its comments", () => {
-    const text = program("export let area(s: Shape): Float = match s -- to do", "export let one: Int = 1");
+    const text = program("export let area(s: Shape): Float = match s with -- to do", "export let one: Int = 1");
     expect(destructed(text)).toEqual({
       text: program(
-        "export let area(s: Shape): Float = match s -- to do",
+        "export let area(s: Shape): Float = match s with -- to do",
         "    Circle(_) => Debug.todo(\"Circle(_)\")",
         "    Square(_) => Debug.todo(\"Square(_)\")",
         "    Tri(_, _) => Debug.todo(\"Tri(_, _)\")",
@@ -107,11 +107,11 @@ describe("destruct on a `match` with no arms", () => {
   });
 
   test("nested cases are the type's own: `Bool`, `Option`", () => {
-    const text = program("export let f(o: Option(Bool)): Int =", "    match o");
+    const text = program("export let f(o: Option(Bool)): Int =", "    match o with");
     expect(destructed(text)).toEqual({
       text: program(
         "export let f(o: Option(Bool)): Int =",
-        "    match o",
+        "    match o with",
         "        Some(_) => Debug.todo(\"Some(_)\")",
         "        None => Debug.todo(\"None\")",
       ),
@@ -120,10 +120,10 @@ describe("destruct on a `match` with no arms", () => {
   });
 
   test("with the file's line ending", () => {
-    const text = program("export let area(s: Shape): Float =", "    match s", "export let one: Int = 1").replaceAll("\n", "\r\n");
+    const text = program("export let area(s: Shape): Float =", "    match s with", "export let one: Int = 1").replaceAll("\n", "\r\n");
     expect(destructed(text).text).toBe(program(
       "export let area(s: Shape): Float =",
-      "    match s",
+      "    match s with",
       "        Circle(_) => Debug.todo(\"Circle(_)\")",
       "        Square(_) => Debug.todo(\"Square(_)\")",
       "        Tri(_, _) => Debug.todo(\"Tri(_, _)\")",
@@ -132,23 +132,23 @@ describe("destruct on a `match` with no arms", () => {
   });
 
   test("one case: the arm", () => {
-    const text = program("export union One = Only(n: Int)", "export let f(o: One): Int =", "    match o");
+    const text = program("export union One = Only(n: Int)", "export let f(o: One): Int =", "    match o with");
     expect(repairs(text).map(({ title }) => title)).toEqual(["Add the arm"]);
   });
 
   test("each empty `match` its own arms, below it", () => {
     const text = program(
       "export let f(s: Shape): Float =",
-      "    match s",
+      "    match s with",
       "export let g(b: Bool): Int =",
-      "    match b",
+      "    match b with",
       "export let one: Int = 1",
     );
     const [second, ...others] = repairs(text, {}, 2);
     expect(others).toEqual([]);
     expect(second?.title).toBe("Add the 2 arms");
     expect(second && applied(text, second)).toContain(
-      "    match b\n        False => Debug.todo(\"False\")\n        True => Debug.todo(\"True\")\nexport let one",
+      "    match b with\n        False => Debug.todo(\"False\")\n        True => Debug.todo(\"True\")\nexport let one",
     );
   });
 
@@ -160,7 +160,7 @@ describe("destruct on a `match` with no arms", () => {
       "    name(value: a) -> String",
       "honor Named<Shape> =",
       "export let f(s: Shape): Float =",
-      "    match s",
+      "    match s with",
       "",
     ].join("\n");
     expect(reports(text)).toEqual([
@@ -171,7 +171,7 @@ describe("destruct on a `match` with no arms", () => {
   });
 
   test("an error at the token that ends the line stays its own", () => {
-    const text = program("export let f(s: Shape): Float =", "    match s", "\"oops");
+    const text = program("export let f(s: Shape): Float =", "    match s with", "\"oops");
     expect(reports(text)).toEqual([
       "3:4 expected an indented block of match arms",
       "4:0 unterminated string literal",
@@ -181,7 +181,7 @@ describe("destruct on a `match` with no arms", () => {
   test("arms written at the `match`'s own column are read as its block's", () => {
     // A line there that reads as an arm, a `=>` outside brackets before any
     // `=`, is one written a step short, not a line of its own.
-    const short = program("export let f(s: Shape): Float =", "    match s", "    Circle(_) => 1.0", "    _ => 2.0");
+    const short = program("export let f(s: Shape): Float =", "    match s with", "    Circle(_) => 1.0", "    _ => 2.0");
     expect(reports(short)).toEqual([
       "4:4 expected an indented block of match arms",
       "4:4 expected an indented block",
@@ -209,23 +209,23 @@ describe("destruct on a `match` with no arms", () => {
     for (
       const lines of [
         // The next arm of an enclosing `match`, in both of the head's forms.
-        ["export let f(o: Option(Shape)): Float =", "    match o", "        Some(s) => match s", "        None => 0.0"],
+        ["export let f(o: Option(Shape)): Float =", "    match o with", "        Some(s) => match s with", "        None => 0.0"],
         [
           "export let f(o: Option(Bool)): Shape -> Float =",
-          "    match o",
+          "    match o with",
           "        Some(b) => match",
           "        None => (s: Shape) => 0.0",
         ],
         // A lambda the block ends with.
-        ["export let f(s: Shape): Float -> Float =", "    let base = match s", "    (y: Float) => y + base"],
+        ["export let f(s: Shape): Float -> Float =", "    let base = match s with", "    (y: Float) => y + base"],
         // Below a `match` that begins its item.
-        ["export let f(s: Shape): Float =", "    match s", "    ((y: Float) => y)(1.0)"],
-        ["export let f(s: Shape): Float =", "    match s", "    let h = (y: Float) => y", "    h(1.0)"],
+        ["export let f(s: Shape): Float =", "    match s with", "    ((y: Float) => y)(1.0)"],
+        ["export let f(s: Shape): Float =", "    match s with", "    let h = (y: Float) => y", "    h(1.0)"],
         [
           "let run(g: () -> Float): Float = g()",
           "export let f(s: Shape): Float =",
           "    run(() =>",
-          "        match s",
+          "        match s with",
           "        1.0) |> ((y: Float) => y)",
         ],
       ]
@@ -238,31 +238,31 @@ describe("destruct on a `match` with no arms", () => {
   });
 
   test("not on a vector's lengths, a case this module cannot spell, or where `Debug` is not the prelude's", () => {
-    expect(repairs(program("export let f(v: Vector(Int)): Int =", "    match v"))).toEqual([]);
+    expect(repairs(program("export let f(v: Vector(Int)): Int =", "    match v with"))).toEqual([]);
     const flags = {
       "/flags.hex": "module Flags\n\nexport union Flag = On | Off\n",
       "/b.hex": "module B\n\nimport Flags as F\nexport fun make(): F.Flag = F.On\n",
     };
-    const routed = ["module Main", "import B", "union Local = Off | Other", "export fun f(): Int =", "    match B.make()", ""]
+    const routed = ["module Main", "import B", "union Local = Off | Other", "export fun f(): Int =", "    match B.make() with", ""]
       .join("\n");
     expect(repairs(routed, flags)).toEqual([]);
     const own = { "/Debug.hex": "module Debug\nexport let todo(what: String): Int = 0\n" };
-    const debug = ["module Main", "import Debug", SHAPE, "export let f(s: Shape): Int =", "    match s", ""].join("\n");
+    const debug = ["module Main", "import Debug", SHAPE, "export let f(s: Shape): Int =", "    match s with", ""].join("\n");
     expect(session({ ...own, "/main.hex": debug }).diagnostics("/main.hex").map(({ message }) => message))
       .toEqual(["expected an indented block of match arms"]);
     expect(repairs(debug, own)).toEqual([]);
   });
 
   test("not where there are no cases to name, or the file was not read as written", () => {
-    expect(repairs(program("export let f(n: Int): Int =", "    match n"))).toEqual([]);
-    expect(repairs(program("export let f(p: { x: Int }): Int =", "    match p"))).toEqual([]);
-    expect(repairs(program("export record Point = { x: Int, y: Int }", "export let f(p: Point): Int =", "    match p")))
+    expect(repairs(program("export let f(n: Int): Int =", "    match n with"))).toEqual([]);
+    expect(repairs(program("export let f(p: { x: Int }): Int =", "    match p with"))).toEqual([]);
+    expect(repairs(program("export record Point = { x: Int, y: Int }", "export let f(p: Point): Int =", "    match p with")))
       .toEqual([]);
-    expect(repairs(program("export let area(s: Shape): Float =", "    match s", ")"))).toEqual([]);
-    expect(repairs(program("module Debug", "export let area(s: Shape): Float =", "    match s"))).toEqual([]);
+    expect(repairs(program("export let area(s: Shape): Float =", "    match s with", ")"))).toEqual([]);
+    expect(repairs(program("module Debug", "export let area(s: Shape): Float =", "    match s with"))).toEqual([]);
     // A block comment opened after the subject runs onto the next line, and
     // would hold arms written at the end of the `match`'s line.
-    const comment = program("export let area(s: Shape): Float =", "    match s {- to do:", "       later -}");
+    const comment = program("export let area(s: Shape): Float =", "    match s with {- to do:", "       later -}");
     expect(reports(comment)).toEqual(["3:4 expected an indented block of match arms"]);
     expect(repairs(comment)).toEqual([]);
   });
@@ -298,7 +298,7 @@ describe("destruct on a variable or `_` in an arm's pattern", () => {
     const text = program(
       "let area(s: Shape): Float = 1.0",
       "export let f(o: Option(Shape)): Float =",
-      "    match o",
+      "    match o with",
       "        Some(s) => area(s)",
       "        None => 0.0",
     );
@@ -307,7 +307,7 @@ describe("destruct on a variable or `_` in an arm's pattern", () => {
       text: program(
         "let area(s: Shape): Float = 1.0",
         "export let f(o: Option(Shape)): Float =",
-        "    match o",
+        "    match o with",
         "        Some(Circle(_) as s) => area(s)",
         "        Some(Square(_) as s) => area(s)",
         "        Some(Tri(_, _) as s) => area(s)",
@@ -321,7 +321,7 @@ describe("destruct on a variable or `_` in an arm's pattern", () => {
     const text = program(
       "let area(s: Shape): Float = 1.0",
       "export let f(o: Option(Shape), big: Bool): Float =",
-      "    match o",
+      "    match o with",
       "        Some(Circle(_)) => 0.0",
       "        Some(s) when big => area(s)",
       "        _ => 2.0",
@@ -331,7 +331,7 @@ describe("destruct on a variable or `_` in an arm's pattern", () => {
       text: program(
         "let area(s: Shape): Float = 1.0",
         "export let f(o: Option(Shape), big: Bool): Float =",
-        "    match o",
+        "    match o with",
         "        Some(Circle(_)) => 0.0",
         "        Some(Square(_) as s) when big => area(s)",
         "        Some(Tri(_, _) as s) when big => area(s)",
@@ -344,7 +344,7 @@ describe("destruct on a variable or `_` in an arm's pattern", () => {
   test("a guarded arm above leaves its cases reaching", () => {
     const text = program(
       "export let f(o: Option(Shape), big: Bool): Float =",
-      "    match o",
+      "    match o with",
       "        Some(Circle(_)) when big => 0.0",
       "        Some(_) => 1.0",
       "        None => 2.0",
@@ -355,7 +355,7 @@ describe("destruct on a variable or `_` in an arm's pattern", () => {
   test("one case left reaching: the variable written as it", () => {
     const text = program(
       "export let f(s: Shape): Float =",
-      "    match s",
+      "    match s with",
       "        Circle(_) => 0.0",
       "        Square(_) => 1.0",
       "        other => 2.0",
@@ -364,7 +364,7 @@ describe("destruct on a variable or `_` in an arm's pattern", () => {
       title: "Write `other` as `Tri(_, _)`",
       text: program(
         "export let f(s: Shape): Float =",
-        "    match s",
+        "    match s with",
         "        Circle(_) => 0.0",
         "        Square(_) => 1.0",
         "        Tri(_, _) => 2.0",
@@ -376,7 +376,7 @@ describe("destruct on a variable or `_` in an arm's pattern", () => {
   test("a `_` splits with no `as`, and its parts split in turn", () => {
     const text = program(
       "export let f(o: Option(Option(Bool))): Int =",
-      "    match o",
+      "    match o with",
       "        Some(_) => 1",
       "        None => 0",
     );
@@ -385,7 +385,7 @@ describe("destruct on a variable or `_` in an arm's pattern", () => {
       title: "Split `_` into 2 arms",
       text: program(
         "export let f(o: Option(Option(Bool))): Int =",
-        "    match o",
+        "    match o with",
         "        Some(Some(_)) => 1",
         "        Some(None) => 1",
         "        None => 0",
@@ -394,7 +394,7 @@ describe("destruct on a variable or `_` in an arm's pattern", () => {
     });
     expect(split(once.text, "_").text).toBe(program(
       "export let f(o: Option(Option(Bool))): Int =",
-      "    match o",
+      "    match o with",
       "        Some(Some(False)) => 1",
       "        Some(Some(True)) => 1",
       "        Some(None) => 1",
@@ -406,7 +406,7 @@ describe("destruct on a variable or `_` in an arm's pattern", () => {
     const text = program(
       "let area(s: Shape): Float = 1.0",
       "export let f(pair: (Shape, Int)): Float =",
-      "    match pair",
+      "    match pair with",
       "        (s, n) =>",
       "            let k = area(s)",
       "            k",
@@ -414,7 +414,7 @@ describe("destruct on a variable or `_` in an arm's pattern", () => {
     expect(split(text, "s, n)").text).toBe(program(
       "let area(s: Shape): Float = 1.0",
       "export let f(pair: (Shape, Int)): Float =",
-      "    match pair",
+      "    match pair with",
       "        (Circle(_) as s, n) =>",
       "            let k = area(s)",
       "            k",
@@ -428,14 +428,14 @@ describe("destruct on a variable or `_` in an arm's pattern", () => {
     const whole = program(
       "let area(s: Shape): Float = 1.0",
       "export let f(pair: (Shape, Int)): Float =",
-      "    match pair",
+      "    match pair with",
       "        p => 1.0",
     );
     expect(split(whole, "p =>")).toMatchObject({ title: "Write `p` as `(_, _)`", diagnostics: [] });
     const used = program(
       "let area(s: Shape): Float = 1.0",
       "export let f(v: Vector(Shape)): Float =",
-      "    match v",
+      "    match v with",
       "        [s] => area(s)",
       "        _ => 0.0",
     );
@@ -444,7 +444,7 @@ describe("destruct on a variable or `_` in an arm's pattern", () => {
     const root = program(
       "let area(s: Shape): Float = 1.0",
       "export let f(s: Shape): Float =",
-      "    match s",
+      "    match s with",
       "        other => area(other)",
     );
     expect(split(root, "other =>")).toMatchObject({ title: "Split `other` into 3 arms", diagnostics: [] });
@@ -458,7 +458,7 @@ describe("destruct on a variable or `_` in an arm's pattern", () => {
       "export record Tile = { shape: Shape, n: Int }",
       "let area(s: Shape): Float = 1.0",
       "export let f(t: Tile): Float =",
-      "    match t",
+      "    match t with",
       "        Tile({ shape, n }) => area(shape)",
       "",
     ].join("\n");
@@ -494,14 +494,14 @@ describe("destruct on a variable or `_` in an arm's pattern", () => {
   test("an unused variable is written as its case alone, one under `as` keeps it", () => {
     const text = program(
       "export let f(o: Option(Bool)): Bool =",
-      "    match o",
+      "    match o with",
       "        Some(b) => True",
       "        None => False",
     );
     expect(split(text, "b)").text).toContain("        Some(False) => True\n        Some(True) => True\n");
     const named = program(
       "export let f(o: Option(Bool)): Option(Bool) =",
-      "    match o",
+      "    match o with",
       "        Some(b as inner) => if b then Some(inner) else None",
       "        None => None",
     );
@@ -509,7 +509,7 @@ describe("destruct on a variable or `_` in an arm's pattern", () => {
       title: "Split `b` into 2 arms",
       text: program(
         "export let f(o: Option(Bool)): Option(Bool) =",
-        "    match o",
+        "    match o with",
         "        Some((False as b) as inner) => if b then Some(inner) else None",
         "        Some((True as b) as inner) => if b then Some(inner) else None",
         "        None => None",
@@ -522,7 +522,7 @@ describe("destruct on a variable or `_` in an arm's pattern", () => {
     const text = program(
       "let round(s: Shape): Bool = True",
       "export let f(o: Option(Shape)): Int =",
-      "    match o",
+      "    match o with",
       "        Some(s) when round(s) => 1",
       "        _ => 0",
     );
@@ -531,7 +531,7 @@ describe("destruct on a variable or `_` in an arm's pattern", () => {
       text: program(
         "let round(s: Shape): Bool = True",
         "export let f(o: Option(Shape)): Int =",
-        "    match o",
+        "    match o with",
         "        Some(Circle(_) as s) when round(s) => 1",
         "        Some(Square(_) as s) when round(s) => 1",
         "        Some(Tri(_, _) as s) when round(s) => 1",
@@ -547,9 +547,9 @@ describe("destruct on a variable or `_` in an arm's pattern", () => {
       SHAPE,
       "export record Tile = { shape: Shape, n: Int }",
       "export let f(t: Tile, o: Option(Int)): Int =",
-      "    match t",
+      "    match t with",
       "        Tile({ shape = s, n }) => -- the rest",
-      "            match o",
+      "            match o with",
       "                Some(k) => k + n",
       "                None => n",
       "",
@@ -561,17 +561,17 @@ describe("destruct on a variable or `_` in an arm's pattern", () => {
         SHAPE,
         "export record Tile = { shape: Shape, n: Int }",
         "export let f(t: Tile, o: Option(Int)): Int =",
-        "    match t",
+        "    match t with",
         "        Tile({ shape = Circle(_), n }) => -- the rest",
-        "            match o",
+        "            match o with",
         "                Some(k) => k + n",
         "                None => n",
         "        Tile({ shape = Square(_), n }) => -- the rest",
-        "            match o",
+        "            match o with",
         "                Some(k) => k + n",
         "                None => n",
         "        Tile({ shape = Tri(_, _), n }) => -- the rest",
-        "            match o",
+        "            match o with",
         "                Some(k) => k + n",
         "                None => n",
         "",
@@ -583,7 +583,7 @@ describe("destruct on a variable or `_` in an arm's pattern", () => {
   test("with the file's line ending", () => {
     const text = program(
       "export let f(o: Option(Bool)): Int =",
-      "    match o",
+      "    match o with",
       "        Some(_) => 1",
       "        None => 0",
     ).replaceAll("\n", "\r\n");
@@ -591,7 +591,7 @@ describe("destruct on a variable or `_` in an arm's pattern", () => {
       title: "Split `_` into 2 arms",
       text: program(
         "export let f(o: Option(Bool)): Int =",
-        "    match o",
+        "    match o with",
         "        Some(False) => 1",
         "        Some(True) => 1",
         "        None => 0",
@@ -605,7 +605,7 @@ describe("destruct on a variable or `_` in an arm's pattern", () => {
     const ints = program(
       "let area(s: Shape): Float = 1.0",
       "export let f(pair: (Int, Shape)): Float =",
-      "    match pair",
+      "    match pair with",
       "        (_, Circle(_)) => 0.0",
       "        (n, s) => area(s)",
     );
@@ -614,7 +614,7 @@ describe("destruct on a variable or `_` in an arm's pattern", () => {
     const bools = program(
       "let area(s: Shape): Float = 1.0",
       "export let f(pair: (Bool, Shape)): Float =",
-      "    match pair",
+      "    match pair with",
       "        (True, Circle(_)) => 0.0",
       "        (False, Circle(_)) => 0.0",
       "        (b, s) => area(s)",
@@ -624,20 +624,20 @@ describe("destruct on a variable or `_` in an arm's pattern", () => {
   });
 
   test("not where the file was not read as written, or the arm doesn't begin its line", () => {
-    const arms = ["export let f(o: Option(Bool)): Int =", "    match o", "        Some(b) => 1", "        None => 0"];
+    const arms = ["export let f(o: Option(Bool)): Int =", "    match o with", "        Some(b) => 1", "        None => 0"];
     expect(splits(program(...arms), "b)")).toHaveLength(1);
     expect(splits(program(...arms, "export let broken: Int = (1 +"), "b)")).toEqual([]);
-    const shared = program("export let f(o: Option(Bool)): Int =", "    match o", "        None => 0; Some(b) => 1");
+    const shared = program("export let f(o: Option(Bool)): Int =", "    match o with", "        None => 0; Some(b) => 1");
     expect(reports(shared)).toEqual([]);
     expect(splits(shared, "b)")).toEqual([]);
-    expect(splits(program("export let f(o: Option(Bool)): Int =", "    match o", "        None => 0", "        {- b -} Some(b) => 1"), "b)"))
+    expect(splits(program("export let f(o: Option(Bool)): Int =", "    match o with", "        None => 0", "        {- b -} Some(b) => 1"), "b)"))
       .toEqual([]);
   });
 
   test("not on a vector or a case this module cannot spell", () => {
     expect(splits(program(
       "export let f(o: Option(Vector(Int))): Int =",
-      "    match o",
+      "    match o with",
       "        Some(xs) => 1",
       "        None => 0",
     ), "xs)")).toEqual([]);
@@ -650,7 +650,7 @@ describe("destruct on a variable or `_` in an arm's pattern", () => {
       "import B",
       "union Local = Off | Other",
       "export fun f(): Int =",
-      "    match B.make()",
+      "    match B.make() with",
       "        Some(flag) => 1",
       "        None => 0",
       "",
@@ -665,7 +665,7 @@ describe("destruct on a variable or `_` in an arm's pattern", () => {
     // Coverage reads a view as a signature apart from the constructors: arms
     // naming every constructor beside one still miss its cases.
     const refused = (needle: string, subject: string, ...arms: readonly string[]) => {
-      const text = program(...SAME, `export let f(p: ${subject}): Float =`, "    match p", ...arms.map((arm) => `        ${arm}`));
+      const text = program(...SAME, `export let f(p: ${subject}): Float =`, "    match p with", ...arms.map((arm) => `        ${arm}`));
       expect(reports(text)).toEqual([]);
       expect(splits(text, needle)).toEqual([]);
     };
@@ -684,27 +684,27 @@ describe("destruct on a variable or `_` in an arm's pattern", () => {
 
   test("not offered where there are no cases to name, under an or-pattern, or on an unreachable arm", () => {
     const nothing = (text: string, needle: string) => expect(splits(text, needle)).toEqual([]);
-    nothing(program("export let f(n: Int): Int =", "    match n", "        0 => 1", "        k => k"), "k =>");
-    nothing(program("export let f(o: Option(String)): Int =", "    match o", "        Some(s) => 1", "        None => 0"), "s)");
+    nothing(program("export let f(n: Int): Int =", "    match n with", "        0 => 1", "        k => k"), "k =>");
+    nothing(program("export let f(o: Option(String)): Int =", "    match o with", "        Some(s) => 1", "        None => 0"), "s)");
     nothing(program(
       "export record Point = { x: Int, y: Int }",
       "export let f(p: Point): Int =",
-      "    match p",
+      "    match p with",
       "        q => 1",
     ), "q =>");
     nothing(program(
       "export let f(o: Option(Bool)): Int =",
-      "    match o",
+      "    match o with",
       "        Some(b) | None => 1",
     ), "b)");
     nothing(program(
       "export let f(o: Option(Bool)): Int =",
-      "    match o",
+      "    match o with",
       "        _ => 1",
       "        Some(b) => 2",
     ), "b)");
     // Not unasked: nearly every arm has a variable.
-    const text = program("export let f(o: Option(Bool)): Int =", "    match o", "        Some(b) => 1", "        None => 0");
+    const text = program("export let f(o: Option(Bool)): Int =", "    match o with", "        Some(b) => 1", "        None => 0");
     const at = text.indexOf("b)");
     expect(session({ "/main.hex": text }).codeActions("/main.hex", { start: at, end: at })
       .filter(({ title }) => title.startsWith("Split"))).toEqual([]);

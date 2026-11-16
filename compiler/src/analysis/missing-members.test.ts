@@ -308,7 +308,7 @@ describe("where the members go", () => {
     )).text).toContain("    name(p) = \"p\" {- {- nested -} still -}\n    scaled(s, by) = Debug.todo(\"scaled\")\n");
     const text = program(
       "honor Shape<Point> =",
-      "    area(p) = match p.x",
+      "    area(p) = match p.x with",
       "        0 => 0.0",
       "        _ => 1.0",
       "",
@@ -319,7 +319,7 @@ describe("where the members go", () => {
     expect(filled(text)).toEqual({
       text: program(
         "honor Shape<Point> =",
-        "    area(p) = match p.x",
+        "    area(p) = match p.x with",
         "        0 => 0.0",
         "        _ => 1.0",
         "    name(s) = Debug.todo(\"name\")",
@@ -558,7 +558,7 @@ describe("where it is not offered", () => {
     // leaves another's code read as written.
     const modules = [
       "module A", ...SHAPE, "honor Shape<Point> =", "end module A",
-      "module B", "export let f(b: Bool): Int =", "    match b", "        True => 1", "end module B", "",
+      "module B", "export let f(b: Bool): Int =", "    match b with", "        True => 1", "end module B", "",
     ].join("\n");
     expect(repairs(modules).map(({ title }) => title)).toEqual(["Add the 3 missing members"]);
     const at = modules.indexOf("match");

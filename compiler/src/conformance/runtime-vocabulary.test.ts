@@ -148,7 +148,7 @@ describe("class 2 — `record Symbol` beside a `for` loop", () => {
     "export let total(n: Int): Int =\n" +
     "    var sum = 0\n" +
     "    let steps = 1..n\n" +
-    "    for i in steps\n" +
+    "    for i in steps do\n" +
     "        sum := sum + i\n" +
     "    sum\n";
 
@@ -701,7 +701,7 @@ const UNCONTESTED_CORPUS: readonly string[] = [
     "        Boom(line, _) => line\n",
   "export let loop(n: Int): Int =\n" +
     "    var total = 0\n" +
-    "    for i in 1..n\n" +
+    "    for i in 1..n do\n" +
     "        total := total + i\n" +
     "    total\n" +
     "export let text(x: Int): String = \"value ${x} here\"\n" +
@@ -751,7 +751,7 @@ const UNCONTESTED_CORPUS: readonly string[] = [
     "export let sx: String = Show.show(1.5)\n",
   "export union Shape = Circle(Int) | Rect(Int, Int)\n" +
     "export let area(s: Shape): Int =\n" +
-    "    match s\n" +
+    "    match s with\n" +
     "        Circle(0) => 1\n" +
     "        Circle(_) => 2\n" +
     "        Rect(0, 0) => 3\n" +
@@ -833,7 +833,7 @@ const ALL_CONTESTED = [
   "        _ => 0",
   "export let loop(n: Int): Int =",
   "    var sum = 0",
-  "    for i in 1..n",
+  "    for i in 1..n do",
   "        sum := sum + i",
   "    sum",
   "export let counted(xs: Seq(Int)): Int = Seq.length(xs)",
@@ -851,7 +851,7 @@ const ALL_CONTESTED = [
   "export let looked: Int = m[\"a\"]",
   "export union Flag = On | Off",
   "export let flag(f: Flag): Int =",
-  "    match f",
+  "    match f with",
   "        On => 1",
   "        Off => 0",
   "",
@@ -1130,7 +1130,7 @@ describe("the runtime module takes Part 1 §8.3's reserved seat", () => {
     const second = compileFiles([["/main.hex", "module Main\n\n" + "export record Symbol = {code: Int}\n" +
       "export let total(n: Int): Int =\n" +
       "    var sum = 0\n" +
-      "    for i in 1..n\n" +
+      "    for i in 1..n do\n" +
       "        sum := sum + i\n" +
       "    sum\n"]]).runtimeGlobals;
 

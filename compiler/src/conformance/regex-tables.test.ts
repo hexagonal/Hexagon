@@ -21,7 +21,7 @@ const TOUCH: readonly [string, string] = [
 ];
 
 const PROBE = `
-let kindOf(name: String): Syntax.PropertyKind = match name
+let kindOf(name: String): Syntax.PropertyKind = match name with
     "GeneralCategory" => Syntax.GeneralCategory
     "Script" => Syntax.Script
     "ScriptExtensions" => Syntax.ScriptExtensions
