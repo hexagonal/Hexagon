@@ -36,8 +36,7 @@ extern from "hex:intrinsic"
 {-- Writes `value`'s rendering to the debugging console. The write is invisible
     to the program, so a probe inside a pure producer may print once, many
     times, or never. -}
-export let log<a: Show>(value: a): Unit =
-    writeLine("${value}")
+export let log<a: Show>(value: a): Unit = writeLine("${value}")
 
 {-- Renders `label: value` to the debugging console and answers `value`
     unchanged — the form that threads a probe through an expression without
@@ -53,5 +52,4 @@ export fault TodoFault(message: String)
 {-- Stands in for code not written yet, at any type, so the program compiles
     and runs until it is reached; then it throws `TodoFault(what)`, where `what`
     names what is missing. -}
-export let todo<a>(what: String): a =
-    throw(TodoFault(what))
+export let todo<a>(what: String): a = throw(TodoFault(what))

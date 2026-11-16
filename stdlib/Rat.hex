@@ -84,8 +84,7 @@ honor Num<Rat> =
             left.bottom * right.bottom,
         )
     {-- `left` times `right`, always exact. -}
-    multiply(left, right) =
-        create(left.top * right.top, left.bottom * right.bottom)
+    multiply(left, right) = create(left.top * right.top, left.bottom * right.bottom)
     {-- `value` as a fraction, which is `value` over 1. It never fails. -}
     fromNat(value) = fromWhole(BigInt.fromNat(value))
 
@@ -177,8 +176,7 @@ let roundedDecimal(value: Rat, requested: Int, even: Bool, operation: String): D
     `Rat.create(1, 3).toDec(4)` is `0.3333d`.\
     To round a half to the even digit, use `toDecEven`. Throws
     `NegativeDecimalPlacesFault` when `places` is negative. -}
-export let toDec(value: Rat, places: Int): Dec =
-    roundedDecimal(value, places, False, "Rat.toDec")
+export let toDec(value: Rat, places: Int): Dec = roundedDecimal(value, places, False, "Rat.toDec")
 
 {-- The fraction as a decimal with `places` digits after the point, rounded to
     the nearest, with a half rounded so that its last digit is even:\
@@ -268,8 +266,7 @@ let bitLength(value: BigInt): Int =
 -- The two halves of `numerator * 2 ** scale / denominator` kept as an exact
 -- integer pair: a positive `scale` scales the top and a negative one the
 -- bottom, so no shift is ever undone and no quotient is ever taken twice.
-let scaledTop(value: BigInt, scale: Int): BigInt =
-    if scale > 0 then value * (2 ** scale) else value
+let scaledTop(value: BigInt, scale: Int): BigInt = if scale > 0 then value * (2 ** scale) else value
 
 let scaledBottom(value: BigInt, scale: Int): BigInt =
     if scale < 0 then value * (2 ** (-scale)) else value

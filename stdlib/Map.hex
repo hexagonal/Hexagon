@@ -129,16 +129,14 @@ let insertEntry<k: Hash>(map: Map(k, v), pair: (k, v)): Map(k, v) =
 {-- The pairs of `pairs` collected into a map. A duplicated key keeps the last
     value and the first key it was inserted under. It forces the whole sequence,
     so it does not terminate on an infinite one. -}
-export let fromEntries<k: Hash>(pairs: Seq((k, v))): Map(k, v) =
-    pairs.fold(empty, insertEntry)
+export let fromEntries<k: Hash>(pairs: Seq((k, v))): Map(k, v) = pairs.fold(empty, insertEntry)
 
 {-- The pairs of `pairs` collected into a map — `fromEntries` under the
     conversion suite's name. -}
 export let fromSeq<k: Hash>(pairs: Seq((k, v))): Map(k, v) = fromEntries(pairs)
 
 {-- The pairs of `pairs` collected into a map, left to right. -}
-export let fromVector<k: Hash>(pairs: Vector((k, v))): Map(k, v) =
-    fromEntries(pairs.toSeq())
+export let fromVector<k: Hash>(pairs: Vector((k, v))): Map(k, v) = fromEntries(pairs.toSeq())
 
 {-- The entries `transform` returns for the entries of `m`, as a map: entries in,
     entries out. Throws `DuplicateKeyFault`, once every callback has run, when two

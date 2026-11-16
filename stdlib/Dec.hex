@@ -54,8 +54,7 @@ export let unscaled(decimal: Dec): BigInt = decimal.unscaled
 export let same(left: Dec, right: Dec): Bool =
     left.unscaled == right.unscaled and left.places == right.places
 
-let align(value: Dec, retained: Int): BigInt =
-    value.unscaled * tenTo(retained - value.places)
+let align(value: Dec, retained: Int): BigInt = value.unscaled * tenTo(retained - value.places)
 
 let roundedMagnitude(numerator: BigInt, denominator: BigInt, even: Bool): BigInt =
     let quotient = numerator.quot(denominator)
@@ -343,8 +342,7 @@ let bitLength(value: BigInt): Int =
         if (2 ** middle) <= value then low := middle else high := middle
     high
 
-let scaledTop(value: BigInt, scale: Int): BigInt =
-    if scale > 0 then value * (2 ** scale) else value
+let scaledTop(value: BigInt, scale: Int): BigInt = if scale > 0 then value * (2 ** scale) else value
 
 let scaledBottom(value: BigInt, scale: Int): BigInt =
     if scale < 0 then value * (2 ** (-scale)) else value

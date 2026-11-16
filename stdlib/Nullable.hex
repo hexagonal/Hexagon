@@ -37,8 +37,7 @@ export let null: Nullable(a) = nullValue()
 
 {-- Whether `value` is either JavaScript `null` or `undefined`. This is a
     predicate only; use `toCase` or `toOption` to extract a present value. -}
-export let isNullish(value: Nullable(a)): Bool =
-    isNull(value) or isUndefined(value)
+export let isNullish(value: Nullable(a)): Bool = isNull(value) or isUndefined(value)
 
 {-- The exact state of `value`, preserving `null` and `undefined` as separate
     cases and carrying a present value unchanged. -}

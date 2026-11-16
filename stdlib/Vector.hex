@@ -191,8 +191,7 @@ export let flatMap(values: Vector(a), transform: a ->! Vector(b)): Vector(b) =
 
 {-- Joins a vector of vectors end to end into one new vector:\
     `[[1, 2], [3]].flatten()` is `[1, 2, 3]`. -}
-export let flatten(rows: Vector(Vector(a))): Vector(a) =
-    flatMap(rows, row => row)
+export let flatten(rows: Vector(Vector(a))): Vector(a) = flatMap(rows, row => row)
 
 {-- Combines the elements into one result. It starts with the value `initial`.
     For each element, from first to last, it calls the function `combine` with
@@ -214,8 +213,7 @@ export let find(values: Vector(a), matches: a ->! Bool): Option(a) =
 
 {-- Whether the function `matches` returns `True` for at least one element. It
     stops at the first one that does. -}
-export let any(values: Vector(a), matches: a ->! Bool): Bool =
-    findPosition!(values, matches) != 0
+export let any(values: Vector(a), matches: a ->! Bool): Bool = findPosition!(values, matches) != 0
 
 {-- Whether the function `matches` returns `True` for every element. It stops at
     the first one that does not. An empty vector gives `True`. -}

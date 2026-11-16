@@ -179,10 +179,10 @@ the Book, the Playground's tutorials and the spec's own examples.
   longer. (Canonical Layout §3.1, §9)
 - **H2** It is formatted with Collapse extra spaces on: the house never
   lines things up with spaces. (Canonical Layout §3.2)
-- **H3** In house text, a function with a doc comment is always written
-  as multi-line, with a blank line on both sides. The formatter does not
-  enforce this: for it, a doc comment does not make a declaration
-  multi-line. (Canonical Layout §6.3)
+- **H3** In house text, a function with a doc comment has a blank line
+  above the doc comment and a blank line below the function. The
+  formatter does not add these: for it, a doc comment does not change
+  where blank lines go. (Canonical Layout §6.3)
 - **H4** A line carried on at an operator begins with the operator, as
   each line Format document breaks at one does. An operator written at
   the end of a line is legal and the formatter leaves it there, but house
@@ -196,9 +196,12 @@ the Book, the Playground's tutorials and the spec's own examples.
               and Vector.length(left.items) == Vector.length(right.items)
   ```
 
-- **H5** An expression that fits on its line stays there, after its
-  `=`, `:=`, `=>`, `then` or `else`. One that runs on over further lines
-  begins a line of its own beneath, one level in, brackets and all.
+- **H5** An expression that fits on its line is written there, after its
+  `=`, `:=` or `=>`, even where it was written beneath: the formatter
+  never joins lines, so house text makes this move by hand. A doc comment
+  changes nothing here (H3), and a conditional's branches take F3's
+  shape. An expression that runs on over further lines begins a line of
+  its own beneath, one level in, brackets and all.
   Format document also puts a value too long for its line beneath its
   `=` or `:=`, before it opens any brackets. An `else if` stays on one line
   (F3), and a match function or lambda keeps its head where H7 puts it.

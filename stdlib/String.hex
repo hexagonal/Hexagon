@@ -148,8 +148,7 @@ export let length(text: String): Int =
             if text[middle..middle] != "" then low := middle else high := middle
         low
 
-let joinChunks(chunks: Vector(String)): String =
-    fromSeq(Iterable.toSeq(chunks))
+let joinChunks(chunks: Vector(String)): String = fromSeq(Iterable.toSeq(chunks))
 
 let foldedText(text: String): String =
     var chunks: Vector(String) = []
@@ -579,8 +578,7 @@ export let toUpper(text: String): String =
     `"Straße".caseFold()` and `"STRASSE".caseFold()` are both `"strasse"`.\
     The functions whose names end in `Ci` compare this way. The result is for
     comparing and not for showing to a person: for that, use `toLower`. -}
-export let caseFold(text: String): String =
-    foldedText(text)
+export let caseFold(text: String): String = foldedText(text)
 
 {-- The string with every letter in lower case. The result is the same whatever
     language the computer is set to. -}
