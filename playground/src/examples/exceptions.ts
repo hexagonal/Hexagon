@@ -36,9 +36,10 @@ let settings = Map.fromVector([("host", "localhost"), ("port", "8080")])
 
 -- throw is an ordinary function, not a keyword. It never returns, so it types
 -- as whatever its position asks for -- here, the String the other arm gives.
-let setting(key: String): String = match Map.get(settings, key) with
-    Some(value) => value
-    None => throw^(SettingError(key, "no such setting"))
+let setting(key: String): String =
+    match Map.get(settings, key) with
+        Some(value) => value
+        None => throw^(SettingError(key, "no such setting"))
 
 -- Constructing is not throwing: an Exn is an ordinary value. The stack is
 -- captured here, at the construction, not at the throw below.
@@ -46,23 +47,25 @@ let complaint = SettingError("theme", "no such setting")
 
 -- try/catch is an expression -- the body and every arm agree on one type. Arms
 -- are match arms: constructor patterns binding the payload slots positionally.
-let excuse = try
-    throw^(complaint)
-catch
-    SettingError(key, why) => "\${key}: \${why}"
+let excuse =
+    try
+        throw^(complaint)
+    catch
+        SettingError(key, why) => "\${key}: \${why}"
 
 Debug.log(excuse)
 
 -- No _ arm, and none is wanted: whatever a catch does not name is rethrown for
 -- you. The inner catch names only NoSettings, so this SettingError walks
 -- straight past it into the outer one.
-let report = try
+let report =
     try
-        setting^("locale")
+        try
+            setting^("locale")
+        catch
+            NoSettings => "no settings were loaded"
     catch
-        NoSettings => "no settings were loaded"
-catch
-    SettingError(key, _) => "\${key} is unset"
+        SettingError(key, _) => "\${key} is unset"
 
 Debug.log(report)
 
@@ -73,19 +76,21 @@ Debug.log(report)
 -- module, so this arm catches Vector's IndexFault and no other module's.
 let sizes = [10, 20, 30]
 
-let clamped = try
-    sizes.at(4)
-catch
-    Vector.IndexFault(_, size) => sizes.at(size)
+let clamped =
+    try
+        sizes.at(4)
+    catch
+        Vector.IndexFault(_, size) => sizes.at(size)
 
 Debug.log("the fourth of three sizes: \${clamped}")
 
 -- The module declared at the top of this file is imported like any other, and
 -- its exception is caught the same qualified way.
-let remaining = try
-    "\${Ledger.withdraw^(100, 250)} left"
-catch
-    Ledger.Overdrawn(balance, why) => "\${why}; \${balance} left"
+let remaining =
+    try
+        "\${Ledger.withdraw^(100, 250)} left"
+    catch
+        Ledger.Overdrawn(balance, why) => "\${why}; \${balance} left"
 
 Debug.log(remaining)
 `,

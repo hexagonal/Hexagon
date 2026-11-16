@@ -43,11 +43,12 @@ fun factorial(n: Int) =
         n * factorial(n - 1)
 
 -- Match handles every union alternative.
-let color(suit: Suit) = match suit with
-    Clubs => "black"
-    Diamonds => "red"
-    Hearts => "red"
-    Spades => "black"
+let color(suit: Suit) =
+    match suit with
+        Clubs => "black"
+        Diamonds => "red"
+        Hearts => "red"
+        Spades => "black"
 
 -- log writes to the debugging console; the call produces Unit.
 Debug.log(greet("Hexagon"))

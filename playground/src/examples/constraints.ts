@@ -7,7 +7,7 @@ export const constraints: PlaygroundExample = {
   source: `module Constraints
 
 -- Show is a prelude constraint used by string interpolation.
-record Person = {name: String, age: Int}
+record Person = { name: String, age: Int }
 
 -- A local type can honor Show by supplying its display operation.
 honor Show<Person> =
@@ -17,7 +17,7 @@ honor Show<Person> =
 let describe(thing: a) =
     "Description: \${thing}"
 
-let ada = Person({name = "Ada", age = 36})
+let ada = Person({ name = "Ada", age = 36 })
 
 Debug.log(describe(ada))
 Debug.log(describe(5))
