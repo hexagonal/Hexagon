@@ -29,6 +29,8 @@ import {
   CompletionItemKind,
   DidChangeConfigurationNotification,
   DidChangeWatchedFilesNotification,
+  DocumentFormattingRequest,
+  DocumentRangeFormattingRequest,
   ErrorCodes,
   FileChangeType,
   MarkupKind,
@@ -124,6 +126,12 @@ export function startServer(connection: Connection): void {
    */
   let configurationPull = false;
   let configurationChanges = false;
+  /**
+   * Whether this client takes formatting registered for Hexagon files alone.
+   * Announced statically, formatting would cover the whole document
+   * selector, `hexagon.json` included, beside the editor's own JSON formatter.
+   */
+  let formattingRegistration = false;
   let inlayHintRefresh = false;
   /**
    * The inlay hint settings as last read, until a change is announced: the
@@ -179,6 +187,9 @@ export function startServer(connection: Connection): void {
       ?.parameterInformation?.labelOffsetSupport === true;
     configurationPull = params.capabilities.workspace?.configuration === true;
     configurationChanges = params.capabilities.workspace?.didChangeConfiguration?.dynamicRegistration === true;
+    formattingRegistration =
+      params.capabilities.textDocument?.formatting?.dynamicRegistration === true &&
+      params.capabilities.textDocument?.rangeFormatting?.dynamicRegistration === true;
     inlayHintRefresh = params.capabilities.workspace?.inlayHint?.refreshSupport === true;
     return {
       capabilities: {
@@ -187,8 +198,9 @@ export function startServer(connection: Connection): void {
         textDocumentSync: TextDocumentSyncKind.Incremental,
         // Format document and Format selection (Canonical Layout §2). Neither
         // runs unasked: the server formats only when the client asks (§2.4).
-        documentFormattingProvider: true,
-        documentRangeFormattingProvider: true,
+        // A client that takes a registration gets one for Hexagon files alone,
+        // once initialized.
+        ...(formattingRegistration ? {} : { documentFormattingProvider: true, documentRangeFormattingProvider: true }),
         hoverProvider: true,
         // "Expand Selection" and "Shrink Selection", through the pieces of the
         // text around the caret.
@@ -235,6 +247,11 @@ export function startServer(connection: Connection): void {
   });
 
   connection.onInitialized(async () => {
+    if (formattingRegistration) {
+      const documentSelector = [{ language: "hexagon" }];
+      await connection.client.register(DocumentFormattingRequest.type, { documentSelector }).catch(() => undefined);
+      await connection.client.register(DocumentRangeFormattingRequest.type, { documentSelector }).catch(() => undefined);
+    }
     // The workspace is already analysed, so its diagnostics exist before any
     // document is opened. Waiting for a document event to publish them would
     // leave a user who opens a project and looks at the Problems panel — the
@@ -464,6 +481,9 @@ export function startServer(connection: Connection): void {
     );
   };
 
+  /** Whether a document is a manifest, which is JSON and never Hexagon's to format. */
+  const isManifest = (uri: string): boolean => basename(workspace.pathFor(uri)) === MANIFEST_NAME;
+
   /** A refusal's edits, none, and its message shown to the dev (§2.3). */
   const answerFormatting = (answer: { readonly edits: TextEdit[]; readonly message?: string }): TextEdit[] => {
     if (answer.message !== undefined) {
@@ -478,7 +498,7 @@ export function startServer(connection: Connection): void {
   connection.onDocumentFormatting(async ({ textDocument }): Promise<TextEdit[] | null> => {
     const settings = await formatSettings();
     const document = documents.get(textDocument.uri);
-    if (document === undefined) return null;
+    if (document === undefined || isManifest(textDocument.uri)) return null;
     const result = formatDocument(document.getText(), formatOptionsOf(settings));
     return answerFormatting(toLspFormatting(result, (offset) => document.positionAt(offset)));
   });
@@ -486,7 +506,7 @@ export function startServer(connection: Connection): void {
   connection.onDocumentRangeFormatting(async ({ textDocument, range }): Promise<TextEdit[] | null> => {
     const settings = await formatSettings();
     const document = documents.get(textDocument.uri);
-    if (document === undefined) return null;
+    if (document === undefined || isManifest(textDocument.uri)) return null;
     const result = formatSelection(
       document.getText(),
       { start: offsetOfPosition(document, range.start), end: offsetOfPosition(document, range.end) },
