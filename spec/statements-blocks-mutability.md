@@ -1,6 +1,6 @@
 # Hexagon Spec: Statements, Blocks & Mutability
 
-**Status:** Decided (July 2026). Amended 2026-11-16 (#1590): §6.3, a line ending in `:=` opens a block for the value (Lexer & Layout §2.1). With a **hanging-questions** section (§10; §§10.2–10.3 are resolved anchors); nothing there blocks implementation of §1–§9. §5.4 is the permanent rationale anchor for `let`-pattern binders being sequential.
+**Status:** Decided (July 2026). Amended 2026-11-16 (#1590): a line ending in `:=` opens a block for the value, emitted as a binding's block is (§6.3, §8, §11; Lexer & Layout §2.1). With a **hanging-questions** section (§10; §§10.2–10.3 are resolved anchors); nothing there blocks implementation of §1–§9. §5.4 is the permanent rationale anchor for `let`-pattern binders being sequential.
 **Scope:** The expression/binding classification ("everything is an expression except bindings"), block typing (non-final items unify with `Unit`, block-final bindings are errors), the discarded-value rule and the prelude `ignore` function, the two-tier shadowing ban (the Head Binder Shadowing rule: sequential binders may not shadow; head binders may — class decided by position, §5), the `var` declaration, the `:=` assignment expression, the lambda-boundary rule for `var`, JS emission, and edit notes to existing specs.
 **Not in scope:** loop constructs (`for` / `for..in` — loops spec; this doc records one binding constraint on it, §7.4), the pattern grammar (pattern-matching spec; the binder *class* of every pattern position is fixed here, §5), module-level name collisions between local bindings and imports/prelude names (modules spec — decided there, Modules §5.4; consumed here §5.2), ref cells (do not exist; §6.4 records the rejection), lint policy (§10.4).
 **Companions:** Functions spec (blocks as lambda bodies §3.1; the top-down law §7.2; generalisation §8 — `var` rule confirmed here), Lexer & Layout spec (blocks as pure layout; "a block's value is its final expression" — refined by this doc §9.2), Unions spec (match-arm binders §4.2 — classified as head binders here), Exceptions spec (catch-arm binders — likewise), Primitive Types spec (§9 `Unit`), Declarations Preamble §1.1 (the Rewrite Rule, which this doc's diagnostics obey).
@@ -286,7 +286,7 @@ This spec imposed two requirements on loops, both now normative in `loops-ranges
 
 - `.d.ts` impact: none. `var` is function-internal; nothing mutable crosses the boundary.
 - The `var` → `let` mapping is sound *because of* §6.2: JS `let` is captured by reference by closures, but no Hexagon lambda ever closes over a `var`, so the difference is unobservable. If §6.2 were ever relaxed, this emission would need revisiting — recorded as the coupling it is.
-- Blocks: no change to emission machinery — block structure is explicit in the AST (Lexer & Layout §3.3); the discarded-value rule is a typecheck, not an emission concern; rejected programs never reach the emitter.
+- Blocks: no change to emission machinery — block structure is explicit in the AST (Lexer & Layout §3.3), and a block beneath `:=` emits as a binding's block does, its final expression the value assigned; the discarded-value rule is a typecheck, not an emission concern; rejected programs never reach the emitter.
 
 ---
 

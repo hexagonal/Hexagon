@@ -120,6 +120,15 @@ itself. `fun` is header-only, so the zero-evaluation guarantee block binding
 rests on is now the grammar's, and there is no `fun` RHS whose wrapping could
 matter.
 
+Type declarations are *not* term bindings:
+`record`, `union`, and `type` after `=` remain continuations, which is what keeps
+indented union alternatives free of VOPEN. A union *declaration head* is
+recognized contextually since the Set milestone — `union` followed by the
+declared type's name (lexer spec §4.2, #373) — so a term binding named `union`
+(`let union = …`) opens its block like any other term binding, while the
+declaration form's layout is unchanged. `finally` is reserved but is never a
+block head — Hexagon has no `finally` (Exceptions §10.1).
+
 **An assignment opens a block as a binding does.** A line ending in `:=` opens a
 block, and the value assigned is the block's value, its final expression
 (Statements §6.3). So an assignment's value is laid out as a binding's: on the
@@ -133,15 +142,6 @@ total :=
 
 A single wrapped expression is again the one-item case, and assigns what it would
 assign written on the `:=` line.
-
-Type declarations are *not* term bindings:
-`record`, `union`, and `type` after `=` remain continuations, which is what keeps
-indented union alternatives free of VOPEN. A union *declaration head* is
-recognized contextually since the Set milestone — `union` followed by the
-declared type's name (lexer spec §4.2, #373) — so a term binding named `union`
-(`let union = …`) opens its block like any other term binding, while the
-declaration form's layout is unchanged. `finally` is reserved but is never a
-block head — Hexagon has no `finally` (Exceptions §10.1).
 
 ### 2.3 Expression-continuation tokens
 
