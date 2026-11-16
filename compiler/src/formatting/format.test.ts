@@ -429,6 +429,82 @@ describe("Spacing within a line (§7)", () => {
   });
 });
 
+describe("Inside a string (§7.4)", () => {
+  it("spaces the code in a hole as code is spaced anywhere, and leaves the string's text alone", () => {
+    expect(format(lines(
+      "module A",
+      'let a = "Does 10/12 = 5/6? ${10 // 12 == 5 // 6}"',
+      'let b = "${ count+1 } of ${f( a ,b )}"',
+      'let c = "two  spaces ${x}  stay\tas written"',
+    ))).toBe(lines(
+      "module A",
+      'let a = "Does 10/12 = 5/6? ${10//12 == 5//6}"',
+      'let b = "${count + 1} of ${f(a, b)}"',
+      'let c = "two  spaces ${x}  stay\tas written"',
+    ));
+  });
+
+  it("keeps a wider gap in a hole with Collapse extra spaces off, collapses it on, and turns a tab into spaces (§7.3)", () => {
+    const text = lines("module A", 'let d = "${a  +  b}"');
+    expect(format(text)).toBe(text);
+    expect(format(text, { collapseExtraSpaces: true })).toBe(lines("module A", 'let d = "${a + b}"'));
+    expect(format('module A\nlet t = "${a\t+ b}"\n')).toBe('module A\nlet t = "${a    + b}"\n');
+    expect(format('module A\nlet t = "${a\t+ b}"\n', { collapseExtraSpaces: true })).toBe('module A\nlet t = "${a + b}"\n');
+  });
+
+  it("writes a hole's braces tight, and a record's inside it spaced", () => {
+    expect(format(lines(
+      "module A",
+      'let r = "${ {x=1}.x }"',
+      'let n = "${ -x } ${-x} ${- -x}"',
+    ), { collapseExtraSpaces: true })).toBe(lines(
+      "module A",
+      'let r = "${{ x = 1 }.x}"',
+      'let n = "${-x} ${-x} ${- -x}"',
+    ));
+  });
+
+  it("spaces a string inside a hole, at any depth", () => {
+    expect(format('module A\nlet c = "nested ${g( "in  ${ y*2 }" )}"\n')).toBe(
+      'module A\nlet c = "nested ${g("in  ${y * 2}")}"\n');
+  });
+
+  it("keeps the lines of a hole written over several as they are, and adds no comma there", () => {
+    expect(format(lines(
+      "module A",
+      'let e = "multi ${',
+      "    a+  ",
+      '      b } end"',
+      'let f = "${f([',
+      "    1,",
+      "    2",
+      '])}"',
+    ))).toBe(lines(
+      "module A",
+      'let e = "multi ${',
+      "    a +  ",
+      '      b} end"',
+      'let f = "${f([',
+      "    1,",
+      "    2",
+      '])}"',
+    ));
+  });
+
+  it("keeps a comment inside a hole and its gaps, with at least one space before one that ends its line", () => {
+    const text = lines("module A", 'let g = "${x {- note -}  + 1}"');
+    expect(format(text, { collapseExtraSpaces: true })).toBe(text);
+    expect(format('module A\nlet h = "${x-- note\n}"\n')).toBe('module A\nlet h = "${x -- note\n}"\n');
+  });
+
+  it("checks each string's text as written, not only its value (§1)", () => {
+    const spelled = read('module A\nlet s = "\\u{41} ${x}"\n');
+    expect(sameText(spelled, read('module A\nlet s = "\\u{41} ${x}"\n'))).toBe(true);
+    expect(sameText(spelled, read('module A\nlet s = "A ${x}"\n'))).toBe(false);
+    expect(sameText(spelled, read('module A\nlet s = "\\u{41} ${ x }"\n'))).toBe(true);
+  });
+});
+
 describe("Comments (§8)", () => {
   it("indents a comment that begins its line like the code after it", () => {
     expect(format(lines(

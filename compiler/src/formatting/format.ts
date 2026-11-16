@@ -4,8 +4,9 @@
  * Both are pure functions of a document's text and the three options. They
  * rewrite whitespace and add §14's trailing commas, and nothing else, and check
  * that on every run: the output's tokens and comments are the input's apart
- * from those commas, it parses to the same tree, and formatting it again
- * changes nothing (§1, §12). A document with a syntax
+ * from those commas, those inside interpolation holes included, every string's
+ * text is the input's as written, it parses to the same tree, and formatting
+ * it again changes nothing (§1, §12). A document with a syntax
  * error is refused without a report of the formatter's own (§2.3), since the
  * error is already reported.
  */

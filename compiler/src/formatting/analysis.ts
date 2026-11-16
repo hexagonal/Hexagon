@@ -4,7 +4,9 @@
  *
  * The formatter changes whitespace and nothing else, and it proves that on
  * every run rather than trusting itself: the tokens and comments of its output
- * are the input's, in the same order, and the output parses to the same tree.
+ * are the input's, in the same order, those inside interpolation holes
+ * included, every string's text is the input's as written, and the output
+ * parses to the same tree.
  */
 
 import * as Source from "../support/source.js";
@@ -52,7 +54,9 @@ export function read(text: string): Reading {
 
 /**
  * Whether two readings hold the same text (§1's first guarantee): the same
- * tokens with the same payloads, and the same comments, in the same order.
+ * tokens with the same payloads, those inside interpolation holes included,
+ * the same comments, and the same text in every string as the author wrote
+ * it, in the same order.
  * Where `commas` allows, `after` may also hold trailing commas `before` does
  * not, each directly before a closing bracket: the ones §14 adds.
  *
@@ -80,7 +84,32 @@ export function sameText(before: Scan, after: Scan, commas = false): boolean {
   for (let index = 0; index < leftComments.length; index += 1) {
     if (commentKey(leftComments[index]!) !== commentKey(rightComments[index]!)) return false;
   }
-  return true;
+  const leftTexts = stringTexts(before);
+  const rightTexts = stringTexts(after);
+  return leftTexts.length === rightTexts.length &&
+    leftTexts.every((text, index) => text === rightTexts[index]);
+}
+
+/**
+ * The text of every string in a reading, at any depth, as the author spelled
+ * it: each run between a string's quotes and its holes, escapes as written
+ * (§7.4). A token's payload holds a run's value, which two spellings can share.
+ * A line end is a boundary, not text (§1), so each is compared as one.
+ */
+function stringTexts(scan: Scan): string[] {
+  const texts: string[] = [];
+  const visit = (token: Lexed.Token): void => {
+    if (token.kind !== "String") return;
+    for (const part of token.parts) {
+      if (part.kind === "Text") {
+        texts.push(scan.text.slice(part.span.start.offset, part.span.end.offset).replace(/\r\n?/gu, "\n"));
+      } else {
+        part.tokens.forEach(visit);
+      }
+    }
+  };
+  scan.lexed.tokens.forEach(visit);
+  return texts;
 }
 
 /** Whether two readings parse to the same tree (§1's second guarantee). */
