@@ -850,7 +850,11 @@ function renderSettingRows(): void {
       control.placeholder = "Unlimited";
       control.value = settingsState.settings.maximumLineLength?.toString() ?? "";
       control.addEventListener("change", () => {
-        changeLineLength(lineLengthOf(control.value));
+        // An empty box is Unlimited; a number that is not a whole one of at
+        // least one leaves the length as it was.
+        const length = lineLengthOf(control.value);
+        const cleared = control.value.trim() === "" && !control.validity.badInput;
+        if (length !== undefined || cleared) changeLineLength(length);
         control.value = settingsState.settings.maximumLineLength?.toString() ?? "";
       });
     } else {
@@ -858,17 +862,16 @@ function renderSettingRows(): void {
       control.checked = settingOn(settingsState, key);
       control.addEventListener("change", () => changeSetting(key, control.checked));
     }
-    const checkbox = control;
     const name = document.createElement("label");
     name.className = "setting-name";
-    name.htmlFor = checkbox.id;
+    name.htmlFor = control.id;
     name.textContent = row.label;
     const description = document.createElement("span");
     description.className = "setting-description";
     description.id = `setting-${row.key}-description`;
     description.append(...withCode(row.description));
-    if (key === "maximumLineLength") settingRow.append(name, checkbox, description);
-    else settingRow.append(checkbox, name, description);
+    if (key === "maximumLineLength") settingRow.append(name, control, description);
+    else settingRow.append(control, name, description);
     fieldset.append(settingRow);
   }
   // The plain editor, which narrow screens and touch screens keep, shows no
