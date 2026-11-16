@@ -11,26 +11,29 @@ union Shape =
     | Rectangle(width: Float, height: Float)
     | Point
 
-let area(shape: Shape) = match shape with
-    Circle(radius) when radius <= 0 => 0
-    Circle(radius) => 3.14159 * radius * radius
-    Rectangle(width, height) => width * height
-    Point => 0
+let area(shape: Shape) =
+    match shape with
+        Circle(radius) when radius <= 0 => 0
+        Circle(radius) => 3.14159 * radius * radius
+        Rectangle(width, height) => width * height
+        Point => 0
 
-let preserve(shape: Shape) = match shape with
-    Circle(_) as whole => whole
-    Rectangle(_, _) as whole => whole
-    Point as whole => whole
+let preserve(shape: Shape) =
+    match shape with
+        Circle(_) as whole => whole
+        Rectangle(_, _) as whole => whole
+        Point as whole => whole
 
 Debug.log("Circle area: \${area(preserve(Circle(3)))}")
 
 union Reply =
     | Accepted(details: (String, Int))
-    | Rejected(error: {message: String, code: Int})
+    | Rejected(error: { message: String, code: Int })
 
-let describe(reply: Reply) = match reply with
-    Accepted((name, _)) => name
-    Rejected({message = reason}) => reason
+let describe(reply: Reply) =
+    match reply with
+        Accepted((name, _)) => name
+        Rejected({ message = reason }) => reason
 
 Debug.log(describe(Accepted(("Ada", 2))))
 `,

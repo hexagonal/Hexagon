@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import { compileSource } from "../compile";
+import { formatSource } from "../formatting";
 import { exampleById, playgroundExamples } from "./index";
 import { regexes } from "./regexes";
 import { runModules } from "./run-modules";
@@ -68,6 +69,28 @@ describe("curated playground examples", () => {
     expect(broken.slice(startOffset, endOffset)).toBe("(");
     expect(broken.slice(startOffset, startOffset + 7)).toBe("(?<day>");
   }, PIPELINE_TIMEOUT);
+
+  /**
+   * The tutorials are house text (`spec/notes/canonical-formatting-and-naming.md`
+   * §5): written at Maximum line length 100 with Collapse extra spaces on, so
+   * Format document at those settings has nothing left to change in any of
+   * them. Leave trailing commas as written is off, as the house has it (H8).
+   */
+  test.each(playgroundExamples.map(({ id, source }) => [id, source] as const))(
+    "leave the %s tutorial as it is when formatted at the house settings",
+    (_, source) => {
+      const formatted = formatSource(source, {
+        maximumLineLength: 100,
+        collapseExtraSpaces: true,
+        leaveTrailingCommasAsWritten: false,
+      });
+      expect(formatted.kind).toBe("formatted");
+      if (formatted.kind !== "formatted") return;
+      const changed = formatted.edits.filter(({ startOffset, endOffset, replacement }) =>
+        source.slice(startOffset, endOffset) !== replacement);
+      expect(changed).toEqual([]);
+    },
+  );
 });
 
 /**
