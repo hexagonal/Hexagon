@@ -122,12 +122,13 @@ function attempt(
   // The rest of a broken line's item moves two levels deeper with it, so that
   // a block it holds stays deeper than the line that now owns it. A line in
   // the rest of several broken items moves for each. A conditional's breaks
-  // leave its `if` where it is, so nothing after it moves; a value moved
-  // beneath its `=` that begins with `if` or `try` takes its clauses (`else`,
-  // `catch`) with it.
+  // leave its `if` where it is, so nothing after it moves. A loop's body
+  // moves beneath its `do`, and its continuation lines move with it. A value
+  // moved beneath its `=` that begins with `if` or `try` takes its clauses
+  // (`else`, `catch`) with it.
   const shifts = new Map<number, number>();
   for (const one of plans) {
-    if (one.shape === "conditional" || one.shape === "loop") continue;
+    if (one.shape === "conditional") continue;
     const line = tokens[one.line]!.span.start.line;
     // A value that begins with `if` or `try` owns the clauses after it.
     const owner = one.shape === "value" && ["If", "Try"].includes(tokens[one.before[0]!]!.kind);
@@ -315,7 +316,7 @@ function plan(reading: Reading, line: LongLine, failed: ReadonlySet<string>): Pl
   const valueStart = head !== undefined ? head + 1 : assign !== undefined ? assign + 1 : start;
   const value = range(valueStart).filter(atTop);
 
-  const heads = headsOn(tokens, start, line.last);
+  const heads = headsOn(tokens, start, line.last, depth);
   const blocked = insideHeads(heads, line.last);
   if (value.length > 0) {
     // 4. A conditional.
@@ -347,12 +348,27 @@ function plan(reading: Reading, line: LongLine, failed: ReadonlySet<string>): Pl
   const outer = heads[0];
   const own: number[] = [];
   if (outer !== undefined) {
-    for (let index = outer.keyword + 1; index < (outer.closer ?? line.last + 1); index += 1) {
+    // A `for` head's own expression is its source, after `in`.
+    let from = outer.keyword + 1;
+    if (tokens[outer.keyword]!.kind === "For") {
+      for (let index = from; index < (outer.closer ?? line.last + 1); index += 1) {
+        if (tokens[index]!.kind === "In" && depth[index] === depth[outer.keyword]) {
+          from = index + 1;
+          break;
+        }
+      }
+    }
+    for (let index = from; index < (outer.closer ?? line.last + 1); index += 1) {
       if (depth[index] === depth[outer.keyword]) own.push(index);
     }
   }
+  // Only once nothing else is left: no value to put beneath its `=` or `=>`,
+  // no conditional's branches and no loop's body still on the line.
+  const othersLeft = candidates
+    .filter(({ shape }) => shape === "value" || shape === "conditional" || shape === "loop")
+    .some((candidate) => candidate.before().some((index) => index > line.first && index <= line.last));
   const inHead = (found: number[]): number[] => found.filter((index) => index !== outer?.closer);
-  if (own.length > 0) {
+  if (own.length > 0 && !othersLeft) {
     const top = depth[outer!.keyword]!;
     candidates.push({ shape: "head chain", before: () => inHead(chain(tokens, roles, own)) });
     candidates.push({ shape: "head operator", before: () => inHead(operator(tokens, roles, own, line.last)) });
@@ -409,13 +425,13 @@ function isCloser(tokens: readonly Lexed.Token[], keyword: number, index: number
 }
 
 /** The heads on a line, outermost first, each with its closing word where the line holds it. */
-function headsOn(tokens: readonly Lexed.Token[], from: number, last: number): Head[] {
+function headsOn(tokens: readonly Lexed.Token[], from: number, last: number, depth: readonly number[]): Head[] {
   const heads: Head[] = [];
   const open: number[] = [];
   for (let index = from; index <= last; index += 1) {
     const kind = tokens[index]!.kind;
     const innermost = open.at(-1);
-    if (innermost !== undefined && isCloser(tokens, innermost, index)) {
+    if (innermost !== undefined && depth[index] === depth[innermost] && isCloser(tokens, innermost, index)) {
       open.pop();
       heads.push({ keyword: innermost, closer: index });
     } else if (headKeywords.has(kind)) {
@@ -447,13 +463,19 @@ function conditional(tokens: readonly Lexed.Token[], whole: readonly number[], l
   if (tokens[value[0]!]!.kind !== "If") return [];
   const before: number[] = [];
   let expecting: "Then" | "Else" = "Then";
+  // Conditionals inside a branch, still waiting for their own `else`.
+  let nested = 0;
   for (let position = 1; position < value.length; position += 1) {
     const index = value[position]!;
     const kind = tokens[index]!.kind;
-    if (kind === "If" && tokens[index - 1]?.kind !== "Else") return [];
-    if (kind === "Then" && expecting === "Then") {
+    if (kind === "If" && tokens[index - 1]?.kind !== "Else") {
+      if (expecting === "Then") return [];
+      nested += 1;
+    } else if (kind === "Then" && nested === 0 && expecting === "Then") {
       if (index < last) before.push(index + 1);
       expecting = "Else";
+    } else if (kind === "Else" && nested > 0) {
+      if (tokens[index + 1]?.kind !== "If") nested -= 1;
     } else if (kind === "Else" && expecting === "Else") {
       before.push(index);
       if (tokens[index + 1]?.kind === "If") expecting = "Then";

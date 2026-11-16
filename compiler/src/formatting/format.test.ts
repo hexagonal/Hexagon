@@ -723,6 +723,89 @@ describe("A line that is too long (§9)", () => {
     ));
   });
 
+  it("breaks a conditional with another in its branch before any head", () => {
+    expect(format(lines(
+      "module A",
+      "let f(a: Bool, b: Bool): Int =",
+      "    if a and b then if a then 1 else 2 else 3",
+    ), { maximumLineLength: 30 })).toBe(lines(
+      "module A",
+      "let f(a: Bool, b: Bool): Int =",
+      "    if a and b then",
+      "        if a then 1 else 2",
+      "    else",
+      "        3",
+    ));
+  });
+
+  it("opens a `for` head's source, not its pattern, and an `else if` head's condition", () => {
+    expect(format(lines(
+      "module A",
+      "let f(totals: Vector((String, Int))): Unit =",
+      "    for (name, total) in someSource(argumentOne, argumentTwo) do",
+      "        print(name)",
+    ), { maximumLineLength: 50 })).toBe(lines(
+      "module A",
+      "let f(totals: Vector((String, Int))): Unit =",
+      "    for (name, total) in someSource(",
+      "        argumentOne,",
+      "        argumentTwo",
+      "    ) do",
+      "        print(name)",
+    ));
+    expect(format(lines(
+      "module A",
+      "let f(a: Int): Int =",
+      "    if a > 1 then",
+      "        1",
+      "    else if a > 100 and a < 200 and a != 150 then",
+      "        2",
+      "    else",
+      "        3",
+    ), { maximumLineLength: 40 })).toBe(lines(
+      "module A",
+      "let f(a: Int): Int =",
+      "    if a > 1 then",
+      "        1",
+      "    else if a > 100",
+      "            and a < 200",
+      "            and a != 150 then",
+      "        2",
+      "    else",
+      "        3",
+    ));
+  });
+
+  it("puts a branch after an assignment beneath `then` before opening its brackets", () => {
+    expect(format(lines(
+      "module A",
+      "let f(c: Bool): Unit =",
+      "    var x = 0",
+      "    if c then x := compute(alpha, beta)",
+    ), { maximumLineLength: 36 })).toBe(lines(
+      "module A",
+      "let f(c: Bool): Unit =",
+      "    var x = 0",
+      "    if c then",
+      "        x := compute(alpha, beta)",
+    ));
+  });
+
+  it("moves a loop body's continuation lines with it beneath `do`", () => {
+    expect(format(lines(
+      "module A",
+      "let f(items: Vector(Int)): Unit =",
+      "    for item in items do register(item, x =>",
+      "        handle(x))",
+    ), { maximumLineLength: 40 })).toBe(lines(
+      "module A",
+      "let f(items: Vector(Int)): Unit =",
+      "    for item in items do",
+      "        register(item, x =>",
+      "            handle(x))",
+    ));
+  });
+
   it("writes §9.4's head example at a limit of 40", () => {
     expect(format(lines(
       "module A",
