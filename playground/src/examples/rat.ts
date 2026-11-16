@@ -6,7 +6,7 @@ export const rat: PlaygroundExample = {
   description: "Write a fraction with `//`, take one apart in a pattern, and let a decimal enter it.",
   source: `module Rationals
 
--- \`top//bottom\` writes a fraction: an exact Rat, always in lowest terms.
+-- \`top // bottom\` writes a fraction: an exact Rat, always in lowest terms.
 let half = 1//2
 let third = 1//3
 let fiveSixths = half + third
