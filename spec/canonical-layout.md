@@ -1,6 +1,6 @@
 # Hexagon Spec: Canonical Layout
 
-**Status:** Decided (November 2026). The layout that Format document and Format selection write (#1561; the formatter's stages are gathered under #1567). Amended 2026-11-16 (#1573): a head, which ends with its closing word, may be broken, though never before that word; a loop's body goes beneath its `do` (§5.3, §7.1, §9.3, §9.4, §10, §11).
+**Status:** Decided (November 2026). The layout that Format document and Format selection write (#1561; the formatter's stages are gathered under #1567). Amended 2026-11-16 (#1573): a head, which ends with its closing word, may be broken, though never before that word; a loop's body goes beneath its `do` (§5.3, §7.1, §9.3, §9.4, §10, §11). Amended 2026-11-16 (#1586): brackets whose only item is bracketed open and close with it, a lambda that is a call's last argument, a record's last field or a binding's value keeps its head on its line, and brackets of literals are filled (§5.2, §9.4, §10).
 **Scope:** What the two formatting commands change and what they refuse (§1–§2); the two options and the test any later option must pass (§3); line ends (§4), indentation (§5), blank lines (§6) and spacing within a line (§7); comments (§8); how a line longer than the Maximum line length is broken (§9); what the formatter leaves to the author (§13).
 **Not in scope:** Changes to tokens: removing or adding parentheses, a leading `|`, a trailing comma or a degenerate `x: _`, and moving imports. Each waits for a ruling of its own (§13). House style, which is how the standard library and the Book are written where the formatter leaves the author free: `notes/canonical-formatting-and-naming.md`. The editors' commands and settings screens, which are the implementation's (§12).
 **Companions:** Lexer & Layout (blocks, the block-head inventory §2.1, the continuation tokens §2.3, heads and their closing words §2.4), Lexer §2 (line ends, tabs) and §7 (trivia), Comments §2–§4, Doc Comments §3–§4, Operators §3 and §11.3 (the conditional's shapes), Method Syntax §2.1 (the chain's shape), Unions §2, Modules §2–§3 (headers, closers, imports), Ascription §2, `notes/canonical-formatting-and-naming.md` (house style).
@@ -145,6 +145,16 @@ When the closing bracket does not begin a line, the lines between the brackets a
 ```
 let label = describe(firstName,
         lastName)
+```
+
+Brackets whose only item is an open pair, written straight after the opening bracket and straight before the closing one, are not carried on. The lines between them are the inner pair's: its items sit one level in from the line holding both opening brackets, and the outer closing bracket follows the inner one on its line (§9.4 rule 2):
+
+```
+let piece =
+    Piece({
+        expr = Empty,
+        kind = Setting(flags)
+    })
 ```
 
 ### 5.3 The construct that owns a block
@@ -317,10 +327,15 @@ A line with nothing left to break stays long, and the formatter does not report 
 
 ### 9.4 How a line is broken
 
-The formatter breaks the **outermost** structure of a too-long line first, and stops as soon as every line fits. It uses the contents shape wherever there is something to open, and carries a line on at two levels only where nothing can be opened. It never adds a trailing comma. Each kind of structure breaks in one shape:
+The formatter breaks the **outermost** structure of a too-long line first, and stops as soon as every line fits. It uses the contents shape wherever there is something to open, and carries a line on at two levels only where nothing can be opened. It never adds a trailing comma. Each kind of structure breaks in one shape, except that a lambda or a bare `match` that is a binding's value, a call's last argument or a record's last field first tries keeping its head on its line (rules 1 and 2):
 
-1. **A binding, declaration, arm or lambda.** The value goes beneath its `=`, or the body beneath its `=>`, one level in (§5). The result is the same whether the author began with the value on the header line or beneath it. A header that is itself too long, before its `=`, opens its parameter brackets. A lambda passed as an argument sits inside the call's brackets, which are outside it and so open first.
-2. **Brackets.** Their contents go one item per line, never several to a line. The closing bracket takes a line of its own at the indentation of the opening bracket's line.
+1. **A binding, declaration, arm or lambda.** The value goes beneath its `=`, or the body beneath its `=>`, one level in (§5). A value that is a lambda or a bare `match` stays on its `=`'s line, and only the lambda's body goes beneath its `=>`, where a bare `match`'s arms always are. Only where that line, ending with the `=>` or with `match`, is still too long does the value go beneath the `=` instead, and its body is then moved beneath the `=>` only if that line is too long in turn. Any other value ends the same whether the author began it on the header line or beneath it. A header that is itself too long, before its `=`, opens its parameter brackets. A lambda that is a call's last argument, or the value of a record's last field, keeps its head on the line where the brackets open (rule 2). Any other lambda passed as an argument sits inside the call's brackets, which are outside it and so open first.
+2. **Brackets.** Their contents go one item per line, and the closing bracket takes a line of its own at the indentation of the opening bracket's line. Three kinds of brackets take a shape of their own:
+    - **Brackets whose only item is a vector literal, a record or a tuple** open and close with it, as in `Map.fromVector([` … `])` and `Regex({` … `})`. The opening brackets share a line, and so do the closing brackets. The inner brackets' contents break as this rule says for them, one level in (§5.2).
+    - **A call whose last argument is a lambda or a bare `match`**, or a record whose last field's value is one, keeps everything before the lambda's body on the line where its brackets open. Only the body goes beneath the `=>`, one level in (§5.3), where a bare `match`'s arms always are, and the closing bracket takes a line of its own. Only where that line, ending with the `=>` or with `match`, is still too long do the brackets open one item per line instead, with the lambda's head, or `match`, beginning the last of them, and the body is then moved beneath the `=>` only if that line is too long in turn (rule 1). A record that is a call's only item takes this shape inside the first shape, as in `Seq({ pull = () =>`.
+    - **Brackets whose items are all literals, or tuples of literals,** open as other brackets do, and their contents are filled: each line holds as many items as fit, and at least one, and a line breaks only after a comma. A literal here is a numeric literal (Lexer §5), with or without a leading `-`, or a string with no interpolation hole that ends on the line where it begins. A tuple counts only when every item in it is a literal, so a tuple of tuples does not, nor does `()`. Literals and such tuples may be mixed.
+
+    A line that holds several items of open brackets (§5.2), whose opening bracket is on an earlier line, is broken between those items, after their commas, before anything inside them breaks: one item to a line, or filled where the brackets are filled. The lines around it stay as they are, since the formatter never joins lines (§1), so a filled list is not filled again from its start.
 3. **A chain** of two or more links, where each link is a dot call or a `|>` stage, takes Method Syntax §2.1's form. The receiver ends its line, and every link takes a line of its own. Where the receiver begins its line, as it does once a value is beneath its `=`, the links sit at the receiver's level; otherwise they are carried on, two levels in (§5.1). Every link is broken, or none. A chain breaks before the brackets inside its links do. A dot after an uppercase name is a module qualifier and never breaks; nor does a field path such as `order.customer.name`. A single link is not a chain, and its brackets open instead.
 4. **A conditional** takes Operators §11.3's multiline shape. `then` stays on the condition's line, each branch goes on a line of its own one level in (§5.3), and `else` takes its item's level (§5.1), which is under `if` wherever `if` begins the line, as it does once a value is beneath its `=`. An `else` and its `if` stay on one line. Every branch of the conditional is broken, or none. A condition still too long once the branches are beneath it breaks as a head does (rule 7), and `then` ends its last line.
 5. **An operator.** An expression whose outermost structure is an operator has nothing to open. It is carried on at two levels, broken before each of its loosest operators, so that each carried-on line begins with an operator and holds one operand (§9.5). An operator the author wrote at the end of a line is not broken before: it stays where it is (§9.5).
@@ -348,6 +363,50 @@ let selected =
 ```
 
 The first line fits once its value is beneath the `=`. The second still does not fit there, and its chain breaks.
+
+Brackets break the same way, with the limit at 50:
+
+```
+let codes = Map.fromVector([("en", "English"), ("fr", "French"), ("de", "German"), ("es", "Spanish")])
+let total = Vector.fold(values, 0, (sum, value) => sum + value * weight)
+```
+
+becomes
+
+```
+let codes =
+    Map.fromVector([
+        ("en", "English"), ("fr", "French"),
+        ("de", "German"), ("es", "Spanish")
+    ])
+let total =
+    Vector.fold(values, 0, (sum, value) =>
+        sum + value * weight
+    )
+```
+
+Each value goes beneath its `=` first, since the binding is the outermost structure, and is still too long there. The only item of `Map.fromVector` is a vector literal, so the two open together, and the vector holds only tuples of literals, so it is filled. The lambda is `fold`'s last argument, so only its body moves. Had `Vector.fold(values, 0, (sum, value) =>` still been too long, the call's brackets would have opened one argument per line.
+
+A line already inside open brackets breaks between its items, and the lines around it stay as they are. With the limit at 50, the third line of
+
+```
+let primes =
+    Set.fromVector([
+        2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47,
+        53, 59
+    ])
+```
+
+is filled again by itself:
+
+```
+let primes =
+    Set.fromVector([
+        2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31,
+        37, 41, 43, 47,
+        53, 59
+    ])
+```
 
 A head breaks the same way, with its closing word kept at the end. With the limit at 40,
 
@@ -414,6 +473,9 @@ Both are legal. A line indented deeper than its item continues the item whatever
 16. **Counting physical lines to tell a one-liner from a multi-line declaration.** Maximum line length would then change a document's grouping (§6.3).
 17. **A doc comment making its declaration multi-line.** For the formatter it does not (§6.3). The house style for documented functions is separate.
 18. **A closing word at the start of a line**, as OCaml writes `then` beneath its condition. It is legal (Lexer & Layout §2.4), and an author's stays where it is written (§1), but the formatter ends a head's last line with its closing word, where it shows that the block follows (§9.3).
+19. **Brackets set apart from their only item**, as in `Map.fromVector(` / `[` … `]` / `)`. The outer brackets show nothing that the inner ones do not, so the two extra lines and the extra level carry no meaning (§9.4 rule 2).
+20. **Opening a call's brackets before its last argument's lambda.** It gives the lambda's head a line of its own and its body a second level. A lambda's head stays on the call's line, as JavaScript formatted by Prettier keeps a last-argument function's, and as a Swift trailing closure stands after its call (§9.4 rule 2).
+21. **Filling every list, or none.** Filled expressions are hard to pick out, and an edit to one moves the line breaks of all those after it. Filling none turns a table of a hundred short values into a hundred lines. In a list of literals, which item begins a line carries no meaning, so filling costs nothing there (§9.4 rule 2).
 
 ## 11. Edit notes to existing specs
 
