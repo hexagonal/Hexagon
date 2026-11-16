@@ -181,8 +181,8 @@ the Book, the Playground's tutorials and the spec's own examples.
   lines things up with spaces. (Canonical Layout §3.2)
 - **H3** In house text, a function with a doc comment has a blank line
   above the doc comment and a blank line below the function. The
-  formatter does not add these: for it, a doc comment does not change
-  where blank lines go. (Canonical Layout §6.3)
+  formatter adds neither for this reason: for it, a doc comment does not
+  change where blank lines go. (Canonical Layout §6.3)
 - **H4** A line carried on at an operator begins with the operator, as
   each line Format document breaks at one does. An operator written at
   the end of a line is legal and the formatter leaves it there, but house
@@ -220,9 +220,9 @@ the Book, the Playground's tutorials and the spec's own examples.
   always a block beneath it. So it goes beneath a binding's `=`, an
   assignment's `:=`, and an arm's or a lambda's `=>` (H5), and it
   begins its own line after `try` and as a call's argument too.
-  `if` and `try` follow H5 as it stands:
-  one that fits on its line stays where it is, and one that runs on
-  begins its own line. A conditional's shape is F3's, and a
+  `if` and `try` follow H5:
+  one that fits on its line is written after its `=`, `:=` or `=>`, and
+  one that runs on begins its own line. A conditional's shape is F3's, and a
   condition carried on ends its last line with `then` (F5). (Canonical
   Layout §13)
 
