@@ -1,6 +1,6 @@
 # Hexagon Spec: Canonical Layout
 
-**Status:** Decided (November 2026). The layout that Format document and Format selection write (#1561; the formatter's stages are gathered under #1567). One point is pending: which side of an operator a carried-on break falls on (§9.5).
+**Status:** Decided (November 2026). The layout that Format document and Format selection write (#1561; the formatter's stages are gathered under #1567).
 **Scope:** What the two formatting commands change and what they refuse (§1–§2); the two options and the test any later option must pass (§3); line ends (§4), indentation (§5), blank lines (§6) and spacing within a line (§7); comments (§8); how a line longer than the Maximum line length is broken (§9); what the formatter leaves to the author (§13).
 **Not in scope:** Changes to tokens: removing or adding parentheses, a leading `|`, a trailing comma or a degenerate `x: _`, and moving imports. Each waits for a ruling of its own (§13). House style, which is how the standard library and the Book are written where the formatter leaves the author free: `notes/canonical-formatting-and-naming.md`. The editors' commands and settings screens, which are the implementation's (§12).
 **Companions:** Lexer & Layout (blocks, the block-head inventory §2.1, the continuation tokens §2.3), Lexer §2 (line ends, tabs) and §7 (trivia), Comments §2–§4, Doc Comments §3–§4, Operators §3 and §11.3 (the conditional's shapes), Method Syntax §2.1 (the chain's shape), Unions §2, Modules §2–§3 (headers, closers, imports), Ascription §2, `notes/canonical-formatting-and-naming.md` (house style).
@@ -114,8 +114,8 @@ export let map(source: Option(a), transform: a ->! b): Option(b) =
         None => None
 
 let ready =
-    configured and connected and
-            notExpired(session)
+    configured and connected
+            and notExpired(session)
 
 let corners = [
     { x = 0, y = 0 },
@@ -151,15 +151,19 @@ let label = describe(firstName,
 
 A block's lines are measured from the line on which the construct that owns the block **begins**, not from the line where its head ends. The owners are those of Lexer & Layout §2.1's inventory: a binding or member header for its body, `if` for the branch after `then`, the `else` clause for its branch, `match` and `catch` for their arms, an arm for its body, `try`, `attempt`, `assume`, `for` and `while` for their bodies, a lambda for its body, and a declaration head for its member block.
 
-So a condition carried onto a second line does not push its branch deeper, and nested blocks add up one level at a time:
+So a header or a guard carried onto a second line does not push its block deeper, and nested blocks add up one level at a time:
 
 ```
-if configured and
-        connected then
-    start()
-else
-    wait()
+export let clamp(reading: Option(Int),
+        limit: Int): Int =
+    match reading
+        Some(n) when n > 0
+                and n < limit =>
+            n
+        _ => 0
 ```
+
+The body of `clamp` is measured from the line where `export let` begins, and the arm's body from the line where the arm begins.
 
 ### 5.4 Lines the rows do not move, and what the rows keep
 
@@ -237,6 +241,7 @@ These rules govern the gaps between two code tokens on the same line. They do no
 | Inside `{` and `}` with something between them | one space | `{ top = 1, bottom = 2 }` |
 | `{}` | no space | `{}` |
 | Inside `(` `)`, `[` `]` and `<` `>` | none | `f(x)`, `[1, 2]`, `Pow<a: Num>` |
+| `derives` after a declaration head, and the token on either side of it | one space | `union Ping derives (Eq, Show)`, `record Pair(a, b) derives (Eq, Show)` |
 | An opening bracket after a name, a closing bracket or the `>` of a binder list | none | `f(x)`, `xs[i]`, `Vector(a)`, `Show<Ping>`, `<a: Ord>(x)` |
 | A binder list's `<` after a keyword | none | `fun<a: Eq>`, `honor<a: Show>` |
 | A prefix sign and its operand: unary `-`, variance `+` and `-`, spread `...` | none | `-x`, `Nullable(+a)`, `[_, ...rest]` |
@@ -246,11 +251,13 @@ These rules govern the gaps between two code tokens on the same line. They do no
 
 Colons have one spacing everywhere. Every colon is tight on its left with one space after. This holds for a binding's annotation, an ascription, a constrained hole and a binder list alike. The space before a colon carries no meaning: horizontal whitespace is trivia, not a token (Lexer §7), and no rule of the lexer or the parser reads whether a colon touches what stands before it. Hexagon writes parameters in brackets and has no application by juxtaposition. Gleam is the same in both respects, and its documentation writes `fn add(x: Int, y: Int) -> Int`.
 
+`derives` is a keyword in the header of a `record`, `union` or foreign enum, before its `=` (Lexer §4.2). It lexes as a name, but it is spaced as a keyword, so its brackets never look like a call's: `union Ping derives (Eq, Show)`. Anywhere else `derives` is an ordinary name, and a function named `derives` is called tight, as in `derives(1)`.
+
 ### 7.2 Gaps the formatter never opens or closes
 
 Some gaps carry meaning. Whether there is a gap there is never changed; how wide it is follows §7.3.
 
-- **Between a closing parenthesis and a name.** A name written against `)` is the suffix seat (Pattern Declarations §3.1). With a space it is whatever it is elsewhere: `(r) as s` is an as-pattern, and `(a bor b) band mask` an operator.
+- **Between a closing parenthesis and a name.** A name written against `)` is the suffix seat (Pattern Declarations §3.1). With a space it is whatever it is elsewhere: `(r) as s` is an as-pattern, and `(a bor b) band mask` an operator. A `derives` after a declaration head's parameters is not such a name but the keyword, which §7.1 spaces: `record Pair(a, b) derives (Eq, Show)`.
 - **Around a call mark.** A mark is written glued to its callee and to the argument list it governs (Lexer §8.1; Effects §3.2), as in `save!(x)` and `text |> Int.parse^`.
 
 The formatter also never removes a space where removing it would make two tokens read as one, or would begin a comment. A unary minus applied to a negation keeps its space, as in `- -x`, since `--` begins a comment (Comments §2).
@@ -273,7 +280,7 @@ A comment that begins its line takes the indentation of the next line that begin
 
 A comment that spans lines moves as a unit. Every line of it shifts by the same number of columns, so a doc comment's content, which is measured from its lines' common indentation, stays the same. If a move to the left would cut into the text of a later line, the later lines stay as written and only the first line moves.
 
-A line that begins with a block comment and continues with code is placed by its code. The code goes where §5 puts it, and the comment keeps its place before it. The gap between them shrinks if it must, to no less than one space. Where even that leaves no room for the comment, the formatter refuses the document and names the line (§2.3).
+A line that begins with a block comment and continues with code is placed by its code. The code goes where §5 puts it, and the comment stands before it. The gap between the comment and the code is an ordinary gap, like one where §7.1 calls for one space: it is kept as written, it becomes one space under Collapse extra spaces (§3.2), and it is never less than one space. Where the comment does not fit before the code with that gap, the gap shrinks as far as it must. Where even one space leaves no room for the comment, the formatter refuses the document and names the line (§2.3).
 
 ### 8.3 A comment after code
 
@@ -295,6 +302,7 @@ Code points are the measure in version one. The measure may later become display
 
 - **A string**, its interpolation holes included, and **a comment**.
 - **A union's alternatives** are never split onto lines of their own, since that would change which declarations are multi-line (§6.3).
+- **A head**: an `if`'s condition, from the `if` to its `then`, and the head of a `match`, `for` or `while`, from its keyword to the end of its line. The line that holds a head may still be broken outside it: before the `if` or the `match`, when a value goes beneath its `=` or a body beneath its `=>`, and after `then`.
 - **Anywhere the program would read differently afterwards.** Every break is made only where the tree stays the same (§1). Where several items share a line, separated by `;`, only the last of them is broken.
 
 A line with nothing left to break stays long, and the formatter does not report it.
@@ -306,8 +314,8 @@ The formatter breaks the **outermost** structure of a too-long line first, and s
 1. **A binding, declaration, arm or lambda.** The value goes beneath its `=`, or the body beneath its `=>`, one level in (§5). The result is the same whether the author began with the value on the header line or beneath it. A header that is itself too long, before its `=`, opens its parameter brackets. A lambda passed as an argument sits inside the call's brackets, which are outside it and so open first.
 2. **Brackets.** Their contents go one item per line, never several to a line. The closing bracket takes a line of its own at the indentation of the opening bracket's line.
 3. **A chain** of two or more links, where each link is a dot call or a `|>` stage, takes Method Syntax §2.1's form. The receiver ends its line, and every link takes a line of its own. Where the receiver begins its line, as it does once a value is beneath its `=`, the links sit at the receiver's level; otherwise they are carried on, two levels in (§5.1). Every link is broken, or none. A chain breaks before the brackets inside its links do. A dot after an uppercase name is a module qualifier and never breaks; nor does a field path such as `order.customer.name`. A single link is not a chain, and its brackets open instead.
-4. **A conditional** takes Operators §11.3's multiline shape. `then` stays on the condition's line, each branch goes on a line of its own one level in (§5.3), and `else` takes its item's level (§5.1), which is under `if` wherever `if` begins the line, as it does once a value is beneath its `=`. An `else if` stays on one line. Every branch of the conditional is broken, or none. A condition that is itself too long breaks by these same rules, and `then` ends its last line.
-5. **An operator.** An expression whose outermost structure is an operator has nothing to open. It is carried on at two levels, broken at its loosest operator, one operand to a line.
+4. **A conditional** takes Operators §11.3's multiline shape. `then` stays on the condition's line, each branch goes on a line of its own one level in (§5.3), and `else` takes its item's level (§5.1), which is under `if` wherever `if` begins the line, as it does once a value is beneath its `=`. An `else if` stays on one line. Every branch of the conditional is broken, or none. A head is never broken (§9.3): an `if`'s condition stays on one line however long it is, and so does the head line of a `match`, `for` or `while`.
+5. **An operator.** An expression whose outermost structure is an operator has nothing to open. It is carried on at two levels, broken before each of its loosest operators, so that each carried-on line begins with an operator and holds one operand (§9.5). An operator the author wrote at the end of a line is not broken before: it stays where it is (§9.5).
 
 So in `let x = if c then f(a, b) else g(c)`, the value goes beneath the `=` first, then the conditional takes its shape, and only then, if a branch is still too long, do its brackets open.
 
@@ -333,7 +341,31 @@ The first line fits once its value is beneath the `=`. The second still does not
 
 ### 9.5 Which side of the operator
 
-**Pending.** It is not yet decided which side of an operator a carried-on break falls on: whether the line above ends with the operator, or the carried-on line begins with it. The house-style ruling on leading operators will decide it. Both are legal. A line indented deeper than its item continues the item whatever token begins it (Lexer & Layout §2).
+Where the formatter breaks a line at an operator, the carried-on line begins with the operator. With the limit at 30, for example:
+
+```
+let total =
+    first * second + third * fourth + fifth
+```
+
+becomes
+
+```
+let total =
+    first * second
+            + third * fourth
+            + fifth
+```
+
+The formatter never moves an operator across a line end. An operator the author wrote at the end of a line stays there, on the line with the operand before it, since the formatter keeps every line break the author wrote (§1):
+
+```
+let total =
+    first * second +
+            third * fourth
+```
+
+Both are legal. A line indented deeper than its item continues the item whatever token begins it (Lexer & Layout §2).
 
 ## 10. Rejected alternatives (do not re-litigate)
 
@@ -397,4 +429,4 @@ The formatter deliberately leaves these choices to the author. The house style f
 - **Extra spaces that align columns**, while Collapse extra spaces is off, and a wide gap before a trailing comment.
 - **The tokens:** parentheses, a leading `|` on a union's first alternative, a trailing comma, `;` or a new line, a degenerate `x: _`, the fused `fun f(…) = …` or a `fun` block, and the order and place of imports. Each token-level rule that other chapters name for "the formatter" waits for a ruling of its own. Until then, the canonical spelling is the author's to write.
 - **Comments**: what they say, which line they are on, and the shape of a doc comment.
-- **Which side of an operator a carried-on line breaks on**, until §9.5 is decided.
+- **Which side of an operator the author breaks a line on.** An operator the author writes at the end of a line stays there. Only the breaks the formatter makes put the operator first (§9.5).
