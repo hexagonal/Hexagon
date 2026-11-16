@@ -1,19 +1,19 @@
 # Hexagon Spec: Canonical Layout
 
-**Status:** Decided (November 2026). The layout that Format document and Format selection write (#1561; the formatter's stages are gathered under #1567). Amended 2026-11-16 (#1573): a head, which ends with its closing word, may be broken, though never before that word; a loop's body goes beneath its `do` (§5.3, §7.1, §9.3, §9.4, §10, §11). Amended 2026-11-16 (#1586): brackets whose only item is bracketed open and close with it, a lambda that is a call's last argument, a record's last field or a binding's value keeps its head on its line, and brackets of literals are filled (§5.2, §9.4, §10). Amended 2026-11-16 (#1590): an assignment is laid out as a binding is, its value beneath its `:=` (§5.3, §9.4, §10, §11).
-**Scope:** What the two formatting commands change and what they refuse (§1–§2); the two options and the test any later option must pass (§3); line ends (§4), indentation (§5), blank lines (§6) and spacing within a line (§7); comments (§8); how a line longer than the Maximum line length is broken (§9); what the formatter leaves to the author (§13).
-**Not in scope:** Changes to tokens: removing or adding parentheses, a leading `|`, a trailing comma or a degenerate `x: _`, and moving imports. Each waits for a ruling of its own (§13). House style, which is how the standard library and the Book are written where the formatter leaves the author free: `notes/canonical-formatting-and-naming.md`. The editors' commands and settings screens, which are the implementation's (§12).
-**Companions:** Lexer & Layout (blocks, the block-head inventory §2.1, the continuation tokens §2.3, heads and their closing words §2.4), Lexer §2 (line ends, tabs) and §7 (trivia), Comments §2–§4, Doc Comments §3–§4, Operators §3 and §11.3 (the conditional's shapes), Method Syntax §2.1 (the chain's shape), Unions §2, Modules §2–§3 (headers, closers, imports), Ascription §2, `notes/canonical-formatting-and-naming.md` (house style).
+**Status:** Decided (November 2026). The layout that Format document and Format selection write (#1561; the formatter's stages are gathered under #1567). Amended 2026-11-16 (#1573): a head, which ends with its closing word, may be broken, though never before that word; a loop's body goes beneath its `do` (§5.3, §7.1, §9.3, §9.4, §10, §11). Amended 2026-11-16 (#1586): brackets whose only item is bracketed open and close with it, a lambda that is a call's last argument, a record's last field or a binding's value keeps its head on its line, and brackets of literals are filled (§5.2, §9.4, §10). Amended 2026-11-16 (#1590): an assignment is laid out as a binding is, its value beneath its `:=` (§5.3, §9.4, §10, §11). Amended 2026-11-16 (#1594): a list whose closing bracket begins its line ends with a comma, which Format document adds unless the third option, Leave trailing commas as written, is on (§1, §3, §5, §9, §10–§14).
+**Scope:** What the two formatting commands change and what they refuse (§1–§2); the three options and the test any later option must pass (§3); line ends (§4), indentation (§5), blank lines (§6) and spacing within a line (§7); comments (§8); how a line longer than the Maximum line length is broken (§9); what the formatter leaves to the author (§13); the trailing comma it adds (§14).
+**Not in scope:** Changes to tokens other than adding a trailing comma (§14): removing or adding parentheses, a leading `|` or a degenerate `x: _`, and moving imports. Each waits for a ruling of its own (§13). House style, which is how the standard library and the Book are written where the formatter leaves the author free: `notes/canonical-formatting-and-naming.md`. The editors' commands and settings screens, which are the implementation's (§12).
+**Companions:** Lexer & Layout (blocks, the block-head inventory §2.1, the continuation tokens §2.3, heads and their closing words §2.4, lists and the trailing comma §7), Lexer §2 (line ends, tabs) and §7 (trivia), Comments §2–§4, Doc Comments §3–§4, Operators §3 and §11.3 (the conditional's shapes), Method Syntax §2.1 (the chain's shape), Unions §2, Modules §2–§3 (headers, closers, imports), Ascription §2, `notes/canonical-formatting-and-naming.md` (house style).
 
 ---
 
 ## 1. The ruling
 
-> Format document rewrites the whitespace of a document into its canonical layout and changes nothing else. It keeps every line break the author wrote in code and never joins two lines of code. It breaks a line of code only where the Maximum line length option is set and the line is longer. Blank lines are §6's.
+> Format document rewrites the whitespace of a document into its canonical layout, adds the trailing commas of §14, and changes nothing else. It keeps every line break the author wrote in code and never joins two lines of code. It breaks a line of code only where the Maximum line length option is set and the line is longer. Blank lines are §6's.
 
 Three guarantees follow, and an implementation checks each of them on every run (§12):
 
-- **The text is the same.** The tokens, every comment and every string are identical before and after, in the same order. A line end is a line boundary, not text (Lexer §2.1), so a comment or string that spans lines is the same whichever line end separates them.
+- **The text is the same.** The tokens, every comment and every string are identical before and after, in the same order, apart from the trailing commas §14 adds. A line end is a line boundary, not text (Lexer §2.1), so a comment or string that spans lines is the same whichever line end separates them.
 - **The program is the same.** The formatted document parses to the same tree. Hexagon is layout-sensitive (Lexer & Layout §1), so this is a separate guarantee from the first: an indentation change can change what a program means while leaving its tokens alone.
 - **Formatting twice changes nothing.** A document Format document has written is unchanged by Format document under the same settings.
 
@@ -60,14 +60,23 @@ Either way, a missing space is added where §7 calls for one, a space is removed
 
 ### 3.3 The admission test for an option
 
-These are the first two options, not necessarily the last. Any option must pass two tests:
+These are the first three options, not necessarily the last. Any option must pass two tests:
 
 1. **It starts off.** With the option at its default, the formatter writes exactly what it would write without the option.
 2. **Two settings never undo each other.** Take any two settings, A and B. Once a document has been formatted under A and then under B, formatting it again under either A or B changes nothing.
 
-Both options pass. Maximum line length only adds line breaks, and no setting removes one. Collapse extra spaces only removes spaces, and no setting adds them back.
+All three pass. Maximum line length only adds line breaks, and no setting removes one. Collapse extra spaces only removes spaces, and no setting adds them back. Leave trailing commas as written only keeps the formatter from adding commas, and no setting removes one.
 
 An option where one setting adds what another removes fails the second test. Two developers with different settings would rewrite the same lines back and forth on every save. Padding inside record braces is the example: it is a rule (§7.1), not an option.
+
+### 3.4 Leave trailing commas as written
+
+**Leave trailing commas as written** is either off or on. The default is off.
+
+- **Off:** Format document adds a trailing comma wherever §14 calls for one.
+- **On:** it adds none.
+
+Either way, it removes none: a comma the author wrote stays where it is.
 
 ## 4. Line ends
 
@@ -119,7 +128,7 @@ let ready =
 
 let corners = [
     { x = 0, y = 0 },
-    { x = 1, y = 1 }
+    { x = 1, y = 1 },
 ]
 
 let selected =
@@ -153,7 +162,7 @@ Brackets whose only item is an open pair, written straight after the opening bra
 let piece =
     Piece({
         expr = Empty,
-        kind = Setting(flags)
+        kind = Setting(flags),
     })
 ```
 
@@ -312,7 +321,7 @@ Lines are broken only when Maximum line length is set to a number, and only a li
 
 ### 9.2 The length of a line
 
-A line's length is the number of Unicode code points on it, from its first character to its last. Its indentation counts; its line end does not. A trailing comment and the gap before it do not count.
+A line's length is the number of Unicode code points on it, from its first character to its last. Its indentation counts; its line end does not. A trailing comment and the gap before it do not count. A trailing comma the formatter adds counts, as one the author wrote does (§14).
 
 Code points are the measure in version one. The measure may later become display width, so that a wide character counts as two. That change is safe: since the formatter never joins lines, a document formatted under one measure is at most broken further under the other.
 
@@ -327,7 +336,7 @@ A line with nothing left to break stays long, and the formatter does not report 
 
 ### 9.4 How a line is broken
 
-The formatter breaks the **outermost** structure of a too-long line first, and stops as soon as every line fits. It uses the contents shape wherever there is something to open, and carries a line on at two levels only where nothing can be opened. It never adds a trailing comma. Each kind of structure breaks in one shape, except that a lambda or a bare `match` that is a binding's value, a call's last argument or a record's last field first tries keeping its head on its line (rules 1 and 2):
+The formatter breaks the **outermost** structure of a too-long line first, and stops as soon as every line fits. It uses the contents shape wherever there is something to open, and carries a line on at two levels only where nothing can be opened. The brackets it opens take a trailing comma where §14 calls for one. Each kind of structure breaks in one shape, except that a lambda or a bare `match` that is a binding's value, a call's last argument or a record's last field first tries keeping its head on its line (rules 1 and 2):
 
 1. **A binding, declaration, assignment, arm or lambda.** The value goes beneath its `=`, or the body beneath its `=>`, one level in (§5). An assignment is laid out as a binding is: what §9.4 says of a binding and its `=` holds for an assignment and its `:=`. A value that is a lambda or a bare `match` stays on its `=`'s line, and only the lambda's body goes beneath its `=>`, where a bare `match`'s arms always are. Only where that line, ending with the `=>` or with `match`, is still too long does the value go beneath the `=` instead, and its body is then moved beneath the `=>` only if that line is too long in turn. Any other value ends the same whether the author began it on the header line or beneath it. A header that is itself too long, before its `=`, opens its parameter brackets. A lambda that is a call's last argument, or the value of a record's last field, keeps its head on the line where the brackets open (rule 2). Any other lambda passed as an argument sits inside the call's brackets, which are outside it and so open first.
 2. **Brackets.** Their contents go one item per line, and the closing bracket takes a line of its own at the indentation of the opening bracket's line. Three kinds of brackets take a shape of their own:
@@ -377,7 +386,7 @@ becomes
 let codes =
     Map.fromVector([
         ("en", "English"), ("fr", "French"),
-        ("de", "German"), ("es", "Spanish")
+        ("de", "German"), ("es", "Spanish"),
     ])
 let total =
     Vector.fold(values, 0, (sum, value) =>
@@ -385,7 +394,7 @@ let total =
     )
 ```
 
-Each value goes beneath its `=` first, since the binding is the outermost structure, and is still too long there. The only item of `Map.fromVector` is a vector literal, so the two open together, and the vector holds only tuples of literals, so it is filled. The lambda is `fold`'s last argument, so only its body moves. Had `Vector.fold(values, 0, (sum, value) =>` still been too long, the call's brackets would have opened one argument per line.
+Each value goes beneath its `=` first, since the binding is the outermost structure, and is still too long there. The only item of `Map.fromVector` is a vector literal, so the two open together, and the vector holds only tuples of literals, so it is filled. The vector's closing bracket begins its line, so its last item takes a comma (§14). The lambda is `fold`'s last argument, so only its body moves, and since its body is a block, `fold`'s brackets take no comma. Had `Vector.fold(values, 0, (sum, value) =>` still been too long, the call's brackets would have opened one argument per line.
 
 A line already inside open brackets breaks between its items, and the lines around it stay as they are. With the limit at 50, the third line of
 
@@ -393,7 +402,7 @@ A line already inside open brackets breaks between its items, and the lines arou
 let primes =
     Set.fromVector([
         2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47,
-        53, 59
+        53, 59,
     ])
 ```
 
@@ -404,7 +413,7 @@ let primes =
     Set.fromVector([
         2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31,
         37, 41, 43, 47,
-        53, 59
+        53, 59,
     ])
 ```
 
@@ -461,7 +470,7 @@ Both are legal. A line indented deeper than its item continues the item whatever
 4. **An option where one setting adds what another removes**, such as padding inside record braces as a choice. It fails §3.3's second test.
 5. **Alignment the formatter makes.** gofmt lines up the columns of a struct's fields and comments. Hexagon's formatter never creates alignment. It only keeps the author's, while Collapse extra spaces is off.
 6. **Collapsing the author's alignment by default.** A developer who aligns columns would lose them on the first run. Collapse extra spaces is an option, and it starts off.
-7. **Token changes in version one.** These include dropping `x: _`, whose author may be on the way to `x: _: Num`, removing parentheses, moving imports and adding a trailing comma. A whitespace-only formatter carries the strongest check there is, identical tokens (§1), and each token change needs its own ruling.
+7. **Token changes in version one**, other than the trailing comma (§14). These include dropping `x: _`, whose author may be on the way to `x: _: Num`, removing parentheses and moving imports. A formatter that changes whitespace, and adds only a comma that changes no tree, carries the strongest check there is: identical tokens apart from those commas (§1). Each other token change needs its own ruling.
 8. **A continuation indented one level, or aligned under an opening bracket.** One level makes a carried-on line look like the first line of a block. Alignment under a bracket moves whenever a name is renamed. Two levels has precedent. Google's Java style indents a block +2 and a continuation at least +4, and Python's PEP 8 adds a level where a continuation would otherwise line up with the body.
 9. **A spaced colon, or a spacing that depends on the colon's role.** One alternative wrote a binding's annotation tight but an ascription and a constrained hole's constraint colon spaced, as in `(e : Type)` and `x: _ : Num`. Another spaced every colon, as in `x : Int`. One spacing is simpler to read and to teach. Tight suits a language whose parameters are bracketed, as Gleam's are (§7.1).
 10. **Record braces written tight**, as in `{x = 1}`. Elm's guide writes `{ first = "John", last = "Hobson", age = 81 }`, and ocamlformat adds a space inside a record's braces by default. The space also keeps a record clear of the comment opener `{-`.
@@ -477,6 +486,10 @@ Both are legal. A line indented deeper than its item continues the item whatever
 20. **Opening a call's brackets before its last argument's lambda.** It gives the lambda's head a line of its own and its body a second level. A lambda's head stays on the call's line, as JavaScript formatted by Prettier keeps a last-argument function's, and as a Swift trailing closure stands after its call (§9.4 rule 2).
 21. **Filling every list, or none.** Filled expressions are hard to pick out, and an edit to one moves the line breaks of all those after it. Filling none turns a table of a hundred short values into a hundred lines. In a list of literals, which item begins a line carries no meaning, so filling costs nothing there (§9.4 rule 2).
 22. **An assignment's value carried on at two levels**, as the rest of a line is (§5.1). An assignment's value is what it assigns, as a binding's value is what it binds, so the two are laid out alike: the value goes beneath the `:=`, one level in, where it is a block (Lexer & Layout §2.1; §9.4 rule 1).
+23. **Lists spread over lines without a trailing comma**, as in the ML family: Elm and Haskell allow none, and put the comma at the start of each line instead. With a comma after every item, adding, removing or moving an item changes only its own lines. Go requires the comma in such a list, and Prettier, rustfmt and Black add it (§14).
+24. **Adding the comma only to brackets the formatter opens itself.** A formatted document would then hold both spellings, depending on who broke each line (§14).
+25. **Removing a trailing comma**, from a one-line list or while Leave trailing commas as written is on. One setting would then remove what another adds, which fails §3.3's second test. A comma on a one-line list is the author's to keep or remove (§13).
+26. **A comma that ends a block**, so that a lambda whose body is beneath its `=>` could take its comma on the body's last line. The layout pass would have to close blocks at a comma, and a comma also separates the items of a `<…>` list, which the layout pass does not track as brackets (Lexer & Layout §3.2), so it would close blocks that are still open. A list whose last item ends in a block takes no comma instead (§14).
 
 ## 11. Edit notes to existing specs
 
@@ -495,6 +508,7 @@ On next touch:
 - **Comments §4**, whose "the formatter may frown" sentence points to §8.2 here.
 - **Modules §3, Pattern Declarations §3.3, Pattern Matching §6.5 and Constraints §5.4** speak of the formatter moving imports, removing redundant parentheses and deleting a bare binder. Each is a token-level rule awaiting its own ruling (§13).
 - **Spec examples written before §7.1**: about 200 fractions spaced as `1 // 3` (most of them in Operators, Pattern Matching and `Rat`), and about 150 record braces written tight, as `{x = 1}`. Each is respelt when its section is next touched. The examples that show the C comment habit, such as `let y = 2 // a note`, stay as they are.
+- **Spec examples written before §14**: a list whose closing bracket begins its line gains its trailing comma when its section is next touched.
 
 The compiler's two reports that spell an ascription for the author, Ascription §5's and Numeric Literals §6's, follow the tight colon in #1569.
 
@@ -502,17 +516,19 @@ Applied with the closing words (#1573): **Lexer & Layout §2** lists `then` besi
 
 Applied with the assignment's block (#1590): **Lexer & Layout §2.1** lists a line ending in `:=` among the block heads, and **Statements §6.3 and Operators §12** say that the value beneath it is a block.
 
+Applied with the trailing comma (#1594): **Lexer & Layout §7** says that every list in brackets may end with a comma, and gives its limits, with their reports in §5. **Products §3.1** and **Collections Part 3 §2** point to it. **`notes/canonical-formatting-and-naming.md`** gains H8, and its examples carry the comma.
+
 ## 12. Conformance
 
 An implementation of the formatter (#1562) must meet these conditions.
 
-1. **It checks the three guarantees of §1 on every run:** identical tokens, comments and strings; an identical tree; and a second run that changes nothing. If any check fails, it refuses the document, returns no edits, and says that formatting failed (§2.3).
-2. **Settings never fight.** Its tests show §3.3's second test for the two options, and that §6.3's grouping is the same under every setting.
+1. **It checks the three guarantees of §1 on every run:** identical tokens, comments and strings, apart from the trailing commas it adds (§14); an identical tree; and a second run that changes nothing. If any check fails, it refuses the document, returns no edits, and says that formatting failed (§2.3).
+2. **Settings never fight.** Its tests show §3.3's second test for the three options, and that §6.3's grouping is the same under every setting.
 3. **Mangled input comes back canonical.** A document whose whitespace has been scrambled, without changing its meaning, formats to the same result as the original.
-4. **The standard library is canonical.** Every standard-library file is unchanged by Format document at Maximum line length 100 with Collapse extra spaces on, the house settings (#1563).
+4. **The standard library is canonical.** Every standard-library file is unchanged by Format document at Maximum line length 100, with Collapse extra spaces on and Leave trailing commas as written off, the house settings (#1563).
 5. **Format selection agrees with Format document.** It is computed from the whole-document result and returns only the edits inside its region (§2.2).
 
-The language server serves both commands (#1564), and the VS Code extension relies on it (#1565). The Playground offers both commands in its editor, and both options in its Settings… window (#1566). A `hexc format` command with a check mode belongs to version one with the rest of the command line, and calls the same core. The Book's code samples are written in canonical layout. The Book does not describe formatting.
+The language server serves both commands (#1564), and the VS Code extension relies on it (#1565). The Playground offers both commands in its editor, and the three options in its Settings… window (#1566). A `hexc format` command with a check mode belongs to version one with the rest of the command line, and calls the same core. The Book's code samples are written in canonical layout. The Book does not describe formatting.
 
 ## 13. What the formatter leaves to the author
 
@@ -521,6 +537,50 @@ The formatter deliberately leaves these choices to the author. The house style f
 - **Where lines break**, except in a line longer than the Maximum line length. This covers which line a keyword stands on, such as `match x with` on the header line or on a line of its own. It also covers whether a short conditional is written on one line or several, and whether brackets are open.
 - **Grouping by blank lines**, beyond the three places the formatter adds one (§6.2) and the cap of one.
 - **Extra spaces that align columns**, while Collapse extra spaces is off, and a wide gap before a trailing comment.
-- **The tokens:** parentheses, a leading `|` on a union's first alternative, a trailing comma, `;` or a new line, a degenerate `x: _`, the fused `fun f(…) = …` or a `fun` block, and the order and place of imports. Each token-level rule that other chapters name for "the formatter" waits for a ruling of its own. Until then, the canonical spelling is the author's to write.
+- **The tokens:** parentheses, a leading `|` on a union's first alternative, `;` or a new line, a degenerate `x: _`, the fused `fun f(…) = …` or a `fun` block, and the order and place of imports. Each token-level rule that other chapters name for "the formatter" waits for a ruling of its own. Until then, the canonical spelling is the author's to write.
+- **A trailing comma that §14 does not add**: one on a list whose closing bracket does not begin a line, such as a one-line list, and every one while Leave trailing commas as written is on. The formatter never removes a comma.
 - **Comments**: what they say, which line they are on, and the shape of a doc comment.
 - **Which side of an operator the author breaks a line on.** An operator the author writes at the end of a line stays there. Only the breaks the formatter makes put the operator first (§9.5).
+
+## 14. Trailing commas
+
+Every list in brackets may end with a comma after its last item (Lexer & Layout §7). Unless Leave trailing commas as written is on (§3.4), Format document writes one after the last item of every list in open brackets, whose closing bracket begins a line (§5.2), whether the author opened them or the formatter did (§9.4). Go has the same rule, and there such a list must end with a comma. It holds for brackets with one item to a line and for filled brackets alike:
+
+```
+let corners = [
+    { x = 0, y = 0 },
+    { x = 1, y = 1 },
+]
+
+let primes = [
+    2, 3, 5, 7, 11, 13,
+    17, 19, 23, 29,
+]
+```
+
+The comma goes directly after the last item, ahead of any comment on its line. A list that already ends with a comma gains no second one. The comma is the one token the formatter adds, and it changes no tree (§1). A line's length is measured with it (§9.2).
+
+No comma is added in three cases:
+
+- **Where the closing bracket does not begin a line.** A list on one line takes none, and neither do brackets carried on, whose closing bracket follows their last item, as in `describe(firstName,` with `lastName)` beneath it (§5.2). Where brackets open and close with their only item (§5.2; §9.4 rule 2), the inner closing bracket begins its line and takes the comma, and the outer one follows it on that line and takes none:
+
+    ```
+    let piece =
+        Piece({
+            expr = Empty,
+            kind = Setting(flags),
+        })
+    ```
+
+- **After an item that ends in a block**, such as a lambda whose body is beneath its `=>`, or a `match` whose arms follow it. A comma at the end of the block's last line would be read inside the block (Lexer & Layout §7). So a call whose last argument is such a lambda (§9.4 rule 2) ends without one:
+
+    ```
+    let total =
+        Vector.fold(values, 0, (sum, value) =>
+            sum + value * weight
+        )
+    ```
+
+- **Inside parentheses that group one item**, such as one expression written on a line of its own between `(` and `)`. With a comma they would hold a one-item tuple, which Hexagon does not have (Lexer & Layout §7).
+
+The formatter never removes a trailing comma. One on a list whose closing bracket does not begin a line stays, and so does every one while Leave trailing commas as written is on (§13).

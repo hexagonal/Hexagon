@@ -209,7 +209,7 @@ the Book, the Playground's tutorials and the spec's own examples.
       Map.fromVector([
           ("Adlm", "Adlam"),
           ("Ahom", "Ahom"),
-          ("Arab", "Arabic")
+          ("Arab", "Arabic"),
       ])
   ```
 
@@ -266,6 +266,22 @@ the Book, the Playground's tutorials and the spec's own examples.
           match best with
               Some(kept) => if value > kept then Some(value) else best
               None => Some(value)
+      )
+  ```
+
+- **H8** A list whose closing bracket begins its line ends with a comma
+  after its last item, as Format document writes it at the house
+  settings, where Leave trailing commas as written is off. A list on one
+  line has none, and neither does a list whose last item ends in a
+  block, such as a lambda whose body is beneath its `=>` (H7's
+  examples), since no comma can stand there. (Canonical Layout §3.4,
+  §14; Lexer & Layout §7)
+
+  ```
+  let scaled =
+      create(
+          decimal.unscaled * tenTo(checked - decimal.places),
+          checked,
       )
   ```
 

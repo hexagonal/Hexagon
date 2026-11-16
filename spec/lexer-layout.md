@@ -1,11 +1,11 @@
 # Hexagon Spec: Lexer & Layout
 
-**Status:** Decided (July 2026); compiler pass implemented. Revised 2026-11-13 (#1538): §1 and §4 say that `{-` opens a comment, not a brace. Amended 2026-11-14 (#1542): §2.3 keeps `//` out of the continuation tokens, and §2.1's declared-pattern example is `clock`. Amended 2026-11-16 (#1573): a head that holds an expression ends with its closing word, `then`, `do` or `with`, and deeper lines and open brackets carry it on until that word (§1, §2.1, §2.2, §2.4, §5, §6); a `then` at its item's column continues the item, as `else` and `catch` do (§2). Amended 2026-11-16 (#1590): a line ending in an assignment's `:=` opens a block, as a line ending in a binding's `=` does (§2.1, §6). This document owns layout, blocks, `;`, and
+**Status:** Decided (July 2026); compiler pass implemented. Revised 2026-11-13 (#1538): §1 and §4 say that `{-` opens a comment, not a brace. Amended 2026-11-14 (#1542): §2.3 keeps `//` out of the continuation tokens, and §2.1's declared-pattern example is `clock`. Amended 2026-11-16 (#1573): a head that holds an expression ends with its closing word, `then`, `do` or `with`, and deeper lines and open brackets carry it on until that word (§1, §2.1, §2.2, §2.4, §5, §6); a `then` at its item's column continues the item, as `else` and `catch` do (§2). Amended 2026-11-16 (#1590): a line ending in an assignment's `:=` opens a block, as a line ending in a binding's `=` does (§2.1, §6). Amended 2026-11-16 (#1594): every list in brackets may end with a comma after its last item (§5, §6, §7). This document owns layout, blocks, `;`, the trailing comma, and
 brace disambiguation. The companion [Physical Lexer](lexer.md) specification owns
 the complete physical token and keyword inventory, source coordinates, literals,
 whitespace, comments-as-trivia, and lexical diagnostics.
-**Scope:** blocks as pure layout, virtual delimiters, where a block head ends, the explicit `;` separator, braces-are-records disambiguation, and the diagnostics these require.
-**Companions:** Products spec (braces = records), Functions spec (block bodies of lambdas), Operators §11 (the conditional's head), Loops §2 and §4 (the loops' heads), Pattern Matching §6.1 and §6.7 (the `match` head and the match function).
+**Scope:** blocks as pure layout, virtual delimiters, where a block head ends, the explicit `;` separator, the trailing comma in a list (§7), braces-are-records disambiguation, and the diagnostics these require.
+**Companions:** Products spec (braces = records; §2.1, no one-item tuple), Functions spec (block bodies of lambdas; §5.1, no one-item parameter-list type), Operators §11 (the conditional's head), Loops §2 and §4 (the loops' heads), Pattern Matching §6.1 and §6.7 (the `match` head and the match function).
 
 ---
 
@@ -405,6 +405,9 @@ These are binding on the implementation, same status as the Functions spec's dia
 | The same, where a loop's body on its head's line immediately precedes the `;` (§2.4) | append hint: "to give the loop a multi-statement body, indent it on the following lines; `;` separates the *enclosing* block." |
 | Inconsistent dedent (line at a column matching no open block) | standard offside error, naming the candidate columns. |
 | A line beginning with an expression-continuation token (§2.3) that dedents past the item it would continue | append hint: "a leading operator continues the previous item only at that item's own indentation; indent it to the item's column, or end the previous line with the operator." (The bare "expected a newline or `;` between block items" is loud but unhelpful here.) |
+| A comma after the one item of parentheses that group it (§7): `(x,)` as an expression, pattern or type | "Hexagon has no one-item tuple; remove this comma" |
+| The same in a function type, `(Int,) -> Int` (§7) | "a function of one parameter is written `Int -> Int`; remove this comma" |
+| A comma ending the last line of a block that a list's closing bracket ends, as after a lambda's body beneath its `=>` (§7) | "this comma would be part of the block that `=>` opened; a list whose last item ends in a block takes no trailing comma, so remove it", naming the head that opened the block: `=>`, `with`, `then` or `else` |
 
 ## 6. Decisions log
 
@@ -429,3 +432,37 @@ These are binding on the implementation, same status as the Functions spec's dia
 | Block-kind terminology (#700): expression blocks (value), arm blocks, member blocks (`constraint`/`honor`/`extern from`/`fun`/module top level — they declare rather than compute, and are not expressions); one layout mechanism serves all three; the `extern from` row joins the inventory (owed from FFI Part 4 §2.2) | §2.1, §1 |
 | *(#1573)* A head that holds an expression ends with its closing word: `if … then`, `while … do`, `for … in … do`, `match … with`; a head that holds nothing needs none. An unfinished head is no block head: deeper lines carry it on, as they carry a guard or a header, and brackets hold it open; it holds nothing open itself, and no block opens inside it outside brackets, so a forgotten closing word is one report at the head's keyword. A closing `with` is recognised from tokens: at the `match`'s depth, directly after a token that can end an operand. A closing word may begin a deeper line (legal, not canonical); `then` at the item's column continues the item as `else` and `catch` do, while `do` and `with` there begin a new item. More after the closing word on its line is a one-line body, a `match`'s arms excepted | §2, §2.1, §2.2, §2.4 |
 | *(#1590)* A line ending in `:=` opens a block, as a line ending in a binding's `=` does: an assignment's value is laid out as a binding's, on the `:=` line, alone beneath it, or as several items whose final expression is the value | §2.1 |
+| *(#1594)* Every list in brackets may end with a comma after its last item: arguments, parameters, literals, types, patterns, binder lists and constraint lists alike. None in empty brackets; none after the one item of parentheses that group it, since there is no one-item tuple; and none on the last line of a block, since a comma ends no block | §5, §7 |
+
+## 7. Lists in brackets and the trailing comma
+
+A **list** is a sequence of items separated by commas between a pair of brackets: `()`, `[]`, `{}` or `<>`. A comma may follow its last item, and it changes nothing: `f(a, b,)` is the call `f(a, b)`, and `[1, 2,]` is the vector `[1, 2]`. With a comma after every item, each line of a list spread one item to a line ends alike, so adding, removing or moving an item changes only that item's lines.
+
+Every list takes the comma. Among them are:
+
+- a call's arguments, a constructor's included, and the items of a tuple, vector or record literal, a record update's included;
+- the parameters of a binding or `fun` header, a lambda, a constraint or instance member, a pattern declaration and a foreign declaration;
+- type arguments, as in `Map(String, Int)`; the items of a tuple type; a function type's parameters, as in `(Int, Int) -> Int`; a record type's fields, its `...` included; a declaration's type parameters; and a union alternative's fields;
+- tuple, constructor, vector and record patterns, a vector pattern's `...rest` included, and the group of a suffix form, as in `(h, m)clock`, in a pattern or an expression (Pattern Declarations §3.1);
+- a binder list, as in `<a: Eq, b: Ord>`; an instance head's `<…>`; a `derives` list; and a list of constraints, as in `<a: (Num, Ord)>`.
+
+The brackets of an index or a slice, as in `xs[i]`, hold one expression, not a list, and take no comma.
+
+Two limits apply:
+
+- **A comma follows an item.** Brackets with nothing between them take no comma, so `f(,)` and `[,]` are refused, and so are two commas in a row.
+- **Parentheses that group one item take no comma.** Wherever `(x)` stands for the expression, pattern or type `x`, `(x,)` is refused, since Hexagon has no one-item tuple (Products §2.1). So is `(Int,) -> Int`, since a function of one parameter is written `Int -> Int` and has no one-item parameter-list type (Functions §5.1). Brackets that hold a list of one keep the comma: `f(x,)`, `(x,) => x`, `Option(Int,)` and the pattern `Some(x,)`. Each report is §5's.
+
+**A comma ends no block.** A line break inside brackets is continuation (§2.2), but a block opened inside them, such as a lambda's body beneath its `=>` or a `match`'s arms, ends only at a line that begins at a shallower column or at the closing bracket that ends its group (§2.2). A comma at the end of the block's last line is read inside the block, where no comma can stand. So a list whose last item ends in a block ends without a trailing comma, and its closing bracket ends the block and the list together:
+
+```
+let total =
+    Vector.fold(
+        values,
+        0,
+        (sum, value) =>
+            sum + value * weight
+    )
+```
+
+A body on its `=>`'s own line opens no block (§2), so `(sum, value) => sum + value * weight,` takes its comma as any item does.

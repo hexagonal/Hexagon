@@ -1,9 +1,9 @@
 # Hexagon Spec: Products
 
-**Status:** Decided (July 2026)
+**Status:** Decided (July 2026). Amended 2026-11-16 (#1594): a tuple or record literal ends with a comma as every list in brackets may, and Lexer & Layout §7 owns the rule (§3.1).
 **Scope:** Tuples, structural records, row polymorphism (as far as the user can see it), the nominal `record` declaration, field access, the `with` update and the bare copy `{...p}`, construction punning, destructuring (as the pattern grammar's degenerate case), JS emission and `.d.ts` shapes.
 **Not in scope:** `union` (own spec), the full pattern grammar and binder rules (Pattern Matching; Statements §5 for binder class), the constraint mechanism and derivation invocation (Constraints §4.5; this doc fixes structural-instance *semantics*), `type` aliases and the shared declaration-header grammar (Declarations Preamble §§2–3), row-unification internals (this doc fixes observable behaviour), block/layout/`;` rules (Lexer & Layout spec).
-**Companions:** Functions spec (arity, `()`, no tuple↔args conversion), Primitive Types spec (§7 Show, §9 Unit), Pattern Matching (§6.3/§6.5/§9 — destructuring, lambda-head patterns, punning), Method Syntax (§3.4–§3.5 — `itemN` and fused dot calls in the resolution table), Collections Part 2 (`Hash`), Collections Part 3 §2/§13 (trailing-comma rule and directed edit note), FFI Part 7 (export faces).
+**Companions:** Functions spec (arity, `()`, no tuple↔args conversion), Primitive Types spec (§7 Show, §9 Unit), Pattern Matching (§6.3/§6.5/§9 — destructuring, lambda-head patterns, punning), Method Syntax (§3.4–§3.5 — `itemN` and fused dot calls in the resolution table), Collections Part 2 (`Hash`), Lexer & Layout §7 (the trailing comma), FFI Part 7 (export faces).
 
 ---
 
@@ -121,7 +121,7 @@ r.x                          -- field access
 
 - `name: Type` in type position / `name = expr` in term position, comma-separated, braces (§1 doctrine; §8 correction record). Field names are non-uppercase-start identifiers (term-level names, Functions spec §2 case rule), and a hard keyword is one: a field name is a label seat, and its access a dotted seat (Lexer §4.4), so `{type: String}`, `{type = "click"}`, and `ev.type` describe the JavaScript objects that carry such keys *(#1014)*.
 - **Construction punning ships** (Pattern Matching §9): `{x, y}` in value position is `{x = x, y = y}`, and it composes with update — `{p with x}` is `{p with x = x}` (legal OCaml, same expansion). A pun names a binding bare, so a keyword field is written out — `{type}` is refused naming `{type = …}` (Lexer §4.4). Term-level only; `{x}` in *type* position remains an error ("record types need field types"). The emitter uses JS shorthand whenever a field key and its emitted value are the same identifier, whether the Hexagon source used `{x}` or the equivalent `{x = x}`. **No** computed keys, methods, getters, or spread forms in term braces beyond the bare copy `{...p}` (§3.3/§5.3).
-- **Tuple and record *literals* permit a trailing comma after the final element/field in an otherwise-valid literal** (`{x = 1, y = 2,}`, `(1, "a",)`) — Collections Part 3 §2/§13. Existing tuple arity and empty-record rules are unchanged. This is a term-literal rule; nothing is inferred for type syntax.
+- **A tuple or record literal may end with a comma** after its last element or field, as every list in brackets may (Lexer & Layout §7): `{x = 1, y = 2,}`, `(1, "a",)`. Tuple and record types and patterns take it too. The tuple arity and empty-record rules are unchanged: a comma makes no one-item tuple, so `(1,)` is refused (§2.1), and so is `{,}`.
 - **A record literal takes its fields' types from the structural record type it meets** — an annotation's, a parameter's, one handed on, or a nominal record's definition row at its constructor (Functions §4.3's literal forms, #1066): `Point({x = n, y = price})` at `record Point = {x: Dec, y: Dec}` widens `n : Int` into the `Dec` field. As a call's argument, a record literal is read into the call's argument list likewise (Functions §4.3's argument spine, #1096).
 - Duplicate field names in one literal or type: compile error.
 - Field order is **not significant** to the type: `{x: Float, y: Float}` and `{y: Float, x: Float}` are the same type. (Emission order: as written in the constructing literal; see §3.5.)
@@ -277,7 +277,7 @@ What does **not** work, by design: passing `p` directly where `{x: Float, ...}` 
 | `t.itemN`, 1-based, type-directed, emits `t[N-1]`; not a row; unchanged in the dot-call resolution table | §2.3 |
 | Destructuring = the pattern grammar's degenerate case: nesting ships; lambda-head irrefutable patterns per the depth rule; `let`-pattern binders sequential | §2.4 |
 | Tuples = JS arrays, TS tuple types | §2.6 |
-| Record syntax `{name: Type}` in types / `{name = expr}` in terms; construction punning ships (`{x, y}`, `{p with x}`); trailing comma in term literals; `{}` = empty record | §3.1, §8 |
+| Record syntax `{name: Type}` in types / `{name = expr}` in terms; construction punning ships (`{x, y}`, `{p with x}`); trailing comma (Lexer & Layout §7); `{}` = empty record | §3.1, §8 |
 | Functional update `{p with x = e}` (OCaml/F# spelling); no field addition; head = dotted path in v1, ≥1 override; `with` contextual (lexer §4.2 — `Array.prototype.with` stays spellable); bare copy `{...p}` unchanged; emits the JS spread idiom | §3.3, §9 |
 | Update re-spelled `with` (July 2026): borrow JS spelling only where JS semantics hold exactly — `{...p}` is an honest copy and stays; spread-spelled update retired with a permanent fixit | §9 |
 | Term-position field separator is `=`, type-position is `:` — `:` classifies language-wide, `=` means "binds"; patterns follow terms (Pattern Matching §16); `show` follows the literal; JS emission translates `=`→`:` | §8 |
