@@ -282,10 +282,12 @@ describe("the companion is the type's home (Constraints §4.4, §5.3)", () => {
    * header's two.
    */
   test("the companion's own head binds its variables, as any head does", () => {
+    // The honor is appended after a blank line, so it stands on the line after the source's last.
+    const line = STDLIB_SOURCES["Map"]!.split("\n").length + 1;
     const claimed = [
-      "`max` is already bound: the `Ord<Map(k, v)>` instance (line 244) inherits it as a " +
+      `\`max\` is already bound: the \`Ord<Map(k, v)>\` instance (line ${line}) inherits it as a ` +
       "member from `Ord`'s default; Hexagon does not allow rebinding — choose a different name",
-      "`min` is already bound: the `Ord<Map(k, v)>` instance (line 244) inherits it as a " +
+      `\`min\` is already bound: the \`Ord<Map(k, v)>\` instance (line ${line}) inherits it as a ` +
       "member from `Ord`'s default; Hexagon does not allow rebinding — choose a different name",
     ];
     expect(inCompanion("Map", "\nhonor Ord<Map(k, v)> =\n    compare(l, r) = Ordering.Equal\n"))

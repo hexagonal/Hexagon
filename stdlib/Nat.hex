@@ -151,7 +151,8 @@ extern from "hex:intrinsic"
     is too large for a `Nat` to hold exactly. A call that may throw carries a
     mark: `Nat.parse?(text)` gives `None` in place of throwing, and
     `assume Nat.parse^(text)` is for text that is known to be good. -}
-export let parse(text: String): Nat = match scanText(text) with
-    Some(Some(value)) => value
-    Some(None) => throw^(NumberFormatError(formatMessage(text, "is out of range for Nat")))
-    None => throw^(NumberFormatError(formatMessage(text, "is not a Nat")))
+export let parse(text: String): Nat =
+    match scanText(text) with
+        Some(Some(value)) => value
+        Some(None) => throw^(NumberFormatError(formatMessage(text, "is out of range for Nat")))
+        None => throw^(NumberFormatError(formatMessage(text, "is not a Nat")))

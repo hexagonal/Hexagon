@@ -41,7 +41,7 @@ let requirePlaces(places: Int, operation: String): Int =
     `Dec.create(150n, 2)` is `1.50d`.\
     Throws `NegativeDecimalPlacesFault` when `places` is negative. -}
 export let create(unscaled: BigInt, places: Int): Dec =
-    Dec({unscaled, places = requirePlaces(places, "Dec.create")})
+    Dec({ unscaled, places = requirePlaces(places, "Dec.create") })
 
 {-- All the digits of the decimal as one integer, with the point taken out:\
     `1.50d.unscaled()` is `150n`.\
@@ -70,8 +70,7 @@ let roundedMagnitude(numerator: BigInt, denominator: BigInt, even: Bool): BigInt
         quotient + 1
 
 let roundedRatio(numerator: BigInt, denominator: BigInt, even: Bool): BigInt =
-    let negative = (numerator < 0 and denominator > 0) or
-        (numerator > 0 and denominator < 0)
+    let negative = (numerator < 0 and denominator > 0) or (numerator > 0 and denominator < 0)
     let top = numerator.abs()
     let bottom = denominator.abs()
     let rounded = roundedMagnitude(top, bottom, even)
@@ -462,6 +461,7 @@ extern from "hex:intrinsic"
     written that way. A call that may throw carries a mark: `Dec.parse?(text)`
     gives `None` in place of throwing, and `assume Dec.parse^(text)` is for text
     that is known to be good. -}
-export let parse(text: String): Dec = match scanText(text) with
-    Some((unscaled, places)) => create(unscaled, places)
-    None => throw^(NumberFormatError(formatMessage(text, "is not a Dec")))
+export let parse(text: String): Dec =
+    match scanText(text) with
+        Some((unscaled, places)) => create(unscaled, places)
+        None => throw^(NumberFormatError(formatMessage(text, "is not a Dec")))

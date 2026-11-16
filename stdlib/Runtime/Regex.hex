@@ -75,7 +75,10 @@ extern from "hex:intrinsic"
     -- U+0000–U+10FFFF whole. An unknown name is unreachable, the parser having
     -- closed the set, and answers the empty vector rather than a fault. A `->`
     -- read of a fixed table.
-    fun regexPropertyRanges as propertyRanges(kind: Syntax.PropertyKind, value: String) -> Vector((Int, Int))
+    fun regexPropertyRanges as propertyRanges(
+        kind: Syntax.PropertyKind,
+        value: String
+    ) -> Vector((Int, Int))
 
     -- Every codepoint whose simple case folding equals `point`'s, `point`
     -- included, ascending: the closure a folded class needs (§3.4). A `->` read
@@ -113,12 +116,15 @@ let unionOf(left: Vector((Int, Int)), right: Vector((Int, Int))): Vector((Int, I
     var leftAt = 1
     var rightAt = 1
     while leftAt <= leftSize or rightAt <= rightSize do
-        let takeLeft = rightAt > rightSize or (leftAt <= leftSize and left[leftAt].item1 <= right[rightAt].item1)
+        let takeLeft =
+            rightAt > rightSize
+                    or (leftAt <= leftSize and left[leftAt].item1 <= right[rightAt].item1)
         let (low, high) = if takeLeft then left[leftAt] else right[rightAt]
         if takeLeft then leftAt := leftAt + 1 else rightAt := rightAt + 1
         let count = Vector.length(result)
         if count > 0 and low <= result[count].item2 + 1 then
-            if high > result[count].item2 then result := Vector.set(result, count, (result[count].item1, high))
+            if high > result[count].item2 then
+                result := Vector.set(result, count, (result[count].item1, high))
         else
             result := result.append((low, high))
     result
@@ -175,7 +181,8 @@ let setOfPoints(points: Vector(Int)): Vector((Int, Int)) =
     for point in sortedPoints(points) do
         let count = Vector.length(result)
         if count > 0 and point <= result[count].item2 + 1 then
-            if point > result[count].item2 then result := Vector.set(result, count, (result[count].item1, point))
+            if point > result[count].item2 then
+                result := Vector.set(result, count, (result[count].item1, point))
         else
             result := result.append((point, point))
     result
@@ -196,11 +203,12 @@ let foldedSet(set: Vector((Int, Int))): Vector((Int, Int)) =
     unionOf(set, setOfPoints(added))
 
 -- The codepoints one class item stands for.
-let itemSet(item: Syntax.ClassItem): Vector((Int, Int)) = match item with
-    Syntax.Range(low, high) => [(low, high)]
-    Syntax.Property(kind, value, negated) =>
-        let ranges = propertyRanges(kind, value)
-        if negated then complementOf(ranges) else ranges
+let itemSet(item: Syntax.ClassItem): Vector((Int, Int)) =
+    match item with
+        Syntax.Range(low, high) => [(low, high)]
+        Syntax.Property(kind, value, negated) =>
+            let ranges = propertyRanges(kind, value)
+            if negated then complementOf(ranges) else ranges
 
 -- A class's codepoints, in §6.1's order: each item resolved and complemented
 -- where it is negated, the union taken, folded where the class is folded, and
@@ -246,42 +254,59 @@ record Code = {
     classes: Vector(ClassSpec),
 }
 
-let anchorCode(kind: Syntax.AnchorKind): Int = match kind with
-    Syntax.TextStart => 0
-    Syntax.TextEnd => 1
-    Syntax.LineStart => 2
-    Syntax.LineEnd => 3
-    Syntax.WordBoundary => 4
-    Syntax.NotWordBoundary => 5
+let anchorCode(kind: Syntax.AnchorKind): Int =
+    match kind with
+        Syntax.TextStart => 0
+        Syntax.TextEnd => 1
+        Syntax.LineStart => 2
+        Syntax.LineEnd => 3
+        Syntax.WordBoundary => 4
+        Syntax.NotWordBoundary => 5
 
 let counter(code: Code): Int = Vector.length(code.ops)
 
 let emit(code: Code, op: Int, first: Int, second: Int): Code =
-    { code with ops = code.ops.append(op), first = code.first.append(first), second = code.second.append(second) }
+    {
+        code with ops = code.ops.append(op),
+        first = code.first.append(first),
+        second = code.second.append(second)
+    }
 
-let setFirst(code: Code, at: Int, target: Int): Code = { code with first = Vector.set(code.first, at + 1, target) }
+let setFirst(code: Code, at: Int, target: Int): Code =
+    { code with first = Vector.set(code.first, at + 1, target) }
 
-let setSecond(code: Code, at: Int, target: Int): Code = { code with second = Vector.set(code.second, at + 1, target) }
+let setSecond(code: Code, at: Int, target: Int): Code =
+    { code with second = Vector.set(code.second, at + 1, target) }
 
-let kindCode(kind: Syntax.PropertyKind): Int = match kind with
-    Syntax.GeneralCategory => 0
-    Syntax.Script => 1
-    Syntax.ScriptExtensions => 2
-    Syntax.Binary => 3
-    Syntax.Any => 4
-    Syntax.Ascii => 5
-    Syntax.Assigned => 6
-    Syntax.Word => 7
+let kindCode(kind: Syntax.PropertyKind): Int =
+    match kind with
+        Syntax.GeneralCategory => 0
+        Syntax.Script => 1
+        Syntax.ScriptExtensions => 2
+        Syntax.Binary => 3
+        Syntax.Any => 4
+        Syntax.Ascii => 5
+        Syntax.Assigned => 6
+        Syntax.Word => 7
 
-let sameItem(left: Syntax.ClassItem, right: Syntax.ClassItem): Bool = match (left, right) with
-    (Syntax.Range(leftLow, leftHigh), Syntax.Range(rightLow, rightHigh)) => leftLow == rightLow and leftHigh == rightHigh
-    (Syntax.Property(leftKind, leftValue, leftNegated), Syntax.Property(rightKind, rightValue, rightNegated)) =>
-        kindCode(leftKind) == kindCode(rightKind) and leftValue == rightValue and leftNegated == rightNegated
-    _ => False
+let sameItem(left: Syntax.ClassItem, right: Syntax.ClassItem): Bool =
+    match (left, right) with
+        (Syntax.Range(leftLow, leftHigh), Syntax.Range(rightLow, rightHigh)) =>
+            leftLow == rightLow and leftHigh == rightHigh
+        (
+            Syntax.Property(leftKind, leftValue, leftNegated),
+            Syntax.Property(rightKind, rightValue, rightNegated)
+        ) =>
+            kindCode(leftKind) == kindCode(rightKind)
+                    and leftValue == rightValue
+                    and leftNegated == rightNegated
+        _ => False
 
 let sameSpec(left: ClassSpec, right: ClassSpec): Bool =
-    var same = left.negated == right.negated and left.folded == right.folded and
-        Vector.length(left.items) == Vector.length(right.items)
+    var same =
+        left.negated == right.negated
+                and left.folded == right.folded
+                and Vector.length(left.items) == Vector.length(right.items)
     var index = 1
     while same and index <= Vector.length(left.items) do
         same := sameItem(left.items[index], right.items[index])
@@ -300,125 +325,153 @@ let emitClass(code: Code, spec: ClassSpec): Code =
     if found >= 0 then
         emit(code, opConsume, found, 0)
     else
-        emit({ code with classes = code.classes.append(spec) }, opConsume, Vector.length(code.classes), 0)
+        emit(
+            { code with classes = code.classes.append(spec) },
+            opConsume,
+            Vector.length(code.classes),
+            0
+        )
 
-let singleClass(point: Int): ClassSpec = ClassSpec({ items = [Syntax.Range(point, point)], negated = False, folded = False })
+let singleClass(point: Int): ClassSpec =
+    ClassSpec({ items = [Syntax.Range(point, point)], negated = False, folded = False })
 
 -- A `split` at `at` whose preferred branch is the next instruction and whose
 -- other is `out` — or the other way round where the repetition is lazy.
 let setSplit(code: Code, at: Int, out: Int, greedy: Bool): Code =
-    if greedy then setSecond(setFirst(code, at, at + 1), at, out) else setSecond(setFirst(code, at, out), at, at + 1)
+    if greedy then
+        setSecond(setFirst(code, at, at + 1), at, out)
+    else
+        setSecond(setFirst(code, at, out), at, at + 1)
 
 -- Whether `expr` can match the empty string.
-fun nullable(expr: Syntax.Expr): Bool = match expr with
-    Syntax.Empty => True
-    Syntax.Literal(_) => False
-    Syntax.Dot(_) => False
-    Syntax.Class(_, _, _) => False
-    Syntax.Anchor(_) => True
-    Syntax.Concat(parts) =>
-        var all = True
-        for part in parts do
-            all := all and nullable(part)
-        all
-    Syntax.Alternate(branches) =>
-        var any = False
-        for branch in branches do
-            any := any or nullable(branch)
-        any
-    Syntax.Repeat(body, min, _, _) => min == 0 or nullable(body)
-    Syntax.Capture(body, _, _) => nullable(body)
+fun nullable(expr: Syntax.Expr): Bool =
+    match expr with
+        Syntax.Empty => True
+        Syntax.Literal(_) => False
+        Syntax.Dot(_) => False
+        Syntax.Class(_, _, _) => False
+        Syntax.Anchor(_) => True
+        Syntax.Concat(parts) =>
+            var all = True
+            for part in parts do
+                all := all and nullable(part)
+            all
+        Syntax.Alternate(branches) =>
+            var any = False
+            for branch in branches do
+                any := any or nullable(branch)
+            any
+        Syntax.Repeat(body, min, _, _) => min == 0 or nullable(body)
+        Syntax.Capture(body, _, _) => nullable(body)
 
 -- `expr`'s instructions after `code`'s. `backward` builds the program for the
 -- reverse scan (§6.2): a sequence's parts in reverse order and no capture
 -- slots, since that scan locates a match's start and assigns no captures.
-fun emitExpr(code: Code, expr: Syntax.Expr, backward: Bool): Code = match expr with
-    Syntax.Empty => code
-    Syntax.Literal(point) => emitClass(code, singleClass(point))
-    Syntax.Dot(newline) =>
-        if newline then
-            emitClass(code, ClassSpec({ items = [Syntax.Range(0, lastPoint)], negated = False, folded = False }))
-        else
-            emitClass(code, ClassSpec({ items = [Syntax.Range(10, 10)], negated = True, folded = False }))
-    Syntax.Class(items, negated, folded) =>
-        emitClass(code, ClassSpec({ items = items, negated = negated, folded = folded }))
-    Syntax.Anchor(kind) => emit(code, opAssert, anchorCode(kind), 0)
-    Syntax.Concat(parts) =>
-        var current = code
-        let count = Vector.length(parts)
-        var index = 1
-        while index <= count do
-            current := emitExpr(current, parts[if backward then count + 1 - index else index], backward)
-            index := index + 1
-        current
-    Syntax.Alternate(branches) =>
-        -- Each branch but the last behind a split preferring it, each ending
-        -- in a jump past the rest.
-        var current = code
-        var jumps: Vector(Int) = []
-        let count = Vector.length(branches)
-        var index = 1
-        while index < count do
-            let split = counter(current)
-            current := emitExpr(emit(current, opSplit, split + 1, 0), branches[index], backward)
-            jumps := jumps.append(counter(current))
-            current := emit(current, opJump, 0, 0)
-            current := setSecond(current, split, counter(current))
-            index := index + 1
-        current := emitExpr(current, branches[count], backward)
-        let end = counter(current)
-        for jump in jumps do
-            current := setFirst(current, jump, end)
-        current
-    Syntax.Repeat(body, min, max, greedy) =>
-        var current = code
-        var copies = 0
-        while copies < min do
-            current := emitExpr(current, body, backward)
-            copies := copies + 1
-        match max with
-            None =>
-                if nullable(body) then
-                    -- `x*` over a body that can match empty is `(?:x+)?`, as
-                    -- RE2 and Go compile it (Go issue 46123): one optional
-                    -- entry, then a loop back that the body must reach. Read
-                    -- as a plain loop, the program-counter dedupe would end
-                    -- every path through an empty iteration, and `(|a)*` on
-                    -- `aa` would match `aa` where `(?:|a){0,5}` matches the
-                    -- empty string (§3.2).
-                    let entry = counter(current)
-                    let start = entry + 1
-                    current := emitExpr(emit(current, opSplit, 0, 0), body, backward)
-                    let back = counter(current)
-                    current := emit(current, opSplit, 0, 0)
+fun emitExpr(code: Code, expr: Syntax.Expr, backward: Bool): Code =
+    match expr with
+        Syntax.Empty => code
+        Syntax.Literal(point) => emitClass(code, singleClass(point))
+        Syntax.Dot(newline) =>
+            if newline then
+                emitClass(
+                    code,
+                    ClassSpec({
+                        items = [Syntax.Range(0, lastPoint)],
+                        negated = False,
+                        folded = False
+                    })
+                )
+            else
+                emitClass(
+                    code,
+                    ClassSpec({ items = [Syntax.Range(10, 10)], negated = True, folded = False })
+                )
+        Syntax.Class(items, negated, folded) =>
+            emitClass(code, ClassSpec({ items = items, negated = negated, folded = folded }))
+        Syntax.Anchor(kind) => emit(code, opAssert, anchorCode(kind), 0)
+        Syntax.Concat(parts) =>
+            var current = code
+            let count = Vector.length(parts)
+            var index = 1
+            while index <= count do
+                current := emitExpr(
+                    current,
+                    parts[if backward then count + 1 - index else index],
+                    backward
+                )
+                index := index + 1
+            current
+        Syntax.Alternate(branches) =>
+            -- Each branch but the last behind a split preferring it, each ending
+            -- in a jump past the rest.
+            var current = code
+            var jumps: Vector(Int) = []
+            let count = Vector.length(branches)
+            var index = 1
+            while index < count do
+                let split = counter(current)
+                current := emitExpr(emit(current, opSplit, split + 1, 0), branches[index], backward)
+                jumps := jumps.append(counter(current))
+                current := emit(current, opJump, 0, 0)
+                current := setSecond(current, split, counter(current))
+                index := index + 1
+            current := emitExpr(current, branches[count], backward)
+            let end = counter(current)
+            for jump in jumps do
+                current := setFirst(current, jump, end)
+            current
+        Syntax.Repeat(body, min, max, greedy) =>
+            var current = code
+            var copies = 0
+            while copies < min do
+                current := emitExpr(current, body, backward)
+                copies := copies + 1
+            match max with
+                None =>
+                    if nullable(body) then
+                        -- `x*` over a body that can match empty is `(?:x+)?`, as
+                        -- RE2 and Go compile it (Go issue 46123): one optional
+                        -- entry, then a loop back that the body must reach. Read
+                        -- as a plain loop, the program-counter dedupe would end
+                        -- every path through an empty iteration, and `(|a)*` on
+                        -- `aa` would match `aa` where `(?:|a){0,5}` matches the
+                        -- empty string (§3.2).
+                        let entry = counter(current)
+                        let start = entry + 1
+                        current := emitExpr(emit(current, opSplit, 0, 0), body, backward)
+                        let back = counter(current)
+                        current := emit(current, opSplit, 0, 0)
+                        let end = counter(current)
+                        let looped =
+                            if greedy then
+                                setSecond(setFirst(current, back, start), back, end)
+                            else
+                                setSecond(setFirst(current, back, end), back, start)
+                        setSplit(looped, entry, end, greedy)
+                    else
+                        -- `x*` after the required copies: a split back over the body.
+                        let loop = counter(current)
+                        current := emitExpr(emit(current, opSplit, 0, 0), body, backward)
+                        current := emit(current, opJump, loop, 0)
+                        setSplit(current, loop, counter(current), greedy)
+                Some(most) =>
+                    -- The optional copies nest, each split's way out the end:
+                    -- `x{1,3}` is `x(x(x)?)?`.
+                    var splits: Vector(Int) = []
+                    while copies < most do
+                        splits := splits.append(counter(current))
+                        current := emitExpr(emit(current, opSplit, 0, 0), body, backward)
+                        copies := copies + 1
                     let end = counter(current)
-                    let looped = if greedy then setSecond(setFirst(current, back, start), back, end)
-                        else setSecond(setFirst(current, back, end), back, start)
-                    setSplit(looped, entry, end, greedy)
-                else
-                    -- `x*` after the required copies: a split back over the body.
-                    let loop = counter(current)
-                    current := emitExpr(emit(current, opSplit, 0, 0), body, backward)
-                    current := emit(current, opJump, loop, 0)
-                    setSplit(current, loop, counter(current), greedy)
-            Some(most) =>
-                -- The optional copies nest, each split's way out the end:
-                -- `x{1,3}` is `x(x(x)?)?`.
-                var splits: Vector(Int) = []
-                while copies < most do
-                    splits := splits.append(counter(current))
-                    current := emitExpr(emit(current, opSplit, 0, 0), body, backward)
-                    copies := copies + 1
-                let end = counter(current)
-                for split in splits do
-                    current := setSplit(current, split, end, greedy)
-                current
-    Syntax.Capture(body, index, _) =>
-        if backward then
-            emitExpr(code, body, backward)
-        else
-            let opened = emitExpr(emit(code, opSave, 2 * index, 0), body, backward)
-            emit(opened, opSave, 2 * index + 1, 0)
+                    for split in splits do
+                        current := setSplit(current, split, end, greedy)
+                    current
+        Syntax.Capture(body, index, _) =>
+            if backward then
+                emitExpr(code, body, backward)
+            else
+                let opened = emitExpr(emit(code, opSave, 2 * index, 0), body, backward)
+                emit(opened, opSave, 2 * index + 1, 0)
 
 -- The whole pattern's program: group 0 saved around the tree, then `match`.
 let codeOf(pattern: Syntax.Pattern): Code =
@@ -477,7 +530,12 @@ let frozen(values: Vector(Int)): Buffer(Int) =
     buffer
 
 let machineOf(code: Code): Machine =
-    Machine({ ops = frozen~(code.ops), first = frozen~(code.first), second = frozen~(code.second), size = Vector.length(code.ops) })
+    Machine({
+        ops = frozen~(code.ops),
+        first = frozen~(code.first),
+        second = frozen~(code.second),
+        size = Vector.length(code.ops)
+    })
 
 -- The program for `pattern`. It reads no table: class resolution waits for the
 -- program's first use (§6.1), so a program emitted as a constant carries its
@@ -512,7 +570,6 @@ let compile(pattern: Syntax.Pattern): Compiled =
         marks = marks,
         stamps = create~(1, 0),
     })
-
 
 -- Class `index`'s codepoints, resolved once and kept in the program.
 let classOf(program: Compiled, index: Int): Vector((Int, Int)) =
@@ -568,7 +625,14 @@ let saved(slots: Vector(Int), slot: Int, place: Place): Vector(Int) =
 -- second. A program counter already reached at this place (`mark` holding
 -- `stamp`) is not reached again, which is what keeps an empty iteration from
 -- being taken twice and the list no longer than the program.
-let follow(program: Compiled, mark: Buffer(Int), stamp: Int, start: Thread, list: Vector(Thread), place: Place): Vector(Thread) =
+let follow(
+    program: Compiled,
+    mark: Buffer(Int),
+    stamp: Int,
+    start: Thread,
+    list: Vector(Thread),
+    place: Place
+): Vector(Thread) =
     var pending: Vector(Thread) = [start]
     var reached = list
     while Vector.length(pending) > 0 do
@@ -582,12 +646,18 @@ let follow(program: Compiled, mark: Buffer(Int), stamp: Int, start: Thread, list
                 pending := pending.append({ thread with pc = read~(program.first, pc) })
             else if op == opSplit then
                 pending := pending
-                    .append({ thread with pc = read~(program.second, pc) })
-                    .append({ thread with pc = read~(program.first, pc) })
+                        .append({ thread with pc = read~(program.second, pc) })
+                        .append({ thread with pc = read~(program.first, pc) })
             else if op == opSave then
-                pending := pending.append(Thread({ pc = pc + 1, slots = saved(thread.slots, read~(program.first, pc), place) }))
+                pending := pending.append(
+                    Thread({
+                        pc = pc + 1,
+                        slots = saved(thread.slots, read~(program.first, pc), place)
+                    })
+                )
             else if op == opAssert then
-                if holds(read~(program.first, pc), place) then pending := pending.append({ thread with pc = pc + 1 })
+                if holds(read~(program.first, pc), place) then
+                    pending := pending.append({ thread with pc = pc + 1 })
             else
                 reached := reached.append(thread)
     reached
@@ -610,9 +680,10 @@ let placeAt(text: String, units: Int, position: Int, offset: Int): Place =
         after = if offset < units then codepointAt(text, offset) else -1,
     })
 
-let isNone(value: Option(a)): Bool = match value with
-    Some(_) => False
-    None => True
+let isNone(value: Option(a)): Bool =
+    match value with
+        Some(_) => False
+        None => True
 
 let isSome(value: Option(a)): Bool = not isNone(value)
 
@@ -625,7 +696,11 @@ let unsaved(groupCount: Int): Vector(Int) =
 
 -- Each group's span and text from a match's slots: `None` for a group the match
 -- never entered (§3.3).
-let groupsOf(text: String, groupCount: Int, slots: Vector(Int)): Vector(Option((Int, Int, String))) =
+let groupsOf(
+    text: String,
+    groupCount: Int,
+    slots: Vector(Int)
+): Vector(Option((Int, Int, String))) =
     var groups: Vector(Option((Int, Int, String))) = []
     var group = 0
     while group <= groupCount do
@@ -633,10 +708,16 @@ let groupsOf(text: String, groupCount: Int, slots: Vector(Int)): Vector(Option((
         let startOffset = slots[4 * group + 2]
         let endPosition = slots[4 * group + 3]
         let endOffset = slots[4 * group + 4]
-        groups := groups.append(if startPosition < 0 or endPosition < 0 then
-            None
-        else
-            Some((startPosition, endPosition - startPosition, cut(text, startOffset, endOffset))))
+        groups := groups.append(
+            if startPosition < 0 or endPosition < 0 then
+                None
+            else
+                Some((
+                    startPosition,
+                    endPosition - startPosition,
+                    cut(text, startOffset, endOffset)
+                ))
+        )
         group := group + 1
     groups
 
@@ -664,11 +745,16 @@ let pike(
     var seeding = True
     var running = True
     while running do
-        if seeding and isNone(found) then threads := follow~(program, mark, stamp, fresh, threads, place)
+        if seeding and isNone(found) then
+            threads := follow~(program, mark, stamp, fresh, threads, place)
         if anchored then seeding := False
         let final = stop >= 0 and place.position >= stop
         let point = if final then -1 else place.after
-        let nextPlace = if point < 0 then place else placeAt(text, units, place.position + 1, place.offset + width(point))
+        let nextPlace =
+            if point < 0 then
+                place
+            else
+                placeAt(text, units, place.position + 1, place.offset + width(point))
         stamp := stamp + 1
         var next: Vector(Thread) = []
         var stepping = True
@@ -679,8 +765,16 @@ let pike(
             if op == opMatch then
                 found := Some(thread.slots)
                 stepping := False
-            else if point >= 0 and contains(classOf~(program, read~(program.first, thread.pc)), point) then
-                next := follow~(program, mark, stamp, { thread with pc = thread.pc + 1 }, next, nextPlace)
+            else if point >= 0
+                    and contains(classOf~(program, read~(program.first, thread.pc)), point) then
+                next := follow~(
+                    program,
+                    mark,
+                    stamp,
+                    { thread with pc = thread.pc + 1 },
+                    next,
+                    nextPlace
+                )
             index := index + 1
         threads := next
         if not spans and isSome(found) then
@@ -755,7 +849,8 @@ let alphabetOf(program: Compiled): Vector(Int) =
             var starts: Vector(Int) = []
             for cut in sortedPoints(cuts) do
                 let count = Vector.length(starts)
-                if cut <= lastPoint and (count == 0 or starts[count] != cut) then starts := starts.append(cut)
+                if cut <= lastPoint and (count == 0 or starts[count] != cut) then
+                    starts := starts.append(cut)
             write~(program.alphabet, 0, Some(starts))
             starts
 
@@ -776,7 +871,14 @@ let letterOf(starts: Vector(Int), point: Int): Int =
 -- instructions threads reach without consuming, and whether a `match` is
 -- reached. Under `cut` a `match` ends the list, as leftmost-first wants; the
 -- reverse scan keeps going, since it wants every start.
-let reach(machine: Machine, mark: Buffer(Int), stamp: Int, waiting: Vector(Int), place: Place, cut: Bool): (Vector(Int), Bool) =
+let reach(
+    machine: Machine,
+    mark: Buffer(Int),
+    stamp: Int,
+    waiting: Vector(Int),
+    place: Place,
+    cut: Bool
+): (Vector(Int), Bool) =
     var consuming: Vector(Int) = []
     var matched = False
     var index = 1
@@ -791,7 +893,9 @@ let reach(machine: Machine, mark: Buffer(Int), stamp: Int, waiting: Vector(Int),
                 if op == opJump then
                     pending := pending.append(read~(machine.first, pc))
                 else if op == opSplit then
-                    pending := pending.append(read~(machine.second, pc)).append(read~(machine.first, pc))
+                    pending := pending
+                            .append(read~(machine.second, pc))
+                            .append(read~(machine.first, pc))
                 else if op == opSave then
                     pending := pending.append(pc + 1)
                 else if op == opAssert then
@@ -816,7 +920,14 @@ let stateIn(dfa: Dfa, list: Vector(Int), edge: Int): (Dfa, Int) =
         Some(id) => (dfa, id)
         None =>
             let id = Vector.length(dfa.lists)
-            ({ dfa with ids = Map.set(dfa.ids, key, id), lists = dfa.lists.append(list), edges = dfa.edges.append(edge) }, id)
+            (
+                {
+                    dfa with ids = Map.set(dfa.ids, key, id),
+                    lists = dfa.lists.append(list),
+                    edges = dfa.edges.append(edge)
+                },
+                id
+            )
 
 -- One transition: from state `id` over the codepoint class `letter` (whose
 -- first codepoint is `point`, -1 for the text's edge), the next state and
@@ -840,20 +951,29 @@ let move(
             let edge = dfa.edges[id + 1]
             let behind = if forward then standIn(edge) else point
             let ahead = if forward then point else standIn(edge)
-            let place = Place({ position = if behind < 0 then 1 else 2, offset = 0, before = behind, after = ahead })
-            let (consuming, matched) = reach~(machine, mark, stamp, dfa.lists[id + 1], place, forward)
+            let place =
+                Place({
+                    position = if behind < 0 then 1 else 2,
+                    offset = 0,
+                    before = behind,
+                    after = ahead
+                })
+            let (consuming, matched) =
+                reach~(machine, mark, stamp, dfa.lists[id + 1], place, forward)
             var next: Vector(Int) = []
             if point >= 0 then
                 for pc in consuming do
-                    if contains(classOf~(program, read~(machine.first, pc)), point) then next := next.append(pc + 1)
+                    if contains(classOf~(program, read~(machine.first, pc)), point) then
+                        next := next.append(pc + 1)
             let (grown, target) = stateIn(dfa, next, edgeIn(program, point))
             let encoded = target * 2 + (if matched then 1 else 0)
             ({ grown with moves = Map.set(grown.moves, key, encoded) }, target, matched)
 
 -- A scan's cache, or a fresh one.
-let cacheOf(program: Compiled, which: Int): Dfa = match read~(program.caches, which) with
-    Some(dfa) => dfa
-    None => emptyDfa
+let cacheOf(program: Compiled, which: Int): Dfa =
+    match read~(program.caches, which) with
+        Some(dfa) => dfa
+        None => emptyDfa
 
 -- The leftmost-first match's end from `start`, forward: `Some(Some(end))`, or
 -- `Some(None)` where there is none; `None` where the caches filled twice in this
@@ -884,7 +1004,8 @@ let scanForward(
         let letter = letterOf(starts, point)
         let probe = if point < 0 then -1 else starts[letter + 1]
         stamp := stamp + 1
-        let (grown, next, matched) = move~(program, program.forward, mark, stamp, dfa, state, letter, probe, True)
+        let (grown, next, matched) =
+            move~(program, program.forward, mark, stamp, dfa, state, letter, probe, True)
         dfa := grown
         if matched then last := Some((position, offset))
         if (first and matched) or point < 0 or Vector.length(dfa.lists[next + 1]) == 0 then
@@ -899,7 +1020,8 @@ let scanForward(
                     exhausted := True
                     running := False
                 else
-                    let (fresh, restarted) = stateIn(emptyDfa, dfa.lists[next + 1], dfa.edges[next + 1])
+                    let (fresh, restarted) =
+                        stateIn(emptyDfa, dfa.lists[next + 1], dfa.edges[next + 1])
                     dfa := fresh
                     state := restarted
     write~(program.stamps, 0, stamp)
@@ -909,7 +1031,13 @@ let scanForward(
 -- The match's start, scanning backward from its end `(position, offset)` no
 -- further than position `floor`: the leftmost place the pattern matches there.
 -- `None` where the caches filled twice in this search.
-let scanBackward(program: Compiled, text: String, end: (Int, Int), floor: Int, flushes: Buffer(Int)): Option((Int, Int)) =
+let scanBackward(
+    program: Compiled,
+    text: String,
+    end: (Int, Int),
+    floor: Int,
+    flushes: Buffer(Int)
+): Option((Int, Int)) =
     let starts = alphabetOf~(program)
     let mark = read~(program.marks, 2)
     let (endPosition, endOffset) = end
@@ -928,7 +1056,8 @@ let scanBackward(program: Compiled, text: String, end: (Int, Int), floor: Int, f
         let letter = letterOf(starts, point)
         let probe = if point < 0 then -1 else starts[letter + 1]
         stamp := stamp + 1
-        let (grown, next, matched) = move~(program, program.backward, mark, stamp, dfa, state, letter, probe, False)
+        let (grown, next, matched) =
+            move~(program, program.backward, mark, stamp, dfa, state, letter, probe, False)
         dfa := grown
         if matched then best := (position, offset)
         if position <= floor or point < 0 or Vector.length(dfa.lists[next + 1]) == 0 then
@@ -943,7 +1072,8 @@ let scanBackward(program: Compiled, text: String, end: (Int, Int), floor: Int, f
                     exhausted := True
                     running := False
                 else
-                    let (fresh, restarted) = stateIn(emptyDfa, dfa.lists[next + 1], dfa.edges[next + 1])
+                    let (fresh, restarted) =
+                        stateIn(emptyDfa, dfa.lists[next + 1], dfa.edges[next + 1])
                     dfa := fresh
                     state := restarted
     write~(program.stamps, 0, stamp)
@@ -951,7 +1081,11 @@ let scanBackward(program: Compiled, text: String, end: (Int, Int), floor: Int, f
     if exhausted then None else Some(best)
 
 -- The match `pike` found, as the row answers it.
-let answerOf(program: Compiled, text: String, slots: Vector(Int)): (Vector(Option((Int, Int, String))), (Int, Int)) =
+let answerOf(
+    program: Compiled,
+    text: String,
+    slots: Vector(Int)
+): (Vector(Option((Int, Int, String))), (Int, Int)) =
     (groupsOf(text, program.groupCount, slots), (slots[3], slots[4]))
 
 -- The whole search on the VM, from a place already walked to.
@@ -989,11 +1123,13 @@ let search(
     -- through Collections Part 3 §9's positions (§6.2); when it does not,
     -- `start` is past `length + 1` and there is no match to find. A `start` at
     -- or below 1 is searched from position 1.
-    let fromCursor = cursorPosition >= 1 and cursorPosition <= start and start - cursorPosition <= 64
+    let fromCursor =
+        cursorPosition >= 1 and cursorPosition <= start and start - cursorPosition <= 64
     let located = not fromCursor and start > 1 and text[(start - 1)..(start - 1)] != ""
     let beyond = not fromCursor and not located and start > 1
     var position = if fromCursor then cursorPosition else if located then start else 1
-    var offset = if fromCursor then cursorOffset else if located then codeUnits(text[1..(start - 1)]) else 0
+    var offset =
+        if fromCursor then cursorOffset else if located then codeUnits(text[1..(start - 1)]) else 0
     while not beyond and position < start and offset < units do
         offset := offset + width(codepointAt(text, offset))
         position := position + 1
@@ -1009,14 +1145,37 @@ let search(
                 if not spans then
                     Some(([], cursor))
                 else
-                    match scanBackward~(program, text, (endPosition, endOffset), position, flushes) with
+                    match scanBackward~(
+                        program,
+                        text,
+                        (endPosition, endOffset),
+                        position,
+                        flushes
+                    ) with
                         None => viaVm~(program, text, units, place, spans, cursor)
                         Some((startPosition, startOffset)) =>
                             if program.groupCount == 0 then
-                                Some(([Some((startPosition, endPosition - startPosition, cut(text, startOffset, endOffset)))], (endPosition, endOffset)))
+                                Some((
+                                    [
+                                        Some((
+                                            startPosition,
+                                            endPosition - startPosition,
+                                            cut(text, startOffset, endOffset)
+                                        ))
+                                    ],
+                                    (endPosition, endOffset)
+                                ))
                             else
                                 let from = placeAt(text, units, startPosition, startOffset)
-                                match pike~(program, text, units, from, True, True, endPosition) with
+                                match pike~(
+                                    program,
+                                    text,
+                                    units,
+                                    from,
+                                    True,
+                                    True,
+                                    endPosition
+                                ) with
                                     Some(slots) => Some(answerOf(program, text, slots))
                                     None => viaVm~(program, text, units, place, spans, cursor)
 
@@ -1037,6 +1196,15 @@ let searchByVm(
     if position < start then
         None
     else
-        match pike~(program, text, units, placeAt(text, units, position, offset), spans, False, -1) with
+        match pike~(
+            program,
+            text,
+            units,
+            placeAt(text, units, position, offset),
+            spans,
+            False,
+            -1
+        ) with
             None => None
-            Some(slots) => if spans then Some(answerOf(program, text, slots)) else Some(([], (1, 0)))
+            Some(slots) =>
+                if spans then Some(answerOf(program, text, slots)) else Some(([], (1, 0)))
