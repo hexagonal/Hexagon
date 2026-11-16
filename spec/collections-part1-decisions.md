@@ -169,16 +169,16 @@ The corpus already leans hash-shaped, decisively:
 
 ### 6.1 The decision
 
-**"You can write a real collection" is a v1 requirement, and `for x in myBag` is its floor.** v1 therefore ships user-implementable `Iterable` in the following restricted form:
+**"You can write a real collection" is a v1 requirement, and `for x in myBag do` is its floor.** v1 therefore ships user-implementable `Iterable` in the following restricted form:
 
 - `Iterable` is a real prelude constraint declaration with an implied `type Item` member and `toSeq(xs: c) -> Seq(Item)`. The declaration is Part 2 §8; the `type`-member grammar is Part 2 §5.
-- A user instance — `honor Iterable<Bag(a)>` with `type Item = a` — adds a row to the iterable table. The operational lookup for `for p in e`, the finalized standard-instance table and its source/provided provenance, the failure taxonomy and diagnostics, and the table-opening rules are Collections Part 5 §§2–8.
+- A user instance — `honor Iterable<Bag(a)>` with `type Item = a` — adds a row to the iterable table. The operational lookup for `for p in e do`, the finalized standard-instance table and its source/provided provenance, the failure taxonomy and diagnostics, and the table-opening rules are Collections Part 5 §§2–8.
 - An instance is visible in a module exactly where that module's imports reach the instance's module, directly or through other imports (Modules §7.1). Discoverability is owned by Modules §7.6 and Part 5 §7.2: for a home-module instance the reach does the work by construction, since a module holding a value of the type reaches its home — no loading step is needed, and Modules §3.3 has no form for one.
 - **v1 restrictions, stated plainly:** `Item(c)` is not referenceable in user type expressions, and `Iterable` cannot appear as a constraint binder on user functions (the projection-bearing restriction, Part 2 §7). Functions generic over "any iterable" remain unwritable in v1; `Seq(a)` parameters remain the idiom (Loops §7.1).
 
 ### 6.2 Rationale
 
-The original deferral protected against a specific risk: **deferred `Item(α)` goals in inference** — the machinery for generic-over-any-iterable functions, the first feature that would touch `unify`'s environs. `for x in myBag` needs none of it: head-constructor-known table lookup is exactly how the internal table already worked (it was always a functional-dependency table). Opening the table to `honor` is parser-and-bookkeeping work — real spec surface (the `type`-member grammar, Part 2), zero inference changes. And the calibration specimen the deferral said it was waiting for now exists: the first user-defined collection.
+The original deferral protected against a specific risk: **deferred `Item(α)` goals in inference** — the machinery for generic-over-any-iterable functions, the first feature that would touch `unify`'s environs. `for x in myBag do` needs none of it: head-constructor-known table lookup is exactly how the internal table already worked (it was always a functional-dependency table). Opening the table to `honor` is parser-and-bookkeeping work — real spec surface (the `type`-member grammar, Part 2), zero inference changes. And the calibration specimen the deferral said it was waiting for now exists: the first user-defined collection.
 
 ### 6.3 What stays v2
 

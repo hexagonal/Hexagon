@@ -355,7 +355,7 @@ export let allocate(money: Money(c), weights: Vector(Nat)): Vector(Money(c)) =
     let places = money.amount.places()
     let units = money.amount.unscaled()
     var total = 0n
-    for weight in weights
+    for weight in weights do
         total := total + BigInt.fromNat(weight)
     if total == 0n then
         throw(DivideByZeroError("Money.allocate: the weights sum to zero"))
@@ -363,13 +363,13 @@ export let allocate(money: Money(c), weights: Vector(Nat)): Vector(Money(c)) =
         let magnitude = units.abs()
         var floors: Vector((BigInt, Bool)) = []
         var given = 0n
-        for weight in weights
+        for weight in weights do
             let share = (magnitude * BigInt.fromNat(weight)).quot(total)
             floors := floors.append((share, weight > 0))
             given := given + share
         var left = magnitude - given
         var shares: Vector(Money(c)) = []
-        for (share, weighted) in floors
+        for (share, weighted) in floors do
             let extra = if weighted and left > 0n then 1n else 0n
             left := left - extra
             let signed = if units < 0n then -(share + extra) else share + extra

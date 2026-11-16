@@ -1,6 +1,6 @@
 # Hexagon Spec — Operators, Logic & Precedence
 
-**Status:** Decided (v1), except items explicitly marked deferred. Amended 2026-11-13 (#1538): §6.2 says that two minus signs are written apart. Amended 2026-11-14 (#1542): `//` writes a fraction, at its own level 5 (§3, §6.4). Amended 2026-11-14 (#1545): a divisor or bottom written as a literal zero is refused when the program is compiled (§6.1, §6.4, §15; Division & Remainder §12). Amended 2026-11-16 (#1561): §11.3, the formatter never collapses a multiline conditional (Canonical Layout §1).
+**Status:** Decided (v1), except items explicitly marked deferred. Amended 2026-11-13 (#1538): §6.2 says that two minus signs are written apart. Amended 2026-11-14 (#1542): `//` writes a fraction, at its own level 5 (§3, §6.4). Amended 2026-11-14 (#1545): a divisor or bottom written as a literal zero is refused when the program is compiled (§6.1, §6.4, §15; Division & Remainder §12). Amended 2026-11-16 (#1561): §11.3, the formatter never collapses a multiline conditional (Canonical Layout §1). Amended 2026-11-16 (#1573): a condition runs from `if` to its `then` and may be carried across lines (§11.1–§11.3, §15; Lexer & Layout §2.4), and a loop's body written on its head's line eats to the right (§3, §3.2).
 **Scope:** The complete v1 operator inventory; the precedence and associativity table; word-based logical operators (`not`, `and`, `or`, `implies`, `iff`) and their desugarings; comparison operators, chaining, and the single-evaluation rule; arithmetic operators including `**`; the concatenation operator `++`; the pipe operator `|>`; the fraction form `//`; the `if … then … else` expression (mandatory `then`; `else` omissible as `Unit` sugar, §11.2); the grammatical placement of `..`, `:=`, `=>`, `[]`, `.`, and call syntax.
 **Not in scope:** Semantics of indexing/slicing (`xs[i]`, `xs[lo..hi]`) beyond precedence — owed to the collections/indexing spec. Semantics of `Range` construction — Loops, Ranges & Iteration spec is authoritative; this spec only fixes `..`'s precedence. `match` — pattern-matching spec; referenced here only as a member of the eats-to-the-right family. Constraint mechanics (dictionary passing, coherence) — Constraints spec.
 **Companions:** Constraints (operator→member elaboration targets, prelude constraint listing), Primitive Types (per-type instance inventories, `Ord String`), Numeric Literals (literal elaboration under operators), Loops/Ranges/Iteration (`..` semantics, `while`/`for` condition grammar by reference), Statements/Blocks/Mutability (`:=` semantics, discard rule), Exceptions (edit note §14.2), Functions (`=>`, header sugar).
@@ -82,7 +82,7 @@ Deliberately absent (see §13 for reasoning): `%`, `^`, `&&`, `||`, `!` (bare), 
 | **16** | `implies` | right | Implication |
 | **17** (loosest infix) | `iff` | left | Biconditional |
 | **18** | `\|>` | left | Pipe |
-| — | `=>`, `if/then/else`, `match`, `attempt`, `assume` | eats-to-the-right (§3.2) | Prefix expression forms |
+| — | `=>`, `if/then/else`, `match`, `for`/`while … do`, `attempt`, `assume` | eats-to-the-right (§3.2) | Prefix expression forms |
 | — | `:=` | non-associative, statement-level | Assignment (§12) |
 
 The bitwise levels (2, 8–10) take Lean 4's `~~~`, `&&&`, `^^^`, `|||` positions (`bitwise.md` §3.2). The logic tail (12–17) mirrors Lean 4's ordering exactly: comparisons above `¬` above `∧` above `∨` above `→` (right-associative) above `↔`. `implies` right-associativity is the logic convention (`a → b → c` ≡ `a → (b → c)`); `iff` left-associativity matches Lean's `↔`.
@@ -101,16 +101,16 @@ The early draft placed `not` above the comparisons (C-family habit), making `not
 
 ### 3.2 Eats-to-the-right forms
 
-`=>` (lambda), `if … then … else` (§11), `match`, and the body forms `attempt` and `assume` (Exceptions §8.2, §8.3) are **prefix expression forms whose body extends as far right as possible** — maximal munch, ended only by a closing delimiter, a layout boundary, or end of input. They have no level number because they are not infix: they may appear (a) anywhere parenthesized, and (b) bare as the **final operand** of any infix expression, where they swallow the rest of the line.
+`=>` (lambda), `if … then … else` (§11), `match`, the loops `for … do` and `while … do` (Loops §2.1, §4), and the body forms `attempt` and `assume` (Exceptions §8.2, §8.3) are **prefix expression forms whose body extends as far right as possible** — maximal munch, ended only by a closing delimiter, a layout boundary, or end of input. They have no level number because they are not infix: they may appear (a) anywhere parenthesized, and (b) bare as the **final operand** of any infix expression, where they swallow the rest of the line.
 
 ```
 1 + if c then a else b        -- 1 + (if c then a else b)
 xs |> Seq.map(x => x + 1)     -- lambda is map's argument (delimited by the paren)
-f(x) + match y ...            -- match is the right operand of +
+f(x) + match y with ...       -- match is the right operand of +
 x => x |> f                   -- the whole pipe is the lambda body
 ```
 
-No forced parentheses when the form is rightmost — that is the point. A bare eats-right form in a *non-final* operand position is a parse error with the fixit "parenthesize the `if`/lambda/`match`" (or the `attempt`/`assume`). So `assume Int.parse^(s) |> f` is `assume (Int.parse^(s) |> f)`: a pipe stage runs after its left side, and there is no `|> assume`.
+A loop's body eats to the right where it is written on its head's line, after `do`, exactly as a branch after `then` does: `for name in names do name |> print` runs `name |> print` for every `name`. No forced parentheses when the form is rightmost — that is the point. A bare eats-right form in a *non-final* operand position is a parse error with the fixit "parenthesize the `if`/lambda/`match`" (or the loop, the `attempt` or the `assume`). So `assume Int.parse^(s) |> f` is `assume (Int.parse^(s) |> f)`: a pipe stage runs after its left side, and there is no `|> assume`.
 
 ### 3.3 `|>` vs `=>`
 
@@ -389,7 +389,7 @@ The conditional is an **expression**, this spec owns it fully, and the Loops spe
 
 ### 11.1 Condition
 
-Bare expression, no required parentheses, must be `Bool` — no truthiness, and the diagnostic for a non-`Bool` condition never suggests coercion. (Parentheses are of course *allowed*; they're just parentheses.) `while` inherits exactly this, per the Loops spec's reference. The condition is consumed directly — the emitted JS branches on the `Bool` value itself (§11.4), an elimination without `match` that is **licensed by the representation pin** (§4.5; Unions §1/§8 carry the carve). *(License recorded 2026-07-29, #147.)*
+Bare expression, no required parentheses, must be `Bool` — no truthiness, and the diagnostic for a non-`Bool` condition never suggests coercion. (Parentheses are of course *allowed*; they're just parentheses.) The condition runs from `if` to its `then`, the head's closing word, and may be carried across lines up to it: a line deeper than the conditional's item continues it, and brackets hold it open (Lexer & Layout §2.4). `while` inherits exactly this, per the Loops spec's reference, with `do` for its closing word. The condition is consumed directly — the emitted JS branches on the `Bool` value itself (§11.4), an elimination without `match` that is **licensed by the representation pin** (§4.5; Unions §1/§8 carry the carve). *(License recorded 2026-07-29, #147.)*
 
 ### 11.2 Mandatory clauses
 
@@ -397,8 +397,10 @@ Bare expression, no required parentheses, must be `Bool` — no truthiness, and 
 if condition then trueExpression else falseExpression
 ```
 
-`then` is mandatory, always. An `if` without `then` is a parse error,
-including when an indented line follows the condition. An `if` without `else`
+`then` is mandatory, always. An indented line after the condition carries the
+condition on (§11.1), so an `if` whose condition meets anything but `then` —
+the end of its item, or a token that cannot continue it — is a parse error,
+reported at the `if` (§15). An `if` without `else`
 is legal **sugar for `else ()`**: the parser inserts a unit false branch, so
 every compiler representation from Parsed onward still carries both branches —
 the sugar exists only in source text. The whole form then checks as usual,
@@ -441,6 +443,22 @@ This multiline spelling is the reliable canonical form regardless of branch
 complexity. The formatter never collapses it, since it keeps the author's line
 breaks (Canonical Layout §1). A block arm's value is its final expression per
 the standard block rule.
+
+A condition too long for one line is carried on at two levels, each carried-on
+line beginning with its operator, and `then` ends the condition's last line
+(Canonical Layout §5.1, §9.4). The branch is measured from the `if`'s line, not
+from the line where the condition ends (Canonical Layout §5.3):
+
+```
+if configured and connected
+        and notExpired(session) then
+    start(session)
+```
+
+`then` may also begin a line of its own, at its item's column or deeper, as
+OCaml writes it (Lexer & Layout §2, §2.4). That spelling is legal but not
+canonical: the canonical `then` ends the condition's last line, where it shows
+that the branch follows.
 
 `else if` is syntactically `else` whose expression is another mandatory-`then`
 conditional; there is no dedicated construct. A chain canonically writes `else if`
@@ -560,8 +578,8 @@ The floored convention recorded as decided in Primitive Types §2 is **downgrade
 | `r / 0` at `Rat`, in any spelling: a divisor written as a literal zero | "division by zero: `r / 0` has no value; write the divisor that was meant", with the note "a divisor written as a literal is checked when the program is compiled" (§6.1; Division & Remainder §12.5) |
 | A zero bottom or `Rat` divisor not written as a literal | runtime `DivideByZeroFault`, "Rat.create: bottom is zero" or "Rat.divide: divisor is zero" (§6.1, §6.4) |
 | `1..2..3` | "`..` does not chain; a range has exactly two endpoints" |
-| Eats-right form in non-final operand position | parse error + "parenthesize the `if` / lambda / `match`" |
-| `if` without `then` | parse error + "`if` requires `then`; write `if condition then` before the indented true branch" |
+| Eats-right form in non-final operand position | parse error + "parenthesize the `if` / lambda / `match`" (or the loop, the `attempt` or the `assume`, §3.2) |
+| `if` whose condition meets anything but `then`: the end of its item, or a token that cannot continue it, such as a deeper line meant as the branch (§11.2; Lexer & Layout §2.4) | parse error at the `if` + "`if` requires `then`; write `if condition then` before the indented true branch", with a fixit ending the condition's last line with `then`; the lines the condition took in draw no report of their own |
 | Else-less `if` whose `then` branch is not `Unit` | type error + fixit "an `if` without `else` produces `Unit`; its `then` branch is `String` — add an `else` branch to produce a value" |
 | `x := y := z` | "`:=` does not chain; assignment produces `Unit`" |
 | `**` at `Nat`/`Int`/`BigInt` with negative exponent (and `BigInt.pow` likewise) | runtime `NegativeExponentFault` |
@@ -593,6 +611,7 @@ The floored convention recorded as decided in Primitive Types §2 is **downgrade
 | `..` level 11 (looser than arithmetic and the bitwise operators, tighter than comparison), non-assoc, non-chaining | §9 |
 | Postfix `.`/call/`[]` level 1; indexing/slicing semantics deferred to collections spec | §10 |
 | Every `if` requires `then`; else-less `if` = sugar for `else ()` (forces `Unit` `then` branch; F# rule, adopted July 2026 reversing the original strict decision); canonical for effect conditionals; canonical multiline form keeps `then` on the condition line and indents branches; condition = bare `Bool` expr, inherited by `while` by reference | §11 |
+| *(#1573)* The condition runs from `if` to its closing word `then` and may be carried across lines up to it, by deeper lines and open brackets (Lexer & Layout §2.4); canonically carried on at two levels with `then` ending its last line, a `then` beginning a line legal but not canonical; `while` takes the same condition with `do`; a loop's body on its head's line joins the eats-right family | §3, §3.2, §11, §15 |
 | `:=` loosest, non-associative, does not chain | §12 |
 | `Bool` is a prelude union (#147): §4's operands are union values, `True`/`False` the only spellings; the native logic/condition emissions are licensed by the Unions §6.2 representation pin; `Bool` is the sole exception to Unions §1's match-only elimination | §4.5, §11.1 |
 | *(#808)* At a primitive representation every spelling of an operator-backed member emits the operator's lowering verbatim; `**` at the guarded instances and `compare` keep the call | §1.1, §5.1; Constraints §6.1 |
@@ -687,4 +706,14 @@ r // 2                         -- ERROR at r : Rat: to divide, write `r / 2`
 1 // zero                      -- DivideByZeroFault when it runs, after `let zero = 0`
 let q: Rat = 1 / 0             -- ERROR: division by zero: `1 / 0` has no value
 let x: Float = 1 / 0           -- Infinity: `Float` is not checked
+
+-- (o) A condition carried across lines (§11.1; Lexer & Layout §2.4)
+if ready
+        and not stale then     -- one condition: the deeper line carries it on to `then`
+    run()
+if (ready and
+        not stale) then        -- brackets hold the condition open as well
+    run()
+if ready
+    run()                      -- ERROR at the `if`: `if` requires `then`
 ```

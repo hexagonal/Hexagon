@@ -221,7 +221,7 @@ This document declares the row Collections Part 5 §6.1 pre-committed:
 
 > **`Iterable<Array(a)>` holds, with `type Item = a`; its member `toSeq` is §9's `Array.toSeq`.**
 
-`for x in arr` therefore resolves by the ordinary Collections Part 5 §3 algorithm; the direction (the foreign door is iterable) was decided there and is not reopened here. The row's *meaning* is §6.5's: iteration traverses the captured array, a stable value.
+`for x in arr do` therefore resolves by the ordinary Collections Part 5 §3 algorithm; the direction (the foreign door is iterable) was decided there and is not reopened here. The row's *meaning* is §6.5's: iteration traverses the captured array, a stable value.
 
 **The row is `stdlib/Array.hex`'s.** The companion declares the type (Intrinsics §3.3) and honors `Iterable<Array(a)>` over a private traversal door, the native array iterator's inbound adapter (`arrayToSeq`, Intrinsics §3.2). `Array.toSeq` is therefore the row's member, reached as `Array.toSeq(xs)` (Modules §5.3) or `xs.toSeq()`, and never a plain export beside it (Collections Part 5 §2.3). A loop consults no member at all: §8.2's native `for...of` reads the element type off the type and traverses the captured array directly. The same holds of `Iterable<JsMap(k, v)>` and `Iterable<JsSet(a)>`, whose companions declare their rows in source the same way (Part 10 §6).
 
@@ -229,7 +229,7 @@ This document declares the row Collections Part 5 §6.1 pre-committed:
 
 ### 8.2 Emission
 
-`for x in arr` over an `Array(a)` emits native JavaScript iteration:
+`for x in arr do` over an `Array(a)` emits native JavaScript iteration:
 
 ```js
 for (const x of arr) { ... }

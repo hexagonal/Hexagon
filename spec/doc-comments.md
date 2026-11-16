@@ -139,7 +139,7 @@ For a doc comment on an exported standard-library item, this section governs in 
 - **What the item is for comes first.**
 - **A comment uses words this reader already has.** Where there is a term of art, the comment says what it means instead: "never throws", not *total*; "keep their original order", not *stable*; "from smallest to largest", not "under its `Ord`"; "never returns", not *does not terminate*.
 - **A comment is short.** Two sentences is a guide and not a limit: where what an item needs does not fit in two sentences, the comment takes more, and how many is a matter of taste.
-- **Where the name does not say what the item is for, the comment does.** `indexed`: "Handy for a loop that needs the position:", and then `for (i, name) in names.indexed()` on its own line.
+- **Where the name does not say what the item is for, the comment does.** `indexed`: "Handy for a loop that needs the position:", and then `for (i, name) in names.indexed() do` on its own line.
 - **A comment says which way round things go**: which of two things comes first, which end a pass starts from, and what a position counts from. "`Less` when the first belongs before the second"; "from first to last"; "counting from 1".
 - **A function that returns a changed collection says that it is a new one**: "a new vector". This reader expects `append` to change the vector it is given.
 - **An edge case is mentioned only where the answer would surprise.** `all` gives `True` for an empty vector, and says so; `any` gives `False`, and does not.

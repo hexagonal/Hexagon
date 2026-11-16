@@ -25,7 +25,7 @@ Here is a complete Hexagon function:
 ```hexagon
 let sumTo(n) =
     var total = 0
-    for i in 1..n
+    for i in 1..n do
         total := total + i
     total
 ```
@@ -343,7 +343,7 @@ let x = 99
 
 let addOne(x) = x + 1        -- fine: parameter x shadows the outer x
 
-for x in 1..3                -- fine: loop variable x shadows too
+for x in 1..3 do             -- fine: loop variable x shadows too
     print(show(x))             -- 1, 2, 3 — the loop's x
 ```
 
@@ -380,7 +380,7 @@ Interesting feature number three. Hexagon is an immutable-by-default language �
 let collatzSteps(n0) =
     var n = n0
     var steps = 0
-    while n != 1
+    while n != 1 do
         if isEven(n) then n := Int.div(n, 2) else n := 3 * n + 1
         steps := steps + 1
     steps
@@ -463,7 +463,7 @@ union Shape =
     | Point
 
 let area(s) =
-    match s
+    match s with
         Circle(r) => 3.14 * r * r
         Rect(w, h) => w * h
         Point => 0.0
@@ -567,7 +567,7 @@ A grab-bag of decisions you'll bump into early. Each one is a deliberate trade.
 
 **No `break`, no `continue` (v1).** Following F#'s precedent. Early exits are expressed by putting the condition in the `while` head, or restructuring into a function and returning. (A deeper investigation of `break`/`continue` is on the design backlog — this is a "not yet, prove the need" deferral, not a religious ban.)
 
-**No C-style `for(;;)`.** Counting is `for i in 1..n` — inclusive on both ends, so that's *n* iterations, and it compiles to the classic `for (let i = 1; i <= n; i++)` counting loop. Irregular stepping is `while` + `var`.
+**No C-style `for(;;)`.** Counting is `for i in 1..n do` — inclusive on both ends, so that's *n* iterations, and it compiles to the classic `for (let i = 1; i <= n; i++)` counting loop. Irregular stepping is `while` + `var`.
 
 **Exceptions exist, and they're real JS errors.** `throw(ParseError(3, "unexpected token"))`, and `try`/`catch` is an expression whose catch arms look exactly like `match` arms. Hexagon exceptions are genuine JS `Error` objects (branded so `catch` can distinguish them from foreign ones), so stack traces work and JS callers see nothing exotic. For expected failures, `Result` is the idiomatic tool; exceptions are for the exceptional.
 
@@ -585,14 +585,14 @@ A closing gallery, because "compiles to readable JavaScript" is a claim best pro
 | `var n = 0` … `n := n + 1` | `let n = 0;` … `n = n + 1;` |
 | `let f(a, b) = a + b` | `const f = (a, b) => a + b;` |
 | `fun fib(n) = …` (recursive) | `function fib(n) { … }` |
-| `for i in 1..n` | `for (let i = 1; i <= n; i++)` |
-| `for x in xs` | `for (const x of xs)` |
+| `for i in 1..n do` | `for (let i = 1; i <= n; i++)` |
+| `for x in xs do` | `for (const x of xs)` |
 | `{x = 1.0, y = 2.0}` | `{x: 1.0, y: 2.0}` |
 | `{p with x = 3.0}` | `{...p, x: 3.0}` |
 | `{...p}` | `{...p}` |
 | `(1, "a")` | `[1, "a"]` |
 | `Circle(2.0)` | `{tag: "Circle", radius: 2.0}` |
-| `match s` … | `switch (s.tag) { … }` |
+| `match s with` … | `switch (s.tag) { … }` |
 | `a and b`, `a or b`, `not a` | `a && b`, `a \|\| b`, `!a` |
 | `xs \|> map(f) \|> take(3)` | `take(map(xs, f), 3)` |
 

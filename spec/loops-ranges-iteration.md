@@ -1,6 +1,6 @@
 # Hexagon Spec: Loops, Ranges & Iteration
 
-**Status:** Decided (July 2026); §8's `.d.ts`-impact bullet corrected in place 2026-08-02 under the #128 ruling — `Hex.Range` is a *branded* interface, the brand being FFI Part 1 §8.3's structural phantom marker rather than Part 7 §5's `unique symbol`; the face itself is unchanged. Hanging-questions section (§11) retains the deliberately open items with their owners; resolved items keep their numbers as anchors. Nothing in §11 blocks implementation of §1–§10. Revised 2026-11-15: an `Iterable` instance the judgment looks up is visible where a module's imports reach its module, not program-wide (§2.2, §7.1, §12; Modules §7.1; Collections Part 5 §7.2).
+**Status:** Decided (July 2026); §8's `.d.ts`-impact bullet corrected in place 2026-08-02 under the #128 ruling — `Hex.Range` is a *branded* interface, the brand being FFI Part 1 §8.3's structural phantom marker rather than Part 7 §5's `unique symbol`; the face itself is unchanged. Hanging-questions section (§11) retains the deliberately open items with their owners; resolved items keep their numbers as anchors. Nothing in §11 blocks implementation of §1–§10. Revised 2026-11-15: an `Iterable` instance the judgment looks up is visible where a module's imports reach its module, not program-wide (§2.2, §7.1, §12; Modules §7.1; Collections Part 5 §7.2). Amended 2026-11-16 (#1573): a loop's head ends with `do`, may be carried across lines up to it, and may be followed by a body on its own line; a head without its `do`, and a line beginning `do`, have reports of their own (§1, §2.1, §2.3, §4, §9, §10, §12; Lexer & Layout §2.4).
 **Scope:** The `for..in` loop, the `while` loop, the `Range` type and the `..` operator, `Range.up`/`Range.down`, the `Seq(a)` type and its functional-cursor protocol, loop typing (`Unit` bodies), desugaring, and JS emission.
 **Not in scope:** `Iterable`'s declaration and type-member grammar (Collections Part 2 §8); `Iterable` resolution, diagnostics, table-opening, and the definitive instance table (Collections Part 5 §§2–4); indexing and slicing (Collections Parts 3–4); `..` precedence (Operators §9); the `Seq` combinator ship-list (`stdlib-roadmap.md`); boundary adaptation of foreign iterables and exported sequences (FFI Part 3); `break`/`continue` (deferred, §9.4); generators (§11.3); `AsyncSeq(a)` (future async spec, §11.4).
 **Companions:** Statements, Blocks & Mutability (§3.2 discard rule, §6 `var`/`:=`, §7.4 constraints discharged here), Pattern Matching (§5 irrefutability gate, §6 loop-head position), Collections Part 2 (§8 `Iterable` declaration), Collections Part 5 (operational `Iterable`), Operators (§9 `..` precedence), Lexer (§5 numeric-literal rules), Primitive Types (`Bool` conditions, no truthiness; `Int`; §5.1 String), FFI Part 1 (§8.1 `Range`'s face), FFI Part 3 (`Seq` boundary), `stdlib-roadmap.md` (Seq combinators; `Range` `Eq`/`Show`).
@@ -9,10 +9,10 @@
 
 ## 1. Doctrine
 
-- **`for..in` is the loop.** The primary iteration form is `for p in e` over anything iterable. It requires no `var` and no mutability; the accumulate-in-a-loop idiom (the Roc motivation for `var`) is what `var` + this loop exist to serve *together*, but neither depends on the other.
+- **`for..in` is the loop.** The primary iteration form is `for p in e do` over anything iterable. It requires no `var` and no mutability; the accumulate-in-a-loop idiom (the Roc motivation for `var`) is what `var` + this loop exist to serve *together*, but neither depends on the other.
 - **Loops are `Unit`-typed expressions.** Consistent with the F# statement model (Statements spec §1): there is no statement category; a loop is an expression whose value is `()`.
-- **Loop bodies are blocks, not lambdas.** Fixed in advance by Statements §7.4 and honored here. A lambda body could not touch enclosing `var`s (§6.2 there); a block can. This single fact also dictates the iteration protocol (§6.3: external iteration, never fold-based desugaring).
-- **The loop head is a pattern position; its binders are head binders** (Statements §5, discharged per §7.4 there). `for x in xs` may shadow any name in scope; `for (k, v) in m` destructures as it binds (§2.1).
+- **Loop bodies are blocks, not lambdas.** Fixed in advance by Statements §7.4 and honored here. A lambda body could not touch enclosing `var`s (§6.2 there); a block can. A body written on the head's line, after `do`, is the block of one expression, never a lambda. This single fact also dictates the iteration protocol (§6.3: external iteration, never fold-based desugaring).
+- **The loop head is a pattern position; its binders are head binders** (Statements §5, discharged per §7.4 there). `for x in xs do` may shadow any name in scope; `for (k, v) in m do` destructures as it binds (§2.1).
 - **`for..in` takes JS's good keyword.** JS burned `for..in` on key enumeration and had to invent `for..of`. Hexagon has no such legacy; `for..in` means what it should have meant, and emits JS `for..of` (§8).
 - **1-based, inclusive, everywhere.** Ranges are inclusive at both ends, consistent with Hexagon's global 1-based indexing doctrine (Primitive Types §5.1). Counting 1 to 10 is `1..10`, ten iterations.
 - **External iteration, functional cursor.** The protocol underlying iteration is "give me the element and the successor state" (`Seq`, §6) — pure, no ref cells, no mutable cursor objects. The one mutation in a compiled loop is a local `var` in the loop's own block: exactly the mutation the language permits.
@@ -24,18 +24,19 @@
 ### 2.1 Grammar
 
 ```
-for p in e
+for p in e do
     body...
 ```
 
-- `for` PATTERN `in` EXPR, then a block (indentation per Lexer & Layout; the body block opens on the following line or via the ordinary block rules). `for` and `in` are keywords.
-- The loop head is **one irrefutable pattern position** — one of Pattern Matching's five positions, under its single irrefutability gate (Pattern Matching §5–§6; no loop-specific dialect). Bare names, tuple patterns, record patterns, vector patterns, and typed patterns `(p: T)` (Pattern Matching §2.9) all ship in v1; a refutable pattern in the head is the standard Pattern Matching §5 error. The head takes no binding annotation: its element is not a value the loop is handed to convert, so `for x: Nat in xs` is refused, naming `for (x: Nat) in xs` (Pattern Matching §6.4). `for (k, v) in m` is the canonical beneficiary: `Map` iteration yields `(k, v)` pairs (Collections Part 4 §7.2).
+- `for` PATTERN `in` EXPR `do`, then the body. `for`, `in` and `do` are keywords. The **head** runs from `for` to `do`, its closing word, and may be carried across lines up to it: a line deeper than the loop's item continues it, and brackets hold it open (Lexer & Layout §2.4). A head whose source meets anything but `do` is refused at the `for` (§10.2).
+- The body is a block on the following lines, or one expression on the head's line after `do`: `for x in xs do print(x)`. A body on the head's line extends to the end of the item, as a branch after `then` does (Operators §3.2, §11.2). `;` opens no block (Lexer & Layout §3.1), so in `for x in xs do visit(x); finish()` the body is `visit(x)`, and `finish()` runs once, after the loop.
+- The loop head is **one irrefutable pattern position** — one of Pattern Matching's five positions, under its single irrefutability gate (Pattern Matching §5–§6; no loop-specific dialect). Bare names, tuple patterns, record patterns, vector patterns, and typed patterns `(p: T)` (Pattern Matching §2.9) all ship in v1; a refutable pattern in the head is the standard Pattern Matching §5 error. The head takes no binding annotation: its element is not a value the loop is handed to convert, so `for x: Nat in xs do` is refused, naming `for (x: Nat) in xs do` (Pattern Matching §6.4). `for (k, v) in m do` is the canonical beneficiary: `Map` iteration yields `(k, v)` pairs (Collections Part 4 §7.2).
 - The pattern's binders are **head binders**: they may shadow anything (Statements §5.1 rule 2); each is immutable within the body (it is not a `var`; `x := e` targeting one gets the standard "is not a `var`" family error, phrased for loop variables: "`x` is a loop variable and cannot be assigned; declare a `var`").
 - Their scope is the body block, starting at the binder; they do not exist after the loop.
 
 ### 2.2 Typing
 
-- `e` must be **iterable** (§7): the judgment `Iterable(τ) = ε` — normatively, lookup in the `Iterable` instance table (Collections Part 5 §2.2) — yields the element type; the loop pattern is checked against `ε` and must be irrefutable there (Pattern Matching §5). Its binders are bound at monotypes; head binders never generalise. A number type in `ε` that nothing has decided and no name holds becomes `Int` where the pattern binds it (Numeric Literals §4, #1192): `for x in [1, 2, 3]` binds `x : Int`, and `for (x: Nat) in [1, 2, 3]` or `([1, 2, 3]: Vector(Nat))` is the spelling for another type (the written type decides the element before the binder would, Pattern Matching §2.9). The full resolution algorithm and failure taxonomy are Collections Part 5 §3.
+- `e` must be **iterable** (§7): the judgment `Iterable(τ) = ε` — normatively, lookup in the `Iterable` instance table (Collections Part 5 §2.2) — yields the element type; the loop pattern is checked against `ε` and must be irrefutable there (Pattern Matching §5). Its binders are bound at monotypes; head binders never generalise. A number type in `ε` that nothing has decided and no name holds becomes `Int` where the pattern binds it (Numeric Literals §4, #1192): `for x in [1, 2, 3] do` binds `x : Int`, and `for (x: Nat) in [1, 2, 3] do` or `([1, 2, 3]: Vector(Nat))` is the spelling for another type (the written type decides the element before the binder would, Pattern Matching §2.9). The full resolution algorithm and failure taxonomy are Collections Part 5 §3.
 - The **body block checks against `Unit`**. There is no carve-out: a non-`Unit` final expression in the body is the Statements §3.2 discard hard error, with loop-specific provenance phrasing (§10.2). This is a compile-time check performed once, exactly like any block-item `Unit` check; nothing happens at runtime. `throw` needs no special case (Statements §3.2 already covers it), so a body ending in `throw(...)` or a branch of one checks fine.
 - The whole `for..in` expression has type **`Unit`**.
 - In non-final block position a loop unifies with `Unit` trivially; in final position the enclosing function returns `Unit` — the same "no ceremony" payoff as block-final `:=` (Statements §4).
@@ -45,12 +46,12 @@ for p in e
 Semantics are defined by this desugaring (the emitter is free to do better, §8, but must agree observably):
 
 ```
--- for p in e
+-- for p in e do
 --   body
 
 var cur = toSeq(e)              -- cur : Seq(ε), a compiler-fresh name
 -- loop:
---   match next(cur)
+--   match next(cur) with
 --     Some((p, rest)) =>
 --       body                    -- p's binders are the head binders
 --       cur := rest
@@ -71,12 +72,12 @@ var cur = toSeq(e)              -- cur : Seq(ε), a compiler-fresh name
 ```
 1..10                -- the Ints 1,2,...,10, in order
 lo..hi               -- general form; lo, hi : Int
-for i in 1..n        -- the counting loop
+for i in 1..n do     -- the counting loop
 ```
 
-- `x..y` is a binary operator on `Int`s producing a value of the concrete type **`Range`**: a lightweight, immutable, *lazy* description of a bounded integer progression. It is **not** a `Vector` — `for i in 1..1_000_000` allocates nothing.
+- `x..y` is a binary operator on `Int`s producing a value of the concrete type **`Range`**: a lightweight, immutable, *lazy* description of a bounded integer progression. It is **not** a `Vector` — `for i in 1..1_000_000 do` allocates nothing.
 - `Range` is monomorphic over `Int` in v1. No Float ranges, no ranges over arbitrary `Ord` types (no use case until `Char`-like types exist; pre-registered rejection for v1). A `Range(a)` over `<a: (Signed, Ord)>` is specifically rejected: fractional ranges inherit IEEE accumulation drift in loop bounds (Haskell's `[0.1, 0.2 .. 1.0]` overshoot is the cautionary precedent), while `Int`-only ranges have an exact element count and make the §8 counting-loop emission (`x <= hi`) trivially correct.
-- **Interaction with polymorphic literals and widening:** each operand of `..` is an `Int` seat, as each of `Range.up`'s parameters is (§3.2): a tree of its own, faced by `Int` (Numeric Literals §5.1's seat list, #1133). The *literals* in `1..10` are polymorphic as always (`fromNat(k) : α, Num α` — Numeric Literals machinery, untouched) and take the face, so defaulting never runs; the constraint discharges at the `Int` instance; `fromNat` erases (Numeric Literals §5). An established `Nat` widens into the seat through `Num.fromNat`, so `for i in 1..n` counts for an `n: Nat`, and arithmetic in an operand runs at `Int`: `1..(n - 1)` subtracts at `Int`, as `Range.up(1, n - 1)` does. A value no conversion takes into `Int` — a `BigInt`, a `Float`, a `Dec` — is refused with `Int` named as the type expected. Consequently `1..10 : Range` and the loop variable is `Int`, unconditionally. When that established `Int` later meets an independently established `Float` accumulator, Numeric Literals §5.1 widens it contextually through `Float.fromInt`; the range itself remains monomorphic (acceptance test §10.3(i)).
+- **Interaction with polymorphic literals and widening:** each operand of `..` is an `Int` seat, as each of `Range.up`'s parameters is (§3.2): a tree of its own, faced by `Int` (Numeric Literals §5.1's seat list, #1133). The *literals* in `1..10` are polymorphic as always (`fromNat(k) : α, Num α` — Numeric Literals machinery, untouched) and take the face, so defaulting never runs; the constraint discharges at the `Int` instance; `fromNat` erases (Numeric Literals §5). An established `Nat` widens into the seat through `Num.fromNat`, so `for i in 1..n do` counts for an `n: Nat`, and arithmetic in an operand runs at `Int`: `1..(n - 1)` subtracts at `Int`, as `Range.up(1, n - 1)` does. A value no conversion takes into `Int` — a `BigInt`, a `Float`, a `Dec` — is refused with `Int` named as the type expected. Consequently `1..10 : Range` and the loop variable is `Int`, unconditionally. When that established `Int` later meets an independently established `Float` accumulator, Numeric Literals §5.1 widens it contextually through `Float.fromInt`; the range itself remains monomorphic (acceptance test §10.3(i)).
 - Ranges are **inclusive at both ends**, always. There is no exclusive-end variant and no half-open syntax (`..<`, `...`) in v1: with 1-based indexing, the half-open idiom's *raison d'être* (`0..<len`) does not arise — the natural loops are `1..n` and `1..length(xs)`, both inclusive. Pre-registered rejection; revisit only with field evidence.
 - Conceptually a `Range` is `(start, end, direction)` where direction ∈ {ascending, descending}; direction is **not user-visible** in v1 (no field access on `Range`; it is opaque). `..` always builds ascending; `Range.down` builds descending (§3.3).
 - `Range` is iterable with element type `Int` (§7; instance row Collections Part 5 §4).
@@ -101,7 +102,7 @@ Descending iteration is **never inferred from operand order** (§3.4); it is alw
 
 ### 3.4 Empty ranges (decided, with rationale — do not re-litigate)
 
-- Ascending: **`lo > hi` ⇒ the empty range.** Not an error, not a descending range. Rationale: "do this n times" is `for i in 1..n`, and `n = 0` must mean zero iterations. Familiar from Rust/Kotlin/Python's ordering behavior.
+- Ascending: **`lo > hi` ⇒ the empty range.** Not an error, not a descending range. Rationale: "do this n times" is `for i in 1..n do`, and `n = 0` must mean zero iterations. Familiar from Rust/Kotlin/Python's ordering behavior.
 - Descending: the mirror rule — for `Range.down(hi, lo)`, **`hi < lo` ⇒ empty**.
 - `lo == hi` is the one-element range in both directions.
 - Iterating an empty range executes the body zero times; the loop is still `Unit`, no special case.
@@ -119,11 +120,11 @@ Descending iteration is **never inferred from operand order** (§3.4); it is alw
 ## 4. The `while` loop
 
 ```
-while cond
+while cond do
     body...
 ```
 
-- `while` EXPR, then a block. The condition's grammar is **the `if` condition's grammar, by reference** — whatever the operators/expressions spec decides for `if` (parenthesization, layout) applies here verbatim; this spec does not restate it.
+- `while` EXPR `do`, then the body: a block on the following lines, or one expression on the head's line after `do`, exactly as for `for..in` (§2.1): `while n > 0 do n := n - 1`. The condition's grammar is **the `if` condition's grammar, by reference** — whatever the operators/expressions spec decides for `if` (parenthesization, layout) applies here verbatim; this spec does not restate it. In particular the condition runs to its closing word, `do` here where `if` has `then`, and may be carried across lines up to it (Operators §11.1; Lexer & Layout §2.4). A condition that meets anything but `do` is refused at the `while` (§10.2).
 - `cond : Bool`, checked. **No truthiness** (Primitive Types §4) — an `Int` or `Option` condition is an ordinary type error.
 - The condition is re-evaluated before each iteration, zero-or-more-times semantics (a false condition on entry runs the body zero times).
 - The body block checks against `Unit`, same rule and same diagnostic family as `for..in` (§2.2).
@@ -134,13 +135,13 @@ while cond
 fun collatzSteps(n0) =
     var n = n0
     var steps = 0
-    while n != 1
+    while n != 1 do
         if isEven(n) then n := Int.div(n, 2) else n := 3 * n + 1
         steps := steps + 1
     steps
 ```
 
-- **`while True`:** legal, type `Unit`. With no `break`, an intentional infinite loop exits only via `throw` (or process end). Note for implementers and doc-writers: Hexagon has no `Never`/bottom type, so `while True ...` in final block position makes the function return `Unit` as far as the checker knows, even though it never returns. Accepted for v1; a `Never` type is not being invented here. *(Spelling: `True` is the constructor of the prelude union `Bool` since #147 — Unions §8; the emitted JS is still `while (true)`.)*
+- **`while True do`:** legal, type `Unit`. With no `break`, an intentional infinite loop exits only via `throw` (or process end). Note for implementers and doc-writers: Hexagon has no `Never`/bottom type, so `while True do ...` in final block position makes the function return `Unit` as far as the checker knows, even though it never returns. Accepted for v1; a `Never` type is not being invented here. *(Spelling: `True` is the constructor of the prelude union `Bool` since #147 — Unions §8; the emitted JS is still `while (true)`.)*
 
 ---
 
@@ -148,7 +149,7 @@ fun collatzSteps(n0) =
 
 Anything with an `Iterable` instance (§7). The definitive v1 instance table — element types, `toSeq` strategies, and the capture notes — is owned by **Collections Part 5 §4**. Every row is a source `honor` block in the module that owns it (Collections Part 5 §4). By ownership, the standard families are:
 
-- **Collections/prelude-owned:** `Range` (element `Int`, §3), `Vector(a)`, `Seq(a)` (`toSeq` is the identity, §6), `Map(k, v)` (element `(k, v)` — the canonical `for (k, v) in m` head, §2.1), `Set(a)`, and `String` (element: one-codepoint `String`, Collections Part 5 §5).
+- **Collections/prelude-owned:** `Range` (element `Int`, §3), `Vector(a)`, `Seq(a)` (`toSeq` is the identity, §6), `Map(k, v)` (element `(k, v)` — the canonical `for (k, v) in m do` head, §2.1), `Set(a)`, and `String` (element: one-codepoint `String`, Collections Part 5 §5).
 - **FFI-owned captured foreign collections:** `Array(a)` (#876), `JsMap(k, v)`, `JsSet(a)` (#875) — FFI Part 1 §2.2; rows recorded in Collections Part 5 §4; semantics in their owning FFI parts.
 
 User nominal types may join the table with lawful `honor Iterable<T>` instances in v1 (Collections Part 5 §7). No other **standard instance row** ships in v1.
@@ -230,9 +231,9 @@ constraint Iterable<c> =
 
 - `toSeq` is an **ordinary constraint member** — reached at concrete types by the dot (`range.toSeq()`) or qualified (`Iterable.toSeq(range)`), not seeded bare (Collections Part 5 §2.3; Modules §5.5); the §2.3 desugaring names it.
 - The table is **open to users in v1**: a user nominal type joins via a lawful `honor Iterable<T>` instance in one of its two legal homes (Collections Part 5 §7; orphan rule per Modules §7). The full resolution algorithm, failure taxonomy, table-opening rules, and finalized rows are owned by **Collections Part 5 §§2–4**.
-- The v1 restriction: `Iterable` is **projection-bearing** and therefore **cannot constrain a type variable**, whether a binder is written or inference would build one, and `Item`/`Item(c)` cannot appear in source type expressions (Collections Part 2 §7.2–§7.3). Functions generic over "any iterable" are not writable in v1; the idiom is to **take a `Seq(a)` parameter**, and callers pass their collections as they are — a `Seq` seat adapts an iterable value through its instance (Collections Part 5 §3.4). `for x in xs` where `xs : Seq(a)` infers fine — `Seq`'s instance has a variable element.
+- The v1 restriction: `Iterable` is **projection-bearing** and therefore **cannot constrain a type variable**, whether a binder is written or inference would build one, and `Item`/`Item(c)` cannot appear in source type expressions (Collections Part 2 §7.2–§7.3). Functions generic over "any iterable" are not writable in v1; the idiom is to **take a `Seq(a)` parameter**, and callers pass their collections as they are — a `Seq` seat adapts an iterable value through its instance (Collections Part 5 §3.4). `for x in xs do` where `xs : Seq(a)` infers fine — `Seq`'s instance has a variable element.
 - Consequently `Iterable` never appears in inferred signatures, hovers, or unsatisfied-constraint errors in v1 — non-leakage holds **by construction** (no written binder can introduce it, and no binding generalizes a variable carrying it — Collections Part 2 §7.2.1), not by suppression (Collections Part 2 §8).
-- When the checker sees `for p in e` with `e : τ` and τ is an unsolved inference variable, the head **waits**: the loop makes τ's `Iterable` demand at once, its `Item` the pattern's type, and τ's head is decided by its owner region's close, where one nothing established is `Seq` — as at any `Seq` seat (Collections Part 5 §3.1 step 2, §3.5). Whether the loop's head is accepted never depends on the order of the statements that describe its source; its element, in the body, is read as the schedule has solved it (Collections Part 5 §3.1). A declared type variable instead gets the `Seq(a)` rewrite hint (Collections Part 5 §3.2; §10.2 here summarizes).
+- When the checker sees `for p in e do` with `e : τ` and τ is an unsolved inference variable, the head **waits**: the loop makes τ's `Iterable` demand at once, its `Item` the pattern's type, and τ's head is decided by its owner region's close, where one nothing established is `Seq` — as at any `Seq` seat (Collections Part 5 §3.1 step 2, §3.5). Whether the loop's head is accepted never depends on the order of the statements that describe its source; its element, in the body, is read as the schedule has solved it (Collections Part 5 §3.1). A declared type variable instead gets the `Seq(a)` rewrite hint (Collections Part 5 §3.2; §10.2 here summarizes).
 
 ### 7.2 The v2 remainder (implied types)
 
@@ -253,12 +254,12 @@ Readable-JS doctrine: the general mechanism exists; the common case erases.
 
 | Hexagon | JS |
 |---|---|
-| `for x in 1..10` (syntactic ascending range in the head) | `for (let x = 1; x <= 10; x++) { ... }` |
-| `for x in lo..hi` (syntactic range, non-literal bounds) | `for (let x = lo; x <= hi; x++)` — with a non-trivial `hi` bound to a `const` before the loop (evaluate once, §2.3), and, when `hi` moves, a non-trivial `lo` bound to its own `const` ahead of it (start before end, §2.3) |
-| `for x in Range.down(hi, lo)` (syntactic) | `for (let x = hi; x >= lo; x--)` (same once-evaluation rule) |
-| `for p in e` over a directly iterable standard type | `for (const p of e)`-shaped — a destructuring head where `p` destructures, e.g. `for (const [k, v] of m.entries())` (Collections Part 4 §11) |
-| `for p in e` through a user `Iterable` instance | statically resolved `toSeq` call producing a `Seq`, then `for (const p of s)`-shaped iteration (Collections Part 5 §9) |
-| `while cond` | `while (cond) { ... }` |
+| `for x in 1..10 do` (syntactic ascending range in the head) | `for (let x = 1; x <= 10; x++) { ... }` |
+| `for x in lo..hi do` (syntactic range, non-literal bounds) | `for (let x = lo; x <= hi; x++)` — with a non-trivial `hi` bound to a `const` before the loop (evaluate once, §2.3), and, when `hi` moves, a non-trivial `lo` bound to its own `const` ahead of it (start before end, §2.3) |
+| `for x in Range.down(hi, lo) do` (syntactic) | `for (let x = hi; x >= lo; x--)` (same once-evaluation rule) |
+| `for p in e do` over a directly iterable standard type | `for (const p of e)`-shaped — a destructuring head where `p` destructures, e.g. `for (const [k, v] of m.entries())` (Collections Part 4 §11) |
+| `for p in e do` through a user `Iterable` instance | statically resolved `toSeq` call producing a `Seq`, then `for (const p of s)`-shaped iteration (Collections Part 5 §9) |
+| `while cond do` | `while (cond) { ... }` |
 | `Range` as a first-class value (escapes a loop head) | a small range object implementing the JS iterable protocol, materialised on demand (same on-demand doctrine as constructors, Unions §6.4) |
 
 - The counting-loop erasure is **mandatory**, not an optimisation option — it is the readable-JS goal at the language's most common loop, same status as `fromNat` erasure (Numeric Literals §5). "Syntactic range" means the loop head's expression is literally a `..` application or a call to `Range.up` or `Range.down`, read through grouping parentheses and an ascription as every rule that reads what an expression means reads it (Functions §8). The calls are recognised by the binding the name resolves to, never by its spelling: a module's own `up` is an ordinary call. A `Range` arriving any other way — through a variable, from some other call — takes the general `for..of` path. The bounds of `Range.down(hi, lo)` are its arguments in order, so `hi` is the start and is evaluated first.
@@ -269,7 +270,7 @@ Readable-JS doctrine: the general mechanism exists; the common case erases.
   const __end = hi();
   for (let x = __start; x <= __end; x++) { ... }
   ```
-- **The head is evaluated outside the loop variable's scope** (§2.1, §2.3). JavaScript evaluates a `for..of` head inside the variable's scope, and a counting loop's test runs inside it, so a head that mentions the variable's name — `for n in 1..n`, `for xs in xs` — is read into a `const` before the loop: a counting loop's mentioning bound alone (`const __end = n;` then `for (let n = 1; n <= __end; n++)`), a `for..of` source whole (`const __source = xs;` then `for (const xs of __source)`).
+- **The head is evaluated outside the loop variable's scope** (§2.1, §2.3). JavaScript evaluates a `for..of` head inside the variable's scope, and a counting loop's test runs inside it, so a head that mentions the variable's name — `for n in 1..n do`, `for xs in xs do` — is read into a `const` before the loop: a counting loop's mentioning bound alone (`const __end = n;` then `for (let n = 1; n <= __end; n++)`), a `for..of` source whole (`const __source = xs;` then `for (const xs of __source)`).
 - The standard types' directly iterable representations take the native path (`Vector` per Collections Part 3, `Seq` per §6.5, materialised `Range` objects, plus the other rows enumerated by Collections Part 5 §9). A user instance instead emits its statically resolved `toSeq` call once and traverses the resulting `Seq`; the user's value need not itself implement JavaScript's iterable protocol. Both paths preserve §2.3's once-evaluation rule.
 - Loop bodies emit as ordinary JS blocks; `var`/`:=` inside them emit per Statements §8 (`let` / `=`), which is sound *because* bodies are blocks, not closures — the same coupling recorded in Statements §8 holds here.
 - `.d.ts` impact: `Seq(a)` ↔ `Iterable<a>`; `Range` faces as **`Range`**, imported from its companion's declaration file, whose seat aliases the runtime declaration module's branded interface extending `Iterable<number>` (FFI Part 1 §8.1) — if it ever crosses the boundary; loops themselves are function-internal and never do. *(Corrected in place 2026-08-02, #128 ruling: this bullet read "opaque branded interface". In this corpus "opaque branded" names FFI Part 7 §5's non-exported `unique symbol`, which is **not** the mechanism — the `Hex.*` brand is FFI Part 1 §8.3's structural phantom marker, chosen so values from separately compiled Hexagon programs stay mutually assignable. §12's decisions-log row already said "branded" without the word; this bullet was the file's sole offender.)*
@@ -278,9 +279,9 @@ Readable-JS doctrine: the general mechanism exists; the common case erases.
 
 ## 9. Pre-registered rejections
 
-1. **C-style `for(init; cond; step)`: does not exist.** Counting is `for i in 1..n`; irregular stepping is `while` + `var`. Its header is three statement positions jammed into one line — the shape the layout syntax exists to avoid — and it is fully redundant with two features Hexagon already has.
-2. **`do..while`: no.** Rare; expressible with `while` + a `var` flag or restructuring. F# — the statement-model precedent — does not have it either.
-3. **`loop` (loop-forever): no in v1.** Only coherent alongside `break`; automatically part of the break/continue deepdive (below). `while True` covers the interim (§4 note).
+1. **C-style `for(init; cond; step)`: does not exist.** Counting is `for i in 1..n do`; irregular stepping is `while` + `var`. Its header is three statement positions jammed into one line — the shape the layout syntax exists to avoid — and it is fully redundant with two features Hexagon already has.
+2. **`do..while`: no.** Rare; expressible with `while` + a `var` flag or restructuring. F# — the statement-model precedent — does not have it either. `do` is the closing word of a loop's head, so a `do` that begins a line, as the habit writes it, is refused with the spelling Hexagon has, `while condition do` (§10.2).
+3. **`loop` (loop-forever): no in v1.** Only coherent alongside `break`; automatically part of the break/continue deepdive (below). `while True do` covers the interim (§4 note).
 4. **`break` / `continue`: not in v1 — deepdive owed.** F# has neither and has lived without them for two decades; Hexagon starts from the same position (removing them later is impossible; adding them is easy). The deepdive's known decision surface, recorded so it is not rediscovered: (a) statement-flavored `break` as a `Unit`-ish expression legal only in loop bodies — cheapest, but the first non-exception non-local control flow; (b) break-with-value (Rust's `break expr`) — makes loops non-`Unit`, drags the loop's type in; (c) labeled variants — decline outright. The F#-flavored alternative to weigh: `while` + flag covers most `break` cases, inverted `if` covers most `continue` cases; whether that ergonomics is acceptable is exactly what the deepdive decides, with field evidence from real Hexagon code (shared revisit-bar with compound assignment, Statements §6.4).
 5. **An `Iterator` constraint / cursor objects: never.** The `Seq(a)` functional cursor (§6.2) makes a second constraint and its implied `Iter` type pure structure with no job (the `Iterable`-returns-`Iterator` design collapsed once the cursor became a concrete type). Even in v2, `Iterable` is the only iteration constraint.
 6. **Fold-based `for..in` desugaring:** forbidden, §6.3.
@@ -304,13 +305,17 @@ Readable-JS doctrine: the general mechanism exists; the common case erases.
 | Situation | Error / hint |
 |---|---|
 | Loop body's final expression is non-`Unit` | "the final expression of the loop body produces a value that is discarded on every iteration; use `ignore(...)` if intended" — Statements §3.2 family, loop provenance |
-| `e` in `for p in e` has a concrete non-iterable type, not a user nominal | "`τ` is not iterable" (+ conversion hint where one exists, e.g. `toSeq`) |
+| `e` in `for p in e do` has a concrete non-iterable type, not a user nominal | "`τ` is not iterable" (+ conversion hint where one exists, e.g. `toSeq`) |
 | `e`'s type is a user nominal with no instance | the two-legal-homes message: name the `honor Iterable<T>` home and the conversion/`Seq(a)` alternatives (Collections Part 5 §3.3) |
 | `e`'s type is an unsolved inference variable | none at the head: its head waits for its owner region's close, and one nothing established is `Seq` (§7.1; Collections Part 5 §3.5) |
 | `e`'s type is a rigid (binder-bound) variable | "`e` has the generic type `c`, and `Iterable` declares an implied type and cannot constrain a type variable in v1; take a `Seq(a)` parameter instead" (Collections Part 5 §3.2) |
 | Assignment to a loop binder | "`x` is a loop variable and cannot be assigned; declare a `var`" |
 | Refutable pattern in the loop head | the standard Pattern Matching §5 irrefutability error (loop heads are a binding position; no loop-specific dialect) |
 | Non-`Bool` `while` condition | ordinary type error; never suggest truthiness |
+| A `for` head whose source meets anything but `do`: the end of its item, or a token that cannot continue it, such as a deeper line meant as the body (§2.1; Lexer & Layout §2.4) | parse error at the `for`: "`for` requires `do`; write `for pattern in source do` before the indented body", with a fixit ending the head's last line with `do`; the lines the head took in draw no report of their own — the twin of Operators §15's `then` row |
+| A `while` condition that meets anything but `do`, likewise (§4) | parse error at the `while`: "`while` requires `do`; write `while condition do` before the indented body", with the same fixit and no further report |
+| Either head whose item is followed, at the head's own column, by a line that begins with `do`, after any deeper lines the head took in (Lexer & Layout §2.4) | the head's report reads instead "a `do` at the `while`'s column begins a new line of the block; end the head's last line with `do`" ("the `for`'s column"), with a fixit moving the `do` there; that `do` draws no report of its own |
+| A `do` that closes no `for` or `while` head, such as one that begins a line: the `do … while` habit (§9.2) | parse error at the `do`: "Hexagon has no `do … while` loop; a loop's condition comes first — write `while condition do` with the body beneath it"; where the habit's `while` follows the body at the `do`'s column, that `while` draws no report of its own |
 | `1.` / `.5` literal | lex error + fixit (Lexer §5; §10.1.1) |
 | `1..2..3` | parse error: "`..` does not chain; a range has exactly two endpoints" (Operators §9) |
 
@@ -322,7 +327,7 @@ Diagnostics obey the Rewrite Rule (Declarations Preamble §1.1): where a legal s
 -- (a) The accumulator idiom, at last (completes Statements §9.1(a))
 fun sumTo(n) =
     var total = 0
-    for i in 1..n
+    for i in 1..n do
         total := total + i
     total
 -- sumTo : Int -> Int
@@ -333,26 +338,26 @@ sumTo(0)                       -- 0
 
 -- (c) General-path iteration
 fun printAll(xs) =
-    for x in xs
+    for x in xs do
         print(x)                   -- assuming print : String -> Unit
 -- xs : Vector(String) at a call site → for (const x of xs) { print(x); }
 
 -- (d) Discard in a loop body
-for x in 1..10
+for x in 1..10 do
     compute(x)                   -- ERROR (10.2 row 1) if compute returns non-Unit
-for x in 1..10
+for x in 1..10 do
     ignore(compute(x))           -- fine
 
 -- (e) while, load-bearing
 fun countdown(n0) =
     var n = n0
-    while n > 0
+    while n > 0 do
         n := n - 1
 -- countdown : Int -> Unit  (block-final loop; function returns Unit, no ceremony)
 
 -- (f) Loop variable is a head binder; immutable
 let i = 99
-for i in 1..3                  -- fine: head binder shadows
+for i in 1..3 do               -- fine: head binder shadows
     i := 5                       -- ERROR: loop variable cannot be assigned
 
 -- (g) Seq as the generic idiom (v1's answer to "any iterable" parameters)
@@ -361,25 +366,25 @@ fun firstOrZero(s: Seq(Int)): Int =
 
 -- (h) Range escaping a loop head
 let r = 1..10
-for x in r                     -- general path: r materialised as an iterable object
+for x in r do                  -- general path: r materialised as an iterable object
     ...
 
 -- (i) Literals in `..` pin to Int; later arithmetic may widen that Int
 var total = 0.0                -- total : Float (monomorphic Float literal)
-for x in 1..10                 -- x : Int — `..`'s Int seats take both literal tyvars
+for x in 1..10 do              -- x : Int — `..`'s Int seats take both literal tyvars
     total := total + x           -- x widens through Float.fromInt; emitted JS stays
                                -- `total = total + x`
 -- total : Float; range emission unaffected: for (let x = 1; x <= 10; x++)
 
 -- (j) Pattern loop head (canonical; per-row goldens live in Collections Parts 4–5)
-for (k, v) in m                -- m : Map(String, Int); k : String, v : Int
+for (k, v) in m do             -- m : Map(String, Int); k : String, v : Int
     ...
 -- emits: for (const [k, v] of m.entries()) { ... }
 
 -- (k) A computed end is read once, before the loop; a computed start before it
 fun total(lo: () ->! Int, hi: () ->! Int) =
     var t = 0
-    for i in lo!()..hi!()
+    for i in lo!()..hi!() do
         t := t + i
     t
 -- emits: const __start = lo(); const __end = hi();
@@ -388,11 +393,40 @@ fun total(lo: () ->! Int, hi: () ->! Int) =
 -- (l) An established Nat widens into `..`'s Int seats; arithmetic there runs at Int
 fun below(n: Nat): Int =
     var t = 0
-    for i in 1..(n - 1)          -- n widens to Int, then subtracts: Range.up(1, n - 1)
+    for i in 1..(n - 1) do       -- n widens to Int, then subtracts: Range.up(1, n - 1)
         t := t + i
     t
 -- emits: const __end = n - 1; for (let i = 1; i <= __end; i++) { t = t + i; }
--- and `for i in 1..n` at `n: Nat` emits for (let i = 1; i <= n; i++): the widening erases
+-- and `for i in 1..n do` at `n: Nat` emits for (let i = 1; i <= n; i++): the widening erases
+
+-- (m) A body on the head's line
+for x in xs do visit(x)           -- the body is one expression after `do`
+while n > 0 do n := n - 1         -- the same for `while`
+for x in xs do visit(x); finish() -- `;` opens no block: finish() runs once, after the loop
+
+-- (n) A head carried across lines, to its `do`
+while remaining > 0
+        and not cancelled(job) do -- the deeper line carries the condition on
+    remaining := step(remaining)
+for (name, total) in totalsFor(region,
+        year) do                  -- brackets hold the head open as well
+    report(name, total)
+
+-- (o) The heads' reports, each fragment on its own
+for x in xs
+    visit(x)                      -- ERROR at the `for`: `for` requires `do`
+
+while n > 0
+    n := n - 1                    -- ERROR at the `while`: `while` requires `do`
+
+while n > 0                       -- ERROR at the `while`: a `do` at the `while`'s column
+do                                --   begins a new line of the block; end the head's last
+    n := n - 1                    --   line with `do` (one report: the `do` draws none)
+
+var n = 10
+do                                -- ERROR at the `do`: Hexagon has no `do … while` loop;
+    n := n - 1                    --   write `while condition do` with the body beneath it
+while n > 0                       -- no second report
 ```
 
 ---
@@ -414,7 +448,7 @@ fun below(n: Nat): Int =
 
 | Decision | Where |
 |---|---|
-| `for p in e` + block; the loop head is one irrefutable pattern position (tuple/record/vector patterns ship; `for (k, v) in map` canonical); binders are head binders, immutable | §2.1 |
+| `for p in e do` + block; the loop head is one irrefutable pattern position (tuple/record/vector patterns ship; `for (k, v) in map do` canonical); binders are head binders, immutable | §2.1 |
 | Body block checks against `Unit`, no carve-out; §3.2 discard error with loop provenance; loop expression is `Unit` | §2.2 |
 | Reference desugaring: `var` cursor + `Seq.next` pulls; `toSeq` is the `Iterable` constraint member; iterated expression evaluated once | §2.3 |
 | `x..y` operator → concrete lazy `Range`; `Int`-only; inclusive both ends; no half-open form | §3.1 |
@@ -422,7 +456,7 @@ fun below(n: Nat): Int =
 | `Range.up(lo, hi)` function twin; `Range.down(hi, lo)` for descending, both in `Range`'s companion; direction never inferred from operand order | §3.2–3.4 |
 | Ascending `lo > hi` ⇒ empty; descending `hi < lo` ⇒ empty; `lo == hi` ⇒ one element | §3.4 |
 | `..` precedence decided as recorded intent (looser than arithmetic, non-chaining) — Operators §9 owns | §3.5 |
-| `while cond` + block; condition grammar = `if`'s, by reference; `Bool`, no truthiness; `Unit`; `while True` legal (respelled per #147), no `Never` type invented | §4 |
+| `while cond do` + block; condition grammar = `if`'s, by reference; `Bool`, no truthiness; `Unit`; `while True do` legal (respelled per #147), no `Never` type invented | §4 |
 | `Seq(a)`: concrete lazy sequence type in v1; protocol is the functional cursor `next : Seq(a) -> Option((a, Seq(a)))`; persistence mandatory | §6 |
 | External iteration mandatory; fold-based desugaring forbidden (lambda boundary) | §6.3 |
 | `Seq` emits onto the JS iterable protocol; `.d.ts` face `Iterable<a>`; constant-stack traversal; boundary adaptation owned by FFI Part 3 | §6.5 |
@@ -431,6 +465,7 @@ fun below(n: Nat): Int =
 | v2 remainder re-scoped: deferred `Item(α)` goals, `Item(c)` syntax, member obligations, `derive via` — Collections Part 2 §11 owns | §7.2, §11.1 |
 | Emission: counting-loop erasure for syntactic ranges (mandatory; a trivial bound read through a conversion that writes nothing), `for..of` general case (destructuring heads for patterns), `while` verbatim, on-demand `Range` objects; `Range` faces by name from its companion, aliasing the branded interface extending `Iterable<number>` | §8 |
 | Rejections: C-`for`, `do..while`, `loop`, break/continue (deepdive owed, decision surface recorded), `Iterator` constraint (never), half-open/Float/`Ord` ranges; bare-name-only heads superseded | §9 |
+| *(#1573)* A loop's head ends with its closing word `do` — `for p in e do`, `while c do` — and may be carried across lines up to it (Lexer & Layout §2.4); the body is a block, or one expression on the head's line, which eats to the right; a head without its `do` is refused at its keyword, and a `do` that closes no head is refused as the `do … while` habit, naming `while condition do` | §2.1, §4, §9, §10.2, §10.3 |
 | Numeric-literal digit-after-`.` rule owned by Lexer §5; `1.`/`.5` errors with fixits; frees `1..10` | §10.1 |
 | `String` iterable, one-codepoint items — Collections Part 5 §5 owns | §11.6 |
 | A loop head over a source whose head is not yet known waits for its owner region's close, as a `Seq` seat's source does; one nothing describes is a `Seq` (#1118) — Collections Part 5 §3.5 owns | §7.1 |

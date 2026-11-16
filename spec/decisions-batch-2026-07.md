@@ -291,7 +291,7 @@ record Handler = {f: Int -> Int} derives Eq
 -- (f) Ordering spelling and emission
 Int.compare(1, 2)              -- Ordering.Less;  runtime value the string "Less"
                                --   (since #771: the shared constant {tag: "Less"}, Unions §6.2)
-match a.compare(b)
+match a.compare(b) with
     Ordering.Less => ...
     Ordering.Equal => ...
     Ordering.Greater => ...      -- exhaustive, no wildcard needed

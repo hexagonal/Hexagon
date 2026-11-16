@@ -63,7 +63,7 @@ The full type spec for the workhorse sequence.
 
 - HAMT representation reference and complexity table (get/set/remove O(log₃₂ n) expected; iteration O(n)).
 - Signatures with `<k: Hash>` / `<a: Hash>` throughout; core surface per Part 1 §3 (Map: `empty`/`isEmpty`/`size`/`get`/`containsKey`/`set`/`remove`/`keys`/`values`/`entries`/`fromEntries`(last-wins)/`toSeq`/`fromSeq`; Set: `empty`/`singleton`/`isEmpty`/`size`/`contains`/`add`/`remove`/`union`/`intersect`/`difference`/`isSubsetOf`/`toSeq`/`fromSeq`).
-- **Iteration order fine print**: deterministic-but-unspecified defined precisely (what "deterministic" promises across program runs given structural hashing; what is explicitly *not* promised — insertion order, sorted order); `for (k, v) in map` / `for x in set` table rows.
+- **Iteration order fine print**: deterministic-but-unspecified defined precisely (what "deterministic" promises across program runs given structural hashing; what is explicitly *not* promised — insertion order, sorted order); `for (k, v) in map do` / `for x in set do` table rows.
 - **Map/Set literals**: leaning none — decide and record.
 - **`map[k]`**: direction decided (Part 1 §3.3) — `map[k]` throws `KeyFault`, `Map.get` returns `Option(v)`. This part owes the fine print: `KeyFault`'s shape and message doctrine (edit note to Exceptions — `IndexFault` sibling), catchability, emission.
 - Instances: `Eq<Map>`/`Eq<Set>` (order-independent; define via canonical iteration or size+subset), `Show` (display order question), no `Ord` (leaning), stdlib-blessed `Hash<Set(a)>`/`Hash<Map(k,v)>` (order-independent hash — commutative combine; decide).

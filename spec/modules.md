@@ -93,7 +93,7 @@ Imports are module-level declarations; an `import` inside a function body joins 
 
 ### 3.1 The module import
 
-`import Geometry` binds the single name `Geometry` as a **module alias** giving qualified access to every export: `Geometry.area(...)`, and in type position `Geometry.Point`, `xs: Vector(Geometry.Shape)`. Constructors qualify the same way (`Geometry.Circle(1.0)`), including in patterns (`match s` / `Geometry.Circle(r) => ...`) (Unions §2). Constraints too: `Geometry.Ord` in a binder (`<a: Geometry.Ord>`) and in an `honor` head (`honor Geometry.Describe<Box>` — Constraints §4.1), and a member through the alias as an ordinary term (`Geometry.compare(a, b)`) — the left side is the module alias in every case, so §5.1's "types and constraints never take `.`" is untouched: it governs what may stand *left* of the dot. Two reaches extend the alias without adding a binding, both §5.1's companion fallbacks: where the aliased module exports a type or a constraint spelled like the alias itself, the unqualified reference in that namespace's own position may resolve through it (rule 2), and where it exports a **constructor** spelled like the alias, the unqualified constructor in term position — an expression or a pattern — may resolve through it (rule 3, #763). Each answers only where the namespace has nothing.
+`import Geometry` binds the single name `Geometry` as a **module alias** giving qualified access to every export: `Geometry.area(...)`, and in type position `Geometry.Point`, `xs: Vector(Geometry.Shape)`. Constructors qualify the same way (`Geometry.Circle(1.0)`), including in patterns (`match s with` / `Geometry.Circle(r) => ...`) (Unions §2). Constraints too: `Geometry.Ord` in a binder (`<a: Geometry.Ord>`) and in an `honor` head (`honor Geometry.Describe<Box>` — Constraints §4.1), and a member through the alias as an ordinary term (`Geometry.compare(a, b)`) — the left side is the module alias in every case, so §5.1's "types and constraints never take `.`" is untouched: it governs what may stand *left* of the dot. Two reaches extend the alias without adding a binding, both §5.1's companion fallbacks: where the aliased module exports a type or a constraint spelled like the alias itself, the unqualified reference in that namespace's own position may resolve through it (rule 2), and where it exports a **constructor** spelled like the alias, the unqualified constructor in term position — an expression or a pattern — may resolve through it (rule 3, #763). Each answers only where the namespace has nothing.
 
 **The alias.** Without `as`, the alias is the module's declared name's **last segment**: `import Geometry` binds `Geometry`, and `import Render.Geometry` binds `Geometry` too — the segments before it are the name's, not the importer's, and never bind (§2.3). With `as`, the alias is the written name: `import Geometry as Geo`, `import Render.Geometry as RenderGeo`. An alias is uppercase-start, mandatorily — a module's name is uppercase-start by the header rule (§2.1), so the default always qualifies, and `import Geometry as geo` is refused with the alias's rule named. The module name in the head is uppercase-start in every segment, by the same rule (§2.1). `import geometry` is a parse error at the head, before any resolution, under the Rewrite Rule: "a module name is uppercase-start; write `import Geometry`". The rewrite upper-cases each dot-separated segment at its start and keeps the dots (`import render.geometry` → `import Render.Geometry`); it keeps the alias the author wrote (`import geometry as Geo` → `import Geometry as Geo`); and where upper-casing yields no lawful module name, every segment having to be uppercase-start (`import 用户`, `import _x`, `import _internal.util`), it names the slot, `import <Name>`, the written alias kept after it (`import <Name> as Geo`). The refused head binds no alias (§5.2's neutral value), so uses below it draw their own reports as under any unbound alias. A head that trips both rules, `import geometry as geo`, draws one report and one rewrite correcting both seats: "a module name is uppercase-start; write `import Geometry as Geo`" (and `import 用户 as geo`, `import <Name> as Geo`). Two imports landing on one alias spelling — `import Render.Geometry` beside `import Physics.Geometry` — are §5.2's one collision, and `as` is its fixit.
 
@@ -652,7 +652,7 @@ import { area } from "./geometry"            -- ERROR (parse): Hexagon imports n
 import Point
 let p = Point({x = 1.0, y = 2.0})            -- constructor: rule 3, through the alias
 fun f(q: Point): Float = q.x                 -- type: rule 2; fields visible (not opaque)
-let sum = match p
+let sum = match p with
     Point({x, y}) => x + y                   -- constructor pattern: rule 3 again
 let area = Point.area                        -- an unqualified name is a declaration (§3.2)
 
@@ -666,7 +666,7 @@ let area = Point.area                        -- an unqualified name is a declara
 import Point
 let p = Point.make(1.0, 2.0)                 -- OK
 p.x                                          -- ERROR: Point is opaque outside module Point
-match p                                      -- ERROR: cannot destructure opaque record Point;
+match p with                                 -- ERROR: cannot destructure opaque record Point;
     Point(r) => ...                          --   use an operation exported by its home module
                                              --   (Point exports no pattern; where a home does,
                                              --   the sentence names it: "match it with (x, y)point"
@@ -773,11 +773,11 @@ import Shape
 let bad = Circle(1.0)                        -- ERROR: no bare Circle; write Shape.Circle(1.0)
 let c = Shape.Circle(1.0)                    -- OK
 fun describe(s: Shape): String =             -- type: rule 2
-    match s
+    match s with
         Circle(r) => "circle"                -- OK: Pattern Matching §2.2's door, the
         Rect(w, h) => "rect"                 --   scrutinee's type supplying the constructors
 fun isRound(s: Shape): Bool =
-    match s
+    match s with
         Shape.Circle(_) => True              -- the qualified pattern, unchanged
         _ => False
 

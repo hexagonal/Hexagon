@@ -1,6 +1,6 @@
 # Hexagon Spec: Pattern Declarations
 
-**Status:** Decided (September 2026; #834); amended 2026-11-11 (#1509): §3.2's list takes an ascribed argument in its own parentheses, as its pattern twin takes a typed component; amended 2026-11-14 (#1542): the running example is a module's `clock` over `Time`, since the standard library exports no pattern once `//` takes `Rat` apart (`rat.md` §3).
+**Status:** Decided (September 2026; #834); amended 2026-11-11 (#1509): §3.2's list takes an ascribed argument in its own parentheses, as its pattern twin takes a typed component; amended 2026-11-14 (#1542): the running example is a module's `clock` over `Time`, since the standard library exports no pattern once `//` takes `Rat` apart (`rat.md` §3); amended 2026-11-16 (#1573): a `match` head's closing `with` is one more contextual word that stands off the parenthesis (§3.1, §7).
 **Scope:** The `pattern` declaration — a named way of matching a value, written as two ordinary functions: a required, pure `view` and an optional `build`. The head and its member block; inference of an unheaded private pattern; the suffix form `(p1, …, pn)name` in pattern and expression position; the pattern namespace (own declarations, imported exports, the `pattern` alias as the rename) and the expected-type door; coverage; evaluation and purity; emission and the `.d.ts` face; diagnostics; rejected alternatives. Not the fraction form `//`, a language form that takes a `Rat` apart as a pattern does (`rat.md` §3, Operators §6.4).
 **Companions:** Pattern Matching (the grammar this spec adds one form to; §2.8/§8's no-user-code rule, whose one exception this is; §5 irrefutability; §7 coverage and witness rendering), Modules (§3 the carve for the pattern namespace; §3.2 the alias row; §4.1 export; §4.1.1 complete exported signatures; §4.2 `opaque`; §5.1 the namespaces; §5.4/§5.5 occlusion and contests; §12.2 re-exports), Declarations Preamble (§7.1 inventory, §7.2 straddling), Functions (§7.1 header syntax; §7.2 top-down reading; §7.3 the member block and the head's binders; §4.2 binders), Constraints (§4.1 member checking — the `honor` precedent; §6.1 the evidence suffix, whose absence §2.1 prices), Effects (§4.3 the pure demand), Products (§2.6 the tuple representation; §5.3 the explicit crossing), Statements (§5.1 the sequential-binder rule), Doc Comments (§4.2; §6.1 the throws manifest), Lexer (§3.2 generated names and allocation; §4.2 the contextual head word), Lexer & Layout (§2.1 the block-head row), FFI Part 7 (the exported face; §2.2 binder naming), `rat.md` (§3).
 
@@ -74,14 +74,14 @@ A **`pattern` head** — the contextual head word (Lexer §4.2), the pattern's n
 ### 3.1 In pattern position
 
 ```
-match t
+match t with
     (0, 0)clock => Midnight
     (12, 0)clock => Noon
     (h, m)clock => Other(h, m)
 
 let (h, m)clock = t                        -- irrefutable: the view is total
 fun hourOf((h, _)clock) = h                -- a lambda head; the §3.1 gate is satisfied
-match c
+match c with
     (0.0, 0.0, 0.0)rgb => "black"
     (_, 0.0, _)hsl | (1.0, 1.0, 1.0)rgb => "achromatic"
     (r, g, b)rgb as colour => ...
@@ -91,7 +91,7 @@ let (n)id = user                           -- one component: the parentheses are
 The form is `(p1, …, pn)name` — a parenthesised list of exactly *n* full sub-patterns, then the pattern's **name as a suffix**: a non-uppercase-start name, bare, always (§3.3) — never a hard keyword, since `(c)then` is a conditional's head (Lexer §4.4). It joins Pattern Matching §2's inventory beside the constructor pattern and is a pattern everywhere a pattern may stand (Pattern Matching §6): `match` and `catch` arms, `let`, `for..in`, lambda parameters, the match function's arms.
 
 - **The parentheses are the component list's**, never a tuple's: `(p)name` is the one-component form — a group followed by a name is no other pattern, so `(p)` here is the list, not grouping — and `((p, q))name` is one component that is a tuple. `()name` is refused as §2.1 refuses the arity it would need. **Arity must equal the declaration's** — the constructor family's errors and hints (Unions §4.2; Pattern Matching §2.2): `(h)clock` draws "`clock` has 2 components; write `(_, _)clock`".
-- **The name is written against the parenthesis.** No whitespace and no comment stands between `)` and the name — the two tokens are adjacent in the source — the `n` of `5n` against its digits, and the rule, not a formatting preference: `(0, 0) when g => e` is a tuple pattern with its guard, `(r) as s` an as-pattern, `record Pair(a, b) derives (Eq, Show) = …` a header — the contextual words `when`, `as`, and `derives` (Lexer §4.2) stand after a parenthesis with whitespace before them, and adjacency is what tells the seats apart. `(0, 0)when` would name a pattern `when`, which nobody declares and canonical formatting never writes. **The seat is a parenthesised primary** — a group that begins an operand — and no other parenthesis: a call's, a constructor's, or a dot call's argument list is no seat, so `f(a, b)clock` is the ordinary no-juxtaposition error (Functions §5), never a suffix on a call. The other way about, in an expression, `(a, b)clock(c)` parses: a suffixed form is a primary, a call's parentheses follow any primary (Operators §10's postfix level), and the call fails as an ordinary call on a `Time` does — the parenthesis after the name is an argument list, never a second seat.
+- **The name is written against the parenthesis.** No whitespace and no comment stands between `)` and the name — the two tokens are adjacent in the source — the `n` of `5n` against its digits, and the rule, not a formatting preference: `(0, 0) when g => e` is a tuple pattern with its guard, `(r) as s` an as-pattern, `record Pair(a, b) derives (Eq, Show) = …` a header, `match (a, b) with` a `match` head closed — the contextual words `when`, `as`, `derives`, and `with` (Lexer §4.2) stand after a parenthesis with whitespace before them, and adjacency is what tells the seats apart. `(0, 0)when` would name a pattern `when`, which nobody declares and canonical formatting never writes. **The seat is a parenthesised primary** — a group that begins an operand — and no other parenthesis: a call's, a constructor's, or a dot call's argument list is no seat, so `f(a, b)clock` is the ordinary no-juxtaposition error (Functions §5), never a suffix on a call. The other way about, in an expression, `(a, b)clock(c)` parses: a suffixed form is a primary, a call's parentheses follow any primary (Operators §10's postfix level), and the call fails as an ordinary call on a `Time` does — the parenthesis after the name is an argument list, never a second seat.
 - **The suffix binds tightest.** It is a structural form, so `(r, g, b)rgb as colour` binds `colour` to the `Color` — `as` binds the **subject**, never the component tuple — and `(_, 0.0, _)hsl | (1.0, 1.0, 1.0)rgb` is an or-pattern of two suffixed forms under the same-bindings rule. In a lambda head the suffixed group is **one parameter**: `(h, m)clock => e` takes one `Time`, where `(h, m) => e` takes two — the name against the parenthesis closes the group before the head's own parentheses are read (Pattern Matching §6.5). At `let`, the names a suffixed pattern binds are sequential binders under Statements §5.1, as every `let` pattern's are.
 - **Typing** (Pattern Matching §4's list gains the row): the name resolves per §3.3; the scrutinee unifies with the pattern's subject at a fresh instantiation of its binders; the sub-patterns check against the instantiated component types. A namespace-resolved name may thereby determine an undetermined scrutinee, exactly as a constructor's does; a door-resolved name was determined by it.
 - **Irrefutability** (Pattern Matching §5.1's table gains the row): `(p1, …, pn)name` is irrefutable iff every `pi` is — the view is total (§5's first law), so the outer form is always "sole constructor". This is what admits `let (h, m)clock = t` and the lambda head above; refutability enters only through the components.
@@ -137,7 +137,7 @@ A pattern's name lives in the **pattern namespace** — a namespace of its own, 
 import Color
 import Paint                               -- both export rgb
 pattern rgb = Color.rgb                    -- own: occludes both, the contest is over
-match c
+match c with
     (r, g, b)rgb => ...
 ```
 
@@ -175,7 +175,7 @@ Pattern Matching §7's usefulness matrix treats a total view as a **one-construc
 - **Matching** hoists the view before the arm tests, once per pattern per position (§5), and destructures its result as a tuple's array (Products §2.6) — at arity one, the value itself:
 
   ```
-  match t                                   --  const [h, m] = __patt_clock.view(t);
+  match t with                              --  const [h, m] = __patt_clock.view(t);
       (0, 0)clock => Midnight               --  if (h === 0 && m === 0) return Midnight;
       (12, 0)clock => Noon                  --  if (h === 12 && m === 0) return Noon;
       (h, m)clock => Other(h, m)            --  return Other(h, m);
@@ -221,7 +221,7 @@ Pattern Matching §7's usefulness matrix treats a total view as a **one-construc
 | Suffix in scope nowhere; expected type's home exports no pattern of the spelling | "`Color` has no pattern `rbg`" + near miss (§3.3) |
 | Suffix in scope nowhere in an expression | "no `clock` here; `import Time`" — the unknown-name family, the home named where exactly one visible module (Packages §3.1) exports a pattern of the spelling — Modules §5.1's applied-edit obligation, a repair from the exported inventory, never a resolution — and the bare unknown-name report otherwise (§3.2, §3.3) |
 | A pattern's name written off its parenthesis — `(h, m) clock` | Functions §5's no-juxtaposition error, with the adjacency clause: "a pattern's name is written against the parenthesis: `(h, m)clock`" (§3.1) |
-| A contextual word against the parenthesis with no pattern of that name in scope — `(0, 0)when g`, `(r)as s`, `(a, b)derives` | "a guard's `when` stands off the parenthesis; write `(0, 0) when g`" — the near-miss row the adjacency rule creates, for `when`, `as`, and `derives` (§3.1) |
+| A contextual word against the parenthesis with no pattern of that name in scope — `(0, 0)when g`, `(r)as s`, `(a, b)derives`, `match (a, b)with` | "a guard's `when` stands off the parenthesis; write `(0, 0) when g`" — the near-miss row the adjacency rule creates, for `when`, `as`, `derives`, and `with` ("a `match`'s closing `with` stands off the parenthesis; write `match (a, b) with`") (§3.1) |
 | Constructor or record pattern over an opaque type abroad whose home exports patterns | "cannot destructure opaque record `Time`; match it with `(hours, minutes)clock`" — every exported pattern's spelling, capped (§3.3) |
 | Alias whose right side is bare, an expression, or not a pattern; `export` on an alias | the §3.4 refusals; the export refusal names Modules §12.2 |
 | Non-exhaustive `match` mixing views | the ordinary missing-cases report, the witness as the arms wrote it (§4) |
@@ -290,7 +290,7 @@ let t = (1, 90)clock                         -- emits: Time.__patt_clock.build(1
 let (h, m)clock = t                          -- irrefutable; h = 2, m = 30
 let same = (1, 90)clock == (2, 30)clock      -- True
 fun classify(t: Time): String =
-    match t
+    match t with
         (0, 0)clock => "midnight"
         (_, 0)clock => "on the hour"
         (h, m)clock => "${h}:${m}"
@@ -312,23 +312,23 @@ let (p, q)clock = Mid.make()                 -- OK
 --                   view(c) = ...
 import Color
 fun name(c: Color): String =
-    match c
+    match c with
         (0.0, 0.0, 0.0)rgb => "black"        -- each component through Eq<Float> (Pattern Matching §2.5)
         (_, 0.0, _)hsl => "grey"
         _ => "colour"                        -- required: rgb and hsl rows never specialise together
 fun bad(c: Color): String =
-    match c
+    match c with
         (0.0, 0.0, 0.0)rgb => "black"
         (_, 0.0, _)hsl => "grey"             -- ERROR: match is missing cases: (_, _, _)rgb
 fun any(c: Color): String =
-    match c
+    match c with
         (0.0, 0.0, 0.0)rgb => "black"
         (h, s, l)hsl => "any"                -- OK: exhaustive — the hsl row is irrefutable;
                                              --   h, s, l are Float bindings
         (1.0, 1.0, 1.0)rgb => "never"        -- ERROR: this case is unreachable; the arm
                                              --   (h, s, l)hsl above already covers it
 fun zeros(c: Color): String =
-    match c
+    match c with
         (0.0, _, _)rgb => "no red"
         (-0.0, _, _)rgb => "never"           -- ERROR: this case is unreachable; the arm
                                              --   (0.0, _, _)rgb above already covers it (one Float literal, §4)
@@ -336,7 +336,7 @@ fun zeros(c: Color): String =
 let x = (0.0, 0.0, 0.0)rgb                   -- ERROR: rgb is a match-only pattern: its
                                              --   declaration has no build
 fun channels(c: Color): Float =
-    match c                                  -- ERROR: cannot destructure opaque record Color;
+    match c with                             -- ERROR: cannot destructure opaque record Color;
         Color({channels}) => channels        --   match it with (r, g, b)rgb or (h, s, l)hsl
 
 -- (d) The door is closed where the type is undetermined; contests; the alias
@@ -349,7 +349,7 @@ let g = ((r, _, _)rgb) => r                  -- ERROR: no rgb here: its type is 
 import Color
 import Paint                                 -- OK: imports never collide on a pattern
 fun g(c: Color): Float =
-    match c
+    match c with
         (r, _, _)rgb => r                    -- ERROR: rgb is exported by Color and Paint;
                                              --   declare pattern rgb = Color.rgb or
                                              --   pattern rgb = Paint.rgb
@@ -358,7 +358,7 @@ fun g(c: Color): Float =
 import Paint                                 -- Color never imported: the contest is keyed on
 import Palette                               --   Paint.rgb's declared subject, no type read
 fun k(): Float =
-    match Palette.black()
+    match Palette.black() with
         (r, _, _)rgb => r                    -- ERROR: rgb here is Paint.rgb, over Color, whose
                                              --   home exports its own rgb — import Color, then
                                              --   declare pattern rgb = Color.rgb, or declare
@@ -369,7 +369,7 @@ import Paint
 pattern rgb = Color.rgb                      -- own: the contest is over (a use above this line
                                              --   would be the declared-later error, never a contest)
 fun h(c: Color): Float =
-    match c
+    match c with
         (r, _, _)rgb => r                    -- OK: Color.rgb
 export pattern rgb2 = Paint.rgb              -- ERROR: an exported alias is a re-export;
                                              --   re-exports are deferred (Modules §12.2)
@@ -538,7 +538,7 @@ whose view returns `False`. A client obtains a `Ticket` through `Mid`
 without importing `Ticket` and matches:
 
 ```hexagon
-match ticket
+match ticket with
     (True)flagged => "yes"
     (False)flagged => "no"
 ```

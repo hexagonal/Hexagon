@@ -1,11 +1,11 @@
 # Hexagon Spec: Lexer & Layout
 
-**Status:** Decided (July 2026); compiler pass implemented. Revised 2026-11-13 (#1538): §1 and §4 say that `{-` opens a comment, not a brace. Amended 2026-11-14 (#1542): §2.3 keeps `//` out of the continuation tokens, and §2.1's declared-pattern example is `clock`. This document owns layout, blocks, `;`, and
+**Status:** Decided (July 2026); compiler pass implemented. Revised 2026-11-13 (#1538): §1 and §4 say that `{-` opens a comment, not a brace. Amended 2026-11-14 (#1542): §2.3 keeps `//` out of the continuation tokens, and §2.1's declared-pattern example is `clock`. Amended 2026-11-16 (#1573): a head that holds an expression ends with its closing word, `then`, `do` or `with`, and deeper lines and open brackets carry it on until that word (§1, §2.1, §2.2, §2.4, §5, §6); a `then` at its item's column continues the item, as `else` and `catch` do (§2). This document owns layout, blocks, `;`, and
 brace disambiguation. The companion [Physical Lexer](lexer.md) specification owns
 the complete physical token and keyword inventory, source coordinates, literals,
 whitespace, comments-as-trivia, and lexical diagnostics.
-**Scope:** blocks as pure layout, virtual delimiters, the explicit `;` separator, braces-are-records disambiguation, and the diagnostics these require.
-**Companions:** Products spec (braces = records), Functions spec (block bodies of lambdas).
+**Scope:** blocks as pure layout, virtual delimiters, where a block head ends, the explicit `;` separator, braces-are-records disambiguation, and the diagnostics these require.
+**Companions:** Products spec (braces = records), Functions spec (block bodies of lambdas), Operators §11 (the conditional's head), Loops §2 and §4 (the loops' heads), Pattern Matching §6.1 and §6.7 (the `match` head and the match function).
 
 ---
 
@@ -15,7 +15,7 @@ Hexagon's layout pass inserts virtual tokens — internally **VOPEN**, **VSEP**,
 
 Consequences:
 
-- **Indentation is the only block form.** The body of a lambda, an `if`/`then`/`else` branch, or any construct taking a block is either a single expression on the same line, or an indented block on following lines. An **expression block's** value is its final expression, and its final item must be an expression — a block-final binding is a compile error (Statements §3.1); a member block has no value (§2.1's kinds). Canonical Hexagon style uses four spaces for each indentation level; the layout grammar accepts any consistent deeper column.
+- **Indentation is the only block form.** The body of a lambda, an `if`/`then`/`else` branch, a loop, or any construct taking a block is either a single expression on the same line, or an indented block on following lines; a `match`'s arms are always the block (§2.4). An **expression block's** value is its final expression, and its final item must be an expression — a block-final binding is a compile error (Statements §3.1); a member block has no value (§2.1's kinds). Canonical Hexagon style uses four spaces for each indentation level; the layout grammar accepts any consistent deeper column.
 - **A `{` token always begins a record** (type or literal), in every position. The parser has one rule, no context-dependence. `{` followed directly by `-` is not a `{` token: the lexer reads it as a block comment's opener (Comments §3), which costs no record, since after `{` a record begins with a field name, `...` or `}`, and an update with its head, a name or a dotted path (Products §3.1, §3.3).
 - **`{}` is the empty record**, never an empty block.
 
@@ -37,7 +37,9 @@ and VCLOSE immediately before EOF. Nested blocks use the same mechanics:
   or argument list together.
 - `else` and `catch` at the enclosing indentation continue the preceding
   item: any nested body is closed before the clause, but no VSEP is inserted
-  between the body and its clause. Which construct owns a
+  between the body and its clause. A `then` there continues the item in the
+  same way, so a conditional's `then` may stand on a line of its own at the
+  item's column (Operators §11.3); `do` and `with` do not (§2.4). Which construct owns a
   continued `catch` is the parser's question, answered by column: it belongs to
   the construct whose head begins that logical item — a `try` (even when the
   try-body is a `match`), or a `match` head opening its line (the match catch
@@ -58,9 +60,9 @@ refuses it before a `fun` block head (Functions §7.3; layout stays agnostic).
 | Block head at the end of a logical item | Opens on a following indented line |
 |---|---|
 | Lambda or match-arm `=>` with no same-line body | Body block |
-| Conditional header ending in mandatory `then` | True-branch block |
-| `for` or `while` head | Loop body |
-| `match` head (with or without a scrutinee — the bare head is the match function, Pattern Matching §6.7) | Arm block |
+| Conditional head ending in its mandatory `then` (§2.4) | True-branch block |
+| `for` or `while` head ending in its mandatory `do` (§2.4) | Loop body |
+| `match` head ending in its mandatory `with` (§2.4), or the bare `match` that is the match function, whose head holds nothing (Pattern Matching §6.7) | Arm block |
 | Bare `try` | Try body |
 | Bare `attempt` or `assume` (Exceptions §8.2, §8.3) | Body block |
 | `else` or `catch` with no same-line body | Clause body / arm block |
@@ -193,13 +195,24 @@ layout block inside a delimiter—for example, a multiline lambda supplied as a
 call argument. While that nested block is open, its own newlines and semicolons
 use the ordinary block rules.
 
+**Brackets hold a head open.** A line that ends inside a bracket pair opens a
+block only for a block head that stands inside that pair, such as a lambda's `=>`
+written as an argument, and never for a head outside it. Such a head goes on
+through the brackets to its closing word (§2.4):
+
+```
+while waiting(first,
+        second) do
+    step()
+```
+
 **A closing delimiter ends every layout block its group opened.** *(Added
 2026-07-31; the ruling defect-log finding 5 was waiting on.)* The offside rule
 closes a block when a line begins at a shallower column, and a group's `)`, `]`,
 or `}` may share a line with that block's last item — there is no dedent to see:
 
 ```
-Seq({ pull = () => match next(source)
+Seq({ pull = () => match next(source) with
     None => None
     Some((value, rest)) => Some((value, rest)) })
 ```
@@ -215,10 +228,111 @@ feedback from the parser. Haskell reaches the same outcome through its
 are a closed set (§2.1) and groups are physically delimited.
 
 Two boundaries this rule does **not** cross. A block opened *before* the group
-survives the group's closer — `match x` / `A => f({ y = 1 })` keeps its arm block
+survives the group's closer — `match x with` / `A => f({ y = 1 })` keeps its arm block
 across the `}`, and any following arm is still a sibling. And an **unmatched**
 closer closes nothing: it is already an error, and unwinding real blocks on a
 stray character turns one diagnostic into a cascade.
+
+### 2.4 Heads and their closing words
+
+A **head** is the part of a construct that comes before its body or its arms. A
+head that holds an expression ends with a **closing word**:
+
+| Head | What it holds | Closing word |
+|---|---|---|
+| `if` | the condition (Operators §11) | `then` |
+| `while` | the condition (Loops §4) | `do` |
+| `for` | the pattern, `in` and the source (Loops §2.1) | `do` |
+| `match` | the scrutinee (Pattern Matching §6.1) | `with` |
+
+A head that holds nothing needs none: a bare `try`, `attempt` or `assume`, `else`,
+`catch`, and the bare `match` that is the match function (Pattern Matching §6.7).
+An `else if` is an `else` followed by an ordinary conditional, whose head ends
+with its own `then`.
+
+```
+if ready then
+    start()
+
+while remaining > 0 do
+    remaining := step(remaining)
+
+for (name, total) in totals do
+    print("${name}: ${total}")
+
+match parse(input) with
+    Some(n) => n
+    None => 0
+```
+
+**A head is unfinished until its closing word, and an unfinished head is no
+block head.** Its logical item goes on, so §2's ordinary rule applies: a line
+deeper than the item continues it, as a guard continues before its arm's `=>`
+and a binding's header before its `=`. The closing word, ending a line, makes the
+head a block head (§2.1), and the block opens on the lines that follow:
+
+```
+while remaining > 0
+        and not cancelled(job) do
+    remaining := step(remaining)
+```
+
+Brackets hold a head open as well (§2.2), and the head goes on after they close,
+to its closing word.
+
+**A head holds nothing open.** Only deeper lines carry it on. A line at the
+item's column, or to its left, ends the item as it ends any other, unless it is
+one of §2.3's continuation lines or one of §2's clauses. A head whose expression
+meets anything but its closing word is the parser's error: the end of its item, or
+a token that cannot continue the expression. It is reported at the head's
+keyword: "`while` requires `do`" and its twins (Operators §15, Loops §10.2,
+Pattern Matching §12). A forgotten closing word therefore takes in only the deeper
+lines after its head, never the rest of the block. In this a head differs from a
+bracket, whose group stays open until it is closed.
+
+**No block opens inside an unfinished head**, except within brackets (§2.2). A
+nested head whose closing word ends a deeper line of it opens nothing there, and
+the lines after go on continuing the item. So the lines a forgotten closing word
+takes in open no block and close none: the layout pass reports nothing among them,
+and the head's report is the only one they draw. A form with a block of its own
+that a head holds, such as a `match` with its arms, is written in parentheses,
+where its block opens as in any bracket pair (§2.2):
+
+```
+for x in (match cached with
+        Some(xs) => xs
+        None => []) do
+    visit(x)
+```
+
+**Where a closing word stands.** The canonical spelling ends the head's last line
+with its closing word (Canonical Layout §9.3). None of the closing words can
+continue the expression before it, so one may also begin a deeper line of the
+head, the OCaml layout, which is legal but not canonical. A `then` at the item's
+own column continues the item as well (§2). A `do` or a `with` there does not: it
+begins a new item, and the head before it is reported as missing its closing
+word, with the report naming the move (Loops §10.2, Pattern Matching §12). A `do`
+that begins an item with no such head before it is the `do … while` habit, refused
+as such (Loops §10.2).
+
+**A body on the head's line.** A closing word followed by more on its line opens
+no block: the rest of the item is the body, one expression, as after `=>` (§1),
+so `while n > 0 do n := n - 1` is a whole loop. A `match`'s arms are the
+exception, always a block (Pattern Matching §6.1), so `with` always ends its line.
+`;` opens no block here either (§3.1): in `for x in xs do visit(x); finish()`, the
+loop's body is `visit(x)`, and `finish()` runs once, after the loop.
+
+**What the layout pass reads.** It decides from tokens alone where a head ends. A
+`then` closes the nearest unfinished `if` head before it in its item, and a `do`
+the nearest unfinished `for` or `while` head, each at its own bracket depth. A
+`with` closes a `match` head where the scrutinee could end before it (Lexer §4.2):
+at the `match`'s bracket depth, after at least one token of the scrutinee, and
+directly after a token that can end an operand (a name, a literal, a closing
+bracket or a call mark), but not written against a `)`, which is the suffix
+seat. Any other `with` is a name, and a record update's
+`with` stands inside braces, where it meets no head. So `match with with` matches
+a value named `with`. A `match` that ends its line holds nothing: it is the match
+function, so a scrutinee begins on its `match`'s line.
 
 ## 3. The explicit `;`
 
@@ -272,6 +386,7 @@ These are binding on the implementation, same status as the Functions spec's dia
 | `;;` / leading `;` / empty statement | same family: "`;` must have a statement on both sides" |
 | `;` inside `()`/`{}`/`<>` argument, tuple, record, or type-parameter context | "did you mean `,`? `;` only separates statements" |
 | A `;`-sequence where a multi-statement lambda body was plausibly intended (lambda immediately preceding the `;` on the line) | append hint: "to give the lambda a multi-statement body, indent it on the following lines; `;` separates the *enclosing* block." |
+| The same, where a loop's body on its head's line immediately precedes the `;` (§2.4) | append hint: "to give the loop a multi-statement body, indent it on the following lines; `;` separates the *enclosing* block." |
 | Inconsistent dedent (line at a column matching no open block) | standard offside error, naming the candidate columns. |
 | A line beginning with an expression-continuation token (§2.3) that dedents past the item it would continue | append hint: "a leading operator continues the previous item only at that item's own indentation; indent it to the item's column, or end the previous line with the operator." (The bare "expected a newline or `;` between block items" is loud but unhelpful here.) |
 
@@ -296,3 +411,4 @@ These are binding on the implementation, same status as the Functions spec's dia
 | A `fun` head ending its logical item opens the member block; member lines are ordinary term-binding rows; the once-recorded §7.1 read-through exception retired with the `fun` RHS (#700) | §2.1 |
 | An `honor` head ending its logical item opens the honor group (a member block), and each item's `C<T> =` opens that honor's member block (#1227) | §2.1 |
 | Block-kind terminology (#700): expression blocks (value), arm blocks, member blocks (`constraint`/`honor`/`extern from`/`fun`/module top level — they declare rather than compute, and are not expressions); one layout mechanism serves all three; the `extern from` row joins the inventory (owed from FFI Part 4 §2.2) | §2.1, §1 |
+| *(#1573)* A head that holds an expression ends with its closing word: `if … then`, `while … do`, `for … in … do`, `match … with`; a head that holds nothing needs none. An unfinished head is no block head: deeper lines carry it on, as they carry a guard or a header, and brackets hold it open; it holds nothing open itself, and no block opens inside it outside brackets, so a forgotten closing word is one report at the head's keyword. A closing `with` is recognised from tokens: at the `match`'s depth, directly after a token that can end an operand. A closing word may begin a deeper line (legal, not canonical); `then` at the item's column continues the item as `else` and `catch` do, while `do` and `with` there begin a new item. More after the closing word on its line is a one-line body, a `match`'s arms excepted | §2, §2.1, §2.2, §2.4 |

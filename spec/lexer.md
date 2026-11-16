@@ -4,6 +4,7 @@
 **Revised 2026-11-04 (#844):** §2.1 says the permitted byte-order mark occupies no column.
 **Revised 2026-11-13 (#1538):** §7, §8.2, §8.3, §10 and §11: comments are `--`, `{- -}` and `{-- -}`; `--` is no longer two minus tokens; `//`, `(*` and a stray `*)` or `-}` join the refused spellings.
 **Revised 2026-11-14 (#1542):** §7, §8.1, §8.2, §10 and §11: `//` is a token, the fraction operator (Operators §6.4); its comment refusals are the parser's (Comments §3.1).
+**Revised 2026-11-16 (#1573):** §4.1, §4.2, §11 and §12: `do` is a hard keyword, the closing word of a `for` or `while` head, and `with` closes a `match` head (Lexer & Layout §2.4).
 **Scope:** Source text, line endings and horizontal whitespace; identifiers and
 start-class classification; the complete hard and contextual keyword inventory; numeric
 and string literal lexing; the complete punctuation and operator inventory;
@@ -264,12 +265,12 @@ Hard keywords receive dedicated token kinds. A hard keyword is syntax in a **bar
 anywhere a construct can begin — and an ordinary name in §4.4's three name seats:
 
 ```text
-and         assume      attempt     bnot        catch      constraint
-derive      else        exception   export      extern     false
-finally     for         fun         honor       iff        if
-implies     import      in          let         match      not
-or          record      then        true        try        type
-var         while
+and         assume      attempt     bnot        catch       constraint
+derive      do          else        exception   export      extern
+false       finally     for         fun         honor       iff
+if          implies     import      in          let         match
+not         or          record      then        true        try
+type        var         while
 ```
 
 The groups are:
@@ -277,9 +278,11 @@ The groups are:
 - declarations and modules: `constraint`, `exception`, `export`, `extern`, `fun`,
   `honor`, `import`, `let`, `record`, `type`, `var` — and `union`, formerly of
   this group, is contextual since the Set milestone (#373; §4.2);
-- expression and control forms: `assume`, `attempt`, `catch`, `else`, `for`,
+- expression and control forms: `assume`, `attempt`, `catch`, `do`, `else`, `for`,
   `if`, `in`, `match`, `then`, `try`, `while` — `attempt` and `assume` are the
-  body forms that handle a failure (Exceptions §8.2, §8.3);
+  body forms that handle a failure (Exceptions §8.2, §8.3), and `then` and `do`
+  are closing words, `then` ending a conditional's head and `do` a `for` or
+  `while` head (Lexer & Layout §2.4);
 - word operators: `and`, `bnot`, `iff`, `implies`, `not`, `or` — `bnot` the bitwise complement (`bitwise.md` §3.1), whose binary siblings `band`, `bor`, and `bxor` are contextual (§4.2);
 - reserved redirect words: `false`, `true` — formerly Bool literals, now reserved
   spellings whose only role is a diagnostic (see below) *(corrected 2026-07-29,
@@ -326,7 +329,7 @@ listed positions:
 | `from` | an `extern from` declaration (the Hexagon `import` carries no `from` since #829 — Modules §3; the path form is refused with its rewrite there) |
 | `opaque` | the visibility head on a `record` or `union` declaration at module top level, in `export`'s own slot (Modules §4, #590) — the `union` precedent: head-position-only, never reserved, elsewhere an ordinary name (`let opaque = 3` binds). Recognition includes the refused seats: immediately after `export` (Modules §4.2's required rewrite), and a declaration head whose follower is `type`, `let`, `fun`, `constraint`, or `exception` (the Modules §10 redirects — no term can juxtapose the two spellings, so the seat is no expression) |
 | `when` | between an arm pattern and `=>` |
-| `with` | between a record-update head and its overrides (Products §3.3) |
+| `with` | between a record-update head and its overrides (Products §3.3); and directly after a `match` head's complete scrutinee, the closing word of that head (Lexer & Layout §2.4; Pattern Matching §6.1). No juxtaposition exists, so a name there is otherwise an error — the `when`/`as` infix seat — except a name written against a parenthesised primary's `)`, which is the `pattern` row's suffix seat and keeps it: `match (a, b) with` closes the head, and `(a, b)with` is a suffix construction. A `match` that ends its line has no scrutinee, so a `with` beginning the next line is no closing word |
 | `enum` | a foreign enum declaration inside `extern from`, or the module-scope head `extern enum` of the literal form (Foreign Enums §2.4) |
 | `null` | the member value of a literal `extern enum` (Foreign Enums §2.4); an ordinary name everywhere else — Hexagon admits no ambient nullish value (FFI Part 2 §2.2) |
 | `undefined` | the member value of a literal `extern enum` (Foreign Enums §2.4); an ordinary name everywhere else, as `null` is |
@@ -348,7 +351,7 @@ listed positions:
 
 Contextual status is observable: `let when = True` is legal, while the same spelling
 after an arm pattern introduces its guard. Likewise `{with = 3}` is a field and `{with}`
-a pun, while `{p with x = 3}` is an update. And `let union = 3` binds, `Set.union(a, b)`
+a pun, while `{p with x = 3}` is an update and `match p with` closes a `match` head. And `let union = 3` binds, `Set.union(a, b)`
 and the bare `union(a, b)` are ordinary calls, while `union Suit = Hearts | Spades` at
 declaration head declares the type — the follower disambiguates, since Hexagon has no
 juxtaposition: a declaration head puts a name there, and a term puts `(`, an operator,
@@ -762,7 +765,8 @@ let subtract = x - -1             -- x - (-1); the space keeps the second minus 
 let kept = x --1                  -- kept is x: the comment begins at the dashes
 let quiet = {- inline -} 2        -- a block comment is trivia
 let third = 1 // 3                -- Integer, Fraction, Integer
-match value
+for x in xs do visit(x)           -- `do` is a hard keyword (§4.1)
+match value with                  -- `with` is a NonUpperName, closing the head (§4.2)
     Some(x) | None as whole when ready => whole
 ```
 
@@ -818,3 +822,4 @@ let y = 2 // a note -- the syntax error at `note`, with "for a comment, write `-
 | `pure` and `conduit` leave the contextual table — ordinary names again; the arrow a callable extern row writes says what they claimed (FFI Part 4 §4.5, #869) | §4.2 |
 | `pure` and `conduit` take no report of their own before an extern row's keyword (#1185); FFI Part 4 §4.5 | §4.3 |
 | `bnot` hard; `band`/`bor`/`bxor` contextual in the operator seat after a complete operand; `0x`/`0o`/`0b` integer literals, lowercase prefix, `n` suffix only; `&`/`^`/`~` redirect to the words (`bitwise.md`) | §4.1, §4.2, §5, §8.3, §10 |
+| *(#1573)* `do` is a hard keyword, the closing word of a `for` or `while` head; `with` stays contextual and gains a second seat, directly after a `match` head's complete scrutinee, where it closes the head (Lexer & Layout §2.4); `let with = 3` and `.with(…)` keep their meaning | §4.1, §4.2, §11 |
