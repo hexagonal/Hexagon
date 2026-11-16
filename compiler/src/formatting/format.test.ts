@@ -1839,6 +1839,18 @@ describe("Trailing commas (§14)", () => {
     }
   });
 
+  it("sets aside a comma whose refusal the parser reports after it, without trying the others one by one", () => {
+    // `a<b` reads as a type-argument list's `<`, so `>` beginning its line is
+    // offered a comma before it, which the parser refuses at the `>`.
+    const misread = "let c = f(a<b, c\n    >(d))\n";
+    const text = "module A\n" + misread.repeat(2_000) + "let total = add(\n    1,\n    2\n)\n";
+    const started = performance.now();
+    const result = format(text);
+    expect(performance.now() - started).toBeLessThan(3_000);
+    expect(result.endsWith("    2,\n)\n")).toBe(true);
+    expect(result).not.toContain("c,");
+  });
+
   it("checks that only commas before closing brackets are added (§12)", () => {
     const before = read("module A\nlet x = f(a, b)\n");
     expect(sameText(before, read("module A\nlet x = f(a, b,)\n"), true)).toBe(true);

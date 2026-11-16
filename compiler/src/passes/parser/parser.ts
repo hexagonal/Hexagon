@@ -4579,7 +4579,7 @@ class Parser {
     if (this.#at("LeftParen")) {
       this.#advance();
       const seen = new Set<string>();
-      while (!this.#at("RightParen") && !this.#at("Eof")) {
+      while (this.#skipItemlessCommas() && !this.#at("RightParen") && !this.#at("Eof")) {
         this.#rejectVarianceSigil();
         const token = this.#takeName("NonUpperName", "alias parameters must be non-uppercase-start names");
         if (token === undefined) break;
@@ -4624,7 +4624,7 @@ class Parser {
     if (this.#at("LeftParen")) {
       this.#advance();
       const seen = new Set<string>();
-      while (!this.#at("RightParen") && !this.#at("Eof")) {
+      while (this.#skipItemlessCommas() && !this.#at("RightParen") && !this.#at("Eof")) {
         const sigil = this.#takeVarianceSigil(opaque);
         const parameter = this.#takeName(
           "NonUpperName",
@@ -5238,7 +5238,7 @@ class Parser {
     if (this.#at("LeftParen")) {
       this.#advance();
       const seen = new Set<string>();
-      while (!this.#at("RightParen") && !this.#at("Eof")) {
+      while (this.#skipItemlessCommas() && !this.#at("RightParen") && !this.#at("Eof")) {
         const sigil = this.#takeVarianceSigil(opaque);
         const parameter = this.#takeName("NonUpperName", "record type parameters must be non-uppercase-start names");
         if (parameter === undefined) break;
@@ -7049,7 +7049,8 @@ class Parser {
       // One item and a comma make no tuple; a suffix form's one component may
       // take it, since its parentheses are the component list's (§7).
       if (elements.length === 1 && construction.kind !== "PatternConstruction") {
-        this.#errorAt(trailing!, oneItemTuple);
+        // `(,)` has had its one report, at the comma, as one with no item before it.
+        if (expression.kind !== "ErrorExpr") this.#errorAt(trailing!, oneItemTuple);
         return { kind: "ErrorExpr", span: spanFrom(opening.span, closing?.span ?? expression.span) };
       }
       return construction;

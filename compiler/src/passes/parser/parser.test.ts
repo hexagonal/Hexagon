@@ -2583,6 +2583,8 @@ describe("the trailing comma (Lexer & Layout §7)", () => {
     ["two commas in a record type", "let x: {a: Int,, b: Int} = y", itemless, 15],
     ["two commas in a `derives` list", "record P derives (Eq,,) = {x: Int}", itemless, 21],
     ["two commas in a binder list", "let same<a: Eq,,>(x: a) = x", itemless, 15],
+    ["empty grouping parentheses", "let a = (,)", itemless, 9],
+    ["two commas in a type alias's parameters", "type P(a,,) = a", itemless, 9],
     ["an empty constructor pattern", "let f(o: Option(Int)): Int =\n    match o with\n        Some(,) => 0\n        _ => 1",
       itemless, 13],
   ])("refuses a comma after %s", (_, text, message, column) => {

@@ -98,9 +98,10 @@ function insert(text: string, offsets: readonly number[]): string {
 
 /**
  * As many of the wanted commas as the parser takes as trailing commas, as
- * offsets in `text`. All at once where it takes them all; otherwise the commas
- * it refuses at their own place are set aside and the rest tried again, and
- * where a refusal cannot be placed, each half in turn.
+ * offsets in `text`. All at once where it takes them all; otherwise each
+ * refusal is laid on the nearest comma at or before it, which is set aside,
+ * and the rest tried again; where a refusal comes before every comma, each
+ * half in turn.
  */
 function settle(base: Reading, text: string, wanted: readonly number[]): number[] {
   if (wanted.length === 0) return [];
@@ -108,8 +109,16 @@ function settle(base: Reading, text: string, wanted: readonly number[]): number[
   if (!reading.syntaxError && sameTree(base, reading)) return [...wanted];
   if (wanted.length === 1) return [];
   // Each comma's offset in the attempt, shifted by the commas before it.
-  const refused = new Set(errorOffsets(reading));
-  const kept = wanted.filter((offset, position) => !refused.has(offset + position));
+  const placed = wanted.map((offset, position) => offset + position);
+  const refused = new Set<number>();
+  for (const error of errorOffsets(reading)) {
+    let nearest = -1;
+    placed.forEach((offset, position) => {
+      if (offset <= error) nearest = position;
+    });
+    if (nearest !== -1) refused.add(nearest);
+  }
+  const kept = wanted.filter((_, position) => !refused.has(position));
   if (kept.length < wanted.length) return settle(base, text, kept);
   const half = Math.ceil(wanted.length / 2);
   const first = settle(base, text, wanted.slice(0, half));
