@@ -65,7 +65,7 @@ These are the first three options, not necessarily the last. Any option must pas
 1. **It starts off.** With the option at its default, the formatter writes exactly what it would write without the option.
 2. **Two settings never undo each other.** Take any two settings, A and B. Once a document has been formatted under A and then under B, formatting it again under either A or B changes nothing.
 
-All three pass. Maximum line length only adds line breaks, and no setting removes one. Collapse extra spaces only removes spaces, and no setting adds them back. Leave trailing commas as written only keeps the formatter from adding commas, and no setting removes one. A line's length counts a comma §14 calls for whether or not it is written (§9.2), so adding the comma never carries a line past a limit it was formatted to.
+All three pass. Maximum line length only adds line breaks, and no setting removes one. Collapse extra spaces only removes spaces, and no setting adds them back. Leave trailing commas as written only keeps the formatter from adding commas, and no setting removes one. A line's length counts a comma §14 would add whether or not it is written (§9.2), so adding the comma never carries a line past a limit it was formatted to.
 
 An option where one setting adds what another removes fails the second test. Two developers with different settings would rewrite the same lines back and forth on every save. Padding inside record braces is the example: it is a rule (§7.1), not an option.
 
@@ -105,6 +105,7 @@ Each line that begins with code sits at a level measured from a line above it. T
 |---|---|---|
 | an item at a module's top level | at column 0 | — (Modules §2.1: nothing indents on the header's account) |
 | the closing bracket of an open bracket pair (§5.2) | at the same level | the line holding the opening bracket |
+| a comma, between the items of brackets, such as after an item that ends in a block (Lexer & Layout §7) | at the same level | the line holding the opening bracket |
 | `else` or `catch`; or `then`, where the author wrote it at its item's column | at the same level | the line on which the item holding its `if`, `try` or `match` begins |
 | an item of a block: a statement, an arm or a member | one level in | the line on which the construct that owns the block begins (§5.3) |
 | a declaration's value, written beneath its `=` | one level in | the declaration's first line |
@@ -156,7 +157,7 @@ let label = describe(firstName,
         lastName)
 ```
 
-The formatter never opens a `<…>` list itself (§9.4); one is open only where the author has opened it. Its `>` may begin a line at its item's column, since `>` is a continuation token (Lexer & Layout §2.3).
+The formatter never opens a `<…>` list itself (§9.4); one is open only where the author has opened it. Its `>` may begin a line at its item's column or deeper, since `>` is a continuation token (Lexer & Layout §2.3), and the formatter puts it at the indentation of the line holding the `<` (§5.1).
 
 Brackets whose only item is an open pair, written straight after the opening bracket and straight before the closing one, are not carried on. The lines between them are the inner pair's: its items sit one level in from the line holding both opening brackets, and the outer closing bracket follows the inner one on its line (§9.4 rule 2):
 
@@ -263,7 +264,7 @@ These rules govern the gaps between two code tokens on the same line. They do no
 | Either side of `=`, `:=`, `=>`, `\|`, `\|>` and a type arrow (`->`, `->^`, `->~`, `->!`, `>->` and the other follows arrows) | one space | `let n = 1`, `x => x`, `a ->! b` |
 | `..` and `//` | no space either side | `1..n - 1`, `1//2`, `n//d` |
 | `.` | no space either side | `xs.length`, `Vector.at(xs, 1)` |
-| Before `,` or `;`; after `,` or `;` | none before; one after, except none between a comma and `)`, `]` or `>` | `f(a, b)`, `let x = 1; let y = 2`, `f(a, b,)` |
+| Before `,` or `;`; after `,` or `;` | none before; one after, except none between a comma and `)`, `]` or a `>` that closes a list | `f(a, b)`, `let x = 1; let y = 2`, `f(a, b,)` |
 | Before `:`; after `:` | none before; one after | `width: Float`, `(e: Type)`, `x: _: Num`, `<a: Num>` |
 | Inside `{` and `}` with something between them | one space | `{ top = 1, bottom = 2 }` |
 | `{}` | no space | `{}` |
@@ -323,7 +324,7 @@ Lines are broken only when Maximum line length is set to a number, and only a li
 
 ### 9.2 The length of a line
 
-A line's length is the number of Unicode code points on it, from its first character to its last. Its indentation counts; its line end does not. A trailing comment and the gap before it do not count. Where §14 calls for a trailing comma, the line counts it whether or not it is written, so a line measures the same under either setting of Leave trailing commas as written (§3.4).
+A line's length is the number of Unicode code points on it, from its first character to its last. Its indentation counts; its line end does not. A trailing comment and the gap before it do not count. Where §14 would add a trailing comma with Leave trailing commas as written off, the line counts it whether or not it is written, so a line measures the same under either setting of the option (§3.4). With the option on, such a line is broken once its written length reaches the limit.
 
 Code points are the measure in version one. The measure may later become display width, so that a wide character counts as two. That change is safe: since the formatter never joins lines, a document formatted under one measure is at most broken further under the other.
 
