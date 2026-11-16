@@ -60,7 +60,7 @@ export function breakLines(original: Reading, text: string, limit: number, optio
   for (let round = 0; round < MAXIMUM_ROUNDS; round += 1) {
     const reading = current;
     const plans = longLines(reading, limit)
-      .map((line) => plan(reading, line, failed))
+      .map((line) => plan(reading, line, failed, limit))
       .filter((found): found is Plan => found !== undefined);
     if (plans.length === 0) return current.text;
     current = settle(original, current, plans, options, failed);
@@ -131,7 +131,8 @@ function attempt(
     if (one.shape === "conditional") continue;
     const line = tokens[one.line]!.span.start.line;
     // A value that begins with `if` or `try` owns the clauses after it.
-    const owner = one.shape === "value" && ["If", "Try"].includes(tokens[one.before[0]!]!.kind);
+    const owner = (one.shape === "value" || one.shape === "lambda") &&
+      ["If", "Try"].includes(tokens[one.before[0]!]!.kind);
     for (const later of restOfItem(reading, lines, line, indentOf(line), owner)) {
       shifts.set(later, (shifts.get(later) ?? 0) + 2 * Whitespace.LEVEL);
     }
@@ -184,8 +185,9 @@ type Attempt =
   };
 
 /**
- * The lines after a line that continue its item: those indented deeper, and,
- * where `clauses` asks, the clauses (`else`, `catch`) at its own column. A line inside a string is
+ * The lines after a line that continue its item: those indented deeper, those
+ * at its own column that begin by closing brackets, and, where `clauses` asks,
+ * the clauses (`else`, `catch`) at its own column. A line inside a string is
  * the string's, and stays as it is.
  */
 function restOfItem(
@@ -208,7 +210,10 @@ function restOfItem(
     const first = firstOnLine.get(later);
     const clause = clauses && own === indent && first !== undefined && first.span.start.offset === start + own &&
       (first.kind === "Else" || first.kind === "Catch" || first.kind === "Finally");
-    if (own <= indent && !clause) break;
+    // A line that begins by closing brackets at the item's column continues it.
+    const closing = own === indent && first !== undefined && first.span.start.offset === start + own &&
+      closers.has(first.kind);
+    if (own <= indent && !clause && !closing) break;
     rest.push(later);
   }
   return rest;
@@ -274,7 +279,7 @@ function longLines(reading: Reading, limit: number): LongLine[] {
 }
 
 /** The break §9.4 makes in a line: its outermost structure first. */
-function plan(reading: Reading, line: LongLine, failed: ReadonlySet<string>): Plan | undefined {
+function plan(reading: Reading, line: LongLine, failed: ReadonlySet<string>, limit: number): Plan | undefined {
   const tokens = reading.lexed.tokens;
   // Where several items share a line, only the last is broken (§9.3).
   let start = line.first;
@@ -310,7 +315,18 @@ function plan(reading: Reading, line: LongLine, failed: ReadonlySet<string>): Pl
   const head = range(start).find((index) =>
     atTop(index) && before(index) && (tokens[index]!.kind === "Equal" || tokens[index]!.kind === "FatArrow"));
   const assign = range(start).find((index) => atTop(index) && before(index) && tokens[index]!.kind === "Assign");
+  const measure = measuring(reading, limit);
+  const pairs = pairsOf(reading);
+  // 2. A line holding several items of open brackets opened on an earlier
+  // line breaks between them before anything inside them breaks.
+  candidates.push({ shape: "items", before: () => betweenItems(tokens, pairs, depth, start, line.last, measure) });
   if (head !== undefined && head < line.last) {
+    // A value that is a lambda keeps its head on the `=`'s line, and only its
+    // body goes beneath the `=>`, where the line through the `=>` fits.
+    const arrow = tokens[head]!.kind === "Equal" ? lambdaArrow(tokens, pairs, roles, head + 1, line.last) : undefined;
+    if (arrow !== undefined && arrow < line.last && measure.fits(arrow)) {
+      candidates.push({ shape: "lambda", before: () => [arrow + 1] });
+    }
     candidates.push({ shape: "value", before: () => [head + 1] });
   }
   const valueStart = head !== undefined ? head + 1 : assign !== undefined ? assign + 1 : start;
@@ -340,8 +356,9 @@ function plan(reading: Reading, line: LongLine, failed: ReadonlySet<string>): Pl
   // a header whose value is already beneath it, the header's.
   const bracketsFrom = value.length > 0 ? valueStart : start;
   // The first pair outside a head.
-  const pairs = range(bracketsFrom).filter((index) => !blocked.has(index));
-  candidates.push({ shape: "brackets", before: () => brackets(tokens, pairs, depth, line.last) });
+  const openings = range(bracketsFrom).filter((index) => !blocked.has(index));
+  const shaping: Shaping = { tokens, pairs, roles, measure, last: line.last };
+  candidates.push({ shape: "brackets", before: () => brackets(shaping, openings, depth) });
 
   // 7. A head, once nothing else on its line is left to break: its own
   // expression breaks as any does, and its closing word ends its last line.
@@ -366,7 +383,7 @@ function plan(reading: Reading, line: LongLine, failed: ReadonlySet<string>): Pl
   // no conditional's branches and no loop's body still on the line, except
   // where that break has been tried and could not be made.
   const othersLeft = candidates
-    .filter(({ shape }) => shape === "value" || shape === "conditional" || shape === "loop")
+    .filter(({ shape }) => ["value", "lambda", "conditional", "loop"].includes(shape))
     .filter(({ shape }) => !failed.has(`${line.first}:${shape}`))
     .some((candidate) => candidate.before().some((index) => index > line.first && index <= line.last));
   const inHead = (found: number[]): number[] => found.filter((index) => index !== outer?.closer);
@@ -376,7 +393,7 @@ function plan(reading: Reading, line: LongLine, failed: ReadonlySet<string>): Pl
     candidates.push({ shape: "head operator", before: () => inHead(operator(tokens, roles, own, line.last)) });
     candidates.push({
       shape: "head brackets",
-      before: () => inHead(brackets(tokens, own, depth, line.last, top)),
+      before: () => inHead(brackets(shaping, own, depth, top)),
     });
   }
 
@@ -578,38 +595,299 @@ function operator(
   return before;
 }
 
-/** §9.4 rule 2: a bracket pair's contents one item to a line, the closer on its own. */
-function brackets(
+/** Measures lines against the limit, as they stand before a break. */
+interface Measure {
+  /** Whether the line holding a token fits when it ends with that token (§9.2). */
+  readonly fits: (last: number) => boolean;
+  /** The width of the text from the start of one token to the end of another, in code points. */
+  readonly width: (first: number, last: number) => number;
+  readonly limit: number;
+}
+
+function measuring(reading: Reading, limit: number): Measure {
+  const tokens = reading.lexed.tokens;
+  const text = reading.text;
+  return {
+    fits: (last) => {
+      const end = tokens[last]!.span.end;
+      return [...text.slice(end.offset - end.column, end.offset)].length <= limit;
+    },
+    width: (first, last) => [...text.slice(tokens[first]!.span.start.offset, tokens[last]!.span.end.offset)].length,
+    limit,
+  };
+}
+
+/** Each bracket's partner, and each token's innermost enclosing opening bracket. */
+interface Pairs {
+  readonly partner: ReadonlyMap<number, number>;
+  readonly enclosing: readonly (number | undefined)[];
+}
+
+const pairsCache = new WeakMap<Reading, Pairs>();
+
+function pairsOf(reading: Reading): Pairs {
+  const known = pairsCache.get(reading);
+  if (known !== undefined) return known;
+  const tokens = reading.lexed.tokens;
+  const partner = new Map<number, number>();
+  const enclosing: (number | undefined)[] = [];
+  const stack: number[] = [];
+  tokens.forEach(({ kind }, index) => {
+    if (closers.has(kind)) {
+      const open = stack.pop();
+      if (open !== undefined) {
+        partner.set(open, index);
+        partner.set(index, open);
+      }
+    }
+    enclosing[index] = stack.at(-1);
+    if (openers.has(kind)) stack.push(index);
+  });
+  const pairs = { partner, enclosing };
+  pairsCache.set(reading, pairs);
+  return pairs;
+}
+
+/** What the bracket shapes read: the tokens, their pairs, and the line being broken. */
+interface Shaping {
+  readonly tokens: readonly Lexed.Token[];
+  readonly pairs: Pairs;
+  readonly roles: Spacing.Roles;
+  readonly measure: Measure;
+  /** The last token on the line being broken. */
+  readonly last: number;
+}
+
+/** The first token of each item between a pair of brackets, and the comma after each, where there is one. */
+function itemsOf(tokens: readonly Lexed.Token[], pairs: Pairs, open: number, close: number): {
+  readonly starts: number[];
+  readonly commas: number[];
+} {
+  const starts: number[] = [];
+  const commas: number[] = [];
+  let index = open + 1;
+  if (index < close) starts.push(index);
+  while (index < close) {
+    const partner = openers.has(tokens[index]!.kind) ? pairs.partner.get(index) : undefined;
+    if (partner !== undefined) {
+      index = partner + 1;
+      continue;
+    }
+    if (tokens[index]!.kind === "Comma") {
+      commas.push(index);
+      // A trailing comma begins no item.
+      if (index + 1 < close) starts.push(index + 1);
+    }
+    index += 1;
+  }
+  return { starts, commas };
+}
+
+/**
+ * Whether `first` to `last` is a literal of a filled list (§9.4 rule 2): a
+ * number, with or without a leading `-`, a string with no hole on one line, or
+ * a tuple of those.
+ */
+function isLiteral(tokens: readonly Lexed.Token[], pairs: Pairs, first: number, last: number, inTuple = false): boolean {
+  const token = tokens[first]!;
+  const numeric = (kind: string): boolean => ["Integer", "BigInt", "Dec", "Float"].includes(kind);
+  if (first === last) {
+    if (numeric(token.kind)) return true;
+    return token.kind === "String" && token.span.start.line === token.span.end.line &&
+      token.parts.every(({ kind }) => kind === "Text");
+  }
+  if (first + 1 === last && token.kind === "Minus") return numeric(tokens[last]!.kind);
+  if (inTuple || token.kind !== "LeftParen" || pairs.partner.get(first) !== last) return false;
+  const { starts, commas } = itemsOf(tokens, pairs, first, last);
+  if (commas.length === 0) return false;
+  return starts.every((start, position) => {
+    const end = (commas[position] ?? last) - 1;
+    return end >= start && isLiteral(tokens, pairs, start, end, true);
+  });
+}
+
+/** Whether every item between a pair of brackets is a literal, so that the pair is filled. */
+function isFilled(tokens: readonly Lexed.Token[], pairs: Pairs, open: number, close: number): boolean {
+  const { starts, commas } = itemsOf(tokens, pairs, open, close);
+  if (starts.length === 0) return false;
+  return starts.every((start, position) => {
+    const end = (commas[position] ?? close) - 1;
+    return end >= start && isLiteral(tokens, pairs, start, end);
+  });
+}
+
+/**
+ * The breaks that fill items onto lines at `indent`: as many to a line as
+ * fit, and at least one, each line breaking after a comma. `ends` is the last
+ * token of each item, its comma included.
+ */
+function fill(measure: Measure, starts: readonly number[], ends: readonly number[], indent: number): number[] {
+  const before: number[] = [];
+  let used = indent + measure.width(starts[0]!, ends[0]!);
+  for (let position = 1; position < starts.length; position += 1) {
+    const width = measure.width(starts[position]!, ends[position]!);
+    if (used + 1 + width <= measure.limit) {
+      used += 1 + width;
+    } else {
+      before.push(starts[position]!);
+      used = indent + width;
+    }
+  }
+  return before;
+}
+
+/** The indentation of the line a token is on. */
+function indentOn(token: Lexed.Token): number {
+  const start = token.span.start;
+  return start.column;
+}
+
+/**
+ * §9.4 rule 2's last paragraph: a line holding several items of open
+ * brackets whose opening bracket is on an earlier line breaks between them,
+ * one item to a line or filled.
+ */
+function betweenItems(
   tokens: readonly Lexed.Token[],
-  candidates: readonly number[],
+  pairs: Pairs,
   depth: readonly number[],
+  start: number,
   last: number,
-  top = 0,
+  measure: Measure,
 ): number[] {
+  const open = pairs.enclosing[start];
+  if (open === undefined) return [];
+  const close = pairs.partner.get(open);
+  if (close === undefined || close <= last) return [];
+  // Open brackets: the closing bracket begins its line (§5.2).
+  if (tokens[close - 1]!.span.end.line === tokens[close]!.span.start.line) return [];
+  const starts = [start];
+  const ends: number[] = [];
+  for (let index = start; index <= last; index += 1) {
+    if (depth[index] !== 0 || tokens[index]!.kind !== "Comma") continue;
+    ends.push(index);
+    if (index < last) starts.push(index + 1);
+  }
+  if (starts.length < 2) return [];
+  if (ends.length < starts.length) ends.push(last);
+  if (!isFilled(tokens, pairs, open, close)) return starts.slice(1);
+  return fill(measure, starts, ends, indentOn(firstOnLine(tokens, start)));
+}
+
+/**
+ * The `=>` of a lambda that runs from `first` to the end of its item, where
+ * its head is on the line: a name, or a bracketed parameter list with an
+ * optional binder list before it and annotation after it.
+ */
+function lambdaArrow(
+  tokens: readonly Lexed.Token[],
+  pairs: Pairs,
+  roles: Spacing.Roles,
+  first: number,
+  last: number,
+): number | undefined {
+  let index = first;
+  if (tokens[index]?.kind === "Less" && roles.binderOpen.has(index)) {
+    while (index <= last && !(tokens[index]!.kind === "Greater" && roles.binderClose.has(index))) index += 1;
+    index += 1;
+  }
+  const token = tokens[index];
+  if (token === undefined || index > last) return undefined;
+  if (token.kind === "NonUpperName" || token.kind === "Wildcard") {
+    return tokens[index + 1]?.kind === "FatArrow" && index + 1 <= last ? index + 1 : undefined;
+  }
+  if (token.kind !== "LeftParen" && token.kind !== "LeftBrace") return undefined;
+  const close = pairs.partner.get(index);
+  if (close === undefined || close >= last) return undefined;
+  if (tokens[close + 1]!.kind === "FatArrow") return close + 1;
+  if (tokens[close + 1]!.kind !== "Colon") return undefined;
+  // An annotation: its arrows are `->`, so the first `=>` outside brackets is the lambda's.
+  for (let next = close + 2; next <= last; next += 1) {
+    const kind = tokens[next]!.kind;
+    if (kind === "FatArrow") return next;
+    if (openers.has(kind)) next = pairs.partner.get(next) ?? last;
+    else if (kind === "Comma" || closers.has(kind)) return undefined;
+  }
+  return undefined;
+}
+
+const callees = new Set(["NonUpperName", "UpperName", "RightParen", "RightBracket", ...marks]);
+
+/**
+ * Where the last item of a call or a record is a lambda or a bare `match`
+ * (§9.4 rule 2), the token that ends the head kept on the line: the lambda's
+ * `=>`, or `match`.
+ */
+function lastItemHead(shaping: Shaping, open: number, close: number): number | undefined {
+  const { tokens, pairs, roles, last } = shaping;
+  const kind = tokens[open]!.kind;
+  const call = kind === "LeftParen" && (callees.has(tokens[open - 1]?.kind ?? "") ||
+    (tokens[open - 1]?.kind === "Greater" && roles.binderClose.has(open - 1)));
+  if (!call && kind !== "LeftBrace") return undefined;
+  const { starts } = itemsOf(tokens, pairs, open, close);
+  let first = starts.at(-1);
+  if (first === undefined || first > last) return undefined;
+  if (kind === "LeftBrace") {
+    // A field: its name, then `=`, then its value.
+    if (tokens[first]!.kind !== "NonUpperName" || tokens[first + 1]?.kind !== "Equal") return undefined;
+    first += 2;
+  }
+  // The match function: `match` ending its line.
+  if (tokens[first]?.kind === "Match" && first === last) return first;
+  return lambdaArrow(tokens, pairs, roles, first, last);
+}
+
+/**
+ * §9.4 rule 2: the first pair on the line with something between it. Its
+ * contents go one item to a line and its closer on its own line, except where
+ * its only item is bracketed, its last item is a lambda, or it is filled.
+ */
+function brackets(shaping: Shaping, candidates: readonly number[], depth: readonly number[], top = 0): number[] {
+  const { tokens, pairs } = shaping;
   for (const open of candidates) {
     if (depth[open] !== top || !openers.has(tokens[open]!.kind)) continue;
     if (closers.has(tokens[open + 1]?.kind ?? "")) continue;
-    // Its closer, on this line.
-    let level = 0;
-    let close: number | undefined;
-    const commas: number[] = [];
-    for (let index = open; index <= last; index += 1) {
-      const kind = tokens[index]!.kind;
-      if (openers.has(kind)) level += 1;
-      else if (closers.has(kind)) {
-        level -= 1;
-        if (level === 0) {
-          close = index;
-          break;
-        }
-      } else if (kind === "Comma" && level === 1) {
-        commas.push(index);
-      }
-    }
+    const close = pairs.partner.get(open);
     if (close === undefined) continue;
-    // A trailing comma stays where it is: the closer goes after it.
-    const items = commas.filter((comma) => comma + 1 !== close).map((comma) => comma + 1);
-    return [open + 1, ...items, close];
+    const before = shapeOf(shaping, open, close);
+    if (before.length > 0) return before;
   }
   return [];
+}
+
+/** The breaks one pair of brackets takes, by the shapes of §9.4 rule 2. */
+function shapeOf(shaping: Shaping, open: number, close: number): number[] {
+  const { tokens, pairs, measure, last } = shaping;
+  const onLine = close <= last;
+  // Brackets whose only item is bracketed open and close with it.
+  const inner = open + 1;
+  if (openers.has(tokens[inner]!.kind) && pairs.partner.get(inner) === close - 1 && close - 1 > inner + 1) {
+    return shapeOf(shaping, inner, close - 1);
+  }
+  const { starts } = itemsOf(tokens, pairs, open, close);
+  const onThisLine = starts.filter((start) => start <= last);
+  const oneToALine = [...onThisLine, ...(onLine ? [close] : [])];
+  // A last item that is a lambda keeps its head on the line, where it fits.
+  const head = lastItemHead(shaping, open, close);
+  if (head !== undefined) {
+    if (head < last && measure.fits(head)) return [head + 1, ...(onLine ? [close] : [])];
+    return oneToALine;
+  }
+  // Brackets whose closer is on a later line open only for a lambda.
+  if (!onLine) return [];
+  if (isFilled(tokens, pairs, open, close)) {
+    const { commas } = itemsOf(tokens, pairs, open, close);
+    const ends = starts.map((start, position) => commas[position] ?? close - 1);
+    const indent = indentOn(firstOnLine(tokens, open)) + Whitespace.LEVEL;
+    return [open + 1, ...fill(measure, starts, ends, indent), close];
+  }
+  return oneToALine;
+}
+
+/** The first token on the line a token is on. */
+function firstOnLine(tokens: readonly Lexed.Token[], index: number): Lexed.Token {
+  const line = tokens[index]!.span.start.line;
+  let first = index;
+  while (first > 0 && tokens[first - 1]!.span.start.line === line) first -= 1;
+  return tokens[first]!;
 }
