@@ -1844,9 +1844,9 @@ describe("Trailing commas (§14)", () => {
     // offered a comma before it, which the parser refuses at the `>`.
     const misread = "let c = f(a<b, c\n    >(d))\n";
     const text = "module A\n" + misread.repeat(2_000) + "let total = add(\n    1,\n    2\n)\n";
-    const started = performance.now();
+    const started = Date.now();
     const result = format(text);
-    expect(performance.now() - started).toBeLessThan(3_000);
+    expect(Date.now() - started).toBeLessThan(3_000);
     expect(result.endsWith("    2,\n)\n")).toBe(true);
     expect(result).not.toContain("c,");
   });
