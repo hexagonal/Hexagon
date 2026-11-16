@@ -78,7 +78,7 @@ extern from "hex:intrinsic"
     -- file because the runtime module is seated before it.
     fun mapRemap as remap<j: Hash>(
         m: Map(k, v),
-        transform: ((k, v)) ->! (j, w)
+        transform: ((k, v)) ->! (j, w),
     ) >-> Option(Map(j, w))
 
 {-- The empty map. -}

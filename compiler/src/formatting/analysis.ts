@@ -15,6 +15,9 @@ import type * as Lexed from "../syntax/lexed/index.js";
 import type * as LaidOut from "../syntax/laid-out/index.js";
 import type * as Parsed from "../syntax/parsed/index.js";
 
+/** The tokens a trailing comma stands before: a list's closing bracket (§14). */
+export const listClosers: ReadonlySet<string> = new Set(["RightParen", "RightBracket", "RightBrace", "Greater"]);
+
 /** A document read as far as the layout pass: all the whitespace pass reads. */
 export interface Scan {
   readonly text: string;
@@ -50,18 +53,27 @@ export function read(text: string): Reading {
 /**
  * Whether two readings hold the same text (§1's first guarantee): the same
  * tokens with the same payloads, and the same comments, in the same order.
+ * Where `commas` allows, `after` may also hold trailing commas `before` does
+ * not, each directly before a closing bracket: the ones §14 adds.
  *
  * A comment's text is compared line by line with each later line's leading
  * whitespace set aside, since a comment that spans lines moves as a unit
  * (§8.2) and a line end is a boundary, not text (§1).
  */
-export function sameText(before: Scan, after: Scan): boolean {
+export function sameText(before: Scan, after: Scan, commas = false): boolean {
   const left = before.lexed.tokens;
   const right = after.lexed.tokens;
-  if (left.length !== right.length) return false;
-  for (let index = 0; index < left.length; index += 1) {
-    if (tokenKey(left[index]!) !== tokenKey(right[index]!)) return false;
+  let index = 0;
+  for (let position = 0; position < right.length; position += 1) {
+    const token = right[position]!;
+    if (index < left.length && tokenKey(left[index]!) === tokenKey(token)) {
+      index += 1;
+      continue;
+    }
+    const added = commas && token.kind === "Comma" && listClosers.has(right[position + 1]?.kind ?? "");
+    if (!added) return false;
   }
+  if (index !== left.length) return false;
   const leftComments = before.lexed.comments;
   const rightComments = after.lexed.comments;
   if (leftComments.length !== rightComments.length) return false;

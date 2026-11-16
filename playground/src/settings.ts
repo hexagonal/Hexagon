@@ -3,7 +3,7 @@ import type { PlaygroundFormatOptions, PlaygroundInlayHint } from "./protocol";
 /**
  * The playground's settings, the ones its `Settings…` window lists: which inlay
  * hints the editor shows, whether the run's input box is on the page, and the
- * two formatting options. Each starts off and stays off until the dev turns it
+ * three formatting options. Each starts off and stays off until the dev turns it
  * on, as the extension's own settings do.
  */
 export interface PlaygroundSettings {
@@ -19,6 +19,8 @@ export interface PlaygroundSettings {
   readonly maximumLineLength: number | undefined;
   /** `hexagon.format.collapseExtraSpaces` in the extension. */
   readonly collapseExtraSpaces: boolean;
+  /** `hexagon.format.leaveTrailingCommasAsWritten` in the extension. */
+  readonly leaveTrailingCommasAsWritten: boolean;
 }
 
 /** The settings that are on or off, each a checkbox in the window. */
@@ -31,6 +33,7 @@ export const defaultPlaygroundSettings: PlaygroundSettings = {
   inputBox: false,
   maximumLineLength: undefined,
   collapseExtraSpaces: false,
+  leaveTrailingCommasAsWritten: false,
 };
 
 export const settingsStorageKey = "hexagon.playground.settings";
@@ -88,6 +91,13 @@ export const settingRows: readonly SettingRow[] = [
     description:
       "Make every gap where Hexagon's layout calls for one space exactly one space when formatting. Off, a wider gap the author wrote is kept, so code aligned in columns keeps its alignment.",
   },
+  {
+    key: "leaveTrailingCommasAsWritten",
+    group: "Formatting",
+    label: "Leave trailing commas as written",
+    description:
+      "Add no trailing commas when formatting. Off, Format Document and Format Selection add a comma after the last item of every list whose closing bracket begins its line. Either way, a comma already written is kept.",
+  },
 ];
 
 /** A line length as the window or storage gives it: a whole number of at least one, else Unlimited. */
@@ -120,6 +130,7 @@ export function parseSettings(stored: string | null | undefined): PlaygroundSett
     inputBox: flag("inputBox"),
     maximumLineLength: lineLengthOf(entry("maximumLineLength")),
     collapseExtraSpaces: flag("collapseExtraSpaces"),
+    leaveTrailingCommasAsWritten: flag("leaveTrailingCommasAsWritten"),
   };
 }
 
@@ -181,7 +192,11 @@ export function withSetting(state: SettingsState, key: ToggleKey, on: boolean): 
 
 /** The formatting options the settings give (Canonical Layout §3). */
 export function formatOptions(settings: PlaygroundSettings): PlaygroundFormatOptions {
-  return { maximumLineLength: settings.maximumLineLength, collapseExtraSpaces: settings.collapseExtraSpaces };
+  return {
+    maximumLineLength: settings.maximumLineLength,
+    collapseExtraSpaces: settings.collapseExtraSpaces,
+    leaveTrailingCommasAsWritten: settings.leaveTrailingCommasAsWritten,
+  };
 }
 
 /** A run's standard input: the box's text while the box is on the page, else none. */

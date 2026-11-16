@@ -90,6 +90,11 @@
           "default": false,
           "markdownDescription": "Make every gap where Hexagon's layout calls for one space exactly one space when formatting. Off, a wider gap the author wrote is kept, so code aligned in columns keeps its alignment."
         },
+        "hexagon.format.leaveTrailingCommasAsWritten": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "Add no trailing commas when formatting. Off, Format Document and Format Selection add a comma after the last item of every list whose closing bracket begins its line. Either way, a comma already written is kept."
+        },
         "hexagon.trace.server": {
           "type": "string",
           "enum": [

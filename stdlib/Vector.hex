@@ -109,7 +109,7 @@ extern from "hex:intrinsic"
         property of each element, use `sortBy`. -}
     export fun vectorSortUsing as sortUsing(
         values: Vector(a),
-        compare: (a, a) ->! Ordering
+        compare: (a, a) ->! Ordering,
     ) >-> Vector(a)
 
 {-- A vector with no elements, the same as `[]`. -}

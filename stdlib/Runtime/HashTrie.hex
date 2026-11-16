@@ -233,7 +233,7 @@ fun lookup(tree: Tree(k, v), hash: Int, key: k, shift: Int, equal: (k, k) -> Boo
                     hash,
                     key,
                     shift + step,
-                    equal
+                    equal,
                 )
             else
                 None
@@ -287,7 +287,7 @@ fun lookupKey(tree: Tree(k, v), hash: Int, key: k, shift: Int, equal: (k, k) -> 
                     hash,
                     key,
                     shift + step,
-                    equal
+                    equal,
                 )
             else
                 None
@@ -370,7 +370,7 @@ fun insert(
                     None =>
                         (
                             Collision(hash, count + 1, nodeInsertAt(entries, count, (key, value))),
-                            True
+                            True,
                         )
         Branch(bitmap, children) =>
             let index = digit(hash, shift)
@@ -383,9 +383,9 @@ fun insert(
                 (
                     Branch(
                         bitSet(bitmap, index),
-                        nodeInsertAt(children, slot, Entry(hash, key, value))
+                        nodeInsertAt(children, slot, Entry(hash, key, value)),
                     ),
-                    True
+                    True,
                 )
 
 -- `trie` with `key` bound to `value` — an upsert: an absent key is inserted and a
@@ -754,7 +754,7 @@ fun pairsKeepSlot(
     count: Int,
     hash: Int,
     hashOf: j -> Int,
-    equal: (j, j) -> Bool
+    equal: (j, j) -> Bool,
 ): Bool =
     if index >= count then
         True
@@ -777,7 +777,7 @@ fun keepsEverySlot(
     original: Tree(k, v),
     shadow: Tree(j, w),
     hashOf: j -> Int,
-    equal: (j, j) -> Bool
+    equal: (j, j) -> Bool,
 ): Bool =
     match original with
         Entry(hash, _, _) =>
@@ -801,7 +801,7 @@ fun keepsEverySlot(
                             Node.get(children, index),
                             Node.get(newChildren, index),
                             hashOf,
-                            equal
+                            equal,
                         ) then
                             index := index + 1
                         else
@@ -849,7 +849,7 @@ fun anyKept(original: Tree(k, v), shadow: Tree(j, w), hashOf: j -> Int): Bool =
                         if anyKept(
                             Node.get(children, index),
                             Node.get(newChildren, index),
-                            hashOf
+                            hashOf,
                         ) then
                             found := True
                             index := count
@@ -986,7 +986,7 @@ fun split(
                                     Node.get(newChildren, slot),
                                     hashOf,
                                     equal,
-                                    pending
+                                    pending,
                                 )
                             pending := after
                             if childRepeated then
@@ -1067,7 +1067,7 @@ let filterEntries(trie: HashTrie(k, v), keep: ((k, v)) ->! Bool): HashTrie(k, v)
 -- tries. An unplaced `Sole` root stays unplaced.
 let remapEntries<j: Hash>(
     trie: HashTrie(k, v),
-    transform: ((k, v)) ->! (j, w)
+    transform: ((k, v)) ->! (j, w),
 ): Option(HashTrie(j, w)) =
     match trie.root with
         NoRoot => Some(empty)

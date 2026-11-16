@@ -77,7 +77,7 @@ extern from "hex:intrinsic"
     -- read of a fixed table.
     fun regexPropertyRanges as propertyRanges(
         kind: Syntax.PropertyKind,
-        value: String
+        value: String,
     ) -> Vector((Int, Int))
 
     -- Every codepoint whose simple case folding equals `point`'s, `point`
@@ -269,7 +269,7 @@ let emit(code: Code, op: Int, first: Int, second: Int): Code =
     {
         code with ops = code.ops.append(op),
         first = code.first.append(first),
-        second = code.second.append(second)
+        second = code.second.append(second),
     }
 
 let setFirst(code: Code, at: Int, target: Int): Code =
@@ -295,7 +295,7 @@ let sameItem(left: Syntax.ClassItem, right: Syntax.ClassItem): Bool =
             leftLow == rightLow and leftHigh == rightHigh
         (
             Syntax.Property(leftKind, leftValue, leftNegated),
-            Syntax.Property(rightKind, rightValue, rightNegated)
+            Syntax.Property(rightKind, rightValue, rightNegated),
         ) =>
             kindCode(leftKind) == kindCode(rightKind)
                     and leftValue == rightValue
@@ -329,7 +329,7 @@ let emitClass(code: Code, spec: ClassSpec): Code =
             { code with classes = code.classes.append(spec) },
             opConsume,
             Vector.length(code.classes),
-            0
+            0,
         )
 
 let singleClass(point: Int): ClassSpec =
@@ -378,13 +378,13 @@ fun emitExpr(code: Code, expr: Syntax.Expr, backward: Bool): Code =
                     ClassSpec({
                         items = [Syntax.Range(0, lastPoint)],
                         negated = False,
-                        folded = False
-                    })
+                        folded = False,
+                    }),
                 )
             else
                 emitClass(
                     code,
-                    ClassSpec({ items = [Syntax.Range(10, 10)], negated = True, folded = False })
+                    ClassSpec({ items = [Syntax.Range(10, 10)], negated = True, folded = False }),
                 )
         Syntax.Class(items, negated, folded) =>
             emitClass(code, ClassSpec({ items = items, negated = negated, folded = folded }))
@@ -398,7 +398,7 @@ fun emitExpr(code: Code, expr: Syntax.Expr, backward: Bool): Code =
                     emitExpr(
                         current,
                         parts[if backward then count + 1 - index else index],
-                        backward
+                        backward,
                     )
                 index := index + 1
             current
@@ -535,7 +535,7 @@ let machineOf(code: Code): Machine =
         ops = frozen~(code.ops),
         first = frozen~(code.first),
         second = frozen~(code.second),
-        size = Vector.length(code.ops)
+        size = Vector.length(code.ops),
     })
 
 -- The program for `pattern`. It reads no table: class resolution waits for the
@@ -632,7 +632,7 @@ let follow(
     stamp: Int,
     start: Thread,
     list: Vector(Thread),
-    place: Place
+    place: Place,
 ): Vector(Thread) =
     var pending: Vector(Thread) = [start]
     var reached = list
@@ -655,8 +655,8 @@ let follow(
                     pending.append(
                         Thread({
                             pc = pc + 1,
-                            slots = saved(thread.slots, read~(program.first, pc), place)
-                        })
+                            slots = saved(thread.slots, read~(program.first, pc), place),
+                        }),
                     )
             else if op == opAssert then
                 if holds(read~(program.first, pc), place) then
@@ -702,7 +702,7 @@ let unsaved(groupCount: Int): Vector(Int) =
 let groupsOf(
     text: String,
     groupCount: Int,
-    slots: Vector(Int)
+    slots: Vector(Int),
 ): Vector(Option((Int, Int, String))) =
     var groups: Vector(Option((Int, Int, String))) = []
     var group = 0
@@ -719,7 +719,7 @@ let groupsOf(
                     Some((
                         startPosition,
                         endPosition - startPosition,
-                        cut(text, startOffset, endOffset)
+                        cut(text, startOffset, endOffset),
                     ))
             )
         group := group + 1
@@ -778,7 +778,7 @@ let pike(
                         stamp,
                         { thread with pc = thread.pc + 1 },
                         next,
-                        nextPlace
+                        nextPlace,
                     )
             index := index + 1
         threads := next
@@ -882,7 +882,7 @@ let reach(
     stamp: Int,
     waiting: Vector(Int),
     place: Place,
-    cut: Bool
+    cut: Bool,
 ): (Vector(Int), Bool) =
     var consuming: Vector(Int) = []
     var matched = False
@@ -930,9 +930,9 @@ let stateIn(dfa: Dfa, list: Vector(Int), edge: Int): (Dfa, Int) =
                 {
                     dfa with ids = Map.set(dfa.ids, key, id),
                     lists = dfa.lists.append(list),
-                    edges = dfa.edges.append(edge)
+                    edges = dfa.edges.append(edge),
                 },
-                id
+                id,
             )
 
 -- One transition: from state `id` over the codepoint class `letter` (whose
@@ -962,7 +962,7 @@ let move(
                     position = if behind < 0 then 1 else 2,
                     offset = 0,
                     before = behind,
-                    after = ahead
+                    after = ahead,
                 })
             let (consuming, matched) =
                 reach~(machine, mark, stamp, dfa.lists[id + 1], place, forward)
@@ -1042,7 +1042,7 @@ let scanBackward(
     text: String,
     end: (Int, Int),
     floor: Int,
-    flushes: Buffer(Int)
+    flushes: Buffer(Int),
 ): Option((Int, Int)) =
     let starts = alphabetOf~(program)
     let mark = read~(program.marks, 2)
@@ -1090,7 +1090,7 @@ let scanBackward(
 let answerOf(
     program: Compiled,
     text: String,
-    slots: Vector(Int)
+    slots: Vector(Int),
 ): (Vector(Option((Int, Int, String))), (Int, Int)) =
     (groupsOf(text, program.groupCount, slots), (slots[3], slots[4]))
 
@@ -1156,7 +1156,7 @@ let search(
                         text,
                         (endPosition, endOffset),
                         position,
-                        flushes
+                        flushes,
                     ) with
                         None => viaVm~(program, text, units, place, spans, cursor)
                         Some((startPosition, startOffset)) =>
@@ -1166,10 +1166,10 @@ let search(
                                         Some((
                                             startPosition,
                                             endPosition - startPosition,
-                                            cut(text, startOffset, endOffset)
-                                        ))
+                                            cut(text, startOffset, endOffset),
+                                        )),
                                     ],
-                                    (endPosition, endOffset)
+                                    (endPosition, endOffset),
                                 ))
                             else
                                 let from = placeAt(text, units, startPosition, startOffset)
@@ -1180,7 +1180,7 @@ let search(
                                     from,
                                     True,
                                     True,
-                                    endPosition
+                                    endPosition,
                                 ) with
                                     Some(slots) => Some(answerOf(program, text, slots))
                                     None => viaVm~(program, text, units, place, spans, cursor)
@@ -1209,7 +1209,7 @@ let searchByVm(
             placeAt(text, units, position, offset),
             spans,
             False,
-            -1
+            -1,
         ) with
             None => None
             Some(slots) =>

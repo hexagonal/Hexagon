@@ -9,16 +9,24 @@ describe("the formatting settings", () => {
     }
   });
 
-  test("keep both options off for a client that sends nothing, or nothing it understands", () => {
-    for (const value of [undefined, null, 3, "x", {}, { collapseExtraSpaces: "yes" }]) {
+  test("keep the options off for a client that sends nothing, or nothing it understands", () => {
+    for (const value of [
+      undefined, null, 3, "x", {}, { collapseExtraSpaces: "yes" }, { leaveTrailingCommasAsWritten: 1 },
+    ]) {
       expect(formatSettingsOf(value)).toEqual(DEFAULT_FORMAT_SETTINGS);
     }
     expect(formatSettingsOf({ collapseExtraSpaces: true }).collapseExtraSpaces).toBe(true);
+    expect(formatSettingsOf({ leaveTrailingCommasAsWritten: true }).leaveTrailingCommasAsWritten).toBe(true);
+    expect(DEFAULT_FORMAT_SETTINGS.leaveTrailingCommasAsWritten).toBe(false);
   });
 
   test("hand the compiler Unlimited where no line length is set", () => {
-    expect(formatOptionsOf(DEFAULT_FORMAT_SETTINGS)).toEqual({ maximumLineLength: "unlimited", collapseExtraSpaces: false });
-    expect(formatOptionsOf({ maximumLineLength: 72, collapseExtraSpaces: true }))
-      .toEqual({ maximumLineLength: 72, collapseExtraSpaces: true });
+    expect(formatOptionsOf(DEFAULT_FORMAT_SETTINGS)).toEqual({
+      maximumLineLength: "unlimited",
+      collapseExtraSpaces: false,
+      leaveTrailingCommasAsWritten: false,
+    });
+    expect(formatOptionsOf({ maximumLineLength: 72, collapseExtraSpaces: true, leaveTrailingCommasAsWritten: true }))
+      .toEqual({ maximumLineLength: 72, collapseExtraSpaces: true, leaveTrailingCommasAsWritten: true });
   });
 });

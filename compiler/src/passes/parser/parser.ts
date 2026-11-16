@@ -40,6 +40,13 @@ interface Infix {
   readonly assignment?: true;
 }
 
+/** Lexer & Layout §5: a comma after the one item of grouping parentheses (§7). */
+const oneItemTuple = "Hexagon has no one-item tuple; remove this comma";
+/** Lexer & Layout §5: a comma with no item before it (§7). */
+const itemlessComma = "a comma follows an item; remove this comma";
+/** The tokens a list's trailing comma may stand before (§7). */
+const listClosers: ReadonlySet<TokenKind> = new Set(["RightParen", "RightBracket", "RightBrace", "Greater"]);
+
 // Operators §3's table as binding powers, loosest first. Only the order is
 // meaning; the numbers leave room between levels for nothing in particular.
 const infix = new Map<TokenKind, Infix>([
@@ -1289,6 +1296,7 @@ class Parser {
         continue;
       }
 
+      if (this.#commaEndingBlock()) continue;
       if (this.#at("VSep") || this.#at("Semicolon")) {
         this.#skipSeparators();
       } else if (!this.#at("VClose") && !this.#at("Eof")) {
@@ -3648,6 +3656,8 @@ class Parser {
       name: fallback,
       span: fallback.span,
     };
+    // A list may end with a comma (Lexer & Layout §7).
+    if (this.#at("Comma") && this.#peek(1).kind === "Greater") this.#advance();
     this.#expect("Greater", "expected `>` after instance head");
     const equal = this.#expect("Equal", "expected `=` after instance head");
     // A head whose `=` ends its line with no block below it: the block is
@@ -4374,7 +4384,7 @@ class Parser {
     this.#advance();
     const parameters: Parsed.TypeParameter[] = [];
     const seen = new Set<string>();
-    while (!this.#at("Greater") && !this.#at("Eof")) {
+    while (this.#skipItemlessCommas() && !this.#at("Greater") && !this.#at("Eof")) {
       const token = this.#takeName("NonUpperName", "type parameters must be non-uppercase-start names");
       if (token === undefined) break;
       const name = parsedName(token as Lexed.NameToken);
@@ -4407,6 +4417,11 @@ class Parser {
     const parenthesized = this.#at("LeftParen");
     if (parenthesized) this.#advance();
     while (!this.#at("Eof")) {
+      if (parenthesized) {
+        this.#skipItemlessCommas();
+        // A list may end with a comma after its last item (Lexer & Layout §7).
+        if (derives.length > 0 && this.#at("RightParen")) break;
+      }
       const token = this.#takeName("UpperName", "`derives` requires a constraint name");
       if (token === undefined) break;
       const name = parsedName(token);
@@ -4564,7 +4579,7 @@ class Parser {
     if (this.#at("LeftParen")) {
       this.#advance();
       const seen = new Set<string>();
-      while (!this.#at("RightParen") && !this.#at("Eof")) {
+      while (this.#skipItemlessCommas() && !this.#at("RightParen") && !this.#at("Eof")) {
         this.#rejectVarianceSigil();
         const token = this.#takeName("NonUpperName", "alias parameters must be non-uppercase-start names");
         if (token === undefined) break;
@@ -4609,7 +4624,7 @@ class Parser {
     if (this.#at("LeftParen")) {
       this.#advance();
       const seen = new Set<string>();
-      while (!this.#at("RightParen") && !this.#at("Eof")) {
+      while (this.#skipItemlessCommas() && !this.#at("RightParen") && !this.#at("Eof")) {
         const sigil = this.#takeVarianceSigil(opaque);
         const parameter = this.#takeName(
           "NonUpperName",
@@ -5223,7 +5238,7 @@ class Parser {
     if (this.#at("LeftParen")) {
       this.#advance();
       const seen = new Set<string>();
-      while (!this.#at("RightParen") && !this.#at("Eof")) {
+      while (this.#skipItemlessCommas() && !this.#at("RightParen") && !this.#at("Eof")) {
         const sigil = this.#takeVarianceSigil(opaque);
         const parameter = this.#takeName("NonUpperName", "record type parameters must be non-uppercase-start names");
         if (parameter === undefined) break;
@@ -6316,7 +6331,9 @@ class Parser {
       // §2.5's overflow row: a construct the lexer has already diagnosed draws
       // no further report from this seat, and an overflowing `Float` literal is
       // exactly that — dropped from the stream, its one report already standing.
-      if (!this.#lexicallyRefusedHere()) {
+      if (token.kind === "Comma") {
+        this.#error(itemlessComma);
+      } else if (!this.#lexicallyRefusedHere()) {
         this.#error("expected a binding, `_`, constructor, tuple, or record pattern");
       }
       return undefined;
@@ -6335,19 +6352,27 @@ class Parser {
       return this.#declaredPattern([first], opening.span, end);
     }
     const elements: Parsed.Pattern[] = [first];
+    let trailing: Source.Span | undefined;
     while (this.#at("Comma")) {
       const comma = this.#advance();
+      // A list may end with a comma (Lexer & Layout §7).
       if (this.#at("RightParen")) {
-        this.#errorAt(comma.span, "a tuple pattern needs a pattern after `,`");
-        this.#advance();
-        return undefined;
+        trailing = comma.span;
+        break;
       }
       const element = this.#parsePatternElement();
       if (element === undefined) return undefined;
       elements.push(element);
     }
     const closing = this.#expect("RightParen", "expected `)` after tuple pattern");
-    return this.#declaredPattern(elements, opening.span, closing?.span ?? elements.at(-1)!.span);
+    const pattern = this.#declaredPattern(elements, opening.span, closing?.span ?? elements.at(-1)!.span);
+    // One item and a comma make no tuple, but a suffix form's one component
+    // may take it (§7).
+    if (elements.length === 1 && pattern.kind !== "Declared") {
+      this.#errorAt(trailing!, oneItemTuple);
+      return undefined;
+    }
+    return pattern;
   }
 
   /** Turns a parenthesized pattern list into #834's suffix only at its glued name. */
@@ -6810,7 +6835,7 @@ class Parser {
       case "LeftBrace":
         return this.#parseRecord(stops);
       default:
-        this.#error(`expected an expression, found ${describe(token.kind)}`);
+        this.#error(token.kind === "Comma" ? itemlessComma : `expected an expression, found ${describe(token.kind)}`);
         if (!stops.has(token.kind)) {
           this.#advance();
         }
@@ -7009,17 +7034,26 @@ class Parser {
     const expression = this.#parseElement(stops);
     if (this.#at("Comma")) {
       const elements: Parsed.Expr[] = [expression];
+      let trailing: Source.Span | undefined;
       while (this.#at("Comma")) {
         const comma = this.#advance();
+        // A list may end with a comma (Lexer & Layout §7).
         if (this.#at("RightParen")) {
-          this.#errorAt(comma.span, "a tuple needs an expression after `,`");
-          const closing = this.#advance();
-          return { kind: "ErrorExpr", span: spanFrom(opening.span, closing.span) };
+          trailing = comma.span;
+          break;
         }
         elements.push(this.#parseElement(stops));
       }
       const closing = this.#expect("RightParen", "expected `)` after tuple elements");
-      return this.#patternConstruction(elements, opening.span, closing?.span ?? elements.at(-1)!.span);
+      const construction = this.#patternConstruction(elements, opening.span, closing?.span ?? elements.at(-1)!.span);
+      // One item and a comma make no tuple; a suffix form's one component may
+      // take it, since its parentheses are the component list's (§7).
+      if (elements.length === 1 && construction.kind !== "PatternConstruction") {
+        // `(,)` has had its one report, at the comma, as one with no item before it.
+        if (expression.kind !== "ErrorExpr") this.#errorAt(trailing!, oneItemTuple);
+        return { kind: "ErrorExpr", span: spanFrom(opening.span, closing?.span ?? expression.span) };
+      }
+      return construction;
     }
     const closing = this.#expect("RightParen", "expected `)` after expression");
     const construction = this.#patternConstruction([expression], opening.span, closing?.span ?? expression.span);
@@ -7260,6 +7294,12 @@ class Parser {
   #parseIndex(receiver: Parsed.Expr): Parsed.Expr {
     this.#advance();
     const index = this.#parseExpression(0, new Set(["RightBracket", "Eof"]));
+    // An index holds one expression, not a list (Lexer & Layout §7): a comma
+    // before its `]` is reported once, and the bracket still closes it.
+    if (this.#at("Comma") && this.#peek(1).kind === "RightBracket") {
+      this.#error("expected `]` after index");
+      this.#advance();
+    }
     const closing = this.#expect("RightBracket", "expected `]` after index");
     return {
       kind: "Index",
@@ -7850,6 +7890,7 @@ class Parser {
         body,
         span: spanFrom(pattern.span, body.span),
       });
+      this.#commaEndingBlock();
       this.#skipSeparators();
     }
     const closing = this.#expect("VClose", "expected the match arms to close");
@@ -7915,6 +7956,7 @@ class Parser {
         body: armBody,
         span: spanFrom(pattern.span, armBody.span),
       });
+      this.#commaEndingBlock();
       this.#skipSeparators();
     }
     this.#expect("VClose", "expected the catch arms to close");
@@ -8613,13 +8655,15 @@ class Parser {
       const names = new Set<string>();
       let open = false;
       let tail: Parsed.Name | undefined;
-      while (!this.#at("RightBrace") && !this.#at("Eof")) {
+      while (this.#skipItemlessCommas() && !this.#at("RightBrace") && !this.#at("Eof")) {
         if (this.#at("Spread")) {
           this.#advance();
           open = true;
           if (this.#at("NonUpperName")) {
             tail = parsedName(this.#advance() as Lexed.NameToken);
           }
+          // `...` is the last entry; a list may end with a comma (Lexer & Layout §7).
+          if (this.#at("Comma") && this.#peek(1).kind === "RightBrace") this.#advance();
           if (this.#at("Comma")) this.#error("`...` must be the final entry in a record type");
           break;
         }
@@ -8661,8 +8705,20 @@ class Parser {
       }
       const first = this.#parseTypeAnnotation(true);
       if (first === undefined) return undefined;
-      if (!this.#at("Comma")) {
+      if (!this.#at("Comma") || this.#peek(1).kind === "RightParen") {
+        // A comma after the one item of grouping parentheses (Lexer & Layout
+        // §7): there is no one-item tuple, and no one-item parameter list.
+        const comma = this.#at("Comma") ? this.#advance() : undefined;
         const closing = this.#expect("RightParen", "expected `)` after type");
+        if (comma !== undefined) {
+          const domain = this.#arrowAt() !== undefined || this.#at("FatArrow");
+          this.#errorAt(
+            comma.span,
+            domain
+              ? "a function of one parameter is written `Int -> Int`; remove this comma"
+              : oneItemTuple,
+          );
+        }
         return {
           annotation: {
             ...first,
@@ -8672,12 +8728,8 @@ class Parser {
       }
       const elements: Parsed.TypeAnnotation[] = [first];
       while (this.#at("Comma")) {
-        const comma = this.#advance();
-        if (this.#at("RightParen")) {
-          this.#errorAt(comma.span, "a tuple type needs a type after `,`");
-          this.#advance();
-          return undefined;
-        }
+        this.#advance();
+        if (this.#at("RightParen")) break;
         const element = this.#parseTypeAnnotation(true);
         if (element === undefined) return undefined;
         elements.push(element);
@@ -8715,10 +8767,17 @@ class Parser {
       const name = parsedName(token);
       return { annotation: { kind: "TypeVariable", name, span: name.span } };
     }
+    if (token.kind === "Comma") {
+      // A comma with no type before it (Lexer & Layout §7): reported once, and
+      // passed over, so the list around it still parses.
+      this.#error(itemlessComma);
+      this.#advance();
+      if (!listClosers.has(this.#current().kind)) return this.#parseTypeOperand();
+      const fallback: Parsed.Name = { text: "Invalid", startClass: "upper", span: token.span };
+      return { annotation: { kind: "NamedType", name: fallback, span: token.span } };
+    }
     if (token.kind !== "UpperName") {
-      this.#error(
-        "expected a type annotation",
-      );
+      this.#error("expected a type annotation");
       return undefined;
     }
     this.#advance();
@@ -8866,6 +8925,14 @@ class Parser {
       this.#advance();
       this.#refusedPuns.add(token.span.start.offset);
       return { kind: "NonUpperName", text: spelling, span: token.span };
+    }
+    if (token.kind === "Comma") {
+      // A comma with no field before it (Lexer & Layout §7): reported once, and
+      // the field after it, if any, read as it stands.
+      this.#error(itemlessComma);
+      this.#advance();
+      if (this.#at("RightBrace")) return undefined;
+      return this.#takeFieldLabel(message, puns);
     }
     const index = this.#index;
     const name = this.#takeName("NonUpperName", message);
@@ -9033,6 +9100,51 @@ class Parser {
       last = this.#advance().span;
     }
     return { kind: "ErrorExpr", span: spanFrom(first.span, last) };
+  }
+
+  /**
+   * Lexer & Layout §7's "a comma ends no block": a comma ending the last line
+   * of a block that a list's closing bracket then ends, as after a lambda's
+   * body beneath its `=>`, is read inside the block, where no comma stands.
+   * Reports it once, naming the head that opened the innermost block (§5), and
+   * steps past it, so the block and the list close as written.
+   */
+  #commaEndingBlock(): boolean {
+    if (!this.#at("Comma")) return false;
+    let index = this.#index + 1;
+    if (this.#tokens[index]?.kind !== "VClose") return false;
+    while (this.#tokens[index]?.kind === "VClose") index += 1;
+    const closing = this.#tokens[index]?.kind;
+    if (closing !== "RightParen" && closing !== "RightBracket" && closing !== "RightBrace") return false;
+    let depth = 0;
+    let opening = this.#index - 1;
+    for (; opening >= 0; opening -= 1) {
+      const kind = this.#tokens[opening]!.kind;
+      if (kind === "VClose") depth += 1;
+      else if (kind === "VOpen" && depth-- === 0) break;
+    }
+    const head = this.#tokens[opening - 1];
+    if (head === undefined) return false;
+    const word = this.#text.slice(head.span.start.offset, head.span.end.offset);
+    this.#errorAt(
+      this.#advance().span,
+      `this comma would be inside the block that \`${word}\` opened, where no comma can stand; ` +
+        "remove it, since the closing bracket ends the block and the list together",
+    );
+    return true;
+  }
+
+  /**
+   * Lexer & Layout §5's "a comma follows an item": each comma where an item of
+   * a list is due is reported once and passed over, so the list goes on.
+   * Always true, so that it can lead a loop's condition.
+   */
+  #skipItemlessCommas(): true {
+    while (this.#at("Comma")) {
+      this.#error(itemlessComma);
+      this.#advance();
+    }
+    return true;
   }
 
   #skipSeparators(): void {

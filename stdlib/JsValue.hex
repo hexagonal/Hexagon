@@ -34,7 +34,7 @@ module JsValue
 export exception JsConversionError(
     reason: JsConversionReason,
     path: Vector(JsPathSegment),
-    message: String
+    message: String,
 )
 
 -- The two failures every decoder below throws. Both have the empty path

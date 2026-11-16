@@ -29,6 +29,7 @@ const none: PlaygroundSettings = {
   inputBox: false,
   maximumLineLength: undefined,
   collapseExtraSpaces: false,
+  leaveTrailingCommasAsWritten: false,
 };
 
 describe("the playground's settings", () => {
@@ -72,6 +73,7 @@ describe("the playground's settings", () => {
       "Running: Input box",
       "Formatting: Maximum line length",
       "Formatting: Collapse extra spaces",
+      "Formatting: Leave trailing commas as written",
     ]);
   });
 
@@ -92,6 +94,7 @@ describe("the playground's settings", () => {
       regexGroupHints: "inlayHints.regexGroups",
       maximumLineLength: "format.maximumLineLength",
       collapseExtraSpaces: "format.collapseExtraSpaces",
+      leaveTrailingCommasAsWritten: "format.leaveTrailingCommasAsWritten",
     } as const;
     for (const row of settingRows) {
       if (row.key === "inputBox") continue;
@@ -189,10 +192,11 @@ describe("the window's rows", () => {
 });
 
 describe("the formatting options", () => {
-  test("both off by default, and the window's line length read as a whole number or Unlimited", () => {
-    expect(formatOptions(none)).toEqual({ maximumLineLength: undefined, collapseExtraSpaces: false });
-    expect(formatOptions({ ...none, maximumLineLength: 72, collapseExtraSpaces: true }))
-      .toEqual({ maximumLineLength: 72, collapseExtraSpaces: true });
+  test("all off by default, and the window's line length read as a whole number or Unlimited", () => {
+    expect(formatOptions(none))
+      .toEqual({ maximumLineLength: undefined, collapseExtraSpaces: false, leaveTrailingCommasAsWritten: false });
+    expect(formatOptions({ ...none, maximumLineLength: 72, collapseExtraSpaces: true, leaveTrailingCommasAsWritten: true }))
+      .toEqual({ maximumLineLength: 72, collapseExtraSpaces: true, leaveTrailingCommasAsWritten: true });
     expect(lineLengthOf("100")).toBe(100);
     for (const typed of ["", "  ", "0", "-3", "7.5", "eighty"]) expect(lineLengthOf(typed)).toBeUndefined();
   });
