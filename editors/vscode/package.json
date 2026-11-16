@@ -76,6 +76,20 @@
           "default": false,
           "markdownDescription": "Show each capturing group's number, the one `Regex.group` reads it by, at its `(` in a pattern handed to `Regex.compile` as a literal."
         },
+        "hexagon.format.maximumLineLength": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1,
+          "default": null,
+          "markdownDescription": "The longest a line of code may be before Format Document and Format Selection break it, in characters (Unicode code points). Leave it empty for Unlimited, under which no line is ever broken. A string or a comment is never broken, and a trailing comment does not count."
+        },
+        "hexagon.format.collapseExtraSpaces": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "Make every gap where Hexagon's layout calls for one space exactly one space when formatting. Off, a wider gap the author wrote is kept, so code aligned in columns keeps its alignment."
+        },
         "hexagon.trace.server": {
           "type": "string",
           "enum": [

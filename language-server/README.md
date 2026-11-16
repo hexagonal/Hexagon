@@ -796,7 +796,7 @@ asked, and are never preferred.
 
 ## Formatting
 
-Format document and Format selection answer `textDocument/formatting` and `textDocument/rangeFormatting` with the compiler's `formatDocument` and `formatSelection` (`spec/canonical-layout.md`; `src/formatting.ts` translates). Every edit is a run of whitespace. A selection widens to the top-level items it touches, and the text there is exactly what Format document writes (§2.2).
+Format document and Format selection answer `textDocument/formatting` and `textDocument/rangeFormatting` with the compiler's `formatDocument` and `formatSelection` (`spec/canonical-layout.md`; `src/formatting.ts` translates). Every edit is a run of whitespace. A selection widens to the top-level items it touches, and the text there is exactly what Format document writes (§2.2). A client that takes a registration gets formatting registered for Hexagon files alone, so `hexagon.json`, which the client also sends, keeps the editor's own JSON formatter; a request for a manifest is answered with nothing.
 
 Two settings, read from `hexagon.format` at each request, both off until the dev sets them (§3):
 

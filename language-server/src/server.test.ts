@@ -951,6 +951,38 @@ describe("the Hexagon language server", () => {
       }
     });
 
+    test("is registered for Hexagon files alone where the client takes a registration, and never formats a manifest", async () => {
+      const hex = await harness(
+        { "main.hex": MESSY, "hexagon.json": "{\n\"name\":   \"main\"}\n" },
+        { textDocument: { formatting: { dynamicRegistration: true }, rangeFormatting: { dynamicRegistration: true } } },
+      );
+      const registered: { method: string; registerOptions?: unknown }[] = [];
+      const both = new Promise<void>((resolve) => {
+        hex.client.onRequest("client/registerCapability", (params: { registrations: { method: string; registerOptions?: unknown }[] }) => {
+          registered.push(...params.registrations);
+          if (registered.filter(({ method }) => method.includes("ormatting")).length === 2) resolve();
+          return null;
+        });
+      });
+      try {
+        expect(hex.capabilities.documentFormattingProvider).toBeUndefined();
+        await both;
+        expect(registered.filter(({ method }) => method.includes("ormatting"))).toEqual([
+          { id: expect.any(String), method: "textDocument/formatting", registerOptions: { documentSelector: [{ language: "hexagon" }] } },
+          { id: expect.any(String), method: "textDocument/rangeFormatting", registerOptions: { documentSelector: [{ language: "hexagon" }] } },
+        ]);
+        await hex.client.sendNotification(DidOpenTextDocumentNotification.type, {
+          textDocument: { uri: hex.uriOf("hexagon.json"), languageId: "json", version: 1, text: "{\n\"name\":   \"main\"}\n" },
+        });
+        expect(await hex.client.sendRequest("textDocument/formatting", {
+          textDocument: { uri: hex.uriOf("hexagon.json") },
+          options: { tabSize: 4, insertSpaces: true },
+        })).toBeNull();
+      } finally {
+        await hex.dispose();
+      }
+    });
+
     test("reads both options from the client at each request", async () => {
       let settings: unknown = { maximumLineLength: 20, collapseExtraSpaces: true };
       const asked: unknown[] = [];

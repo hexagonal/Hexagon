@@ -57,7 +57,15 @@ none of them describes the project:
 | `hexagon.inlayHints.types` | Show the types inference gave the places a type could be written. Off until turned on. |
 | `hexagon.inlayHints.colours` | Show a function's colour in words at the end of its header's line. Off until turned on. |
 | `hexagon.inlayHints.regexGroups` | Show each capturing group's number at its `(` in a pattern handed to `Regex.compile` as a literal. Off until turned on. |
+| `hexagon.format.maximumLineLength` | The longest a line of code may be before Format Document and Format Selection break it, in code points. Empty (`null` in `settings.json`) for Unlimited, the default. |
+| `hexagon.format.collapseExtraSpaces` | Make every gap where the layout calls for one space exactly one space. Off until turned on. |
 | `hexagon.trace.server` | Log the traffic between extension and server. |
+
+Format Document and Format Selection are VS Code's own commands, served by the
+language server (`spec/canonical-layout.md`). The editor's tab size plays no
+part: Hexagon indents with four spaces to a level. Nothing formats unasked, so
+the extension sets no format on save, paste or type; a dev who wants one sets
+VS Code's own setting.
 
 VS Code's own `editor.inlayHints.enabled` stands above all three, as for any
 language. The extension sets two editor defaults for Hexagon files:
