@@ -121,11 +121,14 @@ function attempt(
 
   // The rest of a broken line's item moves two levels deeper with it, so that
   // a block it holds stays deeper than the line that now owns it. A line in
-  // the rest of several broken items moves for each.
+  // the rest of several broken items moves for each. A conditional's breaks
+  // leave its `if` where it is, so nothing after it moves; a value moved
+  // beneath its `=` takes its clauses (`else`, `catch`) with it.
   const shifts = new Map<number, number>();
   for (const one of plans) {
+    if (one.shape === "conditional") continue;
     const line = tokens[one.line]!.span.start.line;
-    for (const later of restOfItem(reading, lines, line, indentOf(line))) {
+    for (const later of restOfItem(reading, lines, line, indentOf(line), one.shape === "value")) {
       shifts.set(later, (shifts.get(later) ?? 0) + 2 * Whitespace.LEVEL);
     }
   }
@@ -177,11 +180,17 @@ type Attempt =
   };
 
 /**
- * The lines after a line that continue its item: those indented deeper, and
- * the clauses (`else`, `catch`) at its own column. A line inside a string is
+ * The lines after a line that continue its item: those indented deeper, and,
+ * where `clauses` asks, the clauses (`else`, `catch`) at its own column. A line inside a string is
  * the string's, and stays as it is.
  */
-function restOfItem(reading: Reading, lines: readonly number[], line: number, indent: number): number[] {
+function restOfItem(
+  reading: Reading,
+  lines: readonly number[],
+  line: number,
+  indent: number,
+  clauses: boolean,
+): number[] {
   const text = reading.text;
   const { firstOnLine, insideString } = lineFacts(reading);
   const rest: number[] = [];
@@ -193,7 +202,7 @@ function restOfItem(reading: Reading, lines: readonly number[], line: number, in
     if (content.trim() === "") continue;
     const own = /^ */u.exec(content)![0].length;
     const first = firstOnLine.get(later);
-    const clause = own === indent && first !== undefined && first.span.start.offset === start + own &&
+    const clause = clauses && own === indent && first !== undefined && first.span.start.offset === start + own &&
       (first.kind === "Else" || first.kind === "Catch" || first.kind === "Finally");
     if (own <= indent && !clause) break;
     rest.push(later);
