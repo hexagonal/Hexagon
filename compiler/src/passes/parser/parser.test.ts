@@ -2515,6 +2515,112 @@ describe("a `match` with no arms below it", () => {
   });
 });
 
+describe("the trailing comma (Lexer & Layout §7)", () => {
+  // Each list once with a comma after its last item and once without: the two
+  // parse to one tree, since the comma changes nothing.
+  test.each([
+    ["a call's arguments", "let a = f(1, 2,)"],
+    ["a constructor's arguments", "let a = Some(1,)"],
+    ["a tuple", "let a = (1, \"a\",)"],
+    ["a nested tuple", "let a = ((1, 2,), 3,)"],
+    ["a vector", "let a = [1, 2,]"],
+    ["a record", "let a = {x = 1, y = 2,}"],
+    ["a record update", "let a = {p with x = 1,}"],
+    ["a binding's parameters", "let f(a: Int, b: Int,): Int = a"],
+    ["a lambda's parameters", "let g = (a, b,) => a"],
+    ["a lambda's one parameter", "let g = (a,) => a"],
+    ["type arguments", "let x: Map(String, Int,) = y"],
+    ["one type argument", "let x: Option(Int,) = y"],
+    ["a tuple type", "let x: (Int, String,) = y"],
+    ["a function type's parameters", "let x: (Int, Int,) -> Int = y"],
+    ["a record type", "let x: {a: Int, b: Int,} = y"],
+    ["a record type's `...`", "let x: {a: Int, ...,} = y"],
+    ["a declaration's type parameters", "type Pair(a, b,) = (a, b)"],
+    ["a union alternative's fields", "union U = A(Int, Int,) | B"],
+    ["a tuple pattern", "let (a, b,) = p"],
+    ["a record pattern", "let {x, y,} = p"],
+    ["a constructor pattern", "let f(o: Option(Int)): Int =\n    match o with\n        Some(x,) => x\n        None => 0"],
+    ["a vector pattern's `...rest`", "let f(o: Vector(Int)): Int =\n    match o with\n        [a, ...r,] => a\n        _ => 0"],
+    ["a binder list", "let same<a: Eq, b: Ord,>(x: a, y: b) = x"],
+    ["a list of constraints", "let same<a: (Num, Ord,)>(x: a) = x"],
+    ["a list of one constraint", "let same<a: (Num,)>(x: a) = x"],
+    ["a `derives` list", "record P derives (Eq, Show,) = {x: Int}"],
+    ["a `derives` list of one", "record P derives (Eq,) = {x: Int}"],
+    ["an instance head", "honor Show<P,> =\n    show(p) = \"p\""],
+    ["a suffix form's components", "let a = (1, 2,)clock"],
+    ["a suffix form's one component", "let a = (1,)id"],
+    ["a suffix pattern's components", "let f(t: Time): Int =\n    match t with\n        (h, m,)clock => h"],
+    ["a suffix pattern's one component", "let f(t: Time): Int =\n    match t with\n        (h,)id => h"],
+    ["a list spread over lines", "let a =\n    f(\n        1,\n        2,\n    )"],
+    ["a `<…>` list spread over lines", "let same<\n    a: Eq,\n    b: Eq,\n>(x: a, y: b) = x"],
+    ["an item that ends in a block, its comma on a later line", "let a = f(1, (x) =>\n        x\n    ,)"],
+  ])("%s", (_, text) => {
+    const withComma = parseSource(text + "\n");
+    expect(withComma.diagnostics).toEqual([]);
+    const without = parseSource(text.replace(/,(\s*)([)\]}>])/gu, "$1$2") + "\n");
+    expect(without.diagnostics).toEqual([]);
+    expect(spanless(withComma.items)).toEqual(spanless(without.items));
+  });
+
+  const oneItem = "Hexagon has no one-item tuple; remove this comma";
+  const itemless = "a comma follows an item; remove this comma";
+  const block = (word: string): string =>
+    `this comma would be inside the block that \`${word}\` opened, where no comma can stand; ` +
+    "remove it, since the closing bracket ends the block and the list together";
+  // One report each, at the comma (§5).
+  test.each([
+    ["grouping parentheses", "let a = (1,)", oneItem, 10],
+    ["a grouped pattern", "let (a,) = p", oneItem, 6],
+    ["a grouped type", "let x: (Int,) = y", oneItem, 11],
+    ["a function type of one parameter", "let x: (Int,) -> Int = y",
+      "a function of one parameter is written `Int -> Int`; remove this comma", 11],
+    ["empty parentheses", "let a = f(,)", itemless, 10],
+    ["empty brackets", "let a = [,]", itemless, 9],
+    ["empty braces", "let a = {,}", itemless, 9],
+    ["two commas in a row", "let a = [1,, 2]", itemless, 11],
+    ["empty type arguments", "let x: Map(,) = y", itemless, 11],
+    ["an empty record type", "let x: {,} = y", itemless, 8],
+    ["two commas in a record type", "let x: {a: Int,, b: Int} = y", itemless, 15],
+    ["two commas in a `derives` list", "record P derives (Eq,,) = {x: Int}", itemless, 21],
+    ["two commas in a binder list", "let same<a: Eq,,>(x: a) = x", itemless, 15],
+    ["an empty constructor pattern", "let f(o: Option(Int)): Int =\n    match o with\n        Some(,) => 0\n        _ => 1",
+      itemless, 13],
+  ])("refuses a comma after %s", (_, text, message, column) => {
+    const module = parseSource(text + "\n");
+    expect(module.diagnostics.map(({ message: found, primary }) => [found, primary.start.column])).toEqual([[message, column]]);
+  });
+
+  test.each([
+    ["a lambda's body beneath its `=>`", "let a = f(1, (x) =>\n        x,\n    )", "=>", [3, 9]],
+    ["a lambda's body closed on its line", "let a = f(1, (x) =>\n        x,)", "=>", [3, 9]],
+    ["a `match`'s arms", "let a = f(1, match y with\n        A => 1\n        B => 2,\n    )", "with", [4, 14]],
+    ["a branch beneath `else`", "let a = f(1, if c then\n        1\n    else\n        2,\n    )", "else", [5, 9]],
+    ["a vector's last item", "let a = [(x) =>\n        x,\n]", "=>", [3, 9]],
+    ["a block of several items", "let a = f((x) =>\n    let y = x\n    y,\n)", "=>", [4, 5]],
+  ])("refuses a comma ending %s, naming its head", (_, text, word, [line, column]) => {
+    const module = parseSource(text + "\n");
+    expect(module.diagnostics.map(({ message, primary }) => [message, primary.start.line, primary.start.column]))
+      .toEqual([[block(word), line, column]]);
+  });
+
+  test("refuses a comma in each block it would end, one report apiece", () => {
+    const module = parseSource("let a = f(1, (x) =>\n        g((y) =>\n            y,\n        ),\n    )\n");
+    expect(module.diagnostics.map(({ primary }) => [primary.start.line, primary.start.column])).toEqual([[4, 13], [5, 9]]);
+  });
+
+  test("leaves an index's brackets without a list", () => {
+    expect(parseSource("let a = xs[1,]\n").diagnostics.map(({ message }) => message)).toEqual(["expected `]` after index"]);
+  });
+});
+
+/** A syntax value with its positions set aside, so two spellings of one tree compare equal. */
+function spanless(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(spanless);
+  if (value === null || typeof value !== "object") return value;
+  return Object.fromEntries(Object.entries(value).filter(([key]) => key !== "span" && !key.endsWith("Span"))
+    .map(([key, inner]) => [key, spanless(inner)]));
+}
+
 const HEADER = "module Test\n\n";
 
 function parseSource(text: string): Parsed.Module {

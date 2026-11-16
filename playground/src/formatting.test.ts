@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { formatSource } from "./formatting";
 
-const off = { maximumLineLength: undefined, collapseExtraSpaces: false };
+const off = { maximumLineLength: undefined, collapseExtraSpaces: false, leaveTrailingCommasAsWritten: false };
 
 describe("formatting in the playground", () => {
   test("formats the document as whitespace edits", () => {
@@ -29,9 +29,16 @@ describe("formatting in the playground", () => {
     });
   });
 
-  test("passes both options on, and refuses as the compiler does", () => {
+  test("passes the options on, and refuses as the compiler does", () => {
     const long = "module Main\nlet total = alpha + beta + gamma\n";
-    expect(formatSource(long, { maximumLineLength: 20, collapseExtraSpaces: true }).kind).toBe("formatted");
+    expect(formatSource(long, { ...off, maximumLineLength: 20, collapseExtraSpaces: true }).kind).toBe("formatted");
+    const spread = "module Main\nlet total = add(\n    1,\n    2\n)\n";
+    const after = spread.indexOf("2") + 1;
+    expect(formatSource(spread, off)).toEqual({
+      kind: "formatted",
+      edits: [{ startOffset: after, endOffset: after + 1, replacement: ",\n" }],
+    });
+    expect(formatSource(spread, { ...off, leaveTrailingCommasAsWritten: true })).toEqual({ kind: "formatted", edits: [] });
     expect(formatSource("module Main\nlet x = (1\n", off)).toEqual({ kind: "syntax-error" });
     expect(formatSource("module Main\nlet f(x: Int): Int =\n{- a much longer note -} x\n", off)).toMatchObject({
       kind: "refused",

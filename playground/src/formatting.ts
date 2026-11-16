@@ -16,6 +16,7 @@ export function formatSource(
   const compilerOptions: FormatOptions = {
     maximumLineLength: options.maximumLineLength ?? "unlimited",
     collapseExtraSpaces: options.collapseExtraSpaces,
+    leaveTrailingCommasAsWritten: options.leaveTrailingCommasAsWritten,
   };
   const result = range === undefined
     ? formatDocument(source, compilerOptions)

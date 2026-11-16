@@ -117,7 +117,7 @@ export fun zipWith(left: Seq(a), right: Seq(b), combine: (a, b) -> c): Seq(c) =
                     Some((rightValue, rightRest)) =>
                         Some((
                             combine(leftValue, rightValue),
-                            zipWith(leftRest, rightRest, combine)
+                            zipWith(leftRest, rightRest, combine),
                         ))
     })
 

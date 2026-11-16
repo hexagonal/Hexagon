@@ -83,16 +83,16 @@ let changedPlaces(decimal: Dec, requested: Int, even: Bool, operation: String): 
     else if checked >= decimal.places then
         create(
             decimal.unscaled * tenTo(checked - decimal.places),
-            checked
+            checked,
         )
     else
         create(
             roundedRatio(
                 decimal.unscaled,
                 tenTo(decimal.places - checked),
-                even
+                even,
             ),
-            checked
+            checked,
         )
 
 {-- The decimal with exactly `places` digits after the point. Places that are

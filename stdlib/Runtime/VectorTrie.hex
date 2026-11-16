@@ -191,7 +191,7 @@ fun insertLeaf(node: Tree(a), height: Int, p: Int, leaf: Tree(a)): Tree(a) =
             else
                 let child = Node.get(children, childIndex)
                 Branch(
-                    Node.set(children, childIndex, insertLeaf(child, height - 1, childPos, leaf))
+                    Node.set(children, childIndex, insertLeaf(child, height - 1, childPos, leaf)),
                 )
 
 -- Flushes a full tail (as `Leaf(tail)`) into `root`, returning the new root and
@@ -261,13 +261,13 @@ fun writeValue(node: Tree(a), height: Int, index: Int, value: a): Tree(a) =
                     Node.set(
                         children,
                         childIndex,
-                        writeValue(freshSubtree(height - 1), height - 1, childPos, value)
-                    )
+                        writeValue(freshSubtree(height - 1), height - 1, childPos, value),
+                    ),
                 )
             else
                 let child = Node.get(children, childIndex)
                 Branch(
-                    Node.set(children, childIndex, writeValue(child, height - 1, childPos, value))
+                    Node.set(children, childIndex, writeValue(child, height - 1, childPos, value)),
                 )
 
 fun prepend(trie: TrieVector(a), value: a): TrieVector(a) =
@@ -338,8 +338,8 @@ fun updateAt(node: Tree(a), height: Int, index: Int, value: a): Tree(a) =
                 Node.set(
                     children,
                     childIndex,
-                    updateAt(Node.get(children, childIndex), height - 1, childPos, value)
-                )
+                    updateAt(Node.get(children, childIndex), height - 1, childPos, value),
+                ),
             )
 
 -- Persistent update at 0-based logical `index` (caller guarantees it is in range;
@@ -384,7 +384,7 @@ let trimHeight(
     capacity: Int,
     height: Int,
     root: Tree(a),
-    tail: Node(a)
+    tail: Node(a),
 ): TrieVector(a) =
     let treeEnd = tailOffset(capacity)
     if treeEnd <= origin then
@@ -559,8 +559,8 @@ fun zip(left: TrieVector(a), right: TrieVector(b)): TrieVector((a, b)) =
                     result,
                     (
                         Node.get(leftValues, leftOffset + step),
-                        Node.get(rightValues, rightOffset + step)
-                    )
+                        Node.get(rightValues, rightOffset + step),
+                    ),
                 )
             step := step + 1
         index := index + run

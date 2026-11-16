@@ -51,7 +51,11 @@ import {
 import { defineHexagonThemes, hexagonDarkTheme, hexagonLightTheme } from "./monaco-theme";
 
 /** The options `services.format` is asked with; the page's own settings stand in for them (`main.ts`). */
-const defaultFormatOptions: PlaygroundFormatOptions = { maximumLineLength: undefined, collapseExtraSpaces: false };
+const defaultFormatOptions: PlaygroundFormatOptions = {
+  maximumLineLength: undefined,
+  collapseExtraSpaces: false,
+  leaveTrailingCommasAsWritten: false,
+};
 
 globalThis.MonacoEnvironment = {
   getWorker: () => new EditorWorker(),

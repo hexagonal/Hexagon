@@ -270,6 +270,11 @@ export function rule(tokens: readonly Lexed.Token[], roles: Roles, index: number
   }
   if (left.kind === "Dot" || right.kind === "Dot") return "none";
   if (right.kind === "Comma" || right.kind === "Semicolon") return "none";
+  // A trailing comma sits against the bracket that closes its list (§7.1).
+  if (left.kind === "Comma" &&
+    (right.kind === "RightParen" || right.kind === "RightBracket" || roles.binderClose.has(index + 1))) {
+    return "none";
+  }
   if (left.kind === "Comma" || left.kind === "Semicolon") return "one";
   if (right.kind === "Colon") return "none";
   if (left.kind === "Colon") return "one";

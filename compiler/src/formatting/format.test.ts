@@ -82,7 +82,7 @@ describe("Indentation (§5)", () => {
       "",
       "let corners = [",
       "    { x = 0, y = 0 },",
-      "    { x = 1, y = 1 }",
+      "    { x = 1, y = 1 },",
       "]",
       "",
       "let selected =",
@@ -143,7 +143,7 @@ describe("Indentation (§5)", () => {
       "",
       "let corners = [",
       "    { x = 0, y = 0 },",
-      "    { x = 1, y = 1 }",
+      "    { x = 1, y = 1 },",
       "]",
       "let label = describe(firstName,",
       "        lastName)",
@@ -338,7 +338,7 @@ describe("Blank lines (§6)", () => {
       "",
       "let f(x: Int): Int =",
       "    let y = [",
-      "        x",
+      "        x,",
       "    ]",
       "    if y == [] then",
       "        0",
@@ -579,7 +579,7 @@ describe("A line that is too long (§9)", () => {
       "        first(",
       "            alpha,",
       "            beta,",
-      "            gamma",
+      "            gamma,",
       "        )",
       "    else",
       "        other(c)",
@@ -595,14 +595,14 @@ describe("A line that is too long (§9)", () => {
       "module A",
       "let area(",
       "    width: Float,",
-      "    height: Float",
+      "    height: Float,",
       "): Float =",
       "    width * height",
       "let label =",
       "    describe(",
       "        firstName,",
       "        lastName,",
-      "        middleName",
+      "        middleName,",
       "    )",
     ));
   });
@@ -710,7 +710,7 @@ describe("A line that is too long (§9)", () => {
       "module A",
       "let f(",
       "    a: Bool,",
-      "    b: Bool",
+      "    b: Bool,",
       "): Int =",
       "    if a",
       "            and b",
@@ -749,7 +749,7 @@ describe("A line that is too long (§9)", () => {
       "let f(totals: Vector((String, Int))): Unit =",
       "    for (name, total) in someSource(",
       "        argumentOne,",
-      "        argumentTwo",
+      "        argumentTwo,",
       "    ) do",
       "        print(name)",
     ));
@@ -831,7 +831,7 @@ describe("A line that is too long (§9)", () => {
     ), { maximumLineLength: 30 })).toBe(lines(
       "module A",
       "let run(",
-      "    items: Vector(Int)",
+      "    items: Vector(Int),",
       "): Unit =",
       "    for item in items do",
       "        print(describe(item))",
@@ -849,7 +849,7 @@ describe("A line that is too long (§9)", () => {
       "let pick(a: Int, b: Int): Int =",
       "    match compare(",
       "        firstArgument,",
-      "        secondArgument",
+      "        secondArgument,",
       "    ) with",
       "        _ => 0",
     ));
@@ -867,7 +867,7 @@ describe("The shapes brackets break in (§9.4 rule 2)", () => {
       "let codes =",
       "    Map.fromVector([",
       '        ("en", "English"), ("fr", "French"),',
-      '        ("de", "German"), ("es", "Spanish")',
+      '        ("de", "German"), ("es", "Spanish"),',
       "    ])",
       "let total =",
       "    Vector.fold(values, 0, (sum, value) =>",
@@ -887,12 +887,12 @@ describe("The shapes brackets break in (§9.4 rule 2)", () => {
       "    Piece({",
       "        expr = Anchor(kind),",
       "        kind = Asserted(point),",
-      "        start = position",
+      "        start = position,",
       "    })",
       "let pair =",
       "    Some((",
       "        combine(leftValue, rightValue),",
-      "        zipWith(leftRest, rightRest)",
+      "        zipWith(leftRest, rightRest),",
       "    ))",
     ));
   });
@@ -926,7 +926,7 @@ describe("The shapes brackets break in (§9.4 rule 2)", () => {
       "    Vector.fold(",
       "        someValues,",
       "        initialValue,",
-      "        (sum, value) => sum + value",
+      "        (sum, value) => sum + value,",
       "    )",
       "let longest =",
       "    Vector.fold(",
@@ -1007,7 +1007,7 @@ describe("The shapes brackets break in (§9.4 rule 2)", () => {
       "            x,",
       "            x,",
       "            x,",
-      "            x",
+      "            x,",
       "        ),",
       "    )",
     ));
@@ -1025,7 +1025,7 @@ describe("The shapes brackets break in (§9.4 rule 2)", () => {
       "            alpha",
       "                    + beta * gamma",
       "                    - delta",
-      "        )",
+      "        ),",
       "    )",
     ));
   });
@@ -1068,23 +1068,23 @@ describe("The shapes brackets break in (§9.4 rule 2)", () => {
       "    [",
       "        -1, -2, -3, -4, -5,",
       "        -6, -7, -8, -9, -10,",
-      "        -11",
+      "        -11,",
       "    ]",
       "let b =",
       "    [",
       '        "one", "two", "three",',
-      '        "four", "five", "six"',
+      '        "four", "five", "six",',
       "    ]",
       "let c =",
       "    [",
       "        1.5, 2, 3n, 4.25d,",
       '        (1, "one"),',
-      '        (2, "two"), 3',
+      '        (2, "two"), 3,',
       "    ]",
       "let i =",
       "    foo((",
       "        1, 2, 3, 4, 5, 6, 7,",
-      "        8, 9, 10, 11, 12, 13",
+      "        8, 9, 10, 11, 12, 13,",
       "    ))",
     ));
   });
@@ -1098,7 +1098,7 @@ describe("The shapes brackets break in (§9.4 rule 2)", () => {
       "let a =",
       "    [",
       "        1, 2, 3, 4, 5, 6, 7, 8, 9, 10,",
-      "        11, 12, 13, 1",
+      "        11, 12, 13, 1,",
       "    ]",
     ));
   });
@@ -1114,13 +1114,13 @@ describe("The shapes brackets break in (§9.4 rule 2)", () => {
       "    (",
       "        alpha,",
       "        beta,",
-      "        (x) => compute(x, alpha)",
+      "        (x) => compute(x, alpha),",
       "    )",
       "let v =",
       "    [",
       "        alpha,",
       "        beta,",
-      "        (x) => compute(x, alpha)",
+      "        (x) => compute(x, alpha),",
       "    ]",
     ));
   });
@@ -1187,7 +1187,7 @@ describe("The shapes brackets break in (§9.4 rule 2)", () => {
       "    Set.fromVector([",
       "        2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31,",
       "        37, 41, 43, 47,",
-      "        53, 59",
+      "        53, 59,",
       "    ])",
       "let rows =",
       "    Vector.from([",
@@ -1195,7 +1195,7 @@ describe("The shapes brackets break in (§9.4 rule 2)", () => {
       "        compute(beta),",
       "        compute(gamma),",
       "        compute(delta),",
-      "        tail",
+      "        tail,",
       "    ])",
       "let tuples =",
       "    Vector.from([",
@@ -1225,7 +1225,7 @@ describe("A binding whose value is a lambda (§9.4 rule 1)", () => {
       "                    v,",
       "                    w,",
       "                    alpha,",
-      "                    beta",
+      "                    beta,",
       "                )",
       "        None => (w) => w",
     ));
@@ -1311,7 +1311,7 @@ describe("An assignment laid out as a binding (§9.4 rule 1)", () => {
       "            first(",
       "                alpha,",
       "                beta,",
-      "                gamma",
+      "                gamma,",
       "            )",
       "        else",
       "            other(c)",
@@ -1349,7 +1349,7 @@ describe("An assignment laid out as a binding (§9.4 rule 1)", () => {
       "                alpha,",
       "                beta,",
       "                gamma,",
-      "                delta",
+      "                delta,",
       "            )",
     ));
   });
@@ -1460,6 +1460,394 @@ describe("Format selection (§2.2)", () => {
   });
 });
 
+describe("Trailing commas (§14)", () => {
+  const leave: FormatOptions = { leaveTrailingCommasAsWritten: true };
+
+  it("adds one after the last item of every list whose closing bracket begins a line", () => {
+    expect(format(lines(
+      "module A",
+      "let corners = [",
+      "    { x = 0, y = 0 },",
+      "    { x = 1, y = 1 }",
+      "]",
+      "let total = add(",
+      "    first,",
+      "    second",
+      ")",
+      "let point = {",
+      "    x = 1,",
+      "    y = 2",
+      "}",
+      "let pair = (",
+      "    1,",
+      "    2",
+      ")",
+      "let scale(",
+      "    value: Int,",
+      "    factor: Int",
+      "): Int = value * factor",
+      "let table: Map(",
+      "    String,",
+      "    Int",
+      ") = empty",
+      "record Size derives (",
+      "    Eq,",
+      "    Show",
+      ") = {",
+      "    width: Int,",
+      "    height: Int",
+      "}",
+      "let first(pair: (Int, Int)): Int =",
+      "    match pair with",
+      "        (",
+      "            a,",
+      "            b",
+      "        ) => a",
+    ))).toBe(lines(
+      "module A",
+      "let corners = [",
+      "    { x = 0, y = 0 },",
+      "    { x = 1, y = 1 },",
+      "]",
+      "let total = add(",
+      "    first,",
+      "    second,",
+      ")",
+      "let point = {",
+      "    x = 1,",
+      "    y = 2,",
+      "}",
+      "let pair = (",
+      "    1,",
+      "    2,",
+      ")",
+      "let scale(",
+      "    value: Int,",
+      "    factor: Int,",
+      "): Int = value * factor",
+      "let table: Map(",
+      "    String,",
+      "    Int,",
+      ") = empty",
+      "record Size derives (",
+      "    Eq,",
+      "    Show,",
+      ") = {",
+      "    width: Int,",
+      "    height: Int,",
+      "}",
+      "let first(pair: (Int, Int)): Int =",
+      "    match pair with",
+      "        (",
+      "            a,",
+      "            b,",
+      "        ) => a",
+    ));
+  });
+
+  it("adds one to a `<…>` list the author spreads over lines", () => {
+    expect(format(lines(
+      "module A",
+      "export let same<",
+      "    a: Eq,",
+      "    b: Eq",
+      ">(left: (a, b), right: (a, b)): Bool = left == right",
+    ))).toBe(lines(
+      "module A",
+      "export let same<",
+      "    a: Eq,",
+      "    b: Eq,",
+      ">(left: (a, b), right: (a, b)): Bool = left == right",
+    ));
+  });
+
+  it("indents a spread `<…>` list's items one level in, and its `>` at the line holding the `<` (§5.2)", () => {
+    expect(format(lines(
+      "module A",
+      "export let same<",
+      "        a: Eq,",
+      "",
+      "        b: Eq,",
+      "",
+      "    >(left: (a, b), right: (a, b)): Bool = left == right",
+    ))).toBe(lines(
+      "module A",
+      "export let same<",
+      "    a: Eq,",
+      "",
+      "    b: Eq,",
+      ">(left: (a, b), right: (a, b)): Bool = left == right",
+    ));
+  });
+
+  it("puts a comma that begins its line at the level of the line holding the opening bracket (§5.1)", () => {
+    expect(format(lines(
+      "module A",
+      "let a =",
+      "    f(1, (x) =>",
+      "        x",
+      "      ,)",
+      "let b =",
+      "    f(",
+      "        first",
+      "          , second",
+      "    )",
+    ))).toBe(lines(
+      "module A",
+      "let a =",
+      "    f(1, (x) =>",
+      "        x",
+      "    ,)",
+      "let b =",
+      "    f(",
+      "        first",
+      "    , second,",
+      "    )",
+    ));
+  });
+
+  it("writes no space between a trailing comma and the bracket that closes its list (§7.1)", () => {
+    expect(format(lines(
+      "module A",
+      "let a = f(1, 2 , )",
+      "let b = [1, 2, ]",
+      "let c = { x = 1, }",
+      "let same<a: Eq, >(x: a) = x",
+    ))).toBe(lines(
+      "module A",
+      "let a = f(1, 2,)",
+      "let b = [1, 2,]",
+      "let c = { x = 1, }",
+      "let same<a: Eq,>(x: a) = x",
+    ));
+  });
+
+  it("adds none where the closing bracket does not begin a line", () => {
+    const text = lines(
+      "module A",
+      "let total = add(first, second)",
+      "let label = describe(firstName,",
+      "        lastName)",
+      "let piece =",
+      "    Piece({",
+      "        expr = Empty,",
+      "        kind = Setting(flags),",
+      "    })",
+    );
+    expect(format(text)).toBe(text);
+  });
+
+  it("adds none after an item that ends in a block", () => {
+    const text = lines(
+      "module A",
+      "let total =",
+      "    Vector.fold(values, 0, (sum, value) =>",
+      "        sum + value * weight",
+      "    )",
+      "let sizes = [",
+      "    (x) =>",
+      "        x",
+      "]",
+      "let kinds =",
+      "    describe(",
+      "        value,",
+      "        match value with",
+      "            Some(_) => 1",
+      "            None => 0",
+      "    )",
+      "",
+      "let chosen = choose(",
+      "    flag,",
+      "    if flag then",
+      "        1",
+      "    else",
+      "        2",
+      ")",
+    );
+    expect(format(text)).toBe(text);
+  });
+
+  it("adds one after a lambda whose body is on its `=>`'s own line", () => {
+    expect(format(lines(
+      "module A",
+      "let total = Vector.fold(",
+      "    values,",
+      "    0,",
+      "    (sum, value) => sum + value",
+      ")",
+    ))).toBe(lines(
+      "module A",
+      "let total = Vector.fold(",
+      "    values,",
+      "    0,",
+      "    (sum, value) => sum + value,",
+      ")",
+    ));
+  });
+
+  it("adds none inside brackets that hold no list: grouping parentheses, an index, empty brackets", () => {
+    const text = lines(
+      "module A",
+      "let value = (",
+      "    alpha + beta",
+      ")",
+      "let item = items[",
+      "    position",
+      "]",
+      "let nothing = f(",
+      ")",
+    );
+    expect(format(text)).toBe(text);
+  });
+
+  it("puts the comma straight after the last item, ahead of a comment on its line", () => {
+    expect(format(lines(
+      "module A",
+      "let names = [",
+      "    \"one\",",
+      "    \"two\" -- the last",
+      "]",
+    ))).toBe(lines(
+      "module A",
+      "let names = [",
+      "    \"one\",",
+      "    \"two\", -- the last",
+      "]",
+    ));
+  });
+
+  it("adds no second comma, and removes none, whatever the option says", () => {
+    const text = lines(
+      "module A",
+      "let one = f(a, b,)",
+      "let two = [",
+      "    1,",
+      "    2,",
+      "]",
+    );
+    expect(format(text)).toBe(text);
+    expect(format(text, leave)).toBe(text);
+  });
+
+  it("adds none where Leave trailing commas as written is on (§3.4)", () => {
+    const text = lines(
+      "module A",
+      "let total = add(",
+      "    first,",
+      "    second",
+      ")",
+    );
+    expect(format(text, leave)).toBe(text);
+  });
+
+  it("adds one to brackets the formatter opens (§9.4)", () => {
+    expect(format(lines(
+      "module A",
+      "let total = add(firstArgument, secondArgument)",
+    ), { maximumLineLength: 30 })).toBe(lines(
+      "module A",
+      "let total =",
+      "    add(",
+      "        firstArgument,",
+      "        secondArgument,",
+      "    )",
+    ));
+  });
+
+  it("counts the comma in a line's length, written or not (§9.2)", () => {
+    // The item's line is exactly 30 code points long without its comma.
+    const text = lines(
+      "module A",
+      "let total = add(",
+      "    firstArgument + secondArgu",
+      ")",
+    );
+    const broken = lines(
+      "module A",
+      "let total = add(",
+      "    firstArgument",
+      "            + secondArgu,",
+      ")",
+    );
+    expect(format(text, { maximumLineLength: 30 })).toBe(broken);
+    expect(format(text, { maximumLineLength: 30, ...leave })).toBe(broken.replace("secondArgu,", "secondArgu"));
+    expect(format(text, { maximumLineLength: 31 })).toBe(text.replace("secondArgu\n", "secondArgu,\n"));
+    expect(format(text, { maximumLineLength: 31, ...leave })).toBe(text);
+  });
+
+  it("counts the comma when it fills a list", () => {
+    // `10` would end the first line at exactly 37 code points without its comma.
+    const text = lines("module A", "let a = f([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])");
+    const filled = lines(
+      "module A",
+      "let a =",
+      "    f([",
+      "        1, 2, 3, 4, 5, 6, 7, 8, 9,",
+      "        10,",
+      "    ])",
+    );
+    expect(format(text, { maximumLineLength: 37 })).toBe(filled);
+    expect(format(text, { maximumLineLength: 37, ...leave })).toBe(filled.replace("10,", "10"));
+  });
+
+  it("returns the added commas in its edits, which rebuild the formatted text", () => {
+    const text = "module A\nlet x = f(\n  a,\n  b -- note\n)\n";
+    const result = formatDocument(text);
+    if (result.kind !== "Formatted") throw new Error("not formatted");
+    let rebuilt = text;
+    for (const edit of [...result.edits].reverse()) {
+      expect(text.slice(edit.start, edit.end).trim()).toBe("");
+      expect(edit.newText.replace(",", "").trim()).toBe("");
+      rebuilt = rebuilt.slice(0, edit.start) + edit.newText + rebuilt.slice(edit.end);
+    }
+    expect(rebuilt).toBe(result.text);
+    expect(result.text).toBe("module A\nlet x = f(\n    a,\n    b, -- note\n)\n");
+  });
+
+  it("adds Format document's commas within Format selection's region, and none outside it", () => {
+    const text = lines(
+      "module A",
+      "let a = f(",
+      "    1",
+      ")",
+      "let b = f(",
+      "    2",
+      ")",
+    );
+    const at = text.indexOf("let b");
+    expect(formatSelection(text, { start: at, end: at })).toMatchObject({
+      kind: "Formatted",
+      text: lines("module A", "let a = f(", "    1", ")", "let b = f(", "    2,", ")"),
+    });
+    expect(formatSelection(text, { start: 0, end: text.length })).toMatchObject({ kind: "Formatted", text: format(text) });
+  });
+
+  it("never fights over a comma: either setting after the other changes nothing (§3.3)", () => {
+    const text = lines(
+      "module A",
+      "let total = add(firstArgument, secondArgument)",
+      "let more = add(",
+      "    first,",
+      "    second",
+      ")",
+    );
+    for (const [one, two] of [[{}, leave], [leave, {}]] as const) {
+      const options = (base: FormatOptions): FormatOptions => ({ ...base, maximumLineLength: 30 });
+      const both = format(format(text, options(one)), options(two));
+      expect(format(both, options(one))).toBe(both);
+      expect(format(both, options(two))).toBe(both);
+    }
+  });
+
+  it("checks that only commas before closing brackets are added (§12)", () => {
+    const before = read("module A\nlet x = f(a, b)\n");
+    expect(sameText(before, read("module A\nlet x = f(a, b,)\n"), true)).toBe(true);
+    expect(sameText(before, read("module A\nlet x = f(a, b,)\n"))).toBe(false);
+    expect(sameText(before, read("module A\nlet x = f(a,, b)\n"), true)).toBe(false);
+    expect(sameText(before, read("module A\nlet x = f(a, b),\n"), true)).toBe(false);
+  });
+});
+
 // -----------------------------------------------------------------------------
 // The standard library as a corpus (§12)
 
@@ -1471,6 +1859,7 @@ const settings: readonly FormatOptions[] = [
   { maximumLineLength: 100 },
   { maximumLineLength: 100, collapseExtraSpaces: true },
   { maximumLineLength: 72, collapseExtraSpaces: true },
+  { maximumLineLength: 72, leaveTrailingCommasAsWritten: true },
 ];
 
 const formattedLibrary = new Map<string, string>();
@@ -1492,7 +1881,9 @@ describe("The standard library (§12)", () => {
     const before = read(STDLIB_SOURCES[name]!);
     const text = libraryFormat(name, setting);
     const after = read(text);
-    expect(sameText(before, after)).toBe(true);
+    // Only the commas §14 adds, and none where Leave trailing commas as written is on.
+    expect(sameText(before, after, true)).toBe(true);
+    if (settings[setting]!.leaveTrailingCommasAsWritten === true) expect(sameText(before, after)).toBe(true);
     expect(sameTree(before, after)).toBe(true);
     expect(format(text, settings[setting])).toBe(text);
   });
@@ -1509,7 +1900,8 @@ describe("The standard library (§12)", () => {
     for (const grouping of groupings) expect(grouping).toEqual(groupings[0]);
   });
 
-  const pairs = library.flatMap(([name]) => ([[0, 4], [1, 2], [2, 4]] as const).map(([a, b]) => [name, a, b] as const));
+  const pairs = library.flatMap(([name]) =>
+    ([[0, 4], [1, 2], [2, 4], [4, 5], [5, 4]] as const).map(([a, b]) => [name, a, b] as const));
   it.each(pairs)("settings never fight over %s: %i then %i (§3.3)", (name, first, second) => {
     const both = format(libraryFormat(name, first), settings[second]);
     expect(format(both, settings[first])).toBe(both);
@@ -1517,9 +1909,14 @@ describe("The standard library (§12)", () => {
   });
 });
 
-/** The tokens a blank line comes before, by index: the same tokens under every setting. */
+/**
+ * The tokens a blank line comes before, by index: the same tokens under every
+ * setting. A trailing comma before a closing bracket is not counted, since
+ * §14 adds it under some settings and not others.
+ */
 function blankLineSites(text: string): number[] {
-  const tokens = read(text).lexed.tokens;
+  const tokens = read(text).lexed.tokens.filter((token, index, all) =>
+    token.kind !== "Comma" || !["RightParen", "RightBracket", "RightBrace", "Greater"].includes(all[index + 1]?.kind ?? ""));
   const sites: number[] = [];
   for (let index = 1; index < tokens.length; index += 1) {
     const gap = text.slice(tokens[index - 1]!.span.end.offset, tokens[index]!.span.start.offset);

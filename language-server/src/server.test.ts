@@ -1005,6 +1005,21 @@ describe("the Hexagon language server", () => {
       }
     });
 
+    test("adds a trailing comma in its edits unless the client leaves them as written", async () => {
+      let settings: unknown = {};
+      const hex = await harness({ "main.hex": MESSY }, { workspace: { configuration: true } });
+      hex.client.onRequest("workspace/configuration", () => [settings]);
+      const spread = ["module Main", "", "let total = add(", "    1,", "    2", ")", ""].join("\n");
+      try {
+        await open(hex, spread);
+        expect(apply(spread, await formatting(hex))).toBe(spread.replace("    2\n", "    2,\n"));
+        settings = { leaveTrailingCommasAsWritten: true };
+        expect(await formatting(hex)).toEqual([]);
+      } finally {
+        await hex.dispose();
+      }
+    });
+
     test("formats a selection's top-level items and nothing else", async () => {
       const hex = await harness({ "main.hex": MESSY });
       try {

@@ -81,7 +81,7 @@ honor Num<Rat> =
     add(left, right) =
         create(
             left.top * right.bottom + right.top * left.bottom,
-            left.bottom * right.bottom
+            left.bottom * right.bottom,
         )
     {-- `left` times `right`, always exact. -}
     multiply(left, right) =
@@ -94,7 +94,7 @@ honor Signed<Rat> =
     subtract(left, right) =
         create(
             left.top * right.bottom - right.top * left.bottom,
-            left.bottom * right.bottom
+            left.bottom * right.bottom,
         )
     {-- The fraction with its sign changed. -}
     negate(value) = Rat({ top = -value.top, bottom = value.bottom })
@@ -289,7 +289,7 @@ let alignedScale(numerator: BigInt, denominator: BigInt): Int =
 let roundedSignificand(
     numerator: BigInt,
     denominator: BigInt,
-    scale: Int
+    scale: Int,
 ): BigInt =
     let dividend = scaledTop(numerator, scale)
     let divisor = scaledBottom(denominator, scale)

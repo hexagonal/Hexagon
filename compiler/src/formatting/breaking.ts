@@ -5,10 +5,14 @@
  * new line's indentation by §5, as it would have written it had the author
  * broken the line there. Each break is kept only where the program parses to
  * the same tree afterwards (§9.3), so a structure that cannot be broken here
- * is left whole, and the next one tried.
+ * is left whole, and the next one tried. A line's length counts the trailing
+ * comma §14 would add after its last token whether or not it is written, so a
+ * line measures the same whatever Leave trailing commas as written says (§9.2);
+ * the commas themselves are added once the lines are broken.
  */
 
 import { differingItems, read, sameText, sameTree, scan, type Reading } from "./analysis.js";
+import { commaSites } from "./commas.js";
 import * as Spacing from "./spacing.js";
 import * as Whitespace from "./whitespace.js";
 import type * as Lexed from "../syntax/lexed/index.js";
@@ -257,10 +261,14 @@ interface LongLine {
   readonly last: number;
 }
 
-/** The lines whose code runs past the limit (§9.2): a trailing comment does not count. */
+/**
+ * The lines whose code runs past the limit (§9.2): a trailing comment does not
+ * count, and the trailing comma §14 would add does.
+ */
 function longLines(reading: Reading, limit: number): LongLine[] {
   const tokens = reading.lexed.tokens.filter(({ kind }) => kind !== "Eof");
   const text = reading.text;
+  const sites = commaSites(reading);
   const found: LongLine[] = [];
   let index = 0;
   while (index < tokens.length) {
@@ -270,7 +278,7 @@ function longLines(reading: Reading, limit: number): LongLine[] {
     const end = tokens[last]!.span.end;
     if (end.line === line) {
       const lineStart = end.offset - end.column;
-      const length = [...text.slice(lineStart, end.offset)].length;
+      const length = [...text.slice(lineStart, end.offset)].length + (sites.has(last) ? 1 : 0);
       if (length > limit) found.push({ first: index, last });
     }
     index = last + 1;
@@ -732,13 +740,25 @@ function isFilled(tokens: readonly Lexed.Token[], pairs: Pairs, open: number, cl
 /**
  * The breaks that fill items onto lines at `indent`: as many to a line as
  * fit, and at least one, each line breaking after a comma. `ends` is the last
- * token of each item, its comma included.
+ * token of each item, its comma included; a last item with no comma counts
+ * the one §14 adds once its closing bracket begins a line (§9.2).
  */
-function fill(measure: Measure, starts: readonly number[], ends: readonly number[], indent: number): number[] {
+function fill(
+  tokens: readonly Lexed.Token[],
+  measure: Measure,
+  starts: readonly number[],
+  ends: readonly number[],
+  indent: number,
+): number[] {
   const before: number[] = [];
-  let used = indent + measure.width(starts[0]!, ends[0]!);
+  const widthOf = (position: number): number => {
+    const end = ends[position]!;
+    const comma = position === starts.length - 1 && tokens[end]!.kind !== "Comma" ? 1 : 0;
+    return measure.width(starts[position]!, end) + comma;
+  };
+  let used = indent + widthOf(0);
   for (let position = 1; position < starts.length; position += 1) {
-    const width = measure.width(starts[position]!, ends[position]!);
+    const width = widthOf(position);
     if (used + 1 + width <= measure.limit) {
       used += 1 + width;
     } else {
@@ -784,7 +804,7 @@ function betweenItems(
   if (starts.length < 2) return [];
   if (ends.length < starts.length) ends.push(last);
   if (!isFilled(tokens, pairs, open, close)) return starts.slice(1);
-  return fill(measure, starts, ends, indentOn(firstOnLine(tokens, start)));
+  return fill(tokens, measure, starts, ends, indentOn(firstOnLine(tokens, start)));
 }
 
 /**
@@ -896,7 +916,7 @@ function shapeOf(shaping: Shaping, open: number, close: number): number[] {
     const { commas } = itemsOf(tokens, pairs, open, close);
     const ends = starts.map((start, position) => commas[position] ?? close - 1);
     const indent = indentOn(firstOnLine(tokens, open)) + Whitespace.LEVEL;
-    return [open + 1, ...fill(measure, starts, ends, indent), close];
+    return [open + 1, ...fill(tokens, measure, starts, ends, indent), close];
   }
   return oneToALine;
 }

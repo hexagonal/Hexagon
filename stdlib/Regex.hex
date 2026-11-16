@@ -204,7 +204,7 @@ let nextMatch(regex: Regex, text: String, state: Enumeration): Option((Match, En
                     answer :=
                         Some((
                             found,
-                            Enumeration({ start = resume, cursor = cursor, previousEnd = end })
+                            Enumeration({ start = resume, cursor = cursor, previousEnd = end }),
                         ))
                     searching := False
     answer

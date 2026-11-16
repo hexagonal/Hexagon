@@ -106,6 +106,8 @@ class Writer {
   #nextIndents: Map<number, number> | undefined;
   /** In a union declaration at top level, the line of its latest `|` alternative. */
   #alternativeLine = -1;
+  /** The `<` and `>` of a list, which open and close as brackets do (§5.2). */
+  readonly #angles: Spacing.Roles;
 
   constructor(reading: Scan, options: Options) {
     this.#reading = reading;
@@ -114,6 +116,17 @@ class Writer {
     this.#tokens = reading.lexed.tokens.filter(({ kind }) => kind !== "Eof");
     this.#lines = splitLines(this.#text);
     this.#elements = this.#readElements();
+    this.#angles = Spacing.roles(this.#tokens, new Set());
+  }
+
+  /** Whether a token opens brackets: `(`, `[`, `{`, or a list's `<`. */
+  #opens(index: number): boolean {
+    return openers.has(this.#tokens[index]!.kind) || this.#angles.binderOpen.has(index);
+  }
+
+  /** Whether a token closes brackets: `)`, `]`, `}`, or a list's `>`. */
+  #closes(index: number): boolean {
+    return closers.has(this.#tokens[index]!.kind) || this.#angles.binderClose.has(index);
   }
 
   write(): Outcome {
@@ -174,9 +187,9 @@ class Writer {
 
   #matchBrackets(): void {
     const stack: number[] = [];
-    this.#tokens.forEach((token, index) => {
-      if (openers.has(token.kind)) stack.push(index);
-      else if (closers.has(token.kind)) {
+    this.#tokens.forEach((_, index) => {
+      if (this.#opens(index)) stack.push(index);
+      else if (this.#closes(index)) {
         const open = stack.pop();
         if (open !== undefined) {
           this.#matching.set(open, index);
@@ -280,7 +293,7 @@ class Writer {
       }
       if (topItem !== -1) this.#items[topItem] = { first: this.#items[topItem]!.first, last: position };
 
-      if (openers.has(token.kind)) {
+      if (this.#opens(position)) {
         const close = this.#matching.get(position);
         const open = close !== undefined && this.#firstToken.get(this.#lineOf(close)) === close;
         if (open) this.#openPairs.add(position);
@@ -294,7 +307,7 @@ class Writer {
           itemStart: -1,
           newItem: true,
         });
-      } else if (closers.has(token.kind)) {
+      } else if (this.#closes(position)) {
         if (frames.at(-1)?.kind === "bracket") frames.pop();
       } else if (token.kind === "Comma" && frame.kind === "bracket") {
         frame.newItem = true;
@@ -322,7 +335,9 @@ class Writer {
     const parent = frames.at(-2);
 
     if (frames.length === 1 && frame.newItem) return 0;
-    if (closers.has(token.kind) && frame.kind === "bracket") return this.#lineIndent(frame.openerLine);
+    if (this.#closes(position) && frame.kind === "bracket") return this.#lineIndent(frame.openerLine);
+    // A comma between the items of brackets, as after an item that ends in a block.
+    if (token.kind === "Comma" && frame.kind === "bracket") return this.#lineIndent(frame.openerLine);
     if (frame.kind === "block" && frame.newItem) return frame.itemIndent;
     if (clauses.has(token.kind)) return this.#lineIndent(itemLine(frame));
     if (token.kind === "Then" && token.span.start.column === this.#authorColumn(itemLine(frame))) {
@@ -657,8 +672,7 @@ class Writer {
       if (rendered.kind !== "code") return false;
       const first = this.#firstToken.get(rendered.source);
       if (first === undefined) return false;
-      const kind = this.#tokens[first]!.kind;
-      return closers.has(kind) || clauses.has(kind);
+      return this.#closes(first) || clauses.has(this.#tokens[first]!.kind);
     };
     const endsOpening = (rendered: RenderedLine): boolean => {
       if (this.#opensBlock.has(rendered.source)) return true;
