@@ -77,8 +77,8 @@ describe("Indentation (§5)", () => {
       "        None => None",
       "",
       "let ready =",
-      "    configured and connected and",
-      "            notExpired(session)",
+      "    configured and connected",
+      "            and notExpired(session)",
       "",
       "let corners = [",
       "    { x = 0, y = 0 },",
@@ -96,6 +96,21 @@ describe("Indentation (§5)", () => {
       "",
       "let label = describe(firstName,",
       "        lastName)",
+    );
+    expect(format(text)).toBe(text);
+  });
+
+  it("leaves §5.3's example as it is", () => {
+    const text = lines(
+      "module Example",
+      "",
+      "export let clamp(reading: Option(Int),",
+      "        limit: Int): Int =",
+      "    match reading",
+      "        Some(n) when n > 0",
+      "                and n < limit =>",
+      "            n",
+      "        _ => 0",
     );
     expect(format(text)).toBe(text);
   });
