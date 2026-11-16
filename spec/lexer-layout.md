@@ -299,9 +299,9 @@ that a head holds, such as a `match` with its arms, is written in parentheses,
 where its block opens as in any bracket pair (§2.2):
 
 ```
-for x in (match source with
-        Left(xs) => xs
-        Right(ys) => ys) do
+for x in (match cached with
+        Some(xs) => xs
+        None => []) do
     visit(x)
 ```
 
