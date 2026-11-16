@@ -123,12 +123,15 @@ function attempt(
   // a block it holds stays deeper than the line that now owns it. A line in
   // the rest of several broken items moves for each. A conditional's breaks
   // leave its `if` where it is, so nothing after it moves; a value moved
-  // beneath its `=` takes its clauses (`else`, `catch`) with it.
+  // beneath its `=` that begins with `if` or `try` takes its clauses (`else`,
+  // `catch`) with it.
   const shifts = new Map<number, number>();
   for (const one of plans) {
     if (one.shape === "conditional") continue;
     const line = tokens[one.line]!.span.start.line;
-    for (const later of restOfItem(reading, lines, line, indentOf(line), one.shape === "value")) {
+    // A value that begins with `if` or `try` owns the clauses after it.
+    const owner = one.shape === "value" && ["If", "Try"].includes(tokens[one.before[0]!]!.kind);
+    for (const later of restOfItem(reading, lines, line, indentOf(line), owner)) {
       shifts.set(later, (shifts.get(later) ?? 0) + 2 * Whitespace.LEVEL);
     }
   }

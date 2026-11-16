@@ -679,6 +679,24 @@ describe("A line that is too long (§9)", () => {
     expect(format(text, { maximumLineLength: 20 })).toBe(text);
   });
 
+  it("moves a value's clauses beneath its `=` with it, and leaves a lambda's owner's clauses", () => {
+    expect(format(lines(
+      "module A",
+      "let f(c: Bool): Int =",
+      "    let x = if c then firstValue(alpha, beta)",
+      "    else 2",
+      "    x",
+    ), { maximumLineLength: 40 })).toBe(lines(
+      "module A",
+      "let f(c: Bool): Int =",
+      "    let x =",
+      "        if c then",
+      "            firstValue(alpha, beta)",
+      "        else 2",
+      "    x",
+    ));
+  });
+
   it("does not break a condition, which the layout pass would read as a block head", () => {
     const text = lines(
       "module A",
