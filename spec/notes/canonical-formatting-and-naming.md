@@ -190,25 +190,27 @@ the Book, the Playground's tutorials and the spec's own examples.
   exception (F5). (Canonical Layout §9.4, §9.5, §13)
 
   ```
-  let negative =
-      (numerator < 0 and denominator > 0)
-              or (numerator > 0 and denominator < 0)
+  let same =
+      left.negated == right.negated
+              and left.folded == right.folded
+              and Vector.length(left.items) == Vector.length(right.items)
   ```
 
 - **H5** An expression that fits on its line stays there, after its `=`
   or `=>`. One that runs on over further lines begins a line of its own,
   beneath its `=` or `=>` and one level in. Open brackets hold what they
-  contain: an expression whose further lines are only its open brackets'
-  contents and closing bracket stays on its line, as
+  contain, so an expression whose further lines are only its open
+  brackets' contents and closing bracket may stay on its line, as
   `let scriptNames: Map(String, String) = Map.fromVector([` does.
   (Canonical Layout §5.2, §13)
-- **H6** So a `match … with` always begins its own line, since its arms
-  are always a block beneath it. That holds wherever it stands: as a
-  binding's value, as the body of an arm or a lambda, after `try`, and
-  as a call's argument. `if` and `try` follow H5 as it stands: one that
-  fits on its line stays after its `=` or `=>`, and one that runs on
-  begins its own line. A conditional's shape is F3's, and a condition
-  carried on ends its last line with `then` (F5). (Canonical Layout §13)
+- **H6** A `match … with` always begins its own line, since its arms are
+  always a block beneath it. So it goes beneath a binding's `=` and an
+  arm's or a lambda's `=>` (H5), and it begins its own line after `try`
+  and as a call's argument too. `if` and `try` follow H5 as it stands:
+  one that fits on its line stays after its `=` or `=>`, and one that
+  runs on begins its own line. A conditional's shape is F3's, and a
+  condition carried on ends its last line with `then` (F5). (Canonical
+  Layout §13)
 
   ```
   export let first(values: Vector(a)): Option(a) =
@@ -222,7 +224,8 @@ the Book, the Playground's tutorials and the spec's own examples.
       if point == "{" then
           braceCount(text, position)
       else
-          simpleCount(point)
+          let width = simpleWidth(point)
+          Read((width, None, position + 1))
   ```
 
 - **H7** A head stays on the line where it stands: the bare `match` of a
