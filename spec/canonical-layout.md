@@ -320,7 +320,7 @@ with Collapse extra spaces on. With it off, `total  -  skipped` keeps its wider 
 - **A hole's own braces** take no space inside them (§7.1), as parentheses take none: `${total}`. They are not a record's braces. A record inside a hole is spaced as a record is anywhere, as in `${{ x = 1 }.x}`.
 - **A string inside a hole** has text and holes of its own, and this section applies to them at any depth.
 - **A comment inside a hole** is a comment. Its inside is never changed (§8.1), and the gap before a trailing comment is kept, never less than one space (§8.3).
-- **Only the gaps between a hole's tokens on one line change.** For every other rule a hole is part of its string, as it is to the layout pass (Lexer §6.1). A hole is never broken (§9.3), and no trailing comma is added inside one (§14). One the author wrote over several lines keeps its line breaks and blank lines, the indentation of each line that begins inside it, and any spaces at the end of a line inside it (§4, §5.4, §6.1). A `${` that ends its line and a `}` that begins one stay where they are.
+- **Only the gaps between a hole's tokens on one line change.** A hole is never broken (§9.3). A hole the author wrote over several lines is a named limit: it keeps its line breaks and blank lines, the indentation of each line that begins inside it and any spaces at the end of such a line, and it takes no trailing comma (§4, §5.4, §6.1, §14). The layout pass does not read a hole's lines (Lexer §6.1), so §5's levels, which follow blocks and items, give them none to take, and how they are laid out waits for a ruling of its own. A `${` that ends its line and a `}` that begins one stay where they are.
 
 ## 8. Comments
 
@@ -518,7 +518,7 @@ Both are legal. A line indented deeper than its item continues the item whatever
 25. **Removing a trailing comma**, from a one-line list or while Leave trailing commas as written is on. One setting would then remove what another adds, which fails §3.3's second test. A comma on a one-line list is the author's to keep or remove (§13).
 26. **A comma that ends a block**, so that a lambda whose body is beneath its `=>` could take its comma on the body's last line. The layout pass would have to close blocks at a comma, and a comma also separates the items of a `<…>` list, which the layout pass does not track as brackets (Lexer & Layout §2.2, §3.2), so it would close blocks that are still open. A list whose last item ends in a block takes no comma instead (§14).
 27. **Leaving an interpolation hole as written.** A hole holds code, and the spaces between its tokens are no part of the string's value, so spacing them changes nothing the program computes. Left as written, `${10 // 12 == 5 // 6}` would disagree with the same code written outside a string, `10//12 == 5//6`. Prettier spaces the code inside a JavaScript template literal's `${…}` in the same way, and keeps it on its line (§7.4).
-28. **A space inside a hole's braces**, as in `${ total }`, as a record's braces take one. A hole's braces enclose an expression, as parentheses do. Prettier writes a template literal's hole as `${total}` (§7.4).
+28. **A space inside a hole's braces**, as in `${ total }`, as a record's braces take one. A hole's braces enclose one expression, as parentheses do, and Hexagon writes parentheses tight. Swift's hole is a pair of parentheses, `\(total)`. Prettier spaces a JavaScript object's braces and writes a template literal's hole tight, side by side as `${{ x: 1 }.x}` (§7.4).
 
 ## 11. Edit notes to existing specs
 
