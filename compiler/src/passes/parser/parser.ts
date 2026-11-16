@@ -7581,7 +7581,8 @@ class Parser {
       // Inside an unfinished head no block opens (Lexer & Layout §2.4), so
       // the arms below run on as the head's own lines: one report, here, and
       // the head reads on to its closing word.
-      if (!this.#at("VOpen") && !withStops(outerStops, ...structuralEnds).has(this.#current().kind)) {
+      if (!this.#at("VOpen") && !this.#at("Catch") &&
+        !withStops(outerStops, ...structuralEnds).has(this.#current().kind)) {
         this.#errorAt(spanFrom(start.span, word.span),
           "a `match` and its arms inside another construct's head are written in parentheses: " +
             "`(match value with` … `)`");
