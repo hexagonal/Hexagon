@@ -1,6 +1,6 @@
 # Hexagon Spec: Canonical Layout
 
-**Status:** Decided (November 2026). The layout that Format document and Format selection write (#1561; the formatter's stages are gathered under #1567). Amended 2026-11-16 (#1573): a head, which ends with its closing word, may be broken, though never before that word; a loop's body goes beneath its `do` (§5.3, §7.1, §9.3, §9.4, §10, §11). Amended 2026-11-16 (#1586): brackets whose only item is bracketed open and close with it, a lambda that is a call's last argument, a record's last field or a binding's value keeps its head on its line, and brackets of literals are filled (§5.2, §9.4, §10). Amended 2026-11-16 (#1590): an assignment is laid out as a binding is, its value beneath its `:=` (§5.3, §9.4, §10, §11). Amended 2026-11-16 (#1594): a list whose closing bracket begins its line ends with a comma, which Format document adds unless the third option, Leave trailing commas as written, is on (§1, §3, §5, §9, §10–§14).
+**Status:** Decided (November 2026). The layout that Format document and Format selection write (#1561; the formatter's stages are gathered under #1567). Amended 2026-11-16 (#1573): a head, which ends with its closing word, may be broken, though never before that word; a loop's body goes beneath its `do` (§5.3, §7.1, §9.3, §9.4, §10, §11). Amended 2026-11-16 (#1586): brackets whose only item is bracketed open and close with it, a lambda that is a call's last argument, a record's last field or a binding's value keeps its head on its line, and brackets of literals are filled (§5.2, §9.4, §10). Amended 2026-11-16 (#1590): an assignment is laid out as a binding is, its value beneath its `:=` (§5.3, §9.4, §10, §11). Amended 2026-11-16 (#1594): a list whose closing bracket begins its line ends with a comma, which Format document adds unless the third option, Leave trailing commas as written, is on, and a `<…>` list the author spreads opens as other brackets do (§1, §3, §5, §7, §9, §10–§14).
 **Scope:** What the two formatting commands change and what they refuse (§1–§2); the three options and the test any later option must pass (§3); line ends (§4), indentation (§5), blank lines (§6) and spacing within a line (§7); comments (§8); how a line longer than the Maximum line length is broken (§9); what the formatter leaves to the author (§13); the trailing comma it adds (§14).
 **Not in scope:** Changes to tokens other than adding a trailing comma (§14): removing or adding parentheses, a leading `|` or a degenerate `x: _`, and moving imports. Each waits for a ruling of its own (§13). House style, which is how the standard library and the Book are written where the formatter leaves the author free: `notes/canonical-formatting-and-naming.md`. The editors' commands and settings screens, which are the implementation's (§12).
 **Companions:** Lexer & Layout (blocks, the block-head inventory §2.1, the continuation tokens §2.3, heads and their closing words §2.4, lists and the trailing comma §7), Lexer §2 (line ends, tabs) and §7 (trivia), Comments §2–§4, Doc Comments §3–§4, Operators §3 and §11.3 (the conditional's shapes), Method Syntax §2.1 (the chain's shape), Unions §2, Modules §2–§3 (headers, closers, imports), Ascription §2, `notes/canonical-formatting-and-naming.md` (house style).
@@ -65,7 +65,7 @@ These are the first three options, not necessarily the last. Any option must pas
 1. **It starts off.** With the option at its default, the formatter writes exactly what it would write without the option.
 2. **Two settings never undo each other.** Take any two settings, A and B. Once a document has been formatted under A and then under B, formatting it again under either A or B changes nothing.
 
-All three pass. Maximum line length only adds line breaks, and no setting removes one. Collapse extra spaces only removes spaces, and no setting adds them back. Leave trailing commas as written only keeps the formatter from adding commas, and no setting removes one.
+All three pass. Maximum line length only adds line breaks, and no setting removes one. Collapse extra spaces only removes spaces, and no setting adds them back. Leave trailing commas as written only keeps the formatter from adding commas, and no setting removes one. A line's length counts a comma §14 calls for whether or not it is written (§9.2), so adding the comma never carries a line past a limit it was formatted to.
 
 An option where one setting adds what another removes fails the second test. Two developers with different settings would rewrite the same lines back and forth on every save. Padding inside record braces is the example: it is a rule (§7.1), not an option.
 
@@ -147,7 +147,7 @@ let selected = numbers
 
 ### 5.2 Open brackets
 
-A pair of `()`, `[]` or `{}` is **open** when its closing bracket begins a line. The items between open brackets sit one level in from the line holding the opening bracket, and the closing bracket sits at that line's own indentation. An item begins on a line of its own when the opening bracket or a comma ends the line before it.
+A pair of `()`, `[]` or `{}`, or the `<` and `>` of a list such as a binder list (Lexer & Layout §7), is **open** when its closing bracket begins a line. The items between open brackets sit one level in from the line holding the opening bracket, and the closing bracket sits at that line's own indentation. An item begins on a line of its own when the opening bracket or a comma ends the line before it.
 
 When the closing bracket does not begin a line, the lines between the brackets are the rest of a line carried on, two levels in:
 
@@ -155,6 +155,8 @@ When the closing bracket does not begin a line, the lines between the brackets a
 let label = describe(firstName,
         lastName)
 ```
+
+The formatter never opens a `<…>` list itself (§9.4); one is open only where the author has opened it. Its `>` may begin a line at its item's column, since `>` is a continuation token (Lexer & Layout §2.3).
 
 Brackets whose only item is an open pair, written straight after the opening bracket and straight before the closing one, are not carried on. The lines between them are the inner pair's: its items sit one level in from the line holding both opening brackets, and the outer closing bracket follows the inner one on its line (§9.4 rule 2):
 
@@ -261,7 +263,7 @@ These rules govern the gaps between two code tokens on the same line. They do no
 | Either side of `=`, `:=`, `=>`, `\|`, `\|>` and a type arrow (`->`, `->^`, `->~`, `->!`, `>->` and the other follows arrows) | one space | `let n = 1`, `x => x`, `a ->! b` |
 | `..` and `//` | no space either side | `1..n - 1`, `1//2`, `n//d` |
 | `.` | no space either side | `xs.length`, `Vector.at(xs, 1)` |
-| Before `,` or `;`; after `,` or `;` | none before; one after | `f(a, b)`, `let x = 1; let y = 2` |
+| Before `,` or `;`; after `,` or `;` | none before; one after, except none between a comma and `)`, `]` or `>` | `f(a, b)`, `let x = 1; let y = 2`, `f(a, b,)` |
 | Before `:`; after `:` | none before; one after | `width: Float`, `(e: Type)`, `x: _: Num`, `<a: Num>` |
 | Inside `{` and `}` with something between them | one space | `{ top = 1, bottom = 2 }` |
 | `{}` | no space | `{}` |
@@ -321,7 +323,7 @@ Lines are broken only when Maximum line length is set to a number, and only a li
 
 ### 9.2 The length of a line
 
-A line's length is the number of Unicode code points on it, from its first character to its last. Its indentation counts; its line end does not. A trailing comment and the gap before it do not count. A trailing comma the formatter adds counts, as one the author wrote does (§14).
+A line's length is the number of Unicode code points on it, from its first character to its last. Its indentation counts; its line end does not. A trailing comment and the gap before it do not count. Where §14 calls for a trailing comma, the line counts it whether or not it is written, so a line measures the same under either setting of Leave trailing commas as written (§3.4).
 
 Code points are the measure in version one. The measure may later become display width, so that a wide character counts as two. That change is safe: since the formatter never joins lines, a document formatted under one measure is at most broken further under the other.
 
@@ -339,7 +341,7 @@ A line with nothing left to break stays long, and the formatter does not report 
 The formatter breaks the **outermost** structure of a too-long line first, and stops as soon as every line fits. It uses the contents shape wherever there is something to open, and carries a line on at two levels only where nothing can be opened. The brackets it opens take a trailing comma where §14 calls for one. Each kind of structure breaks in one shape, except that a lambda or a bare `match` that is a binding's value, a call's last argument or a record's last field first tries keeping its head on its line (rules 1 and 2):
 
 1. **A binding, declaration, assignment, arm or lambda.** The value goes beneath its `=`, or the body beneath its `=>`, one level in (§5). An assignment is laid out as a binding is: what §9.4 says of a binding and its `=` holds for an assignment and its `:=`. A value that is a lambda or a bare `match` stays on its `=`'s line, and only the lambda's body goes beneath its `=>`, where a bare `match`'s arms always are. Only where that line, ending with the `=>` or with `match`, is still too long does the value go beneath the `=` instead, and its body is then moved beneath the `=>` only if that line is too long in turn. Any other value ends the same whether the author began it on the header line or beneath it. A header that is itself too long, before its `=`, opens its parameter brackets. A lambda that is a call's last argument, or the value of a record's last field, keeps its head on the line where the brackets open (rule 2). Any other lambda passed as an argument sits inside the call's brackets, which are outside it and so open first.
-2. **Brackets.** Their contents go one item per line, and the closing bracket takes a line of its own at the indentation of the opening bracket's line. Three kinds of brackets take a shape of their own:
+2. **Brackets.** Their contents go one item per line, and the closing bracket takes a line of its own at the indentation of the opening bracket's line. A `<…>` list is never opened here (§5.2). Three kinds of brackets take a shape of their own:
     - **Brackets whose only item is a vector literal, a record or a tuple** open and close with it, as in `Map.fromVector([` … `])` and `Regex({` … `})`. The opening brackets share a line, and so do the closing brackets. The inner brackets' contents break as this rule says for them, one level in (§5.2).
     - **A call whose last argument is a lambda or a bare `match`**, or a record whose last field's value is one, keeps everything before the lambda's body on the line where its brackets open. Only the body goes beneath the `=>`, one level in (§5.3), where a bare `match`'s arms always are, and the closing bracket takes a line of its own. Only where that line, ending with the `=>` or with `match`, is still too long do the brackets open one item per line instead, with the lambda's head, or `match`, beginning the last of them, and the body is then moved beneath the `=>` only if that line is too long in turn (rule 1). A record that is a call's only item takes this shape inside the first shape, as in `Seq({ pull = () =>`.
     - **Brackets whose items are all literals, or tuples of literals,** open as other brackets do, and their contents are filled: each line holds as many items as fit, and at least one, and a line breaks only after a comma. A literal here is a numeric literal (Lexer §5), with or without a leading `-`, or a string with no interpolation hole that ends on the line where it begins. A tuple counts only when every item in it is a literal, so a tuple of tuples does not, nor does `()`. Literals and such tuples may be mixed.
@@ -489,7 +491,7 @@ Both are legal. A line indented deeper than its item continues the item whatever
 23. **Lists spread over lines without a trailing comma**, as in the ML family: Elm and Haskell allow none, and put the comma at the start of each line instead. With a comma after every item, adding, removing or moving an item changes only its own lines. Go requires the comma in such a list, and Prettier, rustfmt and Black add it (§14).
 24. **Adding the comma only to brackets the formatter opens itself.** A formatted document would then hold both spellings, depending on who broke each line (§14).
 25. **Removing a trailing comma**, from a one-line list or while Leave trailing commas as written is on. One setting would then remove what another adds, which fails §3.3's second test. A comma on a one-line list is the author's to keep or remove (§13).
-26. **A comma that ends a block**, so that a lambda whose body is beneath its `=>` could take its comma on the body's last line. The layout pass would have to close blocks at a comma, and a comma also separates the items of a `<…>` list, which the layout pass does not track as brackets (Lexer & Layout §3.2), so it would close blocks that are still open. A list whose last item ends in a block takes no comma instead (§14).
+26. **A comma that ends a block**, so that a lambda whose body is beneath its `=>` could take its comma on the body's last line. The layout pass would have to close blocks at a comma, and a comma also separates the items of a `<…>` list, which the layout pass does not track as brackets (Lexer & Layout §2.2, §3.2), so it would close blocks that are still open. A list whose last item ends in a block takes no comma instead (§14).
 
 ## 11. Edit notes to existing specs
 
@@ -558,7 +560,16 @@ let primes = [
 ]
 ```
 
-The comma goes directly after the last item, ahead of any comment on its line. A list that already ends with a comma gains no second one. The comma is the one token the formatter adds, and it changes no tree (§1). A line's length is measured with it (§9.2).
+A `<…>` list takes it too, where the author has opened one (§5.2):
+
+```
+export let same<
+    a: Eq,
+    b: Eq,
+>(left: (a, b), right: (a, b)): Bool = left == right
+```
+
+The comma goes directly after the last item, ahead of any comment on its line. A list that already ends with a comma gains no second one. The comma is the one token the formatter adds, and it changes no tree (§1). A line's length counts it (§9.2). Format selection adds the commas that Format document adds within its region (§2.2).
 
 No comma is added in three cases:
 
@@ -581,6 +592,6 @@ No comma is added in three cases:
         )
     ```
 
-- **Inside parentheses that group one item**, such as one expression written on a line of its own between `(` and `)`. With a comma they would hold a one-item tuple, which Hexagon does not have (Lexer & Layout §7).
+- **Inside brackets that hold no list**: parentheses that group one item, such as one expression written on a line of its own between `(` and `)`, and the brackets of an index or a slice. With a comma the parentheses would hold a one-item tuple, which Hexagon does not have, and an index holds one expression (Lexer & Layout §7).
 
 The formatter never removes a trailing comma. One on a list whose closing bracket does not begin a line stays, and so does every one while Leave trailing commas as written is on (§13).

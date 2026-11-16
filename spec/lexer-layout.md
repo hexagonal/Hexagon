@@ -407,7 +407,8 @@ These are binding on the implementation, same status as the Functions spec's dia
 | A line beginning with an expression-continuation token (§2.3) that dedents past the item it would continue | append hint: "a leading operator continues the previous item only at that item's own indentation; indent it to the item's column, or end the previous line with the operator." (The bare "expected a newline or `;` between block items" is loud but unhelpful here.) |
 | A comma after the one item of parentheses that group it (§7): `(x,)` as an expression, pattern or type | "Hexagon has no one-item tuple; remove this comma" |
 | The same in a function type, `(Int,) -> Int` (§7) | "a function of one parameter is written `Int -> Int`; remove this comma" |
-| A comma ending the last line of a block that a list's closing bracket ends, as after a lambda's body beneath its `=>` (§7) | "this comma would be part of the block that `=>` opened; a list whose last item ends in a block takes no trailing comma, so remove it", naming the head that opened the block: `=>`, `with`, `then` or `else` |
+| A comma ending the last line of a block that a list's closing bracket then ends, as after a lambda's body beneath its `=>` (§7) | "this comma would be inside the block that `=>` opened, where no comma can stand; remove it, since the closing bracket ends the block and the list together", naming the head that opened the innermost block |
+| A comma with no item before it: `f(,)`, `[,]`, `[1,, 2]` (§7) | "a comma follows an item; remove this comma" |
 
 ## 6. Decisions log
 
@@ -451,9 +452,9 @@ The brackets of an index or a slice, as in `xs[i]`, hold one expression, not a l
 Two limits apply:
 
 - **A comma follows an item.** Brackets with nothing between them take no comma, so `f(,)` and `[,]` are refused, and so are two commas in a row.
-- **Parentheses that group one item take no comma.** Wherever `(x)` stands for the expression, pattern or type `x`, `(x,)` is refused, since Hexagon has no one-item tuple (Products §2.1). So is `(Int,) -> Int`, since a function of one parameter is written `Int -> Int` and has no one-item parameter-list type (Functions §5.1). Brackets that hold a list of one keep the comma: `f(x,)`, `(x,) => x`, `Option(Int,)` and the pattern `Some(x,)`. Each report is §5's.
+- **Parentheses that group one item take no comma.** Wherever `(x)` stands for the expression, pattern or type `x`, `(x,)` is refused, since Hexagon has no one-item tuple (Products §2.1). So is `(Int,) -> Int`, since a function of one parameter is written `Int -> Int` and has no one-item parameter-list type (Functions §5.1). Brackets that hold a list of one keep the comma: `f(x,)`, `(x,) => x`, `Option(Int,)`, `derives (Eq,)`, `<a: (Num,)>`, the pattern `Some(x,)`, and a suffix form's one component, `(n,)id`, whose parentheses are the component list's (Pattern Declarations §3.1). Each report is §5's.
 
-**A comma ends no block.** A line break inside brackets is continuation (§2.2), but a block opened inside them, such as a lambda's body beneath its `=>` or a `match`'s arms, ends only at a line that begins at a shallower column or at the closing bracket that ends its group (§2.2). A comma at the end of the block's last line is read inside the block, where no comma can stand. So a list whose last item ends in a block ends without a trailing comma, and its closing bracket ends the block and the list together:
+**A comma ends no block.** A line break inside brackets is continuation (§2.2), but a block opened inside them, such as a lambda's body beneath its `=>` or a `match`'s arms, ends only at a line that begins at a shallower column or at the closing bracket that ends its group (§2.2). A comma at the end of the block's last line is read inside the block, where no comma can stand. So an item that ends in a block can be followed by its comma only on a later line, which the comma begins, at a column shallower than the block's (§2.3). That is legal but not canonical: a list whose last item ends in a block is written without a trailing comma, and its closing bracket ends the block and the list together (Canonical Layout §14):
 
 ```
 let total =
