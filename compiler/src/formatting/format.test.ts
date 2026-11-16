@@ -697,7 +697,7 @@ describe("A line that is too long (§9)", () => {
     ));
   });
 
-  it("does not break a condition, which the layout pass would read as a block head", () => {
+  it("breaks a head only once nothing else on its line is left, and ends it with its closing word (§9.4 rule 7)", () => {
     const text = lines(
       "module A",
       "let f(a: Bool, b: Bool): Int =",
@@ -712,10 +712,63 @@ describe("A line that is too long (§9)", () => {
       "    a: Bool,",
       "    b: Bool",
       "): Int =",
-      "    if a and b and a and b and a then",
+      "    if a",
+      "            and b",
+      "            and a",
+      "            and b",
+      "            and a then",
       "        1",
       "    else",
       "        2",
+    ));
+  });
+
+  it("writes §9.4's head example at a limit of 40", () => {
+    expect(format(lines(
+      "module A",
+      "let run(job: Job): Unit =",
+      "    var remaining = 10",
+      "    while remaining > 0 and not cancelled(job) do",
+      "        remaining := step(remaining)",
+    ), { maximumLineLength: 40 })).toBe(lines(
+      "module A",
+      "let run(job: Job): Unit =",
+      "    var remaining = 10",
+      "    while remaining > 0",
+      "            and not cancelled(job) do",
+      "        remaining := step(remaining)",
+    ));
+  });
+
+  it("puts a loop's body beneath its `do` before it breaks the head (§9.4 rule 6)", () => {
+    expect(format(lines(
+      "module A",
+      "let run(items: Vector(Int)): Unit =",
+      "    for item in items do print(describe(item))",
+    ), { maximumLineLength: 30 })).toBe(lines(
+      "module A",
+      "let run(",
+      "    items: Vector(Int)",
+      "): Unit =",
+      "    for item in items do",
+      "        print(describe(item))",
+    ));
+  });
+
+  it("opens a `match` head's brackets and keeps its `with` at the end", () => {
+    expect(format(lines(
+      "module A",
+      "let pick(a: Int, b: Int): Int =",
+      "    match compare(firstArgument, secondArgument) with",
+      "        _ => 0",
+    ), { maximumLineLength: 40 })).toBe(lines(
+      "module A",
+      "let pick(a: Int, b: Int): Int =",
+      "    match compare(",
+      "        firstArgument,",
+      "        secondArgument",
+      "    ) with",
+      "        _ => 0",
     ));
   });
 });

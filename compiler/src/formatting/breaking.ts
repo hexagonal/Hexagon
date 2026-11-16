@@ -127,7 +127,7 @@ function attempt(
   // `catch`) with it.
   const shifts = new Map<number, number>();
   for (const one of plans) {
-    if (one.shape === "conditional") continue;
+    if (one.shape === "conditional" || one.shape === "loop") continue;
     const line = tokens[one.line]!.span.start.line;
     // A value that begins with `if` or `try` owns the clauses after it.
     const owner = one.shape === "value" && ["If", "Try"].includes(tokens[one.before[0]!]!.kind);
@@ -302,18 +302,34 @@ function plan(reading: Reading, line: LongLine, failed: ReadonlySet<string>): Pl
   const candidates: { readonly shape: string; readonly before: () => number[] }[] = [];
 
   // 1. A binding, declaration, arm or lambda: the value beneath its `=` or `=>`.
+  // A binding's `=`, an arm's `=>` or an assignment's `:=` that comes after a
+  // head keyword is inside that construct's branch, not the line's own.
+  const firstHead = range(start).find((index) => atTop(index) && headKeywords.has(tokens[index]!.kind));
+  const before = (index: number): boolean => firstHead === undefined || index < firstHead;
   const head = range(start).find((index) =>
-    atTop(index) && (tokens[index]!.kind === "Equal" || tokens[index]!.kind === "FatArrow"));
-  const assign = range(start).find((index) => atTop(index) && tokens[index]!.kind === "Assign");
+    atTop(index) && before(index) && (tokens[index]!.kind === "Equal" || tokens[index]!.kind === "FatArrow"));
+  const assign = range(start).find((index) => atTop(index) && before(index) && tokens[index]!.kind === "Assign");
   if (head !== undefined && head < line.last) {
     candidates.push({ shape: "value", before: () => [head + 1] });
   }
   const valueStart = head !== undefined ? head + 1 : assign !== undefined ? assign + 1 : start;
   const value = range(valueStart).filter(atTop);
 
+  const heads = headsOn(tokens, start, line.last);
+  const blocked = insideHeads(heads, line.last);
   if (value.length > 0) {
     // 4. A conditional.
     candidates.push({ shape: "conditional", before: () => conditional(tokens, value, line.last) });
+    // 6. A loop: its body beneath its `do`.
+    candidates.push({
+      shape: "loop",
+      before: () => heads
+        .filter(({ keyword, closer }) =>
+          closer !== undefined && closer < line.last && atTop(keyword) &&
+          (tokens[keyword]!.kind === "While" || tokens[keyword]!.kind === "For"))
+        .slice(0, 1)
+        .map(({ closer }) => closer! + 1),
+    });
     // 3. A chain.
     candidates.push({ shape: "chain", before: () => chain(tokens, roles, value) });
     // 5. An operator.
@@ -322,15 +338,37 @@ function plan(reading: Reading, line: LongLine, failed: ReadonlySet<string>): Pl
   // 2. Brackets: the first pair on the line with something between it, or, on
   // a header whose value is already beneath it, the header's.
   const bracketsFrom = value.length > 0 ? valueStart : start;
-  const blocked = heads(tokens, start, line.last);
-  // The first pair outside a head (§9.3).
+  // The first pair outside a head.
   const pairs = range(bracketsFrom).filter((index) => !blocked.has(index));
   candidates.push({ shape: "brackets", before: () => brackets(tokens, pairs, depth, line.last) });
+
+  // 7. A head, once nothing else on its line is left to break: its own
+  // expression breaks as any does, and its closing word ends its last line.
+  const outer = heads[0];
+  const own: number[] = [];
+  if (outer !== undefined) {
+    for (let index = outer.keyword + 1; index < (outer.closer ?? line.last + 1); index += 1) {
+      if (depth[index] === depth[outer.keyword]) own.push(index);
+    }
+  }
+  const inHead = (found: number[]): number[] => found.filter((index) => index !== outer?.closer);
+  if (own.length > 0) {
+    const top = depth[outer!.keyword]!;
+    candidates.push({ shape: "head chain", before: () => inHead(chain(tokens, roles, own)) });
+    candidates.push({ shape: "head operator", before: () => inHead(operator(tokens, roles, own, line.last)) });
+    candidates.push({
+      shape: "head brackets",
+      before: () => inHead(brackets(tokens, own, depth, line.last, top)),
+    });
+  }
 
   for (const candidate of candidates) {
     if (failed.has(`${line.first}:${candidate.shape}`)) continue;
     const before = candidate.before().filter((index) => index > line.first && index <= line.last);
-    if (before.some((index) => blocked.has(index))) continue;
+    // A break inside a head is the head's own; none is ever made before a
+    // closing word (§9.3).
+    if (!candidate.shape.startsWith("head") && before.some((index) => blocked.has(index))) continue;
+    if (heads.some(({ closer }) => closer !== undefined && before.includes(closer))) continue;
     if (before.length === 0) continue;
     // A chain whose receiver begins its line keeps its links at its level.
     const level = candidate.shape === "chain" && valueStart === line.first ? new Set(before) : undefined;
@@ -349,31 +387,58 @@ function rolesOf(reading: Reading): Spacing.Roles {
   return roles;
 }
 
-/**
- * The tokens no line may begin with: those inside a head on the line (§9.3),
- * from an `if` to the `then` that ends its condition, or from `match`, `for`
- * or `while` to the end of the line. A head is never broken.
- */
-function heads(tokens: readonly Lexed.Token[], from: number, last: number): Set<number> {
-  const blocked = new Set<number>();
+/** A head on a line (Lexer & Layout §2.4): its keyword, and its closing word if the line holds it. */
+interface Head {
+  readonly keyword: number;
+  readonly closer: number | undefined;
+}
+
+const headKeywords = new Set(["If", "While", "For", "Match"]);
+
+function isCloser(tokens: readonly Lexed.Token[], keyword: number, index: number): boolean {
+  const token = tokens[index]!;
+  switch (tokens[keyword]!.kind) {
+    case "If":
+      return token.kind === "Then";
+    case "While":
+    case "For":
+      return token.kind === "Do";
+    default:
+      return token.kind === "NonUpperName" && token.text === "with";
+  }
+}
+
+/** The heads on a line, outermost first, each with its closing word where the line holds it. */
+function headsOn(tokens: readonly Lexed.Token[], from: number, last: number): Head[] {
+  const heads: Head[] = [];
+  const open: number[] = [];
   for (let index = from; index <= last; index += 1) {
     const kind = tokens[index]!.kind;
-    if (kind === "If") {
-      let depth = 0;
-      for (let next = index + 1; next <= last; next += 1) {
-        const inner = tokens[next]!.kind;
-        blocked.add(next);
-        if (inner === "If") depth += 1;
-        else if (inner === "Then") {
-          if (depth === 0) break;
-          depth -= 1;
-        }
-      }
-    } else if (kind === "Match" || kind === "For" || kind === "While") {
-      for (let next = index + 1; next <= last; next += 1) blocked.add(next);
+    const innermost = open.at(-1);
+    if (innermost !== undefined && isCloser(tokens, innermost, index)) {
+      open.pop();
+      heads.push({ keyword: innermost, closer: index });
+    } else if (headKeywords.has(kind)) {
+      // The bare `match` of a match function holds nothing and needs no closing word.
+      if (kind === "Match" && index === last) continue;
+      open.push(index);
     }
   }
-  return blocked;
+  for (const keyword of open) heads.push({ keyword, closer: undefined });
+  return heads.sort((left, right) => left.keyword - right.keyword);
+}
+
+/**
+ * The tokens inside the heads on a line, from just after each keyword to its
+ * closing word or the end of the line. A break there is a head's own (§9.4
+ * rule 7), made only once nothing else on the line is left to break.
+ */
+function insideHeads(heads: readonly Head[], last: number): Set<number> {
+  const inside = new Set<number>();
+  for (const { keyword, closer } of heads) {
+    for (let index = keyword + 1; index <= (closer ?? last); index += 1) inside.add(index);
+  }
+  return inside;
 }
 
 /** §9.4 rule 4: `then` ends its line, each branch on its own, `else` beneath `if`. */
@@ -491,9 +556,10 @@ function brackets(
   candidates: readonly number[],
   depth: readonly number[],
   last: number,
+  top = 0,
 ): number[] {
   for (const open of candidates) {
-    if (depth[open] !== 0 || !openers.has(tokens[open]!.kind)) continue;
+    if (depth[open] !== top || !openers.has(tokens[open]!.kind)) continue;
     if (closers.has(tokens[open + 1]?.kind ?? "")) continue;
     // Its closer, on this line.
     let level = 0;
