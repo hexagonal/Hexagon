@@ -1,6 +1,6 @@
 # Hexagon Spec: Canonical Layout
 
-**Status:** Decided (November 2026). The layout that Format document and Format selection write (#1561; the formatter's stages are gathered under #1567). Amended 2026-11-16 (#1573): a head, which ends with its closing word, may be broken, though never before that word; a loop's body goes beneath its `do` (§5.3, §7.1, §9.3, §9.4, §10, §11). Amended 2026-11-16 (#1586): brackets whose only item is bracketed open and close with it, a lambda that is a call's last argument, a record's last field or a binding's value keeps its head on its line, and brackets of literals are filled (§5.2, §9.4, §10). Amended 2026-11-16 (#1590): an assignment is laid out as a binding is, its value beneath its `:=` (§5.3, §9.4, §10, §11). Amended 2026-11-16 (#1594): a list whose closing bracket begins its line ends with a comma, which Format document adds unless the third option, Leave trailing commas as written, is on, and a `<…>` list the author spreads opens as other brackets do (§1, §3, §5, §7, §9, §10–§14). Amended 2026-11-17 (#1598): the code inside a string's interpolation holes is spaced as code is anywhere, while a string's text is never changed and a hole is never broken (§1, §7, §9.3, §10, §12, §13).
+**Status:** Decided (November 2026). The layout that Format document and Format selection write (#1561; the formatter's stages are gathered under #1567). Amended 2026-11-16 (#1573): a head, which ends with its closing word, may be broken, though never before that word; a loop's body goes beneath its `do` (§5.3, §7.1, §9.3, §9.4, §10, §11). Amended 2026-11-16 (#1586): brackets whose only item is bracketed open and close with it, a lambda that is a call's last argument, a record's last field or a binding's value keeps its head on its line, and brackets of literals are filled (§5.2, §9.4, §10). Amended 2026-11-16 (#1590): an assignment is laid out as a binding is, its value beneath its `:=` (§5.3, §9.4, §10, §11). Amended 2026-11-16 (#1594): a list whose closing bracket begins its line ends with a comma, which Format document adds unless the third option, Leave trailing commas as written, is on, and a `<…>` list the author spreads opens as other brackets do (§1, §3, §5, §7, §9, §10–§14). Amended 2026-11-17 (#1598): the code inside a string's interpolation holes is spaced as code is anywhere, while a string's text is never changed and a hole is never broken (§1, §4–§7, §9.3, §10, §12, §13).
 **Scope:** What the two formatting commands change and what they refuse (§1–§2); the three options and the test any later option must pass (§3); line ends (§4), indentation (§5), blank lines (§6) and spacing within a line (§7); comments (§8); how a line longer than the Maximum line length is broken (§9); what the formatter leaves to the author (§13); the trailing comma it adds (§14).
 **Not in scope:** Changes to tokens other than adding a trailing comma (§14): removing or adding parentheses, a leading `|` or a degenerate `x: _`, and moving imports. Each waits for a ruling of its own (§13). House style, which is how the standard library and the Book are written where the formatter leaves the author free: `notes/canonical-formatting-and-naming.md`. The editors' commands and settings screens, which are the implementation's (§12).
 **Companions:** Lexer & Layout (blocks, the block-head inventory §2.1, the continuation tokens §2.3, heads and their closing words §2.4, lists and the trailing comma §7), Lexer §2 (line ends, tabs) and §7 (trivia), Comments §2–§4, Doc Comments §3–§4, Operators §3 and §11.3 (the conditional's shapes), Method Syntax §2.1 (the chain's shape), Unions §2, Modules §2–§3 (headers, closers, imports), Ascription §2, `notes/canonical-formatting-and-naming.md` (house style).
@@ -81,7 +81,7 @@ Either way, it removes none: a comma the author wrote stays where it is.
 ## 4. Line ends
 
 - Every line ends with a line feed. A carriage return followed by a line feed, or a lone carriage return, becomes a line feed. Lexer §2.1 makes all three the same line boundary, and inside a multiline string each is the same `\n`, so no value changes.
-- No line ends in spaces or tabs outside a string or comment. Whitespace after the last code on a line is removed. Whitespace inside a multiline string is content, and whitespace at the end of a comment is the comment's (§8.1); both stay.
+- No line ends in spaces or tabs outside a string or comment. Whitespace after the last code on a line is removed. Whitespace inside a multiline string is content, and whitespace at the end of a comment is the comment's (§8.1); both stay, as does whitespace at the end of a line inside an interpolation hole (§7.4).
 - A line holding only spaces or tabs becomes empty.
 - The document ends with exactly one line feed after its last line. A document with no code and no comments becomes empty.
 - A byte-order mark at the start of the document stays as it is (Lexer §2.1).
@@ -195,7 +195,7 @@ while remaining > 0
 
 ### 5.4 Lines the rows do not move, and what the rows keep
 
-- **A line that begins inside a multiline string** is the string's content and keeps its indentation.
+- **A line that begins inside a multiline string** keeps its indentation, whether it begins in the string's text, which is content, or in an interpolation hole (§7.4).
 - **A line that begins inside a block comment** moves with its comment (§8.2).
 - **A comment that begins its line** is placed by §8.2.
 
@@ -212,7 +212,7 @@ The formatter keeps the blank lines the author wrote, with a run of them capped 
 - after a line that ends with the opening bracket of an open pair, before its first item;
 - before a closing bracket that begins its line, and before `else` or `catch`.
 
-Blank lines inside a string or a comment are content, and are never touched.
+Blank lines inside a string or a comment are never touched. In a string's text and in a comment they are content, and an interpolation hole keeps its lines as written (§7.4).
 
 ### 6.2 Blank lines the formatter adds
 
@@ -266,6 +266,7 @@ These rules govern the gaps between two code tokens on the same line. They do no
 | `.` | no space either side | `xs.length`, `Vector.at(xs, 1)` |
 | Before `,` or `;`; after `,` or `;` | none before; one after, except none between a comma and `)`, `]` or a `>` that closes a list | `f(a, b)`, `let x = 1; let y = 2`, `f(a, b,)` |
 | Before `:`; after `:` | none before; one after | `width: Float`, `(e: Type)`, `x: _: Num`, `<a: Num>` |
+| Inside an interpolation hole's `${` and the `}` that closes it | none | `"${total}"`, `"${{ x = 1 }.x}"` |
 | Inside `{` and `}` with something between them | one space | `{ top = 1, bottom = 2 }` |
 | `{}` | no space | `{}` |
 | Inside `(` `)`, `[` `]` and `<` `>` | none | `f(x)`, `[1, 2]`, `Pow<a: Num>` |
@@ -300,7 +301,7 @@ A tab between code tokens becomes spaces (Lexer §2.2). Each tab advances to the
 
 ### 7.4 Inside a string
 
-A string's **text** is everything between its quotes apart from its interpolation holes. The text is never changed: its spaces, tabs and line breaks are part of the string's value. A **hole**, from its `${` to the `}` that closes it, holds code (Lexer §6.1). The gaps between its tokens on one line follow §7.1–§7.3, as gaps in code do anywhere, under either setting of Collapse extra spaces (§3.2). With Collapse extra spaces on,
+A string's **text** is everything between its quotes apart from its interpolation holes. The text is never changed: its spaces, tabs and line breaks are part of the string's value. A **hole**, from its `${` to the `}` that closes it, holds code (Lexer §6.1). The gaps between its tokens on one line follow §7.1–§7.3, as gaps in code do anywhere, under either setting of Collapse extra spaces (§3.2). For example,
 
 ```
 Debug.log("Does 10/12 = 5/6? ${10 // 12 == 5 // 6}")
@@ -314,9 +315,12 @@ Debug.log("Does 10/12 = 5/6? ${10//12 == 5//6}")
 let label = "${count + 1} of ${total - skipped}"
 ```
 
-- **A hole's own braces** take no space inside them, as parentheses take none: `${total}`. §7.1's row for `{` and `}` is for a record's braces, not a hole's. A record inside a hole is spaced as a record is anywhere, as in `${{ x = 1 }.x}`.
+with Collapse extra spaces on. With it off, `total  -  skipped` keeps its wider gaps, and every other change is the same.
+
+- **A hole's own braces** take no space inside them (§7.1), as parentheses take none: `${total}`. They are not a record's braces. A record inside a hole is spaced as a record is anywhere, as in `${{ x = 1 }.x}`.
 - **A string inside a hole** has text and holes of its own, and this section applies to them at any depth.
-- **Only the gaps between a hole's tokens on one line change.** For every other rule a hole is part of its string, as it is to the layout pass (Lexer §6.1). A hole is never broken (§9.3), and no trailing comma is added inside one (§14). One the author wrote over several lines keeps its line breaks and blank lines, the indentation of each line that begins inside it, and any spaces at the end of a line inside it (§4, §5.4, §6.1).
+- **A comment inside a hole** is a comment. Its inside is never changed (§8.1), and the gap before a trailing comment is kept, never less than one space (§8.3).
+- **Only the gaps between a hole's tokens on one line change.** For every other rule a hole is part of its string, as it is to the layout pass (Lexer §6.1). A hole is never broken (§9.3), and no trailing comma is added inside one (§14). One the author wrote over several lines keeps its line breaks and blank lines, the indentation of each line that begins inside it, and any spaces at the end of a line inside it (§4, §5.4, §6.1). A `${` that ends its line and a `}` that begins one stay where they are.
 
 ## 8. Comments
 
@@ -565,7 +569,7 @@ The formatter deliberately leaves these choices to the author. The house style f
 - **The tokens:** parentheses, a leading `|` on a union's first alternative, `;` or a new line, a degenerate `x: _`, the fused `fun f(…) = …` or a `fun` block, and the order and place of imports. Each token-level rule that other chapters name for "the formatter" waits for a ruling of its own. Until then, the canonical spelling is the author's to write.
 - **A trailing comma that §14 does not add**: one on a list whose closing bracket does not begin a line, such as a one-line list, and every one while Leave trailing commas as written is on. The formatter never removes a comma.
 - **Comments**: what they say, which line they are on, and the shape of a doc comment.
-- **Strings**: their text, and the lines of a hole written over several (§7.4).
+- **Strings**: their text, and the line breaks, indentation and line-end spaces of a hole written over several lines (§7.4).
 - **Which side of an operator the author breaks a line on.** An operator the author writes at the end of a line stays there. Only the breaks the formatter makes put the operator first (§9.5).
 
 ## 14. Trailing commas
