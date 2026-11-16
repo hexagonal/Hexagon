@@ -856,6 +856,428 @@ describe("A line that is too long (§9)", () => {
   });
 });
 
+describe("The shapes brackets break in (§9.4 rule 2)", () => {
+  it("writes §9.4's bracket example at a limit of 50", () => {
+    expect(format(lines(
+      "module A",
+      'let codes = Map.fromVector([("en", "English"), ("fr", "French"), ("de", "German"), ("es", "Spanish")])',
+      "let total = Vector.fold(values, 0, (sum, value) => sum + value * weight)",
+    ), { maximumLineLength: 50 })).toBe(lines(
+      "module A",
+      "let codes =",
+      "    Map.fromVector([",
+      '        ("en", "English"), ("fr", "French"),',
+      '        ("de", "German"), ("es", "Spanish")',
+      "    ])",
+      "let total =",
+      "    Vector.fold(values, 0, (sum, value) =>",
+      "        sum + value * weight",
+      "    )",
+    ));
+  });
+
+  it("opens brackets with their only item, a record or a tuple, and closes them together", () => {
+    expect(format(lines(
+      "module A",
+      "let piece = Piece({ expr = Anchor(kind), kind = Asserted(point), start = position })",
+      "let pair = Some((combine(leftValue, rightValue), zipWith(leftRest, rightRest)))",
+    ), { maximumLineLength: 50 })).toBe(lines(
+      "module A",
+      "let piece =",
+      "    Piece({",
+      "        expr = Anchor(kind),",
+      "        kind = Asserted(point),",
+      "        start = position",
+      "    })",
+      "let pair =",
+      "    Some((",
+      "        combine(leftValue, rightValue),",
+      "        zipWith(leftRest, rightRest)",
+      "    ))",
+    ));
+  });
+
+  it("keeps a call's last-argument lambda's head on its line, and only the body moves", () => {
+    expect(format(lines(
+      "module A",
+      "let total = fold(values, 0, (sum, value) => sum + value * weight)",
+      "let k = callIt(alpha, beta, xs => xs.size + alpha)",
+    ), { maximumLineLength: 40 })).toBe(lines(
+      "module A",
+      "let total =",
+      "    fold(values, 0, (sum, value) =>",
+      "        sum + value * weight",
+      "    )",
+      "let k =",
+      "    callIt(alpha, beta, xs =>",
+      "        xs.size + alpha",
+      "    )",
+    ));
+  });
+
+  it("opens the call one argument per line where the lambda's head does not fit, its body beside it if that fits", () => {
+    expect(format(lines(
+      "module A",
+      "let longer = Vector.fold(someValues, initialValue, (sum, value) => sum + value)",
+      "let longest = Vector.fold(someValues, initialValue, (sum, value) => compute(sum, value, weight))",
+    ), { maximumLineLength: 40 })).toBe(lines(
+      "module A",
+      "let longer =",
+      "    Vector.fold(",
+      "        someValues,",
+      "        initialValue,",
+      "        (sum, value) => sum + value",
+      "    )",
+      "let longest =",
+      "    Vector.fold(",
+      "        someValues,",
+      "        initialValue,",
+      "        (sum, value) =>",
+      "            compute(sum, value, weight)",
+      "    )",
+    ));
+  });
+
+  it("opens the call before a lambda whose body is already beneath it, or a bare `match`, where the head line is too long", () => {
+    expect(format(lines(
+      "module A",
+      "let g = computeTheThing(firstArgument, (x) =>",
+      "    x + 1",
+      ")",
+      "let classify = items.map(firstArgument, match",
+      "    Small => 1",
+      "    Large => 2",
+      ")",
+    ), { maximumLineLength: 30 })).toBe(lines(
+      "module A",
+      "let g =",
+      "    computeTheThing(",
+      "        firstArgument,",
+      "        (x) =>",
+      "            x + 1",
+      "    )",
+      "let classify =",
+      "    items.map(",
+      "        firstArgument,",
+      "        match",
+      "            Small => 1",
+      "            Large => 2",
+      "    )",
+    ));
+  });
+
+  it("moves a value and the closing bracket after it beneath its `=` together", () => {
+    expect(format(lines(
+      "module A",
+      "let classify = itemsList.map(match",
+      "    Small => 1",
+      "    Large => 2",
+      ")",
+      "let g = computeTheThing(firstArgument, (x) =>",
+      "    x + 1",
+      ")",
+    ), { maximumLineLength: 30 })).toBe(lines(
+      "module A",
+      "let classify =",
+      "    itemsList.map(match",
+      "        Small => 1",
+      "        Large => 2",
+      "    )",
+      "",
+      "let g =",
+      "    computeTheThing(",
+      "        firstArgument,",
+      "        (x) =>",
+      "            x + 1",
+      "    )",
+    ));
+  });
+
+  it("opens the brackets one item to a line where a trailing comma leaves no room to keep the lambda's head", () => {
+    expect(format(lines(
+      "module A",
+      "let y = f(2, x => compute(x, x, x, x, x),)",
+    ), { maximumLineLength: 20 })).toBe(lines(
+      "module A",
+      "let y =",
+      "    f(",
+      "        2,",
+      "        x => compute(",
+      "            x,",
+      "            x,",
+      "            x,",
+      "            x,",
+      "            x",
+      "        ),",
+      "    )",
+    ));
+  });
+
+  it("does not open brackets with an only item that is an expression in parentheses", () => {
+    expect(format(lines(
+      "module A",
+      "let x = f((alpha + beta * gamma - delta))",
+    ), { maximumLineLength: 30 })).toBe(lines(
+      "module A",
+      "let x =",
+      "    f(",
+      "        (",
+      "            alpha",
+      "                    + beta * gamma",
+      "                    - delta",
+      "        )",
+      "    )",
+    ));
+  });
+
+  it("keeps a record's last-field lambda's head on its line, inside a call's brackets too", () => {
+    expect(format(lines(
+      "module A",
+      "let r = { first = 1, pull = () => compute(alpha, beta, gamma) }",
+      "let s = Seq({ pull = () => compute(alpha, beta, gamma) })",
+      "let q = Seq({ first = alphabet, nextValueOf = () => compute(alpha) })",
+    ), { maximumLineLength: 40 })).toBe(lines(
+      "module A",
+      "let r =",
+      "    { first = 1, pull = () =>",
+      "        compute(alpha, beta, gamma)",
+      "    }",
+      "let s =",
+      "    Seq({ pull = () =>",
+      "        compute(alpha, beta, gamma)",
+      "    })",
+      "let q =",
+      "    Seq({",
+      "        first = alphabet,",
+      "        nextValueOf = () =>",
+      "            compute(alpha)",
+      "    })",
+    ));
+  });
+
+  it("fills brackets of literals: numbers with or without `-`, strings, and tuples of those, mixed", () => {
+    expect(format(lines(
+      "module A",
+      "let a = [-1, -2, -3, -4, -5, -6, -7, -8, -9, -10, -11]",
+      'let b = ["one", "two", "three", "four", "five", "six"]',
+      'let c = [1.5, 2, 3n, 4.25d, (1, "one"), (2, "two"), 3]',
+      "let i = foo((1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13))",
+    ), { maximumLineLength: 30 })).toBe(lines(
+      "module A",
+      "let a =",
+      "    [",
+      "        -1, -2, -3, -4, -5,",
+      "        -6, -7, -8, -9, -10,",
+      "        -11",
+      "    ]",
+      "let b =",
+      "    [",
+      '        "one", "two", "three",',
+      '        "four", "five", "six"',
+      "    ]",
+      "let c =",
+      "    [",
+      "        1.5, 2, 3n, 4.25d,",
+      '        (1, "one"),',
+      '        (2, "two"), 3',
+      "    ]",
+      "let i =",
+      "    foo((",
+      "        1, 2, 3, 4, 5, 6, 7,",
+      "        8, 9, 10, 11, 12, 13",
+      "    ))",
+    ));
+  });
+
+  it("fills a line to exactly the limit", () => {
+    expect(format(lines(
+      "module A",
+      "let a = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 1]",
+    ), { maximumLineLength: 38 })).toBe(lines(
+      "module A",
+      "let a =",
+      "    [",
+      "        1, 2, 3, 4, 5, 6, 7, 8, 9, 10,",
+      "        11, 12, 13, 1",
+      "    ]",
+    ));
+  });
+
+  it("keeps the head only of a call's or a record's last lambda, not a tuple's or a vector's", () => {
+    expect(format(lines(
+      "module A",
+      "let t = (alpha, beta, (x) => compute(x, alpha))",
+      "let v = [alpha, beta, (x) => compute(x, alpha)]",
+    ), { maximumLineLength: 40 })).toBe(lines(
+      "module A",
+      "let t =",
+      "    (",
+      "        alpha,",
+      "        beta,",
+      "        (x) => compute(x, alpha)",
+      "    )",
+      "let v =",
+      "    [",
+      "        alpha,",
+      "        beta,",
+      "        (x) => compute(x, alpha)",
+      "    ]",
+    ));
+  });
+
+  it("leaves the items of brackets that are carried on, not open, together", () => {
+    const text = lines(
+      "module A",
+      "let label = describe(firstName,",
+      "        lastName, middleName, otherName, more,",
+      "        last)",
+    );
+    expect(format(text, { maximumLineLength: 40 })).toBe(text);
+  });
+
+  it("opens brackets whose closer is on a later line only for a last-argument lambda", () => {
+    expect(format(lines(
+      "module A",
+      "let label = describeTheThing(firstName, lastName, middle,",
+      "        other)",
+    ), { maximumLineLength: 40 })).toBe(lines(
+      "module A",
+      "let label =",
+      "    describeTheThing(firstName, lastName, middle,",
+      "            other)",
+    ));
+  });
+
+  it("puts one item to a line where any item is not a literal", () => {
+    for (const [items, count] of [
+      ['"one ${x}", "two", "three", "four", "five"', 5],
+      ["Some(1), Some(2), Some(3), Some(4), Some(5)", 5],
+      ["((1, 2), 3), ((4, 5), 6), ((7, 8), 9)", 3],
+      ["(), (), (), (), (), (), (), (), (), (), ()", 11],
+      ["one, two, three, four, five, six, seven", 7],
+      ["-x, -2, -3, -4, -5, -6, -7, -8, -9, -10", 10],
+      ["(1), (2), (3), (4), (5), (6), (7), (8)", 8],
+    ] as const) {
+      const formatted = format(lines("module A", `let c = [${items}]`), { maximumLineLength: 40 });
+      // Besides `module A`, `let c =`, the two brackets and the last line end, a line for each item.
+      expect([items, formatted.split("\n").length - 5]).toEqual([items, count]);
+    }
+  });
+
+  it("breaks a line inside open brackets between its items first, filled where the brackets are", () => {
+    expect(format(lines(
+      "module A",
+      "let primes =",
+      "    Set.fromVector([",
+      "        2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47,",
+      "        53, 59",
+      "    ])",
+      "let rows =",
+      "    Vector.from([",
+      "        compute(alpha), compute(beta), compute(gamma), compute(delta),",
+      "        tail",
+      "    ])",
+      "let tuples =",
+      "    Vector.from([",
+      '        ("en", "English"), ("fr", French), ("de", "German"),',
+      "    ])",
+    ), { maximumLineLength: 50 })).toBe(lines(
+      "module A",
+      "let primes =",
+      "    Set.fromVector([",
+      "        2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31,",
+      "        37, 41, 43, 47,",
+      "        53, 59",
+      "    ])",
+      "let rows =",
+      "    Vector.from([",
+      "        compute(alpha),",
+      "        compute(beta),",
+      "        compute(gamma),",
+      "        compute(delta),",
+      "        tail",
+      "    ])",
+      "let tuples =",
+      "    Vector.from([",
+      '        ("en", "English"),',
+      '        ("fr", French),',
+      '        ("de", "German"),',
+      "    ])",
+    ));
+  });
+});
+
+describe("A binding whose value is a lambda (§9.4 rule 1)", () => {
+  it("puts an arm's body beneath its `=>` even where the body is a lambda", () => {
+    expect(format(lines(
+      "module A",
+      "let f(o: Option(Int)): Int =",
+      "    match o with",
+      "        Some(v) => (w) => compute(v, w, alpha, beta)",
+      "        None => (w) => w",
+    ), { maximumLineLength: 40 })).toBe(lines(
+      "module A",
+      "let f(o: Option(Int)): Int =",
+      "    match o with",
+      "        Some(v) =>",
+      "            (w) =>",
+      "                compute(",
+      "                    v,",
+      "                    w,",
+      "                    alpha,",
+      "                    beta",
+      "                )",
+      "        None => (w) => w",
+    ));
+  });
+
+  it("moves a lambda body's clauses beneath its `=>` with it", () => {
+    expect(format(lines(
+      "module A",
+      "let f(b: Bool): Int =",
+      "    let g = (c) => if c then computeTheFirst(alpha)",
+      "    else 2",
+      "    g(b)",
+    ), { maximumLineLength: 40 })).toBe(lines(
+      "module A",
+      "let f(b: Bool): Int =",
+      "    let g = (c) =>",
+      "        if c then computeTheFirst(alpha)",
+      "        else 2",
+      "    g(b)",
+    ));
+  });
+
+  it("keeps the lambda's head on the `=`'s line, and moves only the body", () => {
+    expect(format(lines(
+      "module A",
+      "let f = (alpha, beta) => compute(alpha, beta, gamma, delta)",
+      "let h = <a: Eq>(x: a): Bool => compute(x, alpha, beta, gamma)",
+    ), { maximumLineLength: 40 })).toBe(lines(
+      "module A",
+      "let f = (alpha, beta) =>",
+      "    compute(alpha, beta, gamma, delta)",
+      "let h = <a: Eq>(x: a): Bool =>",
+      "    compute(x, alpha, beta, gamma)",
+    ));
+  });
+
+  it("moves the value beneath the `=` where the head does not fit, and the body beneath `=>` only if it must", () => {
+    expect(format(lines(
+      "module A",
+      "let g = (alphaParameter, betaParameter) => compute(alphaParameter)",
+      "let k = (alphaParameter, betaParamete) => x",
+    ), { maximumLineLength: 40 })).toBe(lines(
+      "module A",
+      "let g =",
+      "    (alphaParameter, betaParameter) =>",
+      "        compute(alphaParameter)",
+      "let k =",
+      "    (alphaParameter, betaParamete) => x",
+    ));
+  });
+});
+
 describe("Format selection (§2.2)", () => {
   const text = lines(
     "module A",
