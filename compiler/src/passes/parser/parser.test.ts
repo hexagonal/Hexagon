@@ -1011,6 +1011,81 @@ describe("parse", () => {
     expect(module.diagnostics).toEqual([]);
   });
 
+  test("parses the block beneath a line-ending `:=` as the value assigned", () => {
+    const module = parseSource(
+      "fun bump(start: Int) =\n" +
+        "    var current: Int = start\n" +
+        "    current :=\n" +
+        "        let doubled = current * 2\n" +
+        "        doubled + 1\n" +
+        "    current := current\n" +
+        "        + 1\n" +
+        "    current",
+    );
+
+    expect(module.items[0]).toMatchObject({
+      kind: "Fun",
+      value: {
+        body: {
+          kind: "Block",
+          items: [
+            { kind: "Var" },
+            {
+              kind: "ExprItem",
+              expression: {
+                kind: "Assignment",
+                target: { kind: "Name" },
+                value: {
+                  kind: "Block",
+                  items: [{ kind: "Let" }, { kind: "ExprItem", expression: { kind: "Binary" } }],
+                },
+              },
+            },
+            {
+              kind: "ExprItem",
+              expression: { kind: "Assignment", value: { kind: "Binary", operator: "Add" } },
+            },
+            { kind: "ExprItem", expression: { kind: "Name" } },
+          ],
+        },
+      },
+    });
+    expect(module.diagnostics).toEqual([]);
+  });
+
+  test("keeps the chain error, and an `else` after a `:=` block, at a line-ending `:=`", () => {
+    expect(parseSource("t := u :=\n    1").diagnostics.map(({ message }) => message)).toContain(
+      "`:=` does not chain; assignment produces `Unit`",
+    );
+    const module = parseSource(
+      "fun pick(c: Bool) =\n" +
+        "    var t = 0\n" +
+        "    if c then t :=\n" +
+        "        let d = 2\n" +
+        "        d\n" +
+        "    else t := 3\n" +
+        "    t",
+    );
+    expect(module.diagnostics).toEqual([]);
+    expect(module.items[0]).toMatchObject({
+      value: {
+        body: {
+          items: [
+            { kind: "Var" },
+            {
+              expression: {
+                kind: "If",
+                consequence: { kind: "Assignment", value: { kind: "Block" } },
+                alternative: { kind: "Assignment", value: { kind: "Integer" } },
+              },
+            },
+            { kind: "ExprItem" },
+          ],
+        },
+      },
+    });
+  });
+
   test("parses for loops over ranges and strings", () => {
     const module = parseSource(
       "fun visit(): Unit =\n" +

@@ -201,10 +201,11 @@ let nextMatch(regex: Regex, text: String, state: Enumeration): Option((Match, En
                 if empty and found.whole.start == current.previousEnd then
                     current := Enumeration({ start = resume, cursor = cursor, previousEnd = -1 })
                 else
-                    answer := Some((
-                        found,
-                        Enumeration({ start = resume, cursor = cursor, previousEnd = end })
-                    ))
+                    answer :=
+                        Some((
+                            found,
+                            Enumeration({ start = resume, cursor = cursor, previousEnd = end })
+                        ))
                     searching := False
     answer
 

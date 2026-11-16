@@ -307,29 +307,29 @@ function plan(reading: Reading, line: LongLine, failed: ReadonlySet<string>, lim
   const roles = rolesOf(reading);
   const candidates: { readonly shape: string; readonly before: () => number[] }[] = [];
 
-  // 1. A binding, declaration, arm or lambda: the value beneath its `=` or `=>`.
-  // A binding's `=`, an arm's `=>` or an assignment's `:=` that comes after a
-  // head keyword is inside that construct's branch, not the line's own.
+  // 1. A binding, declaration, assignment, arm or lambda: the value beneath its
+  // `=`, `:=` or `=>`. An assignment is laid out as a binding is. A binding's
+  // `=`, an arm's `=>` or an assignment's `:=` that comes after a head keyword
+  // is inside that construct's branch, not the line's own.
   const firstHead = range(start).find((index) => atTop(index) && headKeywords.has(tokens[index]!.kind));
   const before = (index: number): boolean => firstHead === undefined || index < firstHead;
   const head = range(start).find((index) =>
-    atTop(index) && before(index) && (tokens[index]!.kind === "Equal" || tokens[index]!.kind === "FatArrow"));
-  const assign = range(start).find((index) => atTop(index) && before(index) && tokens[index]!.kind === "Assign");
+    atTop(index) && before(index) && valueHeads.has(tokens[index]!.kind));
   const measure = measuring(reading, limit);
   const pairs = pairsOf(reading);
   // 2. A line holding several items of open brackets opened on an earlier
   // line breaks between them before anything inside them breaks.
   candidates.push({ shape: "items", before: () => betweenItems(tokens, pairs, depth, start, line.last, measure) });
   if (head !== undefined && head < line.last) {
-    // A value that is a lambda keeps its head on the `=`'s line, and only its
-    // body goes beneath the `=>`, where the line through the `=>` fits.
-    const arrow = tokens[head]!.kind === "Equal" ? lambdaArrow(tokens, pairs, roles, head + 1, line.last) : undefined;
+    // A value that is a lambda keeps its head on the `=`'s or `:=`'s line, and
+    // only its body goes beneath the `=>`, where the line through the `=>` fits.
+    const arrow = tokens[head]!.kind !== "FatArrow" ? lambdaArrow(tokens, pairs, roles, head + 1, line.last) : undefined;
     if (arrow !== undefined && arrow < line.last && measure.fits(arrow)) {
       candidates.push({ shape: "lambda", before: () => [arrow + 1] });
     }
     candidates.push({ shape: "value", before: () => [head + 1] });
   }
-  const valueStart = head !== undefined ? head + 1 : assign !== undefined ? assign + 1 : start;
+  const valueStart = head !== undefined ? head + 1 : start;
   const value = range(valueStart).filter(atTop);
 
   const heads = headsOn(tokens, start, line.last, depth);
@@ -437,6 +437,9 @@ interface Head {
 }
 
 const headKeywords = new Set(["If", "While", "For", "Match"]);
+
+/** The tokens a value or body goes beneath (§9.4 rule 1). */
+const valueHeads = new Set(["Equal", "Assign", "FatArrow"]);
 
 function isCloser(tokens: readonly Lexed.Token[], keyword: number, index: number): boolean {
   const token = tokens[index]!;

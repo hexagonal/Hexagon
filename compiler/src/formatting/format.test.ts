@@ -1278,6 +1278,139 @@ describe("A binding whose value is a lambda (§9.4 rule 1)", () => {
   });
 });
 
+describe("An assignment laid out as a binding (§9.4 rule 1)", () => {
+  it("puts a value too long for its line beneath the `:=` before opening its brackets", () => {
+    expect(format(lines(
+      "module A",
+      "let f(): Int =",
+      "    var total = 0",
+      "    total := compute(alpha, beta, gamma)",
+      "    total",
+    ), { maximumLineLength: 36 })).toBe(lines(
+      "module A",
+      "let f(): Int =",
+      "    var total = 0",
+      "    total :=",
+      "        compute(alpha, beta, gamma)",
+      "    total",
+    ));
+  });
+
+  it("breaks the value, then the conditional, and only then its brackets", () => {
+    expect(format(lines(
+      "module A",
+      "let f(condition: Bool): Unit =",
+      "    var x = 0",
+      "    x := if condition then first(alpha, beta, gamma) else other(c)",
+    ), { maximumLineLength: 34 })).toBe(lines(
+      "module A",
+      "let f(condition: Bool): Unit =",
+      "    var x = 0",
+      "    x :=",
+      "        if condition then",
+      "            first(",
+      "                alpha,",
+      "                beta,",
+      "                gamma",
+      "            )",
+      "        else",
+      "            other(c)",
+    ));
+  });
+
+  it("keeps a lambda's head on the `:=`'s line, and moves only the body", () => {
+    expect(format(lines(
+      "module A",
+      "let f(): Unit =",
+      "    var g = (x) => x",
+      "    g := (alpha, beta) => compute(alpha, beta, gamma)",
+    ), { maximumLineLength: 40 })).toBe(lines(
+      "module A",
+      "let f(): Unit =",
+      "    var g = (x) => x",
+      "    g := (alpha, beta) =>",
+      "        compute(alpha, beta, gamma)",
+    ));
+  });
+
+  it("puts a branch's assignment beneath `then`, and then its value beneath `:=`", () => {
+    expect(format(lines(
+      "module A",
+      "let f(c: Bool): Unit =",
+      "    var x = 0",
+      "    if c then x := compute(alpha, beta, gamma, delta)",
+    ), { maximumLineLength: 36 })).toBe(lines(
+      "module A",
+      "let f(c: Bool): Unit =",
+      "    var x = 0",
+      "    if c then",
+      "        x :=",
+      "            compute(",
+      "                alpha,",
+      "                beta,",
+      "                gamma,",
+      "                delta",
+      "            )",
+    ));
+  });
+
+  it("indents a value beneath `:=` one level, as a binding's block, and keeps its items", () => {
+    expect(format(lines(
+      "module A",
+      "let f(n: Int): Int =",
+      "    var total = 0",
+      "    total :=",
+      "            match n with",
+      "                0 => 1",
+      "                _ => n",
+      "    total :=",
+      "      let doubled = n * 2",
+      "      doubled + total",
+      "    total",
+    ))).toBe(lines(
+      "module A",
+      "let f(n: Int): Int =",
+      "    var total = 0",
+      "    total :=",
+      "        match n with",
+      "            0 => 1",
+      "            _ => n",
+      "    total :=",
+      "        let doubled = n * 2",
+      "        doubled + total",
+      "    total",
+    ));
+  });
+
+  it("puts an `else` branch's value beneath its `:=`, as it would a binding's", () => {
+    expect(format(lines(
+      "module A",
+      "let f(c: Bool): Unit =",
+      "    var x = 0",
+      "    if c then x := 1",
+      "    else x := compute(alpha, beta, gamma)",
+    ), { maximumLineLength: 36 })).toBe(lines(
+      "module A",
+      "let f(c: Bool): Unit =",
+      "    var x = 0",
+      "    if c then x := 1",
+      "    else x :=",
+      "        compute(alpha, beta, gamma)",
+    ));
+  });
+
+  it("leaves a value that fits on the `:=` line where it is", () => {
+    const text = lines(
+      "module A",
+      "let f(n: Int): Int =",
+      "    var total = 0",
+      "    total := n + 1",
+      "    total",
+    );
+    expect(format(text, { maximumLineLength: 24 })).toBe(text);
+  });
+});
+
 describe("Format selection (§2.2)", () => {
   const text = lines(
     "module A",

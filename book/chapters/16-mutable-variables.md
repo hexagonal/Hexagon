@@ -84,6 +84,22 @@ let reset(): Unit =
     count := 0
 ```
 
+The value is laid out as a binding's is. A line ending in `:=` opens a block, as a
+binding's `=` does, so a value too long for its line goes beneath the `:=`, one level
+in. That block may hold several items, and its final expression is the value assigned:
+
+```hexagon
+let deliveryCharge(weight: Int, distance: Int): Int =
+    var charge = 0
+    charge :=
+        let carriage = weight * 4
+        let mileage = distance * 2
+        carriage + mileage
+    charge
+```
+
+`carriage` and `mileage` belong to the assignment's block and end with it.
+
 `:=` is the loosest expression form and does not chain. `x := y := z` is rejected;
 assignment produces `Unit`, not a value to feed into another assignment. Hexagon also
 has no `+=` or similar compound spellings. Write the updated value explicitly:

@@ -26,6 +26,61 @@ describe("applyLayout", () => {
     expect(result.diagnostics).toEqual([]);
   });
 
+  describe("an assignment's `:=` (§2.1)", () => {
+    test("a line ending in `:=` opens the value's block, as a binding's `=` does", () => {
+      for (const text of [
+        "total :=\n    count + 1",
+        "total :=\n    let doubled = count * 2\n    doubled + 1",
+        "let total =\n    count + 1",
+      ]) {
+        const result = layout(text);
+        const virtual = virtualKinds(result.tokens);
+        expect(virtual.slice(0, 3), text).toEqual(["VOpen", "VSep", "VOpen"]);
+        expect(virtual.slice(-2), text).toEqual(["VClose", "VClose"]);
+        expect(result.diagnostics, text).toEqual([]);
+      }
+      const kindsOf = kinds(layout("total :=\n    count + 1").tokens);
+      expect(kindsOf[kindsOf.indexOf("Assign") + 1]).toBe("VOpen");
+    });
+
+    test("a branch's or an arm's `:=` ending its line opens the value's block", () => {
+      for (const text of [
+        "if ready then total :=\n    count + 1",
+        "match n with\n    0 => total :=\n        count + 1",
+      ]) {
+        const result = layout(text);
+        expect(kinds(result.tokens).join(" "), text).toContain("Assign VOpen");
+        expect(result.diagnostics, text).toEqual([]);
+      }
+    });
+
+    test("a `:=` inside an unfinished head opens nothing; the head goes on", () => {
+      const result = layout("while total :=\n        more do\n    step()");
+      expect(kinds(result.tokens).join(" ")).not.toContain("Assign VOpen");
+    });
+
+    test("inside brackets, a line-ending `:=` opens a block at their level, as `=>` does (§2.2)", () => {
+      for (const text of ["g(t :=\n    1)", "g(t =>\n    1)"]) {
+        expect(virtualKinds(layout(text).tokens), text).toEqual(["VOpen", "VSep", "VOpen", "VClose", "VClose"]);
+      }
+    });
+
+    test("a line-ending `:=` with nothing beneath reports the missing block, as `=` does", () => {
+      const assigned = layout("total :=\ncount").diagnostics.map(({ message }) => message);
+      const bound = layout("let total =\ncount").diagnostics.map(({ message }) => message);
+      expect(assigned).toEqual(bound);
+      expect(assigned.length).toBeGreaterThan(0);
+    });
+
+    test("an assignment with its value on its line opens nothing", () => {
+      for (const text of ["total := count\n    + 1", "total := count + 1"]) {
+        const result = layout(text);
+        expect(virtualKinds(result.tokens), text).toEqual(["VOpen", "VSep", "VClose"]);
+        expect(result.diagnostics, text).toEqual([]);
+      }
+    });
+  });
+
   describe("heads and their closing words (§2.4)", () => {
     test("a head is carried on by deeper lines to its closing word", () => {
       for (const text of [

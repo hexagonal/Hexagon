@@ -6540,11 +6540,15 @@ class Parser {
 
       const token = this.#advance();
       const pipeStage = operation.operator === "Pipe";
-      let right = this.#parseExpression(
-        operation.rightBindingPower,
-        effectiveStops,
-        pipeStage,
-      );
+      // A line ending in `:=` opens a block, as a binding's `=` does, and the
+      // value assigned is that block (Lexer & Layout §2.1; Operators §12).
+      let right: Parsed.Expr = operation.assignment === true && this.#at("VOpen")
+        ? this.#parseBlock()
+        : this.#parseExpression(
+          operation.rightBindingPower,
+          effectiveStops,
+          pipeStage,
+        );
       // A stage is a call-in-waiting (the rewrite supplies its arguments), so
       // an unfinished dot there is one a call attaches to, as in the loop above.
       if (pipeStage && right.kind === "Access" && right.unfinished === true) {

@@ -62,12 +62,13 @@
       "complete one-line declaration that opens no block.",
       "A head that holds an expression ends with its closing word, so `then`, `do`",
       "and `with` at the end of a line open a block: `while searching do`,",
-      "`let first(v) = match v with` (spec/lexer-layout.md §2.4). A bare `match`, the",
-      "match function, opens one ending its line, and `try` and `catch` wherever they",
-      "appear.",
+      "`let first(v) = match v with` (spec/lexer-layout.md §2.4). An assignment's `:=`",
+      "ending its line opens its value's block, as a binding's `=` does (§2.1). A",
+      "bare `match`, the match function, opens one ending its line, and `try` and",
+      "`catch` wherever they appear.",
       "`extern from` is the one block header that does neither."
     ],
-    "increaseIndentPattern": "(?:^|\\s)(?:then|else|do|with|=>|=)\\s*$|(?:^|\\s)(?:match|try|catch)\\s*$|(?:^|\\s)(?:try|catch)\\b|^\\s*extern\\s+from\\b",
+    "increaseIndentPattern": "(?:^|\\s)(?:then|else|do|with|=>|=|:=)\\s*$|(?:^|\\s)(?:match|try|catch)\\s*$|(?:^|\\s)(?:try|catch)\\b|^\\s*extern\\s+from\\b",
     "decreaseIndentPattern": "^\\s*else\\b"
   },
   "onEnterRules": [

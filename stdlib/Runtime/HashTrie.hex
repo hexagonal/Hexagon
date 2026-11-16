@@ -996,10 +996,10 @@ fun split(
                                 Some(subtree) =>
                                     keptBitmap := bitSet(keptBitmap, digitAt)
                                     keptChildren :=
-                                            match keptChildren with
-                                                None => Some(nodeSingleton(subtree))
-                                                Some(node) =>
-                                                    Some(nodeInsertAt(node, keptCount, subtree))
+                                        match keptChildren with
+                                            None => Some(nodeSingleton(subtree))
+                                            Some(node) =>
+                                                Some(nodeInsertAt(node, keptCount, subtree))
                                     keptCount := keptCount + 1
                         digitAt := digitAt + 1
                     match keptChildren with

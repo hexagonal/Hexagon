@@ -114,9 +114,9 @@ fun readInternal(trie: TrieVector(a), internal: Int): a =
         -- A height-`h` trie has `h - 1` branch levels above its leaves.
         for level in 2..trie.height do
             node :=
-                    match node with
-                        Branch(children) => Node.get(children, remaining.div(span))
-                        Leaf(_) => node
+                match node with
+                    Branch(children) => Node.get(children, remaining.div(span))
+                    Leaf(_) => node
             remaining := remaining.mod(span)
             span := span.div(radix)
         match node with
@@ -152,9 +152,9 @@ fun nodeRun(trie: TrieVector(a), index: Int): (Node(a), Int, Int) =
         var remaining = internal
         for level in 2..trie.height do
             node :=
-                    match node with
-                        Branch(children) => Node.get(children, remaining.div(span))
-                        Leaf(_) => node
+                match node with
+                    Branch(children) => Node.get(children, remaining.div(span))
+                    Leaf(_) => node
             remaining := remaining.mod(span)
             span := span.div(radix)
         let inNode = radix - remaining
@@ -408,11 +408,11 @@ let trimHeight(
             if child == (high - 1).div(span) then
                 let delta = child * span
                 node :=
-                        match node with
-                            Branch(children) => Node.get(children, child)
-                            -- A branch level always holds branches above height 1.
-                            Leaf(_) =>
-                                throw(TrieCorruptionFault("trimHeight: a leaf above height 1"))
+                    match node with
+                        Branch(children) => Node.get(children, child)
+                        -- A branch level always holds branches above height 1.
+                        Leaf(_) =>
+                            throw(TrieCorruptionFault("trimHeight: a leaf above height 1"))
                 low := low - delta
                 high := high - delta
                 cap := cap - delta
@@ -554,10 +554,14 @@ fun zip(left: TrieVector(a), right: TrieVector(b)): TrieVector((a, b)) =
         let run = if leftRun < rightRun then leftRun else rightRun
         var step = 0
         while step < run do
-            result := append(
-                result,
-                (Node.get(leftValues, leftOffset + step), Node.get(rightValues, rightOffset + step))
-            )
+            result :=
+                append(
+                    result,
+                    (
+                        Node.get(leftValues, leftOffset + step),
+                        Node.get(rightValues, rightOffset + step)
+                    )
+                )
             step := step + 1
         index := index + run
     result
