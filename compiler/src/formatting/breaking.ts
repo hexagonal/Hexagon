@@ -363,9 +363,11 @@ function plan(reading: Reading, line: LongLine, failed: ReadonlySet<string>): Pl
     }
   }
   // Only once nothing else is left: no value to put beneath its `=` or `=>`,
-  // no conditional's branches and no loop's body still on the line.
+  // no conditional's branches and no loop's body still on the line, except
+  // where that break has been tried and could not be made.
   const othersLeft = candidates
     .filter(({ shape }) => shape === "value" || shape === "conditional" || shape === "loop")
+    .filter(({ shape }) => !failed.has(`${line.first}:${shape}`))
     .some((candidate) => candidate.before().some((index) => index > line.first && index <= line.last));
   const inHead = (found: number[]): number[] => found.filter((index) => index !== outer?.closer);
   if (own.length > 0 && !othersLeft) {
@@ -430,6 +432,10 @@ function headsOn(tokens: readonly Lexed.Token[], from: number, last: number, dep
   const open: number[] = [];
   for (let index = from; index <= last; index += 1) {
     const kind = tokens[index]!.kind;
+    // A head left open inside brackets that have closed is done with.
+    while (open.length > 0 && depth[open.at(-1)!]! > depth[index]!) {
+      heads.push({ keyword: open.pop()!, closer: undefined });
+    }
     const innermost = open.at(-1);
     if (innermost !== undefined && depth[index] === depth[innermost] && isCloser(tokens, innermost, index)) {
       open.pop();
