@@ -17,6 +17,7 @@ export const keywordKinds = [
   "Catch",
   "Constraint",
   "Derive",
+  "Do",
   "Else",
   "Exception",
   "Export",

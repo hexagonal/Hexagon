@@ -20363,8 +20363,8 @@ class Checker {
    * 5), spelled as §7.3 spells a witness, so the arms are the ones the missing
    * cases would be. They go on the lines below the `match`'s line, after the
    * comments that end it, one step in from where that line begins, which is
-   * where layout opens the arm block. `span` is the `match` and its subject,
-   * which is where the parser read the missing block.
+   * where layout opens the arm block. `span` is the `match`'s head through its
+   * closing `with`, which is where the parser read the missing block.
    *
    * Offered where the parser read the file as written, `Debug.todo` reaches
    * the prelude's, and every case has a spelling here: not on a type with no
@@ -20382,7 +20382,7 @@ class Checker {
     const cases = destructCases(heads);
     if (cases === undefined) return undefined;
     // The parser read this `match` as missing its block only where its line
-    // ends after the subject, comments aside. A block comment that opens there
+    // ends after the head's `with`, comments aside. A block comment that opens there
     // and runs onto the next line would hold arms written at the line's end.
     const rest = restOfLine(text, span.fileId, span.end.offset);
     if (!rest.commented) return undefined;
