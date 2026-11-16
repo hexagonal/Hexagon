@@ -314,7 +314,7 @@ Readable-JS doctrine: the general mechanism exists; the common case erases.
 | Non-`Bool` `while` condition | ordinary type error; never suggest truthiness |
 | A `for` head whose source meets anything but `do`: the end of its item, or a token that cannot continue it, such as a deeper line meant as the body (§2.1; Lexer & Layout §2.4) | parse error at the `for`: "`for` requires `do`; write `for pattern in source do` before the indented body", with a fixit ending the head's last line with `do`; the lines the head took in draw no report of their own — the twin of Operators §15's `then` row |
 | A `while` condition that meets anything but `do`, likewise (§4) | parse error at the `while`: "`while` requires `do`; write `while condition do` before the indented body", with the same fixit and no further report |
-| Either head followed, at its own column, by a line that begins with `do` (Lexer & Layout §2.4) | the head's report reads instead "a `do` at the `while`'s column begins a new line of the block; end the head's last line with `do`" ("the `for`'s column"), with a fixit moving the `do` there; that `do` draws no report of its own |
+| Either head whose item is followed, at the head's own column, by a line that begins with `do`, after any deeper lines the head took in (Lexer & Layout §2.4) | the head's report reads instead "a `do` at the `while`'s column begins a new line of the block; end the head's last line with `do`" ("the `for`'s column"), with a fixit moving the `do` there; that `do` draws no report of its own |
 | A `do` that closes no `for` or `while` head, such as one that begins a line: the `do … while` habit (§9.2) | parse error at the `do`: "Hexagon has no `do … while` loop; a loop's condition comes first — write `while condition do` with the body beneath it"; where the habit's `while` follows the body at the `do`'s column, that `while` draws no report of its own |
 | `1.` / `.5` literal | lex error + fixit (Lexer §5; §10.1.1) |
 | `1..2..3` | parse error: "`..` does not chain; a range has exactly two endpoints" (Operators §9) |
@@ -412,11 +412,18 @@ for (name, total) in totalsFor(region,
         year) do                  -- brackets hold the head open as well
     report(name, total)
 
--- (o) The heads' reports
+-- (o) The heads' reports, each fragment on its own
 for x in xs
     visit(x)                      -- ERROR at the `for`: `for` requires `do`
+
 while n > 0
     n := n - 1                    -- ERROR at the `while`: `while` requires `do`
+
+while n > 0                       -- ERROR at the `while`: a `do` at the `while`'s column
+do                                --   begins a new line of the block; end the head's last
+    n := n - 1                    --   line with `do` (one report: the `do` draws none)
+
+var n = 10
 do                                -- ERROR at the `do`: Hexagon has no `do … while` loop;
     n := n - 1                    --   write `while condition do` with the body beneath it
 while n > 0                       -- no second report

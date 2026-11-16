@@ -110,7 +110,7 @@ f(x) + match y with ...       -- match is the right operand of +
 x => x |> f                   -- the whole pipe is the lambda body
 ```
 
-A loop's body eats to the right where it is written on its head's line, after `do`, exactly as a branch after `then` does: `for name in names do name |> print` runs `name |> print` for every `name`. No forced parentheses when the form is rightmost — that is the point. A bare eats-right form in a *non-final* operand position is a parse error with the fixit "parenthesize the `if`/lambda/`match`" (or the `attempt`/`assume`). So `assume Int.parse^(s) |> f` is `assume (Int.parse^(s) |> f)`: a pipe stage runs after its left side, and there is no `|> assume`.
+A loop's body eats to the right where it is written on its head's line, after `do`, exactly as a branch after `then` does: `for name in names do name |> print` runs `name |> print` for every `name`. No forced parentheses when the form is rightmost — that is the point. A bare eats-right form in a *non-final* operand position is a parse error with the fixit "parenthesize the `if`/lambda/`match`" (or the loop, the `attempt` or the `assume`). So `assume Int.parse^(s) |> f` is `assume (Int.parse^(s) |> f)`: a pipe stage runs after its left side, and there is no `|> assume`.
 
 ### 3.3 `|>` vs `=>`
 
@@ -455,7 +455,7 @@ if configured and connected
     start(session)
 ```
 
-`then` may also begin a line of its own, at the `if`'s column or deeper, as
+`then` may also begin a line of its own, at its item's column or deeper, as
 OCaml writes it (Lexer & Layout §2, §2.4). That spelling is legal but not
 canonical: the canonical `then` ends the condition's last line, where it shows
 that the branch follows.
@@ -578,7 +578,7 @@ The floored convention recorded as decided in Primitive Types §2 is **downgrade
 | `r / 0` at `Rat`, in any spelling: a divisor written as a literal zero | "division by zero: `r / 0` has no value; write the divisor that was meant", with the note "a divisor written as a literal is checked when the program is compiled" (§6.1; Division & Remainder §12.5) |
 | A zero bottom or `Rat` divisor not written as a literal | runtime `DivideByZeroFault`, "Rat.create: bottom is zero" or "Rat.divide: divisor is zero" (§6.1, §6.4) |
 | `1..2..3` | "`..` does not chain; a range has exactly two endpoints" |
-| Eats-right form in non-final operand position | parse error + "parenthesize the `if` / lambda / `match`" |
+| Eats-right form in non-final operand position | parse error + "parenthesize the `if` / lambda / `match`" (or the loop, the `attempt` or the `assume`, §3.2) |
 | `if` whose condition meets anything but `then`: the end of its item, or a token that cannot continue it, such as a deeper line meant as the branch (§11.2; Lexer & Layout §2.4) | parse error at the `if` + "`if` requires `then`; write `if condition then` before the indented true branch", with a fixit ending the condition's last line with `then`; the lines the condition took in draw no report of their own |
 | Else-less `if` whose `then` branch is not `Unit` | type error + fixit "an `if` without `else` produces `Unit`; its `then` branch is `String` — add an `else` branch to produce a value" |
 | `x := y := z` | "`:=` does not chain; assignment produces `Unit`" |

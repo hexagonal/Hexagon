@@ -259,7 +259,7 @@ union Bool derives (Eq, Ord, Show, Hash) = False | True
 | Non-exhaustive match on a union | hard error listing missing constructors — the degenerate witness rendering (§4.3; general machinery Pattern Matching §7) |
 | Unreachable arm | hard error, naming the shadowing case (§4.3; Pattern Matching §7.2) |
 | Braced match body `match e { ... }` | the Lexer & Layout brace diagnostic (records-not-blocks) |
-| A `match` head with no `with`; arms on the head's line | Pattern Matching §12's rows: "`match` requires `with`" at the `match`, and "a `match`'s arms go on the lines below its head, one to a line" (§4.1) |
+| A `match` head with no `with`; arms on the head's line | Pattern Matching §12's rows: "`match` requires `with`" at the `match`, and "a `match`'s arms go on the lines below its head: write `match value with`, then each `pattern => body` on a line of its own" (§4.1) |
 | Bare dot access on a union value (incl. `.tag`, `.itemN`) | "union values are inspected with `match`" (§5; a fused dot call resolving to a companion operation is not access — Method Syntax) |
 | Duplicate constructor name (within a union / across a module's unions) | hard error at declaration (§2) |
 | `...` (bare or named, at any depth, through any alias) in a payload type | hard error at the slot; name the fields, or give the slot the type `JsValue` (§2.1; Products §4) |

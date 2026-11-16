@@ -283,13 +283,18 @@ to its closing word.
 **A head holds nothing open.** Only deeper lines carry it on. A line at the
 item's column, or to its left, ends the item as it ends any other, unless it is
 one of §2.3's continuation lines or one of §2's clauses. A head whose expression
-meets anything but its closing word, the end of its item or a token that cannot
-continue the expression, is the parser's error. It is reported at the head's
+meets anything but its closing word is the parser's error: the end of its item, or
+a token that cannot continue the expression. It is reported at the head's
 keyword: "`while` requires `do`" and its twins (Operators §15, Loops §10.2,
-Pattern Matching §12). A forgotten closing word therefore takes in only the deeper lines
-after its head, never the rest of the block, and those lines draw no report of
-their own. In this a head differs from a bracket, whose group stays open until it
-is closed.
+Pattern Matching §12). A forgotten closing word therefore takes in only the deeper
+lines after its head, never the rest of the block. In this a head differs from a
+bracket, whose group stays open until it is closed.
+
+**No block opens inside an unfinished head**, except within brackets (§2.2). A
+nested head whose closing word ends a deeper line of it opens nothing there, and
+the lines after go on continuing the item. So the lines a forgotten closing word
+takes in open no block and close none: the layout pass reports nothing among them,
+and the head's report is the only one they draw.
 
 **Where a closing word stands.** The canonical spelling ends the head's last line
 with its closing word (Canonical Layout §9.3). None of the closing words can
@@ -308,13 +313,17 @@ exception, always a block (Pattern Matching §6.1), so `with` always ends its li
 `;` opens no block here either (§3.1): in `for x in xs do visit(x); finish()`, the
 loop's body is `visit(x)`, and `finish()` runs once, after the loop.
 
-**What the layout pass reads.** A `then` closes the nearest unfinished `if` head
-before it in its item, and a `do` the nearest unfinished `for` or `while` head,
-each at its own bracket depth. A `with` closes a `match` head where it stands
-directly after the scrutinee, at the `match`'s bracket depth (Lexer §4.2); a
-record update's `with` stands inside braces and meets no head. A `match` that
-ends its line holds nothing: it is the match function, so a scrutinee begins on
-its `match`'s line.
+**What the layout pass reads.** It decides from tokens alone where a head ends. A
+`then` closes the nearest unfinished `if` head before it in its item, and a `do`
+the nearest unfinished `for` or `while` head, each at its own bracket depth. A
+`with` closes a `match` head where the scrutinee could end before it (Lexer §4.2):
+at the `match`'s bracket depth, after at least one token of the scrutinee, and
+directly after a token that can end an operand (a name, a literal, a closing
+bracket or a call mark), but not written against a `)`, which is the suffix
+seat. Any other `with` is a name, and a record update's
+`with` stands inside braces, where it meets no head. So `match with with` matches
+a value named `with`. A `match` that ends its line holds nothing: it is the match
+function, so a scrutinee begins on its `match`'s line.
 
 ## 3. The explicit `;`
 
@@ -393,4 +402,4 @@ These are binding on the implementation, same status as the Functions spec's dia
 | A `fun` head ending its logical item opens the member block; member lines are ordinary term-binding rows; the once-recorded §7.1 read-through exception retired with the `fun` RHS (#700) | §2.1 |
 | An `honor` head ending its logical item opens the honor group (a member block), and each item's `C<T> =` opens that honor's member block (#1227) | §2.1 |
 | Block-kind terminology (#700): expression blocks (value), arm blocks, member blocks (`constraint`/`honor`/`extern from`/`fun`/module top level — they declare rather than compute, and are not expressions); one layout mechanism serves all three; the `extern from` row joins the inventory (owed from FFI Part 4 §2.2) | §2.1, §1 |
-| *(#1573)* A head that holds an expression ends with its closing word: `if … then`, `while … do`, `for … in … do`, `match … with`; a head that holds nothing needs none. An unfinished head is no block head: deeper lines carry it on, as they carry a guard or a header, and brackets hold it open; it holds nothing open itself, so a forgotten closing word is one report at the head's keyword. A closing word may begin a deeper line (legal, not canonical); `then` at the item's column continues the item as `else` and `catch` do, while `do` and `with` there begin a new item. More after the closing word on its line is a one-line body, a `match`'s arms excepted | §2, §2.1, §2.2, §2.4 |
+| *(#1573)* A head that holds an expression ends with its closing word: `if … then`, `while … do`, `for … in … do`, `match … with`; a head that holds nothing needs none. An unfinished head is no block head: deeper lines carry it on, as they carry a guard or a header, and brackets hold it open; it holds nothing open itself, and no block opens inside it outside brackets, so a forgotten closing word is one report at the head's keyword. A closing `with` is recognised from tokens: at the `match`'s depth, directly after a token that can end an operand. A closing word may begin a deeper line (legal, not canonical); `then` at the item's column continues the item as `else` and `catch` do, while `do` and `with` there begin a new item. More after the closing word on its line is a one-line body, a `match`'s arms excepted | §2, §2.1, §2.2, §2.4 |

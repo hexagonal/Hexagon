@@ -265,7 +265,7 @@ Colons have one spacing everywhere. Every colon is tight on its left with one sp
 
 Some gaps carry meaning. Whether there is a gap there is never changed; how wide it is follows §7.3.
 
-- **Between a closing parenthesis and a name.** A name written against `)` is the suffix seat (Pattern Declarations §3.1). With a space it is whatever it is elsewhere: `(r) as s` is an as-pattern, and `(a bor b) band mask` an operator. A `derives` after a declaration head's parameters is not such a name but the keyword, which §7.1 spaces: `record Pair(a, b) derives (Eq, Show)`.
+- **Between a closing parenthesis and a name.** A name written against `)` is the suffix seat (Pattern Declarations §3.1). With a space it is whatever it is elsewhere: `(r) as s` is an as-pattern, `(a bor b) band mask` an operator, and `match (a, b) with` a `match` head closed by its `with`. A `derives` after a declaration head's parameters is not such a name but the keyword, which §7.1 spaces: `record Pair(a, b) derives (Eq, Show)`.
 - **Around a call mark.** A mark is written glued to its callee and to the argument list it governs (Lexer §8.1; Effects §3.2), as in `save!(x)` and `text |> Int.parse^`.
 
 The formatter also never removes a space where removing it would make two tokens read as one, or would begin a comment. A unary minus applied to a negation keeps its space, as in `- -x`, since `--` begins a comment (Comments §2).
