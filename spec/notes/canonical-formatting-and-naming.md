@@ -196,13 +196,22 @@ the Book, the Playground's tutorials and the spec's own examples.
               and Vector.length(left.items) == Vector.length(right.items)
   ```
 
-- **H5** An expression that fits on its line stays there, after its `=`
-  or `=>`. One that runs on over further lines begins a line of its own,
-  beneath its `=` or `=>` and one level in. Open brackets hold what they
-  contain, so an expression whose further lines are only its open
-  brackets' contents and closing bracket may stay on its line, as
-  `let scriptNames: Map(String, String) = Map.fromVector([` does.
-  (Canonical Layout §5.2, §13)
+- **H5** An expression that fits on its line stays there, after its
+  `=`, `=>`, `then` or `else`. One that runs on over further lines
+  begins a line of its own beneath, one level in, brackets and all.
+  Format document puts a value too long for its line there too, before
+  it opens any brackets. An `else if` stays on one line (F3). (Canonical
+  Layout §9.4, §13)
+
+  ```
+  let scriptNames: Map(String, String) =
+      Map.fromVector([
+          ("Adlm", "Adlam"),
+          ("Ahom", "Ahom"),
+          ("Arab", "Arabic")
+      ])
+  ```
+
 - **H6** A `match … with` always begins its own line, since its arms are
   always a block beneath it. So it goes beneath a binding's `=` and an
   arm's or a lambda's `=>` (H5), and it begins its own line after `try`
@@ -230,28 +239,32 @@ the Book, the Playground's tutorials and the spec's own examples.
 
 - **H7** A head stays on the line where it stands: the bare `match` of a
   match function, where the function is bound or passed; a lambda's
-  `(params) =>`; and an arm's `pattern =>`. A head's body follows H5: a
-  body that fits stays after the `=>`, and one that runs on goes beneath
-  it, one level in. (Pattern Matching §6.7; Canonical
-  Layout §13)
+  `(params) =>`; and an arm's `pattern =>`. So a match function or a
+  lambda bound by a `let` keeps its head on the `let`'s line, and a call
+  that passes one moves beneath its `=` whole, the head staying on the
+  call's line. A head's body follows H5: a body that fits stays after
+  the `=>`, and one that runs on goes beneath it, one level in. (Pattern
+  Matching §6.7; Canonical Layout §13)
 
   ```
   let label = match
       Some(value) => value
       None => "missing"
 
-  let labels = Vector.map(options, match
-      Some(value) => value
-      None => "missing"
-  )
+  let labels =
+      Vector.map(options, match
+          Some(value) => value
+          None => "missing"
+      )
 
   let doubled = values.map(value => value * 2)
 
-  let largest = Vector.fold(values, None, (best, value) =>
-      match best with
-          Some(kept) => if value > kept then Some(value) else best
-          None => Some(value)
-  )
+  let largest =
+      Vector.fold(values, None, (best, value) =>
+          match best with
+              Some(kept) => if value > kept then Some(value) else best
+              None => Some(value)
+      )
   ```
 
 ---
