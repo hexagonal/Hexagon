@@ -171,17 +171,102 @@ declarations through this list before considering the segment done.
 
 This section is the house style's own record, not a restatement. The
 formatter leaves these choices to the author (Canonical Layout §13), and
-the standard library and the Book make them this way.
+house text makes them this way. **House text** is the standard library,
+the Book, the Playground's tutorials and the spec's own examples.
 
-- **H1** The standard library and the Book are formatted at Maximum line
-  length 100. A line that cannot be broken, such as one holding a long
-  string or comment, stays longer. (Canonical Layout §3.1, §9)
-- **H2** They are formatted with Collapse extra spaces on: the house never
+- **H1** House text is formatted at Maximum line length 100. A line that
+  cannot be broken, such as one holding a long string or comment, stays
+  longer. (Canonical Layout §3.1, §9)
+- **H2** It is formatted with Collapse extra spaces on: the house never
   lines things up with spaces. (Canonical Layout §3.2)
-- **H3** In the standard library and the Book, a function with a doc
-  comment is always written as multi-line, with a blank line on both
-  sides. The formatter does not enforce this: for it, a doc comment does
-  not make a declaration multi-line. (Canonical Layout §6.3)
+- **H3** In house text, a function with a doc comment is always written
+  as multi-line, with a blank line on both sides. The formatter does not
+  enforce this: for it, a doc comment does not make a declaration
+  multi-line. (Canonical Layout §6.3)
+- **H4** A line carried on at an operator begins with the operator, as
+  each line Format document breaks at one does. An operator written at
+  the end of a line is legal and the formatter leaves it there, but house
+  text does not write it. A head carried on to its closing word is no
+  exception (F5). (Canonical Layout §9.4, §9.5, §13)
+
+  ```
+  let same =
+      left.negated == right.negated
+              and left.folded == right.folded
+              and Vector.length(left.items) == Vector.length(right.items)
+  ```
+
+- **H5** An expression that fits on its line stays there, after its
+  `=`, `=>`, `then` or `else`. One that runs on over further lines
+  begins a line of its own beneath, one level in, brackets and all.
+  Format document also puts a value too long for its line beneath its
+  `=`, before it opens any brackets. An `else if` stays on one line
+  (F3), and a match function or lambda keeps its head where H7 puts it.
+  (Canonical Layout §9.4, §13)
+
+  ```
+  let scriptNames: Map(String, String) =
+      Map.fromVector([
+          ("Adlm", "Adlam"),
+          ("Ahom", "Ahom"),
+          ("Arab", "Arabic")
+      ])
+  ```
+
+- **H6** A `match … with` always begins its own line, since its arms are
+  always a block beneath it. So it goes beneath a binding's `=` and an
+  arm's or a lambda's `=>` (H5), and it begins its own line after `try`
+  and as a call's argument too. `if` and `try` follow H5 as it stands:
+  one that fits on its line stays where it is, and one that runs on
+  begins its own line. A conditional's shape is F3's, and a
+  condition carried on ends its last line with `then` (F5). (Canonical
+  Layout §13)
+
+  ```
+  export let first(values: Vector(a)): Option(a) =
+      match values with
+          [] => None
+          [value, ...] => Some(value)
+
+  let scale = if aligned > 1074 then 1074 else aligned
+
+  let counted =
+      if point == "{" then
+          braceCount(text, position)
+      else
+          let width = simpleWidth(point)
+          Read((width, None, position + 1))
+  ```
+
+- **H7** A head stays on the line where it stands: the bare `match` of a
+  match function, where the function is bound or passed; a lambda's
+  `(params) =>`; and an arm's `pattern =>`. So a match function or a
+  lambda bound by a `let` keeps its head on the `let`'s line, and a call
+  that passes one moves beneath its `=` whole, the head staying on the
+  call's line. A head's body follows H5: a body that fits stays after
+  the `=>`, and one that runs on goes beneath it, one level in. (Pattern
+  Matching §6.7; Canonical Layout §13)
+
+  ```
+  let label = match
+      Some(value) => value
+      None => "missing"
+
+  let labels =
+      Vector.map(options, match
+          Some(value) => value
+          None => "missing"
+      )
+
+  let doubled = values.map(value => value * 2)
+
+  let largest =
+      Vector.fold(values, None, (best, value) =>
+          match best with
+              Some(kept) => if value > kept then Some(value) else best
+              None => Some(value)
+      )
+  ```
 
 ---
 
