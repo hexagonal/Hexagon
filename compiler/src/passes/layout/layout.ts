@@ -168,6 +168,7 @@ export function applyLayout(file: Lexed.File): LaidOut.File {
     ) {
       block.item.length = 0;
       block.hasContent = false;
+      block.pending = undefined;
     }
 
     previous = token;

@@ -290,7 +290,7 @@ describe("completions", () => {
     const source = [
       "fun total(xs: Vector(Int)): Int =",
       "    var sum: Int = 0",
-      "    for item in xs do‸",
+      "    for item in xs‸ do",
       "        sum := sum + item",
       "    sum",
       "",

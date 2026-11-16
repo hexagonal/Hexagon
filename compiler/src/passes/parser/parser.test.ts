@@ -753,6 +753,34 @@ describe("parse", () => {
       expect(afterFix(arms).module.diagnostics).toEqual([]);
     });
 
+    test("a body line the head reads on into: the fix ends the head's own last line, and the line draws nothing", () => {
+      const cases: readonly [string, string][] = [
+        ["let f(pair: (Int, Int)) =\n    match pair\n        (a, b) => a + b", "match pair with\n"],
+        ["let f(pairs: Array((Int, Int))) =\n    for (a, b) in pairs\n        (a, b) |> visit", "for (a, b) in pairs do\n"],
+        ["let f(ready: Bool) =\n    if ready\n        (a).run()", "if ready then\n"],
+        ["let f(xs: Vector(Int)) =\n    match xs\n        [a, b] => a\n        _ => 0", "match xs with\n"],
+        ["let f(n: Int) =\n    while n > 0\n            and n < 9\n        (n).run()", "and n < 9 do\n"],
+      ];
+      for (const [text, repaired] of cases) {
+        expect(messages(text), text).toHaveLength(1);
+        const fixed = afterFix(text);
+        expect(fixed.text, text).toContain(repaired);
+        expect(fixed.module.diagnostics, text).toEqual([]);
+      }
+    });
+
+    test("a `match` with arms inside another head, unparenthesised: one report", () => {
+      expect(messages("let f(x: Bool) =\n    while match x with\n            True => True\n            False => False\n        do\n        step()"))
+        .toEqual(["a `match` and its arms inside another construct's head are written in parentheses: `(match value with` … `)`"]);
+    });
+
+    test("`do` with no body, and the `for` twin of the `do` at the head's column", () => {
+      expect(messages("let f(a: Bool) =\n    while a do\nlet g = 1")).toEqual(["expected the loop's body after `do`"]);
+      expect(messages("let f(xs: Array(Int)) =\n    for x in xs\n    do\n        visit(x)")).toEqual([
+        "a `do` at the `for`'s column begins a new line of the block; end the head's last line with `do`",
+      ]);
+    });
+
     test("the match function written with a closing word", () => {
       const text = "let f =\n    match with\n        Some(n) => n\n        None => 0";
       expect(messages(text)).toEqual([
